@@ -1413,3 +1413,37 @@ describe("canon.worldlines 输出 13（补）：读者读过的讲述不分线",
         }
     });
 });
+
+describe("canon.revisions 输出 3：原样留着的 carry 不重查", () => {
+    test("带着的实例字段后来被去掉：这条分叉还能改别的地方；新写的 carry 指向没声明的字段照旧拒收", () => {
+        const {world, xia, c1, c2, c3} = base();
+        const rewrite = (current: World, kind: "entry" | "change", target: string, mutate: (copy: never) => void) => {
+            const copy = structuredClone(kind === "entry" ? current.data.entries.get(target)! : current.data.changes.get(target)!);
+            mutate(copy as never);
+            return current.publish(request([{ref: {kind, id: target}, after: copy as never}], current.version), "t");
+        };
+        const declared = ok(rewrite(world, "entry", xia, (entry: Entry) => {
+            entry.init.data.panel!.declared = [{id: "幸运", label: "幸运", kind: "number"}];
+            entry.init.data.panel!.fields.幸运 = 7;
+        })).world;
+        const forkedAt = ok(declared.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: c1, trigger: c3, type: "rollback", carry: [{entry: xia, path: "panel.幸运"}]} as Fork})}], declared.version), "t"));
+        const fork = forkedAt.ids["tmp:f"]!;
+        const removed = ok(rewrite(forkedAt.world, "entry", xia, (entry: Entry) => void (entry.init.data.panel!.declared![0]!.removed = true))).world;
+
+        const renamed = ok(rewrite(removed, "change", fork, (change: StoryChangeDraft) => void (change.text = "回到第 2 章")));
+        expect(renamed.world.data.changes.get(fork)!.text).toBe("回到第 2 章");
+        expect(problems(rewrite(removed, "change", fork, (change: StoryChangeDraft) => void change.fork!.carry!.push({entry: xia, path: "panel.没有"})))).toContainEqual(["invalid-fork", "fork.carry[1]", null]);
+        // 换了切口或挪了安放：带着的那一项不再算原样留着，按新写的查。
+        expect(problems(rewrite(removed, "change", fork, (change: StoryChangeDraft) => void (change.fork!.cut = c2)))).toContainEqual(["invalid-fork", "fork.carry[0]", null]);
+        expect(problems(rewrite(removed, "change", fork, (change: StoryChangeDraft) => void (change.at = at("ch2", 36))))).toContainEqual(["invalid-fork", "fork.carry[0]", null]);
+
+        // 待定时写下、字段去掉以后才转生效的：按新写的查。
+        const heldAt = ok(declared.publish(request([{ref: {kind: "change", id: "tmp:h"}, after: written("tmp:h", at("ch2", 35), [], {status: "held", held: {note: "等作者定", reason: "unsure"}, nature: "fork", fork: {line: "tmp:r2", name: "回溯二", parent: "main", cut: c1, trigger: c3, type: "rollback", carry: [{entry: xia, path: "panel.幸运"}]} as Fork})}], declared.version), "t"));
+        const held = heldAt.ids["tmp:h"]!;
+        const heldRemoved = ok(rewrite(heldAt.world, "entry", xia, (entry: Entry) => void (entry.init.data.panel!.declared![0]!.removed = true))).world;
+        expect(problems(rewrite(heldRemoved, "change", held, (change: StoryChangeDraft) => {
+            change.status = "active";
+            delete change.held;
+        }))).toContainEqual(["invalid-fork", "fork.carry[0]", null]);
+    });
+});

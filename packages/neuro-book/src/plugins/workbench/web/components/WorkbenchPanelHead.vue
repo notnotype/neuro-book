@@ -66,7 +66,14 @@ const props = withDefaults(defineProps<{
     fold?: {readonly collapsed: boolean} | null;
     /** 接管标题区时单独的展开标记的可访问名称（`fold` 给了才用）。 */
     foldLabel?: string;
-}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, titleInEntry: false, frameActions: () => [], viewHead: null, fold: null, foldLabel: ""});
+    /**
+     * 视图自绘整个头（docs/specs/workbench/views.md 输出 19 的“自绘头”，只写标题时才起作用）：头不占一行，画成盖在内容顶上、高 `band` 的一条，
+     * 本身不接指针；视图动作与框架按钮在右端，标题按钮在左上角、键盘聚焦时才看得见。宿主把它放在这块窗的内容里、视图之前。
+     */
+    ownHead?: {readonly band: number} | null;
+    /** 自绘头时视图动作与框架按钮该不该显示：指针或焦点在这块窗的内容上（宿主算，同卡片的 `data-hover-actions-active`）。 */
+    actionsShown?: boolean;
+}>(), {draggingTab: null, idPrefix: "workbench-panel", dragHint: "", titleOnly: false, titleInEntry: false, frameActions: () => [], viewHead: null, fold: null, foldLabel: "", ownHead: null, actionsShown: false});
 
 const emit = defineEmits<{
     (event: "activate", id: string): void;
@@ -79,6 +86,8 @@ const emit = defineEmits<{
     (event: "head-slots", slots: PanelHeadSlots | null): void;
     /** 接管标题区时点了单独的展开标记：宿主切换收起（标题按钮这时是视图的）。 */
     (event: "toggle-fold"): void;
+    /** 自绘头时右端按钮一组连同到窗口右缘的留白占多宽（CSS px）：宿主写给视图，视图在它的头右端让出来。 */
+    (event: "own-head-inset", width: number): void;
 }>();
 
 defineSlots<{
@@ -91,7 +100,9 @@ const TAB_MAX_WIDTH = 96;
 const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon})));
 
 const activeTab = computed(() => (props.titleOnly ? (props.tabs.find((tab) => tab.id === props.active) ?? null) : null));
-const viewHeadShown = computed(() => activeTab.value !== null && props.viewHead !== null);
+/** 自绘头优先于接管标题区：宿主不会同时给两样，这里也只认一样。 */
+const ownHeadShown = computed(() => activeTab.value !== null && props.ownHead !== null);
+const viewHeadShown = computed(() => activeTab.value !== null && props.viewHead !== null && !ownHeadShown.value);
 
 /**
  * 交给视图的几个位置。模板引用在渲染之后才换好，所以在 post 时机读：换代时（`viewHead.key` 变了）旧元素拆掉、新元素挂上，
@@ -123,6 +134,17 @@ const endExtent = useLayoutExtent(computed(() => (viewHeadShown.value ? endColum
 const sideWidth = computed(() => Math.ceil(Math.max(startExtent.value?.width ?? 0, endExtent.value?.width ?? 0)));
 
 /**
+ * 自绘头右端让出的宽度：按钮一组的宽，加上它到窗口右缘的内边距与它和视图的“⋯”之间的间距（两个数与下面 `--own` 的样式同值）。
+ * 动作透明时也占位，所以只在动作增减时变，缩放窗口不变。
+ */
+const OWN_HEAD_END_PADDING = 8;
+const OWN_HEAD_END_GAP = 4;
+const ownEndExtent = useLayoutExtent(computed(() => (ownHeadShown.value ? endColumn.value : null)));
+watch(() => (ownEndExtent.value === null ? null : Math.ceil(ownEndExtent.value.width)), (width) => {
+    if (width !== null) emit("own-head-inset", width === 0 ? 0 : width + OWN_HEAD_END_PADDING + OWN_HEAD_END_GAP);
+}, {immediate: true});
+
+/**
  * 点标题：先把焦点放到按钮上再交给宿主。有的浏览器（Safari、macOS 上的 Firefox）点按钮不聚焦，宿主切换收起之后焦点要在标题上，
  * 当前面板与快捷键才落在这块面板（输出 20）。
  */
@@ -145,17 +167,36 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 
 <template>
     <!-- 收着时悬停范围就是这一行（它下面可能是垫底拉长的空卡片，指针停在那里不显示按钮）；展开着时范围是整张卡片，由表面写。 -->
+    <!-- 自绘头时这一条本身就是悬停范围：它不在卡片里，指针在内容上时由宿主给 `actionsShown`。 -->
     <header
         class="workbench-panel-head"
-        :class="{'workbench-panel-head--view': viewHeadShown}"
-        :style="viewHeadShown ? {'--view-head-side': `${sideWidth}px`} : undefined"
+        :class="{'workbench-panel-head--view': viewHeadShown, 'workbench-panel-head--own': ownHeadShown}"
+        :style="viewHeadShown ? {'--view-head-side': `${sideWidth}px`} : ownHeadShown ? {'--own-head-band': `${ownHead!.band}px`} : undefined"
         :data-panel-head="panelId"
+        :data-own-head="ownHeadShown ? '' : undefined"
         :data-collapsed="fold?.collapsed === true ? '' : undefined"
-        :data-hover-actions-scope="fold?.collapsed === true ? '' : undefined"
+        :data-hover-actions-scope="fold?.collapsed === true || ownHeadShown ? '' : undefined"
+        :data-hover-actions-active="ownHeadShown && actionsShown ? '' : undefined"
     >
         <!-- 只写标题时内容 region 的名称指向它（docs/specs/ui/workbench-layout.md 输出 20），不指向标题按钮：视图接管标题区时按钮写的是视图的内容。 -->
         <span v-if="activeTab !== null" :id="panelTitleDomId(idPrefix, activeTab.id)" hidden>{{ activeTab.label }}</span>
-        <template v-if="viewHeadShown">
+        <!-- 自绘头的标题按钮：拖动源、F6 与“焦点落到标题”的落点都还是它，平时透明、不接指针，键盘聚焦（`:focus-visible`）时显示在左上角：
+             点了“浮动”、关了“移动到”后焦点由程序还到它上面时不冒出来压住视图的头。不用 display:none，否则落不上焦点。 -->
+        <h2 v-if="ownHeadShown" class="workbench-panel-head__own-title">
+            <button
+                :id="panelTabDomId(idPrefix, activeTab!.id)"
+                type="button"
+                class="workbench-panel-head__own-handle nb-ui-focus-ring-inset"
+                tabindex="0"
+                :data-panel-tab="activeTab!.id"
+                :aria-description="dragHint === '' ? undefined : dragHint"
+                @click="onTitleClick($event, activeTab!.id)"
+                @contextmenu="onTitleContextMenu($event, activeTab!.id)"
+            >
+                {{ activeTab!.label }}
+            </button>
+        </h2>
+        <template v-else-if="viewHeadShown">
             <div ref="startColumn" class="workbench-panel-head__view-side">
                 <!-- 接管时标题按钮是视图的（弹会话列表），展开标记单独一个按钮，算进两侧等宽，标题照旧居中。 -->
                 <button
@@ -527,5 +568,57 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
+}
+
+/*
+ * 视图自绘头（docs/specs/workbench/views.md 输出 19 的“自绘头”）：盖在内容顶上的一条，本身不接指针，指针穿过它落到视图的头上（拖窗口、点视图的按钮）；
+ * 只有工作台的按钮接指针。右端按钮竖直居中在这一条里；左右内边距与 `OWN_HEAD_END_PADDING` 同值。
+ */
+.workbench-panel-head--own {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    flex: none;
+    justify-content: flex-end;
+    height: var(--own-head-band);
+    padding-inline: var(--space-1) 8px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.workbench-panel-head--own .workbench-panel-head__end :is(button, [role="button"], a) {
+    pointer-events: auto;
+}
+
+.workbench-panel-head__own-title {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    margin: 0;
+    font: inherit;
+}
+
+.workbench-panel-head__own-handle {
+    display: flex;
+    align-items: center;
+    height: var(--control-h-sm);
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-control);
+    background: var(--panel-surface);
+    box-shadow: var(--elevation-raised);
+    color: var(--text-main);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    touch-action: none;
+    transition: opacity var(--motion-reveal-in, var(--motion-fast)) linear;
+}
+
+.workbench-panel-head__own-handle:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
 }
 </style>

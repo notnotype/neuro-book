@@ -26,13 +26,34 @@ const {state} = useDragSession(rootEl, (root) => ({
 | `onEnd?(end, last)` | 一场结束时调：`committed`（提交了）、`no-action`（放下了但没有要做的动作）、`cancelled`（带原因：Escape、失焦、根没了等） |
 | `structure?()` | 此刻的结构键；一场里它变了整场取消 |
 | `scroll?` | `"reevaluate"`（缺省）滚动时重新判定；`"withdraw"` 滚动时撤下落点，直到指针再动 |
-| `autoScroll?` | `{element, edgePx?, maxStepPx?}`：指针靠近这个元素的边时自动滚动；缺省不滚 |
+| `autoScroll?` | `{containers({point, top}), edgePx?, maxStepPx?}`：指针靠近容器的边时自动滚动，见下面的“边缘滚动”；缺省不滚 |
 | `keyboard?` | 键盘拖动；缺省只有指针。要给 `sourceAt`（焦点处的来源）、`regions`（Tab 依次走过的区域）、`stops`（区域里方向键停的点）、`start`（拿起时在哪个区域、哪一点）、`refocus`（结束后焦点还给谁） |
 | `config?` | 起拖门槛等 |
 
-自己画的拖动反馈（拖影、插入线）要带 `data-drag-feedback`：会话判定落点时跳过它们，不然它们会挡住指针下的目标。菜单、对话框挡在落点上时，落点不接收。
+自己画的拖动反馈（拖影、插入线）要带 `data-drag-feedback`：会话判定落点时跳过它们，不然它们会挡住指针下的目标。设了 `pointer-events: none` 的元素本来就不在浏览器的命中里，挡不住落点；`data-drag-feedback` 给要接指针、或设不了 `pointer-events: none` 的反馈。菜单、对话框挡在落点上时，落点不接收。
 
 `state` 是此刻的状态（来源、落点、动作），没有拖动时是 `null`；宿主据此画反馈。
+
+## 时序与先后
+
+**起拖门槛**：鼠标与笔按下后移动 6px 才起拖；触摸要按住 200ms、期间移动不超过 6px。缺省值是 `DRAG_GESTURE_DEFAULTS`，经 `config` 改。e2e 里按下之后要先移过门槛，`activate` 与 `resolve` 才会被调。
+
+**边缘滚动**：没在滚时指针每次移动、在滚时每帧开头，会话调一次 `containers`，按交回的先后（从里到外）给横竖两个轴各挑一个容器：这个轴让滚（计算样式的 `overflow-x`、`overflow-y` 是 `auto` 或 `scroll`）、这个方向还没到头（按物理方向算：从右到左排版、反向的 flex、竖排的容器，滚动位置从 0 往负数走，也照样认）、指针离这一端不到 `edgePx`（缺省 24）或已越过它。两个轴都挑中时一起滚。越过一端也算，所以几条并排的标签条只交指针下的那条：`containers: ({top}) => { const strip = top?.closest<HTMLElement>("[data-tab-strip]"); return strip == null ? [] : [strip]; }`；固定的列表交 `() => [list]`，指针拖出列表上下边时照样滚，而且最快。每帧先按上一帧滚动后的内容判定、再滚，滚动中松手等下一帧再放下。
+
+**起拖时网格还在过渡**：会话的判定量的是此刻的矩形。网格的布局过渡还在走时起拖，量到的是过渡中间的位置，宿主要在 `activate` 里调网格的 `settleMotion()`，让过渡直接到终点。`createLiveDragSession` 自己会调。开发检查（`setLayoutDevChecks`）只在宿主把 `dragging` 交给 `NestedGrid` 时查得到漏调。
+
+**收场的先后**：
+
+1. 拆掉这一场的监听，释放根上的指针捕获；
+2. `state` 置为 `null`；
+3. `onActiveChange(false)`；
+4. `onEnd(end, last)`；
+5. 放下且有要做的动作时 `commit`：它在 `onEnd` 之后；
+6. 键盘拖动还焦点：提交了的在下一帧还（提交引起的重渲染已经完成），取消的当场还；焦点已经离开或会话被销毁时不还。
+
+**`actionKey` 为 null 的落点**：放下时这一场以 `no-action` 结束，不调 `commit`。宿主在拖动中做的跟手副作用（例如用 `placeFloat` 挪窗）要在 `onActiveChange(false)` 或 `onEnd` 里自己撤，否则窗停在拖到的地方。整窗移动怎么接这几步见 [`NestedGrid` 的“整窗移动的做法”](NestedGrid.md#整窗移动的做法)。要在这种落点上照样提交，就交回非 null 的键，或者让 `commitsUnderPointer` 为真。
+
+**click**：指针拖动时根持有指针捕获，松手后浏览器把这次 click 发给根，不发给按下时的按钮。会话还在根的捕获阶段吞掉这次手势末尾的 click（`detail` 不为 0 的；键盘触发的 click 不吞）。两层各自都能让按钮收不到 click，所以测试只能断言“按钮的动作没发生”；只去掉其中一层，按钮照样收不到，这是预期。
 
 ## useDragSession：组件里的会话
 

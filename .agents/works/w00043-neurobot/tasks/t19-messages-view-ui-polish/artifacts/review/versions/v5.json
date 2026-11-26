@@ -1,0 +1,381 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "version": 5,
+    "supersedes": 4,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f71635d18e567c8f014e6dae1f17cdf7bf4a94af56e1ce954947cbbd902d7ec3",
+    "files": [
+        "index.html",
+        "r1/l-foot.webp",
+        "r1/now-open.webp",
+        "r1/now.webp",
+        "r1/r1-foot.webp",
+        "r1/r2-expand-open.webp",
+        "r1/r2-expand.webp",
+        "r1/r2-foot-open.webp",
+        "r1/r2-foot.webp",
+        "r1/r2-groups-open.webp",
+        "r1/r2-groups.webp",
+        "r2/rail-default.webp",
+        "r2/rail-history-drawer.webp",
+        "r2/rail-history-page.webp",
+        "r2/rail-swapped.webp",
+        "r3/jia-right.webp",
+        "r3/jia.webp",
+        "r3/popover.webp",
+        "r3/quickpick.webp",
+        "r3/swapped.webp",
+        "r3/yi-right.webp",
+        "r4/dialog.webp",
+        "r4/float-narrow.webp",
+        "r4/float-wide.webp",
+        "r5/annotated.webp",
+        "r5/collapsed.webp",
+        "r5/dir-stack.webp",
+        "r5/expand.webp",
+        "r5/float-narrow.webp",
+        "r5/float-wide.webp"
+    ],
+    "questions": [
+        {
+            "id": "strip-side",
+            "type": "single",
+            "label": "头像列放在哪一边？",
+            "options": [
+                {
+                    "value": "left",
+                    "label": "A 左边（现在的位置）"
+                },
+                {
+                    "value": "right",
+                    "label": "B 右边缘，头横跨整行"
+                },
+                {
+                    "value": "right-full",
+                    "label": "C 右边缘，通到顶"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "right-full"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-entry",
+            "type": "single",
+            "label": "去掉“≡”以后，完整的 bot 列表和会话历史从哪里打开？",
+            "options": [
+                {
+                    "value": "foot",
+                    "label": "A 底部两个按钮"
+                },
+                {
+                    "value": "groups",
+                    "label": "B 跟在各组末尾"
+                },
+                {
+                    "value": "expand",
+                    "label": "C 底部一个展开按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "foot"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "rail-look",
+            "type": "single",
+            "label": "侧轨这个样子，可以照着写提案吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以，写提案"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "list-open",
+            "type": "single",
+            "label": "窄版里点“会话历史”或“全部 bot”，列表怎么出来？",
+            "options": [
+                {
+                    "value": "drawer",
+                    "label": "A 抽屉"
+                },
+                {
+                    "value": "page",
+                    "label": "B 整页切换"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "page"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "rail-kind",
+            "type": "single",
+            "label": "头像列做成工作台的侧轨，还是留在视图里贴右边？",
+            "options": [
+                {
+                    "value": "shell",
+                    "label": "甲 工作台的侧轨"
+                },
+                {
+                    "value": "view",
+                    "label": "乙 留在视图里贴右边"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "shell"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "list-switcher",
+            "type": "single",
+            "label": "点“会话历史”或“全部 bot”，用哪种浮层找？",
+            "options": [
+                {
+                    "value": "anchored",
+                    "label": "A 锚在按钮旁"
+                },
+                {
+                    "value": "quickpick",
+                    "label": "B 顶部居中的快速选择"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "anchored"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 4,
+                "by": null
+            }
+        },
+        {
+            "id": "list-dialog",
+            "type": "single",
+            "label": "点“会话历史”或“全部 bot”，开这样一个居中的弹窗，可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "float-rail",
+            "type": "single",
+            "label": "浮动窗这样画，可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "dir-view",
+            "type": "single",
+            "label": "完整列表做成单独的“对话目录”视图，默认在左侧栏、第一次不显示，可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "dir-open",
+            "type": "single",
+            "label": "在目录里选中一项，总在消息视图里打开；目录是工具视图，不能拖进编辑区。可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "rail-expand",
+            "type": "single",
+            "label": "轨要不要能展开显示名字？",
+            "options": [
+                {
+                    "value": "widen",
+                    "label": "A 能展开，加宽右边这一列"
+                },
+                {
+                    "value": "none",
+                    "label": "B 不展开（gemini 的推荐）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "widen"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "swap-scope",
+            "type": "single",
+            "label": "左右位置只做主侧栏与次侧栏整列交换、另开 Task，活动栏不挪出布局树，可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "float-list",
+            "type": "single",
+            "label": "浮动窗里还要不要内嵌完整列表？",
+            "options": [
+                {
+                    "value": "drop",
+                    "label": "A 不要，用目录"
+                },
+                {
+                    "value": "keep",
+                    "label": "B 保留宽窗里的列表栏（现在的样子）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "drop"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T10:33:32.735Z"
+}

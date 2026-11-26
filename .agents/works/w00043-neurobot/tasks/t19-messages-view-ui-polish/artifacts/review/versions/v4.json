@@ -1,0 +1,255 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t19-messages-view-ui-polish",
+    "artifactId": "review",
+    "version": 4,
+    "supersedes": 3,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：消息视图停靠在右栏时，头像列放哪、列表从哪打开",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "6b72fed7a537afd1fdf5170e0074b942b20422a1982b2b40ce50ea067df2196a",
+    "files": [
+        "index.html",
+        "r1/l-foot.webp",
+        "r1/now-open.webp",
+        "r1/now.webp",
+        "r1/r1-foot.webp",
+        "r1/r2-expand-open.webp",
+        "r1/r2-expand.webp",
+        "r1/r2-foot-open.webp",
+        "r1/r2-foot.webp",
+        "r1/r2-groups-open.webp",
+        "r1/r2-groups.webp",
+        "r2/rail-default.webp",
+        "r2/rail-history-drawer.webp",
+        "r2/rail-history-page.webp",
+        "r2/rail-swapped.webp",
+        "r3/jia-right.webp",
+        "r3/jia.webp",
+        "r3/popover.webp",
+        "r3/quickpick.webp",
+        "r3/swapped.webp",
+        "r3/yi-right.webp",
+        "r4/dialog.webp",
+        "r4/float-narrow.webp",
+        "r4/float-wide.webp"
+    ],
+    "questions": [
+        {
+            "id": "strip-side",
+            "type": "single",
+            "label": "头像列放在哪一边？",
+            "options": [
+                {
+                    "value": "left",
+                    "label": "A 左边（现在的位置）"
+                },
+                {
+                    "value": "right",
+                    "label": "B 右边缘，头横跨整行"
+                },
+                {
+                    "value": "right-full",
+                    "label": "C 右边缘，通到顶"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "right-full"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-entry",
+            "type": "single",
+            "label": "去掉“≡”以后，完整的 bot 列表和会话历史从哪里打开？",
+            "options": [
+                {
+                    "value": "foot",
+                    "label": "A 底部两个按钮"
+                },
+                {
+                    "value": "groups",
+                    "label": "B 跟在各组末尾"
+                },
+                {
+                    "value": "expand",
+                    "label": "C 底部一个展开按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "foot"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "rail-look",
+            "type": "single",
+            "label": "侧轨这个样子，可以照着写提案吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以，写提案"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "list-open",
+            "type": "single",
+            "label": "窄版里点“会话历史”或“全部 bot”，列表怎么出来？",
+            "options": [
+                {
+                    "value": "drawer",
+                    "label": "A 抽屉"
+                },
+                {
+                    "value": "page",
+                    "label": "B 整页切换"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "page"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "rail-kind",
+            "type": "single",
+            "label": "头像列做成工作台的侧轨，还是留在视图里贴右边？",
+            "options": [
+                {
+                    "value": "shell",
+                    "label": "甲 工作台的侧轨"
+                },
+                {
+                    "value": "view",
+                    "label": "乙 留在视图里贴右边"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "shell"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "list-switcher",
+            "type": "single",
+            "label": "点“会话历史”或“全部 bot”，用哪种浮层找？",
+            "options": [
+                {
+                    "value": "anchored",
+                    "label": "A 锚在按钮旁"
+                },
+                {
+                    "value": "quickpick",
+                    "label": "B 顶部居中的快速选择"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "anchored"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 4,
+                "by": null
+            }
+        },
+        {
+            "id": "list-dialog",
+            "type": "single",
+            "label": "点“会话历史”或“全部 bot”，开这样一个居中的弹窗，可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "float-rail",
+            "type": "single",
+            "label": "浮动窗这样画，可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "还要调"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T09:46:52.430Z"
+}

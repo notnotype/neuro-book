@@ -1,0 +1,171 @@
+# w00039 t41 前端实现审查（92b6ba55d..aeec20904）
+说明：除特别标明“已跑”外都是读代码得出的，没有开真实页面；标“从代码推断”的没有运行证据。
+
+### 1. 保存成功分支会清掉保存在途时新开的另一份草稿（applyFailure 修了，成功分支同样的缺陷没修）
+严重程度：重要　类别：正确性 / 时序
+位置：packages/neuro-book/src/plugins/canon/web/in-place-edit.ts 的 submit（约 255 到 270 行，`if (result.ok) { options.setDraft(null); resetFeedback(); options.saved(...); options.refocus(draft.path); }`）
+现象：保存 A 的请求在途时，浮层里点别的值 B：FieldEditor 的 dismiss 因 saving 为真不放弃（点外面被拦），但这一下点击本身是 B 按钮的 click，会走 context.edit(B) -> edit.open(B)，直接换掉 state.edit（open 不看 saving）。A 的结果回来：ok 分支无条件 `setDraft(null)`、`resetFeedback()`、`refocus(A)`，B 刚开的草稿（可能已经敲了字）被清掉，B 的浮层在作者没动手时消失；`saving` 在 B 的编辑条上也显示了一段“保存中”。失败分支这次加了“草稿已不是同一份就不写回”，成功分支没有对称处理。
+为什么是问题：计划与 Spec 输出 51 写的“保存失败回来时这次填写已经放弃或换了就不写回”是同一类时序，作者只补了一半；窗口是一次保存的往返，但作者明确让“保存在途时点外面不放弃”，等于主动允许了这条路径。
+如何核实：从代码推断。可在 entry-page.dom.test 里给 write 加延迟：A 保存在途时 `context.edit("B", {inline:true})`，A 结果回来后断言 state.edit 仍是 B。
+建议改法：成功分支同样先比 `options.draft()` 的 requestId 与 path，只在还是同一份时清草稿与反馈；`open` 在 `saving` 为真时要么拒绝要么让 B 不继承 saving。
+
+### 2. 上传中“按 Escape 取消上传”在真实页面上多半按不到：点上传后焦点丢到 body，Escape 到不了 ImageInput 的处理器
+严重程度：重要　类别：正确性（对 Spec 输出 53 的可达性）
+位置：components/ImageInput.vue 模板（`<Button v-if="picking.uploading" ... data-image-cancel>` / `<Button v-else ... data-image-upload>`）与 `onKeydown`
+现象：Escape 的处理挂在 `[data-image-input]` 外框的 keydown 上，只有焦点在外框里才触发。选完文件框的文件后焦点在“上传”按钮上，`upload()` 把 `uploading` 置真，v-if / v-else 两个分支是两个不同的 Button，旧按钮被卸掉，焦点掉到 body。此后 Escape 的 keydown 目标是 body：外框收不到；浮层变体里 reka 的 window 级 Escape 监听会触发 dismiss，但 FieldEditor.dismiss 因 `imagePicking.uploading` 直接 return，所以既不取消上传也不关浮层；页顶确认条变体里 Escape 什么都不发生。只有作者再 Tab 到“取消上传”按钮才行。
+为什么是问题：Spec 输出 53“可以按 Escape 取消”与输出 51“上传在途时 Escape 不算放弃”两句配合的前提是 Escape 真能取消上传；dom 测试直接在 `[data-image-input]` 上 trigger keydown，绕开了焦点已丢的现实，e2e 没有上传中 Escape 的用例。
+如何核实：从代码推断。e2e：setInputFiles 之后（上传在途要用慢路由或拦截）`page.keyboard.press("Escape")` 看上传是否取消；或 dom 里点上传后读 document.activeElement。
+建议改法：上传开始后把焦点交给“取消上传”按钮（或让两个状态共用同一个按钮、只换文字），或把 Escape 监听放到 ImageInput 的宿主层（imagePicking 所在处）按 `uploading` 处理；补一条 e2e。
+
+### 3. 段落类的值与立绘、衣柜没有“第 N 章改过”的来历入口：Spec 要求它是按钮，实现里只有短资料与现在穿的是按钮
+严重程度：重要　类别：Spec 符合性
+位置：components/CharacterCard.vue（passage 的 header 里 `<span v-if="passage.mark ..." class="character-card__mark">`，现在的状态的 `<span v-if="props.condition.mark ...">`）；components/LookCard.vue（外貌的 `<span class="look-card__mark">`；立绘与服装根本没有 mark）
+现象：只有 `facts` 里的值与形象页“现在穿的”有 `data-origins` 按钮。性格、说话方式、背景、外貌、现在的状态的 mark 是纯文字 span；形象页的立绘、服装（衣柜）没有 mark，LookView 的 `markOf` 只给了外貌与现在穿的。
+为什么是问题：Spec 输出 51：“值在所选位置之前被剧情改过时旁边有‘第 N 章改过’，它也是按钮，点了在浮层里看来历”；输出 49：“立绘的来历到形象分页看”——可形象分页上没有任何立绘来历入口。通用字段表在这两个类型上已被替换，所以这几项的来历从界面上完全看不到（回执页以外）。现在的状态的细节面板列的是各句，不是来历。
+如何核实：读 CharacterCard.dom.test / CharacterCard.vue：测试只覆盖 facts 的 `data-origins`；e2e 也只看 look.现在穿的 的“第 3 章改过”。给性格建一条剧情变更后看有无 `[data-origins='性格']`。
+建议改法：段落的 mark 同短资料一样做成按钮发 `origins`（传出对应 anchor），形象页给立绘、服装也加；或在 Spec 里明说哪几项不给入口，别留“都有”的写法。补 dom 用例逐项断言。
+
+### 4. 图片候选与上传的原因在整个条目页生命周期里只读一次、从不刷新，失败原因会带到下一个字段
+严重程度：重要　类别：正确性 / 状态
+位置：components/ImageInput.vue `onMounted`（`if (picking.value !== null && picking.value.candidates === null) picking.value.browse();`）；images.ts `createImagePicking`（整页一份、`reason` 共用）
+现象：候选只在 `candidates === null` 时列一次；之后每次打开别的图片字段（立绘、衣柜里某套的图、元素对话框）都用同一份缓存。作者在章节里贴了图、别处新增了图片、或上一次上传结果不明（“图可能已经写进作品，看一下图片文件夹”）后，候选里都看不到，除非关掉整个条目页再开。`reason` 也是整页共用的：上一个字段上传被拒（“只收 PNG…”）后换去改另一个图片字段，一打开就显示那条红字，因为 `candidates` 已经非空不会再 browse（browse 成功才清 reason）。
+为什么是问题：Spec 输出 53 写的是“图片文件夹里最近的 12 张”，不是“本页第一次打开时的 12 张”；“上传结果不明”那句话指示作者去看候选，而候选不会更新。
+如何核实：从代码推断。dom：注入 recent 两次返回不同结果，卸载再挂 ImageInput 断言第二次的候选；或上传失败后换挂一个 ImageInput 看 `[data-image-problem]`。
+建议改法：每次一处选图片的编辑开始时（FieldEditor 变 active、元素对话框开、确认条挂上）重列并清掉 reason；上传结果不明或取消后也重列一次。
+
+### 5. “最近的 12 张”按名字倒序取，而本功能的上传保留原文件名，前提不成立
+严重程度：建议　类别：正确性 / 与 Spec 偏差
+位置：images.ts 顶部注释与 `recent`（`.sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))`）、`upload`（`${directory()}/${file.name}`）
+现象：注释的依据是“粘贴、上传的名字里带着日期”，那是章节插图的命名；设定这边上传用 `file.name` 原样（重名才由服务改名）。文件夹里超过 12 张图时，刚上传的 `a.png` 在倒序里排在 12 名以外，下次打开页面就不在候选里；中文名、`IMG_0001` 与日期名混在一起时顺序没有“最近”的意义。目录列表（EntrySchema）确实没有修改时间。
+为什么是问题：Spec 输出 53 的措辞是“最近的 12 张”；注释里的理由对这条上传路径是假的。
+如何核实：读 images.ts 与 files 合同的 EntrySchema（无 mtime）。
+建议改法：要么上传时给名字加时间前缀（与粘贴一致，需与开发者确认是否改文件名），要么在 Spec 里把候选改写成“名字靠后的 12 张”并去掉 images.ts 里站不住的理由；至少让本页刚上传的排在前面的行为能跨页保留。
+
+### 6. 立绘格的“添加形象 / 恢复形象”丢弃写入结果：失败没有任何提示，也没有在途保护
+严重程度：建议　类别：错误路径 / 静默吞错
+位置：components/CharacterView.vue `onPortrait`（`void context.addComponent?.(LOOK_COMPONENT)`）
+现象：`context.addComponent` 返回 `{ok:false, reason}`（世界只读、版本冲突、被占用等，`viewWrite` 已把原因整理好），这里 `void` 掉。点了没反应，也没有原因；写入在途时再点一次会再发一次（没有 adding 之类的状态，立绘按钮也没停用）。同一个视图里“添加一项资料”“改名”“去掉”都有 `adding`/`busy`/`addError`，这一处漏了。
+为什么是问题：违反“不用静默 catch 吞掉错误”；`editReason` 只覆盖“写不了”的前置原因，不覆盖发布被拒收。
+如何核实：读代码；dom 里让 write 返回冲突，点 `[data-portrait='absent']`，页面上找不到任何原因。
+建议改法：用同一个 `run` 包一层，失败写到立绘格下面或用提示；在途时停用按钮。
+
+### 7. 人物界面只画固定字段与非列表的自加字段：别的写入方（Agent 的 addField）加的列表字段在界面上整个不见，也没有退路
+严重程度：建议　类别：不变量 / 数据可见性
+位置：components/CharacterView.vue `facts`（`.filter((item) => !FIXED.has(item.id) && item.kind !== "list")`）
+现象：声明里 kind 为 list 的实例字段（FieldDraftSchema 允许；Agent 的 `canon_write addField` 的 `kind` 也不限）被直接过滤，人物分页与“添加一项资料”都不会列它，通用字段表又已被这个界面取代，作者改不了、看不到。图片、数、引用类自加字段会被当成一行短文字画（取 `row.display`），能改，但 list 完全消失。
+为什么是问题：一个“不会画就隐藏”的过滤，会让数据在某一页上静默缺席；plan 说本期只加文字项，但 Agent 通道不受这条限制，Spec 输出 49 也没说别的种类不画。
+如何核实：用 world 写一个 `fieldAdd`（kind list）后开人物分页，看 `[data-fact]`。
+建议改法：对画不了的自加字段在人物分页下面嵌 `context.FieldTable({fields:[...]})` 作退路，或至少在 Spec 里写明“自加的列表字段这里不显示”。
+
+### 8. addPreset 里“预设 id 已被占着时不给 id”是不可达的分支
+严重程度：建议　类别：代码质量
+位置：components/CharacterView.vue `taken` 与 `addPreset`（`void addField(taken.value.has(presetId) ? rest : preset)`），以及上面的 `presets` computed
+现象：`presets` 已经把 id 等于某个声明的、id 等于去掉过的字段的预设过滤掉了，而 `taken` 正好是这两个集合的并，所以 `addPreset` 能收到的 id 永远不在 `taken` 里，`rest` 分支不会走到。注释“去掉过、改过名的同 id 一项”描述的场景在 `presets` 过滤那里就已经被排除，不是在这里处理。
+为什么是问题：死分支加一段看上去在处理边界的注释，读的人会以为这个边界有测试保护；实际没有一条用例能走进去（dom 里只测了“种族”）。
+如何核实：把 `taken.value.has(presetId)` 换成 `false` 跑 entry-page.dom.test，不会有用例失败（从代码推断，未跑）。
+建议改法：删掉 `taken` 与三目；如果想防“去掉后又加回同 id”，那是 `restore` 的事，不在 `addPreset`。
+
+### 9. 段落、现在的状态、外貌保存后换成新值没有过渡，只有短资料行有
+严重程度：建议　类别：界面规则（ui-development 第三节第 6 条）
+位置：components/CharacterCard.vue（`.character-card__passage` 的文字、`.character-card__condition` 的 value 与 mark）、components/LookCard.vue（外貌、`.look-card__passage`；mark 的出现与消失）
+现象：短资料的值用 `<Transition name="nb-ui-switch" mode="out-in"><span :key="text">`，段落与现在的状态直接换文字，“第 N 章改过”的 mark 出现与消失也无过渡；立绘占位换成图只靠 CanonImage 的淡入，占位到图的切换本身是 v-if / v-else 瞬间换。
+为什么是问题：计划“六、两个界面”的过渡一条写的是“值保存后换成新值、…按设计语言的动效表给过渡”，作者因此被指出过反复犯；这里同一类值一半有一半没有。
+如何核实：读模板；真实页面保存一段性格，肉眼看是瞬间换。
+建议改法：段落与 condition 的文字复用同一个 `nb-ui-switch`（key 取文字），mark 同处理；减弱动效下 nb-ui 的过渡类已关，不用另写。
+
+### 10. 值按钮与段落按钮没有带字段名的可访问名称
+严重程度：建议　类别：可访问性（Spec 输出 30）
+位置：components/CharacterCard.vue（`.character-card__value`、`.character-card__passage`、`data-condition` 按钮）；components/LookCard.vue（`.look-card__passage`、`.look-card__value`、立绘按钮）
+现象：按钮的名字就是显示的值（“女”“填写”“嘴硬心软…”），字段名在旁边的 `<dt>` 或 `<h3>` 里，没有 `aria-labelledby` 或 aria-label。读屏读到一串“女 按钮”“填写 按钮”，分不出是性别还是年龄；一个刚建的人物有六七个叫“填写”的按钮。通用字段表原先的“改”按钮带字段名。
+为什么是问题：Spec 输出 30 要求值、确认条都能只用键盘与读屏操作；“填写”重复七次读屏无法区分。
+如何核实：读模板；测试用 `data-edit` 取值，没有一条按角色名断言。
+建议改法：值按钮加 `:aria-labelledby` 指向对应的 dt/h3（或 aria-label `性别：女`），仍保留可见文字。
+
+### 11. 短资料的值是固定一行加省略号，截断的内容没有悬停提示也没有别的读法
+严重程度：建议　类别：界面规则（固定尺寸里的文字截断）
+位置：components/CharacterCard.vue `.character-card__value`（`overflow:hidden; text-overflow:ellipsis; white-space:nowrap`，`title` 只在写不了时给原因）；LookCard 的 `.look-card__value` 与衣柜 `.look-card__outfit-name`
+现象：身份、所属、自加项的值超过列宽（390 宽时一列约 200 像素，约 13 个汉字）就被截断；`title` 属性被 `editReason || undefined` 占用，可写时没有任何提示；要看全文只能点开编辑器。衣柜里的套名截断同样没有提示（按钮有 aria-label，视觉上没有）。
+为什么是问题：作者要读完“身份”一栏得进编辑态；两侧栏都开着时一列也只有三百多像素。
+如何核实：读 CSS；真实页面把“身份”填成二十个字。
+建议改法：可写时 `title` 给完整的值；或让值允许两行（短资料行高固定的约束放宽到两行）。
+
+### 12. 浮层里的“短文字”（年龄、身份、生死等没有建议值的项）是两行的多行输入框：能敲进换行，回车不保存
+严重程度：建议　类别：正确性 / 交互
+位置：components/FieldInput.vue（kind 为 text 时一律 `<Textarea :rows="props.rows">`）、EntryPageHost.vue FieldEditor 的 `rows = bar.kind === "text" ? Math.max(2, 行数 + 1) : 2`、ConfirmBar.vue（没有回车保存）
+现象：计划与 Spec 输出 51 把短文字与成段文字分成两档（浮层 vs 编辑层），但两档里用的是同一个 Textarea。短项的浮层里 Enter 变成换行，不会保存，也没有任何地方禁止换行；“年龄：十七\n”这种值会被存进去并在一行省略号的值按钮里显示成“十七”后面截掉。e2e 的 `age.getByRole("textbox").fill("十七")` 恰好既适用 Input 也适用 Textarea，没有暴露这一点。
+为什么是问题：短项应像 SuggestInput 那样是单行输入（Enter 保存或至少不插换行）；现在只有有建议值的两三项是单行，其余的短项行为与成段文字相同。
+如何核实：从代码推断。真实页面在“年龄”浮层里按 Enter。
+建议改法：FieldEditor 的 popover 版式下 text 用单行 Input（Enter 触发保存），block 版式才用 Textarea；`ConfirmBarKind` 已有 `suggest`，可以复用同一个单行控件。
+
+### 13. 就地改放弃与否的几条保护缺少会失败的用例：上传在途、reka 路径上的组字都没有被真正触发或变异
+严重程度：建议　类别：测试
+位置：components/../entry-page.dom.test.ts 的“就地改：挂着编辑器时…”“保存在途时…”两条；ImageInput.dom.test.ts
+现象：(a) `FieldEditor.dismiss` 里的 `imagePicking?.uploading === true` 这一支没有任何用例：ImageInput.dom 只测 ImageInput 自己，entry-page.dom 里的图片字段在页顶确认条上测，不在浮层里；把这一支删掉所有测试照过。(b) “组字中 Escape 不算放弃”那一段对 `document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",isComposing:true}))` 后断言 state.edit 仍在：该断言在 reka 的 window 级监听根本没有触发时同样成立，没有一条正向用例证明“焦点在浮层里但不在输入框上时，Escape 会放弃”，所以这条否定断言可能空过。(c) 点浮层外面放弃只在 e2e 的年龄那一处用到，且 e2e 不测“保存在途时点外面不放弃”。
+为什么是问题：这些正是计划写明的三个例外，而且第 1、2 条发现都出在这一带。
+如何核实：把 `imagePicking?.uploading === true` 删掉后跑 entry-page.dom.test；预计全过（从代码推断，未跑）。
+建议改法：补一条浮层里的图片字段：上传在途时点外面与“取消”都不放弃；补一条正向的 document 级 Escape 放弃用例，再在同一场景加 isComposing 变体并做变异检查。
+
+### 14. 浮层里有报错时原因被压成一行省略号，英文界面更明显
+严重程度：建议　类别：界面规则（英文文案、固定尺寸）
+位置：components/ConfirmBar.vue `inlineLines` 与模板（`inlineLines.length === 1 ? 'line-clamp-2' : 'truncate'`）
+现象：保存失败（预览已经回来）时是“原因 + 写回哪里”两行，每行 `truncate`，原因只显示一行 22rem 宽（扣内边距约 328 像素、12 像素字约 27 个汉字），完整句子只在鼠标悬停的 title 里；`failure.validation`/`resultMismatch` 带服务给的 `{reason}`，长度不定；英文文案（如 "Another NeuroBook is using this work, try again later"）一行放不下。触屏与键盘用户读不到被截掉的部分。
+为什么是问题：失败原因是这一块最重要的内容，被排在“截断”那一档；Spec 输出 51 要求“原因”在预览同一块位置，没有说原因可以被截断。
+如何核实：真实页面里设英文并制造一次保存失败（例如 world-locked）。
+建议改法：原因这一行允许折两行，把“写回哪里”让位（有原因时不显示 route）；或把预览区高度定为三行。
+
+### 15. “改起点”在没有 FieldEditor 的现在的状态上退回页面顶上的确认条，Spec 说的就地改与它不符，且没有测试
+严重程度：建议　类别：Spec 符合性 / 测试
+位置：components/FieldDetail.vue（`@click="context.edit(props.path, {inline: true})"`）、CharacterCard.vue（condition 这一行没有 `editor` 插槽）、EntryPageHost.vue `inlineHere`
+现象：现在的状态展开细节后点“改起点”，草稿标了 inline，但 CharacterView 没有为 `现在的状态` 挂 FieldEditor（`editor` 插槽只在短资料行里，`passage-editor` 只给三段文字），`inlineEditors` 里没有这条路径，于是 `editHere` 为真，出的是页面顶上吸顶的确认条，而细节面板在下面浮着。entry-page.dom.test 的“展开语义档”只测记一句，没有一条覆盖“改起点”，e2e 也没有。
+为什么是问题：计划“六、两个界面”写“语义档的项点了展开细节：起点…与改起点”，评审板确认的是“就地展开”，这一条的体验是细节在中间、编辑条在页顶、两处视线分离；而“退回确认条”本是给加载失败等情况的退路，这里变成了常规路径。
+如何核实：真实页面点“现在的状态”→“改起点”；或 dom 里断言 `[data-confirm-bar]` 存在。
+建议改法：在细节面板里挂 `FieldEditor`（layout=block 或放进细节里）；或在 Spec 里写明改起点用页顶确认条并补测试。
+
+### 16. 衣柜卡的菜单写“改名”却打开整套的编辑；改名对话框回车可以绕过按钮的停用条件
+严重程度：建议　类别：文案 / 代码质量
+位置：components/LookCard.vue（`items: [{id:'edit', label: text('card.rename')}, ...]`，选中发 `outfit-edit`）；components/CharacterView.vue 改名对话框 `<form @submit.prevent="confirm(() => context.fieldRename?.(renaming!.id, newName.trim()), ...)">`
+现象：(a) 衣柜里一套的“更多”菜单第一项文案是“改名”（复用 `card.rename`），触发的是元素对话框（名字、样子、图片都能改）；aria-label `look.outfitMore` 写的是“改、去掉”。菜单项与行为不一致。(b) 人物的改名对话框里：确认按钮在名字为空或没变时停用，但输入框回车触发的 form submit 不看这个条件，空名字或原名会直接发 `fieldRename`，靠服务拒收再把原因显示出来。
+为什么是问题：(a) 文案误导；(b) 停用条件与提交入口不一致，两处各写一份判据，改一处会漏另一处。
+如何核实：读代码；dom 里在改名输入框里清空后触发 submit。
+建议改法：(a) 菜单用“改”的文案（新键）；(b) 把 `canRename` 抽成一个 computed，form submit 与按钮共用。
+
+### 17. 候选缩略图加载的是原图，没有缩略
+严重程度：建议　类别：性能
+位置：components/ImageInput.vue 候选方格里的 `<CanonImage :path="candidate.path" />`；images.ts `url`（`files.rawUrl`）
+现象：12 个 64 像素高的方格各自拉原文件（上限 32 MiB，立绘常是几 MiB 的 PNG）。`loading="lazy"` 只管看不见的，浮层一打开 12 张全在视口内，同时解码；网络慢时方格一片空白。
+为什么是问题：Spec 输出 53 写的是“缩略图”；计划里没有写缩略服务，可以接受作为本期限制，但没有记进“不做与风险”。
+如何核实：e2e 里 route 记下 rawUrl 的请求数与大小。
+建议改法：记进“不做”并在 README 里写明；或经文件服务取缩略（若有）。
+
+### 18. 作者自己取消上传，结果以红色报错写出来
+严重程度：建议　类别：界面 / 文案
+位置：images.ts `upload`（`code === "cancelled"` 归入 `kind: "unknown"`，文案 `images.cancelled`）；ImageInput.vue 的 `<p role="alert" class="...--status-danger">`
+现象：作者点“取消上传”或 Escape，随后下面出现红色 `role="alert"` 的“上传取消了，图可能已经写进作品”。这是作者自己的动作而不是失败；读屏会以 alert 打断。
+为什么是问题：把用户操作的正常结果当失败报；“图可能已经写进作品”倒是需要告知的，但应该是中性提示。
+如何核实：读代码；真实页面上传中点取消。
+建议改法：取消时用中性色、`role="status"`，或只在服务确实可能已写入时（unknown-outcome）才写那一句。
+
+### 19. 浮层关闭时内容已经被插槽清空，退场动画播的是一块空的浮层（未验证）
+严重程度：建议　类别：界面 / 过渡
+位置：EntryPageHost.vue FieldEditor 的 popover 分支（`{default: () => (active.value ? content() : null)}`，`open: active.value && inner.anchor !== null`）
+现象：`active` 变假时 `open` 同时变假，reka 的 Presence 会让 PopoverContent 留着播退场，但默认插槽此刻已经返回 null，退场动画里只剩一个 `p-3` 的空表面（约 24 像素高），不是“同一块内容淡出”。block 版式用的是 `Transition` 包着整个 div，没有这个问题。
+为什么是问题：保存或取消时浮层会先塌成一小块再消失，像闪一下；“过渡”一条要的是内容连着一起离场。
+如何核实：未验证。真实页面（不减弱动效）点保存，用录屏或在 Presence 动画期间读 DOM 看浮层里还有没有 `[data-field-editor]`；e2e 的 `toHaveCount(0)` 只看终态。
+建议改法：退场期间保持最后一次的内容（保存最近一次 `content()` 的 vnode，或不按 `active` 置空而是让 `open` 单独控制）。
+
+## 未发现问题的方面（读过并认为成立的）
+- in-place-edit.ts `applyFailure`：失败分支“草稿已放弃或换了就不写回”的比较（requestId 加 path）本身成立；value-conflict 与 recheck 的两条写回都用 current 而不是发请求时的 draft，是对的。
+- 按路径计数的 `holdInline`：卸一份不影响另一份，换分页时新的先挂旧的后卸成立（dom 里有用例，`inlineEditors` 每次换新 Map，响应式没问题）；`watch(inner.path)` 里先 release 再 hold 在同一个同步段内。
+- Popover 与 ConfirmBar 的 Escape 同时触发：ConfirmBar 的处理器对 Escape 总是 `preventDefault`，reka 的 window 级监听看到 defaultPrevented 就不再 dismiss；SuggestInput 开着列表时 `stopPropagation` 挡在 window 监听之前；AnchoredPopover 对自己的 Escape 做了 `.prevent`，嵌套层按“最高层”处理。两者不会重复放弃（即使重复，第二次 `edit.cancel()` 草稿已是 null 无副作用）。
+- 浮层里点嵌套的 reka 层（SuggestionMenu、EntryPicker 的下拉）：reka 的 `isLayerExist` 按 DOM 顺序把后挂的层当里面，不会被当成点外面（e2e 的“点建议值‘女’”实际过了）。
+- 人物条目的分页顺序与 `leadingTypes`、`firstTab`：空主文字时先看第一个数据分页成立；有稿时的 `watch(draft !== null)` 只在 `state.tab === null` 时写 "text"，作者已点过分页时不覆盖。
+- NewEntryDialog / entries-view：`chooseKind` 在每次失焦时重套默认，只在种类没变且作者没动勾选时是幂等的；`typesTouched` 在勾选组件的 `update:modelValue` 上置位；登记类型晚到的 watch 以“勾选还等于旧默认”为条件，不会冲掉作者的选择，空种类失焦也不改勾选。
+- `ConfirmBar` 原有的页顶版式（`variant="bar"`）、通用字段表与面板：本次对它们的改动只有 `FieldsDataView` 抽出 `useFieldDetail` 与 `semanticNotes` 删除，没有看到行为破坏（已跑：CharacterCard、ImageInput、ConfirmBar 三份 dom 测试 11 条通过；entry-page 与 e2e 没跑）。
+- CanonImage：路径换了重置 loaded/failed；`:key=url` 保证地址换了重新加载。
+- 没有按错误文案做程序分支；本次范围里的 catch 没有静默吞错（第 6 条是返回值被丢弃，不是 catch）。
+- 没有逐条核对 docs/standards/code/components.md 的标签规则与各 `.md` 的细节，只确认了新组件都带同名 `.md` 且 ConfirmBar.md 与实现的 inline 描述一致。
+
+## 汇总
+有效发现 19 条：重要 4（1、2、3、4），建议 15（5 到 19）；阻断 0。
+- 2、12、14、15、19 是从代码推断或未验证；其余读代码即可确认。
+- 最该先处理的几条：1（成功分支清掉新草稿）、2（上传中 Escape 实际按不到）、3（来历入口缺失，Spec 与实现不符）、4（候选与原因整页缓存）。

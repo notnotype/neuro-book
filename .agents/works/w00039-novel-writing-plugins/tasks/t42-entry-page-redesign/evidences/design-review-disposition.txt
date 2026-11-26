@@ -1,0 +1,26 @@
+w00039 t42 计划的设计审查：处理记录（2026-11-25）
+
+审查者：Claude Sonnet（reviewer 子代理），21 条：阻断 0、重要 15、建议 6。报告原文见 design-review.txt。
+主会话逐条读代码核实后归类；计划已按“成立，要改”的各条改写（plan.md）。
+
+F1 拖影与 TabItem 没有图标字段：成立，要改。计划的 editor 一节加 TabItem.icon 判别联合与拖影。
+F2 锚定浮层是 EntryPageHost 里的闭包、不在 in-place-edit.ts：成立，要改。先抽 InPlaceEditor（人物与形象分页先改用、行为不变单独提交），页头保留 data-edit，名字简介仍走 editInPlace。计划原写“同一套”且说走 runEntries 的 head，说错了。
+F3 计时放宿主、提示数据窗口一份，拆分两页互相清、卸载后复活：成立，要改。计时与暂停计数进 notices.ts。
+F4 键盘 6 秒内到不了、role=status 要常驻、确认框开着要暂停：成立，要改。常驻容器与 revert.target 暂停写进计划；键盘到不了记为已知限制（撤销另有改动记录）。
+F5 scroll-padding 扩不了滚动范围、编辑层保存按钮会被盖：成立，要改。改用页面末尾 sticky 零高容器加常驻底部留白；成段编辑层的 scroll-margin-bottom 取提示高度。
+F6 positionGone、actionError 没有去处：成立，要改。positionGone 进时间点旁预留的标记格，换位置清；actionError 进浮动层的 danger 失败行。
+F7 加 icon 要改 nb-canon 内核 schema：成立，换做法。图标放界面一侧的 canon.component-views 声明（加 icon），内核不动、摘要不受影响；entry-tabs、entry-kinds 是 canon 应用层的声明，照加。
+F8 layers 兜底与“保留截短名字”矛盾（Tabs 的 adapt 不能按项豁免）：成立，改计划。去掉豁免的说法，同图标靠悬停全名区分，记为已知限制。
+F9 EntryPageNav 缺 ARIA、.md、Lab 场景，换排法时吸顶高度：成立，要改。写进计划；吸顶高度由现有 ResizeObserver 重算。
+F10 WIDE_MIN 没算导航、单阈值不是滞回：成立，要改。阈值改成 1040 进、1024 出；WIDE_MIN 加导航与间距。
+F11 “＋”直加丢了版本基线与错误去处、id-taken 文案：成立，要改。打开菜单时记版本、失败进失败行、id-taken 写“这组设定已经加上了”。
+F12 showTab 是公开合同、addComponent 返回时分页未必出现：成立，换做法。不扩公开接口，canon 内部 provide/inject 交“先开选图”的标记；等分页出现再切。
+F13 自造 PageNotices、同一次保存两套寿命：部分成立。NotificationStack 固定在窗口边缘，不能浮在页面里，不直接用；外观复用 nb-ui 的 Notification，工作台那一路改 sticky:false、6 秒，与页面同寿命。
+F14 PositionPicker 手搭 Popover 违反弹出列表合同、标记没有预留位置：成立，要改。改 DropdownMenu 单选与勾选；标记进预留格。
+F15 e2e 定位点漏列、“初值”还在剧情插件与 Agent 文字里、“还原”标题是数据、“看回执”在改动记录的键里、输出 15 冲突：成立，要改。全部列进计划；旧修订标题照原样显示，新标题用“撤销”。
+F16 别名失焦就加会让 Escape 失效、双写、× 被吞：成立，要改。写进计划。
+F17 悬停铅笔在触屏与键盘上没有等价物：部分成立。键盘聚焦时同样显示（已写）；触屏不在这一版的目标里（桌面应用），不改。
+F18 右键菜单首项是破坏性操作、“＋”只有一项仍弹菜单：前半成立，改成先“添加一组设定……”、分隔、再“去掉”。后半不改：只有一项时也弹菜单，与有多项时同一种交互（同一件事处处一样）。
+F19 TabItem.icon 判别、恢复的标签先全是书再跳、欢迎页图标撞：成立，要改。记下的标签信息带图标；条目缺省图标换 bookmark。
+F20 动效只写了提示：成立，要改。计划加“动效”一节。
+F21 回车在预览前保存，作者没看到变化：成立，要改。预览除这个值外没有别的变化才直接保存，否则先显示、再按一次。

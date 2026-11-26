@@ -199,3 +199,55 @@ describe("WorkbenchPanelHead 的展开标记（ui/workbench-layout.md 输出 20�
         expect(events).toEqual(["toggle-fold"]);
     });
 });
+
+describe("视图自绘头（views.md 输出 19 的“自绘头”）", () => {
+    function mountOwn(actionsShown: boolean) {
+        const events: string[] = [];
+        const given: Array<PanelHeadSlots | null> = [];
+        const wrapper = mount(WorkbenchPanelHead, {
+            attachTo: document.body,
+            props: {
+                panelId: "p-float",
+                label: "浮动",
+                tabs: [TAB],
+                active: TAB.id,
+                moreLabel: "更多",
+                idPrefix: "probe",
+                dragHint: "按空格拿起",
+                titleOnly: true,
+                frameActions: [{id: "nbook.view.dock", label: "回到停靠", icon: "i-lucide-panel-right-close", disabled: false}],
+                viewHead: {key: "nbook.agent.conversation:1", popup: null},
+                ownHead: {band: 40},
+                actionsShown,
+                onActivate: (id: string) => events.push(`activate:${id}`),
+                onHeadSlots: (slots: PanelHeadSlots | null) => given.push(slots),
+            },
+        });
+        mounted.push(wrapper);
+        return {events, given};
+    }
+
+    it("画成盖在内容顶上的一条：没有标签带、不交标题区的位置；标题按钮仍是拖动源、名称是视图标题，内容区名称指向的隐藏标题还在；框架按钮在悬停才出的容器里", async () => {
+        const {events, given} = mountOwn(false);
+        const head = document.querySelector<HTMLElement>("[data-panel-head='p-float']")!;
+        expect(head.hasAttribute("data-own-head")).toBe(true);
+        expect(head.style.getPropertyValue("--own-head-band")).toBe("40px");
+        expect(head.querySelector("[data-panel-band]")).toBeNull();
+        expect(head.querySelector("[data-panel-head-start]")).toBeNull();
+        expect(given).toEqual([]);
+        const title = head.querySelector<HTMLButtonElement>(`[data-panel-tab='${TAB.id}']`)!;
+        expect([title.id, title.textContent?.trim(), title.getAttribute("aria-description")]).toEqual([panelTabDomId("probe", TAB.id), "对话", "按空格拿起"]);
+        expect(document.getElementById(panelTitleDomId("probe", TAB.id))?.textContent).toBe("对话");
+        expect(head.querySelector("[data-panel-action='nbook.view.dock']")?.closest("[data-hover-actions]")?.getAttribute("data-hover-actions")).toBe("frame");
+        expect(head.hasAttribute("data-hover-actions-active")).toBe(false);
+        title.click();
+        expect(events).toEqual([`activate:${TAB.id}`]);
+        expect(document.activeElement).toBe(title);
+    });
+
+    it("宿主说指针或焦点在这块窗的内容上时，这一条自己就是悬停范围、标成显示", () => {
+        mountOwn(true);
+        const head = document.querySelector<HTMLElement>("[data-panel-head='p-float']")!;
+        expect([head.hasAttribute("data-hover-actions-scope"), head.hasAttribute("data-hover-actions-active")]).toEqual([true, true]);
+    });
+});

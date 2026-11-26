@@ -185,6 +185,8 @@ export interface EditorArea {
     openPage(id: string, options?: {readonly arg?: string; readonly restore?: boolean}): OpenResult;
     /** 记下页面标签最近一次得到的标题（输出 33），给恢复后还没点开的标签显示。 */
     rememberPageTitle(tabId: string, title: string): void;
+    /** 记下页面标签此刻的图标（输出 53），刷新后先显示它。 */
+    rememberPageIcon(tabId: string, icon: string): void;
     /** 活动标签是有面包屑的页面标签（输出 33）：命令 `focus-breadcrumbs` 对它可用。响应式。 */
     activePageHasBreadcrumbs(): boolean;
     /** 活动标签是有没提交内容的页面标签（输出 68）：公开状态 `dirty` 把它算上，“保存”因此可用。响应式。 */
@@ -998,6 +1000,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         closeWindow,
         notice,
         open,
+        rememberPageIcon: (tabId, icon) => {
+            if (!disposed) groups.rememberPageIcon(tabId, icon);
+        },
         rememberPageTitle: (tabId, title) => {
             if (!disposed) groups.rememberPageTitle(tabId, title);
         },

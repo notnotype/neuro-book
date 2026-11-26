@@ -1,0 +1,62 @@
+一、侧栏模型：共用侧轨，不把三段变成三个公开插槽
+
+两侧共用 48px 外缘轨和交互规则：上段切容器、可拖；中段是当前视图可选的快捷项；底段放视图动作和全局动作，但分组，空段不画。底部面板仍横排。可对调的是两个逻辑区域，不是把整个窗口镜像；账号/设置只出现一次，随主区域走。
+
+- [VS Code](https://code.visualstudio.com/docs/configure/custom-layout)：`workbench.sideBar.location` 换主辅位置，默认活动栏随主侧；`workbench.activityBar.location` 另选外缘、顶、底、隐藏。交换不要求两条轨，这是保留现状的最强备选。
+- [JetBrains 新界面](https://www.jetbrains.com/help/idea/tool-windows.html)：左右同类工具窗口按钮，可拖或用菜单移动；上部开侧窗、下部开底窗。支持统一规则，不支持把最近会话当可拖的工具入口。
+- [Zed](https://zed.dev/docs/ai/parallel-agents)：Agentic 把 Agent 和线程移左、项目等移右；Classic 恢复，仍能单独挪窗格。借区域对调，不照搬常驻线程列。
+- [Fleet](https://blog.jetbrains.com/fleet/2024/12/introducing-fleets-new-islands-ui/)：历史 Islands 稿用可重排的工具面与编辑器分区，借卡片秩序，不当双轨先例。[Cursor 3](https://cursor.com/docs/agent/agents-window) 让 Agents Window 与编辑器并存；给密集清单更大空间，不证明双轨划算。
+- [Edge](https://blogs.windows.com/msedgedev/2022/09/01/microsoft-edge-sidebar-multitask-smarter/) 旧版外缘图标开侧窗，149 起退役应用表；可借触达位置，不照搬常驻应用阵列。[Arc](https://resources.arc.net/hc/en-us/articles/25583851606039) 把 Spaces、收藏与标签留在同一导航面；可借分组，不借双边镜像。
+- 桌面 IM（证据见第三题）：Slack 工作区/功能与会话分层；Discord 服务器与频道分层；Teams 用同一会话列表做筛选；Telegram 用文件夹分组；微信可拆出单聊；飞书可收起消息分组。共同点是分开“切范围”和“切会话”，不是把两套会话栏镜像。
+
+代价：右栏横条是 t27 选过的，不能只换样式；横竖切换要重定落点、焦点和收起规则。重用它的呈现层入口做两侧轨，不再加持久条节点（ADR 0046 已记录六处冲突）：换边偏好只写一处，由呈现树统一导出尺寸、命中、Tab/F6 和标题栏开关，不迁移容器、宽度、显隐或实例。400px 内用 48 替代原 52，勿再叠一列。只修消息时，保留横条、把内部头像列移外缘是低成本备选，但做不到全局对调。
+
+二、接口：声明按钮形状，由当前视图实例提供实时数据
+
+推荐声明式条目，不交 DOM。纯静态声明适合「新对话」「全部 Bot」「会话历史」，但不够表达头像、未读和最近会话；用同一个响应式读函数返回固定项和动态项，不另建贡献点。`ViewHead` 的 Teleport 适合受控标题槽；把一串交互按钮也送出去，会把键盘、溢出、拖放和失效处理分给每个插件。「视图就是轨」要在窄与宽版切换时协调两棵视图；「轨是新视图类型」还得定义停靠、持久化、拖动和实例生命周期，而它不该独立出现。
+
+```ts
+type RailItem = Readonly<{
+  id: string;
+  section?: 'main' | 'foot';
+  label: DisplayText;
+  visual: { icon: string } | { avatar: string; fallback: string };
+  badge?: { tone: 'unread' | 'attention'; count?: number };
+  selected?: boolean;
+  command: string;
+  args?: Readonly<Record<string, unknown>>;
+}>;
+declare function contributeViewRail(
+  context: ViewContext,
+  items: () => readonly RailItem[],
+): { readonly active: Readonly<Ref<boolean>>; dispose(): void };
+```
+
+宿主用 `context` 绑定 `viewId/generation`，注入这两个命令参数，不接受条目覆盖；点击时复核实例与条目有效。`active` 是当前容器恰一节、有效可见且就绪时宿主接管的信号，不依赖条目是否为空；停放、收起、浮窗、底部、多节或撤回时不占轨。此时仍可从视图内列表或标题动作到达同一命令，用同一份数据，不再维护第二套状态。版式以预留轨后的净尺寸判，条目增删不改宽度。宿主统一画键盘焦点、可访问名称、徽标和「更多」，只有容器段可拖；插件不必知道方向或坐标。先在内置视图验证，再决定是否进 SDK。
+
+可测：表驱动检查单节↔多节、左右互换、停靠↔浮动、卸载重载时只有一组快捷入口；旧代际点击无副作用；最近 5 项重排不丢同 id 的焦点，移除后回到入口；真实页面验 F6、落点和草稿/滚动不变。工作台不认识 Bot、会话或「新对话」。
+
+三、窄版：底部两个入口，分别开「全部 Bot」和「会话历史」选择器
+
+200px 列表＋320px 聊天，光两列就要 520px。300px 抽屉可遮掉 340px 聊天的 88%；整页换成列表则看不到旧对话。
+
+- [Slack](https://slack.com/help/articles/33076000248851)：Agents & tools 浏览 Agent，Agent sessions 查历史。借目录与历史分入口，不搬整页。
+- Discord：[服务器菜单→App Directory](https://support-apps.discord.com/hc/en-us/articles/26501737399575) 找应用；[Ctrl/⌘+K](https://support.discord.com/hc/en-us/articles/115000070311) 用 `@` 找私聊。借快跳，不要求记前缀。
+- [Teams](https://support.microsoft.com/en-us/teams/teams-channels/explore-the-new-chat-and-channels-experience-in-microsoft-teams)：Chat 一列分收藏、聊天与频道，顶部筛选。借筛选，不常驻第二列。
+- [Telegram Desktop](https://telegram.org/blog/desktop-compact)：窄窗单列在列表和正文之间返回。适合整窗聊天，不是这次想要的。文件夹可借作分类。
+- [微信 Mac 4.0.6](https://weixin.qq.com/updates/mac/406)：独立聊天窗缩小，列表仍在主窗；适合并排长看，不适合每次找 Bot。Windows 窄窗细节不确定。
+- [飞书](https://www.feishu.cn/hc/zh-CN/articles/894529368028)：Ctrl/⌘+G 显隐消息分组，Ctrl/⌘+K 搜索；借搜索，不再塞一列。
+- [VS Code](https://code.visualstudio.com/docs/agents/run/chat-view) Compact 返回式、Side-by-side 要宽度；不作为默认。[JetBrains](https://www.jetbrains.com/help/ai-assistant/chat-mode.html#chat-history) 顶部历史按项目查，[Zed](https://zed.dev/docs/ai/parallel-agents) 底部时钟搜历史；借入口。[Cursor](https://cursor.com/changelog/side-chat) 借 Cmd+K 快选，不照搬正文索引。应用目录、会话清单与正文搜索是三件事。
+
+1. 默认复用工作台 `QuickPick` 的顶部居中浮层。空查询可滚遍候选：Bot 按来源、历史当前作品优先，标明跨作品同名项；只搜名称/标题和说明。自动聚焦，Esc 归还焦点，选中复核目标仍在才切换。选时暂时接管键盘，但不移动聊天版式；限高，不盖聊天输入框，不丢草稿或滚动。
+2. 要筛选、改名、归档才开「管理会话」的非模态并排清单，复用现有会话面板；占编辑区或要挪浮窗，不复制聊天，也不用先退出对话。
+
+四、稿面：默认版可做基准；对调稿露出方位文案问题；现状空态要单独评
+
+- `rail-default.png`：顶端蓝色消息图标、羽毛图标＋会话标题、蓝底「用」同时在提示当前位置。上段应表示「消息区打开」，中段才突出「当前会话」；不要用同样强的底块表达两层选中。截图里「用／帮／人」只看首字很难区分，保留快捷性，但悬停与键盘聚焦都给完整标题；同名时补来源或时间，别靠颜色猜。首个轨按钮的中心比会话标题低，两侧应一起按同一条头部基线排。
+- `rail-default.png` 与 `rail-swapped.png`：底部双人图标、时钟图标都没有文字；双人容易读成成员管理，时钟容易读成后台任务。保留两个独立入口，名称固定为「全部 Bot」「会话历史」，提示和读屏一致；会话有未读的标记不要跟「历史已打开」用同一种蓝点。账号/设置留在另一轨自己的全局组，不塞到会话组里。
+- `rail-swapped.png`：资源管理器已经在右侧，「入门」仍写「在左边的资源管理器里」。删除固定方位；标题栏若仍是三个按物理位置画的开关，图标、提示和点击目标都按换边后的实际位置更新。树缩进、正文、输入区不跟着翻转；会话浮层始终朝窗口内打开。
+- `full.png`：右栏里依次看见左窄列的消息入口、三横线、头像，以及居中的「新对话」，但看不出哪个按钮开名录、哪个会隐藏整个区域。移走不说明对象的三横线，标题只标识当前会话，不再兼任开清单。无模型时，上半块「试试这些」在邀请开始，下方「添加服务商」才是能解除阻塞的动作。让后者成为唯一主按钮；开场示例能预填就明确只是填草稿，否则等模型就绪再展示。历史与 Bot 入口不因模型不可用消失。
+
+三张原图都是 2880×1800；`full.png` 是无模型空态，另两张是已有会话，不用它比较聊天密度。下次同一会话、同一尺寸各截左右两版，再补一张多节/短窗：先收纳「最近」，不要把底部两个入口挤走。以上是静态稿判断，未实机验证焦点、点击和换边过渡。
+完

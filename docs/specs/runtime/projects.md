@@ -20,7 +20,7 @@ owners:
 
 - 不防止用不同状态根的两个服务端进程同时打开同一个项目目录（不加目录锁，见“边界与兼容”）；同一状态根同一时间只跑一个服务端（[`runtime.server-host`](server-host.md) 的“实例认领”）。
 - 项目子进程崩溃后不自动重启；绑定它的窗口由用户刷新后重新打开。
-- 最近打开、重命名短名属于 `nbook.projects` 的后续范围。书架页本身由 [`workbench.bookshelf`](../workbench/bookshelf.md) 定义，本合同提供它的数据与操作：作品信息、新建、移出书架与统计（输出第 13–18 条）。
+- 重命名短名属于 `nbook.projects` 的后续范围。书架页本身由 [`workbench.bookshelf`](../workbench/bookshelf.md) 定义，本合同提供它的数据与操作：作品信息、新建、移出书架与统计（输出第 13–18 条）。
 - 项目实例里的诊断先写各自的日志文件，不汇到服务端的诊断出口。
 - Agent 跨项目访问的租约随 `projects://` 的每次调用取得与释放（[`workspace.resources`](../workspace/resources.md) 的“跨项目访问”）；项目内的 Storage 分区随 K4；`project://` 的文件提供者随 Files。
 - 不兼容旧应用的项目目录与数据，不做迁移。
@@ -115,7 +115,7 @@ owners:
     - 处于 `idle-grace`、`starting`、`stopping` 或没在运行：读记录，为 `stale`（宽限期里最多比实际旧 30 秒）；没有记录为 `none`；
     - 今天的字数只在快照的 `today.date` 是今天时给出（`words - baseline`，可为负），否则为 null；
     - 一部作品的身份文件或记录读不出只影响它自己：作品信息为 null、统计按 `stale` 或 `none`，并记诊断。
-18. **合同版本与书架页。** `nbook.projects/projects` 现为 `version: 3`：在第 10 条的 `list`、`register` 之外有 `shelf`、`create`、`update`、`unregister`（对应第 13–15、17 条；作品信息的校验在服务端做，失败码带字段名）与 `library`、`browse`（第 19、20 条）；旧页面调用得到 `version-changed`，按浏览器宿主的规则提示刷新。浏览器入口向工作台的 `workbench.home` 贡献书架页（[workbench.bookshelf](../workbench/bookshelf.md)）；“打开项目”的列表改用 `shelf` 的数据：显示名（书名优先，没有时短名）、路径、是否打开。
+18. **合同版本与书架页。** `nbook.projects/projects` 现为 `version: 5`：在第 10 条的 `list`、`register` 之外有 `shelf`、`create`、`update`、`unregister`（对应第 13–15、17 条；作品信息的校验在服务端做，失败码带字段名）、`library`、`browse`（第 19、20 条）、`revealLibrary`（[`runtime.desktop-shell`](desktop-shell.md) 输出 34）与 `opened`（第 22 条）；旧页面调用得到 `version-changed`，按浏览器宿主的规则提示刷新。浏览器入口向工作台的 `workbench.home` 贡献书架页（[workbench.bookshelf](../workbench/bookshelf.md)）；“打开项目”的列表改用 `shelf` 的数据：显示名（书名优先，没有时短名）、路径、是否打开。
 19. **作品目录。** `library()` 返回 `{path, source}`：设置 `nbook.projects/library` 非空时 `source` 为 `setting`，`path` 是展开 `~` 后的设置值；否则 `source` 为 `default`，`path` 是 `<文档目录>/NeuroBook`（文档目录解析不到时 `<主目录>/NeuroBook`）。只算路径，不建目录、不校验；新建作品时按第 14 条建出来。
 20. **列目录。** `browse({path?})` 列一个目录的子目录：`{path, parent, entries: [{name, path, kind, title}]}`，`path` 与每个条目的 `path` 都是解析符号链接后的真实路径，`parent` 已是根目录时为 null；`entries` 按名字排序（数字按数值），隐藏目录（名字以 `.` 开头）不列，指向目录的符号链接按目录列（`name` 是链接名，`path` 是它指向的目录），悬空的不列；`kind` 为 `registered`（真实路径已在登记表）、`project`（有可解析的身份文件，`title` 取身份文件里的书名）或 `directory`。`path` 省略为第 19 条的作品目录，它不存在时为它的上一级。`~` 按主目录展开。目录不存在、不是目录、不可读为 `invalid-parent`（`reason` 同第 1 条）。只读，不改登记表与身份文件。
 21. **封面。** 服务端入口向 `http.routes` 贡献路由，挂在 `/api/nbook.projects/`：
@@ -124,6 +124,13 @@ owners:
     - `DELETE /cover/<id>`：清字段并删文件（文件已不在不算失败）；返回 `{cover: null}`。
     - `shelf()` 的每部作品带 `cover: {version} | null`：身份文件记了封面且文件在才有（`version` 取修改时间，变了浏览器才重新取）；记了但文件不在按没有并记诊断 `projects.shelf.cover-missing`。
     - 路径里的 id 不在登记表或身份文件读不出时不碰文件系统。
+22. **最近打开。** 窗口绑定了作品（浏览器入口的引导给了 `project`）时，浏览器入口调一次 `opened({id})`，不等结果，失败只写诊断。服务端先用登记表核对 id（不在为 `unknown-project`，登记表读不出为 `registry-invalid`），再把 `{id}` 写进 user 分区的记录 `projects.last-opened`（同一用户的全部客户端共用一份）；记录坏了（`corrupt`、`unsupported-version`）就条件 `reset` 覆盖，写不进去为 `write-failed`。它是“最近一次有窗口绑定的作品”：多个窗口时后绑定的覆盖先绑定的，刷新再记一遍同一个值。
+23. **启动时打开。** 设置 `nbook.projects/startupOpen`（只在用户层）：`last-work`（缺省，“上次的作品”）或 `shelf`（“书架”），在设置窗口的“作品”分区（[`workbench.bookshelf`](../workbench/bookshelf.md) 输出 21）。路由 `GET /api/nbook.projects/resume`（同第 21 条挂在 `http.routes` 下）是启动类入口打开的地址：桌面壳没有窗口时开的第一个窗口（[`runtime.desktop-shell`](desktop-shell.md) 输出 9）与 `nbook start` 打开的浏览器（[`runtime.cli`](cli.md) 输出 9）。它 302 到：
+    - 设置为 `shelf`、没有记录、记录的作品已不在登记表里：`/`（书架）；
+    - 否则 `/?project=<登记表当前的短名>`（改过短名也对）。
+    - 读设置、读记录、读登记表任何一步失败（含记录损坏、`registry-invalid`）都写诊断 `projects.resume-failed` 并 302 到 `/`，不交出错误页。查询串一律丢弃。
+    - 路由只读：不打开项目，也不检查项目能不能打开。打不开时窗口停在“无法打开项目”页（[`runtime.browser-host`](browser-host.md) 的失败呈现），那里的“不打开项目”、书架的“回到书架”都直接去 `/`，不经过这里，所以不会来回跳。
+    - 服务端入口在启动时激活（`onStartup`）：启动类入口的第一个请求就是这条路由，等远程调用触发激活的话这时路由还不在。
 
 ## 状态与转换
 
@@ -197,6 +204,7 @@ owners:
 16. **统计。**普通 `.md`、内容文件夹的 `index.md`、活页夹章节都计入，隐藏目录与非 `.md` 不计，读不出的文件计入 `unreadable`；扫描期间的修改、目录移入与删除、`resync` 都反映到结果里；最近编辑随改名跟到新地址、随删除清空、重开后沿用；23:59 写的字算当天，00:05 写的字算次日的首笔；当天重开沿用基线，离线跨日后以记录总数作基线。
 17. **写入与停止。**两个写者冲突时较新的 `computedAt` 胜出；结果未知后重读核对；坏记录被条件 `reset`、原件在原件区；扫描未完成就停止不写记录，完成后停止写成并能在书架上看到。
 18. **书架。**运行中的作品为 `fresh` 或 `counting`，停止后为 `stale` 并带统计时间，没有记录为 `none`；`idle-grace` 里按 `stale`；一部作品的身份文件损坏不影响别的作品；打包产物里 `nbook.projects` 的 `project` 入口随项目子进程启动，打开耗时与常驻内存按第 12 条重测。
+19. **启动时打开。**打开作品 A、再打开 B，关掉窗口：经 `resume` 路由进 B（短名改过也对）；把 B 移出书架后经路由进书架；设置改成书架后有记录也进书架；记录损坏或登记表坏了都进书架并记诊断；新状态根上（没有记录）进书架。
 
 Smoke：场景 1 由登记表与身份的合同测试在真实临时目录上运行；场景 2–10 由服务端宿主的合同测试以真实子进程与真实 WebSocket 运行（宽限期与截止用注入时钟或短参数）；场景 2–6、11 另在本机 Chrome 上由 `e2e/projects.e2e.ts` 运行；场景 12 由 `bun run smoke:server` 运行。场景 13–18 由 `identity.test.ts`、`manager.test.ts`、`registry.test.ts`、`projects-capability.test.ts`、`stats-tracker.test.ts`、`stats-writer.test.ts` 与 `projects.test.ts` 以真实临时目录、真实项目子进程与真实 Storage 运行，另在本机 Chrome 上由 `e2e/bookshelf.e2e.ts`（新建、加入、修改信息、移出）与 `e2e/bookshelf-stats.e2e.ts`（统计与继续写作）运行。
 

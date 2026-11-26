@@ -57,6 +57,8 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 
 **e2e 用例写的文件用完就删，不往共用的文件里打字。** 一份 e2e 文件里每个用例往作品的同一个目录写自己的文件时，在 `afterEach` 里删掉这一例写的文件（经辅助打开的与直接写盘的都算）：资源树是虚拟列表，文件越积越多，靠后的用例要打开的那一行排到渲染范围外面，找不到行直到超时（w00025 t17：`markdown-editing` 跑到“拆分后”一例时，`notes/` 里它前面排着 37 个文件）。往前面用例也在用的共用文件里打字同样会串：缺省的失焦时自动保存会把打的字写进磁盘，后面读这个文件的用例拿到的不是初始内容（同一 Task：“离开页面”一例读到前面一例打进 `b.md` 的字）。要编辑就写自己的文件。
 
+**e2e 判断“没被裁掉”不靠 `click`。** 要证明一块伸出去的内容（抽屉、压在相邻面板上的层）没被祖先的 `overflow: hidden` 裁掉时，`click()` 成功、`boundingBox`、`toBeVisible` 都不算数：被裁切时三样照过，`click` 会先把目标滚进那个裁切的容器（`overflow: hidden` 的盒子可以被程序滚动）再点。在页面里取目标的矩形，断言 `document.elementFromPoint(中心)` 是目标或它的后代，再点；写完做变异检查（w00043 t18：把 nb-layout 的“面板不裁切”改回裁切，窄版抽屉的用例照样通过，在开发服务上截图才看到抽屉整块不见）。
+
 **e2e 默认减少动态效果。** 应用的 `playwright.config.ts` 设了 `reducedMotion: "reduce"`：约 113 个用例在程序开关后马上量几何，470ms 的外框过渡会让它们量到中间值。测动画，或测动画窗口里的竞态（退场中点击、关闭动画结束后的焦点）的用例，开头写 `page.emulateMedia({reducedMotion: "no-preference"})` 开回来，否则时长令牌是 0，用例还是绿的，但不再覆盖要防的东西。
 
 **e2e 测失去指针捕获要先让捕获生效。** `setPointerCapture` 与 `releasePointerCapture` 都在下一个指针事件时才生效：过了起拖门槛不再动就释放，捕获根本没到位，浏览器不派发 `lostpointercapture`；用例只靠 Chrome 在布局变化后补发的移动碰巧通过，负载高时才失败。先移动一下再释放，释放之后再移动一下让事件派发出来。
@@ -109,6 +111,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | 服务进程 | 每个测试文件起被测的服务进程，只经 HTTP 与命令行；真端口、真 SQLite 文件（官方站的 `nb-site-contract-tests`） | `test` | 同快速类，按受影响范围；CI 的 `check` 作业经依赖图选中，`site-image` 作业对着打好的产物再跑一遍 |
 | 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收，本地跑（CI 不跑） |
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量 |
+| 评测实机 | 开发用评测（`packages/neuro-book/evals/`）里要真 Chrome、真 bwrap、另起进程控制环境或要等真实时长的用例：文件命名 `*.live.test.ts`，用 `describe.skipIf(process.env.NBOOK_EVAL_LIVE !== "1")` 包住 | `eval:live` | 改到评测的运行器时显式运行；默认的 `test` 与 CI 里显示为跳过 |
 | 全量 | 以上全部 | — | 手动；CI 手动触发时跑全部包的快速类 |
 
 浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接跑单个文件（`npx playwright test -c e2e/playwright.config.ts <文件>`，不带 `-c` 会报 “No tests found”）时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
@@ -193,7 +196,9 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
   该作用域内全部测试文件。
 - Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
   （如 zod）的 CJS/ESM interop 与 node 不同，过滤单文件可能误报
-  `zod does not provide an export named 'z'`；以 node 运行时为准。
+  `zod does not provide an export named 'z'`；以 node 运行时为准。Vitest 的用例（含 `scripts/` 的测试）跑在 Node 上，
+  不用 Bun 专有的 `import.meta.dir`、`Bun.file` 这类接口，路径用 `fileURLToPath(import.meta.url)` 求：在 Node 下
+  `import.meta.dir` 是 undefined，拼路径时抛 `ERR_INVALID_ARG_TYPE`（w00043 t18 的发布包用例，2026-11-25 演练的 CI 挂在这里）。
 - 测试含宿主专有模块的入口时，在对应宿主的真实子进程中验证行为；不要直接导入另一宿主的测试运行器，以免模块加载失败替代业务回归。
 - 新增测试目录（如新 `scripts/<area>/`）必须同步加入对应配置的 `include`，否则测试
   永远不运行——「写了但从不跑」比没有测试更危险。

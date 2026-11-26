@@ -11,7 +11,7 @@ import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {reactive} from "vue";
 
-import type {Entry} from "@notnotype/nb-canon";
+import type {Entry, EntryOp} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -64,20 +64,20 @@ async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImpleme
     return {other, page, open};
 }
 
-/** 改星瑕的外观（与存款）一次，标题是 `title`。 */
+/** 改星瑕的性格（与存款）一次，标题是 `title`。 */
 async function restyle(canon: CanonClient, id: string, look: string, title: string, money?: number): Promise<string> {
     const stored = await canon.call("object", {ref: {kind: "entry", id}});
     if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
     const entry = stored.value.object as Entry;
     const data = entry.init.data;
-    const after: Entry = {...entry, init: {...entry.init, data: {...data, character: {...data.character!, fields: {...data.character!.fields, 外观: look}}, panel: {...data.panel!, fields: money === undefined ? data.panel!.fields : {...data.panel!.fields, 存款: money}}}}};
+    const after: Entry = {...entry, init: {...entry.init, data: {...data, character: {...data.character!, fields: {...data.character!.fields, 性格: look}}, panel: {...data.panel!, fields: money === undefined ? data.panel!.fields : {...data.panel!.fields, 存款: money}}}}};
     return (await publishWith(canon, [after], title)).revision;
 }
 
 async function look(canon: CanonClient, id: string): Promise<unknown> {
     const stored = await canon.call("object", {ref: {kind: "entry", id}});
     if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
-    return (stored.value.object as Entry).init.data.character!.fields.外观;
+    return (stored.value.object as Entry).init.data.character!.fields.性格;
 }
 
 /** 一行里各段的文字用空格隔开。 */
@@ -100,7 +100,7 @@ describe("回执页", () => {
         const section = wrapper.get("[data-receipt-section='modify']");
         expect(section.get("h2").text()).toBe("修改");
         expect(section.get("[data-receipt-item] button").text()).toBe("星瑕");
-        expect(section.findAll("dl").map((list) => [...list.element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent?.replace(/\s+/gu, " ").trim() ?? ""}`))).toEqual([["外观：黑发 → 银发", "存款：1,000 → 1,500"]]);
+        expect(section.findAll("dl").map((list) => [...list.element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent?.replace(/\s+/gu, " ").trim() ?? ""}`))).toEqual([["性格：黑发 → 银发", "存款：1,000 → 1,500"]]);
         expect(wrapper.get("[data-receipt-impact]").text()).toContain("星瑕的存款：1,000 → 1,500");
         expect(page.title!(revision)).toBe("改外观");
         expect(page.breadcrumbs!(revision)?.map((crumb) => crumb.label)).toEqual([{kind: "text", ns: "nbook.canon", key: "views.entries.title"}, {kind: "text", ns: "nbook.canon", key: "receipt.revisionsCrumb"}, "改外观"]);
@@ -111,7 +111,7 @@ describe("回执页", () => {
         expect(missing.find("button").exists()).toBe(false);
     });
 
-    it("还原这次修订：对话框写带来的变化，确认后值回到原样、页顶有提示；提示里的“撤销”再还原回去；还原的回执写还原的是哪一次", async () => {
+    it("还原这次修订：对话框写带来的变化，确认后值回到原样、页顶有提示；提示里的“还原”再还原回去；还原的回执写还原的是哪一次", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -122,16 +122,16 @@ describe("回执页", () => {
         await buttonByText(wrapper, "还原这次修订")!.trigger("click");
         await waitUntil("对话框的预览", () => dialog()?.dataset.phase === "ready");
         expect(document.body.querySelector("[role='dialog'] h2, [role='dialog'] [id]")?.textContent ?? "").toContain("还原“改外观”？");
-        await waitUntil("带来的变化写名字", () => dialog()?.querySelector("[data-revert-impact]")?.textContent?.includes("星瑕的外观：银发 → 黑发") ?? false);
+        await waitUntil("带来的变化写名字", () => dialog()?.querySelector("[data-revert-impact]")?.textContent?.includes("星瑕的性格：银发 → 黑发") ?? false);
         dialogButton("还原")!.click();
         await waitUntil("对话框关了", () => dialog() === null);
         expect(await look(other.canon, id)).toBe("黑发");
         await waitUntil("页顶的提示", () => wrapper.find("[data-notice-bar]").exists());
         expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改外观”");
 
-        // “撤销”打开对话框，提示先留着（焦点回得去）；还原成功后换成还原的那一条。
-        await buttonByText(wrapper, "撤销")!.trigger("click");
-        await waitUntil("撤销的预览", () => dialog()?.dataset.phase === "ready");
+        // 提示里的“还原”打开对话框，提示先留着（焦点回得去）；还原成功后换成还原的那一条。
+        await wrapper.get("[data-notice-bar]").findAll("button").find((button) => button.text() === "还原")!.trigger("click");
+        await waitUntil("还原的预览", () => dialog()?.dataset.phase === "ready");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改外观”");
         dialogButton("还原")!.click();
         await waitUntil("对话框关了", () => dialog() === null);
@@ -212,12 +212,36 @@ describe("回执页", () => {
         expect(second.text()).not.toContain("一个条目");
 
         // 语义档记一笔：世界只存起点与条数，带来的变化写“还没归纳”。
-        const noted = await other.canon.call("recordNote", {requestId: `note-${nextId()}`, by: {kind: "author"}, position: {kind: "chapter", chapter: "1", edge: "end"}, at: {entry: id, path: "character.态度"}, text: "被救了一次", read: {value: null, version: involved.version}});
+        const noted = await other.canon.call("recordNote", {requestId: `note-${nextId()}`, by: {kind: "author"}, position: {kind: "chapter", chapter: "1", edge: "end"}, at: {entry: id, path: "character.现在的状态"}, text: "被救了一次", read: {value: null, version: involved.version}});
         if (!noted.ok) throw new Error(JSON.stringify(noted.failure));
         const third = await open(noted.value.revision);
-        await waitUntil("带来的变化", () => third.find("[data-receipt-impact]").exists() && third.get("[data-receipt-impact]").text().includes("态度"));
+        await waitUntil("带来的变化", () => third.find("[data-receipt-impact]").exists() && third.get("[data-receipt-impact]").text().includes("现在的状态"));
         expect(third.get("[data-receipt-impact]").text()).toContain("还没归纳");
         expect(third.get("[data-receipt-impact]").text()).not.toContain("notReduced");
+    });
+
+    it("条目自己的字段声明的改动写成添加了一项、一项改名、去掉了一项、恢复了一项，不写成“启用的数据：改了”（输出 20）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const edit = async (ops: EntryOp[]): Promise<string> => {
+            const status = await other.canon.call("status", {});
+            if (!status.ok) throw new Error(JSON.stringify(status.failure));
+            const done = await other.canon.call("editEntries", {input: {requestId: `req-${nextId()}`, by: {kind: "author"}, what: "edit", baseVersion: status.value.version, title: "改资料项", ops}});
+            if (!done.ok) throw new Error(JSON.stringify(done.failure));
+            return done.value.revision;
+        };
+        const rows = async (revision: string): Promise<string[]> => {
+            const receipt = await open(revision);
+            await waitUntil("回执", () => receipt.find("[data-receipt-section='modify'] dt").exists());
+            return [...receipt.get("[data-receipt-section='modify']").element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent?.replace(/\s+/gu, " ").trim() ?? ""}`);
+        };
+        const at = {entry: id, path: "panel.幸运"};
+        const added = await edit([{op: "fieldAdd", entry: id, namespace: "panel", field: {label: "幸运", kind: "number"}, value: 7}, {op: "fieldAdd", entry: id, namespace: "panel", field: {label: "声望", kind: "text"}}]);
+        expect(await rows(added)).toEqual(["添加了一项：幸运、声望", "幸运：（没有） → 7"]);
+        expect(await rows(await edit([{op: "fieldRename", at, label: "运气"}, {op: "fieldRename", at: {entry: id, path: "panel.声望"}, label: "名望"}]))).toEqual(["一项改名：幸运 → 运气、声望 → 名望"]);
+        expect(await rows(await edit([{op: "fieldRemove", at}]))).toEqual(["去掉了一项：幸运"]);
+        expect(await rows(await edit([{op: "fieldRestore", at}]))).toEqual(["恢复了一项：运气"]);
     });
 
     it("章序调整的回执：“章序”一节写调整前后的章序（输出 20）", async () => {

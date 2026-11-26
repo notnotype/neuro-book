@@ -37,5 +37,5 @@ type ChangePageHostProps = {
 
 - `io:read`：要读哪些名字取决于这条变更涉及谁、改了谁，宿主（编辑器）不知道；读取随世界变跟着重读。只在真实界面里验证（`change-page.dom.test.ts`），Lab 里看 `ChangePage` 与 `ConfirmBar`。
 - `io:mutate`：改一处与改成生效要按页面里的状态（改哪一处、填的值、读出时的版本）拼写入。
-- `state:shared-write`：保存成功后往窗口里那一份保存后的提示放一条；挂着时向它登记；点“撤销”时往还原对话框里放要还原的那一次。
+- `state:shared-write`：保存成功后往窗口里那一份保存后的提示放一条；挂着时向它登记；点“还原”时往还原对话框里放要还原的那一次。
 - `state:inject`：经 `useCanonText()`、`useText()` 取翻译端口。

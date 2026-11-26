@@ -1,0 +1,79 @@
+# w00046 t26 实现审查报告（b93b9e81e..1869eb47f，HEAD 1869eb47f）
+
+### 1. Lab 场景 WorksSettingsPageFixture 没跟上：新的“启动时打开”行在 Lab 里写不进去
+严重程度：重要
+类别：正确性 / 组件契约（Lab 场景是组件交付的一部分）
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/WorksSettingsPageFixture.vue:37-38（`createSettingsHost({settings: [{plugin: "nbook.projects", definition: librarySetting}]})`），USER 表第 29-35 行
+现象：提交改了 WorksSettingsPage.vue（加了 `startupOpenSetting` 行）和 dom 测试的宿主（两个定义都登记），但 Lab 场景的局部设置宿主只登记了 `librarySetting`；场景表里也没有“启动时打开”选了“书架”的变体。
+为什么是问题：Lab 里点“书架”或“恢复默认”时，写入以 `undeclared` 失败，事件 tab 里出现“启动时打开没有写进设置：undeclared…”，分段控件永远动不了。场景原本的目的就是让这页的每个交互可看可点（同名 .md 要求组件有 Lab 场景），现在新行是坏的；开发者在 Lab 里验收这行时会先看到一个假故障。
+如何核实：我在仓库外的副本（/tmp/review-t26-impl/wt）里把 dom 测试的宿主改成只登记 librarySetting，两条新用例失败：`expected '启动时打开没有写进设置：write-failed' ... Received '…undeclared：配置项 nbook.projects/startupOpen 没有被接受的声明'`，写入后 `host.user.values()` 仍是 `{}`。Lab 夹具的宿主与这个改法等价。
+建议改法：夹具的 settings 列表加 `{plugin: "nbook.projects", definition: startupOpenSetting}`，USER 表给一两个场景预置 `startupOpen: "shelf"`（例如新增场景或让 "set" 带上），并在 Lab 注册处核对场景描述；之后按 AGENTS 的“交付界面前在开发服务上点一遍”点一次。
+
+### 2. 浏览器入口调 `opened` 的那段没有任何测试：整段删掉全部测试照过
+严重程度：重要
+类别：测试
+位置：packages/neuro-book/src/plugins/projects/web/plugin.ts:180-186；测试 src/plugins/projects/projects.test.ts:559-614
+现象：新增的合同测试都是直接 `projects.opened({id})` 调远程服务，再请求 `resume` 路由；“窗口绑定了作品才记、没绑定不记、失败只写诊断 `projects.opened-not-recorded` 不挡窗口”这三条判据（projects.md 输出 22）只在浏览器入口里实现，没有一条测试经过它。
+为什么是问题：这一段是整个功能的写入端，删了它 `resume` 永远落书架；没有测试，之后谁改入口激活或 `windowProjectKey` 的形状都不会被发现。计划的验收映射写的是“经合同测试”，但合同测试绕过了这个调用点。
+如何核实：在仓库外副本（/tmp/review-t26-impl/wt）里把 `if (project !== null) { void remote.opened(...)... }` 整段删掉，`bun test src/plugins/projects`（82 条）与 `vitest run src/plugins/projects`（38 条）全部通过。
+建议改法：在 projects.test.ts 里已有的浏览器入口装配（第 336 行 `windowProjectKey` 提供 `{project: null}` 的那组）补两条：绑定作品的窗口激活后服务端记录里是这部作品（用 `resume` 路由读，或读记录）；`project: null` 的窗口不写；再让服务端的 `opened` 返回失败，断言诊断里有 `projects.opened-not-recorded` 且窗口照常。变异：删掉调用，第一条必须失败。
+
+### 3. 计划里的 e2e 判据没做，Spec 场景 19 没有端到端覆盖
+严重程度：建议
+类别：测试 / 计划偏离
+位置：计划“验收映射”最后一条（t26 plan.md 第 74 行）；e2e/bookshelf.e2e.ts 没有改动（diff 范围内无 e2e 文件）
+现象：计划写“e2e bookshelf.e2e.ts 的设置用例里查到这一行”，提交里没有。projects.md 场景 19 的前半（“打开作品 A、再打开 B，关掉窗口”）靠浏览器窗口绑定才能触发，目前只有 `opened` 的直接调用顶替。
+为什么是问题：设置页新行在真实设置窗口里是否出现、点了是否落盘到 settings.json、与 `SettingsRow` 的分区页布局（窄宽）只有 dom 测试与 Lab 夹具（见第 1 条，夹具本身是坏的）看过；浏览器入口的 `opened` 在真实页面里是否真的发出也没人看过。
+如何核实：`git diff b93b9e81e..1869eb47f --stat` 无 e2e 文件。
+建议改法：要么在 bookshelf.e2e.ts 的设置用例里加一句查“启动时打开”的行与点“书架”后用户层 settings.json 的值；要么在 Task 记录里写明去掉了这条及理由。浏览器端 `opened` 用 e2e 打开作品后请求 `/api/nbook.projects/resume` 看 Location（e2e 用生产构建，比组件测试更接近真实）。
+
+### 4. “关闭中的窗口不算”没有测试：把判据换成“窗口集合为空”全部测试照过
+严重程度：建议
+类别：测试
+位置：packages/neuro-book/src/desktop/windows.ts:136；src/desktop/windows.test.ts:286-318
+现象：desktop-shell.md 输出 9 与计划的验收映射都点名“开它时没有别的、不在关闭中的窗口”。实现里 `closing` 的窗口（`#commit` 已定、`commitClose` 已发、OS 的 `closed` 事件还没到）不算窗口；新增测试里没有一条构造这种状态。
+为什么是问题：托盘模式下用户关掉最后一个窗口、紧接着点托盘“打开”（或第二次启动转交），这中间窗口还在 `#windows` 里但 `closing` 为真；这条规则正是为这个间隙写的，改坏了没人发现（新窗口会落书架，而不是上次的作品）。
+如何核实：在仓库外副本把第 136 行改成 `const resume = this.#windows.size === 0;`，`bun test src/desktop/windows.test.ts` 35 条全过。
+建议改法：补一条：托盘模式、唯一窗口 `closeRequested` 并让页面同意（`pageAnswered(..., "allow")`，此时 `closing` 为真、还没调 `closed`），再 `openFromTray()`，断言开出的窗口地址是 RESUME；再补一条“有一个没在关闭的窗口、另一个在关闭中，再开的是 ROOT”。另外第一条用例的最后两行（`closeRequested(first)` 后 `openFromTray()` 只断言 `focus`）与用例名“托盘与开窗转交同一条规则”对不上，要么删要么断言点具体的东西。
+
+### 5. 启动时打开写失败的诊断复用了作品目录的事件名
+严重程度：建议
+类别：代码质量
+位置：packages/neuro-book/src/plugins/projects/web/plugin.ts:176；works-section.ts:50-57
+现象：`createWorksPage` 的 `report` 回调现在既收作品目录也收“启动时打开”的写入失败，plugin.ts 里仍固定以事件 `projects.library-not-saved` 记诊断（消息文字里才分“作品目录/启动时打开”）。
+为什么是问题：按事件名查诊断的人（以及以后按事件名做的统计或检查）会把启动时打开的失败算成作品目录失败。这与本提交把通知分开说的出发点相反。`rg library-not-saved` 只有这两处使用，没有别的消费者，改动代价小。
+如何核实：`grep -rn library-not-saved packages` 命中 shelf-page.ts:382 与 web/plugin.ts:176。
+建议改法：`WorksPageOptions.report` 改成 `(setting: "library" | "startupOpen", message: string)`，plugin.ts 按项选 `projects.library-not-saved` 或新的 `projects.startup-open-not-saved`；dom 测试里 `report: () => undefined` 同步。
+
+### 6. recordOpened 自己写了一套冲突重试，既没有被测到、也与 storage 已有的 update 重复
+严重程度：建议
+类别：代码质量 / 测试
+位置：packages/neuro-book/src/plugins/projects/backend/last-opened.ts:36-60
+现象：`WRITE_ATTEMPTS = 3` 的 read-save 循环与 `RecordHandle.update`（`updateRecord`，缺省 5 次，conflict 才重试，unknown-outcome 不重试）是同一件事；这里多出来的只是“坏记录用 reset 覆盖”。
+为什么是问题：(a) 重复实现一份“重读重算”规则，与 storage 的 `UPDATE_ATTEMPTS` 将来可能分叉；(b) 冲突分支没有任何用例：在仓库外副本把常量改成 1，`bun test src/plugins/projects` 82 条全过；我还用 `Promise.all` 并发调 4 次 `opened` 做探针，常量为 1 时 4 次也都成功，说明同进程里调用被 storage 的单写者队列串行了，冲突分支在单实例里很可能根本到不了（服务端实例每个状态根只有一个）。留着不可达的重试与“最后写的赢”的注释，会让读者以为这里有并发竞争。
+如何核实：见上；探针在 /tmp/review-t26-impl/wt 的 projects.test.ts 末尾（PROBE）。
+建议改法：好的做法二选一：正常记录走 `handle.update(() => ({id}))`，只有读到 corrupt 或 unsupported-version 时才走 `reset`（`update` 已经把这两种带 revision 返回，正好交给 reset，不用自己读一遍）；或者保留循环但删掉“几个窗口同时写”的说法并把 3 次降到 1 次加一条诊断。前者更省代码。
+
+### 7. “启动时打开”写入失败后控件是否回到实际值没有断言；连点没有防护
+严重程度：建议
+类别：测试 / 一致性
+位置：WorksSettingsPage.vue（`chooseStartup`）；WorksSettingsPage.dom.test.ts 新增的“写不进去”用例
+现象：作品目录那一行有 `pending`（写入结算前显示这次选的、写入中“更改…”停用、失败回到层里的实际值，.md 的“状态”写了），并且 dom 测试断言了回到实际值。新行没有对应的状态说明，“写不进去”用例只断言通知标题和文字、用户层仍为空，没断言分段控件仍选中“上次的作品”。`chooseStartup` 也没有进行中的保护，两段快速连点会并发发两次 `update`。
+为什么是问题：控件的 `modelValue` 来自 `row.value`（层里的值），写失败时应当停在原值，这正是用户看到“没有记住”通知时对控件的预期；没有断言，以后有人给它加乐观显示就不会被拦住。连点的结果由 storage 的顺序决定，最后落盘的不一定是最后点的。
+如何核实：读 dom 测试 198-205 行，没有 `aria-checked` 的断言；`.md` 的“状态”一节只讲作品目录。
+建议改法：用例末尾加 `expect(segment("last-work").getAttribute("aria-checked")).toBe("true")`；`.md` 的“交互”或“状态”补一句写入失败控件回到实际值；连点保护按“更改…”的做法（写入中 `disabled`）或明确写“不防，最后一次生效”。
+
+## 未发现问题的方面
+- recordOpened 的条件写入与坏记录 reset：正确；读到 corrupt 或 unsupported-version 时用 `reset({expect: revision})`，与 storage 合同一致，测试覆盖（别的版本写下的记录用真实分区构造）。
+- resumeTarget 与路由：设置为书架、记录缺失、作品已移出书架、记录坏、登记表坏，全部落 `/`，坏的情形记 `projects.resume-failed`；302 目标只会是 `/` 或 `/?project=<encodeURIComponent(短名)>`（全 ASCII，不会被 Hono 二次编码），查询串丢弃；GET 不受 Origin 核对影响。
+- `onStartup` 激活：依赖都是其它 onStartup 入口（files、plot、canon、bots）已经依赖的服务，激活不读盘；`src/server/server.test.ts` 26 条与真实进程的 `src/cli` 测试通过。`createCoverRoutes(...).route("/", ...)` 合并后封面与 resume 都可分发（合同测试经真实 RouteTable 与 dispatcher 请求两类路径）。
+- 桌面开窗规则：启动、第二次启动、托盘、Dock 都经 `openWindow`；页面请求的新窗口（`pageWindowRequested`）不 resume；启动期间多个启动页只有第一个 resume；`new URL(RESUME_PATH, serverUrl)` 拼法正确。
+- 两份发布冒烟：`seeded.projectName` 是 `seedState` 登记的短名，与 `/?project=` 一致；`relaunchResumes` 的选择器（`[data-explorer-row]`）与等待条件与 `runAgentCommand` 同源；smoke-update 里 `startupOpen: shelf` 写进的是备份还原过的 `settings.json`，旧版对未声明键不报错（configuration.md 输出 4）。它们本机跑不了，以上仅为照字面核对。
+- `bun run governance:check` 无失败、无警告；`bun test src/plugins/projects src/desktop src/cli` 与 vitest `src/plugins/projects` 全过。
+- 文案：新增的设置标题、选项、通知都是简短标签，没有解释内部处理的话；zh-CN 与 en-US 对齐，locales.test 覆盖。
+
+## 未能验证
+- `bun run typecheck` 在当前机器负载（20 到 50）下 900 秒超时被终止，没有出结果；类型层面“未验证”。
+
+## 数量
+阻断 0；重要 2（第 1、2 条）；建议 5（第 3 到 7 条）。

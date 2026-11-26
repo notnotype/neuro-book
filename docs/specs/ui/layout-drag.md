@@ -66,8 +66,12 @@ export interface DragSessionOptions<S, D, R> {
     onActiveChange?(active: boolean): void;
     /** 滚动时：重新判定（缺省），或撤下落点直到指针再动；窗口尺寸变化一律重新判定（输出 12）。 */
     readonly scroll?: "reevaluate" | "withdraw";
-    /** 边缘滚动的元素；缺省不滚。 */
-    readonly autoScroll?: {readonly element: HTMLElement; readonly edgePx?: number; readonly maxStepPx?: number};
+    /** 边缘滚动：指针此刻所在的容器，从里到外；缺省不滚（输出 14）。 */
+    readonly autoScroll?: {
+        containers(query: {readonly point: GridDropPoint; readonly top: Element | null}): ReadonlyArray<HTMLElement>;
+        readonly edgePx?: number;
+        readonly maxStepPx?: number;
+    };
     /** 键盘拖动；缺省只有指针。 */
     readonly keyboard?: DragKeyboardOptions<S, R>;
     /** 起拖门槛。 */
@@ -159,7 +163,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 2. **按下的归属**：会话在根的冒泡阶段接收按下。内层先处理并停止传播的按下（分隔线的命中带）不起拖。
 3. **拿起**：`activate` 返回 `false` 时不起拖。否则清掉已选中的文字、调 `onActiveChange(true)`，指针拖动时根取得指针捕获，并按当前坐标立即发布第一次判定。来源元素在拖动中被卸载不算取消。
 4. **逐帧**：指针移动每帧最多判定并发布一次。`state` 是一场进行中的唯一输出。
-5. **遮挡**：`top` 是指针处从上往下第一个不在 `data-drag-feedback` 元素里的元素。菜单、对话框挡着时它就是菜单或对话框里的元素；坐标在视口外时为 `null`。
+5. **遮挡**：`top` 是指针处从上往下第一个不在 `data-drag-feedback` 元素里的元素。菜单、对话框挡着时它就是菜单或对话框里的元素；坐标在视口外时为 `null`。设了 `pointer-events: none` 的元素本来就不在命中里；`data-drag-feedback` 给要接指针的反馈元素。
 6. **放下**：用松手的坐标再判一次，这一次不发布。`actionKey` 不为 `null` 且与最后显示过的落点的键相同才提交，一场最多提交一次；否则结束为 `no-action`。`commitsUnderPointer` 为真时只要 `actionKey` 不为 `null` 就提交，不要求相同；落点撤下期间（输出 12）仍不提交。
 7. **取消**：下列情况都结束一场、不提交、撤下反馈：Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、焦点移到根之外、键盘拖动中有指针按下、结构键变化、会话销毁。其中：
    - 失去捕获只认根自己。触摸按下时浏览器把指针隐式捕获给被按的元素，捕获换到根时，旧元素上的 `lostpointercapture` 会冒泡到根，这一次不算。
@@ -172,7 +176,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 11. **触摸**：一场进行中，根上的 `touchmove` 阻止默认动作，页面不滚动。
 12. **滚动与窗口尺寸**：只算根里面的滚动（含后代）。`scroll` 为 `reevaluate` 时按当前坐标重新判定并发布；为 `withdraw` 时撤下落点（发布 `drop: null`，最后显示过的动作清空），直到指针再动，这期间放下不提交。边缘滚动自己滚出来的滚动不撤下。窗口尺寸变化一律重新判定。
 13. **撤下**：`invalidate()` 与 `withdraw` 的撤下相同。
-14. **边缘滚动**：指针在元素的横向范围内、离上下边缘不到 `edgePx`（缺省 24）或已越过边缘时逐帧滚动，越靠边越快，每帧最多 `maxStepPx`（缺省 16）。元素矮到上下两条边缘带相接（高度不超过 `2 × edgePx`）时不滚。每一帧先按上一帧滚动后的内容判定并发布，再滚这一帧。滚到头就停，等指针再动。滚动中松手：先停滚，等下一帧，判定并发布一次，按这一次的落点放下。
+14. **边缘滚动**：配了 `autoScroll` 时，没在滚时指针每次移动、在滚时每帧开头调一次 `containers`（`top` 同输出 5），按交回的先后（从里到外）给横竖两个轴各挑一个容器。容器在一个轴上被挑中要同时满足：这个轴让滚（计算样式的 `overflow-x` 或 `overflow-y` 是 `auto` 或 `scroll`），这个方向还没滚到头，指针在它另一个轴的范围内、离这个轴的一端不到 `edgePx`（缺省 24）或已越过这一端；这个轴上短到两条边缘带相接（不超过 `2 × edgePx`）时不挑。挑中的逐帧滚，越靠边越快，每帧最多 `maxStepPx`（缺省 16）；两个轴都挑中时一起滚。每一帧先按上一帧滚动后的内容判定并发布，再滚这一帧。两个轴都挑不到、或滚了没动时停，等指针再动。滚动中松手：先停滚，等下一帧，判定并发布一次，按这一次的落点放下。
 15. **键盘拖动**：配了 `keyboard` 时，焦点在来源或它的把手上按空格拿起；Tab 与 Shift+Tab 在区域间循环并停在区域的第一个位置，方向键沿区域的轴逐个位置移动（轴为 `both` 时右、下往后，左、上往前），Enter 放下，Escape 取消。判定与放下规则同指针。结束后的焦点：放下（不论有没有提交）在下一帧还，提交引起的重渲染在那之前完成；其余取消立即还；焦点移到根之外造成的取消和会话销毁不还。还到拿起时的元素，它已被换掉时用 `refocus` 找。
 16. **落点登记**：`dropTargetAt(top, kind)` 从 `top` 往上找最近的、登记了这个种类的元素，返回元素与查询这一刻的 `data()`；没有或 `top` 为 `null` 时为 `null`。种类按 `id` 比较，同一个 `id` 定义两次是同一个种类。登记不依赖会话，也不写 DOM 标记。注销（`useDropTarget` 随组件卸载）之后不再命中。
 17. **不画东西**：会话不创建元素，除了只读 `data-drag-feedback`，也不读写 DOM 标记。拖影、插入线、高亮都由宿主按 `state` 与 `onEnd` 画，所以换一种反馈不用改会话。
@@ -202,7 +206,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
     - **一帧的顺序**：跟手先读 → 判定 → 跟手写 → 取指针 → 摆预览 → 写卡片 → 交出状态 → 渲染之后的跟手。判定里这一场结束时，这一帧到此为止。指针动了、预览换了、卡片还没到、候选还没等够稳定、在容器里跟手，任一成立就排下一帧，否则停。
     - **预览只给渲染**：结构键与判定读已提交的状态，预览不改结构键。
 23. **实时布局的会话**：`createLiveDragSession(root, (live) => options)`（组件里用 `useLiveDragSession`）一次建好会话与编排，宿主只写落点与领域判断。接线的先后：
-    - 拿起全在 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动、网格在、网格的过渡时长不为 0（减少动效时是 0）时才问 `live(source)`；它给出实时布局的来源，才把网格的过渡送到终点、开始。别的照常是落点指示。
+    - 拿起全在 `activate` 里：宿主的 `activate` 先；返回真、网格在、网格的过渡时长不为 0（减少动效时是 0）时，先把网格的过渡送到终点（键盘拖动、`live` 不给来源的这一场也是）；又不是键盘拖动时才问 `live(source)`，它给出实时布局的来源才开始。别的照常是落点指示。
     - 宿主的 `resolve` 返回之后，结果交给编排；收场时编排先结束（撤预览、放回跟手的），再调宿主的 `onActiveChange(false)`，都在提交之前，同一个同步段里不闪。
     - 实时布局的这一场放下时提交指针下的候选（与宿主自己的 `commitsUnderPointer` 取“或”）。会话的 `sampled` 接到编排。网格的位置拿起时读一次。
 
@@ -250,10 +254,11 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 4. Given 工作台的视图，When 拖动中按方向键，Then 标签带不切换；编辑器标签与资源树同样不响应这些键。
 5. Given 触摸按下后手指有 1 px 抖动，When 按住 200 毫秒再拖到落点松开，Then 一场不被取消，放下生效。
 6. Given 资源树的文件拖到树的下边缘开始自动滚动，When 滚动中松手，Then 文件落到松手时指针下的位置。
+7. Given 标签编组示例里一条标签条放不下、滚在最左，When 拖别的编组的标签到它右边那个编组的标签条右端，Then 放不下的这一条不滚；When 再拖到放不下的这一条的右端停住，Then 它往右滚到头，插入线跟着换，松手插在最后；When 拖到它的左端停住，Then 滚回最左。
 
 无头 Chrome 没有真实的窗口失焦与页面隐藏，这两种取消由派发 `blur`、`visibilitychange` 事件验证。
 
-Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`workbench-dnd.e2e.ts`、`editor-area.e2e.ts`、`files-explorer.e2e.ts`；拖动卡片与帧循环（输出 20、21）是 `workbench-live-drag.e2e.ts`、`workbench-drag-cost.e2e.ts`；实时布局的编排（输出 22、23）在两个宿主上是 `workbench-live-drag.e2e.ts` 与 `lab-live-panels.e2e.ts`，nb-story 的换边是 `packages/nb-story/e2e/side-by-side.e2e.ts`。
+Smoke：`packages/neuro-book/e2e/lab-drag-session.e2e.ts`、`packages/nb-layout/e2e/tabbed-panels.e2e.ts`（输出 14 的横向与按指针挑容器，验收 7）、`workbench-dnd.e2e.ts`、`editor-area.e2e.ts`、`files-explorer.e2e.ts`；拖动卡片与帧循环（输出 20、21）是 `workbench-live-drag.e2e.ts`、`workbench-drag-cost.e2e.ts`；实时布局的编排（输出 22、23）在两个宿主上是 `workbench-live-drag.e2e.ts` 与 `lab-live-panels.e2e.ts`，nb-story 的换边是 `packages/nb-story/e2e/side-by-side.e2e.ts`。
 
 ## 实现合同
 

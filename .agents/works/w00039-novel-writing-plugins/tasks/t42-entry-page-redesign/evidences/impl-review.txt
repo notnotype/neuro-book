@@ -1,0 +1,152 @@
+### 1. 提示的暂停（指针、焦点）在提示被关掉时不放开，之后所有提示都不再自己收起
+**严重程度**：重要　**类别**：正确性（不变量：暂停计数）
+**位置**：packages/neuro-book/src/plugins/canon/web/components/PageNotices.vue:36-52（holdBy、releases，只在 onBeforeUnmount 清）；packages/neuro-book/src/plugins/canon/web/notices.ts hold（holds 计数）
+**现象**：作者那一行的暂停来源只靠 pointerenter/pointerleave 与 focusin/focusout 放开。点“关闭”（鼠标点必然指针在行内、按钮拿到焦点）或键盘回车关闭时，`notices.dismiss()` 把 `props.notice` 变 null，整行被 v-if 摘掉（TransitionGroup 离场后移除）。被摘掉的元素不会再收到 pointerleave（Chrome 对已从 DOM 移除的节点不补发边界事件；焦点在被移除元素上时 focusout 也不可靠），`releases` 里的 "pointer"、"focus" 两项就留着。组件没有任何 watch 在 notice 变 null 时放开它们，`PageNotices` 本身还挂着（页面没卸载），于是 `holds` 一直是 1 或 2。之后每一条新提示：`setCurrent` 看到 `holds > 0` 不排计时，提示永远不自己收起，直到这个页面标签被卸载（切标签、关页）才放开。
+**为什么是问题**：违反 Spec 输出 18“提示出现 6 秒后自己收起”。触发路径是最常见的操作（点右上角的 ×），之后的所有保存提示（含别的页面挂着的）都变成常驻，且没有任何可见线索。brief 重点 1 里“宿主卸载与重挂、暂停期间换了新提示、页面卸载时没放开的暂停”测的是卸载放开，没有测“提示先消失、页面还在”。
+**如何核实**：真实运行时未跑（本机没有 Playwright 浏览器，按规则不起开发服务），下面是对计数逻辑的实验：/tmp/review-t42-impl/scratch/leak.test.ts（`bun test`，通过）：show、hold()、dismiss()、不调用 release、再 show，推进 60 秒，`current` 仍非 null。浏览器里“被移除的节点不发 pointerleave”这一步从 Chrome 的已知行为推断，需要主会话在 e2e 里确认：指针移到作者那一行、点“关闭”、再触发一次保存，等 7 秒看提示是否还在。PageNotices.dom.test.ts 只测了卸载时放开（第 5 条用例），没有“关闭后再来一条”。
+**建议改法**：在 PageNotices 里 `watch(() => props.notice === null, (gone) => gone && releaseAll())`（把 onBeforeUnmount 里的循环抽成 releaseAll 共用）；暂停来源本来就是“这一行上的”，行没了来源就没了。补一条用例：hover 后 setProps({notice: null})，断言 release 已发生。
+
+### 2. 右键菜单里的“添加一组设定”不记打开时的版本，还会撞上“＋”菜单留下的旧版本，被误拒成“别处改过”
+**严重程度**：重要　**类别**：正确性
+**位置**：packages/neuro-book/src/plugins/canon/web/components/EntryPageHost.vue:440-443（menuBase、openAddMenu）、:453-455（runEntries 取 base）；EntryPage.vue:149-169（contextItems、openContext 不发 add-open）；EntryPage.vue:335 与 EntryPageNav.vue:84（只有这两处“＋”发 add-open）
+**现象**：宿主的注释写““＋”与右键菜单里的“添加一组设定”打开时条目的版本……点一项加上时带它”，但右键菜单这一路从不发 `add-open`（`openContext` 只发 `update:tab`），`menuBase` 没被设。而 `menuBase` 只在 runEntries 用掉时清（`if (from === "menu") menuBase = null`），“＋”菜单打开后没选就关掉时它一直留着。顺序：点“＋”（menuBase = v10）、Escape；改一个值保存（世界版本 v11）；在分页上右键、添加一组设定 → runEntries 用 `menuBase`（v10）当 baseVersion → `version-conflict` → 提示“这个条目在对话框打开以后被别处改过”，实际是作者自己刚改的，也没有对话框。
+**为什么是问题**：误拒且文案对不上；右键这一路同时没有 Spec 输出 43 想要的“打开时的版本”保护（右键开着的时候别处改了，应该得到冲突）。两条路径行为不一致，注释与实现不符。
+**如何核实**：读代码即可确认 `add-open` 的发出点（grep -n "add-open"）与 `menuBase` 的清除点；未写测试复现（需要 EntryPage.dom 里先 open“＋”再右键）。
+**建议改法**：让“记版本”跟菜单的生命周期走：EntryPage 的 `openContext` 里同样 `emit("add-open")`（或宿主在 contextmenu 事件里调 openAddMenu），并在两种菜单关闭而没选时清掉 menuBase（DropdownMenu 的 update:open 为 false、ContextMenu 的 update:open 为 false 时 emit 一个 `add-close`，或者更简单：每次 `addComponent` 开头取 `menuBase ?? version()` 之前，改成菜单打开时把版本存进组件内的局部、选中时随 `add-component` 事件带出来，不留在宿主的模块级变量里）。
+
+### 3. 改叫“算上计划中的情节”之后，写不了时的原因仍写“先关掉按计划”
+**严重程度**：建议　**类别**：界面（文案前后不一致）
+**位置**：packages/neuro-book/src/plugins/canon/locales/zh-CN.json:205（blocked.planned “先关掉按计划”）；en-US.json:205（“Turn off Include plans first”）
+**现象**：本次把时间点里的勾选项改名为 entry.planned =“算上计划中的情节”（en “Include planned events”），页头标记写“算上计划”（plannedMark）、“不算计划”（leavePlans）。但按计划模式下“改”按钮、页头名字简介按钮等的禁用原因（`editBlocked` 取 `canonText("blocked.planned")`，悬停提示）仍引用旧名“按计划”，英文还是旧的“Include plans”。界面上已经没有一个叫“按计划”的开关，作者读到这句找不到对应的东西。
+**为什么是问题**：Spec 术语一节已把“按计划”在界面上定名为“算上计划中的情节”；brief 重点 6 要求几个用词前后一致。
+**如何核实**：`grep -n "按计划\|Include plans" packages/neuro-book/src/plugins/canon/locales/*.json`。
+**建议改法**：zh 改成“先不算计划”（与页头标记按钮“不算计划”同词，点它就能关）；en 改成“Leave out planned events first”（同 leavePlans）。
+
+### 4. “短项回车先看变化”只测了“没有别的变化就直接存”这一条，Spec 输出 51 的另外三条判据没有测试，且有一处回车被静默吞掉
+**严重程度**：建议　**类别**：测试
+**位置**：packages/neuro-book/src/plugins/canon/web/in-place-edit.ts:132-139、204-216、226-240、342-354（saveWhenPreviewed 全部分支）；测试：entry-page.dom.test.ts:1439（只有一条用例）、revisions.test.ts:34-45（impactIsQuiet 的纯函数用例）、ConfirmBar.dom.test.ts:83-97（回车发出 save 的三种状态）
+**现象**：Spec 输出 51 写了四件事：预览没回来时等它；没有别的变化就存；有别的变化就停在预览上、不保存，作者看过再按一次才存；预览失败、值又变了时不存。现有测试：
+- 第 1 件与第 2 件：entry-page.dom.test.ts:1439 的“身份”字段（改的是没人依赖的短文字）。
+- 第 3 件（有别的变化时停下并显示预览）：没有任何用例。`impactIsQuiet` 只有纯函数用例，没有走过 `runPreview` 里 `waiting && described.quiet` 这一支的“不存”分支，也没有“第二次回车才存”。把 `if (waiting && described.quiet)` 改成 `if (waiting)`，现有用例仍全过。
+- 第 4 件（回车后又打字、预览失败）：没有用例。删掉 `schedulePreview` 里的 `saveWhenPreviewed = false` 或 `runPreview` 失败分支里的重置，没有用例会红。
+另外一个无声丢弃的边界：回车之后、预览回来之前世界版本变了（别处写入、Agent、作者自己上一次保存的发布通知晚到），版本 watch（in-place-edit.ts:253-262）改了 `draft.read.version`，key 变了、触发 `schedulePreview`，把 `saveWhenPreviewed` 清掉。作者按过的回车就没有下文：既没存，也没有任何提示，预览重新出现后他得再按一次。这条窗口很小，按 AGENTS 里“窄场景选简单改法”的口径可以只记为已知限制。
+**如何核实**：把 in-place-edit.ts:214 的 `waiting && described.quiet` 改成 `waiting` 后跑 `bunx vitest run src/plugins/canon/web/entry-page.dom.test.ts -t 短项填完立刻回车` 仍通过（我没有改文件，这是读代码得出的推断；变异检查请主会话做）。
+**建议改法**：在 entry-page.dom.test.ts 同一组里补两条：(a) 填一个有别的变化的值（例如人物的“年龄”之类被别的字段引用的、或会让待处理增减的）后回车，断言浮层还在、`state.edit` 非 null、预览那一行写出变化，再回车一次才存；(b) 回车后在预览回来之前再打字，断言没有存。第 4 件的失败分支用 `blocked` 或让 previewEdit 拒收的场景。
+
+### 5. 提示行离场时仍占着位置，上面那一行在它离场结束后瞬间掉下来（TransitionGroup 的 move 没生效）
+**严重程度**：建议　**类别**：界面（状态变化要有过渡、布局不跳）
+**位置**：packages/neuro-book/src/plugins/canon/web/components/PageNotices.vue:157-176（.page-notice-leave-active 没有 `position: absolute`，只写了 `.page-notice-move`）
+**现象**：三行（Agent、作者、失败）放在 `TransitionGroup` 里，栏是底边贴着锚点往上叠。作者那一行 6 秒自己收起（或点关闭）时，它在离场动画期间仍在文档流里，动画结束后元素才被移除，这时上面的 Agent 行（或失败行）才失去下面这一行的位置，瞬间下移约 44 像素。TransitionGroup 的 move（FLIP）是在更新那一刻按“离场元素仍占位”的布局量的，所以没有位移可补，`.page-notice-move` 的过渡实际没用。最常见的触发：Agent 改了设定的提示常驻，作者保存后 6 秒收起。
+**为什么是问题**：设计语言“状态不同，布局要相同”“状态变化有过渡”；本组件 .md 写了“出现与收起都不推开内容”，这里是提示行之间的跳动。
+**如何核实**：Vue 官方文档对 TransitionGroup move 的要求：离场元素必须脱离文档流（`position: absolute`）。在 Lab 的 PageNotices“Agent 也改了”场景里让作者那一行收起，看 Agent 行有没有一次跳变（需要真实浏览器，我没有跑）。
+**建议改法**：`.page-notice-leave-active { position: absolute; }`（栏是 `align-items: center`，离场元素定位成绝对后水平位置要保持：给它 `left/right: 12px; margin-inline: auto; width: fit-content` 或者让栏的子元素外面再包一层定宽容器），move 过渡随之生效。补一条 Lab 场景或 e2e：作者行收起时 Agent 行的 y 随时间连续变化。
+
+### 6. 页头名字按钮的“负外边距加 max-w-full”：名字一字一行（作者已在 README 记为待修，审查范围内的提交里仍在）
+**严重程度**：重要　**类别**：界面
+**位置**：packages/neuro-book/src/plugins/canon/web/components/EntryPage.vue:276-285（h1 里的名字按钮 class：`-mx-1.5 inline-flex max-w-full px-1.5`）；Task README“真实页面走查”那一条写“发现页头的名字一字一行……待修”
+**现象**：h1 是一个按内容定宽的 flex 子项（`flex flex-wrap` 里默认 `flex: 0 1 auto`）。按钮的负外边距让它对 h1 的内容宽度只贡献“文字宽 T”（T + 12 内边距 − 12 负外边距），所以 h1 宽度恰好是 T；而按钮的 `max-w-full` 把它的 border-box 封在 h1 宽度 T 上，扣掉左右各 6 像素的内边距，文字可用宽度只剩 T − 12，放不下一整个名字，于是对每一个名字都会折行；`break-words` 加上 `min-w-0` 让中文名折成一字一行。这是 README 里作者在真实页面看到的现象，推导出来的原因与它写的“最大宽度比按钮自身窄 12 像素”一致。本分支的最近一次提交 b25b4fadb 没有改这里，提交范围内仍是原样。
+**为什么是问题**：条目页的主标题在所有宽度上都坏；e2e 与 dom 测试量不到（happy-dom 无布局，e2e 只断言可见与文本）。
+**如何核实**：真实页面（nbdev 开发服务样例作品）打开任一条目，看名字是否竖排；或在 Lab 的 EntryPage 场景（editable）里量 h1 里按钮的 offsetHeight 是否大于一行。我没有跑浏览器。
+**建议改法**：不要用负外边距与 max-w-full 同时存在：把“浅底”做成伪元素（`::before { inset: 0 -6px; }`，按钮自身 padding 为 0），或给按钮 `max-w-[calc(100%+12px)]`。补一条 e2e：名字按钮高度等于单行高度（可用 `boundingBox().height < 2 * lineHeight`）。
+
+### 7. 编辑器标签图标：存盘记录的校验、记下图标的接线、页头标签条的取用、拖影都没有测试
+**严重程度**：建议　**类别**：测试
+**位置**：packages/neuro-book/src/plugins/editor/web/tabs-record.ts:29（icon 的 pattern）、plugin.ts:209-213（只对 restore 标签记 liveIcon、变了才记）、components/EditorGroupHead.vue:101（页面才取 `pages.icon(tab)`）、tab-drag.ts:35-38（拖影带 icon）；计划“验收映射”里列了 `EditorGroupHead.dom.test.ts` 与拖影的测试
+**现象**：这次新增的测试只有 pages.dom.test.ts（取法的先后）、groups.test.ts（记着、存、恢复往返）、EditorTabBar.dom.test.ts（画出 class）三处。没有覆盖：
+1. `tabs-record.test.ts` 没有 icon 的用例：合法的 `i-lucide-user-round` 能存，格式不对（大写、不是 `i-lucide-` 开头、超长）被拒、整条记录怎么处理。pattern 写错（例如不收数字）不会有测试红。
+2. plugin.ts 的同步：不是 restore 的页面不记图标、页面给 null 不覆盖已记的、图标没变不重复写。
+3. EditorGroupHead：文件标签不取图标、页面标签取 `pages.icon(tab)`（把 `tab.kind !== "page"` 条件去掉没有测试会红）。
+4. `tab-drag.ts` 的 `ghost` 带 `icon`：仓库里没有任何断言 ghost 的测试（`grep -rn ghost --include=*.test.ts src/plugins/editor` 没有结果）。
+另外，规格（editor.md 输出 53）与存盘 schema 的约束只在 schema 一处强制：`EditorPageDeclarationSchema.icon` 与页面实现的 `icon(arg)` 只要求非空白字符串，而存盘记录要求 `^i-lucide-[a-z0-9-]+$`。页面实现若返回别的图标集（如 `i-catppuccin-…`）或写错的类名，`rememberPageIcon` 照记，随后整条 `editor.tabs` 记录因 `invalid-value` 写不下去（partition.ts:334 用 Value.Check 拒收），全部标签的存盘都停在暂停状态。标题有同类的 maxLength 500 边界，所以这不是新种类的风险，但图标是这次新开的口子，canon 自己的声明都符合，别的插件才会踩到。
+**如何核实**：`grep -n "icon" packages/neuro-book/src/plugins/editor/tabs-record.test.ts` 无结果；`grep -rn "ghost" --include='*.test.ts' packages/neuro-book/src/plugins/editor` 无结果。写不下去的那一步从 partition.ts 的校验推断，未跑。
+**建议改法**：补 tabs-record 的两条用例（合法、非法）；`liveIcon` 里在交给 `rememberPageIcon` 之前按同一个 pattern 过滤（不合格的当作 null，并记一条诊断），让校验只有一处；拖影与 EditorGroupHead 各补一条 dom 用例。
+
+### 8. 竖排分页里分页增减（情节第一次出现、加一组设定、去掉一组）没有过渡，计划写了“新分页淡入”
+**严重程度**：建议　**类别**：界面（状态变化要有过渡）
+**位置**：packages/neuro-book/src/plugins/canon/web/components/EntryPageNav.vue:62-85（v-for 直接渲染，没有 TransitionGroup）；计划“动效”一节：“加一组设定：新分页出现时在导航里淡入”
+**现象**：竖排导航里，作品第一次有剧情变更时“情节”与 needsChanges 的附加分页出现、加或去掉一组设定、条数从无到有，都是元素直接插入或删除，下面的行与“添加一组设定”瞬间位移。Spec 输出 9 只豁免了“竖排与横排之间的切换”（直接换），没有豁免分页自己的增减。选中项也没有“随切换移动的指示”，只有背景色的 `transition`，与计划写的“选中项的指示随切换移动（竖排是选中底色的 --motion-move）”不同（README“与计划不同”没有记这一条）。
+**为什么是问题**：brief 重点 6 明列“分页增减”要有过渡；这是新增的整块界面，增减又是这次功能的主路径（“加一组设定”后分页就地出现）。
+**如何核实**：Lab 的 EntryPageNav 场景里改 `items`（加一项）看是否有淡入；读 EntryPageNav.vue 即可见没有过渡容器。
+**建议改法**：把两段的 `v-for` 换成 `TransitionGroup`（`name="nav-item"`，enter-from 透明加轻微位移，`-move` 用 `--motion-move`），离场项 `position: absolute`（同第 5 条）；或者在 README 的“与计划不同”里明确记下“竖排的增减不做过渡”并经开发者认可。横排的 `Tabs` 是否也要，另行确认（nb-ui `Tabs` 本身没有增减过渡）。
+
+### 9. 时间点旁的标记 `nowrap` 又不截断，位置带章标题时 390 宽（尤其英文）会撑出横向滚动
+**严重程度**：重要　**类别**：界面（390 宽与英文文案）
+**位置**：packages/neuro-book/src/plugins/canon/web/components/PositionPicker.vue:84-96（`.position-mark { white-space: nowrap }`，没有 max-width、overflow、text-overflow）；标记文字来自 EntryPage 的 `notAppeared`（EntryPageHost.vue:`positionLabel(position, chapters, text)`，带章标题的选项文字）与 `entry.notAppeared`
+**现象**：“到{{position}}还没出场”里的 position 是带标题的选项文字（`position.startTitled`：“第 N 章开头：标题”）。标记是 flex 子项且 nowrap，min-width:auto 等于整句宽度，不能收缩；外层 `flex min-w-0 max-w-full flex-wrap`，放不下时只能换到自己一行，仍比 358 像素（390 宽扣两侧 16 像素边距）宽就撑出去。英文例：“Not yet on stage at End of chapter 12: The Long Road Home Begins” 约 400 像素。Spec 输出 32 要求 390 宽三种页面都没有横向滚动，验收 14 的 e2e 用的样例作品没有长章标题与未出场的位置。
+**为什么是问题**：违反输出 32 与验收 14；标记是新增的，之前的“位置”选择框是定宽 `w-52 max-w-full` 的。
+**如何核实**：Lab 的 PositionPicker“到这里还没出场”场景把 `notAppeared` 改成长章标题、切 390 宽与英文，量 `scrollWidth > clientWidth`。我没有跑浏览器（从 CSS 推断）。
+**建议改法**：`.position-mark { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }` 并在标记元素上加 `:title` 写整句；Lab 补一个长标题场景与英文场景（现有 `sample-english` 只有“算上计划”）。
+
+### 10. 第 3 条的残留：Lab 场景、RecordForm.md 里的旧词，与 Lab 场景名里的“已撤销”
+**严重程度**：建议　**类别**：文档
+**位置**：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:2103、2126、2203、2301（editReason 写“先关掉按计划”）与 :2361（同一份里另一处写“先关掉算上计划”）、:2388（场景名“Agent 那一次已撤销”，按钮现在写“已还原”）；packages/neuro-book/src/plugins/canon/web/components/RecordForm.md:12（“按计划时‘先关掉按计划’”）
+**现象**：同一批 fixture 里“写不了的原因”两种写法并存，且都与界面真实的“算上计划中的情节”不一致；场景名里还用“已撤销”指提示上的按钮状态，而这次的决定是“撤销”只留给剧情变更的状态“已撤销”。
+**建议改法**：随第 3 条一起改：editReason 统一用 locale 里的正式文字（fixture 里直接读 `canonText("blocked.planned")` 更不容易再漂），场景名改“已还原”，RecordForm.md 同步。
+
+### 11. 组件同名 .md 没跟上：回车、立绘交接、提示位置
+**严重程度**：建议　**类别**：文档
+**位置**：
+- ConfirmBar.md:14：写“回车就是保存（预览回来以后……）”。实现已改成预览还在等时也发出 `save`（ConfirmBar.vue:92-95），由宿主等预览回来再决定存不存；`.md` 是合同，没写这个事件语义的变化，也没写 `save` 在 `previewing` 时可能发出。
+- CharacterView.md:11、LookView.md:10、22-26：写“有图或没图时点了切到形象分页……没加过或去掉过时点了加上那一组”，没有一次到位（加上、切过去、打开选图）与 `LOOK_PICK_KEY` 的 inject 与消费；“隐藏通道理由”里 `state:inject` 只写“canon 的翻译端口”，现在还有 `LOOK_PICK_KEY`（跨分页的一次性标记，页面宿主 provide）。CharacterCard.md 倒是改了。
+- EntryPageHost.md:“页面顶上是窗口里那一份保存后的提示”：提示现在浮在页面下方；还有 `provide(LOOK_PICK_KEY)`、`pendingTab`、页头两个就地改编辑器（`headEditor`）、`plans`/`anyChanges` 两个读取都没出现在 .md 里。
+**为什么是问题**：`.agents/skills/ui-development/SKILL.md` 把同名 .md 当组件合同，隐藏通道理由是机检项之一；这次新增的一个 inject 通道没登记。
+**如何核实**：`grep -n "LOOK_PICK" packages/neuro-book/src/plugins/canon/web/components/*.md` 只有 CharacterCard.md 的一句括号。
+**建议改法**：三份 .md 各补一两句；隐藏通道理由里加“`state:inject`：……与形象分页交接的一次性标记（look-handoff.ts）”。
+
+### 12. 页面末尾的留白只按一行提示留，Agent 提示常驻再加作者那一行（或 390 宽折行）时最后几行滚不出来
+**严重程度**：建议　**类别**：界面
+**位置**：packages/neuro-book/src/plugins/canon/web/components/PageNotices.vue:119-122（`.page-notices { height: calc(var(--control-h-md, 2.25rem) + 24px) }`）、:123-130（锚点 bottom: 16px）、:149（`.page-notice` 允许 flex-wrap）
+**现象**：留白固定为一行提示加 24 像素（约 60 像素），而栏里最多同时有三行（Agent、作者、失败），390 宽时每行的动作还会折到第二行（本组件 .md 自己写了“窄了动作换到第二行”）。Agent 的提示不自己收，所以“Agent 一行加作者一行”不是瞬态：两行加间距加 16 像素底距约 96 像素，比留白多出约 36 像素，页面滚到底时最后一行内容被盖住、滚不出来，直到作者关掉 Agent 的提示。Spec 输出 18 写的是“页面末尾常留一段与提示等高的空白，最后几行能滚到提示上方”，单行时成立，多行不成立。
+**如何核实**：Lab 的 PageNotices“Agent 也改了”场景里加长页面内容，滚到底量最后一行与提示栏的重叠；我没有跑浏览器（从 CSS 数值推断）。
+**建议改法**：留白高度不用常数，改成栏的实际高度：把栏放进页面里与留白同一个元素（栏用绝对定位贴在留白底部，留白用 ResizeObserver 或 CSS grid 让高度等于栏高），这样提示多少行留白就多高，出没时留白变高变矮会让页面末尾位移，但那是页面末尾不是正在看的内容；或者保持现状并在 Spec 写明只保证单行。
+
+### 13. “添加立绘”一次到位的标志在“没真正切过去”时会留着；await 之后不看人还在不在人物分页
+**严重程度**：建议　**类别**：正确性（窄边界）
+**位置**：packages/neuro-book/src/plugins/canon/web/components/CharacterView.vue（onPortrait：`await pending` 之后 `lookPick.value = true; context.showTab(LOOK_COMPONENT)`）；EntryPageHost.vue:`showTab`（目标分页还没出现时只记 `pendingTab`）与 `watch(() => state.tab, () => { pendingTab.value = null; })`；LookView.vue:`onMounted` 才消费标志
+**现象**：
+1. 形象这一组刚加上、读取结果里还没有它的命名空间时，`showTab` 只设 `pendingTab`，标志已经立起。作者此时（写入返回到条目重读之间）点了别的分页，`state.tab` 的 watch 会清掉 `pendingTab`，不会切到形象分页，但标志留在宿主的 shallowRef 里。之后作者自己点“形象”分页，LookView 挂上读到标志，立绘的选图莫名其妙地打开。形象分页加载失败（`dataView.failed`）时同理，标志一直留到某次成功挂上。
+2. `await pending` 返回后不检查 CharacterView 是否还挂着、人物分页是否还是当前分页：这期间作者切到别的分页，加完之后仍被拉到形象分页并打开选图（`showTab` 是宿主的闭包，卸载后照样能调）。
+**为什么是问题**：Spec 输出 49 只要求“成功后切过去、打开立绘的选择”；两处都会让选图在作者没点它的时候出现。窗口很窄（加一组设定的往返时间），按“窄场景选简单改法”记为建议。
+**如何核实**：读代码；复现需要在写入返回与条目重读之间插入一次分页点击，没有写测试。
+**建议改法**：标志不跨时间存在：宿主 `watch(() => state.tab, (tab) => { if (tab !== lookTab) lookPick.value = false; })`（切到别处就放倒）；onPortrait 在 `await` 之后先看 `getCurrentInstance()` 是否已卸载、`context` 里的当前分页是否仍是人物，不是就什么也不做（只加上，不切）。
+
+### 14. 横排与竖排切换时，焦点在分页上的话会丢到 body
+**严重程度**：建议　**类别**：界面（键盘与读屏）
+**位置**：packages/neuro-book/src/plugins/canon/web/components/EntryPage.vue:316-358（`v-if="!rail"` 的横排 Tabs 与 `v-if="rail"` 的 EntryPageNav 是两套互相替换的元素）
+**现象**：键盘用户焦点在选中的分页上（roving tabindex 的那一个）时，用快捷键开关侧栏、拖分隔条使编辑区宽度越过 1040 或 1024，`rail` 翻转，旧的那套分页元素被卸载，焦点落回 `document.body`，下一次 Tab 从页面开头再来。Spec 输出 9 说“两种排法选中同一页，直接换”，没提焦点。
+**为什么是问题**：键盘与读屏用户在改窗口宽度的操作之后丢了位置；改动小，窄场景。
+**如何核实**：e2e 里聚焦一个分页、改视口宽度跨过阈值，看 `document.activeElement`；我没有跑。
+**建议改法**：翻转前若焦点在旧的分页里，翻转后（`nextTick`）给新那套的选中项 `focus()`（两套都有 `data-tab-value`）。如果认为不值得，在 EntryPage.md 记为已知限制。
+
+### 15. `impactIsQuiet` 与 `impactLines` 各写一遍“什么算变化”，没有测试把两者对齐
+**严重程度**：建议　**类别**：代码质量
+**位置**：packages/neuro-book/src/plugins/canon/web/impact.ts:21-26（impactIsQuiet）与 :28-54（impactLines）
+**现象**：回车先看变化的“安静”判断（决定存不存）和预览那几行（决定作者看到什么）是两份独立的规则：前者逐个数 pendingAdded、pendingResolved、broken、brokenOn、被 skip 之外的 values，后者逐个写句子。`Impact` 以后多一类（现在已有 `rekeyed`，两边都没算），其中一个漏改，就会出现“预览上写了变化、回车却直接存进去”或反过来。现有测试（revisions.test.ts:34-45）只测了 impactIsQuiet 自己。
+**建议改法**：最少部件的做法是让 `impactLines` 直接返回 `{lines, quiet}`（`quiet` 就是没有往 `lines` 里加任何一句），删掉 `impactIsQuiet`，这样“写出来的句子”与“算不算变化”是同一段代码；`in-place-edit` 的 `describe` 取 `quiet` 即可。若保留两个函数，补一条性质测试：对一组 Impact 样本，`impactIsQuiet(i, skip)` 为真当且仅当 `impactLines(i, {skip, ...})` 只有 `edit.noImpact` 那一句。
+
+### 16. EntryPageNav 的“焦点跟到新选中的一行”没有断言；“添加一组设定”的用例直接对子组件 `$emit`
+**严重程度**：建议　**类别**：测试
+**位置**：packages/neuro-book/src/plugins/canon/web/components/EntryPageNav.dom.test.ts:49-70；EntryPageNav.vue:`move`（`await nextTick(); …focus()`）与 EntryPageNav.md“焦点跟到新选中的一行”
+**现象**：键盘那条用例里 `modelValue` 固定不变，只断言发出的 `update:modelValue`；`move` 里最后一步 `focus()` 没有任何断言，删掉那一行（或者把 `data-tab-value` 查询写错）测试仍通过，而这是竖排导航键盘可用的关键（方向键后下一次按键落在哪一个按钮上）。“添加一组设定”的用例用 `menu.vm.$emit("update:open", true)` 与 `$emit("select", …)` 直接替 DropdownMenu 发事件，没有走真实的打开与选中，DropdownMenu 的事件名或语义变了这条仍绿。
+**建议改法**：键盘用例给一个受控的外壳（`modelValue` 跟着 `update:modelValue` 变），断言 `document.activeElement` 是新选中的 `[data-tab-value]`；菜单用例改成点触发按钮、点菜单项（DropdownMenu 传送到 body，从 document 里找）。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- notices.ts 的计时本身：暂停计数在“暂停期间换新提示”“放开后至少再留 0.8 秒”“两个来源先后放开”“hold 先于提示出现”几条路径上算得对（读代码加 scratch 实验）；窗口里一份计时、attach 计数、宿主卸载重挂不复活，与 notices.test.ts 的用例一致。出问题的只有来源放开这一头（第 1 条）。
+- 还原对话框的暂停（canon/web/plugin.ts 的 watch）：打开放、关闭放，成功后新提示在暂停期间到达、关闭后从头计，没有发现漏放或多放。
+- in-place-edit 的 `saveWhenPreviewed`：晚到的旧预览由 `previewRun` 作废，回车后又打字由 `schedulePreview` 清标志，预览失败清标志，保存在途时 `submit` 与 ConfirmBar 都拦；确认条（非浮层）那一路按钮在 `canSave` 为假时不可点，与旧行为一致；`impactIsQuiet` 与 `impactLines` 目前的规则一致（`rekeyed` 两边都不算）。只有测试缺口与第 4 条的一处小窗口。
+- 竖排与横排的阈值（1040 进、1024 出）与 `wide` 让位的算式互相一致，没有来回振荡的组合；`aria-controls`、`aria-labelledby`、roving tabindex 在两套里都对得上（nb-ui Tabs 的测量层不带 id，没有重复 id）。
+- 编辑器标签图标：`icon(arg)`、记着的、声明的三者先后与 `liveTitle` 对称；旧记录没有 icon 照常读（可选字段）；条目页的 heads 是响应式 Map，图标会跟着条目种类变。
+- Spec 输出 51 的“等预览回来、没有别的变化才存”与实现一致；canon 的声明 `icon` 与 `needsChanges` 的 schema、`mergeEntryKinds` 的“取第一条写了的”正确。
+
+## 未完成的验证
+- `bun run typecheck` 在机器负载 30 到 50 时跑满 900 秒被我设的超时终止（exit 124），没有拿到结果，请主会话自己跑。
+- 没有跑 e2e、没有起开发服务、本机没有 Playwright 浏览器；第 1、5、6、9、12、14 条里涉及浏览器行为的部分是从代码与 CSS 推断，已在各条里标明需要真实页面确认。
+- 已跑通过的：PageNotices、EntryPageNav、ConfirmBar 三个 dom 测试 13 条，notices.test.ts 与 revisions.test.ts 14 条。
+
+## 数量
+- 阻断：0
+- 重要：4（第 1、2、6、9 条）
+- 建议：12（第 3、4、5、7、8、10、11、12、13、14、15、16 条）
+- 共 16 条，全部有效，无撤回。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16

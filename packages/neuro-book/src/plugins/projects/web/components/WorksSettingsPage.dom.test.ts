@@ -3,7 +3,7 @@
  * 加 `WorksSettingsPage`）。配置来自设置场景的局部宿主（产品里同一个配置实例，用户层的拥有者在内存里，同设置窗口的组件测试），
  * 页面拿到的是 `nbook.projects` 自己的配置服务；目录选择器列一棵固定的目录树；有效的作品目录照服务端的算法
  * （`backend/library.ts`）从同一份配置算出。看没设时的缺省目录（取不到时的说明）、选定目录后写进用户层、写入失败发通知并
- * 回到实际值、层不可写时停用。
+ * 回到实际值、层不可写时停用；“启动时打开”的两段（docs/specs/runtime/projects.md 的“启动时打开”）。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
@@ -21,7 +21,7 @@ import {provideText} from "nbook/shared/testing/text-port";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {BrowseEntry} from "../../shared/contracts";
-import {librarySetting} from "../../shared/contracts";
+import {librarySetting, startupOpenSetting} from "../../shared/contracts";
 import type {LibraryInfo} from "../shelf-page";
 import {projectsCatalogs} from "../text";
 import {createWorksPage} from "../works-section";
@@ -59,7 +59,7 @@ function open(user: HostLayer, library = true) {
     const port = text.port;
     const notices: NotificationInput[] = [];
     const listed: Array<string | null> = [];
-    const host = createSettingsHost({settings: [{plugin: "nbook.projects", definition: librarySetting}], sections: [], user, notify: () => undefined, report: () => undefined});
+    const host = createSettingsHost({settings: [{plugin: "nbook.projects", definition: librarySetting}, {plugin: "nbook.projects", definition: startupOpenSetting}], sections: [], user, notify: () => undefined, report: () => undefined});
     cleanup.push(() => host.dispose());
     const settings = host.service("nbook.projects");
     const page = createWorksPage({
@@ -169,8 +169,40 @@ describe("WorksSettingsPage", () => {
         expect(shown().message).toContain("The library folder was not written to settings: write-failed");
     });
 
-    it("设置文件有错误：“更改…”停用", () => {
+    it("设置文件有错误：“更改…”与“启动时打开”都停用", () => {
         open({values: {[librarySetting.key]: `${HOME}/books`}, invalid: "第 3 行：缺少逗号"});
         expect(one<HTMLButtonElement>("[data-works-library-change]").disabled).toBe(true);
+        for (const segment of document.body.querySelectorAll<HTMLButtonElement>("[data-works-startup] button[role='radio']")) expect(segment.disabled).toBe(true);
+    });
+
+    it("启动时打开：没写过时选中“上次的作品”；点“书架”写进用户层，恢复默认删掉这个键", async () => {
+        const {host, notices} = open({});
+        await flushPromises();
+        const segment = (value: string) => one<HTMLButtonElement>(`[data-works-startup] button[role='radio'][data-value='${value}']`);
+        expect(segment("last-work").getAttribute("aria-checked")).toBe("true");
+        expect(segment("last-work").textContent?.trim()).toBe("上次的作品");
+        segment("shelf").click();
+        await flushPromises();
+        expect(host.user.values()).toEqual({[startupOpenSetting.key]: "shelf"});
+        expect(segment("shelf").getAttribute("aria-checked")).toBe("true");
+        expect(notices).toEqual([]);
+        one<HTMLButtonElement>("[data-settings-row-reset]").click();
+        await flushPromises();
+        expect(host.user.values()).toEqual({});
+        expect(segment("last-work").getAttribute("aria-checked")).toBe("true");
+    });
+
+    it("启动时打开写不进去：通知说的是“启动时打开”，不是作品目录", async () => {
+        const {host, notices, text} = open({});
+        host.user.failWrites("write-failed");
+        await flushPromises();
+        one<HTMLButtonElement>("[data-works-startup] button[role='radio'][data-value='shelf']").click();
+        await flushPromises();
+        expect(host.user.values()).toEqual({});
+        // 控件回到层里的值（缺省的“上次的作品”），不停在点过的那一段。
+        expect(one("[data-works-startup] button[role='radio'][data-value='last-work']").getAttribute("aria-checked")).toBe("true");
+        expect(notices).toHaveLength(1);
+        expect(text.port.t(notices[0]?.title ?? "")).toBe("启动时打开没有记住");
+        expect(text.port.t(notices[0]?.message ?? "")).toContain("启动时打开没有写进设置：write-failed");
     });
 });

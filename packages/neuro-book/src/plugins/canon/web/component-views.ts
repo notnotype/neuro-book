@@ -10,7 +10,7 @@ import {shallowRef} from "vue";
 import type {Component, ShallowRef} from "vue";
 
 import type {ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
-import type {FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
+import type {FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {ComponentViewDeclaration} from "../shared/component-views";
@@ -19,6 +19,42 @@ import type {OriginsPage} from "./origin-pages";
 export interface ComponentViewImplementation {
     /** 只取得组件定义；条目页创建实例，组件收到 `{context: ComponentViewContext}`。 */
     load(): Promise<Component>;
+}
+
+/** 写入的结果：失败的原因由界面自己显示。 */
+export type ViewWriteResult = {readonly ok: true} | {readonly ok: false; readonly reason: Text};
+
+/** 同一条目上另一组设定的只读视图（`context.other` 的 `present`）：改它的字段、看它的来历到它自己的分页去（`showTab`）。 */
+export interface ComponentPeer {
+    readonly namespace: string;
+    readonly fields: Readonly<Record<string, FieldState>>;
+    readonly declarations: readonly FieldDeclaration[];
+}
+
+/** 同一条目上另一组设定此刻的情况（author-ui.md 输入一节的 `other`）。 */
+export type OtherComponent =
+    | {readonly status: "present"; readonly peer: ComponentPeer}
+    /** 没加过。 */
+    | {readonly status: "absent"}
+    /** 去掉过，可以恢复。 */
+    | {readonly status: "removed"}
+    /** 加了，所选位置上还没启用；`from` 是“第 N 章”这样的写法。 */
+    | {readonly status: "later"; readonly from: string}
+    /** 类型没登记或不可用。 */
+    | {readonly status: "unavailable"};
+
+/** 就地改的编辑器（`context.FieldEditor`）的属性：`path` 是这个命名空间里的字段名。 */
+export interface FieldEditorProps {
+    readonly path: string;
+    /**
+     * `popover`（缺省）：锚在 `anchor` 上的浮层，短项用；`block`：成段的文字用，同一张编辑卡在原处展开、把下面推开（输出 51），
+     * 放在原文按钮的旁边：卡片带 `data-editing-in-place`，卡片组件见到它时把原文藏起来（CharacterCard、LookCard）。
+     */
+    readonly layout?: "popover" | "block";
+    /** 文字字段这一处的建议值（例如现在穿的：衣柜里各套的名字）；给了就用输入框加候选。 */
+    readonly suggestions?: readonly string[];
+    /** 浮层贴着的元素（值按钮）。写成 `object`：这个文件也在服务端的类型检查里，那里没有 DOM 的类型。 */
+    readonly anchor?: object | null;
 }
 
 /** 都是响应式读取：条目页换位置、世界发布新修订以后，同一个 context 给出新的值。 */
@@ -41,8 +77,11 @@ export interface ComponentViewContext {
     place(at: Placement): string;
     /** 一个地址的来历的一页，从最近一步往前；`path` 是这个命名空间里的路径。失败时 reject。 */
     origins(path: string, cursor?: string): Promise<OriginsPage>;
-    /** 让条目页对这个地址打开就地改的确认条。 */
-    edit(path: string): void;
+    /**
+     * 改这个地址（输出 16、51）：`inline` 为真、并且此刻挂着这条路径的 `FieldEditor` 时由它画，否则出页面顶上的确认条；`value`、
+     * `intent` 预先填好（换装用）。
+     */
+    edit(path: string, options?: {readonly inline?: boolean; readonly value?: unknown; readonly intent?: "creative" | "story"}): void;
     /** 对这个地址记一笔；语义档只给 `text`。 */
     record(path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}>;
     /**
@@ -59,6 +98,31 @@ export interface ComponentViewContext {
      * 不传列全部。它展开着哪个字段记在 `state.open`，专门界面自己的状态别用这个键。
      */
     readonly FieldTable: Component<{readonly fields?: readonly string[]}>;
+    /*
+     * 以下都可以不给：条目页给全，别的宿主（Lab、测试）缺哪一项，界面就退到没有它时的做法（输入一节）。
+     */
+    /** 同一条目上另一组设定；只认声明里 `uses` 列了的类型。在渲染或 computed 里读，不要存起来。 */
+    other?(type: string): OtherComponent;
+    /** 给这个条目加上（去掉过的是恢复）一组设定。 */
+    addComponent?(type: string): Promise<ViewWriteResult>;
+    /** 切到那一组的分页；没有这个分页时什么也不做。 */
+    showTab?(type: string): void;
+    /** 在这个条目的这一组上新增一个字段、改显示名、去掉、恢复（类型允许实例字段时才有）；`path` 是字段名。 */
+    fieldAdd?(field: FieldDraft): Promise<ViewWriteResult>;
+    fieldRename?(path: string, label: string): Promise<ViewWriteResult>;
+    fieldRemove?(path: string): Promise<ViewWriteResult>;
+    fieldRestore?(path: string): Promise<ViewWriteResult>;
+    /** 这一组上去掉过的字段，给“恢复”用。 */
+    readonly removedFields?: readonly {readonly id: string; readonly label: string}[];
+    /** 这个类型的预设字段（canon.components 输出 24），“添加一项资料”里列。 */
+    readonly presets?: readonly FieldDeclaration[];
+    /** 就地改的编辑器与一个值的细节（来历、语义档的各句、记一句）；`path` 是字段名。 */
+    readonly FieldEditor?: Component<FieldEditorProps>;
+    readonly FieldDetail?: Component<{readonly path: string}>;
+    /** 正在就地改、正在看细节的字段（字段名）；没有时为 null。 */
+    readonly editing?: string | null;
+    readonly detail?: string | null;
+    showDetail?(path: string | null): void;
 }
 
 /**

@@ -3,6 +3,18 @@
         "library": {
             "title": "作品目录",
             "description": "新建作品时默认放在这里"
+        },
+        "startupOpen": {
+            "title": "启动时打开",
+            "description": "打开 NeuroBook 时直接进入的页面",
+            "choices": {
+                "last-work": {
+                    "title": "上次的作品"
+                },
+                "shelf": {
+                    "title": "书架"
+                }
+            }
         }
     },
     "commands": {
@@ -260,6 +272,8 @@
     "worksSettings": {
         "change": "更改…",
         "defaultMark": "（缺省）",
-        "defaultUnknown": "取不到缺省目录"
+        "defaultUnknown": "取不到缺省目录",
+        "startupNotSavedTitle": "启动时打开没有记住",
+        "startupNotSaved": "启动时打开没有写进设置：{{reason}}"
     }
 }

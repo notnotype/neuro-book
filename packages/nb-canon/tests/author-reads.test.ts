@@ -161,6 +161,12 @@ describe("canon.project 输出 28、29、34 与 canon.components 输出 21：章
         expect(events).toEqual(["inputChanged:components"]);
         expect(service.status().version).toBe(version);
         expect(service.components().items.some((type) => type.namespace === "panel")).toBe(false);
+        // 只改适用的种类（提示，不进摘要）：照样通知，重读得到新的（components.md 输出 24）。
+        const hinted = declared.filter((type) => type.namespace !== "panel").map((type) => (type.namespace === undefined ? type : {...type, kinds: ["人物"]}));
+        expect(buildRegistry(hinted).digest).toBe(buildRegistry(declared.filter((type) => type.namespace !== "panel")).digest);
+        await service.setRegistries({registry: buildRegistry(hinted)});
+        expect(events).toEqual(["inputChanged:components", "inputChanged:components"]);
+        expect(service.components().items.every((type) => type.kinds?.[0] === "人物")).toBe(true);
         stop();
     });
 });
@@ -228,7 +234,7 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         expect(second.view.namespaces.panel!.fields["存款"]!.changedAt).toEqual({by: "change", id: salary.ref.id, at: (service.object({kind: "change", id: salary.ref.id}).object as StoryChange).at});
         // 不要的时候与要的时候，别的内容一样。
         expect({...second.view.namespaces.panel!.fields["存款"]!, changedAt: undefined}).toEqual({...plain.view.namespaces.panel!.fields["存款"]!, changedAt: undefined});
-        expect(second).toMatchObject({ancestors: [], sameAs: null, folder: "人物"});
+        expect(second).toMatchObject({ancestors: [], sameAs: null, folder: "人物", kind: "人物"});
 
         const brother = service.entry(ids.get("brother"), end("ch2"), "actual");
         if (typeof brother === "string") throw new Error(brother);
@@ -241,7 +247,7 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         if (typeof opened === "string" || !("token" in opened)) throw new Error("开不了视图");
         const read = service.viewed(opened.token).entry(ids.get("brother"), undefined);
         if (typeof read === "string" || read.view === null) throw new Error("读不到");
-        expect("ancestors" in read || "sameAs" in read || "folder" in read).toBe(false);
+        expect("ancestors" in read || "sameAs" in read || "folder" in read || "kind" in read).toBe(false);
         expect(Object.values(read.view.namespaces).flatMap((data) => Object.values(data.fields)).some((field) => "changedAt" in field)).toBe(false);
     });
 
@@ -335,6 +341,13 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
     afterEach(async () => {
         await service.stop();
         await removeMarkedTmpRoot(dir, join(dir, TMP_MARKER_FILE));
+    });
+
+    test("条目读取带上种类：是条目的 type，不是它所在的文件夹", async () => {
+        const ids = await publish([entry("tmp:sect", "青云门", {type: "组织", folder: "势力"})]);
+        const read = service.entry(ids["tmp:sect"]!, {kind: "chapter", chapter: "ch1", edge: "end"}, "actual");
+        if (typeof read === "string") throw new Error(read);
+        expect(read).toMatchObject({kind: "组织", folder: "势力"});
     });
 
     /** 星瑕与一条回溯线：第 2 章“回溯”把次数用掉（c3），线从 c1 之后重来。 */

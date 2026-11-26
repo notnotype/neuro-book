@@ -387,6 +387,16 @@ export interface ViewHeadOptIn {
 }
 
 /**
+ * 内置视图声明在浮动窗里自绘整个头（docs/specs/workbench/views.md 输出 19 的“自绘头”）：`band` 是视图画在内容顶上的那一条头有多高（CSS px），
+ * 工作台把视图动作与框架按钮竖直居中盖在这一条的右端，别的视图拖到这一条上是添加到最后。只和 `VIEW_HEAD` 一起读：自绘时视图从 `ViewHead.ownHead` 得知。
+ */
+export const VIEW_OWN_HEAD: unique symbol = Symbol("nbook.workbench/view-own-head");
+
+export interface ViewOwnHeadOptIn {
+    readonly [VIEW_OWN_HEAD]: {readonly band: number};
+}
+
+/**
  * 面板头给视图的几个位置，都是工作台渲染的元素，视图只往里送内容，不改它们的属性。共用合同不带 DOM 类型，这里写成 `object`：
  * 视图在自己的组件里用 `instanceof HTMLElement` 取（类型守卫，不是断言）。
  */
@@ -416,6 +426,11 @@ export interface ViewHead {
      * 画头；写回 true 又接管。给按自己的宽窄换版式的视图用（消息视图宽版时头画在聊天区上方）。要在 `setup` 里同步写初值，免得首帧接管、再翻回去。
      */
     readonly claim: Ref<boolean>;
+    /**
+     * 此刻在自绘整个头没有（工作台写，视图只读）：实现声明了 `VIEW_OWN_HEAD`、在只有它一个标签的浮动窗里时为 true，这时没有面板头，`slots` 是 null，
+     * 视图把头画在内容顶上、给可拖的元素写 `data-window-drag`，右端按 CSS 变量 `--workbench-own-head-inset-end` 留出工作台盖上来的按钮。
+     */
+    readonly ownHead: Readonly<Ref<boolean>>;
 }
 
 /** 以上下文为键：视图手里只有 `context`，不另开一条注入通道。 */

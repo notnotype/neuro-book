@@ -247,6 +247,8 @@ export function validateEditorPageContribution(descriptor: ContributionDescripto
 
 /** 带参数的页面的参数（`open-page` 的 `arg`）最长多少个字符。 */
 export const PAGE_ARG_MAX_LENGTH = 200;
+/** 页面标签的图标（输出 53）：lucide 的类名。记着的图标随标签记录存盘，格式不对的不认（当作页面没给）。 */
+export const PAGE_ICON_PATTERN = "^i-lucide-[a-z0-9-]+$";
 
 /**
  * 编辑器贡献点（docs/specs/workbench/editor.md 输出 36–42）：一种打开文件的方式。贡献 id 就是编辑器 id，记在标签上；

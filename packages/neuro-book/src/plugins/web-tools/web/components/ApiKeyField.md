@@ -26,16 +26,19 @@ defineProps<{
     state: "loading" | "set" | "unset";  // 读取中、已设置、还没有填写；决定占位文字与“清除”是否出现
     service: string;                     // 服务名，进“清除”的可访问名称
     disabled?: boolean;                  // 缺省 false
-    describedBy?: string;                // 额外关联到框上的说明的元素 id（节里的说明）
+    describedBy?: string;                // 额外关联到框上的说明的元素 id
+    tip?: string;                        // 标签旁说明图标（InfoTip）的提示；缺省没有图标
+    notice?: string;                     // 没有密钥时标签行右边（有密钥时是“清除”的位置）写的状态字，警告色；缺省不写
 }>();
 defineEmits<{
     (e: "set", value: string): void;     // 交出一个新值（已去掉首尾空白，不是 env: 写法）
     (e: "clear"): void;
     (e: "pending", value: boolean): void; // 框里有没有失焦就会交出的输入；只在变化时发
 }>();
+defineExpose({focus});                   // 把焦点放进密码框（页面在“等着启用”时用）
 ```
 
-没有 slots 与 expose；attrs 落在根元素上。
+没有 slots；expose 只有 `focus`；attrs 落在根元素上。
 
 ## 状态
 

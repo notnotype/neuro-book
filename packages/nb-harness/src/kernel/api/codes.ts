@@ -164,6 +164,7 @@ export const diagnosticCodes = {
     "bad-extension-id": "error",
     "duplicate-extension-id": "error",
     "dependency-missing": "error",
+    "referenced-extension-missing": "error",
     "reassembly-failed": "error",
     "dependency-cycle": "error",
     "event-name-reserved": "error",

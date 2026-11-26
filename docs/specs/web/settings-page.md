@@ -4,43 +4,49 @@ kind: behavior
 status: implemented
 capability: web.settings-page
 owners:
-  - nbook.web-tools
+  - nbook.web
 ---
 
 # 搜索与网页的设置页
 
 ## 目标与非目标
 
-设置窗口 AI 分组下的“搜索与网页”页：填写网页工具（[`web/tools.md`](tools.md)）用的搜索服务密钥并检测。第一版只有 DeepSeek 一节。数据与写入全部经远程合同 `nbook.web-tools/settings`（[`web/tools.md`](tools.md) 输出 16 到 19），改了就写，没有“未保存”状态。
+设置窗口 AI 分组下的“搜索与网页”页：选网页工具（[`web/tools.md`](tools.md)）用哪家搜索服务，填各家的密钥并检测，设搜索规则（默认结果条数、屏蔽网站）与各家的高级项（接口地址、Tavily 的搜索深度）。左边列表、右边详情，同“服务商与模型”页。密钥的数据与写入经远程合同 `nbook.web/settings`（[`web/tools.md`](tools.md) 输出 16 到 19），设置项经设置服务写用户层；改了就写，没有“未保存”状态。
 
 不承诺：
 
 - 环境变量引用（`env:` 写法）；从模型设置里带过来 DeepSeek 的密钥。
+- 选用的那家没有密钥或出错时自动改用别家。
 - 本作品标签下编辑（只有用户层）。
 - 从别处按 `focus` 定位到某家的密钥框。
-- DeepSeek 地址的编辑（`nbook.web-tools/deepseekBaseUrl` 只能改设置文件）。
 
 ## 术语与参与者
 
 - **数据模块**：页面用的非组件模块，持有密钥状态与检测状态，所有远程调用经它。
+- **使用中**：设置项 `nbook.web/provider` 的有效值那一家（[`web/tools.md`](tools.md) 的“选用的服务”）。
+- **等着启用**：点了一家的“设为使用中”、因为它还没有密钥而没切过去的状态（输出 11）。
 
 ## 输入与前置条件
 
-- 页面是 `nbook.web-tools` 浏览器入口贡献的 page 分区（贡献点 `settings.pages`）：分类 `ai`，`order` 22，`layout: "column"`，`layers: ["user"]`，图标 `i-lucide-globe`，标题“搜索与网页”，说明“让 Agent 搜索与读取网页”，关键词“联网”“网页”“搜索”“DeepSeek”。窗口第一次显示这页时激活浏览器入口。
+- 页面是 `nbook.web` 浏览器入口贡献的 page 分区（贡献点 `settings.pages`）：分类 `ai`，`order` 22，`layout: "fill"`，`layers: ["user"]`，图标 `i-lucide-globe`，标题“搜索与网页”，说明“让 Agent 搜索与读取网页”，关键词“联网”“网页”“搜索”“DeepSeek”“Tavily”。窗口第一次显示这页时激活浏览器入口。
 - 远程合同不可用（服务端入口没激活或已停止）时页面只读。
 
 ## 输出与可观察行为
 
-1. **版式**：单列，每家服务一节；第一版只有“DeepSeek”一节：API 密钥、检测、说明。
+1. **版式**：左栏定宽，顶上“搜索规则”，一条分隔线，下面每家服务商一行（logo、名称、定宽的“使用中”一格、行尾定宽的状态一格，行等高、同种零件同列）；右边是选中项的详情，自己纵向滚动。服务商的详情：标题区（logo、名称、右边“使用中”徽标或“设为使用中”按钮），API 密钥，检测，“高级”。第一次显示这页时选中使用中的那家。页面宽不超过 600px 时左栏收起，顶上换成一个下拉，选项是“搜索规则”与各家（使用中的那家写“（使用中）”）。
 2. **读取中**：第一次拿到 `status` 之前，密钥处显示“读取中”、控件停用，不显示“未设置”。`status` 得 `credentials-unavailable` 时按未设置画（在这里写入会覆盖坏文件）；因别的原因失败（远程合同不可用、请求途中服务端入口停了、超时）时按只读画（输出 7）：顶上写原因，密钥框仍写“读取中”、停用，不显示“未设置”。
 3. **API 密钥**：密码框，`autocomplete="new-password"`；已设置时不回显值，显示“已设置”与“清除”；失焦或回车时写（`setKey`），发出时清空输入框，所以回车后紧接着失焦不重复写（已存的密钥不在浏览器里，不比较与写前是否相同）。页面的任何地方（输入框的值、文字、属性）都不出现已存的密钥。
 4. **不支持的写法**：输入以 `env:` 开头时原位提示“这里不支持环境变量引用”，不写入。
 5. **清除**：点“清除”直接写（`clearKey`），不确认。
 6. **写失败**：`setKey`、`clearKey` 失败时交设置窗口通知，写明原因与请重新输入（整句在消息目录里，各语言用自己的标点）；结果未知（`unknown-outcome`）时写“可能没有保存”并重取 `status`。
 7. **只读与停用**：远程合同不可用（含取 `status` 时没连上服务端）时控件停用并在页面上写原因；页面上下文的 `writable` 为假时控件停用；`status` 得 `credentials-unavailable` 时写“密钥文件读不了”。
-8. **检测**：没有密钥、密钥框里也没有待写的输入时“检测”停用；框里有输入（不是 `env:` 写法）或这一家有写入在途时可点，所以第一次填完直接点就行：按下按钮时框先失焦写入，点击发出的检测等这一家在途的写入结束再发 `check`。进行中按钮显示“检测中”并停用；结果显示通过（带检测的时间）、失败（按码写原因，可以再点）、没检成（远程调用本身失败；结果未知时写“连接断了，不确定检测有没有发出去”，不借写入的说法）。按钮旁写“会发一次搜索，按次计费”。写入或清除成功后，这一家的检测结果清掉；检测已经发出之后写入成功，那次检测用的是旧密钥，取消它、回到空闲，不显示它的结果。离开这页再回来，检测结果与进行中的检测还在；入口停用时取消已经发出的检测，排在写入后面还没发出的不再发。
-9. **说明**：节内写“这把密钥只给搜索与读网页用，与模型设置里的 DeepSeek 密钥分开存放；同一把密钥可以在这里再填一次。”
-10. **无障碍**：密码框有标签，说明经 `aria-describedby` 关联；检测结果 `role="status"`，检测进行中在里面写一段只给读屏的“检测中”（按钮停用后读不到它的新文字）；“检测”“清除”的可访问名称带服务名。
+8. **检测**：没有密钥、密钥框里也没有待写的输入时“检测”停用；框里有输入（不是 `env:` 写法）或这一家有写入在途时可点，所以第一次填完直接点就行：按下按钮时框先失焦写入，点击发出的检测等这一家在途的写入结束再发 `check`。进行中按钮显示“检测中”并停用；结果显示通过（带检测的时间）、失败（按码写原因，可以再点）、没检成（远程调用本身失败；结果未知时写“连接断了，不确定检测有没有发出去”，不借写入的说法）。按钮旁写“会发一次搜索，可能计费”；检测结果写在按钮下面预留的一行，没有结果时这一行照样空着；一行写得下的结果出现与消失不推动下面的内容，原因长时折行。写入或清除成功后，这一家的检测结果清掉；检测已经发出之后写入成功，那次检测用的是旧密钥，取消它、回到空闲，不显示它的结果。离开这页再回来，检测结果与进行中的检测还在；入口停用时取消已经发出的检测，排在写入后面还没发出的不再发。
+9. **说明**：详情里不写说明句；DeepSeek 的密钥标签旁有说明图标，提示“与‘服务商与模型’里的 DeepSeek 密钥分开保存，可以填同一把”。
+10. **无障碍**：左栏是导航，当前项 `aria-current="page"`，上下键与 Home、End 移动并选中，只有当前项在 Tab 序列里；每行的“使用中”与状态图标另写成这一行的读屏描述。密码框有标签，说明图标的提示经 `aria-describedby` 关联；检测结果 `role="status"`，检测进行中在里面写一段只给读屏的“检测中”（按钮停用后读不到它的新文字）；“检测”“清除”的可访问名称带服务名。
+11. **选用**：服务商详情的标题区右边，选中的那家是使用中时写“使用中”徽标，否则是“设为使用中”按钮；点了经设置服务写用户层 `nbook.web/provider`，之后开始的工具调用用这家；写成后焦点回到左栏这一行。例外：这家还没有密钥、而使用中的那家有密钥时不切，进入“等着启用”：焦点进这家的密钥框，密钥行右边写“填写密钥后即可启用”，这家的密钥写入成功后自动写 `nbook.web/provider`；换选别的项、离开这页、清除这家的密钥时等待作废。使用中的那家也没有密钥时照常切。左栏：使用中的那家在“使用中”一格写徽标；状态一格只在出问题时有图标：这家在本次打开里检测没通过（危险色），或它是使用中而没有密钥（警告色钥匙）；没在用、也没有密钥的不标。详情里使用中的那家没有密钥时，密钥行右边（有密钥时是“清除”的位置）写“未填写”。写失败交窗口通知，主语是“使用”，原因用设置窗口写入失败的同一套说法（结果未知时标为不确定）。停用条件同输出 7；用户层不可写时也停用。
+12. **搜索规则**：选中“搜索规则”时右边是两项设置行：“默认结果条数”（数字框，1 到 10，写 `nbook.web/resultCount`）与“屏蔽网站”（标签输入，写 `nbook.web/blockedSites`；回车、失焦或打出逗号、顿号时把输入加进去，粘贴含这些分隔符、换行或空白的文字时拆成几项；粘贴的网址只留主机；不是域名写法、或多于 100 个时原位提示、整串不写）。左栏这一项行尾写屏蔽了几个网站，没有时空着，读屏描述写“屏蔽了 N 个网站”。改了就写用户层，写失败交窗口通知（主语是这一项的标题）。框里还没写成的草稿与原位提示，在这一项的值从别处变了（恢复默认、设置文件）或换选别的项时作废。
+13. **高级**：服务商详情底下一个“高级”折叠，标题旁写里面有哪几项；里面是“接口地址”（失焦或回车时写 `nbook.web/<服务>BaseUrl`，清空时去掉用户层的值、回到缺省；解析不成带主机的 http 或 https 网址时原位提示、不写入）与 Tavily 才有的“搜索深度”（两段单选“标准 · 1 点”“深度 · 2 点”，写 `nbook.web/tavilySearchDepth`）。这家有改过的高级项时默认展开。
+14. **logo**：左栏与详情标题区画服务商的 logo，取应用的服务商图标表；表里没有的画首字母块。窄布局的下拉只写名称。
 
 ## 状态与转换
 
@@ -51,6 +57,8 @@ owners:
 | 只读 | 下一次显示这页，重取到 `status` | 就绪（重取期间仍按只读画） |
 
 检测：空闲 → 进行中 → 通过或失败或没检成；写入、清除成功回到空闲（已经发出的检测随之取消）。
+
+设为使用中：没在用 → 点“设为使用中” → 使用中（这家有密钥，或使用中的那家也没有密钥）或等着启用（其余）；等着启用 → 这家的密钥写入成功 → 使用中；等着启用 → 换选别的项、离开这页、清除这家的密钥 → 没在用。等着启用只在页面里，不写进设置。
 
 时序与寿命：数据模块随浏览器入口建、随入口停用释放；页面卸载不丢数据模块里的状态。同一家的写入与检测排队，检测读到的是排在它前面的写入之后的密钥。
 
@@ -76,22 +84,28 @@ owners:
 
 1. 打开设置窗口的“搜索与网页”页，填密钥后出现“已设置”且输入框为空；检测通过（本机假端点）；清除后回到未设置，检测停用。
 2. 填完密钥直接点“检测”（第一次填写、还没有密钥时也一样）：检测用到刚填的密钥。
+3. 选用改成 Tavily：重开设置窗口后仍选中 Tavily；设置文件用户层里 `nbook.web/provider` 为 `"tavily"`；在 Tavily 一节填密钥、检测通过（本机假 Tavily 端点）。
+4. 先填密钥再切：DeepSeek 有密钥、在用时，选中 Tavily 点“设为使用中”：没切（设置文件里仍是 DeepSeek），焦点在 Tavily 的密钥框；填好回车后 `nbook.web/provider` 变成 `"tavily"`，左栏“使用中”挪到 Tavily。
+5. 搜索规则与高级：改默认结果条数、加一个屏蔽网站、改 Tavily 的接口地址与搜索深度，设置文件用户层里是这几个值（请求按它们发见 [`web/tools.md`](tools.md) 输出 1、3）。
 
-Smoke：生产构建的服务端、真实浏览器、本机假 DeepSeek 端点（`e2e/web-settings.e2e.ts`）。
+Smoke：生产构建的服务端、真实浏览器、本机假 DeepSeek 与 Tavily 端点（`e2e/web-settings.e2e.ts`）。
 
 ## 实现合同
 
-- 公开入口：`nbook.web-tools` 浏览器入口贡献的 page 分区 `nbook.web-tools.search`（`SEARCH_SECTION`）；组件 `SearchSettingsPage`、`ApiKeyField` 只在本插件内用。
-- owner 与依赖方向：`nbook.web-tools` 的浏览器入口依赖设置窗口的 `settings.pages` 贡献点与自己服务端的远程合同（[`web/tools.md`](tools.md) 输出 16 到 19）。
+- 公开入口：`nbook.web` 浏览器入口贡献的 page 分区 `nbook.web.search`（`SEARCH_SECTION`）；组件 `SearchSettingsPage`、`ApiKeyField` 只在本插件内用。
+- owner 与依赖方向：`nbook.web` 的浏览器入口依赖设置窗口的 `settings.pages` 贡献点、设置服务（`settingsKey`，交给页面读写使用中的服务、搜索规则与高级项）与自己服务端的远程合同（[`web/tools.md`](tools.md) 输出 16 到 19）；logo 取应用的服务商图标表（`ui/provider-icons` 的 `ProviderLogo`，与“服务商与模型”页共用）；屏蔽网站的归一化与服务端共用 `shared/sites.ts`。
 - 不变量：
   1. 状态都在数据模块里，随浏览器入口建、停用时释放；页面卸载不丢（`search-store.test.ts`、DOM 测试）。
   2. 同一家的检测排在在途的写入后面；写入成功时已经发出的检测作废（`search-store.test.ts`）。
   3. 密钥只进不出：密钥框交出后清空，页面任何地方不出现密钥原文（DOM 测试、e2e）。
   4. 第一次填写时，框里有输入或写入在途时“检测”可点，点击不会落在停用的按钮上（e2e）。
+  5. 等着启用只在页面里，不写进设置；只有这一家的密钥写入成功才写 `nbook.web/provider`（DOM 测试、e2e）。
+  6. 屏蔽网站在页面里写入前与服务端读取时调同一个归一化函数，不各写一份（归一化本身由 `sites.test.ts` 测）。
+  7. 框里没写成的草稿与原位提示不跨项留，这一项的值从别处变了时作废（DOM 测试）。
 
 ## 证据
 
-- 批准依据：开发者在 [w00052 t01](../../../.agents/works/w00052-web-tools/tasks/t01-design/README.md) 的决定 1 到 6 与[实施计划](../../../.agents/works/w00052-web-tools/tasks/t01-design/plan.md)第 4 稿。
+- 批准依据：开发者在 [w00052 t01](../../../.agents/works/w00052-web-tools/tasks/t01-design/README.md) 的决定 1 到 6 与[实施计划](../../../.agents/works/w00052-web-tools/tasks/t01-design/plan.md)第 4 稿；[w00052 t02](../../../.agents/works/w00052-web-tools/tasks/t02-tavily-and-batch-search/README.md) 里开发者 2026-11-25 的决定；[w00052 t03](../../../.agents/works/w00052-web-tools/tasks/t03-search-settings-redesign/README.md) 的决定 1 到 4（加四项设置、左边列表右边详情、先填密钥再切）。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/web-tools/web/plugin.ts)
-- 合同测试：[`search-store.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/search-store.test.ts)、[`SearchSettingsPage.dom.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/web/components/SearchSettingsPage.dom.test.ts)
-- Smoke：[`web-settings.e2e.ts`](../../../packages/neuro-book/e2e/web-settings.e2e.ts)
+- 合同测试：[`search-store.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/search-store.test.ts)、[`SearchSettingsPage.dom.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/web/components/SearchSettingsPage.dom.test.ts)、[`sites.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/sites.test.ts)、[`ProviderLogo.dom.test.ts`](../../../packages/neuro-book/src/ui/provider-icons/ProviderLogo.dom.test.ts)
+- Smoke：[`web-settings.e2e.ts`](../../../packages/neuro-book/e2e/web-settings.e2e.ts)（验收 1 到 5）；左栏定宽与同列、窄布局、logo 与首字母块这些外观看 Lab 场景 `SearchSettingsPage` 与 `ProviderLogo` 的截图

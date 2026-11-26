@@ -1,0 +1,29 @@
+// @vitest-environment happy-dom
+// t62 探针：happy-dom 能不能撑起适配层的 dom 测试（计算样式、滚动量、scrollBy）。
+import {expect, it} from "vitest";
+
+it("happy-dom 的滚动相关", () => {
+    const el = document.createElement("div");
+    el.style.overflowX = "auto";
+    el.style.overflowY = "hidden";
+    document.body.append(el);
+    const style = getComputedStyle(el);
+    const facts: Record<string, unknown> = {overflowX: style.overflowX, overflowY: style.overflowY, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth};
+    Object.defineProperty(el, "scrollWidth", {configurable: true, value: 500});
+    Object.defineProperty(el, "clientWidth", {configurable: true, value: 200});
+    el.scrollLeft = 30;
+    facts.afterAssign = el.scrollLeft;
+    el.scrollBy({left: 10, behavior: "instant"});
+    facts.afterScrollBy = el.scrollLeft;
+    el.scrollLeft = 1000;
+    facts.pastEnd = el.scrollLeft;
+    const sheet = document.createElement("style");
+    sheet.textContent = ".s { overflow-x: scroll; }";
+    document.head.append(sheet);
+    const b = document.createElement("div");
+    b.className = "s";
+    document.body.append(b);
+    facts.fromSheet = getComputedStyle(b).overflowX;
+    console.log(JSON.stringify(facts));
+    expect(true).toBe(true);
+});

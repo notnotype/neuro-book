@@ -73,6 +73,8 @@ const FieldDeclarationCore = {
     max: Type.Optional(Type.Union([Type.Number(), Id])),
     options: Type.Optional(Type.Array(Text)),
     retold: Type.Optional(Type.Boolean()),
+    /** 只用于 `text`：建议的值。只是提示，值不必在其中，内核不据此校验（components.md 输出 24）。 */
+    suggestions: Type.Optional(Type.Array(Text)),
     /** `ref` 与以引用为键的列表允许指向的条目种类（条目的 `type`）；没有时任何种类都行（components.md 输出 18）。 */
     targets: Type.Optional(Type.Array(Text)),
     /** 为 `ref` 时列表的元素 id 就是被引用的条目 id（components.md 输出 19）。 */
@@ -92,10 +94,23 @@ export const ComponentDeclarationSchema = Type.Object({
     version: Type.Optional(Type.Integer({minimum: 1})),
     fields: Type.Optional(Type.Array(FieldDeclarationSchema)),
     instanceFields: Type.Optional(Type.Boolean()),
+    /** 这组设定适用的条目种类（条目的 `type`）；只是提示，不限制它加在哪种条目上（components.md 输出 24）。 */
+    kinds: Type.Optional(Type.Array(Text)),
+    /** 给“添加一项”用的预设字段声明；只在 `instanceFields` 为真时可写（components.md 输出 24）。 */
+    presets: Type.Optional(Type.Array(FieldDeclarationSchema)),
     agentView: Type.Optional(Text),
     bookkeepingNotes: Type.Optional(Text),
     usageNotes: Type.Optional(Text),
 }, {additionalProperties: false});
+
+/**
+ * 实例上的字段声明：字段声明加“已去掉”的标记（components.md 输出 4）。去掉不删声明：种类留着，恢复时不会变；
+ * 标记只属于实例声明，类型固定的字段、预设与列表的子字段里写了它由登记拒收（`fieldsProblem`）。
+ */
+export const InstanceFieldDeclarationSchema = Type.Object({...FieldDeclarationCore, item: Type.Optional(Type.Array(Type.Object(FieldDeclarationCore))), removed: Type.Optional(Type.Literal(true))});
+
+/** 新增实例字段时给的声明（components.md 输出 4）：`id` 可以不写，由内核按显示名生成；给了的 id 已经占着时拒收（`id-taken`）。 */
+export const FieldDraftSchema = Type.Object({...FieldDeclarationCore, id: Type.Optional(Id), item: Type.Optional(Type.Array(Type.Object(FieldDeclarationCore)))});
 
 export const NamespaceDataSchema = Type.Object({
     type: Id,
@@ -103,7 +118,7 @@ export const NamespaceDataSchema = Type.Object({
     enabled: Type.Boolean(),
     removed: Type.Optional(Type.Boolean()),
     fields: Type.Record(Type.String(), Type.Unknown()),
-    declared: Type.Optional(Type.Array(FieldDeclarationSchema)),
+    declared: Type.Optional(Type.Array(InstanceFieldDeclarationSchema)),
 });
 
 export const BlockSchema = Type.Object({id: Id, source: Text});
@@ -382,7 +397,7 @@ export const NewEntrySchema = Type.Object({
     appears: Type.Optional(Type.Union([PlacementSchema, Type.Null()])),
     aliases: Type.Optional(Type.Array(Text)),
     summary: Type.Optional(Text),
-    components: Type.Optional(Type.Array(Type.Object({type: Id, fields: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false}))),
+    components: Type.Optional(Type.Array(Type.Object({type: Id, fields: Type.Optional(Type.Record(Type.String(), Type.Unknown())), declare: Type.Optional(Type.Array(FieldDraftSchema))}, {additionalProperties: false}))),
     text: Type.Optional(Type.Array(Text)),
 }, {additionalProperties: false});
 
@@ -396,7 +411,12 @@ export const EntryOpSchema = Type.Union([
     // `after`：块 id 是放在它后面，`null` 是放在最前，不写是放在最后（revisions.md 输出 25）。
     Type.Object({op: Type.Literal("addBlock"), entry: Id, source: Text, after: Type.Optional(Type.Union([Id, Type.Null()]))}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("removeBlock"), at: AddressSchema}, {additionalProperties: false}),
-    Type.Object({op: Type.Literal("component"), entry: Id, type: Id, action: Type.Union([Type.Literal("add"), Type.Literal("remove")]), fields: Type.Optional(Type.Record(Type.String(), Type.Unknown()))}, {additionalProperties: false}),
+    // `declare`：加的时候带上这个实例自己的字段声明（revisions.md 输出 25）；只在 `add` 时有意义。
+    Type.Object({op: Type.Literal("component"), entry: Id, type: Id, action: Type.Union([Type.Literal("add"), Type.Literal("remove")]), fields: Type.Optional(Type.Record(Type.String(), Type.Unknown())), declare: Type.Optional(Type.Array(FieldDraftSchema))}, {additionalProperties: false}),
+    // 实例字段的声明：新增（可带初值）、改显示名、去掉、恢复（components.md 输出 4；后三个的地址是 `<命名空间>.<字段 id>`）。
+    Type.Object({op: Type.Literal("fieldAdd"), entry: Id, namespace: Text, field: FieldDraftSchema, value: Type.Optional(Type.Unknown())}, {additionalProperties: false}),
+    Type.Object({op: Type.Literal("fieldRename"), at: AddressSchema, label: Text}, {additionalProperties: false}),
+    Type.Object({op: Type.Union([Type.Literal("fieldRemove"), Type.Literal("fieldRestore")]), at: AddressSchema}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("place"), entry: Id, parent: Type.Optional(Type.Union([Id, Type.Null()])), folder: Type.Optional(Text), kind: Type.Optional(Text), after: Type.Optional(Type.Union([Id, Type.Null()])), appears: Type.Optional(Type.Union([PlacementSchema, Type.Null()])), sameAs: Type.Optional(Type.Union([Id, Type.Null()]))}, {additionalProperties: false}),
     Type.Object({op: Type.Union([Type.Literal("delete"), Type.Literal("restore")]), entry: Id}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("add"), at: AddressSchema, delta: Type.Number(), read: Type.Optional(Type.Unknown())}, {additionalProperties: false}),
@@ -435,6 +455,8 @@ export type TellingDraft = Omit<Telling, "id"> & {readonly id?: string};
 export type Basis = Static<typeof BasisSchema>;
 export type FieldKind = Static<typeof FieldKindSchema>;
 export type FieldDeclaration = Static<typeof FieldDeclarationSchema>;
+export type InstanceFieldDeclaration = Static<typeof InstanceFieldDeclarationSchema>;
+export type FieldDraft = Static<typeof FieldDraftSchema>;
 export type NamespaceData = Static<typeof NamespaceDataSchema>;
 export type Block = Static<typeof BlockSchema>;
 export type EntryState = Static<typeof EntryStateSchema>;

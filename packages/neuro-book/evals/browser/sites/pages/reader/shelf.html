@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>我的书架 - 长书网</title>
+<link rel="stylesheet" href="/assets/reader.css">
+</head>
+<body>
+<header><strong>长书网</strong><nav><a href="/rank">月票榜</a><a href="/search">搜索</a><a href="/shelf" aria-current="page">我的书架</a></nav></header>
+<main>
+  <div class="card"><h2 style="margin-top: 0;">我的书架</h2><div id="shelf">加载中……</div></div>
+</main>
+<script>
+fetch("/api/shelf").then((r) => r.json()).then((items) => {
+  document.querySelector("#shelf").innerHTML = items.length === 0 ? "<p>书架是空的。</p>" : items.map((b) => `<a class="result" href="/book/${b.id}"><div class="title">${b.title}</div></a>`).join("");
+});
+</script>
+</body>
+</html>

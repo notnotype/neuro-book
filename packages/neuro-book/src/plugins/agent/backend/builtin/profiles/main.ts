@@ -8,7 +8,7 @@ import {If, Tag, ToolName} from "@notnotype/nb-harness/prompt";
 import type {AgentExtensionImplementation, AgentProfileDeclaration, AgentProfileImplementation} from "../../../shared/points";
 
 import {ADHOC_PROFILE, MAIN_PROFILE, MAIN_PROFILE_TOOLS} from "../../../shared/contracts";
-import {modesExtensions} from "../../permissions/modes";
+import {AGENT_MODES_EXTENSION} from "../../../shared/permissions";
 
 const NAME = "写作助手";
 const DESCRIPTION = "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。";
@@ -33,7 +33,7 @@ const STARTERS = [
  */
 const STICKERS = {allowed: ["builtin.lyra"]};
 
-export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}, stickers: STICKERS, starters: STARTERS};
+export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, referencedExtensions: [AGENT_MODES_EXTENSION], icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}, stickers: STICKERS, starters: STARTERS};
 
 const ROLE = `你是 NeuroBook 的写作助手，和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。
 书的文件在 project:// 下。没有打开书时可以讨论，产物放 session://。`;
@@ -72,7 +72,7 @@ export function mainProfile(rules: AgentExtensionImplementation): AgentProfileIm
         name: NAME,
         description: DESCRIPTION,
         tools: TOOLS,
-        extensions: [rules, ...modesExtensions],
+        extensions: [rules],
         system: [
             Tag({name: "role", children: ROLE}),
             Tag({name: "work", children: WORK}),

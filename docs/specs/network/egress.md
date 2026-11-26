@@ -100,7 +100,7 @@ Smoke：`packages/neuro-book/e2e/network.e2e.ts`。
 ## 实现合同
 
 - 公开入口：`@notnotype/nb-host/network`（`createEgress`、`EgressError`、`EGRESS_TEST_URL`）；`nbook/plugins/network/shared/contracts`（`networkKey`、`networkSettingsContract`、`networkSettings`）；nb-harness 的 `NetworkRoute`、`DIRECT_ROUTE` 与 `OmpTarget.route`、`ResolveHooks.route`、`listModels`/`fetchOnlineCatalog`/`probeProtocol` 的 `route`。
-- owner 与依赖方向：`nbook.network` 的服务端入口依赖设置与启动环境，`nbook.models`、`nbook.web-tools` 的服务端入口依赖 `networkKey`；网络页依赖 `nbook.network/settings` 与 `nbook.models/settings`。
+- owner 与依赖方向：`nbook.network` 的服务端入口依赖设置与启动环境，`nbook.models`、`nbook.web` 的服务端入口依赖 `networkKey`；网络页依赖 `nbook.network/settings` 与 `nbook.models/settings`。
 - 不变量：harness 没收到选路函数时用 `DIRECT_ROUTE`（直连），不读进程环境；选路失败在 `ompCall` 里与发出前的地址核对走同一条路（记下、中止整次调用、优先交出），各协议不重试。
 
 ## 证据

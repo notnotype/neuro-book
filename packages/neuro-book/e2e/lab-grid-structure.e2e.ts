@@ -163,7 +163,7 @@ test.describe("过渡（输出“过渡”、验收 9）", () => {
             const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
             const n = rect("[data-leaf='n']");
             const a = rect("[data-leaf='a']");
-            const sash = rect("[data-sash='a-split:0']");
+            const sash = rect("[data-sash='root:0']");
             return {nLeft: n.left, nRight: n.right, aLeft: a.left, sashLeft: sash.left};
         });
         expect(during.nRight - during.nLeft).toBeLessThan(finalWidth);

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 3 轮：状态栏这类界面走哪条路</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; }
+pre, code { font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace; font-size: 12.5px; }
+pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; white-space: pre-wrap; word-break: break-all; line-height: 1.55; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 0 0 16px; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+a.lab { font-size: 14px; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 3 轮：状态栏这类界面走哪条路</h1>
+
+<section data-nbdev-question="ui-route" data-nbdev-type="single" data-nbdev-recommend="both">
+  <h2>状态栏、角色卡这类界面，走插件登记的标签、沙箱里的 JSX，还是两条都要？</h2>
+  <p class="rec"><strong>推荐两条都要、分先后：登记的标签放进本 Work（作者能摆、模型读得到值）；沙箱 JSX 留给 roleplay 与生成式界面，另开 Work。</strong></p>
+  <img src="r3/three.webp" alt="同一份星瑕的状态，三种做法并排">
+  <p><a class="lab" data-nbdev-skip href="http://127.0.0.1:4617/lab?c=ExpressivenessDraft&amp;s=three">在 Lab 里试</a></p>
+  <table>
+    <thead><tr><th></th><th>插件的 Vue 组件</th><th>插件登记的标签</th><th>沙箱里的 JSX</th></tr></thead>
+    <tbody>
+      <tr><td>谁写</td><td>插件作者</td><td>插件作者写标签，作者在主文字里摆</td><td>作者、别人分享的模板、LLM</td></tr>
+      <tr><td>可不可信</td><td>可信，跑在应用里</td><td>可信，跑在应用里</td><td>不可信，跑在隔离的框里</td></tr>
+      <tr><td>作者能改样子</td><td>不能</td><td>能摆位置、改属性</td><td>能改代码</td></tr>
+      <tr><td>改字段</td><td>直接改</td><td>经标签（就地改还没做）</td><td>经消息；第一次要作者允许；只能改这个条目</td></tr>
+      <tr><td>模型看到</td><td>插件给的文字</td><td>带值的标签</td><td>看不到里面</td></tr>
+      <tr><td>要做的东西</td><td>已有</td><td>标签登记表</td><td>JSX 编译、运行时、沙箱接口、写入的授权</td></tr>
+    </tbody>
+  </table>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="tags" data-nbdev-label="只做登记的标签">
+      <h3>只做登记的标签</h3>
+<pre>&lt;StatBar of="panel.魔力" max="panel.魔力上限" label="魔力"&gt;1000/3000&lt;/StatBar&gt;
+&lt;Pips of="panel.回溯" count="3" label="今天还能回溯"&gt;3&lt;/Pips&gt;</pre>
+      <p>上面是模型读到的样子。样子只能是插件给的几种。</p>
+    </div>
+    <div class="cand" data-nbdev-option="jsx" data-nbdev-label="只做沙箱 JSX">
+      <h3>只做沙箱 JSX</h3>
+      <img src="r3/ask.webp" alt="沙箱第一次改字段要作者允许">
+      <p>样子随便写；模型读到的只有 <code>&lt;jsx&gt;</code>，看不到值。</p>
+    </div>
+    <div class="cand" data-nbdev-option="both" data-nbdev-label="两条都要，标签先做">
+      <h3>两条都要，标签先做</h3>
+      <pre>const [fields, setFields] = useState(nbook.fields());
+useEffect(() =&gt; nbook.subscribe(setFields), []);
+…
+&lt;button onClick={spend}&gt;用掉 100 魔力&lt;/button&gt;</pre>
+      <p>常见的状态用登记的标签；要特别样子、要交互的，用沙箱。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>Agent 读主文字时带值、只给看（第 2 轮）</li>
+    <li>计算值 <code>&lt;V expr&gt;</code>：四则运算与取整、最大最小、绝对值、百分比（第 2 轮之后）</li>
+    <li>条件写成 <code>test</code> 表达式；给 Agent 的值写在标签中间、用 JSON（第 1 轮）</li>
+    <li>取值与条件换成标签；解析器只留 marked；富文本为主、保留源文字（11-23、11-26）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

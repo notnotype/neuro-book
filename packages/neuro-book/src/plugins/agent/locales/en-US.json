@@ -254,7 +254,8 @@
             "normal": "Normal",
             "discuss": "Discuss",
             "plan": "Plan",
-            "unknown": "No such mode. Options: {{options}}"
+            "unknown": "No such mode. Options: {{options}}",
+            "unavailable": "This session has no Agent modes, so it cannot switch"
         },
         "approval": {
             "ask": {
@@ -563,6 +564,8 @@
         "problem": {
             "toolsMissing": "Unavailable: missing required tools {{tools}}",
             "toolsMissingDetail": "Missing required tools {{tools}}. Install the plugin that provides them to restore it.",
+            "extensionsMissing": "Unavailable: missing referenced extensions {{extensions}}",
+            "extensionsMissingDetail": "No plugin provides the referenced extensions {{extensions}}. Install the plugin that provides them to restore it.",
             "keyTaken": "Unavailable: a plugin already uses this name",
             "keyTakenDetail": "A plugin already uses {{key}}. Rename the file to restore it.",
             "moduleNotShared": "Can't import \"{{module}}\"",

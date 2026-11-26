@@ -1,0 +1,110 @@
+[Q1] === 授权中途登录后回到授权请求 ===
+[Q1.0 anonymous authorize] 302 location=/login?continue=cmVzcG9uc2VfdHlwZT1jb2Rl…
+[Q1.0 continue token decodes to library-signed params] response_type,redirect_uri,scope,state,client_id,code_challenge,code_challenge_method,nonce,exp,ba_iat,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,ba_param,sig
+[Q1.1a t07 issueSession (withLibTransaction) with oauthProvider loaded] sessionId=2 setCookie=1 codesAdded=0
+[Q1.1b issueSession with oauth_query in body] threw Error status=400 body={"message":"[body] the request body does not match the endpoint's schema","code":"VALIDATION_ERROR"}
+[Q1.1c endpoint that re-sets the session cookie, body has oauth_query] response={"redirect":true,"url":"https://client.example/cb?code=SvWShPzYYH7U5OYFpoeYG0nczs43Om5k&state=st-1&iss=https%3A%2F%2Fsite.test"} setCookie=1
+[Q1.2 resolveContinue] ok url=/api/identity/auth/oauth2/authorize?response_type=code&redir…
+[Q1.2 continue -> code -> token] authorize=302 code=yes token=200 nonce=n-2 auth_time=1795606818 sessionCreated=1795606818
+[Q1.2b consent client: continue lands on] /oauth/consent?request=…
+[Q1.2c GET oauth/authorization prototype] {"client_name":"测试客户端","redirect_host":"client.example","scopes":["openid","profile","email"]}
+[Q1.2c POST oauth/authorization prototype (server calls oauth2Consent)] url=https://client.example/cb?code… code=yes token=200
+[Q1.2d POST oauth/authorization deny] error=access_denied
+[Q1.2e request token replayed by another user's session] code=yes userinfo.sub=3 carl=1 kim=3
+[Q1.3 {"prompt":"login"}] firstHop=/login continue=ok next=https://client.example/cb code=yes auth_time=new-session:true
+[Q1.3 {"max_age":"0"}] firstHop=/login continue=ok next=https://client.example/cb code=yes auth_time=new-session:true
+[Q1.3 {"prompt":"login consent"}] firstHop=/login continue=ok next=/oauth/consent code=no auth_time=new-session:false
+[Q1.4 tampered redirect_uri] rejected signature_or_library_expiry
+[Q1.4 garbage token] rejected signature_or_library_expiry
+[Q1.4 module clock 10 min + 1 ms later] rejected module_clock_expired
+[Q1.4 module clock 9 min 50 s later] accepted
+[Q1.4 library expiry (codeExpiresIn=2, waited 3.1 s, system time)] rejected signature_or_library_expiry
+[Q1.5 session lacking consent record, skip_consent client] authorize=302 code=issued
+[Q2] === 删会话与令牌 ===
+[Q2.0 authorization code row value] {"type":"authorization_code","userId":"2","userIdType":"string","sessionId":"2","sessionIdType":"string","client":true}
+[Q2.0 access token row column types] {"st":"integer","ut":"integer","revoked":null}
+[Q2 endSession(S1)  [logout / DELETE me/sessions/:id]] result=1 sessionsLeft=1 userinfo before=200/200 after T1(S1)=200 T2(S2)=200 | unused code C1(S1)=400 invalid_request C2(S2)=200 | tokenRows=[{"id":2,"sessionId":null,"revoked":0},{"id":3,"sessionId":4,"revoked":0}]
+[Q2 endAllSessions  [ban / role / reset / revoke-sessions]] result=2 sessionsLeft=0 userinfo before=200/200 after T1(S1)=200 T2(S2)=200 | unused code C1(S1)=400 invalid_request C2(S2)=400 invalid_request | tokenRows=[{"id":5,"sessionId":null,"revoked":0},{"id":6,"sessionId":null,"revoked":0}]
+[Q2 purgeExpiredSessions after 31 days on module clock] result=5 sessionsLeft=0 userinfo before=200/200 after T1(S1)=200 T2(S2)=200 | unused code C1(S1)=400 invalid_request C2(S2)=400 invalid_request | tokenRows=[{"id":7,"sessionId":null,"revoked":0},{"id":8,"sessionId":null,"revoked":0}]
+[Q2 endOtherSessions(keep S2)  [change own password from S2]] result=1 sessionsLeft=1 userinfo before=200/200 after T1(S1)=200 T2(S2)=200 | unused code C1(S1)=400 invalid_request C2(S2)=200 | tokenRows=[{"id":9,"sessionId":null,"revoked":0},{"id":10,"sessionId":10,"revoked":0}]
+[Q2 revokeForSessions(S1) + endSession(S1)] result=[{"tokens":1,"codes":1},1] sessionsLeft=1 userinfo before=200/200 after T1(S1)=401 T2(S2)=200 | unused code C1(S1)=400 invalid_grant C2(S2)=200 | tokenRows=[{"id":12,"sessionId":null,"revoked":1},{"id":13,"sessionId":12,"revoked":0}]
+[Q2 revokeForUser + endAllSessions] result=[{"tokens":2,"codes":2},2] sessionsLeft=0 userinfo before=200/200 after T1(S1)=401 T2(S2)=401 | unused code C1(S1)=400 invalid_grant C2(S2)=400 invalid_grant | tokenRows=[{"id":15,"sessionId":null,"revoked":1},{"id":16,"sessionId":null,"revoked":1}]
+[Q2 revoke expired sessions' grants + purge, after 31 days on module clock] result=[{"tokens":6,"codes":2},4] sessionsLeft=0 userinfo before=200/200 after T1(S1)=401 T2(S2)=401 | unused code C1(S1)=400 invalid_grant C2(S2)=400 invalid_grant | tokenRows=[{"id":17,"sessionId":null,"revoked":1},{"id":18,"sessionId":null,"revoked":1}]
+[Q2 revokeForUser + endOtherSessions(keep S2)] result=[{"tokens":2,"codes":2},1] sessionsLeft=1 userinfo before=200/200 after T1(S1)=401 T2(S2)=401 | unused code C1(S1)=400 invalid_grant C2(S2)=400 invalid_grant | tokenRows=[{"id":19,"sessionId":null,"revoked":1},{"id":20,"sessionId":18,"revoked":1}]
+[Q2.rollback injected error] audit insert failed (injected)
+[Q2.rollback after failed transaction] T1=200 C1=200 sessions=1
+[Q3] === 撤销授权、撤销端点 ===
+[Q3.0 setup] first=consent second=direct token=200 otherClientToken=200
+[Q3.1 GET me/grants prototype (consent rows joined with client)] [{"id":1,"client_name":"测试客户端","scopes":"[\"openid\",\"profile\",\"email\"]","createdAt":"2026-11-25T11:42:35.000Z"}]
+[Q3.2 DELETE me/grants/:id prototype] result={"consent":1,"tokens":1,"codes":1} oldToken=401 otherClientToken=200 unusedCode=400 invalid_grant nextAuthorize=consent
+[Q3.3 library itself: unknown token] 400 {"error_description":"token not found","error":"invalid_request"}
+[Q3.3 mounted: unknown token] 200 body=""
+[Q3.3 mounted: unknown token with hint access_token] 200 
+[Q3.3 mounted: empty token parameter] 400 {"error_description":"missing a required token for introspection","error":"invalid_request"}
+[Q3.3 mounted: wrong client secret] 401 {"error_description":"invalid client_secret","error":"invalid_client"}
+[Q3.3 mounted: another client revokes this client's token] 200 tokenStill=200
+[Q3.3 mounted: owner revokes its token] 200 tokenAfter=401 row={"n":1}
+[Q3.3 mounted: revoke the same token again] 200 
+[Q3.4 public client revokes with client_id in body, no secret] 200  tokenAfter=401
+[Q3.4 public client, unknown token] 200 
+[Q8] === 仿真上游：社交登录、注册、关联 ===
+[Q8.0 authorize url shapes] see below
+[Q8.0 google authorize url] http://127.0.0.1:<port>/google/o/oauth2/v2/auth?response_type&client_id&state&scope&redirect_uri&nonce&code_challenge_method&code_challenge
+[Q8.0 github authorize url] http://127.0.0.1:<port>/github/login/oauth/authorize?response_type&client_id&state&scope&redirect_uri&code_challenge_method&code_challenge
+[Q8.0 start Set-Cookie names] ["__Host-nbsite.state"]
+[Q8.1 google register] status=302 location=/ session=true user={"id":1,"username":"alice","displayUsername":"alice","name":"Alice","email":"alice@gmail.com","emailVerified":0} accounts=[{"providerId":"google","accountId":"109859777","nopw":1}] profile=1 consent=1 upstreamName={"name":"alice@gmail.com"} codeUsed=1 events=user.create.before intent=register;account.create.before intent=register provider=google
+[Q8.1 whoami with the callback's cookie] {"state":"authenticated","user":{"id":1,"username":"alice","role":"user"}}
+[Q8.2 google login, identity linked] status=302 location=/ session=true usersNamedAlice=1 events=
+[Q8.3 github login, identity not linked] location=/login?social_error=social_not_registered&lib_error=signup_disabled session=false users=1
+[Q8.3b github login, not linked, email equals an existing account] location=/login?social_error=social_not_registered&lib_error=account_not_linked bobAccounts=0
+[Q8.4 github register, upstream email taken] location=/register?social_error=email_taken&lib_error=account_not_linked usersNamedBob2=0 codeUsed=1
+[Q8.5 github register, no email from upstream] location=/register?social_error=social_email_missing&lib_error=email_not_found codeUsed=1
+[Q8.6 user cancelled at upstream (error=access_denied)] location=/login?social_error=social_cancelled&lib_error=access_denied
+[Q8.7 github token endpoint returns bad_verification_code] location=/login?social_error=unmapped%3Aunable_to_get_user_info&lib_error=unable_to_get_user_info
+[Q8.7 google token endpoint returns 400 invalid_grant] location=/login?social_error=unmapped%3Ainvalid_code&lib_error=invalid_code
+[Q8.7b callback with error=username_taken (forged upstream error)] location=/login?social_error=untrusted%3Ausername_taken&lib_error=username_taken
+[Q8.8 github link (upstream email differs from account email)] location=/account accounts=[{"providerId":"github","accountId":"601"}] upstreamName={"name":"carl-gh"} events=account.create.before intent=link provider=github
+[Q8.8b link an identity that belongs to nobody but carl already has github] location=/account?social_error=identity_exists&lib_error=identity_exists&lib_status=400
+[Q8.8c link an identity already linked to another account] location=/account?social_error=identity_taken&lib_error=account_already_linked_to_different_user danAccounts=0
+[Q8.8d link, session ended after start] location=/account?social_error=social_state_invalid&lib_error=unable_to_link_account eveAccounts=0
+[Q8.9 banned account, google login] location=/login?social_error=account_banned&lib_error=BANNED_USER session=false
+[Q8.10a continue via own flow record] callbackLocation=/api/identity/auth/oauth2/authorize?response_… thenAuthorize=302 code=yes token=200
+[Q8.10b library oauth_query through /sign-in/social] callbackLocation=/
+[Q4] === 社交注册：扣码与建账号同一个事务 ===
+[Q4.1 hook calls conn.write inside the library's own transaction (no join)] location=/register?social_error=unmapped%3Aunable_to_create_user&lib_error=unable_to_create_user users=0 codeUsed=0 libLogs=["Unable to create OAuth user","unable_to_create_user"]
+[Q4.2 joined transaction, success] location=/ users=1 codeUsed=1
+[Q4.3 failure after code, user, profile, consent and upstream name were written] location=/register?social_error=injected_failure&lib_error=injected_failure users=0 accounts=0 profilesTotal(joiner only)=1 upstreamNames=0 codeUsed=1 session=false
+[Q4.4 round 1: two concurrent social registrations, one-time code] A=/ B=/register?social_error=registration_code_invalid&lib_error=registration_code_invalid users=1 codeUsed=1 orphanAccounts=0
+[Q4.4 round 2: two concurrent social registrations, one-time code] A=/ B=/register?social_error=registration_code_invalid&lib_error=registration_code_invalid users=1 codeUsed=1 orphanAccounts=0
+[Q4.4 round 3: two concurrent social registrations, one-time code] A=/ B=/register?social_error=registration_code_invalid&lib_error=registration_code_invalid users=1 codeUsed=1 orphanAccounts=0
+[Q4.4b social vs password registration on one one-time code] social=/register?social_error=registration_code_invalid&lib_error=registration_code_invalid password=ok codeUsed=1 users=1
+[Q4.5 code disabled between start and callback] location=/register?social_error=registration_code_invalid&lib_error=registration_code_invalid users=0
+[Q4.6 username taken between start and callback] location=/register?social_error=username_taken&lib_error=username_taken codeUsed=0
+[Q4.7 joinLibTransaction from work leaked out of a finished library transaction] IdentityQueueMisuseError: joinLibTransaction found no open transaction on the identity dialect
+[Q4.7 joinLibTransaction outside any library transaction] IdentityQueueMisuseError
+[Q5] === reserveVerificationValue 在 t07 的连接队列上 ===
+[Q5.1 four concurrent reserves, same identifier, generateId serial] results=[true,true,true,true] rows=4 ids=[1,2,3,4]
+[Q5.2 two sequential reserves] [true,true]
+[Q5.3 reserve inside a library transaction on the t07 queue] IdentityQueueMisuseError: a database connection was requested from inside an identity transaction
+[Q5.4 four concurrent token exchanges with one code] 200,400:invalid_grant,400:invalid_grant,400:invalid_grant
+[Q5.5 discovery (library route, not mounted) dpop and auth methods] status=404 dpop=undefined tokenAuth=undefined revokeAuth=undefined
+[Q5.6 token exchange with a DPoP proof, same proof twice] first=200 type=DPoP err= | second=200 type=DPoP err= 
+[Q5.6 newest access token columns] id,token,clientId,sessionId,userId,referenceId,authorizationCodeId,resources,requestedUserInfoClaims,refreshId,expiresAt,createdAt,revoked,confirmation,scopes
+[Q5.7 admin creates a private_key_jwt client] created auth=private_key_jwt
+[Q6] === 会话 id 不复用（0001 的 AUTOINCREMENT）===
+[Q6.1 AUTOINCREMENT on] user=true session=true account=true verification=true oauthClient=true oauthAccessToken=true oauthRefreshToken=true oauthConsent=true jwks=true
+[Q6.2 delete the newest session, next login] deletedId=2 nextId=3 codeOfDeletedSession=400:invalid_request
+[Q6.3 sqlite_sequence after the delete] [{"name":"user","seq":3},{"name":"session","seq":3},{"name":"verification","seq":1}]
+[Q6.3 another login after that] id=4
+[Q7] === 社交流程 10 分钟到期怎么测 ===
+[Q7.0 setup link] /account
+[Q7.1 module clock +10min-1ms] / session=true
+[Q7.2 module clock +10min+1ms] /login?social_error=social_state_invalid session=false libStateRowLeft=1
+[Q7.3 replay the successful callback] /login?social_error=social_state_invalid
+[Q7.4 three concurrent callbacks with one state] /|session=true ; /login?social_error=social_state_invalid|session=false ; /login?social_error=social_state_invalid|session=false
+[Q7.5a only the row's expiresAt column moved to the past] /
+[Q7.5b expiresAt inside the row's value moved to the past] /login?social_error=social_state_invalid&lib_error=state_mismatch
+[Q7.5c state Set-Cookie attributes (default)] __Host-nbsite.state=<v>; Max-Age=300; Path=/; HttpOnly; Secure; SameSite=Lax
+[Q7.5d state Set-Cookie with advanced.cookies.state.attributes.maxAge=600] __Host-nbsite.state=<v>; Max-Age=600; Path=/; HttpOnly; Secure; SameSite=Lax
+[Q7.6 library state row expiresAt minus createdAt (ms)] {"expiresAt":"2026-11-25T12:01:10.724Z","createdAt":"2026-11-25T11:51:10.724Z"}
+[Q7.7 callback without the state cookie] /login?social_error=social_state_invalid&lib_error=state_mismatch

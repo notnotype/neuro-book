@@ -36,6 +36,8 @@ export const onAgentCompaction = (id: string): string => `${AGENT_COMPACTION_PRE
 const ExtensionDeclarationSchema = Type.Object({
     tags: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     dependsOn: Type.Optional(Type.Array(Type.String({minLength: 1}))),
+    /** `on-request`：不自动装到所有 Profile，Profile 声明里按 id 引用（`referencedExtensions`）才装（contributions.md 的“按需扩展”）。 */
+    install: Type.Optional(Type.Literal("on-request")),
 }, {additionalProperties: false});
 
 const EffectSchema = Type.Union([Type.Literal("read"), Type.Literal("write"), Type.Literal("exec")]);
@@ -84,6 +86,11 @@ const ProfileDeclarationSchema = Type.Object({
     icon: Type.Optional(Type.String({minLength: 1})),
     /** `false`：不加 `defaultForAll` 的工具（输出 4）。 */
     defaultTools: Type.Optional(Type.Literal(false)),
+    /**
+     * 按 id 引用的扩展（contributions.md 的“按需扩展”）：例如 `["nbook.agent.modes"]` 让这个 Profile 有 Agent 模式。插件 Profile
+     * 只认这里写的，实现里不另写；目录不激活提供方就能据此判断（输出 8、14）。
+     */
+    referencedExtensions: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     /** 需要的模型能力，同 `defineProfile` 的 `modelNeeds`；写在声明里，界面不用激活提供方就能提示（输出 14）。 */
     modelNeeds: Type.Optional(Type.Object({
         vision: Type.Optional(Type.Boolean()),

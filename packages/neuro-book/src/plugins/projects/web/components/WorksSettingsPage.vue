@@ -1,17 +1,19 @@
 <script setup lang="ts">
 /**
  * 设置窗口“作品”分区的页面（同名 .md）：作品目录一行，“更改…”打开书架同一个目录选择器，选定后写进用户层；没设时显示
- * 服务端实际会用的缺省目录（docs/specs/workbench/bookshelf.md 输出 21）。
+ * 服务端实际会用的缺省目录（docs/specs/workbench/bookshelf.md 输出 21）。下面一行“启动时打开”，上次的作品或书架
+ * （docs/specs/runtime/projects.md 的“启动时打开”）。
  */
-import {Button} from "@notnotype/nb-ui/components";
-import {ref, watch} from "vue";
+import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
+import {computed, ref, watch} from "vue";
 
-import type {SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
+import type {SettingLayer, SettingsService} from "nbook/shared/settings";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
-import {librarySetting} from "../../shared/contracts";
+import {librarySetting, startupOpenSetting} from "../../shared/contracts";
 import {useProjectsText} from "../text";
 import type {LibraryInfo} from "../shelf-page";
+import type {WorksWriteFailure} from "../works-section";
 import PathPickerDialog from "./PathPickerDialog.vue";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
 
@@ -27,7 +29,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (event: "write-failed", failure: {readonly code: SettingsFailure; readonly detail: string}): void;
+    (event: "write-failed", failure: WorksWriteFailure): void;
 }>();
 
 const text = useProjectsText();
@@ -60,13 +62,28 @@ watch(() => shown(props.settings.get(librarySetting)) === "", (unset) => {
     if (unset) void readFallback();
 }, {immediate: true});
 
+const startupOptions = computed(() => (["last-work", "shelf"] as const).map((value) => ({value, label: text(`settings.startupOpen.choices.${value}.title`)})));
+
+/** “启动时打开”的写入进行中：控件停用，不并发写第二次；结算后控件显示层里的值（写不进去就回到原来的）。 */
+const writingStartup = ref(false);
+
+async function chooseStartup(value: "last-work" | "shelf"): Promise<void> {
+    writingStartup.value = true;
+    try {
+        const result = await props.settings.update(startupOpenSetting, value, {layer: "user"});
+        if (!result.ok) emit("write-failed", {setting: "startupOpen", code: result.code, detail: result.detail});
+    } finally {
+        writingStartup.value = false;
+    }
+}
+
 async function pick(path: string): Promise<void> {
     picking.value = false;
     pending.value = path;
     try {
         // 作品目录只允许用户层（分区声明 layers: ["user"]）：写用户层，不跟随别的标签。
         const result = await props.settings.update(librarySetting, path, {layer: "user"});
-        if (!result.ok) emit("write-failed", {code: result.code, detail: result.detail});
+        if (!result.ok) emit("write-failed", {setting: "library", code: result.code, detail: result.detail});
     } finally {
         pending.value = null;
     }
@@ -80,7 +97,7 @@ async function pick(path: string): Promise<void> {
             :settings="settings"
             :setting="librarySetting"
             :layer="layer"
-            @write-failed="(failure) => emit('write-failed', {code: failure.code, detail: failure.detail})"
+            @write-failed="(failure) => emit('write-failed', {setting: 'library', code: failure.code, detail: failure.detail})"
         >
             <span v-if="shown(row.value) !== ''" class="works-settings__path" data-works-library>{{ shown(row.value) }}</span>
             <span v-else-if="fallback.status === 'ready'" class="works-settings__path" data-works-library data-works-library-default>{{ fallback.path }}<span class="works-settings__mark">{{ text('worksSettings.defaultMark') }}</span></span>
@@ -101,6 +118,23 @@ async function pick(path: string): Promise<void> {
                 :initial-path="shown(row.value) === '' ? null : shown(row.value)"
                 @pick="pick"
                 @cancel="picking = false"
+            />
+        </SettingsRow>
+        <SettingsRow
+            v-slot="row"
+            :settings="settings"
+            :setting="startupOpenSetting"
+            :layer="layer"
+            @write-failed="(failure) => emit('write-failed', {setting: 'startupOpen', code: failure.code, detail: failure.detail})"
+        >
+            <SegmentedControl
+                :model-value="row.value as string"
+                :options="startupOptions"
+                size="sm"
+                :aria-label="row.label"
+                :disabled="row.disabled || writingStartup"
+                data-works-startup
+                @update:model-value="(value) => chooseStartup(value as 'last-work' | 'shelf')"
             />
         </SettingsRow>
     </div>

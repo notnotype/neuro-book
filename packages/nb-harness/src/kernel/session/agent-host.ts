@@ -24,7 +24,7 @@ export function createAgentHost(base: Omit<SessionEnv, "extensions">): AgentHost
     const published = new Map<string, ExtensionHandle>();
     const sessions = new Map<string, SessionApi>();
     const diagnostics: Diagnostic[] = [];
-    const contributed = (): ContributedExtension[] => [...published.values()].map((handle) => ({extension: handle.implementation(), plugin: handle.plugin}));
+    const contributed = (): ContributedExtension[] => [...published.values()].map((handle) => ({extension: handle.implementation(), plugin: handle.plugin, ...(handle.declaration.install === "on-request" ? {onRequest: true} : {})}));
     const env: SessionEnv = {...base, extensions: contributed};
 
     const reject = (code: ExtensionRejected["code"], extension: string, message: string): never => {

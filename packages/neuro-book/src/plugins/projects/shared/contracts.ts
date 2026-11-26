@@ -36,6 +36,20 @@ export const librarySetting = defineSetting({
     section: "nbook.works",
 });
 
+/**
+ * 启动时打开（docs/specs/runtime/projects.md 的“启动时打开”）：桌面版启动、托盘或 Dock 开窗、`nbook` 打开浏览器时，经 `resume`
+ * 路由进上次的作品还是书架。只在用户层，缺省上次的作品。
+ */
+export const startupOpenSetting = defineSetting({
+    plugin: "nbook.projects",
+    name: "startupOpen",
+    schema: Type.Union([Type.Literal("last-work"), Type.Literal("shelf")]),
+    default: "last-work",
+    layers: ["user"],
+    section: "nbook.works",
+    choices: [{value: "last-work"}, {value: "shelf"}],
+});
+
 /** 作品信息的上限（docs/specs/runtime/projects.md 输出第 13 条）；校验在服务端做，输入 schema 只定形状，失败码带字段名。 */
 export const PROJECT_TITLE_MAX_LENGTH = 80;
 export const PROJECT_DESCRIPTION_MAX_LENGTH = 500;
@@ -181,7 +195,7 @@ export type BrowseEntry = Static<typeof BrowseEntrySchema>;
 
 export const projectsRemoteContract = defineRemoteService({
     id: "nbook.projects/projects",
-    version: 4,
+    version: 5,
     provider: "server",
     callers: ["browser", "tui"],
     methods: {
@@ -266,6 +280,20 @@ export const projectsRemoteContract = defineRemoteService({
                 "identity-conflict": Detail,
                 "invalid-metadata": Type.Object({field: Type.String(), detail: Type.String()}, {additionalProperties: false}),
                 "read-only": Detail,
+                "write-failed": Detail,
+            },
+        },
+        /**
+         * 这个窗口绑定了作品：记成“上次的作品”，给启动时的 `resume` 路由用。id 要在登记表里，否则不记。后绑定的覆盖先绑定的，
+         * 刷新再记一遍同一个值。
+         */
+        opened: {
+            input: Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false}),
+            output: Empty,
+            effect: "write",
+            errors: {
+                "unknown-project": Detail,
+                "registry-invalid": Detail,
                 "write-failed": Detail,
             },
         },

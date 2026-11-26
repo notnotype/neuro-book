@@ -77,7 +77,7 @@ async function setup(): Promise<{other: CanonNodeWindow; page: EditorPageImpleme
 
 type Basis = StoryChangeDraft["patches"][number]["basis"];
 
-/** 星瑕，与第 1 章一条“领了工资”：存款 +200（依据缺省是估计），外观改成银发；原句在第 1 章正文。 */
+/** 星瑕，与第 1 章一条“领了工资”：存款 +200（依据缺省是估计），性格改成银发；原句在第 1 章正文。 */
 async function sample(canon: CanonClient, extra: Partial<StoryChangeDraft> = {}, basis: Basis = {kind: "estimate", note: "大概两百"}): Promise<{star: string; change: string}> {
     const draft = person("星瑕");
     const star = (await publish(canon, [draft]))[draft.id]!;
@@ -86,7 +86,7 @@ async function sample(canon: CanonClient, extra: Partial<StoryChangeDraft> = {},
         id, kind: "written", text: "领了工资", at: {kind: "chapter", chapter: "1", key: 1}, told: [{source: "chapter", chapter: "1", quote: "店长塞给她两百块"}], involves: [star], lines: [], links: [], status: "active", by: {kind: "author"},
         patches: [
             {op: "add", at: {entry: star, path: "panel.存款"}, value: 200, basis},
-            {op: "set", at: {entry: star, path: "character.外观"}, value: "银发"},
+            {op: "set", at: {entry: star, path: "character.性格"}, value: "银发"},
         ],
         ...extra,
     };
@@ -114,7 +114,7 @@ describe("变更详情页", () => {
         expect(words(wrapper.get("[data-change-meta]").element)).toBe("第 1 章 · 已写 · 生效");
         expect(words(wrapper.get("[data-change-quote]").element)).toBe("“店长塞给她两百块” 第 1 章正文 打开这一章");
         expect(wrapper.get("[data-change-involved]").text()).toContain("星瑕");
-        expect(wrapper.findAll("[data-change-patch]").map((row) => words(row.element))).toEqual(["星瑕的存款 +200 依据：估计：大概两百 改", "星瑕的外观 → 银发"]);
+        expect(wrapper.findAll("[data-change-patch]").map((row) => words(row.element))).toEqual(["星瑕的存款 +200 依据：估计：大概两百 改", "星瑕的性格 → 银发"]);
         expect(page.title!(change)).toBe("领了工资");
         expect(page.breadcrumbs!(change)?.map((crumb) => crumb.label)).toEqual([{kind: "text", ns: "nbook.canon", key: "views.entries.title"}, "第 1 章", "领了工资"]);
         expect(page.breadcrumbs!(change)?.slice(1).every((crumb) => crumb.command === undefined)).toBe(true);
@@ -136,8 +136,9 @@ describe("变更详情页", () => {
         await waitUntil("确认条", () => opened.wrapper.find("[data-confirm-bar]").exists());
         expect(opened.wrapper.get("[data-confirm-bar] h3").text()).toBe("改星瑕的存款");
         await opened.wrapper.get("[data-confirm-bar] input").setValue("500");
-        await waitUntil("预览", () => opened.wrapper.get("[data-confirm-preview]").text().includes("会写回这条情节"));
-        expect(opened.wrapper.get("[data-confirm-preview]").text()).toContain("星瑕的存款：1,200 → 1,500");
+        await waitUntil("预览", () => opened.wrapper.find("[data-confirm-bar][data-previewed]").exists());
+        expect(opened.wrapper.get("[data-confirm-preview]").text()).toContain("会写回这条情节");
+        expect(opened.wrapper.get("[data-edit-impact]").text()).toContain("星瑕的存款：1,200 → 1,500");
 
         opened.wrapper.unmount();
         const again = opened.remount();
@@ -160,12 +161,12 @@ describe("变更详情页", () => {
         const found = stored.value.object as StoryChange;
         const star = found.involves[0]!;
         await publish(other.canon, [{ref: {kind: "change", id: change}, after: {...found, patches: [
-            {op: "note", at: {entry: star, path: "character.态度"}, value: "被救了一次"},
+            {op: "note", at: {entry: star, path: "character.现在的状态"}, value: "被救了一次"},
             {op: "aliasAdd", at: {entry: star, path: "entry.aliases"}, value: "小瑕"},
         ]}}]);
         const {wrapper} = open(change);
         await waitUntil("改动", () => wrapper.findAll("[data-change-patch]").length === 2 && wrapper.text().includes("星瑕的"));
-        expect(wrapper.findAll("[data-change-patch]").map((row) => words(row.element))).toEqual(["星瑕的现在的态度：记“被救了一次”", "星瑕的别名：加上 小瑕"]);
+        expect(wrapper.findAll("[data-change-patch]").map((row) => words(row.element))).toEqual(["星瑕的现在的状态：记“被救了一次”", "星瑕的别名：加上 小瑕"]);
     });
 
     it("改了以后校验不过（依据是原文，原文里没有这个数）：写第一条原因，保存不可用", async () => {

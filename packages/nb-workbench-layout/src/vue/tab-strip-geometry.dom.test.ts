@@ -71,6 +71,12 @@ describe("摘掉来源之后的插入位", () => {
         expect(tabStripInsertionIn(snapshot, {x: 800, y: 10})).toMatchObject({before: null, after: "p2", partition: "normal"});
     });
 
+    it("单行、普通区的标签滚出了行尾：过了最后一个看得见的固定标签，是固定区的末尾，不插到滚出去的普通标签前面", () => {
+        // 行宽 200：p1、p2 看得见，n1 在 200 到 300、整个滚出去了。共享算法会把这个位置换成“插到 n1 前面”，那就进了普通区。
+        const snapshot = measureTabStrip(stripOf([{tabs: [pinned("p1"), pinned("p2"), normal("n1")]}], 200));
+        expect(tabStripInsertionIn(snapshot, {x: 180, y: 10})).toMatchObject({before: null, after: "p2", partition: "pinned"});
+    });
+
     it("单行、来源不在行尾：行尾的分区看最后一个标签", () => {
         const snapshot = measureTabStrip(stripOf([{tabs: [pinned("p1"), normal("s"), normal("n")]}]), "s");
         expect(tabStripInsertionIn(snapshot, {x: 800, y: 10})).toMatchObject({before: null, after: "n", partition: "normal"});
@@ -79,6 +85,12 @@ describe("摘掉来源之后的插入位", () => {
     it("多行、来源是这一行唯一的标签：空行整行是一个插入位，分区是这一行的", () => {
         const snapshot = measureTabStrip(stripOf([{partition: "pinned", tabs: [pinned("p1")]}, {partition: "normal", tabs: [normal("s")]}]), "s");
         expect(tabStripInsertionIn(snapshot, {x: 400, y: HEIGHT + 10})).toMatchObject({before: null, after: null, partition: "normal"});
+    });
+
+    it("行里有标签但都在行尾之外（行首留白比行还宽）：没有插入位，不当成空行", () => {
+        // 行宽 200，宿主在行首留了 210 的白，两个标签都还没滚进来。
+        const strip = stripOfBoxes([[0, 0, 200, HEIGHT]], [{id: "a", row: 0, box: [210, 0, WIDTH, HEIGHT]}, {id: "b", row: 0, box: [310, 0, WIDTH, HEIGHT]}], 200);
+        expect(resolveTabStripInsertion(strip, {x: 100, y: 10})).toBeNull();
     });
 
     it("整条只有来源：还有一个插入位，放回去是原来的分区", () => {
@@ -95,9 +107,9 @@ interface BoxSpec {
 }
 
 /** 按每个标签自己的外框摆：标签高矮不一时同一视觉行里 `top` 各不相同，DOM 顺序也就不是按 `top` 排的顺序。 */
-function stripOfBoxes(rowBoxes: ReadonlyArray<readonly [left: number, top: number, width: number, height: number]>, tabs: ReadonlyArray<BoxSpec>): HTMLElement {
+function stripOfBoxes(rowBoxes: ReadonlyArray<readonly [left: number, top: number, width: number, height: number]>, tabs: ReadonlyArray<BoxSpec>, stripWidth = 1000): HTMLElement {
     const strip = document.createElement("div");
-    place(strip, 0, 0, 1000, 100);
+    place(strip, 0, 0, stripWidth, 100);
     const rows = rowBoxes.map(([left, top, width, height], at) => {
         const row = document.createElement("div");
         row.dataset.tabRow = String(at);

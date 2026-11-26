@@ -136,6 +136,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t42](tasks/t42-task-list-providers/README.md) | 后台任务清单的提供方与分组视图，完成：合入 master，Spec 按逐句核对晋升了有断言的部分，其余交 t44 | t22 |
 | [t44](tasks/t44-task-list-followups/README.md) | 后台任务清单的余项：补断言晋升、内核停止的收口、验收 2 的偶发 | t42 |
 | [t45](tasks/t45-openrouter-app-attribution/README.md) | 给 OpenRouter 的请求带应用归属请求头，未开工 | 官方站的域名与隐私说明（w00037、w00053） |
+| [t46](tasks/t46-profile-extensions-by-id/README.md) | Profile 声明按 id 引用扩展，模式控件跟着模式扩展走，修插件 Profile 切换模式报 unknown-extension；完成：合入 master | — |
 | [t23](tasks/t23-session-history/README.md) | Agent 查询会话历史：分页、搜索、视角，搁置 | t14 |
 | [t24](tasks/t24-workflow-integration/README.md) | Workflow 与 Agent 的对接，搁置 | t14 |
 | [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知（优先级不高，排到末尾） | t08、t12 |

@@ -1,0 +1,90 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t02-paper-study-scheme",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "方案 A 书房《一部长篇的一生》：分场脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "de7b590343a2f3606a36b788b6c780fea38a4a04a9ad344530d2de885fb93bc8",
+    "files": [
+        "index.html",
+        "r1/bookshelf.webp"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "storyboard",
+                    "label": "照这版出分镜"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方案不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "storyboard"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "a1",
+                    "label": "a1 你心里那部长篇，从这一行开始。"
+                },
+                {
+                    "value": "a2",
+                    "label": "a2 写完你心里那部长篇。"
+                },
+                {
+                    "value": "a3",
+                    "label": "a3 用工程的方法，写完你的长篇。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a1"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一场要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T05:17:06.115Z"
+}

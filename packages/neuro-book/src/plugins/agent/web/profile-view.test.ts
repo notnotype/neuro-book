@@ -149,6 +149,12 @@ describe("问题与状态", () => {
         expect(profile.statusText).toMatchObject({tone: "warning"});
     });
 
+    test("缺引用的扩展是警告，写明缺哪些", () => {
+        const profile = view({entry: entry({status: "unavailable", problem: {code: "extensions-missing", extensions: ["acme.notes", "acme.tags"]}})});
+        expect(profile.notice).toMatchObject({tone: "warning", text: expect.stringContaining("acme.notes、acme.tags")});
+        expect(profile.statusText).toMatchObject({tone: "warning"});
+    });
+
     test("打包失败是错误，有行号时写行号；有错误的说明还在用上一版，没成功过的说明用不了", () => {
         const stale = view({entry: entry({status: "error", problem: {code: "build-failed", file: "x.profile.tsx", line: 12, message: "坏了"}})});
         expect(stale.notice).toMatchObject({tone: "danger", text: expect.stringContaining("12")});
@@ -160,6 +166,7 @@ describe("问题与状态", () => {
     test("每种原因都有文字（中英文目录都有键，strict 引擎缺键会抛）", () => {
         for (const problem of [
             {code: "key-taken"},
+            {code: "extensions-missing", extensions: ["acme.notes"]},
             {code: "module-not-shared", module: "m"},
             {code: "module-not-shared"},
             {code: "invalid-export"},

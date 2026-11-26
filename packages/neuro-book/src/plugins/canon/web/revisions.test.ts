@@ -8,7 +8,7 @@ import {testTextPort} from "nbook/shared/testing/text-port";
 import {boundText} from "nbook/shared/use-plugin-text";
 
 import type zhCN from "../locales/zh-CN.json";
-import {impactSummary} from "./impact";
+import {impactIsQuiet, impactLines, impactSummary} from "./impact";
 import {ALL, revisionRow, revisionsFilter} from "./revisions";
 import type {RevisionListItem} from "./revisions";
 import {canonCatalogs} from "./text";
@@ -28,6 +28,43 @@ describe("impactSummary", () => {
             broken: [{} as never],
         } as Impact;
         expect(impactSummary(impact, text)).toBe("3 处值变了，多了 1 条待处理，少了 2 条待处理，1 条情节套不上了");
+    });
+});
+
+describe("impactIsQuiet", () => {
+    // 就地改的短项填完立刻回车时，预览回来要是没有别的变化就直接保存（author-ui.md 输出 16）；有一样就停下来给作者看。
+    it("只改了跳过的那个值才算没有别的变化；多了或少了待处理、套不上（含别的世界线）、别的值跟着变都不算", () => {
+        const editing = (at: {readonly entry: string; readonly path: string}) => at.entry === "a" && at.path === "panel.存款";
+        expect(impactIsQuiet(none, editing)).toBe(true);
+        expect(impactIsQuiet({...none, values: [value("a", "panel.存款")]}, editing)).toBe(true);
+        expect(impactIsQuiet({...none, values: [value("a", "panel.存款")]})).toBe(false);
+        expect(impactIsQuiet({...none, values: [value("a", "panel.存款"), value("b", "panel.存款")]}, editing)).toBe(false);
+        expect(impactIsQuiet({...none, pendingAdded: ["p1"]}, editing)).toBe(false);
+        expect(impactIsQuiet({...none, pendingResolved: ["p1"]}, editing)).toBe(false);
+        expect(impactIsQuiet({...none, broken: ["c1"]}, editing)).toBe(false);
+        expect(impactIsQuiet({...none, brokenOn: [{line: "l1", change: "c1"}]}, editing)).toBe(false);
+    });
+
+    // 回车直接存（impactIsQuiet）与预览上写出的变化（impactLines）是两段代码：Impact 多了一类时两边要一起改，否则会出现
+    // “预览写了变化、回车却直接存了”。这里逐类对齐：只写“别的都不变”那一句时才算没有变化。
+    it("与预览写的那几行一致：预览只有“别的都不变”时才算没有别的变化", () => {
+        const editing = (at: {readonly entry: string; readonly path: string}) => at.entry === "a" && at.path === "panel.存款";
+        const samples: Impact[] = [
+            none,
+            {...none, values: [value("a", "panel.存款")]},
+            {...none, values: [value("b", "panel.存款")]},
+            {...none, values: [value("a", "text[b1]")]},
+            {...none, pendingAdded: ["p1"]},
+            {...none, pendingResolved: ["p1"]},
+            {...none, broken: ["c1"]},
+            {...none, brokenOn: [{line: "l1", change: "c1"}]},
+            {...none, rekeyed: [{change: "c1", from: 1, to: 2}]},
+        ];
+        const quietLines = [text("edit.noImpact")];
+        for (const impact of samples) {
+            const lines = impactLines(impact, {address: (at) => at.path, skip: editing, values: "follows"}, text);
+            expect(impactIsQuiet(impact, editing)).toBe(JSON.stringify(lines) === JSON.stringify(quietLines));
+        }
     });
 });
 

@@ -93,9 +93,13 @@ const host = useGridHost({
     grid,
     contextKey: "panels",
     // 意图只从呈现尺寸写回（workbench-layout 输出 8、49）：落账前后的布局都交给库，它挑出这次没动的保留像素节点。
-    onApplied: (_commit, result, before) => {
-        doc.value = applyGestureCommit(doc.value, projection.value, {before: before.sizes, after: host.layout.value.sizes, collapsed: result.collapsed}).doc;
+    // 只接手势：这个场景不调 `host.setCollapsed`、`host.setSize`，收起走文档再投影。
+    onApplied: (change, before) => {
+        if (change.kind !== "gesture") return;
+        doc.value = applyGestureCommit(doc.value, projection.value, {before: before.sizes, after: host.layout.value.sizes, collapsed: change.collapsed}).doc;
     },
+    // 用 debug 不用 warn：lab-scenes 按手机宽度跑这个场景，放不下是正常结果，不是接线错误。
+    onIssues: (issues) => console.debug("[lab] nb-layout issues", issues),
 });
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8、49）。 */

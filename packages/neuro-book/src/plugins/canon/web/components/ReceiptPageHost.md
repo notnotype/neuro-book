@@ -31,5 +31,5 @@ type ReceiptPageHostProps = {
 ## 隐藏通道理由
 
 - `io:read`：要读哪些名字取决于这次修订改了什么，宿主（编辑器）不知道；读取随世界变跟着重读。只在真实界面里验证（`receipt-page.dom.test.ts`），Lab 里看 `ReceiptPage`。
-- `state:shared-write`：挂着时向窗口里那一份保存后的提示登记、点“撤销”时往还原对话框里放要还原的那一次。
+- `state:shared-write`：挂着时向窗口里那一份保存后的提示登记、点“还原”时往还原对话框里放要还原的那一次。
 - `state:inject`：经 `useCanonText()`、`useText()` 取翻译端口。

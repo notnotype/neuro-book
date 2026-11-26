@@ -150,8 +150,8 @@ describe("后端宿主（真实子进程）", () => {
         // canon 的服务端入口只依赖宿主能力（项目登记），与诊断没有先后，不算在“诊断之后”里。
         const published = pluginOrder(log, "publish");
         expect(published.filter((plugin) => plugin !== "nbook.canon")[0]).toBe("runtime.diagnostics");
-        expect(published.filter((plugin) => plugin !== "runtime.diagnostics").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web-tools"]);
-        expect(pluginOrder(log, "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web-tools"]);
+        expect(published.filter((plugin) => plugin !== "runtime.diagnostics").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web"]);
+        expect(pluginOrder(log, "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web"]);
     }, 20_000);
 
     // SIGHUP 是关掉终端时进程收到的信号。
@@ -174,7 +174,7 @@ describe("后端宿主（真实子进程）", () => {
             await fetch(await server.control);
             expect(await longText).toBe("started\nreleased");
             expect(await server.exit).toEqual({code: 0, signal: null});
-            expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web-tools", "test.slow"]);
+            expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web", "test.slow"]);
         }, 20_000);
     }
 
@@ -202,7 +202,7 @@ describe("后端宿主（真实子进程）", () => {
         expect(await (await fetch(`${url}api/test.throw-later/throw`)).text()).toBe("scheduled");
         expect(await server.exit).toEqual({code: 1, signal: null});
         expect(server.stderr()).toContain("process.uncaught-exception");
-        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web-tools", "test.throw-later"]);
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web", "test.throw-later"]);
     }, 20_000);
 
     it("未处理的 Promise 拒绝：记录致命诊断后有序停止，以 1 退出", async () => {
@@ -211,7 +211,7 @@ describe("后端宿主（真实子进程）", () => {
         expect(await (await fetch(`${url}api/test.throw-later/reject`)).text()).toBe("scheduled");
         expect(await server.exit).toEqual({code: 1, signal: null});
         expect(server.stderr()).toContain("process.unhandled-rejection");
-        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web-tools", "test.throw-later"]);
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.bots", "nbook.canon", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.network", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.stickers", "nbook.storage", "nbook.tasks", "nbook.web", "test.throw-later"]);
     }, 20_000);
 
     it("标准输入关闭（父进程不在）也触发有序停止", async () => {

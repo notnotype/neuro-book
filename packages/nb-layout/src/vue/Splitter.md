@@ -8,18 +8,18 @@
 
 ## 布局
 
-根容器铺满父级并裁切溢出。`direction="horizontal"` 时面板沿宽度排列、分隔线为竖向；`vertical` 时沿高度排列、分隔线为横向。每块面板占满交叉轴并裁切自身溢出，内容由对应 `panel-<id>` 插槽提供。无面板时只呈现默认插槽。分隔线占用独立 sash 尺寸；静止可见接缝为 1 CSS px，一侧收到零时不画（那一侧没有东西，线只会贴在窗口边或条上；命中与悬停线照旧）（颜色取 `--nb-layout-splitter-seam`，缺省 `--nb-layout-divider`，宿主可在祖先上改，例如设成透明；沿长轴两端的缩进取 `--nb-layout-splitter-seam-inset`，缺省 0，设了就是两端不碰到头的开放式分割线），交互装饰线不参与布局。静止接缝的近端边对齐设备像素，让 1px 线是实的；装饰线按设备像素对齐只改装饰层，不移动 separator 的命中盒，也不改面板布局。装饰带最厚 3px，居中叠在 sash 上，按相邻面板与 sash 的可用空间夹紧：收起边界上相邻面板是 0px，装饰带贴边向内移，不会被祖先的裁切变细。窄屏不自动堆叠，宿主应提供适合方向与尺寸的承载空间。
+根容器铺满父级并裁切溢出。`direction="horizontal"` 时面板沿宽度排列、分隔线为竖向；`vertical` 时沿高度排列、分隔线为横向。每块面板占满交叉轴并裁切自身溢出，内容由对应 `panel-<id>` 插槽提供；面板配置写 `overflow: "visible"` 时不裁切，内容可以伸到相邻面板上面（例如收起的栏里拉出的抽屉），面板自己不建层叠上下文，伸出去的部分要压住相邻面板与分隔线时由内容自己给层级（分隔线的层级是 1），根容器仍然裁切。这块面板收起成窄条或 0 宽时内容同样不裁切，会画到相邻面板上；不要它露出来的时候把选项写回 `hidden`。这个选项只在 `Splitter` 里起作用，`NestedGrid` 的叶不读它。无面板时只呈现默认插槽。分隔线占用独立 sash 尺寸；静止可见接缝为 1 CSS px，一侧收到零时不画（那一侧没有东西，线只会贴在窗口边或条上；命中与悬停线照旧）（颜色取 `--nb-layout-splitter-seam`，缺省 `--nb-layout-divider`，宿主可在祖先上改，例如设成透明；沿长轴两端的缩进取 `--nb-layout-splitter-seam-inset`，缺省 0，设了就是两端不碰到头的开放式分割线），交互装饰线不参与布局。静止接缝的近端边对齐设备像素，让 1px 线是实的；装饰线按设备像素对齐只改装饰层，不移动 separator 的命中盒，也不改面板布局。装饰带最厚 3px，居中叠在 sash 上，按相邻面板与 sash 的可用空间夹紧：收起边界上相邻面板是 0px，装饰带贴边向内移，不会被祖先的裁切变细。窄屏不自动堆叠，宿主应提供适合方向与尺寸的承载空间。
 
 ## 交互
 
 分隔线使用 `role="separator"`，提供与相邻面板关联的 `aria-controls`、方向、当前值、最小/最大值和像素文本。可聚焦分隔线响应主轴方向键，每步 10px，Shift 调整 1px；Home / End 移到可行范围端点，Enter 切换相邻可收起面板。按键抬起时提交该次键盘会话。Escape 取消会话；窗口失焦、浏览器夺走指针捕获、外部约束/身份/方向变化或卸载也会取消而不提交；分隔线失去焦点时结束键盘会话。一次手势的基线在开始时捕获，一次指针操作或一次键盘连发只结束一次。手势进行中宿主重发相同的尺寸或收起状态（预览每帧都会重发）不会取消手势，只有面板身份、上下界、分配策略或收起策略变化才作废它。
 
-指针按下开始拖动后，移动预览随手势更新，松开后提交一次。细指针命中带外扩 5px，触摸粗指针为 15px；相交候选最多同时选一条宽度轴和一条高度轴，但独立 Splitter 只有一个方向。悬停、光标、按下和装饰线高亮读同一份命中结果。悬停命中立即改变 resize 光标，停留 250ms 后才显示装饰线，离开时淡出（时长 `--nb-layout-motion-fast`）；拖动或键盘聚焦时装饰线立即显示。减少动效时保留停留延迟，只去掉淡入淡出。装饰线的样子取主题 token：线芯颜色 `--nb-layout-sash-line-color`、厚度 `--nb-layout-sash-line-size`（缺省 3px 铺满装饰带；更细时对齐静止接缝）、圆角 `--nb-layout-sash-line-radius`、发光 `--nb-layout-sash-line-glow`；长轴两端按 `--nb-layout-sash-line-inset` 缩进。禁用状态与 0px sash 不可交互。`collapse` 配置允许边界拖动越过阈值后吸附至收起尺寸，并在反向越过恢复阈值时恢复；状态随 `panels` 配置输入，不由组件另存。拖动按“按下时的基线加累计位移”求出理想边界，吸附只改约束、不用记忆尺寸重新定位，所以同一个指针位置永远对应同一个状态：低于最小尺寸再往里一个阈值（缺省 24px）时吸附到 `collapsedSize`，回到 `max(最小尺寸, collapsedSize + 恢复阈值)` 且容量允许时展开。`restoreSize` 只服务 `Enter` 与按钮的显式恢复；恢复空间不足时保持收起并给诊断。`collapse.toggleable` 为 false 的面板只经拖动收起与展开，分隔条上的 `Enter` 跳过它。
+指针按下开始拖动后，移动预览随手势更新，松开后提交一次。细指针命中带外扩 5px，触摸粗指针为 15px；相交候选最多同时选一条宽度轴和一条高度轴，但独立 Splitter 只有一个方向。悬停、光标、按下和装饰线高亮读同一份命中结果。悬停命中立即改变 resize 光标，停留 250ms 后才显示装饰线，离开时淡出（时长 `--nb-layout-motion-fast`）；拖动或键盘聚焦时装饰线立即显示。减少动效时保留停留延迟，只去掉淡入淡出。装饰线的样子取主题 token：线芯颜色 `--nb-layout-sash-line-color`、厚度 `--nb-layout-sash-line-size`（缺省 3px 铺满装饰带；更细时对齐静止接缝）、圆角 `--nb-layout-sash-line-radius`、发光 `--nb-layout-sash-line-glow`；长轴两端按 `--nb-layout-sash-line-inset` 缩进。禁用状态与 0px sash 不可交互。`collapse` 配置允许边界拖动越过阈值后吸附至收起尺寸，并在反向越过恢复阈值时恢复；状态随 `panels` 配置输入，不由组件另存。拖动按“按下时的基线加累计位移”求出理想边界，吸附只改约束、不用记忆尺寸重新定位，所以同一个指针位置永远对应同一个状态：低于最小尺寸再往里一个阈值（缺省 24px）时吸附到 `collapsedSize`，回到 `max(最小尺寸, collapsedSize + 恢复阈值)` 且容量允许时展开。`restoreSize` 只服务 `Enter` 与按钮的显式恢复；恢复空间不足时保持收起并给诊断。独立 `Splitter` 的面板没有尺寸意图，所以显式恢复要这个目标；网格的节点展开回到意图，不用它。`collapse.toggleable` 为 false 的面板只经拖动收起与展开，分隔条上的 `Enter` 跳过它。`collapse.locked` 为 true 的面板锁住收起状态：拖动收不了也拉不开它，`Enter` 同样跳过它，只有宿主改 `panels` 才翻。
 
 ## 数据
 
 ```ts
-import type {SashCollapseState} from "./grid-types";
+import type {SplitterCollapseState} from "./grid-types";
 import type {SplitterGestureCancellation, SplitterGestureState} from "./splitter-gesture";
 
 type SplitterPanelConfig = {
@@ -34,9 +34,11 @@ type SplitterPanelConfig = {
     /** 分配策略；默认 "weight"，按比例分配余量；"fixed" 优先保留该配置的像素目标。 */
     sizing?: "fixed" | "weight";
     /** 收起策略与当前状态；省略时不可收起。 */
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     /** 分隔线读屏名称里这块面板的显示名（宿主翻译好的）；省略或空串时用面板 id。 */
     label?: string;
+    /** `visible` 时这块面板不裁切内容；默认 `hidden`。 */
+    overflow?: "hidden" | "visible";
 };
 
 type SplitterProps = {
@@ -57,7 +59,7 @@ type SplitterEmits = {
     (event: "layout", sizesPx: readonly number[]): void;
     /** 一次指针或键盘会话开始时发出。 */
     (event: "gesture-start", state: SplitterGestureState): void;
-    /** 手势预览尺寸变化时发出。 */
+    /** 手势预览尺寸变化时发出；预览回到手势开始时的样子（拖出去又拖回来、取消）时也发一次，这一次 `sizesPx` 是开始时的尺寸、`active` 与 `collapsed` 为空。 */
     (event: "gesture-update", state: SplitterGestureState): void;
     /** 有真实变化的会话提交时发出最终尺寸；无变化不发。 */
     (event: "gesture-end", state: SplitterGestureState): void;

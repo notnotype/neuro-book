@@ -22,6 +22,7 @@
 ## 交互
 
 - 拖动边界的结果（手势开始时与落账之后的尺寸、收起变化）交给 store 的 `commitGesture`，布局发布的尺寸交给 `acceptPresented`（结构操作之前写回意图与可见标签的计算用它）；记录读完之前边界不能拖。
+- 视图自绘头（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 19 的“自绘头”）：`ownHeadBands` 按已提交的文档算，在浮动窗里、只写标题、活动视图声明了 `VIEW_OWN_HEAD` 且实例就绪（`ownHeadOf`）的面板。这些面板的头画在表面的 `own-head` 插槽里（内容里、视图之前，压在视图之上；画在窗口零件层的话不算这块面板，焦点、F6 与当前面板都落空），同一组 `toolHeadProps` 加 `ownHead`；交来的右端宽度按面板记，经表面的 `ownHeads` 写到内容上。`headOfPanel` 在这些面板上是 null（不接管标题区、不转按下），分发时 `setOwnHead` 告诉实例。视图标出的拖动区（`data-window-drag`）拖整个窗由 `layout-drag.ts` 的 `fromElement` 认；拖动区空白处的右键在外壳根上开“移动到”（`onOwnHeadContextMenu`，冒泡阶段、视图没处理的、按下的元素不直接写字也不是图片）。
 - 面板头的框架按钮执行命令（浮动、`toggle-panel-maximized`）；面板头上没有隐藏按钮，区域的显隐在活动栏入口、状态栏与命令上，可用与原因取命令系统的可用性。
 - 收起不是框架按钮，是标题行（Spec 输出 20）：只写标题、上下排、没有被最大化的面板给头 `fold`（带容器的区域里底部面板的分节与区域此刻唯一显示的分节没有，`sectionCollapseBlock`；收没收问 `isSectionCollapsed`；都按已提交的文档算）。点标题在 `activateTab` 一处决定：展开着、视图没接管标题区、点的是当前标签时执行 `set-panel-collapsed` 收起，否则照旧激活（收着的会展开）；接管标题区时单独的展开标记发 `toggle-fold`。分节标题与浮动窗视图标签的右键或菜单键开“移动到”（Spec 输出 23）：别的容器（写容器的标题，与活动栏同一个结果）、三个区域的“新容器”、浮动、“重置位置”；目标表与命令面板同一份（`moveTargetsOf`），各项经 `nbook.view.move-view` 执行。视图、它所在的面板与容器、交付状态或代际一变菜单就关。
 - 头在入口条与分节的叶之间搬家（并、分、最大化、还原、换了并进来的那一节）时，焦点进头时记下的元素（标题、框架按钮的命令、接管标题区的展开标记）交给同一块面板新头里的同一个元素，只在焦点已经丢了的时候（Spec 输出 13）。
@@ -63,6 +64,8 @@ type Props = {
     dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
+    /** 网格的诊断与被拒的提交（`grid-diagnostics.ts`，记成事件 `workbench.grid`）；必填，插件入口交 `recordGridIssues`。 */
+    reportGridIssues: (issues: readonly WorkbenchGridIssue[]) => void;
 };
 ```
 

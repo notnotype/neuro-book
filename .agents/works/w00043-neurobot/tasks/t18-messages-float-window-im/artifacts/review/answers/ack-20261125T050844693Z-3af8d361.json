@@ -1,0 +1,16 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t18-messages-float-window-im",
+    "artifactId": "review",
+    "ackId": "20261125T050844693Z-3af8d361",
+    "answers": [
+        "20261125T050805418Z-e7595734"
+    ],
+    "through": "20261125T050805418Z-e7595734",
+    "included": [
+        ".agents/works/w00043-neurobot/tasks/t18-messages-float-window-im/README.md",
+        ".agents/works/w00043-neurobot/tasks/t18-messages-float-window-im/plan.md"
+    ],
+    "ackedAt": "2026-11-25T05:08:44.693Z"
+}

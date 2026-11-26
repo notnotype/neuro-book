@@ -12,7 +12,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {TextResolver} from "nbook/shared/localized-text";
 
-import {EDITOR_PAGES_POINT} from "../shared/contracts";
+import {EDITOR_PAGES_POINT, PAGE_ICON_PATTERN} from "../shared/contracts";
 import type {EditorPageDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import {pageAddress, pageArgOf, pageIdOf} from "./page-address";
@@ -69,6 +69,10 @@ export interface EditorPageImplementation<State extends object = Record<string, 
     load(): Promise<Component>;
     /** 这个标签的标题；在标签条的计算里调用，读到的响应式数据变了标题跟着变。返回 null 时用记着的标题或声明的标题。 */
     title?(arg: string | undefined): EditorPageDeclaration["title"] | null;
+    /**
+     * 这个标签的图标：lucide 的类名（输出 53）；同 `title` 在标签条的计算里调用。返回 null 时用记着的图标或声明的图标。
+     */
+    icon?(arg: string | undefined): string | null;
     /** `context.state` 的初值；不给时是空对象。 */
     initialState?(arg: string | undefined): State;
     /** 这个标签的面包屑；同样在计算里调用。返回 null 或空时这个标签没有面包屑。 */
@@ -90,6 +94,7 @@ export interface PageTabRef {
     readonly id: string;
     readonly address: string;
     readonly title?: string;
+    readonly icon?: string;
 }
 
 /** 给界面的面包屑的一段：文字已经翻译好；`run` 执行这一段的命令，没有命令的段没有它。 */
@@ -106,6 +111,9 @@ export interface EditorPageSource {
      */
     title(tab: PageTabRef, text: TextResolver): string | null;
     liveTitle(tab: PageTabRef, text: TextResolver): string | null;
+    /** 标签的图标（lucide 类名），取法同标题：页面此刻给的、标签上记着的、声明的；`liveIcon` 只给页面此刻给的。 */
+    icon(tab: PageTabRef): string | null;
+    liveIcon(tab: PageTabRef): string | null;
     /** 页面组件；还没交付实现时为 null。 */
     component(id: string): Component | null;
     /**
@@ -187,8 +195,22 @@ export class EditorPageRegistry {
             const given = implementationOf(tab.address)?.title?.(pageArgOf(tab.address)) ?? null;
             return given === null ? null : text.t(given);
         };
+        // 页面给的图标不是 lucide 类名时不认：它会随标签记录存盘，格式不对会让整条记录写不进去（`tabs-record.ts` 的校验）。
+        const iconPattern = new RegExp(PAGE_ICON_PATTERN, "u");
+        const liveIcon = (tab: PageTabRef): string | null => {
+            const given = implementationOf(tab.address)?.icon?.(pageArgOf(tab.address)) ?? null;
+            return given !== null && iconPattern.test(given) && given.length <= 100 ? given : null;
+        };
         return {
             liveTitle,
+            liveIcon,
+            icon: (tab) => {
+                const live = liveIcon(tab);
+                if (live !== null) return live;
+                if (tab.icon !== undefined) return tab.icon;
+                const id = pageIdOf(tab.address);
+                return (id === null ? null : this.declaration(id)?.icon) ?? null;
+            },
             title: (tab, text) => {
                 const live = liveTitle(tab, text);
                 if (live !== null) return live;

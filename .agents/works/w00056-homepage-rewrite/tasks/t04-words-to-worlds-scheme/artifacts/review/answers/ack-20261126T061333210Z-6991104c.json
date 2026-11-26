@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t04-words-to-worlds-scheme",
+    "artifactId": "review",
+    "ackId": "20261126T061333210Z-6991104c",
+    "answers": [
+        "20261126T061217250Z-6a49df67"
+    ],
+    "through": "20261126T061217250Z-6a49df67",
+    "included": [
+        ".agents/works/w00056-homepage-rewrite/tasks/t04-words-to-worlds-scheme/README.md"
+    ],
+    "ackedAt": "2026-11-26T06:13:33.210Z"
+}

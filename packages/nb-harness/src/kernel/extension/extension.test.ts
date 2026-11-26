@@ -16,6 +16,7 @@ import {opening} from "../helpers/opening.js";
 import {reminder} from "../helpers/reminder.js";
 import {conv, coreHistory, defineContract, defineExtension, ext, optional, shape, slice} from "./define.js";
 import {defineProfile} from "./profile.js";
+import {assemble} from "./assemble.js";
 
 const types = (events: readonly LogEvent[]) => events.map((event) => event.type);
 const ofType = (events: readonly LogEvent[], type: string) => events.filter((event) => event.type === type);
@@ -78,6 +79,57 @@ describe("装配", () => {
         const report = await session.say("你好");
         expect(report.events.filter((event) => event.type.endsWith("/note")).map((event) => event.source)).toEqual(["lab.z-base", "lab.a-user"]);
         expect(report.requests[0]!.outline()).toEqual(["system: fixed:profile", "user: event:lab.z-base/note | event:lab.a-user/note | event:input"]);
+    });
+});
+
+describe("按需扩展（extensions.md 的“按需扩展”）", () => {
+    const modes = defineExtension({id: "lab.modes"});
+    const reminderOf = defineExtension({id: "lab.mode-reminder", dependsOn: [modes]});
+    const foreign = defineExtension({id: "other.mode-addon", dependsOn: [modes]});
+    const auto = defineExtension({id: "lab.auto", tags: ["noisy"]});
+    const contributed = [
+        {extension: modes, plugin: "lab", onRequest: true},
+        {extension: reminderOf, plugin: "lab", onRequest: true},
+        {extension: foreign, plugin: "other", onRequest: true},
+        {extension: auto, plugin: "lab"},
+    ];
+    const installed = (profile: object) => {
+        const assembled = assemble(defineProfile(profile as never) as never, contributed);
+        if (!assembled.ok) throw new Error(JSON.stringify(assembled.problems));
+        // 装配序由拓扑排序定（输出 3 另有测试），这里只看装了哪些。
+        return assembled.assembly.manifest.map((item) => item.id).sort();
+    };
+
+    test("没引用不装按需扩展；引用后装上，同插件依赖它的按需扩展跟着装，别的插件的不跟", () => {
+        expect(installed({id: "test.plain", version: "1", name: "p", description: "p"})).toEqual(["lab.auto", "test.plain"]);
+        expect(installed({id: "test.modal", version: "1", name: "p", description: "p", referencedExtensions: ["lab.modes"]})).toEqual(["lab.auto", "lab.mode-reminder", "lab.modes", "test.modal"]);
+    });
+
+    test("引用与排除无关：\"none\" 与按标签排除挡的是自动扩展；引用被排除的自动扩展照样装；引用已自动装上的不算重复", () => {
+        expect(installed({id: "test.none", version: "1", name: "p", description: "p", pluginExtensions: "none", referencedExtensions: ["lab.modes"]})).toEqual(["lab.mode-reminder", "lab.modes", "test.none"]);
+        expect(installed({id: "test.excluded", version: "1", name: "p", description: "p", pluginExtensions: {exclude: ["noisy"]}, referencedExtensions: ["lab.auto"]})).toEqual(["lab.auto", "test.excluded"]);
+        expect(installed({id: "test.twice", version: "1", name: "p", description: "p", referencedExtensions: ["lab.auto", "other.mode-addon", "lab.modes"]})).toEqual(["lab.auto", "lab.mode-reminder", "lab.modes", "other.mode-addon", "test.twice"]);
+    });
+
+    test("伴随项的其余硬依赖可以由 Profile 自带的扩展满足；没有那个自带扩展就不伴随", () => {
+        const own = defineExtension({id: "test.own"});
+        const addon = defineExtension({id: "lab.addon", dependsOn: [modes, own]});
+        const extended = [...contributed, {extension: addon, plugin: "lab", onRequest: true}];
+        const ids = (profile: object) => {
+            const assembled = assemble(defineProfile(profile as never) as never, extended);
+            if (!assembled.ok) throw new Error(JSON.stringify(assembled.problems));
+            return assembled.assembly.manifest.map((item) => item.id).sort();
+        };
+        expect(ids({id: "test.with-own", version: "1", name: "p", description: "p", extensions: [own], referencedExtensions: ["lab.modes"]})).toContain("lab.addon");
+        expect(ids({id: "test.without-own", version: "1", name: "p", description: "p", referencedExtensions: ["lab.modes"]})).not.toContain("lab.addon");
+    });
+
+    test("引用的 id 没有插件贡献：referenced-extension-missing；单次请求忽略引用；id 误写进 extensions 给出说得清的问题", () => {
+        const missing = assemble(defineProfile({id: "test.missing", version: "1", name: "p", description: "p", referencedExtensions: ["lab.gone"]}) as never, contributed);
+        expect(missing).toMatchObject({ok: false, problems: [{code: "referenced-extension-missing", extension: "test.missing", dependency: "lab.gone"}]});
+        expect(assemble(defineProfile({id: "test.missing", version: "1", name: "p", description: "p", referencedExtensions: ["lab.gone"]}) as never, [], {references: "ignore"}).ok).toBe(true);
+        const misplaced = assemble(defineProfile({id: "test.misplaced", version: "1", name: "p", description: "p", extensions: ["lab.modes"] as never}) as never, contributed);
+        expect(misplaced).toMatchObject({ok: false, problems: [{code: "bad-extension-id", extension: "test.misplaced", hint: expect.stringContaining("referencedExtensions")}]});
     });
 });
 

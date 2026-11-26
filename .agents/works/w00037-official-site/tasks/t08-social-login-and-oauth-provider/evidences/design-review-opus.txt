@@ -1,0 +1,189 @@
+# w00037 t08 设计审查（Opus，只读）
+审查对象：/tmp/review-w00037-t08-design/ 下 plan.md、oauth-provider.draft.md、accounts-admin.changes.md、spike-7.txt；库源码 /tmp/nbsite-spike/node_modules（1.7.27）；仓库 master 的 packages/nb-site-identity。
+证据标记：读源码 = 只读了 node_modules；实测 = 在 lab 或 review-*.ts 跑过。
+
+### 1. `prompt=none` 与别的值同时出现时没有拒绝：`prompt=none consent` 会显示确认页
+- 严重程度：重要
+- 类别：接口与合同；对照 OpenID Connect Core 3.1.2.1
+- 位置：plan.md 3.8 第 2 步；oauth-provider.draft.md 输出 13
+- 现象：计划第 2 步只拒“none、login、consent 之外的值”。库的 parsePrompt 把 prompt 拆成集合（resource-challenge-Bln17mt0.mjs:909），authorize 里 `if (promptSet?.has("consent")) return redirectWithPromptCode(ctx, opts, "consent", …)`（authorize-DXnMh0ha.mjs:8909）这一支不看 promptNone。所以 `prompt=none consent`、有会话、已同意过时，库照样把人带到确认页；`prompt=none login` 有会话时库回 login_required。
+- 为什么是问题：改写稿输出 13 写“prompt=none 时不显示任何页面”，这条直接被违反；OIDC Core 3.1.2.1 规定 none 与其它值并存时返回错误。外部应用用 `prompt=none` 做静默检查时，会意外在 iframe 或后台跳转里落到确认页。
+- 如何核实：读源码（上面两行）。可在 P13 的包内探针里加一条：已同意的客户端发 `prompt=none consent`，看 Location 是否是 /oauth/consent。
+- 建议改法：第 2 步加一条“prompt 含 none 且还有别的值 → 跳回 invalid_request”；同时把“空的项”（连续空格拆出的空串）定为按忽略还是按不合格，写进改写稿输出 13 与第 6 片的变异清单（例如删掉这条判断时 `none consent` 的用例必须失败）。
+
+### 2. 缺站点同意时“去掉 Cookie 让库走登录跳转”是绕路：库自带 postLogin 钩子正好做这件事
+- 严重程度：建议
+- 类别：上游选择；依赖库内部行为
+- 位置：plan.md 3.8 第 3、4 步，第 8 节风险第 3 条，第 9 节 P3
+- 现象：计划靠“去掉 Cookie，库以为没有会话→跳登录页→挂载层按‘去 Cookie 的原因’把它改成 /consent?continue=，prompt=none 时再把 login_required 改成 interaction_required”。库 1.7.27 有现成的 `oauthProvider({postLogin: {page, shouldRedirect, consentReferenceId}})`（oauth-DVZXNLyX.d.mts:1749）：authorize 在认出会话之后、看确认之前调 `shouldRedirect({user, session, …})`，为真时 prompt=none 直接跳回 interaction_required（authorize-DXnMh0ha.mjs:8905），否则用同一套签名参数带到 `postLogin.page`（8986 到 8991）。
+- 为什么是问题：现做法要挂载层记住“为什么去掉 Cookie”并据此分叉两种改写，还依赖“没有会话时库一定先跳登录”的行为（P3 未实测，第 8 节写了不成立就要回到计划）。用 postLogin：`shouldRedirect` 里读 `consentRequiredIn`（返回布尔即可），`page` 设成 `/consent`，挂载层只需像登录页一样把 `/consent?<签名参数>` 包成 `/consent?continue=`；interaction_required 由库给，不改写码；补交之后回授权端点时 shouldRedirect 再判一次就放行。少一处对库输出的改写、少一条升级清单项。
+- 如何核实：读源码。需要一个包内探针：配 postLogin，缺同意的会话发授权请求，看 Location 是否 `/consent?…sig=…`；prompt=none 时是否 interaction_required；补交后带同一参数回来是否发码。
+- 建议改法：把 postLogin 作为 3.8 第 3 步“缺站点同意”一支的首选写进计划，P3 改成探它；“去 Cookie”只留给 max_age（模块时钟）这一种。注意 `consentReferenceId` 是必填，回 undefined 即沿用无引用的同意；`ba_pl` 会在确认跳转里出现（3.7 已在去掉它）。
+
+### 3. 回调地址的规则与库的不一致：不写 application_type 时库按 web 处理，`http://127.0.0.1` 登记不进去、授权时也被拒
+- 严重程度：重要
+- 类别：依赖的机制；接口与合同
+- 位置：plan.md 3.1 第 5 条“回调地址的字段规则”、3.9 `POST admin/oauth-clients` 的请求体、`PATCH` 自家 SQL 改 redirectUris；第 9 节 P8；改写稿输入一节“除本机回环外必须是 HTTPS”
+- 现象：管理员登记走 checkOAuthClient，非动态注册时 application_type 缺省是 "web"（authorize-DXnMh0ha.mjs:5393、5414）。validateClientRedirectUri（5321 起）：web 只收 https 且主机不是回环（`!isHttps || isRedirectLoopback` 即拒）；native 收 https 非回环或 http 精确回环，但拒 https 回环。授权时 isRedirectUriTransportAllowed（resource-challenge-Bln17mt0.mjs:1044）对 web 客户端的 http 回环也回 false，库带去它的错误页 `invalid_request`。计划的登记请求没写 application_type，自家规则是“https 带主机，或 http 且主机是回环”。
+- 为什么是问题：三处后果。一，登记 `http://127.0.0.1:…` 的客户端（第 8 节说公开客户端是桌面与命令行应用，正是这种）时库抛 invalid_redirect_uri，计划没写这个 APIError 怎样映射，多半落成 500。二，`https://localhost/…` 过了自家规则，库不论 web 还是 native 都拒。三，PATCH 走自家 SQL 不经 checkOAuthClient，能把 web 客户端改成 http 回环地址，之后授权被库拒，按 3.8 第 1 步的“兜底”又被改写成 client_not_found，管理员看到的是“客户端不存在”。
+- 如何核实：读源码（上面几行）。P8 已打算探“库收不收 http://127.0.0.1”，但答案已能从源码读出。
+- 建议改法：登记时按种类显式给 application_type（公开→native、机密→web，或开发者另定），自家规则照库写成两套：web 只许 https 非回环；native 许 https 非回环与 http 精确回环、不许 https 回环。PATCH 用同一个校验函数并按客户端的种类判。登记接口对库的 invalid_redirect_uri / invalid_client_metadata 显式映射成 redirect_uri_invalid，并加一条“库拒绝时不是 500”的用例。改写稿输入一节按种类写清楚。
+
+### 4. `response_type` 不是 code 时库带去它的错误页，计划的兜底再把它改成 client_not_found：不跳回客户端，也不是标准码
+- 严重程度：重要
+- 类别：接口与合同；验收映射
+- 位置：plan.md 3.8 第 1 步“兜底”、第 2 步；第 6 节“标准错误码”一行（unsupported_response_type 一条）；改写稿失败与恢复、输出 3
+- 现象：库在认客户端之前就判 response_type：`if (!(query.response_type === "code")) return handleRedirect(ctx, getErrorURL(ctx, "unsupported_response_type", …))`（authorize-DXnMh0ha.mjs:8799），getErrorURL 指向 `${baseURL}/error`（8603）。计划第 1 步只自判客户端与回调地址，第 2 步只拦 request、request_uri、prompt、claims，没拦 response_type；第 1 步的兜底把“库的响应仍是错误页地址”一律改成 client_not_found。
+- 为什么是问题：客户端与回调地址都合格、只是 `response_type=token` 时，按 RFC 6749 4.1.2.1 应带 unsupported_response_type 跳回客户端；按计划，用户看到“没有这个客户端”的站点错误页，客户端什么也收不到。第 6 节说要有一条 unsupported_response_type 的用例，按现设计这条写不出来（或者写出来断言的是错误页，与改写稿失败一节矛盾）。同一个兜底还会吞掉库别的错误页原因（client_disabled、invalid_redirect、insecure redirect 的 invalid_request、unsupported_prompt_select_account），全变成 client_not_found，排错时看不出差别。
+- 如何核实：读源码（8796 到 8810 行的先后）。合同里发一条 client、redirect_uri 都对、response_type=token 的请求即可复现。
+- 建议改法：第 2 步加“response_type 缺失或不是 code → 自己拼跳回 unsupported_response_type（缺失时 invalid_request）”；兜底改成按库错误页地址里的 `error` 参数映射（invalid_client、client_disabled → client_not_found；invalid_redirect → redirect_uri_invalid；其余记一行日志并给一个通用码或 client_not_found，但要写明），并把这张映射表进升级清单。
+
+### 5. 端点遍历守卫只扫六个前缀，漏掉库的 `/admin/*`（含 `/admin/oauth2/create-client`、`/admin/impersonate-user`）、`/token`、`/get-session` 等；理由也写反了
+- 严重程度：建议
+- 类别：安全边界；验收映射
+- 位置：plan.md 3.6 末“升级的守卫”；第 6 节输出 1 一行；第 9 节 P1
+- 现象：守卫只遍历路径以 `/oauth2/`、`/.well-known/`、`/jwks`、`/callback/`、`/sign-in/`、`/link-social` 开头的端点。这套装配下库实际挂着的端点（读源码统计）还有 `/admin/oauth2/create-client`、`/admin/oauth2/update-client`、`/admin/oauth2/resources…`、admin 插件的 `/admin/ban-user`、`/admin/impersonate-user`、`/admin/set-user-password` 等十几个、jwt 的 `/token`、核心的 `/get-session`、`/sign-out`、`/revoke-sessions`、`/change-password`、`/list-accounts`、`/unlink-account`、`/error`、`/ok`、t07 的 `/nb-session/*`。计划说“库加了新端点而白名单没更新时这条失败”，但白名单最后一条是兜底 404，新端点本来就到不了库，白名单不需要更新。
+- 为什么是问题：这个守卫真正能挡的是“有人把白名单放宽”（例如写成 `app.all("/oauth2/*")` 或把兜底改成交库），而它恰恰不扫最危险的 `/admin/*`：一次误改让 `/admin/oauth2/create-client`（管理员登记客户端，ADR 0060 要它不可达）或 `/admin/impersonate-user` 可达时，守卫照过。
+- 如何核实：读源码（oauth-provider 与 better-auth 的 createAuthEndpoint 路径清单）。
+- 建议改法：守卫遍历 `auth.api` 里全部带 path 的端点，不加前缀过滤；每个端点按 GET、HEAD、POST、PUT、PATCH、DELETE 各发一次，不在 3.6 表里的“方法加路径”必须 404。另加几条显式用例点名 `/admin/oauth2/create-client`、`/admin/impersonate-user`、`/token`、`/get-session`。理由一句改成“防白名单被放宽”。
+
+### 6. 确认接口把库给的 url 原样当 redirectUrl：库在确认里重跑 authorize，可能给出登录页或它的错误页这种站内不可用的地址
+- 严重程度：建议
+- 类别：遗漏（失败路径）；依赖库内部行为
+- 位置：plan.md 3.9 `POST oauth/authorization`；第 6 节输出 14
+- 现象：库的 consentEndpoint（authorize-DXnMh0ha.mjs:205 起）在 accept 为真时最后 `return await authorize(ctx, …)`（298 行），即整套授权逻辑再跑一遍；query 里还有 prompt=login 而会话不“新于签名参数”时直接走 authorize 的登录跳转（241 到 247 行）。accept 为假而回调地址不再可信时给 `getErrorURL(ctx, "access_denied", …)`，即 `/api/identity/auth/error?…`（235 行）。计划在调库之前判了令牌、客户端两步，然后把库的 url 原样回给页面。
+- 为什么是问题：三步判与库的调用之间客户端可能被停用、回调地址被管理员改掉（自家 SQL 的 PATCH），库就给出它的错误页地址；若以后走 postLogin（第 2 条）或 select_account 一类，库会给出 `/login?<签名参数>`、`/consent?<签名参数>`。这些地址前端不认（`/api/identity/auth/error` 被白名单 404；`/login?sig=…` 没有 continue），用户落到 404 或一个丢了授权请求的登录页。输出 14 只写了“同意时回带码的跳回地址，拒绝时回带 access_denied 的跳回地址”。
+- 如何核实：读源码。包内可造：GET 确认接口之后、POST 之前用自家 SQL 改掉客户端的回调地址，看 POST 的 redirectUrl。
+- 建议改法：把 3.8 第 4 步对 Location 的归类与改写抽成一个函数，授权端点与确认接口共用；确认接口里库给出错误页时回 client_not_found 或 redirect_uri_invalid（按第 4 条的映射），给出登录或站点同意页时回包好的 `/login?continue=`、`/consent?continue=`。合同加一条“确认期间改回调地址”的用例。
+
+### 7. 换码不在事务里：撤销夹在“认领授权码”与“插入访问令牌”之间时，变更之后仍发出一个有效令牌（或回 500）
+- 严重程度：建议
+- 类别：并发与跨进程；接口与合同
+- 位置：plan.md 3.5；改写稿输出 8、时序与寿命“输出 8 的变更在它的响应返回时已经生效”
+- 现象：handleAuthorizationCodeGrant（authorize-DXnMh0ha.mjs:2308 起）依次：findVerificationValue → 查 session → consumeVerificationValue（2398）→ createUserTokens 插 oauthAccessToken。整段没有 runWithTransaction（全文件只有登记客户端那一处，5617 行），每条查询各自经 t07 队列取锁、放锁，模块的写事务能插在任意两条之间。
+- 为什么是问题：撤销是在删 verification 行与给已有令牌行写 revoked，对“码已被认领、令牌还没插入”这一刻无效。插在这里时：自己改密码、撤销授权（会话保留）之后，库照样插入一条有效令牌，改写稿输出 8 的“没用掉的授权码换不出令牌”与时序一节的“变更在响应返回时已生效”都不成立；封禁、改角色、重置（会话被删）时插入撞外键，客户端收到 500 而不是 invalid_grant。窗口只有几毫秒，但这是安全语义的合同句。
+- 如何核实：读源码。包内可复现：在 libDatabase 的方言里对 consume 之后的第一条插入前挂一个钩子，先跑一次 revokeOAuthForUser 再放行。
+- 建议改法：二选一并写清。a）挂载层用 `withLibTransaction` 包住 `/oauth2/token` 的 `auth.handler` 调用，换码整段串行（里面只有 SHA-256 与一次 RS256 签名，不违反连接的约束 1；但要先探库在里面是否全经当前适配器，否则 connection.ts:451 会抛误用）；b）不改，在改写稿时序一节写明“与变更并发进行的换码可能在变更之后发出令牌”，并把撞外键的 500 映射成 invalid_grant。
+
+### 8. 已关联身份每次社交登录，库会把账号的 emailVerified 改成 true，用户信息随之给出 `email_verified: true`
+- 严重程度：重要
+- 类别：依赖库内部行为；接口与合同
+- 位置：plan.md 3.4 `genericOAuth`、3.10 hooks（只有 user.create.before、account.create.before）、3.6 用户信息的“只留六个字段”；改写稿输出 7“email_verified（站点不验证邮箱，为 false）”；accounts-admin.changes.md 输出 13 “站点也不把这个邮箱算作已验证”
+- 现象：handleOAuthUserInfo 在“上游身份已关联”的登录分支里，`if (!opts.selectedUser && userInfo.emailVerified && !dbUser.user.emailVerified && userInfo.email.toLowerCase() === dbUser.user.email) await c.context.internalAdapter.updateUser(dbUser.user.id, {emailVerified: true})`（better-auth/dist/oauth2/link-account.mjs:224 与 277）。oauth-provider 的用户信息 `email_verified` 取 `user.emailVerified ?? false`（authorize-DXnMh0ha.mjs:188 到 190）。计划只在建账号时把 emailVerified 写成 false，没有 user.update.before，挂载层对 email_verified 只做“保留”。
+- 为什么是问题：社交注册只收上游验证过的邮箱、邮箱就取上游那个，所以每个社交注册的账号第二次用同一上游登录时都满足这条件，之后对外的 email_verified 变成 true；密码账号关联了同邮箱的上游身份后也一样。两处 Spec 的句子都被打破，外部应用会把它当成站点验证过的邮箱（OIDC 客户端常按 email_verified 做账号合并，这是信任边界上的错误信号）。第 9 节 P12 只探“已关联身份的邮箱变成未验证后照常登录”，没探反方向。
+- 如何核实：读源码。包内：仿真上游社交注册后再以登录意图回来，读 user 表的 emailVerified 与用户信息。
+- 建议改法：两层都做。挂载层把用户信息里的 email_verified 恒写成 false（站点的语义，不取库的列）；另加 `databaseHooks.user.update.before` 去掉 data 里的 emailVerified（或改成 false），并作为升级清单一条用例（“社交登录不改 emailVerified”）。改写稿输出 7 已写“为 false”，验收里加一条社交注册后再登录、用户信息仍为 false。
+
+### 9. 库把上游的访问令牌、刷新令牌与 id_token 明文存进 account 表，计划与 Spec 都没提
+- 严重程度：建议
+- 类别：遗漏（数据）；安全边界
+- 位置：plan.md 3.4 `genericOAuth`、3.10 `account.create.before`；accounts.md 副作用一节（第 107 行列出落库的东西，不含上游令牌）
+- 现象：社交注册、关联时 createAccount 的数据带 `accessToken`、`refreshToken`、`idToken`、`scope`、过期时间（link-account.mjs 297 到 307 行）；之后每次登录 `updateAccountOnSignIn` 缺省为真，又把新令牌写回（245 到 266 行）。setTokenUtil 只在 `account.encryptOAuthTokens` 打开时加密，缺省原样返回（oauth2/utils.mjs:21）。
+- 为什么是问题：站点只用上游认人，之后从不调上游 API，却长期留着一份能读用户 GitHub 邮箱（`user:email`）或 Google 资料的令牌；数据库备份或泄露时多一类第三方凭据。Spec 的副作用一节是“落在库里的东西”的清单，这一类不在里面；计划第 7 节手工核对“日志里没有令牌”，库里却有。
+- 如何核实：读源码。探针：社交注册后 `SELECT accessToken, refreshToken, idToken FROM account WHERE providerId='github'`。
+- 建议改法：在 `account.create.before` 里把这几列置空，并设 `account.updateAccountOnSignIn: false`（或加 account.update.before 同样置空）；升级清单加一条“account 行不含上游令牌”的用例。若开发者要保留，至少开 `encryptOAuthTokens` 并在 accounts 副作用一节写明。
+
+### 10. 撤回第 1 条；第 4 条收窄（核对库的请求 schema 之后）
+- 严重程度：（撤回与收窄，不计数）
+- 类别：更正
+- 位置：第 1、4 条
+- 现象：authorize 在用 parsePrompt 之前先过 authorizationQuerySchema（authorize-DXnMh0ha.mjs:524 到 545、8780）。其中 authorizationPromptSchema（480 到 503）已经拒“none 与别的值并存”与未知值，`response_type` 是 `z.enum(["code"])`，不合时经 authorizationQueryErrorCodesByField 映射成 unsupported_response_type（8532 到 8534），二者都走 authorizeRedirectOnError：客户端与回调地址可信时跳回客户端（8724 到 8731）。
+- 结论：第 1 条撤回（`prompt=none consent` 被库以 invalid_request 跳回，到不了 8909 行）。第 4 条的主体撤回：`response_type=token` 会带 unsupported_response_type 跳回客户端，第 6 节那条用例写得出来。仍成立的只剩一小点，并入第 3 条：3.8 第 1 步的兜底把库的任何错误页都改成 client_not_found；在计划的第 1 步之后还会走到库错误页的，实际只剩“web 客户端用 http 回环地址”（库的 insecure redirect，`invalid_request`）一种，按第 3 条修好之后这个兜底只是防御，可以照留，但建议按错误页地址里的 error 参数分别映射并记日志，免得以后库多出别的错误页原因时被一律说成“客户端不存在”。
+- 附带：计划 3.8 第 2 步对 request、request_uri、未知 prompt 值的自判与库重复（库已按同样的码跳回），不是错误；保留的话在注释里写明“与库重复，为了不依赖库的码”，否则可删。
+
+### 11. 关联路径不在事务里：identity_exists 是先查后插，上游名字先于库的 account 行提交，失败时留下孤行并永久挡住这个上游身份
+- 严重程度：重要
+- 类别：并发；遗漏（失败路径）
+- 位置：plan.md 3.2 `identity_upstream_name`（只有 UNIQUE (provider, upstream_account_id)）；3.10 hooks 的 `account.create.before` 关联分支“普通 write：已有身份→identity_exists，再写上游名字”；3.10 mapSocialError
+- 现象：关联时库调 linkAccount，不在 runWithTransaction 里（link-account.mjs 192 行一支；计划 3.3 也说关联“不在库的事务里”）。库在插入之前用 findAccountOwnerByKey 查“这个上游身份有没有主人”，account 表没有 (providerId, accountId) 的唯一约束（0001_init.sql:30、37 只有 userId 索引）。计划的钩子在 account 行插入之前，用一个独立的写事务先判“这个账号在该上游已有身份”、再写 identity_upstream_name 并提交。
+- 为什么是问题：一，同一账号在两个标签页各发起一次 Google 关联、用两个不同的 Google 账号，两个回调交错时都过了“已有身份”的检查，账号挂上两个 Google 身份，违反 accounts 输出 15 的 identity_exists（库自己允许同上游多个，计划第 3.10 已注意到，但判断不是原子的）。二，钩子的写已经提交，库随后插 account 失败（库不可写、队列超时、进程在两步之间退出）时，identity_upstream_name 留下一行没有 account 对应的孤行；因为 UNIQUE (provider, upstream_account_id)，之后任何人再关联这个上游身份都在钩子里撞唯一约束，库把它吞成 unable to link account，按 mapSocialError 显示 social_state_invalid，永远关联不上；me/identities 按 account 连表看不到这行，解绑也删不到它。三，两个账号并发关联同一个上游身份时，后一个撞的是自家表的唯一约束，用户看到 social_state_invalid 而不是 identity_taken。
+- 如何核实：读源码与计划；包内可复现：在钩子写完之后、库插入之前注入一次失败，再发起一次关联。
+- 建议改法：identity_upstream_name 加 UNIQUE (user_id, provider)，让“每个上游至多一个身份”由约束判；钩子的写改成“同 (provider, upstream_account_id) 或同 (user_id, provider) 的行若在 account 表里没有对应行就先删掉再插”，孤行自愈；钩子里撞唯一约束时按约束名记自家码（identity_taken 或 identity_exists）进帧。补“注入失败后能再次关联”与“两个关联并发只成一个”两条包内用例。
+
+### 12. 0002 的自家表违反 0001 定下的“指向账号不写 ON DELETE”，而且社交两张表在社交代码写出之前就随第 3 片冻结
+- 严重程度：建议
+- 类别：被破坏的既有约定；切片
+- 位置：plan.md 3.2 `identity_upstream_name` 的 `REFERENCES "user"(id) ON DELETE CASCADE`；第 5 节审查“第 3 片之后……迁移在这一轮定稿，之后不改 0002”
+- 现象：0001_init.sql 第 13 行的全文件约定：“指向账号的引用都指向 "user"(id)，不写 ON DELETE：账号不能删除，误删由外键拒绝”；0001 里自家表的外键（55、67、86、101、118 行）都没有 ON DELETE。计划给 identity_upstream_name 写了 CASCADE。另外 0002 同时建社交的 identity_upstream_name、identity_social_flow，计划却要它在第 3 片（社交代码是第 8、9 片）之后定稿、之后不改。
+- 为什么是问题：CASCADE 让“误删账号”从被外键拒绝变成静默删掉上游身份的名字，与 0001 的防线相反，且没有写理由。冻结时机更实际：第 11 条要的 UNIQUE (user_id, provider)、流程表可能要的列（例如回调时浏览器标识、对 state 的约束）都只有写社交代码时才看得清；第 3 片之后不许改 0002，就只能再开 0003 去补一张还没发布过的表，或者违反计划自己的规则。
+- 如何核实：读 0001 文件头与计划 3.2、第 5 节。
+- 建议改法：identity_upstream_name 的外键去掉 ON DELETE（与 0001 一致）；把两张社交表挪到 0003，随第 8 片建、随第 10 片之后的审查定稿；0002 只放库的 8 张表。若坚持一个文件，就把“0002 定稿”挪到第 10 片之后的审查，并在计划里写明第 3 片到第 10 片之间改 0002 不算违反“发布后不改”（还没发布）。
+
+### 13. 注册意图碰上已关联的上游身份时，库直接走登录分支：静默登录到旧账号，注册内容被丢掉，Spec 没规定
+- 严重程度：建议
+- 类别：遗漏（边界）；Spec 可判定性
+- 位置：plan.md 3.10 `start.ts` 的 `callbackURL`、`newUserCallbackURL` 同指成功哨兵，`callback.ts`“跳到成功哨兵：落点（登录、注册……）”；accounts-admin.changes.md 输出 13
+- 现象：handleOAuthUserInfo 先 findAccountOwnerByKey（link-account.mjs:111）；找到主人就进“已关联”分支、建会话，不调 createUser，钩子 user.create.before 不会被调到。库按新老用户分别跳 newUserCallbackURL 与 callbackURL，计划把两者设成同一个成功哨兵，回调处理分不出这次是“建了账号”还是“登录了已有账号”。
+- 为什么是问题：用户在注册页填了用户名、注册码，用一个早已注册过的 Google 身份发起，结果被登录进那个旧账号、落到 `/`（或继续地址），没有任何提示，注册码没扣、用户名没占；对 OAuth 续接来说，外部应用拿到的是另一个账号。改写稿只说了注册失败的几种码，这种情况既不是失败也不是“注册成功”，不可判定。
+- 如何核实：读源码；仿真上游：先社交注册 A，再以注册意图、同一上游身份、另一个用户名发起。
+- 建议改法：开发者定一个结果写进 accounts 输出 13：a）当作登录（写明“上游身份已关联账号时按登录处理，注册内容不生效”）；b）不建会话，跳回 `/register` 带 identity_taken。实现上把 newUserCallbackURL 与 callbackURL 设成两个不同的哨兵，或看帧里有没有 user.create.before 记下的 userId；选 b 时要在库发会话之前拦（例如 session.create.before 里按帧的意图与“没建账号”拒绝），否则 Cookie 已经发出。
+
+### 14. OAuth 子应用明确不经请求体上限，站点又没有全局上限：未认证的令牌、撤销请求能塞进上百兆的表单
+- 严重程度：建议
+- 类别：安全边界（资源）
+- 位置：plan.md 3.6 末“这一层不经来源头检查……不经账号子应用的请求体上限（库自己读表单）”
+- 现象：nb-site-server 与 nb-site-identity 里只有账号子应用挂了 `bodyLimit`（nb-site-identity/src/errors.ts:88），没有服务级的上限；Bun.serve 的 maxRequestBodySize 缺省是 128 MB。`/oauth2/token`、`/oauth2/revoke`、`POST /oauth2/userinfo` 都不要求会话或来源头，库读整个表单进内存再解析。
+- 为什么是问题：任何人都能并发发大表单，让进程为每个请求缓冲到上限，换来内存耗尽或长时间 GC；这几个端点合法请求都在几 KB 以内。
+- 如何核实：读源码（grep bodyLimit、maxRequestBodySize 只有上面一处）。
+- 建议改法：给 oauth 子应用单独挂一个小上限（例如 16 KB），超了回 RFC 6749 形状的 400 invalid_request（或 413），加一条合同用例；授权端点是 GET，顺带给查询串长度设上限（与续接令牌的 8192 字符对齐，见下一条附带）。
+
+### 15. 回调地址“精确匹配”对公开客户端（桌面、命令行）不合 RFC 8252：库本来按回环不看端口，计划在前面用逐字比较把它关掉了
+- 严重程度：建议
+- 类别：对照需求与参照；上游选择
+- 位置：plan.md 3.8 第 1 步“回调地址不在登记的数组里”；改写稿输入一节“精确匹配”；第 8 节“公开客户端是桌面与命令行应用”
+- 现象：库的 findRegisteredRedirectUri 对非 web 客户端的 http 回环地址去掉端口再比（authorize-DXnMh0ha.mjs:8653 到 8673，注明参照 node-oidc-provider）。计划第 1 步用自家 SQL 逐字比较，先于库判掉。
+- 为什么是问题：RFC 8252 7.3 要求授权服务器对回环 IP 的回调地址在请求时允许任意端口；OAuth 2.0 Security BCP 也只对回环的端口放宽。命令行与桌面应用通常临时取一个空闲端口，逐字匹配下它们只能登记至多 5 个固定端口并在被占用时失败。第 8 节已定公开客户端就是这类应用，这一条会直接影响第一批接入者。
+- 如何核实：读源码与 RFC 8252 7.3。
+- 建议改法：交开发者定（产品取舍）：a）回环 http 地址按“去掉端口后相等”匹配，与库一致（推荐，与第 3 条的 native 一起定）；b）保持精确匹配，在改写稿里写明“回环地址也要带登记的端口”并说明对命令行应用的影响。无论哪个，第 1 步的自家判断与库的判断要同一个规则，否则一方放行另一方拒绝时落到第 4 条那个兜底。
+
+### 16. 几处小的不一致（合在一条）
+- 严重程度：建议
+- 类别：接口与合同；验收映射；别扭之处
+- 位置与现象：
+  a）plan.md 3.5 第 4 点把清理任务的“按到期会话撤”写成 purgeExpiredSessions 里的两条 SQL（session.ts），同节末尾的源码守卫又要求“写 oauthAccessToken 的 revoked、按 authorization_code 删 verification 的 SQL 只出现在 revoke.ts”。两句互相矛盾；应在 revoke.ts 加第五个函数（按到期时间撤），session.ts 只调它。
+  b）GrantItem.createdAt（oauthConsent.createdAt）与 OAuthClientItem.createdAt 都是库按系统时间写的（consentEndpoint 用 `Date.now()`，authorize-DXnMh0ha.mjs:254 到 263），账号模块别处的时间都取模块时钟（0001 文件头）。合同测试拨了模块时钟时这两个字段与别的时间不在一条时间线上；计划没写它们的来源，第 6 节输出 15、16 的用例若断言“给出的时间等于当时的模块时间”会失败。应在计划写明来源，用例只断言格式与先后，或在写入后由自家 SQL 改成模块时钟。
+  c）库的 id_token 恒带 `acr: "0"`（createIdToken，1649 行）。改写稿输出 11 的载荷清单没有它，发现文档的 claims_supported 按计划由“用户信息与 id_token 字段”拼出时也不含它；合同里“各字段”若按全集断言会失败。改写稿加一句“另有 acr（恒为 "0"）”或在用例里只断言列出的字段存在且没有资料字段。
+  d）合同包 contract.test.ts 现有用例写死“社交落点码是七个”，并要求 SOCIAL_ERROR_CODES 里除三个跳转参数码以外的都在 HTTP 码表里（186 到 197 行）。social_cancelled、social_failed 是只作跳转参数的码，要加进 REDIRECT_ONLY_CODES、不进 IDENTITY_FAILURE_CODES；计划 3.1 的“新码都有状态、ErrorBody 收它们”容易被照字面套到这两个码上，应写明只指四个 OAuth 码。
+  e）续接令牌超过 8192 个字符时“照常登录、不带继续地址”：客户端的 state 或 nonce 较长时（有的客户端把签名的 JWT 放进 state），这次授权在登录后静默丢失，用户落到 `/`。建议在授权端点第 2 步对查询串总长设上限并以 invalid_request 跳回，让失败在客户端那边可见，而不是在登录之后悄悄丢掉。
+- 如何核实：分别见上面的行号；d 读 nb-site-identity-contract/src/contract.test.ts。
+- 建议改法：见各项。
+
+### 17. 升级清单漏了计划实际依赖的几处库行为
+- 严重程度：建议
+- 类别：依赖库内部行为
+- 位置：plan.md 3.15
+- 现象与缺项（都读源码确认过依赖关系）：
+  a）授权请求的 schema 判 prompt（none 不能与别的值并存、未知值）与 response_type（非 code 映射成 unsupported_response_type 并跳回可信回调）：authorize-DXnMh0ha.mjs:480 到 545、8532。计划第 2 步不自判这两样，改写稿输出 13 与失败一节就靠它（见第 10 条）。
+  b）确认端点在 accept 时重跑整个 authorize（298 行），拒绝时回调不可信就给库的错误页（235 行）：第 6 条。
+  c）已关联身份登录时把 emailVerified 改成 true（link-account.mjs:224、277），以及 `updateAccountOnSignIn` 缺省为真、上游令牌原样存（245 到 266 行，utils.mjs:21）：第 8、9 条。
+  d）管理员登记时 application_type 缺省 web、validateClientRedirectUri 的两套规则（5321 到 5345、5393、5414）：第 3 条。
+  e）非 web 客户端的回环地址不看端口（8653 到 8673）：第 15 条。
+  f）`getSessionFromCtx` 一律以 GET 调 getSession（better-auth/dist/api/routes/session.mjs:249 到 254），配合 deferSessionRefresh 才使库在授权、确认里遇到到期会话时不删行；这是“删会话只在那组函数里”能成立的前提之一。另外 oauth-provider 自带 session.delete 的 before/after 钩子（authorize-DXnMh0ha.mjs:7616 到 7641），只在库自己经 internalAdapter 删会话时跑、撤令牌是提交之后在后台做且不删授权码；计划的 SQL 删法绕过它，清单里应记一句“库的这条钩子存在但本模块不依赖，库若开始在别的路径上删会话，撤销会变成异步且不删码”。
+  g）换码整段不在事务里（2308 到 2420）：第 7 条。
+  h）`accountLinking.updateUserInfoOnLink` 与 genericOAuth 的 `overrideUserInfo` 缺省关（link-account.mjs:425），关联与登录才不改显示名、头像；改写表的“账号的邮箱也不因关联而改变”靠的是 link 分支不写 email。
+- 为什么是问题：3.15 的规则是“每处依赖对着一条用例”，这些依赖没有用例时，库升级改了行为不会有测试失败。
+- 建议改法：按上面八项各补一行与一条用例，随对应的片加。
+
+## 未发现问题的方面
+- 删会话的覆盖面：模块里删 session 行的只有 session.ts 的四个函数（调用方：my-sessions、Sessions.#expire 与 logout、change-password、admin/users 四处、create-admin），计划的“先撤后删”覆盖全部。库自己删会话的路径在这套装配下都到不了：sign-out、revoke-session(s)、admin 插件、RP 登出都被白名单挡住；授权与确认里的 getSessionFromCtx 一律以 GET 调 getSession（session.mjs:249 到 254），配合 deferSessionRefresh 不删到期行。
+- 社交注册的事务内容（回答计划第 11 节第 3 条）：createOAuthUser 与 handleOAuthUserInfo 的注册分支在一个 runWithTransaction 里只有 createUser 与 createAccount 两次带钩子的写（internal-adapter.mjs:139 到 157、link-account.mjs:315 起），中间没有别的写；建会话在事务提交之后。
+- `trustedProviders`（回答第 11 节第 2 条）：不设时 linkOAuthAccount 对“上游邮箱未验证”的身份回 unable_to_link_account（link-account.mjs:68 到 71），所以计划设它是必要的；它对隐式关联的影响被 disableImplicitLinking 挡住（168 到 177 行）。
+- 令牌端点的认证方式：validateClientCredentials 按登记的方式强制（resource-challenge-Bln17mt0.mjs:797 到 798），登记为 basic 的客户端用表单带密钥会被拒，改写稿“不支持 client_secret_post”成立。
+- PKCE（P8 的前半）：isPKCERequired 对公开客户端恒要求，对机密客户端取 `requirePKCE ?? true`（resource-challenge-Bln17mt0.mjs:1029 到 1038），只收 S256（authorize 8859）。
+- 撤销端点的改写：带非空 token 时库回 400 invalid_request 的分支都是“查不到令牌”，缺 client_id 是 401 invalid_client，改写不会把真实的请求错误变成 200。
+- 相邻版本互换：入口的迁移执行器容忍账本里更新的迁移（nb-site-server/src/db/migrate.ts:13、249 到 284），0002 之后旧版本照常启动；旧版本不挂 OAuth 端点，回滚期间令牌不可用。
+- 合同测试包边界：测试支持包的新子路径与现有 `/tmp`、`/wait` 同一类，改导入表加一行符合包说明的规则。
+- 回调错误码只信帧、claimFlow 先认领、关联复核会话：思路与第七轮探针一致，没找到绕过的路径（第 11、13 条是别的缺口）。
+
+## 各级数量
+- 阻断 0；重要 3（第 3、8、11 条）；建议 11（第 2、5、6、7、9、12、13、14、15、16、17 条）。
+- 撤回 2：第 1 条整条撤回；第 4 条主体撤回、残余并入第 3 条（见第 10 条）。第 10 条是更正，不计数。
+
+## 对待确认项的判断
+1. 上游地址做成配置项：同意 a。合同测试覆盖社交是刚需；变量只许 https 或回环 http、只给一半启动失败，生产风险小。
+2. 坏客户端或坏回调到 `/oauth/consent?error=`：同意 a，码只有两个；第 3、10 条修好后兜底也只会落到这两个码。
+3. 换会话密钥后的签名钥：倾向 a，但有两个前提要先探：库按什么挑签名钥（最新的、未过期的），以及标成过期的旧公钥是否仍出现在 /jwks（否则重启前签发、没到期的 id_token 验不过，与改写稿输出 17 冲突）。只在“所有钥都解不开”时才新建，并记 warn；探不通就退到 b，不要静默轮换。
+4. 停用后再启用不恢复：同意 a，代价只是 PATCH 里一次撤销。
+另：主会话按推荐定的几处，social_cancelled 与 social_failed、保持自增 id 不提供 DPoP 与 private_key_jwt 都同意；“缺站点同意走 /consent?continue=”的产品行为同意，实现机制建议改用库的 postLogin（第 2 条）。
+
+有效发现编号：2、3、5、6、7、8、9、11、12、13、14、15、16、17

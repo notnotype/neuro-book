@@ -39,16 +39,17 @@ attrs:
   → <div>（inheritAttrs: false）
 
 ### experimental component FloatWindowHandles
-引用：GridExtent, GridRect
+引用：GridExtent, GridRect, LayoutFloatResize
 props:
-  max: GridExtent
+  area?: GridRect | undefined = undefined
+  max?: GridExtent | undefined = undefined
   min: GridExtent
   moveIconClass?: string | undefined = ""
   rect: GridRect
 attrs:
   → 根元素
 events:
-  commit(rect: GridRect)
+  commit(rect: GridRect, direction: LayoutFloatResize)
   move(position: { readonly x: number; readonly y: number; })
   preview(rect: GridRect | null)
 
@@ -65,6 +66,7 @@ type GridBranch<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
     children: GridNode<T>[];
 };
@@ -129,7 +131,7 @@ interface GridFailure<C extends string = string> extends GridIssue<C> {
 }
 
 ### experimental type GridFailureCode
-type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "wrong-sizing";
+type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "collapse-locked" | "wrong-sizing";
 
 ### experimental interface GridFloatInput
 引用：GridRect
@@ -137,6 +139,7 @@ interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
     readonly gesture?: "move" | "resize";
+    readonly animate?: boolean;
 }
 
 ### experimental type GridGestureCancellation
@@ -215,6 +218,7 @@ type GridLeaf<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
 };
 
@@ -292,6 +296,12 @@ interface GridSwapWindow {
     ];
 }
 
+### experimental interface LayoutFloatResize
+interface LayoutFloatResize {
+    readonly width: -1 | 0 | 1;
+    readonly height: -1 | 0 | 1;
+}
+
 ### experimental component NestedGrid
 引用：GridContentInput, GridExtent, GridFailure, GridFloatInput, GridGestureCancellation, GridGestureCommit, GridGesturePreview, GridGestureStart, GridIssue, GridIssueCode, GridLayoutResult, GridLeaf, GridLeafShape, GridNode, GridRect, GridSwap
 props:
@@ -317,6 +327,7 @@ attrs:
 events:
   content-parked(key: string)
   extent(extent: GridExtent | null)
+  float-raise(id: string)
   gesture-cancel(info: GridGestureCancellation)
   gesture-end(commit: GridGestureCommit)
   gesture-start(info: GridGestureStart)
@@ -331,6 +342,7 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  leafRect: (id: string) => GridRect | null
   motionMs: () => number
   moving: boolean
   origin: () => { x: number; y: number; }
@@ -344,11 +356,10 @@ exposed:
 ### experimental type SashCollapsePolicy
 type SashCollapsePolicy = {
     collapsedSize: number;
-    restoreSize: number;
     collapseThreshold: number;
     expandThreshold: number;
     toggleable?: boolean;
-    restoreToShare?: boolean;
+    locked?: boolean;
 };
 
 ### experimental type SashCollapseState
@@ -410,6 +421,12 @@ events:
 slots:
   Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
 
+### experimental type SplitterCollapseState
+引用：SashCollapseState
+type SplitterCollapseState = SashCollapseState & {
+    restoreSize: number;
+};
+
 ### experimental interface SplitterGestureCancellation
 引用：SashGestureCancelReason, SashGestureSource
 interface SplitterGestureCancellation {
@@ -430,13 +447,14 @@ interface SplitterGestureState {
 }
 
 ### experimental interface SplitterPanelConfig
-引用：SashCollapseState
+引用：SplitterCollapseState
 interface SplitterPanelConfig {
     id?: string;
     defaultSizePx?: number;
     minSizePx?: number;
     maxSizePx?: number;
     sizing?: "fixed" | "weight";
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     label?: string;
+    overflow?: "hidden" | "visible";
 }

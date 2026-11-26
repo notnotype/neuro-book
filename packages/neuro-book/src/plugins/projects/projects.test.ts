@@ -9,16 +9,20 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
+import {createDispatcher, HttpAdmission, RouteTable, validateRouteContribution} from "@notnotype/nb-host/testing";
 import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {RemoteUse} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {Hono} from "hono";
 import {ref} from "vue";
 
 import {createApplication} from "nbook/application";
@@ -48,11 +52,14 @@ import {windowNavigationKey} from "nbook/shared/host";
 import {textOf} from "nbook/shared/localized-text";
 import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 import {windowProjectKey} from "nbook/shared/projects";
+import type {WindowProject} from "nbook/shared/projects";
+import {RESUME_PATH} from "nbook/shared/resume-path";
 import {browserHostPlugins, browserPluginDefinitions} from "nbook/web/plugins";
 
 import {projectsBackendPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
-import {librarySetting, projectsRemoteContract} from "./shared/contracts";
+import {librarySetting, projectsRemoteContract, startupOpenSetting} from "./shared/contracts";
+import {LAST_OPENED_RECORD} from "./shared/last-opened-record";
 import type {ProjectStatsSnapshot} from "./shared/contracts";
 import {PROJECT_STATS_RECORD} from "./shared/stats-record";
 import {openProject} from "./web/open-project";
@@ -81,15 +88,28 @@ afterAll(async () => {
  * 服务端装着 `nbook.projects` 的服务端入口，连同它依赖的真实 Storage 与配置（按产品清单的装配，带 `nbook.projects` 声明的
  * 作品目录设置）；浏览器是另一个真实内核实例，不绑定项目。`prepare` 在服务端实例起来之前预置状态根（见 `projectHarness`）。
  */
-async function setup(prepare?: (paths: ProjectHarnessPaths) => Promise<void>): Promise<{readonly h: ProjectHarness; readonly projects: RemoteUse<typeof projectsRemoteContract>; readonly store: DiagnosticsStore}> {
+async function setup(prepare?: (paths: ProjectHarnessPaths) => Promise<void>): Promise<{readonly h: ProjectHarness; readonly projects: RemoteUse<typeof projectsRemoteContract>; readonly store: DiagnosticsStore; readonly get: (path: string) => Promise<Response>}> {
     // 服务端插件都以诊断为依赖图的根；这里的诊断只进内存，不写文件也不打印。
     const silent = {error: () => undefined};
     const store = createDiagnosticsStore({identity: {location: "server", instanceId: "hub"}});
     const diagnostics = createDiagnosticsPlugin({location: "server", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
+    // `http.routes` 的接收者与分发器是 `nbook.http` 的真实实现（不监听端口）：插件交出的路由经它按 `/api/<插件 id>/` 分发。
+    const routes = new RouteTable();
+    const http: PluginDefinition = {id: "nbook.http", contributionPoints: [{id: HTTP_ROUTES_POINT, implementation: "required", validate: validateRouteContribution}], entries: [defineEntry({id: "server", location: "server", activationEvents: ["onStartup"], receives: [HTTP_ROUTES_POINT], activate: () => ({receivers: {[HTTP_ROUTES_POINT]: routes.receiver()}})})]};
     const h = await projectHarness(tmp, {
-        plugins: [diagnostics, storageBackendPlugin, definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", descriptor, projectsBackendPlugin)],
+        plugins: [diagnostics, http, storageBackendPlugin, definitionAt("server", settingsDescriptor, settingsBackendPlugin), definitionAt("server", descriptor, projectsBackendPlugin)],
         ...(prepare === undefined ? {} : {prepare}),
     });
+    const admission = new HttpAdmission({productName: "NeuroBook"});
+    admission.ready();
+    const dispatch = createDispatcher({admission, routes, hostRoutes: new Hono(), staticFiles: null, reportError: () => undefined, allowOrigin: () => false});
+    // 服务端地址以斜杠结尾（`Bun.serve().url.href`），壳与命令行按 `new URL(RESUME_PATH, 地址)` 拼：这里用同样的拼法。
+    const get = async (path: string): Promise<Response> => {
+        const response = await dispatch(new Request(new URL(path, "http://127.0.0.1:4217/").href, {redirect: "manual"}));
+        // 读完响应体准入才算请求结束。
+        await response.arrayBuffer();
+        return response;
+    };
     let remote: ActivationContext["remote"] | null = null;
     const node = createRemoteNode({instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}});
     const app = createApplication(
@@ -107,7 +127,7 @@ async function setup(prepare?: (paths: ProjectHarnessPaths) => Promise<void>): P
     h.router.accept(pair.right);
     expect(await node.connect(pair.left)).toEqual({ok: true});
     expect(await app.startup).toMatchObject({status: "available"});
-    return {h, projects: remote!.use(projectsRemoteContract), store};
+    return {h, projects: remote!.use(projectsRemoteContract), store, get};
 }
 
 /** 拿到命令服务的测试插件：依赖命令服务，借此把它交给测试。 */
@@ -122,11 +142,11 @@ function commandReader(onService: (service: CommandService) => void): PluginDefi
  * 装着产品 `nbook.commands` 与 `nbook.projects` 浏览器入口的窗口实例，连到 `h` 的路由。工作台的选择服务要挂上
  * 命令面板（DOM）才有宿主，这里用同一个真实的面板宿主顶替它；整页导航记在宿主能力上（产品里是 `location.assign`）。
  */
-async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: string[]): Promise<{readonly commands: CommandService; readonly app: Application}> {
+async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: string[], project: WindowProject["project"] = null): Promise<{readonly commands: CommandService; readonly app: Application}> {
     let commands: CommandService | null = null;
     const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "browser-2"}});
     const node = createRemoteNode({instance: {id: "browser-2", kind: "browser", role: "client", project: null, client: "profile-2"}});
-    const settings = standaloneSettings("browser", tmp);
+    const settings = standaloneSettings("browser", tmp, {windowProject: false});
     const app = createApplication(
         {identity: {location: "browser", instanceId: "browser-2"}, stopSignal: new AbortController().signal, emergency: () => undefined},
         {
@@ -135,6 +155,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
                 // 书架页把失败通知交给工作台的通知服务；这里没有工作台插件，用真实的通知队列顶替。
                 {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}), projectsTextIn("zh-CN"))},
+                {id: "window.project", key: windowProjectKey, create: () => ({project})},
                 ...settings.capabilities,
             ],
             plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
@@ -534,5 +555,74 @@ describe("Spec projects 输出 19 到 21：作品目录、列目录与封面在�
         await rm(join(h.project.path, "cover.png"));
         expect(await projects.shelf({})).toMatchObject({ok: true, value: [{id: h.project.id, cover: null}]});
         expect(events(store)).toContain("projects.shelf.cover-missing");
+    });
+});
+
+describe("Spec projects 最近打开与启动时打开：opened 与 resume 路由", () => {
+    const location = (response: Response) => ({status: response.status, location: response.headers.get("location")});
+
+    it("没有记录时进书架；opened 之后进那部作品（按登记表当前的短名），后打开的覆盖先打开的；查询串丢弃；移出书架后进书架", async () => {
+        let second: {readonly id: string; readonly path: string} | null = null;
+        const {h, projects, get} = await setup(async (paths) => {
+            second = await registerExtra(paths, "second");
+        });
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+        expect(await projects.opened({id: h.project.id})).toEqual({ok: true, value: {}});
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: `/?project=${encodeURIComponent(h.project.name)}`});
+        expect(await projects.opened({id: second!.id})).toEqual({ok: true, value: {}});
+        expect(location(await get(`${RESUME_PATH}?project=${h.project.name}&x=1`))).toEqual({status: 302, location: "/?project=second"});
+        expect(await projects.opened({id: "00000000-0000-4000-8000-000000000000"})).toMatchObject({ok: false, code: "unknown-project"});
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/?project=second"});
+        expect(await projects.unregister({id: second!.id})).toMatchObject({ok: true});
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+    });
+
+    it("窗口绑定了作品：浏览器入口记下它，之后经路由进它；没绑定的窗口不记", async () => {
+        const {h, get} = await setup();
+        const navigations: string[] = [];
+        const palette = () => createPaletteHost({commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
+            throw error;
+        }})});
+        await commandWindow(h, palette(), navigations);
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+        await commandWindow(h, palette(), navigations, {id: h.project.id, name: h.project.name, title: h.project.name, generation: 1});
+        expect(await waitUntil("记下了上次的作品", async () => ((await get(RESUME_PATH)).headers.get("location") === `/?project=${encodeURIComponent(h.project.name)}` ? true : undefined))).toBe(true);
+    });
+
+    it("设置为书架：有记录也进书架", async () => {
+        const {h, projects, get} = await setup(async (paths) => {
+            await writeFile(join(paths.stateRoot, "settings.json"), JSON.stringify({[startupOpenSetting.key]: "shelf"}));
+        });
+        expect(await projects.opened({id: h.project.id})).toEqual({ok: true, value: {}});
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+    });
+
+    it("记录坏了：resume 进书架并记诊断；opened 覆盖坏记录，之后照常", async () => {
+        const {h, projects, store, get} = await setup(async (paths) => {
+            // 别的版本写下的记录：本插件读到 unsupported-version。
+            const partition = createPartition({path: join(paths.stateRoot, "storage", "user.sqlite")});
+            try {
+                const newer = {...LAST_OPENED_RECORD.descriptor, version: 2};
+                const registered = partition.register(descriptor.id, newer);
+                if (!registered.ok) throw new Error(registered.detail);
+                const written = partition.write({owner: descriptor.id, key: LAST_OPENED_RECORD.key, resource: "", client: ""}, newer, {kind: "save", value: {id: "x"}, expect: null});
+                if (!written.ok) throw new Error(written.detail);
+            } finally {
+                partition.close();
+            }
+        });
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+        expect(events(store)).toContain("projects.resume-failed");
+        expect(await projects.opened({id: h.project.id})).toEqual({ok: true, value: {}});
+        expect(events(store)).toContain("projects.last-opened.record-damaged");
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: `/?project=${encodeURIComponent(h.project.name)}`});
+    });
+
+    it("登记表坏了：resume 进书架，opened 为 registry-invalid", async () => {
+        const {h, projects, get} = await setup();
+        expect(await projects.opened({id: h.project.id})).toEqual({ok: true, value: {}});
+        await writeFile(join(h.stateRoot, "projects.json"), "{");
+        expect(location(await get(RESUME_PATH))).toEqual({status: 302, location: "/"});
+        expect(await projects.opened({id: h.project.id})).toMatchObject({ok: false, code: "registry-invalid"});
     });
 });

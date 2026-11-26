@@ -442,21 +442,24 @@ test.describe("产品页", () => {
         await expect(toggle).toHaveText("隐藏面板");
     });
 
-    test("侧栏里分节之间的边界：Enter 把分节收成标题行、内容停放，再按一次恢复记忆的尺寸（输出 11、12）", async ({page}) => {
+    test("侧栏里分节之间的边界：Enter 把分节收成标题行、内容停放，再按一次回到意图；兄弟吸收让出的高度、展开后回到原高（输出 11、12）", async ({page}) => {
         await open(page);
         const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
         const [upper, lower] = (await box(page, explorer)).y < (await box(page, sessions)).y ? [explorer, sessions] : [sessions, explorer];
         // 收的是边界前面的那一块。
         const upperView = upper === sessions ? SESSIONS : EXPLORER;
         const expanded = (await box(page, upper)).height;
+        const lowerBefore = (await box(page, lower)).height;
         const between = page.getByRole("separator", {name: `调整 ${upper} 与 ${lower} 的高度`, exact: true});
         await between.focus();
         await page.keyboard.press("Enter");
         await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        await expect.poll(async () => (await box(page, lower)).height).toBeCloseTo(lowerBefore + expanded - 32, 0);
         await parked(page, `[data-content="view:${upperView}"]`);
         await expect.poll(async () => (await saved(page))?.doc.panels[upper]?.collapsed).toBe(true);
         await page.keyboard.press("Enter");
         await expect.poll(async () => (await box(page, upper)).height).toBe(expanded);
+        await expect.poll(async () => (await box(page, lower)).height).toBeCloseTo(lowerBefore, 0);
         await unparked(page, `[data-content="view:${upperView}"]`);
     });
 
@@ -658,7 +661,12 @@ test.describe("产品页", () => {
         expect((await sectionBox(page, EXPLORER)).width).toBe(350);
     });
 
-    test("放不下时只改呈现：窄到最小值时先压工具面板，再按右栏、面板、侧栏的顺序收走并给诊断，最后才压编辑组；文档不变，放大后回到原样（输出 6、10；验收 6）", async ({page}) => {
+    test("放不下时只改呈现：窄到最小值时先压工具面板，再按右栏、面板、侧栏的顺序收走并给诊断，最后才压编辑组；文档不变，放大后回到原样（输出 6、10；验收 6、34）", async ({page}) => {
+        // 网格的诊断经窗口的诊断写到控制台（验收 34）：浏览器出口的文字是“时间 [级别] 事件: 消息”，消息以码开头。
+        const grid: Array<{type: string; text: string}> = [];
+        page.on("console", (entry) => {
+            if (entry.text().includes("workbench.grid:")) grid.push({type: entry.type(), text: entry.text()});
+        });
         await open(page);
         // 底部面板默认隐藏：先放一个视图进去，三个区域才都有分节可收。
         const panel = await sessionsToPanel(page);
@@ -686,6 +694,7 @@ test.describe("产品页", () => {
         await expect.poll(() => diagnostics.getAttribute("data-layout-diagnostics")).toContain(`收走 ${aux}`);
         expect((await box(page, "g0")).width).toBeGreaterThanOrEqual(220);
         await parked(page, '[data-content="view:nbook.agent.conversation"]');
+        await expect.poll(() => grid.some((entry) => entry.type === "debug" && entry.text.includes("over-constrained"))).toBe(true);
 
         // 高度放不下：面板在侧栏之前收走，编辑组留在可用的高度里。
         await page.setViewportSize({width: 590, height: 230});
@@ -700,6 +709,8 @@ test.describe("产品页", () => {
         await expect(diagnostics).toHaveAttribute("data-layout-diagnostics", "");
         await unparked(page, '[data-content="view:nbook.agent.conversation"]');
         await expect.poll(fullyVisible).toBe(true);
+        // 放不下是可以预期的降级：整个过程没有网格的警告与错误。
+        expect(grid.filter((entry) => entry.type === "warning" || entry.type === "error")).toEqual([]);
     });
 
     test("窄的时候收起一个分节：被压缩的宽度不写进布局，放大后回到原样（输出 8；验收 6）", async ({page}) => {

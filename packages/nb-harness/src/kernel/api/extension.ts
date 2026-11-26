@@ -143,4 +143,6 @@ export type Implement = <C extends Contract<string, any, any>, S extends StateDe
 export interface ContributedExtension {
     readonly extension: AnyExtension;
     readonly plugin: string | null;
+    /** 声明了 `install: "on-request"`：只装到引用它的 Profile（与同插件的伴随），不自动装。 */
+    readonly onRequest?: boolean;
 }

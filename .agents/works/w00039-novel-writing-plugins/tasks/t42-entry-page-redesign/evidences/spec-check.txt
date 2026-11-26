@@ -1,0 +1,26 @@
+w00039 t42 Spec 逐句核对（2026-11-25，提交 42f6bdd16）：本次写进已实现条目的句子各由哪条测试断言。只由走查或代码看到的另列。
+路径前缀：canon 网页侧 = packages/neuro-book/src/plugins/canon/web/；e2e = packages/neuro-book/e2e/。
+
+docs/specs/canon/author-ui.md
+- 术语“位置”写成“故事开始前”：PositionPicker.dom.test“按钮写当前位置……”的选项文字；entry-page.dom.test“点值才读来历”最后一行“故事开始前 1,000 元”；e2e canon-author 验收 1 来历最后一行。
+- 输入：component-views、entry-kinds 的 icon：entry-page.dom.test“标签的图标按条目的种类”（种类图标与没登记时的书签）；EntryPageNav.dom.test“竖排的 tablist……每页有图标”（宿主给的图标类名照画）；e2e canon-author“分页的排法”标签上的人物图标。component-views 的 icon 从宿主读声明到导航：只由代码与走查看到（canon、剧情插件的声明都画出了各自的图标）。
+- 输出 6 页头的次序：EntryPage.dom.test“页头是名字、是谁、简介与时间点”。
+- 输出 7 时间点：PositionPicker.dom.test 四条（单选、有计划才有勾选项、标记一格只写一样且“算上计划 ×”能点、锁着时不可用）；EntryPage.dom.test“只有一个位置又没有计划时不出时间点”；e2e canon-write 空作品里没有时间点；“原来选的那一章已经不在了”在标记里：EntryPage.dom.test“未出场、选过的章不在了写在时间点旁的标记里”。“标记出没时按钮不动”：由结构保证（标记在按钮左边、容器靠右），走查截图看过，没有单独的断言。
+- 输出 8“这时还没出场”：EntryPage.dom.test 同上一条；entry-page.dom.test 未出场那一条。
+- 输出 9 分页：图标、条数、两段与分隔：EntryPage.dom.test“横排的分页带图标，第一个看法前有分段”、EntryPageNav.dom.test 第一条；竖排与横排、选中同一页、焦点跟过去：e2e canon-author“分页的排法”（1920 竖排、1440 横排、焦点在面板分页上）；空作品里不出“情节”与 needsChanges 的附加分页：e2e canon-author、canon-character 空作品的分页列表。两个阈值之间保持原样、要排两栏时让出竖排、竖排增减的过渡、两种排法直接换不做过渡：由代码与走查看到（e2e 是减弱动效的构建，过渡量不到），没有单独的断言。
+- 输出 15 零条不写数：EntryPageNav.dom.test 没有条数的行不写；宿主只在大于 0 时给条数，0 的情形由代码看到。
+- 输出 16 名字、简介不用确认条：EntryPage.dom.test“名字、简介本身是按钮……没有‘改’”，entry-page.dom.test 页头就地改的两处预览；“改故事开始前的值”：entry-page.dom.test“改一个只在初值设过的字段”与 e2e 验收 3；“先不算计划”：entry-page.dom.test 同一条的按计划部分。
+- 输出 17 故事开始前时不可用：沿用原有用例（说明文字没变，只是条件的说法）。
+- 输出 18 提示：notices.test 计时五条（6 秒、停表与 0.8 秒、停表期间换新的从头计、卸载重挂、Agent 的不收）与工作台那一路两条；PageNotices.dom.test（各行写什么发什么、失败行 alert、指针与焦点各暂停一次、行没了时放开）；e2e canon-author 验收 3（浮在下面时内容不动、指着点还原、还原后换成还原的那一条）。末尾空白跟着提示栏高度、收起的行钉住上面的滑下来、确认框关上后焦点回到“还原”：由代码与走查看到（走查：还原后点别处提示照常收起），没有单独的断言。
+- 输出 32 宽度：e2e canon-author 验收 14 与 canon-character 390 宽没有横向滚动；内容净宽 760、竖排另 200 的数：由代码看到。
+- 输出 35 页头组件用同一个时间点：window-line.dom.test 页头写“第 1 章开头”；出现条件同条目页：由代码看到（PageHead 与条目页宿主用同一个判断）。
+- 输出 36 附加分页的 icon、needsChanges：needsChanges 见输出 9 的空作品用例；icon 见输入一节。
+- 输出 49 加立绘一次到位：entry-page.dom.test“立绘读自形象……没有形象这一组时点一下就加上形象、切到形象分页并打开立绘的选图”；有形象没立绘的那一路：由代码与走查看到。
+- 输出 51 回车：entry-page.dom.test“短项填完立刻回车”（没有别的变化时等预览回来就存）与“短项回车：预览说有别的变化时不存……回车以后又打字，回车作废”。变异检查：把“没有别的变化才存”改成“都存”、去掉“又打字作废”，这条都失败。
+- 验收 3、14 的说法：e2e canon-author 同名用例。
+
+docs/specs/workbench/editor.md
+- 输出 33 图标：pages.dom.test“图标（输出 53）”（页面给的、记着的、声明的先后，格式不对不认）；groups.test 记着的图标随存盘往返；tabs-record.test 标签记录存图标。
+- 输出 53 页面标签画页面图标：EditorTabBar.dom.test“页面标签画它的 lucide 图标”；e2e canon-author“分页的排法”标签上的人物图标。
+
+docs/specs/plot/author-ui.md 输出 16 来处写“故事开始前”：剧情插件 locales 一处，由代码看到。

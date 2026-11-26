@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.telemetry-ingest
 owners:
   - nb-site-telemetry
@@ -46,7 +46,7 @@ owners:
 7. **聚合的寿命。** 聚合长期保留；原始上报被删除之后，那一天的聚合不再变化。
 8. **不留来源地址。** 进程的日志、原始上报、聚合、错误信息里都没有来源地址与转发头；限流用的来源地址只在内存里，时间窗过去之后至迟在下一次删除任务（每 10 分钟一次）时清掉，之后没有新请求时也一样。
 9. **限流。** 每个来源每 10 分钟至多 600 个请求（三个写入口合计，额度可配）；超出的请求回 429，不记入。内容类型或编码不对的请求在计入额度之前就被拒，不占额度；其余的请求都计入，包括后来被判 400、413 的。10 分钟按对齐的时间窗算（每小时的 0、10、20 分起），所以跨两个窗口的 10 分钟里至多可以到两倍。IPv6 的来源按前 64 位算作一个。IPv6 另按前 48 位合计，额度是单个来源的 16 倍。同一个窗口里的来源超过 10 万个时，新出现的来源一律 429。来源地址取不到时回 503 `unavailable`，不与其它请求共用额度。
-10. **与登录隔离的降级。** 统计模块的库不可写时，三个写入口回 503，账号模块的接口不受影响（“登录照常”那一半等账号有了登录接口再验，planned）。库被别的进程占着写时写入口立即回 503，不等锁。
+10. **与登录隔离的降级。** 统计模块的库不可写时，三个写入口回 503，账号模块的接口不受影响。库被别的进程占着写时写入口立即回 503，不等锁。
 11. **聚合的取值个数有上限。** 每个服务端日里，每日上报与立即事件各自至多 64 个不同的应用版本进聚合，之后新出现的记成 `other`；每个心跳段同样。它只限制伪造的上报能让聚合长多大，不保证当天的真实版本都排在前面。
 
 ## 状态与转换
@@ -90,6 +90,17 @@ owners:
 
 Smoke：合同测试包里三个写入口各记入一份（C1、C7、C8）与备份不带原始上报（C16）的用例；“记入后在聚合里看到”的黑盒用例等看板有读聚合的接口（planned）。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-site-telemetry` 的 `createTelemetryModule`（三个写入口、`aggregate` 与 `purge` 两个任务、关闭）、`parseTelemetryConfig`、`telemetryMigrations`、`prepareTelemetryBackupCopy`、`TELEMETRY_INGEST_PREFIX`；字段表、分档表与报文的 schema 在 `@notnotype/nb-site-telemetry-contract`。
+- owner 是 `nb-site-telemetry`；它只依赖统计的合同包与 TypeBox，由进程入口 `nb-site-server` 经适配器装配，不反向依赖入口（包的架构用例守着）。
+- 读完请求体之后只取一次时间，校验用的服务端日与记入的时刻出自这一次；写入是同步事务、不跨 `await`，库忙时不等锁。
+- 聚合一批与推进游标在同一个事务里，一批取游标之后的行、到实际取到的最后一行为止；删除之前的聚合以到期行的最大编号为上界，聚合出错照删，库写不进时整轮不删。
+- 业务连接开着 `secure_delete`，删除之后在事务外做截断检查点（这一轮删过就做，后面出错也做）；备份副本同样开着 `secure_delete`，先聚合再清空两张原始表。
+
 ## 证据
 
 - 批准依据：[本机统计、遥测与反馈](../../proposals/telemetry-stats-feedback.md)、[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0062](../../adr/0062-telemetry-tiers-by-identifiability.md)
+- 实现入口：[`packages/nb-site-telemetry/src/index.ts`](../../../packages/nb-site-telemetry/src/index.ts)
+- 合同测试：[`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts`](../../../packages/nb-site-contract-tests/src/telemetry-ingest.test.ts)、[`packages/nb-site-contract-tests/src/adjacent-version.test.ts`](../../../packages/nb-site-contract-tests/src/adjacent-version.test.ts)
+- Smoke：[`packages/nb-site-contract-tests/src/telemetry-ingest.test.ts`](../../../packages/nb-site-contract-tests/src/telemetry-ingest.test.ts)

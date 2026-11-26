@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00034-browser-use",
+    "taskId": "t02-eval",
+    "artifactId": "phase1-report",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "第一阶段正式运行报表",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "84cfe5ad3cda9098bd0dac3680704f529999dd723f7a5e3515efc367b1d2a063",
+    "files": [
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-26T06:46:50.046Z"
+}

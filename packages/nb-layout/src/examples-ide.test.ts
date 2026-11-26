@@ -7,6 +7,7 @@ import {describe, expect, it} from "bun:test";
 
 import {dropKey, resolveDrop, type StripGeometry} from "../examples/ide/src/drop";
 import {BACKUP_KEY, IdeLayout, loadLayout, saveLayout, STORAGE_KEY, type LayoutStorage, type Zone} from "../examples/ide/src/model";
+import {createGridGestureSession} from "./grid-gesture";
 import {branchSashPanels} from "./grid-geometry";
 import {solveSashDrag} from "./sash-drag";
 
@@ -22,6 +23,11 @@ function memoryStorage(initial: Record<string, string> = {}): LayoutStorage & {r
 function presented(layout: IdeLayout, zone: "left" | "right" | "bottom"): number {
     const size = layout.grid.layout(WIDE).sizes[zone]!;
     return zone === "bottom" ? size.height : size.width;
+}
+
+/** 右区与中列之间的分隔线（main 的第 2 条）上的一场手势，与 `NestedGrid` 同一条路径：真实的会话、按当前布局取基线。 */
+function session(layout: IdeLayout) {
+    return createGridGestureSession<string>({contextKey: "ide", revision: 1, root: layout.grid.root(), extent: WIDE, layout: layout.grid.layout(WIDE), sashSize: 4, sessionId: "locked", source: "keyboard", sashes: [{branchId: "main", index: 2, axis: "width"}]});
 }
 
 describe("点按钮", () => {
@@ -158,11 +164,14 @@ describe("按钮条的厚度", () => {
         expect(layout.grid.find("right-stripe")?.size.width).toBe(28);
     });
 
-    it("窄窗口、三区全开：区与编辑区让出空间，条仍是 28 与 24", () => {
+    it("窄窗口、三区全开：区与编辑区让出空间，条仍是 28 与 24；窄到放不下时条最后才让", () => {
         const layout = allOpen();
-        // 692 是三区都展开时各最小尺寸（编辑区 300、两个区各 160、两条 28、四条分隔线）的总和：到这里为止条不动。
-        // 再窄就是库的 over-constrained：它把所有叶按比例一起压，条也在内，示例不再处理（见 README 的已知限制）。
-        for (const width of [900, 800, 700, 692]) expect(thicknesses(layout, {width, height: 500})).toEqual([28, 28, 24]);
+        // 684 是三区都展开时各最小尺寸（编辑区 300、两个区各 160、两条 28、区旁的两条分隔线各 4，条旁的分隔线是 0）的总和。
+        // 再窄就是库的 over-constrained：区与编辑区按比例一起压，刚性的条最后才让（见 README 的已知限制）。
+        for (const width of [900, 800, 700, 684, 600]) expect(thicknesses(layout, {width, height: 500})).toEqual([28, 28, 24]);
+        const narrow = layout.grid.layout({width: 600, height: 500});
+        expect(narrow.issues.map((issue) => `${issue.code}/${String(issue.params?.cause)}/${String(issue.params?.id)}`)).toContain("over-constrained/min-total/main");
+        expect(narrow.sizes.left!.width).toBeLessThan(160);
     });
 });
 
@@ -173,11 +182,9 @@ describe("没有按钮的区", () => {
         return layout;
     };
 
-    it("条旁的分隔线不能拖；有按钮的区的分隔线能拖", () => {
+    it("条旁的分隔线宽 0（库按不可交互画），只留区旁的那一条；有按钮的区的分隔线能拖", () => {
         const layout = IdeLayout.createDefault();
-        expect(layout.sashLocked("left-stripe", "left")).toBe(true);
-        expect(layout.sashLocked("right", "right-stripe")).toBe(true);
-        expect(layout.sashLocked("main", "bottom-stripe")).toBe(true);
+        expect(layout.grid.layout(WIDE).sashSizes).toMatchObject({root: [0], main: [0, 4, 4, 0], center: [4]});
         expect(layout.sashLocked("left", "center")).toBe(false);
         expect(layout.sashLocked("center", "right")).toBe(false);
         expect(layout.sashLocked("editor", "bottom")).toBe(false);
@@ -189,12 +196,41 @@ describe("没有按钮的区", () => {
         expect(layout.sashLocked("left", "center")).toBe(false);
     });
 
-    it("分隔线把它展开了也收回去，不留下收不起来的空区", () => {
+    it("区锁住：拖它的分隔线拉不开，分隔线上的 Enter 也展不开", () => {
         const layout = emptied();
-        layout.grid.setCollapsed("right", false);
-        expect(layout.reconcile()).toBe(true);
+        expect(layout.grid.find("right")?.collapse).toMatchObject({collapsed: true, locked: true});
+        // 往左拉过展开阈值（区的最小尺寸 160 加 24）很远：锁住的区留在收起尺寸 0，同侧只剩刚性的条，没有能动的，这场手势不提交。
+        const drag = session(layout);
+        const preview = drag.update({x: -400, y: 0});
+        expect(preview?.layout.sizes.right?.width ?? 0).toBe(0);
+        expect(drag.finish()).toBeNull();
+        // Enter 跳过锁住的那一侧，另一侧是中列（没有收起策略），什么也不切换。
+        const enter = session(layout);
+        enter.toggleCollapsed();
+        expect(enter.finish()).toBeNull();
+        expect(layout.isCollapsed("right")).toBe(true);
+        expect(presented(layout, "right")).toBe(0);
+    });
+
+    it("收着、什么也没显示的区，条被搬空：同样锁住", () => {
+        const layout = IdeLayout.createDefault();
         expect(layout.isCollapsed("right")).toBe(true);
         expect(layout.shown.right).toBeNull();
+        layout.moveTool("outline", "left", null);
+        expect(layout.grid.find("right")?.collapse).toMatchObject({collapsed: true, locked: true});
+        // 搬回来：区展开、解锁。
+        layout.moveTool("outline", "right", null);
+        expect(layout.isCollapsed("right")).toBe(false);
+        expect(layout.grid.find("right")?.collapse).not.toHaveProperty("locked");
+    });
+
+    it("读档时条上没有按钮的区锁住", () => {
+        const storage = memoryStorage();
+        saveLayout(storage, emptied());
+        const {layout} = loadLayout(storage);
+        expect(layout.strips.right).toEqual([]);
+        expect(layout.grid.find("right")?.collapse).toMatchObject({collapsed: true, locked: true});
+        expect(layout.grid.find("left")?.collapse).not.toHaveProperty("locked");
     });
 });
 
@@ -203,7 +239,7 @@ describe("分隔线展开区之后", () => {
         const layout = IdeLayout.createDefault();
         expect(layout.shown.bottom).toBeNull();
         layout.grid.setCollapsed("bottom", false);
-        expect(layout.reconcile()).toBe(false);
+        layout.reconcile();
         expect(layout.shown.bottom).toBe("terminal");
         expect(layout.isOpen("terminal")).toBe(true);
     });
@@ -286,12 +322,12 @@ describe("存档与读档", () => {
         const {layout: loaded} = loadLayout(storage);
         expect(loaded.isCollapsed("left")).toBe(true);
         expect(presented(loaded, "left")).toBe(0);
-        // 按钮展开读意图；分隔线上的 Enter 展开读 restoreSize，那条路在 e2e 里测。
+        // 按钮展开回到意图；分隔线上的 Enter 也回到它，那条路在 e2e 里测。
         loaded.toggleTool("project");
         expect(presented(loaded, "left")).toBe(333);
     });
 
-    it("存档里不带 restoreSize：存档只存尺寸意图与收起", () => {
+    it("存档只存尺寸意图与收起", () => {
         const saved = IdeLayout.createDefault().toSaved();
         expect(Object.keys(saved.zones.left).sort()).toEqual(["collapsed", "size"]);
     });

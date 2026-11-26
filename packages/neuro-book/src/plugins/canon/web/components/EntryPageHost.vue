@@ -4,26 +4,30 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, provide, shallowReactive, shallowRef, Transition, watch} from "vue";
 import type {Component, PropType} from "vue";
 
-import type {Entry, EntryOp, FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
+import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
-import {Dialog, SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
+import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
-import type {CanonClient, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import type {EntryKind} from "../../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
-import type {ComponentViewContext, ComponentViewRegistry, EntryTabContext} from "../component-views";
+import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
+import {createImagePicking, provideCanonImageUrl, provideImagePicking} from "../images";
+import type {CanonImages} from "../images";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionLabel, positionOptions, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -45,9 +49,12 @@ import TextConflictDialog from "./TextConflictDialog.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
 import type {InsertItem} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
+import FieldDetailView from "./FieldDetail.vue";
 import FieldsDataView from "./FieldsDataView.vue";
-import AgentNotice from "./AgentNotice.vue";
-import NoticeBar from "./NoticeBar.vue";
+import PageNotices from "./PageNotices.vue";
+import {LOOK_PICK_KEY} from "../look-handoff";
+import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
+import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
 import ElementDialog from "./ElementDialog.vue";
 import type {ElementField} from "./element-dialog";
@@ -68,14 +75,14 @@ const props = defineProps<{
      * 推成了 Promise。
      */
     client: Pick<CanonClient, "call">;
-    /** 窗口在看的线（输出 34）：空串是跟着章，读取位置不写线。 */
+    /** 窗口在看的线（输出 34）：空串是按章节自动，读取位置不写线。 */
     windowLine: PageLine;
     views: ComponentViewRegistry;
     /** 附加分页（输出 36）。 */
     entryTabs: ComponentViewRegistry<EntryTabDeclaration>;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
-    /** 本窗口的还原对话框（提示里的“撤销”）。 */
+    /** 本窗口的还原对话框（提示里的“还原”）。 */
     revert: RevertRequests;
     /** 打开条目页、变更详情页。 */
     open: (ref: {readonly kind: "entry" | "change"; readonly id: string}) => void;
@@ -89,12 +96,21 @@ const props = defineProps<{
     sourceInput: Component | null;
     /** 这一页挂着的时候把“提交主文字”交给宿主（标签的保存命令调它，输出 46）；卸载时交 null。 */
     onCommitReady: (commit: (() => Promise<void>) | null) => void;
+    /** 登记的条目种类（`canon.entry-kinds`）：这个条目种类的默认设定组的分页排在“文字”前面（输出 9）。 */
+    entryKinds?: readonly EntryKind[];
+    /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
+    images?: CanonImages | null;
 }>();
 
 const text = useCanonText();
 const port = useText();
 const state = props.state;
 const world = props.world;
+// 图片（输出 53）：取图地址注入给这一页里的 `CanonImage`；选图片的地方（确认条、元素对话框、就地改）共用一份候选与上传，同一时间
+// 只有一处在填。
+provideCanonImageUrl((path) => props.images?.url(path) ?? null);
+const imagePicking = props.images === undefined || props.images === null ? null : createImagePicking(props.images, (given) => port.t(given));
+if (imagePicking !== null) provideImagePicking(imagePicking);
 // 挂着就是在前台：保存后的提示显示在本页顶上（输出 18）。
 const pageNotice = usePageNotice(props.notices, props.revert);
 
@@ -147,7 +163,7 @@ const status = computed<EntryPageStatus>(() => {
     return view.value.deleted ? "deleted" : "normal";
 });
 
-// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
+// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：按章节自动时就是这一页正在读的那份，只有读的
 // 正是那里时才报；窗口选了线时另读一份缺省位置的。
 const headElsewhere = computed(() => windowLine.value !== "" || lockedAt.value !== null);
 const headRead = useWorldRead(world, "entry", () => (headElsewhere.value && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
@@ -158,11 +174,17 @@ const headSource = computed(() => {
 watch(headSource, (read) => {
     const shown = read?.view;
     if (shown === undefined || shown === null) return;
-    props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? []});
+    props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? [], kind: read!.kind ?? ""});
 }, {immediate: true});
 
 const namespaces = computed(() => Object.keys(view.value?.namespaces ?? {}));
 const componentsRead = useWorldRead(world, "components", () => ({}));
+/** 作品里有没有计划中的情节：没有时时间点里不出“算上计划中的情节”（输出 7）。只要总数，读一条。 */
+const plans = useWorldList(world, "changes", () => ({filter: {kind: "plan" as const}}), 1);
+/** 作品里有没有剧情变更：没有时“情节”与声明了 `needsChanges` 的附加分页不出（输出 9）。 */
+const anyChanges = useWorldList(world, "changes", () => ({}), 1);
+const storyStarted = computed(() => (anyChanges.state.value?.data?.total ?? 0) > 0);
+const canPlan = computed(() => (plans.state.value?.data?.total ?? 0) > 0 || state.planned);
 const typeLabel = (type: string): string => componentsRead.value?.data?.items.find((item) => item.id === type)?.label ?? type;
 
 /* ---------- 情节分页 ---------- */
@@ -187,23 +209,44 @@ const extraTabs = computed(() => {
         .filter((item) => enabled.has(item.declaration.requires))
         .sort((a, b) => (a.declaration.order ?? 0) - (b.declaration.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 });
-const tabs = computed(() => {
-    const items: {value: string; label: string; count?: number}[] = [];
-    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
-    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text")});
-    for (const namespace of namespaces.value) {
+/** 这个条目种类登记的默认设定组（类型 id）：它们的分页排在“文字”前面（输出 9），人物打开时先看人物。 */
+const leadingTypes = computed(() => {
+    const kind = entry.value?.kind?.trim();
+    return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
+});
+/**
+ * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
+ * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。
+ */
+const tabs = computed<EntryTab[]>(() => {
+    const items: EntryTab[] = [];
+    const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
+    const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
-        items.push({value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title)});
-    }
+        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title), iconClass: iconOf(type), segment: "own" as const, removable: true}};
+    });
+    for (const tab of data) if (tab.leading) items.push(tab.item);
+    // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
+    if (view.value !== null && (view.value.text.length > 0 || !view.value.deleted)) items.push({value: "text", label: text("entry.tabs.text"), iconClass: TEXT_ICON, segment: "own"});
+    for (const tab of data) if (!tab.leading) items.push(tab.item);
     // 声明经约定键补全过，`title` 总在。
-    for (const item of extraTabs.value) items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!)});
+    for (const item of extraTabs.value) {
+        if (item.declaration.needsChanges === true && !storyStarted.value) continue;
+        items.push({value: `${EXTRA}${item.id}`, label: port.t(item.declaration.title!), iconClass: item.declaration.icon ?? EXTRA_ICON, segment: "view"});
+    }
     const total = plot.state.value?.data?.total;
-    items.push({value: "plot", label: text("entry.tabs.plot"), ...(total === undefined ? {} : {count: total})});
+    if (storyStarted.value || (total ?? 0) > 0) items.push({value: "plot", label: text("entry.tabs.plot"), iconClass: PLOT_ICON, segment: "view", ...(total === undefined || total === 0 ? {} : {count: total})});
     return items;
 });
 // 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
-const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0]! : tabs.value[0]!).value);
+// 条目还没读到、作品里也没有剧情时分页是空的（“情节”不出），这时先按文字。
+const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0] : tabs.value[0])?.value ?? "text");
+// 有没提交的主文字稿时先看文字（直接进编辑，输出 45），排在它前面的人物分页这时不当缺省（输出 9）。稿是读完存储才知道的：读到时
+// 作者还没自己点过分页，就把分页定在文字上（记进标签状态），提交、放弃以后不跳回人物分页。
+watch(() => props.draft.state.draft !== null, (editing) => {
+    if (editing && state.tab === null) state.tab = "text";
+}, {immediate: true});
 const tab = computed(() => (tabs.value.some((item) => item.value === state.tab) ? state.tab! : firstTab.value));
 const dataNamespace = computed(() => (tab.value.startsWith(DATA) ? tab.value.slice(DATA.length) : null));
 const extraTab = computed(() => (tab.value.startsWith(EXTRA) ? tab.value.slice(EXTRA.length) : null));
@@ -275,21 +318,23 @@ const edit = useInPlaceEdit({
     version,
     field: fieldAt,
     place,
+    chapter: (id) => chapterLabel(id, chapters.value, text),
     blocked: () => editBlocked.value,
     text,
     resolve: (given) => port.t(given),
-    saved: (published, title) => props.notices.show({revision: published.revision, title}),
+    saved: (published, title, where) => props.notices.show({revision: published.revision, title, ...(where === undefined ? {} : {where})}),
     refocus: (path) => {
         // 确认条关掉以后再找：按钮在数据分页里，确认条关掉不会卸载它。
         void nextTick(() => document.querySelector<HTMLElement>(`[data-edit="${CSS.escape(path)}"]`)?.focus());
     },
     accumulated: (path) => {
-        // 累出来的数：展开它的来历（字段表展开那一行，面板选中那张卡）。
+        // 累出来的数：展开它的来历（字段表展开那一行，面板选中那张卡，专门界面看它的细节）。
         const namespace = path.slice(0, path.indexOf("."));
         const bag = state.views[namespace];
         if (bag !== undefined) {
             bag.open = path;
             bag.selected = path;
+            bag.detail = path.slice(namespace.length + 1);
         }
     },
 });
@@ -298,16 +343,19 @@ const edit = useInPlaceEdit({
  * 读到的值随请求带上，服务据此判断这个值是不是刚被别处改过（`value-conflict`）。
  */
 const record = async (path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}> => {
+    // 写回的位置在发请求时定下：请求在途时作者换了位置，提示仍写这一笔落在哪。
+    const at = position.value;
     if (mode.value === "planned") return {ok: false, reason: canonText("blocked.planned")};
-    if (position.value.kind === "initial") return {ok: false, reason: canonText("blocked.initial")};
+    if (at.kind === "initial") return {ok: false, reason: canonText("blocked.initial")};
     if (blocked.value !== null) return {ok: false, reason: blocked.value};
     const field = fieldAt(path);
-    const common = {requestId: `record-${crypto.randomUUID()}`, by: {kind: "author" as const}, position: position.value, at: {entry: props.id, path}, read: {value: field.state?.value ?? null, version: version()}};
+    const common = {requestId: `record-${crypto.randomUUID()}`, by: {kind: "author" as const}, position: at, at: {entry: props.id, path}, read: {value: field.state?.value ?? null, version: version()}};
     const result = field.declaration?.precision === "semantic"
         ? await world.write("recordNote", {...common, text: input.text})
         : await world.write("recordDelta", {...common, delta: input.delta ?? 0, reason: input.text});
     if (!result.ok) return {ok: false, reason: failureText(result.failure).text};
-    props.notices.show({revision: result.value.revision, title: text("record.saved", {text: input.text})});
+    // 记一笔落在所选位置的那一章（最初时上面已经拦下）。
+    props.notices.show({revision: result.value.revision, title: text("record.saved", {text: input.text}), where: chapterLabel(at.chapter, chapters.value, text)});
     return {ok: true};
 };
 
@@ -341,9 +389,31 @@ const confirmDelete = async (): Promise<void> => {
     props.notices.show({revision: result.value.revision, title});
 };
 
+/**
+ * 专门界面里挂着的就地改编辑器（`context.FieldEditor`，输出 51），按路径计数：同一条路径挂两份时卸一份不影响另一份，换分页时新的
+ * 先挂、旧的后卸也不出错。草稿标了就地、并且此刻有编辑器挂着这条路径时由它画，不出确认条。
+ */
+const inlineEditors = shallowRef<ReadonlyMap<string, number>>(new Map());
+const holdInline = (path: string): (() => void) => {
+    const add = (step: number): void => {
+        const next = new Map(inlineEditors.value);
+        const count = (next.get(path) ?? 0) + step;
+        if (count > 0) next.set(path, count);
+        else next.delete(path);
+        inlineEditors.value = next;
+    };
+    add(1);
+    let held = true;
+    return () => {
+        if (!held) return;
+        held = false;
+        add(-1);
+    };
+};
+const inlineHere = computed(() => state.edit?.inline === true && (inlineEditors.value.get(state.edit.path) ?? 0) > 0);
 const editHere = computed(() => {
     const draft = state.edit;
-    if (draft === null) return false;
+    if (draft === null || inlineHere.value) return false;
     // 名字、简介的确认条在哪个分页都显示；字段的只在它那个数据分页显示（切走再回来还在，输出 7）。
     if (HEAD_FIELDS[draft.path] !== undefined) return true;
     return dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
@@ -368,19 +438,32 @@ const openDialog = (): void => {
     dialogError.value = "";
     dialogBase = version();
 };
-/** 发一批操作；成功给保存后的提示。对话框里的写入带打开时的版本，失败写在对话框里；页头的写入（`head`）失败写在页头下面。 */
-const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative", from: "dialog" | "head" = "dialog"): Promise<boolean> => {
+/**
+ * “＋”与右键菜单里的“添加一组设定”打开时条目的版本（输出 43，同对话框）：点一项加上时带它；菜单开着的时候别处改了这个条目就
+ * 得到冲突。用过一次就清掉。
+ */
+let menuBase: number | null = null;
+const openAddMenu = (): void => {
+    menuBase = version();
+};
+/**
+ * 发一批操作；成功给保存后的提示。对话框里的写入带打开时的版本，失败写在对话框里；页头的写入（`head`）与菜单里的写入（`menu`，
+ * 带菜单打开时的版本）失败写进浮动提示的失败那一行。
+ */
+const runEntries = async (ops: EntryOp[], title: string, intent: EditIntent = "creative", from: "dialog" | "head" | "menu" = "dialog", explain?: (failure: CanonFailure) => Text | null): Promise<boolean> => {
     if (acting.value) return false;
     acting.value = true;
     const error = from === "dialog" ? dialogError : actionError;
     error.value = "";
-    const baseVersion = from === "dialog" && dialogBase !== null ? dialogBase : version();
+    const base = from === "dialog" ? dialogBase : from === "menu" ? menuBase : null;
+    if (from === "menu") menuBase = null;
+    const baseVersion = base ?? version();
     const result = await world.write("editEntries", {input: {requestId: `entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion, title, intent, position: position.value, ops}});
     acting.value = false;
     if (!result.ok) {
-        const changed = from === "dialog" && result.failure.code === "version-conflict";
-        if (changed) dialogBase = null;
-        error.value = port.t(changed ? text("edit.changedElsewhere") : failureText(result.failure).text);
+        const changed = from !== "head" && result.failure.code === "version-conflict";
+        if (changed && from === "dialog") dialogBase = null;
+        error.value = port.t(changed ? text(from === "menu" ? "entry.menuChangedElsewhere" : "edit.changedElsewhere") : explain?.(result.failure) ?? failureText(result.failure).text);
         return false;
     }
     props.notices.show({revision: result.value.revision, title});
@@ -393,21 +476,39 @@ const changeAliases = (change: {readonly add?: readonly string[]; readonly remov
 };
 const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
 
-// 加一组设定：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。
-const addOpen = shallowRef(false);
-const addType = shallowRef("");
+// 加一组设定（输出 38）：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个
+// 条目种类的（类型的 `kinds` 含它）排在前面，其余照登记的顺序接在后面。分页条末尾的“＋”与右键菜单里点一项就加上。
 const addableTypes = computed(() => {
     const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
     const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
-    return (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id)).map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
+    const kind = entry.value?.kind?.trim() ?? "";
+    const addable = (componentsRead.value?.data?.items ?? []).filter((type) => !present.has(type.id));
+    const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
+    return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
-const confirmAdd = async (): Promise<void> => {
-    const type = addType.value;
-    if (type === "") return;
-    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})))) {
-        addOpen.value = false;
-        state.tab = `${DATA}${componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? ""}`;
+/** 刚加上、等它出现在读取结果里再切过去的那一组的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
+const pendingTab = shallowRef<string | null>(null);
+watch([pendingTab, namespaces], ([pending, present]) => {
+    if (pending !== null && present.includes(pending)) {
+        state.tab = `${DATA}${pending}`;
+        pendingTab.value = null;
     }
+});
+// 人物分页的“添加立绘”交给形象分页的一次性标记（输出 49，`look-handoff.ts`）。
+const lookPick = shallowRef(false);
+provide(LOOK_PICK_KEY, lookPick);
+// 作者自己换了分页：等着切过去的那一组不再切（它也许一直不出现，不能等到以后别处加上时突然跳过去）；换到的不是形象分页时，
+// 交接标记也放倒，否则以后作者自己点形象分页会莫名打开选图。
+watch(() => state.tab, (tab) => {
+    pendingTab.value = null;
+    const namespace = tab?.startsWith(DATA) === true ? tab.slice(DATA.length) : null;
+    if (namespace === null || view.value?.namespaces[namespace]?.type !== LOOK_COMPONENT) lookPick.value = false;
+});
+const addComponent = async (type: string): Promise<void> => {
+    const namespace = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
+    // 菜单开着的时候别处已经加上了这一组：内核按这一处的 `id-taken` 拒收，写成作者看得懂的一句。
+    const alreadyAdded = (failure: CanonFailure): Text | null => (failure.code === "validation-failed" && Array.isArray(failure.problems) && (failure.problems[0] as {code?: unknown} | undefined)?.code === "id-taken" ? text("entry.groupAlreadyAdded") : null);
+    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})), "creative", "menu", alreadyAdded)) pendingTab.value = namespace;
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
 /** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
@@ -490,7 +591,12 @@ const intentsHere = (): EditIntent[] => (position.value.kind === "initial" ? ["c
 const elementFields = computed<ElementField[]>(() => {
     const draft = elementDraft.value;
     const declaration = draft === null ? undefined : listDeclaration(draft.namespace, draft.field);
-    return (declaration?.item ?? []).map((sub) => ({id: sub.id, label: sub.label, kind: kindOf(sub), ...(sub.options === undefined ? {} : {options: sub.options}), ...(sub.unit === undefined ? {} : {unit: sub.unit}), ...(sub.precision === "semantic" ? {semantic: true} : {})}));
+    return (declaration?.item ?? []).map((sub) => {
+        const kind = kindOf(sub);
+        // 有建议值的文字：候选是它的建议值（输入框里照样能写别的）。
+        const options = kind === "suggest" ? sub.suggestions : sub.options;
+        return {id: sub.id, label: sub.label, kind, ...(options === undefined ? {} : {options}), ...(sub.unit === undefined ? {} : {unit: sub.unit}), ...(sub.precision === "semantic" ? {semantic: true} : {})};
+    });
 });
 // 以条目为键的列表选“指向的条目”、引用子字段选条目：各按自己的 `targets` 查。
 const keyFind = useEntryFind(() => finderFor(elementDraft.value === null ? [] : listDeclaration(elementDraft.value.namespace, elementDraft.value.field)?.targets ?? []));
@@ -696,6 +802,167 @@ const contexts = new Map<string, ComponentViewContext>();
 watch(namespaces, (list) => {
     for (const namespace of list) state.views[namespace] ??= {};
 }, {immediate: true});
+/**
+ * 专门界面的写入（`context.fieldAdd` 这些、`addComponent`）：原因交回界面自己写，不写到页头或对话框里。草稿所在的字段被去掉或
+ * 改名时清掉草稿（输出 51）。
+ */
+const viewWrite = async (ops: EntryOp[], title: Text): Promise<ViewWriteResult> => {
+    if (editBlocked.value !== null) return {ok: false, reason: editBlocked.value};
+    const titleText = port.t(title);
+    const result = await world.write("editEntries", {input: {requestId: `view-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", baseVersion: version(), title: titleText, intent: "creative", position: position.value, ops}});
+    if (!result.ok) return {ok: false, reason: failureText(result.failure).text};
+    props.notices.show({revision: result.value.revision, title: titleText});
+    return {ok: true};
+};
+const fieldLabel = (namespace: string, field: string): string => entry.value?.declarations?.[namespace]?.find((item) => item.id === field)?.label ?? entry.value?.removedFields?.[namespace]?.find((item) => item.id === field)?.label ?? field;
+const dropDraftOn = (namespace: string, field: string): void => {
+    if (state.edit?.path === `${namespace}.${field}`) state.edit = null;
+};
+/** 同一条目上别的组的只读视图（`context.other` 的 `present`），每个命名空间一个。 */
+const peers = new Map<string, ComponentPeer>();
+const peerFor = (namespace: string): ComponentPeer => {
+    let found = peers.get(namespace);
+    if (found === undefined) {
+        found = {
+            namespace,
+            get fields() { return view.value?.namespaces[namespace]?.fields ?? {}; },
+            get declarations() { return entry.value?.declarations?.[namespace] ?? []; },
+        };
+        peers.set(namespace, found);
+    }
+    return found;
+};
+/** `context.other`：只认这个界面的声明里 `uses` 列了的类型（输入一节）。 */
+const otherFor = (namespace: string, type: string): OtherComponent => {
+    const own = view.value?.namespaces[namespace]?.type;
+    const uses = props.views.entries().find((item) => item.id === own)?.declaration.uses ?? [];
+    if (!uses.includes(type)) return {status: "absent"};
+    const present = Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === type)?.[0];
+    if (present !== undefined) return {status: "present", peer: peerFor(present)};
+    const registered = componentsRead.value?.data?.items.find((item) => item.id === type);
+    const later = registered === undefined ? undefined : view.value?.upcoming.find((item) => item.namespace === registered.namespace);
+    if (later !== undefined) return {status: "later", from: place(later.from)};
+    if ((view.value?.removedComponents ?? []).some((item) => item.type === type)) return {status: "removed"};
+    if (componentsRead.value?.data !== undefined && registered === undefined) return {status: "unavailable"};
+    return {status: "absent"};
+};
+/** 就地改的编辑器（`context.FieldEditor`）与值的细节（`context.FieldDetail`），每个命名空间各一个组件定义。 */
+const fieldEditors = new Map<string, Component<FieldEditorProps>>();
+const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
+    let found = fieldEditors.get(namespace);
+    if (found === undefined) {
+        found = defineComponent({
+            name: "CanonFieldEditor",
+            props: {
+                path: {type: String, required: true},
+                layout: {type: String as PropType<"popover" | "block">, default: "popover"},
+                suggestions: {type: Array as PropType<readonly string[]>, default: undefined},
+                anchor: {type: Object as PropType<object | null>, default: null},
+            },
+            setup(inner) {
+                const full = (): string => `${namespace}.${inner.path}`;
+                let release = holdInline(full());
+                watch(() => inner.path, () => {
+                    release();
+                    release = holdInline(full());
+                });
+                onBeforeUnmount(() => release());
+                // 输入法组字中、保存或上传在途时，点外面、Escape 与“取消”都不算放弃（输出 51）：三条路都经 `dismiss`。
+                const composing = shallowRef(false);
+                const active = computed(() => state.edit?.inline === true && state.edit.path === full() && edit.bar.value !== null);
+                const dismiss = (): void => {
+                    if (composing.value || edit.bar.value?.saving === true || imagePicking?.uploading === true) return;
+                    edit.cancel();
+                };
+                // 浮层关上以后还要淡出一会（Popover 的退场动画）：这期间照最后那一份画，不让它先塌成一块空的表面。
+                const shown = shallowRef<NonNullable<typeof edit.bar.value> | null>(null);
+                watch([active, edit.bar], ([on, bar]) => {
+                    if (on && bar !== null) shown.value = bar;
+                }, {immediate: true});
+                const content = () => {
+                    // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
+                    const given = shown.value!;
+                    const suggested = inner.suggestions !== undefined && inner.suggestions.length > 0 && (given.kind === "text" || given.kind === "suggest");
+                    const bar = suggested ? {...given, kind: "suggest" as const, options: inner.suggestions!} : given;
+                    // 浮层里的短项是单行输入（回车保存）；成段的文字从原文的行数起步。
+                    const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
+                    return h("div", {
+                        "data-field-editor": full(),
+                        onCompositionstart: () => (composing.value = true),
+                        onCompositionend: () => (composing.value = false),
+                    }, [h(ConfirmBar, {
+                        ...bar,
+                        variant: "inline",
+                        rows,
+                        refResults: refFind.results.value,
+                        refName: refName.value,
+                        onSearchRef: refFind.search,
+                        "onUpdate:value": edit.update,
+                        "onUpdate:intent": edit.setIntent,
+                        "onUpdate:note": edit.setNote,
+                        onSave: () => edit.save(),
+                        onRecheck: () => edit.recheck(),
+                        onCancel: dismiss,
+                    })]);
+                };
+                return () => {
+                    if (inner.layout === "block") {
+                        // 编辑层向下长、盖在后面的内容上：打开时整个滚进可见范围（在页面下方打开时，保存不在窗口外）。等下一帧再滚：
+                        // 挂上以后确认条在微任务里给输入框焦点，`focus()` 会打断已经开始的平滑滚动。
+                        const reveal = (element: Element): void => {
+                            const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+                            requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
+                        };
+                        // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
+                        // 成段的文字在原处展开（输出 51）：同一张编辑卡，不浮起来，把下面的内容推开；原文由卡片组件见到
+                        // `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md）。左右各伸出卡片的内边距，输入框里的字与原文对齐。
+                        // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
+                    }
+                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
+                    // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
+                    const anchor = inner.anchor as HTMLElement | null;
+                    return h(Popover, {
+                        open: active.value && anchor !== null,
+                        anchor,
+                        side: shown.value?.kind === "image" ? "right" : "bottom",
+                        align: "start",
+                        collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,
+                        contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
+                        "onUpdate:open": (open: boolean) => {
+                            if (!open) dismiss();
+                        },
+                    }, {default: () => (shown.value !== null ? content() : null)});
+                };
+            },
+        });
+        fieldEditors.set(namespace, found);
+    }
+    return found;
+};
+/**
+ * 名字、简介的就地改（输出 38）：页头的按钮交来锚点，编辑器是命名空间 `entry` 那一个（路径 `entry.name`、`entry.summary`，见
+ * `HEAD_FIELDS`），与人物分页的短项同一套浮层。两个编辑器一直挂着，就地改的草稿才认得它们（`inlineHere`），不出页顶的确认条。
+ */
+const headEditor = fieldEditorOf("entry");
+const headAnchors = shallowReactive<{name: HTMLElement | null; summary: HTMLElement | null}>({name: null, summary: null});
+const openHead = (field: "name" | "summary", anchor: HTMLElement): void => {
+    headAnchors[field] = anchor;
+    edit.open(`entry.${field}`, {inline: true});
+};
+const fieldDetails = new Map<string, Component<{readonly path: string}>>();
+const fieldDetailOf = (namespace: string): Component<{readonly path: string}> => {
+    let found = fieldDetails.get(namespace);
+    if (found === undefined) {
+        found = defineComponent({
+            name: "CanonFieldDetail",
+            props: {path: {type: String, required: true}},
+            setup: (inner) => () => h(FieldDetailView, {context: contextFor(namespace), path: inner.path}),
+        });
+        fieldDetails.set(namespace, found);
+    }
+    return found;
+};
 /** 专门界面嵌的通用字段表（`context.FieldTable`），每个命名空间一个，绑在那一页的 context 上。 */
 const fieldTables = new Map<string, Component<{readonly fields?: readonly string[]}>>();
 const fieldTableOf = (namespace: string): Component<{readonly fields?: readonly string[]}> => {
@@ -726,12 +993,52 @@ const contextFor = (namespace: string): ComponentViewContext => {
             get blocked() { return editBlocked.value; },
             place,
             origins: (path, cursor) => props.fetchOrigins({entry: props.id, path: `${namespace}.${path}`}, position.value, mode.value, cursor),
-            edit: (path) => edit.open(`${namespace}.${path}`),
+            edit: (path, options) => edit.open(`${namespace}.${path}`, options),
             record: (path, input) => record(`${namespace}.${path}`, input),
             listAdd: (path) => openElement(namespace, path),
             listEdit: (path, element) => openElement(namespace, path, element),
             listRemove: (path, element) => openRemoveElement(namespace, path, element),
             open: props.open,
+            other: (type) => otherFor(namespace, type),
+            addComponent: (type) => viewWrite([{op: "component", entry: props.id, type, action: "add"}], text("entry.groupAdded", {name: typeLabel(type)})),
+            // 刚加上的那一组可能还没出现在读取结果里（写入的结果先回来）：记下它的命名空间，出现了再切过去（同“＋”）。
+            showTab: (type) => {
+                const target = Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === type)?.[0];
+                if (target !== undefined) state.tab = `${DATA}${target}`;
+                else pendingTab.value = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
+            },
+            fieldAdd: (field: FieldDraft) => viewWrite([{op: "fieldAdd", entry: props.id, namespace, field}], text("entry.fieldAdded", {name: view.value?.name ?? "", label: field.label})),
+            fieldRename: async (path, label) => {
+                const from = fieldLabel(namespace, path);
+                const result = await viewWrite([{op: "fieldRename", at: {entry: props.id, path: `${namespace}.${path}`}, label}], text("entry.fieldRenamed", {name: view.value?.name ?? "", from, label}));
+                if (result.ok) dropDraftOn(namespace, path);
+                return result;
+            },
+            fieldRemove: async (path) => {
+                const result = await viewWrite([{op: "fieldRemove", at: {entry: props.id, path: `${namespace}.${path}`}}], text("entry.fieldRemoved", {name: view.value?.name ?? "", label: fieldLabel(namespace, path)}));
+                if (result.ok) dropDraftOn(namespace, path);
+                return result;
+            },
+            fieldRestore: (path) => viewWrite([{op: "fieldRestore", at: {entry: props.id, path: `${namespace}.${path}`}}], text("entry.fieldRestored", {name: view.value?.name ?? "", label: fieldLabel(namespace, path)})),
+            get removedFields() { return entry.value?.removedFields?.[namespace] ?? []; },
+            get presets() {
+                const type = view.value?.namespaces[namespace]?.type;
+                return componentsRead.value?.data?.items.find((item) => item.id === type)?.presets ?? [];
+            },
+            get FieldEditor() { return fieldEditorOf(namespace); },
+            get FieldDetail() { return fieldDetailOf(namespace); },
+            get editing() {
+                const draft = state.edit;
+                return draft?.inline === true && draft.path.startsWith(`${namespace}.`) ? draft.path.slice(namespace.length + 1) : null;
+            },
+            get detail() {
+                const value = state.views[namespace]?.detail;
+                return typeof value === "string" ? value : null;
+            },
+            showDetail: (path) => {
+                const bag = (state.views[namespace] ??= {});
+                bag.detail = path;
+            },
         };
         contexts.set(namespace, found);
     }
@@ -775,8 +1082,8 @@ const dataView = computed<{readonly component: Component | null; readonly loadin
 
 /* ---------- 页头 ---------- */
 
-const options = computed(() => positionOptions(chapters.value, text));
-const notAppeared = computed(() => (view.value !== null && !view.value.appeared ? positionLabel(position.value, chapters.value, text) : ""));
+const rows = computed(() => positionChapters(chapters.value));
+const notAppeared = computed(() => view.value !== null && !view.value.appeared);
 const setPosition = (value: string): void => {
     state.position = positionFromValue(value) === null ? null : value;
 };
@@ -784,14 +1091,12 @@ const setPosition = (value: string): void => {
 
 <template>
     <div class="min-h-full">
-        <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
-        <AgentNotice v-if="props.notices.agent.value !== null" :title="props.notices.agent.value.title" :earlier="props.notices.agent.value.earlier" :undone="props.notices.agent.value.undone === true" @receipt="props.receipt(props.notices.agent.value.revision)" @undo="pageNotice.undo(props.notices.agent.value)" @revisions="props.notices.openRevisions()" @close="props.notices.dismissAgent()" />
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
             :summary="view?.summary ?? ''"
             :same-as="entry?.sameAs ?? null"
-            :positions="options"
+            :chapters="rows"
             :position="positionValue(position)"
             :planned="mode === 'planned'"
             :not-appeared="notAppeared"
@@ -808,14 +1113,17 @@ const setPosition = (value: string): void => {
             :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
             :aliases="view?.aliases ?? []"
             :removable-group="removableGroup"
-            :action-error="actionError"
             :position-locked="textTab.editing.value ? text('textEdit.locked') : ''"
             :wide="previewing"
-            @edit-name="edit.open('entry.name')"
-            @edit-summary="edit.open('entry.summary')"
+            :can-plan="canPlan"
+            :busy="acting"
+            @edit-name="(anchor: HTMLElement) => openHead('name', anchor)"
+            @edit-summary="(anchor: HTMLElement) => openHead('summary', anchor)"
             @aliases="changeAliases"
             @restore="restore()"
-            @add-component="addType = addableTypes[0]?.value ?? ''; openDialog(); addOpen = true"
+            :addable="addableTypes"
+            @add-open="openAddMenu()"
+            @add-component="addComponent"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
@@ -835,6 +1143,7 @@ const setPosition = (value: string): void => {
                     @search-ref="refFind.search"
                     @update:value="edit.update"
                     @update:intent="edit.setIntent"
+                    @update:note="edit.setNote"
                     @save="edit.save()"
                     @recheck="edit.recheck()"
                     @cancel="edit.cancel()"
@@ -911,21 +1220,6 @@ const setPosition = (value: string): void => {
                 <component :is="extraView.component" v-else-if="extraView.component !== null" :key="extraTab" :context="tabContextFor(extraTab)" />
             </template>
         </EntryPage>
-        <Dialog
-            :open="addOpen"
-            size="sm"
-            :title="text('entry.addComponentTitle')"
-            show-cancel
-            :confirm-label="text('entry.addComponentConfirm')"
-            :busy="acting"
-            :close-on-request="!acting"
-            @update:open="(value: boolean) => (addOpen = value)"
-            @confirm="confirmAdd()"
-        >
-            <p v-if="addableTypes.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.noMoreGroups") }}</p>
-            <Select v-else :aria-label="text('entry.addComponentTitle')" :options="addableTypes" :model-value="addType" @update:model-value="(value: string) => (addType = value)" />
-            <p v-if="dialogError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ dialogError }}</p>
-        </Dialog>
         <ElementDialog
             v-if="elementDraft !== null"
             :open="elementOpen"
@@ -1022,5 +1316,20 @@ const setPosition = (value: string): void => {
             <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleteDescription") }}</p>
             <p v-if="deleteError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ deleteError }}</p>
         </Dialog>
+        <!-- 名字、简介的就地改：锚在页头的按钮上，同人物分页的短项（输出 38、51）。 -->
+        <component :is="headEditor" path="name" :anchor="headAnchors.name" />
+        <component :is="headEditor" path="summary" :anchor="headAnchors.summary" />
+        <PageNotices
+            :notice="props.notices.current.value"
+            :agent="props.notices.agent.value"
+            :error="actionError"
+            :hold="pageNotice.hold"
+            @receipt="props.receipt"
+            @undo="pageNotice.undo"
+            @revisions="props.notices.openRevisions()"
+            @close="pageNotice.close()"
+            @close-agent="props.notices.dismissAgent()"
+            @close-error="actionError = ''"
+        />
     </div>
 </template>

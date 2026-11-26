@@ -1,0 +1,185 @@
+### 1. 缺引用只读打开后，提供方晚到会把占位 Profile 变成可运行 Profile
+**严重程度：阻断；类别：正确性、不变量。**
+**位置：** `plan.md:35,72`；`packages/nb-harness/src/kernel/session/session.ts:105-117,564-598,732-745,761-790`；`packages/nb-harness/src/kernel/session/agent-host.ts:94-99`。
+**现象：** `openSession` 解析得到真实 Profile，但 `assemble` 失败时只保留无扩展引用、无提示词、`version: "unknown"` 的占位对象。提供方 `published` 发的是 `{added}`，不是 `{profile: true}`；重装直接用 `core.assembly.profile`，不会重新解析。若只有晚到的按需扩展，按计划它不会装进没有引用的占位 Profile；哈希不变，仍走 `settled()` 清掉 `dependency-missing`。有自动扩展时也可能给占位 Profile 写一条新的 `profileChanged`。
+**为什么是问题：** 不只是未恢复：会话变为可写、可继续运行，却不是原 Profile，引用的提示、状态与闸门均没有回来。计划第 35 行的“沿用现有语义”不成立。
+**如何核实：** 静态追踪上面的三条分支。合同测试用真实 `createAgentHost`：先在提供方存在时建会话并写 `plan` 设置，关会话、撤回提供方、重开得 `dependency-missing`，再发布；不重开就断言原 Profile 的真实哈希、扩展 `active`、设置与闸门全部恢复，不能只断言 `readOnly === null`。
+**建议改法：** 把“用占位装配读取历史”与“待恢复的真实 Profile”分开；依赖变化后按真实 Profile key 重新解析或保留已解析对象用于重装。只有真实装配和 mount 完成后才解除只读，不能用占位哈希通过恢复检查。
+
+### 2. 撤回必需扩展失败分支先放掉提供方资源，同版本回归又沿用旧实现
+**严重程度：阻断；类别：不变量、兼容。**
+**位置：** `plan.md:35,41-42,72`；`docs/specs/harness/runtime.md:129`；`packages/nb-harness/src/kernel/session/{agent-host.ts:100-107,session.ts:665-675,697-711,777-806}`；`packages/nb-harness/src/kernel/session/host.test.ts:820-840`。
+**现象：** 已装扩展时撤回提供方，显式引用缺失使 `assemble` 失败。该分支清空 `core.revoked`，没有摘除旧扩展或等待清理，就让撤回 Promise 完成；原扩展仍列为 `active`，空闲时撤回甚至没触发 mount 的信号。提供方以同 id、同 version 再发布，真实 Profile 没换、装配哈希也相同，快路径清只读但不换实现、不重新 mount。
+**为什么是问题：** 扩展回调可跨越提供方资源的释放；恢复的会话继续用上一代对象。原有恢复测试仅断言只读标志，测不出两项违约。按需引用把这条失败分支变为停用任何被引用扩展的常规路径。
+**如何核实：** 使用两个同 id、同版、导出不同结果且有可观察 mount/cleanup 的真实贡献句柄。分别在空闲和运行中撤回，等待 `revoke` 后检查清理已完成、状态并非 `active`；再发布第二代，第一次请求必须用第二代的结果。不要通过提升版本规避快路径。
+**建议改法：** 即使新装配失败也摘除撤回的句柄并等清理，与保留历史归约分开；哈希只决定是否写日志，不能据此判断实现代次或 mount 是否已完成。重装须在真正换成并装好新实现后解只读。
+
+### 3. 会话扩展状态没有进入前端元数据，也没有可依赖的重装通知
+**严重程度：重要；类别：接口、正确性。**
+**位置：** `plan.md:52,74`；`packages/nb-agent-ui/src/kernel-transcript.ts:106-118,210,963-974,1028-1043`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:572-608,2003-2004,2091-2093`；`packages/nb-harness/src/kernel/session/session.ts:356-387,777-807`。
+**现象：** 后端 `SessionSnapshot.extensions` 确实有 `active/revoked/failed`，但 `KernelMeta` 和 `applySnapshot` 不保留它。前端收到 `profileChanged` 忽略这条事件，只再取并更新模型；而内核先写事件、再换装并 mount。失败和同哈希重装不保证有 `profileChanged`，运行中撤回也不会等到它才生效。
+**为什么是问题：** 改 `hasModes` 或只给首次快照加字段均不够。真实场景：用户级 Profile 打开后增删模式引用，目录已变、等待中的运行仍用旧装配；运行收口后不重开页面，按钮应随实际装配更新。现在的帧与适配没有这一条更新路径。
+**如何核实：** 做一条真实会话的 Profile 热重载，保持原页面与订阅；分别断言目录先变而会话没变、完成重装后控件出现或消失。再覆盖装配失败不写 `profileChanged` 的情况。不能用改 `deps.profiles()` 假造会话已有扩展。
+**建议改法：** 从会话快照投影扩展状态，定义权威的生命周期通知与读取时点（撤回时、挂载及重装结算后）；走轻量元数据更新而不重建流式对话。有会话但没取到快照时不要回退到目录或显示可操作控件。
+
+### 4. 只隐藏选择器仍会报 unknown-extension，且 `/plan 文字` 会照发
+**严重程度：重要；类别：正确性、遗漏。**
+**位置：** `plan.md:52,74,81`；`docs/specs/agent/modes.md:57,65`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:1246-1262,1367-1395,1641-1672,1750-1758,2060`。
+**现象：** `/plan`、`/mode` 和 `mode.set` 都不检查 `hasModes`；两条斜杠命令仍对所有会话开放，`setMode()` 无条件发 `changeSettings`。尤其 `/plan 文字` 在切换失败后仍 `submit`，后者还把失败提示清空。未建会话时，保存的 `draftMode` 也只在 `profile === MAIN_PROFILE` 时提交，不看实际创建出的会话；从录入计划到首次发送没有一条受理成功的保证。
+**为什么是问题：** 无模式 Profile 仍可从斜杠命令复现原错误；更严重的是用户要求按计划模式处理的一句话会在普通模式下运行。`modes.md` 输出 12 明定切完才发送。
+**如何核实：** 在现有 `session-host.test.ts` 的 `/plan` 用例加入无模式 Profile，以及会话装配变化导致 `changeSettings` 失败两种情形；断言不发消息，稿件与失败提示保留。另断言明确新建支持模式的非主创 Profile 时，已暂存的模式在第一轮前提交。
+**建议改法：** 所有入口共用实际会话的能力判据；命令和动作都拒绝无模式，必要时提示原因。`setMode` 返回是否已受理；`/plan` 和带草稿模式的首次发送只有在成功应用到同一会话后才提交。
+
+### 5. 伴随规则没有定义使用哪一份依赖图，按计划传入内核的数据也不够
+**严重程度：重要；类别：正确性、接口。**
+**位置：** `plan.md:34,40-42,64-67`；`packages/nb-harness/src/kernel/session/agent-host.ts:27,35-49,87-99`；`packages/nb-harness/src/kernel/extension/assemble.ts:72-101,224-229`。
+**现象：** 计划说用声明的依赖决定伴随，但 `ContributedExtension` 和 `contributed()` 只新增 `onRequest`，声明的 `dependsOn` 没传到 `assemble`。宿主查环用清单的 id 字符串；装配用实施对象里的契约，并能区分 `optional()`。两边没有一致性核对。例：引用 `a`，`b` 的实现只 `optional(a)`，反向跟装会把“能与 a 协作”变成“请求 a 即要装 b”。再如 `b`、`c` 实现相互硬依赖，`b` 还依赖 `a`；若清单没声明这两条边，两者永远不入选，现有最终排序就不会报环。
+**为什么是问题：** 同一插件作者写法在登记、筛选、装配三处看的是不同图；可选依赖、隐式伴随不安装和显式引用出错没有判据。`runtime.md` 按计划修成“只装到引用它的 Profile”也排除了已批准的伴随。
+**如何核实：** 表驱动覆盖 `a → b → c` 的伴随链、可选边、缺硬依赖、声明/实现不一致、成环；断言实际装配清单或结构化错误，而非迭代次数。
+**建议改法：** 明定伴随的触发边、满足硬依赖的集合及错误语义，并让两边共用事实或校验其一致性。未被显式请求的伴随缺硬依赖时可以等待、跳过；显式请求留下缺失诊断。区分全局声明图的拒绝与入选图的拒绝，不靠固定点未增长替代查环。
+
+### 6. 子代理把“请求模式”当成“实际装了模式”，检查和发送之间还会换装配
+**严重程度：重要；类别：正确性、不变量。**
+**位置：** `plan.md:51,73`；`docs/specs/agent/{modes.md:68,subagents.md:63-65,90}`；`packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:201-216,337-373,404-419`；`packages/nb-harness/src/kernel/session/session.ts:239-243,497-505`。
+**现象：** `modal` 改读引用后，不再承认仍被内核允许的 Profile 自带扩展；更关键的是，预检解析一次，真正创建时在激活之后再解析一次。用户 Profile 在中间删掉引用，仍会先创建子会话，之后设置报 `unknown-extension`。即便设置成功，`changeSettings` 与 `send` 是两条指令；热重载在中间完成并摘掉模式时，`send` 等完重装仍可启动没有闸门的一轮。续用的 `tighten` 和 `issue` 同样分开，子会话已是非普通模式时甚至没有设置指令。
+**为什么是问题：** 父会话非 `normal` 时，无模式应得 `mode-unsupported` 且不建子会话；已挂上的子会话也不能把继承的限制丢在发送边界外。
+**如何核实：** 在 `subagents.test.ts` 现有场景里用用户 Profile 真实热重载，在创建前、设置后到发第一条之间分别移除引用；同时核对档案数量和模型端没有收到无闸门的任务。
+**建议改法：** 创建前按同一次最终装配验证必需能力，初始模式与创建保持一致；在子会话实际受理发送或应答的装配下再次检查并应用父限制。直接自带、显式引用等来源都不要另写一套近似装配规则。
+
+### 7. 显式引用有可能通过校验却没装上，硬依赖只说了反向伴随
+
+**严重程度：重要。类别：正确性、合同歧义。**
+
+**位置** `plan.md:30-42`，`packages/nb-harness/src/kernel/extension/assemble.ts:192-199,218-232`。
+
+**现象** 按规则逐条执行时，`pluginExtensions: "none"` 与 `referencedExtensions: ["acme.notes"]` 并用。如果 `acme.notes` 已发布且是自动扩展，规则 1 排除它，规则 2 只强制安装按需扩展，规则 4 又认为它有对应的贡献。Profile 没有另写 `dependsOn` 时，装配可成功但清单没有请求的扩展。按标签排除会得到同样的结果。计划也没说显式请求的 `a` 硬依赖另一条按需扩展 `b` 时要怎样处理。若 `b` 不依赖任何入口，反向伴随不会选中它，现有校验会报 `dependency-missing`。
+
+**原因** 可用贡献、显式请求和已选扩展是三个集合。计划没有规定显式请求与自动排除冲突时的优先级，也未明确硬依赖是否要求作者逐项声明。两者直接决定会话能否创建和最终哈希。
+
+**核实方法** 装配表格覆盖显式引用被 `"none"` 或标签排除的自动扩展、显式请求带一个按需硬依赖、同一依赖改为 `optional()`。断言清单及依赖顺序或结构化错误。
+
+**建议** 让自动排除只限制默认入选，显式 id 可选中任何已发布的贡献。若只允许显式引用按需扩展，就拒绝另外一种写法。硬依赖可以沿必需边加入闭包，也可以要求显式列出并保留既有错误，选择一种写明。成功的装配必须含全部显式引用，最终再做依赖检查和排序。
+
+### 8. 同一提供方逐条撤回贡献，未声明硬依赖的会话也会陷入只读
+
+**严重程度**　重要。**类别**　不变量、正确性。
+
+**位置**　`plan.md:35,42,49,72`、`packages/nb-runtime/src/plugins/host.ts:140-167,1590-1604`、`packages/neuro-book/src/plugins/agent/backend/extensions.ts:16-36`、`packages/nb-harness/src/kernel/session/agent-host.ts:27,102-107`、`packages/nb-harness/src/kernel/session/session.ts:718-728,760-767,777`。
+
+**现象**　同一入口贡献两条扩展，停用它后，即使 Profile 没有扩展硬依赖，会话也进了 `reassembly-failed`。第二条撤回随后完成，新装配里已无旧扩展，只读仍未解除。这是起点上已存在的失败路径，与第 2 条的 `assemble` 返回缺依赖不同。
+
+**为什么是问题**　作用域开始停止时整代句柄就已不可取实现。平台逐条通知并等待接收者；第一条撤回触发重装时，内核表里还留着同代的其他句柄，`contributed()` 在进入筛选之前调用它们的 `implementation()`，引发 `PluginStateError`。此时按需与未引用均挡不住异常。
+
+**如何核实**　在审查检出运行 `NODE_PATH="$(realpath ../../node_modules)" bun /tmp/review-t46-design/repro-provider-stop.ts`。脚本使用真实插件作用域、贡献交付、Agent 接收者和内核会话。本次结果为停止 `closed`、扩展清单 `[]`、只读 `reassembly-failed`，诊断的原因是同一入口另一条贡献尚未发布。建议加入随后重登同版本提供方、不重开就恢复的合同断言。
+
+**建议改法**　为一次装配取得一份有效贡献集合，让同一停止代次同步退出候选，再等各会话清理；也可在已知失效的句柄上返回结构化的缺失结果。保证准备、发布和撤回都按代次识别，避免把正常停用误报成一般重装异常。
+
+### 9. 新引用允许跨装配组依赖，现有排序会漏掉倒序与环
+
+**严重程度**　重要。**类别**　正确性、不变量。
+
+**位置**　`plan.md:34,42,60`、`packages/nb-harness/src/kernel/extension/assemble.ts:86-101,198-199,218-232`、`docs/specs/harness/extensions.md:31-32,64,81`。
+
+**现象**　显式引用的插件扩展 `a` 可以硬依赖 Profile 自带的 `b`。缺失检查在全体 id 中查，能找到 `b`。排序却只在各组内部识别依赖，仍然把 `a` 排在 `b` 前。如果 `b` 也依赖 `a`，两组各自没有环，整体装配会成功。清单侧也看不到 Profile 自带对象的反向边。
+
+**为什么是问题**　扩展被迁到插件组后，原先同组内可检查的依赖跨了组。按现有顺序，`a` 的 mount 或反应输出可早于它依赖的 `b`，装配哈希还会把这个顺序固化下来。现有的分组排序问题在第 1 稿中未收口。内置的模式扩展与提醒都迁到同一组，不触发这个反例。
+
+**如何核实**　从排序代码可直接推出。用一个按需贡献和一个 Profile 自带扩展，在 `assemble` 用例里覆盖单向逆序依赖与双方互依赖，断言结构化拒绝或符合合同的最终顺序。现有只有同组的拓扑用例抓不到它。
+
+**建议改法**　保留拦截分层时，明定哪些跨组依赖合法，拒绝依赖更晚装配的对象，并检查最终依赖图。伴随候选的“依赖已满足”也应使用同一组规则。
+
+### 10. 用户可切、Agent 不可切时，模型仍被指示调用不存在的工具
+
+**严重程度**　重要。**类别**　正确性、遗漏。
+
+**位置**　`plan.md:16,65,74,82`、`packages/neuro-book/src/plugins/agent/backend/permissions/{modes.ts:30-49,index.ts:21-22,46-48}`、`docs/specs/agent/modes.md:45,52,87`。
+
+**现象**　Profile 引用模式扩展并省略 `switch_mode`，用户可以正常进 `plan` 或 `discuss`。但完整提醒仍要求模型调 `switch_mode`，写入被拒后 `mode-blocked` 的理由再次要求它调用这个工具。用户把可选工具从绑定移除也会触发同样问题。
+
+**为什么是问题**　模型拿到的工作指引与这次实际工具集矛盾。只测模式能切且写被拦，会漏掉开发者确认的新使用方式在正常流程中无法按指引结束计划的问题。
+
+**如何核实**　用引用模式、工具表没有 `switch_mode` 的 Profile 发一轮，并让一项写操作被闸门拒绝。在真实模型请求投影与工具结果中核对工具列表和给模型的指引。
+
+**建议改法**　统一说明「请用户切换模式」，或按本次生效工具集给出两种指引。无工具时告诉模型用回复交回计划，由用户切换，更新 Spec 的提示与失败恢复。无需改变工具集与扩展的独立性。
+
+### 11. 按 id 引用后，贡献声明与扩展对象的 id 不一致会破坏撤回
+
+**严重程度**　重要。**类别**　正确性、不变量。
+
+**位置**　`plan.md:33-35,40-42`、`packages/nb-runtime/src/plugins/host.ts:1210-1232`、`packages/nb-harness/src/kernel/session/{agent-host.ts:27,87-106,session.ts:665-674}`、`packages/nb-harness/src/kernel/extension/assemble.ts:196-205`。
+
+**现象**　提供方的清单 id 写 `acme.notes`，同一个产出键下误用了 `id: "acme.other"` 的扩展对象。两者各自都符合前缀。在当前接收链上，平台校验产出键，`prepare` 校验句柄 id，装配校验对象 id。没有一步核对两者相等。若新筛选看对象 id，引用目录里合法的 `acme.notes` 会报缺失。若筛选看句柄 id，命中后会实际装入 `acme.other`，运行中撤回按 `acme.notes` 查装配也标记不到它。
+
+**为什么是问题**　作者只应面对一个可引用、可诊断、可撤回的 id。同一写法因装配选择键的不同而有两种失败，且补齐伴随依赖图不能单独解决这个问题。
+
+**如何核实**　从现有代码推断。用一条真实插件贡献让清单键与对象 id 不同，断言激活整体拒绝、诊断同时指出两个 id，没有发布到可引用集合。勿只用单个 id 格式不合法的用例代替。
+
+**建议改法**　在可取到实现的贡献接收阶段核对身份，把校验过的 id 同时用于选择、拓扑、清单及代次撤回。现有 `implementation()` 在发布前会抛错，需要平台提供受控的产出验证点，或明确发布后拒收的语义，不能直接把实现读取移进现有 `prepare`。
+
+### 12. 目录能把没有提供方的 Profile 标成可用，声明和实现还会给出不同的引用集合
+
+**严重程度**　重要。**类别**　正确性、接口。
+
+**位置**　`plan.md:35,47-48,52`、`packages/neuro-book/src/plugins/agent/backend/profiles.ts:66-100,127-139`、`packages/neuro-book/src/plugins/agent/web/{plugin.ts:248-252,335-339,559-565,session-host.ts:1246-1255}`、`docs/specs/agent/contributions.md:62-69`。
+
+**现象**　插件清单的工具都在、扩展 id 写错或提供方未安装时，计划只给目录行加 `extensions`，`status` 仍为 `ok`。新建菜单会选到它，随后只提示 `profile-invalid`。另一条反例是插件实现写了 `referencedExtensions`、清单没写。计划的并集让未激活的目录看不见这项硬依赖，激活后却可能装上模式，或因缺提供方失败。
+
+**为什么是问题**　同一条目录行既供用户选择新建，又为尚未创建的会话提供模式判据。目录可以在不激活的情况下知道某 id 根本没声明，但无法保证实现一定激活或 mount 成功。两类事实需要各自的判据。
+
+**如何核实**　目录用例分别覆盖未登记扩展、已登记未激活、声明与实现不一致。断言读目录不激活提供方，缺声明时给出缺失 id，激活成功与否由真实创建和快照确认。另核对用户级 Profile 打包失败时仍返回上一成功包的引用。
+
+**建议改法**　插件 Profile 的硬引用只从清单取得，在解析时诊断实现的冲突。目录用已接受的声明检查缺 id，复用结构化原因和现有页面通知。会话能力仍由实际装配投影，见第 3 条。
+
+### 13. `complete()` 会把解析成功的无工具 Profile 报成 `unknown-profile`
+
+**严重程度**　建议。**类别**　正确性、接口。
+
+**位置**　`plan.md:35,42,72-84`、`packages/nb-harness/src/kernel/session/complete.ts:22-27,35-43`、`packages/nb-harness/src/kernel/api/host.ts:578-580`、`docs/specs/harness/runtime.md:128`（输出 56）。
+
+**现象**　`complete()` 是公开入口。Profile 解析成功且无工具时，它用空贡献列表调用 `assemble(profile, [])`。只要 `referencedExtensions` 有值，新增的缺引用检查就会失败，现有代码把所有装配失败映射成 `unknown-profile`。有模式扩展却不列 `switch_mode` 的无工具 Profile 正好落在此路径。所查 NeuroBook 新应用生产代码未见这个内核入口的静态调用。
+
+**为什么是问题**　调用方按输出 56 会把 `unknown-profile` 理解成 key 解析不到。是否支持这类 Profile 应由单次请求合同决定，不能碰巧随着会话的装配参数改变。
+
+**如何核实**　在 `host.test.ts` 的「单次请求」里加无工具、有引用的 Profile，用测试模型断言可观测结果。再覆盖系统提示词确实硬依赖扩展导出时的行为。
+
+**建议改法**　明确单次请求仍只渲染系统提示词和输入，不装贡献扩展，且只用于会话的引用不影响它。若 Profile 的提示词本身不能脱离这些扩展，给出明确失败原因，不把它当成 key 不存在。
+
+### 14. 迁移验收只检查模式与闸门，漏了只写一次和历史提醒
+
+**严重程度**　建议。**类别**　测试、兼容。
+
+**位置**　`plan.md:60,84`、`packages/nb-harness/src/kernel/session/session.ts:564-585,642-647`、`packages/nb-harness/src/kernel/helpers/reminder.ts:15-38`、`packages/neuro-book/src/plugins/agent/modes.test.ts:234-238,251-285`、`docs/specs/agent/modes.md:52,72`。
+
+**现象**　计划要求旧会话第一次重开只写一条 `profileChanged{code-updated}`，且提醒的片保留。验收只明确断言模式仍是 `plan`、闸门仍拦写。即使提醒没有随附、历史提醒不能重放，或者每次重开都多写一条迁移记录，这两个断言仍可通过。现有 fork 与压缩用例使用同一份装配，未跨迁移。
+
+**为什么是问题**　模式设置、提醒的路径状态和迁移日志分别走不同的归约与装配路径，模式值正确不能证明另外两项成立。
+
+**如何核实**　旧装配先在 `plan` 实际跑一轮，留下完整提醒；关闭后按新装配打开，查清单与迁移记录，发下一轮并定位这一轮的短提醒。再以新装配重开一次，确认 `code-updated` 仍只有一条。在迁移前的节点做 fork 或回退，核对当前会话级模式与新叶子对应的提醒。
+
+**建议改法**　把上述判据补到计划已有的迁移合同测试中。用日志和实际模型请求做断言，复用既有 fork、回退与压缩场景，避免只断言内部顺序或比较哈希常量。
+
+## 核实证据
+
+以下命令在审查检出运行，加载该检出的 `b93b9e81e` 源码，第三方依赖从主工作区解析。
+
+- `NODE_PATH="$(realpath ../../node_modules)" bun /tmp/review-t46-design/repro-reassembly.ts`，退出码 0。第 1 条经真实内核 `create/open/send` 观察到 `readOnly: null`、`realHashRestored: false`、`realSystemUsed: false`。这是 `docs/specs/harness/runtime.md:25` 已记载的起点缺陷，按 id 引用会扩大触发范围。第 2 条在撤回 Promise 完成后扩展仍是 `active`，挂载与清理记录只有 `mount:generation-one`。同版本第二代发布后，模型请求仍使用第一代的输出。
+- `NODE_PATH="$(realpath ../../node_modules)" bun /tmp/review-t46-design/repro-provider-stop.ts`，退出码 0。第 8 条经真实插件运行时及 Agent 接收者观察到，单个入口停用带走两条扩展时，缺少任何硬依赖的普通会话也会进入 `reassembly-failed`。
+- 其余发现为代码与合同核对的反例或验收缺口，未运行对应场景。未运行既有合同套件、类型检查、e2e 或开发服务。
+
+## 与主工作区修订稿的重叠及待确认项
+
+- 本报告编号和计数针对给定的计划副本。主工作区 Task 记录已载明 Opus 审查后的修订。现行稿已安排处理第 1 条，补了第 7 条的自动扩展优先级，并吸收第 12、13 条的建议。第 12 条仍需消除「只认声明」与「声明没有引用时直接交实现」之间的分歧。
+- 现行稿把第 3 条改为只看目录。这仍偏离 Task 目标所写的会话实际装配判据。除了热重载窗口，冷打开缺依赖、提供方未发布和撤回也会让目录与会话不同。对话用的目录本身仅在启动与选择新建 Profile 时读取（`web/plugin.ts:248-252,335-339,559-565`），设置页的 `profileCatalogChanged` 订阅不能刷新它。第 4 条的切换失败后仍发送、第 6 条的建档及设置到发送之间的窗口也需单独收口。
+- 不做 Profile 面板的扩展开关和旧会话写一次迁移记录均已获确认。其它内置扩展维持原来源即可。伴随按已确认的方向实现，仍需把第 5、7、9 条的边、排除优先级和排序限制写成可通过用例判定的规则。
+- 外置插件是明示的验证缺口。可复用 `packages/neuro-book/plugin-sdk/external-examples.test.ts:31-38,59-67` 的构建、清单及真实装载路径，做一条「外置 Profile 合法引用、不带切换工具」合同测试。`packages/neuro-book/e2e/agent-conversation.e2e.ts:946-976` 覆盖内置模式交互，不能代替该证据。
+
+## 未发现问题的方面
+
+- 日志中的模式设置按扩展 id 写入会话层。迁移保留 id，因此回退只移动叶子，fork 带上设置。所属插件从 `null` 改为 `nbook.agent` 会改变清单及哈希，冷打开已有比对并写 `code-updated` 的机制。见 `kernel/state/kernel-state.ts:210-228`、`kernel/session/session.ts:564-585,642-647`。
+- 两个内置模式扩展迁入同一贡献组，`mode-reminder` 的硬依赖保证模式在前。它们不声明 `intercept`，闸门仍由宿主审批钩子读模式。提醒监听 `turnStarted`，主创规则的 `opening()` 监听建会话及压缩。保留提醒的 id 与片定义可沿原日志回放。本次未发现这三个内置 Profile 需要另设拦截排序或迁移设置键。
+- 用户级目录可直接从 `ProfileBundles.list()` 的 `state.published?.profile` 投影引用。打包失败保留上次成功包，新包成功后才替换，首次未成功时无引用详情。见 `backend/profile-bundles.ts:130-150,230-244`。
+- `SessionTable.beforeOpen` 可复用现有的 `onAgentSession:open` 激活及并发合并机制。按需控制的是会话装配，请求前仍照旧触发提供方激活。迁移的三个 Profile 与第三方走同一贡献点，符合 ADR 0027。仓库内 `agentProfilePartsKey` 的生产消费方只找到伴聊，计划列出了该迁移。
+
+分级数量：阻断 2 条，重要 10 条，建议 2 条，共 14 条。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14。

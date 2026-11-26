@@ -98,16 +98,12 @@ export function regionOfStripLeaf(id: string): PanelName | null {
  */
 function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions, regionAnchors: ReadonlyMap<string, string>, fillers: Set<string>, region: PanelName | null = null): void {
     if (node.kind === "leaf") return;
-    const main = axisOf(node.orientation);
-    // 按比例分的子节点，意图只记兄弟之间的比例（`rebaseIntents`：有收起、隐藏的兄弟或区域的锚时不写像素），当不了 `restoreSize`：
-    // 让 Enter 回到它按比例该得的那一份，和改了收起记录再呈现（按钮、命令）一样（输出 12）。保留像素的节点意图就是像素，照旧。
-    const collapseOf = (child: GridNodeInput<string>, collapsed: boolean, collapsedSize: number): SashCollapseState => ({
+    // 收起策略里没有恢复尺寸：Enter 与改了收起记录再呈现（按钮、命令）一样，都回到意图（输出 12；`ui/nested-grid` 输出 166）。
+    const collapseOf = (collapsed: boolean, collapsedSize: number): SashCollapseState => ({
         collapsed,
         collapsedSize,
-        restoreSize: Math.max(child.size?.[main] ?? 0, child.minimumSize?.[main] ?? 0),
         collapseThreshold: options.collapseThreshold,
         expandThreshold: options.collapseThreshold,
-        ...(child.sizing === "weight" ? {restoreToShare: true} : {}),
     });
     // 包装分支（见模块说明）：入口条叶固定高度，内层吸收余量；内层是一节的叶时它是区域唯一的分节，不收成标题行（输出 11）。
     if (regionOfStripLeaf(node.children[0]?.id ?? "") !== null) {
@@ -128,7 +124,7 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
         child.sizing = sizing;
         const anchor = doc.panels[regionAnchors.get(child.id) ?? ""];
         if (anchor?.name !== undefined) {
-            child.collapse = collapseOf(child, anchor.collapsed === true, 0);
+            child.collapse = collapseOf(anchor.collapsed === true, 0);
             if (child.kind === "branch") assignByParent(doc, child, options, regionAnchors, fillers, anchor.name);
             continue;
         }
@@ -146,7 +142,7 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
             fillers.add(child.id);
             continue;
         }
-        child.collapse = collapseOf(child, isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
+        child.collapse = collapseOf(isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
     }
 }
 

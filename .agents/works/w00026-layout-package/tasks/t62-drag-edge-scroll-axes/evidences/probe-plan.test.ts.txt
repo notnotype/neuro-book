@@ -1,0 +1,101 @@
+// t62 探针：bun test。第一组跑仓库里现在的 edgeScrollStep，第二组跑推荐接口的原型。
+import {describe, expect, it} from "bun:test";
+
+import {edgeScrollStep as current} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/drag-gesture.ts";
+import {edgeScrollPlan, edgeScrollStep, type Target} from "./plan";
+
+const NONE = {left: 0, right: 0, up: 0, down: 0};
+const log = (label: string, value: unknown) => console.log(`${label}: ${JSON.stringify(value)}`);
+
+describe("现在的 edgeScrollStep", () => {
+    it("横向标签条（400x32）：两端都是 0", () => {
+        const strip = {left: 0, right: 400, top: 0, bottom: 32};
+        const results = {
+            rightEnd: current(strip, {x: 390, y: 16}),
+            leftEnd: current(strip, {x: 5, y: 16}),
+            pastRight: current(strip, {x: 420, y: 16}),
+            nearTop: current(strip, {x: 200, y: 2}),
+        };
+        log("current strip 400x32", results);
+        expect(Object.values(results).every((step) => step === 0)).toBe(true);
+    });
+    it("够高的横向条（400x60）：只按上下边算，左右两端照样 0，靠上下边反而滚竖向", () => {
+        const strip = {left: 0, right: 400, top: 0, bottom: 60};
+        const results = {rightEndMiddle: current(strip, {x: 390, y: 30}), rightEndNearBottom: current(strip, {x: 390, y: 55})};
+        log("current strip 400x60", results);
+        expect(results.rightEndMiddle).toBe(0);
+        expect(results.rightEndNearBottom).toBeGreaterThan(0);
+    });
+});
+
+describe("推荐接口原型", () => {
+    const strip1: Target = {id: "strip1", rect: {left: 0, right: 300, top: 0, bottom: 32}, room: {...NONE, left: 50, right: 200}};
+    const strip2: Target = {id: "strip2", rect: {left: 304, right: 600, top: 0, bottom: 32}, room: {...NONE, left: 0, right: 200}};
+
+    it("横向条：两端按横向滚，越靠边越快；越过右端最快；中段不滚", () => {
+        const results = {
+            right10: edgeScrollPlan([strip1], {x: 290, y: 16}),
+            left5: edgeScrollPlan([strip1], {x: 5, y: 16}),
+            pastRight: edgeScrollPlan([strip1], {x: 302, y: 16}),
+            middle: edgeScrollPlan([strip1], {x: 150, y: 16}),
+            belowStrip: edgeScrollPlan([strip1], {x: 290, y: 40}),
+        };
+        log("strip plan", results);
+        expect(results.right10.x).toEqual({id: "strip1", step: 10});
+        expect(results.left5.x?.step).toBeLessThan(0);
+        expect(results.pastRight.x?.step).toBe(16);
+        expect(results.middle).toEqual({x: null, y: null});
+        expect(results.belowStrip).toEqual({x: null, y: null});
+        // 条高 32 不到 2 × 24：竖向永远不滚，和现在一致。
+        expect(results.right10.y).toBeNull();
+    });
+
+    it("多条标签条：宿主只交指针所在的那条时各滚各的；把所有条都交上去时，越过边缘也算，指针在第二条中间第一条也在滚", () => {
+        const inStrip2Left = {x: 310, y: 16};
+        const inStrip2Middle = {x: 450, y: 16};
+        const byPointer = {left: edgeScrollPlan([strip2], inStrip2Left), middle: edgeScrollPlan([strip2], inStrip2Middle)};
+        const allStrips = {left: edgeScrollPlan([strip1, strip2], inStrip2Left), middle: edgeScrollPlan([strip1, strip2], inStrip2Middle)};
+        log("by pointer", byPointer);
+        log("all strips", allStrips);
+        // strip2 在最左（room.left 0）：指针在它左端带里也不滚。
+        expect(byPointer.left).toEqual({x: null, y: null});
+        expect(byPointer.middle).toEqual({x: null, y: null});
+        // 坑：strip1 把“越过右端”当最快。
+        expect(allStrips.middle.x).toEqual({id: "strip1", step: 16});
+    });
+
+    it("竖向列表：和现在的函数逐点相同，横向不滚", () => {
+        const list: Target = {id: "list", rect: {left: 0, right: 100, top: 0, bottom: 200}, room: {...NONE, up: 500, down: 500}};
+        const points = [{x: 50, y: 100}, {x: 150, y: 195}, {x: 50, y: 188}, {x: 50, y: 500}, {x: 50, y: 12}, {x: 50, y: -50}];
+        const pairs = points.map((point) => ({point, current: current(list.rect, point), plan: edgeScrollPlan([list], point).y?.step ?? 0, x: edgeScrollPlan([list], point).x}));
+        log("vertical list", pairs);
+        expect(pairs.every((pair) => pair.current === pair.plan && pair.x === null)).toBe(true);
+        // 现在的函数在矮元素上也是 0。
+        expect(edgeScrollStep({left: 0, right: 100, top: 0, bottom: 48}, {x: 50, y: 1}, "y")).toBe(current({left: 0, right: 100, top: 0, bottom: 48}, {x: 50, y: 1}));
+    });
+
+    it("嵌套：横向滚的一行在竖向滚的标签区里，从里到外交；每个轴各挑各的", () => {
+        const row: Target = {id: "row", rect: {left: 0, right: 400, top: 0, bottom: 34}, room: {...NONE, right: 100}};
+        const list: Target = {id: "list", rect: {left: 0, right: 400, top: 0, bottom: 102}, room: {...NONE, up: 20, down: 50}};
+        const results = {
+            rowRightTop: edgeScrollPlan([row, list], {x: 390, y: 10}),
+            rowRightMiddleOfList: edgeScrollPlan([row, list], {x: 390, y: 30}),
+            listBottom: edgeScrollPlan([list], {x: 200, y: 95}),
+            rowAtEndChains: edgeScrollPlan([{...row, room: NONE}, list], {x: 390, y: 10}),
+        };
+        log("nested", results);
+        expect(results.rowRightTop).toEqual({x: {id: "row", step: 10}, y: {id: "list", step: -10}});
+        expect(results.rowRightMiddleOfList).toEqual({x: {id: "row", step: 10}, y: null});
+        expect(results.listBottom.y?.id).toBe("list");
+        expect(results.rowAtEndChains.x).toBeNull();
+    });
+
+    it("两个轴都能滚的容器：角上斜着滚；一个方向到头时只滚另一个", () => {
+        const box: Target = {id: "box", rect: {left: 0, right: 300, top: 0, bottom: 300}, room: {left: 0, right: 100, up: 0, down: 100}};
+        const results = {corner: edgeScrollPlan([box], {x: 290, y: 290}), topLeft: edgeScrollPlan([box], {x: 5, y: 5}), rightTop: edgeScrollPlan([box], {x: 290, y: 5})};
+        log("both axes", results);
+        expect(results.corner).toEqual({x: {id: "box", step: 10}, y: {id: "box", step: 10}});
+        expect(results.topLeft).toEqual({x: null, y: null});
+        expect(results.rightTop).toEqual({x: {id: "box", step: 10}, y: null});
+    });
+});

@@ -8,7 +8,7 @@
             "title": "New entry"
         },
         "open-receipt": {
-            "title": "Open Receipt"
+            "title": "View Change Details"
         },
         "open-change": {
             "title": "Open Story Change"
@@ -79,16 +79,18 @@
         },
         "panel": {
             "title": "Panel"
+        },
+        "look": {
+            "title": "Look"
         }
     },
     "entry": {
         "missing": "This entry was not found",
         "deleted": "This entry has been deleted",
-        "notAppeared": "Not yet on stage at {{position}}",
+        "notAppeared": "Not on stage yet",
         "positionGone": "The chapter you picked is gone",
         "sameAs": "Really: ",
-        "position": "Position",
-        "planned": "Include plans",
+        "planned": "Include planned events",
         "tabs": {
             "label": "Entry tabs",
             "text": "Text",
@@ -102,16 +104,15 @@
         "deleteConfirm": "Delete",
         "deleteSaved": "Deleted “{{name}}”",
         "moveTo": "Move to…",
-        "addComponent": "Add a settings group…",
         "removeComponent": "Remove the “{{name}}” group",
         "restore": "Restore this entry",
         "editName": "Rename",
         "editSummary": "Edit summary",
-        "addSummary": "Add summary",
+        "addSummary": "One-line summary",
         "aliases": "Aliases",
         "removeAlias": "Remove alias {{alias}}",
-        "newAlias": "New alias, press Enter",
-        "addAlias": "+ Alias",
+        "newAlias": "New alias",
+        "addAlias": "Add alias",
         "nameLabel": "Name",
         "summaryLabel": "Summary",
         "aliasAdded": "Add alias {{alias}} to {{name}}",
@@ -120,14 +121,18 @@
         "restoreGroup": "Restore “{{name}}”",
         "groupAdded": "Add the “{{name}}” group",
         "groupRemoved": "Remove the “{{name}}” group",
-        "addComponentTitle": "Add a settings group",
-        "addComponentConfirm": "Add",
-        "noMoreGroups": "This entry already has every registered group.",
         "removeComponentConfirm": "Remove",
-        "removeComponentDescription": "The data is kept; you can add the group back later."
+        "removeComponentDescription": "The data is kept; you can add the group back later.",
+        "fieldAdded": "Added {{label}} to {{name}}",
+        "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
+        "fieldRemoved": "Removed “{{label}}” from {{name}}",
+        "fieldRestored": "Restored “{{label}}” on {{name}}",
+        "addComponentShort": "Add a settings group",
+        "groupAlreadyAdded": "This settings group is already on the entry",
+        "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
     },
     "position": {
-        "initial": "Initial",
+        "initial": "Initial state",
         "start": "Start of chapter {{index}}",
         "end": "End of chapter {{index}}",
         "startTitled": "Start of chapter {{index}}: {{title}}",
@@ -156,7 +161,7 @@
     "origin": {
         "caption": "How {{label}} came to be",
         "more": "Show earlier ({{count}} steps left)",
-        "initial": "Initial value",
+        "initial": "Initial state",
         "check": "Check: the text says {{written}}",
         "checkOk": "matches",
         "checkMismatch": "does not match",
@@ -195,7 +200,7 @@
         "unknown": "Unsure what reached the world; writing is paused",
         "busy": "{{holder}} is writing; edits resume when it finishes",
         "disconnected": "The world is disconnected",
-        "planned": "Turn off Include plans first",
+        "planned": "Leave out planned events first",
         "initial": "Pick a chapter first"
     },
     "failure": {
@@ -215,14 +220,21 @@
         "button": "Edit",
         "label": "Edit {{label}}",
         "heading": "Edit {{label}}",
-        "intent": "This is",
+        "intent": "This edit is",
         "creative": "a lore fix",
         "story": "a story change",
+        "since": "From {{place}}",
+        "patchHere": "Fix the step in {{place}}",
+        "storyAgain": "Changed again in {{place}}",
+        "note": "What happened",
+        "notePlaceholder": "What happened (optional; defaults to “{{fallback}}”)",
+        "storyTitle": "{{label}} becomes {{value}}",
+        "storyTitleLong": "{{label}} changed",
         "save": "Save",
         "cancel": "Cancel",
         "changedElsewhere": "This entry was changed elsewhere after the dialog opened. Close and reopen it to see the change, or save again to keep what you entered here.",
         "previewing": "Previewing…",
-        "routeInit": "Changes the initial value",
+        "routeInit": "Changes the initial state",
         "routePatch": "Changes the step “{{text}}” in {{place}}",
         "routeChange": "Records a new change at {{position}}",
         "routeEntry": "Changes the entry itself",
@@ -230,6 +242,7 @@
         "pendingResolved": "{{count}} fewer pending",
         "valueFollows": "{{label}} becomes {{value}}",
         "noImpact": "Nothing else changes",
+        "moreImpact": "{{first}}, and {{count}} more",
         "unsupported": "This kind of field cannot be edited here yet"
     },
     "record": {
@@ -242,11 +255,13 @@
         "saved": "Recorded: {{text}}"
     },
     "notice": {
-        "receipt": "View receipt",
+        "receipt": "View details",
         "close": "Close",
         "label": "Change just saved",
-        "undo": "Undo",
-        "undone": "Undone",
+        "undo": "Revert",
+        "undone": "Reverted",
+        "where": "({{where}})",
+        "withWhere": "{{title}} ({{where}})",
         "agentLabel": "The agent changed settings",
         "agentChanged": "The agent changed settings: {{title}}",
         "agentEarlier": " ({{count}} earlier changes)",
@@ -334,7 +349,11 @@
             "sameAs": "Another identity of",
             "appears": "First appears",
             "deleted": "Deleted",
-            "initBasis": "Basis of initial values",
+            "initBasis": "Basis for initial values",
+            "fieldAdded": "Added a field",
+            "fieldRemoved": "Removed a field",
+            "fieldRestored": "Restored a field",
+            "fieldRenamed": "Renamed a field",
             "other": "Other settings",
             "changeText": "Text",
             "at": "Placement",
@@ -410,10 +429,10 @@
             "text": "Pending {{count}}"
         },
         "line": {
-            "title": "World line in view",
-            "main": "Viewing: main line",
-            "follow": "Viewing: each chapter's line",
-            "named": "Viewing: {{name}}"
+            "title": "Story line",
+            "main": "Story line: main",
+            "follow": "Story line: by chapter",
+            "named": "Story line: {{name}}"
         }
     },
     "state": {
@@ -440,7 +459,7 @@
             "task": "Task",
             "system": "System"
         },
-        "receipt": "View receipt",
+        "receipt": "View details",
         "revert": "Revert",
         "more": "Show more",
         "empty": "No changes yet",
@@ -526,7 +545,7 @@
             "written": "In the text",
             "suspects": "Possibly one of these",
             "estimate": "Estimate",
-            "initial": "Initial value",
+            "initial": "Initial state",
             "reason": "Reason",
             "root": "The change that broke it",
             "followers": "Also failing",
@@ -542,13 +561,34 @@
         }
     },
     "line": {
-        "pickTitle": "Which line to read",
+        "pickTitle": "Which story line to read",
         "lostTitle": "The line you were viewing no longer exists",
         "placeholder": "Pick a line",
-        "follow": "Follow each chapter",
-        "main": "Main line",
-        "followNow": "Follow each chapter (now: {{line}})",
-        "label": "World line"
+        "follow": "By chapter",
+        "main": "Main line"
+    },
+    "viewPoint": {
+        "label": "Viewing",
+        "aria": "Viewing: {{summary}}",
+        "withPlans": "with plans",
+        "lines": "Story lines",
+        "linesTip": "Parallel threads of the story: the main line, and other developments that branch off it at some point. A character can differ between lines. \"By chapter\" reads whichever line each chapter tells.",
+        "progress": "Story progress",
+        "progressTip": "Settings change as the story goes on. Pick which moment to look at: \"Initial state\" is the setting before anything happens, or the start or end of a chapter.",
+        "follow": "By chapter",
+        "followNow": "Now: {{line}}",
+        "initialHint": "Starting setting",
+        "start": "Start",
+        "end": "End",
+        "search": "Chapter number or title",
+        "searchLabel": "Find a chapter",
+        "noMatch": "No matching chapter",
+        "prevLabel": "Step back",
+        "nextLabel": "Step forward",
+        "prev": "Step back: {{position}}",
+        "next": "Step forward: {{position}}",
+        "atStart": "Already at the start",
+        "atEnd": "Already at the end"
     },
     "entryPicker": {
         "placeholder": "Find an entry",
@@ -564,7 +604,13 @@
         "pathPlaceholder": "Path inside the project, e.g. images/star.png",
         "caption": "Caption",
         "badPath": "Use a path relative to the project: no scheme, no leading /, no .., not under .nbook",
-        "needPath": "A caption needs an image path too"
+        "needPath": "A caption needs an image path too",
+        "upload": "Upload",
+        "uploading": "Uploading…",
+        "cancelUpload": "Cancel upload",
+        "candidates": "Images in this project",
+        "noCandidates": "No images in the image folder yet",
+        "manual": "Or type a path in the project"
     },
     "move": {
         "title": "Move “{{name}}”",
@@ -658,5 +704,59 @@
         "previewUnavailable": "Preview is unavailable right now",
         "wholeStory": "This entry's text has passages that change with the story, so it can't be edited here yet",
         "wholeTooMany": "This entry's main text has {{count}} blocks, more than the {{max}} that can be changed at once"
+    },
+    "detail": {
+        "editAnchor": "Edit the starting point"
+    },
+    "images": {
+        "listFailed": "Could not read the image folder",
+        "unavailable": "Images cannot be uploaded in this window",
+        "rejected": "Only PNG, JPEG, GIF and WebP up to 32 MiB",
+        "unknown": "The upload has no definite result; the image may already be in the project—check the image folder",
+        "cancelled": "Upload cancelled; the image may already be in the project",
+        "failed": "Upload failed: {{detail}}",
+        "missing": "Image not found"
+    },
+    "card": {
+        "fill": "Fill in",
+        "valueLabel": "{{label}}: {{value}}",
+        "addField": "Add a detail",
+        "ownPlaceholder": "Something else—name it",
+        "ownLabel": "Name of the new detail",
+        "add": "Add",
+        "restore": "Restore “{{name}}”",
+        "more": "{{label}}: rename, remove",
+        "rename": "Rename",
+        "remove": "Remove",
+        "renameTitle": "Rename “{{label}}”",
+        "removeTitle": "Remove “{{label}}”",
+        "removeDescription": "The data is kept and can be restored.",
+        "newName": "New name"
+    },
+    "character": {
+        "portraitOpen": "Look",
+        "addPortrait": "Add a portrait",
+        "restoreLook": "Restore look",
+        "lookFrom": "Has a look from {{from}}",
+        "hint": {
+            "temper": "How they react, what they care about most",
+            "speech": "Catchphrases, tone, how they address people",
+            "background": "Where they come from, what they went through",
+            "condition": "Injured, wanted, just moved… their situation now"
+        }
+    },
+    "look": {
+        "portrait": "Portrait",
+        "changePortrait": "Change",
+        "addPortrait": "Add a portrait",
+        "wardrobe": "Wardrobe",
+        "addOutfit": "Add an outfit",
+        "putOn": "Wear",
+        "wearing": "Wearing",
+        "editOutfit": "Edit “{{name}}”",
+        "outfitMore": "{{name}}: edit, remove",
+        "hint": {
+            "appearance": "Hair, eyes, build—what makes them recognizable"
+        }
     }
 }

@@ -51,8 +51,14 @@ function persist(): void {
     if (failed !== null) status.value = failed;
 }
 
-// contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 是拖完分隔线、提交落账之后：在这里存档。
-const host = useGridHost({grid, contextKey: "tabbed-panels", onApplied: persist});
+// contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。onApplied 在拖完分隔线落账之后、经 host 收起或展开之后都会调：在这里存档。
+// onIssues 是诊断的唯一出口，示例只在控制台说出来。
+const host = useGridHost({
+    grid,
+    contextKey: "tabbed-panels",
+    onApplied: persist,
+    onIssues: (issues) => console.warn("nb-layout reported issues", issues),
+});
 const gridView = useTemplateRef<InstanceType<typeof NestedGrid>>("gridView");
 const box = useTemplateRef<HTMLElement>("box");
 
@@ -88,10 +94,9 @@ const explorerCollapsed = computed(() => {
     return layout.value.explorerState().collapsed;
 });
 function toggleExplorer(): void {
+    // 收起变了会走 onApplied，存档在那里。
     const result = host.setCollapsed(EXPLORER, !explorerCollapsed.value);
-    // setCollapsed 不走 onApplied，存档要在这里另调一次，不然收起状态不进存档。
-    if (result.ok) persist();
-    else status.value = result.message;
+    if (!result.ok) status.value = result.message;
 }
 
 /** 焦点在哪个编组里：标签条带 `data-group`，正文在内容层里、带库写的 `data-content-leaf`。 */
@@ -165,6 +170,14 @@ const drag = useDragSession<string, Drop>(box, () => ({
     },
     // 一场里网格重发了布局（窗口缩放、别处改了树），整场取消，不拿旧的落点提交。
     structure: () => String(host.revision.value),
+    // 边缘滚动：只交指针下的那条标签条。越过一端也算在边缘带里，几条都交的话，指针在右边那条里时左边那条也在滚。
+    // 标签条只横着滚（样式里 overflow-y: hidden），竖向的边缘带在 32px 高的条上本来也不算。
+    autoScroll: {
+        containers: ({top}) => {
+            const strip = top?.closest<HTMLElement>("[data-tab-strip]") ?? null;
+            return strip === null ? [] : [strip];
+        },
+    },
     resolve: ({source, point}) => {
         const model = layout.value;
         const from = model.groupOf(source);

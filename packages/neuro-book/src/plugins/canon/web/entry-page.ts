@@ -20,6 +20,8 @@ import {MAIN_LINE} from "../shared/reads";
 import type {LineOption} from "../shared/reads";
 import {canonText} from "../shared/text";
 import {OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND} from "./commands";
+import type {EntryKind} from "../shared/entry-kinds";
+import type {CanonImages} from "./images";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import {ComponentViewRegistry} from "./component-views";
 import type {TextAddress} from "./components/entry-text";
@@ -61,7 +63,12 @@ export interface EntryHead {
     readonly name: string;
     readonly folder: string;
     readonly ancestors: readonly EntryName[];
+    /** 条目的种类（`type`）：标签的图标按它取（workbench/editor.md 输出 53）。 */
+    readonly kind: string;
 }
+
+/** 条目页标签的缺省图标：种类没登记图标、或还没读到条目时；与欢迎页的书分开。 */
+export const ENTRY_PAGE_ICON = "i-lucide-bookmark";
 
 /** 页面要的那部分窗口的线：读哪条、可选哪些、改它。 */
 export interface PageLine {
@@ -73,7 +80,7 @@ export interface PageLine {
 /** 没有附加分页的贡献点时（测试窗口）。 */
 const NO_TABS = new ComponentViewRegistry<EntryTabDeclaration>();
 
-/** 没有窗口的线时（测试窗口）：总是跟着章，只有主线。 */
+/** 没有窗口的线时（测试窗口）：总是按章节自动，只有主线。 */
 const FOLLOW_ONLY: PageLine = {line: ref(""), options: ref([{id: MAIN_LINE, name: null, depth: 0}]), set: () => undefined};
 
 export interface EntryPageOptions {
@@ -93,7 +100,7 @@ export interface EntryPageOptions {
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
-    /** 窗口在看的线（输出 34）；不给时总是跟着章、页头没有线选择。 */
+    /** 窗口在看的线（输出 34）；不给时总是按章节自动、“在看”不提线。 */
     readonly windowLine?: PageLine;
     /**
      * 一个条目页挂上了：设定视图据此选中它的条目。页面标签只在所在组的活动标签时挂载，挂上说明它刚显示出来：切到这个标签、把它拖到
@@ -105,6 +112,10 @@ export interface EntryPageOptions {
     readonly drafts: TextDrafts;
     /** 源文字的输入框（编辑器插件的代码输入框）；窗口里没有编辑器插件时为 null。 */
     readonly sourceInput?: Component | null;
+    /** 登记的条目种类（`canon.entry-kinds`，已并好）：分页的顺序用（author-ui.md 输出 9）；不给时没有排在“文字”前面的分页。 */
+    readonly entryKinds?: () => readonly EntryKind[];
+    /** 设定里的图片（输出 53）；窗口里没有文件服务时不给。 */
+    readonly images?: CanonImages | null;
 }
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
@@ -132,6 +143,8 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                     const text = useCanonText();
                     /** 这一页交来的提交入口（它的宿主换了、卸载了就撤掉）。 */
                     let mine: {readonly id: string; readonly commit: () => Promise<void>} | null = null;
+                    // 种类的登记只在装插件时变，页面挂上时读一次。
+                    const kinds = options.entryKinds?.() ?? [];
                     const register = (id: string, commit: (() => Promise<void>) | null): void => {
                         if (mine !== null) withdraw(mine.id, mine.commit);
                         mine = commit === null ? null : {id, commit};
@@ -149,12 +162,18 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => register(id, commit)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => register(id, commit), entryKinds: kinds, images: options.images ?? null});
                     };
                 },
             });
         },
         title: (arg) => (arg === undefined ? null : heads.get(arg)?.name ?? null),
+        // 标签的图标按条目的种类（输出 53）：人物、组织、地点、物品各一个，没登记图标的种类用缺省的；还没读到条目时交给记着的。
+        icon: (arg) => {
+            const head = arg === undefined ? undefined : heads.get(arg);
+            if (head === undefined) return null;
+            return (options.entryKinds?.() ?? []).find((item) => item.kind === head.kind.trim())?.icon ?? ENTRY_PAGE_ICON;
+        },
         initialState: () => entryPageState(),
         // 有没提交的主文字时标签带未保存的圆点，Ctrl+S 提交它（workbench/editor.md 输出 68）。
         uncommitted: (arg) => arg !== undefined && options.drafts.uncommitted(arg),

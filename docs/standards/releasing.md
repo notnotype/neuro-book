@@ -76,7 +76,7 @@
 
 以源码发布的 10 个工作区包（nb-story 与它依赖的 9 个，[ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)、[ADR 0052](../adr/0052-non-stale-file-lock-package.md)）与先生成再发布的包（应用 `@notnotype/neuro-book` 与插件 SDK `@notnotype/nb-plugin-sdk`，[ADR 0033](../adr/0033-app-delivered-as-built-npm-package.md)；nb-layout 首发之后也在其中）在本机也能发，用于首发还没有信任配置的包与流水线不可用时。改版本与发布都要开发者授权，`release:publish` 由开发者执行：
 
-1. 改版本，合入 master（同上文“发版”的第 1、2 步）。
+1. 改版本，合入 master（同上文“发版”的第 1、2 步）。本机发布不经 `release:prepare`，要发的包的变更记录不会自动定稿：同一个提交里手工把 `## [Unreleased]` 下的条目定稿成 `## [<版本>] - <发布那天>`，上面留一个空的 `## [Unreleased]`（nb-layout 0.3.0 漏了这一步，发布后才补）。
 2. 推 master：README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到；发布门禁会查。
 3. `bun run release:check`：源码包的发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
 4. `bun run release:smoke`：生成应用包、SDK 包与 nb-layout 的产物（nb-layout 连生成两次、字节要相同），要发的包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。冒烟之后不要 amend、变基或改写已冒烟的提交：`release-manifest.json` 记的是那一刻的提交，改写后它要么不在 `origin/master` 上，要么与要发布的目录对不上，只能重跑冒烟。

@@ -1,0 +1,125 @@
+### 1. 伴聊 Profile 的新导入让依赖方向门禁失败
+
+- **严重程度**：阻断。**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/bots/backend/profile.ts:12,22`；`packages/neuro-book/src/architecture.test.ts:125-126,214-216`。
+- **现象**：伴聊为了按 id 引用模式，跨插件在运行时从 `nbook/plugins/agent/shared/permissions` 取 `AGENT_MODES_EXTENSION`。仓库只允许跨插件运行时依赖对方的 `shared/contracts.ts`。这正是旧 `agentProfilePartsKey` 经合同而非指向实现交出的边界；本次换掉服务后，边界没有保住。
+- **如何核实**：在 HEAD `7421ab8c5` 的实现工作区，进入 `packages/neuro-book` 运行 `bun test src/architecture.test.ts`，7 通过、1 失败。唯一新增的违规是 `plugins/bots/backend/profile.ts → nbook/plugins/agent/shared/permissions`。
+- **建议改法**：从 Agent 的 `shared/contracts.ts` 转出模式扩展 id，伴聊从该合同取；不要恢复传运行时对象的旧服务，也不要给架构门禁加例外。
+
+### 2. 热重载时缺引用，提供方补齐后会话恢复到旧 Profile
+
+- **严重程度**为重要，**类别**为正确性。
+- **位置**：`packages/nb-harness/src/kernel/session/session.ts:747-754,769-801`。合同见 `docs/specs/agent/contributions.md:66` 与 `docs/specs/harness/runtime.md:129`。
+- **现象**。打开一个正常的用户 Profile，在文件中增加对尚未安装的按需扩展的引用。已开的会话进入 `dependency-missing`。安装并发布扩展后，会话解除只读，扩展仍未装上，日志里的 `profileChanged` 仍只有创建时的 1 条。目录已显示新版 Profile 为 `ok`。如果这次新增的是模式引用，界面与会话关于能否切模式的分歧会持续到重开或再次改文件。
+- **原因**。第一次重装收到 `pending.profile`，解析出新版，但装配失败后只留下只读码。提供方发布时只收到 `added`，此时旧装配依然在内存中，既无 `profileLost` 也无占位标记，直接用旧对象重装。同哈希分支随后清掉只读。t46 补了打开时装配失败的重试，漏了已开会话上新引用的失败重试。
+- **如何核实**。在审查提交上通过真实插件宿主和用户 Profile 文件监听复现。`app-probes.ts userCase` 的 `app-userCase.log` 前两行分别记录 `dependency-missing` 和 `readOnly: null`。补齐的 `test.dependency.core` 只在目录的 `referencedExtensions` 里，快照和日志清单均未出现。
+- **建议改法**。重装失败时保留「尚有新版 Profile 待装配」的状态，下次输入变化时按当前 key 重新解析。在真正装配成功、挂载完成后再解除只读。用文件更新加晚到提供方的用例断言新提示词、扩展清单及 1 条 `code-updated`。
+
+### 3. 扩展提供方变更会改目录可用性，但窗口收不到目录通知
+
+- **严重程度**为重要，**类别**为正确性。
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/profiles.ts:67-75`、`packages/neuro-book/src/plugins/agent/backend/agent.ts:182-200`、`packages/neuro-book/src/plugins/agent/backend/plugin.ts:215-219`、`packages/neuro-book/src/plugins/agent/web/profile-page.ts:141`。合同见 `docs/specs/agent/contributions.md:63,71`。
+- **现象**。Profile 已在目录里，缺一项引用而显示不可用。运行中注册并激活该扩展提供方后，主动查询得到 `ok`，订阅目录的窗口没有收到更新。卸载后主动查询恢复 `extensions-missing`，窗口仍保留上一次取到的状态，直到别的目录事件或手动重取。
+- **原因**。`list()` 每次读取扩展声明来算可用性。Agent 把目录事件接到了工具、Profile 和用户 Profile 变更上，扩展声明的登记和移除没有进入该通知链。扩展接收器只通知内核重装会话。
+- **如何核实**。`app-probes.ts catalog` 用真实插件登记、激活、关闭和窗口 RPC 订阅。扩展注册和激活后目录变成 `ok`，通知数保持 0。激活 Profile 后收到 1 次通知，确认订阅可用。随后停用扩展提供方并等会话进 `dependency-missing`，目录已变回 `extensions-missing`，通知总数仍是 1。
+- **建议改法**。让用于计算可用性的扩展声明集合在变动时触发目录重取。测试在 Profile 保持不变的情况下安装和卸载提供方，断言窗口收到通知并读到新状态。登记未激活的扩展已经影响判据，光在会话重装时发通知仍会漏掉这一段。
+
+### 4. 占位会话失去 Profile 提供方后仍会把占位写进日志
+
+- **严重程度**为重要，**类别**为不变量。
+- **位置**为 `packages/nb-harness/src/kernel/session/session.ts:747-768,786-809`。合同见 `docs/specs/harness/runtime.md:129`。
+- **现象**。原日志已有真 Profile 的装配记录。打开时因缺扩展进入只读，随后 Profile 提供方也撤回。此时发布一个无关扩展，会话仍为 `unknown-profile`，但日志多出一条 `code-updated`，其 Profile 版本为 `unknown`。重新提供原版本 Profile 与原扩展后，再多写一条 `code-updated`。原装配哈希相同的恢复预期写 0 条，实测写 2 条。
+- **原因**。`fromPlaceholder` 保证会先重新解析，但解析不到且这批有扩展变化时，`profile` 仍是 `current` 指向的空壳。失败分支继续走 `assemble`，用空壳算出新哈希并落盘。第二次恢复比较的是刚写下的空壳哈希。这是本次占位恢复修复遗漏的组合。
+- **如何核实**。`app-probes.ts placeholder` 走真实宿主登记、撤回、重新发布。`app-placeholder.log` 的 `profileChanged` 依次为 `created`（版本 `1`）、`code-updated`（`unknown`）、`code-updated`（`1`）。
+- **建议改法**。已在占位态且解析仍失败时，保持占位和只读，禁止装配或写入它的哈希。还装着真 Profile 的只读会话仍按合同处理扩展撤回。补上「打开时缺依赖、Profile 撤回、无关扩展变动、原装配回归」的日志断言。
+
+### 5. 用户 Profile 引用字段写错会让整个目录查询失败
+
+- **严重程度**为重要，**类别**为正确性。
+- **位置**为 `packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:232-245,303-310`、`packages/neuro-book/src/plugins/agent/backend/profiles.ts:71-75,133-163`、`packages/nb-harness/src/kernel/extension/assemble.ts:209-213`。
+- **现象**。一个用户 `.profile.tsx` 的 `referencedExtensions` 求值为 `{}`，加载器把它当成成功的包。随后窗口查询整个 Profile 目录得到 `provider-error`，已有会话进 `reassembly-failed`，新建这个 Profile 的会话直接抛 `TypeError`。插件 Profile 的声明校验通过、实现里的同名字段求值为数字 `1` 时，合并也会抛错，把仍活着的提供方误报为 `profile-revoked-while-resolving`，返回 `unknown-profile`。
+- **原因**。Bun 打包不做类型检查，加载器只检查 Profile 标记与 id。目录直接调 `.filter()`，内核直接遍历字段。插件合并为写诊断先展开实现字段，因此尚未来得及用有效声明覆盖它。
+- **如何核实**。`app-probes.ts userCase` 从有效用户文件改为 `referencedExtensions: {} as never`，通过真实窗口调用 `profiles` 复现，见 `malformed-rpc.log`。`app-probes.ts declared` 用声明 `[]`、实现值 `1` 重现插件侧，见 `app-declared.log`。
+- **建议改法**。在发布用户包前校验引用是非空字符串构成的数组，拒绝坏包并保留上一份成功结果，按目录合同报告该项。内核遇到直接调用传错形状时交结构化装配问题。插件合并先以已校验的声明为准，对实现里的坏值只记清楚的诊断。
+
+### 6. 冷打开遇到 Profile 装配异常会遗留会话锁
+
+- **严重程度**为重要。**类别**为不变量。
+- **位置**为 `packages/nb-harness/src/kernel/session/session.ts:571-585,606-609`、`packages/nb-harness/src/kernel/log/jsonl-store.ts:251-303,360-368`、`packages/nb-harness/src/kit/sessions/table.ts:404-429`。
+- **现象**。用户 Profile 的 `referencedExtensions` 求值为 `{}` 时，冷开已有会话得到 `open-failed`。修好 Profile 并等目录显示 `ok` 后，重试仍得 `session-busy`。独立 JSONL store 也拿不到锁。
+- **原因**。`openSession` 先取得日志句柄和锁，在 `try` 外调用 `assembleOrPlaceholder`。本次新增字段在内核被直接遍历，抛错时绕过 `abandon`；会话表捕获异常并移除表项，但未拿到可关闭的会话。清理保护区过窄已存在于起点，本次新增字段让常见的文件写错走到这条路径。仅校验此字段不能修复句柄寿命不变量。
+- **如何核实**。`malformed-open.ts` 用真实 `agentWorld` 建会话，停宿主、写入坏字段、再启动并通过窗口 RPC 冷开。恢复文件且目录读到 `ok` 后再次调 `snapshot`。`malformed-open.log` 依次记录 `open-failed`、`session-busy`，独立 store 也返回 `session-busy`。
+- **建议改法**。在成功取得日志句柄后立即进入清理保护区，包含解析、装配与回放。还未建 `SessionCore` 时直接关句柄，已建好时复用清理流程。用可抛错的解析或装配路径验证修复后同进程可重开、独立 store 可取锁。
+
+### 7. Profile 缓存让停止中的入口仍能提供新会话
+
+- **严重程度**为重要。**类别**为不变量。
+- **位置**为 `packages/neuro-book/src/plugins/agent/backend/profiles.ts:49-60,134-162`、`packages/nb-runtime/src/plugins/host.ts:82-84,140-167,977-979,1096-1101,1220-1229`。入口停止时拒绝新调用见 `docs/specs/runtime/plugins.md:94-99`。
+- **现象**。某个插件 Profile 已经解析过一次。其入口代次进入 `stopping` 后、撤回回调到达前，仍可用该 Profile 新建会话，快照的 `readOnly` 为 `null`。撤回送达后，同一个 key 创建时返回 `unknown-profile`。
+- **原因**。同一个句柄对应的合并对象在 `WeakMap` 中。命中时提前返回，跳过 `handle.implementation()` 对发布状态和入口作用域的检查。入口一进入 `stopping`，句柄就不可取实现，而接收器要等 `revoke` 才从表里移除它。
+- **如何核实**。`profile-withdrawal.ts` 通过真实 `agentWorld` 创建会话填入缓存，用入口的在途 `Scope.accept` 操作延迟撤回，在同一入口作用域已是 `stopping` 时再次创建。目标提交返回成功，`readOnly: null`（`withdrawal-new.log`）。起点 `b93b9e81e` 在同一时点返回 `unknown-profile`（`withdrawal-base.log`）。放行收口后，两者都返回 `unknown-profile`。
+- **建议改法**。先经平台句柄确认这一代的实现仍可取，再复用已缓存的合并对象；让身份稳定与存活检查各自保留。加一条在停止信号已经触发、撤回尚未送达时解析的合同测试。
+
+### 8. 伴随扩展漏算 Profile 自带的硬依赖
+
+- **严重程度**为重要。**类别**为正确性。
+- **位置**为 `packages/nb-harness/src/kernel/extension/assemble.ts:214-227,239-243,262-273`。伴随合同见 `docs/specs/harness/extensions.md:133-137`。
+- **现象**。同一插件的两个按需扩展 `anchor` 和 `addon` 中，`addon` 硬依赖 `anchor` 以及 Profile 自带的 `test.private.options`。Profile 显式引用 `anchor`，两项硬依赖都在会话中，但 `addon` 没有伴随装上。给同样的 Profile 显式加上 `addon` 后，三者均可装配。
+- **原因**。`chosen` 只有已入选的插件贡献。伴随判据用它检查全部硬依赖是否满足。后续的装配校验则把 Profile 自带项也放入 `seen`，两处对同一依赖的判断不同。同插件限制约束的是触发伴随的按需扩展，不能据此排除 Profile 自带项提供的其他硬依赖。
+- **如何核实**。`profile-companions.ts` 通过真实 `agentWorld` 发布两个按需扩展，声明与实现都写相同依赖。`profile-companions.log` 中仅引用 `anchor` 得 `["test.bundle.anchor","test.private.options"]`，另显式引用 `addon` 得 `["test.bundle.anchor","test.bundle.addon","test.private.options"]`，两次 `readOnly` 都为 `null`。这里只核对入选集合，跨组拓扑序是 Task README 已排除的起点缺陷。
+- **建议改法**。保留同插件按需项触发伴随的判据，用已入选贡献与 Profile 自带项共同判断其余硬依赖。补一条依赖自带扩展的合同测试，并用缺少该自带项的 Profile 验证 `addon` 不进入装配。
+
+### 9. 普通模式派发仍使用创建前的过期模式判据
+
+- **严重程度**为建议，**类别**为正确性。
+- **位置**为 `packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:337-351,365-379`、`packages/nb-harness/src/kit/sessions/table.ts:164-167`。相关合同在 `docs/specs/agent/modes.md:69` 与 `docs/specs/agent/subagents.md:65`。
+- **现象**。父会话是 `normal`，子 Profile 在预检后、实际创建前移除了模式引用。无模式的子会话本可在普通模式下接任务，实际派发却得 `unknown-extension`。子档案仍出现在会话表里，没收到输入。
+- **原因**。是否写子会话的模式设置使用预检的 `modal`。只有父模式非 `normal` 才读取创建后的实际快照。此处是创建前两次解析之间的变化，与已接受的「校验完成后到发送之间再次热重载」分开。
+- **如何核实**。`subagent-probe.ts normal` 用真实 `onAgentSession:open` 的入口激活暂停创建，写用户 Profile 文件并等目录公布后放行。得到 `unknown-extension`、未归档子会话 1 个、子会话模型请求 0 次。对照的 `plan` 试验返回 `mode-unsupported`、归档 1 个、子会话模型请求 0 次。
+- **建议改法**。建好后读取一次快照。以其中的有效模式扩展决定是否写模式设置，同时保留非 `normal` 时无模式就归档拒绝的分支。
+
+
+### 10. 归档失败仍向父 Agent 报告子会话已经关掉
+
+- **严重程度**为建议。**类别**为正确性。
+- **位置**为 `packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:164-168,365-370`、`packages/nb-harness/src/kernel/run/commands.ts:64,75-81,529-531`。
+- **现象与原因**。建好的子会话没有有效模式扩展时，派发分支尝试归档。`archive` 返回失败时只写 `subagent-archive-failed` 诊断，工具结果仍写「已经关掉它」。结果没有带上已建子会话的 id，父 Agent 无法据此区分成功归档和仍需善后的子档案。
+- **如何核实**。从代码核实失败分支。`archive` 的受理批写失败会返回 `log-broken`，落到 `!archived.ok`，随后与成功分支使用同一条工具结果。现有真实 `plan` 探针覆盖归档成功和子会话模型请求为 0 的路径，未注入归档写失败。
+- **建议改法**。保留 `mode-unsupported`，始终阻止发送。归档失败时在结果里明确写失败码和子会话 id，只在成功时说已经归档。
+
+### 11. SDK 作者说明和发布记录未交付
+
+- **严重程度**为建议。**类别**为文档。
+- **位置**为 `packages/neuro-book/plugin-sdk/README.md:137-159,317-322,415-420`、`packages/neuro-book/plugin-sdk/pack.ts:122-135`、`packages/neuro-book/CHANGELOG.md:5-18`。计划 `plan.md:68-74,82` 要求作者说明，`packages/AGENTS.md:12` 要求同提交记录用户可见行为。
+- **现象与原因**。SDK 的 `/agent` 已提供新类型，作者 README 未说明应在 `agentProfile()` 的声明里写 `referencedExtensions: ["nbook.agent.modes"]`，也没有解释 `switch_mode` 与模式能力的关系。打包器只复制作者 README 直接链接的 Spec，仓库内新增的合同说明没有进入随包文档。应用与 SDK 共用的 `[Unreleased]` 也缺这项行为变化。
+- **如何核实**。对固定提交在 `packages/neuro-book/plugin-sdk` 的 Markdown 搜索 `referencedExtensions`、`nbook.agent.modes`、`agentProfile`，均无命中。`git diff --name-status b93b9e81e..7421ab8c5 -- packages/neuro-book/plugin-sdk packages/neuro-book/CHANGELOG.md` 无输出。SDK 专项 10 条通过，覆盖的是既有接口调用。
+- **建议改法**。在作者 README 放一段插件 Profile 声明的例子，链接贡献与模式 Spec。补一条 `[Unreleased]`，说明插件 Profile 怎样启用模式，以及仅列 `switch_mode` 不再出现模式控件。
+
+## 未发现问题的方面
+
+- `"none"` 与标签排除仍挡住自动装配，显式引用可以装回被排除的扩展。重复或调换已有引用在探针里得到同一清单和哈希。同插件按需贡献之间的硬依赖链能伴随，跨插件和 `optional()` 边不触发伴随。伴随使用实现的硬依赖，登记检查使用声明的依赖图，符合现行 Spec 对两处的规定。`complete()` 经 `references: "ignore"` 跳过引用检查。
+- 已有测试通过了正常提供方晚到后的占位恢复、`changeProfile` 交错、关闭等待重装配及清理。打开时就解析不到 Profile 的占位按合同保留 `unknown-profile`，等重开。`extensions-missing` 按已接受的清单声明计算，入口停止期间保留静态声明符合合同。相关停机探针发现的回归是第 7 条的句柄缓存。
+- 迁移探针用起点创建的真实主创 `plan` 会话对照固定提交。模式设置、写入闸门、`fork`、回退和子会话继承通过。迁移后提醒接着记录 turn 2，回退后从 turn 0 恢复完整提醒。第二次重开时原会话合计仍只有 1 条 `code-updated`。见 `migration-base.log`、`migration-new.log` 与 `migration-reopen.log`。
+- 派发后的非普通模式核验和续用的 `tighten` 共用 `hasModes(snapshot)`。正常的收紧、拒绝代答模式切换已有用例通过。创建前换成无模式 Profile 的 `plan` 探针中，子会话归档 1 个，模型请求 0 次。归档返回失败时的错误文案见第 10 条。
+- 在应用源码、SDK 与相关 Spec 中未找到遗留的 `agentProfilePartsKey` 或 `AgentProfileParts` 使用方。伴聊的新导入边界问题见第 1 条。
+
+## 验证范围与结果
+
+审查范围为 `b93b9e81e..7421ab8c5` 的 5 个提交，`git diff --check b93b9e81e..7421ab8c5` 通过。测试结果取自固定提交的既有运行日志。实现工作区在收尾时出现并行修改，后续判定以固定提交为准。
+
+| 检查 | 结果 |
+| --- | --- |
+| `nb-harness` 的 `bun test src/kernel/extension/extension.test.ts src/kernel/session/host.test.ts` | 76 通过，0 失败 |
+| `neuro-book` 的 `bun test src/plugins/agent/{agent,profiles,modes,subagents}.test.ts src/plugins/bots/bots.test.ts` | 107 通过，0 失败 |
+| `neuro-book` 的 `bun test src/sdk/sdk.test.ts plugin-sdk/examples/scenarios/10-eval-object.test.ts` | 10 通过，0 失败 |
+| `neuro-book` 的 `bun test src/architecture.test.ts` | 7 通过，1 失败，见第 1 条 |
+| `bun run --cwd packages/nb-harness typecheck` | 通过 |
+| 应用类型检查 | 完整 `bun run typecheck` 在 180 秒超时，后端 `bun run --bun tsc --noEmit -p tsconfig.json --extendedDiagnostics` 在 150 秒超时，Node 执行同一后端项目的 `tsc` 在 95 秒超时。应用类型检查无结论 |
+
+上述专项合计 193 条通过，架构测试单列。第 10 条从代码核实，归档写失败未作运行时注入。第 11 条由文档、打包入口和提交差异核实。未跑 e2e、开发服务或外部第三方包的安装验收。
+
+## 严重程度计数
+
+阻断 **1** · 重要 **7** · 建议 **3** · 合计 **11**。
+
+有效发现为第 1 至 11 条。

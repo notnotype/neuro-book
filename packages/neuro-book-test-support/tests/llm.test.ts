@@ -4,7 +4,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DEFAULT_LLM_TEST_MODEL, llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
+import {DEFAULT_LLM_TEST_MODEL, llmTestConfig, llmTestKey} from "@notnotype/neuro-book-test-support/llm";
 
 const roots: string[] = [];
 
@@ -43,5 +43,18 @@ describe("llmTestConfig", () => {
         const path = await dotenv("DEEPSEEK_API_KEY=k\nDEEPSEEK_API_BASE=https://proxy.example/v1\n");
         expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: path})?.baseUrl).toBe("https://proxy.example/v1");
         expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1", DEEPSEEK_API_KEY: "k", DEEPSEEK_API_BASE: "  "}, dotenvPath: await dotenv("")})?.baseUrl).toBeNull();
+    });
+});
+
+describe("llmTestKey", () => {
+    it("开关没开时不给；开了先看环境，再只从 .env 读这一个键，不写进环境；都没有时为 null", async () => {
+        const path = await dotenv("TAVILY_API_KEY=from-dotenv\nDEEPSEEK_API_KEY=other\n");
+        expect(llmTestKey("TAVILY_API_KEY", {env: {TAVILY_API_KEY: "in-env"}, dotenvPath: path})).toBeNull();
+        expect(llmTestKey("TAVILY_API_KEY", {env: {NBOOK_LLM_TESTS: "1", TAVILY_API_KEY: "in-env"}, dotenvPath: path})).toBe("in-env");
+        const env: NodeJS.ProcessEnv = {NBOOK_LLM_TESTS: "1"};
+        expect(llmTestKey("TAVILY_API_KEY", {env, dotenvPath: path})).toBe("from-dotenv");
+        expect(env.TAVILY_API_KEY).toBeUndefined();
+        expect(env.DEEPSEEK_API_KEY).toBeUndefined();
+        expect(llmTestKey("TAVILY_API_KEY", {env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: await dotenv("")})).toBeNull();
     });
 });

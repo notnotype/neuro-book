@@ -1,0 +1,378 @@
+# site.operations 晋升前逐条核对（只读）
+对象：worktree .worktree/w00037-official-site（HEAD 2f516e928，站点代码与 master 相同，已核 git diff --stat master 2f516e928 -- 'packages/nb-site-*' 为空）；Spec 取主工作区 master 的 docs/specs/site/operations.md。
+路径简写：S=packages/nb-site-server/src，C=packages/nb-site-contract-tests/src，I=packages/nb-site-identity/src。
+结论词：对上 / 没实现 / 不一致 / 没有测试。
+
+### 输入：四个命令（serve、migrate、create-admin、backup）
+代码：S/cli.ts:49-79（三个入口命令 + 模块命令按 module.commands 登记；create-admin 来自 S/modules.ts:33 的 createAdminCommand）；程序名 nb-site 见 nb-site-server/package.json 的 bin。
+测试：serve、migrate、backup、create-admin 在 C/operations.test.ts 各组均经真实进程调用（sandbox.run/start）。
+逐句：
+- 四个子命令存在、作用如表：对上（serve 见输出 2/3/4，migrate 见 S/commands.test.ts:71 “对每个模块执行还没执行的迁移后以 0 退出”，create-admin、backup 见后文）。
+
+### 输入：“配置只来自环境变量；程序不读工作目录里的 .env”
+代码：S/config.ts:149-208 只读传入的 env（cli.ts 传 process.env）；不读 .env 靠启动参数：S/main.ts:1 shebang `bun --no-env-file`、image/Dockerfile:22 ENTRYPOINT、C/testing/site.ts:88 与 S/testing/process.ts:77 起进程都带 --no-env-file。
+测试：没有。实验（/tmp/w00037-t05-plan/promote/exp，cwd 放一个带 NB_SITE_SESSION_SECRET 的 .env、进程环境里去掉它）：`bun --no-env-file main.ts migrate` 与直接执行 main.ts（走 shebang）都得 config_invalid missing；`bun main.ts migrate`（不带参数）读了 .env、迁移成功。
+逐句：
+- 只来自环境变量：对上。
+- 不读 .env：对上（以 bin 与镜像入口为“程序”），没有测试。合同测试的启动命令由测试自己给出，测不到产品入口的参数；能守它的是 smoke:image（S/../image/smoke.ts 没有这一条）或一条起 bin 的包内用例。判断：低风险，可留给 t13 在冒烟里加一条，或接受为“由入口参数保证、代码审查守”。
+
+### 配置表：NB_SITE_URL、NB_SITE_TELEMETRY_URL
+代码：S/config.ts:57-69（parseRootUrl：解析不了与非 https 报 not_https，路径/查询/片段报 has_path）、163-168（只有声明了 ingest 的模块在场才要求 TELEMETRY_URL；same_host 用 S/hostname.ts:8 的同一个比较）。
+测试：S/config.test.ts:68 “必填项没给或给了空串都报 missing”、78-99 的 it.each（not_https×2、has_path×3、same_host 用 `https://SITE.example.:8443` 同时验了大小写/端口/末尾点）、155 “没有模块声明写入口时不要求写入口地址”；进程级 C/operations.test.ts:122 “去掉 NB_SITE_TELEMETRY_URL …missing”。
+逐句：
+- 必填、HTTPS 根地址、不带路径：对上，有测试。
+- “装着统计模块的进程必填”：对上（S/config.test.ts:155、S/commands.test.ts:90）。
+- “主机名与站点地址不同”：对上（same_host）。
+- “用作 Cookie 的作用域与 OAuth 的签发者”：Cookie 作用域属 site.accounts（I/auth.ts:110 baseURL、I/module.ts:93 siteOrigin），不在本 Spec 核；“OAuth 的签发者”属 t08（社交登录与 OAuth），Spec 里没标（planned）——不算缺口，建议这半句标“（planned）”或改成链接 site.oauth 之类的 Spec。
+
+### 配置表：NB_SITE_DATA_DIR
+代码：S/config.ts:71-87（非绝对 not_absolute；不存在/中间段不是目录/是文件 not_directory；stat 其它错误与 access(W_OK|X_OK) 失败 not_writable；不创建）。
+测试：S/config.test.ts:78-99（not_absolute）、101 “数据目录不存在、是文件、不可写时分别报 not_directory 与 not_writable”（not_writable 在 root 下跳过）；S/commands.test.ts:96（进程级 not_absolute）；C/operations.test.ts:122 的 missing。
+逐句：绝对路径、必须已存在、可写、程序不替人创建：对上，有测试（“不创建”由 not_directory 用例的断言隐含：不存在时报错而不是建出来；没有单独断言目录没被建，影响小）。
+
+### 配置表：NB_SITE_SESSION_SECRET
+代码：账号模块读（ADR 0059 决策拆分后归模块），S/modules.ts:17 parseIdentityConfig；问题词 too_short 按码点计。
+测试：S/config.test.ts:111 “会话密钥按字符数算，32 个够、31 个不够”（用汉字，能区分码点与 UTF-16/字节）；155 “不装账号模块时也不要求会话密钥”；进程级 C/operations.test.ts:122、141 “会话密钥太短：问题词 too_short，输出里找不到这个值”。
+逐句：装着账号模块的进程必填、至少 32 个码点：对上，有测试。
+
+### 配置表：NB_SITE_HOST、NB_SITE_PORT
+代码：S/config.ts:170（缺省 127.0.0.1；isIP 为 0 报 not_ip）、171 与 93-97（0 到 65535 的整数、缺省 8080；`-1` 报 out_of_range、`80a` 报 not_integer）；S/commands/serve.ts:142 `Bun.serve({hostname, port})`、148 site.listening 写 server.url.href（端口 0 时是系统挑的端口）。
+测试：S/config.test.ts:50（缺省 127.0.0.1、8080）、78-99（not_ip、not_integer、out_of_range×2）；端口 0 与监听日志：几乎所有 S/serve.test.ts 用例都以 NB_SITE_PORT=0 起服务并从 site.listening 取地址；C/operations.test.ts:74 “监听日志给出实际地址”（断言 `^http://127.0.0.1:\d+/$`）。
+逐句：
+- 缺省只监听本机回环：对上（config 断言缺省值；没有进程级断言“缺省时只绑回环”，缺省值断言足以判定）。
+- 只收 IP 字面量、不收主机名：对上（`localhost` → not_ip）。
+- 0 表示系统挑端口、实际地址见监听日志：对上。
+
+### 配置表：NB_SITE_TRUSTED_PROXIES、NB_SITE_BACKUP_KEEP、NB_SITE_SHUTDOWN_TIMEOUT_MS
+代码：S/config.ts:132-143（逗号分隔，单个地址当 /32 或 /128，坏写法 bad_subnet，缺省空 BlockList）、173（BACKUP_KEEP 1 到 MAX_SAFE_INTEGER，缺省 7）、175（SHUTDOWN 1 到 2147483647，缺省 10000）；停止时限只用在排空：S/commands/serve.ts:165-166。
+测试：S/config.test.ts:50（缺省 7、10000、缺省不信任 127.0.0.1；上界 2147483647 可用）、78-99（bad_subnet×2、KEEP 0/1.5、SHUTDOWN 0/2147483648）、147 “可信代理接受单个地址与 IPv6 网段”；行为：S/serve.test.ts:260（可信代理）、S/backup.test.ts:182（KEEP=2）、S/serve.test.ts:396（SHUTDOWN=300 时 250 毫秒后才断开）。
+逐句：三项的取值范围、缺省值、含义：对上，有测试。“缺省为空（不信任任何转发头）”：S/serve.test.ts:288-289 不设可信代理时带 XFF 仍取对端 127.0.0.1，对上。
+
+### 配置表：NB_SITE_TEST_CONTROL；各功能开关 NB_SITE_<模块>_*
+代码：S/config.ts:103-113（32 到 256 个 [A-Za-z0-9_-]，短于 32 码点 too_short，过长或含别的字符 bad_format）、115-129（回环 = 127.0.0.0/8 与 ::1，经 URL 规范化；::ffff:127.0.0.1 不算）、177-181（设了且监听地址不是回环 → NB_SITE_HOST not_loopback；空串算没设）。模块变量由各模块 parseConfig 读（S/config.ts:183-188）。
+测试：S/config.test.ts:116 “测试控制口令：32 到 256 个字母、数字、- 与 _；短了报 too_short，过长或含别的字符报 bad_format”（含 256 可、257 不可、汉字、末尾空格、`.`、`=`）、134 “设了测试控制口令时监听地址只许本机回环”（127.8.9.10、::1、0:0:0:0:0:0:0:1 可；0.0.0.0、10.0.0.1、::、::ffff:127.0.0.1、fe80::1 不可；空串不限制）；进程级 S/serve.test.ts:577、C/operations.test.ts:426（验收 5 末句）。
+逐句：
+- 字符集、长度、只许回环、问题记在监听地址：对上，有测试。
+- “生产环境与镜像都不设”：image/Dockerfile:16-18 没设，对上；属部署（t13），不是可测行为。
+- NB_SITE_<模块>_*：见各模块 Spec，本 Spec 不核（入口把 env 原样交给 parseConfig，S/config.ts:185）。
+
+### 输入：按主机名分派、读不出主机名回 400、健康检查在任何主机名上可用
+代码：S/site.ts:55-58（hostnameOf：URL.parse 失败或空主机名为 null）、130-133（null → 400 {code:"bad_request"}，在健康检查之前）、136-143（健康检查与测试控制入口挂在分派之前）、145-149（hostnameKey 比较 → ingest 或 site）；S/hostname.ts:8（小写、去末尾一个点；调用方给的 URL.hostname 不带端口）。
+测试：S/serve.test.ts:190 “主机名与写入口相同的请求到写入口，比较不分大小写、不看端口、忽略末尾的点；其余到站点”（含 `ingest.example.evil` 与不带 Host 的 fetch，以及 Host: ingest.example 上的 /health/live 200）；S/serve.test.ts:202 “请求里读不出主机名时回 400 bad_request”（HTTP/1.0 无 Host、端口非数字、带 userinfo）；C/operations.test.ts:259 “读不出主机名的请求回 400 bad_request，健康检查也不例外”；C/telemetry-ingest.test.ts:346 C18（写入口路径发到站点主机 404 等）。
+逐句：
+- “只到三个写入口，其余的到站点的接口”：对上。
+- 比较规则三条：对上，有测试。
+- 读不出主机名 400、健康检查也不例外：对上，有测试。
+- 健康检查在任何读得出的主机名上都可用：对上；测试只验了 live 在写入口主机名上 200，ready 在别的主机名上没有单独断言（同一条路由，影响小，算对上）。
+- “部署时只让本机回环访问它们”：属部署（t13），Spec 没标（planned）；它是对部署的人的要求，不是程序行为，建议挪进“边界与兼容”或保持原样，不算缺口。
+
+### 输入：来源地址的取法
+代码：S/client-address.ts:25-37（canonical：IPv4 原样；IPv6 经 URL 规范化为小写压缩写法；::ffff: 映射两种写法转 IPv4；带 %zone 的不收）、51-71（对端不可信 → 对端；可信 → 读 XFF，从右往左，第一个不可信的就返回，遇到不合法的一跳返回 null，全可信取最左；没有头返回 null）。
+测试：S/serve.test.ts:260 “请求方地址：对端可信时从右往左跳过可信的代理，格式不对或没有转发头时取不到；对端不可信时不看转发头”。逐条对断言：单跳、两跳、三跳取最右不可信（192.0.2.1 不被取）、全可信取最左（10.9.9.9）、走到的那跳是垃圾 → null、垃圾在不可信那跳左边 → 不影响、带端口 → null（两处）、没头 → null、映射写法×3 与 IPv4 → 同一值、IPv6 三种写法 → 2001:db8::1、可信代理按规范化后比较（::ffff:10.1.2.3 被跳过、::ffff:203.0.113.9 不被当可信）、%zone/坏映射/坏 IPv6 → null、对端不可信时不看 XFF。合同侧 C/telemetry-ingest.test.ts:435 起的一组用可信代理与几种写法验了“不留来源地址”。
+逐句：每一句都有断言能区分成立与否：对上。
+注：“对端在可信代理里时看它给的 X-Forwarded-For”只测了 IPv4 回环对端；监听 :: 时 IPv4 对端以映射写法报上来，靠 canonical 转换，由映射写法的跳的用例间接覆盖，算对上。
+
+### 输出 1 配置校验
+代码：serve S/commands/serve.ts:65-66、migrate S/commands/migrate.ts:16-17、backup S/commands/backup.ts:224-225、模块命令 S/commands/module-command.ts:42-43（parseSiteConfig(env,[module])：只校验入口与本模块）；失败行 S/config.ts:211-217 + S/log.ts:47-49（{code:"config_invalid", problems:[{name,problem}]}，message 只列变量名）。
+测试：
+- serve：C/operations.test.ts:122 “去掉 ${name}：非零退出，标准错误那一行是 config_invalid 并点名它（missing），没监听、没改数据目录”（五个必填项各一次，断言 dataDirEntries 为空、无 site.listening）；S/serve.test.ts:598（main.ts，events 为空、数据目录为空、四种取值都不在输出里）。
+- migrate：S/commands.test.ts:96 “配置不合格时以 config_invalid 退出”（只断言码与问题，没断言数据目录没被改）。
+- backup：S/backup.test.ts:383 “配置不合格时以 config_invalid 退出，不建 backups/”（断言数据目录为空）。
+- create-admin：没有用例。
+- 不含取值：S/config.test.ts:170 “失败那一行只有变量名与问题词，不含任何取值”（11 个变量都放特征串）；C/operations.test.ts:135、141、150。
+逐句：
+- 四个命令先校验、不合格非零退出、一行 JSON 带 code 与 problems、不含取值：对上。
+- “不改数据目录”：serve、backup 有断言；migrate、create-admin 没有测试（从代码看校验在取锁之前 return，对上；实验：去掉会话密钥跑 create-admin，config_invalid、数据目录仍为空）。
+- “创建管理员只校验入口自己的配置与账号模块的配置，不要求统计模块的变量”：对上（实验：去掉 NB_SITE_TELEMETRY_URL 跑 create-admin 成功建号），没有测试。机制在 S/commands.test.ts:90 只对 migrate 验过“只装 beta 时不要 TELEMETRY_URL”，没覆盖模块命令只取本模块这一层（module-command.ts:42 传 [module]）。
+建议：在 S/commands.test.ts 加一条“模块命令只校验本模块：去掉只有 alpha 之外的模块要的变量仍能运行；配置不合格时 config_invalid 且数据目录为空”。
+
+### 输出 2 迁移先于服务
+代码：S/commands/serve.ts:84-86（openAndMigrate 在监听之前；失败 return failed，停止 return SUCCEEDED）、142-148（监听与 site.listening）；S/commands/prepare.ts:54-81（逐模块打开并迁移，migration.applied 行由 report 写出，字段 {module, migration}）；S/db/migrate.ts:225-286（每条独立事务，失败回滚这一条，之前提交的保留）。
+测试：
+- S/serve.test.ts:88 “某条迁移失败时以 1 退出、不监听，失败那一行带模块、迁移、原因与数据库的错误码，之前的迁移保留”（断言 exit 1、无 site.listening、ledger 只有 0001、migration.applied 行 {module:"alpha",migration:"0001_items"}）。
+- S/db/migrate.test.ts:72（每条一行 migration.applied、重跑不重复）、91（失败整条回滚、之前保留、之后不执行）。
+- S/commands.test.ts:71（migrate 两个模块各一行 applied，第二次为空）。
+- site.listening 的形状：C/operations.test.ts:74。
+逐句：
+- 先迁移全部成功才监听：对上，有测试。
+- 某条失败非零退出、不监听、已成功的保留：对上，有测试。
+- 每条一行 migration.applied {event,module,migration}：对上，夹具与运行器层有测试；对两个真模块（identity、telemetry 各有 0001_init）在合同层没有断言（C/operations.test.ts:56 那一组只断言“第二次启动没有 migration.applied”，没断言第一次有；文件头第 13-14 行写着“t06、t07 加了迁移后自然覆盖到”，实际没补断言）。归“没有测试”的一半，见验收 1。
+- site.listening {event,url}、url 形如 http://127.0.0.1:43127/：对上，有测试。
+
+### 输出 3 存活检查
+代码：S/site.ts:136（GET /health/live → 200 {status:"live"}，不碰库）。
+测试：C/operations.test.ts:79 “存活检查 200，响应体是 {status: live}”、202（库被进程外占着写锁期间 live 仍 200 {status:"live"}）；S/serve.test.ts:145。
+逐句：进程能响应时 200 {"status":"live"}、不查数据库：对上，有测试（持写锁期间仍 200 是“不查数据库”的可观察判据）。
+
+### 输出 4 就绪检查
+代码：S/health.ts:57-75（探测连接 BEGIN IMMEDIATE；撞 SQLITE_BUSY 且业务连接 inTransaction 时算本进程持锁；读账本判断本版本迁移都在）、81-126（逐模块状态、30 秒 stuck、结果复用 1 秒）；S/site.ts:137-140（200 {status,modules} / 503 {status:"not_ready",code:"not_ready",modules}）；S/db/open.ts:56-65（探测连接 busy_timeout=0）；S/db/migrate.ts:292-297（账本里多出的不影响）。
+测试：C/operations.test.ts:74、202（进程外持写锁 → 503，modules 完整值 {identity:"not_ready",telemetry:"ready"}，不含数据目录，放锁后 200、进程没重启）；S/serve.test.ts:162（业务连接开着事务时 200 且不动事务）、170（进程外持锁立即 503，服务端 durationMs<200）；S/health.test.ts:50、74、88、98（30 秒 stuck、计时重置、只读事务不计时、进程外持锁 not_ready）；S/db/migrate.test.ts:151、173（更新的迁移仍算迁移完；缺一条算没迁移完）。
+逐句：
+- 200 的条件与响应体：对上，有测试。
+- 503 的响应体三字段、逐模块状态、不含路径与密钥：对上，有测试（“不含密钥”只断言了不含数据目录，响应体结构里没有放密钥的位置，算对上）。
+- 库里有更新的迁移仍算就绪：对上，有测试（判断函数层；进程层没有，可接受）。
+- 检查不等锁、进程外写者占着时立即 503：基本对上，有测试；**不一致（窄）**：S/health.ts:64 的判据是“业务连接在事务里”，不是“写锁在本进程手里”。业务连接开着只读事务（跨 await 的读）而同时进程外有写者占着写锁时，探测撞 BUSY、inTransaction 为真，被算成就绪（S/health.ts:11-12 注释自己写了“这时进程外另有人占着写锁也看不出来”，计划“实现审查（前三片）的处理”第 14 条按窄场景接受）。判断：Spec 写得比实现强，属 Spec 措辞问题，改成贴实现即可，例如“本进程的业务连接正在事务里时算就绪（这时看不出进程外是否另有写者）”。
+- 本进程事务占锁算就绪、连续 30 秒回 503 并写 transaction_stuck、只按每次看到的状态算：对上，有测试。
+- 同一秒内的多次检查可以得到同一个结果：对上（READINESS_CACHE_MS=1000，C/operations.test.ts:200 的注释与等待写法依赖它）。
+
+### 输出 5 创建管理员
+代码：I/index.ts:79-96（命令名、`<username> [email]`、access "shared"）；I/commands/create-admin.ts:147-174（upsertAdmin：已存在 → admin、解封三字段、换密码或补凭据、endAllSessions、审计 actorId null；新建 → 占位邮箱 u<id>@placeholder.invalid + email_pending、审计）、199-230（参数先于密码、密码、写库重试、identity.admin_upserted {userId, created, emailIgnored}）；I/commands/read-password.ts（终端两次、原始模式不回显、Ctrl-D/Ctrl-C 空输入取消、管道读到结尾；提示写 process.stderr，:223、:261）；停止：S/commands/module-command.ts:63-89。
+测试：C/operations.test.ts:597、604、612、634（9 种 invalid_argument 的 name/problem）、642（email_taken）、649、657、663、669、675、681、688；I/commands/create-admin.test.ts:83（占位邮箱、email_pending=1、审计一条 actor null）、153（解封、换密码、会话全失效、审计）、184（已存在时邮箱忽略，含不合规则的）、220（mismatch）、227（Ctrl-C → interrupted resolve）、237-285（四个停止时机都不写）；I/commands/read-password.test.ts:49-50（空输入 Ctrl-D 取消）、65（两次不一致）、80（原始模式开关一次）；C/admin.test.ts:529、708（审计在管理接口里看得到 actor null）。
+逐句：
+- 参数形状、新建为管理员、占位邮箱与“邮箱待补”写法同 site.legacy-import（`u<id>@placeholder.invalid`，legacy-import.md:40）：对上，有测试。
+- 已存在：重置密码、设管理员、解封、会话全失效、邮箱忽略：对上，有测试（进程级的“解封”在 C/admin.test.ts 的处置一组，包内 create-admin.test.ts:161 直接断言 banned/banReason/banExpires）。
+- 新管理员先补交同意：对上，有测试（C/operations.test.ts:681）。
+- 每次成功一条操作者为命令行的审计：对上，有测试。
+- 只从标准输入读、不回显、不写日志、等密码时 stderr 一行提示：对上；“不写日志”由 C/operations.test.ts:688 在全部输出里搜密码判定；“不回显”只断言了开关原始模式（read-password.test.ts:80），算对上；“一行提示”由合同底座 waitForStderr 依赖、没有直接断言内容（Spec 也没规定内容），对上。
+- 终端两次、不一致 invalid_argument、空输入 Ctrl-D 取消以 interrupted：对上，有测试（Ctrl-D 到 interrupted 的映射只在 read-password 层测 CANCELLED、在 create-admin 层用 Ctrl-C 测 CANCELLED→interrupted，同一分支，算对上）。实现另把空输入时的 Ctrl-C 与终端关掉也当取消，Spec 没写，属 Spec 可选补充，不是缺口。
+- 成功一行 identity.admin_upserted 带 userId 与 created；失败非零：对上，有测试。
+- 没做完收到 SIGTERM/SIGINT 不改任何账号、interrupted：对上，有测试（停在等密码、持写锁时、服务运行时的重置各一条）。
+
+### 输出 6 备份
+代码：S/commands/backup.ts:222-283（不取模块锁；backups/ 新建 0700；backup.lock 互斥；先清残留 .partial；写 <名字>.partial、逐模块 VACUUM INTO 只读源库 → prepareBackupCopy → VACUUM → quick_check；改名前再查停止；失败或打断在 finally 里删 .partial；prune 只看 BACKUP_NAME 且排除本次；backup.done {name, modules}）、189-195（删 .partial 失败只记 warn backup.partial_remove_failed）；原始上报的去除：S/modules.ts:63 prepareTelemetryBackupCopy。
+测试：S/backup.test.ts:159（服务运行期间、backups/ 先建、quick_check ok、只有已提交的数据、prepareBackupCopy 生效）、182（KEEP=2）、190（残留 .partial 下一次开头清、手放的东西不动、这一次失败也清）、211（新建 0700、已有不改）、226（回拨时本次不删）、260（SIGTERM 落在第一个/最后一个模块，interrupted 且没留下）、243（并发 busy）；C/operations.test.ts:324（运行中备份 0 退出、backup.done、目录名格式、modules 两个）、333（副本 quick_check）、339（副本起服务就绪）、344（保留 2 份）；C/telemetry-ingest.test.ts:629 C16（副本里搜不到上报编号、搜得到聚合进去的应用版本）。
+逐句：
+- 服务运行期间可执行；每个副本是可打开的一致快照：对上，有测试。
+- 统计模块的原始上报不在副本里：对上，有测试（C16）。
+- 超过保留份数的旧副本删除、刚写出的不删、只动名字是备份时间的目录：对上，有测试。
+- 新建时只让运行备份的用户读写、已有的不改：对上，有测试。
+- 成功一行 backup.done {name, modules}：对上，有测试。
+- 被 SIGTERM 或 SIGINT 打断以 interrupted 结束、写到一半的当场删：对上；只测了 SIGTERM（SIGINT 走同一个处理函数 S/lifecycle.ts:72，算对上）。
+- 强行结束留下的下一次开始时清：对上，有测试。
+- “删不掉时记一行警告、不改变这一次的结果，留到下一次备份开始时再清”：从代码看对上（removePartial 只 warn，返回值仍是原失败），**没有测试**：没有用例造“.partial 删不掉”（例如把残留 .partial 里放一个不可写子目录，非 root 下 rmSync 会 EACCES）。判断：小缺口，可补一条（root 下跳过），或接受并在汇总里记明。
+
+### 输出 7 相邻版本可互换
+代码：机制在 S/db/migrate.ts:247-251、284（账本里编号更大的未知迁移照常运行、报 migration.unknown_newer）、:4-6 与 S/../AGENTS.md“迁移”一节（账本三列不变、只加可空列）；S/db/migrate.ts:292-297（就绪只看本版本清单）。上一个版本的程序：image/build-previous.ts，CI 的 site-image 作业 .github/workflows/ci.yml:96-145。
+测试：S/db/migrate.test.ts:151 “库里有下一个版本多出的迁移时照常运行、报 migration.unknown_newer，就绪判断为真”、162 “较新的版本给账本加了一列，本版本照常读写账本”；C/adjacent-version.test.ts:83-172、175-213（没设 NB_SITE_PREVIOUS_SERVER_COMMAND 时整组跳过）。
+逐句：
+- 上一个版本能启动、通过就绪检查：对上，有测试（C/adjacent-version.test.ts:133），但只在 CI 或手动给出上一个版本时跑；本机缺省跳过、CI 作业还没实际跑过（t05 README“没验证的”）。
+- “正常读写”：统计的写入口、聚合、删除有测试（:141、155、161、202、209）；账号模块的读写（登录）**没有测试**：文件头第 11 行写“登录等账号模块有了接口（t07）再加进来”，t07 已合入但没补。见验收 2。
+- “破坏这一点的结构改动不在同一个版本里发布”：是发布约束，不是可测行为；由相邻版本测试兜底，对上（无需单独测试）。
+
+### 输出 8 日志
+代码：S/log.ts:22-44（writeSync(1) 每行一个 JSON，固定字段 time/level/event 不被盖）；S/site.ts:109-127（http.request：requestId、module、method、path（URL 解析不了时 null，只有路径）、status、durationMs；X-Request-Id 响应头）、161-163（编号 randomUUID，不读请求头；RequestState.module 缺省 "site"，只有命中 mount 时改成模块名 :64-66）；S/lifecycle.ts:66-70（未捕获异常/未处理拒绝 → process.fatal {errorType}，请求停止）；S/cli.ts:85-88（failed → 1 并补 internal 行）。
+测试：C/operations.test.ts:232 “每个请求一行 http.request：字段齐全、path 不带查询串；请求编号由服务生成…”（module 只断言是字符串）、250 “标准输出的每一行都是带 time、level、event 的 JSON 对象”、259（path null）；S/serve.test.ts:232（命中 mount 记 alpha、没有模块接的 /nothing-here 记 site）、352 “请求之外的未捕获异常：写一行只有错误类型的 process.fatal，照停止的步骤收口，以 1 退出”；S/serve.test.ts:498 与 C/operations.test.ts:688（口令、密码不在输出里）。
+逐句：
+- 每行一个 JSON、带 time/level/event、写到标准输出：对上，有测试。
+- “每一行在写出时即刷新”：对上（writeSync），没有直接测试；各用例 waitForLog 读到行即依赖它，可接受。
+- http.request 的字段：对上，有测试。
+- module：命中模块记模块名、没有模块接的记 site：对上，有测试；“健康检查、测试控制入口记 site”从代码看对上（这两处挂在根应用、不改 module），**没有测试**断言这两种请求的 module 值（C/operations.test.ts:244 只断言 any(String)）。补法：把 :244 改成 `toBe("site")`（那条请求就是 /health/live），测试控制入口的一条在 S/serve.test.ts 的口令用例里顺带查日志行。
+- 不含查询串、请求头、请求体与凭据：对上，有测试（查询串、入站编号、口令、密码）。
+- 读不出主机名 path 为 null；编号由服务生成、与响应头相同：对上，有测试。
+- 请求之外的未处理错误 → process.fatal 只带类型、按停止步骤收口、非零退出：对上，有测试。
+
+### 输出 9 停止
+代码：S/lifecycle.ts:52-74（第一次信号 requested，第二次 forced）；S/commands/serve.ts:79（停止请求一到就 scheduler.stopAccepting()）、161-168（排空与停止时限、第二次信号）、169-199（finally：断开 → stopAccepting → 逆序 close() 各至多 MODULE_CLEANUP_MS=2000 → scheduler.stop() 至多 2000 → 关库 → 放锁 → site.stopped）；迁移期间：S/db/migrate.ts:266-277、S/commands/prepare.ts:57-58、serve.ts:86、137-138。
+测试：S/serve.test.ts:378（不接新连接、在途完成、0 退出）、396（超过时限断开、0 退出、drain_cut forced:false）、407（第二次信号立即断开）、419（close() 另有 2 秒、超时 warn module.close_timeout、不占停止时限）、430（收尾期间第二次信号不再等 close()）、440（积压任务：先 close()、任务在下一批前收手、不记 job.stop_timeout）、294（停止后不再开始新运行、close 在最后一次 job_ran 之后）、101（迁移开始前的信号：不迁移、不监听、0 退出）、114（建实例期间信号）、560（停止信号之后排队与新要的立即跑一次都 503）；S/db/migrate.test.ts:201（迁移执行期间的停止：做完这一条、后面不执行）；C/operations.test.ts:281（SIGTERM 后 0 退出、端口连不上）。
+逐句：
+- 停止接新请求、等在途请求至多停止时限：对上，有测试。
+- “再不开始新的定时任务运行”：**不一致（措辞）**。Spec 的先后是“等在途请求结束……再不开始新的定时任务运行”，实现是第一次信号一到（排空之前）就不再开始（serve.ts:79；jobs.ts 文件头写了理由：排空期间的测试控制请求不能再起后台工作），S/serve.test.ts:560 锁的也是实现的时机，输出 11 的“服务正在停止时回 503”与实现一致。判断：Spec 写错了先后，改成“收到信号起就不再开始新的定时任务运行；等在途请求结束（至多停止时限）后让每个模块收尾……”。
+- 模块收尾时正在跑的任务收手、最后等任务停下：对上，有测试（:440）。
+- 每个模块的收尾至多 2 秒：对上，有测试（:419）。
+- 等任务停下至多 2 秒：从代码看对上（serve.ts:192），**没有测试**：没有一个不理会 close() 的任务让 job.stop_timeout 出现并在约 2 秒后照样退出（:440 只断言没有它）。可补一条夹具“任务挂住不收手”。
+- 然后以 0 退出：对上，有测试。
+- 迁移期间收到：做完正在执行的那一条、不执行后面的、不监听、以 0 退出：对上，有测试（运行器层证“做完这一条”，进程层证“后面不执行、不监听、0 退出”，计划“实现审查（前三片）”第 10 条的拆法）。
+- 停止期间再来一次：立即断开在途请求、不再等模块收尾、以 0 退出：对上，有测试。
+- 只测了 SIGTERM，SIGINT 走同一个处理函数（lifecycle.ts:72）；模块命令那边 S/commands.test.ts:170 用了 SIGINT。算对上。
+
+### 输出 10 失败的输出
+代码：S/cli.ts:81-95（result.failure → writeFailure 一行、得 1；lifecycle.failed 或命令抛出 → 补一行 {code:"internal"}、得 1）；S/log.ts:47-49（行形状 {time,level:"error",event:"command.failed",...fields,code,message}）；各失败行只带名字、码、原因词（S/commands/prepare.ts:25-46、backup.ts:84-87、serve.ts:38-40、146）。
+测试：S/commands.test.ts:144（模块命令 resolve 的失败照写一行、1）、150 “命令抛出异常时：日志一行只有错误类型的 process.fatal，标准错误一行 internal，以 1 退出”；S/serve.test.ts:357（请求之外的致命错误补 internal）；“不含路径”：S/serve.test.ts:97、140，S/backup.test.ts:127、251、359、377，C/operations.test.ts:135、354。
+逐句：
+- 非零结束的命令都向 stderr 写一行 JSON、至少带 code：对上，有测试。
+- 不属于失败表的程序错误码是 internal：对上，有测试。**不一致（与 t07 留下的那条有关）**见失败码 migration_failed 一节：同一种坏库在 create-admin 的“只核对迁移记录”那条路径上报 internal，在取得锁的路径上报 migration_failed。
+- 这一行不出现变量取值与数据目录路径：对上，有测试。dbMessage 原样带 SQLite 的说明（计划“实现审查（前三片）”omp 第 2 条接受取舍，只靠“RAISE 说明只写固定文字”的约定）；实验里 CANTOPEN、NOTADB 的说明都不含路径。
+- 用法写错时的输出不属于公开接口、只保证非零：对上（commander 缺省，cli.ts:7 注释），没有测试，Spec 本身只要求非零，影响小。
+
+### 输出 11 测试控制入口
+代码：S/test-control.ts:57-99（口令 SHA-256 后 timingSafeEqual；没带或不对 404 {code:"not_found"}；exactObject 拒多余字段；advanceMs 正的安全整数且累加后仍安全；jobs/run 的 runNow 结果 done/failed/unavailable）；S/site.ts:142-143（只在设了口令时挂，挂在分派之前）；S/commands/serve.ts:94-95、133（时钟换成测试控制的、warn 行）；S/jobs.ts:106-146（runNow 排进同一任务队列、不叠跑、停止后 unavailable）。
+测试：S/serve.test.ts:474、484（没设/错口令 404 同不存在地址、warn 行、整段输出无口令）、501（累加）、515（9 种坏 clock 体、5 种坏 jobs 体 400，时间不动）、526、534、541、560、577；C/operations.test.ts:382、393、405、419、426。
+逐句：
+- 没设口令时不存在、404 同别的地址：对上，有测试。设了时 warn 行：对上，有测试。Bearer 口令、没带或不对 404：对上，有测试。
+- “两个地址在任何读得出的主机名上都可用”：从代码看对上（挂在分派之前），**没有测试**：所有用例都发到 127.0.0.1，没有用写入口主机名（Host: ingest.example）发一次。
+- 请求体 JSON、不合格（含多余字段）400：对上，有测试。
+- clock：往前拨、回 {now}、累加、只能往前：对上，有测试。“拨动本身不触发定时任务，定时任务仍按真实时间的间隔排”：对上（只改偏移量，jobs.ts 用真实计时器），**没有测试**；影响小，可接受或在 S/serve.test.ts:501 里加“拨一小时后 job-count 仍为 0”。
+- jobs/run：跑完才回 200、正在跑时等、没有模块或任务 404 not_found、出错 500 job_failed 且不带错误内容：对上，有测试。
+- “请求一旦受理就照常跑完，调用方断开连接不取消它”：对上（handler 不看 abort），**没有测试**（计划“收口审查”第 16 条决定不改代码、只写进 Spec）。
+- “定时任务还没开始调度……时回 503 not_ready”：**Spec 写多了**：S/commands/serve.ts:142-158 从监听到 scheduler.start() 之间没有 await，请求不可能在调度开始前被处理；这一支从外面观察不到（唯一能走到“没开始”的是停止已请求，归“服务正在停止”）。建议删掉“定时任务还没开始调度或”，或保留但不要求测试。“服务正在停止时回 503”：对上，有测试（:560）。
+
+### 状态与转换：状态表
+代码：S/commands/serve.ts:63-199（校验 → 取锁 → 迁移 → 建实例 → 监听 → 等停止 → 排空 → 收尾）。
+测试：见输出 1、2、9 各条。
+逐句：
+- 校验中 → 迁移中 / 退出；迁移中 → 服务中 / 退出；服务中 → 停止中：对上，有测试。
+- “停止中：在途请求结束或满停止时限 → 退出”：**不一致（措辞，轻）**：排空之后还有模块 close() 各至多 2 秒与等任务至多 2 秒（输出 9 已写），表里只写排空。判断：Spec 表格简化过头，改成“在途请求结束或满停止时限，模块收尾之后 → 退出”或在表下加一句“见输出 9”。另：取锁失败（data_dir_busy、data_dir_unusable）发生在校验之后、迁移之前，表里没有这条出口，可在“校验中”或“迁移中”的离开列补“取不到数据目录 → 退出”。
+
+### 时序与寿命
+代码：同上；模块命令 S/commands/module-command.ts:46-62；备份 S/commands/backup.ts:229-237。
+测试与逐句：
+- 端口在迁移全部成功之前不可连：对上，有测试（S/serve.test.ts:88 迁移失败时没有 site.listening；监听在 serve.ts:142，迁移在 :84）。没有“迁移进行中去连端口”的直接断言（端口 0 时测试拿不到端口号），按计划用变异“把监听挪到迁移之前”验证过，可接受。
+- 存活检查从开始监听起可用；就绪在库不可读写期间 503、恢复后 200、不需要重启：对上，有测试（C/operations.test.ts:202）。
+- 两个启动命令同时 → 后到的非零、不执行迁移；服务运行期间 migrate 以 data_dir_busy 退出：对上，有测试（C/operations.test.ts:175、182；S/serve.test.ts:126；S/commands.test.ts:83）。
+- 创建管理员在服务运行期间可以执行：对上，有测试（C/operations.test.ts:612）。服务没在运行时先迁移、做完就放开占用、等密码时不挡启动：对上；用夹具的 shared 命令测（S/commands.test.ts:158），create-admin 本身声明 access "shared"（I/index.ts:82），没有对真命令的同一条用例，算对上。
+- 只迁移正在执行、迁移还没做完时，创建管理员以 not_ready 退出：对上；夹具测（S/commands.test.ts:135：别人拿着锁、账本不完整 → not_ready），算对上。
+- 备份不与服务争占用；两个备份同时执行时后到的 backup_failed：对上，有测试（S/backup.test.ts:159、243，reason busy）。
+
+### 副作用与数据：数据目录布局、不往数据目录之外写
+代码：锁 S/lock.ts:34（<数据目录>/<模块>.lock，建好不删）；库 S/db/open.ts:14-17、41（<模块>.db，WAL 带 -wal/-shm）；备份 S/commands/backup.ts:31-33、227、233、241-242、264（backups/、backup.lock、<名字>/、<名字>.partial/，名字 20261124T031500123Z 形）；模块名固定 identity、telemetry（S/modules.ts:14、42）。日志 S/log.ts:22-28（标准输出；失败行标准错误）。镜像 image/Dockerfile:18 关掉 Bun 的转译缓存。
+测试：合同测试按布局直接碰文件：C/testing/fault.ts（持 <数据目录>/identity.db 的写锁）、C/testing/backup.ts（backups/<名字>/<模块>.db）、C/operations.test.ts:308（从 backups/<名字>/ 拷 identity.db、telemetry.db 起服务）；S/serve.test.ts:134（<模块>.lock 是目录 → data_dir_unusable，锁文件名由此锁住）；S/backup.test.ts:173（副本目录里正好是两个 .db）、190（.partial 与 backup.lock）。
+逐句：
+- 每个模块一个库文件、另有备份目录、布局如图：对上，有测试（锁文件名只在夹具层、合同层没有直接断言 identity.lock/telemetry.lock 存在；图是公开合同，建议合同里加一条 readdir 断言，或接受夹具层的锁定）。
+- 格式版本由各模块的迁移决定：对上（无需测试）。
+- 不往数据目录之外写文件、日志只写标准输出：从代码看对上，**没有测试**。两点补充：（1）程序的标准错误还有失败行，“日志只写标准输出”与输出 10 不冲突（失败行不算日志），可接受；（2）直接用 `bun src/main.ts` 跑时 Bun 自己会把转译缓存写到家目录，镜像靠 BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 关掉；备份对副本做的 VACUUM 由 SQLite 在系统临时目录里开临时文件（Unix 上打开即删）。两者都不是程序写的持久文件，判断：句子成立，不必改；若要守，只能在 smoke:image 里比对容器文件系统，留给 t13。
+
+### 失败码 config_invalid 与问题词表
+代码：S/config.ts:45（入口用到的 14 个问题词）；bad_format 另用在账号模块的条款版本与注册开关、not_allowed 用在 BETTER_AUTH_ 开头的变量（账号模块的 parseConfig）。
+测试：missing、not_https、has_path、same_host、not_absolute、not_directory、not_writable、too_short、not_integer、out_of_range、bad_subnet、not_ip、not_loopback、bad_format（口令）：S/config.test.ts:68-145 逐个有用例；not_allowed：C/operations.test.ts:150；bad_format 用在条款版本、开关：I/config.test.ts（账号模块，属 site.accounts 的核对范围，这里只确认词表一致）。
+逐句：码与含义、每个问题词：对上，有测试。“只追加，不改含义”：约束，无需测试。
+
+### 失败码 migration_failed（含 reason 词表）与 t07 留下的那条
+代码：S/commands/prepare.ts:39-46（行带 module、migration、reason，有 SQLite 错误时 dbCode、dbMessage）、61-67（打开库时的 SQLiteError → reason sql_error、migration null）；S/db/migrate.ts:61、225-286（六个 reason）。
+测试：S/serve.test.ts:88（进程级：module、migration、reason sql_error、dbCode SQLITE_*）；S/db/migrate.test.ts：sql_error 91（含 dbMessage）、checksum_mismatch 103、out_of_order 113/123/131/143、foreign_key_violation 249、transaction_ended 261/271/279/298、invalid_list 334-353。
+逐句：
+- 某条失败或账本对不上 → migration_failed，带 module/migration/reason/dbCode/dbMessage：对上，有测试（dbMessage 只在运行器层断言，进程层没有，算对上）。
+- 六个 reason 各自的含义：对上，有测试。
+- **不一致（t07 README:100、136 点名要核的那条）**：create-admin（shared）取不到锁时走 S/commands/module-command.ts:57-62，`openModuleDb` 与 `migrationsApplied` 都不在 try 里，SQLite 错误直接抛到 S/cli.ts:90 报 internal。实验：别人拿着 identity.lock、identity.db 是 4 KB 随机字节时，create-admin 得 `process.fatal {errorType:"SQLiteError"}` + `{code:"internal"}`；同一个坏库在没人拿锁时得 `migration_failed reason sql_error dbCode SQLITE_NOTADB`。另试了“拿锁 + 进程外持写锁”，WAL 下读账本不撞锁、命令照常成功，所以“忙过 250 毫秒报 internal”只剩打开时 journal_mode 那一句会碰上，罕见。判断：代码缺陷（小）。同一个原因按路径报两种码，部署的人看到 internal 会按“程序缺陷”报；改法是把 :58-59 包一层与 prepare.ts:61-67 相同的映射（JournalModeError → data_dir_unusable，SQLiteError → migration_failed sql_error、migration null）。Spec 不用改。
+
+### 失败码 data_dir_busy、data_dir_unusable
+代码：S/lock.ts:25-53（取不到 → busy；打开锁文件的系统错误 → unusable 带 errorCode）；S/commands/prepare.ts:25-37、63（库文件所在文件系统不支持 WAL → JournalModeError → unusable，不带 errorCode）。
+测试：data_dir_busy：C/operations.test.ts:175、182，S/serve.test.ts:126，S/commands.test.ts:83、112。data_dir_unusable：S/serve.test.ts:134 “模块的锁文件用不了（是个目录）时以 data_dir_unusable 退出，带模块与系统的错误码，不带路径”。
+逐句：
+- data_dir_busy：对上，有测试。
+- data_dir_unusable 的“锁文件 … 不是普通文件”：对上，有测试（EISDIR）。“锁文件没有权限”：同一分支（EACCES），没有专门用例，算对上。
+- “库文件用不了：不是普通文件、没有权限”：**不一致**。实验：identity.db 是目录、或 identity.db 权限 000 时，`migrate` 都得 `{"code":"migration_failed","module":"identity","migration":null,"reason":"sql_error","dbCode":"SQLITE_CANTOPEN","dbMessage":"unable to open database file"}`，不是 data_dir_unusable。原因：S/db/open.ts:32 的 `new Database` 抛 SQLiteError(CANTOPEN)，S/commands/prepare.ts:65-66 把它归成迁移失败。
+- “所在的文件系统不支持库要用的日志方式”：从代码看对上（JournalModeError），没有测试（t05 README:34 接受：真文件系统上造不出）。
+判断：二选一，推荐改代码：在 prepare.ts:61-67（以及上一节 module-command.ts 的同一处）把 SQLITE_CANTOPEN 映射为 data_dir_unusable（errorCode 拿不到就省略，Spec 已允许），NOTADB 等其余保持 migration_failed；补一条“库文件是目录 → data_dir_unusable”的进程级用例（与 :134 同一组）。若不改代码，就把 Spec 这一行改成“锁文件用不了，或库文件所在的文件系统不支持 WAL”，并在 migration_failed 一行写明“库文件打不开时 migration 为 null、reason 为 sql_error”。前者更贴部署的人的处理（修文件与权限，而不是“看迁移名”）。
+
+### 失败码 not_ready、backup_failed（含 reason 词表）
+代码：not_ready：S/site.ts:139（就绪 503）、S/commands/module-command.ts:59-61（shared 命令核对迁移记录不完整）、S/test-control.ts:97（测试控制 503）；backup_failed：S/commands/backup.ts:68-87 与各分支。
+测试：not_ready：C/operations.test.ts:216、S/commands.test.ts:135、S/serve.test.ts:560。backup_failed：busy S/backup.test.ts:243；io_failed :353（EEXIST）；db_missing :236、C/operations.test.ts:350；copy_failed :295（NOTADB）、:336（刚写出的副本打不开）；prepare_failed :279（抛错/async/留事务三种）；check_failed :303、:336；prune_failed :362（root 下跳过）。
+逐句：
+- not_ready 三处出现：对上，有测试。
+- backup_failed 各 reason 的含义与附带字段（module、name、errorCode/dbCode）：对上，有测试，除了：
+  - db_unreadable **没有测试**。实验：迁移后把 identity.db 改成 000，backup 得 `{reason:"db_unreadable",module:"identity",dbCode:"SQLITE_CANTOPEN"}`、只留 backup.lock，行为对上。可补一条（root 下跳过）。
+  - 失败表“库文件不存在或打不开”与 reason 的分工：库文件不是 SQLite 时实现报 copy_failed（只读打开是惰性的，第一次读在 VACUUM INTO），测试 :295 锁的也是 copy_failed；Spec 的 db_unreadable 写“库文件打不开”，读者可能以为“不是 SQLite 库”也归它。判断：Spec 措辞可补一句“不是 SQLite 库的文件归 copy_failed”，不改代码。
+- “原因是 prune_failed 时这一份已经写好”：对上，有测试（:374-375）。
+
+### 失败码 listen_failed、start_failed、interrupted、internal
+代码：listen_failed S/commands/serve.ts:141-147；start_failed serve.ts:38-40、99-116、127-132、151-157；interrupted S/commands/module-command.ts:23-25、backup.ts:81、I/commands/create-admin.ts:125-129；internal S/cli.ts:25、81-95。
+测试：listen_failed S/serve.test.ts:308（EADDRINUSE、不带端口号）；start_failed :324、332、339、346（module、errorType）；interrupted：模块命令 S/commands.test.ts:170、180、191，备份 S/backup.test.ts:260，create-admin C/operations.test.ts:649、657、675；internal S/commands.test.ts:150、S/serve.test.ts:357。
+逐句：
+- listen_failed 带系统码、拿不到时省略：前半对上有测试；“拿不到时省略”没有测试（t05 README:34 接受）。
+- start_failed 带 module 与 errorType：对上，有测试。
+- interrupted 只给“做一件事就退出”的命令：对上，有测试。“启动与只迁移被停止属于正常退出，不报这个码”：serve 有测试（S/serve.test.ts:101 退出 0、stderr 为空）；migrate 被停止以 0 退出从代码看对上（S/commands/migrate.ts:25 stopped → SUCCEEDED），**没有测试**（进程级），影响小。
+- internal：对上，有测试。
+
+### 失败码 bad_request、not_found、job_failed、invalid_argument、email_taken、unavailable
+代码：bad_request S/site.ts:131、S/test-control.ts:73、86；not_found S/test-control.ts:89（及口令不对时的 404）；job_failed S/test-control.ts:94、日志 S/jobs.ts:143（job.failed 带 job，module 由 child 日志带上）；invalid_argument、email_taken、unavailable I/commands/create-admin.ts:121-123、214、220。
+测试：bad_request S/serve.test.ts:202、515，C/operations.test.ts:259；not_found S/serve.test.ts:526，C/operations.test.ts:419；job_failed S/serve.test.ts:534（500 体 {code,module,job}、日志 job.failed {module,job,errorType}）、C/accounts.test.ts:206（经测试控制跑 purge 撞锁得 500）、C/accounts.test.ts:537（按间隔跑的 purge 出错也记 job.failed {module,job}）；invalid_argument C/operations.test.ts:634（9 种 name/problem）、I/commands/create-admin.test.ts:220（mismatch）；email_taken C/operations.test.ts:642；unavailable I/commands/create-admin.test.ts:351（包内，注入重试次数）。
+逐句：
+- 六个码的含义与附带字段：对上，有测试。
+- job_failed 的“不论按间隔跑还是经测试控制入口跑，出错都记 job.failed，带 module 与 job”：对上，两种都有测试。
+- invalid_argument 的 problem：missing、invalid、mismatch 三种都有测试。
+- unavailable 只有包内用例（真进程里要让写锁被占约 18 秒），可接受。
+
+### 边界与兼容
+代码：命令 S/cli.ts；配置 S/config.ts；布局见“副作用与数据”；健康检查 S/site.ts:136-140；测试控制的三道限制 S/commands/serve.ts:94、S/config.ts:181、S/test-control.ts:64-67。
+测试与逐句：
+- 公开接口清单、新增可选配置不算破坏、改名改含义要写发布说明：约束，无需测试；对上。
+- 健康检查不需要登录、响应体不含内部细节：对上，有测试（所有就绪用例都不带凭据；503 体只有 status/code/modules，C/operations.test.ts:216 用 toEqual 锁死整体形状）。
+- 命令行用法写错只保证非零：对上，没有测试；实验：未知子命令、create-admin 缺用户名、不带子命令都以 1 退出（commander 的文字输出，不是 JSON 行，与输出 10 不冲突，因为这一句把它排除在公开接口外）。可接受不测。
+- 测试控制入口是合同测试与被测程序之间的约定、三道限制：对上，有测试（输出 11、验收 5）。“换一种实现重写服务时要一并提供”：约束，无需测试。
+
+### 验收 1 从空的数据目录启动
+测试：C/operations.test.ts:56-88（三条用例；beforeAll 里起、停、再起）。
+逐句：
+- “迁移执行”：**没有测试**（合同层）。这一组没有断言第一次启动的日志里有 migration.applied（只断言了第二次没有）。现在两个真模块各有 0001_init（实验里 create-admin 与 migrate 都打出了 identity、telemetry 的 0001_init），可以断言 `first.logs()` 里 `{event:"migration.applied"}` 对每个模块至少一行、带 module 与 migration。不补时，“再次启动不重复执行迁移”这一句也会因“第一次本来就没执行”而空过（模块清单若被清空，这组照样全过）。判断：测试缺口，晋升前补一行断言即可。
+- “端口可连、就绪检查 200”：对上，有测试（:74-76）。
+- “再次启动不重复执行迁移”：对上，有测试（:83-87，但依赖上一条才不空过）。
+- Smoke 行“合同测试包里起真实进程的启动与健康检查用例”：就是这一组，存在。
+
+### 验收 2 上一个版本接管
+测试：C/adjacent-version.test.ts（整组在没设 NB_SITE_PREVIOUS_SERVER_COMMAND 时跳过）；CI：.github/workflows/ci.yml:96-145 的 site-image 作业用 build:previous 打基准提交的程序。
+逐句：
+- 启动成功、就绪检查 200：对上，有测试（:133），只在 CI 跑；CI 作业还没实际跑过（不 push）。
+- “每日上报可用”：对上，有测试（:155、202、209）。
+- “登录可用”：**没有测试**。文件头第 11 行“登录……等账号模块有了接口（t07）再加进来”，t07 已合入，没补。注意“上一个版本还没有的接口不在此列”：基准提交若早于 t07（例如 532302c0a）就没有登录，需要像 NB_SITE_PREVIOUS_WITHOUT_INGEST 那样由 build-previous.ts 看基准树给一个“上一个版本没有账号接口”的开关。判断：测试缺口；可在晋升前补（需改 build-previous.ts 与用例），或把这一句标“（planned）”交给下一次动账号或 t13（第一次真实发布之前必须有）。
+- “持续集成里‘上一个版本’取基准提交的程序”：属 CI（t13 看第一次结果），Spec 没标（planned）；脚本已在，不算缺口。
+
+### 验收 3 运行期间备份、用副本单独起服务
+测试：C/operations.test.ts:324-342（运行中备份、副本 quick_check、副本起服务就绪）；C/telemetry-ingest.test.ts:629 C16（副本里搜不到上报编号）。
+逐句：
+- 服务运行期间执行备份、用副本单独起一个服务：对上，有测试。
+- “账号能登录”：**没有测试**。C/operations.test.ts:11-12 的文件头写“验收 3 的‘账号能登录’在 t07……加进备份那一组”，实际那一组（:287-357）与 C16 都只查就绪，没有先建号、备份、在副本服务上登录。判断：测试缺口，晋升前补（在备份那一组的 beforeAll 里先 create-admin 一个账号，副本服务上 login 得 200）。
+- “副本里找不到原始上报的内容（例如它的上报编号）”：对上，有测试（C16）。
+
+### 验收 4、验收 5
+验收 4 测试：C/operations.test.ts:122（去掉 NB_SITE_SESSION_SECRET：非零、config_invalid missing、无 site.listening、端口不可连、数据目录为空）、135（另设的测试控制口令、两个地址、数据目录路径都不在输出里）；S/serve.test.ts:598（main.ts 同一场景）。逐句：非零退出、端口不可连、标准错误里没有其它密钥的值：对上，有测试。
+验收 5 测试：C/operations.test.ts:382（没设口令两个地址 404，带口令也一样）、393（设了口令，不带/随机/多一位的口令都 404，与不存在的地址相同）、405（带对口令拨时间，now 落在 [前+拨, 后+拨] 之间、两次累加）、426（设口令而监听 0.0.0.0：config_invalid、not_loopback 记在 NB_SITE_HOST、无 site.listening、端口连不上）。逐句：四个分句都对上，有测试。
+
+### 附带发现（不在本 Spec 的条目里，但指向它）
+- docs/specs/site/telemetry-ingest.md:36 写“部署前置：写入口所在的反向代理不记访问日志……这两项由部署负责，见 site.operations”，而 operations.md 里没有任何关于反向代理日志的句子（grep“反向代理”“访问日志”为空）。属部署（t13）；建议在 operations.md 加一句并标“（planned）”，或把 telemetry-ingest 的链接改指 t13 将写的部署文档。
+- 运行核对：在实现 worktree 跑 `bun test`（nb-site-server，152 过 0 失败）与 `bun test src/operations.test.ts`（合同包，48 过 0 失败），临时根设在 /tmp/w00037-t05-plan/promote/tmp。worktree 没有留下改动（git status 为空；中途误拷进 packages/ 的一个实验脚本 hold.ts 是我自己建的未跟踪文件，已核对 git ls-files 为空后删掉）。
+
+## 汇总
+没实现：0 条。
+
+不一致：7 条
+1. data_dir_unusable 的“库文件不是普通文件、没有权限”：实际报 migration_failed（sql_error、SQLITE_CANTOPEN、migration null）。实验证实。判断：代码缺陷，推荐改代码（CANTOPEN → data_dir_unusable）并补用例；退路是改 Spec。
+2. create-admin 只核对迁移记录那条路径（t07 留下的）：坏库报 internal，持锁路径报 migration_failed。实验证实。判断：代码缺陷（小），在 module-command.ts:57-62 套与 prepare.ts:61-67 相同的映射。
+3. 输出 9“等在途请求结束……再不开始新的定时任务运行”：实现在第一次信号时就不再开始。判断：Spec 先后写错，改 Spec。
+4. 输出 4“本进程自己的事务正占着写锁时算就绪 / 进程外写者占着时立即 503”：实现按“业务连接在事务里”判，业务连接开着读事务、同时进程外持写锁时算就绪。判断：Spec 写得比实现强，改 Spec（已知窄场景）。
+5. 输出 11“定时任务还没开始调度时回 503”：监听到 scheduler.start() 之间没有 await，观察不到。判断：Spec 写多了，删这半句。
+6. 状态表“停止中 → 在途请求结束或满停止时限 → 退出”漏了模块收尾；也没有取锁失败的出口。判断：Spec 简化过头，补一句。
+7. backup_failed：不是 SQLite 库的文件报 copy_failed，Spec 的 db_unreadable“库文件打不开”易被读成包含它。判断：Spec 补一句，不改代码。
+
+没有测试：14 处（前 4 处较要紧）
+1. 验收 1“迁移执行”：合同层没断言第一次启动有 migration.applied；不补时“再次启动不重复执行”可能空过（从代码推断：模块清单被清空时这组照样全过）。
+2. 验收 3“账号能登录”：备份副本上起的服务只查了就绪。
+3. 验收 2 / 输出 7“登录可用”：相邻版本测试没有账号模块的读写（需要一个“上一个版本没有账号接口”的开关）。
+4. 输出 1：create-admin“只校验入口与账号模块的配置”、migrate 与 create-admin 的“不改数据目录”。
+5. 输出 8：健康检查、测试控制入口请求的日志 module 为 site（C/operations.test.ts:244 只断言 any(String)，改成 toBe("site") 即可）。
+6. 输出 9：等任务停下至多 2 秒（job.stop_timeout）。
+7. 输出 6：删 .partial 失败时只 warn、不改结果。
+8. backup_failed 的 db_unreadable（实验行为对上）。
+9. 输出 11：在写入口主机名上可用；拨钟不触发定时任务；受理后断开不取消（后者已在计划里决定不测）。
+10. “不读工作目录的 .env”（实验：靠入口的 --no-env-file，普通 `bun main.ts` 会读）。
+11. migrate 被停止以 0 退出（进程级）。
+12. 合同层没有断言布局里的 <模块>.lock 文件名；“不往数据目录之外写”。
+13. 已接受不测的：listen_failed 拿不到系统码时省略、库不支持 WAL 的 data_dir_unusable、口令比较耗时（t05 README:34、39）。
+14. 命令行用法写错只保证非零（实验以 1 退出，可不测）。
+
+### 晋升前必须修的
+- 不一致 1（库文件用不了的码）：改代码加用例，或改 Spec，二选一后才能晋升（现在字面与行为相反）。
+- 不一致 2（shared 路径报 internal）：t07 明确交给本次核对；改动小（一处 try/catch），连同 1 一起做、各补一条进程级用例。
+- 没有测试 1（验收 1 断言 migration.applied）与 2（验收 3 在副本上登录）：都是验收场景的原句，补的代价是几行。
+- 没有测试 5（日志 module 为 site）：一处 toEqual 改紧。
+- Spec 措辞随晋升一起改：不一致 3、4、5、6、7。
+
+### 可以把 Spec 改成贴实现的
+- 输出 9 的先后（收到信号起就不再开始新的任务运行）。
+- 输出 4 的就绪判据（按业务连接在事务里判，看不出此时进程外有没有写者）。
+- 输出 11 删“定时任务还没开始调度或”。
+- 状态表的“停止中”离开条件补模块收尾，补取锁失败的出口。
+- backup_failed 的 db_unreadable 与 copy_failed 的分工补一句。
+- 输出 5 可补“空输入时 Ctrl-C、终端关掉同样视为取消”（实现已有，不补也不算错）。
+
+### 可以标“（planned）”留给别的 Task 的
+- 配置表 NB_SITE_URL 的“OAuth 的签发者”（t08；现在没标）。
+- 验收 2 的“登录可用”：若不在晋升前补，标（planned），交下一次动账号或 t13（第一次真实发布前必须有）；同时 adjacent-version.test.ts:11 的注释照实改。
+- 验收 2 的“持续集成里取基准提交的程序”与输入一节“部署时只让本机回环访问它们”：属 CI 与部署（t13），没标（planned）；前者脚本已在只是没在 CI 上跑过，后者是对部署的人的要求。
+- telemetry-ingest.md:36 指向本 Spec 的反向代理日志要求（t13）：本 Spec 里还没有这一句。
+- 看板（t11）、旧站导入（t12）：本 Spec 只链接 site.legacy-import 的占位邮箱写法，已实现，不算缺口。
+
+### “实现合同”一节草稿
+- 公开入口：程序 `nb-site`（`@notnotype/nb-site-server` 的 bin，`src/main.ts`，以 `bun --no-env-file` 启动；镜像 `image/Dockerfile` 的 ENTRYPOINT），子命令 `serve`、`migrate`、`backup` 与模块登记的命令（`create-admin`）。包不导出 TypeScript 符号（exports 只有 package.json）；拆成两个进程时在本包加入口文件调 `runCli(argv, [模块])`，模块接进入口的形状是包内的 `SiteModule`。
+- owner 与依赖：owner 是 `nb-site-server`；它依赖两个模块包、两个合同包与 `nb-flock`，模块包只依赖自己的合同包、不反向依赖入口，合同测试包运行时只依赖两个合同包（`src/architecture.test.ts` 的依赖白名单与合同包的 `boundary.test.ts` 守着）。
+- 不变式：
+  1. 就绪检查只在每个库另开的一条不等锁（`busy_timeout = 0`）的探测连接上开事务，入口在模块建好之后不在模块的业务连接上执行任何语句（`serve.test.ts` 业务连接开着事务时就绪 200 且不动那个事务、进程外持锁时处理时长小于 200 毫秒）。
+  2. 每条迁移在自己的 `BEGIN IMMEDIATE` 里先重读账本再执行，用守卫保存点认出迁移自己结束了事务；外键在事务外关掉、每条提交前做 `foreign_key_check`（`db/migrate.test.ts` 的重读跳过、事务语句、外键几组）。
+  3. 停止的先后：第一次停止请求一到就不再开始新的任务运行；排空之后按创建的相反顺序 `close()` 每个模块（各至多 2 秒），再等正在跑的任务（至多 2 秒），最后关库、放锁（`serve.test.ts` 的生命周期与停止两组）。
+  4. 备份先写进 `<名字>.partial/`，全部模块写好并校验过才改名；没走到改名的路径当场删掉，残留的在拿到 `backup.lock` 之后清，删旧备份不删本次写出的（`backup.test.ts`）。
+  5. 失败行与日志的字段只来自变量名、码、原因词与错误类型，拼这些行的代码拿不到取值、路径与说明文字（`config.test.ts` 的“不含任何取值”、各命令用例的“输出里没有路径”）。
+
+### 证据三行的建议链接
+- 实现入口：[`packages/nb-site-server/src/main.ts`](../../../packages/nb-site-server/src/main.ts)（或 `src/cli.ts`；main.ts 是程序本身，更贴“公开入口是程序”）
+- 合同测试：[`packages/nb-site-contract-tests/src/operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)、[`packages/nb-site-contract-tests/src/adjacent-version.test.ts`](../../../packages/nb-site-contract-tests/src/adjacent-version.test.ts)
+- Smoke：[`packages/nb-site-contract-tests/src/operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)（“从空的数据目录启动”一组，与 Spec 的 Smoke 行一致）；镜像那一层的 [`packages/nb-site-server/image/smoke.ts`](../../../packages/nb-site-server/image/smoke.ts) 可并列。
+三个文件都已在 master 上，docs:check 不会报链接不存在。

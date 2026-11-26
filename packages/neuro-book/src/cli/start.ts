@@ -16,6 +16,7 @@ import type {InstanceInfo, StateRootClaim} from "nbook/server/instance";
 import {claimReport, runServerProcess} from "nbook/server/process";
 import {desktopReach} from "nbook/shared/desktop";
 import {PRODUCT_VERSION} from "nbook/shared/product";
+import {RESUME_PATH} from "nbook/shared/resume-path";
 
 import {CliFailure} from "./output";
 import type {Output} from "./output";
@@ -43,6 +44,10 @@ function defaultWebRoot(): string {
     return import.meta.path.endsWith(".js") ? join(import.meta.dir, "..", "web") : join(import.meta.dir, "..", "..", "dist", "web");
 }
 
+/**
+ * 打开浏览器（cli.md 输出 9）：打开的是“启动时打开”的路由（进上次的作品或书架），给人看的地址仍是根地址。`url` 以斜杠结尾，
+ * 路由用 `new URL` 拼。
+ */
 async function openBrowser(url: string, context: StartContext, options: StartOptions): Promise<void> {
     if (!options.open) return;
     // 只在本机有桌面时打开浏览器（判据见 `shared/desktop.ts`）。
@@ -57,7 +62,7 @@ async function openBrowser(url: string, context: StartContext, options: StartOpt
         return;
     }
     try {
-        await open(url);
+        await open(new URL(RESUME_PATH, url).href);
     } catch (error) {
         context.output.hint(`打不开浏览器（${error instanceof Error ? error.message : String(error)}），请手动打开上面的地址。`);
     }

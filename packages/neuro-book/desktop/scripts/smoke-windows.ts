@@ -9,7 +9,8 @@
  *   [--work <目录>]          解压与作品放在这里，缺省系统临时目录
  *
  * 步骤：准备假模型端点与一部作品 → 装或解压 → 带调试端口起启动器、连上页面 → 打开作品、让 Agent 跑一条 shell 命令
- * → WM_CLOSE 关窗、核对服务端有序以 0 停止 → 卸载（安装版，作品与设置都还在）或核对便携版没碰别处。
+ * → WM_CLOSE 关窗、核对服务端有序以 0 停止 →（安装版）再启动一次，窗口经“启动时打开”的路由直接进刚才那部作品，再关
+ * → 卸载（安装版，作品与设置都还在）或核对便携版没碰别处。
  * 退出码：0 通过；1 失败（失败的步骤与原因在 stderr，证据在 --evidence）；2 用法错误。
  */
 
@@ -117,6 +118,34 @@ async function launchUseClose(options: {launcher: string; programDir: string; we
 }
 
 /**
+ * 再启动一次（desktop-shell.md 输出 9、projects.md 的“启动时打开”）：第一个窗口加载 resume 路由，302 到上次打开的作品。
+ * 这是唯一碰得到真实壳与真实 WebView2 处理 302 的地方（e2e 用模拟壳，直接打开服务端地址）。判据是窗口的地址带
+ * `project=<短名>` 且作品的资源管理器画出来了；之后照常关窗、核对有序停止。
+ */
+async function relaunchResumes(options: {launcher: string; programDir: string; webViewData: string; stateRoot: string; envStateRoot?: string; seeded: Seeded; evidence: string}): Promise<void> {
+    const logFile = join(options.stateRoot, "logs", "desktop", "shell.log");
+    const cursor = existsSync(logFile) ? lineCount(await readFile(logFile, "utf8")) : 0;
+    const port = freePort();
+    await startApp(options.launcher, options.webViewData, {cdpPort: port, stateRoot: options.envStateRoot});
+    const {browser, page} = await connectPage(port, options.webViewData);
+    try {
+        try {
+            await page.waitForURL((url) => url.searchParams.get("project") === options.seeded.projectName, {timeout: 60_000});
+            await page.locator("[data-explorer-row]").first().waitFor({timeout: 60_000});
+        } catch (error) {
+            await page.screenshot({path: join(options.evidence, "page-relaunch.png")}).catch(() => undefined);
+            throw new SmokeFailure(`再启动时没有直接进上次的作品（地址 ${page.url()}）：${error instanceof Error ? error.message : String(error)}`);
+        }
+        step("✓ 再启动：窗口直接进了上次打开的作品");
+    } finally {
+        await browser.close().catch(() => undefined);
+    }
+    await closeApp(options.programDir, step);
+    const problems = orderlyStopProblems(logEntries(await readFile(logFile, "utf8"), cursor));
+    if (problems.length > 0) throw new SmokeFailure(problems.join("\n"));
+}
+
+/**
  * 顶层清单与登记、设置的内容：便携版不该碰缺省状态根，也不在通道根下建状态文件。`ignore` 里的顶层项不比：
  * 便携版的 WebView2 浏览器数据按 Spec 留在本机、在通道根的 `WebView2\` 下（desktop-shell 的“已知限制”）。
  */
@@ -145,6 +174,7 @@ async function smokeSetup(options: Options & {setup: string}, endpoint: FakeEndp
         installed = await installFromSetup(options.setup, options.identifier, options.work, step);
         const seeded = await seedState(stateRoot, options.work, localModelSettings(endpoint.baseUrl));
         await launchUseClose({launcher: installed.launcher, programDir: installed.appDir, webViewData: webViewData(installed), stateRoot, envStateRoot: options.stateRoot, endpoint, seeded, evidence});
+        await relaunchResumes({launcher: installed.launcher, programDir: installed.appDir, webViewData: webViewData(installed), stateRoot, envStateRoot: options.stateRoot, seeded, evidence});
         const before = await readBaseline(stateRoot, seeded);
         await collectEvidence(evidence, {"version.json": join(installed.appDir, "Resources", "version.json")});
         await uninstall(installed, step);

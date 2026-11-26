@@ -12,7 +12,7 @@ import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import {defineStore} from "nbook/shared/store/store";
 
-import {LANGUAGE_ID_PATTERN, PAGE_ARG_MAX_LENGTH} from "../shared/contracts";
+import {LANGUAGE_ID_PATTERN, PAGE_ARG_MAX_LENGTH, PAGE_ICON_PATTERN} from "../shared/contracts";
 import type {TabsSnapshot} from "./groups/groups";
 
 const ADDRESS_PATTERN = `^(?:project|user)://${RESOURCE_PATH_PATTERN.slice(1)}`;
@@ -26,6 +26,8 @@ const TabsSchema = Type.Object({
             id: Type.String({pattern: "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"}),
             arg: Type.Optional(Type.String({minLength: 1, maxLength: PAGE_ARG_MAX_LENGTH})),
             title: Type.Optional(Type.String({maxLength: 500})),
+            // 记着的图标（输出 53）：lucide 的类名。
+            icon: Type.Optional(Type.String({pattern: PAGE_ICON_PATTERN, maxLength: 100})),
         }, {additionalProperties: false}),
         Type.Object({
             address: Type.String({pattern: ADDRESS_PATTERN}),

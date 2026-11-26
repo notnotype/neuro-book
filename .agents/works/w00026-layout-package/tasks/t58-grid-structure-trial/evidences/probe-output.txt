@@ -1,0 +1,440 @@
+bun test v1.4.4 (38afee6c8)
+
+probe.test.ts:
+## P1a 一次同向拆分后的树
+{
+ "result": {
+  "ok": true
+ },
+ "tree": {
+  "root[h]": [
+   "a(weight:1x0)",
+   {
+    "s1[h]": [
+     "b(weight:0.5x0)",
+     "c(weight:0.5x0)"
+    ]
+   }
+  ]
+ }
+}
+## P1a 呈现（1204 宽）
+{
+ "a": 600,
+ "s1": 600,
+ "b": 298,
+ "c": 298
+}
+## P1b 连续同向拆最后一块：第几次被拒、拒绝内容、此时树深
+{
+ "attempt": 15,
+ "res": {
+  "ok": false,
+  "code": "limit-exceeded",
+  "message": "Nesting too deep: 17 > 16",
+  "params": {
+   "limit": "depth",
+   "max": 16
+  }
+ },
+ "depth": 16
+}
+## P2 拆前 issues
+[]
+## P2 拆后：结果、issues、呈现
+{
+ "r": {
+  "ok": true
+ },
+ "issues": [
+  {
+   "code": "over-constrained",
+   "message": "Branch root cannot fit its minimum width (484 > 396); scaled down from the minimums",
+   "params": {
+    "cause": "min-total",
+    "id": "root",
+    "axis": "width",
+    "available": 396,
+    "required": 484
+   }
+  },
+  {
+   "code": "over-constrained",
+   "message": "Leaf a gets 130.91 on width, below its minimum 160",
+   "params": {
+    "cause": "leaf-min",
+    "id": "a",
+    "axis": "width",
+    "available": 130.91,
+    "required": 160
+   }
+  },
+  {
+   "code": "over-constrained",
+   "message": "Branch s cannot fit its minimum width (320 > 261.09); scaled down from the minimums",
+   "params": {
+    "cause": "min-total",
+    "id": "s",
+    "axis": "width",
+    "available": 261.09,
+    "required": 320
+   }
+  },
+  {
+   "code": "over-constrained",
+   "message": "Leaf b gets 130.55 on width, below its minimum 160",
+   "params": {
+    "cause": "leaf-min",
+    "id": "b",
+    "axis": "width",
+    "available": 130.55,
+    "required": 160
+   }
+  },
+  {
+   "code": "over-constrained",
+   "message": "Leaf c gets 130.55 on width, below its minimum 160",
+   "params": {
+    "cause": "leaf-min",
+    "id": "c",
+    "axis": "width",
+    "available": 130.55,
+    "required": 160
+   }
+  }
+ ],
+ "widths": {
+  "a": 130.91,
+  "b": 130.55,
+  "c": 130.55
+ }
+}
+## P3 16 层
+{
+ "treeDepth": 16,
+ "restore": "ok",
+ "addLeafAtRootAfterRestore": {
+  "ok": true
+ },
+ "createGridThenAddAtRoot": {
+  "ok": true
+ },
+ "createGridThenRemove": {
+  "ok": true
+ }
+}
+## P3 17 层
+{
+ "treeDepth": 17,
+ "restore": "ok",
+ "addLeafAtRootAfterRestore": {
+  "ok": false,
+  "code": "limit-exceeded",
+  "message": "Nesting too deep: 17 > 16",
+  "params": {
+   "limit": "depth",
+   "max": 16
+  }
+ },
+ "createGridThenAddAtRoot": {
+  "ok": false,
+  "code": "limit-exceeded",
+  "message": "Nesting too deep: 17 > 16",
+  "params": {
+   "limit": "depth",
+   "max": 16
+  }
+ },
+ "createGridThenRemove": {
+  "ok": true
+ }
+}
+## P3 18 层
+{
+ "treeDepth": 18,
+ "restore": {
+  "code": "limit-exceeded",
+  "message": "The snapshot is nested deeper than 16"
+ },
+ "addLeafAtRootAfterRestore": null,
+ "createGridThenAddAtRoot": {
+  "ok": false,
+  "code": "limit-exceeded",
+  "message": "Nesting too deep: 18 > 16",
+  "params": {
+   "limit": "depth",
+   "max": 16
+  }
+ },
+ "createGridThenRemove": null
+}
+## P4a 删到只剩保留像素的叶
+{
+ "tree": "explorer(fixed:240x0)",
+ "explorer": {
+  "width": 1200,
+  "height": 600
+ },
+ "issues": [],
+ "findRoot": null
+}
+## P6 根分支里只有一块保留像素的叶
+{
+ "explorer": {
+  "width": 240,
+  "height": 600
+ },
+ "issues": [
+  {
+   "code": "unabsorbed-space",
+   "message": "Branch root leaves 960 of 1200 unabsorbed on width",
+   "params": {
+    "cause": "no-weight",
+    "id": "root",
+    "axis": "width",
+    "rest": 960
+   }
+  }
+ ]
+}
+## P4b 中间分支展平
+{
+ "tree": {
+  "root[h]": [
+   "p(weight:240x0)",
+   "main(weight:600x0)"
+  ]
+ },
+ "colFound": null,
+ "p": {
+  "kind": "leaf",
+  "id": "p",
+  "ref": "p",
+  "size": {
+   "width": 240,
+   "height": 0
+  },
+  "minimumSize": {
+   "width": 0,
+   "height": 0
+  },
+  "maximumSize": {
+   "width": 9007199254740991,
+   "height": 9007199254740991
+  },
+  "sizing": "weight"
+ },
+ "widthBefore": {
+  "col": 240,
+  "p": 240,
+  "main": 956
+ },
+ "widthAfter": {
+  "p": 341.71,
+  "main": 854.29
+ }
+}
+## P5a 快照
+{
+ "version": 2,
+ "root": {
+  "kind": "branch",
+  "id": "root",
+  "orientation": "horizontal",
+  "size": {
+   "width": 0,
+   "height": 0
+  },
+  "children": [
+   {
+    "kind": "leaf",
+    "id": "side",
+    "ref": "side",
+    "size": {
+     "width": 240,
+     "height": 0
+    }
+   },
+   {
+    "kind": "leaf",
+    "id": "main",
+    "ref": "main",
+    "size": {
+     "width": 1,
+     "height": 0
+    }
+   }
+  ]
+ }
+}
+## P5b 新网格恢复（解析只给 ref）后的 side
+{
+ "kind": "leaf",
+ "id": "side",
+ "ref": "side",
+ "size": {
+  "width": 240,
+  "height": 0
+ },
+ "minimumSize": {
+  "width": 0,
+  "height": 0
+ },
+ "maximumSize": {
+  "width": 9007199254740991,
+  "height": 9007199254740991
+ },
+ "sizing": "weight"
+}
+## P5c 原地恢复（解析只给 ref）后的 side：回落到当前树
+{
+ "kind": "leaf",
+ "id": "side",
+ "ref": "side",
+ "size": {
+  "width": 240,
+  "height": 0
+ },
+ "minimumSize": {
+  "width": 160,
+  "height": 0
+ },
+ "maximumSize": {
+  "width": 9007199254740991,
+  "height": 9007199254740991
+ },
+ "sizing": "fixed",
+ "collapse": {
+  "collapsedSize": 0,
+  "restoreSize": 300,
+  "collapseThreshold": 24,
+  "expandThreshold": 24,
+  "collapsed": true
+ }
+}
+## P5d 恢复失败而宿主没看结果：树仍是 null
+{
+ "ok": false,
+ "root": null
+}
+## P5e 新网格忘给 sashSize：sashSizes
+{
+ "root": [
+  0
+ ]
+}
+## P7a 按比例分（1204 宽、缝 4）
+{
+ "nested": {
+  "a": 398.67,
+  "n": 197.33,
+  "t": 197.33,
+  "b": 398.67
+ },
+ "merged": {
+  "a": 397.33,
+  "n": 198.67,
+  "t": 198.67,
+  "b": 397.33
+ }
+}
+## P7b 全 0 意图（600 高）
+{
+ "nested": {
+  "c": 147,
+  "n": 147,
+  "d": 298
+ },
+ "mergedUnit1": {
+  "c": 296,
+  "n": 296,
+  "d": 0
+ },
+ "mergedZero": {
+  "c": 197.33,
+  "n": 197.33,
+  "d": 197.33
+ }
+}
+## P7c 窄容器 420：嵌套与并入
+{
+ "nested": {
+  "w": {
+   "a": 172,
+   "n": 120,
+   "t": 120
+  },
+  "issues": []
+ },
+ "merged": {
+  "w": {
+   "a": 172,
+   "n": 120,
+   "t": 120
+  },
+  "issues": []
+ }
+}
+## P8 第二扇
+{
+ "addLeaf": {
+  "tree": {
+   "root[v]": [
+    {
+     "tile-1[h]": [
+      "left(weight:0.5x0)",
+      "desktop(weight:0.5x0)",
+      "right(weight:0.5x0)"
+     ]
+    },
+    "dock(fixed:0x56)"
+   ]
+  },
+  "w": {
+   "left": 400,
+   "desktop": 400,
+   "right": 400
+  }
+ },
+ "splitLeaf": {
+  "tree": {
+   "root[v]": [
+    {
+     "tile-1[h]": [
+      "left(weight:0.5x0)",
+      {
+       "tile-2[h]": [
+        "desktop(weight:0.25x0)",
+        "right(weight:0.25x0)"
+       ]
+      }
+     ]
+    },
+    "dock(fixed:0x56)"
+   ]
+  },
+  "w": {
+   "left": 602,
+   "desktop": 299,
+   "right": 299
+  }
+ }
+}
+## P9
+{
+ "depth": 17,
+ "move": {
+  "ok": false,
+  "code": "limit-exceeded",
+  "message": "Nesting too deep: 17 > 16",
+  "params": {
+   "limit": "depth",
+   "max": 16
+  }
+ }
+}
+
+ 12 pass
+ 0 fail
+ 1 expect() calls
+Ran 12 tests across 1 file. [21.00ms]

@@ -17,6 +17,7 @@ import type {
     GridLayoutResult,
     GridNode,
     GridOrientation,
+    GridSashResolver,
     GridSizing,
     SashCollapseState,
 } from "./grid-types";
@@ -33,8 +34,7 @@ export const GRID_UNBOUNDED = Number.MAX_SAFE_INTEGER;
 export const ZERO_EXTENT: GridExtent = {width: 0, height: 0};
 /** @experimental */
 export const UNBOUNDED_EXTENT: GridExtent = {width: GRID_UNBOUNDED, height: GRID_UNBOUNDED};
-/** @experimental */
-export type GridSashResolver = (branchId: string, sashIndex: number) => number;
+export type {GridSashResolver} from "./grid-types";
 
 export function axisOf(orientation: GridOrientation): GridAxis {
     return orientation === "horizontal" ? "width" : "height";
@@ -106,25 +106,47 @@ export type SashPanel = {
     minimum: number;
     maximum: number;
     sizing: GridSizing;
-    /** 收起策略与状态；`collapsed` 为真时沿主轴的有效范围是刚性的 collapsedSize。 */
-    collapse?: SashCollapseState;
+    /**
+     * 刚性：范围是夹进 `[minimum, maximum]` 的 `size`，拖动的级联补偿改不了它，最小值之和放不下时最后才让。
+     * 只对 `sizing: "fixed"` 起作用；网格从节点的 `rigid` 带过来，独立 `Splitter` 没有。
+     */
+    rigid?: true;
+    /**
+     * 收起策略与状态；`collapsed` 为真时沿主轴的有效范围是刚性的 collapsedSize。`restoreSize` 只有独立 `Splitter` 那条路带
+     * （`SplitterCollapseState`），网格的面板没有。
+     */
+    collapse?: SashCollapseState & {readonly restoreSize?: number};
 };
 
-/** 面板沿主轴的**有效**范围：收起时是刚性 collapsedSize，否则是声明的 [min, max]（max 不低于 min）。 */
+/**
+ * 面板沿主轴的**有效**范围：收起时是刚性 collapsedSize；标了刚性的是夹进声明范围的意图；否则是声明的 [min, max]（max 不低于 min）。
+ */
 export function sashPanelBounds(panel: SashPanel): {low: number; high: number} {
-    const rigid = collapsedRigid(panel.collapse);
-    if (rigid !== null) {
-        return rigid;
+    const collapsed = collapsedRigid(panel.collapse);
+    if (collapsed !== null) {
+        return collapsed;
     }
     const low = Math.max(0, finite(panel.minimum, 0));
-    return {low, high: Math.max(low, finite(panel.maximum, low))};
+    const declared = {low, high: Math.max(low, finite(panel.maximum, low))};
+    return isRigid(panel) ? rigidAt(panel.size, declared) : declared;
+}
+
+/** 标了刚性且保留像素：按比例分的标了不起作用（份额不是像素，没有可以钉住的尺寸）。节点与面板共用这一条。 */
+function isRigid(item: {readonly rigid?: true; readonly sizing: GridSizing}): boolean {
+    return item.rigid === true && item.sizing === "fixed";
+}
+
+/** 刚性的范围：意图先夹进声明的范围，最小与最大都是它。 */
+function rigidAt(size: number, declared: {low: number; high: number}): {low: number; high: number} {
+    const value = clampAxis(size, declared.low, declared.high);
+    return {low: value, high: value};
 }
 
 /**
  * 有界分配：`fixed` 面板先取夹取后的 px 目标，余量按 `weight` 意向比例分给其余面板。
  *
- * 顺序固定，两侧都不被无声挤死：先保住刚性节点（min = max，含收起面板）与展开 weight 面板的最小尺寸，
- * 再把剩余预算给 fixed；预算不足时先按 fixed 的可缩量同比缩到 min，仍不可满足才按全体最小值比例降级。
+ * 顺序固定，两侧都不被无声挤死：先保住范围不可分的节点（min = max，含收起面板与标了刚性的）与展开 weight 面板的最小尺寸，
+ * 再把剩余预算给 fixed；预算不足时先按 fixed 的可缩量同比缩到 min，仍不可满足才按最小值比例降级（标了刚性的最后才让）。
  * 没有 weight 节点时多余空间留白，不越权填满（fixed 面板不因容器变大而变大）。
  */
 export function allocateSashPanels(panels: readonly SashPanel[], available: number): number[] {
@@ -149,8 +171,7 @@ function allocatePanels(panels: readonly SashPanel[], available: number, report?
     const lowTotal = bounds.reduce((sum, value) => sum + value.low, 0);
     if (lowTotal > space + EPSILON) {
         report?.({cause: "min-total", available: space, required: lowTotal});
-        const ratio = lowTotal > 0 ? space / lowTotal : 0;
-        return bounds.map((value) => value.low * ratio);
+        return squeezeMinimums(panels, bounds, space);
     }
 
     const assigned = new Array<number>(count).fill(0);
@@ -204,6 +225,23 @@ function allocatePanels(panels: readonly SashPanel[], available: number, report?
 }
 
 /**
+ * 最小尺寸之和放不下时的降级：标了刚性的最后才让。刚性的取自己的最小值，其余按各自最小值的比例分剩下的；
+ * 刚性的之和也放不下时，只在刚性的之间按比例压，其余都是 0。没有刚性面板时就是全体最小值按比例。
+ * 只认 `rigid` 标记，不认“最小等于最大”：后者（收起的、声明的最小与最大相同的）照旧和其余一起按比例压。
+ */
+function squeezeMinimums(panels: readonly SashPanel[], bounds: readonly {low: number; high: number}[], space: number): number[] {
+    const rigid = panels.map((panel) => isRigid(panel));
+    const rigidTotal = bounds.reduce((sum, value, index) => sum + (rigid[index] ? value.low : 0), 0);
+    if (rigidTotal > space + EPSILON) {
+        const ratio = space / rigidTotal;
+        return bounds.map((value, index) => rigid[index] ? value.low * ratio : 0);
+    }
+    const restTotal = bounds.reduce((sum, value, index) => sum + (rigid[index] ? 0 : value.low), 0);
+    const ratio = restTotal > 0 ? Math.max(0, space - rigidTotal) / restTotal : 0;
+    return bounds.map((value, index) => rigid[index] ? value.low : value.low * ratio);
+}
+
+/**
  * 水位法：只把剩余空间按权重分给 `open` 里的节点，触界者按方向固定后继续分。
  * 全 weight 输入时退化为纯按权重比例分配。
  */
@@ -247,7 +285,10 @@ function shareWeighted(
     return assigned;
 }
 
-/** 节点沿父分支主轴的**收起感知**约束：收起时是刚性 collapsedSize，不再让后代最小尺寸撑开。 */
+/**
+ * 节点沿父分支主轴的**收起感知**约束：收起时是刚性 collapsedSize，不再让后代最小尺寸撑开；标了刚性的是夹进声明范围的意图。
+ * 只沿父分支主轴调用（交叉轴用 `constraintOnAxis`），所以收起与刚性都不影响交叉轴。
+ */
 export function constraintsOf<T>(
     node: GridNode<T>,
     axis: GridAxis,
@@ -255,7 +296,12 @@ export function constraintsOf<T>(
     issues?: GridIssue<GridIssueCode>[],
     reported?: Set<string>,
 ): {low: number; high: number} {
-    return collapsedRigid(node.collapse) ?? constraintOnAxis(node, axis, sashSize, issues, reported);
+    const collapsed = collapsedRigid(node.collapse);
+    if (collapsed !== null) {
+        return collapsed;
+    }
+    const declared = constraintOnAxis(node, axis, sashSize, issues, reported);
+    return isRigid(node) ? rigidAt(node.size[axis], declared) : declared;
 }
 
 /** 收起面板的刚性范围；未收起返回 null。 */
@@ -280,21 +326,22 @@ function collapsedToZero(collapse: SashCollapseState | undefined): boolean {
     return collapse?.collapsed === true && collapsedSizeOf(collapse) === 0;
 }
 
-/** 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。 */
+/**
+ * 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。只拷认得的字段：输入里多出的
+ * （例如以前的 `restoreSize`、`restoreToShare`）不报错，也不进节点。
+ */
 export function normCollapse(value: SashCollapseState | undefined): SashCollapseState | undefined {
     if (!value || typeof value !== "object") {
         return undefined;
     }
     const collapsedSize = Math.max(0, finite(value.collapsedSize, 0));
-    const restoreSize = Math.max(0, finite(value.restoreSize, collapsedSize));
     return {
         collapsedSize,
-        restoreSize: Math.max(restoreSize, collapsedSize),
         collapseThreshold: Math.max(0, finite(value.collapseThreshold, 0)),
         expandThreshold: Math.max(0, finite(value.expandThreshold, 0)),
         collapsed: value.collapsed === true,
         ...(value.toggleable === false ? {toggleable: false} : {}),
-        ...(value.restoreToShare === true ? {restoreToShare: true} : {}),
+        ...(value.locked === true ? {locked: true} : {}),
     };
 }
 
@@ -372,7 +419,7 @@ function reportConstraintConflict(
 
 function sashValues<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): number[] {
     return Array.from({length: Math.max(0, branch.children.length - 1)}, (_, index) => {
-        const configured = typeof sashSize === "function" ? sashSize(branch.id, index) : sashSize;
+        const configured = typeof sashSize === "function" ? sashSize(branch.id, index, {before: branch.children[index]!.id, after: branch.children[index + 1]!.id}) : sashSize;
         return Math.max(0, finite(configured, 0));
     });
 }
@@ -388,7 +435,8 @@ function sashTotal<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver
  * （`collapsedSize..collapsedSize`）只是**当前呈现**的有效范围，写进 `minimum`/`maximum` 会让
  * 收起策略的形状信息丢失——求解器按面板自带的 `collapse.collapsed` 调 `sashPanelBounds` 就能
  * 拿到刚性的 0，而从收起边界恢复时又必须用同一份**展开**声明来夹取记忆尺寸与容量。
- * 分配算法（`allocateSashPanels`）只经 `sashPanelBounds` 读约束，因此收起呈现不受影响。
+ * 分配算法（`allocateSashPanels`）只经 `sashPanelBounds` 读约束，因此收起呈现不受影响。刚性同理：带上 `rigid` 标记，
+ * 范围由 `sashPanelBounds` 按意图算，`minimum`/`maximum` 仍是声明的范围。
  */
 function sashPanelsOf<T>(children: readonly GridNode<T>[], axis: GridAxis, sashSize: number | GridSashResolver): SashPanel[] {
     return children.map((child) => {
@@ -399,6 +447,7 @@ function sashPanelsOf<T>(children: readonly GridNode<T>[], axis: GridAxis, sashS
             minimum: bounds.low,
             maximum: bounds.high,
             sizing: child.sizing,
+            ...(child.rigid === true ? {rigid: true} : {}),
             ...(child.collapse === undefined ? {} : {collapse: child.collapse}),
         };
     });

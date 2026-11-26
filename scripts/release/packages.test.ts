@@ -204,6 +204,44 @@ console.log(JSON.stringify(checkReleasePackages(root, [...loadReleasePackages(ro
         expect(checkWithBuilt(root).map((finding) => `${finding.package} ${finding.code}`)).toEqual(["@notnotype/app internal_dependency"]);
     });
 
+    it("只查源码包时（release:check 与 release:publish 的闸门）：发布依赖可以指向已首发的生成包，要写 workspace:^；首发之前的不行", async () => {
+        const built = {name: "@notnotype/lib", source: "lib", script: "build", outDir: "dist/package", repositoryDirectory: "packages/lib", version: "own", license: "MIT", bun: false};
+        /** 只载源码包 `app`，生成包只按源码目录的清单认名字（生成目录不存在也行）。 */
+        const checkSourcesOnly = (root: string): string[] => {
+            const code = `import {checkReleasePackages, loadReleasePackages, releasedBuiltNames} from ${JSON.stringify(SCRIPT)};
+const root = ${JSON.stringify(root)};
+console.log(JSON.stringify(checkReleasePackages(root, loadReleasePackages(root, ["app"]), releasedBuiltNames(root, [${JSON.stringify(built)}]))));`;
+            const result = spawnSync("bun", ["-e", code], {encoding: "utf8"});
+            if (result.status !== 0) throw new Error(result.stderr);
+            return (JSON.parse(result.stdout) as CheckOutput["findings"]).map((finding) => `${finding.package} ${finding.code}`);
+        };
+        const root = await fixtureRoot();
+        const app = (spec: string) => writePackage(root, "app", manifest("app", {dependencies: {"@notnotype/lib": spec}}), {"src/index.ts": `import {lib} from "@notnotype/lib";\nexport const app = lib;\n`});
+
+        // 源码目录还不在：不认这个名字。
+        await app("workspace:^");
+        expect(checkSourcesOnly(root)).toEqual(["@notnotype/app internal_dependency"]);
+
+        await mkdir(join(root, "packages", "lib"), {recursive: true});
+        await writeFile(join(root, "packages", "lib", "package.json"), JSON.stringify({name: "@notnotype/lib", version: "0.1.0", private: true}));
+        expect(checkSourcesOnly(root)).toEqual(["@notnotype/app internal_dependency"]);
+
+        await writeFile(join(root, "packages", "lib", "package.json"), JSON.stringify({name: "@notnotype/lib", version: "0.1.0"}));
+        expect(checkSourcesOnly(root)).toEqual([]);
+
+        await app("workspace:*");
+        expect(checkSourcesOnly(root)).toEqual(["@notnotype/app internal_dependency"]);
+    });
+
+    it("本仓库：只载源码包、不另传名字时，nb-agent-ui 对 nb-layout 的发布依赖通过（release:publish 的闸门这样调用）", () => {
+        const code = `import {checkReleasePackages, loadReleasePackages} from ${JSON.stringify(SCRIPT)};
+const root = ${JSON.stringify(REPOSITORY)};
+console.log(JSON.stringify(checkReleasePackages(root, loadReleasePackages(root))));`;
+        const result = spawnSync("bun", ["-e", code], {encoding: "utf8"});
+        expect(result.status).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual([]);
+    });
+
     it("MIT 的生成包换成了别的许可文本、license 写错：报出", async () => {
         const root = await fixtureRoot();
         await writePackage(root, "app", manifest("app"), {"src/index.ts": "export const app = 1;\n"});

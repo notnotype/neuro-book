@@ -98,6 +98,7 @@ const tabs = computed((): TabItem[] => {
         active: tab.id === group.value?.active,
         pinned: tab.kind === "file" && tab.pinned === true,
         icon: page === null ? fileIconForName(nameOf(tab.address)) : null,
+        iconClass: page === null || tab.kind !== "page" ? null : props.pages?.icon(tab) ?? null,
         hint: hints.get(tab.id) ?? null,
     }));
 });

@@ -273,12 +273,47 @@ describe("关窗协调", () => {
         const {coordinator, calls, lastAsk} = harness({ready: false});
         const a = coordinator.openWindow();
         coordinator.serverReady("http://127.0.0.1:4217/", true);
-        expect(calls).toContainEqual(["load", a, "http://127.0.0.1:4217/"]);
+        // 开它时没有别的窗口：加载启动时打开的路由（desktop-shell.md 输出 9）。
+        expect(calls).toContainEqual(["load", a, "http://127.0.0.1:4217/api/nbook.projects/resume"]);
         coordinator.openWindow();
         coordinator.closeRequested(a);
         const generation = lastAsk(a)?.[2] ?? 0;
         coordinator.closed(a);
         expect(calls).toContainEqual(["endAsk", a, generation]);
+    });
+});
+
+describe("启动时打开（desktop-shell.md 输出 9）", () => {
+    const RESUME = "http://127.0.0.1:4217/api/nbook.projects/resume";
+    const ROOT = "http://127.0.0.1:4217/";
+    const opened = (calls: Call[]) => calls.filter((call) => call[0] === "open").map((call) => call[2]);
+
+    it("没有窗口时开的第一个经路由进上次的作品；已有窗口时开窗转交开的是书架；有窗口时托盘置前、不开新的", () => {
+        const {coordinator, calls} = harness();
+        const first = coordinator.openWindow();
+        expect(coordinator.openWindowRequested()).toEqual({ok: true});
+        expect(opened(calls)).toEqual([{kind: "page", url: RESUME}, {kind: "page", url: ROOT}]);
+        coordinator.closeRequested(first);
+        expect(coordinator.openFromTray()).toMatchObject({focus: expect.any(Number)});
+    });
+
+    it("全部关掉（留在托盘）后，从托盘或 Dock 再开的也经路由", () => {
+        const h = harness({mode: "tray"});
+        const only = h.coordinator.openWindow();
+        h.coordinator.closeRequested(only);
+        h.coordinator.pageAnswered(only, h.lastAsk(only)?.[2] ?? 0, "allow");
+        h.coordinator.closed(only);
+        expect(h.coordinator.openFromTray()).toMatchObject({opened: expect.any(Number)});
+        expect(opened(h.calls).at(-1)).toEqual({kind: "page", url: RESUME});
+    });
+
+    it("启动期间：第一个启动页就绪后经路由，启动期间转交来的再开的启动页加载根地址", () => {
+        const {coordinator, calls} = harness({ready: false});
+        const first = coordinator.openWindow();
+        const second = coordinator.openWindow();
+        coordinator.serverReady(ROOT, true);
+        expect(calls).toContainEqual(["load", first, RESUME]);
+        expect(calls).toContainEqual(["load", second, ROOT]);
     });
 });
 

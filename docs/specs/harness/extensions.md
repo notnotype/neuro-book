@@ -130,11 +130,18 @@ helper：
 - 扩展的状态只来自日志；没有另存的状态文件。
 - 改变了结果的失败（输出被丢弃、拦截被跳过、工具被缺省拒绝）写 `extensionFailed` 进日志；其余只写诊断。
 
+32. **按需扩展。** 插件扩展分两种：自动扩展（缺省）照 `pluginExtensions` 的标签排除装上，`"none"` 时一个都不装；声明了 `install: "on-request"` 的按需扩展只在下面两种情况装上：
+    - Profile 的 `referencedExtensions` 写了它的 id。引用一律装上，与 `pluginExtensions` 的排除无关（引用是显式的），引用的是自动扩展、被排除了也装；同一个扩展只装一次，引用一个已经自动装上的不算重复。
+    - 伴随：它的实现硬依赖（`dependsOn` 里不是 `optional()` 的）同一插件的另一个已装上的按需扩展，并且自己的硬依赖都满足。只在同一插件内，别的插件的按需扩展不会伴随进来（那样会绕过 Profile 的 `"none"` 与排除），要用就显式引用；可选依赖不触发伴随。
+    - 引用的扩展自己的硬依赖不会被拉进来：依赖的是按需扩展时，Profile 要把它也写进 `referencedExtensions`，否则按输出 1 得 `dependency-missing`。
+33. **引用缺失。** 引用的 id 没有插件贡献：装配问题 `referenced-extension-missing`（`extension` 为 Profile 的 id，`dependency` 为引用的 id）；新建会话得 `profile-invalid`，打开已有会话进只读 `dependency-missing`（[`runtime.md`](runtime.md) 输出 57）。单次请求（`complete`）不装插件扩展，也不检查引用。`defineProfile` 的 `extensions` 里写了字符串的（要扩展对象的地方写了 id）：`bad-extension-id`，`hint` 指向 `referencedExtensions`。
+
 ## 失败与恢复
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
 | `dependency-missing` | 依赖的扩展没装 | 装上依赖，或在 Profile 里排除用到它的扩展 |
+| `referenced-extension-missing` | Profile 引用的扩展没有插件贡献（输出 33） | 装上提供它的插件，或从 `referencedExtensions` 里去掉 |
 | `dependency-cycle` | 依赖成环 | 改依赖 |
 | `duplicate-extension-id` | id 重复（含 Profile） | 改 id |
 | `bad-extension-id` | id 不合规则或前缀与所属插件不符 | 改 id |

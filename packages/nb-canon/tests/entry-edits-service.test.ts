@@ -9,7 +9,7 @@ import {describe, expect, test} from "bun:test";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {buildRegistry, type Entry, type WriteRequest} from "../src/index";
+import {buildRegistry, type Entry, type EntryEdits, type WriteRequest} from "../src/index";
 import {openTestService} from "./fixtures/service";
 import {PANEL, PERSON} from "./fixtures/world";
 
@@ -131,6 +131,46 @@ describe("按名字找条目（project.md 的 findEntries）", () => {
             const found = world.findEntries({query: "门", position: end("ch3")});
             if (typeof found === "string") throw new Error(found);
             expect(found.items.map((item) => item.name)).toEqual(["门甲", "门子乙", "门子丁", "门丙"]);
+        } finally {
+            await world.stop();
+        }
+    });
+});
+
+describe("实例字段的操作经世界服务（components.md 输出 4）", () => {
+    test("去掉的字段不在生效的声明里，另列在 removedFields；恢复以后回到声明里", async () => {
+        const world = await service("instance-fields");
+        try {
+            const entry: Entry = {...person("tmp:xia", "星瑕"), init: {...person("tmp:xia", "星瑕").init, data: {panel: {type: PANEL.id, version: 1, enabled: true, fields: {存款: 100, 魔力上限: null, 魔力: null, 物品: []}, declared: []}}}};
+            const xia = (await publish(world, [{ref: {kind: "entry", id: "tmp:xia"}, after: entry}]))["tmp:xia"]!;
+            const edit = async (ops: EntryEdits["ops"]) => {
+                const result = await world.editEntries({requestId: id(), by: author, what: "edit", baseVersion: world.status().version, title: "改字段", position: end("ch3"), ops});
+                if (!result.ok) throw new Error(JSON.stringify(result.failure));
+            };
+            /** 条目读取里与字段声明有关的两项。 */
+            const reading = () => {
+                const read = world.entry(xia, end("ch3"), "actual");
+                if (typeof read === "string" || !("declarations" in read)) throw new Error("entry is not readable");
+                return {labels: (read.declarations.panel ?? []).map((field) => field.label), removed: read.removedFields};
+            };
+            await edit([{op: "fieldAdd", entry: xia, namespace: "panel", field: {label: "幸运", kind: "number"}, value: 7}]);
+            expect(reading().labels).toContain("幸运");
+            expect(reading().removed).toBeUndefined();
+
+            await edit([{op: "fieldRemove", at: {entry: xia, path: "panel.幸运"}}]);
+            expect(reading().labels).not.toContain("幸运");
+            expect(reading().removed).toEqual({panel: [{id: "幸运", label: "幸运"}]});
+
+            await edit([{op: "fieldRestore", at: {entry: xia, path: "panel.幸运"}}]);
+            expect(reading().labels).toContain("幸运");
+            expect(reading().removed).toBeUndefined();
+
+            // 去掉以后类型加了一个同 id 的固定字段：生效的是固定的那一条，去掉过的这一条不再列出来给“恢复”。
+            await edit([{op: "fieldRemove", at: {entry: xia, path: "panel.幸运"}}]);
+            expect(reading().removed).toEqual({panel: [{id: "幸运", label: "幸运"}]});
+            await world.setRegistries({registry: buildRegistry([{...PANEL, fields: [...PANEL.fields!, {id: "幸运", label: "气运", kind: "number"}]}, PERSON])});
+            expect(reading()).toMatchObject({removed: undefined});
+            expect(reading().labels).toContain("气运");
         } finally {
             await world.stop();
         }

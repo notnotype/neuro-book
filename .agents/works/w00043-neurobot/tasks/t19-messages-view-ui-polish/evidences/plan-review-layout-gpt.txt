@@ -1,0 +1,46 @@
+
+阻断｜接口/记录兼容｜计划 1 片（plan.md:18–19、72）；layout-doc.ts:64–73、layout-doc-validate.ts:48–125、records.ts 外层记录
+现象：锚 `rail` 被定义为「按容器」字典，浮窗 `rail` 为状态对象；同一计划还要求共享布局库完成模板、动态标签剥离/恢复、浮出与归位的转移、重置清除。但现有 `LayoutFloat` 仅 `{panel,rect}`、`LayoutDoc` 无 `rail` 字段；store 的 `stripDynamicTabs`／`carryDynamicTabs` 以 `target` 的布局记录为准，`floatTab` 新建仅含 `role/tabs/active` 的面板，`openFloatPanel` 主动去掉 `container`，`movePanelToEdge` 同样重建面板记录。`sameLayoutShape` 也不比较该意图。尤其 `moveContainerTo`／`moveTabToEdge` 在新规定下可能不再调用者安全：位置限制需观察归属变更后的整份文档，不能只靠现有目标面板回调。
+原因：计划的 API 落点漏列关键契约：记录类型实际在 `layout-doc.ts`，解码只有成功/失败两种结果；把坏 rail 值局部缺省并诊断要返回归一文档与诊断，store `usableDoc` 才能接收，同时 `recordProblem` 目前以整份校验失败为准且成功就不产生告警。若只增校验字段/比较而没将状态纳入全部文档构造、复制/归一及写入出口，模板、discard、浮出与归位会静默丢失或错误共享状态；把新诊断降为 `unread` 则又会误标有效布局为损坏。
+核实：代码读 `layout-doc.ts:64–73,439–447,1069–1114,1153–1190`、`layout-doc-validate.ts:12,48–125`、`layout-doc-store.ts:52–56,83–99,543–550`、`containers.ts:163–218`；对照记录封装 `records.ts`。现有真实 store 测试通过 `storageWorld`、SQLite、`openLayoutDoc` 驱动。未运行正式单测。
+改法：第 1 片明确列出类型 owner `layout-doc.ts`、解码的成功归一结果/非致命诊断承载体及 store 呈现路径；逐个实现和验收 `stripDynamicTabs`、`carryDynamicTabs`、模板、创建浮窗、单标签浮出、整窗停靠、`moveContainerTo`、`moveView`、重置与 discard，并规定按实际视图/容器意图来源转移、只清被重置项。以真实 LayoutDoc 和 store/SQLite 测字段跨记录往返、坏项局部修复且可见诊断、失败操作零写。
+
+重要｜提交边界/测试方法｜计划 4 片（plan.md:26–27、75、98）；layout-drop.ts:379–416，entry-drop.ts:161–215，layout-doc-store.ts:218–233、236–250、350–383、494–518
+现象：计划要求所有归属提交、候选、预览共享一条位置限制，并点名相邻入口并入、移动视图、整容器搬移、整窗停靠、重置和读入归整；这些出口并非一个调用口。普通落点有 `applyLayoutDrop`，入口有另一套 `applyEntryDrop`（其入口带预览特意以 `commit:true` 调模拟），`moveView`、`moveContainerTo` 和 `dockFloat` 由 store 另行组合逐项操作。现有 `LayoutPolicy.accepts(tabs,target,region)` 只拿目标面板，不含最终文档；`edgeTarget` 也只负责候选，提交不再问。
+原因：只在 `applyLayoutDrop` 或现有 `accepts` 加判定，不能覆盖所有路径；而视图限制是「按当下文档」的全局归属不变量，容器合并、整容器移区、分步停靠及自动归整可能在中间态与最终态有不同结果。单测每个入口单独通过，还不足以证明组合步骤无部分落账或错误中间拒绝。计划写“在提交出口统一校验”但没有界定唯一事务边界、失败原子性与预览所用的最终态。
+核实：逐路径代码已读 `layout-drop.ts:393–416`、`entry-drop.ts:161–215`、store `apply` 与各动作（上述位置）、`containers.ts:172–218`。确认现成真实 store/SQLite fixture 和纯 `LayoutDoc` 操作均可用；`applyEntryDrop` 自身以局部文档变量累积，成功后返回一次文档。未运行正式单测或逐项反例。
+改法：第 4 片先把所有归属变化收敛为同一个纯校验/事务合同：候选与预览模拟最终结果，提交对最终文档校验并一次发布，拒绝返回原文档；对“新建目标/搬运多个成员”的事务明确定义校验时的归属快照。保留覆盖实际 store 的单测：普通拖放、入口相邻并入与入口跨区搬移、`moveView` 两种目标、`moveContainerTo`、含多视图浮窗逐项归位、单标签浮出及重置，逐个断言归属/容器/浮窗记录完整一致与失败零写。Bun 复现可补问题但不能代替完整出口矩阵。
+
+重要｜不变量/意图回写｜计划 2 片（plan.md:20–21、73）；intent-writeback.ts:58–74、84–104；store `apply`：layout-doc-store.ts:211–233
+现象：预算把右栏的本次呈现宽度改为 352 后，结构操作前的真实 `rebaseForOperation` 会将当前右栏分节意图从 400 写成 352；原始投影若未覆盖宽度则仍为 400。再把该容器移到 panel 并移回 auxiliarybar，右栏分节回到 400，但编辑区意图/呈现仍停在 990，而非初始 652。预算请求轨宽 48 或 260 都触发同一缺口。这里区分了右栏“意图宽度”与消息的聊天下限预算：`R` 的呈现覆盖正是计划要求不写意图的数据。
+原因：当前回写只把 `fixedNodesOf(projection.input)` 中的 fixed 节点视为压缩呈现而跳过。区域宽度覆盖把右栏分节设为 352 后，它仍是 weight；`rebaseIntents` 因而把该呈现写入权重意图，并让同父轴的编辑区吸收余量。再多测一次 `rebaseForOperation` 重复读写也不能证明预算不漂移：第二次读入的是已经污染的新意图。store 每个默认 `apply` 均先 `rebased()`，所以会在普通结构改动前发生；只有显式 `rebase:false` 的操作不经此路。
+核实：只读真实 Bun 探针，使用 `defaultLayoutDoc`（初始右栏/分节 400、center 652）、`layoutProjectionOptions`、`projectLayoutDoc`、`createGrid().layout()`、`rebaseForOperation`，按预算模拟右栏 352 与 fixed 48/260 轨；再调用真实 `moveContainerTo` 把 `view:test.aux` 移到 panel 后移回。无覆盖时结构往返保留 `center=652`；覆盖后回写分节宽 352，再往返 `center=990`。未运行正式单测。结论只覆盖此呈现-回写路径，不宣称浏览器状态已验证。
+改法：在投影/回写合同里显式标记预算覆盖的节点或轴，并让 `rebaseForOperation` 与 `applyGestureCommit` 排除其派生呈现，不把临时覆盖写成意图；预算覆盖解除后重求解回到原尺寸。第 2 片测试要经真实 store 的结构操作（例如移出再移回右栏容器），对照覆盖前、覆盖中与解除后分节、区域、编辑组意图及几何；单测纯预算输出不足以守住此不变量。
+
+重要｜记录兼容/合成 ID｜计划 1 片（plan.md:19、72）；presented-ids.ts:6–10、layout-doc-validate.ts:19–27、89–96；layout-doc-store.ts:83–99
+现象：计划把 `rail:auxiliarybar` 加入呈现 ID 冲突拒绝名单，但合法的旧 v1 文档可以已经用这个字符串作为树叶 ID 与 `panels` 键。按新规则读入时它会变成校验失败；store 将失败记为 unread/corrupt，回落默认布局并阻止覆盖原记录，旧布局因此不可用。计划的“撞名拒绝”覆盖新写入，不覆盖这个升级冲突。
+原因：当前 v1 校验只拒绝 `strip:` 前缀和 `:sections` 后缀；新增固定呈现 ID 后，合法记录集合会收窄，但计划没有列出版本迁移或兼容处置。
+核实：只读 Bun 探针以 `defaultLayoutDoc` 为基础，将一个工具叶的 id、ref、面板键一致改为 `rail:auxiliarybar`；原文档与改名后文档均通过当前 `validateLayoutDoc`，树与面板键匹配。若应用计划中的黑名单，该文档会被拒绝。没有改写存储或运行新实现。
+改法：为冲突旧记录定义无损迁移（同步改树叶 id/ref、面板键及相关引用），或选择不与历史合法 ID 重叠的呈现 ID；用真实 v1 SQLite 记录验证升级后布局仍可读、可保存，且无迁移失败时原件不被覆盖。
+
+重要｜公开 API/验证映射｜计划 6 片（plan.md:46–47、63、77）；nb-layout/AGENTS.md:9–10、26–30；src/index.ts、src/vue/index.ts、src/exports.test.ts
+现象：切片 6 声明要在通用 `nb-layout` 增加“新的公开接口”，供浮窗轨宽事务与 `NestedGrid`、`FloatWindowHandles` 共用；计划列了组件 `.md` 和单测/e2e，却没有列公开入口、导出名清单与 API 报告。
+原因：nb-layout 的公开面由 `package.json` 的 `.`／`./vue` 等明确入口决定，源码里增加导出不自动成为包 API；入口测试还要求文档导入与导出一致。包规则要求改源码后跑 `api:check`，公开面变化经确认后同提交更新 `api:report`。现有 `GridFloatInput` 和 `FloatWindowHandles` 不是该事务接口的替代品。
+核实：只读检查 nb-layout/AGENTS.md、`src/index.ts`、`src/vue/index.ts`、`src/exports.test.ts` 与 package scripts。未运行 API 检查。
+改法：在第 6 片任务清单注明新增类型/函数分别进入核心或 Vue 子路径的公开入口，更新入口测试、`NestedGrid.md`/相关组件文档与 API 报告；验收加 `bun run api:check`，并对指针取消、一次提交和只改活动边补组件 DOM 测试。
+
+重要｜过渡生命周期/验收｜计划 6 片（plan.md:46、77）；grid-motion.ts:264–323；NestedGrid.vue:264–271；ui/nested-grid.md 输出 45–46
+现象：计划要求右轨离场时保留“没有内容的外框”并缩至零后摘除；当前通用离场机制只保留下面仍挂有内容、或本帧被宿主移除且标记 retain 的活动内容的叶。右轨按提案是合成叶且无内容，因此不会进入现有 leaving 队列，会直接消失。
+原因：`leavingPlacements` 明确排除没有挂载内容的空叶；靠 `NestedGrid` 的内容停放/保留不能实现空外框离场。计划只写“加进过渡名单”，没有说明为无内容叶引入独立保留条件及中断、减少动效时的收口。验收映射列右轨消失与浮窗 e2e，但没有指出验证空外框的用例。
+核实：核对真实 `leavingPlacements` 的 `mounted` 判定及 nested-grid Spec 输出 45–46。未运行 DOM/e2e。
+改法：为合成轨叶设计独立、可取消的离场标记/生命周期，不伪造内容项；补 `grid-motion` 纯函数与 `NestedGrid.dom.test.ts` 覆盖最后成员浮出、剩余成员时不离场、再次出现打断、Reduced Motion/容器尺寸变化直接收口，并在 e2e 映射中明确最后成员浮出场景验证外框逐步归零。
+
+重要｜Spec 冲突/过渡语义｜计划 6 片（plan.md:46、63、77）；docs/specs/ui/nested-grid.md 输出 105；grid-motion.ts:49–64
+现象：计划要求浮窗只改宽度时（程序展开/收起）播放布局过渡；当前 Spec 输出 105 明确“只有矩形变了不算布局变化，不过渡（移动、缩放是手势）”。`settleFloatMoves` 也会把同一浮窗及其内容的矩形变化替换成旧矩形，因此现有过渡判定不会启动。
+原因：这是行为合同冲突，不只是缺实现。计划列出更新组件 `NestedGrid.md`，但没有明确改动 Spec 输出 105，也未在验收映射区分手势缩放与程序宽度变化；若只改实现会违反当前 Spec，若只按旧合同验收又会拒绝提案目标。
+核实：只读对照工作区 Spec 输出 105 与 `settleFloatMoves`/`placementMoved` 实现。未运行浏览器过渡验证。
+改法：在实现前修订并核准 Spec，明确“同一窗的程序宽度变化”与普通移动/缩放手势的不同过渡规则；测试应覆盖程序展开/收起启动、手势跟手不拖尾、窗口尺寸变化/中断直达终点，以及 Reduced Motion 收口。
+
+统计（按报告顺序编号，前三条依次为 L1–L3）：阻断 1（L1）；重要 6（L2、L3、L4、L5、L6、L7）；建议 0；有效编号：L1–L7。
+
+最终编号索引：L1=接口/记录兼容；L2=提交边界/测试方法；L3=不变量/意图回写；L4=记录兼容/合成 ID；L5=公开 API/验证映射；L6=过渡生命周期/验收；L7=Spec 冲突/过渡语义。最终统计：阻断 1（L1）；重要 6（L2–L7）；建议 0；有效编号 L1–L7。

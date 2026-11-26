@@ -1,0 +1,10 @@
+import {it} from "bun:test";
+import {createGrid, type GridNodeInput} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/grid";
+const row = (kids: [string, number][]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children: kids.map(([id, w]) => ({kind: "leaf", id, ref: id, size: {width: w, height: 0}}))});
+const w = (input: GridNodeInput<string>) => Object.fromEntries(Object.entries(createGrid<string>(input, {sashSize: 4}).layout({width: 1208, height: 600}).sizes).filter(([id]) => id !== "root").map(([id, s]) => [id, Math.round(s.width * 100) / 100]));
+it("P10 目标意图为 0、兄弟为正：目标此刻呈现多少；按平均一份作底数拆分后呈现", () => {
+    console.log("## P10a 拆前 [a 300, t 0, b 300]", JSON.stringify(w(row([["a", 300], ["t", 0], ["b", 300]]))));
+    console.log("## P10b 底数取目标的 0：[a 300, t 0, n 0, b 300]", JSON.stringify(w(row([["a", 300], ["t", 0], ["n", 0], ["b", 300]]))));
+    console.log("## P10c 底数取平均一份 300：[a 300, t 150, n 150, b 300]", JSON.stringify(w(row([["a", 300], ["t", 150], ["n", 150], ["b", 300]]))));
+    console.log("## P10d even：[a 300, t 0, n 300(平均), b 300]", JSON.stringify(w(row([["a", 300], ["t", 0], ["n", 300], ["b", 300]]))));
+});

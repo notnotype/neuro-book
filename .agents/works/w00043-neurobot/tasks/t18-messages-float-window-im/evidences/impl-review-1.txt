@@ -1,0 +1,84 @@
+审查对象：f637471ae^..55579e680；worktree HEAD 核对为 55579e680。
+
+### 1. 收起的列表栏拖出展开再拖回门槛内：拖动中 draggedCollapsed 留在旧值，列表被塞进 52px 的面板里
+严重程度：重要　类别：正确性
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessages.vue 的 onGestureUpdate / draggedCollapsed（约 85-105 行）；根因在 packages/nb-layout/src/vue/Splitter.vue 的 onPreview(state === null) 分支
+现象：宽版先收起列表栏，再按住线往外拖过展开门槛（draggedCollapsed 置 false，列表出来、头像列隐藏），不松手往回拖到门槛以内。splitter-session 的求解此时回到基线（尺寸 52、收起状态与基线相同，collapsed 为 {}，active 为空），applySolve 返回 null；Splitter 的 onPreview(null) 只把 localSizes 回滚到基线，不发 gesture-update。所以 onGestureUpdate 不会被调用，draggedCollapsed 仍是 false。结果：面板宽度回到 52px，而 showStrip=false、listShown=true，列表（搜索框、标签行、联系人行）整个挤在 52px 宽、overflow:hidden 的面板里，头像列被 v-show 隐藏。松手时 finish() 发现 state===null，走 no-change 取消，gesture-cancel 才把 draggedCollapsed 清掉，画面这才恢复。
+为什么是问题：拖动过程中有一段明显的错误画面；作者的注释（“拖过门槛又拖回来时没有这一项，回到受控的值”）只覆盖了 state 非空的路径，没覆盖 state 为 null 的回退路径。
+如何核实：在 nb-layout 目录下跑我写的 （审查临时目录）/exp/a.ts（bun run，只读用 createSplitterSession）。收起起点 dx 依次 170、220、160、120 返回 collapsed {"list":false}；再往回 dx 100、60、0 全部返回 null。对称的展开起点路径：dx -130 收起后再回到 0 才返回 null（需要像素精确回到起点，概率小很多）。
+建议改法：优先改 nb-layout：Splitter 的 onPreview(null) 且手势仍在进行时，发一次 gesture-update 带基线状态（sizesPx 为基线、collapsed 为 {}），或新增一个 gesture-revert 事件；这样所有宿主都不必自己兜这条路径。仅在 nb-agent-ui 里补则要放弃 draggedCollapsed，改成监听 Splitter 的 layout 或读面板实际宽度判断“是否在头像列宽度”，但那样要再绕一圈。
+
+### 2. release:publish 的发布清单检查仍会拒掉 nb-agent-ui 对 nb-layout 的依赖（只修了 release:check）
+严重程度：阻断（下次发版时）　类别：正确性
+位置：scripts/release/publish.ts:114、:141（gates 里 `checkReleasePackages(REPOSITORY, sources)`）；scripts/release/packages.ts 的 checkReleasePackages 第三个参数默认是空集
+现象：作者给 checkReleasePackages 加了可选参数 alsoReleased，只在 `import.meta.main`（release:check）一处传了 `releasedBuiltNames(root)`。release:publish 的 gates() 用 `loadReleasePackages` 只载源码包，且不传第三个参数；nb-agent-ui 在 RELEASE_PACKAGES 里（packages.ts:27），现在 dependencies 里有 `@notnotype/nb-layout`（工作区里的 nb-layout 0.2.0 已首发、没有 private，在 BUILT_PACKAGES 里），所以这一步报 `internal_dependency`。pack-smoke.ts:635 载入了生成包，不受影响，但 publish 的闸门会失败，整次发布被拦。
+为什么是问题：提交 eaf3d66ea 的目的是让发布检查认这条依赖，但只改了其中一个入口；三个调用点（release:check、pack-smoke、publish）里 publish 被漏掉。默认空集的签名让这类遗漏不会报错。
+如何核实：我在只读的 （审查临时目录）/exp/b.ts 里直接调用：`checkReleasePackages(root, loadReleasePackages(root))` 返回 [{"package":"@notnotype/nb-agent-ui","code":"internal_dependency","message":"dependencies 里的 @notnotype/nb-layout 不在发布清单里"}]；传 `releasedBuiltNames(root)` 后为空。（bun run 该脚本即可复现，未改仓库。）
+建议改法：不要靠调用方各自传：让 checkReleasePackages 的第三个参数缺省就是 `releasedBuiltNames(root)`（测试的夹具根没有源码目录，函数本身已按“目录不在就当没有”处理），或者 publish.ts 的 gates 也传。再在 scripts/release/packages.test.ts 补一条：源码包依赖已首发的生成包时 release:check 与 publish 用的那个入口都不报；生成包还是 private、或依赖写成 workspace:* 时报。这次 diff 没有碰任何测试文件，releasedBuiltNames 没有测试。
+
+### 3. 面板过渡期间头像列与列表的切换与宽度动画不同步（从代码推断，未跑页面）
+严重程度：建议　类别：界面
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessages.vue 的 showStrip / listShown（v-show）与 packages/nb-layout/src/vue/Splitter.vue 的 `.nb-grid-panel[data-animating]`（width、flex-basis 过渡 280ms）
+现象：点收起按钮：listCollapsed 变 true，collapsed 立刻为真，列表 v-show 立刻隐藏、头像列立刻出现，而面板宽度还要用 280ms 从 260 缩到 52，这段时间面板里右侧是空的，头像列贴左、右边一大块空白，接缝线跟着面板边缘移动。点展开：头像列立刻隐藏，列表（width:100%）在宽度逐帧变化的面板里每帧重排，搜索框与行内的省略号逐帧跳。窄变宽、宽变窄同理。
+为什么是问题：规范要求状态变化有过渡且过渡自洽；这里是“内容瞬切、容器慢动”。nb-layout 的过渡本身没问题，问题在内容是否跟宽度走。
+如何核实：Lab 场景 AgentMessages/wide 点收起按钮录屏逐帧看；或 e2e 里在点击后立刻量 `[data-messages-strip]` 的 bounding box 与 `[data-messages-list-panel]` 的显隐。
+建议改法：展开时让 list 固定宽度为 listWidth（min-width）并靠面板的 overflow hidden 裁，宽度动画只是“揭开”，避免逐帧重排；收起时让头像列在动画结束后才 v-show 切换，或两者都保留到过渡结束。若觉得代价不值，至少在 .md 里写明这是已知取舍。
+
+### 4. 新增 .acv-messages-list__page 的淡入动画不止在“换页”时触发
+严重程度：建议　类别：界面
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue 样式 `.acv-messages-list__page { animation: acv-messages-list-page-in var(--motion-base) }`
+现象：注释写“换页（v-show 让它重新显示）时淡入”。但 CSS 动画在元素失去盒子（包括祖先 display:none，例如外框对 `.acv-messages__list` 的 v-show）后重新出现时都会重启，所以每次打开抽屉、宽版收起再展开、窄变宽后，当前页都会重新淡入，初次挂载也会淡入；会话一页里宿主的整个会话面板也跟着淡入。
+为什么是问题：抽屉开合没有自己的过渡，这个淡入顶了抽屉的进入动画，但抽屉关闭是瞬隐；展开列表栏时淡入与上面第 3 条的宽度动画叠在一起。注释与行为不符，规范里“状态变化有过渡”的意图被偶然实现。
+如何核实：Lab 的 narrow-drawer 场景，反复开关抽屉，观察 data-messages-page 的 getAnimations().length。
+建议改法：要的是“换页淡入”就放到 tab 变化时给页加类（或用 `<Transition>`），不要挂在元素常驻样式上；要的是抽屉进入动画则在外框给抽屉做 enter/leave 过渡，把它写在 AgentMessages.vue 里并在 .md 写明。
+
+### 5. 宿主记着的宽度大于当时的上限时，任何一次真实拖动都会把被夹过的值写回去，盖掉用户原来的宽度
+严重程度：建议　类别：正确性
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessages.vue 的 onGestureEnd（`Math.round(width) !== props.listWidth` 那一行）与 listWidth computed
+现象：视图 600 宽（宽版下限）时可分空间 599，聊天区最少 320，列表栏只能到 279，分配把记着的 420 显示成 279（这条符合文档“按范围显示，不改它”）。用户这时拖一下线（比如 279 拖到 270）松手，onGestureEnd 发 `update:listWidth 270`，宿主的 memory 从 420 变成 270；之后把右栏拉宽，列表栏回不到 420。拖动把“当时的显示值”当成用户意图写回，而用户只是在窄视图里微调。
+为什么是问题：brief 重点 2 问的正是这个；文档承诺“给的 listWidth 超出范围时按范围显示，不改它”，只对静止成立。窄视图下拖一下就改，行为与承诺不一致。
+如何核实：用 （审查临时目录）/exp/a.ts 的写法，把 total 设 600、baseline [279, 320]，drag(-9) 得到 sizes [270, 329]；gesture-end 的 sizesPx[0] 就是 270，与 props.listWidth=420 不同，会 emit。
+建议改法：这是取舍，不一定要改：（a）接受并在 .md 写一句“窄视图里拖动会改记着的宽度”；（b）只在展示宽度被夹过时，对“宽度没有变小到用户明确拖进范围内”的松手不写（实现复杂，窄场景倾向 (a)）。另外 `Math.min(LIST_MAX, Math.max(LIST_MIN, props.listWidth))` 遇到 NaN 或非有限数会得到 NaN，直接进 defaultSizePx；宿主只会给整数时可不管，要管就先 `Number.isFinite` 回落到 260。顺带：组件内 `const listWidth`（夹过的值）与 prop `listWidth` 同名，template 与 onGestureEnd 里要靠 `props.` 前缀区分，改名 shownListWidth 更不容易读错；默认 260 在 AgentMessages.vue、plugin.ts、messages.scenes.ts 三处各写一份。
+
+### 6. nb-layout 新公开选项没有 nb-layout 自己的测试；文档没写“收起为窄条的面板内容也不裁切”
+严重程度：建议　类别：测试 / 文档
+位置：packages/nb-layout/src/vue/Splitter.vue（data-overflow）、Splitter.md、grid-splitter.ts、packages/nb-layout/src/vue/splitter.dom.test.ts（未改）
+现象：这次 diff 没有碰 nb-layout 的任何测试。`overflow: "visible"` 只在应用的 Lab e2e（消息视图的窄版抽屉）里被间接覆盖，而且作者说变异检查过“面板不裁切”。nb-layout 自己的 dom 测试没有一条断言 `data-overflow="visible"` 出现、缺省与 "hidden" 时不出现。nb-layout 还有别的使用方（nb-story、开发者面板、NestedGrid 经 buildGridBranchPanels，后者不设该项也不读它），这些不受影响，我核对了：data-overflow 只在 `panel.overflow === 'visible'` 时写，缺省 CSS 不变。
+文档缺口：Splitter.md 说“内容可以伸到相邻面板上面”，但没提两件会碰到的事：（1）面板收起到 0 宽或窄条时，visible 的面板内容不再被裁，会画在邻居上（消息视图在宽版显式设回 hidden 才躲开）；（2）面板本身是 position:relative 且不建层叠上下文，所以伸出去的内容压不压得住邻居、分隔线（层级 1）取决于内容自己的 z-index——文档写了后半句，没写前半句。
+命名：`overflow` 取 CSS 同名、只有 hidden/visible 两个值，对不认识工作台的通用库没问题（ADR 0054）；只是它在 Splitter 里生效、在 Grid 的叶里没有，注释写了“Grid 的叶不读它”，.md 里没有。
+如何核实：grep -n "overflow\|data-overflow" packages/nb-layout/src/vue/splitter.dom.test.ts 只有一处无关的历史注释。
+建议改法：在 splitter.dom.test.ts 补一条：面板配置 overflow:"visible" 时根下对应面板有 data-overflow="visible"，缺省与 "hidden" 没有；Splitter.md 的布局一段加上收起时同样不裁切与“仅 Splitter 生效”两句。
+
+### 7. 松手后宿主回写宽度会让 Splitter 的约束键变化，调用 scope.invalidate，悬停高亮被清掉（从代码推断，未在页面验证）
+严重程度：建议　类别：界面
+位置：packages/nb-layout/src/vue/Splitter.vue 的 panelConstraintsKey（未受控时含 collapse.restoreSize）与 watch→scope.invalidate()；packages/nb-agent-ui/src/vue/messages/AgentMessages.vue 的 panels（restoreSize: listWidth.value）
+现象：拖到新宽度松手，onGestureEnd 发 update:listWidth，宿主写回后 panels 里的 restoreSize 变了，panelConstraintsKey 变，watch 调 scope.invalidate()。手势此时已结束（binding 为 null），invalidate 只剩 resetHover()：把 hover、revealed、鼠标样式清掉。指针还停在线上时，线的高亮在松手后一瞬消失，要等指针再动一下才回来。键盘调宽度（每次 keyup 提交）同样会触发。
+为什么是问题：不是功能错误，但“松手后线跳回静止态”是可见的小闪；根因是把宿主写回的宽度（restoreSize）当成约束语义变化，而它只是“下次展开恢复到的宽度”。
+如何核实：Lab 里 AgentMessages/wide，按住线拖 60px 松手不移动鼠标，看线的装饰带是否还在；或 dom 里读 data-sash-hover。
+建议改法：作者注释说“拖动中改约束会让手势作废”，对 restoreSize 同理：要么 panels 里的 restoreSize 不随 listWidth 变（Splitter 的恢复尺寸只服务显式恢复，应用的展开按钮走 defaultSizePx），要么 nb-layout 的 panelConstraintsKey 在没有进行中的手势时不调 invalidate。前者在应用侧一行就能做，但要确认键盘 Enter 展开仍恢复到记着的宽度（t18 e2e 第 2 条没有覆盖 Enter）。
+
+### 8. 自画的 tablist：这一行没有任何溢出处理，窄列表栏下的余量很小（估算，未量）
+严重程度：建议　类别：界面
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue 样式 .acv-messages-list__switch / __tabs / __tab
+现象：原来的 nb-ui Tabs 有 overflow-x-auto（scroll）的兜底；新的 tablist 容器是 `flex:1; min-width:0`，标签 `flex-shrink:0`，没有 overflow 声明也没有 white-space 约束。宽版列表栏最窄 200px：行内 padding 14+8，收起按钮约 28 加 gap 4，标签带可用约 146px。英文“Bots”（约 32）+徽标（两位数约 22）+gap 6+16+“Sessions”（约 58）估计在 134px 上下，余量约 12px；徽标变三位、字体回退变宽或加大系统字号，标签就会撑出容器压到收起按钮上。窄版抽屉没有收起按钮，空间足够（390 宽下抽屉 300px）。
+为什么是问题：宽度 200 是新开放给用户的下限（以前固定 260），“Bots 12 Sessions”加按钮这个组合此前没有出现在 200px 里；Lab 的 narrow-english 场景只在抽屉（窄版）里出现，没有宽版 200px 的英文场景，也没有 e2e 断言标签与收起按钮不重叠。
+如何核实：Lab 加一个宽版、listWidth: 200、locale: "en-US"、unread 3 位数的场景，量 [data-messages-tab='sessions'] 与 [data-messages-collapse] 的 getBoundingClientRect 是否相交。
+建议改法：tablist 容器加 `overflow: hidden`（或 `overflow-x: auto` 隐藏滚动条）保证不压按钮，并补上述场景；或把最小宽度提到能放下该组合的值。
+
+### 9. 缺失的测试覆盖
+严重程度：建议　类别：测试
+位置：packages/nb-agent-ui/src/vue/messages/AgentMessages.dom.test.ts、packages/neuro-book/e2e/lab-agent-ui.e2e.ts、MessagesHost
+现象：没有测试的行为：（1）第 1 条的回退路径（拖出展开再拖回门槛内，拖动过程中的画面），e2e 的拖动只测了单向；（2）视图 600 宽、记着的宽度超限时的显示（分配结果 279），以及上面第 5 条的写回；（3）宿主记住宽度：MessagesHost 的 memory.listWidth 在视图换代后接着用，没有用例（plugin.ts 与 MessagesHost 的改动没有任何对应测试）；（4）键盘 Enter 在线上收起与展开，焦点留在线上；e2e 只测了 ArrowRight；（5）宽窄切换后聊天区不重挂的现有 dom 用例仍在，但 Splitter 加进来后它测的是 DOM 节点同一，没有测宽度过渡中的状态；（6）AgentMessagesList 的 tablist 用例覆盖了方向键，没有 Home、End，也没有断言点击标签后 aria-controls 指向的面板存在。
+为什么是问题：作者的变异检查只覆盖“宽度回写、收起回写、面板不裁切”三条；第 1 条正是没覆盖的路径之一。
+建议改法：优先补（1）（e2e：收起 → 往外拖过门槛 → 往回拖到门槛内 → 断言 strip 可见、list 隐藏）和（3）（MessagesHost 的 dom 测试：改 listWidth 后卸载重挂，初始值取记忆）。
+
+未发现问题的方面：
+- container-type: inline-size 给根加的包含：聊天区里（AgentConversationView、Composer）没有 position:fixed 的后代，传送出去的浮层进 body，不受影响；根成为层叠上下文后，抽屉的 z-index:4 与分隔线的层级 1 仍同在根这一层，抽屉压得住线；`85cqi` 解析到根（Splitter 与面板都不是容器），和原来 `85%` 的基准相同。（窄于约 347px 时抽屉右缘会超出视图，原来如此；现在被 .nb-splitter 的 overflow:hidden 裁掉右边那条边线与阴影，属于边角。）
+- 手势在宽变窄（disabled）时被 invalidate，gesture-cancel 清掉 draggedCollapsed；onGestureEnd 在 next 为 true 时不写宽度，符合“收着的时候不记宽度”。
+- 聊天区在宽窄之间不重挂：面板的 key 是稳定的 id；现有 dom 用例 11 条在 HEAD 上全过（`cd packages/nb-agent-ui && npx vitest run src/vue/messages`）。
+- 自画 tablist 的 role、aria-selected、aria-controls、roving tabindex 与方向键回绕和 nb-ui Tabs 的行为一致（同样不判修饰键）；焦点环用 nb-ui-focus-ring，位置离裁切边有 14px。
+- nb-layout 的 overflow 选项对 NestedGrid、nb-story、开发者面板无影响（缺省不写 data-overflow，CSS 不变）；SDK 快照、api 报告与 CHANGELOG 已同步。
+- release:check 对 nb-layout 仍是 private、或依赖写成 workspace:* 的情况仍会拦（releasedBuiltNames 只放行源码清单没有 private 的名字，spec 检查仍要 workspace:^）；pack-smoke 路径载入了生成包，不受影响。
+
+各级数量：阻断 1（第 2 条），重要 1（第 1 条），建议 7（第 3 至 9 条），共 9 条。
+有效发现的编号：1、2、3、4、5、6、7、8、9

@@ -57,7 +57,7 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
 export const keepVisible = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}));
 
 /** 新开的窗整个夹回树区域：在状态栏上松手时，只留头在里面就等于开到了屏幕外。拖窗不一样，用户自己摆的，`keepVisible` 只保证抓得到。 */
-export const wholeInTree = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: rect.width, height: rect.height}));
+export const wholeInTree = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent));
 
 /** 放不下时先收哪个区域（输出 10）。 */
 const COLLAPSE_REGIONS: ReadonlyArray<PanelName> = ["auxiliarybar", "panel", "sidebar"];

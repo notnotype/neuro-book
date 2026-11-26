@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>版块 - 灯下论坛</title><link rel="stylesheet" href="/assets/forum.css"></head>
+<body>
+<header><strong>灯下论坛</strong><nav><a href="/">版块</a><a href="/digest">精华区</a></nav></header>
+<main>
+  <div class="box"><div style="display: flex; justify-content: space-between; align-items: center;"><h2 id="name" style="margin: 0;"></h2><a href="/new?board={{board}}"><button type="button">发新帖</button></a></div></div>
+  <div class="box" id="threads"></div>
+</main>
+<script>
+(async () => {
+  const boards = await (await fetch("/api/boards")).json();
+  const board = boards.find((b) => b.id === "{{board}}");
+  document.querySelector("#name").textContent = board ? board.name : "没有这个版块";
+  const threads = await (await fetch("/api/boards/{{board}}/threads")).json();
+  document.querySelector("#threads").innerHTML = threads.length === 0 ? '<p class="muted">还没有帖子。</p>' : threads.map((t) => `<div class="row"><a href="/thread/${t.id}">${t.pinned ? '<span class="pin">置顶</span>' : ""}${t.title}</a><span class="muted">${t.author}</span></div>`).join("");
+})();
+</script>
+</body>
+</html>

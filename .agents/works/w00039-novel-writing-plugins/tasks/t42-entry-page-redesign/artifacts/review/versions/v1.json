@@ -1,0 +1,111 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "条目页的页头、分页与保存提示",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "ab12aa7f6e12706e3e476e5d8f3d0221491a8154e3c17a4ddaa97944f1bb914c",
+    "files": [
+        "index.html",
+        "r1/charactercard-phone.webp",
+        "r1/current.webp",
+        "r1/rail-filled-640.webp",
+        "r1/rail-filled.webp",
+        "r1/tabs-filled-640.webp",
+        "r1/tabs-filled.webp",
+        "r1/tabs-name-hover.webp",
+        "r1/tabs-new.webp",
+        "r1/tabs-notice.webp",
+        "r1/tabs-plan.webp",
+        "r1/tabs-position.webp"
+    ],
+    "questions": [
+        {
+            "id": "tab-layout",
+            "type": "single",
+            "label": "分页横排还是竖排？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 横排，设定组与文字在前、经历与情节在后"
+                },
+                {
+                    "value": "rail",
+                    "label": "B 宽时在内容左边竖排，窄了换回横排"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "row"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notice",
+            "type": "single",
+            "label": "保存后的提示要不要自己收起？",
+            "options": [
+                {
+                    "value": "auto",
+                    "label": "A 6 秒后自己收起，指着或焦点在里面时不收"
+                },
+                {
+                    "value": "stay",
+                    "label": "B 留到关掉或有新的一条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "auto"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "initial-word",
+            "type": "single",
+            "label": "“初值”改叫什么？",
+            "options": [
+                {
+                    "value": "story-start",
+                    "label": "A 故事开始前"
+                },
+                {
+                    "value": "before-story",
+                    "label": "B 开篇前"
+                },
+                {
+                    "value": "first-setting",
+                    "label": "C 初始设定"
+                },
+                {
+                    "value": "keep",
+                    "label": "D 不改，仍叫初值"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "story-start"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T09:47:16.070Z"
+}

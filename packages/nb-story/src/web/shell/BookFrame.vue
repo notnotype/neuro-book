@@ -4,9 +4,9 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import type {GridContentInput, GridGestureCommit} from "@notnotype/nb-layout";
+import type {GridContentInput} from "@notnotype/nb-layout";
 import {DropFeedbackOverlay, NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
-import type {GridHostIssue} from "@notnotype/nb-layout/vue";
+import type {GridHostChange, GridHostIssue} from "@notnotype/nb-layout/vue";
 import {ContextMenu, DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem, DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
@@ -120,8 +120,10 @@ const drawerIsCollapsed = computed(() => overlayDrawer.value || book.drawer.valu
 const cardCount = (): number => Math.min(2, Math.max(1, book.details.value.items.length));
 const grid = createBookGrid({drawerWidth: readDrawerWidth(), navCollapsed: navIsCollapsed.value, drawerCollapsed: drawerIsCollapsed.value, compact: () => overlayDrawer.value, cardCount});
 const host = useGridHost({grid, contextKey: "book-frame", onApplied, onIssues});
-function onApplied(commit: GridGestureCommit): void {
-    for (const change of commit.changes) {
+function onApplied(applied: GridHostChange): void {
+    // 只接手势：收起与张数经 `grid.*` 再 `invalidate()` 推给网格（见下面的 watch），那不通知。
+    if (applied.kind !== "gesture") return;
+    for (const change of applied.commit.changes) {
         if (change.collapsed.nav !== undefined) setNavCollapsed(change.collapsed.nav);
         if (change.collapsed.details === true) book.closeDrawer();
         if (change.collapsed.details === false) book.reopenDrawer();

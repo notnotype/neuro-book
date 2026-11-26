@@ -109,6 +109,31 @@ describe("decideMotion", () => {
         expect(dragged.entering.get("leaf:w")).toEqual(window);
     });
 
+    it("刚放开的窗回到树里（输出 172）：外框与内容从松手处出发，跟外框照旧；拖动还没收场（holding）也给；没给 released 时从记录矩形出发", () => {
+        const window = {x: 100, y: 50, width: 300, height: 200};
+        const offset = {x: 220, y: 40};
+        const scene = (tree: GridPlacementItem<unknown>[], floats: ReadonlyArray<string> = []) => {
+            const all = [...tree, ...floatPlacements(floats.map((id) => ({id, rect: window})))];
+            return layerItems(all, placeContents(all, [{key: "v", leaf: "l2", insetTop: 32, active: true}], 1));
+        };
+        const before = scene(items([400, 300]), ["l2"]);
+        const after = scene(items([300, 200, 200]));
+        const released = new Map([["l2", offset]]);
+        for (const holding of [false, true]) {
+            const decision = decideMotion(frame({items: after, previous: before, holding, released}), warmed().memory);
+            if (decision.kind !== "move") throw new Error("应当过渡");
+            expect(decision.entering.get("leaf:l2")).toEqual({...window, x: 320, y: 90});
+            expect(decision.entering.get("content:v")).toEqual({x: 320, y: 122, width: 300, height: 168});
+            expect(decision.following.has("leaf:l2")).toBe(true);
+            expect(decision.keptSize.has("leaf:l2")).toBe(false);
+            // 回到树里的窗：外框在起点那次渲染里还画成窗（输出 110 的淡去，`docking`）。
+            expect(decision.docked).toEqual(new Set(["leaf:l2"]));
+        }
+        const plain = decideMotion(frame({items: after, previous: before}), warmed().memory);
+        if (plain.kind !== "move") throw new Error("应当过渡");
+        expect(plain.entering.has("leaf:l2")).toBe(false);
+    });
+
     it("容器尺寸变了（宿主的根尺寸或自己量到的盒，两个来源晚一拍到）：不过渡，进行中的直接到终点", () => {
         const {memory, base} = warmed();
         const smaller = {width: 700, height: 250};

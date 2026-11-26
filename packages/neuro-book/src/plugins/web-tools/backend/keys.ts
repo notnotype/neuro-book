@@ -10,6 +10,7 @@ import {dirname} from "node:path";
 
 import {replaceLocked} from "@notnotype/nb-file-lock";
 
+import {WEB_PROVIDERS} from "../shared/contracts";
 import type {WebKeyStatus, WebProviderId} from "../shared/contracts";
 
 const FORMAT_VERSION = 1;
@@ -48,7 +49,8 @@ function parse(text: string): Parsed {
     return {ok: true, keys: keys as Keys};
 }
 
-const statusOf = (keys: Keys): WebKeyStatus => ({providers: {deepseek: {hasKey: typeof keys.deepseek === "string"}}});
+/** 每家有没有密钥；文件里不认识的服务的项（例如更新的版本写进来的）不进状态，写入时照原样留着。 */
+const statusOf = (keys: Keys): WebKeyStatus => ({providers: Object.fromEntries(WEB_PROVIDERS.map((id) => [id, {hasKey: typeof keys[id] === "string"}])) as WebKeyStatus["providers"]});
 const serialize = (keys: Keys): string => `${JSON.stringify({version: FORMAT_VERSION, keys}, null, 4)}\n`;
 
 const errorCode = (error: unknown): string | undefined => (error as NodeJS.ErrnoException | null)?.code;

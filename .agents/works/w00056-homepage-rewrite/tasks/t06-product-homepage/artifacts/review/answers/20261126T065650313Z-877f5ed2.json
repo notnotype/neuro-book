@@ -1,0 +1,28 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261126T065650313Z-877f5ed2",
+    "artifactVersion": 2,
+    "contentHash": "1f8f791ceeb5724d54cd3f3e2d61b3f0fd33d7908cfcdc3d82407c423f0bc284",
+    "submittedAt": "2026-11-26T06:56:48.325Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "first-line": "e3",
+        "script-r2": "prototype",
+        "hero-motion": [
+            "unfold",
+            "gild",
+            "assemble"
+        ]
+    },
+    "comments": {
+        "first-line": "感觉其实都不太好，e3 好一点点",
+        "hero-motion": "这三种做出来看看。"
+    },
+    "note": "为中文长篇做的编辑器：直接就让用户自己能体验。\n---\n一位会商量的搭档：这里预置一些对话。\n---\n第五幕：作品是你电脑里的一个文件夹。不用讲\n模型由你来接：可以放模型厂商 logo\n也是一个桌面应用：不用讲\n---\n其他的就是动画效果和展示方式可以高级一点，有张力\n"
+}

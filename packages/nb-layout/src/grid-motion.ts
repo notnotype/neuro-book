@@ -48,12 +48,13 @@ export function placementMoved(items: ReadonlyArray<GridLayerItem<unknown>>, pre
 
 /**
  * 只有浮动窗的矩形变了不算布局变化（移动、缩放是手势，不过渡）：同一块浮动窗和它还在里面的内容，矩形按上一次的算，判定就认不出变化。浮动窗出现、消失，内容进出浮动窗不在这里，照常过渡。
+ * `animated` 里的窗（节点 id）不压：宿主标了 `animate`、这一次与上一次都不在手势里、不是刚松手的（docs/specs/ui/nested-grid.md 输出 105），它的矩形变化照常算布局变化。集合由 `NestedGrid` 算。
  */
-export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>): ReadonlyArray<GridLayerItem<R>> {
+export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>, animated: ReadonlySet<string> = new Set()): ReadonlyArray<GridLayerItem<R>> {
     const before = new Map(previous.map((item) => [item.key, item]));
     const stayed = new Set(items.flatMap((item) => {
         const old = before.get(item.key);
-        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true ? [item.node.id] : [];
+        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true && !animated.has(item.node.id) ? [item.node.id] : [];
     }));
     if (stayed.size === 0) return items;
     return items.map((item) => {
@@ -62,6 +63,19 @@ export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, prev
         if (item.kind === "content" && old?.kind === "content" && old.leaf === item.leaf && stayed.has(item.leaf)) return {...item, rect: old.rect, leafRect: old.leafRect};
         return item;
     });
+}
+
+/**
+ * 这一次改了矩形、又不过渡的浮动窗（节点 id）：前后都是浮动窗、不在 `animated` 里（同 `settleFloatMoves` 压回去的那些），矩形真的变了。
+ * 压回去只让判定认不出它的变化；别的窗或树这一轮在过渡时，过渡标记是整个网格的，它的新矩形照样会滑过去，所以 `NestedGrid` 拿这份名单让它这一次不带标记。
+ */
+export function floatRectJumps(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, animated: ReadonlySet<string> = new Set()): ReadonlySet<string> {
+    const before = new Map(previous.map((item) => [item.key, item]));
+    const sameRect = (left: GridRect, right: GridRect): boolean => left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
+    return new Set(items.flatMap((item) => {
+        const old = before.get(item.key);
+        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true && !animated.has(item.node.id) && !sameRect(old.rect, item.rect) ? [item.node.id] : [];
+    }));
 }
 
 /**
@@ -117,6 +131,56 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
         if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !rectsIntersect(oldRect, rect) || docked(leaf)) flying.add(item.key);
     }
     return flying;
+}
+
+/**
+ * 这一次从浮动窗回到树里的叶（外框的 `key`）：上一帧是浮动窗、这一帧是树里的同一块叶。它们的投影、底色与圆角随这一轮的过渡淡去（docs/specs/ui/nested-grid.md 输出 110），
+ * 要在带着过渡标记的那一次渲染里摘掉浮动窗的样子，见 `useGridMotion` 的 `docking`。
+ */
+export function dockedLeaves(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
+    const wasFloat = new Set(previous.flatMap((item) => (item.kind === "leaf" && item.float === true ? [item.key] : [])));
+    return new Set(items.flatMap((item) => (item.kind === "leaf" && item.float !== true && wasFloat.has(item.key) ? [item.key] : [])));
+}
+
+/**
+ * 松手的起点（docs/specs/ui/nested-grid.md 输出 172）：宿主拖动中用 `placeFloat` 挪过、刚放开的窗（`released`：id 到最后一次的偏移），这一次离开了 `floats`
+ * （回到树里、并进别的叶、关掉）时，它要过渡的部分从松手时画着的位置出发：上一帧的外框矩形加偏移，上一帧属于它的活动内容同样加偏移（`key` 到矩形）。
+ * 偏移在 `translate` 上、不在布局里，`placeFloat(id, null)` 清掉它之后，不给起点的话过渡从记录矩形（按下之前的位置）出发，窗先跳回去再飞。
+ *
+ * 这一次它还是浮动窗时不给，不比较矩形：`settleFloatMoves` 已把留在原处的浮动窗压回上一帧的矩形，按“等于上一帧加偏移”判永远不成立，
+ * 移动的提交正好是这一种（窗停在拖到的位置，不过渡）。上一帧它不是浮动窗、偏移为零的也不给。
+ */
+export function releaseStarts(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, released: ReadonlyMap<string, {readonly x: number; readonly y: number}>): Map<string, GridRect> {
+    const starts = new Map<string, GridRect>();
+    if (released.size === 0) return starts;
+    const before = new Map(previous.map((item) => [item.key, item]));
+    const floating = new Set(items.flatMap((item) => (item.kind === "leaf" && item.float === true ? [item.node.id] : [])));
+    for (const [id, offset] of released) {
+        if (offset.x === 0 && offset.y === 0) continue;
+        const old = before.get(`leaf:${id}`);
+        if (old?.kind !== "leaf" || old.float !== true || floating.has(id)) continue;
+        const shifted = (rect: GridRect): GridRect => ({...rect, x: rect.x + offset.x, y: rect.y + offset.y});
+        starts.set(old.key, shifted(old.rect));
+        for (const item of previous) if (item.kind === "content" && item.leaf === id && item.active && item.rect !== null) starts.set(item.key, shifted(item.rect));
+    }
+    return starts;
+}
+
+/**
+ * 这一次用掉了松手偏移的窗（docs/specs/ui/nested-grid.md 输出 172，`released` 里的 id）：离开了 `floats`（回到树里、并进别的叶、关掉，起点由 `releaseStarts` 给），
+ * 或仍是浮动窗、矩形变了（宿主发布了整窗移动的结果，窗就停在拖到的位置，偏移已经在矩形里）。别的变化不算：只撤了手势、别的窗或树变了，
+ * 同一帧里稍后发布的停靠还要从松手处出发；后一种也不能留着，不然之后同一帧的停靠在已经挪过去的矩形上再加一次偏移。
+ */
+export function consumedReleases(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, released: ReadonlyMap<string, unknown>): ReadonlySet<string> {
+    const leafOf = (list: ReadonlyArray<GridLayerItem<unknown>>, id: string) => list.find((item) => item.kind === "leaf" && item.key === `leaf:${id}`);
+    const sameRect = (left: GridRect, right: GridRect): boolean => left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
+    const consumed = new Set<string>();
+    for (const id of released.keys()) {
+        const now = leafOf(items, id);
+        const old = leafOf(previous, id);
+        if (now?.kind !== "leaf" || now.float !== true || (old?.kind === "leaf" && !sameRect(old.rect, now.rect))) consumed.add(id);
+    }
+    return consumed;
 }
 
 type LeafItem<R> = Extract<GridPlacementItem<R>, {readonly kind: "leaf"}>;

@@ -12,9 +12,12 @@
  *   所以只有掉头才让分配依赖路径；边界位置与收起状态不依赖路径；
  * - 收起判定同样只看理想尺寸：低于 `minimum − collapseThreshold` 吸附到 `collapsedSize`，反向回到
  *   `max(minimum, collapsedSize + expandThreshold)` 且容量允许时展开；展开使用理想边界，不跳回记忆尺寸；
- * - 吸附只改约束状态。记忆尺寸只服务按钮/Enter 的显式恢复。
+ * - 吸附只改约束状态。
  *
- * `Grid` 与独立 `Splitter` 共用这一份实现；阈值与记忆尺寸由宿主的收起策略给出。
+ * 显式收起与展开（按钮、Enter）两家不同：网格走 `reflowSashCollapse`，翻标记后按意图重排（展开回到意图）；
+ * 独立 `Splitter` 没有意图，走 `solveSashCollapse`，邻居让位、恢复到宿主给的 `restoreSize`。
+ *
+ * `Grid` 与独立 `Splitter` 共用拖动求解；阈值由宿主的收起策略给出。
  */
 import {EPSILON, GRID_UNBOUNDED, allocateSashPanels, clampAxis, finite, sashPanelBounds, type SashPanel} from "./grid-geometry";
 import {gridIssue, round} from "./grid-issue";
@@ -168,10 +171,9 @@ function noRoomToRestore(panelId: string, capacity: number, required: number): G
 }
 
 /**
- * 键盘/命令式的显式折叠与恢复：走与拖动同一份收起策略与容量判定，不复制阈值算法。
- * 只覆盖目标面板的收起状态，兄弟保持各自状态；恢复用记忆的 `restoreSize`——这是与拖动
- * 「按指针位置展开」的分工，按钮/菜单/Enter 才回记忆尺寸。策略带 `restoreToShare` 时记忆尺寸换成它按权重该得的那一份：
- * 把它翻成展开后重新分配，取给它的那一项，所以和宿主改收起记录后重新布局给它的尺寸相同。
+ * 独立 `Splitter` 的键盘/命令式显式折叠与恢复：走与拖动同一份收起策略与容量判定，不复制阈值算法。
+ * 只覆盖目标面板的收起状态，兄弟保持各自状态，隔着分隔条的邻居让位；恢复用宿主给的 `restoreSize`——这是与拖动
+ * 「按指针位置展开」的分工，按钮/菜单/Enter 才回记忆尺寸。网格不用它：网格的面板有意图，走 `reflowSashCollapse`。
  * 返回 null 表示输入非法；`collapsed` 只含真正改变的收起状态。
  * @experimental
  */
@@ -219,12 +221,66 @@ export function solveSashCollapse(input: {
         issues.push(noRoomToRestore(panel.id, capacity, targetBounds.low));
         return {sizesPx: [...sizes], collapsed: {}, issues};
     }
-    const remembered = panel.collapse.restoreToShare === true
-        ? allocateSashPanels(panels.map((item, index) => index === input.index ? {...panel, collapse: {...panel.collapse!, collapsed: false}} : item), total)[input.index]!
-        : panel.collapse.restoreSize;
-    const restored = clampAxis(remembered, targetBounds.low, Math.min(targetBounds.high, capacity));
+    // 独立 `Splitter` 的配置类型要求给 `restoreSize`；网格的面板不带它，也不走这里。没给时按能展开的最小尺寸。
+    const restored = clampAxis(panel.collapse.restoreSize ?? targetBounds.low, targetBounds.low, Math.min(targetBounds.high, capacity));
     const next = relocate({sizes, total, sashIndex: input.sashIndex, index: input.index, target: restored, boundsOf});
     return {sizesPx: next, collapsed: {[panel.id]: false}, issues};
+}
+
+/**
+ * 网格的显式收起与展开（Enter、区段按钮）：把目标面板的收起标记翻过来，再按意图把这一支此刻的呈现总量重新分配一次，
+ * 所以能翻时结果和 `setCollapsed` 翻这个标记后重新布局这一支相同（Spec `ui/nested-grid` 输出 20、166）。
+ * 与 `setCollapsed` 只有两处不同：翻了之后最小尺寸之和放不下这个总量时不展开（`no-room-to-restore`），
+ * 让出的空间没有兄弟吸收时不收起（`no-room-to-collapse`）；两种都交回原尺寸、`collapsed` 为空。
+ *
+ * `panels` 的 `size` 是意图（`branchSashPanels` 给的那份，已叠上本场的收起覆盖），`sizesPx` 是这一支此刻的呈现，
+ * 重新分配的是它的总量而不是容器：手势提交要守恒（`resizeBranches` 的 `not-conserved`），落账时也按同一个总量复核（输出 167）。
+ * 返回 null 表示输入非法；`collapsed` 只含真正改变的收起状态。
+ */
+export function reflowSashCollapse(input: {
+    panels: readonly SashPanel[];
+    sizesPx: readonly number[];
+    index: number;
+    collapsed: boolean;
+}): {sizesPx: readonly number[]; collapsed: Readonly<Record<string, boolean>>; issues: readonly GridIssue<GridIssueCode>[]} | null {
+    const panels = input.panels;
+    const count = panels.length;
+    const sizes = input.sizesPx;
+    if (count < 2 || input.index < 0 || input.index >= count) {
+        return null;
+    }
+    if (sizes.length !== count || sizes.some((size) => !Number.isFinite(size) || size < 0)) {
+        return null;
+    }
+    const panel = panels[input.index]!;
+    const issues: GridIssue<GridIssueCode>[] = [];
+    if (!panel.collapse) {
+        issues.push(gridIssue("no-collapse-policy", `Panel ${panel.id} has no collapse policy and cannot collapse`, {id: panel.id}));
+        return {sizesPx: [...sizes], collapsed: {}, issues};
+    }
+    if ((panel.collapse.collapsed === true) === input.collapsed) {
+        return {sizesPx: [...sizes], collapsed: {}, issues};
+    }
+    const flipped = panels.map((item, index) => index === input.index ? {...panel, collapse: {...panel.collapse!, collapsed: input.collapsed}} : item);
+    const total = sizes.reduce((sum, size) => sum + size, 0);
+    if (!input.collapsed) {
+        // 只看最小尺寸之和：`fixed-overflow`（只压保留像素的兄弟）照常展开，和 `setCollapsed` 一样。
+        const lows = flipped.map((item) => sashPanelBounds(item).low);
+        const lowTotal = lows.reduce((sum, low) => sum + low, 0);
+        if (lowTotal > total + EPSILON) {
+            const required = lows[input.index]!;
+            issues.push(noRoomToRestore(panel.id, Math.max(0, total - (lowTotal - required)), required));
+            return {sizesPx: [...sizes], collapsed: {}, issues};
+        }
+    }
+    const next = allocateSashPanels(flipped, total);
+    // 收起让出的空间没人吸收（兄弟都到上限、都已收起或都保留像素）时分配之和小于总量：不收，和拖动路径同一个诊断。
+    // 不拦的话手势会发布一个不守恒的预览，落账时 `resizeBranches` 以 `not-conserved` 拒绝。
+    if (input.collapsed && next.reduce((sum, size) => sum + size, 0) < total - EPSILON) {
+        issues.push(noRoomToCollapse(panel.id));
+        return {sizesPx: [...sizes], collapsed: {}, issues};
+    }
+    return {sizesPx: next, collapsed: {[panel.id]: input.collapsed}, issues};
 }
 
 /** 一次拖动求解；结构或数值非法时返回 null（调用方不开始手势）。 */
@@ -289,13 +345,16 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
         // 吸收边界（面板从零拉出、同一帧把编辑器拖到零），所以两遍判定重复到不再变化：每个面板一帧里只会朝一个方向变一次，
         // 最多两轮就稳定，结果不取决于这一位移是一帧到达还是分几帧到达。
         // 两遍判定与稳定后的诊断共用这两条判据：诊断说“想变却变不了”，指的就是它们为真而 pass 里没改成。
+        // 锁住的面板（Spec `ui/nested-grid` 输出 168）两种都不想：展开着的拖到最小尺寸就停，收着的照旧是刚性的收起尺寸、拉不开，
+        // 位移照级联规则传给同侧的兄弟；也就没有“想变却变不了”的诊断。
         const wantsCollapse = (index: number): boolean => {
             const policy = panels[index]!.collapse;
-            return policy !== undefined && !isCollapsed(index) && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON;
+            return policy !== undefined && policy.locked !== true && !isCollapsed(index)
+                && idealSizeOf(index) < boundsOf(index).low - policy.collapseThreshold - EPSILON;
         };
         const wantsExpand = (index: number): boolean => {
             const policy = panels[index]!.collapse;
-            if (policy === undefined || !isCollapsed(index)) {
+            if (policy === undefined || policy.locked === true || !isCollapsed(index)) {
                 return false;
             }
             const collapsedSize = Math.max(0, finite(policy.collapsedSize, 0));

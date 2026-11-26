@@ -60,6 +60,11 @@ interface Internals {
      * 打开时就解析不到的会话（占位装配）不算：它没装上扩展、没跑恢复，要重开。
      */
     profileLost: {readonly before: string | null} | null;
+    /**
+     * 重新解析出的新 Profile 没装成（例如新版引用了还没提供的扩展）：会话留在只读，装配里还是旧的。下一次重新装配（例如提供方
+     * 晚到、只带 `added`）要重新解析，不能拿旧 Profile 装上、解除只读。装成之后清掉。
+     */
+    profileStale: boolean;
     /** 正在做的重新装配（含装上扩展）与它处理的变化。指令等它做完再受理，关闭等它做完再摘下（extensions.md 输出 19）。 */
     reassembling: {readonly promise: Promise<void>; readonly change: Pending} | null;
     /** 关闭进行中或已完成：重复与并发的 `closeSession` 等同一个。 */
@@ -102,9 +107,16 @@ function newSessionId(now: number): string {
     return `${now.toString(36)}-${randomBytes(5).toString("hex")}`;
 }
 
-/** Profile 解析不到时的占位：只为能归约内核事件、给出只读的快照。 */
+/**
+ * 打开时装不上的 Profile 的占位：只为能归约内核事件、给出只读的快照。记在 `placeholders` 里：解析得到、只是依赖缺失的会话，
+ * 提供方晚到之后重新装配要先重新解析出真的 Profile，不能拿占位接着装（那样只读解除了，跑的却是没有系统提示词的空壳）。
+ */
+const placeholders = new WeakSet<AnyProfile>();
+
 function placeholderProfile(id: string): AnyProfile {
-    return {id, version: "unknown", name: id, description: "", events: {}} as unknown as AnyProfile;
+    const placeholder = {id, version: "unknown", name: id, description: "", events: {}} as unknown as AnyProfile;
+    placeholders.add(placeholder);
+    return placeholder;
 }
 
 function assembleOrPlaceholder(env: SessionEnv, profile: AnyProfile | undefined, id: string): {assembly: Assembly; readOnly: string | null} {
@@ -171,7 +183,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
     const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf(), session: context()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
-    const state: Internals = {core, control, react, mounts, box, environment, turnModel, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
+    const state: Internals = {core, control, react, mounts, box, environment, turnModel, readOnly, closed: false, pendingReassembly: null, profileLost: null, profileStale: false, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
         currentResources = env.resources(context());
         // 工具实现是按上一个 Profile 的上下文建的：全部释放，下次调用按新上下文重建。
         await box.retire([]);
@@ -568,9 +580,19 @@ export async function openSession(env: SessionEnv, id: string): Promise<StorageR
     // 会话现在用的 Profile：最后一条 profileChanged 的（`changeProfile` 换过时与会话头里最初的不同）。
     const lastChange = [...handle.events].reverse().find((event) => event.type === "profileChanged");
     const profileId = (lastChange?.data as {profile?: string} | undefined)?.profile ?? handle.header.profile;
-    const {assembly, readOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(profileId), profileId);
-    // 会话头是不能改的值（session.md 输出 25）：读回的这一份归会话所有，冻结后快照与工具上下文交出的都改不动。
-    const core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header: deepFreeze(handle.header), store: env.store, handle, assembly, clock: env.clock, dev: DEV});
+    let core: SessionCore;
+    let readOnly: string | null;
+    try {
+        const {assembly: opening, readOnly: openingReadOnly} = assembleOrPlaceholder(env, await env.profiles.resolve(profileId), profileId);
+        // 会话头是不能改的值（session.md 输出 25）：读回的这一份归会话所有，冻结后快照与工具上下文交出的都改不动。
+        core = new SessionCore({...(env.attachments === undefined ? {} : {attachments: env.attachments}), header: deepFreeze(handle.header), store: env.store, handle, assembly: opening, clock: env.clock, dev: DEV});
+        readOnly = openingReadOnly;
+    } catch (error) {
+        // 拿到日志句柄（和锁）之后、建出会话之前出错（宿主的解析或装配抛错）：放掉句柄，不然锁一直留着，修好之后重开得 session-busy。
+        await env.store.close(handle).catch(() => undefined);
+        throw error;
+    }
+    const assembly = core.assembly;
     core.load(handle.events);
     core.reportOpenNotices();
     reportAssemblyWarnings(core);
@@ -735,10 +757,12 @@ async function reassembleOnce(state: Internals, env: SessionEnv, pending: Pendin
     if (state.readOnly === "unknown-profile" && state.profileLost === null) return;
     const key = core.assembly.profile.id;
     const current = core.assembly.profile;
-    // Profile 丢了时任何变化都重新解析：恢复只能凭一次成功的解析，不能拿丢之前的对象接着用。
+    // Profile 丢了时任何变化都重新解析：恢复只能凭一次成功的解析，不能拿丢之前的对象接着用。打开时依赖缺失的会话装的是占位，
+    // 同样先重新解析。
+    const fromPlaceholder = placeholders.has(current);
     let profile = current;
     let lost = false;
-    if (pending.profile || state.profileLost !== null) {
+    if (pending.profile || state.profileLost !== null || state.profileStale || fromPlaceholder) {
         const resolved = await env.profiles.resolve(key);
         if (resolved === undefined) lost = true;
         else profile = resolved;
@@ -751,8 +775,9 @@ async function reassembleOnce(state: Internals, env: SessionEnv, pending: Pendin
             state.readOnly = "unknown-profile";
             core.diagnostics.add({code: "unknown-profile", entry: "host", params: {profile: key, reason: "unknown-profile"}, message: `profile ${key} is no longer available; the session is read-only until it comes back`}, core.head);
         }
-        // 解析不到：留着当前装配（只读，不会再跑），这批撤回的扩展照样摘下，撤回的 Promise 才能在清理之后完成。
-        if (!pluginsChanged) {
+        // 解析不到：留着当前装配（只读，不会再跑），这批撤回的扩展照样摘下，撤回的 Promise 才能在清理之后完成。装着占位时
+        // 没装任何插件扩展，没有要摘的；也不能往下拿占位装配，那会把占位写进日志。
+        if (!pluginsChanged || fromPlaceholder) {
             core.revoked.clear();
             return;
         }
@@ -777,23 +802,27 @@ async function reassembleOnce(state: Internals, env: SessionEnv, pending: Pendin
         const assembled = assemble(profile, env.extensions?.() ?? []);
         if (!assembled.ok) {
             const problem = assembled.problems[0]!;
+            if (profile !== current) state.profileStale = true;
             if (state.profileLost === null) state.readOnly = "dependency-missing";
             core.revoked.clear();
             core.diagnostics.add({code: "dependency-missing", extension: problem.extension, entry: "assembly", params: {...(problem.dependency === undefined ? {} : {dependency: problem.dependency})}, message: `reassembling after a plugin change failed (${problem.message}); the session is read-only`, persisted: false}, core.head);
             return;
         }
         const next = assembled.assembly;
+        state.profileStale = false;
         // 哈希没变而 Profile 对象换了（改了提示词没升 version）：照样换上新对象，不写日志。会话不留着旧对象，旧的包才能回收。
-        const sameHash = next.hash === core.assembly.hash;
+        // 从占位换上真的：和打开时一样跟日志里最后记的哈希比（占位的哈希从没写进日志）。
+        const logged = fromPlaceholder ? (core.session.kernel.profile?.hash ?? null) : core.assembly.hash;
+        const sameHash = next.hash === logged;
         if (sameHash && profile === core.assembly.profile) {
             core.revoked.clear();
             settled();
             return;
         }
         if (!sameHash) {
-            // Profile 自己的版本变了就是代码更新，否则按插件的增减。
+            // Profile 自己的版本变了就是代码更新，否则按插件的增减。从占位换上真的也落在前一种：占位的版本是 `unknown`。
             const reason = profile !== current && profile.version !== current.version ? "code-updated" : pending.added.size > 0 && pending.removed.size > 0 ? "plugin-updated" : pending.added.size > 0 ? "plugin-added" : pending.removed.size > 0 ? "plugin-removed" : "code-updated";
-            await writeAndReact(core, [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from: core.assembly.hash, reason, manifest: next.manifest as unknown as JsonValue}}], state.react);
+            await writeAndReact(core, [{type: "profileChanged", kind: "ctrl", scope: "session", data: {profile: profile.id, hash: next.hash, from: logged, reason, manifest: next.manifest as unknown as JsonValue}}], state.react);
         }
         await state.mounts.unmountAll();
         core.reassemble(next);

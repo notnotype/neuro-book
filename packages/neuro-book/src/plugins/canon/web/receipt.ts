@@ -29,6 +29,8 @@ export interface ReceiptField {
     readonly label: string;
     readonly before: string;
     readonly after: string;
+    /** 同一个显示名的几行并成一行时把 `after` 连起来（“添加了一项：种族、生日”），不写成“改了几处”。 */
+    readonly joins?: boolean;
 }
 
 export interface ReceiptItem {
@@ -146,12 +148,37 @@ function plain(value: unknown, text: CanonBoundText): string {
 const unshown = (label: string, text: CanonBoundText): ReceiptField => ({label, before: "", after: text("receipt.changed")});
 
 const ENTRY_FIELD = /^init\.data\.([^.[\]#]+)\.fields\.([^.[\]#]+)/u;
+/** 条目自己的字段声明上的一处改动：整条（`declared[id]`）、它的显示名、“已去掉”的标记，或整个列表与列表的顺序。 */
+const DECLARED = /^init\.data\.([^.[\]#]+)\.declared(?:\[([^\]]+)\](\.label|\.removed)?)?(#order)?$/u;
+
+/**
+ * 字段声明的改动写成“添加了一项”“去掉了一项”“恢复了一项”“一项改名”（输出 20）；同一类的几处并成一行、名字连起来。
+ * 列表的顺序跟着增删变，不另写一行（null）。
+ */
+function declaredField(match: RegExpExecArray, entry: string, before: unknown, after: unknown, lookups: ReceiptLookups, text: CanonBoundText): ReceiptField | null {
+    const [, namespace, id, leaf, order] = match;
+    if (order !== undefined) return null;
+    const labelOf = (value: unknown): string | undefined => (typeof value === "object" && value !== null && typeof (value as {label?: unknown}).label === "string" ? (value as {label: string}).label : undefined);
+    const names = (value: unknown): string => (Array.isArray(value) ? value.map(labelOf).filter((name) => name !== undefined).join(text("value.listSeparator")) : "");
+    const joined = (key: "fieldAdded" | "fieldRemoved" | "fieldRestored", name: string): ReceiptField => ({label: text(`receipt.fields.${key}`), before: "", after: name, joins: true});
+    // 旧条目的数据里原来没有声明的列表：第一次加的时候整个列表是一处改动。
+    if (id === undefined) return joined(names(after) !== "" || before === undefined ? "fieldAdded" : "fieldRemoved", names(after) !== "" ? names(after) : names(before));
+    const known = lookups.label(`${namespace!}.${id}`, entry);
+    // 改名也连起来：一次改了几项的名字时每一对都写出来，不合成“改了几处”。
+    if (leaf === ".label") return {label: text("receipt.fields.fieldRenamed"), before: "", after: `${plain(before, text)} → ${plain(after, text)}`, joins: true};
+    if (leaf === ".removed") return joined(after === true ? "fieldRemoved" : "fieldRestored", known);
+    return after === undefined ? joined("fieldRemoved", labelOf(before) ?? known) : before === undefined ? joined("fieldAdded", labelOf(after) ?? known) : unshown(text("receipt.fields.other"), text);
+}
 
 /** 条目上一处改动的显示名与两侧的值。 */
-function entryField(entry: string, path: string, before: unknown, after: unknown, lookups: ReceiptLookups, text: CanonBoundText): ReceiptField {
+function entryField(entry: string, path: string, before: unknown, after: unknown, lookups: ReceiptLookups, text: CanonBoundText): ReceiptField | null {
+    const declared = DECLARED.exec(path);
+    if (declared !== null) return declaredField(declared, entry, before, after, lookups, text);
     const field = ENTRY_FIELD.exec(path);
     const both = (show: (value: unknown) => string, label: string): ReceiptField => ({label, before: show(before), after: show(after)});
     const shown = (value: unknown): string => plain(value, text);
+    // 新加的字段还没填值（从没有这个键到“未知”）不是一处改动：加了哪一项已经另写一行。
+    if (field !== null && before === undefined && after === null) return null;
     if (field !== null) return both(shown, lookups.label(`${field[1]!}.${field[2]!}`, entry));
     const head = /^[^.[#]+(?:\.[^.[#]+)?/u.exec(path)?.[0] ?? path;
     const named = (value: unknown): string => (typeof value === "string" ? lookups.entryName(value) ?? text("names.someEntry") : text("receipt.absent"));
@@ -194,12 +221,14 @@ function changeField(path: string, before: unknown, after: unknown, lookups: Rec
     }
 }
 
-/** 同一个显示名的几处改动（一个列表字段的几个元素、主文字的几块）只列一行；值写不出来的那几种只写显示名。 */
+/** 同一个显示名的几处改动（一个列表字段的几个元素、主文字的几块）只列一行；值写不出来的那几种只写显示名。`joins` 的几行把值连起来。 */
 function merged(fields: readonly ReceiptField[], text: CanonBoundText): ReceiptField[] {
     const byLabel = new Map<string, ReceiptField>();
     for (const field of fields) {
         const known = byLabel.get(field.label);
-        byLabel.set(field.label, known === undefined ? field : {label: field.label, before: "", after: text("receipt.several")});
+        if (known === undefined) byLabel.set(field.label, field);
+        else if (known.joins === true && field.joins === true) byLabel.set(field.label, {...known, after: `${known.after}${text("value.listSeparator")}${field.after}`});
+        else byLabel.set(field.label, {label: field.label, before: "", after: text("receipt.several")});
     }
     return [...byLabel.values()];
 }
@@ -207,14 +236,15 @@ function merged(fields: readonly ReceiptField[], text: CanonBoundText): ReceiptF
 function itemOf(op: ObjectOp, index: number, lookups: ReceiptLookups, text: CanonBoundText): ReceiptItem {
     const linkable = op.ref.kind === "entry" || op.ref.kind === "change";
     const deletedChange = op.kind === "delete" && op.ref.kind === "change";
-    const fieldOf = (field: {readonly path: string; readonly before?: unknown; readonly after?: unknown}): ReceiptField => {
+    const fieldOf = (field: {readonly path: string; readonly before?: unknown; readonly after?: unknown}): ReceiptField[] => {
         const shown = op.ref.kind === "entry"
             ? entryField(op.ref.id, field.path, field.before, field.after, lookups, text)
             : op.ref.kind === "change" ? changeField(field.path, field.before, field.after, lookups, text) : unshown(text("receipt.fields.other"), text);
+        if (shown === null) return [];
         // 列表的顺序叶子，值是元素 id 的列表：只写顺序变了。
-        return field.path.endsWith("#order") ? {label: shown.label, before: "", after: text("receipt.reordered")} : shown;
+        return [field.path.endsWith("#order") ? {label: shown.label, before: "", after: text("receipt.reordered")} : shown];
     };
-    const fields = op.kind === "modify" && !isTombstone(op) ? merged(op.fields.map(fieldOf), text) : [];
+    const fields = op.kind === "modify" && !isTombstone(op) ? merged(op.fields.flatMap(fieldOf), text) : [];
     return {
         key: `${String(index)}:${op.ref.kind}:${op.ref.id}`,
         // 删掉的剧情变更没有页面可开（删掉的条目还有墓碑，页面写“已删除”）。

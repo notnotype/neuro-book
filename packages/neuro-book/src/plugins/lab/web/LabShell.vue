@@ -350,6 +350,7 @@ onMounted(() => {
         }),
         components: () => labComponents.filter((entry) => entry.mountable && labFixtures.some((item) => item.component === entry.name)).map((entry) => entry.name),
         scenes: (component) => (findLabFixture(component ?? selectedName.value)?.scenes ?? []).map(({id, label}) => ({id, label})),
+        drafts: () => labComponents.filter((entry) => entry.groupPath[0] === "drafts").map((entry) => entry.name),
     });
 });
 onBeforeUnmount(() => uninstallDebugApi?.());

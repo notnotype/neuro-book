@@ -83,6 +83,17 @@ const file = (name: string): TabsSnapshot["tabs"][string] => ({address: `project
 const tabs = (...names: string[]): TabsSnapshot => ({tabs: Object.fromEntries(names.map((name) => [name, file(name)]))});
 
 describe("Spec ui.workbench-layout 的 editor.tabs", () => {
+    it("页面标签记着的标题与图标随记录存下、读回来（workbench/editor 输出 33、53）", async () => {
+        const w = await world();
+        const left = await openTabs(w, "left");
+        const page = {page: true as const, id: "nbook.test.entry", arg: "e1", title: "星瑕", icon: "i-lucide-user-round"};
+        expect(await left.store.actions.saveBeforeLayout({tabs: {p1: page}})).toBe(true);
+        const opened = await left.storage.open(EDITOR_TABS_RECORD);
+        if (!opened.ok) throw new Error(`${opened.code} ${opened.detail}`);
+        const snapshot = await opened.handle.read();
+        expect(snapshot.status === "ok" ? snapshot.value.tabs.p1 : snapshot.status).toEqual(page);
+    });
+
     it("两个窗口各开各的：谁后写都留着对方的标签，自己关掉的才删", async () => {
         const w = await world();
         const left = await openTabs(w, "left");

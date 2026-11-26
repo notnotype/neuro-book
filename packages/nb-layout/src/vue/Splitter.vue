@@ -137,7 +137,11 @@ const localHost: SashGestureHost<SplitterGestureState, SplitterGestureChange> = 
                 if (state === null) {
                     if (localSnapshot !== null) {
                         localSizes.value = [...localSnapshot];
+                        // 预览回到了起点（拖出去又拖回来）：呈现变了，也发一次，宿主跟着预览画的东西（例如按收起状态换内容）才回得来。
+                        // 从没离开过起点时不发。
+                        if (lastState !== null) emit("gesture-update", {source: input.source, sash: label, active: [], compensated: [], sizesPx: [...localSnapshot], collapsed: {}});
                     }
+                    lastState = null;
                     return;
                 }
                 lastState = state;
@@ -239,6 +243,7 @@ const panelConstraintsKey = computed(() => JSON.stringify(props.panels.map((pane
     panel.collapse?.restoreSize ?? null,
     panel.collapse?.collapseThreshold ?? null,
     panel.collapse?.expandThreshold ?? null,
+    panel.collapse?.locked === true,
 ])));
 
 watch(() => [props.direction, panelIdsKey.value, panelConstraintsKey.value, isControlled.value ? null : sashSizesKey.value].join("|"), () => {
@@ -318,6 +323,7 @@ watch(() => props.disabled, (disabled) => {
                     class="nb-grid-panel"
                     :data-animating="scope.active.size === 0 && collapseMotion.has(index) ? 'true' : undefined"
                     :data-panel-id="panelIds[index]"
+                    :data-overflow="panel.overflow === 'visible' ? 'visible' : undefined"
                     :data-state="renderedCollapsed(index) ? 'collapsed' : 'expanded'"
                     :style="panelStyle(index)"
                 >
@@ -371,6 +377,10 @@ watch(() => props.disabled, (disabled) => {
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+.nb-grid-panel[data-overflow="visible"] {
+    overflow: visible;
 }
 
 /* 收起/展开是控件形变，走 --nb-layout-motion-move；拖动中关闭，避免跟手延迟。 */

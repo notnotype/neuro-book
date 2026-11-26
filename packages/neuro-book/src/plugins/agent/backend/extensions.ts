@@ -13,7 +13,11 @@ import type {AgentExtensionDeclaration, AgentExtensionImplementation} from "../s
 
 type PlatformHandle = ContributionHandle<AgentExtensionDeclaration, AgentExtensionImplementation>;
 
-export function extensionReceiver(host: AgentHost, report: (message: string, cause: unknown) => void): ContributionReceiver<AgentExtensionDeclaration, AgentExtensionImplementation> {
+/**
+ * `changed`：发布与撤回之后调用。Profile 目录的可用性按扩展声明算（引用的扩展在不在，contributions.md 输出 8），扩展增减时
+ * 目录要发变化通知，窗口才会重取。
+ */
+export function extensionReceiver(host: AgentHost, report: (message: string, cause: unknown) => void, changed: () => void = () => undefined): ContributionReceiver<AgentExtensionDeclaration, AgentExtensionImplementation> {
     const handles = new WeakMap<PlatformHandle, ExtensionHandle>();
     const kernelHandle = (handle: PlatformHandle): ExtensionHandle => {
         let mapped = handles.get(handle);
@@ -26,7 +30,10 @@ export function extensionReceiver(host: AgentHost, report: (message: string, cau
     return {
         // 内核否决时抛 ExtensionRejected：平台按自己的合同回滚这一批。
         prepare: (handle) => host.extensions.prepare(kernelHandle(handle)),
-        published: (handle) => host.extensions.published(kernelHandle(handle)),
+        published: (handle) => {
+            host.extensions.published(kernelHandle(handle));
+            changed();
+        },
         // 还没发布的也转：内核会删掉预占。内核目前不按原因分支，映射只为诊断。
         async revoke(handle, _prepared, reason) {
             try {
@@ -35,6 +42,7 @@ export function extensionReceiver(host: AgentHost, report: (message: string, cau
                 // 不让平台的停止卡在 Agent 这一侧：写诊断，撤回照样完成。
                 report(`revoking extension ${handle.id} failed`, error);
             }
+            changed();
         },
     };
 }

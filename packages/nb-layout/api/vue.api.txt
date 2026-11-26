@@ -48,7 +48,7 @@ type DragSessionHandle<S, D> = {
 };
 
 ### experimental interface DragSessionOptions
-引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState
+引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState, GridDropPoint
 引用（没导出）：DragActivation
 interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
@@ -64,7 +64,10 @@ interface DragSessionOptions<S, D, R> {
     sampled?(): void;
     readonly scroll?: "reevaluate" | "withdraw";
     readonly autoScroll?: {
-        readonly element: HTMLElement;
+        containers(query: {
+            readonly point: GridDropPoint;
+            readonly top: Element | null;
+        }): ReadonlyArray<HTMLElement>;
         readonly edgePx?: number;
         readonly maxStepPx?: number;
     };
@@ -120,28 +123,30 @@ attrs:
   → <div>（inheritAttrs: false）
 
 ### experimental component FloatWindowHandles
-引用：GridExtent, GridRect
+引用：GridExtent, GridRect, LayoutFloatResize
 props:
-  max: GridExtent
+  area?: GridRect | undefined = undefined
+  max?: GridExtent | undefined = undefined
   min: GridExtent
   moveIconClass?: string | undefined = ""
   rect: GridRect
 attrs:
   → 根元素
 events:
-  commit(rect: GridRect)
+  commit(rect: GridRect, direction: LayoutFloatResize)
   move(position: { readonly x: number; readonly y: number; })
   preview(rect: GridRect | null)
 
 ### experimental type GridHost
-引用：GridCollapseResult, GridExtent, GridFailure, GridHostBindings, GridLayoutResult, GridNode
+引用：GridCollapseOptions, GridCollapseResult, GridExtent, GridFailure, GridHostBindings, GridLayoutResult, GridNode, GridSetSizeResult
 type GridHost<T> = {
     readonly node: ComputedRef<GridNode<T> | null>;
     readonly layout: Readonly<Ref<GridLayoutResult>>;
     readonly revision: Readonly<Ref<number>>;
     readonly extent: Readonly<Ref<GridExtent | null>>;
     invalidate(): void;
-    setCollapsed(id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready">;
+    setCollapsed(id: string, collapsed: boolean, options?: GridCollapseOptions): GridCollapseResult | GridFailure<"not-ready">;
+    setSize(id: string, px: number): GridSetSizeResult | GridFailure<"not-ready">;
     readonly bindings: ComputedRef<GridHostBindings<T>>;
 };
 
@@ -159,19 +164,42 @@ type GridHostBindings<T> = {
     readonly onGestureStart: (start: GridGestureStart) => void;
 };
 
+### experimental type GridHostChange
+引用：GridBranchesResizeResult, GridCollapseResult, GridGestureCommit, GridSetSizeResult
+type GridHostChange = {
+    readonly kind: "gesture";
+    readonly commit: GridGestureCommit;
+    readonly result: Extract<GridBranchesResizeResult, {
+        ok: true;
+    }>;
+    readonly collapsed: Readonly<Record<string, boolean>>;
+} | {
+    readonly kind: "collapse";
+    readonly id: string;
+    readonly result: Extract<GridCollapseResult, {
+        ok: true;
+    }>;
+    readonly collapsed: Readonly<Record<string, boolean>>;
+} | {
+    readonly kind: "size";
+    readonly id: string;
+    readonly result: Extract<GridSetSizeResult, {
+        ok: true;
+    }>;
+    readonly collapsed: Readonly<Record<string, boolean>>;
+};
+
 ### experimental type GridHostIssue
 引用：GridFailure, GridHostIssueCode, GridIssue, GridIssueCode
 type GridHostIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
 
 ### experimental type GridHostOptions
-引用：Grid, GridBranchesResizeResult, GridGestureCommit, GridHostIssue, GridLayoutResult
+引用：Grid, GridHostChange, GridHostIssue, GridLayoutResult
 type GridHostOptions<T> = {
     readonly grid: MaybeRefOrGetter<Grid<T> | null>;
     readonly contextKey?: MaybeRefOrGetter<string>;
     readonly disabled?: MaybeRefOrGetter<boolean>;
-    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {
-        ok: true;
-    }>, before: GridLayoutResult) => void;
+    readonly onApplied?: (change: GridHostChange, before: GridLayoutResult) => void;
     readonly onIssues?: (issues: readonly GridHostIssue[]) => void;
 };
 
@@ -319,6 +347,7 @@ attrs:
 events:
   content-parked(key: string)
   extent(extent: GridExtent | null)
+  float-raise(id: string)
   gesture-cancel(info: GridGestureCancellation)
   gesture-end(commit: GridGestureCommit)
   gesture-start(info: GridGestureStart)
@@ -333,6 +362,7 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  leafRect: (id: string) => GridRect | null
   motionMs: () => number
   moving: boolean
   origin: () => { x: number; y: number; }
@@ -393,15 +423,16 @@ slots:
   Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
 
 ### experimental interface SplitterPanelConfig
-引用：SashCollapseState
+引用：SplitterCollapseState
 interface SplitterPanelConfig {
     id?: string;
     defaultSizePx?: number;
     minSizePx?: number;
     maxSizePx?: number;
     sizing?: "fixed" | "weight";
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     label?: string;
+    overflow?: "hidden" | "visible";
 }
 
 ### experimental interface UseSortableOptions

@@ -1,0 +1,72 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t01-demos",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：条目主文字的标签写法",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "670acdf8dab7524d665f5c86f87ffc0abf1a82700df56a2566e19d858bee9a4e",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "cond",
+            "type": "single",
+            "label": "条件怎么写：比较写成一句表达式，还是拆成属性？",
+            "options": [
+                {
+                    "value": "test",
+                    "label": "A 比较写成表达式（test）"
+                },
+                {
+                    "value": "attrs",
+                    "label": "B 比较拆成属性（of、atLeast…）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "test"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "agent-value",
+            "type": "single",
+            "label": "给 Agent 看的值写在哪里？",
+            "options": [
+                {
+                    "value": "content",
+                    "label": "A 标签中间写原文"
+                },
+                {
+                    "value": "attr",
+                    "label": "B 写成 value 属性"
+                },
+                {
+                    "value": "json",
+                    "label": "C 标签中间写 JSON"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "json"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T03:06:26.503Z"
+}

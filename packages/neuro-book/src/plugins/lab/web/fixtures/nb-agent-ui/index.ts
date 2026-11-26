@@ -48,7 +48,7 @@ import type {
 } from "@notnotype/nb-agent-ui/lab";
 import type {Component} from "vue";
 
-import {defineLabFixture} from "../index";
+import {defineLabFixture} from "../define";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {agentMessagesListScenes, agentMessagesScenes} from "./messages.scenes";

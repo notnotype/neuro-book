@@ -86,6 +86,18 @@ async function buildScripts(outDir: string): Promise<string[]> {
 async function buildTypes(outDir: string): Promise<void> {
     const types = join(PACKAGE_ROOT, "dist/.types");
     await rm(types, {recursive: true, force: true});
+    // 成功、失败都删临时目录。清理本身失败不盖掉构建的错误，只打一条诊断（下次构建开始时会先清空它）。
+    try {
+        await emitTypes(types, outDir);
+    } finally {
+        await rm(types, {recursive: true, force: true}).catch((error: unknown) => {
+            console.warn(`could not remove the temporary declaration directory ${types}`, error);
+        });
+    }
+}
+
+/** `buildTypes` 的主体：vue-tsc 出到 `types`，再打包到 `outDir`。 */
+async function emitTypes(types: string, outDir: string): Promise<void> {
     const vueTsc = createRequire(import.meta.url).resolve("vue-tsc/bin/vue-tsc.js");
     // 用 Node 跑：vue-tsc 靠改写 TypeScript 的模块加载认出 `.vue`，在 Bun 里跑时认不出（每个 `.vue` 导入都报 TS2307）。
     const child = Bun.spawn(["node", vueTsc, "-p", "tsconfig.package.json", "--outDir", types], {cwd: PACKAGE_ROOT, stdout: "pipe", stderr: "pipe"});
@@ -109,7 +121,6 @@ async function buildTypes(outDir: string): Promise<void> {
         await bundle.close();
     }
     if (logs.length > 0) throw new Error(`bundling declarations reported:\n${logs.join("\n")}`);
-    await rm(types, {recursive: true, force: true});
 }
 
 /**

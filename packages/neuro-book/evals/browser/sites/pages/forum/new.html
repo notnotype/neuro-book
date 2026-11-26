@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>发新帖 - 灯下论坛</title><link rel="stylesheet" href="/assets/forum.css"></head>
+<body>
+<header><strong>灯下论坛</strong><nav><a href="/">版块</a><a href="/digest">精华区</a></nav></header>
+<main>
+  <div class="box">
+    <h2 style="margin-top: 0;">发新帖</h2>
+    <label for="board">版块</label>
+    <select id="board"></select>
+    <label for="title">标题</label>
+    <input type="text" id="title" autocomplete="off">
+    <label>正文 <span class="muted" style="font-weight: normal;">（在编辑器里写好后点编辑器里的“保存草稿”）</span></label>
+    <iframe id="editor" title="正文编辑器" src="{{editor}}/editor"></iframe>
+    <p class="muted" id="draft-status">草稿未保存</p>
+    <button type="button" id="submit" disabled>发表</button>
+    <p id="result" role="status"></p>
+  </div>
+</main>
+<script>
+(async () => {
+  const select = document.querySelector("#board");
+  const boards = await (await fetch("/api/boards")).json();
+  select.innerHTML = boards.map((b) => `<option value="${b.id}" ${b.id === "{{board}}" ? "selected" : ""}>${b.name}</option>`).join("");
+  let draft = null;
+  // 编辑器在另一个站点的 iframe 里，保存草稿后经 postMessage 把草稿号与凭据交过来；只认编辑器源发来的消息。
+  window.addEventListener("message", (event) => {
+    if (event.origin !== "{{editor}}" || !event.data || event.data.type !== "nb-draft") return;
+    draft = event.data;
+    document.querySelector("#draft-status").textContent = "草稿已保存";
+    document.querySelector("#submit").disabled = false;
+  });
+  document.querySelector("#submit").addEventListener("click", async () => {
+    const response = await fetch("/api/threads", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({boardId: select.value, title: document.querySelector("#title").value, draftId: draft.draftId, ticket: draft.ticket})});
+    const result = await response.json();
+    document.querySelector("#result").innerHTML = response.ok ? `已发表：<a href="/thread/${result.id}">查看帖子</a>` : (result.error || "发表失败");
+  });
+})();
+</script>
+</body>
+</html>

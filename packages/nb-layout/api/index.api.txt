@@ -58,7 +58,7 @@ declare const GRID_SNAPSHOT_VERSION = 2;
 declare const GRID_UNBOUNDED: number;
 
 ### experimental type Grid
-引用：GridBranchResize, GridBranchesResizeResult, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
+引用：GridBranchResize, GridBranchesResizeResult, GridCollapseOptions, GridCollapseResult, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRefResolver, GridRestoreResult, GridResult, GridSetSizeResult, GridSnapshot, GridSplitInput
 type Grid<T> = {
     root(): GridNode<T> | null;
     find(id: string): GridNode<T> | null;
@@ -67,11 +67,12 @@ type Grid<T> = {
     removeLeaf(id: string): GridResult;
     moveLeaf(id: string, parentId: string, index: number): GridResult;
     resizeBranches(changes: readonly GridBranchResize[]): GridBranchesResizeResult;
-    setCollapsed(id: string, collapsed: boolean): GridCollapseResult;
+    setCollapsed(id: string, collapsed: boolean, options?: GridCollapseOptions): GridCollapseResult;
     setSize(id: string, px: number): GridSetSizeResult;
     serialize(): GridSnapshot;
     restore(snapshot: unknown, resolveRef: GridRefResolver<T>): GridRestoreResult;
     layout(container: GridExtent): GridLayoutResult;
+    clone(): Grid<T>;
 };
 
 ### experimental type GridAxis
@@ -87,6 +88,7 @@ type GridBranch<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
     children: GridNode<T>[];
 };
@@ -110,6 +112,7 @@ type GridBranchInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    rigid?: boolean;
     collapse?: SashCollapseState;
     children: GridNodeInput<T>[];
 };
@@ -131,6 +134,11 @@ type GridBranchesResizeResult = {
     readonly intents: Record<string, GridExtent>;
     readonly collapsed: Record<string, boolean>;
 } | GridFailure<GridFailureCode>;
+
+### experimental type GridCollapseOptions
+type GridCollapseOptions = {
+    readonly locked?: boolean;
+};
 
 ### experimental type GridCollapseResult
 引用：GridFailure, GridFailureCode, SashCollapseState
@@ -203,7 +211,7 @@ interface GridFailure<C extends string = string> extends GridIssue<C> {
 }
 
 ### experimental type GridFailureCode
-type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "wrong-sizing";
+type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "collapse-locked" | "wrong-sizing";
 
 ### experimental interface GridFloatInput
 引用：GridRect
@@ -211,6 +219,7 @@ interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
     readonly gesture?: "move" | "resize";
+    readonly animate?: boolean;
 }
 
 ### experimental type GridGestureBaseline
@@ -322,6 +331,7 @@ type GridLeaf<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
 };
 
@@ -335,6 +345,7 @@ type GridLeafInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    rigid?: boolean;
     collapse?: SashCollapseState;
 };
 
@@ -371,9 +382,9 @@ type GridNode<T> = GridLeaf<T> | GridBranch<T>;
 type GridNodeInput<T> = GridLeafInput<T> | GridBranchInput<T>;
 
 ### experimental type GridOptions
-引用：GridRefEncoder
+引用：GridRefEncoder, GridSashResolver
 type GridOptions<T> = {
-    sashSize?: number | ((branchId: string, sashIndex: number) => number);
+    sashSize?: number | GridSashResolver;
     encodeRef?: GridRefEncoder<T>;
 };
 
@@ -401,6 +412,7 @@ type GridRefResolution<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    rigid?: boolean;
     collapse?: SashCollapseState;
 };
 
@@ -418,6 +430,16 @@ type GridRestoreResult = ({
     ok: true;
 } & GridRestoreReport) | (GridFailure<GridRestoreFailureCode> & GridRestoreReport);
 
+### experimental type GridRestoredGrid
+引用：Grid, GridRestoreResult
+type GridRestoredGrid<T> = (Extract<GridRestoreResult, {
+    ok: true;
+}> & {
+    readonly grid: Grid<T>;
+}) | Extract<GridRestoreResult, {
+    ok: false;
+}>;
+
 ### experimental type GridResult
 引用：GridFailure, GridFailureCode
 type GridResult = {
@@ -433,7 +455,10 @@ type GridSashRef = {
 };
 
 ### experimental type GridSashResolver
-type GridSashResolver = (branchId: string, sashIndex: number) => number;
+type GridSashResolver = (branchId: string, sashIndex: number, sash: {
+    readonly before: string;
+    readonly after: string;
+}) => number;
 
 ### experimental type GridSetSizeResult
 引用：GridFailure, GridFailureCode, SashCollapseState
@@ -484,7 +509,7 @@ type GridSplitInput<T> = {
     orientation: GridOrientation;
     side: GridSplitSide;
     leaf: Omit<GridLeafInput<T>, "size">;
-    ratio?: number;
+    ratio?: number | "even";
 };
 
 ### experimental type GridSplitSide
@@ -565,11 +590,10 @@ declare const SORTABLE_STICKY_PX = 12;
 ### experimental type SashCollapsePolicy
 type SashCollapsePolicy = {
     collapsedSize: number;
-    restoreSize: number;
     collapseThreshold: number;
     expandThreshold: number;
     toggleable?: boolean;
-    restoreToShare?: boolean;
+    locked?: boolean;
 };
 
 ### experimental type SashCollapseState
@@ -622,7 +646,10 @@ type SashPanel = {
     minimum: number;
     maximum: number;
     sizing: GridSizing;
-    collapse?: SashCollapseState;
+    rigid?: true;
+    collapse?: SashCollapseState & {
+        readonly restoreSize?: number;
+    };
 };
 
 ### experimental type SortableAxis
@@ -667,6 +694,12 @@ interface SortableSwitch {
     readonly at: number;
 }
 
+### experimental type SplitterCollapseState
+引用：SashCollapseState
+type SplitterCollapseState = SashCollapseState & {
+    restoreSize: number;
+};
+
 ### experimental interface SplitterGestureCancellation
 引用：SashGestureCancelReason, SashGestureSource
 interface SplitterGestureCancellation {
@@ -692,7 +725,7 @@ declare const UNBOUNDED_EXTENT: GridExtent;
 
 ### experimental function clampFloatRect
 引用：GridExtent, GridRect
-declare function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {
+declare function clampFloatRect(rect: GridRect, area: GridRect | GridExtent, keep?: {
     readonly width: number;
     readonly height: number;
 }): GridRect;
@@ -728,7 +761,8 @@ declare function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, 
     readonly y: number;
 }, bounds: {
     readonly min: GridExtent;
-    readonly max: GridExtent;
+    readonly max?: GridExtent;
+    readonly area?: GridRect;
 }): GridRect;
 
 ### experimental function resolveGridEdgeDrop
@@ -748,6 +782,13 @@ declare function resolveListInsertion(input: {
     readonly members: readonly GridDropMember[];
     readonly edgeGap?: number;
 }): GridListInsertion | null;
+
+### experimental function restoreGrid
+引用：GridOptions, GridRefEncoder, GridRefResolver, GridRestoredGrid
+declare function restoreGrid<T extends string>(snapshot: unknown, resolveRef: GridRefResolver<T>, options?: GridOptions<T>): GridRestoredGrid<T>;
+declare function restoreGrid<T>(snapshot: unknown, resolveRef: GridRefResolver<T>, options: GridOptions<T> & {
+    encodeRef: GridRefEncoder<T>;
+}): GridRestoredGrid<T>;
 
 ### experimental function setLayoutDevChecks
 declare function setLayoutDevChecks(enabled: boolean): void;

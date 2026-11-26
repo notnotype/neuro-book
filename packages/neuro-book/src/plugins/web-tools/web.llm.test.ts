@@ -1,18 +1,19 @@
 /**
- * 真实 DeepSeek 接口（docs/specs/web/tools.md 验收 4）：直接用客户端调官方地址，核对两条接口的字段映射与几种错误的归类，
- * 也是假接口（`testing/fake-deepseek.ts`）与真实接口对照的那一条。密钥只在内存里（`llmTestConfig` 从环境取），不写进任何文件。
- * 只在显式开启真实模型测试时运行；每次调用按次计费。
+ * 真实 DeepSeek 与 Tavily 接口（docs/specs/web/tools.md 验收 4、7）：直接用客户端调官方地址，核对两条接口的字段映射与几种错误的
+ * 归类，也是假接口（`testing/fake-deepseek.ts`、`testing/fake-tavily.ts`）与真实接口对照的那一条。密钥只在内存里（`llmTestConfig`、
+ * `llmTestKey` 从环境取），不写进任何文件。只在显式开启真实模型测试时运行；每次调用按次计费（Tavily 扣额度）。
  */
 
 import {describe, expect, it} from "bun:test";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
+import {llmTestConfig, llmTestKey} from "@notnotype/neuro-book-test-support/llm";
 
 import {createDeepSeekProvider} from "./backend/providers/deepseek";
 import {sleepOn} from "./backend/providers/http";
+import {createTavilyProvider} from "./backend/providers/tavily";
 import type {CallScope} from "./backend/providers/types";
-import {DEFAULT_DEEPSEEK_BASE_URL} from "./shared/settings";
+import {DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_TAVILY_BASE_URL} from "./shared/settings";
 
 const config = llmTestConfig();
 const provider = createDeepSeekProvider(() => DEFAULT_DEEPSEEK_BASE_URL, {fetch, now: Date.now, sleep: sleepOn(systemClock)});
@@ -52,4 +53,43 @@ describe.skipIf(config === null)("真实 DeepSeek 接口", () => {
         expect(await provider.fetch("http://127.0.0.1:9/", key, scope(30_000))).toMatchObject({ok: false, code: "rejected"});
         expect(await provider.fetch("ftp://example.com/a", key, scope(30_000))).toMatchObject({ok: false, code: "invalid-request"});
     }, 100_000);
+});
+
+const tavilyKey = llmTestKey("TAVILY_API_KEY");
+const tavily = createTavilyProvider(() => DEFAULT_TAVILY_BASE_URL, {fetch, now: Date.now, sleep: sleepOn(systemClock)});
+
+describe.skipIf(tavilyKey === null)("真实 Tavily 接口", () => {
+    const key = tavilyKey ?? "";
+
+    it("搜索：结果都是 http 或 https 网址，带标题与摘要，分数是数；站点过滤生效", async () => {
+        const result = await tavily.search({query: "Lumiscript", count: 3}, key, scope(30_000));
+        if (!result.ok) throw new Error(`search failed: ${result.code} ${result.detail ?? ""}`);
+        expect(result.value.length).toBeGreaterThan(0);
+        for (const hit of result.value) {
+            expect(hit.url).toMatch(/^https?:\/\//u);
+            expect(hit.title.length).toBeGreaterThan(0);
+            expect(hit.summary.length).toBeGreaterThan(0);
+            expect(typeof hit.score).toBe("number");
+            expect(hit.site).toBeUndefined();
+            if (hit.date !== undefined) expect(hit.date.length).toBeGreaterThan(0);
+        }
+        const onSite = await tavily.search({query: "web search API", count: 3, sites: ["docs.tavily.com"]}, key, scope(30_000));
+        if (!onSite.ok) throw new Error(`search failed: ${onSite.code} ${onSite.detail ?? ""}`);
+        expect(onSite.value.length).toBeGreaterThan(0);
+        for (const hit of onSite.value) expect(new URL(hit.url).hostname).toBe("docs.tavily.com");
+    }, 70_000);
+
+    it("读取：交回标题与 Markdown 正文；读不了的网址得 not-found", async () => {
+        const result = await tavily.fetch("https://github.com/jina-ai/reader", key, scope(60_000));
+        if (!result.ok) throw new Error(`fetch failed: ${result.code} ${result.detail ?? ""}`);
+        expect(result.value.title.length).toBeGreaterThan(0);
+        expect(result.value.markdown.length).toBeGreaterThan(100);
+        expect(await tavily.fetch("https://nonexistent.invalid/x", key, scope(60_000))).toMatchObject({ok: false, code: "not-found"});
+    }, 130_000);
+
+    it("错的密钥得 auth，详情里没有密钥", async () => {
+        const wrong = await tavily.search({query: "test", count: 1}, "tvly-invalid-not-real-000000", scope(30_000));
+        expect(wrong).toMatchObject({ok: false, code: "auth"});
+        expect(JSON.stringify(wrong)).not.toContain("tvly-invalid-not-real");
+    }, 40_000);
 });

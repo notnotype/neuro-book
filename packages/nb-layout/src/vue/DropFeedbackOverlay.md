@@ -18,6 +18,8 @@
 
 遮罩根内另有 `aria-live="polite"`、`aria-atomic="true"` 的隐藏区域，只播报 trim 后的标签文案，不随几何逐帧播报。焦点和拖放手势由宿主保持。
 
+所以同一句标签文案在 DOM 里有两份：药丸里一份（`data-drop-feedback-label`），播报区域里一份（`data-drop-feedback-live`）。测试按文字定位会同时命中两个，要先限定在其中一个标记下，例如在 `[data-drop-feedback-label]` 里找药丸上的字。
+
 ## 数据
 
 ```ts
@@ -54,7 +56,7 @@ type DropFeedbackOverlaySlots = Record<never, never>;
 
 几何入口在 `@notnotype/nb-layout`，宿主用它们算出 `DropFeedbackPreview`：
 
-- `resolveListInsertion` 给列表的插入位，一个位置一条线：前一项的后半、间隙、后一项的前半都归同一个位置，线在间隙里居中，没有足够间隙时贴后一项的前缘。越过最后一个可用成员是追加，线贴它的后缘；空列表锚在内容盒前缘。可选 `edgeGap`（缺省 0）只给首个可见成员之前和末个之后留白，内部间隙不变，空列表不偏移；空间不足时夹紧，负数或非有限值按 0。
+- `resolveListInsertion` 给列表的插入位，一个位置一条线：前一项的后半、间隙、后一项的前半都归同一个位置，线在间隙里居中，没有足够间隙时贴后一项的前缘。越过最后一个可用成员时线贴它的后缘：紧跟着的成员沿主轴滚出了内容盒时插到这个滚出去的前面，否则是追加（紧跟着的只在交叉轴上被裁掉也算追加，换行由宿主自己接）；空列表锚在内容盒前缘。可选 `edgeGap`（缺省 0）只给首个可见成员之前和末个之后留白，内部间隙不变，空列表不偏移；空间不足时夹紧，负数或非有限值按 0。
 - `resolveGridEdgeDrop` 给四边与中心的落点：边缘占 `edgeRatio`（缺省 0.2，即 20%），左右优先于上下（与编辑器现有分组语义一致），先到者胜。`edgeRatio` 不合法（非有限、不大于 0、不小于 0.5）、矩形非有限或零面积、指针在矩形外时返回 `null`。
 
 `GridDropRect` 为 `Readonly<{left: number; top: number; right: number; bottom: number}>`；`GridOrientation` 为 `"horizontal" | "vertical"`。组件没有插槽或 expose API。`inheritAttrs` 被关闭；`useAttrs()` 收集的 attrs 被显式透传到 Teleport 下的覆盖层根节点，包括调用方的 `data-*` 标记。根节点不存在时没有 attrs 挂载目标。这三个落点函数是纯函数，不读 DOM，也不引入 dnd-kit 一类拖放库：宿主把矩形与指针坐标算好交给它们。

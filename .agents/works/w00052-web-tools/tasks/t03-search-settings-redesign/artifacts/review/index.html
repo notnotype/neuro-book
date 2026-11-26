@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：搜索与网页设置页的版式</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand h4 { margin: 12px 0 4px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.cand img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.cand img.narrow { width: 60%; }
+.cand ul { margin: 8px 0 0; padding-left: 1.2em; font-size: 14px; color: var(--muted); }
+.flow { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+.flow b { color: var(--text); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+.now { max-width: 560px; }
+.now img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：搜索与网页设置页的版式</h1>
+
+<section data-nbdev-question="layout" data-nbdev-type="single" data-nbdev-recommend="rail">
+  <h2>服务商变多以后，这一页按 A 还是 B 排？</h2>
+  <p class="rec"><strong>推荐 A：家数多了页面也不变长，和隔壁“服务商与模型”页一个排法。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="rail" data-nbdev-label="A 左边列表、右边详情">
+      <h3>A 左边列表、右边详情</h3>
+      <img src="r1/a-default.webp" alt="A：左栏列出搜索规则与五家服务商，右边是 DeepSeek 的详情">
+      <h4>选了 Tavily、它还没有密钥（高级展开）</h4>
+      <img src="r1/a-tavily.webp" alt="A：Tavily 是使用中、左栏行尾黄钥匙、密钥行写未填写">
+      <h4>搜索规则</h4>
+      <img src="r1/a-rules.webp" alt="A：搜索规则里是默认结果条数与屏蔽网站">
+      <h4>390 宽</h4>
+      <img class="narrow" src="r1/a-narrow.webp" alt="A 窄屏：左栏换成顶上的下拉">
+      <ul>
+        <li>看哪家和用哪家分开：点左栏只是看，“设为使用中”在详情标题区</li>
+        <li>五家与十家一样高</li>
+      </ul>
+    </div>
+    <div class="cand" data-nbdev-option="cards" data-nbdev-label="B 下拉加可折叠卡片">
+      <h3>B 下拉加可折叠卡片</h3>
+      <img src="r1/b-default.webp" alt="B：顶上搜索服务下拉，五张服务商卡片，最下面搜索规则">
+      <h4>选了 Tavily、它还没有密钥（卡片与高级展开）</h4>
+      <img src="r1/b-tavily.webp" alt="B：Tavily 卡片展开，卡头黄钥匙，密钥行写未填写">
+      <h4>390 宽</h4>
+      <img class="narrow" src="r1/b-narrow.webp" alt="B 窄屏：单列照旧">
+      <ul>
+        <li>一页看全，结构简单</li>
+        <li>服务商在下拉与卡片里各出现一次；卡片展开会把下面的“搜索规则”推下去</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="no-key-use" data-nbdev-type="single" data-nbdev-recommend="key-first">
+  <h2>把一家还没填密钥的设为使用中，怎么办？</h2>
+  <p class="rec"><strong>推荐“先填密钥再切”：正在用的那家照常工作，写到一半不会因为点错而搜不了。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="key-first" data-nbdev-label="先填密钥再切">
+      <h3>先填密钥再切</h3>
+      <p class="flow">点<b>设为使用中</b> → 不切，焦点进这家的密钥框，密钥行右边写<b>填写密钥后即可启用</b> → 填好保存后自动切过去</p>
+      <ul>
+        <li>原来那家在填好之前一直在用</li>
+        <li>一家都还没有密钥时（第一次配置）照常切，等填</li>
+      </ul>
+    </div>
+    <div class="cand" data-nbdev-option="switch" data-nbdev-label="照切，提示补密钥">
+      <h3>照切，提示补密钥</h3>
+      <p class="flow">点<b>设为使用中</b> → 立刻切过去 → 左栏这家行尾黄钥匙、密钥行写<b>未填写</b>（上面 A 的第二张图）</p>
+      <ul>
+        <li>规则最简单</li>
+        <li>填好之前 Agent 搜索都报“没有密钥”</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>使用中的标记</td><td>写“使用中”徽标，不用蓝点（设置行的“已修改”就是蓝点）</td></tr>
+      <tr><td>没填密钥的服务商</td><td>没在用的不挂警告；只有使用中的那家没密钥才挂黄钥匙</td></tr>
+      <tr><td>每家底下的说明句</td><td>删掉；DeepSeek 的“与模型设置里的密钥分开保存”收进密钥旁的问号</td></tr>
+      <tr><td>检测旁的提示</td><td>“会发一次搜索，按次计费。”改成“会发一次搜索，可能计费”</td></tr>
+      <tr><td>检测结果</td><td>写在检测按钮同一行，出现与消失不推动下面的内容</td></tr>
+      <tr><td>Tavily 搜索深度</td><td>放进这家的“高级”，两档写“标准 · 1 点”“深度 · 2 点”</td></tr>
+      <tr><td>接口地址</td><td>每家的“高级”里，和模型页一样</td></tr>
+      <tr><td>两项通用设置</td><td>叫“搜索规则”：默认结果条数、屏蔽网站（A 放左栏顶上，B 放页面最下面）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>现在的页面</h2>
+  <div class="now"><img src="r1/current.webp" alt="现在：顶上使用一行分段选择，每家一整节"></div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>加四项设置：每家的接口地址、默认结果条数、屏蔽网站、Tavily 搜索深度（会话里定）</li>
+    <li>服务商带 logo（lobehub 图标包，模型页同一套）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

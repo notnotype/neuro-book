@@ -24,6 +24,8 @@ npm install @notnotype/nb-layout   # 或 bun add、pnpm add
   import "@notnotype/nb-layout/style.css";
   ```
 
+  TypeScript 6 下 tsconfig 写 `"types": []` 时，这一行报 TS2882（找不到 `.css` 模块的声明）：改成 `"types": ["vite/client"]`，或者换成别的声明了 `*.css` 模块的类型。
+
 - 承诺的宿主是 Vue 3 加 Vite；别的打包器没有实测。
 
 ## 起步
@@ -51,7 +53,7 @@ const grid = shallowRef(createGrid<string>({
             size: {width: 240, height: 0},
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
         {kind: "leaf", id: "editor", ref: "editor", size: {width: 600, height: 0}},
     ],
@@ -65,7 +67,13 @@ function save(): void {
 
 // 2 到 4. 量容器、算布局、接纳手势提交：都在 useGridHost 里，整包绑到 NestedGrid 上。
 // contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。
-const host = useGridHost({grid, contextKey: "starter", onApplied: save});
+const host = useGridHost({
+    grid,
+    contextKey: "starter",
+    onApplied: save,
+    // 诊断的唯一出口：放不下、被拒的提交都从这里交出。不给时库不打印，开发检查只警告一次“没有出口”。
+    onIssues: (issues) => console.warn("nb-layout issues", issues),
+});
 
 // 5. 结构变了要通知：原地改了树之后调 invalidate()。收起与展开用 host.setCollapsed，它自己重发布局。
 function split(): void {
@@ -101,15 +109,15 @@ function toggleFiles(): void {
 </template>
 ```
 
-左栏的 `collapse` 是它的收起策略：拖过最小尺寸后再往里 `collapseThreshold` 像素就收起到 `collapsedSize`（这里是 0）；从收起处往外拉过 `expandThreshold` 就展开；分隔条上按 Enter 或调 `setCollapsed` 也能收起、展开，Enter 恢复到 `restoreSize`（网格在收起的那一刻记下）。`collapsed` 是当前状态。
+左栏的 `collapse` 是它的收起策略：拖过最小尺寸后再往里 `collapseThreshold` 像素就收起到 `collapsedSize`（这里是 0）；从收起处往外拉过 `expandThreshold` 就展开；分隔条上按 Enter 或调 `setCollapsed` 也能收起、展开，展开回到意图。`collapsed` 是当前状态。
 
 它做了五件事，每件对应一处：
 
 1. **建树**：`createGrid(根, {sashSize})`。节点的 `size` 是分配意图，不是呈现尺寸；`sizing: "fixed"` 的保留像素，其余按比例分余量。
 2. **量容器**：`NestedGrid` 自己量根盒，经 `useGridHost` 交给宿主；宿主不另量。承载盒（包着 `NestedGrid` 的那个元素）要有确定的高度，组件的根铺满它；例子直接给外层写了 480px，放进页面时也可以让 `html`、`body`、`#app` 一路是 `height: 100%`。
 3. **算布局**：`useGridHost` 按网格与尺寸算布局，整包 `bindings` 绑到组件上。没量到可用尺寸时布局为空、手势停用。
-4. **接纳手势提交**：拖完一次，`bindings` 里的提交处理核对并落账，然后调 `onApplied`；要存盘就在这里，结构操作之后也要存（例子的 `save`）。
-5. **结构变了通知**：原地改了树（拆分、关闭、移动）之后调 `host.invalidate()`；收起与展开用 `host.setCollapsed`，它自己重发布局。
+4. **接纳手势提交**：拖完一次，`bindings` 里的提交处理核对并落账，然后调 `onApplied`。经 `host.setCollapsed` 收起、展开与经 `host.setSize` 设尺寸之后也调它，存盘就在这里；结构操作之后要自己存（例子的 `save`）。
+5. **结构变了通知**：原地改了树（拆分、关闭、移动）之后调 `host.invalidate()`，它不调 `onApplied`；收起与展开用 `host.setCollapsed`，它自己重发布局。
 
 接线的细节（`contextKey` 只经选项给、诊断一个出口、提交前的布局）见 [`useGridHost`](src/vue/useGridHost.md)；组件的属性、插槽与事件见 [`NestedGrid`](src/vue/NestedGrid.md)；树的结构操作与快照见 [`grid`](src/grid.md)。
 
@@ -129,10 +137,11 @@ function toggleFiles(): void {
 |---|---|---|
 | 建树、拆分、关闭、移动叶 | `createGrid`，`grid.splitLeaf`、`grid.removeLeaf`、`grid.moveLeaf`、`grid.addLeaf` | 根 |
 | 把网格画出来、接手势 | `NestedGrid` 加 `useGridHost` | `./vue` |
-| 关掉一块，内容跟着缩回去再卸载 | `NestedGrid` 的内容层，内容项标 `leave: "retain"`（[说明](src/vue/NestedGrid.md)；只用 leaf 插槽时删叶没有缩回去的过渡） | `./vue` |
+| 关掉一块，内容跟着缩回去再卸载 | `NestedGrid` 的内容层，内容项标 `leave: "retain"`（[说明](src/vue/NestedGrid.md)；只用 leaf 插槽时删叶没有缩回去的过渡；留着的这段时间宿主的数据已经删了，面板头与正文都别按 key 查数据，写法见说明的“过渡”） | `./vue` |
 | 收起与展开一块面板 | `host.setCollapsed`（直接调 `grid.setCollapsed` 的，之后要调 `host.invalidate()`；示例见 ide） | `./vue`、根 |
-| 把一块保留像素的设成已知宽度（偏好、菜单） | `grid.setSize`，之后调 `host.invalidate()` | 根 |
-| 保存与恢复 | `grid.serialize()`、`grid.restore(快照, 解析引用)` | 根 |
+| 把一块保留像素的设成已知宽度（偏好、菜单） | `host.setSize`（直接调 `grid.setSize` 的，之后要调 `host.invalidate()`） | `./vue`、根 |
+| 保存与恢复 | `grid.serialize()`、`restoreGrid(快照, 解析引用, 选项)` | 根 |
+| 先试一遍再决定做不做（这次拆分放不放得下） | `grid.clone()`，在副本上照做、读结果与副本的 `grid.layout().issues` | 根 |
 | 键盘在叶之间走（F6） | `moveGridFocus`，键位由宿主登记 | `./vue` |
 | 量一个盒子的布局尺寸 | `useLayoutExtent`（[说明](src/vue/useLayoutExtent.md)） | `./vue` |
 | 一组可拖的东西（拖动会话） | `useDragSession`、`createDragSession`（[说明](src/vue/drag-session.md)；示例见 tabbed-panels、ide，整窗移动见 desktop） | `./vue` |
@@ -143,7 +152,8 @@ function toggleFiles(): void {
 | 只要一行或一列的分栏 | `Splitter` | `./vue` |
 | 可排序的列表 | `SortableList`、`useSortable` | `./vue` |
 | 浮动窗的把手 | `FloatWindowHandles`（示例见 desktop） | `./vue` |
-| 把浮动窗的矩形夹进一块区域、按手柄改尺寸 | `clampFloatRect`、`resizeFloatRect`（都只收尺寸、从 0 开始：区域不在网格根原点时先减掉原点；示例见 desktop） | 根 |
+| 某块叶此刻摆在哪（把浮动窗夹进这块叶） | `NestedGrid.leafRect(id)`（expose；[说明](src/vue/NestedGrid.md)） | `./vue` |
+| 把浮动窗的矩形夹进一块区域、按手柄改尺寸 | `clampFloatRect`、`resizeFloatRect`（夹取的区域可带原点，缺省整扇窗留在里面；改尺寸可给区域当边界；示例见 desktop） | 根 |
 | 换主题 | 设 `--nb-layout-*` 变量；全部名单 `NB_LAYOUT_THEME_VARS` | 根 |
 | 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；只有一种语言时用 `layoutCatalogTranslate`；目录在 `./locales` | `./text`、`./locales` |
 | 分隔线读屏时念出面板的名字，不念 id | `NestedGrid` 的 paneLabel 属性、`Splitter` 面板配置的 label | `./vue` |
@@ -158,14 +168,15 @@ function toggleFiles(): void {
   ```ts
   // 宿主按引用记着的运行期策略；没列在这里的（例如拆分出来的 preview）按比例分、没有收起策略。
   const policies: Record<string, Omit<GridRefResolution<string>, "ref">> = {
-      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24}},
+      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24}},
   };
   const known = new Set(["files", "editor", "preview"]); // 宿主此刻还有的内容
-  const grid = createGrid<string>(null, {sashSize: 4}); // 恢复也要给 sashSize：它不在快照里
-  const result = grid.restore(saved, (ref) => (known.has(ref) ? {ref, ...policies[ref]} : null)); // 宿主已经没有的内容返回 null
+  // 宿主已经没有的内容返回 null；恢复也要给 sashSize：它不在快照里
+  const result = restoreGrid<string>(saved, (ref) => (known.has(ref) ? {ref, ...policies[ref]} : null), {sashSize: 4});
+  const grid = result.ok ? result.grid : null; // 失败时结果里没有 grid；存档原件要留着，见下面“读失败时保留原件”
   ```
 
-  `GridRefResolution` 从根入口导出。收起状态要跨会话保存的，宿主自己另存（`setCollapsed` 的结果、`grid.find(id).collapse`），恢复时放进 `policies` 里对应的 `collapse`。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
+  `restoreGrid`、`GridRefResolution` 从根入口导出。收起状态要跨会话保存的，宿主另存 `collapsed`（`setCollapsed` 的结果、`grid.find(id).collapse`），恢复时放进 `policies` 里对应的 `collapse`；展开回到意图，意图已经在快照里。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
 - **意图的单位**：节点的 `size` 是意图。保留像素（`sizing: "fixed"`）的意图是像素；按比例分的意图是同一分支里按比例分的兄弟之间的相对份额，单位由兄弟决定。增删与移动不改兄弟的意图：保留像素的栏宽度不变，按比例分的按份额重分；新加的按比例分的叶不给意图就平分一份，要等分就别给（细则见 [`grid`](src/grid.md) 的“结构操作”）。
 - **`maximumSize` 的 0 就是上限 0**，不是不限：只给主轴约束的叶，交叉轴的上限写 `Infinity`，或者整个 `maximumSize` 不写。写成 0 时 `layout()` 报出的那根轴的尺寸是 0（`NestedGrid` 按父分支的盒子画，画面上看不出来，读布局结果的代码会读到 0）：
 
@@ -173,9 +184,9 @@ function toggleFiles(): void {
   {kind: "leaf", id: "nav", ref: "nav", sizing: "fixed", size: {width: 188, height: 0},
       minimumSize: {width: 150, height: 0}, maximumSize: {width: 300, height: Number.POSITIVE_INFINITY}}
   ```
-- **读失败时保留原件**：`restore` 失败（版本不认识、结构坏了）时树不变；成功但 `dropped` 非空，说明有引用没解析出来。推荐的做法是两种情况都把存档原件留着，不要拿缺省布局覆盖它，等宿主修好了还能再读。
-- **层数与节点数的上限**：拆分与插入在超过 16 层或 256 个节点（`GRID_MAX_DEPTH`、`GRID_MAX_NODES`）时被拒，返回 `limit-exceeded`、树不变；建树与恢复不按它拒绝。拖标签到边缘拆分这类交互要预料到它会被拒。
-- **窗口太窄不报错**：放不下时库按约束压缩，并在 `layout().issues` 里给诊断（例如 `over-constrained`）。想知道放不放得下，读布局结果里根节点的 `constraints`（最小尺寸）。
+- **读失败时保留原件**：`restoreGrid` 失败（版本不认识、结构坏了）时结果里没有网格，原地的 `grid.restore` 失败时树不变；成功但 `dropped` 非空，说明有引用没解析出来。推荐的做法是两种情况都把存档原件留着，不要拿缺省布局覆盖它，等宿主修好了还能再读。
+- **层数与节点数的上限**：根算第 1 层，最多 16 层、256 个节点（`GRID_MAX_DEPTH`、`GRID_MAX_NODES`）。拆分、插入与移动按这次新造出来的那一处判，超了返回 `limit-exceeded`、树不变；同向拆分并进父分支、不加深。恢复超过 16 层或 256 个节点的快照整体拒绝；`createGrid` 不查。拖标签到边缘拆分这类交互要预料到它会被拒。
+- **窗口太窄不报错**：放不下时库按约束压缩，并在 `layout().issues` 里给诊断（例如 `over-constrained`）。想知道放不放得下，读布局结果里根节点的 `constraints`（最小尺寸）；想先知道一次操作之后放不放得下，在 `grid.clone()` 上照做一遍读它的 `issues`。
 - **键盘**：`moveGridFocus(container, "next" | "previous")` 在叶之间按树序移动焦点，返回移动了没有（宿主据此决定要不要 `preventDefault`）；`container` 是包着网格的元素。只有前后两个方向，没有上下左右；只停在叶里能聚焦的元素上，叶里没有就跳过。F6 的键位由宿主登记；标签条里的左右键与漫游 `tabindex` 是宿主的事。
 - **两种矩形**：`placeGrid` 给的是 `{x, y, width, height}`，相对网格根的 CSS px（`NestedGrid` 的 `placeLifted` 也收这种）；落点几何用 `{left, top, right, bottom}`，视口坐标（`clientX`、`clientY`）。库不替你互转：减掉网格根在视口里的左上角就是前者。
 - **自己画的拖动反馈**要带 `data-drag-feedback`：拖动会话判定落点时跳过它们，不然它们会挡住指针下的目标。`sourceAt` 里要自己排除可交互的元素（按钮、输入框），不然点按钮也会起拖。

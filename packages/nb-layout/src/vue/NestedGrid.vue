@@ -13,7 +13,7 @@
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
-import {settleFloatMoves} from "../grid-motion";
+import {consumedReleases, floatRectJumps, settleFloatMoves, stableOrder} from "../grid-motion";
 import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
@@ -55,7 +55,10 @@ const props = withDefaults(defineProps<{
     onGestureCommit?: (commit: GridGestureCommit) => {readonly ok: true} | GridFailure;
     /** 内容层（docs/specs/ui/nested-grid.md 输出 80）：和叶外框同一父元素的内容，换叶不重建。不传时内容放在 `leaf` 插槽里。 */
     contents?: ReadonlyArray<GridContentInput>;
-    /** 最大化（docs/specs/ui/nested-grid.md 输出 97）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
+    /**
+     * 最大化（docs/specs/ui/nested-grid.md 输出 97）：这块叶盖住除 `exclude` 以外全部叶的外接矩形，别的面板不动。只在内存，宿主决定。
+     * `exclude` 里的叶只有落在这个外接矩形之外才露出来，夹在别的叶中间的照样被盖住（同名 .md 的“最大化”）。
+     */
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
     /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形由 `placeLifted` 写。变成 null 时飞回它的叶。 */
     lifted?: {readonly key: string} | null;
@@ -63,7 +66,7 @@ const props = withDefaults(defineProps<{
     dragging?: boolean;
     /** 浮动窗（docs/specs/ui/nested-grid.md 输出 101）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
-    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
+    /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id，孩子是分支时就是分支 id（同名 .md 的“分隔线的身份”）。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
     /**
      * 写在分隔线元素上的内联样式（多半是 CSS 变量），宿主据此在线所占的那一条里画东西，例如两张拼起来的卡片之间那一条的底色。
@@ -72,7 +75,8 @@ const props = withDefaults(defineProps<{
     sashStyle?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => Record<string, string> | undefined) | undefined;
     /**
      * 宿主让这条分隔线此刻不能拖（指针、键盘都不行，线照画）：例如一列分节全部收成标题行时（垫底的那一节在吸收余量，拖开时预览与结果对不上）。
-     * 不给就都能拖；交换里滑出去的、零长的线照旧不能拖。
+     * 不给就都能拖；交换里滑出去的、零长的线照旧不能拖。`before`、`after` 同 `sashKind`，可能是分支 id。
+     * 每次渲染分隔线时都调、不缓存：读响应式状态，结果才跟着它变。
      */
     sashDisabled?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => boolean) | undefined;
     /**
@@ -121,6 +125,11 @@ const emit = defineEmits<{
      * 所以宿主不用自己再量一遍承载盒。
      */
     (e: "extent", extent: GridExtent | null): void;
+    /**
+     * 抬升的请求（Spec 输出 173）：指针在一扇浮动窗上按下（捕获阶段判，手柄阻止冒泡也收得到；外框、内容、手柄层，含其中嵌的网格），或焦点进入它，
+     * 它又不是 `floats` 的最后一个。网格不改次序，宿主把它挪到 `floats` 末尾。
+     */
+    (e: "float-raise", id: string): void;
 }>();
 
 defineSlots<{
@@ -160,7 +169,7 @@ const snapHost = useSashSnap(rootEl);
 const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (issue) => emit("issues", [issue])});
-const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
+const {moving, growing, docking, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
@@ -193,9 +202,73 @@ const obscuredLeaves = computed<ReadonlySet<string>>(() => {
 const FLOAT_Z_BASE = 10;
 const floatAt = computed(() => new Map(props.floats.map((float, index) => [float.id, index])));
 const floatGestures = computed(() => new Map(props.floats.flatMap((float) => (float.gesture === undefined ? [] : [[float.id, float.gesture] as const]))));
+/** 上一次判过渡时带着手势的窗：手势撤掉与矩形变化在同一次渲染里（缩放、整窗拖动的提交）时，它的 `animate` 不算（输出 105）。 */
+let lastGestures: ReadonlySet<string> = new Set();
+/** 拖动中每扇窗最后一次的偏移（`placeFloat`），放开时转进 `released`。 */
+const floatOffsets = new Map<string, {readonly x: number; readonly y: number}>();
+/**
+ * 刚放开的窗（id 到松手时的偏移，输出 172）：每次判过渡时交给 `motion.update`，按窗用掉（`consumedReleases`：窗离开了 `floats` 或矩形变了），
+ * 别的更新不清它：宿主可能先撤手势、`nextTick` 之后才停靠。没有用掉的（取消、只撤了手势）下一帧清掉，不留到以后误用。
+ * 所以宿主在 `placeFloat(id, null)` 之后、下一帧之前发布的变化从松手处出发，更晚发布的照旧从记录矩形出发。
+ */
+let released = new Map<string, {readonly x: number; readonly y: number}>();
+let releaseFrame: number | null = null;
+function clearReleased(): void {
+    if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
+    releaseFrame = null;
+    released = new Map();
+}
+/**
+ * 这一轮改了矩形、不过渡的浮动窗（节点 id，`floatRectJumps`，输出 105、172）：别的窗或树正在过渡（`moving`）时，它的外框、内容与手柄在写新矩形的那一次渲染不带过渡标记，
+ * 直接画在新矩形上；别的窗与树上的过渡照走。渲染之后（`nextTick`）清掉：那时新矩形已经画上，再带回标记也不会从旧矩形滑过去。
+ * 不按每次判定现算：同一轮刷新里侦听会重入（起点经内容层改了 `layers`），重入时上一次的项已经是新矩形，现算是空的，渲染就带上了标记。
+ */
+const floatJumps = shallowRef<ReadonlySet<string>>(new Set());
+let floatJumpsClearing = false;
+function holdFloatJumps(jumps: ReadonlySet<string>): void {
+    floatJumps.value = new Set([...floatJumps.value, ...jumps]);
+    if (floatJumpsClearing) return;
+    floatJumpsClearing = true;
+    void nextTick(() => {
+        floatJumpsClearing = false;
+        floatJumps.value = new Set();
+    });
+}
 function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
+}
+/**
+ * 手柄层的渲染次序（Spec 输出 103）：抬升只改 `z-index`，不搬节点。按 `floats` 的次序渲染的话，抬升会让 Vue 搬手柄层的节点，
+ * 按在手柄上的焦点就丢了。所以和外框、内容一样由上一轮的次序算（`stableOrder`：还在的保持相对次序，新的排在它在 `floats` 里前一扇之后）。
+ * 理由同 `useRenderOrder`：必须在 `computed` 里同步算，每轮只算一次，“上一轮”不会漂移；不要在它之外再读 `renderedChrome`。
+ */
+let renderedChrome: string[] = [];
+const chromeFloats = computed<ReadonlyArray<GridFloatInput>>(() => {
+    const byId = new Map(props.floats.map((float) => [float.id, float]));
+    renderedChrome = stableOrder(renderedChrome, props.floats.map((float) => float.id));
+    return renderedChrome.map((id) => byId.get(id) as GridFloatInput);
+});
+/**
+ * 事件落在哪扇浮动窗上：从目标往上走到网格根的直接子元素（外框、内容、手柄层），读它的标记。嵌在窗内容里的网格的元素也走到外层这扇窗；
+ * 不在窗上（树里的叶、分隔线、盖层）时为 null。
+ */
+function floatOfTarget(target: EventTarget | null): string | null {
+    const root = rootEl.value;
+    let element = target instanceof Element ? target : null;
+    while (element !== null && element.parentElement !== root) element = element.parentElement;
+    if (!(element instanceof HTMLElement)) return null;
+    const id = element.dataset.leaf ?? element.dataset.contentLeaf ?? element.dataset.floatChrome;
+    return id !== undefined && floatAt.value.has(id) ? id : null;
+}
+/** 按下或焦点进入一扇窗时请求抬升（输出 173）；已在最上面不发。 */
+function requestRaise(target: EventTarget | null): void {
+    const id = floatOfTarget(target);
+    if (id !== null && floatAt.value.get(id) !== props.floats.length - 1) emit("float-raise", id);
+}
+function onFocusin(event: FocusEvent): void {
+    focus.onFocusin(event);
+    requestRaise(event.target);
 }
 /** 叶的卡片形状（`leafShape`）。浮动窗不按它裁：窗的投影画在外框自身，外框一裁就没了。 */
 function shapeOf(leaf: string): GridLeafShape | undefined {
@@ -296,7 +369,7 @@ const {sashKindOf, sashBoxStyle, sashProps} = useSashPresentation({
  * 起点立即生效，下一次写终点时再带上，过渡才从起点开始。新出现的元素没有上一帧的样式，带不带都一样。
  */
 function contentMoving(item: GridContentPlacement): boolean {
-    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item));
+    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item)) && !floatJumps.value.has(item.leaf);
 }
 
 /**
@@ -305,6 +378,11 @@ function contentMoving(item: GridContentPlacement): boolean {
  */
 function structureMoving(key: string): boolean {
     return moving.value && !growing.value.has(key);
+}
+
+/** 叶外框带不带过渡标记：同 `structureMoving`，这一轮改了矩形、不过渡的浮动窗（`floatJumps`）不带。 */
+function frameMoving(item: GridLeafPlacement<unknown>): boolean {
+    return structureMoving(item.key) && !floatJumps.value.has(item.node.id);
 }
 
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
@@ -329,8 +407,12 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     }
     // 先判过渡，再停放：这一次有叶离开、要留着缩回去时，停放与内容层要把它当作还在（降到零），否则先丢了它最后的尺寸。
     const root = renderTree.value;
+    const releasing = released;
+    // 标了 `animate`、这一次与上一次都不在手势里、不是刚放开的窗：矩形变化照常过渡（输出 105）。
+    const animated = new Set(props.floats.flatMap((float) => (float.animate === true && float.gesture === undefined && !lastGestures.has(float.id) && !releasing.has(float.id) ? [float.id] : [])));
+    const jumps = previous === undefined ? new Set<string>() : floatRectJumps(next, previous, animated);
     motion.update({
-        items: previous === undefined ? next : settleFloatMoves(next, previous),
+        items: previous === undefined ? next : settleFloatMoves(next, previous, animated),
         previous: previous ?? null,
         rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null),
         extent: placementExtent.value,
@@ -338,7 +420,15 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         previewing: preview.value !== null,
         holding: liftedKey !== null || props.dragging,
         swap: takeSwap(),
+        ...(releasing.size === 0 ? {} : {released: releasing}),
     });
+    lastGestures = new Set(floatGestures.value.keys());
+    // 没有过渡时本来就不带标记，不用记（拖着缩放时每一帧都改矩形）。
+    if (jumps.size > 0 && moving.value) holdFloatJumps(jumps);
+    if (releasing.size > 0) {
+        for (const id of consumedReleases(next, previous ?? [], releasing)) released.delete(id);
+        if (released.size === 0) clearReleased();
+    }
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
@@ -513,7 +603,17 @@ watch(() => [props.node, props.layout, props.disabled, props.onGestureCommit] as
     if (onlyZeroWidthBoundaries(node, layout)) warnDev("sash-size-zero", `has 0px sashes on every boundary that could be dragged, so nothing can be dragged. createGrid's sashSize defaults to 0; pass a positive sashSize.`);
 }, {immediate: true});
 
+/**
+ * 起拖时过渡还在走（Spec 输出 159）：宿主的拖动会话没在起拖时调 `settleMotion()`，判定量到的是过渡中间的矩形。
+ * 必须是 sync：属性一赋值就跑，早于同一次更新里 `layers` 的 pre 侦听开始的新过渡，读到的是这次更新之前的过渡状态。宿主在起拖的
+ * 同一次更新里改了布局、过渡是这次才开始的，不算漏调；写成 pre 会排在那个侦听之后、把它误报出来。
+ */
+watch(() => props.dragging, (now, before) => {
+    if (now && !before && layoutDevChecksEnabled() && motion.moving.value) warnDev("drag-during-motion", `got dragging=true while a layout transition was still running, so the drag measured mid-transition rects. Call settleMotion() when the drag activates (createLiveDragSession does this itself).`);
+}, {flush: "sync"});
+
 onBeforeUnmount(() => {
+    clearReleased();
     // 手势在 `useSashGesture` 自己的卸载钩子里先收尾（它在这条之前注册）：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
     // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
     emit("extent", null);
@@ -536,6 +636,19 @@ function placeLifted(rect: GridRect): void {
  * 窗的外框、每个标签的内容、手柄都是网格根的直接子元素，一起挪。
  */
 function placeFloat(id: string, offset: {readonly x: number; readonly y: number} | null): void {
+    // 记下松手时的偏移（输出 172）：下一帧之前发布的变化从这里出发。下一帧清掉。
+    if (offset !== null) floatOffsets.set(id, offset);
+    else {
+        const last = floatOffsets.get(id);
+        floatOffsets.delete(id);
+        if (last !== undefined && (last.x !== 0 || last.y !== 0)) {
+            released.set(id, last);
+            releaseFrame ??= requestAnimationFrame(() => {
+                releaseFrame = null;
+                released = new Map();
+            });
+        }
+    }
     const translate = offset === null ? "" : `${String(offset.x)}px ${String(offset.y)}px`;
     for (const child of rootEl.value?.children ?? []) {
         const {dataset, style} = child as HTMLElement;
@@ -556,6 +669,15 @@ defineExpose({
     placeLifted,
     placeFloat,
     /**
+     * 树里这块叶此刻的矩形（相对网格根，CSS px，Spec 输出 174）：与网格渲染同一份树的摆放，手势预览中是预览的，最大化时最大化的那块是盖住的外接矩形，
+     * 取整与网格相同。浮动窗、离开中的叶、不存在的 id 交回 null。读的是树的摆放而不是含浮动窗的那份：宿主多半由它算 `floats`，读后者会让
+     * “叶的矩形 → floats → 摆放 → 叶的矩形”转个不停。在计算属性里调用，摆放变了会重算。
+     */
+    leafRect: (id: string): GridRect | null => {
+        const found = treePlacement.value?.items.find((item) => item.kind === "leaf" && item.node.id === id);
+        return found?.rect ?? null;
+    },
+    /**
      * 离开、过渡结束前还画着的叶（节点 id）：离开了的（已经不在 `node` 里，缩回去或交换里滑出去）与降到零的（还在，尺寸已经是零）。宿主按它们离开之前的样子
      * 画挨着的东西（相连的卡片），不按这一刻的布局：那已经是终点了。过渡结束就空了。
      */
@@ -575,7 +697,7 @@ defineExpose({
 </script>
 
 <template>
-    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="order.ariaOwns.value" @keydown="focus.onKeydown" @focusin="focus.onFocusin">
+    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="order.ariaOwns.value" @keydown="focus.onKeydown" @focusin="onFocusin" @pointerdown.capture="requestRaise($event.target)">
         <span v-if="order.outOfOrder.value" :ref="(el) => (focus.enterSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
         <!-- 在所有外框之前：外框不写 z-index，按 DOM 序叠在它上面。 -->
         <div v-if="swapBackdrop !== null && $slots['swap-backdrop'] !== undefined" class="nb-grid-swap-backdrop" data-swap-backdrop aria-hidden="true" :style="swapBackdrop.style">
@@ -587,9 +709,9 @@ defineExpose({
                 :id="domIdOf(item.key)"
                 class="nb-grid-frame"
                 :data-leaf="item.node.id"
-                :data-moving="structureMoving(item.key) ? '' : undefined"
+                :data-moving="frameMoving(item) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
-                :data-float="floatAt.has(item.node.id) ? '' : undefined"
+                :data-float="floatAt.has(item.node.id) || docking.has(item.key) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
@@ -628,7 +750,7 @@ defineExpose({
             </div>
         </template>
         <template v-if="$slots['float-chrome'] !== undefined">
-            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
+            <div v-for="float in chromeFloats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving && !floatJumps.has(float.id) ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
                 <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
@@ -765,7 +887,7 @@ defineExpose({
 }
 
 /*
- * 浮动窗回到树里（叶不换）：这一次渲染摘掉 `data-float`，窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
+ * 浮动窗回到树里（叶不换）：带着过渡标记的那一次渲染摘掉 `data-float`（从起点出发时晚一次，见 `useGridMotion` 的 `docking`），窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
  * 一下子摘掉的话飞回去的只是一块没有边的底色，像没有动画。三样都用加速的曲线，到快落地才没：圆角跟着位置先变直，底色还没淡，半路就是一张方角的卡片。
  * 别的叶这几样不变，过渡不到它们。
  */

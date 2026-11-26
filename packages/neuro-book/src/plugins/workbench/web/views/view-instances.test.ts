@@ -23,11 +23,15 @@ afterEach(() => {
     for (const scope of scopes.splice(0)) scope.stop();
 });
 
-function instancesFor(heads: Readonly<Record<string, boolean>>): ViewInstances {
+/** 每个视图申请了什么：`true` 是标题区，`{band}` 是标题区加自绘头，`{band, head: false}` 是只声明了自绘头（注册表这时不交回它）。 */
+function instancesFor(heads: Readonly<Record<string, boolean | {readonly band: number}>>): ViewInstances {
     const ids = new Set(Object.keys(heads));
     const source: ViewSource = {
         delivery: () => ({kind: "available"}),
-        load: async (viewId) => ({status: "loaded", component: Sample, ...(heads[viewId] === true ? {head: true} : {})}),
+        load: async (viewId) => {
+            const wanted = heads[viewId];
+            return {status: "loaded", component: Sample, ...(wanted === true || typeof wanted === "object" ? {head: true} : {}), ...(typeof wanted === "object" ? {ownHead: wanted} : {})};
+        },
         retry: async () => ({status: "not-failed"}),
     };
     const scope = effectScope();
@@ -83,6 +87,26 @@ describe("视图实例的标题区", () => {
         second!.press();
         expect(first.head.slots.value).toBeNull();
         expect(pressed).toEqual([]);
+    });
+
+    it("自绘头（输出 19 的“自绘头”）：声明了的实例就绪后才有，渲染出错时没有（面板头照常写标题），重试渲染后又有；只交给它这一代的标题区，开始与结束经 `ownHead` 告诉视图", async () => {
+        const instances = instancesFor({"test.own": {band: 40}, "test.head": true});
+        expect(instances.ownHeadOf("test.own")).toBeNull();
+        await ready(instances, "test.own");
+        await ready(instances, "test.head");
+        expect(instances.ownHeadOf("test.own")).toEqual({band: 40});
+        expect(instances.ownHeadOf("test.head")).toBeNull();
+        const control = instances.headOf("test.own")!;
+        expect(control.head.ownHead.value).toBe(false);
+        control.setOwnHead(true);
+        expect(viewHeadOf(instances.contextOf("test.own")!)!.ownHead.value).toBe(true);
+
+        instances.renderError("test.own", instances.instances.get("test.own")!.generation, "boom");
+        expect(instances.ownHeadOf("test.own")).toBeNull();
+        instances.retryRender("test.own");
+        expect(instances.ownHeadOf("test.own")).toEqual({band: 40});
+        // 换代后是新的一份，从“没有自绘”开始，由外壳再写。
+        expect(instances.headOf("test.own")!.head.ownHead.value).toBe(false);
     });
 
     it("没申请的视图没有标题区，它的 context 也取不到", async () => {

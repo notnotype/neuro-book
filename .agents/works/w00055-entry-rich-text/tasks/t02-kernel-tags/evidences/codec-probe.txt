@@ -1,0 +1,97 @@
+w00055 t02 编解码器对照（2026-11-26，演示分支 spike/w00055-t01-expressive 上的临时探针，已删）
+做法：spike 的 createEntryLanguage（没有遮罩）加真实 codecFor；样本 103 块由 {} 按正则换成标签。kept=按原有映射写回，rewritten=不带映射整篇重写（模拟编辑器改过的块）。
+浏览器加载：Vite 开发模式下 import('/@id/acorn')、import('/@id/marked') 在真实 Chrome 里能用，parseExpressionAt 与 GFM 表格分词都正常，没有页面错误。
+
+samples=103 keptSame=103 rewrittenSame=59
+== frontmatter-like
+source: "---\n标题\n---\n正文 <V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter="---\n标题\n---\n"
+kept: "---\n标题\n---\n正文 <V of=\"panel.魔力\" />"
+rewritten: "---\n标题\n---\n正文 <V of=\"panel.魔力\" />"
+== hr-first
+source: "---\n\n正文 <V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "---\n\n正文 <V of=\"panel.魔力\" />"
+rewritten: "---\n\n正文 <V of=\"panel.魔力\" />"
+== line-only-tag
+source: "第一段\n\n<V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "第一段\n\n<V of=\"panel.魔力\" />"
+rewritten: "第一段\n\n<V of=\"panel.魔力\" />"
+== line-only-if
+source: "<If test=\"panel.魔力 >= 1000\">能变身<Else />不能</If>"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "<If test=\"panel.魔力 >= 1000\">能变身<Else />不能</If>"
+rewritten: "<If test=\"panel.魔力 >= 1000\">能变身<Else />不能</If>"
+== table
+source: "| 项 | 值 |\n|---|---|\n| 魔力 | <V of=\"panel.魔力\" /> |\n| 条件 | <If test=\"panel.魔力 >= 1 || panel.存款 > 0\">有<Else />无</If> |"
+atoms=0 tagsInSource=2 raws=["| 项 | 值 |\n|---|---|\n| 魔力 | <V of=\"panel."] frontmatter=""
+kept: "| 项 | 值 |\n|---|---|\n| 魔力 | <V of=\"panel.魔力\" /> |\n| 条件 | <If test=\"panel.魔力 >= 1 || panel.存款 > 0\">有<Else />无</If> |"
+rewritten: "| 项 | 值 |\n|---|---|\n| 魔力 | <V of=\"panel.魔力\" /> |\n| 条件 | <If test=\"panel.魔力 >= 1 || panel.存款 > 0\">有<Else />无</If> |"
+== list
+source: "- 魔力 <V of=\"panel.魔力\" />\n- 存款\n  <V of=\"panel.存款\" />"
+atoms=2 tagsInSource=2 raws=[] frontmatter=""
+kept: "- 魔力 <V of=\"panel.魔力\" />\n- 存款\n  <V of=\"panel.存款\" />"
+rewritten: "- 魔力 <V of=\"panel.魔力\" />\n\n- 存款\n\n  <V of=\"panel.存款\" />"
+== quote
+source: "> 魔力 <V of=\"panel.魔力\" />\n> 续行 <V of=\"panel.存款\" />"
+atoms=2 tagsInSource=2 raws=[] frontmatter=""
+kept: "> 魔力 <V of=\"panel.魔力\" />\n> 续行 <V of=\"panel.存款\" />"
+rewritten: "> 魔力 <V of=\"panel.魔力\" />\n> 续行 <V of=\"panel.存款\" />"
+== indented
+source: "    缩进四格 <V of=\"panel.魔力\" />"
+atoms=0 tagsInSource=1 raws=["codeBlock:缩进四格 <V of=\"panel.魔力\" />"] frontmatter=""
+kept: "    缩进四格 <V of=\"panel.魔力\" />"
+rewritten: "    缩进四格 <V of=\"panel.魔力\" />"
+== lt
+source: "a < b，存款 <V of=\"panel.存款\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "a < b，存款 <V of=\"panel.存款\" />"
+rewritten: "a < b，存款 <V of=\"panel.存款\" />"
+== hard-break-two-spaces
+source: "第一行  \n第二行 <V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "第一行  \n第二行 <V of=\"panel.魔力\" />"
+rewritten: "第一行  \n第二行 <V of=\"panel.魔力\" />"
+== hard-break-backslash
+source: "第一行\\\n第二行"
+atoms=0 tagsInSource=0 raws=[] frontmatter=""
+kept: "第一行\\\n第二行"
+rewritten: "第一行\\\n第二行"
+== br-only
+source: "<br>"
+atoms=0 tagsInSource=0 raws=[] frontmatter=""
+kept: "<br>"
+rewritten: "<br>"
+== code
+source: "`<V of=\"panel.魔力\" />` 是写法"
+atoms=0 tagsInSource=1 raws=["`<V of=\"panel.魔力\" />` 是写法"] frontmatter=""
+kept: "`<V of=\"panel.魔力\" />` 是写法"
+rewritten: "`<V of=\"panel.魔力\" />` 是写法"
+== crlf
+source: "第一段 <V of=\"panel.魔力\" />\r\n\r\n第二段"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "第一段 <V of=\"panel.魔力\" />\r\n\r\n第二段"
+rewritten: "第一段 <V of=\"panel.魔力\" />\n\n第二段"
+== tilde
+source: "单个~波浪线~与 ~~删除~~"
+atoms=0 tagsInSource=0 raws=[] frontmatter=""
+kept: "单个~波浪线~与 ~~删除~~"
+rewritten: "单个~波浪线~与 ~~删除~~"
+== task
+source: "- [ ] 待办 <V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "- [ ] 待办 <V of=\"panel.魔力\" />"
+rewritten: "- [ ] 待办 <V of=\"panel.魔力\" />"
+== autolink
+source: "<https://example.com> 与 <V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "<https://example.com> 与 <V of=\"panel.魔力\" />"
+rewritten: "<https://example.com> 与 <V of=\"panel.魔力\" />"
+== strong-html
+source: "<strong>粗</strong> <V of=\"panel.魔力\" />"
+atoms=1 tagsInSource=1 raws=[] frontmatter=""
+kept: "<strong>粗</strong> <V of=\"panel.魔力\" />"
+rewritten: "<strong>粗</strong> <V of=\"panel.魔力\" />"
+
+样本里 rewritten 与原文不同的 44 块全是空行规范化（标题后、列表前补空行），标签与落点不变。

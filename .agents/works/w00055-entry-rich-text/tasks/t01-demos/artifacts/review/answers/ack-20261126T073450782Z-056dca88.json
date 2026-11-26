@@ -1,0 +1,13 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t01-demos",
+    "artifactId": "review",
+    "ackId": "20261126T073450782Z-056dca88",
+    "answers": [
+        "20261126T073435197Z-b2c4fe10"
+    ],
+    "through": "20261126T073435197Z-b2c4fe10",
+    "included": [],
+    "ackedAt": "2026-11-26T07:34:50.782Z"
+}

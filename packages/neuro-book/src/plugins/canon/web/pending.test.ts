@@ -77,7 +77,7 @@ describe("pendingDetail", () => {
         expect(detail.facts).toEqual([{label: "正文写的数", value: "500"}, {label: "算出来的数", value: "1,000"}]);
         expect(detail.suspects).toEqual([
             {key: "c2", text: "情节c2", place: "第 2 章", estimate: true, target: {kind: "change", id: "c2"}, initial: false},
-            {key: "init", text: "初值", place: "", estimate: false, target: {kind: "entry", id: "e1"}, initial: true},
+            {key: "init", text: "最初", place: "", estimate: false, target: {kind: "entry", id: "e1"}, initial: true},
         ]);
         expect(pendingDetailNeeds(mismatch(1000)).refs).toEqual([{kind: "check", id: "k1"}, {kind: "change", id: "c2"}]);
         expect(pendingNeeds(mismatch(1000)).entries).toEqual(["e1"]);

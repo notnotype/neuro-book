@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t03-design
-status: active
-updated: 2026-11-05
+status: done
+updated: 2026-11-26
 ---
 
 # 提案、ADR 与 Spec 改动：一棵树与 nb-layout
@@ -20,3 +20,7 @@ updated: 2026-11-05
 ## 下一步
 
 t05 之前写 Spec：`ui/nested-grid.md` 改成 `nb-layout` 的合同（条目级 planned 或新 Spec，按 `writing-specs` 先列能力地图）；外壳、视图、命令、编辑器、资源树的改动按提案“对 Spec 的预期改动”，随对应切片落地。
+
+## 收尾
+
+2026-11-26 w00026 收尾时核对：提案第二稿已接受、ADR 0044 已写；“下一步”说的 Spec 改动由后来的 Task 落地：nb-layout 的合同在 t05 起逐步写进 `ui/nested-grid`，t30 把两份布局 Spec 重写并晋升，t54 逐句核对后晋升。没有剩下的事，标为完成。

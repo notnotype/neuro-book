@@ -77,4 +77,5 @@ updated: 2026-11-15
 | [t23](tasks/t23-macos-desktop/README.md) | macOS 桌面版（Apple Silicon，未签名）：GitHub Actions 构建并补传到 Release（2026-11-18 开发者提出，尽力而为）。v0.14.1 的 Release 上已有 DMG，等真机反馈 |
 | [t24](tasks/t24-release-one-command/README.md) | 发版跑通：CI 全绿、一条命令发版（`bun run release`）、macOS 并入 Release 流水线、Release 说明由谁写的调研（2026-11-20 开发者提出）。完成，v0.15.0 经流水线发出（npm 与 Release） |
 | [t25](tasks/t25-release-0-16-0-17/README.md) | 发 v0.16.0、v0.17.0（2026-11-23、24 经流水线发出）；推送 CI 40 次里 25 次失败的逐次归类，失同步竞态已修，S10 与 shell 输出 21 待现场数据；发版命令加目录干净预检与 macOS 自动重跑 |
+| [t26](tasks/t26-resume-last-project/README.md) | 打开 NeuroBook 时回到上次的作品（启动类入口、只回最近一个、设置“启动时打开”缺省上次的作品）。完成，合入 master，Windows 安装版冒烟验证 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |

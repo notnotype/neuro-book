@@ -59,9 +59,9 @@ updated: 2026-11-24
 | [t02](tasks/t02-selection/README.md) | 选型：身份库、数据库访问与测试里的 PostgreSQL |
 | [t03](tasks/t03-architecture/README.md) | 架构细节讨论与提案 |
 | [t04](tasks/t04-adr-and-specs/README.md) | ADR 0059 到 0061 与七份 `planned` Spec（已写，假设待追认） |
-| [t05](tasks/t05-scaffold/README.md) | 脚手架：包、进程入口、迁移、合同测试底座、镜像（未开工） |
-| [t06](tasks/t06-telemetry-ingest/README.md) | 统计模块：三个写入口、原始上报留 7 天、聚合（未开工） |
-| [t07](tasks/t07-identity-core/README.md) | 账号核心（未开工） |
+| [t05](tasks/t05-scaffold/README.md) | 脚手架：包、进程入口、迁移、合同测试底座、镜像（已完成，2026-11-25 合入 master） |
+| [t06](tasks/t06-telemetry-ingest/README.md) | 统计模块：三个写入口、原始上报留 7 天、聚合（已完成，2026-11-25 合入 master） |
+| [t07](tasks/t07-identity-core/README.md) | 账号核心：密码注册与登录、两种码、会话、资料、同意、管理与审计、限流（已完成，2026-11-25 合入 master） |
 | [t08](tasks/t08-social-login-and-oauth-provider/README.md) | 社交登录与对外 OAuth 服务（未开工） |
 | [t09](tasks/t09-frontend-design-review/README.md) | 前端设计评审（未开工） |
 | [t10](tasks/t10-frontend/README.md) | 前端实现（未开工） |

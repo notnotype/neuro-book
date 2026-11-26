@@ -23,7 +23,8 @@ export const complete: Complete = async (env, options) => {
     const profile = (await env.profiles.resolve(options.profile)) as (AnyProfile & {tools?: {required?: readonly string[]; optional?: readonly string[]}; system?: unknown}) | undefined;
     if (profile === undefined) return {ok: false, code: "unknown-profile"};
     if ((profile.tools?.required?.length ?? 0) + (profile.tools?.optional?.length ?? 0) > 0) return {ok: false, code: "profile-has-tools"};
-    const assembled = assemble(profile, []);
+    // 单次请求不装插件扩展，也不检查引用（runtime.md 输出 56）：引用了按需扩展的 Profile 照样能用。
+    const assembled = assemble(profile, [], {references: "ignore"});
     if (!assembled.ok) return {ok: false, code: "unknown-profile"};
     const resolution = env.models.resolve({settings: DEFAULT_CORE_SETTINGS, purpose: "background", profile: options.profile});
     if (!resolution.ok) return {ok: false, code: resolution.code};

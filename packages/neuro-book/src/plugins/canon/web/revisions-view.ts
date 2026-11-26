@@ -1,6 +1,6 @@
 /**
  * “改动记录”视图（docs/specs/canon/author-ui.md 输出 24、33）：底部面板里的一个隐式容器。筛选与当前行记在窗口里
- * （`RevisionsViewState`），视图停放、卸载再挂上时还在。读取、还原与“看回执”在宿主 `RevisionsViewHost`；这里只按窗口有没有
+ * （`RevisionsViewState`），视图停放、卸载再挂上时还在。读取、还原与“查看详情”在宿主 `RevisionsViewHost`；这里只按窗口有没有
  * 绑定项目挂宿主，并把视图上下文的 `visible` 交给它（不可见时不读，输出 26）。
  */
 

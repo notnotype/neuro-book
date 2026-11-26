@@ -10,7 +10,7 @@ import {setLayoutDevChecks} from "../dev-checks";
 import {useGridHost, type GridHostIssue} from "./useGridHost";
 
 /**
- * 开发模式的配置检查（Spec `ui/nested-grid` 输出 151）：真实的 `NestedGrid` 与 `useGridHost`，手势照真实路径走。
+ * 开发模式的配置检查（Spec `ui/nested-grid` 输出 151、158、159）：真实的 `NestedGrid` 与 `useGridHost`，手势照真实路径走。
  * happy-dom 没有布局引擎，照 `useGridHost.dom.test.ts` 桩掉布局盒与矩形；`console.warn` 用桩接住、只数次数与内容。
  */
 
@@ -147,7 +147,7 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         // 收成标题行的面板（主轴上刚性）夹在中间：同上。
         const titled = createGrid<string>({kind: "branch", id: "root", orientation: "vertical", children: [
             {kind: "leaf", id: "a", ref: "a", size: {width: 0, height: 300}},
-            {kind: "leaf", id: "t", ref: "t", size: {width: 0, height: 200}, minimumSize: {width: 0, height: 100}, collapse: {collapsed: true, collapsedSize: 28, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}},
+            {kind: "leaf", id: "t", ref: "t", size: {width: 0, height: 200}, minimumSize: {width: 0, height: 100}, collapse: {collapsed: true, collapsedSize: 28, collapseThreshold: 24, expandThreshold: 24}},
             {kind: "leaf", id: "b", ref: "b", size: {width: 0, height: 300}},
         ]});
         mountBare({node: titled.root(), layout: titled.layout(box), onGestureCommit: ACCEPT});
@@ -335,5 +335,109 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         expect(warnings).toHaveLength(2);
         expect(warnings.some((message) => message.includes('"first"'))).toBe(true);
         expect(warnings.some((message) => message.includes('"second"'))).toBe(true);
+    });
+});
+
+/** 不经 `mountHost`、按给定的选项建宿主：用来测 `onIssues` 给没给。 */
+function mountHostWith(options: {contextKey?: string; onIssues?: (issues: readonly GridHostIssue[]) => void}): VueWrapper {
+    const grid = shallowRef(twoColumns(1));
+    const Host = defineComponent({
+        setup() {
+            const host = useGridHost<string>({grid, ...options});
+            return () => h(NestedGrid, host.bindings.value, {leaf: (scope: {node: {id: string}}) => h("div", scope.node.id)});
+        },
+    });
+    const wrapper = mount(Host, {attachTo: document.body});
+    wrappers.push(wrapper);
+    return wrapper;
+}
+
+describe("开发模式：诊断没有出口（Spec 输出 158）", () => {
+    const noOutlet = (): string[] => warnings.filter((message) => message.includes("has no onIssues"));
+
+    it("useGridHost 没给 onIssues：建立时警告一次，带 contextKey；拖动、重渲染之后不再报；没给 contextKey 的写明没有", async () => {
+        const wrapper = mountHostWith({contextKey: "silent"});
+        await nextTick();
+        await nextTick();
+        expect(noOutlet()).toHaveLength(1);
+        expect(noOutlet()[0]).toContain("[nb-layout/useGridHost]");
+        expect(noOutlet()[0]).toContain('grid "silent"');
+        await drag(wrapper);
+        expect(noOutlet()).toHaveLength(1);
+
+        mountHostWith({});
+        expect(noOutlet()).toHaveLength(2);
+        expect(noOutlet()[1]).toContain("the grid without a contextKey");
+    });
+
+    it("给了 onIssues 的不报，什么都不做的 onIssues 也不报；开关关着时没给也不报", async () => {
+        mountHost(twoColumns(1));
+        mountHostWith({contextKey: "ignored", onIssues: () => undefined});
+        setLayoutDevChecks(false);
+        mountHostWith({contextKey: "off"});
+        await nextTick();
+        expect(noOutlet()).toEqual([]);
+    });
+});
+
+describe("开发模式：起拖时过渡还在走（Spec 输出 159）", () => {
+    type Exposed = {settleMotion(): void; readonly moving: boolean};
+    const duringMotion = (): string[] => warnings.filter((message) => message.includes("while a layout transition was still running"));
+    const columns = (left: number): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+        {kind: "leaf", id: "a", ref: "a", size: {width: left, height: 0}, sizing: "fixed"},
+        {kind: "leaf", id: "b", ref: "b", size: {width: 999 - left, height: 0}},
+    ]}, {sashSize: 1});
+
+    /** 网格挂上、过渡时长设好，再发布一次同样的布局：第一次布局回调只记下尺寸、不过渡，之后改宽才会过渡。 */
+    async function mountMoving(key: string, motion: string): Promise<{wrapper: VueWrapper; exposed: Exposed; relayout(left: number, extra?: Record<string, unknown>): Promise<void>}> {
+        const start = columns(500);
+        const wrapper = mount(NestedGrid, {props: {node: start.root(), layout: start.layout(box), contextKey: key, dragging: false}, attachTo: document.body, slots: {leaf: (scope: {node: {id: string}}) => h("div", scope.node.id)}});
+        wrappers.push(wrapper);
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", motion);
+        const relayout = async (left: number, extra: Record<string, unknown> = {}): Promise<void> => {
+            const next = columns(left);
+            await wrapper.setProps({node: next.root(), layout: next.layout(box), ...extra});
+        };
+        await relayout(500);
+        return {wrapper, exposed: wrapper.vm as unknown as Exposed, relayout};
+    }
+
+    it("由程序改布局、过渡在走时 dragging 变真：警告一次，带 contextKey；落下再起、又一轮过渡里再起，都不再报", async () => {
+        const {wrapper, exposed, relayout} = await mountMoving("moving", "10s");
+        await relayout(300);
+        expect(exposed.moving).toBe(true);
+        await wrapper.setProps({dragging: true});
+        expect(duringMotion()).toHaveLength(1);
+        expect(duringMotion()[0]).toContain('NestedGrid "moving"');
+        expect(duringMotion()[0]).toContain("settleMotion()");
+        await wrapper.setProps({dragging: false});
+        await relayout(400);
+        expect(exposed.moving).toBe(true);
+        await wrapper.setProps({dragging: true});
+        expect(duringMotion()).toHaveLength(1);
+    });
+
+    it("起拖前调了 settleMotion() 不报；dragging 与改布局在同一次更新里给（过渡是这次才开始的）也不报", async () => {
+        const settled = await mountMoving("settled", "10s");
+        await settled.relayout(300);
+        expect(settled.exposed.moving).toBe(true);
+        settled.exposed.settleMotion();
+        expect(settled.exposed.moving).toBe(false);
+        await settled.wrapper.setProps({dragging: true});
+
+        const together = await mountMoving("together", "10s");
+        expect(together.exposed.moving).toBe(false);
+        await together.relayout(300, {dragging: true});
+        // 先证明这次更新确实开始了过渡：不然下面的“不报”是空过。
+        expect(together.exposed.moving).toBe(true);
+        expect(duringMotion()).toEqual([]);
+    });
+
+    it("减少动效（过渡时长 0）：改布局不开过渡，dragging 变真不报", async () => {
+        const {wrapper, exposed, relayout} = await mountMoving("reduced", "0ms");
+        await relayout(300);
+        expect(exposed.moving).toBe(false);
+        await wrapper.setProps({dragging: true});
+        expect(duringMotion()).toEqual([]);
     });
 });

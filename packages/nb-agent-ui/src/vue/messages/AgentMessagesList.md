@@ -5,11 +5,11 @@
 
 # AgentMessagesList
 
-“消息”视图的列表（docs/specs/agent/conversation.md 输出 1–3、docs/specs/bots/view.md）：顶上 bot、会话两个标签，bot 一页是 IM 式的联系人列表，会话一页由宿主经插槽放会话面板（`AgentSessionPanel`）。宽版的列表栏与窄版的抽屉是同一个它，所以标签、搜索词与滚动位置在两种版式之间不丢。
+“消息”视图的列表（docs/specs/agent/conversation.md 输出 1–3、docs/specs/bots/view.md）：顶上“Bot”“会话”两个标签，bot 一页是 IM 式的联系人列表，会话一页由宿主经插槽放会话面板（`AgentSessionPanel`）。宽版的列表栏与窄版的抽屉是同一个它，所以标签、搜索词与滚动位置在两种版式之间不丢。
 
 ## 布局与交互
 
-- 标签行：nb-ui 的 `Tabs`（小号），“bot”与“会话”两个标签，bot 标签的计数徽标是所有联系人未读的合计（没有不写）；方向键、roving tabindex 与面板的 `aria-controls`、`aria-labelledby` 随组件。点标签只换这一页，不换聊天区；宿主打开会话时按会话有没有归属切标签。
+- 切换行（高 40 像素）：“Bot”与“会话”两个标题式的标签，没有底线，当前页用主字色与粗一档的字重，另一页用淡色；Bot 标签后面的徽标是所有联系人未读的合计（没有不写）。这是一组 `tablist`：当前页的标签是 Tab 停靠点，左右方向键、`Home`、`End` 换页并把焦点带过去；标签带 `aria-selected` 与面板的 `aria-controls`，面板带 `aria-labelledby`。点标签只换这一页，不换聊天区；宿主打开会话时按会话有没有归属切标签。换页时新的一页淡入（减少动效时直接换）；外框把列表藏起来再显示（抽屉、收起的列表栏）不淡入。标签放不下时裁掉，不压到右端的按钮。这一行右端是插槽 `switch-end`（外框在宽版放收起按钮）。不用 nb-ui 的 `Tabs`：它的底线与窗口边、搜索框叠成三条横线（w00043 t18 评审板第 1 轮）。
 - bot 一页：顶上一个搜索框，按名字筛（大小写不分）；下面一行一个联系人：
   - 头像（没有头像写名字的第一个字）、名字、时间（`last.at`，同会话列表的时间列）；
   - 第二行：在跑时蓝字“正在回复…”，等你时黄字“等你处理”，平时是最后一句话（`last.text`），没有写淡色的“还没有消息”；
@@ -32,6 +32,8 @@ type AgentMessagesListProps = {
     /** 时间列按它算，宿主定期更新。 */
     now: number;
     locale?: AgentLocale;
+    /** 切换这一行是宿主窗口的拖动区（写 `data-window-drag`，`touch-action: none`），宿主自绘窗口头时给；默认 false。 */
+    windowDrag?: boolean;
 };
 
 type AgentMessagesListEmits = {
@@ -45,6 +47,8 @@ type AgentMessagesListEmits = {
 type AgentMessagesListSlots = {
     /** 会话一页的内容（会话面板）。 */
     sessions(): unknown;
+    /** 切换行的右端（外框的收起按钮）；不给时没有。 */
+    "switch-end"?(): unknown;
 };
 ```
 

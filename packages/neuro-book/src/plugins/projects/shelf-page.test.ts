@@ -150,6 +150,8 @@ function shelfProvider(script: Script): PluginDefinition {
                         script.items = script.items.map((entry) => (entry.id === id ? next : entry));
                         return {ok: true as const, value: {id, title: next.title, description: next.description, color: next.color, cover: null}};
                     }),
+                    // 书架页不记“上次的作品”（窗口绑定了作品才记，见 web/plugin.ts）。
+                    opened: () => Promise.resolve({ok: true as const, value: {}}),
                     unregister: ({id}) => write(() => {
                         if (script.running.has(id)) return {ok: false as const, code: "project-running" as const, detail: {state: "running" as const}};
                         const current = script.items.find((entry) => entry.id === id);

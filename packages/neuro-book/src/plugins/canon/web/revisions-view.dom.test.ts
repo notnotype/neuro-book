@@ -97,13 +97,13 @@ async function setup(): Promise<Setup> {
     };
 }
 
-/** 改星瑕的外观一次，标题是 `title`。 */
+/** 改星瑕的性格一次，标题是 `title`。 */
 async function restyle(canon: CanonClient, id: string, look: string, title: string): Promise<string> {
     const stored = await canon.call("object", {ref: {kind: "entry", id}});
     if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
     const entry = stored.value.object as Entry;
     const data = entry.init.data;
-    return (await publishWith(canon, [{...entry, init: {...entry.init, data: {...data, character: {...data.character!, fields: {...data.character!.fields, 外观: look}}}}}], title)).revision;
+    return (await publishWith(canon, [{...entry, init: {...entry.init, data: {...data, character: {...data.character!, fields: {...data.character!.fields, 性格: look}}}}}], title)).revision;
 }
 
 async function stored(canon: CanonClient, id: string): Promise<Entry> {
@@ -142,10 +142,10 @@ describe("改动记录视图", () => {
         expect((await stored(other.canon, id)).deleted ?? false).toBe(false);
         await waitUntil("列表顶上是这次还原", () => titles(view)[0] === "还原“删除星瑕”");
 
-        // 编辑区里没有条目页、回执页、变更详情页挂着：提示交给工作台通知，动作是“看回执”。
+        // 编辑区里没有条目页、回执页、变更详情页挂着：提示交给工作台通知，动作是“查看详情”。
         const [entry] = notifications.center.entries.value;
         expect(entry === undefined ? "" : `${port.t(entry.title ?? "")} ${port.t(entry.message)}`).toContain("还原“删除星瑕”");
-        expect(entry?.action === undefined ? "" : port.t(entry.action.label)).toBe("看回执");
+        expect(entry?.action === undefined ? "" : port.t(entry.action.label)).toBe("查看详情");
     });
 
     it("被拒收（验收 12）：世界日志的锁被别的进程占着时，确认以后对话框不关、写出原因；锁放开以后再确认就还原了", async () => {
@@ -164,12 +164,12 @@ describe("改动记录视图", () => {
         dialogButton("还原")!.click();
         await waitUntil("写出原因", () => dialog()?.textContent?.includes("另一个 NeuroBook 正在用这部作品") ?? false, {timeoutMs: 15_000});
         expect(dialog()).not.toBeNull();
-        expect((await stored(other.canon, id)).init.data.character!.fields.外观).toBe("银发");
+        expect((await stored(other.canon, id)).init.data.character!.fields.性格).toBe("银发");
 
         await held.lock.release();
         dialogButton("还原")!.click();
         await waitUntil("对话框关了", () => dialog() === null, {timeoutMs: 15_000});
-        expect((await stored(other.canon, id)).init.data.character!.fields.外观).toBe("黑发");
+        expect((await stored(other.canon, id)).init.data.character!.fields.性格).toBe("黑发");
     }, 30_000);
 
     it("按写入者、按章筛；筛选留在窗口里，视图卸载再挂上还在", async () => {

@@ -25,6 +25,7 @@
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json"
     },
     "dependencies": {
+        "@notnotype/nb-layout": "workspace:^",
         "@notnotype/nb-ui": "workspace:^"
     },
     "devDependencies": {

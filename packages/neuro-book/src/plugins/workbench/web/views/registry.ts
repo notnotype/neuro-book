@@ -20,8 +20,8 @@ import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 import type {ViewContainerDeclaration, ViewDeclaration} from "../../shared/views";
-import {VIEW_HEAD} from "../../shared/contracts";
-import type {ViewHeadOptIn} from "../../shared/contracts";
+import {VIEW_HEAD, VIEW_OWN_HEAD} from "../../shared/contracts";
+import type {ViewHeadOptIn, ViewOwnHeadOptIn} from "../../shared/contracts";
 import type {ViewImplementation} from "../contracts";
 
 /** 视图声明目录：视图 id 到声明。布局模型靠它决定视图的默认位置、尺寸约束与顺序。 */
@@ -36,8 +36,8 @@ export type ViewDelivery =
 
 /** 一次加载的结果。stale：结果回来时句柄已撤回、换了或工作台已停止，这次结果作废，不算失败。 */
 export type ViewLoad =
-    /** `head`：实现申请了标题区（输出 19）；Lab 的局部实现可以不给，按没申请。 */
-    | {readonly status: "loaded"; readonly component: Component; readonly head?: boolean}
+    /** `head`：实现申请了标题区（输出 19）；`ownHead`：还声明了浮动窗里自绘头（同条的“自绘头”）。Lab 的局部实现可以不给，按没申请。 */
+    | {readonly status: "loaded"; readonly component: Component; readonly head?: boolean; readonly ownHead?: {readonly band: number}}
     | {readonly status: "failed"; readonly error: unknown}
     | {readonly status: "stale"};
 
@@ -164,7 +164,9 @@ export class ViewRegistry implements ViewSource {
             const implementation = handle.implementation();
             const component = await implementation.load();
             const head = (implementation as Partial<ViewHeadOptIn>)[VIEW_HEAD] === true;
-            return this.#current(viewId, handle) ? {status: "loaded", component, ...(head ? {head} : {})} : {status: "stale"};
+            // 自绘头只和标题区一起读：视图经 `ViewHead.ownHead` 得知此刻在自绘。
+            const ownHead = head ? (implementation as Partial<ViewOwnHeadOptIn>)[VIEW_OWN_HEAD] : undefined;
+            return this.#current(viewId, handle) ? {status: "loaded", component, ...(head ? {head} : {}), ...(ownHead === undefined ? {} : {ownHead: {band: ownHead.band}})} : {status: "stale"};
         } catch (error) {
             // implementation() 在撤回后抛 PluginStateError：那也是“已作废”，不是加载失败。
             return this.#current(viewId, handle) ? {status: "failed", error} : {status: "stale"};

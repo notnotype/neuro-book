@@ -91,6 +91,9 @@ describe("EntryTree", () => {
         await wrapper.setProps({blockedReason: "世界只读"});
         const blocked = wrapper.get("[data-entries-empty]").findAll("button");
         expect(blocked.every((button) => (button.element as HTMLButtonElement).disabled && button.attributes("title") === "世界只读")).toBe(true);
+        // “人物”这个种类没登记时只有“新建条目”。
+        await wrapper.setProps({blockedReason: "", createPerson: false});
+        expect(wrapper.get("[data-entries-empty]").findAll("button").map((button) => button.text())).toEqual(["新建条目"]);
     });
 
     it("世界断开时树上面一条横幅与“重试”，树照常显示；点“重试”发 retry", async () => {

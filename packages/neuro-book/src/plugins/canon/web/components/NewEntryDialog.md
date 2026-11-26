@@ -12,10 +12,10 @@
 nb-ui 的 `Dialog`（中号），一列字段：
 
 - 名字（必填）；为空时“新建”不可用。
-- 种类：可以新写，下面一排已有条目用过的种类，点了填进去。
+- 种类：可以新写，下面一排候选（登记的种类在前，已有条目用过的接在后面），点了填进去。点候选或输入框失焦算选定种类：作者还没动过“启用哪些数据”的勾选时，勾选整组换成这个种类的默认设定组（`kindDefaults`，没登记的种类是空的）；打字时不换。
 - 分组：作者没改过时跟着种类。
 - 放在谁下面：“最上面一层”与已读到的条目。
-- 启用哪些数据：登记的类型，可以多选。
+- 启用哪些数据：登记的类型，可以多选；动过一次以后不再跟着种类换（草稿的 `typesTouched`）。
 - 它是谁的另一个身份：“不是”与已读到的条目；选了以后“放在谁下面”变成那个条目。
 - 从哪里出场：“一开始就在”与每一章的开头。
 
@@ -27,7 +27,10 @@ nb-ui 的 `Dialog`（中号），一列字段：
 type NewEntryDialogProps = {
     open: boolean;
     draft: NewEntryDraft;
+    /** 种类的候选：登记的在前，用过的在后。 */
     kinds?: readonly string[];
+    /** 登记的种类默认带的设定组（类型 id）；没登记的种类不在里面。 */
+    kindDefaults?: Readonly<Record<string, readonly string[]>>;
     entries?: readonly {readonly id: string; readonly name: string}[];
     types?: readonly {readonly id: string; readonly label: string}[];
     chapters?: readonly {readonly id: string; readonly index: number}[];

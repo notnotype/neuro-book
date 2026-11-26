@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t21-hover-cpu
-status: active
-updated: 2026-11-07
+status: done
+updated: 2026-11-26
 ---
 
 # 不按键划过界面时 CPU 高
@@ -29,3 +29,7 @@ updated: 2026-11-07
 ## 下一步
 
 请开发者在真实 Chrome 里录一段划过界面的 Performance（勾上截图与 GPU），看剩下的开销在哪。
+
+## 收尾
+
+2026-11-26 w00026 收尾时核对：两处修正已合入 master（`911f98955`）。“下一步”请开发者录 Performance 的那一项没有留下结论，随 Work 收尾关闭；以后再觉得划过界面卡，另开 Task。

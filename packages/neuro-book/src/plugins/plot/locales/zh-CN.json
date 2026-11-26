@@ -226,7 +226,7 @@
         },
         "toldBy": "听{{name}}说",
         "origin": {
-            "initial": "初值",
+            "initial": "最初",
             "goal": "目标出场时",
             "carried": "从{{line}}带过来"
         },

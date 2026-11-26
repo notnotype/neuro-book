@@ -47,8 +47,13 @@ export interface ProfileFields<Id extends string, S extends StateDecl, E extends
      * 工具的实现由宿主经 `SessionEnv.tools` 给。
      */
     tools?: {required?: string[]; optional?: string[]};
-    /** 插件经 `agent.extensions` 贡献的扩展：按标签排除，或一个都不要。 */
+    /** 插件经 `agent.extensions` 贡献的扩展：按标签排除，或一个都不要。只管自动装的，不管 `referencedExtensions`。 */
     pluginExtensions?: {exclude: string[]} | "none";
+    /**
+     * 按 id 引用的插件扩展（extensions.md 的“按需扩展”）：一律装上，与 `pluginExtensions` 的排除无关；主要用来装声明了
+     * `install: "on-request"`、不自动装的扩展。引用的 id 没有插件贡献时装配得 `referenced-extension-missing`。
+     */
+    referencedExtensions?: readonly string[];
     /** 可复用的扩展（几个 Profile 共用的、helper 返回的、别人写的）。 */
     extensions?: readonly AnyExtension[];
     on?: OnTable<NoInfer<S>, NoInfer<E>, SettingsOf<NoInfer<Sc>>, NoInfer<Deps>, StaticOr<NoInfer<Si>>>;
@@ -84,6 +89,7 @@ export type AnyProfile = Profile & {
     readonly description: string;
     readonly extensions?: readonly AnyExtension[];
     readonly pluginExtensions?: {readonly exclude: readonly string[]} | "none";
+    readonly referencedExtensions?: readonly string[];
 };
 
 export type DefineProfile = <

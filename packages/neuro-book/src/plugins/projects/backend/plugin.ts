@@ -1,7 +1,7 @@
 /**
- * `nbook.projects` 服务端入口：把宿主能力 `projectsKey` 包成远程服务 `nbook.projects/projects`（版本 3）：列出、登记、
- * 书架、新建、修改作品信息、移出书架、作品目录与列目录（docs/specs/runtime/projects.md 输出第 10、13 到 15、17 到 20 条）；
- * 封面经 `http.routes` 的路由（第 21 条）。
+ * `nbook.projects` 服务端入口：把宿主能力 `projectsKey` 包成远程服务 `nbook.projects/projects`（版本 5）：列出、登记、
+ * 书架、新建、修改作品信息、移出书架、作品目录与列目录、记下上次的作品（docs/specs/runtime/projects.md 输出第 10、13 到 15、17 到 20 条）；
+ * 封面与启动时打开经 `http.routes` 的路由（第 21 条与“启动时打开”）。
  * 不管生命周期：打开项目经客户端握手的绑定，不经这里；书架也不为显示统计打开项目（见 `shelf.ts`）。
  * 作品目录是本插件的设置，宿主不读插件配置，所以新建时 `parent` 省略由这里读设置（或算缺省）再交给宿主。
  */
@@ -24,6 +24,7 @@ import {descriptor} from "../plugin";
 import {librarySetting, projectStatsRemoteContract, projectsRemoteContract} from "../shared/contracts";
 import {browseDirectory} from "./browse";
 import {createCoverRoutes} from "./cover-routes";
+import {createResumeRoutes, recordOpened} from "./last-opened";
 import {effectiveLibrary} from "./library";
 import {buildShelf} from "./shelf";
 
@@ -38,6 +39,9 @@ export const projectsBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
+        // 启动时就激活：启动类入口第一个请求就是 `resume` 路由（桌面壳在服务端就绪后立刻打开它），路由只在入口激活之后才在
+        // `http.routes` 里；等远程调用触发激活的话，这一下是 404。激活只是包远程服务、交路由，不读盘。
+        activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}, {key: projectsKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: userDirectoriesKey}],
         remoteProvides: [projectsRemoteContract],
         contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
@@ -57,6 +61,7 @@ export const projectsBackendPlugin: PluginDefinition = {
                 record,
             };
             const library = () => effectiveLibrary(settings.get(librarySetting), directories);
+            const lastOpened = {projects, storage: shelfSources.storage, settings, record};
             const remote = provideRemote(projectsRemoteContract, () => ({
                 methods: {
                     list: async () => {
@@ -118,6 +123,10 @@ export const projectsBackendPlugin: PluginDefinition = {
                         if (updated.reason === "invalid-metadata") return {ok: false, code: "invalid-metadata", detail: {field: updated.field, detail: updated.detail}};
                         return {ok: false, code: updated.reason, detail: {detail: updated.detail}};
                     },
+                    opened: async ({id}) => {
+                        const written = await recordOpened(lastOpened, id);
+                        return written.ok ? {ok: true, value: {}} : {ok: false, code: written.code, detail: {detail: written.detail}};
+                    },
                     unregister: async ({id}) => {
                         const removed = await projects.unregister(id);
                         if (removed.ok) return {ok: true, value: {id: removed.project.id, name: removed.project.name}};
@@ -126,7 +135,9 @@ export const projectsBackendPlugin: PluginDefinition = {
                     },
                 },
             }));
-            return {remote: [remote], contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: createCoverRoutes({projects, record})}}};
+            // 一个插件在 `http.routes` 只交一个应用：封面与启动时打开挂在同一个 `/api/nbook.projects/` 下。
+            const routes = createCoverRoutes({projects, record}).route("/", createResumeRoutes(lastOpened));
+            return {remote: [remote], contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}}};
         },
     })],
 };

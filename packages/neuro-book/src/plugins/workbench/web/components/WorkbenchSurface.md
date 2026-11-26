@@ -45,6 +45,11 @@ type Props = {
     maximized?: string | null;
     /** 头只写标题的面板：没有标签带，内容是以标题命名的 `region`，不是 `tabpanel`。默认空集。 */
     titleOnlyPanels?: ReadonlySet<string>;
+    /**
+     * 视图自绘头的面板 → 右端按钮让出的宽度（CSS px）。只认此刻画成浮动窗的：外框里不画头，内容从窗口顶上开始（同并成一行的 `headless`）、
+     * 四个角都裁圆，内容外层写 `data-own-head` 与 `--workbench-own-head-inset-end`；头由宿主画在 `own-head` 插槽里。默认空表。
+     */
+    ownHeads?: ReadonlyMap<string, number>;
     /** 拿起的内容项（实时布局）：预览把来源摘掉时由网格留住，内容不卸载（`NestedGrid` 的 `lifted`）。矩形不走属性，由 `placeLifted` 写。 */
     lifted?: {key: string} | null;
     /** 拖动进行中（外壳在拖动会话里）：转给 NestedGrid 的 `dragging`，离开的叶不留着缩回去。 */
@@ -70,12 +75,12 @@ type Emits = {
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账。`collapsed` 只含这次手势改了收起状态的面板。 */
     (event: "gesture-commit", before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
-    /** 网格两路诊断的并集（`ui/nested-grid` 输出 139、140）：带 `ok` 的是被拒的提交。只发新出现的。 */
+    /** 网格两路诊断的并集（`ui/nested-grid` 输出 139、140）：带 `ok` 的是被拒的提交。只发新出现的。外壳把它交给 `reportGridIssues`，记进窗口的诊断（事件 `workbench.grid`）。 */
     (event: "issues", issues: readonly (GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure)[]): void;
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。 */
     (event: "focus-panel", panel: string | null): void;
-    /** 指针按在浮动窗上、焦点进了它：宿主把它提到最前（改叠放次序）。 */
+    /** 指针按在浮动窗上、焦点进了它：宿主把它提到最前（改叠放次序）。已在最前不发。 */
     (event: "raise-float", panel: string): void;
 };
 
@@ -97,6 +102,11 @@ type Slots = {
     overlay?(): unknown;
     /** 浮动窗的手柄。 */
     "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /**
+     * 自绘头的浮动窗盖在视图之上的那一条：画在内容里、视图之前，焦点、悬停与 F6 都算这块面板，飞行时跟着内容走。`actionsShown`：指针或焦点在这块窗上
+     * （同卡片的 `data-hover-actions-active`）；`idPrefix` 同 `head`。
+     */
+    "own-head"?(props: {panelId: string; idPrefix: string; actionsShown: boolean}): unknown;
 };
 
 type Expose = {
@@ -135,7 +145,7 @@ attrs 落在根元素上。
 
 一列分节全部收成标题行时（投影的 `fillers`，最后一节垫底、外框拉到了底，[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 11）：这一列的分隔线经 `NestedGrid` 的 `sashDisabled` 不能拖；垫底的那一节内容项不活动（不显示、不可交互）；收起的分节卡片上不写悬停范围（头自己写），指针停在垫底的空白里不显示它的按钮。
 
-切换容器滚动的那几百毫秒里（`swap`），换上来的分节外框在半路、已经可以交互。实时布局起拖前宿主先 `settleMotion`，量到的是终点；落点指示（设置关掉了实时布局，或用键盘拿起）这时起拖量到的是半路的几何，到下一次重量之前落点错位（已知限制）。
+切换容器滚动的那几百毫秒里（`swap`），换上来的分节外框在半路、已经可以交互。这时起拖（实时布局、落点指示、键盘拿起都一样），拖动会话先把过渡送到终点（`settleMotion`），量到的是终点的几何；代价是进行中的滚动直接跳到终点。
 
 ## 入口条与并成一行
 

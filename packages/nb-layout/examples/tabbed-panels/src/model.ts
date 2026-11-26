@@ -7,7 +7,7 @@
  *
  * 这个文件不依赖 Vue，也不碰 DOM：操作都是同步的，界面在操作成功之后自己通知网格（`host.invalidate()`）并保存。
  */
-import {createGrid} from "@notnotype/nb-layout";
+import {createGrid, restoreGrid} from "@notnotype/nb-layout";
 import type {Grid, GridExtent, GridLeafInput, GridNode, GridRefResolution, GridSnapshot} from "@notnotype/nb-layout";
 
 /** 分隔线的宽度（CSS px）。建树与读档都要给：它不在快照里，缺省是 0，0 的分隔线拖不动。 */
@@ -23,12 +23,12 @@ export type Side = "left" | "right" | "top" | "bottom";
 export type Failure = {readonly ok: false; readonly code: string; readonly message: string};
 export type Result = {readonly ok: true} | Failure;
 
-/** 侧栏收起的记录：收起状态与收起前的宽度都不在网格快照里，要宿主另存。 */
-type ExplorerState = {readonly collapsed: boolean; readonly restoreSize: number};
+/** 侧栏收起的记录：收起状态不在网格快照里，要宿主另存。展开回到快照里的宽度意图，所以不用另存收起前的宽度。 */
+type ExplorerState = {readonly collapsed: boolean};
 
 /**
  * 每个 ref 的运行期策略只有这一个出处。快照只存结构与尺寸意图，保留像素、最小尺寸、收起策略都不在里面：
- * 建树、拆分出新编组、试拆时复制树、读档，四处都从这里取，所以载入前后同一块叶的约束相同。
+ * 建树、拆分出新编组、读档，三处都从这里取，所以载入前后同一块叶的约束相同（复制用 `grid.clone()`，策略跟着树走）。
  * 漏给的话叶会变成按比例分、没有最小尺寸，而且库不会报任何诊断。
  */
 function policyFor(ref: string, explorer: ExplorerState): Omit<GridRefResolution<string>, "ref"> {
@@ -36,14 +36,14 @@ function policyFor(ref: string, explorer: ExplorerState): Omit<GridRefResolution
         return {
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: explorer.collapsed, collapsedSize: 0, restoreSize: explorer.restoreSize, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: explorer.collapsed, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         };
     }
     return {minimumSize: GROUP_MINIMUM};
 }
 
 function groupLeaf(id: string): GridLeafInput<string> {
-    return {kind: "leaf", id, ref: id, ...policyFor(id, {collapsed: false, restoreSize: 240})};
+    return {kind: "leaf", id, ref: id, ...policyFor(id, {collapsed: false})};
 }
 
 /** 树序的全部节点。 */
@@ -85,7 +85,7 @@ export class TabbedLayout {
             orientation: "horizontal",
             children: [
                 // 保留像素的叶的 size 是像素；按比例分的叶的 size 是兄弟之间的份额，三个都给 1 就是等分。
-                {kind: "leaf", id: EXPLORER, ref: EXPLORER, size: {width: 240, height: 0}, ...policyFor(EXPLORER, {collapsed: false, restoreSize: 240})},
+                {kind: "leaf", id: EXPLORER, ref: EXPLORER, size: {width: 240, height: 0}, ...policyFor(EXPLORER, {collapsed: false})},
                 ...[...groups.keys()].map((id) => ({...groupLeaf(id), size: {width: 1, height: 0}})),
             ],
         }, {sashSize: SASH_SIZE});
@@ -104,7 +104,7 @@ export class TabbedLayout {
 
     explorerState(): ExplorerState {
         const collapse = this.grid.find(EXPLORER)?.collapse;
-        return {collapsed: collapse?.collapsed === true, restoreSize: collapse?.restoreSize ?? 240};
+        return {collapsed: collapse?.collapsed === true};
     }
 
     activate(tab: string): Result {
@@ -114,7 +114,7 @@ export class TabbedLayout {
         return {ok: true};
     }
 
-    /** 最后一个编组的最后一个标签不能关：只剩侧栏时它会被拉满整个宽度，存档之后就回不到有编组的样子。 */
+    /** 最后一个编组的最后一个标签不能关：只剩侧栏时没有编组可拆（侧栏保留像素，拆它会被拒绝），之后的标签就没有地方放。 */
     canClose(tab: string): boolean {
         const id = this.groupOf(tab);
         return id !== undefined && !(this.groups.size === 1 && this.groups.get(id)!.tabs.length === 1);
@@ -178,17 +178,9 @@ export class TabbedLayout {
         return {ok: true};
     }
 
-    /**
-     * 复制一份：库没有 `grid.clone()`，用快照加读档。快照不带策略，所以同样要按 ref 把策略给回去，
-     * 收起状态取此刻的。
-     */
+    /** 复制一份：网格连同策略（保留像素、最小尺寸、收起状态）与分隔线宽度一起复制。 */
     clone(): TabbedLayout {
-        const explorer = this.explorerState();
-        const grid = createGrid<string>(null, {sashSize: SASH_SIZE});
-        const restored = grid.restore(this.grid.serialize(), (ref) => ({ref, ...policyFor(ref, explorer)}));
-        // 自己刚存出来的快照读不回来，是模型写错了，不是存档坏了：直接抛。
-        if (!restored.ok || restored.dropped.length > 0) throw new Error(`Copying the layout failed: ${restored.ok ? "unresolved refs" : restored.message}`);
-        return new TabbedLayout(grid, new Map(this.groups));
+        return new TabbedLayout(this.grid.clone(), new Map(this.groups));
     }
 
     toSaved(): SavedLayout {
@@ -199,11 +191,11 @@ export class TabbedLayout {
     static fromSaved(raw: unknown): {readonly ok: true; readonly layout: TabbedLayout} | Failure {
         if (!isSavedShape(raw)) return failure("bad-shape", "Unrecognised save format");
         const groups = new Map(Object.entries(raw.groups).map(([id, group]) => [id, {tabs: [...group.tabs], active: group.active}]));
-        const grid = createGrid<string>(null, {sashSize: SASH_SIZE});
         // 不认识的 ref 交回 null：库把它报进 dropped。这里把 dropped 非空也当坏：丢了一块，用户的标签就跟着丢了。
-        const restored = grid.restore(raw.grid, (ref) => (ref === EXPLORER || groups.has(ref) ? {ref, ...policyFor(ref, raw.explorer)} : null));
+        const restored = restoreGrid<string>(raw.grid, (ref) => (ref === EXPLORER || groups.has(ref) ? {ref, ...policyFor(ref, raw.explorer)} : null), {sashSize: SASH_SIZE});
         if (!restored.ok) return failure("bad-grid", restored.message);
         if (restored.dropped.length > 0) return failure("bad-grid", "The saved layout refers to unknown panes");
+        const grid = restored.grid;
         const leaves = [...walk(grid.root())].filter((node) => node.kind === "leaf");
         if (leaves.some((leaf) => leaf.id !== leaf.ref)) return failure("bad-grid", "Leaf ids and refs differ");
         if (leaves.filter((leaf) => leaf.id === EXPLORER).length !== 1) return failure("bad-grid", "The explorer is missing or duplicated");
@@ -266,7 +258,8 @@ function isSavedShape(value: unknown): value is SavedLayout {
     const saved = value as Record<string, unknown>;
     if (saved.version !== 1 || typeof saved.groups !== "object" || saved.groups === null) return false;
     const explorer = saved.explorer as Record<string, unknown> | null | undefined;
-    if (typeof explorer?.collapsed !== "boolean" || typeof explorer.restoreSize !== "number" || !Number.isFinite(explorer.restoreSize) || explorer.restoreSize < 160 || explorer.restoreSize > 4096) return false;
+    // 以前的存档在这里还带着收起前的宽度 `restoreSize`；现在展开回到快照里的宽度意图，读档时不看它，也不因为它拒绝。
+    if (typeof explorer?.collapsed !== "boolean") return false;
     return Object.values(saved.groups).every((group: unknown) => {
         const each = group as Record<string, unknown> | null;
         return Array.isArray(each?.tabs) && each.tabs.every((tab) => typeof tab === "string") && typeof each.active === "string";

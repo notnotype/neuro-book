@@ -383,7 +383,7 @@ function applyElementPatch(data: NamespaceData, field: FieldDeclaration, element
     return "applied";
 }
 
-/** 精确档数值字段的 min、max；返回第一个不满足的字段 id。值或上限是未知时不检查（components.md 输出 9）。 */
+/** 精确档数值字段的 min、max；返回第一个不满足的字段 id。值或上限是未知、上限指向的字段不生效时不检查（components.md 输出 9、23）。 */
 function constraintViolation(state: EntryState, namespace: string, registry: ComponentRegistry): string | null {
     const data = state.data[namespace];
     if (data === undefined) return null;
@@ -394,7 +394,8 @@ function constraintViolation(state: EntryState, namespace: string, registry: Com
         if (typeof value !== "number") continue;
         if (field.min !== undefined && value < field.min) return field.id;
         if (field.max === undefined) continue;
-        const limit = typeof field.max === "number" ? field.max : data.fields[field.max];
+        // 上限指向的字段不生效（被去掉了，或还原留下了落空的指向）时不查这一项（components.md 输出 23）。
+        const limit = typeof field.max === "number" ? field.max : fields.some((other) => other.id === field.max) ? data.fields[field.max] : undefined;
         if (typeof limit === "number" && value > limit) return field.id;
     }
     return null;

@@ -194,6 +194,7 @@
       "name": "@notnotype/nb-agent-ui",
       "version": "0.3.0",
       "dependencies": {
+        "@notnotype/nb-layout": "workspace:^",
         "@notnotype/nb-ui": "workspace:^",
       },
       "devDependencies": {
@@ -344,7 +345,7 @@
     },
     "packages/nb-layout": {
       "name": "@notnotype/nb-layout",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "tabbable": "^6.5.0",
       },

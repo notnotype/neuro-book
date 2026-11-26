@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 B 星海书庭《书庭的一夜》：分场脚本（第 1 轮）</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; --ivory: #f7f2ec; --night: #1c1418; --gold: #e1b285; --now: #1f7a4d; --todo: #a15c07; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+h3 { margin: 20px 0 8px; font-size: 16px; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; width: 6.5em; }
+.scene { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); }
+.no { grid-column: 1 / -1; margin: 0 0 -8px; font-size: 13px; color: var(--muted); letter-spacing: .03em; }
+.copy { align-self: start; padding: 20px 18px; border-radius: 8px; background: var(--night); color: var(--ivory); }
+.copy .head { margin: 0; font-family: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif; font-size: 22px; line-height: 1.5; font-weight: 600; }
+.copy .sub { margin: 10px 0 0; font-size: 14px; color: #cdbfae; }
+.copy .quote { margin: 10px 0 0; font-size: 14px; color: var(--gold); }
+dl { margin: 0; display: grid; align-content: start; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px 10px; font-size: 14.5px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 20px; }
+.tag.now { background: #e3f1e8; color: var(--now); }
+.tag.todo { background: #fbeedb; color: var(--todo); }
+.thumb { display: block; width: 100%; margin-top: 10px; border-radius: 6px; }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+.cand .copy { padding: 16px 14px; }
+.cand .copy .head { font-size: 19px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+@media (max-width: 720px) { .scene, .cands { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+<h1>方案 B 星海书庭《书庭的一夜》：分场脚本（第 1 轮）</h1>
+
+<section data-nbdev-question="script" data-nbdev-type="single" data-nbdev-options="storyboard:照这版出分镜|revise:改过再看一轮|drop:这个方案不往下做" data-nbdev-recommend="storyboard">
+  <h2>这版脚本往下做吗？</h2>
+  <p class="rec"><strong>推荐照这版出分镜，并先拿第 2 场做原型：NovelAI 的插画放大成整屏、拆层做视差以后，撑不撑得住高级感，要先亲眼看到。</strong></p>
+
+  <table>
+    <tbody>
+      <tr><th>梗概</th><td>你写作的这一夜，镜头在另一边：星海深处的书庭里，司书星璃读着你写下的每一行，替你记、替你查，在你卡住时递来一杯茶；天亮时，这一章写完了。产品的每样能力，都化成她在书庭里做的一件事。</td></tr>
+      <tr><th>美术</th><td>夜。夜色底、金色星光、赤红；用现成的星璃场景图与立绘，拆成前后几层做视差；星海的星点用代码画，不铺整张图。产品截图用暗色配色，嵌在画面里。</td></tr>
+      <tr><th>招牌动作</th><td>镜头穿过书庭。滚动就是往前走：从星海进穹顶，下到阅读台，最后走上破晓的露台。</td></tr>
+      <tr><th>星璃</th><td>主角，第 2 到第 6 场都在；说话照人设：称用户 Master，温柔、慧黠，不堆设定术语。</td></tr>
+      <tr><th>小猫</th><td>在导航与页尾，是她的化身；页尾睡着。</td></tr>
+      <tr><th>现状与愿景</th><td>每一场的能力都对应到现在能用的；“她自己读稿、整理设定”这类在做的，不写成现在，统一列在第 7 场。</td></tr>
+      <tr><th>篇幅</th><td>约 11 屏。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>分场</h3>
+
+  <div class="scene">
+    <p class="no">第 1 场 · 万言星海 · 1 屏</p>
+    <div class="copy"><p class="head">万言星海里，有一颗是你的。</p><p class="sub">NeuroBook：本地的长篇写作工作区。星璃替你记住，执笔的是你。</p></div>
+    <dl>
+      <dt>得到</dt><dd>这是一个关于故事的地方；一句话说清产品是什么。</dd>
+      <dt>画面</dt><dd>全屏星海（“万言星海”那张场景图做底，前面一层代码画的星点缓慢漂移）；正中是标题；右下有一颗星比别的亮一点。</dd>
+      <dt>动</dt><dd>星点随鼠标轻微视差；往下滚，镜头朝那颗亮星推进，星点向四周散开。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>产品一句话。<img class="thumb" src="r1/S02.webp" alt="万言星海"></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 2 场 · 忆星书庭 · 2 屏 · 钉住</p>
+    <div class="copy"><p class="head">这里是忆星书庭。</p><p class="sub">司书星璃守着这里的每一本书。她替你记住人物和来龙去脉，从不替你落笔。</p></div>
+    <dl>
+      <dt>得到</dt><dd>认识星璃：她守着书庭，替你记，但不替你写。</dd>
+      <dt>画面</dt><dd>螺旋星穹图书馆拆成穹顶、书架、星璃、前景光尘几层；星璃悬在中庭，手里一本赤红的书。</dd>
+      <dt>动</dt><dd>画面钉住，镜头从穹顶缓缓下降，各层速度不同；到底时星璃抬眼看向镜头。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>星璃是常驻的搭档：书房里点案头的看板娘，或在作品窗口右栏的“消息”里，都能和她说话。<img class="thumb" src="r1/S01.webp" alt="忆星书庭"></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 3 场 · 记忆宝石 · 2 屏</p>
+    <div class="copy"><p class="head">她记得每个人在每一章的样子。</p><p class="sub">设定条目随章节变化：第 12 章断的手臂，第 88 章不会自己长回来。</p></div>
+    <dl>
+      <dt>得到</dt><dd>这里记得每一章的世界是什么样。</dd>
+      <dt>画面</dt><dd>阅读台上一本书摊开，书封中央的宝石慢慢结成；宝石里映出一张人物卡：陈砚 · 左臂 · 第 12 章 · 断。</dd>
+      <dt>动</dt><dd>滚动时宝石由光点聚成；宝石一转，里面的卡片翻到别的章节（第 1 章健全，第 74 章寒铁义肢）。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>世界引擎的条目与按章节的状态。<span class="tag todo">在做</span>她自己读稿、把设定整理进条目。<img class="thumb" src="r1/S03.webp" alt="星象观测阅读台"></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 4 场 · 每件事都有出处 · 1 屏</p>
+    <div class="copy"><p class="head">每件事，她都记得是从哪一章来的。</p><p class="sub">点一个设定，就能看到它是在哪一章定下的；改错了，也能还原。</p></div>
+    <dl>
+      <dt>得到</dt><dd>设定有来历，改动能撤回。</dd>
+      <dt>画面</dt><dd>宝石射出一道光，落在书页上的一句话上；旁边是条目页“来历”的真截图（暗色）。</dd>
+      <dt>动</dt><dd>一道金线从设定的值连到原句（描线）。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>来历、写入回执与还原。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 5 场 · 深夜的一杯茶 · 2 屏</p>
+    <div class="copy"><p class="head">写不动的时候，先喝口茶。</p><p class="sub">和她聊聊这一段：讨论时只出主意，要改稿先交计划，你点头才动。</p></div>
+    <dl>
+      <dt>得到</dt><dd>卡住时有人接住你；她改稿前先问你。</dd>
+      <dt>画面</dt><dd>一杯星光琥珀茶；旁边一段对话（真截图，暗色）：“已经对着这一段改了快一个钟头啦，Master。先把热茶喝了歇五分钟，剩下的脉络交给我，好不好？”后面跟一个星璃的表情。</dd>
+      <dt>动</dt><dd>茶面的热气缓缓升起；对话随滚动一条条出现。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Agent 对话、讨论与计划模式、星璃表情包。<img class="thumb" src="r1/I02.webp" alt="星光琥珀茶"></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 6 场 · 破晓 · 2 屏</p>
+    <div class="copy"><p class="head">天亮了，这一章写完了。</p><p class="sub">稿子一直是你电脑里的文件，书庭只是替你守着。</p></div>
+    <dl>
+      <dt>得到</dt><dd>这一夜有了结果；作品是你自己的文件。</dd>
+      <dt>画面</dt><dd>破晓的露台；夜色退去，星光一颗颗落下，落成书架上一本书封面的星徽；画面最后停在产品书架的真截图上（亮色），像从书庭回到了书桌。</dd>
+      <dt>动</dt><dd>夜到晨的色调跟着滚动过渡；星光下落。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>本地文件、书架。<img class="thumb" src="r1/S04.webp" alt="书庭破晓露台"></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 7 场 · 今晚开始 · 1 屏</p>
+    <div class="copy"><p class="head">今晚，从第一行开始。</p><p class="quote">“我会一直读到最后一行。”</p></div>
+    <dl>
+      <dt>得到</dt><dd>现在就能装；还在做的写在这里。</dd>
+      <dt>画面</dt><dd>书后的小猫睡着；夜空里那颗星还亮着。下载按钮下一行：“还在做的：伏笔账本、谁知道什么、让星璃自己读稿整理设定、另开一条世界线试写。”再下面是 GitHub、Discord、QQ 群。</dd>
+      <dt>动</dt><dd>鼠标移到下载按钮上，小猫醒过来。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Windows 安装版与便携版、macOS 预览版、npm 安装。引的是星璃那首《致所有被称作“虚构”的事物》的末句。</dd>
+    </dl>
+  </div>
+
+  <h3>长处、风险与素材</h3>
+  <table>
+    <tbody>
+      <tr><th>长处</th><td>故事性最强，最好记；星璃的人设、诗与插画都用上了；和别家写作工具最不像。</td></tr>
+      <tr><th>风险</th><td>第一眼像二次元或游戏产品，冲着商业写作来的人可能走；NovelAI 插画放大到整屏、拆层以后做工撑不撑得住，要实测（补边、统一调色）；页面重，手机要降级；整页 AI 插画，和“去 AI 味”的主张放在一起容易被抓住说。</td></tr>
+      <tr><th>素材</th><td>四张场景图拆层与补边（或重新生成分层的版本）、代码画的星点、宝石（着色器或序列帧）、暗色配色的产品真截图、星璃的表情。</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section data-nbdev-question="first-line" data-nbdev-type="single" data-nbdev-recommend="b1">
+  <h2>首屏第一句用哪一句？</h2>
+  <p class="rec"><strong>推荐 b1：一眼是星海，又落在“你的那一颗”上。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="b1" data-nbdev-label="b1 万言星海里，有一颗是你的。">
+      <h3>b1</h3>
+      <div class="copy"><p class="head">万言星海里，有一颗是你的。</p></div>
+    </div>
+    <div class="cand" data-nbdev-option="b2" data-nbdev-label="b2 你写下的每一行，都有人在读。">
+      <h3>b2</h3>
+      <div class="copy"><p class="head">你写下的每一行，都有人在读。</p></div>
+      <p>暖，但也容易读成“有人在看你写”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="b3" data-nbdev-label="b3 欢迎来到忆星书庭。">
+      <h3>b3</h3>
+      <div class="copy"><p class="head">欢迎来到忆星书庭。</p></div>
+      <p>最有角色感，但没说产品是什么。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="notes" data-nbdev-type="text">
+  <h2>哪一场要改，怎么改？</h2>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>重写的是文档站首页 blog.notnotype.com/neuro-book/official/（t01 第 1 条）</li>
+    <li>书房与星海书庭分开各试一版，连起来的“从文字到世界”也试一版（2026-11-26）</li>
+    <li>要高级感；整页讲一个故事，用滚动叙事（t01 第 3 条）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

@@ -27,9 +27,9 @@ export interface Assembled {
 }
 
 export interface AssemblyProblem {
-    readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-missing" | "dependency-cycle" | "event-name-reserved" | "slice-initial-not-json";
+    readonly code: "bad-extension-id" | "duplicate-extension-id" | "dependency-missing" | "referenced-extension-missing" | "dependency-cycle" | "event-name-reserved" | "slice-initial-not-json";
     readonly extension: string;
-    /** `dependency-missing` 时缺的那个依赖。 */
+    /** `dependency-missing` 时缺的那个依赖；`referenced-extension-missing` 时引用的那个 id。 */
     readonly dependency?: string;
     readonly message: string;
     readonly hint: string;
@@ -189,13 +189,65 @@ function slotCollisions(order: readonly Assembled[]): AssemblyWarning[] {
     return warnings;
 }
 
-export function assemble(profile: AnyProfile, contributed: readonly ContributedExtension[]): {ok: true; assembly: Assembly} | {ok: false; problems: AssemblyProblem[]} {
-    const problems: AssemblyProblem[] = [];
+/**
+ * 这个 Profile 装哪些插件扩展（extensions.md 的“按需扩展”）：
+ * 1. 自动扩展按 `pluginExtensions` 的标签排除，`"none"` 时一个都不装；
+ * 2. 引用的 id 一律装上，与排除无关（引用是显式的），同一个 id 只装一次；
+ * 3. 伴随只在同一插件内：按需扩展依赖同一插件已装上的另一个按需扩展、且自己的依赖都满足时跟着装上（迭代到不再增加）。
+ * 别的插件的按需扩展不会伴随进来：那样会绕过 Profile 的 `"none"` 与排除。
+ * `references: "ignore"` 给单次请求（`complete`）：它不装插件扩展，也不检查引用。
+ */
+function pluginExtensionsFor(profile: AnyProfile, contributed: readonly ContributedExtension[], problems: AssemblyProblem[], references: "check" | "ignore"): ContributedExtension[] {
     const exclude = profile.pluginExtensions;
-    const plugins = exclude === "none" ? [] : contributed.filter(({extension}) => !(exclude?.exclude ?? []).some((tag) => ((extension as ExtensionDefinition).tags ?? []).includes(tag)));
+    const tagsOf = (item: ContributedExtension): readonly string[] => (item.extension as ExtensionDefinition).tags ?? [];
+    const idOf = (item: ContributedExtension): string => (item.extension as ExtensionDefinition).id;
+    const automatic = exclude === "none" ? [] : contributed.filter((item) => item.onRequest !== true && !(exclude?.exclude ?? []).some((tag) => tagsOf(item).includes(tag)));
+    // 按对象记：同 id 的两份贡献照样都进来，由下面的重名检查报出，不在这里悄悄去掉一份。
+    const chosen = new Set<ContributedExtension>(automatic);
+    const chosenId = (id: string): ContributedExtension | undefined => [...chosen].find((item) => idOf(item) === id);
+    if (references === "ignore") return contributed.filter((item) => chosen.has(item));
+    const referenced: unknown = profile.referencedExtensions ?? [];
+    // 类型挡得住，这里给 JavaScript 作者与用户级 Profile 再查一次：写成字符串时不按字符逐个当成 id。
+    if (!Array.isArray(referenced) || !referenced.every((id) => typeof id === "string")) {
+        problems.push({code: "bad-extension-id", extension: profile.id, message: `referencedExtensions of profile ${profile.id} must be an array of extension ids`, hint: "write referencedExtensions: [\"<plugin id>.<name>\"]"});
+        return contributed.filter((item) => chosen.has(item));
+    }
+    for (const id of referenced as readonly string[]) {
+        const found = contributed.find((item) => idOf(item) === id);
+        if (found === undefined) problems.push({code: "referenced-extension-missing", extension: profile.id, dependency: id, message: `profile ${profile.id} references extension ${id}, which is not contributed`, hint: `install the plugin that contributes ${id}, or remove it from referencedExtensions`});
+        else chosen.add(found);
+    }
+    const companions = contributed.filter((item) => item.onRequest === true && item.plugin !== null);
+    // 伴随项其余的硬依赖可以由 Profile 自带的扩展满足：与后面装配校验看的是同一个集合。
+    const own = new Set((profile.extensions ?? []).filter((extension) => typeof extension !== "string").map((extension) => (extension as ExtensionDefinition).id));
+    for (let added = true; added;) {
+        added = false;
+        for (const item of companions) {
+            if (chosen.has(item)) continue;
+            const dependencies = dependenciesOf(item.extension as ExtensionDefinition).filter((dependency) => !dependency.optional).map((dependency) => dependency.id);
+            const follows = dependencies.some((id) => {
+                const dependency = chosenId(id);
+                return dependency?.onRequest === true && dependency.plugin === item.plugin;
+            });
+            if (follows && dependencies.every((id) => chosenId(id) !== undefined || own.has(id))) {
+                chosen.add(item);
+                added = true;
+            }
+        }
+    }
+    // 保持贡献的原顺序：装配序与哈希不因引用的写法先后而变。
+    return contributed.filter((item) => chosen.has(item));
+}
+
+export function assemble(profile: AnyProfile, contributed: readonly ContributedExtension[], options: {readonly references?: "check" | "ignore"} = {}): {ok: true; assembly: Assembly} | {ok: false; problems: AssemblyProblem[]} {
+    const problems: AssemblyProblem[] = [];
+    const plugins = pluginExtensionsFor(profile, contributed, problems, options.references ?? "check");
     const asAssembled = (definition: ExtensionDefinition, plugin: string | null, role: Assembled["role"]): Assembled => ({definition, plugin, role, version: definition.version ?? "0"});
     const pluginItems = plugins.map(({extension, plugin}) => asAssembled(extension as ExtensionDefinition, plugin, "plugin"));
-    const ownItems = (profile.extensions ?? []).map((extension) => asAssembled(extension as ExtensionDefinition, null, "profile-extension"));
+    // 照声明的写法把 id 写进了 `extensions`（那里要扩展对象）：给出说得清的问题，不让它变成 id 为 undefined 的扩展。
+    const misplaced = (profile.extensions ?? []).filter((extension) => typeof extension === "string") as unknown as string[];
+    for (const id of misplaced) problems.push({code: "bad-extension-id", extension: profile.id, message: `extensions of profile ${profile.id} contains the string ${id}; it takes extension objects`, hint: "to reference a contributed extension by id, list it in referencedExtensions"});
+    const ownItems = (profile.extensions ?? []).filter((extension) => typeof extension !== "string").map((extension) => asAssembled(extension as ExtensionDefinition, null, "profile-extension"));
     const profileItem = asAssembled(profile as unknown as ExtensionDefinition, null, "profile");
 
     if (!PROFILE_ID.test(profile.id)) problems.push({code: "bad-extension-id", extension: profile.id, message: `profile id ${profile.id} must be <source>.<name>`, hint: "use builtin.<name>, user.<name> or <plugin>.<name>"});

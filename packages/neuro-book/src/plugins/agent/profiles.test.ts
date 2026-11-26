@@ -160,6 +160,20 @@ describe("用户级 Profile", () => {
         expect(entry("user.seer")?.tools).toEqual({required: ["nbook.agent.read"], optional: []});
     });
 
+    test("输出 8、14 与“按需扩展”：引用写在目录里（插件的来自声明、用户级的来自包）；用户级引用模式扩展就有模式；引用没人提供的扩展为 extensions-missing", async () => {
+        const modal = `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nexport default defineProfile({id: "user.modal", version: "1", name: "有模式", description: "测试用", referencedExtensions: ["nbook.agent.modes"], system: "你好"});\n`;
+        const gone = `import {defineProfile} from "@notnotype/nb-plugin-sdk/agent";\nexport default defineProfile({id: "user.gone", version: "1", name: "引用了不在的", description: "测试用", referencedExtensions: ["lab.gone"], system: "你好"});\n`;
+        const {w} = await world({"modal.profile.tsx": modal, "gone.profile.tsx": gone});
+        const entry = (key: string) => w.service.profiles().find((profile) => profile.key === key);
+        await waitUntil("用户级 Profile 装载好", () => entry("user.modal") !== undefined && entry("user.gone") !== undefined);
+        expect(entry("nbook.agent.main")?.referencedExtensions).toEqual(["nbook.agent.modes"]);
+        expect(entry("user.modal")).toMatchObject({status: "ok", referencedExtensions: ["nbook.agent.modes"]});
+        expect(entry("user.gone")).toMatchObject({status: "unavailable", problem: {code: "extensions-missing", extensions: ["lab.gone"]}});
+        const created = await w.service.create({profile: "user.modal"});
+        if (!created.ok) throw new Error(created.code);
+        expect((await created.value.snapshot()).extensions.find((extension) => extension.id === "nbook.agent.modes")?.status).toBe("active");
+    });
+
     test("输出 15：四种失败的原因都结构化，交给窗口的目录里没有本机路径", async () => {
         const {w} = await world({
             "syntax.profile.tsx": `const = ;\n`,

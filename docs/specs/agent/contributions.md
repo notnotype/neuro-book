@@ -34,11 +34,11 @@ owners:
 
 | 贡献点 | 形状 | 声明（清单里，不激活就可读） | id |
 |---|---|---|---|
-| `agent.extensions` | 实现 | `{tags?: string[]; dependsOn?: string[]}` | `<插件 id>.<名>` |
+| `agent.extensions` | 实现 | `{tags?: string[]; dependsOn?: string[]; install?: "on-request"}` | `<插件 id>.<名>` |
 | `agent.tools` | 实现 | 工具声明里可序列化的部分（说明、参数、`providerName?`、`version`、`finish`、`concurrency`、`strict`、`effect` 的固定值）加 `group?: string`、`defaultForAll?: boolean`、`customFormat?: {syntax: "lark", definition: string}`（原样转给内核，模型按这份语法写参数） | `<插件 id>.<名>`，规则同 [`harness/models.md`](../harness/models.md) 的工具 id |
 | `agent.evalObjects` | 无（只有声明） | `{name: string, summary: string, docs?: string}`：`name` 是 JS 标识符，`summary` 一行说明，`docs` 是 Markdown | `<插件 id>.<名>` |
 | `agent.statusItems` | 实现（只接受浏览器入口） | `{title: Text, description?: Text, side: "left" \| "right", defaultVisible?: boolean}` | `<插件 id>.<名>` |
-| `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}, role?: string, hidden?: boolean, defaultTools?: false, icon?: string, modelNeeds?: {vision?: boolean; thinking?: boolean; minContext?: number}}`（`icon` planned） | `<插件 id>.<名>` |
+| `agent.profiles` | 实现 | `{name, description, tools: {required: string[]; optional: string[]}, role?: string, hidden?: boolean, defaultTools?: false, icon?: string, modelNeeds?: {vision?: boolean; thinking?: boolean; minContext?: number}, referencedExtensions?: string[]}`（`icon` planned） | `<插件 id>.<名>` |
 
 - 实现：扩展是内核 `defineExtension` 的结果；工具是工厂 `{create(会话上下文): ToolImplementation}`，实现可以给按参数求等级的 `effect` 函数；Profile 是内核 `defineProfile` 的结果。工厂的第二个参数 `services` 带这个会话的资源视图 `services.resources`，工具经它按资源地址读写（[`agent.resources`](resources.md)）；`services.artifacts` 以宿主身份保存大结果的全文（同一 Spec 输出 11）。
 - 激活事件前缀归 `nbook.agent`：`onAgentSession:open`、`onAgentTool:<工具 id>`、`onAgentProfile:<key>`（平台的事件都是“前缀:参数”，`onAgentSession` 的参数固定为 `open`）。提供方入口自己写上这些事件；SDK 的 `agentExtension`、`agentTool`、`agentProfile` 助手连同贡献声明一起给出。
@@ -60,15 +60,15 @@ owners:
 5. **工具的激活。** 工具的声明来自清单，提供方没激活也交给模型；声明里的 `effect` 是提供方没激活时用的等级（应写最保守的），激活之后实现给了按参数求等级的函数就用它。会话第一次执行某个工具时触发 `onAgentTool:<id>`，激活成功后向提供方当前一代要实现、按会话建一次，之后复用；激活失败或提供方受阻，这次调用得 `tool-unavailable`，下一次执行再试。
 6. **工具的撤回。** 提供方停止时（入口停了，插件还在登记里）：之后的执行得 `tool-unavailable`，声明不变；插件被注销（卸载）时声明随登记一起消失，之后的请求里没有这个工具。两种情况下执行中的调用继续，最多等 5 秒，到时以 `tool-unavailable` 结算，提供方之后交回的结果丢掉；交给平台的撤回在所有调用结算或 5 秒到时完成。真正的实现在它底层的执行都结束后 `dispose`，5 秒时还没结束的写诊断 `tool-abandoned`。提供方再激活后，下一次执行用新的一代重建实现。
 7. **Profile 目录。** 目录列出插件贡献的与用户级的 Profile：key、名称、说明、来源、状态（`ok`、`unavailable`、`error`）与原因。插件 Profile 来自声明，不激活提供方；`profiles.resolve(key)` 时触发 `onAgentProfile:<key>`，再取实现。来源按登记判定：插件贡献了的 key 就是插件的（发布者叫 `user` 的插件也可以贡献 `user.` 开头的 key），用户级 Profile 撞上插件已用的 key 时标不可用，同名不覆盖。 声明了 `hidden: true` 的条目带上这个标记，仍在目录里，给人选 Profile 的界面不列出它。
-8. **可用性。** Profile 的 `required` 工具有不在工具声明里的，状态 `unavailable`，原因写缺哪些。
+8. **可用性。** Profile 的 `required` 工具有不在工具声明里的，状态 `unavailable`，原因写缺哪些；工具都在、引用的扩展（输出 26）有不在扩展声明里的（按清单算，不激活提供方），同样 `unavailable`，原因写缺哪些。
 9. **用户级 Profile 的打包。** 文件改动后重新打包：入口是源文件，外部模块只有宿主模块表里的；导入表外的裸说明符、或在运行时算出模块名的导入（变量作说明符），以 `module-not-shared` 失败。打包结果以内容哈希命名、原子写入，导入后默认导出必须是 `defineProfile` 的结果，否则 `profile-invalid-export`。监听 `user/profiles/` 目录与包里用到的每个源文件；同一 Profile 同时只打一个包，后到的变化合并成下一次；打包与求值期间它用到的文件（或还不知道用到哪些文件时，它的目录里的文件）变了，这次的结果丢掉、再打一次。打包失败的，修好它用到的文件、或在 `user/profiles/` 里改动，就重试。
 10. **用户级 Profile 的版本。** 生效的 `version` 是 Profile 自己写的 `version` 加 `+` 加包内容哈希的前 12 位：同一份源文件重启后版本不变，改了任何一个源文件版本就变。
 11. **重载。** 用户级 Profile 的版本变了、或插件 Profile 的提供方停止与再激活时，用它的打开着的会话重新解析 Profile（[`harness/runtime.md`](../harness/runtime.md) 输出 57 的 `profilesChanged`）：运行中的等这次运行结束；版本变了写 `profileChanged{code-updated}`；解析不到进只读 `unknown-profile`，回来后解除。
 12. **打包失败。** 打包或求值失败时继续用上一次成功的包，状态 `error`、带原因与位置；从来没成功过的状态 `unavailable`，解析不到。源文件被删后 Profile 从目录消失，用它的会话进只读 `unknown-profile`。
 13. **Profile 设置。** 声明的 `role` 是这个 Profile 的缺省角色，设置里的 `role`、`model` 优先。`model`、`role` 作为这个 Profile 的模型缺省交给模型服务（[`models/service.md`](../models/service.md) 输出 10）；`approvalMode` 是新会话的初值。界面见 [`profile-settings.md`](profile-settings.md)。
-14. **目录的详情。** 每项带 `tools`、`defaultTools?`、`role?`、`modelNeeds?`，让界面不用激活提供方就能算工具集与能力缺口。插件 Profile 来自声明；用户级来自上一次成功的包，从未成功时不带这几项，用户级没有 `role`。
-15. **原因是结构化的。** 输出 7、8、12 的原因是判别式 `problem`：`{code: "tools-missing", tools}`、`{code: "key-taken"}`、`{code: "module-not-shared", module?}`、`{code: "invalid-export", expectedId?}`、`{code: "build-failed" | "load-failed", file, line?, message}`。`file` 是相对 `user/profiles/` 的名字，`message` 不带状态根与缓存的绝对路径，原文只进诊断。
-16. **目录变化的通知。** 目录变了（新建、打包失败、成功后又失败、恢复，哈希没变也算；删除；工具或 Profile 的发布与撤回）发 `profileCatalogChanged`。它和输出 11 的重新解析是两回事：打包失败时会话继续用上一版，不重新解析。
+14. **目录的详情。** 每项带 `tools`、`defaultTools?`、`referencedExtensions?`、`role?`、`modelNeeds?`，让界面不用激活提供方就能算工具集、能力缺口与有没有 Agent 模式。插件 Profile 来自声明；用户级来自上一次成功的包，从未成功时不带这几项，用户级没有 `role`。
+15. **原因是结构化的。** 输出 7、8、12 的原因是判别式 `problem`：`{code: "tools-missing", tools}`、`{code: "extensions-missing", extensions}`、`{code: "key-taken"}`、`{code: "module-not-shared", module?}`、`{code: "invalid-export", expectedId?}`、`{code: "build-failed" | "load-failed", file, line?, message}`。`file` 是相对 `user/profiles/` 的名字，`message` 不带状态根与缓存的绝对路径，原文只进诊断。
+16. **目录变化的通知。** 目录变了（新建、打包失败、成功后又失败、恢复，哈希没变也算；删除；工具、扩展或 Profile 的发布与撤回）发 `profileCatalogChanged`：扩展增减会改引用了它的 Profile 的可用性（输出 8）。它和输出 11 的重新解析是两回事：打包失败时会话继续用上一版，不重新解析。
 17. **工具目录。** `toolCatalog` 列出已接受的工具声明：`{id, description, providerName, effect, plugin, defaultForAll?}`，`providerName` 是换算后交给模型的名字，`effect` 是声明里的固定值。
 18. **用户级 Profile 的新建与删除。** `createUserProfile({name, description, system})` 把骨架一次写成 `user/profiles/<名>.profile.tsx`（后两项是骨架里的文字，由窗口按界面语言给），名字只能用小写字母、数字、连字符（不合规则 `invalid-name`），已有同名 `exists`，不覆盖；交回 `{key, address}` 时目录里已经有它。`deleteUserProfile({key})` 删入口文件，不是用户级或文件已不在的 `not-found`。
 
@@ -79,6 +79,7 @@ owners:
 23. Profile 声明可用的表情包：`agent.profiles` 的声明加 `stickers?: {allowed: string[] | "all"}`，值是表情包 id；不声明就是空白名单。白名单的合成与用途见 [`stickers.md`](stickers.md)。
 24. 工具声明的代码调用字段：`agent.tools` 的声明加 `invokes?: true`（执行时能经 `ctx.invoke` 调别的工具）、`codeCallable?: false`（不能被代码调用）、`global?: {object: string, method: string}`（是某个全局对象的方法，只能从代码里调）、`returns?: <JSON Schema>`（代码调用时交回的结构化值的形状），含义见 [`harness/runtime.md`](../harness/runtime.md) 输出 90 到 99 与 [`eval.md`](eval.md)。`global.object` 必须是同一个插件登记的 `agent.evalObjects` 的 `name`，否则这个工具不进工具表，诊断 `eval-object-missing`。
 25. 全局对象：`agent.evalObjects` 登记一个代码里可用的对象，它的方法是带 `global` 的工具（输出 24）。对象名与内核给的名字（`tool`、`display`、`console`、`require`）或 JS 运行时的全局（`Math`、`process`、`Bun` 等）冲突时这个对象不登记，诊断 `eval-object-conflict`；两个插件登记同名对象时双方都不登记，诊断 `eval-object-conflict` 写明两个来源。对象与方法的用法、文档见 [`eval.md`](eval.md)。
+26. **按需扩展。** `agent.extensions` 的声明写 `install: "on-request"` 的扩展不自动装到所有 Profile，Profile 按 id 引用（`referencedExtensions`）才装；装配规则在内核（[`harness/extensions.md`](../harness/extensions.md) 输出 32、33）。插件 Profile 的引用只认 `agent.profiles` 声明里的 `referencedExtensions`：交给内核的 Profile 是实现加上声明的引用；实现里另写了不同的引用时以声明为准，写诊断 `profile-references-mismatch`。用户级 Profile 在 `defineProfile` 里写 `referencedExtensions`。同一代插件 Profile 的句柄每次解析交回同一个对象；入口停止中、撤回还没送达时解析不到（同没有这个 Profile），缓存不绕过这一步。内置的按需扩展是 Agent 模式 `nbook.agent.modes` 与它的提醒 `nbook.agent.mode-reminder`（[`agent/modes.md`](modes.md)）。
 
 ## 状态与转换
 
@@ -127,6 +128,7 @@ owners:
 1. 一个测试插件交出工具与扩展，另一个交出 Profile：建会话前扩展的提供方被激活，工具没执行前提供方不激活但模型看得到工具；第一次执行激活提供方；停掉工具的提供方，下一次调用 `tool-unavailable`，再激活后恢复。
 2. 用户在 `user/profiles/` 写一个 Profile，导入同目录的另一个文件：建会话、对话一轮；改那个被导入的文件，下一次请求用新内容、日志里有 `code-updated`；改成导入表外的包，目录标错误、会话继续用上一版；删掉源文件，会话只读。
 3. 工具绑定给这个 Profile 加一个它没写的工具、去掉一个可选工具，下一次请求的工具集跟着变。
+4. 一个测试插件交出 Profile，声明里引用 `nbook.agent.modes`、工具里没有 `switch_mode`：目录带这个引用，对话里有模式控件，用户切到计划模式成功；草稿里先选计划再新建，建好就是计划模式。另一个只列了 `switch_mode`、不引用的：没有模式控件（开发者 2026-11-25 报告的“发送失败(unknown-extension)”不再出现）。
 
 Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试。
 

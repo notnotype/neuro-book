@@ -37,7 +37,7 @@ import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints"
 import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
-import {createLayoutDrag} from "../layout-drag";
+import {createLayoutDrag, windowDragRegion} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop, LiveCardRefresh} from "../layout-drag";
 import {dropKeyOf} from "../entry-drop";
 import type {WorkbenchDragSource} from "../entry-drop";
@@ -62,6 +62,7 @@ import WorkbenchViewFrame from "./WorkbenchViewFrame.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
 import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
 import {OPEN_COMMANDS_ID} from "../commands/open-commands";
+import type {WorkbenchGridIssue} from "../grid-diagnostics";
 
 defineOptions({name: "WorkbenchShell"});
 
@@ -88,6 +89,11 @@ const props = defineProps<{
     dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
+    /**
+     * 网格的诊断与被拒的提交（`grid-diagnostics.ts`）。必填：外壳只有插件入口一个挂载点，漏接时网格的诊断全部静默丢掉。
+     * 入口交出的属性不经类型检查核对，漏传只有开发构建里 Vue 的警告，由 workbench-shell 的 e2e 守着。
+     */
+    reportGridIssues: (issues: readonly WorkbenchGridIssue[]) => void;
 }>();
 
 const resolver = useText();
@@ -324,7 +330,8 @@ const headActions = computed(() => new Map(Object.entries(doc.value.panels).flat
  * 视图交还标题区时三处一起回到普通画法。
  */
 function headOfPanel(panelId: string) {
-    if (!titleOnlyPanelIds.value.has(panelId)) return null;
+    // 自绘头时没有面板头，也就没有标题区可接管（输出 19 的“自绘头”与接管标题区互斥），视图写的 `claim` 不起作用。
+    if (!titleOnlyPanelIds.value.has(panelId) || ownHeadBands.value.has(panelId)) return null;
     const viewId = viewIdOf(renderedDoc.value.panels[panelId]?.active ?? "");
     const control = viewId === null ? null : instances.headOf(viewId);
     return viewId === null || control === null || !control.head.claim.value ? null : {viewId, control};
@@ -342,6 +349,38 @@ function panelViewHead(panelId: string): PanelViewHead | null {
     const stripWidth = region === null ? null : stripWidthOf(region);
     if (region !== null && stripWidth !== null && stripWidth - stripEntriesReserve(region) - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
     return {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
+}
+
+// ── 视图自绘头（docs/specs/workbench/views.md 输出 19 的“自绘头”） ─────────────
+
+/**
+ * 视图自绘头的面板 → 视图声明的那一条有多高。按已提交的文档算（同只写标题，拖动中标签数变了不跟着变）：在浮动窗里、只写标题、
+ * 活动视图声明了自绘头且这一代实例已就绪。加载中、渲染出错、交付撤回时照常画面板头（t18 决定 4），换的时候直接换。
+ */
+const ownHeadBands = computed<ReadonlyMap<string, number>>(() => new Map(doc.value.floats.flatMap(({panel}) => {
+    if (!titleOnlyPanelIds.value.has(panel)) return [];
+    const viewId = viewIdOf(doc.value.panels[panel]?.active ?? "");
+    const own = viewId === null ? null : instances.ownHeadOf(viewId);
+    return own === null ? [] : [[panel, own.band] as const];
+})));
+/** 盖在自绘头右端的按钮一组让出的宽度，面板头量了交来，按面板记。 */
+const ownHeadInsets = shallowReactive(new Map<string, number>());
+/** 交给表面：哪些面板自绘头、内容上写多宽的让位。 */
+const ownHeads = computed<ReadonlyMap<string, number>>(() => new Map([...ownHeadBands.value.keys()].map((panel) => [panel, ownHeadInsets.get(panel) ?? 0])));
+
+/**
+ * 自绘头的可拖元素上右键（输出 19 的“自绘头”）：按在拖动区的空白处（中间没有可交互的元素，按下的元素自己不直接写字、不是图片）、视图没有处理的，
+ * 开这个视图的“移动到”；文字与图片上留给浏览器（复制、存图），按钮上留给视图。监听在外壳根上，冒泡到这里时视图自己的处理已经跑过。
+ */
+function onOwnHeadContextMenu(event: MouseEvent): void {
+    const target = event.target;
+    if (event.defaultPrevented || !(target instanceof HTMLElement) || windowDragRegion(target) === null) return;
+    if (target.matches("img, svg, svg *") || [...target.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")) return;
+    const panel = target.closest("[data-content-leaf][data-float]")?.getAttribute("data-content-leaf") ?? null;
+    const active = panel === null || !ownHeadBands.value.has(panel) ? null : doc.value.panels[panel]?.active ?? null;
+    if (active === null) return;
+    event.preventDefault();
+    openMoveMenu(active, {x: event.clientX, y: event.clientY});
 }
 
 /** 面板头交来的位置，按面板记。 */
@@ -363,6 +402,7 @@ watchEffect(() => {
         const panelId = panelOfView(viewId);
         const owns = panelId !== null && headOfPanel(panelId)?.control === control;
         control.setSlots(owns ? panelHeadSlots.get(panelId) ?? null : null);
+        control.setOwnHead(panelId !== null && ownHeadBands.value.has(panelId) && viewIdOf(doc.value.panels[panelId]?.active ?? "") === viewId);
     }
 });
 
@@ -798,6 +838,7 @@ onMounted(() => {
         enabled: () => state.value.ready,
         editorTabs: () => editorTabs.value,
         titleOnly: (panel) => titleOnlyPanelIds.value.has(panel),
+        ownHead: (panel) => ownHeadBands.value.has(panel),
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
         cardShrink: () => props.dragCardShrink ?? "strip",
@@ -953,7 +994,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
 </script>
 
 <template>
-    <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onHostFocusIn">
+    <div ref="hostEl" class="workbench-shell-host" tabindex="-1" @focusin="onHostFocusIn" @contextmenu="onOwnHeadContextMenu">
         <div class="workbench-shell" data-workbench-shell :data-layout-diagnostics="diagnostics" :data-panel-count="panelCount">
             <div class="workbench-shell__titlebar-slot" data-shell-titlebar :style="{height: titlebarHeight}">
                 <WorkbenchTitleBar
@@ -989,6 +1030,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :maximized="state.maximized"
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanelIds"
+                :own-heads="ownHeads"
                 :slot-panel="dragSlotPanel"
                 :swap="regionSwap"
                 context-key="workbench"
@@ -1000,6 +1042,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 @focus-panel="(panel) => layout.actions.focusPanel(panel)"
                 @raise-float="(panel) => layout.actions.raiseFloat(panel)"
                 @content-parked="onContentParked"
+                @issues="(issues) => reportGridIssues(issues)"
             >
                 <template #activitybar>
                     <WorkbenchToolStrip
@@ -1097,6 +1140,21 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @commit="(next) => layout.actions.setFloatRect(id, next)"
                         @move="(position) => layout.actions.moveFloat(id, position)"
                     />
+                </template>
+                <template #own-head="{panelId: id, idPrefix, actionsShown}">
+                    <!-- 视图自绘头（views.md 输出 19 的“自绘头”）：盖在视图之上的一条，在内容里，焦点与 F6 算这块面板；窗口零件层的缩放带仍在它上面。 -->
+                    <WorkbenchPanelHead
+                        v-bind="toolHeadProps(id, idPrefix)"
+                        :own-head="{band: ownHeadBands.get(id) ?? 0}"
+                        :actions-shown="actionsShown"
+                        v-on="toolHeadEvents(id)"
+                        @own-head-inset="(width: number) => ownHeadInsets.set(id, width)"
+                        @vue:mounted="onHeadMounted(id)"
+                    >
+                        <template v-if="headActions.has(id)" #actions>
+                            <TitleActions :model="headActions.get(id)!.model" :identity="viewIdentity(headActions.get(id)!.viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(headActions.get(id)!.viewId, key)" />
+                        </template>
+                    </WorkbenchPanelHead>
                 </template>
                 <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">

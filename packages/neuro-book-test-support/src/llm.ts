@@ -52,6 +52,25 @@ export function llmTestConfig(options: LlmTestConfigOptions = {}): LlmTestConfig
     return {apiKey, model: env.REAL_MODEL_SMOKE_MODEL || DEFAULT_LLM_TEST_MODEL, baseUrl, apiKeyEnv: "DEEPSEEK_API_KEY"};
 }
 
+/** 真实服务测试里别的服务的密钥：同样只读白名单里的键。 */
+const SERVICE_KEYS = ["TAVILY_API_KEY"] as const;
+export type ServiceKeyName = (typeof SERVICE_KEYS)[number];
+
+/**
+ * 别的外部服务（例如网页工具的 Tavily）的密钥：同一个开关，先看进程环境，没有时只从 `.env` 读这一个键，不写进进程环境（只有
+ * 调用方拿着它）。开关没开返回 null；开关开了却没有时同样打印一行提示，用例跳过、记为未验证。
+ */
+export function llmTestKey(name: ServiceKeyName, options: LlmTestConfigOptions = {}): string | null {
+    const env = options.env ?? process.env;
+    if (env[LLM_TESTS_ENV] !== "1") return null;
+    const value = env[name] ?? readDotenv(options.dotenvPath ?? REPO_DOTENV).get(name);
+    if (value === undefined || value === "") {
+        console.warn(`${LLM_TESTS_ENV}=1 但缺少 ${name}：用到它的真实服务测试跳过，记为未验证`);
+        return null;
+    }
+    return value;
+}
+
 /** 只解析 `KEY=VALUE` 行；值两侧成对的引号去掉。 */
 function readDotenv(path: string): Map<string, string> {
     const values = new Map<string, string>();

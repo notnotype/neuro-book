@@ -15,7 +15,7 @@
 - 点击触发器切换展开状态；受控模式下状态由父组件更新 `open`，非受控模式由 `defaultOpen` 初始化。打开状态变化时发出 `update:open`。
 - `modal` 默认为 `false`；其模态细节和触发器行为由 Reka Popover 原语提供。
 - 面板关闭时阻止 Reka 的自动焦点恢复。焦点具体去向及其它关闭来源遵循上游原语，不在本组件保证范围内。
-- 定位方向、碰撞避让和对齐由 `side`、`sideOffset`、`avoidCollisions`、`align` 控制。
+- 定位方向、碰撞避让和对齐由 `side`、`sideOffset`、`avoidCollisions`、`align` 控制；避让缺省以视口为界，给了 `collisionBoundary` 时以那块元素为界（例如编辑区里的浮层不越出编辑区、盖到侧栏上）。
 
 ### 锚在外部元素上
 
@@ -49,6 +49,8 @@ interface PopoverProps {
     arrow?: boolean;
     /** 锚在这个元素上，不用 `trigger` 插槽（见“锚在外部元素上”）；默认不给。传 null 时同样不渲染触发器；锚点还没有时不要打开，面板没有可贴的位置。 */
     anchor?: HTMLElement | null;
+    /** 避让时以哪块元素为界；缺省 null（视口）。只在 `avoidCollisions` 时起作用。 */
+    collisionBoundary?: Element | readonly Element[] | null;
 }
 
 interface PopoverEmits {

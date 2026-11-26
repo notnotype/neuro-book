@@ -1,6 +1,6 @@
 /**
  * “设定”视图的宿主（entries-view.ts；docs/specs/canon/author-ui.md 输出 1 到 3、5、27）接在进程内的真实世界服务上：分组、
- * 展开时才读那一层、别处发布后原地更新且展开状态保留、点了打开条目、没绑定项目、世界断开。
+ * 展开时才读那一层、别处发布后原地更新且展开状态保留、点了打开条目、没绑定项目、世界断开；新建条目与空状态的“新建人物”（输出 4、37）。
  */
 
 import {rm} from "node:fs/promises";
@@ -17,7 +17,9 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
+import {BUILTIN_ENTRY_KINDS} from "../shared/components";
 import type {CanonClient} from "../shared/contracts";
+import {mergeEntryKinds} from "../shared/entry-kinds";
 import {countedClient} from "../testing/counted-client";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
@@ -62,7 +64,7 @@ async function publish(canon: CanonClient, entries: Entry[]): Promise<Record<str
     return result.value.ids;
 }
 
-async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: (visible?: Ref<boolean>) => ReturnType<typeof mount>}> {
+async function setup(kinds = () => mergeEntryKinds(BUILTIN_ENTRY_KINDS)): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: (visible?: Ref<boolean>) => ReturnType<typeof mount>}> {
     venue = await canonNodeWorld(tmp);
     const mine = await venue.window("mine");
     const other = await venue.window("other");
@@ -74,7 +76,7 @@ async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; stat
     const state = entriesViewState();
     const opened: string[] = [];
     const notices = createNotices();
-    const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id), create: {dialog: NewEntryDialog, call: client.call, notices}});
+    const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id), create: {dialog: NewEntryDialog, call: client.call, notices, kinds}});
     return {
         world, other, state, opened, parents,
         // 给了 `visible` 时按工作台的做法给一份 `context`；不给时宿主按可见算。
@@ -202,5 +204,50 @@ describe("设定视图", () => {
         const stored = await other.canon.call("object", {ref: {kind: "entry", id: opened[0]!}});
         if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
         expect(stored.value.object).toMatchObject({type: "物品", folder: "物品", parent: starId, init: {name: "魔杖", data: {panel: {type: "nbook.canon.panel", enabled: true}}}});
+    });
+
+    it("空作品里点“新建人物”：种类是人物，勾上人物与形象两组；新建以后条目上启用的是这两组", async () => {
+        const {opened, view, other} = await setup();
+        const wrapper = view();
+        await waitUntil("空状态", () => wrapper.find("[data-entries-empty]").exists());
+        const person = wrapper.get("[data-entries-empty]").findAll("button").find((button) => button.text() === "新建人物")!;
+        await person.trigger("click");
+        const dialog = (): Element => document.body.querySelector("[role='dialog']")!;
+        // 登记的类型是对话框开了才读的：读到以后勾选补上人物与形象。
+        const checked = (): string[] => [...dialog().querySelectorAll<HTMLInputElement>("input[type='checkbox']")].filter((box) => box.checked).map((box) => box.closest("label")?.textContent?.trim() ?? "");
+        await waitUntil("人物与形象勾上", () => document.body.querySelector("[data-new-entry]") !== null && checked().sort().join("|") === ["人物", "形象"].sort().join("|"));
+        const [name, kind] = [...dialog().querySelectorAll("input")] as HTMLInputElement[];
+        expect(kind!.value).toBe("人物");
+        // 种类的候选：登记的四个在前。
+        expect([...dialog().querySelectorAll("[data-new-entry-kinds] button")].map((button) => button.textContent?.trim())).toEqual(["人物", "组织", "地点", "物品"]);
+        name!.value = "星瑾";
+        name!.dispatchEvent(new Event("input", {bubbles: true}));
+        const create = (): HTMLButtonElement => [...dialog().querySelectorAll("button")].find((button) => button.textContent?.trim() === "新建")!;
+        await waitUntil("“新建”可用", () => !create().disabled);
+        create().click();
+        await waitUntil("打开了它的条目页", () => opened.length === 1);
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id: opened[0]!}});
+        if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
+        const entry = stored.value.object as Entry;
+        expect(entry).toMatchObject({type: "人物", folder: "人物", init: {name: "星瑾"}});
+        expect(Object.keys(entry.init.data)).toEqual(["character", "look"]);
+    });
+
+    it("“人物”这个种类没登记时，空状态里没有“新建人物”", async () => {
+        const {view} = await setup(() => mergeEntryKinds(BUILTIN_ENTRY_KINDS.filter((item) => item.declaration.kind !== "人物")));
+        const wrapper = view();
+        await waitUntil("空状态", () => wrapper.find("[data-entries-empty]").exists());
+        expect(wrapper.get("[data-entries-empty]").findAll("button").map((button) => button.text())).toEqual(["新建条目"]);
+    });
+
+    it("种类的候选：登记的种类排在作品里用过的词前面，同一个词只列一次", async () => {
+        const {other, state, view} = await setup();
+        await publish(other.canon, [person("魔杖", {type: "法器", folder: "法器"}), person("短剑", {type: "物品", folder: "物品"})]);
+        state.expanded.value = ["folder:法器", "folder:物品"];
+        const wrapper = view();
+        await waitUntil("条目出现", () => rowTexts(wrapper).includes("魔杖") && rowTexts(wrapper).includes("短剑"));
+        startNewEntry(state, null);
+        await waitUntil("对话框", () => document.body.querySelector("[data-new-entry-kinds]") !== null);
+        expect([...document.body.querySelectorAll("[data-new-entry-kinds] button")].map((button) => button.textContent?.trim())).toEqual(["人物", "组织", "地点", "物品", "法器"]);
     });
 });

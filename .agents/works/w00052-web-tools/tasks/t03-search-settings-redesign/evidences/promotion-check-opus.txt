@@ -1,0 +1,204 @@
+# w00052 t03 Spec 晋升前逐句核对（Opus，只读）
+对象：docs/specs/web/tools.md、docs/specs/web/settings-page.md 里的“（planned）”；实现范围 f408186c3..da4b4ecf5（da4b4ecf5 上核对）。
+已跑：bun test web.test.ts sites.test.ts tavily.test.ts（34 pass 0 fail）。路径相对 packages/neuro-book/src/plugins/web-tools/，另注明的除外。
+
+## [对得上] tools.md 37 行：count 缺省取设置项 nbook.web/resultCount（planned）
+- 代码：backend/tools.ts:270-271（没给 count 时取 current.resultCount()，几条时 Math.min(..., BATCH_MAX_COUNT)）；backend/plugin.ts:67（读设置）。
+- 断言：web.test.ts:208（一条查询不给条数发 count 5，原行为是 8，能区分）；web.test.ts:580（resultCount 设 3 时请求体 count 3）；web.test.ts:476（几条查询发 5）。
+- 结论：可去掉 planned，同时删掉括号里的“原为一条查询时缺省 8、几条时缺省 5”。
+
+## [对得上，附一处没有断言] tools.md 49 行：nbook.web/resultCount（planned）整数 1 到 10，缺省 5
+- 代码：shared/settings.ts:47-52（Type.Integer minimum 1 maximum 10，default 5，layers user）。
+- 断言：缺省 5 见 web.test.ts:208；用户层设 3 生效见 web.test.ts:580。
+- 没有断言：“1 到 10”的上下界只有 schema，后端没有用例在设置文件里写 0 或 11 看被拒；设置页的数字框有越界断言（DOM 测试 362-365 的 11、468-470 的 0，原位提示且不写），所以用户经页面改不出越界值。只剩 schema 这一层没有后端用例，收益小，可接受为已知不测。
+- 另：表上方“配置项，都只有用户层”对新三项没有断言：web.test.ts:401 只遍历 provider、deepseekBaseUrl、tavilyBaseUrl 三项的 layers。补法是把 resultCount、blockedSites、tavilySearchDepth 加进同一个循环（401 行），402 行的缺省值一并补 5、[]、"basic"。
+
+## [对得上] tools.md 50 行：nbook.web/blockedSites（planned）
+- 代码：shared/settings.ts:53-58（string 数组，maxItems 100，default []，layers user）；backend/plugin.ts:69（读的时候 normalizeSites）；shared/sites.ts:10-31（只留主机、经 URL 转小写与 punycode、去掉末尾的点、单段与 IPv6 为 null、写错的项跳过、去重）。
+- 断言：sites.test.ts:11-17（网址只留主机、大写转小写、末尾的点、例子.中国 转 punycode、端口去掉、IPv4 收、localhost 与 [::1] 不收）；sites.test.ts:21（写错的项跳过、去重、保持先后）；web.test.ts:573 加 580-584（设置里写 ["Bad Item","blocked.example"]，真实工具调用里 blocked.example 照样被挡：写错的项只跳过这一项）。
+- 未单独断言但不影响去标记：至多 100 个只在 schema；IPv4 项能挡住 IPv4 网址的结果没有工具级用例（sites.test 只断言 normalizeSite 收下 127.0.0.1）。可以在 sites.test.ts:26 的 siteBlocked 用例补一行 siteBlocked("http://127.0.0.1/a", ["127.0.0.1"]) 为 true。
+- 结论：可去掉 planned。
+
+## [对得上] tools.md 51 行：nbook.web/tavilySearchDepth（planned），"basic" 或 "advanced"，缺省 "basic"
+- 代码：shared/settings.ts:59-65；backend/plugin.ts:70；backend/tools.ts:276 与请求里的 depth；backend/providers/tavily.ts:103（search_depth: request.depth ?? "basic"）。
+- 断言：web.test.ts:415（缺省设置下经工具发到假 Tavily 的请求体 toEqual 含 search_depth "basic"）；web.test.ts:589（设 advanced 后请求体 search_depth "advanced"）。
+- 括号“advanced 每条扣 2 点额度”是服务方的计费说明，不是本实现的行为，不需要断言。
+- 结论：可去掉 planned。
+
+## [对得上] tools.md 68 行：Tavily 的 search_depth 取设置项（planned）；屏蔽网站不空时给 exclude_domains（planned）
+- 代码：backend/providers/tavily.ts:103、106；backend/tools.ts:275-284（blocked 非空才带 excludeSites）。
+- 断言：web.test.ts:589（toMatchObject：search_depth "advanced"、exclude_domains ["blocked.example"]，且 "Bad Item" 已被归一化去掉，能区分）；空名单时不带 exclude_domains：web.test.ts:415 与 tavily.test.ts:37、40 都是 toEqual，请求体里没有 exclude_domains。
+- 结论：两处 planned 都可去掉，删掉“原为固定 "basic"”。
+
+## [没有断言（部分）] tools.md 69 行：去掉了屏蔽网站的结果时的写法（planned）
+- 代码：backend/tools.ts:221（blockedNote）、237（一条查询全被去掉）、238（一条查询去掉一部分）、251（几条查询的组头，两种都走这里）。
+- 有断言的：一条查询去掉一部分 web.test.ts:582、590（第一行 toBe “…1 条结果（另有 2 条来自屏蔽网站，已去掉）。”）；几条查询里一条全被去掉 web.test.ts:594（组头“查询 1：全挡，没有结果（1 条来自屏蔽网站，已去掉）”）。
+- 没有断言的：只有一条查询、结果全被去掉时（tools.ts:237 的 blockedNote(blocked, true)）。把这一处改成不带说明，现有用例都照过。几条查询里去掉一部分（组头“N 条结果（另有 M 条…）”）也没有断言，但与 594 行同走 251 行，风险小。
+- 补法：在 web.test.ts:571 那条用例里加一次一条查询全挡的调用，断言第一行 toBe “来自 Tavily 搜索，没有结果（1 条来自屏蔽网站，已去掉）。”。补上后可去掉 planned。
+
+## [对得上] tools.md 70 行：单段的主机名（localhost）与 IPv6 地址挡不了（planned）；连带同一条前一句的屏蔽与子域名
+- 代码：shared/sites.ts:7（SITE 至少两段）、10-21（[::1]、localhost 归一化为 null）；backend/plugin.ts:69 读设置时跳过它们，所以这类项挡不了任何结果。前一句“主机（去掉末尾的点）是屏蔽网站之一或它的子域名的丢掉，两家都在本地再筛”：shared/sites.ts:34-43、backend/tools.ts:299-305。
+- 断言：sites.test.ts:17（localhost、[::1] 为 null）；前一句：sites.test.ts:26-34（等于、子域名、大写、末尾的点、%2e 编码的点挡；notcsdn.net 与 csdn.net.evil.example 不挡）；web.test.ts:578-584（DeepSeek 结果里 blocked.example./a 与 news.blocked.example/b 被本地去掉）、590（Tavily 也在本地再筛）。
+- 标记的位置：f408186c3 时 planned 标在前一句（屏蔽与子域名）后面，c39fc30e0 把它挪到了“单段……挡不了”之后，按“标在一句话后面的只管那一句”，前一句现在读作当前行为。两句都已实现且有断言，去掉标记即可，不影响结论。
+- 结论：可去掉 planned。
+
+## [对得上] tools.md 97 行：check 不看屏蔽网站，Tavily 用 basic（planned）
+- 代码：backend/settings-remote.ts:61（检测的请求只给 {query: CHECK_QUERY, count: 1}，不带 depth 与 excludeSites，Tavily 落到 tavily.ts:103 的缺省 "basic"）。
+- 断言：web.test.ts:596-597：同一用例里设置是 tavilySearchDepth "advanced"、blockedSites 非空，检测发到假 Tavily 的请求体 toEqual {query, max_results: 1, search_depth: "basic", include_published_date: true}，没有 exclude_domains，能区分。
+- 结论：可去掉 planned。
+
+（以下是 settings-page.md。另跑了 bunx vitest run SearchSettingsPage.dom.test.ts：24 pass。e2e 没跑，相关结论注明“从代码判断”。页面代码 = web/components/SearchSettingsPage.vue，DOM 测试 = web/components/SearchSettingsPage.dom.test.ts。）
+
+## [对得上] settings-page.md 14 行：左边列表、右边详情，同“服务商与模型”页（planned）；27 行“等着启用”的术语（planned）
+- 代码：页面代码 299-334（nav 左栏）、336-487（右边详情）；“等着启用”是页面代码 62 的 pending，行为见输出 11 一条。
+- 断言：DOM 测试 266-267（左栏依次 rules、deepseek、tavily，右边 data-search-detail 跟着选中项）；术语本身由输出 11 的断言管（见下）。
+- 结论：两处都可去掉 planned（27 行的术语随输出 11 一起去）。
+
+## [对得上] settings-page.md 31 行：layout "fill"（planned，原为 column）
+- 代码：web/plugin.ts:23。
+- 断言：DOM 测试 441（webBrowserPlugin 的声明 layout toBe "fill"）。
+- 结论：可去掉 planned，删掉“原为 column”。
+
+## [没有断言（部分）] settings-page.md 输出 1 版式（planned）
+对得上的句子：
+- “顶上搜索规则，一条分隔线，下面每家服务商一行”：页面代码 300-333；DOM 测试 266（顺序）。分隔线（315 行）没有断言，属外观。
+- “第一次显示这页时选中使用中的那家”：页面代码 60；DOM 测试 264-268（provider 设 tavily 时详情是 tavily、左栏 aria-current 在 tavily）；e2e 144（重开设置窗口仍选中 Tavily，从代码判断）。
+- “服务商的详情：标题区（logo、名称、使用中徽标或设为使用中按钮），API 密钥，检测，高级”：页面代码 397-483；徽标与按钮见 DOM 测试 306、309，高级见 383。
+没有断言的句子：
+- “页面宽不到 600px 时左栏收起，顶上换成一个下拉，选项是搜索规则与各家（使用中的那家写（使用中））”：页面代码 93-96（pickerOptions）、338-347、753-768（容器查询）。没有任何测试碰 data-search-picker；DOM 测试文件头 4 行明说窄布局量不出来、看 Lab 截图（Lab 场景 use-tavily-no-key-narrow）。容器查询量不出，但下拉的选项与“（使用中）”在 happy-dom 里照样渲染（Select 一直在 DOM 里，只是 CSS 藏起），可以补断言：选项文字依次是“搜索规则”“DeepSeek（使用中）”“Tavily”，经下拉选 tavily 后 data-search-detail 变成 tavily。
+- “左栏定宽……定宽的使用中一格、行尾定宽的状态一格，行等高、同种零件同列；右边自己纵向滚动”：页面代码 520-531、578-599、614（width 200px、定宽格、overflow-y）。只有 CSS，没有量尺寸的断言，看 Lab 截图。按规则属没有断言；这类外观靠截图验收可以接受，晋升时在“证据”写明是 Lab 截图。
+建议：补下拉选项的 DOM 断言后，这一条可去掉 planned；外观的几句在证据里注明由 Lab 截图看。
+
+## [与字面不一致（极小）] settings-page.md 输出 1：“页面宽不到 600px 时左栏收起”
+- 实际：页面代码 753 是 @container (max-width: 600px)，宽正好 600px 时也收起（max-width 含等号）。“服务商与模型”页 models/web/components/ProvidersPage.vue:661 同样写法，Spec 说“同那一页”，两页一致。
+- 影响：只差恰好 600px 这一个宽度，看不出区别。建议改 Spec 的字（“不超过 600px 时”），不改 CSS；或两页一起不动、接受这处字面差。
+
+## [对得上] settings-page.md 输出 8：按钮旁写“会发一次搜索，可能计费”（planned）
+- 代码：页面代码 426（text("check.cost")）；locales/zh-CN.json:70。
+- 断言：DOM 测试 204（页面文字含“会发一次搜索，可能计费”，原文“按次计费。”不含这串，能区分）。
+- 结论：可去掉 planned，删掉“原为按次计费。”。
+
+## [没有断言（部分）] settings-page.md 输出 8：检测结果写在按钮下面预留的一行……出现与消失不推动下面的内容，原因长时折行（planned）
+- 代码：页面代码 428-433（结果的 p 一直渲染，没有结果时内容为空）；690-698（min-height 一行、不设 nowrap，所以折行）。
+- 有断言的：“没有结果时这一行照样空着”：e2e/web-settings.e2e.ts:107、117 对结果行 toHaveText("")（元素不存在时会失败，从代码判断）；DOM 测试的 result() 用 wrapper.get，没有结果时也取得到。
+- 没有断言的：“出现与消失不推动下面的内容”“原因长时折行”只有 CSS，没有量“高级”位置或结果行高度的断言。e2e 能量：检测前后对 [data-search-advanced] 取 boundingBox().y 相等。另：min-height 只留一行，原因折成两行时仍会把“高级”往下推；Spec 把“不推动”与“折行”写在一起，读者可能理解为折行也不推。建议 Spec 写成“一行以内的结果出现与消失不推动下面的内容；原因长时折行（会推下面的内容）”，或者接受现状。
+- 结论：补一条 e2e 的位置断言或在证据里注明由 Lab 截图看之后再去 planned。
+
+## [没有断言（部分）] settings-page.md 输出 9 说明（planned）
+- 代码：页面代码 411（只有 DeepSeek 传 tip）；ApiKeyField.vue:59（InfoTip）；locales/zh-CN.json:64（key.deepseekTip = “与‘服务商与模型’里的 DeepSeek 密钥分开保存，可以填同一把”）；旧的 deepseek.note、tavily.note 与三项设置的 description（“一般不用改”等）已从目录删掉。
+- 有断言的：DOM 测试 433、436（DeepSeek 的密钥标签旁有按钮，Tavily 没有）；434（DeepSeek 详情不含旧说明句“这把密钥只给搜索与读网页用”）。
+- 没有断言的：提示的文字本身——没有用例读 InfoTip 的内容或它 aria-describedby 指向的文字，把 key.deepseekTip 改成别的话现有用例照过。“详情里不写说明句”只查了 DeepSeek 详情里的一句旧话；Tavily 详情（436 行之后没有对 wrapper.text() 的否定断言）与“高级”里的设置行说明都没查。
+- 补法：在 DOM 测试 433 附近按 aria-describedby 取提示文字 toBe 上面那句；436 后加 expect(wrapper.text()).not.toContain("这把密钥只给搜索与读网页用")，并在展开“高级”的用例里断言没有“一般不用改”。补上后可去掉 planned。
+
+## [对得上] settings-page.md 输出 10：每行的“使用中”与状态图标另写成这一行的读屏描述（planned）
+- 代码：页面代码 79（rowDescription：使用中加状态文字，用 status.joiner 连接）、322 与 332（aria-describedby 指向隐藏的描述）；“搜索规则”一行 304、313。
+- 断言：DOM 测试 288-289（中文“使用中，还没有密钥”）、512-513（英文“In use, No key yet”）、460-461（搜索规则一行“屏蔽了 3 个网站”）。危险色那种（“检测没通过”）没有单独读描述，但与钥匙同走 flag() 与 79 行，风险小。
+- 结论：可去掉 planned。
+
+## [对得上的部分] settings-page.md 输出 11 选用（planned），逐句
+- 标题区右边：使用中写徽标，否则“设为使用中”按钮：页面代码 400-403；DOM 测试 306、309-310。
+- 点了写用户层 nbook.web/provider：页面代码 115-128；DOM 测试 307-308（inspect().user 是 tavily）；e2e 135（从代码判断）。“之后开始的工具调用用这家”：backend/tools.ts 每次调用读 selected()，web.test.ts 的“两家服务”用例经设置切换验证。
+- 写成后焦点回到左栏这一行：页面代码 124-127；DOM 测试 507-508。
+- 例外（这家没密钥、使用中的那家有）不切、焦点进密钥框、密钥行写“填写密钥后即可启用”、写入成功后自动写 provider：页面代码 116-120、152-156、158-165；DOM 测试 324-331；e2e 127-137（从代码判断）。
+- 换选别的项时等待作废：页面代码 65-69；DOM 测试 334-343。
+- 使用中的那家也没有密钥时照常切：DOM 测试 346-352。
+- 左栏“使用中”一格写徽标：页面代码 330；DOM 测试 282-283；e2e 136-137。
+- 状态一格只在出问题时有图标（检测没通过危险色、使用中而没有密钥警告色钥匙、没在用也没密钥不标）：页面代码 72-77、331；DOM 测试 284-285、292、298-299（断言的是 data-search-flag 的 tone；“钥匙”这个图标类 i-lucide-key-round 没有断言，属外观）。
+- 详情里使用中的那家没有密钥时写“未填写”：页面代码 154；DOM 测试 287、352。
+- 写失败交窗口通知，主语“使用”，结果未知标为不确定：页面代码 99-106、124；DOM 测试 312-317。
+
+## [没有断言] settings-page.md 输出 11：“停用条件同输出 7；用户层不可写时也停用”（“设为使用中”按钮）
+- 代码：页面代码 402（:disabled="disabled"），47（disabled = 远程合同不可用或 writable 为假）；writable 来自页面上下文，即当前标签那一层（这页只有用户层）能不能写（settings/web/contracts.ts:33-37、web/pages.ts:19）。实现对得上。
+- 没有断言：没有任何用例断言 [data-search-use-action] 停用。DOM 测试 161-175 的只读与 writable 为假只查密钥框、检测、清除；render() 的 userUnreachable 选项（DOM 测试 67、71）定义了却没有用例用。把 402 行的 :disabled 删掉，现有用例都照过。
+- 补法：在 DOM 测试 170-174 的 locked 一段先 show("tavily")，断言 [data-search-use-action] 的 disabled 为 true；unavailable 那段同样补一行。
+
+## [没有断言] settings-page.md 输出 11 与 61 行状态表：等着启用在“离开这页”“清除这家的密钥”时作废
+- 代码：离开这页——pending 是页面组件里的 ref（页面代码 62），卸载即丢；清除——页面代码 158-165，written() 在 action 为 clear 且成功时清掉 pending、不写 provider。实现对得上（从代码判断）。
+- 没有断言：DOM 测试 320 那条用例的标题写“换选别的项或清除时作废”，正文只测了换选（334-343），没有清除；离开这页再回来也没有测（可照 240-259 行那样卸载后用同一个数据模块重挂，断言没有“填写密钥后即可启用”，填密钥后 provider 仍是 deepseek）。
+- 清除这条要先让等待中的那家有密钥才看得到“清除”按钮（等待的前提是它没有密钥），真实路径是等待期间别处给它写了密钥、status 刷新后再点清除。可以用 fake.remote 在等待中 setKey 一次再点清除来测；嫌窄也可以把这条记为已知不测、把用例标题改成只说换选。
+- 结论：补上两条断言（或改标题并记已知不测）后，输出 11 与 61 行的 planned 可以去掉。
+
+## [对得上的部分] settings-page.md 输出 12 搜索规则（planned），逐句
+- 两项设置行；默认结果条数是数字框 1 到 10、写 resultCount：页面代码 355-373、220-234；DOM 测试 360-365（写 7；11 原位提示“填 1 到 10 的整数”且不写）、468-470（0 也提示）；e2e 158-160（从代码判断）。
+- 屏蔽网站是标签输入、写 blockedSites，回车加进去：页面代码 374-392、242-258；DOM 测试 368-371；e2e 161-164。
+- 打出逗号、顿号时加进去：由 nb-ui 的 TagInput 承担（packages/nb-ui/src/components/form/TagInput.vue:48 的 DELIMITER，含半角、全角逗号与顿号）；断言在 nb-ui 的 TagInput.test.ts:58-61。本页没有自己的用例，组件已测，可以接受。
+- 粘贴含分隔符、换行或空白的文字时拆成几项：页面代码 264-269（含空白的自己按 [\s,，、]+ 拆）；不含空白的交给 TagInput（add-on-paste，TagInput.test.ts:76-78 测了逗号与顿号）；DOM 测试 456-458（换行与空格拆成三项）；e2e 166-172。
+- 粘贴的网址只留主机：shared/sites.ts:15；DOM 测试 368-371（打的网址只留 blog.csdn.net；粘贴与回车走同一个 editBlocked→normalizeSite），sites.test.ts:11。
+- 不是域名、或多于 100 个时原位提示、整串不写：页面代码 245-255；DOM 测试 373-377、463-465。
+- 左栏这一项行尾写屏蔽了几个，读屏描述“屏蔽了 N 个网站”：页面代码 312-313；DOM 测试 372、461；e2e 165。
+- 改了就写用户层：上面各处都断言的是设置服务里的值，e2e 断言设置文件用户层（从代码判断）。
+- 换选别的项时草稿与原位提示作废：页面代码 272-280；DOM 测试 467-475（条数提示、屏蔽提示都清掉，条数框回到 5）。
+- 默认结果条数的值从别处变了时草稿作废：页面代码 282-285；DOM 测试 483-488。
+
+## [与字面不一致] settings-page.md 输出 12：屏蔽网站的原位提示在“这一项的值从别处变了”时不作废
+- Spec：“框里还没写成的草稿与原位提示，在这一项的值从别处变了（恢复默认、设置文件）或换选别的项时作废。”
+- 实际：页面代码 282-291 只对 resultCount 与两个接口地址设了 watch；blockedSites 没有。blockedProblem（236 行）只在 editBlocked 成功（256 行）与换选（279 行）时清空。所以：打一个“不是域名”得到提示后，在设置行点“恢复默认”或改设置文件让 blockedSites 变了，标签换成新值，但下面“‘不是域名’不是域名”或“至多屏蔽 100 个网站”的提示还留着、框也仍标为无效（381 行 :invalid）。TagInput 自己的 items 会跟着新值（TagInput.vue:55-57），标签不会错。
+- 断言：DOM 测试 478 那条“草稿跟着外部变化作废”只测了条数与接口地址。
+- 修法（二选一）：在页面代码 282 旁加 watch(() => props.settings.get(blockedSites), () => { blockedProblem.value = ""; })，并在 DOM 测试 478 那条里补一段：打非法项得提示，settings.update(S.blockedSites, undefined, {layer: "user"}) 后提示消失；或者改 Spec，把这句限定为“默认结果条数与接口地址”。严重程度低（提示与值不一致，不会写错值）。
+
+## [没有断言] settings-page.md 输出 12：写失败交窗口通知（主语是这一项的标题）；失焦时把输入加进去；没有屏蔽时行尾空着
+- 写失败：页面代码 102-110、231、257（主语取设置声明的 title，即“默认结果条数”“屏蔽网站”）。没有用例让用户层写失败再改这两项：host.user.failWrites 只在 DOM 测试 312 用于“使用”。把 settingTitle(...) 换成别的字，现有用例照过。补法：failWrites("unknown-outcome") 后改条数，断言 failures 为 [{subject: "默认结果条数", reason: "可能没有保存，以设置文件为准", uncertain: true}]，屏蔽网站同样一条。
+- 失焦加进去：靠 TagInput 的 add-on-blur（TagInput.vue 的根属性）；本页与 nb-ui 的 TagInput.test.ts 都没有失焦加项的用例（TagInput.test.ts 里搜不到 blur）。补法：本页 DOM 测试里 setValue("zhihu.com") 后 trigger("focusout")（或 blur），断言 blockedSites 多了一项；或在 nb-ui 的 TagInput.test.ts 补。
+- 行尾“没有时空着”：页面代码 312（blocked.length > 0 才写数字）、304（没有时不挂 aria-describedby）。没有用例在 0 个时断言行尾为空、没有描述。风险小，可在 DOM 测试 355 那条开头补一行 expect(railItem("rules").text()).toBe("搜索规则")。
+
+## [对得上的部分] settings-page.md 输出 13 高级（planned），逐句
+- 服务商详情底下一个“高级”折叠，标题旁写里面有哪几项：页面代码 434-447；DOM 测试 383（DeepSeek“接口地址”）、402（Tavily“接口地址、搜索深度”）。
+- 接口地址回车时写 nbook.web/<服务>BaseUrl：页面代码 201-213、461；DOM 测试 393-395；e2e 177-180（从代码判断）。
+- 解析不成带主机的 http(s) 网址时原位提示、不写：页面代码 187-195、205-208；DOM 测试 388-392（ftp）、492-497（含空白）。
+- Tavily 才有的搜索深度，两段单选，写 tavilySearchDepth：页面代码 469-481、214-217；DOM 测试 404-405；e2e 181-182。选项文字“标准 · 1 点”“深度 · 2 点”在 locales/zh-CN.json 的 settings.tavilySearchDepth.choices，没有断言文字，属文案。
+- 有改过的高级项时默认展开：页面代码 173-184；DOM 测试 384（没改过的 DeepSeek 收着）、403（改过深度的 Tavily 展开）；e2e 176（改过地址的 Tavily 展开）。
+- 值从别处变了时地址草稿作废（输出 12 末句对高级同样适用）：页面代码 286-291；DOM 测试 498-500。
+
+## [没有断言] settings-page.md 输出 13：“清空时去掉用户层的值、回到缺省”；“失焦时写”
+- 清空：页面代码 212（value 为空时写 undefined）。DOM 测试 396-398 只断言 settings.get(...) 等于缺省地址，把清空写成显式写入缺省字符串 "https://api.deepseek.com" 也照过，区分不了“去掉用户层的值”。补法：398 行后加 expect(page.settings.inspect(S.deepseekBaseUrl).user).not.toMatchObject({value: expect.anything()})（392 行已有同样写法）。
+- 失焦：页面代码 462（@focusout）。DOM 测试与 e2e 都只用回车（389、394、397、493；e2e 178）。删掉 462 行现有用例照过。补法：setValue 后 trigger("focusout") 断言写入。
+- 两处补上后，输出 13 可去掉 planned。
+
+## [没有断言（部分）] settings-page.md 输出 14 logo（planned）
+- 代码：src/ui/provider-icons/ProviderLogo.vue:19-28（按 id 取 providerIcon，mask 或 image，其余画首字母块）；files.ts:64 新登记 tavily（tavily-color.svg，image）；页面代码 328（左栏）、398（详情标题区）；窄布局下拉 93-96 只给“搜索规则”带图标，各家只有名称。
+- 有断言的：DOM 测试 272（左栏两家都画成 img.provider-logo，不是首字母块）。
+- 没有断言的：
+  1. 详情标题区的 logo（398 行）：没有用例查 [data-search-detail] 里的 .provider-logo。
+  2. “表里没有的画首字母块”：没有任何测试断言 provider-logo__initial 或首字母；只有 Lab 场景 ProviderLogo/initial（lab/web/fixtures/index.ts:1760）供截图。ProviderLogo 是这次新抽出的共用组件，模型页 ProviderIcon.vue 的首字母也改由它画，旧的首字母测试在仓库里没有搜到。
+  3. “窄布局的下拉只写名称”：同输出 1，没有用例碰下拉的选项。
+- 补法：给 ProviderLogo 加一个小的 DOM 测试（id 为 "nowhere"、name 为“博查”时渲染 .provider-logo__initial 且文字为“博”；id 为 null 同样；id 为 "tavily" 时等到 img）；页面 DOM 测试 272 旁加详情标题区的一条；下拉选项在输出 1 的补法里一起断言没有 iconClass。补上后可去掉 planned。
+
+## [对得上的部分] settings-page.md 61 行“设为使用中”状态表（planned）
+- 没在用→点→使用中（这家有密钥）：DOM 测试 302-310；（使用中的那家也没有密钥）：346-352。没在用→点→等着启用：324-328。等着启用→这家写入成功→使用中：329-331、e2e 133-135。等着启用→换选别的项→没在用：334-343。“等着启用只在页面里，不写进设置”：DOM 测试 326、e2e 131（provider 仍未写进用户层，从代码判断）。
+- 缺的两条（离开这页、清除这家的密钥）见上面“没有断言”一条，这里不重复计数。
+
+## [对得上] settings-page.md 验收 4（planned）：先填密钥再切
+- e2e/web-settings.e2e.ts:120-137（从代码判断，没跑）：DeepSeek 填密钥在用；选中 Tavily 点“设为使用中”；131 行设置文件用户层没有 nbook.web/provider（即仍是缺省 DeepSeek）；130 行焦点在 Tavily 的密钥框；133-135 行填好回车后 provider 变成 "tavily"；136-137 行左栏“使用中”挪到 Tavily。逐句对得上。
+- 结论：可去掉 planned。
+
+## [对得上] settings-page.md 验收 5（planned）：搜索规则与高级
+- e2e/web-settings.e2e.ts:154-182（从代码判断，没跑）：条数 7、屏蔽 blog.csdn.net（另加粘贴两行）、Tavily 接口地址改成 ${base}/tavily-relay、深度 advanced，逐项从设置文件用户层读回。括号里“请求按它们发”指向 tools.md，由 web.test.ts:571-598 管（真实服务端加假端点，见前面 tools.md 各条）。
+- 结论：可去掉 planned。
+
+## [实现合同与证据要补] tools.md
+1. “实现合同”的公开入口一句，在“设置项在同目录的 settings.ts”后加：“屏蔽网站的写法与匹配（normalizeSite、normalizeSites、siteBlocked）在同目录的 sites.ts，前后端共用：服务端读设置时经 normalizeSites 跳过写错的项，工具按 siteBlocked 在本地筛结果，设置页写入前经 normalizeSite 归一化。”
+2. owner 与依赖方向不用改（设置依赖已写）。
+3. 不变量加一条：“7. 默认结果条数、屏蔽网站与 Tavily 的深度在调用开头读一次；屏蔽网站两家都在本地再筛一遍，Tavily 另给 exclude_domains；检测不看屏蔽网站、深度固定 basic（web.test.ts 的“搜索规则与 Tavily 的深度”；写法与匹配见 sites.test.ts）。”
+4. “证据”的合同测试列表加 [`sites.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/sites.test.ts)。
+5. “边界与兼容”第一条“‘输入与前置条件’里的三个配置项”已过时，现在是六个；改成“‘输入与前置条件’里的配置项”（不写个数），免得下次加项再过时。
+6. 代码注释同样过时（不在 Spec 里，顺手提）：shared/settings.ts 文件头（settings.ts 第 1-5 行）写“三项都只允许用户层……两个地址那一页不画，只能改设置文件（settings-page.md 的‘不承诺’）”，现在是六项、页面在“高级”里画了两个地址，“不承诺”里也已没有这句。应改为“各项都只允许用户层……页面在‘搜索规则’与各家的‘高级’里画全部设置项”。
+
+## [实现合同与证据要补] settings-page.md
+1. 公开入口一句后加：“服务商的 logo 用应用共用的 `ProviderLogo`（`nbook/ui/provider-icons/ProviderLogo.vue`，按 id 取服务商图标表，没有的画首字母块；模型页的 `ProviderIcon` 也经它画），图标表里登记了 `tavily`。”
+2. owner 与依赖方向现写“设置服务（settingsKey，交给页面写‘使用’）”，已过时：页面经它读写全部六个设置项（使用、默认结果条数、屏蔽网站、两个接口地址、搜索深度）。改成“设置服务（`settingsKey`：插件只能写自己声明的项，所以由本插件的浏览器入口拿着交给页面，页面经它读写 `nbook.web` 的各设置项）”。同样过时的代码注释：web/plugin.ts:30“页面经它写‘使用’哪家”、web/pages.ts:3“本插件的配置服务（写‘使用’哪家）”。
+3. 依赖方向再加一句：屏蔽网站写入前经 `shared/sites.ts` 的 `normalizeSite`，与工具读设置时同一套写法（[`web/tools.md`](tools.md) 输出 3）。
+4. 不变量加两条：“5. ‘等着启用’只在页面组件里，换选、离开、清除时作废，不写进设置（DOM 测试）。”“6. 草稿与原位提示不跨项留，设置的值从别处变了时作废（DOM 测试）。”（第 6 条要等上面屏蔽网站那处不一致修好，或把范围写清。）
+5. “证据”加：合同测试补 [`sites.test.ts`](../../../packages/neuro-book/src/plugins/web-tools/sites.test.ts)（页面写入用到的归一化）；Smoke 一行写明 e2e 覆盖验收 1 到 5；外观（左栏定宽与同列、窄布局下拉、检测结果一行不推动、logo 与首字母块）由 Lab 场景 SearchSettingsPage 的 rules、advanced、use-tavily-no-key-narrow 等与 ProviderLogo 的 image、search、initial 截图看。
+
+## 数量
+- 没实现：0。
+- 与字面不一致：2（输出 12 屏蔽网站的原位提示不随外部变化作废，低；输出 1 “不到 600px”与 max-width: 600px 差一个像素，极小）。
+- 没有断言：9 条（tools.md 输出 2 一条查询全被屏蔽的写法；settings-page 输出 1 窄布局下拉与外观、输出 8 结果行不推动与折行、输出 9 提示文字、输出 11 “设为使用中”的停用、输出 11 与状态表的离开与清除作废、输出 12 写失败主语与失焦加项与空着、输出 13 清空去掉用户层与失焦写、输出 14 详情 logo 与首字母块与下拉只写名称）。
+- 全部对得上、可以直接去掉 planned：13 条（tools.md 37、49、50、51、68 两处、70、97 共 7 条；settings-page.md 14 与 27、31、输出 8 的计费说明、输出 10、验收 4、验收 5 共 6 条）。输出 1、11、12、13 与 61 行状态表里另有逐句对得上的部分，已在各自的“对得上的部分”里列出，等同条的缺口补上后一起去标记。
+- 实现合同与证据要补：两份各一条清单（见上），另有三处过时注释（shared/settings.ts 文件头、web/plugin.ts:30、web/pages.ts:3）。
+
+## 更正与补注（交回前复核）
+- 前面各条的 shared/settings.ts 与 sites.test.ts 行号最初按三个文件连续编号写错，已就地改成各文件自己的行号（settings.ts 47-65、sites.test.ts 11-34）；web.test.ts 里 DeepSeek 假结果在 578 行。
+- 27 行“等着启用”的术语：它的定义句本身已实现（页面代码 62），但所指的行为在输出 11 里还有两处没有断言。建议与输出 11 一起去标记，不单独先去；因此“可以直接去掉 planned”的 13 条里，settings-page 那 6 条中的“14 与 27”只算 14 行一处，27 行跟输出 11 走。
+- 输出 12 屏蔽网站原位提示那条“与字面不一致”是从代码判断（读 watch 的范围），只读约束下没有加用例运行复现。
+- 按标记计：两份共 24 处“（planned）”（tools.md 9 处：37、49、50、51、68 两处、69、70、97；settings-page.md 15 处：14、27、31、输出 1、输出 8 两处、输出 9 到 14 各一处、61、验收 4、验收 5）。现在可去掉 14 处（tools.md 除 69 外的 8 处；settings-page.md 14、31、输出 8 的计费说明、输出 10、验收 4、验收 5）；其余 10 处等对应缺口补上（tools.md 69；settings-page.md 27、输出 1、输出 8 结果行、输出 9、11、12、13、14、61）。

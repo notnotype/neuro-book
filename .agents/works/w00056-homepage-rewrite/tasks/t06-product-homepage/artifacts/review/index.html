@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>产品介绍首页：开场与第一幕原型（第 3 轮）</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; --stage: #1c1418; --gold: #e1b285; --crimson: #871222; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+h3 { margin: 0 0 8px; font-size: 16px; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand p { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+.lab { margin: 10px 0 0; font-size: 14px; }
+.lab a { color: var(--rec); }
+.hero { margin: 0 0 16px; }
+.line { display: flex; flex-direction: column; justify-content: center; min-height: 112px; padding: 18px 16px; border-radius: 6px; background: radial-gradient(120% 90% at 50% 0%, #2c1d24 0%, var(--stage) 72%); color: #f7f2ec; font-family: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif; font-size: 21px; font-weight: 600; line-height: 1.3; letter-spacing: .04em; }
+.line span { display: block; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+@media (max-width: 760px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+<h1>产品介绍首页：开场与第一幕原型（第 3 轮）</h1>
+
+<section data-nbdev-question="opening-r3" data-nbdev-type="single" data-nbdev-recommend="gild">
+  <h2>首屏开场留哪一种？</h2>
+  <p class="rec"><strong>推荐 B 金线勾出：两秒左右，先描出这台工作台的格局再铺色，线条就是下面真工作台的边，不用换一次材质。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="unfold" data-nbdev-label="A 书展开成工作台">
+      <h3>A 书展开成工作台</h3>
+      <img src="r3/opening-unfold.webp" alt="书展开成工作台：合着的赤红书、封面翻开、书页飞向各块面板、终态">
+      <p>约 2.5 秒。仪式感最足；从赤红的布面到象牙色的桌面要换一次材质。</p>
+      <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageDraft&amp;s=unfold&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="gild" data-nbdev-label="B 金线勾出工作台">
+      <h3>B 金线勾出工作台</h3>
+      <img src="r3/opening-gild.webp" alt="金线勾出工作台：金线描边、象牙色与内容从中间晕开、小猫印落下、终态">
+      <p>约 2 秒。最后一方小猫印落在右上角。</p>
+      <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageDraft&amp;s=gild&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="assemble" data-nbdev-label="C 工作台自己搭起来">
+      <h3>C 工作台自己搭起来</h3>
+      <img src="r3/opening-assemble.webp" alt="工作台自己搭起来：正文先浮上来、两侧面板贴进来、接缝一闪金光、终态">
+      <p>约 1.8 秒。最像产品，史诗感最少。</p>
+      <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageDraft&amp;s=assemble&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看</a></p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="first-line-r3" data-nbdev-type="single" data-nbdev-recommend="m2">
+  <h2>首屏第一句用哪一句？</h2>
+  <p class="rec"><strong>推荐“写一部长篇，先摆好一张书桌。”：带着“长篇”，又正好落在下面那台工作台上；它是什么，由下一行说清楚。</strong></p>
+  <img class="hero" src="r3/hero.webp" alt="首屏终态：左上两行标题与说明，右边下载与版本，下面是工作台">
+  <div class="cands">
+    <div class="cand" data-nbdev-option="e3" data-nbdev-label="e3 每一个世界，都从一行字开始。">
+      <div class="line"><span>每一个世界，</span><span>都从一行字开始。</span></div>
+    </div>
+    <div class="cand" data-nbdev-option="m2" data-nbdev-label="m2 写一部长篇，先摆好一张书桌。">
+      <div class="line"><span>写一部长篇，</span><span>先摆好一张书桌。</span></div>
+    </div>
+    <div class="cand" data-nbdev-option="d5" data-nbdev-label="d5 从一行草稿，到一部成书。">
+      <div class="line"><span>从一行草稿，</span><span>到一部成书。</span></div>
+    </div>
+    <div class="cand" data-nbdev-option="d1" data-nbdev-label="d1 写下第一句，世界便有了形状。">
+      <div class="line"><span>写下第一句，</span><span>世界便有了形状。</span></div>
+    </div>
+    <div class="cand" data-nbdev-option="m3" data-nbdev-label="m3 你的世界，一章一章长出来。">
+      <div class="line"><span>你的世界，</span><span>一章一章长出来。</span></div>
+    </div>
+    <div class="cand" data-nbdev-option="m1" data-nbdev-label="m1 世界很大，从第一行写起。">
+      <div class="line"><span>世界很大，</span><span>从第一行写起。</span></div>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="act-one-r3" data-nbdev-type="single" data-nbdev-options="continue:照这个演法做其余四幕|revise:先改第一幕再往下" data-nbdev-recommend="continue">
+  <h2>第一幕这样演，其余四幕照着做吗？</h2>
+  <p class="rec"><strong>推荐照着做：五步都是工作台自己的动作与布局动画，笔尖只负责指给人看；访客一动手它就让开。</strong></p>
+  <img src="r3/act-one.webp" alt="第一幕五步：拖标签分栏、作品树搬到右栏、最大化、艾莉丝的设定浮出来、熄灯重开后布局原样">
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageDraft&amp;s=act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕</a></p>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>首页给搜索进来的人，做得像产品介绍；书庭这类页面另做、自由发挥（2026-11-26）</li>
+    <li>截图尽量少：直接把工作台复原，让人体验到拖动、分屏与布局动画的丝滑（第 1 轮）</li>
+    <li>第一屏把介绍说明白，同时要有高级精美的动画，让人想往下滚；往下滚进入滚动动画（第 1 轮）</li>
+    <li>照第 2 轮的分节脚本做原型；三种首屏动画都做出来比较（第 2 轮）</li>
+    <li>基调取 w00050 t06 契约仪式页的史诗、神圣、西幻气氛，不复制；现有的 NovelAI 场景图不直接用（2026-11-26）</li>
+    <li>要讲的功能：写作与编辑器、世界引擎、剧情（在做）、星璃与 Agent、本地与开源、插件与 SDK、桌面版、模型自选；llmlint 不列（2026-11-26）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

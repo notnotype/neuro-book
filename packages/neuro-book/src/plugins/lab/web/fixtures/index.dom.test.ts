@@ -7,6 +7,7 @@ import {describe, expect, it} from "vitest";
 import {labComponents} from "../component-index";
 import {LabSceneInputSchema} from "../lab-subject";
 import {findLabFixture, labFixtures, type LabFixture} from "./index";
+import {draftFixtures} from "../drafts";
 
 const fixturesRoot = dirname(fileURLToPath(import.meta.url));
 /** 收集 fixture 目录下的模块（含子目录与数据模块），不含测试自身。 */
@@ -60,6 +61,18 @@ describe("Lab 场景覆盖", () => {
      * `findLabFixture` 只认第一份登记：组件名写重时后面的场景永远不可达，UI 与既有门禁都看不出异常
      * （EditorTabItem 就曾被一份单场景登记遮住另外 8 个场景）。登记重复按「场景丢失」处理。
      */
+    it("草稿区每个目录的登记都汇进来，组件落在组件树的 drafts 一组里（component-lab 的“草稿区”）", () => {
+        const draftsRoot = resolve(fixturesRoot, "../drafts");
+        const directories = readdirSync(draftsRoot, {withFileTypes: true}).filter((entry) => entry.isDirectory() && existsSync(join(draftsRoot, entry.name, "fixtures.ts"))).map((entry) => entry.name);
+        const placed = draftFixtures.map((fixture) => {
+            const entry = labComponents.find((candidate) => candidate.name === fixture.component);
+            return `${fixture.component}: ${entry === undefined ? "不在索引里" : entry.groupPath.slice(0, 2).join("/")}`;
+        });
+        expect(placed.every((line) => /: drafts\/[^/]+$/u.test(line)), placed.join("、")).toBe(true);
+        expect(new Set(placed.map((line) => line.split("/").at(-1)))).toEqual(new Set(directories));
+        for (const fixture of draftFixtures) expect(labFixtures).toContain(fixture);
+    });
+
     it("每个组件名只能有一条登记", () => {
         const seen = new Set<string>();
         const duplicated: string[] = [];

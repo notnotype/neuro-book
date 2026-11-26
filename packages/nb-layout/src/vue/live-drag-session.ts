@@ -3,7 +3,8 @@
  * 宿主只写领域判断（`LiveDragHost`）。
  *
  * 接线的先后是合同，写反了类型检查照样过：
- * - 拿起全在包住的 `activate` 里：宿主的 `activate` 先；返回真、又不是键盘拖动，才看网格与减少动效、问 `live`；给出来源才 `settleMotion`、`begin`。
+ * - 拿起全在包住的 `activate` 里：宿主的 `activate` 先；返回真、网格在、过渡时长不为 0 时 `settleMotion`（键盘拖动、`live` 不给来源的也是）；
+ *   又不是键盘拖动才问 `live`，给出来源才 `begin`。
  *   手势在 `activate` 返回后取结构键，宿主的结构键读引擎的 `active` 时，两次取到的一样，拿起不会被当成结构变了。
  *   宿主的 `activate` 先于 `settleMotion`：它在 `activate` 里量到的矩形可能是过渡中间的。
  * - 判定：宿主的 `resolve` 返回之后交给引擎（`offer`）。
@@ -100,14 +101,15 @@ export function createLiveDragSession<S, D, R = never, L = S, G = unknown>(
         sampled: () => started.wake(),
         activate: (source, keyboard, at) => {
             if (options.activate !== undefined && !options.activate(source, keyboard, at)) return false;
-            // 键盘拖动不走实时布局：没有指针可跟；键盘拿起后可能因为没有区域而不起拖，那时不收场，引擎就没人结束。
-            if (keyboard) return true;
             const box = options.grid();
             if (box === null || box.motionMs() <= 0) return true;
+            // 不论走不走实时布局都把过渡送到终点：落点指示与键盘拖动的判定同样要量终点的矩形。
+            box.settleMotion();
+            // 键盘拖动不走实时布局：没有指针可跟；键盘拿起后可能因为没有区域而不起拖，那时不收场，引擎就没人结束。
+            if (keyboard) return true;
             const from = options.live(source);
             if (from === null) return true;
             grid = box;
-            box.settleMotion();
             started.begin(from, at?.point ?? null);
             return true;
         },

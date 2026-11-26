@@ -22,7 +22,7 @@
  * 作者界面的条目页（author-ui.md 输出 6 到 15）：打开热门条目页的一组读取；来历的第三页（真实游标翻过去，来历不足三页时不量）；
  * 不带条目、只筛一章的 `changes`。另有两项在上面的指标都取完、重新打开以后量，多写的记录不进别的指标：在最新一章每发布一次以后，
  * 条目页的一个慢读取的第一次（跟着世界版本换的缓存要重建）与重读，每次发布只让一项当第一次读、轮着来；稀疏地址的来历（在均匀分布的
- * 20 章里给常出场条目的“外观”各写一次）。
+ * 20 章里给常出场条目的“性格”各写一次）。
  *
  * 用法（应用包目录）：bun scripts/perf/canon-scale.ts [章数=1000] [--diverge] [--fork]
  * 测量前看 `uptime`：负载高时多跑几次按较低的一端判断，不与 omp 审查同时跑。
@@ -86,7 +86,7 @@ function person(temp: string, index: number, appears?: string): Entry {
             text: [{id: "b1", source: "平时戴着滤镜，存款还剩 {panel.存款}。"}],
             data: {
                 panel: {type: PANEL, version: 1, enabled: true, fields: {存款: 1_000_000, 魔力: 3200}, declared: [{id: "存款", label: "存款", kind: "number", min: 0}, {id: "魔力", label: "魔力", kind: "number"}]},
-                character: {type: PERSON, version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: "冷淡"}},
+                character: {type: PERSON, version: 1, enabled: true, fields: {性格: null, 身份: null, 现在的状态: "冷淡"}},
             },
         },
     };
@@ -139,7 +139,7 @@ function bookkeeping(service: WorldService, chapter: string, hot: readonly strin
             patches: [
                 {op: "add", at: {entry: from, path: "panel.存款"}, value: -(100 + i), basis: {kind: "estimate", note: "规模测量"}},
                 {op: "add", at: {entry: to, path: "panel.存款"}, value: 100 + i, basis: {kind: "estimate", note: "规模测量"}},
-                ...(i % 3 === 0 ? [{op: "note" as const, at: {entry: from, path: "character.态度"}, value: `第 ${String(n)} 章：软了一点`}] : []),
+                ...(i % 3 === 0 ? [{op: "note" as const, at: {entry: from, path: "character.现在的状态"}, value: `第 ${String(n)} 章：软了一点`}] : []),
             ],
             status: "active", by: {kind: "agent", session: "记账"},
             ...timeOf(n, i, `tmp:w${String(sequence - 1)}`, hot[0]!),
@@ -464,17 +464,17 @@ for (let round = 0; round < 6; round += 1) {
 }
 const afterPublishSummary = Object.entries(afterPublish).map(([name, {first, again}]) => `${name} 第一次中位 ${ms(median(first))}、最大 ${ms(Math.max(...first))}，重读中位 ${ms(median(again))}`).join("；");
 
-// 稀疏地址的来历：一个字段只有 20 步，散在常出场条目约六千个事件之间。在均匀分布的 20 章里给第一个常出场条目的“外观”各写一次
+// 稀疏地址的来历：一个字段只有 20 步，散在常出场条目约六千个事件之间。在均匀分布的 20 章里给第一个常出场条目的“性格”各写一次
 // （一次发布），再读它的来历第一页：引擎只为这一页取值，相邻两步隔得远时从快照起，不重放整条时间线。
 const sparsePuts: WriteRequest["puts"] = Array.from({length: 20}, (_, k) => {
     const id = `tmp:look${String(k)}`;
-    return {ref: {kind: "change" as const, id}, after: {id, kind: "written" as const, text: "换了样子", at: {kind: "chapter" as const, chapter: chapterIds[Math.floor((k * chapters) / 20)]!, key: 7_000}, told: [], involves: [hot[0]!], lines: [], links: [], patches: [{op: "set" as const, at: {entry: hot[0]!, path: "character.外观"}, value: `第 ${String(k)} 种样子`}], status: "active" as const, by: author}};
+    return {ref: {kind: "change" as const, id}, after: {id, kind: "written" as const, text: "换了样子", at: {kind: "chapter" as const, chapter: chapterIds[Math.floor((k * chapters) / 20)]!, key: 7_000}, told: [], involves: [hot[0]!], lines: [], links: [], patches: [{op: "set" as const, at: {entry: hot[0]!, path: "character.性格"}, value: `第 ${String(k)} 种样子`}], status: "active" as const, by: author}};
 });
-await publish(svc, {requestId: "scale-sparse", by: author, what: "edit", title: "外观", baseVersion: svc.status().version, puts: sparsePuts});
+await publish(svc, {requestId: "scale-sparse", by: author, what: "edit", title: "性格", baseVersion: svc.status().version, puts: sparsePuts});
 let sparseSteps = 0;
 const sparseReads = Array.from({length: 10}, () => {
     const begin = performance.now();
-    const page = svc.origins({entry: hot[0]!, path: "character.外观"}, latestEnd, "actual");
+    const page = svc.origins({entry: hot[0]!, path: "character.性格"}, latestEnd, "actual");
     const spent = performance.now() - begin;
     if (typeof page === "string") throw new Error(page);
     sparseSteps = page.total;
@@ -497,7 +497,7 @@ console.log(`读条目并带各字段最近一次改动：中位 ${ms(median(tou
 console.log(`打开热门条目页的一组读取（10 次）：合计中位 ${ms(pageReadTotal)} 毫秒；${pageReadSummary}`);
 console.log(`来历的第三页（真实游标翻过去）：${middlePages.length === 0 ? "来历不足三页，没有量" : `${String(middlePages.length)} 次中位 ${ms(median(middlePages))} 毫秒，最大 ${ms(Math.max(...middlePages))}`}`);
 console.log(`不带条目、只筛一章的 changes：10 次中位 ${ms(median(narrowReads))} 毫秒，最大 ${ms(Math.max(...narrowReads))}`);
-console.log(`以下在旧指标都取完、重新打开以后量（多写了 30 次记账与 20 条外观的变更）：`);
+console.log(`以下在旧指标都取完、重新打开以后量（多写了 30 次记账与 20 条性格的变更）：`);
 console.log(`最新一章每发布一次以后（每项 6 次，每次发布只让一项当第一次读）：${afterPublishSummary}`);
 console.log(`稀疏地址（${String(sparseSteps)} 步散在整条时间线上）的来历第一页：10 次中位 ${ms(median(sparseReads))} 毫秒，最大 ${ms(Math.max(...sparseReads))}`);
 console.log(`讲述（${String(chapters * 17)} 条）：不带筛选的第一页，第一次 ${ms(tellingsFirst)} 毫秒，之后中位 ${ms(median(tellingsAll))}；只读一章，中位 ${ms(median(tellingsOneChapter))}；改一章正文后通知 ${ms(textChangedMs)} 毫秒，接着读第一页 ${ms(tellingsAfterEdit)} 毫秒`);

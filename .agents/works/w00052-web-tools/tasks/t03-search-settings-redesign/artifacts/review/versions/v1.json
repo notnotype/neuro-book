@@ -1,0 +1,76 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00052-web-tools",
+    "taskId": "t03-search-settings-redesign",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "搜索与网页设置页：版式与没密钥时的设为使用中",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f3f828a4c5374289da5f52cec4446d9cce2b8fa6f930babae65100f8f9909a5d",
+    "files": [
+        "index.html",
+        "r1/a-default.webp",
+        "r1/a-narrow.webp",
+        "r1/a-rules.webp",
+        "r1/a-tavily.webp",
+        "r1/b-default.webp",
+        "r1/b-narrow.webp",
+        "r1/b-tavily.webp",
+        "r1/current.webp"
+    ],
+    "questions": [
+        {
+            "id": "layout",
+            "type": "single",
+            "label": "服务商变多以后，这一页按 A 还是 B 排？",
+            "options": [
+                {
+                    "value": "rail",
+                    "label": "A 左边列表、右边详情"
+                },
+                {
+                    "value": "cards",
+                    "label": "B 下拉加可折叠卡片"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "rail"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "no-key-use",
+            "type": "single",
+            "label": "把一家还没填密钥的设为使用中，怎么办？",
+            "options": [
+                {
+                    "value": "key-first",
+                    "label": "先填密钥再切"
+                },
+                {
+                    "value": "switch",
+                    "label": "照切，提示补密钥"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "key-first"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-25T10:22:18.346Z"
+}

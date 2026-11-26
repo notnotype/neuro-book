@@ -11,7 +11,7 @@ import type {ContributionDeclarations, ContributionHandle, ContributionReceiver}
 import type {AnyProfile} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ProfileEntry, ProfileProblem, ProfileStatus} from "../shared/contracts";
-import {onAgentProfile, PROFILES_POINT} from "../shared/points";
+import {EXTENSIONS_POINT, onAgentProfile, PROFILES_POINT} from "../shared/points";
 import type {AgentProfileDeclaration, AgentProfileImplementation} from "../shared/points";
 
 import type {ToolRequirements} from "../shared/profile-tools";
@@ -21,7 +21,7 @@ type Handle = ContributionHandle<AgentProfileDeclaration, AgentProfileImplementa
 /** 用户级 Profile 的一层（`profile-bundles.ts`）；目录只经这个形状用它。 */
 export interface UserProfiles {
     /** `problem`：最近一次打包或求值的错误；`usable`：有没有成功过的包（有错误时还在用上一次的），`tools`、`modelNeeds` 来自它。 */
-    list(): readonly {readonly key: string; readonly name: string; readonly description: string; readonly tools: ToolRequirements; readonly modelNeeds?: ProfileEntry["modelNeeds"]; readonly usable: boolean; readonly problem?: ProfileProblem}[];
+    list(): readonly {readonly key: string; readonly name: string; readonly description: string; readonly tools: ToolRequirements; readonly modelNeeds?: ProfileEntry["modelNeeds"]; readonly referencedExtensions?: readonly string[]; readonly usable: boolean; readonly problem?: ProfileProblem}[];
     resolve(key: string): AnyProfile | undefined;
 }
 
@@ -41,6 +41,7 @@ export interface ProfileCatalogOptions {
 
 export class ProfileCatalog {
     readonly #published = new Map<string, Handle>();
+    readonly #merged = new WeakMap<Handle, {readonly base: AnyProfile; readonly profile: AnyProfile}>();
     #user: UserProfiles | null = null;
 
     constructor(private readonly options: ProfileCatalogOptions) {}
@@ -59,26 +60,36 @@ export class ProfileCatalog {
         },
     };
 
+    /** 扩展的发布或撤回：引用了它的 Profile 的可用性可能变了。 */
+    extensionsChanged(): void {
+        this.options.catalogChanged();
+    }
+
     attachUser(user: UserProfiles): void {
         this.#user = user;
     }
 
     list(): ProfileEntry[] {
         const tools = this.options.toolIds();
-        const availability = (requirements: ToolRequirements): {status: ProfileStatus; problem?: ProfileProblem} => {
+        // 引用的扩展按清单里的声明算（不激活提供方）：拼错或没装提供它的插件，在目录里就看得到，不等选了才在建会话时失败。
+        const extensions = new Set(this.options.declarations.list(EXTENSIONS_POINT).map((descriptor) => descriptor.id));
+        const availability = (requirements: ToolRequirements, referenced: readonly string[] = []): {status: ProfileStatus; problem?: ProfileProblem} => {
             const missing = requirements.required.filter((id) => !tools.has(id));
-            return missing.length === 0 ? {status: "ok"} : {status: "unavailable", problem: {code: "tools-missing", tools: missing}};
+            if (missing.length > 0) return {status: "unavailable", problem: {code: "tools-missing", tools: missing}};
+            const absent = referenced.filter((id) => !extensions.has(id));
+            return absent.length === 0 ? {status: "ok"} : {status: "unavailable", problem: {code: "extensions-missing", extensions: absent}};
         };
         const fromPlugins = this.options.declarations.list<AgentProfileDeclaration>(PROFILES_POINT).map((descriptor): ProfileEntry => ({
             key: descriptor.id,
             name: descriptor.declaration.name,
             description: descriptor.declaration.description,
             source: descriptor.plugin,
-            ...availability(descriptor.declaration.tools),
+            ...availability(descriptor.declaration.tools, descriptor.declaration.referencedExtensions),
             ...(descriptor.declaration.hidden === true ? {hidden: true as const} : {}),
             ...(descriptor.declaration.icon === undefined ? {} : {icon: descriptor.declaration.icon}),
             tools: descriptor.declaration.tools,
             ...(descriptor.declaration.defaultTools === false ? {defaultTools: false as const} : {}),
+            ...(descriptor.declaration.referencedExtensions === undefined ? {} : {referencedExtensions: descriptor.declaration.referencedExtensions}),
             ...(descriptor.declaration.role === undefined ? {} : {role: descriptor.declaration.role}),
             ...(descriptor.declaration.modelNeeds === undefined ? {} : {modelNeeds: descriptor.declaration.modelNeeds}),
             ...(descriptor.declaration.agents === undefined ? {} : {agents: descriptor.declaration.agents}),
@@ -94,8 +105,9 @@ export class ProfileCatalog {
             source: "user",
             // 插件已用了这个 key：插件的优先，用户的这份不可用（同名不覆盖，contributions.md 输出 7）。
             // 从来没成功过的解析不到，算不可用；成功过的继续用上一次的包，算有错误（输出 12）。
-            ...(pluginKeys.has(profile.key) ? {status: "unavailable", problem: {code: "key-taken"}} : profile.problem === undefined ? availability(profile.tools) : {status: profile.usable ? "error" : "unavailable", problem: profile.problem}),
+            ...(pluginKeys.has(profile.key) ? {status: "unavailable", problem: {code: "key-taken"}} : profile.problem === undefined ? availability(profile.tools, profile.referencedExtensions) : {status: profile.usable ? "error" : "unavailable", problem: profile.problem}),
             ...(profile.usable ? {tools: {required: [...profile.tools.required], optional: [...profile.tools.optional]}} : {}),
+            ...(profile.usable && profile.referencedExtensions !== undefined ? {referencedExtensions: [...profile.referencedExtensions]} : {}),
             ...(profile.modelNeeds === undefined ? {} : {modelNeeds: profile.modelNeeds}),
         }));
         return [...fromPlugins, ...fromUser];
@@ -124,6 +136,25 @@ export class ProfileCatalog {
         return this.options.declarations.get<AgentProfileDeclaration>(PROFILES_POINT, key)?.declaration.role;
     }
 
+    /**
+     * 插件 Profile 的引用只认声明（contributions.md 的“按需扩展”）：交给内核的是实现加上声明的 `referencedExtensions`。结果按句柄
+     * 记下：内核按对象相等判断 Profile 没变，每次交一个新对象会让每次 `profilesChanged` 都把扩展摘下再装回。
+     */
+    #withDeclaredReferences(handle: Handle): AnyProfile {
+        // 先经句柄取实现：入口停止中、撤回还没送达时它抛错（算解析不到），缓存不能绕过这一步。
+        const implementation = handle.implementation();
+        const cached = this.#merged.get(handle);
+        if (cached !== undefined && cached.base === implementation) return cached.profile;
+        const declared = handle.declaration.referencedExtensions;
+        const own = implementation.referencedExtensions;
+        if (own !== undefined && JSON.stringify([...own].sort()) !== JSON.stringify([...(declared ?? [])].sort())) {
+            this.options.report("profile-references-mismatch", `profile ${handle.id} lists referencedExtensions in its implementation that differ from its declaration; the declaration is used`, {profile: handle.id, declared: declared ?? [], implementation: [...own]});
+        }
+        const merged = declared === undefined && own === undefined ? implementation : {...implementation, referencedExtensions: declared ?? []} as AnyProfile;
+        this.#merged.set(handle, {base: implementation, profile: merged});
+        return merged;
+    }
+
     /** 内核的 `profiles.resolve`：插件的要激活提供方。 */
     async resolve(key: string): Promise<AnyProfile | undefined> {
         if (!this.#fromPlugin(key)) return key.startsWith(USER_PROFILE_PREFIX) ? this.#user?.resolve(key) : undefined;
@@ -131,7 +162,7 @@ export class ProfileCatalog {
         if (handle === undefined && await this.options.activate(onAgentProfile(key))) handle = this.#published.get(key);
         if (handle === undefined) return undefined;
         try {
-            return handle.implementation();
+            return this.#withDeclaredReferences(handle);
         } catch (error) {
             // 句柄在激活与取实现之间被撤回：算解析不到，撤回已经通知会话。
             this.options.report("profile-revoked-while-resolving", `profile ${key} was withdrawn while it was being resolved`, {profile: key, message: error instanceof Error ? error.message : String(error)});

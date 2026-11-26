@@ -1,8 +1,8 @@
 /**
- * 窗口在看的线（docs/specs/canon/author-ui.md 输出 34）：整个窗口一个，空串是“跟着章”（读取位置不写线），缺省跟着章、不存盘。
+ * 窗口在看的线（docs/specs/canon/author-ui.md 输出 34）：整个窗口一个，空串是“按章节自动”（读取位置不写线），缺省按章节自动、不存盘。
  *
  * 本入口一直读着线表（同状态栏的“待处理 N”一直读着待处理）：可选的线是主线加实际模式下存在而且可建的线；选着的线不在了就回到
- * 跟着章，并记下“丢了”，下一次打开选线时说一句。线表不列主线（主线由内核隐含），这里补在最前面。
+ * 按章节自动，并记下“丢了”，下一次打开选线时说一句。线表不列主线（主线由内核隐含），这里补在最前面。
  */
 
 import {computed, shallowRef, watch} from "vue";
@@ -17,13 +17,13 @@ export type {LineOption} from "../shared/reads";
 export {MAIN_LINE};
 
 export interface WindowLine {
-    /** 窗口在看的线的 id；空串是跟着章。 */
+    /** 窗口在看的线的 id；空串是按章节自动。 */
     readonly line: Readonly<ShallowRef<string>>;
     /** 可选的线，主线在最前，其余按线的树先序。 */
     readonly options: ComputedRef<readonly LineOption[]>;
     /** 线表已经读到（状态栏条目据此显示）。 */
     readonly ready: ComputedRef<boolean>;
-    /** 选着的线不在了、回到了跟着章，还没在选线时说过。 */
+    /** 选着的线不在了、回到了按章节自动，还没在选线时说过。 */
     readonly lost: Readonly<ShallowRef<boolean>>;
     set(line: string): void;
     /** 选线的列表打开过了：“原来看的那条线已经不在了”说过一次就不再说。 */

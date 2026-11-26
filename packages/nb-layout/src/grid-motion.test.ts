@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, releaseStarts, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
@@ -457,6 +457,62 @@ describe("只有浮动窗的矩形变了", () => {
         const swapped = windowAt(500, "g");
         const settled = settleFloatMoves(swapped, windowAt(0));
         expect(settled.find((item) => item.kind === "content")?.rect).toEqual(rect(500));
+    });
+
+    const rectAt = (list: ReadonlyArray<GridLayerItem<unknown>>, key: string) => list.find((item) => item.key === key)?.rect;
+
+    it("宿主标了 animate 的窗（集合里的）不压：矩形变了算布局变化，它的内容按这一次的矩形；不在集合里的窗照旧压", () => {
+        const before = [...windowAt(0), ...windowAt(0, "g").map((item) => (item.kind === "content" ? {...item, key: "content:w", contentKey: "w"} : item))];
+        const after = [...windowAt(500), ...windowAt(300, "g").map((item) => (item.kind === "content" ? {...item, key: "content:w", contentKey: "w"} : item))];
+        const settled = settleFloatMoves(after, before, new Set(["f"]));
+        expect(placementMoved(settled, before)).toBe(true);
+        expect(rectAt(settled, "leaf:f")).toEqual(rect(500));
+        expect(rectAt(settled, "content:v")).toEqual(rect(500));
+        // g 没标：压回上一帧，只有它变时认不出变化。
+        expect(rectAt(settled, "leaf:g")).toEqual(rect(0));
+        expect(rectAt(settled, "content:w")).toEqual(rect(0));
+        expect(placementMoved(settleFloatMoves(after, before, new Set(["x"])), before)).toBe(false);
+    });
+});
+
+describe("松手的起点（ui/nested-grid 输出 172）", () => {
+    const WINDOW = {x: 300, y: 40, width: 400, height: 200};
+    const OFFSET = {x: -260, y: 30};
+    /** 一行叶，加上 `windows` 里的浮动窗（都在 `WINDOW`），内容项面板头 32。 */
+    const scene = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean}>, windows: ReadonlyArray<string> = []) => {
+        const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
+        const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
+        const items = [...placeGrid(node, layout, {width: 1000, height: 300}, 1).items, ...floatPlacements(windows.map((id) => ({id, rect: WINDOW})))];
+        return layerItems(items, placeContents(items, contents.map((content) => ({insetTop: 32, active: true, ...content})), 1));
+    };
+    const shifted = (rect: {x: number; y: number; width: number; height: number}) => ({...rect, x: rect.x + OFFSET.x, y: rect.y + OFFSET.y});
+    const released = new Map([["f", OFFSET]]);
+
+    it("松手进树（叶不换）：外框与它的活动内容从上一帧的矩形加偏移出发，不活动的内容与别的叶不给", () => {
+        const before = scene({a: 1000}, [{key: "x", leaf: "f"}, {key: "z", leaf: "f", active: false}, {key: "y", leaf: "a"}], ["f"]);
+        const after = scene({f: 300, a: 700}, [{key: "x", leaf: "f"}, {key: "z", leaf: "f", active: false}, {key: "y", leaf: "a"}]);
+        const starts = releaseStarts(after, before, released);
+        expect(starts.get("leaf:f")).toEqual(shifted(WINDOW));
+        expect(starts.get("content:x")).toEqual(shifted({...WINDOW, y: WINDOW.y + 32, height: WINDOW.height - 32}));
+        expect([...starts.keys()].sort()).toEqual(["content:x", "leaf:f"]);
+    });
+
+    it("松手并进别的叶（窗没了，内容换了叶）：内容从松手处出发", () => {
+        const before = scene({a: 1000}, [{key: "x", leaf: "f"}, {key: "y", leaf: "a"}], ["f"]);
+        const after = scene({a: 1000}, [{key: "x", leaf: "a", active: true}, {key: "y", leaf: "a", active: false}]);
+        const starts = releaseStarts(after, before, released);
+        expect(starts.get("content:x")).toEqual(shifted({...WINDOW, y: WINDOW.y + 32, height: WINDOW.height - 32}));
+    });
+
+    it("不给：这一次还是浮动窗（移动的提交，窗停在拖到的位置）；偏移为零；上一帧它不是浮动窗；没有放开的窗", () => {
+        const before = scene({a: 1000}, [{key: "x", leaf: "f"}], ["f"]);
+        const moved = scene({a: 1000}, [{key: "x", leaf: "f"}], ["f"]).map((item) => (item.kind === "leaf" && item.node.id === "f" ? {...item, rect: shifted(WINDOW)} : item));
+        expect(releaseStarts(moved, before, released).size).toBe(0);
+        const docked = scene({f: 300, a: 700}, [{key: "x", leaf: "f"}]);
+        expect(releaseStarts(docked, before, new Map([["f", {x: 0, y: 0}]])).size).toBe(0);
+        const tiled = scene({f: 300, a: 700}, [{key: "x", leaf: "f"}]);
+        expect(releaseStarts(scene({f: 500, a: 500}, [{key: "x", leaf: "f"}]), tiled, released).size).toBe(0);
+        expect(releaseStarts(docked, before, new Map()).size).toBe(0);
     });
 });
 

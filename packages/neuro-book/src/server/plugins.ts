@@ -72,7 +72,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.agent": agentBackendPlugin,
     "nbook.stickers": stickersBackendPlugin,
     "nbook.bots": botsBackendPlugin,
-    "nbook.web-tools": webBackendPlugin,
+    "nbook.web": webBackendPlugin,
     "nbook.files": filesBackendPlugin,
 };
 

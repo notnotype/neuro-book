@@ -3,12 +3,13 @@
  */
 
 import type {KeyStoreFactory} from "../backend/plugin";
+import {WEB_PROVIDERS} from "../shared/contracts";
 import type {WebKeyStatus, WebProviderId} from "../shared/contracts";
 
 export function memoryKeyStore(initial: Partial<Record<WebProviderId, string>>): KeyStoreFactory {
     return () => {
         const keys = new Map<WebProviderId, string>(Object.entries(initial) as Array<[WebProviderId, string]>);
-        const status = (): WebKeyStatus => ({providers: {deepseek: {hasKey: keys.has("deepseek")}}});
+        const status = (): WebKeyStatus => ({providers: Object.fromEntries(WEB_PROVIDERS.map((id) => [id, {hasKey: keys.has(id)}])) as WebKeyStatus["providers"]});
         return {
             read: async (provider) => ({ok: true, key: keys.get(provider) ?? null}),
             status: async () => ({ok: true, status: status()}),

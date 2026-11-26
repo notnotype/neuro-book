@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 5 轮：轨与对话目录（gemini 第 2 版）</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1480px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1000px) { .cands, .cands.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+figure { margin: 0; }
+figcaption { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.full { display: grid; gap: 16px; }
+.cands.two { grid-template-columns: repeat(2, minmax(0, 360px)); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 5 轮：轨与对话目录（gemini 第 2 版）</h1>
+
+<section>
+  <h2>轨、目录、消息视图各是哪一块</h2>
+  <figure><img src="r5/annotated.webp" alt="1 轨，2 对话目录，3 消息视图"></figure>
+  <table style="margin-top: 12px">
+    <tbody>
+      <tr><td>1 轨</td><td>窗口外缘 48 像素的一条：容器入口、新对话、bot、最近会话；底部“全部 bot”“会话历史”。只管快切</td></tr>
+      <tr><td>2 对话目录</td><td>单独的视图：Bot、会话两页，搜索、作品范围、筛选。管找与浏览；像资源管理器一样能放在任何区域</td></tr>
+      <tr><td>3 消息视图</td><td>只剩聊天：头、消息、输入框</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section data-nbdev-question="dir-view" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>完整列表做成单独的“对话目录”视图，默认在左侧栏、第一次不显示，可以吗？</h2>
+  <p class="rec"><strong>推荐可以：轨底两个按钮把它显示出来、切到那一页、聚焦搜索；找会话时它暂替资源管理器，不盖聊天。也能拖到右栏和消息上下排。</strong></p>
+  <div class="cands two">
+    <div class="cand"><h3>在左侧栏</h3><figure><img src="r5/annotated.webp" alt="目录在左侧栏"></figure></div>
+    <div class="cand"><h3>拖到右栏，和消息上下排</h3><figure><img src="r5/dir-stack.webp" alt="目录和消息上下排"></figure></div>
+  </div>
+  <div class="cands two" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="ok" data-nbdev-label="可以"><h3>可以</h3></div>
+    <div class="cand" data-nbdev-option="adjust" data-nbdev-label="还要调"><h3>还要调</h3></div>
+  </div>
+</section>
+
+<section data-nbdev-question="dir-open" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>在目录里选中一项，总在消息视图里打开；目录是工具视图，不能拖进编辑区。可以吗？</h2>
+  <p class="rec"><strong>推荐可以：消息停在哪、浮在哪就在哪打开，目录不关、焦点留在列表；命令面板加“查找会话”，到同一个搜索框。</strong></p>
+  <div class="cands two" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="ok" data-nbdev-label="可以"><h3>可以</h3></div>
+    <div class="cand" data-nbdev-option="adjust" data-nbdev-label="还要调"><h3>还要调</h3></div>
+  </div>
+</section>
+
+<section data-nbdev-question="rail-expand" data-nbdev-type="single" data-nbdev-recommend="widen">
+  <h2>轨要不要能展开显示名字？</h2>
+  <p class="rec"><strong>推荐 A 能展开、默认收着：展开时右边这一列加宽，编辑区让出 152 像素，聊天区宽度不变；按“收起”回到 48。</strong></p>
+  <div class="cands two">
+    <div class="cand" data-nbdev-option="widen" data-nbdev-label="A 能展开，加宽右边这一列">
+      <h3>A 能展开，加宽右边这一列</h3>
+      <figure><img src="r5/expand.webp" alt="展开的轨"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="B 不展开（gemini 的推荐）">
+      <h3>B 不展开（gemini 的推荐）</h3>
+      <figure><img src="r5/collapsed.webp" alt="收着的轨"></figure>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="swap-scope" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>左右位置只做主侧栏与次侧栏整列交换、另开 Task，活动栏不挪出布局树，可以吗？</h2>
+  <p class="rec"><strong>推荐可以：一个设置把两边整列对调，轨总在外缘；不给每条轨单独选内外侧。只想把某个视图搬到另一侧，已有“移动到”。</strong></p>
+  <figure><img src="r3/swapped.webp" alt="两边对调"></figure>
+  <div class="cands two" style="margin-top: 16px">
+    <div class="cand" data-nbdev-option="ok" data-nbdev-label="可以"><h3>可以</h3></div>
+    <div class="cand" data-nbdev-option="adjust" data-nbdev-label="还要调"><h3>还要调</h3></div>
+  </div>
+</section>
+
+<section data-nbdev-question="float-list" data-nbdev-type="single" data-nbdev-recommend="drop">
+  <h2>浮动窗里还要不要内嵌完整列表？</h2>
+  <p class="rec"><strong>推荐 A 不要：宽窄都是聊天加右边缘的轨，要列表就把目录摆在旁边；消息视图里宽窄两套版式、可拖的列表栏、抽屉都去掉。</strong></p>
+  <div class="cands two">
+    <div class="cand" data-nbdev-option="drop" data-nbdev-label="A 不要，用目录">
+      <h3>A 不要，用目录</h3>
+      <figure><figcaption>宽的浮动窗，目录在左侧栏</figcaption><img src="r5/float-wide.webp" alt="宽浮动窗加目录"></figure>
+      <figure style="margin-top: 8px; max-width: 280px"><figcaption>窄的浮动窗</figcaption><img src="r5/float-narrow.webp" alt="窄浮动窗"></figure>
+    </div>
+    <div class="cand" data-nbdev-option="keep" data-nbdev-label="B 保留宽窗里的列表栏（现在的样子）">
+      <h3>B 保留宽窗里的列表栏（现在的样子）</h3>
+      <figure><img src="r4/float-wide.webp" alt="现在的宽浮动窗"></figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided" style="margin:0;padding-left:1.4em;color:var(--muted)">
+    <li>头像列在右边缘、通到顶；两个侧栏共用一种做法（第 1 轮）</li>
+    <li>头像列做成工作台的侧轨（第 3 轮）</li>
+    <li>不用抽屉、不整页切换；不做浮层与居中弹窗（第 2 到 4 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

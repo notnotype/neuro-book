@@ -1,8 +1,38 @@
 {
     "settings": {
+        "provider": {
+            "title": "使用",
+            "choices": {
+                "deepseek": {
+                    "title": "DeepSeek"
+                },
+                "tavily": {
+                    "title": "Tavily"
+                }
+            }
+        },
         "deepseekBaseUrl": {
-            "title": "DeepSeek 接口地址",
-            "description": "搜索与读取网页时调用的 DeepSeek 接口的地址前缀。一般不用改。"
+            "title": "DeepSeek 接口地址"
+        },
+        "tavilyBaseUrl": {
+            "title": "Tavily 接口地址"
+        },
+        "resultCount": {
+            "title": "默认结果条数"
+        },
+        "blockedSites": {
+            "title": "屏蔽网站"
+        },
+        "tavilySearchDepth": {
+            "title": "搜索深度",
+            "choices": {
+                "basic": {
+                    "title": "标准 · 1 点"
+                },
+                "advanced": {
+                    "title": "深度 · 2 点"
+                }
+            }
         }
     },
     "settingsPages": {
@@ -15,15 +45,12 @@
         "online": "联网",
         "web": "网页",
         "search": "搜索",
-        "deepseek": "DeepSeek"
+        "deepseek": "DeepSeek",
+        "tavily": "Tavily"
     },
     "readOnly": "网页工具没有运行，这一页暂时不能修改。",
     "keysUnreadable": "密钥文件读不了。在下面重新填写密钥会覆盖它。",
     "writeFailed": "{{reason}}；请重新输入",
-    "deepseek": {
-        "title": "DeepSeek",
-        "note": "这把密钥只给搜索与读网页用，与模型设置里的 DeepSeek 密钥分开存放；同一把密钥可以在这里再填一次。"
-    },
     "key": {
         "label": "API 密钥",
         "loading": "读取中",
@@ -31,13 +58,16 @@
         "empty": "还没有填写",
         "clear": "清除",
         "clearFor": "清除 {{provider}} 的密钥",
-        "envUnsupported": "这里不支持环境变量引用，请直接填写密钥。"
+        "envUnsupported": "这里不支持环境变量引用，请直接填写密钥。",
+        "missing": "未填写",
+        "pendingUse": "填写密钥后即可启用",
+        "deepseekTip": "与“服务商与模型”里的 DeepSeek 密钥分开保存，可以填同一把"
     },
     "check": {
         "action": "检测",
         "actionFor": "检测 {{provider}} 的密钥",
         "running": "检测中",
-        "cost": "会发一次搜索，按次计费。",
+        "cost": "会发一次搜索，可能计费",
         "passed": "检测通过（{{time}}）",
         "failed": "检测没通过：{{reason}}",
         "notRun": "没检成：{{reason}}",
@@ -51,18 +81,47 @@
         "credentials-unavailable": "密钥文件读写失败",
         "invalid-value": "这不像一把 API 密钥：中间不能有空格、换行、引号或中文，也不能超过 512 个字符",
         "invalid-request": "请求不合要求",
-        "auth": "DeepSeek 不认这把密钥",
-        "quota": "DeepSeek 账户余额不足",
-        "rate-limited": "DeepSeek 限流了，稍后再试",
-        "rejected": "DeepSeek 拒绝了这个请求",
+        "auth": "{{provider}} 不认这把密钥",
+        "quota": "{{provider}} 的余额或额度不够了",
+        "rate-limited": "{{provider}} 限流了，稍后再试",
+        "rejected": "{{provider}} 拒绝了这个请求",
         "not-found": "没有结果",
-        "unreachable": "连不上 DeepSeek",
+        "unreachable": "连不上 {{provider}}",
         "timeout": "超时了",
         "too-large": "响应太大",
-        "bad-response": "DeepSeek 的响应解析不了",
-        "failed": "DeepSeek 出错了",
+        "bad-response": "{{provider}} 的响应解析不了",
+        "failed": "{{provider}} 出错了",
         "unavailable": "网页工具没有运行",
         "unknown-outcome": "可能没有保存，以页面上显示的为准",
         "other": "失败了（{{code}}）"
+    },
+    "rules": {
+        "title": "搜索规则",
+        "countInvalid": "填 {{min}} 到 {{max}} 的整数",
+        "blockedPlaceholder": "输入域名后回车",
+        "blockedInvalid": "“{{value}}”不是域名",
+        "blockedTooMany": "至多屏蔽 {{max}} 个网站",
+        "blockedCount": "屏蔽了 {{count}} 个网站"
+    },
+    "rail": {
+        "label": "搜索服务"
+    },
+    "use": {
+        "badge": "使用中",
+        "action": "设为使用中",
+        "inUse": "{{name}}（使用中）"
+    },
+    "status": {
+        "checkFailed": "检测没通过",
+        "noKey": "还没有密钥",
+        "joiner": "，"
+    },
+    "advanced": {
+        "title": "高级",
+        "summary": {
+            "deepseek": "接口地址",
+            "tavily": "接口地址、搜索深度"
+        },
+        "urlInvalid": "要以 http:// 或 https:// 开头"
     }
 }

@@ -1,0 +1,405 @@
+# 设计审查报告（前端部分，Sonnet）：w00033 t01 页面内引擎与稳定名
+审查对象 design-v1.md；代码取自 .worktree/w00033-t01-review（与 master 同一提交）。条目按核实顺序追加，末尾有按影响排序的索引。
+
+### 1. `v-nb-target` 指令在 nb-ui 的多根组件上静默失效，在带装饰的 Input 上落到外层 div
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“控件的稳定名”第二条（“指令……组件里本地导入”“nb-ui 的组件把宿主的 `data-*` 落到根元素”）；`packages/nb-ui/src/components/popup/Select.vue:99-108,178-188`、`form/Input.vue:101-165`、`feedback/Dialog.vue:208-230`
+
+**现象**：设计把指令当作写 `data-nb-*` 属性的主写法，并断言“nb-ui 的组件把宿主 data-* 落到根元素，所以在 nb-ui 组件上直接写属性也行”。读代码核实后两半都不成立：
+1. `Select` 的根是 reka 的 SelectRoot/PopperRoot（只渲染插槽），其下并列触发器与浮层两个根节点，源码注释写明“多根组件……Vue 会静默丢弃”，所以关了自动继承、显式把 attrs 转发到触发器。`Dialog`（DialogRoot）、`FloatingWindow`、`QuickPick` 同样是无元素根加 `inheritAttrs:false`，属性由组件自己转发到面板。
+2. 我在 lab 里用仓库自带的 vue 3.5.39 与 happy-dom 跑了探针（lab/dir-exp.ts）：给一个根是 Fragment 的组件写自定义指令，Vue 报 `Runtime directive used on component with non-element root node. The directives will not function as intended`，指令的 mounted 根本没被调用，页面上没有 `data-nb-target`；同一个探针里单根组件与原生元素上的指令正常。也就是说 `<Select v-nb-target="'settings.model'">` 与 `<Dialog v-nb-target=…>` 会警告加不生效，而写 `<Select data-nb-target="settings.model">` 会被 Select 转发到触发器上、有效。
+3. `Input` 有图标、前后缀、可清除时根是外层 div：`data-*` 落在外层 div（源码注释“其余（class、style、data-*、监听）落在外层控件上”），`aria-*` 才落到 `<input>`。无装饰时 `data-*` 落在 `<input>` 本身。同一个 `<Input data-nb-target=…>`，视有无装饰落在不同元素上，而 `fill` 要的是里面的 `<input>`。
+
+**为什么是问题**：这是决定 8 点名要审的“好不好用”：用指令的写法在最常用的几个 nb-ui 组件（Select、Dialog、带装饰的 Input）上要么失效要么指向非交互的外层；插件作者需要记住“哪些组件用属性、哪些用指令、落在哪一层”。更根本的是，设计自己说“合同落在 DOM 属性上，指令只是简便写法”，而指令在属性能用的地方反而更差。
+
+**如何核实**：`cd lab && bun run dir-exp.ts`（输出里有 Vue warn 与 mounted 缺失）；读 Select.vue 第 95-108 行注释与 178-188 行转发。
+
+**建议改法**：
+- 不做指令，或把它降为薄帮助函数：核心包导出一个纯函数 `nbTarget("explorer.row", {key: file.path})` 返回 `{ "data-nb-target": …, "data-nb-key": … }`，用 `v-bind="nbTarget(…)"`。`v-bind` 对象在原生元素、单根组件（回落属性）、显式转发 attrs 的组件（Select、Dialog）上都生效，不依赖根节点形状，也不需要 `src/vue/` 这一层与对 vue 的依赖（核心包可以保持“纯 TS”，w00034 往外部页面注入时也用得上同一个函数）。
+- 开发期检查（同名无 key、重复、名字不合规）改由引擎自己的 MutationObserver 扫描 DOM 做，覆盖命令式建的 DOM 与不用 Vue 的页面，也不会因指令没触发而漏报。
+- 合同里补一条解析规则：目标元素不是可交互元素时，动作落在它内部唯一的可交互后代（Input 的外层 div、`SettingsRow`）；有多个时得 `ambiguous`。
+
+### 2. 第一批最该命名的几类控件，插件作者的模板里根本没有可写指令的地方
+**严重程度**：重要　**类别**：正确性（接口形态）　**位置**：设计稿“控件的稳定名”（示例 `explorer.toolbar.new-file`、`explorer.row`）与“第一批只给引导验收要走的路径命名”；`packages/neuro-book/src/plugins/explorer/web/plugin.ts:40-52`、`src/ui/menus/TitleActions.vue:57-73`、`src/ui/menus/title-actions.ts:59-62`、`packages/nb-ui/src/components/popup/MenuNodes.vue:101-150`、`dropdown-menu.types.ts:9-45`、`packages/nb-form/src/vue/controls/BooleanControl.vue`、`src/ui/settings/SettingsRow.vue:141-144`
+
+**现象**：任务要求的两处真实接入草稿，核实后发现都写不出来：
+1. 资源管理器的“新建文件”按钮：`explorer/web/plugin.ts` 里它是数据声明 `actions: [{command: NEW_FILE_COMMAND, icon: …}]`，由工作台的 `TitleActions.vue` 渲染成 `IconButton`。插件作者没有模板可写。而且按钮数受 `maxButtons` 限制（`title-actions.ts:59` 的 `slice(0, maxButtons)`），放不下的进“⋯”下拉：此时它是 `DropdownMenuItemData`（只有 `label`、`id`、`title` 等字段），`MenuNodes.vue` 的 `common(item)` 不把 `id` 写到 DOM，也没有任何 attrs 通道。同一个动作在宽窗口里是 `button[data-title-action="nbook.files.new-file"]`，窄窗口里是无任何标记的 `menuitem`。示例里的 `explorer.toolbar.new-file` 因此不稳定，名字里的 `toolbar` 这一段在窄窗口下就是假的。
+2. 设置页的开关：设置页的控件由 nb-form 按 schema 生成（`BooleanControl.vue` 里直接 `<Switch :model-value=…>`，没有给调用方留属性通道），行外壳 `SettingsRow.vue` 已经有 `data-settings-row="<设置键>"`。写设置的插件作者既没有模板，设置键又已经是业务身份。
+3. 仓库里已有一套事实上的稳定标记：`src` 下 `.vue` 里 `data-explorer-*`、`data-settings-row*`、`data-title-action*`、`data-workbench-*` 共 86 种，e2e 大量依赖（`e2e/*.e2e.ts`）。设计稿没提这套标记与 `data-nb-target` 的关系：两套并存，同一个按钮有两个名字，哪一个进 Skill 与 Spec 的名字表没有说。
+
+**为什么是问题**：稳定名的价值在“引导与 Skill 能写死引用”。如果第一批 30 个名字里相当一部分落在上面三类（数据声明的动作、数据驱动的菜单项、schema 生成的设置行），按设计的写法就实现不了，实施时才发现会返工到 nb-ui 与 nb-form 的接口（给 `DropdownMenuItemData` 加字段、给 nb-form 加属性通道），而这不在“要改的别的模块”里，工作量与影响面没有估。
+
+**如何核实**：读上面各文件的行号；在仓库里 `grep -rn "data-title-action" packages/neuro-book/src/ui/menus/TitleActions.vue`、`grep -n "id" packages/nb-ui/src/components/popup/MenuNodes.vue` 看菜单项不写 id。
+
+**建议改法**：
+- 稳定名分两类写进合同：（a）有现成业务身份的由渲染方自动写，不要插件作者再命名：动作与菜单项用命令 id（渲染 `TitleActions`、菜单项时写 `data-nb-command`，设计里本来就有这个属性，第一版“没有控件声明”其实是错的：视图动作、菜单项现在就都是命令声明），设置行用设置键（`data-settings-row` 直接作为 key 来源或同值写 `data-nb-key`）；（b）只有手写的控件（工具栏之外的按钮、自定义区域）才需要 `data-nb-target`。
+- 在“要改的别的模块”里补两项：nb-ui 的菜单项数据加一个透传的标识（例如 `attrs` 或 `data-id`），nb-form 的控件加属性通道；并把这两项算进批一的工作量。
+- 明确与现有 `data-explorer-*` 等的关系：新名字只管“给模型与引导用的跨界面名”，e2e 的内部标记不迁移也不删，Spec 的名字表里写明这一点。
+
+### 3. “看得见”没有定义：工作台把标题动作做成 `opacity: 0`，快照照列、高亮框框住一块空白
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“给模型的接口”快照的第一条（“只列看得见、没被遮住、不在 inert 里的”）与“窗口里看得到什么”的高亮；`packages/neuro-book/src/plugins/workbench/web/components/hover-actions.css:1-18`、`WorkbenchPanelHead.vue:280-284`
+
+**现象**：设计列了三条过滤（看得见、没被中心点遮住、不在 `inert`），但没说“看得见”怎么判。工作台里有一整类控件按设计就是透明的：`hover-actions.css` 在 `@media (hover: hover)` 下，指针不在视图范围、范围内没有焦点、菜单没开时，`[data-hover-actions]`（视图标题动作与框架按钮）整块 `opacity: 0`，而且特意“用透明度不用 display”，让它仍能被 Tab 到、仍然占布局、仍能被 `elementFromPoint` 命中。资源管理器的“新建文件”等五个标题动作就在其中。
+- 用设计里的三条过滤，这些按钮满足“有尺寸、中心点命中的就是自己、不 inert”，会被列进快照，而用户眼里什么也没有。
+- 引导场景是 `ui.highlight({target: …new-file})`：driver.js 的描边框与说明框会框在一块看不见的区域上，用户看到的是“有个框，框里没东西”，点不到想点的东西（鼠标移过去才出现，而高亮期间鼠标不在那里）。这是批一验收（“教我新建章节”）要走的路径。
+- 另有同类的 `sr-only`、`visibility:hidden` 的量宽副本（`WorkbenchItemStrip.vue:163-174` 的 `measure` 层是 `aria-hidden inert visibility:hidden`，这个设计的三条能滤掉）、`clip`/`clip-path` 裁成 0、`overflow:hidden` 祖先裁掉、`content-visibility:hidden`。设计没有一个统一的可见性判定。
+
+**为什么是问题**：照字面实现会漏列或误列，且误差落在最显眼的引导路径上。参照：Playwright 的 `visible` 把 `opacity:0` 当作可见（它只管可操作），所以“沿用 Playwright 的动词”也不会自动解决这件事，因为这里要的是“用户看得见”而不是“可操作”。
+
+**如何核实**：读 hover-actions.css；在 Lab 里挂 `WorkbenchPanelHead` 的场景，不悬停时 `getComputedStyle(el).opacity` 取值为 0（设计要求的单测可用 happy-dom 的 `getComputedStyle` 难以覆盖祖先链上的 opacity，需要真实浏览器）。
+
+**建议改法**：
+- 在快照合同里写明可见性判定：沿祖先链取有效不透明度（累乘）、`visibility`、`display`、被 `overflow` 裁成零面积、`clip-path`；有效不透明度小于某个阈值（例如 0.05）的，不当作“看得见”，但不丢掉：标成 `faint`（或 `hidden-until-hover`）并仍可定位，快照里让模型知道要先移到范围上。
+- `highlight` 与第二批的动作对 `faint` 的目标：先把指针移进它的 `[data-hover-actions-scope]`（发 `pointerenter` / `mouseenter` 序列，让 CSS 的 `:hover` 无法由合成事件触发，所以不可靠），或者聚焦它（`focus-within` 规则会让它显示出来，已核实规则里有 `:focus-within`）：用焦点最稳。把这条写进批一的实验 3。
+- 批一的 Playwright 夹具页加一条“透明度 0、聚焦后出现”的用例。
+
+### 4. “有模态时只列最上层模态”在 DOM 里没有对应的信号，`layer` 的取值也不够用
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“给模型的接口”快照第一条（“有模态时只列最上层模态里的，`layer` 写明”）、“结构”末条（引擎只读 DOM、不依赖 nb-ui 的层级表）；`packages/nb-ui/src/components/feedback/Dialog.vue:246`、`node_modules/reka-ui/dist/shared/useHideOthers.js`、`DismissableLayer/DismissableLayer.js:87-117`、`packages/nb-ui/src/composables/useModalLayer.ts`
+
+**现象**：设计同时要求（a）引擎只读 DOM、不依赖 nb-ui；（b）“有模态时只列最上层模态”。核实后两者冲突：
+- nb-ui 的模态栈（`useModalLayer` 的 `openLayers`）是模块内的 `shallowRef`，不在 DOM 里；注释还写明“层级不能靠 DOM 顺序”。引擎读不到。
+- DOM 上能认模态的标记几乎没有：`grep -rn aria-modal node_modules/reka-ui/dist` 无一处命中，reka 的对话框内容只写 `role="dialog"`；nb-ui 里只有 `Dialog.vue:246` 自己给面板加了 `aria-modal="true"`，而且 `contained`（组件 Lab 的画布）时不加。`AlertDialog`（`role=alertdialog`）、`Drawer`、`QuickPick`（命令面板，`DialogRoot modal`）都没有；`FloatingWindow` 是 `role=dialog` 的非模态窗口，不该触发“只列模态”。
+- 真正存在的信号是副作用：reka 的 `useHideOthers` 用 aria-hidden 库把对话框以外的兄弟节点写成 `aria-hidden="true"`（并加 `data-aria-hidden`），`DismissableLayer` 在有“外部指针禁用”的层打开时把 `body.style.pointerEvents` 设成 `none`。设计的过滤条件里没有提 aria-hidden，只提了 `inert`；nb-ui 里需要被滤掉的 `aria-hidden`+`inert` 的量宽副本倒是同时带 `inert`，但被模态隐藏的整个页面只有 aria-hidden，没有 inert。
+- reka 的 `DropdownMenu`、`Select`、`ContextMenu` 默认也是这套模态机制（打开时页面其余部分 aria-hidden、指针被禁），它们不是“模态对话框”，设计的 `layer` 只写了 `base` 与“模态”两类，没有给它们、`FloatingWindow`、`Notification`（z-index 9050，高于模态，见 `z-index.ts`）定位。
+
+**为什么是问题**：照字面做，引擎只能退到“中心点命中检查”来间接区分：模态开着时背景元素的中心被遮罩命中，自然不列；这时“只列最上层模态”那条规则其实是多余的，`layer` 却没有来源。更糟的是 Select 的列表打开时，对话框自己也变成 aria-hidden 且被禁指针，快照只剩下 listbox，模型不知道对话框还在、也不知道要先关列表；而一旦 `body.pointer-events:none` 在某个关闭路径上残留（Radix 系众所周知的问题，reka 的恢复只在 `layersWithOutsidePointerEventsDisabled` 清空时才做），所有元素的命中结果都是 `html`，快照一个控件都不列，报错信息里“遮挡者”是 `html`，模型无从判断。
+
+**如何核实**：`grep -rn "aria-modal" node_modules/reka-ui/dist packages/nb-ui/src --include=*.vue --include=*.js`；读 `DismissableLayer.js` 第 80-120 行与 `useHideOthers.js`。
+
+**建议改法**：
+- 把 `layer` 改为“由命中检查反推”的层：对每个候选元素取其最近的层根（`role` 为 `dialog`/`alertdialog`/`menu`/`listbox`/`tooltip` 的祖先，否则 `base`），表头按画面顺序（用命中检查里元素的堆叠先后）列出出现过的层，形如 `layers: base(hidden) > dialog "新建章节" > listbox`，被遮住的层只写名字与“被遮挡”，不列控件。
+- 过滤条件补上 `aria-hidden="true"`（与 Playwright 的无障碍快照一致），并写明 `contained` 模式与非模态窗口的处理。
+- 命中结果是 `html`/`body` 且该元素有 `pointer-events:none` 时，在结果里点名“页面被禁用指针”，不要只写“被遮住”。
+- 开工前实验补一条：在真实工作台上依次打开 Dialog 套 Select、ContextMenu、AlertDialog、命令面板，各记一份快照对照期望的层。
+
+### 5. 引用只在“元素不在了”时才重找；Vue 原地复用元素时，旧引用静默指向别的东西
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“引用”一段（“元素被重画、原来的不在了，就按它的角色、名字、稳定名……重找”）；`packages/nb-ui/src/components/popup/MenuNodes.vue:120`（`:key="index"`）、`ExplorerTree.vue:623-624`、`explorer/web/tree/window.ts`
+
+**现象**：引用是 `WeakMap<Element, number>`，同一个元素编号不变；重找只在元素“不在了”时触发。而 Vue 在以下情形会保留 DOM 元素、只改内容：以 index 为 key 的列表（仓库里 `:key="index"` 共 46 处，其中 `nb-ui` 的 `MenuNodes`（下拉、右键、菜单栏的菜单项）、`Breadcrumb`、`EditorPageBreadcrumbs`）、同组件类型 `:is` 切换、虚拟列表复用。我用 lab 里的探针（`lab/ref-exp.ts`，vue 3.5.39 加 happy-dom）复现：以 index 为 key 渲染三个菜单项，快照时给每个元素发号 1、2、3；列表换成反序后，三个元素对象全部复用、`isConnected` 都是 true，编号 1 的元素从“第一章”变成“第三章”。设计里这时既没有 `stale-ref` 也没有 `rebound`，`ui.click({ref: "e1"})` 会点到“第三章”。
+
+**为什么是问题**：模型拿着快照里的名字做判断，再用引用动作，两者之间页面变了是常态（动作后页面静下来就会改一批）。引用静默漂移比报 `stale-ref` 更糟：写档动作发生在错误的目标上，且结果里没有任何提示。资源管理器的行按 `row.id` 做 key，这个例子里相对安全，但菜单、面包屑等并不安全，而这类菜单正是引导要走的路径（右键新建章节）。
+
+**如何核实**：`cd lab && bun run ref-exp.ts`；`grep -rn ':key="index"' packages/nb-ui/src --include=*.vue`。
+
+**建议改法**：
+- 引用表里存的不只是元素，还存发号时的“身份”：角色、可访问名、稳定名与 key、所在层的名字。每次用引用时（读、高亮、动作）先重算当前身份，与存的比对：一致才用；元素还在但身份变了，按“不在了”处理走重找。比对的成本是一次名字计算，只在被引用的那一个元素上做。
+- 快照里的变化摘要也用同一个身份比较，不要按元素对象比（元素没变而内容变了的行也要进“变了的行”）。
+- 在夹具页加一条用例：以 index 为 key 的列表反序，旧引用必须得 `stale-ref` 或带 `rebound`，不能指向新内容。
+
+### 6. 重找成功时动作照做：同名的“确认”“取消”会让写档动作落到另一个对话框上
+**严重程度**：重要　**类别**：安全与性能（写档动作的误操作）　**位置**：设计稿“引用”（“恰好一个就继续并在结果里标 `rebound`”）与“风险”第一条；`packages/nb-ui/src/components/feedback/Dialog.vue:108`、`locales/locales.test.ts:57`、`explorer/web/components/FilesExplorerView.vue:208-232`
+
+**现象**：重找规则是“按角色、名字、稳定名在当前页面里找，恰好一个就继续”，然后动作照做，只在结果里事后标 `rebound`。对话框的主按钮缺省名字是 `dialog.confirm`，中文“确认”（`Dialog.vue:108`），取消是“取消”；仓库里大量对话框用缺省名字，只有少数（删除确认等）自定义。资源管理器就同时有脏副本、显示名、冲突三个对话框（`FilesExplorerView.vue:234-306`）。场景：模型在对话框 A 的快照里拿到“确认” `e40`；A 被用户关了或被替换；此时页面上有对话框 B（例如删除确认，带 `tone="danger"`），它的主按钮叫“删除”，没问题，但另一个用缺省名字的对话框，它的“确认”正好是页面上唯一一个，于是重找成功、`click` 发出，结果里写着 `rebound`，已经晚了。设计的“风险”一节把这类问题列为“Agent 操作了用户不想要的东西”，对策只有窗口粘住、提示条与 `data-nb-agent="never"`，没有覆盖这条路径。
+
+**为什么是问题**：重找对读与高亮没有副作用，可以宽松；对写档动作，名字相同不等于是同一个东西。设计把两者放在同一个规则里。
+
+**如何核实**：从代码看需要的前提：（a）`confirmLabel` 缺省为 `dialog.confirm`，（b）重找的范围是“当前页面”，不含层的限制。两点都在设计稿原文里。写夹具页即可复现：页面上依次出现两个带“确认”按钮的模态。
+
+**建议改法**：
+- 重找只允许同一层内（同一个对话框、同一个窗格）并且角色、名字、稳定名与 key 全一致；跨层一律 `stale-ref`。
+- 动作（批二）遇到需要重找的引用，不执行，返回 `stale-ref` 并附当前候选，让模型重新看一眼再点；只有 `snapshot`、`highlight`、`scroll`、`waitFor` 这类无副作用的方法允许 `rebound` 后继续。这与设计里“动作前自动等目标稳定”不冲突：等待针对同一个元素，不涉及换元素。
+- 定位用 `role` 加 `name` 时同样：结果里写出命中元素所在的层与它的祖先标题，避免模型无法分辨“确认”是哪一个对话框的。
+
+### 7. 实验 2 漏了 nb-ui 里真正输入方式不同的控件，Monaco 在这个应用里走 EditContext，三种候选很可能都无效
+**严重程度**：重要　**类别**：测试（实验设计）　**位置**：设计稿“开工前的实验”第 2 条与“技术选型”点击与输入一行；`node_modules/monaco-editor/esm/vs/editor/common/config/editorOptions.js:3135`、`.../editContext/native/nativeEditContext.js:133`、`packages/nb-ui/src/components/form/DateInput.vue:2`、`node_modules/reka-ui/dist/DateField/DateFieldInput.js:20-80`
+
+**现象**：实验 2 的对象是“原生输入框、`v-model` 输入框、文本域、Tiptap 正文、Monaco”，方法是“value setter 加 input”“`execCommand('insertText')`”“`beforeinput`”。核对 nb-ui 与依赖：
+1. **Monaco 0.55.1 的 `editContext` 选项缺省为 true**（`editorOptions.js:3135`，仓库的 `MonacoControl.vue` 没有关它）。Chromium 支持 EditContext，所以输入走 `div.native-edit-context` 上 `EditContext` 对象的 `textupdate` 事件（`nativeEditContext.js:133`），旁边的 IME 文本域是 `readonly aria-hidden`（62-64 行）。设计里三种候选都是 DOM 层的 `input`/`beforeinput`/`insertText`，我从代码推断它们对这套输入路径没有作用（未在浏览器里验证）。实验应当先认定要不要在 Monaco 上做 `fill`。
+2. **`DateInput` 的段输入是 reka 的 `DateField`**：每段是 `contenteditable` 的 span（`DateFieldInput.js:51`），监听 `keydown`、`beforeinput`、`mousedown`，没有 value；对它做 value setter 无意义，`fill` 的语义（整个日期）也不适用。要么写专用路径（按段发 `beforeinput`/`keydown`），要么 `needs-trusted-input`。
+3. 组合框类（`SearchSelect`、`TagInput`、命令面板 `QuickPick` 的 `role=combobox`）：`fill` 之后过滤是否触发、`Enter`/选项点击怎么选中，设计没有对应的方法或实验。
+4. 实验只说“看内容与 Vue 状态是否同步、撤销是否正常”，没有给判据：同步以什么读（`modelValue` 回显？下游设置的真实写入？），撤销怎么测；也没有 IME 组合输入（`isComposing`）与 `fill` 的语义（先全选再替换，还是在光标处插入；保持选区；`maxlength`；`v-model.lazy` 听的是 `change`）。
+5. 结果的使用方式：“做不到的控件写进文档的‘不能做’”，但引擎怎么在运行时知道自己面对的是这类控件？现在没有机制把控件类别（Monaco 外壳、DateField 段、Tiptap 的 contenteditable）映射到 `needs-trusted-input`。它们必须在引擎里有识别规则（`.monaco-editor`、`[contenteditable][data-segment]`、`.ProseMirror`），否则 `fill` 会“成功返回、内容没变”。
+
+**为什么是问题**：设计把实验 2 排成“只决定第二批能做到哪”，如果实验设计漏了控件，第二批的结论就不完整，而“动作成功但没效果”是最糟的失败形态（模型会相信它）。
+
+**如何核实**：`grep -n editContext node_modules/monaco-editor/esm/vs/editor/common/config/editorOptions.js`；读 DateFieldInput.js 第 40-80 行。
+
+**建议改法**：
+- 实验 2 增补：Monaco 在开启与关闭 `editContext` 两种配置下各试；`DateInput` 的段；`QuickPick`/`SearchSelect` 的 combobox；每个控件写明判据（读 `modelValue`、读真实下游状态、`Ctrl+Z` 后内容）。
+- 合同里加“引擎认得的不可 `fill` 的控件类别”清单，命中时直接返回 `needs-trusted-input` 并带原因，不尝试合成输入。
+- 在 `fill` 的定义里写清楚语义（替换整个值，成功标准是读回值与目标一致，读回不一致返回失败而不是成功）。
+
+### 8. `needs-trusted-input` 只能认出静态的几类控件，依赖用户激活的处理函数会“点击成功、没有效果”
+**严重程度**：建议　**类别**：正确性　**位置**：设计稿“动作”一段（“需要真实用户操作的控件（文件选择框、剪贴板、原生拖放）不假装成功，交回 `needs-trusted-input`”）与“风险”第二条；使用点见 `packages/nb-ui/src/components/controls/CopyButton.vue`、`neuro-book/src/plugins/explorer/web/controller.ts`、`editor/web/commands.ts`、`markdown/web/components/menus/clipboard.ts`、`web/FailurePage.vue`、`ui/JsonViewer.vue`
+
+**现象**：设计要在动作前认出“需要可信输入”的控件。静态可认的只有 `input[type=file]`。剪贴板写入、`window.open`、`showPicker()`、`requestFullscreen()`、`execCommand('copy')` 这类 API 的限制发生在按钮的处理函数里，元素上没有任何标记：仓库里至少这些位置调用了剪贴板与类似 API（上面列的文件），其中 `CopyButton` 是 nb-ui 的通用组件，在资源管理器的“复制路径”、编辑器菜单、JSON 查看器里都用。合成 `click` 不会授予“瞬时用户激活”：Firefox 与 Safari 对剪贴板写入要求用户激活，Chrome 则对活动标签放行写入，但对文件选择、`window.open`、全屏仍要求激活。结果是点击发出、处理函数运行、API 拒绝（`NotAllowedError`，通常进 `unhandledrejection` 或被组件吞掉），引擎回复成功。
+
+**为什么是问题**：同“合成输入覆盖不全”一节的结论一致：最坏的失败是“成功但没效果”，模型会据此往下做。“按控件类别预判”这一条路径漏得多，只能靠运行时观察补。
+
+**如何核实**：在夹具页放一个处理函数里调用 `input.showPicker()` 的按钮，用合成事件序列点，看 Chromium 抛 `NotAllowedError: ... requires user activation`；`navigator.userActivation.isActive` 在合成点击之后仍为 false（可在实验 1 里一并测）。
+
+**建议改法**：
+- 动作执行期间监听 `unhandledrejection` 与 `error`，把 `NotAllowedError`/`SecurityError` 之类写进结果的 `warnings`，并提示“可能需要真实用户操作”；动作前后读 `navigator.userActivation.isActive`，合成点击没有激活时在结果里标 `untrusted`（只对已知依赖激活的类别标，不做全局告警）。
+- 合同里允许控件自己声明：`data-nb-agent="trusted"`（需要用户亲自操作，动作直接 `needs-trusted-input`），给 `CopyButton` 这类已知控件加上，Spec 的名字表里登记。
+- 把“实验 1”的范围扩一点，包含上述 API 在合成点击下的表现，结论写进文档的“不能做”。
+
+### 9. driver.js 的说明框在 reka 的模态对话框里会和焦点锁抢焦点，并把用户正在输入的文字全选
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“技术选型”高亮一行（“已核实……在打开的原生对话框里也能显示”）、“开工前的实验”第 3 条；driver.js 1.14.0 的 `dist/driver.js.mjs`（`$e`、`et`、`Te` 三个函数）、`node_modules/reka-ui/dist/FocusScope/FocusScope.js:56-70`、`packages/nb-ui/src/components/feedback/Dialog.vue:216-224`
+
+**现象**：已核实的那句话只对原生 `<dialog open>` 成立：driver.js 的 `Te()` 只有在目标在 `dialog[open]` 里时才把层放进该对话框（并用 `popover=manual`）。仓库里没有用原生 `<dialog>`、`showModal`、`popover` 属性的地方（`grep` 全部 `.vue`/`.ts` 无命中），nb-ui 的 `Dialog`、`AlertDialog`、`Drawer`、`QuickPick` 都是 reka 的 `DialogRoot` 加 `DialogPortal`，即 body 下的普通 div。于是 driver.js 的说明框是 body 的另一个子节点，在对话框的 DOM 之外。而：
+- driver.js 渲染说明框后默认把焦点给“下一步”按钮或说明框（`$e` 里 `t.keepFocus||et(n)`，`et` 调 `.focus()`；步骤选项 `focus` 缺省为 `popover`）；
+- reka 的模态对话框用 `FocusScope trapped`：`FocusScope.js:56-61` 在 document 上监听 `focusin`，目标不在容器内就 `focus(lastFocusedElementRef.value, {select: true})`，也就是焦点被立刻抢回去，并且 `select: true` 对输入框会调用 `select()` 全选里面的文字。
+- 结果：用户在“新建文件”之类对话框里打字时，如果 Agent 此刻调 `highlight`（引导“请点确认”是最自然的用法），说明框一出现，输入框里的内容被全选，用户下一个字符就把已输入的内容覆盖掉。重放高亮（新替换旧）会再来一次。
+
+**为什么是问题**：高亮是批一的核心验收路径，且“在模态对话框里指向按钮”是最常见的引导场景；设计把“已核实”当成已解决，实验 3 只写了“在模态之上”的外观，没有写焦点。
+
+**如何核实**：这是从代码推断，没有在浏览器里跑。验证：夹具页里挂 reka 的 Dialog，输入框里写字，同时调 driver 的 `highlight`，看 `document.activeElement` 与输入框 `selectionStart/End`。driver.js 的类型里有 `focus?: "popover" | "element" | "none"`（`dist/driver.js.d.ts`），应能关闭。
+
+**建议改法**：
+- 高亮一律传 `focus: "none"`，说明框里不放可聚焦的按钮（设计里关闭只靠 Esc、点目标、Agent 一轮结束，这与它一致）；说明框要的“关闭”入口放在自己的 shadow root 的提示条里，不放进 driver 的说明框。
+- 实验 3 加一项“在 Dialog、AlertDialog、Drawer、命令面板里高亮，同时输入框里有未提交内容，焦点与选区不变”，并把“已核实”那句改成只对原生 `dialog` 成立。
+- 夹具页的测试里加这一条。
+
+### 10. driver.js 与工作台的几处接口没写：`until: "click"` 不过滤合成事件、Esc 归属、外观与动效取值、对页面 DOM 的改动
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“窗口里看得到什么”的高亮一条、“技术选型”高亮一行、“待开发者定”第 6 条、“测试”（高亮部分）；driver.js 1.14.0 `dist/driver.js.mjs`（`hn`、`fr`、`ur`、`dr`、`Pn`）、`dist/driver.css`、`packages/nb-ui/src/components/feedback/dialog-close.ts:52-56`、`packages/nb-ui/src/tokens.css:334-339`
+
+**现象**（下面都读 driver.js 的 1.14.0 构建产物核对过，浏览器里的表现是从代码推断）：
+1. **`advanceOn` 不过滤合成事件**。等点击用的 `hn` 在 window 捕获阶段监听 `click`，命中目标就走 `rn → tour.next`，只调用调用方给的 `when`，没有任何 `isTrusted` 检查（`isTrusted` 在文件里只用在拦截点击的 `Kn` 里）。设计里“`until: "click"` 只认真实点击”的测试是对的，但机制没写：要在 `when` 里写 `event.isTrusted`，并且把页面代码调用的 `element.click()`（reka 菜单项在 `pointerup` 里就会对自己调 `.click()`）也算进去的取舍写明。
+2. **Esc 的归属与设计承诺相反**。driver.js 只在 `keyup` 处理 Esc，并且只在页面没有对这个按键 `preventDefault` 时处理（`ur` 在捕获阶段记下按键，`dr` 在冒泡阶段若 `!defaultPrevented` 才清掉，`fr` 在 keyup 看记录是否还在）。nb-ui 的对话框 `onEscapeKeyDown` 一律先 `event.preventDefault()`（`dialog-close.ts:54`），所以对话框开着时按 Esc 只关对话框、高亮留着（目标已不在，进入 driver 的“元素缺失”逻辑），而不是设计里“按 Esc 去掉高亮”。没有对话框时则只去高亮。两种情形用户感受不一致，也没说先去高亮还是先关对话框。
+3. **外观与动效取值**：driver.css 写死了亮色（`#fff`、`#2d2d2d`、Helvetica 字体、`all: unset`），暗色主题下说明框是白的；动画用 `--driver-animation-duration`（缺省 0.4s）和 JS 里的 `animate`/`duration`，nb-ui 的减弱动效靠把 `--motion-*` 令牌置 0（`tokens.css:334-339`）而不是让组件自己查媒体特性，driver.js 不认这些令牌。另外默认形态是“全页压暗、目标处挖洞”的遮罩（`overlayOpacity` 缺省 0.7），不是设计写的“描边框”；`allowPageInteraction` 只让页面可点，不改变压暗。
+4. **driver.js 会改页面 DOM**：给目标加 `driver-active-element`（`disableActiveInteraction` 时再加 `driver-no-interaction`，即 `pointer-events:none!important`）、给目标的父元素加 `driver-active-element-parent`，父元素是滚动容器时再加 `driver-active-element-parent-no-scroll`（`overflow:hidden!important`）、给 `body` 加 `driver-active` 与 `driver-page-interactive`；样式表是全局的。目标的父元素是滚动容器时，用户在高亮期间不能滚动那个容器（例如目标是设置页滚动区里的直接子元素），与“页面其余部分照常可操作”冲突；全局样式表与对外部页面的 class 污染也与 w00034 打算用同一引擎注入外部页面的方向冲突（设计只让光标与提示条用 shadow root）。
+5. 设计里“driver.js 约 47 KB”与“引擎的浏览器入口第一次被调用时才动态加载”配合：CSS 也要一起动态加载，否则全局样式表进首屏。
+
+**为什么是问题**：每一条单独看都能绕过去，但合起来说明“已核实”的范围比设计稿写的小：driver.js 当作薄壳用，剩下的是自己写一整层覆盖（令牌、动效、Esc、焦点），收益只剩下定位与 `advanceOn`。设计已经把“实验不过才自写”作为退路，但“过”的判据没写。
+
+**如何核实**：读 `dist/driver.js.mjs` 里 `hn`（advanceOn）、`ur/dr/fr`（Esc）、`Pn`（改 class）、`dist/driver.css` 第一行；`grep -n "preventDefault" packages/nb-ui/src/components/feedback/dialog-close.ts`。
+
+**建议改法**：
+- 实验 3 写明“过”的判据：在亮暗两个主题、减弱动效、Dialog/Drawer/命令面板/下拉各一种状态下，焦点不变、Esc 行为符合下一条、不压暗页面、不改被高亮元素的父滚动容器、`until: "click"` 对合成事件不前进。
+- 明确 Esc：高亮活着时自己在 window 捕获阶段拦 Esc（先去高亮，`stopPropagation`，不让它再传给对话框），`allowKeyboardControl: false`；或者明说“对话框开着时 Esc 只关对话框”并让高亮随目标消失而结束。
+- 用 CSS 变量与 `popoverClass` 覆盖 driver.css，取值改引用 nb-ui 的令牌；`animate` 与 `duration` 按 `matchMedia("(prefers-reduced-motion: reduce)")` 取，不依赖 driver 自己。
+- 把“driver.js 自写 vs 采用”的比较补一列：自写只需要 `getBoundingClientRect` + `ResizeObserver` + 滚动监听 + `@floating-ui/dom`，没有 driver.js 的 DOM 改动与焦点副作用；是否值得依赖，交开发者定。
+
+### 11. 自己的提示条与停止按钮用 shadow root 加 `popover=manual`：模态打开时停止按钮点不了，还会盖住自己的命中检查
+**严重程度**：重要　**类别**：安全与性能（停止按钮是安全出口）　**位置**：设计稿“结构”末条（“浮层用自己的 shadow root 与 `popover="manual"`，不依赖 nb-ui 的层级表”）、“窗口里看得到什么”的光标、提示条与停止按钮；`node_modules/reka-ui/dist/DismissableLayer/DismissableLayer.js:80-95`、`packages/neuro-book/src/plugins/workbench/web/overlays.ts:1-60`、`nb-ui/src/theme/z-index.ts`
+
+**现象**：
+1. **指针被禁用的继承**：reka 的模态对话框（以及 Select、DropdownMenu 等带“外部指针禁用”的层）打开时把 `document.body.style.pointerEvents` 设成 `none`（`DismissableLayer.js:87-88`），只有层自己的内容和遮罩恢复 `auto`。`pointer-events` 是继承属性，shadow host 挂在 body 下，`popover` 提到顶层也不改变继承（继承按 DOM 树）。所以 Agent 点出一个对话框（新建文件、删除确认）时，提示条上的停止按钮继承了 `none`，点不了；driver.js 自己为此在 `.driver-popover` 上写了 `pointer-events:auto`，设计没提。停止是“Agent 做错了怎么办”的唯一出口，恰好在对话框一类高风险场景下失效。还有键盘：模态的 `FocusScope trapped` 把焦点锁在对话框里，提示条里的按钮不能用 Tab 到；reka 的 `hideOthers` 也会把提示条所在的兄弟节点设成 `aria-hidden`。
+2. **自己盖住自己的命中检查**：快照的“没被遮住”用中心点命中，提示条在窗口顶部，覆盖标题栏与菜单栏的一段（“顶上一条”）。Agent 要点标题栏菜单时，那里的命中结果是提示条，得 `not-actionable`（遮挡者是自己）；用户也点不到。设计没说命中检查要忽略引擎自己的浮层，也没说提示条覆盖哪里。（外观交静态稿，但“引擎自己的层要排除出命中与快照”是合同，与外观无关。）
+3. **与已有机制的关系没交代**：工作台已有 `workbench.overlays`（`overlays.ts`）在页面根上挂插件的 Vue 浮层，能用 nb-ui 组件、主题令牌与窗口文本端口。设计“现状”里提到了它，“结构”里却把提示条放在 `web/`、用 shadow root，没说选哪个。shadow root 内部不继承原子类样式，nb-ui 的 `IconButton`、令牌类用不上，要自己重写一份样式；custom properties 能穿过 shadow 边界，但组件样式不能。
+
+**为什么是问题**：1 是安全功能在特定状态下失效，而且是“引导新建章节”这类批二验收路径本身会触发的状态；2 会让引擎在自己的 UI 面前报错；3 会重复一套样式。
+
+**如何核实**：读 `DismissableLayer.js` 第 80-120 行；在夹具页里挂 reka Dialog 与一个带按钮的 shadow host，看按钮的 `getComputedStyle(...).pointerEvents`。
+
+**建议改法**：
+- 核心包只提供不含交互的东西（光标、涟漪、命中检查要忽略的标记）；提示条与停止按钮是应用的插件 `web/` 里用 `workbench.overlays` 挂的 nb-ui 组件，随主题、文本端口与 Lab 场景走。若坚持 shadow root，停止按钮必须显式 `pointer-events: auto`，并加测试：在模态对话框与 Select 打开时点停止，当次 eval 以 `aborted` 结束。
+- 合同里写：引擎自己的节点带统一标记（例如 `data-nb-page-agent-ui`），命中检查与快照忽略它们。
+- 提示条覆盖的区域不挡标题栏菜单与窗口按钮：放在不可点区域或做成不占位的角标；位置交静态稿，但“不遮标题栏控件”写进合同。
+- 停止要有键盘路径（一个全局快捷键或聚焦提示条的命令），并在 aria 里作为 `role=status` 的区域。
+
+### 12. 虚拟列表让“视口外照列、标 offscreen”不成立；8000 字符的预算被过量渲染的行吃掉，截断没有优先级
+**严重程度**：重要　**类别**：正确性与性能　**位置**：设计稿“给模型的接口”快照第一、三条（“视口外但能滚到的照列，标 `offscreen`”“缺省至多 8000 字符，超了截断并写明可以用 `scope` 缩小到哪些区域”）与“风险”token 一条；`packages/neuro-book/src/plugins/explorer/web/tree/window.ts:1-28`、`ExplorerTree.vue:95`、`ExplorerRow.vue:160-163,204-206`
+
+**现象**：
+1. **虚拟列表**：资源管理器的树只渲染视口内的行加上下各 `OVERSCAN = 10` 行（`window.ts`），再加焦点行与编辑行。“视口外但能滚到的照列”对这棵树只对了一半：多渲染的约 20 行（视口约 27 行时共约 47 行）会被当作 `offscreen` 列进快照，吃掉预算；而真正滚得到、但没渲染的行完全不在快照里，也没有任何提示。树节点有 `aria-setsize`、`aria-posinset`、`aria-level`（`ExplorerRow.vue:160-163,204-206`），设计的快照示例行却没有带这些字段，模型无从知道“这是 340 行里的第 12 行、后面还有”，也不知道要滚动或用什么稳定名（`key`）定位到没渲染的行。`ui.click({target: "explorer.row", key: "正文/第三百章.md"})` 对没渲染的行会是 `not-found`，与“这个文件不存在”无法区分。
+2. **预算**：示例里一行 `treeitem` 约 72 个字符（`    - treeitem "第一章.md" [e15 selected target=explorer.row key=正文/第一章.md]` 数过），典型工作台的控件数没有数据：按上面的 47 行估算，只资源管理器就约 3.5k 字符，约占 8000 的 44%（这是估算，设计的实验 6 要测）；再加编辑器标签、标题栏菜单、活动栏、状态栏、工具栏几十项，常态下就会触顶。触顶后“截断”按文档顺序砍尾，砍掉的往往是状态栏与编辑区工具栏，没有优先级；“写明可以用 `scope` 缩小到哪些区域”需要 `scope` 的取值（区域名？稳定名？引用？）而设计没有定义它的类型。
+3. 每行重复写 `target=explorer.row` 与 `key=` 路径，而名字已包含文件名：每行约 20 个字符是冗余。另外预算按“字符”计，中文一个字符约 1 到 2 个 token，英文字符约 0.25 个 token，同样 8000 字符的 token 数差五倍以上，上限应按估算 token 而不是字符。
+
+**为什么是问题**：快照是模型看世界的唯一入口，批一验收（“教我新建章节”）要在树里找某一行；虚拟列表下，找不到的行会被误判成不存在。预算问题不修，模型要么看到被砍掉的半个页面，要么不停地重取，掉到调研里“厚接口”那一档。
+
+**如何核实**：读 `window.ts` 与 `ExplorerTree.vue:95` 的 `renderedRows` 调用；数示例行字符数；实验 6 里取一份资源管理器加编辑器的快照量字符与 token。
+
+**建议改法**：
+- 列表类容器（`role=tree/listbox/grid/list` 且行带 `aria-setsize`）在快照里只写一行摘要加窗口内的行，格式例如 `tree "文件" (340 项，已渲染第 5 到 52 项，可滚动)`，行上带 `posinset`；`offscreen` 只标视口外 0 到 3 行，其余的过量渲染行折叠成一行“…另有 N 行已渲染但在视口外”。
+- 合同里加一条“按稳定名定位未渲染项”的途径：容器的 `scroll({within, to: {key}})` 不可行（引擎不知道行高与数据），所以改成让列表登记一个可选的 `data-nb-reveal`（命令 id），引擎可以调命令把某个 key 滚进来；批一至少文档写明“虚拟列表里没渲染的行 `not-found`，先用资源管理器的‘定位’命令或搜索”。
+- 稳定名只在树头写一次默认的 `target`，行上只写 `key`；预算改按估算 token，并给出超限时的优先级（当前层 > 焦点所在区域 > 标题栏 > 状态栏），`scope` 明确为“稳定名或引用”。
+
+### 13. “100 毫秒没有 DOM 变化”不是页面静下来：nb-ui 的退场与位移是 CSS 动效，不产生 DOM 变化
+**严重程度**：重要　**类别**：正确性　**位置**：设计稿“动作”一段（“动作后等页面静下来（100 毫秒没有 DOM 变化，至多 1 秒），交回与上一次快照相比的变化”与“动作前自动等……位置稳定”）；`packages/nb-ui/src/tokens.css:79-100`、`packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:469-477,816-819`、`packages/nb-ui/docs/design-language.md` 动效档位表
+
+**现象**：nb-ui 的动效档位：`--motion-fast` 120ms、`--motion-base` 180ms、`--motion-move` 280ms、`--motion-dialog` 340ms（有来处的浮层展开）、`--motion-dialog-leave` 260ms、`--motion-layout` 470ms。这些是 CSS 过渡或动画：开始与结束各改一次 class 或属性，中间没有 DOM 变化。点“确认”后对话框的退场约 260ms，期间节点仍挂在页面上（离场过渡走完才卸载，资源管理器的行离开同理，`ExplorerTree.vue:816` 的 `explorer-row-leave-to` 让行在 `--motion-move` 内淡出并上移，仍在 DOM 里、仍响应指针）。引擎在 100ms 没有 DOM 变化时就判定“静下来”，此时：
+- 对话框还在，遮罩还在，命中检查把背景全判为“被遮住”；变化摘要里“消失”的行是空的，模型会得出“点了没反应”；
+- 从资源管理器新建、删除、移动文件后，离场中的行与进场中的行同时在 DOM 里（`translateY` 动画中），快照给的位置与名字短暂重复；
+- 打开对话框也一样：进场 340ms 内面板在缩放与位移，按钮中心点还没落定。
+设计的“动作前等位置稳定”只管动作之前，动作之后的快照没有同样的保证；而且就算按“位置稳定”做，也没写判据（连续几帧矩形不变？）。
+
+**为什么是问题**：每一次动作的返回值都建立在这次快照之上，模型依据它决定下一步。系统开了减弱动效时动画时长是 0，这个问题消失，所以开发机上容易漏测（e2e 也是减弱动效的构建，memory 里有同样的教训：e2e 的过渡是减弱的，真实页面才暴露）。
+
+**如何核实**：读 `tokens.css` 79-100 行；在夹具页用一个 CSS `transition: opacity 260ms` 的元素，MutationObserver 在过渡期间不触发。
+
+**建议改法**：
+- “静下来”的判据改为：连续 100ms 没有 DOM 变化，并且 `document.getAnimations({subtree: true})` 中没有仍在运行的有限动画或过渡（排除无限循环的 `animate-spin`、指示条等 `iterations === Infinity` 的），上限放到 1.5 秒；超时仍交回结果但带 `settling: true`。
+- 变化摘要在“静下来”后再取第二次快照比较，不用第一次读到的中间态。
+- 夹具页的测试要在“不减弱动效”的设置下跑（Playwright 默认 `reducedMotion: "no-preference"`，应用 e2e 的构建若固定了减弱动效，这一条另开一个不减弱的项目配置，否则测不出）。
+
+### 14. 角色加名字的匹配语义没定，而树行的可访问名由状态拼成，会随状态变
+**严重程度**：重要　**类别**：正确性（接口合同）　**位置**：设计稿“定位”（“`role` 加 `name`（角色与可访问名）”）、“引用”（按角色、名字重找）、快照示例 `treeitem "第一章.md"`；`packages/neuro-book/src/plugins/explorer/web/components/ExplorerRow.vue:193-256`
+
+**现象**：`treeitem` 没有 `aria-label`，名字由内容算出（`dom-accessibility-api` 按 treeitem 允许“内容命名”）。这一行的内容包括：`label`（展示名）、`subtitle`（展示名与真实名不同时是真实名，如 `第一章 第一章.md`）、`rootNote`、若干 `role="img" aria-label=...` 的标记（`marks`：已剪切、未保存、冲突等）、出错时那个带 `aria-label` 的重试按钮。所以：
+1. 示例里的 `treeitem "第一章.md"` 与真实结果不符，真实名字是 `第一章 第一章.md 未保存` 一类的拼接；
+2. 同一个文件在“保存前、保存后”名字不同（标记没了），按角色与名字重找必然失败（得 `stale-ref`），而按 `key` 就稳定；
+3. 设计没写 `name` 是精确、子串还是正则，大小写、空白折叠怎么处理。Playwright 缺省是不分大小写的子串匹配，设计说“动词沿用 Playwright”，模型会照 Playwright 的习惯写 `name: "第一章"`；若引擎做精确匹配，几乎都是 `not-found`，若做子串匹配，`第一章.md` 与 `第一章.md.bak`、`第十一章第一章`互相命中，就是 `ambiguous`。
+4. 快照里也没规则说“名字很长时怎么截”；`value` 有截断，名字没写。
+
+**为什么是问题**：`role+name` 是除引用外模型最常用的定位方式，也是引导 Skill 与示例最容易写出来的方式；语义没定就会各处各写，实现时才发现要返工合同。
+
+**如何核实**：读 `ExplorerRow.vue:193-256`；在 happy-dom 或浏览器里对一个渲染好的 `ExplorerRow` 跑 `dom-accessibility-api` 的 `computeAccessibleName`，看拼接结果（设计的实验 6 之前就该做）。
+
+**建议改法**：
+- 合同里写明：`name` 缺省为不分大小写、折叠空白的子串匹配，`exact: true` 时精确匹配；子串匹配命中多个时 `ambiguous` 并按“更短、更精确”的名字排序列出候选。
+- 对内容命名的角色（treeitem、tab、option、menuitem），快照里同时给“主名”（排除 `role=img` 状态标记与嵌套按钮的名字）与完整名；`role+name` 优先对主名匹配。具体做法：名字计算时跳过 `aria-hidden`、`role=img` 且 `data-nb-state`/带标记属性的节点；或者让组件（`ExplorerRow`）直接给 `aria-label` 并把状态放进 `aria-description`（该行已有 `aria-description`）。
+- 示例改成真实输出，并在实验 6 里贴出真实快照再复核各个示例。
+
+### 15. 稳定名的唯一性范围没定：编辑器分组、多个视图实例里同名控件天然重复，开发期检查会成批误报
+**严重程度**：重要　**类别**：正确性（合同）与代码质量　**位置**：设计稿“控件的稳定名”（“开发构建里检查：同名又没有 key 的元素同时出现多个……各警告一次”；“恰好给一种定位……命中多个又没给 `nth` 时得 `ambiguous`”）；`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:213-214,244-276`、`explorer/web/plugin.ts:46-52`、`WorkbenchShell.vue:268`
+
+**现象**：设计的唯一性规则是“全页面同名无 key 的元素最多一个”。但页面里天然有多份同样的控件：
+- 编辑器可以分组（拖到右边缘拆组，`data-editor-group` 区分），每组都有一套标签条、面包屑、工具栏；
+- 视图有实例（`REFRESH_FILES_COMMAND` 的 `args: "instance"`，视图的 `viewIdentity` 里有代际与容器），同一个视图可以放进多个容器；
+- 对话视图里每条消息都有复制、重试类按钮，工作台里同时可以开多个浮动窗口（`FloatingWindow`）；
+按设计，这些要么每个都要带 `key`（插件作者要知道“这个按钮会不会出现多份”并提前给 key，他很难预判），要么被开发期检查各警告一次，而警告一次就静默的规则会让后来真正的重复被淹没。运行时则每次都是 `ambiguous`，模型需要 `nth` 或 `within`，而 `within` 的取值没有定义（引用？稳定名？），实际上要让模型按“活动编辑器组里的标签条”定位，需要组容器自己有稳定名和 key。
+
+**为什么是问题**：稳定名是写给引导 Skill 用的，它们的价值在“不用想就唯一”。如果写出的名字在页面里常常重复，Skill 作者每次都要加 `within`，而且不知道何时需要。设计里的约 30 个第一批名字里，标签、工具栏类的几乎都会遇到。
+
+**如何核实**：读 `EditorGroup.vue:213-214`（分组 id 在 `data-editor-group`）与 `groups.ts`；在 Lab 或应用里拆两个编辑器组数同名元素。
+
+**建议改法**：
+- 合同改成分层：容器登记 `data-nb-target`（如 `editor.group`）加 `data-nb-key`（组 id），其后代的名字只要求在最近的带 key 的容器里唯一；定位用 `{target: "editor.tab", within: {target: "editor.group", key}}`，缺省 `within` 为“当前活动的那一个”由容器声明（`data-nb-active`），这样 Skill 里写 `editor.tab` 也有确定解。
+- 开发期检查按这个范围判重，并且放进引擎的 MutationObserver 扫描（对所有 DOM 生效），重复时不止警告一次，而是每个名字警告一次、重复数变化时再警告。
+- `within` 的类型写进“定位”一节。
+
+### 16. “不公开”只靠逐个控件手工标记，遗漏就是泄漏；屏蔽只覆盖 `value`，不覆盖页面上的其它文本
+**严重程度**：建议　**类别**：安全与性能　**位置**：设计稿“截图的同意与不公开的内容”（“密码框，以及标了 `data-nb-private` 的控件与它的子树……快照里值写 `•••`”）与“给模型的接口”快照第二条；`packages/neuro-book/src/plugins/models/web/components/ProviderDetail.vue:347`、`HeadersEditor.vue:29-57`
+
+**现象**：
+1. 屏蔽由插件作者在控件上手写 `data-nb-private`，默认是公开。仓库里已有的两处凭据入口说明了这有多不牢：`ProviderDetail.vue:347` 的密钥输入框只有在值不是 `env:` 开头时才 `type="password"`；`HeadersEditor.vue:34` 的请求头值是普通文本框，只有名字匹配 `/key|token|secret|password|authorization|cookie/iu` 时才警告“像凭据”，同样的正则逻辑已经在这个组件里存在，但没有被设计用上。以后任何新的令牌、代理地址（含 `user:pass@`）、机器人令牌输入框，忘了标就会进快照与截图。
+2. 屏蔽只写了“值写成 `•••`”。快照里还会出现：控件的名字、`title` 与 `aria-description`、列表项的文字、`textbox` 的 `value`（编辑器正文前缀，设计示例里就有“他没有回头。…”）。凭据以文本形式显示在非输入控件里（例如一个展示“已保存的密钥：sk-…”的行、复制按钮的提示）时，快照与 `text: true` 会原样带出。
+3. 对 `read` 档的 `snapshot` 来说，它读到的是用户窗口里已经打开的内容（编辑器正文、设置值、文件名），与“Agent 的文件工具能读什么”是两条权限边界，设计没有说明快照读出的内容是否要受会话的文件权限约束（这条属于权限一侧，其它审查者可能已覆盖，这里只标出）。
+
+**为什么是问题**：设计把“不公开”当成合同，合同的覆盖靠人记忆，而漏标的后果是把凭据写进会话日志（截图“作为工具结果存进会话日志”）。
+
+**如何核实**：读上面两个文件的行号；`grep -rn "type=\"password\"" packages/neuro-book/src` 数一下现有的凭据入口并与 `data-nb-private` 计划标注的数量对照。
+
+**建议改法**：
+- 默认判定加规则兜底：`type=password`、`autocomplete` 含 `password|one-time-code`、名字或 `name`/`id`/`aria-label` 匹配凭据正则的输入框，一律按私有处理；插件作者用 `data-nb-private="false"` 才能退出（极少需要）。
+- 屏蔽范围明确为“私有控件及其子树的 `value`、文本内容、`title`、`aria-description` 与截图区域”，快照只写 `[private]`。
+- 加治理测试：新增 `type=password` 与带凭据字样的输入框必须落在带 `data-nb-private` 或能被兜底规则识别的位置（用 Lab 场景或一个 DOM 扫描单测遍历已登记的 Lab 场景）。
+
+### 17. 测试计划里核心包的页面是手写夹具，真正会出问题的 nb-ui 与 reka 行为只落在一个应用 e2e 文件里
+**严重程度**：重要　**类别**：测试　**位置**：设计稿“测试”第二、三、四条；`node_modules/playwright-core/types/types.d.ts`（无 `page.accessibility`）
+
+**现象**：
+1. 核心包的真实浏览器测试用“自带夹具页”（手写 HTML，照 nb-layout 的 e2e），覆盖“原生与 ARIA 控件、shadow root、遮挡层、`inert` 模态、嵌套滚动、密码框”。前面各条核实出的失败（Select 多根属性、`aria-hidden` 加 body 指针禁用的模态、reka 的焦点锁、`opacity:0` 的悬停动作、`:key="index"` 的菜单、虚拟列表、对话框退场动效、模态下的停止按钮）都只会在 nb-ui 与 reka 的真实组件下出现；手写夹具里的“`inert` 模态”与真实的 `aria-hidden` 加 `pointer-events:none` 不是一回事。应用 e2e（一个新文件）的列表是“快照、按稳定名高亮与点击、两个窗口时选中有焦点的……审批卡……停止按钮”，没有一条在真实组件上断言快照的层、可见性、引用漂移。
+2. “快照列出的角色与名字在 Chrome 的无障碍树里都找得到”：Playwright 1.61 已没有 `page.accessibility`，能用的只有 `getByRole` 与 `ariaSnapshot()`，二者都是 Playwright 自己的 `roleUtils` 实现，不是 Chrome 的无障碍树；设计在“技术选型”里否决了照抄这套实现，测试却拿它当判据，两边同源出错时测不出来。要用 Chrome 自己的，需要 CDP 的 `Accessibility.getFullAXTree`。
+3. 变异检查的清单（去掉 pointerdown、去掉命中检查、去掉遮挡、`until:"click"` 接受合成事件、窗口选择改成随机）没有覆盖：引用身份比对、跨层重找、动作后等动画、引擎自己的层排除出命中、私有控件屏蔽、停止按钮在模态下可点、driver 不抢焦点。
+4. 没有性能判据：设计的缺点之一是 token 与耗时，但测试里没有“快照耗时”预算（含 1.2 万字正文的 Tiptap 文档、数千个节点、命中检查对每个候选做一次 `elementFromPoint`），也没有对大树的测试。
+5. 开发期检查（同名、重复、名字不合规）本身没有测试；应用里的真实重复（编辑器分组）会误报，这条要有用例。
+6. e2e 若固定了减弱动效（应用 e2e 的构建是这样的，见 memory “e2e 是生产构建加减弱动效”），退场动效相关的问题测不出，需要单独不减弱的项目配置。
+
+**为什么是问题**：这些会漏的测试恰是设计里的高风险项（设计自己写“合成输入覆盖不全”“token”两条风险）。夹具页通过、应用里失败，是反复出现的形态。
+
+**如何核实**：读“测试”一节；`grep -n "accessibility" node_modules/playwright-core/types/types.d.ts`（无命中）；看 nb-layout 的 `e2e/` 夹具是否带真实 nb-ui（它的 examples 是独立的）。
+
+**建议改法**：
+- 在应用侧新增一个“真实组件场景”的 Lab 场景或 e2e 夹具（nb-ui 的 Dialog 套 Select、ContextMenu、AlertDialog、虚拟树、悬停动作、分组编辑器），核心包的单测里用同样的 DOM 做快照断言；这份场景同时是 w00034 的回归对象。
+- 无障碍判据换成 CDP `Accessibility.getFullAXTree` 或承认 `getByRole` 只是“与 Playwright 一致”。
+- 变异清单补上第 3 点的项，并给快照写一条耗时预算与大文档用例。
+
+### 18. 合成点击的事件字段没写：参照实现发出的 PointerEvent 缺 `isPrimary`、`pointerId`、`buttons`，nb-ui 与 nb-layout 的几处判断会直接丢弃
+**严重程度**：建议　**类别**：正确性　**位置**：设计稿“动作”（“点击发完整的 pointer 与 mouse 事件序列……参照 page-agent（MIT）的 `clickElement`”）与“开工前的实验”第 1 条；`/home/notnotype/CodeRepository/neuro-book/.local/github/page-agent/packages/page-controller/src/actions.ts:93-121`、`packages/nb-ui/src/components/popup/MenuNodes.vue:88,98`、`packages/nb-layout/src/vue/drag-session.ts:325`、`useSashGesture.ts:368,424`、`node_modules/reka-ui/dist/Select/SelectTrigger.js:57-70`、`Menu/MenuItemImpl.js:39,54`
+
+**现象**：page-agent 的 `clickElement` 构造的 `PointerEvent` 只带 `bubbles/cancelable/clientX/clientY/pointerType:'mouse'`，没有 `pointerId`（缺省 0）、`isPrimary`（缺省 false）、`buttons`、`button`（缺省 0）。而这个仓库里：
+- `MenuNodes.vue:88,98`：`event.pointerType !== "mouse"` 直接返回（悬停聚焦、离开清高亮）；reka 的 `MenuItemImpl.js:39,54`、`Menu/utils.js:64` 同样只认 `pointerType === "mouse"`；
+- `nb-layout` 的拖放与分隔条手势：`drag-session.ts:325`（`!event.isPrimary` 即不开始）、`useSashGesture.ts:368,424`（`!event.isPrimary`、`event.buttons !== 0`）。点击按钮不受影响，但标签条（可拖动排序）、分隔条上的点击与悬停会因为 `isPrimary` 缺省 false 被手势层忽略，这其实偶然是好的（不会误起拖动），但也意味着“点标签”这类动作要靠 `click` 事件兜底；
+- reka 的 `SelectTrigger`：`target.hasPointerCapture(event.pointerId)`，`pointerId` 为 0 时不抛，但同一个文件里 `onTriggerPointerDown` 与 `onTriggerMouseDown` 都依赖 `event.button === 0 && ctrlKey === false`。
+设计只说“发完整序列”，字段没规定，实验 1 又只比较“只发 click”与“发完整序列”两种，没有比较字段。实现者各写一份，行为会不一致。
+
+**为什么是问题**：这是第二批能不能“点得动菜单与下拉”的核心，写成合同比靠实验后补更省事；合成事件还会触发 `mouseenter` 一类悬停相关的 CSS 与 JS 副作用（悬停才出的动作区、`Tooltip` 的延时），这些是否需要，没有写。
+
+**如何核实**：读上面各文件的行号；比较 `actions.ts:93-121` 的字段与 nb-ui、nb-layout 的判断。
+
+**建议改法**：
+- 合同里写事件的完整字段：`pointerType:"mouse"`、`pointerId:1`、`isPrimary:true`、`button`（按下与抬起 0）、`buttons`（按下期间 1，其余 0）、`clientX/Y` 为元素可点区域的中点（命中检查通过的那一点）、`view: window`；事件序列写 `pointermove`（先移到目标）、`pointerover/enter`、`mouseover/enter`、`pointerdown`、`mousedown`、`pointerup`、`mouseup`、`click`，并说明对“悬停才出的动作区”不依赖悬停（见第 3 条）。
+- 实验 1 加字段对照：缺 `pointerType`、缺 `isPrimary`、缺 `buttons` 各一次，在 reka 的 Select、DropdownMenu、ContextMenu、Menubar 与 nb-ui 的 `Tabs` 上，结果记进 Task 证据。
+
+### 19. `highlight` 的 `title` 与 `text` 经 driver.js 以 `innerHTML` 写进页面：模型给的字符串成了应用页面里的 HTML
+**严重程度**：重要　**类别**：安全与性能　**位置**：设计稿“给模型的接口”表中 `ui.highlight({…定位, title?, text?, side?, until?})`、“第一版范围”不做 `evaluate` 的理由、“待开发者定”第 9 条；driver.js 1.14.0 `dist/driver.js.mjs` 的 `function V(e,t){...e.innerHTML=t...}`，由 `Xe`（`V(e.title,n)`、`V(e.description,r)`）调用
+
+**现象**：driver.js 把说明框的 `title`、`description`（以及按钮文字、进度文字、`instruction`）经内部函数 `V` 用 `innerHTML` 写进说明框（该文件里 `innerHTML` 共 4 处，`V` 是动态内容的唯一通道）。设计把 `ui.highlight` 的 `title` 与 `text` 直接作为这些字段传入的话，模型给的字符串就是 HTML。我读了产物代码核实了这条路径；没有在运行时验证（试图在 happy-dom 里跑一段探针被本次会话的权限分类器拦下，没有绕过，这里只列代码依据）。
+
+**为什么是问题**：设计在“第一版范围”里明确不做页面内执行脚本，理由是“会绕过引用、脱敏与‘不许操作’的标记”；决定 9 开发者也已确认。`innerHTML` 写入模型字符串让它能在 NeuroBook 页面的源里执行脚本（`<img onerror>` 一类），等于开了一个不受 `data-nb-agent="never"`、引用与审批约束的页面内执行口，直接违反这条决定。eval 本来在服务端就能做很多事，但服务端的操作走审批与审计，页面内脚本能直接调浏览器里所有已登录的 RPC，也能读到用户窗口里全部的状态。另外，“页面里的文字是证据不是指令”那条规矩说明 `text` 的来源常常就是页面或文件里的内容（模型把它们转述进说明），这是最典型的注入通道。
+
+**如何核实**：读 `dist/driver.js.mjs` 里 `function V`；在装了 driver.js 的夹具页里用 `highlight({element, popover: {title: "<b id=x>t</b>"}})`，看 `document.getElementById("x")` 是否存在（只用无害标签）。
+
+**建议改法**：
+- 传给 driver.js 的 `title` 与 `description` 一律先转义（`&`、`<`、`>`、引号），或者在 `onPopoverRender` 里自己用 `textContent` 重写内容，不让模型字符串进入 `innerHTML`；按钮文字、进度文字、`instruction` 同样处理。若以后要支持有限的强调（例如把某个词加粗），用自己的小语法在渲染时拼元素，不接受 HTML。
+- 夹具页测试：`title`/`text` 含 `<img src=x>`、`<script>`、`<b>` 时页面里没有新增元素，文字原样可见；加入变异检查（去掉转义应有用例失败）。
+- 如果改为自写高亮，同样的约束写进合同：说明文字只作文本。
+
+### 20. Agent 自己的对话视图就在被快照的窗口里：吃预算、回显自己的代码、让变化摘要永远有噪声
+**严重程度**：建议　**类别**：正确性与性能　**位置**：设计稿“给模型的接口”快照与动作后的变化摘要；`packages/neuro-book/src/plugins/agent/web/ConversationHost.vue`、`MessagesHost.vue`、`packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:41-56`
+
+**现象**：运行 eval 的会话，它的对话视图是工作台里的一个视图（`agent/web/ConversationHost.vue`），与资源管理器、编辑器同在一个窗口。设计只说“只列可交互元素与带名字的容器”，没说对话视图怎么处理：
+- 快照默认会把整个对话视图列进去：消息里的按钮、折叠块、复制按钮、正在运行的这个 eval 单元的卡片。`text: true` 时更会带出刚写的 eval 代码与前几轮的内容，在 8000 字符预算里占的比例不小，而且是模型自己的东西。
+- 动作后的“变化摘要”按 DOM 变化统计，对话视图在 eval 运行期间会持续更新：`AgentStatusBar` 有耗时读数（`elapsed`，随 `ctx.now` 变）、流式输出、工具调用卡片的状态。即使模型什么都没点，摘要里也总有“变了的行”，30 行的上限被无关的行占掉；“100 毫秒没有 DOM 变化”也可能因为这里持续更新而一直等到 1 秒上限。
+- 对话视图里的文字是不可信内容的载体（用户贴的网页、读到的文件）：把它们放进快照，等于把注入内容原样回灌进下一轮上下文；设计的对策“快照里的名字与值一律加引号”并不改变这一点。
+
+**为什么是问题**：这是一个自指的设计：引擎把执行它的 Agent 自己的视图当作被操作的页面。预算与噪声问题单看不大，合在一起会让“动作交回变化摘要，不重取整页”这条省 token 的核心设计在最常见的情况下失效。
+
+**如何核实**：读 `ConversationHost.vue` 挂在哪个视图位置；在一个正在运行的会话里读 `AgentStatusBar` 的重绘频率；实验 6 的真实快照里看对话视图占多少字符。
+
+**建议改法**：
+- 快照与变化摘要默认排除“发起这次调用的会话的对话视图”：对话视图根上标一个属性（例如 `data-nb-agent="skip"`，与 `never` 同族），引擎默认不进入；模型需要时用 `scope` 显式指向它。
+- 动作后的“静下来”判断与摘要都忽略该子树里的变化。
+- 在“风险”里补一条：对话视图内容属于不可信输入，不回灌。
+
+### 21. 接入草稿对照：三处真实控件按设计写出来，插件作者要记的概念比必要的多
+**严重程度**：建议　**类别**：代码质量（API 形状）　**位置**：设计稿“控件的稳定名”；下列文件为草稿落点
+
+**现象**（草稿是我按设计稿写的，没有改仓库）：
+1. **资源管理器的树行**（手写模板，`ExplorerTree.vue:622-645`）。这一处设计的写法可行：`ExplorerRow` 根是单个元素（`v-if/v-else` 的两个分支各一个 `div`），指令能挂上：
+   `<ExplorerRow v-for="item in rendered" :key="item.row.id" v-nb-target="{name: 'explorer.row', key: item.row.address}" … />`
+   纯属性写法同样长度：`data-nb-target="explorer.row" :data-nb-key="item.row.address"`。指令唯一多出的价值是名字格式检查，而这项检查放在引擎扫描里更全（见第 1、15 条）。要记的概念：名字、key（用 `address` 而不是 `row.id`，二者在代码里同时存在，写错就是业务身份与渲染 key 混用）、列表项必须带 key。
+2. **“新建文件”按钮**：没有模板可写（第 2 条）。真正要做的事是让 `TitleActions.vue` 给每个动作按钮写 `data-nb-command="<命令 id>"`、菜单项也带上，名字就是命令 id（`nbook.files.new-file`），插件作者零工作量，Skill 引用命令 id。设计里的 `explorer.toolbar.new-file` 这个名字没人能写出来。
+3. **设置页的开关**：模板在 nb-form 里（`BooleanControl.vue`），按设置键生成，没有宿主可写之处；`SettingsRow.vue` 已有 `data-settings-row="<键>"`，需要的是 nb-form 或行外壳输出 `data-nb-target="settings.row" data-nb-key="<键>"`，以及动作落到行内唯一的开关上（第 1 条第 3 点的规则）。
+
+插件作者要记的东西按设计共有：`target`（点分名）、`key`、`private`、`agent: 'never'`、`command` 四五个属性，再加指令与属性两种写法，以及“列表项一律带 key”“名字至少两段、第一段是插件或区域”两条规则，真正需要手写的场景只有第 1 例。
+
+**为什么是问题**：决定 8 要审的“列表项的写法”其实不是主要矛盾；主要矛盾是常见控件（命令按钮、菜单项、schema 生成的设置）本来就有标识，应由渲染方自动写，而设计让每个插件作者手工命名，既重复又容易与已有标识不一致。
+
+**如何核实**：读 `ExplorerTree.vue:622-645`、`TitleActions.vue:57-73`、`BooleanControl.vue`、`SettingsRow.vue:141-144`。
+
+**建议改法**：
+- 分三层：自动层（命令绑定的动作与菜单项写 `data-nb-command`；schema 生成的设置行写设置键；对话框写标题）、手写层（`data-nb-target`，名字加可选 `key`）、保护层（`private` 兜底规则，`agent: never` 少数）。插件作者只在手写层动手。
+- 手写层只留一种写法（属性或 `v-bind="nbTarget(name, key?)"` 帮助函数），不另做指令（第 1 条）。
+- Skill 的名字表分“稳定名”与“命令 id”两栏，引导优先引用命令 id。
+
+### 22. 层级规范：设计的几层自有浮层都不走 z-index 登记表，且 driver.js 的字面量压过 Lab 检查框
+**严重程度**：建议　**类别**：文档（规范一致性）　**位置**：设计稿“结构”末条、“窗口里看得到什么”；`packages/nb-ui/docs/ui-development-spec.md` 2.1 第 1 条、第 3 条第三点；`packages/nb-ui/src/theme/z-index.ts`；driver.js `dist/driver.css`（`.driver-popover{z-index:1000000000}`）与 `dist/driver.js.mjs`（遮罩 `z-index:10000`）
+
+**现象**：规范要求“固定定位或传送出去的整页浮层必须从登记表取；宿主应用的整页浮层从 `@notnotype/nb-ui/theme` 取；刻意压在一切之上的保留字面量并就地注释为什么”，并且新浮层要补进层级测试的顺序断言。设计里的三处自有层都没有讲这件事：
+- 自己的光标、提示条、停止按钮：shadow root 加 `popover="manual"`，进浏览器顶层，不吃 z-index，因此压在所有层之上，包括 Lab 的检查框（`inspectorProbe` 9900，规范说它“要压住被检查的一切”）与桌面窗口外框（`desktopFrame` 9300）。这样做是有意的，但没写成例外，也没进层级测试；
+- driver.js 的遮罩 `z-index: 10000`、说明框 `1000000000`：都是字面量，高于登记表里最高的 `inspectorProbe`（9900），遮罩会盖住 Lab 检查框与桌面外框（外框按钮在 `allowPageInteraction` 下仍可点，但被压暗）；
+- 提示条放在页面上哪一层、相对 `notification`（9050）、`commandPalette`（9200）怎么排，设计没写。
+
+**为什么是问题**：规范的整页浮层测试扫描大于 50 的字面量；driver.js 在运行时由第三方写入，扫描不到，规范会在这里默默失守。选择顶层（popover）还是登记一档，是一个应该显式写下并经开发者定的取舍，而不是“不依赖 nb-ui 的层级表”一句话带过。
+
+**如何核实**：读规范 2.1；读 `z-index.ts`；`grep -o "z-index:[0-9]*" dist/driver.js.mjs dist/driver.css`。
+
+**建议改法**：
+- 在设计里单列“浮层层级”一小节：引擎自己的层统一用顶层（popover）并写明与 Lab 检查框、桌面外框、通知、命令面板的先后（例如“压住一切，除 Lab 检查框与桌面外框的按钮区域，后者不被遮挡”）；这一条登记进规范 2.1 的例外，并加一个浏览器测试（Lab 检查框在高亮期间仍可点）。
+- driver.js 的遮罩与说明框用 CSS 覆盖把 `z-index` 改成登记表里的某一档（例如 `commandPalette` 之下 `contextMenu` 之上），或者对遮罩用 `overlayOpacity: 0` 不画；如果选择自写高亮，同样登记。
+
+## 更正与补充（追加）
+
+- 第 11 条里“停止是……唯一出口”说重了：设计的“现状”写明对话视图的停止按钮也调 `abort`，窗口里别处也能调。但对话视图的停止按钮在 reka 模态打开时同样处在 `pointer-events:none` 的 body 之下（只有模态内容恢复），所以结论不变：提示条上的停止按钮是“模态状态下最近的出口”，要显式 `pointer-events:auto`。
+- 第 5、6 条补一点：引用重找的键应包含 `data-nb-key`。设计写的是“角色、名字、稳定名”；资源管理器里不同目录下的同名文件（`index.md`）名字相同、稳定名都是 `explorer.row`，只有 `key` 能区分，没有 `key` 的重找会落成 `stale-ref`（安全，但可用性差）或在名字拼接变化时误命中（见第 14 条）。
+- 审查中没有在浏览器里实跑（机器上没有装 Chromium，负载 16 左右，也不让跑 e2e）。凡依赖浏览器行为的结论，条目里已标“从代码推断”；已在 lab 里实际跑过的只有两项：第 1 条（Vue 指令在多根组件上不触发）与第 5 条（以 index 为 key 时元素复用、编号漂移），脚本见 `lab/dir-exp.ts`、`lab/ref-exp.ts`；driver.js 1.14.0 的产物解在 `lab/driverjs/x/package/`。
+
+## 未发现问题的方面
+
+- 设计对 driver.js 能力的核对属实：1.14.0 确有 `allowPageInteraction`、`advanceOn`（含 `when`、`strict`）、`onElementReplaced`、`onElementMissing`、`focus`、`allowKeyboardControl` 等选项（读了 `driver.js.d.ts`）；设计的表述“调研时 1.10 的几条限制已不成立”未发现反例。只是“在打开的原生对话框里也能显示”对 NeuroBook 无意义（仓库没有原生 `<dialog>`）。
+- `ExplorerRow` 的根在两个 `v-if/v-else` 分支里各是单个元素，指令挂在 `<ExplorerRow>` 上可行；`WorkbenchItemStrip`、`Tabs` 的量宽副本是 `aria-hidden` 加 `inert` 加 `visibility:hidden`，设计的 `inert` 与可见性过滤能滤掉，开发期检查不会被它们误报（没有给它们写 `data-nb-*`）。
+- 稳定名“合同落在 DOM 属性上、引擎只读属性”这个方向本身站得住（第 1、2 条是在它之上的接口形态问题）；“不做 evaluate”“动作算 write”“用户中途切窗口不跟”等已定事项未再质疑（第 19 条是它们的一条具体回归，不是推翻）。
+- 视口外 `offscreen`、`WeakMap` 单调发号、引用只在窗口加载内有效的设定本身没发现问题。
+
+## 数量与排序
+
+阻断 0；重要 16；建议 6；共 22 条。按影响排序：19、11、9、13、2、1、4、6、5、3、12、15、14、10、17、7（重要），16、20、21、18、22、8（建议）。
+
+最重要的三条：
+1. 第 19 条：`highlight` 的 `title`/`text` 经 driver.js 的 `innerHTML` 进页面，等于违反“不做页面内执行脚本”的已定决定。
+2. 第 11 条：自己的停止按钮用 shadow root 加 popover，reka 模态打开时继承 body 的 `pointer-events:none`，点不了；同时会盖住自己的命中检查。
+3. 第 9 条：driver.js 的说明框渲染时抢焦点，reka 模态的 FocusScope 把焦点拉回并全选输入框文字，用户正在输入的内容会被覆盖。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22

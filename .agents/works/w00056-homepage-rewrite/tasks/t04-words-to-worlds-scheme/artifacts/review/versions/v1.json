@@ -1,0 +1,91 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t04-words-to-worlds-scheme",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "方案 A+B《从文字到世界》：分场脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "129980851f49e0e03bf6e6ffcb110999b97348da4c656644b192a41cebc3e056",
+    "files": [
+        "index.html",
+        "r1/P03.webp",
+        "r1/S01.webp"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "storyboard",
+                    "label": "照这版出分镜"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方案不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "storyboard"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "c1",
+                    "label": "c1 从文字，到世界。"
+                },
+                {
+                    "value": "c2",
+                    "label": "c2 写下一行字，长出一个世界。"
+                },
+                {
+                    "value": "c3",
+                    "label": "c3 你写下的名字，会成为一个世界。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "c1"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一场要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T05:17:16.761Z"
+}

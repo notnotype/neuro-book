@@ -251,9 +251,9 @@
             "name": "Study Theme",
             "description": "A look for writing: a window by day, a desk lamp by night."
         },
-        "nbook-web-tools": {
+        "nbook-web": {
             "name": "Web Tools",
-            "description": "Web search and page reading for the writing assistant, through DeepSeek's search API."
+            "description": "Web search and page reading for the writing assistant, through the DeepSeek or Tavily search API."
         }
     }
 }

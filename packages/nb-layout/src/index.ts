@@ -9,9 +9,11 @@
 /* 网格：建树、结构操作、快照（`grid.md`） */
 export {
     createGrid,
+    restoreGrid,
 } from "./grid";
 export type {
     Grid,
+    GridRestoredGrid,
 } from "./grid";
 
 /* 网格的数据类型、上限常数、失败与诊断（Spec `ui/nested-grid` 失败 5 到 7、输出 139） */
@@ -26,6 +28,7 @@ export type {
     GridBranchesResizeResult,
     GridBranchInput,
     GridBranchResize,
+    GridCollapseOptions,
     GridCollapseResult,
     GridCommitFailureCode,
     GridConstraint,
@@ -61,6 +64,7 @@ export type {
     GridSplitSide,
     SashCollapsePolicy,
     SashCollapseState,
+    SplitterCollapseState,
 } from "./grid-types";
 
 /* 开发模式的配置检查（Spec `ui/nested-grid` 输出 151） */

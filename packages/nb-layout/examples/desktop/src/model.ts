@@ -11,8 +11,8 @@
  * 这个文件不依赖 Vue，也不碰 DOM：操作都是同步的，界面在操作成功之后自己通知网格（`host.invalidate()`）并保存。
  * 几何函数把设备像素比当参数收：Bun 里没有 `window`。
  */
-import {clampFloatRect, createGrid, placeGrid} from "@notnotype/nb-layout";
-import type {Grid, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRect, GridRefResolution, GridSnapshot} from "@notnotype/nb-layout";
+import {createGrid, placeGrid, restoreGrid} from "@notnotype/nb-layout";
+import type {Grid, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRect, GridRefResolution, GridSnapshot, LayoutFloatResize} from "@notnotype/nb-layout";
 
 /** 分隔线的宽度（CSS px）。建树与读档都要给：它不在快照里，缺省是 0，0 的分隔线拖不动。 */
 export const SASH_SIZE = 4;
@@ -58,7 +58,7 @@ const failure = (code: string, message: string): Failure => ({ok: false, code, m
 
 /**
  * 每个 ref 的运行期策略只有这一个出处。快照只存结构与尺寸意图，保留像素、最小尺寸都不在里面：
- * 建树、平铺进新叶、试平铺时复制树、读档，四处都从这里取，所以载入前后同一块叶的约束相同。
+ * 建树、平铺进新叶、读档，三处都从这里取，所以载入前后同一块叶的约束相同（复制用 `grid.clone()`，策略跟着树走）。
  * 漏给的话叶会变成没有最小尺寸，而且库不会报任何诊断。
  */
 function policyFor(ref: string): Omit<GridRefResolution<string>, "ref"> {
@@ -81,31 +81,14 @@ function parentOf(root: GridNode<string> | null, id: string): Extract<GridNode<s
     return null;
 }
 
-/** 某块叶此刻相对网格根的矩形：没有网格给的“摆放结果”可取，只能自己按布局摆一遍。`dpr` 要与 NestedGrid 用的一致，取整才相同。 */
+/**
+ * 某块叶相对网格根的矩形，按给的树与布局摆一遍。只给试平铺的副本用：副本不在网格上画，没有 `NestedGrid` 的 `leafRect` 可读，只能自己摆。
+ * `dpr` 要与 NestedGrid 用的一致，取整才相同。
+ */
 export function leafRect(root: GridNode<string> | null, layout: GridLayoutResult, extent: GridExtent, dpr: number, id: string): GridRect | null {
     if (root === null) return null;
     for (const item of placeGrid(root, layout, extent, dpr).items) if (item.kind === "leaf" && item.node.id === id) return item.rect;
     return null;
-}
-
-/**
- * 把窗夹在桌面叶里。`desk` 不从 0 开始（左边有平铺窗时），而 `clampFloatRect` 只收宽高、夹在从 0 开始的区域里：
- * 先减掉 `desk` 的原点，夹完再加回来。`keep` 取窗自己的大小和桌面大小中较小的那个：窗比桌面大时，
- * 库按窗自己的大小留“抓得住的一块”，会把窗推出桌面的左缘。
- */
-export function deskClamp(rect: GridRect, desk: GridRect): GridRect {
-    const keep = {width: Math.min(rect.width, desk.width), height: Math.min(rect.height, desk.height)};
-    const local = clampFloatRect({...rect, x: rect.x - desk.x, y: rect.y - desk.y}, {width: desk.width, height: desk.height}, keep);
-    return {x: local.x + desk.x, y: local.y + desk.y, width: local.width, height: local.height};
-}
-
-/** 两个矩形的交：向固定的那几条边收，不平移。 */
-export function intersectRect(a: GridRect, b: GridRect): GridRect {
-    const left = Math.max(a.x, b.x);
-    const top = Math.max(a.y, b.y);
-    const right = Math.min(a.x + a.width, b.x + b.width);
-    const bottom = Math.min(a.y + a.height, b.y + b.height);
-    return {x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top)};
 }
 
 /** 按边取整，不是 x 与宽度各取各的：后者会让右缘差一个像素。 */
@@ -167,11 +150,7 @@ export class DesktopLayout {
         return [...this.order];
     }
 
-    desktopRect(extent: GridExtent, dpr: number): GridRect | null {
-        return leafRect(this.grid.root(), this.grid.layout(extent), extent, dpr, DESKTOP);
-    }
-
-    /** 拖动标题栏移动：只有浮动的（没最大化的）窗能动。只写 `x`、`y`，宽高不动：见 `deskClamp` 与界面里的夹取。 */
+    /** 拖动标题栏移动：只有浮动的（没最大化的）窗能动。只写 `x`、`y`，宽高不动：画着的宽高可能是夹过的（窗比桌面大），写回去视口变大后也回不来。 */
     move(id: WindowId, x: number, y: number): Result {
         if (this.mode(id) !== "floating") return this.wrongMode(id, "be moved");
         const state = this.windows.get(id)!;
@@ -180,12 +159,16 @@ export class DesktopLayout {
     }
 
     /**
-     * 缩放的结果：调用方先与桌面求交、取整。宽高在这里夹到最小尺寸以上再写：桌面叶比最小尺寸还小时（视口很矮），
-     * 求交的结果会小于它，而读档拒收小于最小尺寸的矩形，写进去就是下次载入读不了的存档。画的时候仍会被夹进桌面。
+     * 缩放的结果（手柄已按桌面夹过、调用方取了整）。只写这次动了的那一轴（`direction` 不为 0）：手柄从画着的矩形算起，
+     * 窗被夹着时没动的那一轴是夹过的值，写回去视口变大后也回不来。宽高再夹到最小尺寸以上：桌面叶比最小尺寸还小时（视口很矮），
+     * 手柄给的会小于它，而读档拒收小于最小尺寸的矩形，写进去就是下次载入读不了的存档。画的时候仍会被夹进桌面。
      */
-    resize(id: WindowId, rect: GridRect): Result {
+    resize(id: WindowId, rect: GridRect, direction: LayoutFloatResize): Result {
         if (this.mode(id) !== "floating") return this.wrongMode(id, "be resized");
-        const floatRect = {...rect, width: Math.max(rect.width, WINDOW_MIN.width), height: Math.max(rect.height, WINDOW_MIN.height)};
+        const record = this.windows.get(id)!.floatRect;
+        const [x, width] = direction.width === 0 ? [record.x, record.width] : [rect.x, rect.width];
+        const [y, height] = direction.height === 0 ? [record.y, record.height] : [rect.y, rect.height];
+        const floatRect = {x, y, width: Math.max(width, WINDOW_MIN.width), height: Math.max(height, WINDOW_MIN.height)};
         this.windows.set(id, {...this.windows.get(id)!, floatRect});
         return OK;
     }
@@ -290,30 +273,19 @@ export class DesktopLayout {
         return {result: blocked ? failure("no-room", "Not enough room") : OK, area};
     }
 
-    /** 复制一份：库没有 `grid.clone()`，用快照加读档；快照不带策略，要按 ref 给回去。 */
+    /** 复制一份：网格连同策略（保留像素、最小尺寸）与分隔线宽度一起复制。 */
     clone(): DesktopLayout {
-        const grid = createGrid<string>(null, {sashSize: SASH_SIZE});
-        const restored = grid.restore(this.grid.serialize(), (ref) => ({ref, ...policyFor(ref)}));
-        // 自己刚存出来的快照读不回来，是模型写错了，不是存档坏了：直接抛。
-        if (!restored.ok || restored.dropped.length > 0) throw new Error(`Copying the layout failed: ${restored.ok ? "unresolved refs" : restored.message}`);
-        return new DesktopLayout(grid, new Map(this.windows), [...this.order]);
+        return new DesktopLayout(this.grid.clone(), new Map(this.windows), [...this.order]);
     }
 
     /**
-     * 平铺的树操作，按桌面叶此刻的父节点选，不按“第几扇”：
-     * - 父节点是横向分支（已经有平铺窗）：`addLeaf` 到这个分支的头（左）或尾（右）；
-     * - 否则（父是竖向的根）：`splitLeaf` 桌面叶。
-     * 这一侧已有平铺窗时先加新的、再删旧的：只剩一扇时先删会把那一行展平，分支的 id 随之没了，`addLeaf` 就找不到它。
-     * 先做会被拒的那一步（加或拆），成功了才删旧的、才改窗的模式；被拒时树与模式都没动。
+     * 平铺的树操作：在桌面叶的那一侧拆出窗叶。桌面叶的父已经是横向的一排时，`splitLeaf` 把窗并进这一排，否则包一层新的横向分支；
+     * `ratio: "even"` 让窗与这一排的兄弟平分（第二扇时三块平分，不是把桌面对半）。
+     * 这一侧已有平铺窗时先拆出新的、再删旧的：先做会被拒的那一步，成功了才删旧的、才改窗的模式；被拒时树与模式都没动。
      */
     private applyTile(id: WindowId, side: Side): Result {
-        const parent = parentOf(this.grid.root(), DESKTOP);
-        if (parent === null) throw new Error("The desktop leaf has no parent");
         const occupant = this.tiledOn(side);
-        const leaf = windowLeaf(id);
-        const placed = parent.orientation === "horizontal"
-            ? this.grid.addLeaf(parent.id, side === "left" ? 0 : parent.children.length, leaf)
-            : this.grid.splitLeaf(DESKTOP, {branchId: this.nextBranchId(), orientation: "horizontal", side: side === "left" ? "before" : "after", leaf});
+        const placed = this.grid.splitLeaf(DESKTOP, {branchId: this.nextBranchId(), orientation: "horizontal", side: side === "left" ? "before" : "after", leaf: windowLeaf(id), ratio: "even"});
         if (!placed.ok) return placed;
         if (occupant !== undefined) {
             const removed = this.grid.removeLeaf(occupant);
@@ -360,11 +332,11 @@ export class DesktopLayout {
     /** 读档：形状、快照、树的锚点、模式与树是否一致，全部通过才交回；任何一项不对就是存档坏了，交回原因，不悄悄修。 */
     static fromSaved(raw: unknown): {readonly ok: true; readonly layout: DesktopLayout} | Failure {
         if (!isSavedShape(raw)) return failure("bad-shape", "Unrecognised save format");
-        const grid = createGrid<string>(null, {sashSize: SASH_SIZE});
         // 不认识的 ref 交回 null：库把它报进 dropped。这里把 dropped 非空也当坏：丢了一块，用户的窗就跟着丢了。
-        const restored = grid.restore(raw.grid, (ref) => (isKnownRef(ref) ? {ref, ...policyFor(ref)} : null));
+        const restored = restoreGrid<string>(raw.grid, (ref) => (isKnownRef(ref) ? {ref, ...policyFor(ref)} : null), {sashSize: SASH_SIZE});
         if (!restored.ok) return failure("bad-grid", restored.message);
         if (restored.dropped.length > 0) return failure("bad-grid", "The saved layout refers to unknown panes");
+        const grid = restored.grid;
         // 窗状态只取认识的字段重建：存档里多出来的字段不收，也就不会在下次保存时写回。
         const windows = new Map(WINDOW_IDS.map((id) => {
             const {mode, floatRect, before} = raw.windows[id];

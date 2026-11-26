@@ -1,5 +1,5 @@
 /**
- * 桌面示例的模型（`examples/desktop/src/model.ts`）：状态表里每一格、平铺的树操作、夹取与求交、试平铺、读档的判据。
+ * 桌面示例的模型（`examples/desktop/src/model.ts`）：状态表里每一格、平铺的树操作、缩放写回、试平铺、读档的判据。
  * 界面上的行为在 `e2e/desktop.e2e.ts`。测试放在这里而不放进示例目录：第三方拷走的目录里不带测试。
  */
 
@@ -9,8 +9,6 @@ import {
     BACKUP_KEY,
     DesktopLayout,
     DESKTOP,
-    deskClamp,
-    intersectRect,
     loadLayout,
     roundRect,
     saveLayout,
@@ -66,7 +64,7 @@ describe("状态表：每个模式能做的和不能做的", () => {
     type Op = readonly [name: string, run: (layout: DesktopLayout) => Result];
     const ops: readonly Op[] = [
         ["move", (layout) => layout.move("notes", 100, 100)],
-        ["resize", (layout) => layout.resize("notes", {x: 10, y: 10, width: 300, height: 200})],
+        ["resize", (layout) => layout.resize("notes", {x: 10, y: 10, width: 300, height: 200}, {width: 1, height: 1})],
         ["raise", (layout) => layout.raise("notes")],
         ["toggleMaximize", (layout) => layout.toggleMaximize("notes")],
         ["minimize", (layout) => layout.minimize("notes")],
@@ -149,7 +147,7 @@ describe("平铺的树操作", () => {
         expect(treeLeaves(other)).toEqual([DESKTOP, "notes", "dock"]);
     });
 
-    it("桌面叶的父已经是横向分支：加到分支的头或尾，三块平分", () => {
+    it("第二扇在桌面叶另一侧，三块平分", () => {
         const layout = DesktopLayout.createDefault();
         layout.tile("notes", "left", WIDE);
         expect(layout.tile("calc", "right", WIDE).ok).toBe(true);
@@ -291,15 +289,15 @@ describe("试平铺", () => {
     });
 });
 
-describe("夹取与求交", () => {
+describe("缩放写回与取整", () => {
     it("resize 把宽高夹到最小尺寸以上再写：写出的存档读得回来", () => {
         const layout = DesktopLayout.createDefault();
-        expect(layout.resize("notes", {x: 5, y: 6, width: 150, height: 100}).ok).toBe(true);
+        expect(layout.resize("notes", {x: 5, y: 6, width: 150, height: 100}, {width: 1, height: 1}).ok).toBe(true);
         expect(layout.windows.get("notes")!.floatRect).toEqual({x: 5, y: 6, width: 240, height: 160});
         // 够大的矩形原样写。
-        layout.resize("notes", {x: 5, y: 6, width: 300, height: 200});
+        layout.resize("notes", {x: 5, y: 6, width: 300, height: 200}, {width: 1, height: 1});
         expect(layout.windows.get("notes")!.floatRect).toEqual({x: 5, y: 6, width: 300, height: 200});
-        layout.resize("notes", {x: 0, y: 0, width: 10, height: 10});
+        layout.resize("notes", {x: 0, y: 0, width: 10, height: 10}, {width: 1, height: 1});
         const storage = memoryStorage();
         saveLayout(storage, layout);
         const loaded = loadLayout(storage);
@@ -307,24 +305,17 @@ describe("夹取与求交", () => {
         expect(loaded.layout.windows.get("notes")!.floatRect).toEqual({x: 0, y: 0, width: 240, height: 160});
     });
 
-    it("deskClamp：有平铺窗时桌面不从 0 开始，窗被夹在平铺窗右边", () => {
-        const desk = {x: 400, y: 0, width: 800, height: 600};
-        const clamped = deskClamp({x: 40, y: 40, width: 420, height: 300}, desk);
-        expect(clamped.x).toBe(400);
-        expect(clamped.y).toBe(40);
-        const right = deskClamp({x: 2000, y: 900, width: 420, height: 300}, desk);
-        expect(right).toEqual({x: 780, y: 300, width: 420, height: 300});
+    it("resize 只写这次动了的那一轴：窗被桌面夹着时，没动的那一轴留着记录里的值", () => {
+        const layout = DesktopLayout.createDefault();
+        // 窗口变矮时画出来的高是夹过的 250，拖的是右边：高不能被写成 250，视口变回去后要回到 300。
+        layout.resize("notes", {x: 40, y: 40, width: 500, height: 250}, {width: 1, height: 0});
+        expect(layout.windows.get("notes")!.floatRect).toEqual({x: 40, y: 40, width: 500, height: 300});
+        // 拖的是上边：x 与宽留着记录里的值。
+        layout.resize("notes", {x: 0, y: 10, width: 300, height: 330}, {width: 0, height: -1});
+        expect(layout.windows.get("notes")!.floatRect).toEqual({x: 40, y: 10, width: 500, height: 330});
     });
 
-    it("deskClamp：窗比桌面大时缩到桌面、贴着桌面的左上角，不被推出左缘", () => {
-        const desk = {x: 300, y: 0, width: 400, height: 200};
-        expect(deskClamp({x: 340, y: 10, width: 480, height: 300}, desk)).toEqual({x: 300, y: 0, width: 400, height: 200});
-    });
-
-    it("intersectRect 向固定的边收，不平移；roundRect 按边取整", () => {
-        const desk = {x: 100, y: 0, width: 500, height: 400};
-        expect(intersectRect({x: 50, y: 20, width: 300, height: 200}, desk)).toEqual({x: 100, y: 20, width: 250, height: 200});
-        expect(intersectRect({x: 400, y: 300, width: 300, height: 300}, desk)).toEqual({x: 400, y: 300, width: 200, height: 100});
+    it("roundRect 按边取整", () => {
         expect(roundRect({x: 10.4, y: 0.5, width: 100.4, height: 50})).toEqual({x: 10, y: 1, width: 101, height: 50});
     });
 });

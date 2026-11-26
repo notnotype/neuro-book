@@ -31,6 +31,12 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
     titleOnlyPanels?: ReadonlySet<string>;
+    /**
+     * 视图自绘头的浮动窗（docs/specs/workbench/views.md 输出 19 的“自绘头”）：外框里不画头，内容从窗口顶上开始、四个角都裁圆；
+     * 头由宿主画在 `own-head` 插槽里（内容里、视图之上）。只认此刻画成浮动窗的面板。值是按钮一组在右端占的宽度（CSS px），写成内容上的
+     * `--workbench-own-head-inset-end`，视图在它的头右端让出来。
+     */
+    ownHeads?: ReadonlyMap<string, number>;
     /** 实时布局预览里的空位：这块什么都不画，露出窗体底（输出 38）。 */
     slotPanel?: string | null;
     /** 拿起的内容项（实时布局）：预览把来源摘掉时网格自己留住它（`NestedGrid` 的 `lifted`）。矩形由 `placeLifted` 写。 */
@@ -44,7 +50,7 @@ const props = withDefaults(defineProps<{
      * 内容裁在这一列的卡片里，滑走的与换上来的之间隔一条缝。
      */
     swap?: Omit<GridSwap, "gap" | "window"> | null;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), ownHeads: () => new Map<string, number>(), slotPanel: null, lifted: null, dragging: false, floats: () => [], swap: null});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -56,13 +62,13 @@ const emit = defineEmits<{
     (event: "preview", sizes: Readonly<Record<string, GridExtent>> | null): void;
     /** 手势落账：`before` 是手势开始时呈现的尺寸，`after` 是落账之后的，`collapsed` 是这次手势改了收起状态的面板；宿主经 `applyGestureCommit` 写回文档（workbench-layout 输出 49）。 */
     (event: "gesture-commit", before: Readonly<Record<string, GridExtent>>, after: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void;
-    /** 网格的诊断与被拒的提交（`ui/nested-grid` 输出 139）：`NestedGrid` 的 `issues` 与 `useGridLayout` 的 `onIssues` 两路合在这里。 */
+    /** 网格的诊断与被拒的提交（`ui/nested-grid` 输出 139）：`NestedGrid` 的 `issues` 与 `useGridLayout` 的 `onIssues` 两路合在这里；外壳交给 `reportGridIssues` 记进窗口的诊断。 */
     (event: "issues", issues: readonly GridHostIssue[]): void;
     /** 内容项要被停放，这一刻焦点还在里面：焦点去哪由宿主定（输出 16）。 */
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。宿主据此记当前面板（输出 36）。 */
     (event: "focus-panel", panel: string | null): void;
-    /** 指针按在浮动窗上，或焦点进了它：提到最前。 */
+    /** 指针按在浮动窗上，或焦点进了它：提到最前。已在最前不发（转发网格的 `float-raise`）。 */
     (event: "raise-float", panel: string): void;
 }>();
 
@@ -80,8 +86,13 @@ defineSlots<{
     "lifted-head"?(): unknown;
     /** 盖在分隔线之上、拿起的内容之下，不接指针。 */
     overlay?(): unknown;
-    /** 浮动窗的手柄。 */
+    /** 浮动窗的手柄与自绘头的按钮。`actionsShown`：视图动作与框架按钮此刻该不该显示（指针在这块窗上或焦点在里面）；`idPrefix` 同 `head`。 */
     "float-chrome"?(props: {id: string; rect: GridRect}): unknown;
+    /**
+     * 视图自绘头的浮动窗盖在视图之上的那一条（`ownHeads`）：画在内容里，焦点、悬停与 F6 都算这块面板，飞行时跟着内容走。
+     * `actionsShown`：指针或焦点在这块窗上（同卡片的 `data-hover-actions-active`）；`idPrefix` 同 `head`。
+     */
+    "own-head"?(props: {panelId: string; idPrefix: string; actionsShown: boolean}): unknown;
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -126,7 +137,10 @@ const host = useGridHost<string>({
     grid,
     contextKey: () => props.contextKey,
     disabled: () => props.disabled,
-    onApplied: (_commit, result, before) => emit("gesture-commit", before.sizes, host.layout.value.sizes, result.collapsed),
+    // 只接手势：工作台的收起与尺寸走文档再投影（换网格实例），不调 `host.setCollapsed`、`host.setSize`。
+    onApplied: (change, before) => {
+        if (change.kind === "gesture") emit("gesture-commit", before.sizes, host.layout.value.sizes, change.collapsed);
+    },
     onIssues: (issues) => emit("issues", issues),
 });
 
@@ -205,6 +219,8 @@ const stripPlacements = computed(() => new Map(props.projection.strips.map((stri
  */
 const restoring = shallowRef<string | null>(null);
 const floatingPanels = computed<ReadonlySet<string>>(() => new Set(props.floats.map((float) => float.id)));
+/** 此刻画成浮动窗、视图自绘头的面板。 */
+const ownHeadFloats = computed<ReadonlySet<string>>(() => new Set([...props.ownHeads.keys()].filter((id) => floatingPanels.value.has(id))));
 watch(() => props.maximized, (next, previous) => {
     if (previous === null || next === previous) return;
     restoring.value = previous;
@@ -237,6 +253,7 @@ const headless = computed<ReadonlySet<string>>(() => {
     }
     // 浮起来的那一节画在浮动窗里，窗有自己的头：从入口条下面飞出去的那一刻起内容就让出头。
     for (const id of lastPresented.headless) if (drawnAsBefore(id) && id !== props.maximized && !floatingPanels.value.has(id)) panels.add(id);
+    for (const id of ownHeadFloats.value) panels.add(id);
     return panels;
 });
 /** 叶代表哪块面板：入口条叶是并进来的那一节，没有并时不代表面板（和活动栏一样）。 */
@@ -509,15 +526,8 @@ function leafOf(target: EventTarget | null): string | null {
     return element?.getAttribute("data-content-leaf") ?? element?.getAttribute("data-leaf") ?? null;
 }
 
-function raiseIfFloat(target: EventTarget | null): void {
-    const chrome = target instanceof Element ? target.closest("[data-float-chrome]")?.getAttribute("data-float-chrome") : null;
-    const panel = chrome ?? leafOf(target);
-    if (panel !== null && props.floats.some((float) => float.id === panel)) emit("raise-float", panel);
-}
-
 function onFocusIn(event: FocusEvent): void {
     focusedLeaf.value = leafOf(event.target);
-    raiseIfFloat(event.target);
 }
 
 function onFocusOut(event: FocusEvent): void {
@@ -550,7 +560,6 @@ defineExpose({
         data-workbench-surface
         @pointerover="pointerLeaf = leafOf($event.target)"
         @pointerleave="pointerLeaf = null"
-        @pointerdown.capture="raiseIfFloat($event.target)"
         @focusin="onFocusIn"
         @focusout="onFocusOut"
     >
@@ -571,6 +580,7 @@ defineExpose({
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"
             @content-parked="(key: string) => emit('content-parked', key)"
+            @float-raise="(id: string) => emit('raise-float', id)"
         >
             <template #leaf="{node}">
                 <div class="workbench-surface__slot" :style="insetOf(node.id)">
@@ -610,10 +620,13 @@ defineExpose({
                     <div
                         :id="roleOf(leaf) === 'tool' ? panelTabpanelDomId(idPrefix, contentKey) : undefined"
                         class="workbench-surface__content-clip"
+                        :data-own-head="ownHeadFloats.has(leaf) ? '' : undefined"
+                        :style="ownHeadFloats.has(leaf) ? {'--workbench-own-head-inset-end': `${ownHeads.get(leaf) ?? 0}px`} : undefined"
                         :role="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? 'region' : 'tabpanel') : undefined"
                         :aria-labelledby="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? panelTitleDomId(idPrefix, contentKey) : panelTabDomId(idPrefix, contentKey)) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
                     >
+                        <slot v-if="ownHeadFloats.has(leaf) && active" name="own-head" :panel-id="leaf" :id-prefix="idPrefix" :actions-shown="actionsShownOn(leaf)"></slot>
                         <slot name="content" :content-key="contentKey" :panel-id="leaf" :active="active"></slot>
                     </div>
                 </div>
@@ -851,6 +864,13 @@ defineExpose({
     overflow: hidden;
     border-end-start-radius: var(--shell-corner-bl, var(--shell-card-radius, 0px));
     border-end-end-radius: var(--shell-corner-br, var(--shell-card-radius, 0px));
+}
+
+/* 视图自绘头的浮动窗没有头，内容顶到窗口的上边，上面两个角也是卡片的角：列表栏的底色不从圆角外露出来。盖在视图之上的那一条相对它定位。 */
+.workbench-surface__content-clip[data-own-head] {
+    position: relative;
+    border-start-start-radius: var(--shell-corner-tl, var(--shell-card-radius, 0px));
+    border-start-end-radius: var(--shell-corner-tr, var(--shell-card-radius, 0px));
 }
 
 /* 飞行中压在别的面板上面（输出 15）：内容平时透明，露出卡片的底与场景图；飞的时候离开了卡片，要自己带底，不和下面的字叠在一起。 */

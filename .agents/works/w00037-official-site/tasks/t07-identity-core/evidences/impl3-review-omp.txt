@@ -1,0 +1,60 @@
+# w00037 t07 第 6 到 8 片及第 4、5 片审查修正：只读实现审查
+
+被审代码：`f8eb66f1e`，对照基点 `02ce9d01b`。合同与计划取自主工作区 `master`；`385e4ca86` 只审冲突解决与账号接缝。
+
+### 1. 账号列表对非 ASCII 显示名的搜索区分大小写（撤回）
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity/src/admin/users.ts:139-150；/home/notnotype/CodeRepository/neuro-book/docs/specs/site/admin.md:33。
+- **现象**：显示名设为 `Élodie` 后，`GET admin/users?q=Él` 和 `?q=ÉLODIE` 都回 200、`total: 1`；`?q=él` 回 200、`total: 0`，`counts.all` 也从 1 变成 0。
+- **为什么是问题**：合同对用户名、邮箱、显示名三种前缀都要求不分大小写，显示名可以是 Unicode。SQLite 的 `LIKE` 只折叠 ASCII；现有代码保住了字面通配符与占位邮箱规则，却没有实现显示名的大小写规则。
+- **如何核实**：在 HEAD 为 `f8eb66f1e` 的实现树运行 `bun --no-env-file /tmp/review-w00037-t07-impl3/lab-omp/verify-profile-http.ts`；经真实 CLI 创管理员、HTTP 登录、同意、改资料，再对照上面三次查询。
+- **建议改法**：为显示名和查询使用同一 Unicode 折叠规则，再做字面前缀匹配；同时覆盖已有/导入账号、总数与筛选计数。补一个非 ASCII 大小写前缀的合同用例，不用 SQLite 内置 `LOWER` 代替 Unicode 折叠。
+- **撤回依据**：本轮并行的 Opus 审查也发现了此现象；主工作区提交 `a491b21e2` 已明定显示名只对 ASCII 字母不分大小写。实测仍成立，按现行合同不计作缺陷。
+
+### 2. 严格 UTF-8 解码仍会把转义的孤立代理项改存成替换符
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity/src/errors.ts:99-109；/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity-contract/src/fields.ts:13-20；/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity/src/me.ts:85-105。
+- **现象**：发送字节全是合法 UTF-8 的 `PATCH me` 请求体 `{"displayName":"\ud800","bio":"\udc00"}`，真实服务回 200，两个值已经变成 `�`；显式发送 U+FFFD 也回 200，结果相同。
+- **为什么是问题**：`fatal: true` 只检查 JSON 源的字节，JSON 解析仍会产出孤立代理项，字段正则明确允许它们。写 SQLite 时字符串不能原样编码，调用方收到成功，却存了不同的文字。这与修正上一轮“无效文本变成 U+FFFD 再入库”的目标相悖。
+- **如何核实**：在 HEAD 为 `f8eb66f1e` 的实现树运行 `bun --no-env-file /tmp/review-w00037-t07-impl3/lab-omp/verify-profile-http.ts`，比较最后两次 `PATCH me` 的真实 HTTP 响应。
+- **建议改法**：在 JSON 解析后校验文本字段是良构 Unicode；拒绝孤立代理项，保留合法代理对与显式 U+FFFD。让合同包和服务端对可存文本的定义一致。
+
+### 3. 改角色与登录并发时，登录响应的角色和新会话的角色相反
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity/src/login.ts:200-233,239-254；/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity/src/admin/users.ts:284-300。
+- **现象**：让另一个管理员改同一账号的角色，同时请求登录。8 次升降角色均复现：两个请求都回 200；降级时登录回 `user.role: "admin"`，拿该响应的新 Cookie 问 `whoami` 是 `"user"`；升为管理员时正好反过来。新 Cookie 有效，服务端权限判断正确。
+- **为什么是问题**：第 7 片加入在线改角色后，登录最初读到的资料不再保证是发会话时的资料；事务只复核封禁和密码，响应最后还从哈希之前的 `candidate.profile` 组装。`site.accounts` 输出 4 让客户端同时拿到公开资料和会话；这个响应会给客户端一个该会话并不具备的角色，也可能漏掉它已具备的管理员权限。
+- **如何核实**：在 HEAD 为 `f8eb66f1e` 的实现树运行 `bun --no-env-file /tmp/review-w00037-t07-impl3/lab-omp/verify-admin-session-http.ts`。通过真实 HTTP 并发改角色和登录，再用本次登录的 Cookie 调 `whoami`。
+- **建议改法**：让发会话事务返回同一快照上的公开资料，提交后用它组响应；可由事务内已有的账号查询带出，不要改成事务外再读一次。补升、降角色时登录响应和新会话一致的用例。
+
+### 4. 资料保存的地址与网页实际解析的地址可以不同
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity-contract/src/fields.ts:84-100；/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-review3/packages/nb-site-identity/src/me.ts:91-99,127-133。
+- **现象**：真实 HTTP `PATCH me` 提交 `website: "https:example.org"` 得 200，响应原样返回。无基准时平台解析出 `https://example.org/`；按 HTTPS 账号页的基准 `https://site.test/account` 解析却得 `https://site.test/example.org`。
+- **为什么是问题**：校验用无基准的 `URL.parse`，页面的链接和图片属性却带文档基准。通过校验、回填原文，并不保证前端直接用这个值访问的是校验时解析的地址。这里的输入没有空白、控制字符或双向控制符；并行审查已定的字符限制不能消除这个差异。不是脚本协议绕过。
+- **如何核实**：在 HEAD 为 `f8eb66f1e` 的实现树运行 `bun --no-env-file /tmp/review-w00037-t07-impl3/lab-omp/verify-profile-http.ts`，对照 `withoutBase` 与 `withSiteBase`。网页效果按 URL 解析规则推断，未跑前端。
+- **建议改法**：既然要按原样保存，在共享字段规则里要求显式 `http://` 或 `https://` 和主机，拒绝这种缺少绝对地址分隔符的写法；若要兼容它，则明确由消费方使用无基准解析得到的 `href`，不把原文直接当链接或图片地址。
+
+## 未发现问题的方面
+
+- **管理员不变式与处置原子性**：`adminWrite` 在写事务内复核操作者的会话、角色与封禁状态，再检查目标和自处置限制；互相封禁或降级的合同用例只允许一个成功，失败方无审计。未改值的处置也记审计；从包内用例与事务边界确认审计失败会回滚。合同用例和日志检查没有把重置出的密码写进审计或进程输出。自撤销和自重置在触发日续期时实测均回 200，主会话 Cookie 的 `Max-Age` 依次为 `2592000`、`0`，旧 Cookie 的 `whoami` 为 `anonymous`；重置后的密码能登录。
+- **四个管理列表**：基准、总数、筛选计数和当页处于同一读快照；搜索转义 `%`、`_` 和反斜杠，待补邮箱不参与匹配；审计允许单给对象类型但不允许单给对象 id。超大页码要么得空页、要么在输入处报 `validation_failed`，不把失精的偏移量传给 SQLite。已有条目改变筛选归属可导致漏项或重复，按 Spec 接受。导入数据的排序依据是存入的创建时间、同时间再按 id；未运行 t12 导入。
+- **会话与浏览器概要**：会话列表只给本人未到期的会话；不能结束他人会话，结束当前会话清 Cookie；仍在库里的到期自有会话可以结束，是 Task 已接受的行为。使用时间由 `maintain` 每小时至多更新一次。按 Better Auth 1.7.27 的建会话路径，入库前钩子用概要或 null 覆盖原始头，模块日志不输出原始头；t08 复用该钩子的判断仅来自代码，未运行 t08。
+- **资料和邀请归属**：写事务内复核会话并排除自己的邮箱作占用检查；成功补邮箱与清 `email_pending` 同时提交。未发现同时有效 10 个邀请码的并发越界：计数和插入在同一写事务，合同用例覆盖生成、停用与注册归属；注册以用码时的 `owner_id` 记邀请人，旧码无主人时为空。并行 Opus 审查已记录的过期会话审计计数、长浏览器标识、邀请码产出速率与 URL 控制符不重复列；主工作区 `a491b21e2` 新定的每小时生成限流和 URL 字符限制不是被审提交已实现的行为。
+- **上一轮修正与 DB 接缝**：无原型查询收集与严格 UTF-8 的坏字节路径有合同覆盖。读代码及定向用例核对管道仅去掉一个末尾换行、拒其余控制符，两种读法保留 U+FEFF，登录来源已拒时不新建组合键，失败下限从取到哈希名额起算，`GET me` 复用同意判断。`create-admin` 实测在首次 WAL 写锁冲突后发 `SIGTERM`，14 毫秒后退出 1、码 `interrupted`；不发信号则共尝试 361 次，首次撞锁后约 18,913 毫秒退出 1、码 `unavailable`。两次尝试都不写入账号与审计。命令连接独立；入口打开业务库先设 250 毫秒再执行 `journal_mode`，就绪探测仍是 0，备份仍走只读连接，不把命令的 0 传播给服务。已记录的迁移检查失败码差异不重复列。
+- **收口与合并**：C14 的登录发生在统计写锁释放之前，断言 200、账号及会话 Cookie，确实走发会话写入，不是只读的 `whoami`。启动清理用持账号写锁观察自动发生的 `identity` / `purge` `job.failed`，不靠测试控制入口触发；这个用例证明启动即调度，不单独证明成功时删行。`385e4ca86` 的 `boundary.test.ts` 保留 `typebox` 与聚合辅助文件专有的 SQLite 例外，边界合同通过。注册、登录、问身份、封禁、重置密码均有对应 Smoke 标记；`PATCH me` 多一处标记，不替代任何指定用例。注册与管理员重置的两个包内用例都用真实哈希、通过门控重叠请求，断言后到的 503 `overloaded` 与业务状态不变，再放行头一个；本轮核对了断言，未单独运行这两个包内用例。
+
+## 验证范围
+
+- 报告文件：`/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00037-official-site/tasks/t07-identity-core/reports/impl3-review-omp.txt`。
+- 实验在实现 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00037-t07-identity` 上执行；每次先检查 `git rev-parse --short=9 HEAD` 为 `f8eb66f1e`。用 `import.meta.resolve` 核对入口、账号模块、账号合同包、统计模块和 Better Auth 的加载路径均在实现树内。临时根下设 `NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-w00037-t07-impl3/lab-omp` 及 `NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00037-t07-impl3/lab-omp/probes`。未设 `NB_SITE_SERVER_COMMAND` 或 `NB_SITE_PREVIOUS_SERVER_COMMAND` 覆盖。
+- `bun run --cwd packages/nb-site-contract-tests test src/admin.test.ts src/accounts-me.test.ts src/accounts-register.test.ts src/accounts.test.ts src/operations.test.ts src/telemetry-ingest.test.ts src/boundary.test.ts`：Bun `1.4.4 (38afee6c8)`，7 个文件，159 通过、0 失败，1159 次断言。
+- `bun run --cwd "packages/$p" typecheck`，`p` 依次为 `nb-site-identity`、`nb-site-server`、`nb-site-contract-tests`：三次 `tsc --noEmit` 均以 0 退出。
+- 在实现树设 `SITE_TREE="$PWD"`、`TMPDIR="$NBOOK_AGENT_TEMP_ROOT"` 后，分别执行 `bun --no-env-file "$NBOOK_HOST_SYSTEM_TEMP_ROOT/verify-profile-http.ts"`、`bun --no-env-file "$NBOOK_HOST_SYSTEM_TEMP_ROOT/verify-admin-session-http.ts"`、`bun --no-env-file "$NBOOK_HOST_SYSTEM_TEMP_ROOT/verify-create-admin-lock.ts"`。三项成功完成，使用隔离的真实进程与 SQLite；锁探针用 `strace` 观测写锁调用，不靠固定延迟。首次锁探针的 PID 格式匹配错误，未发出信号；上述结论只取修正观测器后的结果。
+- 未重审未改动的第 1 至 5 片或统计模块；未跑全量测试、变异、镜像 Smoke、e2e、开发服务或前端。未修改仓库源码、合同或 Git 状态。
+
+## 各级数量
+
+阻断 0、重要 1、建议 2；另撤回 1 条。
+
+有效发现：2、3、4

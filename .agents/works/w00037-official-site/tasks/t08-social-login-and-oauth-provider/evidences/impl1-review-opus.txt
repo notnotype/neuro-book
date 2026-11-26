@@ -1,0 +1,75 @@
+# w00037 t08 第 2、3 片实现审查（Opus）
+
+被审范围 bf3d6f5aa..3bb82cf7d；实验在实现 worktree（HEAD 核对为 3bb82cf7d56e，与被审提交相同）里跑，实验文件在 /tmp/review-w00037-t08-impl1/lab-opus/。
+
+### 1. `disabledPaths` 这道“第二道”只盖住 82 条库路径里的 22 条，删会话、改密码、改账号的库端点经 handler 全都到得了
+
+- 严重程度：建议
+- 类别：安全（纵深防御）、正确性（撤销覆盖面）
+- 位置：packages/nb-site-identity/src/auth.ts:69-101（`DISABLED_LIBRARY_PATHS` 与注释“这是第二道”）
+- 现象：实验 lab-opus/endpoints.test.ts 遍历真实装配下 `auth.api` 的全部端点（82 条路径），带普通用户的会话 Cookie 经 `auth.handler` 各发一次：56 个“方法+路径”不是 404。其中会删会话的有 `POST /sign-out`(200)、`/revoke-session`、`/revoke-sessions`、`/revoke-other-sessions`、`POST /get-session`（库对 POST 会删到期会话）、`/admin/revoke-user-session(s)`、`/admin/ban-user`、`/admin/remove-user`、`/delete-user`、`/change-password`、`/reset-password`、`/admin/set-user-password`；另有 `/sign-in/email`、`/sign-in/username`、`/update-user`、`/admin/set-role`、`/admin/create-user`、`/admin/impersonate-user` 等。实测经 handler 调 `/sign-out`、`/revoke-sessions`：会话行被库删掉，令牌靠库自己的 `session.delete` 钩子在提交之后、后台撤掉（等 200ms 后 401），授权码不删；`/revoke-other-sessions` 删掉了别的会话。
+- 为什么是问题：计划 3.4 与 auth.ts 注释把 `disabledPaths` 定位为挂载白名单（第一道）之外的第二道，但它只取自第六轮问 6 的表，而那张表只遍历了 `/oauth2/`、`/.well-known/`、`/admin/oauth2/` 与 `/jwks`。真正危险的是库的核心与 admin 插件端点：它们绕过模块的限流、审计、同意门槛，删会话时走的是升级清单 3.15 自己说“本模块不依赖”的库钩子（撤销变成提交后后台做、不删授权码）。第 5 片挂上 handler 之后，白名单一旦写宽（前缀匹配、方法漏判），第二道挡不住这些。实现与计划一致，问题在计划给第二道选的范围。
+- 如何核实：`bun test /tmp/review-w00037-t08-impl1/lab-opus/endpoints.test.ts`（在实现 worktree 的 nb-site-identity 目录下，设两个临时根变量），看 TOTAL 与列表。
+- 建议改法：把第二道也做成白名单：装配时由 `auth.api` 的全部端点路径减去对外要的那几条（`/oauth2/authorize`、`/oauth2/token`、`/oauth2/userinfo`、`/oauth2/revoke`、`/jwks`、社交回调）得出 `disabledPaths`，`provider.test.ts` 的“关掉的库端点”改为遍历全部端点断言只有这几条不是 404；库新加端点时自动落进关掉的一边。若决定不改，至少把 auth.ts 注释的“第二道”改成“只挡 OAuth 插件里合同不要的端点”，免得后面几片以为核心端点也被它挡着。
+
+### 2. 进程环境里有 `BETTER_AUTH_SECRETS` 时，库不用 `NB_SITE_SESSION_SECRET` 加密私钥，签名钥的“换会话密钥就换钥”失效
+
+- 严重程度：建议
+- 类别：安全（密钥来源）、正确性（Spec 输出 17）
+- 位置：packages/nb-site-identity/src/auth.ts:176（只传 `secret`）；src/oauth/signing-key.ts:76、92-102（按 `context.secretConfig` 判）；库 better-auth/dist/context/create-context.mjs:70-82
+- 现象：库 1.7.27 的 `secretsArray = options.secrets ?? parseSecretsEnv(env.BETTER_AUTH_SECRETS)`；有这个环境变量时，`secret` 与 `secretConfig` 都换成环境变量里的值，`options.secret` 只降为解旧数据用的 `legacySecret`。实验 lab-opus/secrets-env.test.ts：设 `BETTER_AUTH_SECRETS=1:<值>` 后首次启动，`jwks.privateKey` 是 `"$ba$1$…` 信封（用环境变量的密钥加密）；再以另一个 `sessionSecret` 重启，没有标过期、没有新钥、没有 `identity.signing_key_rotated`。不设时同样的两步会换钥（对照组）。
+- 为什么是问题：Spec 输出 17 与副作用一节把私钥加密、Cookie 签名都挂在 `NB_SITE_SESSION_SECRET` 上，部署的人换了它以为私钥与会话随之换掉，实际上一个不在 `site.operations` 配置表里的环境变量决定了两者。auth.ts 对同类的 `BETTER_AUTH_TELEMETRY` 已经显式关掉（注释第 227 行），这里没有同样处理。Cookie 签名那一半是 t07 留下的，本片把私钥加密也接到了同一个口子上。
+- 如何核实：在实现 worktree 的 nb-site-identity 下 `BETTER_AUTH_SECRETS=1:lab-only-secret-value-0123456789abcdefghijklmnop bun test /tmp/review-w00037-t08-impl1/lab-opus/secrets-env.test.ts`，与不设该变量的输出对照。
+- 建议改法：启动时（`assembleIdentity` 开头或配置解析）发现 `BETTER_AUTH_SECRETS` 非空就以配置错误拒绝启动（按 `start_failed`），或在 `identityAuthOptions` 显式传 `secrets`（注意这会把加密格式换成带版本的信封，旧钥要走 legacy 解法，需要另测）。前者简单，并在升级清单记一行“库会读的环境变量”。
+
+### 3. `purgeExpiredOAuthRows` 的注释说“测试里模块的时钟只会更快”，不成立；按模块时钟删库按系统时间写的行，两个方向的偏差都有
+
+- 严重程度：建议
+- 类别：代码质量（注释写错了承重的前提）、测试
+- 位置：packages/nb-site-identity/src/oauth/revoke.ts:73-77；计划 3.11 同一句“模块时钟在测试里比系统时间快”
+- 现象：包内的 `ManualClock`（src/testing/library.ts:26-45）从 `start` 起只在 `advance`/`set` 时动，墙钟照走，所以缺省就比系统时间慢；`set` 还能往回拨。本片自己的用例 revoke.test.ts:102 就把起点拨到 30 天前（模块时钟比系统时间慢约 30 天）。这时清理任务碰不到库已判过期的码与令牌；反过来，`advance` 超过 10 分钟（合同测试拨钟测会话到期时常见）时，清理会删掉库按系统时间仍认的授权码与社交 state 行。
+- 为什么是问题：注释用这个前提论证“删得更早，与以模块的时钟为准一致”，后面几片（第 7 片拨钟加 `runJob purge` 的合同用例、第 8 片的社交流程）会照着这句话推断用例能看到什么。生产里两只钟相同，不影响产品行为；影响的是读注释的人对测试里行为的预期。
+- 如何核实：读 ManualClock 与 revoke.test.ts:99-110 的起点设置。
+- 建议改法：注释改成“生产里两只钟相同；测试里模块时钟可快可慢，快时删得比库认的早（码与 state 提前消失），慢时库已不认的行留到模块时钟追上”，并在第 7、8 片的计划里点名拨钟用例要留意这一点（README“给后面几片的”已提到前一半）。
+
+### 4. Spec 输出 17 的“旧公钥列 30 天”靠库的缺省 `jwks.gracePeriod`，既没显式写也没有用例钉住
+
+- 严重程度：建议
+- 类别：测试、正确性（依赖库缺省）
+- 位置：packages/nb-site-identity/src/auth.ts:61-67（`identityJwtOptions` 没写 `gracePeriod`）；src/oauth/signing-key.test.ts:109-138；AGENTS.md 升级清单“签名钥”第一行
+- 现象：库 jwt 插件 index.mjs:125 是 `(options?.jwks?.gracePeriod ?? 2592e3) * 1e3`。换钥用例只断言换钥之后立刻两把都列着，没有一条用例能分辨宽限期是 30 天还是 1 小时；升级清单这一行写了“缺省 30 天”，但对着的用例在库把缺省改小时照样通过。
+- 为什么是问题：Spec 输出 17 把“30 天”写成了可观察的合同，同一文件对另外三个寿命的处理是：库缺省与 Spec 不同的（id_token）显式写，相同的（授权码、访问令牌）用 `provider.test.ts` 读行钉住。宽限期两样都没做，库升级改缺省时没有信号，客户端缓存的旧 kid 会提前验不过。
+- 如何核实：读 better-auth/dist/plugins/jwt/index.mjs:120-130 与 signing-key.test.ts 的断言。
+- 建议改法：在 `identityJwtOptions` 里显式写 `jwks.gracePeriod: 30 * 86_400`（与 `ID_TOKEN_SECONDS` 同样的写法与注释）；或者加一条用例：把旧钥的 `expiresAt` 改成 29 天前与 31 天前各看一次 `/jwks`。前者更简单，升级清单这一行随之改成“宽限期按选项生效”。
+
+### 5. “不多删”与 `json_valid` 的守护没有用例；升级清单漏了计划 3.15 点名的“库自带的 `session.delete` 钩子”一项
+
+- 严重程度：建议
+- 类别：测试、升级清单
+- 位置：packages/nb-site-identity/src/oauth/revoke.ts:23-31（`codeField` 的 `CASE WHEN json_valid`）；src/oauth/revoke.test.ts（全文件）；packages/nb-site-identity/AGENTS.md 升级清单
+- 现象：
+  1. revoke.test.ts 的每条用例里 `verification` 表只有授权码。没有一条用例在撤销时表里另有非 JSON 的行、或不是授权码但带同一个 `userId`/`sessionId` 的 JSON 行。实验 lab-opus/othrows.test.ts 放进四行（`not json`、纯数字 `"2"`、带 `link.userId` 与 `sessionId` 的 state 形状、`type` 为 `authorization_code_x`），再登出：只删了那个授权码，四行都在，登出 200，现在的实现是对的。但单独验证 SQLite：去掉 `CASE`、写成 `WHERE json_valid(value) AND json_extract(...)` 时这次没出错，完全去掉守护时有一行非 JSON 就抛 `malformed JSON`（lab-opus/json.ts）。也就是说，把 `codeField` 简化掉、或把 `IS_CODE` 改成只比 `$.userId`，现有用例都抓不到（从 grep 推断：包内测试里只有 connection.test.ts、schema.test.ts 插入值为 `'v'` 的行，都不在撤销用例里）。一旦退化，每次登出、封禁、清理都 500。
+  2. 计划 3.15 写明要进清单的“库自带的 `session.delete` 前后钩子存在但本模块不依赖（库若开始在别的路径上删会话，撤销会变成提交之后在后台做、且不删授权码）”没有进表。实验（第 1 条的 `/sign-out`、`/revoke-sessions`）证实这对钩子在本装配下是活的：库删会话时令牌在提交后被它撤掉。
+- 为什么是问题：重点 1 问的“会不会多删别的 verification 行”目前只靠读代码保证；第 8 片会往这张表里放社交 state，届时撤销与 state 并存是常态。清单少的那一项，正是判断“库删会话的路径算不算已覆盖”的依据。
+- 如何核实：跑 lab-opus/othrows.test.ts 与 lab-opus/json.ts；对照计划 3.15 与 AGENTS.md 表格。
+- 建议改法：在 revoke.test.ts 的 `setup` 里先插两行不相干的 `verification`（非 JSON 一行、带同一 `userId`/`sessionId` 但 `type` 不同的 JSON 一行），并在 `observe` 之后断言它们还在；升级清单补那一行，用例可以对着“删会话只经 session.ts”的守卫加一条“模块不调库的删会话”。
+
+## 未发现问题的方面
+
+仔细检查后没有发现问题的（附核对的依据）：
+
+- 模块内删会话的路径：src 下 `DELETE FROM "session"` 只有 session.ts 的四处（grep -i），四个函数都先撤后删、同一个 `tx`；调用方（登出、`#expire`、结束单个会话、管理员四种处置、`create-admin`、改密码、清理）都传了 `nowMs`。库的删会话路径（`signOut`、`revokeSession(s)`、POST `getSession` 等）模块一处都不调；它们经 handler 可达的问题见第 1 条。
+- 撤销 SQL：`CASE WHEN json_valid` 的守护有效、`CAST(... AS INTEGER)` 与库把 `userId`、`sessionId` 写成字符串一致（库 authorize-DXnMh0ha.mjs:8957-8972 写码的地方），`$.query.client_id` 路径对；实验里非 JSON、纯数字、state 形状、近似 `type` 的行都没被删（第 5 条只说缺用例）。按会话撤的用例能分辨“先删后撤”（令牌 200）与“不删码”（库对会话没了的码回 `invalid_request`，用例要 `invalid_grant`）。
+- 改密码：按账号撤、当前会话保留，与密码更新、复核会话在同一个写事务；用例覆盖了当前会话里发出的被撤、之后新发的有效。
+- 回滚：撤销与删会话同事务，触发器用例对登出与封禁都成立。
+- 签名钥：挑“最新活钥”的口径（系统时间、`expiresAt` 为空或晚于此刻、`createdAt` 最新）与库 jwt/adapter.mjs 的 `getLatestKeyByAlg` 一致；试解的做法与库 sign.mjs:65-70 一致；库的加密是 SHA-256(secret) 作 XChaCha20-Poly1305 的钥、随机 nonce，错钥时认证失败抛错，`decrypts` 判得准；kid 是自增 id，重启不变有用例。单进程装配一次，启动之后总有活钥，库签发时的懒建钥不会触发。
+- 客户端密钥：库在登记、换钥、换码三处都调 `storeClientSecret.hash`，校验走 `constantTimeEqual`（resource-challenge-Bln17mt0.mjs:587-613）；需要解密客户端密钥的只有 `disableJwtPlugin` 的两条路，本装配到不了。32 字节随机数加域前缀的 SHA-256 足够。
+- `postLogin.shouldRedirect`、`customUserInfoClaims` 经 `conn.read`：oauth-provider 1.7.27 里唯一的 `runWithTransaction` 在客户端登记（authorize-DXnMh0ha.mjs:5617），这两个钩子的调用点（1484、8898）不在库的事务里。
+- `0002`：与基准逐字只差 AUTOINCREMENT，有现场导出比对与十二张表的“删最大 id 后更大”用例；库表的外键照原文保留，与 0001 一致。
+- 包内 `bun test src/oauth` 在实现 worktree（3bb82cf7d）上 21 条全过。
+
+## 各级数量
+
+阻断 0；重要 0；建议 5（第 1 到 5 条）。没有撤回或收窄的条目。
+
+有效发现：1、2、3、4、5

@@ -1,6 +1,6 @@
 /**
- * `nbook.web-tools` 对其它插件公开的合同（docs/specs/web/tools.md）：两个工具的 id、失败码，与设置页用的远程合同
- * `nbook.web-tools/settings`（输出 16 到 19）。
+ * `nbook.web` 对其它插件公开的合同（docs/specs/web/tools.md）：两个工具的 id、失败码，与设置页用的远程合同
+ * `nbook.web/settings`（输出 16 到 19）。
  */
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
@@ -8,13 +8,11 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 export {SEARCH_SECTION} from "./settings";
+export {isWebProvider, PROVIDER_LABELS, WEB_PROVIDERS} from "./providers";
+export type {WebProviderId} from "./providers";
 
-export const SEARCH_TOOL = "nbook.web-tools.search";
-export const FETCH_TOOL = "nbook.web-tools.fetch";
-
-/** 第一版只有 DeepSeek；以后加服务时在这里加 id，`status` 里多一条（“边界与兼容”：只加不改）。 */
-export const WEB_PROVIDERS = ["deepseek"] as const;
-export type WebProviderId = (typeof WEB_PROVIDERS)[number];
+export const SEARCH_TOOL = "nbook.web.search";
+export const FETCH_TOOL = "nbook.web.fetch";
 
 /** 服务客户端的失败分类（输出 12 与“失败与恢复”）。 */
 export const PROVIDER_FAILURE_CODES = ["auth", "quota", "rate-limited", "invalid-request", "rejected", "not-found", "unreachable", "timeout", "too-large", "bad-response", "failed"] as const;
@@ -28,8 +26,10 @@ const Detail = Type.Object({detail: Type.String()}, {additionalProperties: false
 /** 不在合同里限定取值：不认识的服务（含空串）由实现报 `invalid-value`（docs/specs/web/tools.md 输出 17），不是合同层的 `invalid-input`。 */
 const ProviderSchema = Type.String();
 
+const ProviderStatusSchema = Type.Object({hasKey: Type.Boolean()}, {additionalProperties: false});
+/** 每家一条（输出 16）；加服务时这里多一条。 */
 const StatusSchema = Type.Object({
-    providers: Type.Object({deepseek: Type.Object({hasKey: Type.Boolean()}, {additionalProperties: false})}, {additionalProperties: false}),
+    providers: Type.Object({deepseek: ProviderStatusSchema, tavily: ProviderStatusSchema}, {additionalProperties: false}),
 }, {additionalProperties: false});
 export type WebKeyStatus = Static<typeof StatusSchema>;
 
@@ -44,7 +44,7 @@ export type WebCheckResult = Static<typeof CheckResultSchema>;
  * 链路中断时调用方得 `unknown-outcome`，运行时不重放（docs/specs/runtime/plugin-channel.md）。
  */
 export const webSettingsContract = defineRemoteService({
-    id: "nbook.web-tools/settings",
+    id: "nbook.web/settings",
     version: 1,
     provider: "server",
     callers: ["browser"],

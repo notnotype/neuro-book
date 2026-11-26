@@ -1,0 +1,339 @@
+/**
+ * t59 规划探针：只读、只 import 仓库源码，跑在 /tmp 下。
+ * bun test /tmp/claude-1000/w00026-plans/t59-probe/probe.test.ts
+ */
+import {describe, expect, it} from "bun:test";
+
+const SRC = "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src";
+const {createGrid} = await import(`${SRC}/grid.ts`);
+const {createGridGestureSession} = await import(`${SRC}/grid-gesture.ts`);
+const {useGridHost} = await import(`${SRC}/vue/useGridHost.ts`);
+
+type Ext = {width: number; height: number};
+const U = Number.POSITIVE_INFINITY;
+const W = (v: number) => ({width: v, height: 0});
+
+function log(name: string, value: unknown): void {
+    console.log(`[probe] ${name}: ${JSON.stringify(value)}`);
+}
+
+function widths(grid: any, ext: Ext, ids: string[]): number[] {
+    const sizes = grid.layout(ext).sizes;
+    return ids.map((id) => Math.round((sizes[id]?.width ?? NaN) * 100) / 100);
+}
+
+function session(grid: any, ext: Ext, branchId: string, index: number, source: "keyboard" | "pointer", axis: "width" | "height" = "width") {
+    return createGridGestureSession({contextKey: "p", revision: 1, root: grid.root(), extent: ext, layout: grid.layout(ext), sashSize: 4, sessionId: "p", source, sashes: [{branchId, index, axis}]});
+}
+
+function commit(grid: any, gesture: any): any {
+    const finished = gesture.finish();
+    if (finished === null) return {none: true};
+    return grid.resizeBranches(finished.changes);
+}
+
+const POLICY = {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24};
+
+describe("P1 第 35 条：意图 400、策略 restoreSize 333", () => {
+    const build = () => createGrid({
+        kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: W(600)},
+            {kind: "leaf", id: "c", ref: "c", size: W(400), sizing: "fixed", minimumSize: W(100), collapse: {...POLICY, collapsed: true, restoreSize: 333}},
+        ],
+    }, {sashSize: 4});
+    const EXT = {width: 1004, height: 400};
+
+    it("setCollapsed(false) 回到意图 400", () => {
+        const grid = build();
+        grid.setCollapsed("c", false);
+        const w = widths(grid, EXT, ["a", "c"]);
+        log("P1 setCollapsed(false)", w);
+        expect(w[1]).toBe(400);
+    });
+
+    it("分隔线上 Enter 回到 restoreSize 333", () => {
+        const grid = build();
+        const s = session(grid, EXT, "root", 0, "keyboard");
+        const preview = s.toggleCollapsed();
+        log("P1 Enter preview c", preview?.layout.sizes.c);
+        const r = commit(grid, s);
+        const w = widths(grid, EXT, ["a", "c"]);
+        log("P1 Enter committed", {ok: r.ok, widths: w, intentC: grid.find("c").size.width});
+        expect(w[1]).toBe(333);
+    });
+});
+
+describe("P2 收起时改写 restoreSize", () => {
+    const build = () => createGrid({
+        kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: W(600)},
+            {kind: "leaf", id: "c", ref: "c", size: W(400), sizing: "fixed", minimumSize: W(100), collapse: {...POLICY, collapsed: false, restoreSize: 333}},
+        ],
+    }, {sashSize: 4});
+    it("setCollapsed(true) 把 restoreSize 改写成意图", () => {
+        const grid = build();
+        const r = grid.setCollapsed("c", true);
+        log("P2 setCollapsed(true).collapse", r.collapse);
+        expect(r.collapse.restoreSize).toBe(400);
+    });
+    it("Enter 收起同样改写", () => {
+        const grid = build();
+        const s = session(grid, {width: 1004, height: 400}, "root", 0, "keyboard");
+        s.toggleCollapsed();
+        commit(grid, s);
+        log("P2 Enter collapse -> collapse", grid.find("c").collapse);
+        expect(grid.find("c").collapse.restoreSize).toBe(400);
+    });
+    it("收起着 setSize 也改写 restoreSize", () => {
+        const grid = build();
+        grid.setCollapsed("c", true);
+        const r = grid.setSize("c", 250);
+        log("P2 setSize while collapsed", r);
+        expect(r.collapse.restoreSize).toBe(250);
+    });
+});
+
+/** ide 的主行：[左条, 左区, 中间, 右区, 右条]，条没有最小与最大（第 45 条的原始写法）或钉死（示例现在的绕法）。 */
+function ideRow(pinned: boolean) {
+    const stripe = (id: string) => pinned
+        ? {kind: "leaf", id, ref: id, size: W(28), sizing: "fixed", minimumSize: W(28), maximumSize: {width: 28, height: U}}
+        : {kind: "leaf", id, ref: id, size: W(28), sizing: "fixed"};
+    const zone = (id: string, size: number, collapsed: boolean) => ({kind: "leaf", id, ref: id, size: W(size), sizing: "fixed", minimumSize: W(160), collapse: {...POLICY, collapsed, restoreSize: size}});
+    return createGrid({
+        kind: "branch", id: "main", orientation: "horizontal", children: [
+            stripe("ls"), zone("left", 260, false),
+            {kind: "leaf", id: "center", ref: "center", size: {width: 1, height: 1}, minimumSize: {width: 300, height: 200}},
+            zone("right", 240, false), stripe("rs"),
+        ],
+    }, {sashSize: 4});
+}
+const IDE_IDS = ["ls", "left", "center", "right", "rs"];
+
+describe("P3 第 45 条：级联把 28px 的条挤到 0", () => {
+    const EXT = {width: 1400, height: 800};
+    for (const pinned of [false, true]) {
+        it(`拖 中间|右区 往右 900px，条${pinned ? "钉死" : "没有最小最大"}`, () => {
+            const grid = ideRow(pinned);
+            log(`P3 pinned=${pinned} before`, widths(grid, EXT, IDE_IDS));
+            const s = session(grid, EXT, "main", 2, "pointer");
+            s.update({x: 900, y: 0});
+            const r = commit(grid, s);
+            const after = widths(grid, EXT, IDE_IDS);
+            log(`P3 pinned=${pinned} after`, {ok: r.ok, after, rightCollapsed: grid.find("right").collapse.collapsed});
+            if (!pinned) expect(after[4]).toBe(0);
+            else expect(after[4]).toBe(28);
+        });
+    }
+});
+
+describe("P4 第 55 条：窄于最小值之和时条也被压", () => {
+    it("钉死的条在 600px 里也小于 28", () => {
+        const grid = ideRow(true);
+        const result = grid.layout({width: 600, height: 800});
+        const w = IDE_IDS.map((id) => Math.round(result.sizes[id].width * 100) / 100);
+        log("P4 widths@600", w);
+        log("P4 issues", result.issues.map((i: any) => [i.code, i.params?.cause]));
+        expect(w[0]).toBeLessThan(28);
+    });
+});
+
+describe("P5 第 4 条：host.setCollapsed 不触发 onApplied", () => {
+    it("版本递增、onApplied 零次", async () => {
+        const grid = ideRow(true);
+        let applied = 0;
+        const host = useGridHost({grid, contextKey: "p", onApplied: () => { applied += 1; }});
+        host.bindings.value.onExtent({width: 1400, height: 800});
+        const before = host.revision.value;
+        const r = host.setCollapsed("left", true);
+        log("P5", {ok: r.ok, changed: r.changed, revisionBefore: before, revisionAfter: host.revision.value, applied});
+        expect(applied).toBe(0);
+        expect(host.revision.value).toBeGreaterThan(before);
+    });
+});
+
+describe("P6 第 17 条：收起到 0 的区两侧的缝", () => {
+    it("sashSize 4：左区收起后左条与中间之间留 8px；宿主给条旁的线 0 后留 4px", () => {
+        for (const resolver of [4, (branch: string, index: number) => (branch === "main" && (index === 0 || index === 3) ? 0 : 4)] as const) {
+            const grid = createGrid({
+                kind: "branch", id: "main", orientation: "horizontal", children: [
+                    {kind: "leaf", id: "ls", ref: "ls", size: W(28), sizing: "fixed", minimumSize: W(28), maximumSize: {width: 28, height: U}},
+                    {kind: "leaf", id: "left", ref: "left", size: W(260), sizing: "fixed", minimumSize: W(160), collapse: {...POLICY, collapsed: true, restoreSize: 260}},
+                    {kind: "leaf", id: "center", ref: "center", size: {width: 1, height: 1}},
+                    {kind: "leaf", id: "right", ref: "right", size: W(240), sizing: "fixed", minimumSize: W(160), collapse: {...POLICY, collapsed: true, restoreSize: 240}},
+                    {kind: "leaf", id: "rs", ref: "rs", size: W(28), sizing: "fixed", minimumSize: W(28), maximumSize: {width: 28, height: U}},
+                ],
+            }, {sashSize: resolver as never});
+            const out = grid.layout({width: 1400, height: 800});
+            log(`P6 resolver=${typeof resolver}`, {sashes: out.sashSizes.main, center: out.sizes.center.width});
+        }
+    });
+});
+
+describe("P7 按比例分的面板：两条路的往返（设计依据）", () => {
+    const EXT = {width: 1208, height: 400};
+    const row = (restoreToShare: boolean) => createGrid({
+        kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: W(300), minimumSize: W(80)},
+            {kind: "leaf", id: "b", ref: "b", size: W(300), minimumSize: W(80)},
+            {kind: "leaf", id: "c", ref: "c", size: W(300), minimumSize: W(120), collapse: {...POLICY, collapsed: false, restoreSize: 200, ...(restoreToShare ? {restoreToShare: true} : {})}},
+        ],
+    }, {sashSize: 4});
+    const enter = (grid: any) => { const s = session(grid, EXT, "root", 1, "keyboard"); s.toggleCollapsed(); commit(grid, s); return widths(grid, EXT, ["a", "b", "c"]); };
+    it("今天的 Enter（邻居让位）与 setCollapsed（翻标记重排）", () => {
+        const g1 = row(false);
+        log("P7 Enter collapse (default)", enter(g1));
+        log("P7 intents after Enter collapse", ["a", "b", "c"].map((id) => g1.find(id).size.width));
+        log("P7 Enter expand (default, restoreSize)", enter(g1));
+        const g1b = row(false);
+        enter(g1b);
+        g1b.setCollapsed("c", false);
+        log("P7 Enter collapse then setCollapsed(false)", widths(g1b, EXT, ["a", "b", "c"]));
+        const g2 = row(true);
+        log("P7 restoreToShare Enter collapse", enter(g2));
+        log("P7 restoreToShare Enter expand", enter(g2));
+        const g3 = row(false);
+        g3.setCollapsed("c", true);
+        log("P7 setCollapsed(true)", widths(g3, EXT, ["a", "b", "c"]));
+        g3.setCollapsed("c", false);
+        log("P7 setCollapsed(false)", widths(g3, EXT, ["a", "b", "c"]));
+    });
+
+    it("拖到收起（两块按比例分）：today 的意图与展开结果", () => {
+        const ROW = {width: 1004, height: 400};
+        const grid = createGrid({
+            kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: W(500), minimumSize: W(100)},
+                {kind: "leaf", id: "b", ref: "b", size: W(500), minimumSize: W(100), collapse: {...POLICY, collapsed: false, restoreSize: 123}},
+            ],
+        }, {sashSize: 4});
+        const s = session(grid, ROW, "root", 0, "pointer");
+        s.update({x: 600, y: 0});
+        const r = commit(grid, s);
+        log("P7 drag-collapse b", {ok: r.ok, widths: widths(grid, ROW, ["a", "b"]), intents: [grid.find("a").size.width, grid.find("b").size.width], collapse: grid.find("b").collapse});
+        grid.setCollapsed("b", false);
+        log("P7 drag-collapse then setCollapsed(false)", widths(grid, ROW, ["a", "b"]));
+    });
+});
+
+describe("P8 翻标记重排的提交经 resizeBranches 落账：被压缩的保留像素兄弟的意图（已知限制）", () => {
+    it("窄窗口里把 a 的收起当作“目标=翻标记后的布局”提交", () => {
+        const NARROW = {width: 508, height: 400};
+        const build = () => createGrid({
+            kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: W(300), sizing: "fixed", minimumSize: W(100), collapse: {...POLICY, collapsed: false, restoreSize: 300}},
+                {kind: "leaf", id: "b", ref: "b", size: W(100), minimumSize: W(100)},
+                {kind: "leaf", id: "c", ref: "c", size: W(300), sizing: "fixed", minimumSize: W(100)},
+            ],
+        }, {sashSize: 4});
+        const grid = build();
+        const before = grid.layout(NARROW).sizes;
+        const flipped = build();
+        flipped.setCollapsed("a", true);
+        const after = flipped.layout(NARROW).sizes;
+        const ids = ["a", "b", "c"];
+        const baseline = Object.fromEntries(ids.map((id) => [id, before[id].width]));
+        const target = Object.fromEntries(ids.map((id) => [id, after[id].width]));
+        log("P8 baseline/target", {baseline, target});
+        const r = grid.resizeBranches([{branchId: "root", axis: "width", baseline, target, collapsed: {a: true}}]);
+        log("P8 resizeBranches", {ok: r.ok, code: r.code, intents: ids.map((id) => grid.find(id).size.width)});
+        // 今天的 Enter 提交：
+        const g2 = build();
+        const s = session(g2, NARROW, "root", 0, "keyboard");
+        const p = s.toggleCollapsed();
+        log("P8 today Enter preview", ids.map((id) => p?.layout.sizes[id]?.width));
+        const r2 = commit(g2, s);
+        log("P8 today Enter commit", {ok: r2.ok, intents: ids.map((id) => g2.find(id).size.width)});
+        g2.setCollapsed("a", false);
+        log("P8 then widen to 1004 after expand", widths(g2, {width: 1004, height: 400}, ids));
+    });
+});
+
+/**
+ * P9 候选规则的模拟（直接改节点意图，只为量数，不是产品写法）：
+ * 规则 R1：当前意图（翻过收起标记之后）就能呈现目标时，整支意图不改。
+ * 规则 R2：否则照旧反解，之后落账后展开着的按比例分的孩子按同一倍数缩放，使它们的意图之和等于落账前之和
+ *          （只在落账后还有收起着的按比例分的孩子时做）。
+ */
+function rescaleExpandedWeights(grid: any, branchId: string, oldIntents: Record<string, number>): void {
+    const branch = grid.find(branchId);
+    const weights = branch.children.filter((child: any) => child.sizing !== "fixed");
+    const collapsedWeights = weights.filter((child: any) => child.collapse?.collapsed === true);
+    if (collapsedWeights.length === 0) return;
+    const expanded = weights.filter((child: any) => child.collapse?.collapsed !== true);
+    const oldSum = expanded.reduce((sum: number, child: any) => sum + oldIntents[child.id]!, 0);
+    const newSum = expanded.reduce((sum: number, child: any) => sum + child.size.width, 0);
+    if (oldSum <= 0 || newSum <= 0) return;
+    for (const child of expanded) child.size.width *= oldSum / newSum;
+}
+
+describe("P9 按比例分的面板：拖动收起后按份额展开（候选规则 R2）", () => {
+    it("两块：拖到收起 b，R2 之后展开回到 500", () => {
+        const ROW = {width: 1004, height: 400};
+        const grid = createGrid({
+            kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: W(500), minimumSize: W(100)},
+                {kind: "leaf", id: "b", ref: "b", size: W(500), minimumSize: W(100), collapse: {...POLICY, collapsed: false, restoreSize: 123}},
+            ],
+        }, {sashSize: 4});
+        const old = {a: 500, b: 500};
+        const s = session(grid, ROW, "root", 0, "pointer");
+        s.update({x: 600, y: 0});
+        commit(grid, s);
+        const beforeRescale = widths(grid, ROW, ["a", "b"]);
+        rescaleExpandedWeights(grid, "root", old);
+        log("P9 two: presentation unchanged by R2", {beforeRescale, after: widths(grid, ROW, ["a", "b"]), intents: [grid.find("a").size.width, grid.find("b").size.width]});
+        grid.setCollapsed("b", false);
+        log("P9 two: expand by share", widths(grid, ROW, ["a", "b"]));
+    });
+    it("三块：拖 b|c 把 c 收起（b 吸收），R2 之后展开 c", () => {
+        const EXT = {width: 1208, height: 400};
+        const grid = createGrid({
+            kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: W(300), minimumSize: W(80)},
+                {kind: "leaf", id: "b", ref: "b", size: W(300), minimumSize: W(80)},
+                {kind: "leaf", id: "c", ref: "c", size: W(300), minimumSize: W(120), collapse: {...POLICY, collapsed: false, restoreSize: 200}},
+            ],
+        }, {sashSize: 4});
+        const old = {a: 300, b: 300, c: 300};
+        const s = session(grid, EXT, "root", 1, "pointer");
+        s.update({x: 500, y: 0});
+        const r = commit(grid, s);
+        const beforeRescale = widths(grid, EXT, ["a", "b", "c"]);
+        const intentsBefore = ["a", "b", "c"].map((id) => grid.find(id).size.width);
+        rescaleExpandedWeights(grid, "root", old);
+        log("P9 three: drag-collapse c", {ok: r.ok, beforeRescale, intentsBefore, afterRescale: widths(grid, EXT, ["a", "b", "c"]), intents: ["a", "b", "c"].map((id) => grid.find(id).size.width)});
+        grid.setCollapsed("c", false);
+        log("P9 three: expand c by share", widths(grid, EXT, ["a", "b", "c"]));
+    });
+});
+
+describe("P10 翻标记重排的 Enter 在窄窗口里展开（候选规则 R1）", () => {
+    it("a 收着、c 保留 300；展开 a 时 c 被压缩，R1 不写压缩值", () => {
+        const NARROW = {width: 508, height: 400};
+        const build = () => createGrid({
+            kind: "branch", id: "root", orientation: "horizontal", children: [
+                {kind: "leaf", id: "a", ref: "a", size: W(300), sizing: "fixed", minimumSize: W(100), collapse: {...POLICY, collapsed: true, restoreSize: 300}},
+                {kind: "leaf", id: "b", ref: "b", size: W(100), minimumSize: W(100)},
+                {kind: "leaf", id: "c", ref: "c", size: W(300), sizing: "fixed", minimumSize: W(100)},
+            ],
+        }, {sashSize: 4});
+        const ids = ["a", "b", "c"];
+        const grid = build();
+        const before = grid.layout(NARROW).sizes;
+        const flipped = build();
+        flipped.setCollapsed("a", false);
+        const after = flipped.layout(NARROW);
+        log("P10 flipped layout (= what setCollapsed(false) shows)", {sizes: ids.map((id) => after.sizes[id].width), issues: after.issues.map((i: any) => [i.code, i.params?.cause])});
+        const baseline = Object.fromEntries(ids.map((id) => [id, before[id].width]));
+        const target = Object.fromEntries(ids.map((id) => [id, after.sizes[id].width]));
+        const r = grid.resizeBranches([{branchId: "root", axis: "width", baseline, target, collapsed: {a: false}}]);
+        log("P10 today resizeBranches of that commit", {ok: r.ok, intents: ids.map((id) => grid.find(id).size.width)});
+        log("P10 widen to 1004 after", widths(grid, {width: 1004, height: 400}, ids));
+        const g2 = build();
+        const s = session(g2, NARROW, "root", 0, "keyboard");
+        const p = s.toggleCollapsed();
+        log("P10 today Enter expand preview", ids.map((id) => p?.layout.sizes[id]?.width));
+        const r2 = commit(g2, s);
+        log("P10 today Enter expand commit", {ok: r2.ok, intents: ids.map((id) => g2.find(id).size.width), wide: widths(g2, {width: 1004, height: 400}, ids)});
+    });
+});

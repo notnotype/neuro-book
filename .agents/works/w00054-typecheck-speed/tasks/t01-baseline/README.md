@@ -28,3 +28,7 @@ updated: 2026-11-24
 ## 顺手量到的一次（2026-11-25，w00046 t23 的 worktree）
 
 `packages/neuro-book` 的 `bun run typecheck`（tsc、vue-tsc 两个 web 配置）墙钟 7 分 18 秒，用户态 430 秒；当时机器负载约 10（别的会话在跑），所以只能当上界参考，t01 要在空闲时重量。
+
+## 分段耗时与是否先做（2026-11-25）
+
+主工作区、负载 24 到 30 时各量一次 `packages/neuro-book`：`tsc` 3884 个文件 103 秒，`vue-tsc -p tsconfig.web.json` 3169 个文件 122 秒，`vue-tsc -p tsconfig.browser-test.json` 3784 个文件 144 秒。TS7 只能加速 `tsc` 那段（约占 28%），vue-tsc 留在 6.0，这个包约省四分之一。三段各查一遍三千多个文件，重复检查与增量缓存可能比 TS7 收益大（推断，未量）。开发者同意先做新手引导，t01 以后开工时范围改为“去掉重复检查、增量缓存、TS7”三项一起量。

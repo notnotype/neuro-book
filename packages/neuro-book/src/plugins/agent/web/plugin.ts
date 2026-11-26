@@ -27,8 +27,8 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, quickPickKey, VIEW_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {ViewHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, VIEW_HEAD, VIEW_OWN_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewHeadOptIn, ViewOwnHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -54,6 +54,7 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
 import {STATUS_ITEMS_POINT, statusItemsPoint} from "../shared/status-item-point";
 import type {SettingWriteResult} from "nbook/shared/settings";
+import {MESSAGES_HEAD_BAND} from "./messages-head";
 import {createStatusItems} from "./status-items";
 import {createStatusLineWriter} from "./status-line-writes";
 import {statusLinePage, statusCatalog} from "./status-line-page";
@@ -415,7 +416,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 return null;
             };
             /** 消息视图的版式与列表栏收起：插件作用域一份，视图换代时接着用（只在内存，重开窗口回到缺省）。 */
-            const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false});
+            const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false, listWidth: 260});
 
             /** 对话位置（右栏的消息视图、编辑区页面、书房的面板）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
             const hostDeps = (position: ConversationPosition): SessionHostDeps => ({
@@ -770,7 +771,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
             };
 
-            const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
+            // 浮成只有它一个标签的窗时自绘整个头（workbench/views.md 输出 19 的“自绘头”）。
+            const view: ViewImplementation & ViewHeadOptIn & ViewOwnHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, [VIEW_OWN_HEAD]: {band: MESSAGES_HEAD_BAND}, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
             // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。

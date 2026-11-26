@@ -59,6 +59,8 @@ import type {ViewContainerDeclaration, ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
 import type {ActivityBarItemImplementation} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
+import {recordGridIssues} from "./grid-diagnostics";
+import type {WorkbenchGridIssue} from "./grid-diagnostics";
 import {createWorkbenchPages} from "./home-page";
 import {HomeSlot} from "./home-slot";
 import {createNotifications, NOTIFICATIONS_VIEW} from "./notifications";
@@ -294,7 +296,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                         // 只清自己：外壳重挂的先后可能反过来，不把新外壳交的清掉。
                         if (movePaneFocus === move) movePaneFocus = null;
                     };
-                }})},
+                }, reportGridIssues: (issues: readonly WorkbenchGridIssue[]) => recordGridIssues(diagnostics, issues, descriptor.id)})},
                 renderCommandHost: () => h(CommandHost, {commands, report, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),

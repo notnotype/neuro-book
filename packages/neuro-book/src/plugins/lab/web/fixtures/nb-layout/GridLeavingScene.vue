@@ -27,7 +27,12 @@ const grid = computed<Grid<string>>(() => createGrid<string>({
     orientation: "horizontal",
     children: order.value.map((id) => ({kind: "leaf", id, ref: id, size: {width: 1, height: 0}})),
 }, {sashSize: 4}));
-const host = useGridHost<string>({grid, contextKey: "leaving"});
+const host = useGridHost<string>({
+    grid,
+    contextKey: "leaving",
+    // 用 debug 不用 warn：lab-scenes 按手机宽度跑这个场景，放不下是正常结果，不是接线错误。
+    onIssues: (issues) => console.debug("[lab] nb-layout issues", issues),
+});
 
 const contents = computed<GridContentInput[]>(() => order.value.map((id) => ({key: id, leaf: id, insetTop: HEAD, active: true, ...(RETAINED.has(id) ? {leave: "retain" as const} : {})})));
 

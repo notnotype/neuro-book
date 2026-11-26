@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-layout",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "布局工具：布局树、尺寸求解器、落点判定（纯 TS），以及分隔条、渲染器与拖放反馈（Vue）；主题经 CSS 变量 --nb-layout-* 取。",
     "license": "MIT",
     "repository": {

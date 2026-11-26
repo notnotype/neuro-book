@@ -3,100 +3,59 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 1 轮：消息视图浮成窗口</title>
+<title>第 3 轮：消息视图停靠时，头和下面两栏怎么接</title>
 <style>
-:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
-main { max-width: 1320px; margin: 0 auto; padding: 32px 24px 64px; }
+main { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }
 h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
 h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
 section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
 .rec { margin: 0 0 16px; color: var(--rec); }
-.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3 { margin: 0 0 8px; font-size: 16px; }
-.cand img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-.cand a { display: block; }
-.cand .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
-.cand .stack { display: grid; gap: 8px; justify-items: center; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
-table { width: 100%; border-collapse: collapse; font-size: 15px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-th { color: var(--muted); font-weight: 600; }
+figure { margin: 0 0 10px; }
+figcaption { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
-<h1>第 1 轮：消息视图浮成窗口</h1>
+<h1>第 3 轮：消息视图停靠时，头和下面两栏怎么接</h1>
 
-<section data-nbdev-question="float-head" data-nbdev-type="single" data-nbdev-recommend="self">
-  <h2>浮动窗的头画成哪样？</h2>
-  <p class="rec"><strong>推荐 B 自绘头：列表栏通到顶，“星璃”那一行就是窗口头，少一行、两栏第一行等高。</strong></p>
+<section data-nbdev-question="dock-seam" data-nbdev-type="single" data-nbdev-recommend="line">
+  <h2>停靠时，头下面要不要画一条横线，把头和下面的两栏隔开？</h2>
+  <p class="rec"><strong>推荐 A 头下画线：竖线和气泡边框都收在这条线上，不再像被头切断；宽窄两版一样，只加在消息视图停靠时。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="workbench" data-nbdev-label="A 现状">
-      <h3>A 现状</h3>
-      <a href="r1/win-now.webp" data-nbdev-skip><img src="r1/win-now.webp" alt="现状：面板头“消息”一行，下面对话头“星璃”一行"></a>
+    <div class="cand" data-nbdev-option="keep" data-nbdev-label="现状">
+      <h3>现状</h3>
+      <figure><figcaption>窄版</figcaption><img src="r3/narrow-now.webp" alt="窄版现状"></figure>
+      <figure><figcaption>宽版</figcaption><img src="r3/wide-now.webp" alt="宽版现状"></figure>
     </div>
-    <div class="cand" data-nbdev-option="self" data-nbdev-label="B 自绘头">
-      <h3>B 自绘头</h3>
-      <a href="r1/win-self.webp" data-nbdev-skip><img src="r1/win-self.webp" alt="自绘头：没有“消息”一行，回到停靠的按钮在对话头右端"></a>
-      <div class="pair">
-        <a href="r1/win-self-sessions.webp" data-nbdev-skip><img src="r1/win-self-sessions.webp" alt="自绘头：会话一页"></a>
-        <a href="r1/win-self-collapsed.webp" data-nbdev-skip><img src="r1/win-self-collapsed.webp" alt="自绘头：列表栏收起成头像列"></a>
-      </div>
-      <p>拖窗口：按住第一行的空白处。“回到停靠”在右上角，排在“⋯”后面。</p>
+    <div class="cand" data-nbdev-option="line" data-nbdev-label="A 头下画线">
+      <h3>A 头下画线</h3>
+      <figure><figcaption>窄版</figcaption><img src="r3/narrow-a.webp" alt="窄版 A"></figure>
+      <figure><figcaption>宽版</figcaption><img src="r3/wide-a.webp" alt="宽版 A"></figure>
     </div>
-  </div>
-</section>
-
-<section data-nbdev-question="list-switch" data-nbdev-type="single" data-nbdev-recommend="title">
-  <h2>bot 与会话用哪种切换？</h2>
-  <p class="rec"><strong>推荐 B 标题式：没有横线，当前页靠字重与颜色区分，和右边的对话头同一行高。</strong></p>
-  <div class="cands three">
-    <div class="cand" data-nbdev-option="tabs" data-nbdev-label="A 现状的下划线标签">
-      <h3>A 现状的下划线标签</h3>
-      <div class="stack">
-        <img src="r1/col-tabs.webp" alt="下划线标签，bot 一页">
-        <img src="r1/col-tabs-sessions.webp" alt="下划线标签，会话一页">
-      </div>
-    </div>
-    <div class="cand" data-nbdev-option="title" data-nbdev-label="B 标题式">
-      <h3>B 标题式</h3>
-      <div class="stack">
-        <img src="r1/col-title.webp" alt="标题式，bot 一页">
-        <img src="r1/col-title-sessions.webp" alt="标题式，会话一页">
-      </div>
-    </div>
-    <div class="cand" data-nbdev-option="segmented" data-nbdev-label="C 分段控件">
-      <h3>C 分段控件</h3>
-      <div class="stack">
-        <img src="r1/col-segmented.webp" alt="分段控件，bot 一页">
-        <img src="r1/col-segmented-sessions.webp" alt="分段控件，会话一页">
-      </div>
-      <p>nb-ui 里分段控件用于同一份内容换看法，这里是换去处。</p>
+    <div class="cand" data-nbdev-option="inset" data-nbdev-label="B 竖线不碰头">
+      <h3>B 竖线不碰头</h3>
+      <figure><figcaption>窄版</figcaption><img src="r3/narrow-b.webp" alt="窄版 B"></figure>
     </div>
   </div>
-</section>
-
-<section>
-  <h2>直接做，不用答</h2>
-  <table>
-    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
-    <tbody>
-      <tr><td>列表栏宽度</td><td>拖列表栏右边的线改宽度，用 nb-layout 的分栏；拖窄过了最小宽度吸成头像列，往回拖展开；宽度记住</td></tr>
-      <tr><td>停靠在右栏、侧栏时</td><td>头的画法不变</td></tr>
-    </tbody>
-  </table>
 </section>
 
 <section>
   <h2>已定</h2>
   <ol class="decided">
-    <li>浮动窗里内置视图可以自绘整个头，停靠不变（开发者 2026-11-25）</li>
+    <li>浮动窗里内置视图可以自绘整个头，停靠不变（2026-11-25）</li>
+    <li>浮动窗的头用 B 自绘头；bot 与会话的切换用 B 标题式（第 1 轮，2026-11-25）</li>
+    <li>框架按钮悬停才显示；键盘用的标题按钮聚焦才显示、在左上角；窄版也自绘（2026-11-25）</li>
+    <li>加载中或出错时照常画面板头、就绪才自绘；窄版标题按钮按 Enter 不开抽屉；加第二个标签时直接换、不过渡（第 2 轮，2026-11-25）</li>
   </ol>
 </section>
 </main>

@@ -14,8 +14,9 @@ export interface NewEntryDraft {
     folderTouched: boolean;
     /** 放在谁下面；null 是最上面一层。 */
     parent: string | null;
-    /** 启用哪些数据：登记的类型 id。 */
+    /** 启用哪些数据：登记的类型 id。作者没动过勾选时跟着种类换成它的默认（`withKind`）。 */
     types: string[];
+    typesTouched: boolean;
     /** 它是谁的另一个身份；没有为 null。 */
     sameAs: string | null;
     /** 从哪里出场：null 是一开始就在，否则是那一章的开头。 */
@@ -23,7 +24,20 @@ export interface NewEntryDraft {
 }
 
 export function emptyDraft(parent: string | null): NewEntryDraft {
-    return {name: "", kind: "", folder: "", folderTouched: false, parent, types: [], sameAs: null, appears: null};
+    return {name: "", kind: "", folder: "", folderTouched: false, parent, types: [], typesTouched: false, sameAs: null, appears: null};
+}
+
+/**
+ * 选定一个种类（点了种类的按钮、种类的输入框失焦，author-ui.md 输出 4）：作者没改过的分组跟着种类，没动过的勾选整组换成这个种类的
+ * 默认设定组（`defaults` 按种类给，没登记的种类是空的）。只改这两项，所以在每敲一个字时不用它。
+ */
+export function withKind(draft: NewEntryDraft, kind: string, defaults: Readonly<Record<string, readonly string[]>>): NewEntryDraft {
+    return {
+        ...draft,
+        kind,
+        ...(draft.folderTouched ? {} : {folder: kind}),
+        ...(draft.typesTouched ? {} : {types: [...(defaults[kind.trim()] ?? [])]}),
+    };
 }
 
 /**

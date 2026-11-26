@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 3 轮：“在看”的章表、改值的写法与理由、长文字</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1440px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.cand img + img { margin-top: 8px; }
+.cand img.phone { width: 60%; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.links { font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td img { width: 100%; max-width: 520px; border: 1px solid var(--line); border-radius: 6px; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 3 轮：“在看”的章表、改值的写法与理由、长文字</h1>
+
+<section data-nbdev-question="chapter-finding" data-nbdev-type="single" data-nbdev-recommend="search-steps">
+  <h2>章多了，“在看”怎么找到一章？</h2>
+  <p class="rec"><strong>推荐 B：查一个人怎么变过来，最常做的是往前往后一章一章看，两边各一个按钮就不用每次开菜单；跳远了再开菜单搜。</strong></p>
+  <div class="cands" style="--n: 2">
+    <div class="cand" data-nbdev-option="search" data-nbdev-label="A 菜单里能搜，打开时滚到当前章">
+      <h3>A 菜单里能搜，打开时滚到当前章</h3>
+      <img src="r3/many.webp" alt="60 章的作品：剧情进度一段上面一个搜索框，“最初”固定在上，章表约 8 行高，打开时第 37 章在中间、末尾选中">
+      <img src="r3/many-search.webp" alt="搜“钟”：只剩第 4、16、28、40、52 章">
+      <p>章多于 12 章才出搜索框；章号、“第 N 章”、标题里的字都能搜。</p>
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-many" target="_blank">60 章</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-many-search" target="_blank">搜索</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="search-steps" data-nbdev-label="B A 加上两边往前、往后一处">
+      <h3>B A 加上两边往前、往后一处</h3>
+      <img src="r3/steppers.webp" alt="在看 第 37 章末尾 · 主线 两边各一个小箭头按钮">
+      <img class="phone" src="r3/steppers-phone.webp" alt="手机：箭头在在看控件两头">
+      <p>一步是一处：第 37 章末尾往前是第 37 章开头，再往前是第 36 章末尾；悬停写出要去哪。</p>
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-steppers" target="_blank">前后一步</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-steppers-menu" target="_blank">菜单打开</a></p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="intent-words" data-nbdev-type="single" data-nbdev-recommend="since">
+  <h2>改值时那个二选一怎么写？</h2>
+  <p class="rec"><strong>推荐 A：两项都在说“新值从什么时候起算”，读完就知道改完会怎样；值来自第 2 章的那一笔时写“从第 2 章起”，不用懂改哪一笔。</strong></p>
+  <div class="cands" style="--n: 3">
+    <div class="cand" data-nbdev-option="since" data-nbdev-label="A 从什么时候起：从最初起 | 从第 3 章起">
+      <h3>A 从什么时候起</h3>
+      <img src="r3/since-age.webp" alt="年龄（只在最初设过）：从最初起 | 从第 3 章起">
+      <img src="r3/since-where.webp" alt="现在在哪（第 2 章改过）：从第 2 章起 | 从第 3 章起">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-since-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-since-where" target="_blank">现在在哪</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="why" data-nbdev-label="B 为什么改：更正设定 | 剧情里变了">
+      <h3>B 为什么改</h3>
+      <img src="r3/why-age.webp" alt="年龄：更正设定 | 剧情里变了">
+      <img src="r3/why-where.webp" alt="现在在哪：更正设定 | 剧情里变了">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-why-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-why-where" target="_blank">现在在哪</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="where" data-nbdev-label="C 落点（上一轮）：改最初 | 第 3 章变了">
+      <h3>C 落点（上一轮）</h3>
+      <img src="r3/where-age.webp" alt="年龄：改最初 | 第 3 章变了">
+      <img src="r3/where-where.webp" alt="现在在哪：改第 2 章 | 第 3 章变了">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-where-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-where-where" target="_blank">现在在哪</a></p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="story-note" data-nbdev-type="single" data-nbdev-recommend="optional">
+  <h2>选“从第 3 章起”（剧情里变了）时，要不要写一句发生了什么？</h2>
+  <p class="rec"><strong>推荐 A 选填：这一句就是情节里那一条的文字，写了以后情节分页与来历里读得出“过了 18 岁生日”，不写就自动写“年龄变成 18 岁”（现在写的是“改年龄”）；“从最初起”是更正，不问为什么，改前改后回执里都有。</strong></p>
+  <div class="cands" style="--n: 3">
+    <div class="cand" data-nbdev-option="optional" data-nbdev-label="A 选填一行，不填自动写“年龄变成 18 岁”">
+      <h3>A 选填一行</h3>
+      <img src="r3/note-age.webp" alt="选着从第 3 章起时，输入框下面多一行：发生了什么（选填，不填就写年龄变成 18 岁）">
+      <img src="r3/note-height.webp" alt="身高：发生了什么一行，下面一条多 1 条待处理">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-note-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-note-height" target="_blank">身高</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="B 不加，情节里写“年龄变成 18 岁”">
+      <h3>B 不加</h3>
+      <p>浮层和上一轮一样；情节里那一条自动写“年龄变成 18 岁”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="required" data-nbdev-label="C 必填，不写不能保存">
+      <h3>C 必填</h3>
+      <p>样子同 A，没写时“保存”不可用；回车也不存。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="long-card" data-nbdev-type="single" data-nbdev-recommend="same-card">
+  <h2>长文字原处展开，用不用和短项同一张卡？</h2>
+  <p class="rec"><strong>推荐 A：同一张卡、同一条底栏（二选一、取消、保存），只是不浮起来、把下面推开；作者看到的是同一个编辑控件，只有放的位置不同。</strong></p>
+  <div class="cands" style="--n: 2">
+    <div class="cand" data-nbdev-option="same-card" data-nbdev-label="A 同一张卡，放在原处">
+      <h3>A 同一张卡，放在原处</h3>
+      <img src="r3/long-card.webp" alt="性格那一段变成一张卡：多行输入，下面从最初起、从第 3 章起，取消、保存；说话方式往下让">
+      <img src="r3/long-card-note.webp" alt="选着从第 3 章起时，卡里多一行发生了什么">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-long-card" target="_blank">长文字</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-long-card-note" target="_blank">选剧情里变了</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="bare" data-nbdev-label="B 上一轮的样子：输入框加底栏，没有卡">
+      <h3>B 上一轮的样子</h3>
+      <img src="r2/ed-inline-personality.webp" alt="性格那一段变成输入框，下面一行切换与取消、保存，没有卡片">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-personality" target="_blank">原地展开</a></p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>“在看”菜单的两段<br><img src="r3/tip.webp" alt="故事线旁的问号悬停：作品里平行发展的几条剧情……"></td><td>“故事线”“剧情进度”旁各一个说明图标，悬停看：<br>故事线：作品里平行发展的几条剧情：主线，以及从主线某一处分出去的另一种发展。同一个人在不同的线上可以不一样。“按章节自动”是哪一章讲哪条线，就看哪条线。<br>剧情进度：设定会随剧情变。这里选看故事进行到哪一刻的样子：“最初”是一切发生之前的起始设定，也可以看某一章的开头或末尾。</td></tr>
+      <tr><td>第 2 轮“直接修”那张表</td><td>照做：建议值列全、看“最初”时不问、浮层不越出编辑区、一处主色、多行输入长高、线与时间点的菜单、状态栏同一说法、窄屏分页右缘渐隐</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>页头合成一个“在看”控件（第 2 轮）</li>
+    <li>改值用紧凑浮层，玻璃的面；长文字在原处展开（第 2 轮）</li>
+    <li>分页宽时竖排、窄了横排滑动；保存提示 6 秒收起、写记在哪；初值叫“最初”；按钮叫“还原”（第 1 轮、2026-11-26）</li>
+    <li>每组设定各一个分页；改一项时就地改（t41 第 1 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

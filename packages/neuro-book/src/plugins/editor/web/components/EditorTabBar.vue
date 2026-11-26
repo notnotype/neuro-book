@@ -18,6 +18,8 @@ export interface TabItem {
     readonly pinned: boolean;
     /** 文件图标；页面标签没有。 */
     readonly icon: CatppuccinIcon | null;
+    /** 页面标签的图标：lucide 的类名（输出 53）；文件标签没有。与 `icon` 至多给一个。 */
+    readonly iconClass?: string | null;
     /** 同名提示（`…/notes`、根名或编辑器名，docs/specs/workbench/editor.md 输出 56）；不同名时为 null。 */
     readonly hint: string | null;
 }
@@ -102,6 +104,7 @@ const idOf = (key: string): string => tabOf(key).id;
     >
         <template #tab="{item}">
             <FileIcon v-if="tabOf(item.id).icon !== null" :icon="tabOf(item.id).icon!" class="editor-tab__icon" />
+            <span v-else-if="(tabOf(item.id).iconClass ?? null) !== null" :class="tabOf(item.id).iconClass" class="editor-tab__icon editor-tab__icon--page" aria-hidden="true" data-editor-tab-icon />
             <span class="editor-tab__label" :class="tabOf(item.id).preview ? 'italic' : ''" data-editor-tab-label>{{ item.title }}</span>
             <span v-if="tabOf(item.id).hint !== null" class="editor-tab__hint" data-editor-tab-hint>{{ tabOf(item.id).hint }}</span>
             <span v-if="tabOf(item.id).pinned" class="sr-only">（{{ pinnedLabel }}）</span>
@@ -229,6 +232,13 @@ const idOf = (key: string): string => tabOf(key).id;
 
 .editor-tab__icon {
     flex: none;
+}
+
+/* 页面的 lucide 图标与文件图标同宽，标签宽度不因是页面而变。 */
+.editor-tab__icon--page {
+    width: 1rem;
+    height: 1rem;
+    color: var(--text-secondary);
 }
 
 .editor-tab__label {

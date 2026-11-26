@@ -25,7 +25,7 @@ const createInitial = (): Grid<string> => createGrid<string>({
             ref: "c",
             size: {width: 300, height: 0},
             minimumSize: {width: 120, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
     ],
 }, {sashSize: 4});
@@ -35,7 +35,12 @@ const createInstance = createInstanceCounter();
 /** F6 移动焦点的范围；尺寸由 `NestedGrid` 自己量。 */
 const containerEl = useTemplateRef<HTMLElement>("containerEl");
 const grid = shallowRef<Grid<string>>(createInitial());
-const host = useGridHost<string>({grid, contextKey: "structure"});
+const host = useGridHost<string>({
+    grid,
+    contextKey: "structure",
+    // 用 debug 不用 warn：lab-scenes 按手机宽度跑这个场景，放不下是正常结果，不是接线错误。
+    onIssues: (issues) => console.debug("[lab] nb-layout issues", issues),
+});
 
 function parentBranchOf(node: GridNode<string> | null, id: string): GridBranch<string> | null {
     if (node?.kind !== "branch") return null;

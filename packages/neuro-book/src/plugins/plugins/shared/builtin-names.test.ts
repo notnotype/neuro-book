@@ -35,7 +35,7 @@ const LEGACY: Readonly<Record<string, {readonly name: Record<string, string>; re
     "nbook.storage": {name: {"zh-CN": "存储", "en-US": "Storage"}, description: {"zh-CN": "插件的记录与偏好。", "en-US": "Records and preferences for plugins."}},
     "nbook.tasks": {name: {"zh-CN": "后台任务", "en-US": "Background Tasks"}, description: {"zh-CN": "插件发起的长任务：进度、取消与重试，结束时发通知。", "en-US": "Long-running tasks started by plugins: progress, cancelling and retrying, and a notification when they finish."}},
     "nbook.theme-study": {name: {"zh-CN": "书房主题", "en-US": "Study Theme"}, description: {"zh-CN": "白天窗边、夜里台灯的一套外观。", "en-US": "A look for writing: a window by day, a desk lamp by night."}},
-    "nbook.web-tools": {name: {"zh-CN": "网页工具", "en-US": "Web Tools"}, description: {"zh-CN": "给写作助手的网页搜索与读取，经 DeepSeek 的搜索接口。", "en-US": "Web search and page reading for the writing assistant, through DeepSeek's search API."}},
+    "nbook.web": {name: {"zh-CN": "网页工具", "en-US": "Web Tools"}, description: {"zh-CN": "给写作助手的网页搜索与读取，经 DeepSeek 或 Tavily 的搜索接口。", "en-US": "Web search and page reading for the writing assistant, through the DeepSeek or Tavily search API."}},
     "nbook.workbench": {name: {"zh-CN": "工作台", "en-US": "Workbench"}, description: {"zh-CN": "工作台的外壳：侧栏、面板、标题栏与状态栏。", "en-US": "The workbench shell: sidebars, panel, title bar and status bar."}},
     "runtime.diagnostics": {name: {"zh-CN": "诊断", "en-US": "Diagnostics"}, description: {"zh-CN": "运行日志与诊断记录。", "en-US": "Runtime logs and diagnostic records."}},
 };

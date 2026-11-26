@@ -303,6 +303,70 @@ describe("输出 12：滚动", () => {
     });
 });
 
+describe("输出 14：边缘滚动的容器与轴", () => {
+    /**
+     * 根里一个比内容窄的容器，指针（`grab` 停在 (10, 0)）在它右端的边缘带里、离上下边都远。happy-dom 不排版，矩形与滚动
+     * 尺寸按实例定；计算样式读得到 `overflow-x`，`scrollBy` 会改 `scrollLeft`（不夹在最大值内，所以余量给足）。happy-dom 的计算样式
+     * 不把简写 `overflow` 展开成两个轴，所以两个轴分开写；竖向一律 hidden，只看横向。
+     */
+    function container(overflowX: string): HTMLElement {
+        const element = document.createElement("div");
+        element.style.overflowX = overflowX;
+        element.style.overflowY = "hidden";
+        Object.defineProperty(element, "getBoundingClientRect", {configurable: true, value: () => ({left: -200, top: -50, right: 20, bottom: 50, width: 220, height: 100})});
+        Object.defineProperty(element, "scrollWidth", {configurable: true, value: 1000});
+        Object.defineProperty(element, "clientWidth", {configurable: true, value: 220});
+        root.append(element);
+        return element;
+    }
+
+    /** 让指针再动一下，等这一下的发布出来，再等一帧：排在它前面的边缘滚动帧一定已经跑过。 */
+    async function settled(): Promise<void> {
+        root.dispatchEvent(pointer("pointermove", {clientX: 11, clientY: 0}));
+        await vi.waitFor(() => expect(session.state.value?.point).toEqual({x: 11, y: 0}));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+
+    it("`containers` 收到指针坐标与 `top`（跳过反馈元素）", () => {
+        const strip = container("auto");
+        const feedback = document.createElement("div");
+        feedback.setAttribute("data-drag-feedback", "");
+        document.body.append(feedback);
+        hit = [feedback, strip];
+        const asked: Array<{readonly point: {readonly x: number; readonly y: number}; readonly top: Element | null}> = [];
+        start({autoScroll: {containers: (query) => {
+            asked.push(query);
+            return [];
+        }}});
+        grab();
+        expect(asked.at(-1)).toEqual({point: {x: 10, y: 0}, top: strip});
+    });
+
+    it("`overflow-x: auto` 的容器，指针在右端带里：`scrollLeft` 逐帧变大", async () => {
+        const strip = container("auto");
+        start({autoScroll: {containers: () => [strip]}});
+        grab();
+        await vi.waitFor(() => expect(strip.scrollLeft).toBeGreaterThanOrEqual(20));
+        expect(strip.scrollTop).toBe(0);
+    });
+
+    it("`overflow-x: hidden` 的容器，内容比它宽、指针在右端带里：`scrollLeft` 不变", async () => {
+        const strip = container("hidden");
+        start({autoScroll: {containers: () => [strip]}});
+        grab();
+        await settled();
+        expect(strip.scrollLeft).toBe(0);
+    });
+
+    it("`containers` 交回空数组不滚", async () => {
+        const strip = container("auto");
+        start({autoScroll: {containers: () => []}});
+        grab();
+        await settled();
+        expect(strip.scrollLeft).toBe(0);
+    });
+});
+
 describe("输出 15：键盘拖动", () => {
     function keyboard(overrides: Partial<DragKeyboardOptions<string, string>> = {}): DragKeyboardOptions<string, string> {
         return {

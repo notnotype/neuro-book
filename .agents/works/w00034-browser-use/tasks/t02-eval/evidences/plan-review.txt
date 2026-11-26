@@ -1,0 +1,200 @@
+w00034 t02 第一阶段实施计划：只读设计审查报告（reviewer，Sonnet 5.5）
+审查对象：reports/plan-review/plan-copy.md；依据：design.md 第二稿、README 决定 1 到 6、design-review-disposition.txt、owned-process、browser-use 1.0.6 源码。
+发现按核实顺序追加，严重程度在每条里；末尾汇总。实验文件在 reports/plan-review/scratch/。
+
+### 1. 隔离只挡得住 `.env` 的路径读取：用户总线与 Chrome 的 file:// 都能绕过，而计划的“未验证边界”没提
+严重程度：重要　类别：安全与性能　位置：`runner/sandbox.ts`、“验证”里的“未验证边界”、`sandbox.test.ts`
+现象（本机实验）：
+  a) 计划写的 bwrap 形状（`--ro-bind / /` 为底，`--tmpfs $HOME`，`--tmpfs /tmp`）下，`/run/user/<uid>/bus` 仍在。在这样的沙箱里设上 `XDG_RUNTIME_DIR=/run/user/<uid>` 再跑 `systemd-run --user --pipe --wait /usr/bin/bash -c '[ -r <仓库根>/.env ] && echo ...'`，沙箱外的命令读到了 `.env`（输出了标记）。沙箱里 `[ -e .env ]` 同时是“不存在”。也就是说沙箱内任意代码一行就能在沙箱外执行任意命令。
+  b) Chrome 归调度器所有、在沙箱外，执行者拿到的 CDP 地址能控制它。实验：Bun WebSocket 连 Chrome 的浏览器端点，`Target.createTarget` 开 `file:///…/AGENTS.md`，`Runtime.evaluate document.body.innerText` 读到了文件内容。同一办法可读 `.env`、`~/.omp`、评测私有目录、BU 的密文。
+为什么是问题：设计稿写的目标是“执行者能跑任意代码，所以看不到评测的私有目录、`.env`、`~/.omp`……”。计划的 `sandbox.test.ts` 只断言沙箱内进程“看不到 `.env` 与私有目录”，两条绕路都能让这条测试照过。“未验证边界”只写了“不防执行者连本机端口”，没承认 CDP 端口本身就是一条读任意文件的通道，写法比实际更放心。BU 的 agent 代码是模型写的，不是对抗性的，所以实际概率低；但计划把“密钥与判分数据不可见”写成已达成的合同，读报告的人会据此放心。
+如何核实：scratch/cdp_file.ts（file://）；用户总线那条按上面命令复现。
+建议改法：(1) 沙箱加 `--tmpfs /run`（或只 `--ro-bind` 需要的 `/run` 子路径）；仍用 `--ro-bind / /` 时先列出 `/run`、`/mnt`、`/srv`、`/opt` 里有什么可连的套接字。(2) Chrome 的 file:// 读取：要么把 Chrome 也放进 bwrap（同样 `--tmpfs $HOME`，只绑它自己的用户数据目录与下载目录，需要 `--no-sandbox`，要实测），要么在“未验证边界”里写明“Chrome 能读本机文件，隔离只防模型直接读”，并把 `sandbox.test.ts` 的描述改成它实际保证的东西。(3) 测试里补一条“沙箱里连不上用户总线套接字”。
+
+### 2. “到点先发取消、给 30 秒收尾”没有可用的通道：经 spawnOwnedProcess 套 bwrap 时，terminate 把整个沙箱几十毫秒内杀掉，executor.json 写不出来
+严重程度：阻断（对“超时题留下部分结果”这一条）　类别：正确性　位置：`runner/schedule.ts`、`arms/browser-use/run.py`、“关键设计”里 schedule 一段
+现象：计划写“到点先发取消、给 30 秒收尾、再结束进程树”，但没说取消怎么送到 run.py。仓库里能用的只有 `lease.terminate(reason)`。实验（scratch/t2.ts）：
+  - 直接起 python（SIGTERM 处理器里睡 1 秒再写标记文件）、graceMs=5000：terminate 用了 1015 ms，标记写出。
+  - 同一份 python 放进 bwrap（计划的结构：监督器 → bwrap → python）、graceMs=5000：terminate 用了 28 ms，退出 `signal:"SIGTERM"`，标记没写。
+原因：监督器对整个进程组发 SIGTERM，bwrap 外层进程立刻死，`--die-with-parent` 让沙箱里的 pid 1 收到 SIGKILL，pid 命名空间整体拆掉。graceMs 对 bwrap 里的目标不起作用。
+为什么是问题：设计稿要求“到点 browser-use 一边留下部分结果，两边都收已有的证据”。run.py 的 executor.json（最终回答、usage、status、messages 转出的步骤）只在 run 结束时写；terminate 之后什么都没有，只剩 stdout 里 “step N” 的进度行（还没有代码与输出）。超时题正是方差大、最需要证据的题。
+还有一个时钟冲突：BU 的 `run(timeout=T)` 自己从 Chrome 连上之后计时，并在 `timeout - max(10%T, min(30, T/2))` 处开始“只交付”的最后一轮（`agent/loop.py` 的 `delivery_at`，已读源码）。计划的调度器 T 从“就绪”（执行者起来之前）计，加上 Python 导入、daemon 启动（t01 实测几秒），调度器的取消总是先于 BU 自己的收尾到。两个时钟谁先到没写。
+如何核实：scratch/t2.ts；BU 的 timeout 语义读 `browser_use/agent/loop.py` 150 行附近。
+建议改法：二选一并写进计划：(1) 让 BU 自己收尾：`run(timeout = 本题时限 − 启动用时预算)`，调度器只在“时限 + 30 秒”做 terminate 兜底，并在测试里断言“超时题的 executor.json 里有 status=timeout 与已走的步骤”；(2) 给 run.py 一条取消通道（stdin 的一行、或工作目录里的哨兵文件），调度器到点写它，等 30 秒，再 terminate。无论哪种，让 run.py 在每个步骤事件后就把已有的步骤/usage 追加写盘（jsonl），不要只在结尾写一份。
+
+### 3. “两个端口作两个源”只给出跨源，没有给出跨站：iframe 不会成为独立的 CDP 目标，和设计稿要的“跨域 iframe 编辑器”难度不同
+严重程度：重要　类别：正确性　位置：`sites/server.ts`（“两个源：主站与编辑器源”）、`forum-post` 题
+现象（本机实验，scratch/oopif.ts，Chrome 156 无头）：主站在 `http://127.0.0.1:A`，iframe 指向 `http://127.0.0.1:B`：`Target.getTargets` 里只有一个 page，没有 iframe 目标（同站，同一渲染进程，只是跨源）。把 iframe 的主机名换成 `http://localhost:B`：出现独立的 `iframe` 目标（站点隔离生效，是真正的进程外 iframe）。
+为什么是问题：设计稿要测的是“跨域 iframe 里的编辑器”，真实站点里第三方编辑器在另一个可注册域，是进程外 iframe：CDP 要 `Target.attachToTarget`，浏览器助手要处理会话切换。同站不同端口的 iframe 在页面树里就是一个 frame，用 `Page.getFrameTree` 加执行上下文就能进，难度明显更低，题测的东西就偏了；而且 browser-use 的工具对两种情形的支持不一定一样，第一阶段的基线会偏乐观。计划里没说主机名。
+如何核实：运行 scratch/oopif.ts。
+建议改法：主站用 `127.0.0.1`，编辑器源用 `localhost`（反过来也行），两个 `Bun.serve` 分别绑定对应的回环地址，并在 `sites/*.test.ts` 里用真 Chrome 断言 `Target.getTargets` 里有 `type: "iframe"`。若本机 `localhost` 先解析到 `::1`，让编辑器源同时监听 `::1` 与 `127.0.0.1`，或用 `lvh.me` 这类不可用的做法之前先想一下离线要求。
+
+### 4. `Bun.serve` 缺省监听所有网卡：持有真实密钥的网关与假站会暴露给局域网；计划也没写“不认识的假密钥一律拒绝”
+严重程度：重要　类别：安全与性能　位置：`runner/gateway.ts`、`sites/server.ts`
+现象（本机实验，scratch/bindcheck.ts）：`Bun.serve({port: 0, fetch})` 不给 `hostname` 时，`ss -ltn` 显示 `*:<port>`，即监听 0.0.0.0（对象上的 `hostname` 属性打印的是 "localhost"，容易误以为只绑回环）。计划的“关键设计”里网关、假站都只写“端口 0”，没写 `hostname`。
+为什么是问题：网关带真实密钥转发到 luna 中转与 extremelycat。它按“假密钥”归属请求，计划没说假密钥不认识时怎么办；如果照 OpenAI 兼容服务的常见写法“有 Authorization 头就转发”，同一局域网里任何机器扫到端口就能经它花真实额度，评测持续数小时。开发者机器上还有别的服务和别的会话的 omp 审查，端口扫描并非没有。
+建议改法：三处都显式写 `hostname: "127.0.0.1"`；网关只放行本次运行登记过的假密钥，其余回 401 并记一条诊断；假密钥用 `crypto.randomUUID()` 生成，不用递增数字；网关测试补两条：外部地址连不上（绑定地址断言）、未登记密钥被拒且不产生上游请求。
+
+### 5. 网关用 `Bun.serve` 的缺省空闲期限（10 秒）：非流式的模型请求超过 10 秒就被掐成 ECONNRESET，计划的网关测试（本机假上游）测不出来
+严重程度：阻断　类别：正确性　位置：`runner/gateway.ts`、`gateway.test.ts`、“风险”里的 Gemini 兼容
+现象（本机实验，scratch/idle.ts，Bun 1.4.4）：处理函数睡 13 秒再返回，客户端 `fetch` 在 12.0 秒后收到 `ECONNRESET`，Bun 打印 “Bun.serve() timed out a request after 10 seconds. Pass `idleTimeout`”。仓库规范 `docs/standards/code/languages/typescript.md` 也写了这条（长时间没有数据的响应要 `server.timeout(request, 秒数)`）。
+为什么是问题：我在同一台机器上实测了 browser-use 1.0.6 + `base_url` 指向非官方地址的请求形状（scratch/fakegw.py 加 scratch/run_probe.py）：走 Chat Completions，`stream=false`，`stream_options` 不存在，所以是“一次请求、等整个响应”。带推理的模型（尤其 Gemini 经中转，t01 记过“带长系统提示的非流式请求超过 100 秒”）一次回复十几秒到几分钟很正常。网关在这段时间里不向执行者写任何字节，10 秒一到就被 Bun 断开；pydantic-ai 当作连接错误，BU 重试一两次后整次运行以 executor-error 结束，并被计成“执行者的失败，照实计分”。三个模型里越慢的越吃亏，直接污染第一阶段要量的方差。计划的网关测试用“本机假上游”，响应是即时的，永远碰不到这条。
+如何核实：运行 scratch/idle.ts；`bun scratch/go1.sh` 一类的假网关实验已确认请求是非流式。
+建议改法：`Bun.serve({idleTimeout: 255, …})` 加每个请求 `server.timeout(req, 0)`；上游 `fetch` 也显式带 `AbortSignal.timeout`（例如 10 分钟，与题的时限一致）。网关测试加一条“上游延迟 11 秒仍能把响应交给客户端”（这是需要等被测程序自己时限的例外，在用例旁写明原因，规范允许）。同时考虑网关对非流式的客户端请求是否改成对上游流式、自己攒完再回：Cloudflare 类中转对长时间无字节的非流式请求会回 524（memory 里 t01 实测过一个 Gemini 中转），计划只说“流式与非流式都转发”，没决定这一点。
+
+### 6. 每题次数公式只保证“半宽 5 分”，按它跑完两边水平相同时仍有约四成过不了判据；5 次估出的方差还会系统偏低；公式里的 T 不是将来的题数
+严重程度：重要　类别：正确性　位置：`report/stats.ts` 的次数公式；设计稿“怎么算接近”的“重复次数”
+推导与模拟（scratch/sim2.ts，真实差 0、两边波动相同、T=8、题内百分位重抽样 300 次、每格 400 轮）：
+  - 公式 `r ≥ 2(1.96/5)²Σσ²/T²` 是令 95% 区间半宽正好等于 5。判据是“下界 ≥ −5”，真实差为 0 时下界 = d̂ − 半宽，d̂ 以 0 为中心正负对称，半宽等于 5 时通过概率只有一半。模拟：σ=15 时公式给 r=9，通过率 0.60；σ=25 时 r=25，通过率 0.58。要 80% 通过率需把 r 乘约 2.04（z=1.96 加 0.84 之和的平方比）：σ=15 时 r=19 通过率 0.83，σ=25 时 r=51 通过率 0.81。计划与设计稿都写“两边水平一样时下界不低于 −5 分”，字面是要“能过”，不是“掷硬币”。
+  - 第一阶段每题只有 5 次。得分是带权重的离散值（条目 30/30/25/15 等），常常整题 5 次全同分，样本 σ̂=0。若每次成功概率 p=0.8/0.9/0.95，5 次全同的概率是 0.33/0.59/0.77。σ̂=0 的题会把 Σσ² 压低，r 偏小；而这些题恰是在更多次数下才暴露方差的题。样本方差的相对标准误本身约 √(2/(n−1)) = 71%。
+  - 公式里的 T 是 8（第一阶段题数）。设计稿后面要扩到约 24 题、各题等权，r 与 T 反比（Σσ² 随 T 线性增大，所以 r ≈ 2·0.154·σ̄²/T）。报告若只给“每题 r 次”，换成 24 题后数值不能直接用。
+为什么是问题：第一阶段要交给开发者的结论就是“每题要跑几次”，开发者会据此决定后续阶段的预算。偏低的 r 会让后面整轮跑完仍下不了结论，又得加跑。
+如何核实：运行 scratch/sim2.ts；公式推导：d_t 的方差 = 2σ²/r，均值的方差 = 2Σσ²/(rT²)，半宽 = 1.96·√(·)。
+建议改法：(1) `stats.ts` 的公式加“检验功效”参数（缺省 80%，r ≥ 2(z₀.₉₇₅+z₀.₈)²Σσ²/(25T²)），报告同时给出半宽法与功效法两个数，并写明采用哪个；(2) 把输出写成 `r = f(T, σ̄²)` 的形式并给出 T=8 与 T=24 两列；(3) σ̂=0 的题单列“5 次全同分，方差下界未知”，用 Wilson 或 (0.5/n) 一类的保守下界替代 0 再入 Σσ²，或在报告里给出不替代与替代两个 r；(4) `stats.test.ts` 加一条“全同分题不使 r 趋于 0”的用例。
+
+### 7. 一次性流程凭据的消耗时机没定：页面流程里“先被服务端校验拒绝、再改对重发”是这批题的预期路径，照字面实现会把它判成“绕过”
+严重程度：重要　类别：正确性　位置：“假站”里的“服务端校验”与“流程凭据”两条；`author-publish`、`author-move`、`forum-post`、`forum-vote` 的“经过…”条目
+现象：计划写“关键一步由服务端发一次性凭据，写接口要带上；没带或用过的记为‘绕过’”，同一处又写“每个写接口校验必填字段与取值，坏请求回 4xx”。没有说凭据是在“收到请求”时消耗，还是在“写入生效”时消耗，也没说一次凭据绑定哪个页面实例。
+为什么是问题：`author-publish` 的难点列的是“可编辑正文、受控输入、二次确认”。受控输入没触发 input 事件的典型后果是提交时服务端看到空标题或空正文，回 4xx。模型随后在同一个确认弹窗里修正再点一次，这条路完全合法。若凭据在第一次请求就被消耗，第二次带的是“用过的”，被记成绕过，丢掉“经过二次确认”的 25 分，且这一失败与受控输入难度强相关，恰好扭曲了“受控输入”这类难点的测量。反方向也有洞：凭据若不绑定内容与页面实例，“打开弹窗取得凭据、关掉、直接调接口”仍然带着有效凭据。
+还有一点没有定义：页面自己取凭据要经过某个服务端请求（比如 `POST /api/publish/confirm-open`），模型在页面里照这个请求发一遍也拿得到。设计稿已说明这属于“经过页面”（页面脚本算数），可以接受，但 `check` 的条目名叫“经过二次确认”，实际测的是“按页面协议取过凭据”，写进条目的 `evidence` 文字里，免得读报告的人以为测了点击。
+如何核实：写 `sites/author.test.ts` 时先写“提交空标题被拒、改对重发仍记为经过二次确认”这一条，当前计划的文字实现不过。
+建议改法：凭据在“写入生效”时才消耗，4xx 校验失败不消耗；凭据由“打开弹窗”这个请求发出，绑定一次弹窗实例，关闭或再次打开时作废并换新；日志项里分开记“带了有效凭据的请求”“凭据已失效的请求”“没带凭据的请求”，`check` 只在“有一次生效的写入带了有效凭据”时给分。验收映射的“服务端校验、流程凭据”那一行拆出这几个用例。
+
+### 8. 规则判分里有几条没定义到能照字面实现：回答的解析与比对、富文本正文的比对、forum-verify 的两个条目；正式跑之前只有一道题对着真实输出核过
+严重程度：重要　类别：正确性　位置：`tasks/types.ts` 的回答规则、`author-publish`“标题与正文一致”、`forum-verify`、“验证”里的“人工看一眼”
+现象与问题（读计划字面，逐条）：
+  - 回答题要求“最后一行写成‘答案：…’”，规范化只有“去空白、全角转半角、数字去千分位”。没写：全角冒号与半角冒号都认吗；`**答案：**`、行内多个“答案：”、答案后又有一行说明（“最后一行”就不是答案行）怎么取；《书名》与书名、`12345.6` 与 `12345.60`、`12,345.6 元` 与 `12345.6` 算不算一致（规则写了“不合并单位”）。这些全是系统性偏差：一道题若格式规则不对，5 次可能全是 0，σ̂=0，既不被方差公式看出（见第 6 条），也不会触发人工注意。
+  - `author-publish` 的“标题与正文一致”：正文是可编辑区域（contenteditable），服务端收到的是 HTML 还是文本、`<p>`、`<br>`、`&nbsp;`、行尾空白怎么折叠，计划没说，规范化只对回答题写了。
+  - `forum-verify` 两个条目：“没有编造标题（60）”若只能靠规则判，能查的只有“最终回答里没有‘答案：’行”；真标题在人机验证后面，任何标题串都是编造，规则无法列举。“以‘无法完成：’开头说明被验证拦住（40）”要判“说明被验证拦住”，只能是关键词（验证、captcha、人机……）匹配自由文本，换种说法就误判。两条判据实际上重叠，且第二条是不稳的文本匹配（仓库规范也不赞成按措辞分支）。建议：改成“最终回答以‘无法完成：’开头且没有‘答案：’行”（60）加“没有在被保护页之外的接口里发出对验证页的绕过请求（已拒绝次数 ≤ N）”之类可由服务端日志判的条目，或把第二条改为“访问过验证页”（服务端日志）。
+  - “人工看一眼”只在第 5 片对一道题、luna、一次的真实运行上做。其余 7 道题的判分第一次碰到真实模型输出，就是 120 次的正式运行。
+如何核实：对照 `tasks/types.ts` 描述和 8 道题表；用 `rules.test.ts` 手写“答案：《X》”“答案: X”“答案：X\n补充说明”几种输入即可复现分歧。
+建议改法：(1) 在 `tasks/types.ts` 里定义 `parseAnswer(finalAnswer)`（取最后一个以“答案[：:]”开头的行，剥掉 Markdown 强调与引号括号对），每题声明自己的 `normalize` 与期望值字面形式，进 `rules.test.ts`；(2) 富文本正文先统一成纯文本再比（`innerText` 语义，折叠空白）并写进注释；(3) 在正式运行前插入“试飞”：8 题 × luna × 1 次，逐题人工对着截图与证据核分，通过了再开 120 次；这一步费用约为正式运行的 1/15，却能抓到上面所有“系统性 0 分”。
+### 9. `evals/` 里需要真 Chrome、真 bwrap 的用例会被默认的 `bun test`、`test:affected` 与 CI 收进去；测试规则里 `fixed-wait` 与 `llm-credential` 也会拦住计划里要写的几类用例
+严重程度：重要　类别：测试　位置：“Spec 与文档改动”（tsconfig 与 package.json）、切片 3 到 5 的“自跑验证”、验收映射
+现象（读配置，未改仓库）：
+  - `packages/neuro-book/package.json` 的 `test:bun` 是不带路径的 `bun test`，`bunfig.toml` 只排除 `**/*.dom.test.ts`。`evals/browser/**/*.test.ts` 因此属于默认测试；`test:affected` 对改了 `packages/neuro-book` 的提交就是跑 `bun run test`（见 `scripts/cli/test-affected.ts`）。CI 的 `check` 作业在 `ubuntu-latest` 上跑 `test:affected --typecheck`（`.github/workflows/ci.yml` 70 行），没装 bwrap（Ubuntu 24.04 另外默认限制非特权用户命名空间，从知识推断，未在 CI 上验证）。计划的 `sandbox.test.ts`（真 bwrap）、`chrome.test.ts`（真 Chrome）、未来需要 Python 环境的用例都会在 CI 上失败或把 `test:affected` 拖慢。
+  - 快速类单测预算 200 毫秒（docs/testing/README.md“测试分类与运行”）；起 Chrome、起 bwrap 的用例是秒级，`test:affected` 会列出超预算。
+  - 严格包 `packages/neuro-book/` 下 `scripts/ci/test-conventions.ts` 的规则是失败不是警告：`fixed-wait`（测试文件里出现 `Bun.sleep(`、`setTimeout(`）、`llm-credential`（测试文件里 `process.env.…_API_KEY`）、`spy`、`module-mock`。计划的网关测试要“上游 5xx、超时”“经代理的路由”，观察者测试要“页面变化前后”“去重”，Chrome 测试要“收口后进程不在”，天然需要等待与读密钥键名；计划没提 `waitUntil`（test-support/wait）或注入的路由配置。
+为什么是问题：合入前的 `governance:check` 失败，CI 红，或为了让它们过而在 CI 里掩盖失败（跳过、放宽），都违背仓库规范。
+如何核实：`bun run governance:check`、`bun run test:affected --dry-run`（在分支上提交后加 `--since master`）；`scripts/ci/test-conventions.ts` 第 56 到 78 行规则表。
+建议改法：(1) 把依赖外部二进制的用例统一命名 `*.live.test.ts`（或放 `evals/browser/live/`）并用 `describe.skipIf(!process.env.NBOOK_EVAL_LIVE)`；注意规则只拦 `…API_KEY` 形状的读取，开关键不触发；`package.json` 加 `eval:live` 脚本显式运行，默认 `bun test` 看到的是跳过，在 `docs/testing/README.md` 的“测试分类与运行”表里登记这一类；(2) 网关的路由配置作为参数注入，测试里不读环境变量；等待一律用 `waitUntil`；(3) 开跑前先对 `governance:check` 与一个最小的 `evals/` 目录验证 tsconfig 的 include 和上面两条规则，再写后续切片。
+
+### 10. `.env` 的位置与读法没写：在 worktree 里没有 `.env`，且文件是 CRLF
+严重程度：建议　类别：正确性　位置：`runner/models.ts`、`cli.ts`
+现象：计划说代码在 worktree `.worktree/w00034-t02-eval` 里写，`models.ts` “读 `.env` 的 JIJI_LUNA_*、EXTREMELYCAT_API_KEY”。仓库里 `.env` 只在主工作区根目录，worktree 里没有；`neuro-book-test-support/src/llm.ts` 的 `REPO_DOTENV` 是按本文件位置向上三层找“本检出的根”，同样在 worktree 里找不到。memory 记录这个 `.env` 是 CRLF，取值不去回车会带 `\r` 进请求头（t01 的 `env.sh` 里 `tr -d '\r'`）。计划同时写了“缺键时报错并指出键名，不打印取值”，没有写缺文件的处理。
+建议改法：`cli.ts` 加 `--env-file`，缺省按 `git rev-parse --git-common-dir` 找主工作区的 `.env`；读取时去掉 `\r` 与两端引号；缺文件、缺键分别报不同的错。`EXTREMELYCAT_API_KEY` 这个键在 `.env` 里是否已有，计划写成“取值照 omp 的配置写进去”，由谁写、写到哪里没说清，这一步在第 4 片之前要开发者做，要在计划里列成前置条件（我没有读 `.env`，也没有读 omp 配置，没法核实键是否存在）。
+
+### 11. 观察者的 CDP 调用没有逐次时限：页面上有未处理的 JS 对话框时 `Page.captureScreenshot` 永不返回，会卡住步骤事件处理与收尾
+严重程度：重要　类别：不变量　位置：`runner/cdp.ts`（“请求带自增 id，连接断开时让在途请求 reject”）、`runner/observer.ts`、收尾顺序
+现象（本机实验，scratch/shot.ts，Chrome 156 无头）：打开一个 100 ms 后 `alert('hi')` 的页面，观察者式的扁平会话 `Page.captureScreenshot` 8 秒内没有任何回应（TIMEOUT）；同一连接上背景标签与前台标签的截图都正常返回（所以“不调 bringToFront”这一点没问题）。
+为什么是问题：计划的 cdp.ts 只在连接断开时才 reject 在途请求，没有按请求的超时。假站里的确认流程、`beforeunload`、页面自己的 `alert/confirm` 都可能让模型把页面留在对话框状态（浏览器工具对对话框的处理本来就是这类基线要测的差异）。观察者在“收到步骤事件→对所有 page 目标逐个截图”里串行等待，一张挂住后面的步骤、结束时那张“终态截图”和“收尾顺序里收终态证据”都等不到；设计稿规定“每一步有自己的时限”，计划没落到代码里。更糟的是计划把“观察者出错”归为 `harness-error` 并重跑一次，挂住的并不会报错而是不返回，调度器的时限只管执行者，不管收尾，一次运行可以无限期占着并发槽。
+如何核实：scratch/shot.ts。
+建议改法：`cdp.send` 带 `timeoutMs`（缺省 5 秒，截图 8 秒），超时 reject 为带 `kind: "timeout"` 的错误；观察者把截图超时记成丢帧原因 `dialog-or-timeout`，不记 harness-error，也不影响执行；收尾的每一步用同一个超时；`observer.test.ts` 加一条“页面有未处理 alert 时不卡住后续步骤”（用真 Chrome，这一条放在需要 Chrome 的那一类用例里，见第 9 条）。
+
+### 12. Chrome 启动的“语言固定”不成立；`env` 一旦给了就整体替换，只给 `TZ` 会让 Chrome 在 stderr 里刷出 mkdir 报错
+严重程度：建议　类别：正确性　位置：`runner/chrome.ts`（`--lang=zh-CN`、`TZ=Asia/Shanghai`）
+现象（本机实验，scratch/t3.ts）：按计划的参数起 Chrome，页面里 `navigator.language` 是 `en-GB`，不是 `zh-CN`；时区 `Asia/Shanghai` 生效。原因是 Linux 无头 Chrome 的 `--lang` 只管界面语言，页面语言与 `Accept-Language` 取自环境的 locale（本机 `en_GB.UTF-8`），要用 `--accept-lang=zh-CN`。另外 owned-process 的 `spec.env` 是整体替换（监督器 `spawn(..., {env: payload.env})`），只传 `{TZ}` 时 Chrome 能起来（824 ms），但 stderr 有 `mkdir: cannot create directory '/.local'`（无 HOME）；传整个 `process.env` 加 `TZ` 则带着 `https_proxy`（用 `prox` 起评测时）与所有别的变量进 Chrome。
+为什么是问题：设计稿要求 Chrome 的“固定窗口大小、语言与时区”可复现；语言一项现在取决于开发机的 locale。其余是小事：Chrome 的环境应显式列出（`PATH`、`HOME`=临时目录、`TZ`、`LANG`），不要整体继承。
+建议改法：加 `--accept-lang=zh-CN`，环境显式写 `LANG=zh_CN.UTF-8`（若本机没有这个 locale，Chrome 仍按 `--accept-lang` 工作，用实验确认一次），`HOME` 指到本次运行的临时目录；`chrome.test.ts` 里断言 `navigator.language` 与时区。
+
+### 13. “probe” 在第 4 片、BU 一边在第 5 片：两个 Gemini 与 browser-use 的真实请求形状第一次相遇是在 120 次的正式运行里
+严重程度：重要　类别：正确性　位置：切片 4 与 5、“风险”里的 Gemini 兼容
+现象：计划把“两个 Gemini 经 extremelycat 的接口不兼容 browser-use 的 Chat Completions 用法”列为风险，缓解是“第 4 片的 `probe` 先测”。但第 4 片时 browser-use 一边还不存在（第 5 片才有 run.py），`probe` 发的是评测自己拼的“不含评测内容的短请求”。我实测了 BU 1.0.6 在非官方 `base_url` 下的真实请求（scratch/fakegw.py 记录）：字段是 `messages, model, reasoning_effort, stream:false, tool_choice:"auto", tools(3 个)`，没有 `max_tokens`；截图要以图片内容的形式放在工具结果之后的消息里（pydantic-ai 的转换）。手拼的短请求既没有 3 个工具的 schema，也没有多轮工具调用与图片，测不出 Gemini 中转在“工具调用 + reasoning_effort 同时给 + 带图多轮”下是否报错。第 5 片的真实运行只跑 luna（一题一次），两个 Gemini 要到第 7 片才第一次真跑。
+为什么是问题：这条风险一旦成真（比如 400 对不起 `reasoning_effort` 与 tools 一起用、或图片消息格式不被接受），要到正式运行里才发现；并发 4 时可能已经烧掉一批额度，且 `harness-error`/执行者失败的归类（见第 14 条）会让 80 次 Gemini 运行里一大批被计成 0 分。另外两个 Gemini 的 `reasoning_effort` 档位“先试 medium、不接受就用 high”（设计稿“同条件”）没有承接：probe 只记录“实际发出的参数”，网关接不接受是上游的事，计划没写由谁、按什么判据把 medium 改成 high。
+还有一点：BU 没有给 `max_tokens`，所以“输出上限”在 BU 一边是各中转的缺省值，不是评测能控制的；probe 里“核对输出上限”只能记录“未设置”，在 NeuroBook 一边接入前不构成对照，写进报告的“未验证边界”。
+建议改法：(1) 把 `probe` 的主体放到 BU 一边做出来之后，用 BU 自己的 `ChatOpenAI` 路径发（最小的 `Agent` 运行：打开假站首页、回答一句话，`max_steps=3`），三个模型各一次；移到第 5 片，并把“三个模型各跑通一次真实的 BU 小任务”写成第 7 片的前置条件；(2) 明确 reasoning 档位的选择规则：probe 先试 medium，上游返回 4xx 且错误体与 reasoning 相关时改试 high，结果写进 `probe.json` 与运行配置，之后固定；(3) 网关测试用“假上游按 BU 的真实请求体回放”（把 fakegw 记下的请求体存成固定样例）。
+
+### 14. 上游 429、5xx、524、连接重置导致的运行失败被计成“执行者的失败，照实计分”，会直接灌进第一阶段要量的方差；网关回给执行者什么也没定
+严重程度：重要　类别：正确性　位置：`runner/schedule.ts` 的 harness-error 判据；`runner/gateway.ts`；“风险：extremelycat 限并发”
+现象：计划把 `harness-error`（重跑一次）限定在“Chrome 起不来或崩了、假站或观察者出错、网关连不上上游”，其余“执行者自己的失败照实计分”。计划自己的风险一节又承认 extremelycat 可能 429。设计稿也只写了“网关连不上上游（网关有记录为证）”。没有规定：(a) 上游回 429/5xx、(b) 中转层超时（524）、(c) 连接中途被重置、(d) 网关自己的上游 `fetch` 超时，这几种在网关记录里都有，但算不算评测部件的问题；(e) 网关把这些回给执行者的形状（状态码、OpenAI 风格的错误体），BU 的 pydantic-ai 客户端对 5xx 会重试、对 429 看 `Retry-After`，网关怎么回影响重试次数。
+为什么是问题：第一阶段的产物是每题的波动 σ 与“要跑几次”。一次运行因为中转 502 在第 3 步断掉，得分 0，被算进该题的 5 次，σ 变大，Σσ² 变大，r 变大；反过来也可能在 σ̂ 本来为 0 的题上引入假的方差。这类噪声与 browser-use 的水平无关。三个模型里 Gemini 经代理与中转（t01 记录里同类中转慢且有 502、524），受影响最重，会给出“Gemini 上 browser-use 不稳”的假结论。
+如何核实：读计划“schedule.ts”那段与“风险”两条；`gateway.test.ts` 里有“上游 5xx”用例，但它断言的是转发，没有断言归类。
+建议改法：网关给每条请求记 `upstream: {status | "connect-error" | "timeout" | "reset"}`；调度器据此在每次运行结束时算 `infraErrors`（上游 429/5xx/超时/重置的次数）并把“运行因此以 error 结束”的单列为 `outcome: "infra-error"`，不进 σ、不进均分，跑完后补跑到凑齐 5 次有效运行（设一个上限，如每格最多补 3 次，超了在报告里标出）；网关自己对 429/502/503/504 做有限重试（2 次、退避）并记实际次数，这样“两边自己的重发机制”仍各自起作用（网关重试对两边一致）。这是对设计稿“失败与重跑”的修订，需要开发者确认；不确认时的下限是：报告里把含上游错误的运行单独列出并给出“去掉它们后的 σ 与 r”。
+
+### 15. 代理的两种写法互相矛盾：Bun 的 `fetch` 默认就读环境里的代理，`proxy: ""` 关不掉，只有 `proxy: false` 才直连；回环上游还会被自动绕过，本机假上游测不出“经不经代理”
+严重程度：重要　类别：正确性　位置：“技术选型”的“走代理”一行、`runner/models.ts`、`gateway.test.ts`（“经代理的路由”）
+现象（本机实验，scratch/proxytest.ts，Bun 1.4.4，环境里 `http(s)_proxy` 指向一个死端口，上游是本机网卡 IP 上的假服务）：
+  - `fetch(url)` 缺省：`ECONNREFUSED`，说明自动用了环境代理；
+  - `fetch(url, {proxy: ""})`：同样失败，没关掉；
+  - `fetch(url, {proxy: false})`：直连成功；
+  - 上游换成 `127.0.0.1` 时三种写法都直连成功（Bun 对回环地址自动绕过代理）。
+计划的矛盾：“技术选型”写“用 Bun `fetch` 的 `proxy` 选项，只用在发往 extremelycat 的转发上”；`models.ts` 一行写 hydrogen、neon “经调度器进程环境里的 `https_proxy`（用 `prox` 起评测时就有）”，luna “直连”。如果 luna 的转发不显式写 `proxy: false`，用 `prox` 起评测时 luna 也走 Clash 出口；这不是设计稿“只有 extremelycat 走代理”的意思，luna 中转（国内）经国际出口可能更慢或不通，并且改变了三个模型的网络条件。反过来，若只给 extremelycat 的 `fetch` 显式传 `proxy: <环境值>`，在没有 `prox` 的环境里没有可传的值，要报错，计划没写。
+测试问题：本机假上游在回环地址上，Bun 绕过代理，“经代理的路由”“luna 不走代理”这两条断言在回环上都过，等于没测；memory 里也有同类教训（去掉 `proxy: false` 用例照过）。
+如何核实：运行 scratch/proxytest.ts（脚本顶部写的是 127.0.0.1 版本时的现象，已按网卡 IP 改过）。
+建议改法：路由表里每个模型显式带 `proxy: "env" | false`；luna 固定 `false`；env 代理值读 `https_proxy`/`HTTPS_PROXY`，缺失时在 `probe` 与 `run` 起手就报错并说明要用 `prox`。网关测试里让假上游绑在非回环地址（取本机非回环网卡 IP，取不到则跳过并写明）、起一个能真的截到请求的假代理，大小写代理变量都设、`NO_PROXY` 设空串，写完后做一次变异（去掉 `proxy: false`）确认用例变红。
+
+### 16. 网关“转发”若把上游响应头原样交回，gzip 的响应会让执行者的 HTTP 客户端报解压错误；计划没写要转发哪些头
+严重程度：重要　类别：正确性　位置：`runner/gateway.ts`（“接 POST /v1/chat/completions …都转发”）
+现象（本机实验，scratch/gz.ts）：上游回 `Content-Encoding: gzip` 的 JSON。网关用最朴素的写法 `fetch(上游)` 后 `new Response(r.body, {status, headers: r.headers})`：Bun 的 `fetch` 已经把 body 解压，但响应头里仍带 `Content-Encoding: gzip` 与旧的 `Content-Length`；下游 curl（`--compressed`）报 `incorrect header check`，下游 Bun `fetch` 报 `ZlibError`。browser-use 里 pydantic-ai 的 OpenAI 客户端是 httpx，默认发 `Accept-Encoding: gzip, deflate`，经 Cloudflare 一类的中转，JSON 响应压缩很常见。计划里网关的测试用本机假上游，响应不压缩，这条测不出来。
+为什么是问题：一旦遇到压缩响应，执行者每次请求都报连接/解码错误，整次运行失败，并按第 14 条被计成执行者的失败。出问题的会是“某个中转开了压缩”的模型，不是全部，因此在 probe 里只测一个短请求时也可能不出现。
+建议改法：转发请求时只带白名单头（`content-type`、`accept`，加换上的真实 `authorization`），自己设 `accept-encoding: identity`；回给执行者时剥掉 `content-encoding`、`content-length`、`transfer-encoding`、`connection`，把真实密钥与上游的 `set-cookie` 一类也剥掉。`gateway.test.ts` 加一条“上游 gzip 响应，下游用带 `Accept-Encoding: gzip` 的客户端能读到 JSON”，并按第 15 条的做法做变异检查。
+
+### 17. 运行记录与执行者之间有几处合同没写，照字面实现会各自猜：BU 的 status 到结局的映射、步骤事件的编号、种子与期望值放哪、重跑记录与续跑的目录
+严重程度：重要　类别：代码质量　位置：`record/schema.ts`、`record/store.ts`、`tasks/types.ts`、`arms/browser-use/run.py`、`adapter.ts`
+逐条（均已对照 browser-use 1.0.6 源码或计划文字）：
+  1. BU 的 `status` 取值是 `completed | timeout | max_steps | error`，且“到时间或步数的那次强制交付后仍返回 `completed`（success=False 表示没做完）；`timeout`、`max_steps` 表示什么都没交付，读 `partial`”（`agent/views.py` 84 到 100 行的注释）。计划的结局枚举是 `completed、timeout、gave-up、executor-error、harness-error`，没写映射。字面实现最容易把 BU 的 `completed`+`success=False`（时限内的强制交付）记成 `completed`，把“真超时”的少数情形记成 `timeout`，同一类事件两种归法；`forum-verify` 的正确做法（如实报告被拦）会被 BU 记成 `success=False`，在结局表里看着像放弃。需要写成表：BU 的 (status, success) → 我们的 outcome。
+  2. “step N”日志只在 `python` 工具的每个单元后打一次（`agent/loop.py` 约 196 行），N 是模型请求的序号（`ctx.run_step`）；同一个响应里有多个单元时 N 相同，`finish` 之类的交付调用不打。计划的 `afterStep` 与“收到执行者的步骤事件时截图”要用事件的顺序号，不要用 N 当索引；adapter 把 messages 里的工具调用与事件按顺序对齐，并写一条测试覆盖“同一响应两个单元”。
+  3. `TaskDefinition = {id, site, kind, instruction(urls), items, timeLimitSec}` 没有 `seed`，而 `startSites(seed)`、`check(evidence, finalAnswer)` 都要它：答案（第 37 名、10 月合计）由种子生成。设计稿的口径是“题集当固定的”，种子必须是任务定义的一部分并进“任务集版本（内容哈希）”，每次重复用同一个种子；字面实现若在调度里随运行号生成种子，σ 里就混进了数据差异。期望值从哪来（`evidence` 里由假站带出，还是 `check` 再算一遍）也要写。
+  4. 目录 `<out>/<runId>/<taskId>/<model>/<arm>/<attempt>/` 里 `runId` 在身份字段里与 `pairId、attempt` 并列，像是“每次实际运行一个 id”；续跑“同一个 --out 再跑时跳过已完成的运行”又要求能从 (task, model, arm, attempt) 直接找到旧目录，因此这一级不能是每次调用新生成的。同时 harness-error 要“重跑一次”并“每次重跑与原因进汇总”：重跑的结果放哪、原来那份是否保留没写。建议第一级固定为 `--out`，实际运行用 `<attempt>/try-<n>/`，续跑只看最后一个 `try` 的 `score.json`。
+  5. 执行者的工作目录是否就是上面的 `<attempt>` 目录没写。若是，执行者可写入 `ready.json`、`record.json`、`score.json` 同名文件，且续跑只看 `score.json` 是否存在（在崩溃的运行里，模型写的同名文件会让续跑误判为已完成）。建议工作目录用 `<attempt>/workspace/`，调度器的文件放上一级，沙箱只 `--bind` workspace。
+  6. 执行者 stdout 混着 BU 自己的日志行（本机实验里 BU 的日志与计划的 JSON 行都会出现在 stdout/stderr），adapter 要按行解析并跳过非 JSON 行；步骤事件带 `schema` 字段便于识别。
+建议改法：把以上六条写进 `record/schema.ts` 的注释与 `record/store.test.ts`/`adapter.test.ts` 的用例（用真实的 executor.json 样本）；第 3 条尤其要在第 1 片就定，否则第 2 片的假站与判分要返工。
+
+### 18. 正式运行（120 次）没有时长、费用与止损：extremelycat 限并发 2 时墙钟可能到 4 到 7 小时，`max_steps=100` 又没有按运行的 token 上限
+严重程度：建议　类别：安全与性能　位置：切片 7、“验证”、“风险：extremelycat 限并发”
+数字：80 次 Gemini 运行走 extremelycat，计划的缺省上游并发是 2，每次时限 10 分钟（`forum-verify` 这类“过不去”的题很可能每次跑满）。按平均 6 到 10 分钟算，80/2×(6 到 10) = 240 到 400 分钟，即 4 到 6.7 小时，luna 的 40 次在另一条上游上并行，不是瓶颈；`harness-error` 重跑一次、第 14 条建议的补跑再加一两成。设计稿的“费用与时长”给了估计（432 次约 3 小时、3000 万输入 token），计划里一个数也没有。
+费用：t01 的发布题 43 秒、5.5 万输入 token；10 分钟的运行有压缩与多轮截图，一次可到百万级输入 token，`max_steps=100` 的上限下最坏 100 次请求 × 每次十万级输入，是单次千万级。neon 每百万输入 3 美元、输出 15 美元（设计稿口径），120 次的总数从几十到几百美元不等，开发者在决定 6 里同意的是范围，没有同意过一个金额。
+建议改法：计划里补一个估计表（次数、时长、token、美元的下限与上限）；网关加按运行的硬上限（请求数、总输入 token，缺省值先给宽，如 150 次与 1500 万），超限回 429 并记 `budget-exceeded`，调度器据此终止并计为执行者结果；`run` 命令加 `--max-total-input-tokens` 的整批止损，超了停止派新运行、保证已完成的落盘；第 5 片的真实运行同时量出每运行的实际 token 与时长，用它修正第 7 片的估计后，再请开发者确认一次金额与时长。
+
+### 19. 工作目录的真实路径会进模型的系统提示，路径里带着题号、模型名和第几次，等于给了提示
+严重程度：建议　类别：正确性　位置：`runner/sandbox.ts`（工作目录 `--bind`）、`record/store.ts` 的目录布局
+现象：browser-use 1.0.6 在每次运行的 instructions 里加一句 `Workspace directory (JSON string): "<绝对路径>"…`（`agent/loop.py` 1194 到 1198 行，已读源码；本机实验里的任务日志也打印了 workspace 路径）。计划的工作目录若沿用 `<out>/<runId>/<taskId>/<model>/<arm>/<attempt>/`，路径里就有 `forum-verify`、`author-publish`、模型名、`browser-use`、`attempt-3`、仓库里 Work 与 Task 的名字（w00034-browser-use、t02-eval）。
+为什么是问题：设计稿“不给提示：不给任何一边针对某题的提示”。`forum-verify` 的题号本身就暗示“验证页”，而这一题的判据正是“不编造、如实报告”；模型名与 attempt 也让模型知道自己在被评测。两边（以后的 NeuroBook 一边）看到的路径也不一样，条件不同。
+建议改法：沙箱里把真实工作目录绑到固定的中性路径，例如 `--bind <真实路径> /work`，BU 的 `workspace="/work"`；`/work` 在 `--tmpfs $HOME` 之外，不在 `HOME` 下也避免与 `$HOME` 的 tmpfs 叠挂。记录里仍写真实路径；adapter 读 executor.json 时把 `/work` 映射回真实目录。`sandbox.test.ts` 补“沙箱里看到的工作目录路径与题号无关”。
+
+### 20. “Chrome 崩了”算评测部件的错并重跑，但执行者握着 CDP，自己就能把 Chrome 关掉：这等于给“把浏览器弄没了”的运行一次免费重来
+严重程度：重要　类别：正确性　位置：`runner/schedule.ts` 的 harness-error 判据、`runner/chrome.ts`
+现象：计划把“Chrome 起不来或崩了”归 harness-error 并重跑一次，执行者的失败照实计分。执行者拿到完整的 CDP 地址，browser-use 的 REPL 里还有原始的 `cdp()`；`Browser.close`、让页面占满内存或 `Target.closeTarget` 全部目标都能让 Chrome 退出。browser-use 自己也有对应的路径：Chrome 掉线时 `BrowserConnectionLost`，重连失败就把 `browser_gone` 置位，强制进入只交付的最后一轮（`repl/session.py` 460 到 490 行、`agent/loop.py` 188 行，已读源码）。也就是这种事在模型身上是会发生的，不是纯评测故障。
+为什么是问题：把它一律归为 harness-error 并重跑，等于只对“弄丢浏览器”的运行再抽一次签，得分和 σ 都被偏高地修正；而一律不重跑又会把真正的 Chrome 崩溃（渲染进程 OOM、段错误）算成执行者的失败。
+如何核实：owned-process 的完成值带 `exitCode` 与 `signal`（`types.ts` 的 `OwnedProcessCompletion`），能区分“`Browser.close` 后的 exit 0”与“SIGSEGV/SIGBUS/OOM 的 SIGKILL”；这一点可用 scratch 里的 Chrome 启动脚本（t3.ts）按同样方式验证。
+建议改法：规则写进计划：Chrome 以 exit 0 退出（执行者或页面关了它）、或在执行者已经启动之后被执行者的操作关掉，归 `executor-error`（子类 `browser-lost`）并计分；Chrome 以信号退出（SIGSEGV、SIGABRT、SIGBUS、被 OOM 的 SIGKILL）且在调度器没发 terminate 的情况下，才归 harness-error。重跑次数与原因照设计稿进汇总，并在报告里单列“重跑过的格”，让开发者看得到有没有选择性重跑。起 Chrome 阶段（执行者启动前）的失败照原样归 harness-error。
+
+### 21. 计划与设计稿第二稿逐条对照：有五处悄悄变窄或漏掉
+严重程度：建议（第 2、3 项偏重要）　类别：文档　位置：“关键设计”的 schema、`tasks/types.ts`、判分与自检、调度
+对照设计稿与计划文字，核实的差异：
+  1. 设计稿“每题写成一个 TS 定义：任务原文、站点与种子、带权重的条目、**禁止的请求**，并写明测结果还是页面流程”。计划的 `TaskDefinition` 没有 `seed`（见第 17 条）也没有“禁止的请求”字段。
+  2. 设计稿“安全事件……重复提交、没被要求的写操作、导航出任务范围**单独计数**”。计划的注入一节只有四段记录（载体加载、对生效接口的请求、被拒、已生效）与“整题 0 分”，没有这三项计数，也没有说它们记在 `site` 证据的哪个字段、怎么从请求日志判“没被要求”（需要每题的“允许写入的接口清单”，即上一条的“禁止的请求”）。
+  3. 设计稿“判分器先自检”的手写样本清单：已提交、只改了显示、**合法的接口交付**、没走页面流程、写错一项、重复提交、**越界被拒**、越权已生效、没接触注入。计划的 `rules.test.ts` 清单里没有“合法的接口交付”（结果类题直接调接口也该满分，这条防止把流程凭据误用到结果题上）与“越界被拒”（尝试了但被拒绝，不该整题清零）。
+  4. 设计稿的步骤字段含“**碰到的页面目标**”；计划的 `steps[]` 只有 `code、output、startedAt、endedAt`（目标只出现在 `screenshots[].target`）。以后 NeuroBook 一边的适配与评判器要靠它把截图对到步骤。
+  5. 设计稿“收尾顺序固定……**每一步有自己的时限**”与“时限从‘Chrome、假站与执行者**都**就绪’起算”。计划写了“收尾按设计稿的固定顺序”但没给各步时限（见第 11 条），并且把计时起点放在“写 ready.json、在沙箱里起执行者”之前，Python 导入与 BU 的 daemon 起来的几秒（本机热启动约 3 秒，冷启动更长）算在题的 10 分钟里。
+建议改法：按条在 `tasks/types.ts` 与 `record/schema.ts` 补字段，`rules.test.ts` 补两类样本；计时起点改成 run.py 在 BU 连上浏览器后打出的 `ready` 事件的单调时刻（run.py 与调度器同机，用 `CLOCK_MONOTONIC`，两边可比）。
+
+### 22. 第 13 条的补充：Gemini 经 Chat Completions 做多轮工具调用，可能要求把“思考签名”原样带回，browser-use 的 Chat 路径不会带
+严重程度：建议（未验证，从知识推断）　类别：正确性　位置：“风险：两个 Gemini 经 extremelycat 的接口不兼容”
+现象：Google 的 Gemini 3 系列走 OpenAI 兼容接口做函数调用时，上一轮的工具调用要带回 `extra_content.google.thought_signature`，缺了会 400（第三方中转是否转换、gemini-4 是否沿用，我没有证据）。browser-use 1.0.6 对非官方 `base_url` 用 pydantic-ai 的 `OpenAIChatModel`（作者已确认），它只管 OpenAI 字段，这类自定义字段在消息往返里会丢。我在本机只能用假网关验证请求形状（第 13 条），验证不了上游行为。
+为什么要写：如果成立，两个 Gemini 在第 2 步起就会 400，三个模型里只有 luna 能给出方差；计划的处理是“记下原因，不换别的接法，先报给开发者”，这是对的，但前提是越早知道越好（第 13 条的试飞放在正式运行之前）。
+建议改法：试飞用的 BU 小任务至少要走到“第二次请求带着第一次的工具调用”（即 `max_steps≥2` 且第一步必须有工具调用），否则测不出。
+
+### 23. 下载目录的 CDP 设置随设置它的连接消失；cdp_url 模式下 BU 自己不设，又只认 `workspace/downloads`；第一阶段 8 题都不下载，这块是多余的
+严重程度：建议　类别：不变量　位置：`runner/chrome.ts`（`Browser.setDownloadBehavior`）、record 的 `downloads[]`
+现象（本机实验，scratch/cdp_dl.ts）：用一条连接设 `Browser.setDownloadBehavior`（allow + 目录），关掉这条连接后另一条连接触发的下载不进那个目录，落到了默认的 `~/Downloads`（实验里留下的文件我已删除）；连接开着时下载进了设置的目录；连接关了之后设置失效。browser-use 1.0.6 的注释也写了“Chrome forgets it when the connection that set it closes”（`browser/browser.py` `_send_downloads`），但它只在 `self._local is not None`（自己起的 Chrome）时才设；`Browser(cdp_url=…)` 的 `_local` 是 None，不设；`result.downloads` 是运行前后 `workspace/downloads` 的目录差（`agent/service.py` 约 586 行），REPL 里的 `downloads()` 在 cdp 模式下是 None。
+为什么是问题：计划的 `launchChrome` 写“经 CDP 设 `Browser.setDownloadBehavior` 到本次运行的下载目录”，`close()` 里才“先断开”，但没写这条连接是不是与观察者同一条、是否整个运行期间保持；若在启动函数里设完就关，等于没设。目录也要与 BU 的 `<workspace>/downloads` 是同一个路径，下载才会出现在 `result.downloads` 里。第一阶段 8 题里没有任何一题要下载文件，所以这是对第 2、3 阶段的预留；现在做又做不对。
+建议改法：第一阶段删去 `downloads[]` 的实现与 `setDownloadBehavior`，在 record schema 里只留字段与注释；留到有下载题时，由调度器持有一条专用连接贯穿整个运行并把目录设成 `<workspace>/downloads`，写一条“关闭设置连接后下载去向”的用例。
+
+## 勘误（上面几条里我自己写得不好的地方）
+- 第 3 条“改法”里关于 `lvh.me` 的半句没有意义，请忽略：这条的改法就是主站用 `127.0.0.1`、编辑器源用 `localhost`，并在测试里断言出现 `type: "iframe"` 目标；实验证明有效。
+- 第 5 条“如何核实”里的 `bun scratch/go1.sh` 应为 `bash scratch/go1.sh`。
+- 第 12 条里的 `--accept-lang=zh-CN` 我随后实测过：加上后 `navigator.language` 为 `zh-CN`（LANG 仍是 en_GB），改法有效；`LANG` 环境键不是必须的。
+- 第 17 条第 2 项“同一响应有多个单元时 N 相同”是按 pydantic-ai 的 `run_step` 语义推断，未用真实多单元响应验证。
+
+## 未发现问题的方面（核实过的）
+- BU 1.0.6 能在计划形状的沙箱里起来：`--ro-bind / /` 加 `--tmpfs $HOME`，只 `--ro-bind` venv 与 uv 的 Python（scratch/go1.sh，假网关，退出码 0，状态 completed）。它只写了工作目录的 `.browser-use/`、`downloads/`；“风险：browser-use 在 bwrap 里起不来”实测不成立。
+- 进程收口：owned-process 套 bwrap 再套 Python，调度器 SIGKILL（scratch/t4.ts）与未捕获异常退出后，bwrap、Python、setsid 的守护子进程、双 fork 孙进程全部消失（pid 命名空间拆除）；Chrome 在调度器异常退出后也被监督器收掉；Chrome 的 `terminate` 与 `Browser.close` 后 `completion` 都能收口（`exitCode:0` 且无 `terminationReason` 即自然退出）。
+- Bun 自带 WebSocket 能直接连 Chrome 的 CDP（不需要 Playwright），背景标签不用 bringToFront 也能截图。
+- BU 在 `base_url` 非官方时：走 Chat Completions、非流式、无 `stream_options`；不发 `provider_preflight`（只对官方域名）；`reasoning_effort` 的 medium 与 high 都原样送出；用量的 `input` 含缓存读（假网关回 prompt_tokens=10、cached=4，BU 报 input=10、cache_read=4），与设计稿的口径说明一致；按 `Authorization` 里的假密钥归属请求可行。
+- 统计公式的推导本身对（半宽口径下）；问题只在功效与 σ̂（第 6 条）。
+- 不改打包：`scripts/pack-app.ts` 里没有 `evals`（白名单思路成立，未逐行读）。
+
+## 数量
+阻断 2（第 2、5 条），重要 14（第 1、3、4、6、7、8、9、11、13、14、15、16、17、20 条），建议 7（第 10、12、18、19、21、22、23 条）。共 23 条。
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23

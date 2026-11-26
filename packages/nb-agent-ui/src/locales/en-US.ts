@@ -451,6 +451,7 @@ export default {
         empty: "No bots yet",
         noMatch: "No matching bots",
         list: "Messages list",
+        chat: "Chat",
         openList: "Open list",
         collapseList: "Collapse list",
         expandList: "Expand list",

@@ -9,17 +9,23 @@
  * - `sourceAt` 不排除标题栏按钮：“按下后面的窗它到最上面；点标题栏上的按钮不起拖”失败（按钮上一拖就起拖，落点出现、点击被吞）。
  * - 边缘带不算越过桌面左缘的部分：“左侧有平铺窗时，拖过平铺窗的位置还是贴左缘”失败（落点停在 `move`）。
  * - 被挡时 `actionKey` 给 `null`：“视口窄到平铺不下”失败（窗弹回按下之前的位置，不在松手处）。
- * - `deskClamp` 不减桌面的原点：“左侧有平铺窗时……浮动窗被夹在平铺窗右边”失败（窗被推到桌面右边）。
- * - 缩放预览不与桌面求交：“向桌面外拉大”失败（预览的高度伸出桌面，松手后才被夹）。
- * - 按下抬升挂在冒泡阶段（手柄在 `pointerdown` 里阻止冒泡，收不到）：“按住后面那扇窗的缩放手柄”失败（窗没到最上面）。
  * - 实现审查之后又做的一轮（同样各改坏一处、只跑对应的用例）：
  *   - 状态行只显示一次性的状态、不回退到常驻的“这一页不保存”：“存档坏、备份也写不进”失败（成功的操作之后提示没了）。
  *   - 最小化与关闭之后不把焦点给底栏按钮：“最小化：底栏按钮状态变……”与“关闭：点底栏重新打开……”失败。
  *   - 底栏恢复放不下时不降级、照样平铺（模型单元测试里同一处也失败）：“平铺的窗最小化后点底栏，那一侧空着但视口窄到放不下”失败。
- *   - `tileOnNextFrame` 改成同一拍里改树：“松手到边缘：窗从松手的位置飞进那一侧”失败（第一帧离按下之前的位置近）。
- *   - 没做出能失败的变异：删掉 `tileOnNextFrame` 里那次强制读布局，这条用例照过。Chromium 在鼠标松手的事件之后自己已经算过样式
- *     （命中测试），所以它不是必需的；采样器自己读布局也会替它算样式，所以采样从松手之后才开始。触摸与笔没有试过。
  * - 移动把夹过的宽高写回模型：“视口缩小后浮动窗都在桌面里……”失败（变回大视口后 notes 还是缩小的 360 宽）。
+ * - 示例改用库的夹取、抬升、松手起点与 `animate` 之后的一轮（改的是库或示例，各改坏一处、重新构建、只跑对应的用例）：
+ *   - `clampFloatRect` 不认区域的原点：“左侧有平铺窗时……浮动窗被夹在平铺窗右边”失败。
+ *   - `resizeFloatRect` 忽略 `bounds.area`：“向桌面外拉大”失败。
+ *   - 网格的手柄层恢复按 `floats` 的次序渲染：“聚焦最底下那扇窗的移动把手”失败（焦点丢了）。
+ *   - 没做出能失败的变异：网格的 `float-raise` 只听冒泡阶段，“按住最底下的 notes 的缩放手柄”照过。手柄在 `pointerdown` 里阻止冒泡，
+ *     但同时把焦点给自己，焦点进入照样请求抬升；只有按下（捕获阶段）那一次由 `NestedGrid.dom.test.ts` 按次数守着。
+ *   - `decideMotion` 不并松手的起点（`releaseStarts`）：“松手到边缘：窗从松手的位置飞进那一侧”失败。
+ *   - `settleFloatMoves` 不看 `animate`：“最大化与还原中途的矩形在两端之间”失败。
+ *   - 桌面模型的 `resize` 写回整个矩形：“视口变窄后只拉高被夹的窗”失败（变回大视口后宽还是 360）。
+ * - 松手的淡去与缩放不动轴的一轮（同样各改坏一处、重新构建、只跑对应的用例）：
+ *   - 网格从松手处出发的那次渲染里就摘掉外框的 `data-float`：“松手到边缘……投影与圆角随过渡淡去”失败（第一帧圆角已是 0）。
+ *   - `resizeFloatRect` 在方向为 0 的轴上也夹到最小尺寸：“视口矮到窗比最小高度还矮时横拖右边”失败（预览高 160，盖住底栏）。
  */
 
 import {expect, test, type Page} from "@playwright/test";
@@ -259,6 +265,71 @@ test("按住后面那扇窗的缩放手柄：它到最上面，缩放照常", as
     await expectRect(page, "clock", {width: 330, height: 240});
 });
 
+test("按住最底下的 notes 的缩放手柄：它到最上面，缩放照常", async ({page}) => {
+    // notes 在最底下：抬升它要把别的三扇窗都排到它下面，手柄层不能因此搬节点，指针捕获也不能丢。
+    expect(await zOf(page, "notes")).toBeLessThan(await zOf(page, "files"));
+    const at = await centerOf(handle(page, "notes", "bottom-right"));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await expect.poll(async () => (await zOf(page, "notes")) - (await zOf(page, "files"))).toBeGreaterThan(0);
+    await page.mouse.move(at.x + 30, at.y + 20, {steps: 4});
+    await expectRect(page, "notes", {width: 450, height: 320});
+    await page.mouse.up();
+    await expectRect(page, "notes", {width: 450, height: 320});
+    expect((await saved(page)).windows.notes!.floatRect).toMatchObject({width: 450, height: 320});
+    expect((await saved(page)).order.at(-1)).toBe("notes");
+});
+
+test("聚焦最底下那扇窗的移动把手：它到最上面，焦点还在把手上", async ({page}) => {
+    expect(await zOf(page, "notes")).toBeLessThan(await zOf(page, "files"));
+    await moveHandle(page, "notes").focus();
+    await expect.poll(async () => (await zOf(page, "notes")) - (await zOf(page, "files"))).toBeGreaterThan(0);
+    expect((await saved(page)).order.at(-1)).toBe("notes");
+    await twoFrames(page);
+    await expect(moveHandle(page, "notes")).toBeFocused();
+    // 焦点没丢，方向键照常移动这扇窗。
+    await page.keyboard.press("ArrowRight");
+    await expectRect(page, "notes", {x: 50, width: 420});
+});
+
+test("最大化与还原中途的矩形在两端之间：窗滑过去，不是一帧就到", async ({page}) => {
+    // 过渡要真的在跑：时长为 0 时采样不到中间帧，用例会空过。
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    const floating = await boxOf(frame(page, "notes"));
+    const desk = await deskBox(page);
+    /** 点 `name` 按钮之后逐帧记下 notes 的宽，直到过渡结束。 */
+    async function widthsAfter(name: string): Promise<number[]> {
+        await page.evaluate(() => {
+            const win = window as unknown as {__widths: number[]; __sampling: boolean};
+            win.__widths = [];
+            win.__sampling = true;
+            const sample = () => {
+                const element = document.querySelector("[data-leaf='notes']");
+                if (element !== null) win.__widths.push(element.getBoundingClientRect().width);
+                if (win.__sampling) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        });
+        await action(page, "notes", name).click();
+        await expect(page.locator("[data-moving]").first()).toBeAttached();
+        await settled(page);
+        return page.evaluate(() => {
+            const win = window as unknown as {__widths: number[]; __sampling: boolean};
+            win.__sampling = false;
+            return win.__widths;
+        });
+    }
+    const between = (widths: number[]) => widths.filter((width) => width > floating.width + 20 && width < desk.width - 20);
+    const growing = await widthsAfter("maximize");
+    await expectState(page, "notes", "maximized");
+    await expectRect(page, "notes", desk);
+    expect(between(growing).length).toBeGreaterThan(0);
+    const shrinking = await widthsAfter("maximize");
+    await expectState(page, "notes", "floating");
+    await expectRect(page, "notes", {x: floating.x, y: floating.y, width: 420, height: 300});
+    expect(between(shrinking).length).toBeGreaterThan(0);
+});
+
 test("最大化铺满桌面叶、再按恢复原矩形；最大化的窗没有手柄也拖不动", async ({page}) => {
     const before = await boxOf(frame(page, "notes"));
     const from = await centerOf(title(page, "notes"));
@@ -448,25 +519,26 @@ test("同一侧换窗：被换下的回到它的浮动矩形；取消平铺回�
     await expectRect(page, "desktop", {x: 0});
 });
 
-test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按下之前的位置", async ({page}) => {
+test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按下之前的位置；投影与圆角随过渡淡去", async ({page}) => {
     // 过渡要真的在跑：时长为 0 时采样不到中间帧，用例会空过。
     await page.emulateMedia({reducedMotion: "no-preference"});
     const pressed = await boxOf(frame(page, "notes"));
     await pickUp(page, title(page, "notes"));
     await moveTo(page, {x: 10, y: 450}, "tile:left");
     const dropped = await boxOf(frame(page, "notes"));
-    // 松手后每一帧都记下窗外框的矩形，直到平铺完成、过渡结束。采样本身会读布局、强制浏览器算样式，
-    // 所以从松手那一刻之后才开始：它的 `pointerup` 监听挂在 window 的冒泡阶段，晚于示例的提交，
-    // 它请求的第一帧排在示例“下一帧改树”的后面，不会替示例把样式提前算好。
+    // 松手后每一帧都记下窗外框的矩形，直到平铺完成、过渡结束。示例在松手的同一拍里改树，起点靠网格记着的最后偏移；
+    // 采样本身会读布局、强制浏览器算样式，所以从松手那一刻之后才开始：它的 `pointerup` 监听挂在 window 的冒泡阶段，晚于示例的提交。
+    // 投影与圆角按外框的计算样式读，不按 `data-float` 挑帧：从松手处出发时，外框还画成窗的那一次渲染在第一帧之前。
     await page.evaluate(() => {
-        const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
+        const win = window as unknown as {__frames: {y: number; height: number; radius: number; shadow: string}[]; __sampling: boolean};
         win.__frames = [];
         win.__sampling = true;
         const sample = () => {
             const element = document.querySelector("[data-leaf='notes']");
             if (element !== null) {
                 const {y, height} = element.getBoundingClientRect();
-                win.__frames.push({y, height});
+                const style = getComputedStyle(element);
+                win.__frames.push({y, height, radius: Number.parseFloat(style.borderTopLeftRadius), shadow: style.boxShadow});
             }
             if (win.__sampling) requestAnimationFrame(sample);
         };
@@ -477,7 +549,7 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
     await expect(page.locator("[data-moving]").first()).toBeAttached();
     await settled(page);
     const frames = await page.evaluate(() => {
-        const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
+        const win = window as unknown as {__frames: {y: number; height: number; radius: number; shadow: string}[]; __sampling: boolean};
         win.__sampling = false;
         return win.__frames;
     });
@@ -489,6 +561,98 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
     expect(Math.abs(start.y - dropped.y)).toBeLessThan(Math.abs(start.y - pressed.y));
     // 之后还有几帧才到终点：确实是在飞，不是一帧就到。
     expect(frames.length - first).toBeGreaterThanOrEqual(4);
+    // 窗的投影与圆角随过渡淡去：松手后第一帧还是卡片，圆角一路只减不增，走完才没。
+    expect(frames[0]!.radius).toBeGreaterThan(0);
+    expect(frames[0]!.shadow).not.toBe("none");
+    for (let index = 1; index < frames.length; index += 1) expect(frames[index]!.radius).toBeLessThanOrEqual(frames[index - 1]!.radius + 0.01);
+    expect(frames.at(-1)!.radius).toBe(0);
+    expect(frames.at(-1)!.shadow).toBe("none");
+});
+
+test("拖平铺窗与桌面之间的分隔线：浮动窗跟着让进桌面，手势不被打断，松手不跳", async ({page}) => {
+    await tile(page, "notes", "left");
+    // calc 原在 x=500，平铺之后被夹在桌面的左缘。
+    await expectRect(page, "calc", {x: (await deskBox(page)).x});
+    const side = page.locator("[data-sash^='tile-']");
+    const at = await centerOf(side);
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 100, at.y, {steps: 6});
+    // 预览中桌面左缘右移 100，calc 跟着它。
+    const previewDesk = await deskBox(page);
+    await expectRect(page, "calc", {x: previewDesk.x});
+    await page.evaluate(() => {
+        const win = window as unknown as {__xs: number[]; __sampling: boolean};
+        win.__xs = [];
+        win.__sampling = true;
+        const sample = () => {
+            const element = document.querySelector("[data-leaf='calc']");
+            if (element !== null) win.__xs.push(element.getBoundingClientRect().x);
+            if (win.__sampling) requestAnimationFrame(sample);
+        };
+        window.addEventListener("pointerup", () => requestAnimationFrame(sample), {once: true});
+    });
+    await page.mouse.up();
+    await settled(page);
+    await twoFrames(page);
+    const xs = await page.evaluate(() => {
+        const win = window as unknown as {__xs: number[]; __sampling: boolean};
+        win.__sampling = false;
+        return win.__xs;
+    });
+    // 手势没被浮动窗的变化取消：分隔线停在松手处。
+    await expectRect(page, "notes", {width: 818});
+    await expectRect(page, "desktop", {x: previewDesk.x});
+    // 松手之后每一帧 calc 都在预览时的位置，没有先跳回去再回来。
+    expect(xs.length).toBeGreaterThan(0);
+    for (const x of xs) expect(Math.abs(x - previewDesk.x)).toBeLessThanOrEqual(1);
+});
+
+test("视口变窄后只拉高被夹的窗：视口变回来，宽是记录的，高是拉过的", async ({page}) => {
+    // 先把 notes 挪到最上面：视口窄了，别的窗被夹过来会盖住它的下边。
+    await text(page, "notes").click({position: {x: 40, y: 20}});
+    await page.setViewportSize({width: 360, height: 700});
+    await expect.poll(async () => (await deskBox(page)).width).toBe(360);
+    await expectRect(page, "notes", {x: 0, width: 360, height: 300});
+    const at = await centerOf(handle(page, "notes", "bottom"));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x, at.y + 40, {steps: 4});
+    await expectRect(page, "notes", {width: 360, height: 340});
+    await page.mouse.up();
+    await settled(page);
+    expect((await saved(page)).windows.notes!.floatRect).toMatchObject({width: 420, height: 340});
+    await page.setViewportSize({width: 1440, height: 900});
+    await settled(page);
+    await expectRect(page, "notes", {width: 420, height: 340});
+});
+
+test("视口矮到窗比最小高度还矮时横拖右边：高度不撑回最小尺寸，预览不盖住底栏", async ({page}) => {
+    await page.setViewportSize({width: 1250, height: 220});
+    await settled(page);
+    const desk = await deskBox(page);
+    const start = await boxOf(frame(page, "files"));
+    // 前提：files 被夹到比最小高度 160 还矮。
+    expect(start.height).toBeLessThan(160);
+    const at = await centerOf(handle(page, "files", "right"));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 27, at.y, {steps: 4});
+    await expectRect(page, "files", {x: start.x, y: start.y, width: start.width + 27, height: start.height});
+    const preview = await boxOf(frame(page, "files"));
+    expect(preview.y + preview.height).toBeLessThanOrEqual(desk.y + desk.height + 1);
+    // 窗正下方的底栏上那一点命中的是底栏，不是 files。
+    const bar = await boxOf(page.locator(".taskbar"));
+    const hit = await page.evaluate(({x, y}) => {
+        const element = document.elementFromPoint(x, y);
+        return {files: element?.closest("[data-leaf='files']") != null, bar: element?.closest(".taskbar") != null};
+    }, {x: preview.x + preview.width / 2, y: bar.y + bar.height / 2});
+    expect(hit).toEqual({files: false, bar: true});
+    await page.mouse.up();
+    await settled(page);
+    await expectRect(page, "files", {width: start.width + 27, height: start.height});
+    // 只写回横向：记录的高还是 300。
+    expect((await saved(page)).windows.files!.floatRect).toMatchObject({width: 480 + 27, height: 300});
 });
 
 test("视口窄到平铺不下：落点是 blocked、写 Not enough room，松手不平铺、窗停在松手处", async ({page}) => {

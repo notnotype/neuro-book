@@ -14,6 +14,7 @@ import ControlInvalidFixture from "../../acceptance/ControlInvalidFixture.vue";
 import DialogSurfacesFixture from "../../acceptance/DialogSurfacesFixture.vue";
 import PopupListsFixture from "../../acceptance/PopupListsFixture.vue";
 import SuggestionMenuFixture from "../../acceptance/SuggestionMenuFixture.vue";
+import TabsScrollFixture from "../../acceptance/TabsScrollFixture.vue";
 import {ACCEPTANCE_DEFINITIONS} from "../../acceptance/definitions";
 import {useColorway} from "../../composables/useColorway";
 import {useTheme} from "../../composables/useTheme";
@@ -24,6 +25,7 @@ const FIXTURES: Record<string, Component> = {
     "popup-lists": PopupListsFixture,
     "suggestion-menu": SuggestionMenuFixture,
     "dialog-surfaces": DialogSurfacesFixture,
+    "tabs-scroll": TabsScrollFixture,
 };
 
 const route = useRoute();

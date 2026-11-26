@@ -17,14 +17,14 @@ function panel(
     return {id, size, minimum, maximum, sizing};
 }
 
-function collapsed(id: string, collapsedSize: number, restoreSize: number, minimum: number, size = minimum): SashPanel {
+function collapsed(id: string, collapsedSize: number, minimum: number, size = minimum): SashPanel {
     return {
         id,
         size,
         minimum,
         maximum: UNBOUNDED,
         sizing: "fixed",
-        collapse: {collapsedSize, restoreSize, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
+        collapse: {collapsedSize, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
     };
 }
 
@@ -91,12 +91,12 @@ describe("唯一空间分配：fixed 与 weight", () => {
 
 describe("收起面板的刚性范围", () => {
     it("收起面板沿主轴是 [collapsedSize, collapsedSize]，不受展开最小值约束", () => {
-        expect(sashPanelBounds(collapsed("left", 0, 340, 280))).toEqual({low: 0, high: 0});
+        expect(sashPanelBounds(collapsed("left", 0, 280))).toEqual({low: 0, high: 0});
     });
 
     it("收起的 0 占用不会把兄弟的最小尺寸撑开", () => {
         const sizes = allocateSashPanels([
-            collapsed("left", 0, 340, 280),
+            collapsed("left", 0, 280),
             panel("editor", 1, 120),
         ], 400);
         expect(sizes).toEqual([0, 400]);
@@ -104,9 +104,31 @@ describe("收起面板的刚性范围", () => {
 
     it("Section 式的 32px 收起保留标题行占用", () => {
         const sizes = allocateSashPanels([
-            collapsed("outline", 32, 220, 96),
+            collapsed("outline", 32, 96),
             panel("files", 1, 96),
         ], 600);
         expect(sizes).toEqual([32, 568]);
+    });
+});
+
+describe("标了刚性的面板", () => {
+    const rigid = (id: string, size: number, minimum = 0, maximum = UNBOUNDED): SashPanel => ({...panel(id, size, minimum, maximum, "fixed"), rigid: true});
+
+    it("范围是夹进声明最小与最大的意图；按比例分的标了不起作用", () => {
+        expect(sashPanelBounds(rigid("bar", 48))).toEqual({low: 48, high: 48});
+        expect(sashPanelBounds(rigid("bar", 500, 100, 300))).toEqual({low: 300, high: 300});
+        expect(sashPanelBounds({...panel("share", 1, 50, 400), rigid: true})).toEqual({low: 50, high: 400});
+    });
+
+    it("空间够时和保留像素的一样取意图，余量给按比例分的", () => {
+        expect(allocateSashPanels([rigid("bar", 48), panel("editor", 1, 100)], 600)).toEqual([48, 552]);
+    });
+
+    it("最小值之和放不下：先按比例压别的，刚性的最后才让", () => {
+        expect(allocateSashPanels([panel("a", 1, 400), rigid("bar", 300), panel("b", 1, 200)], 600)).toEqual([200, 300, 100]);
+    });
+
+    it("刚性的之和也放不下：只在刚性的之间按比例压，别的为 0", () => {
+        expect(allocateSashPanels([rigid("top", 300), panel("a", 1, 100), rigid("bottom", 100)], 200)).toEqual([150, 0, 50]);
     });
 });

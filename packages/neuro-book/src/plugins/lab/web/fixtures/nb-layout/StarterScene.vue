@@ -16,7 +16,7 @@ const grid = shallowRef(createGrid<string>({
             size: {width: 240, height: 0},
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
         {kind: "leaf", id: "editor", ref: "editor", size: {width: 600, height: 0}},
     ],
@@ -30,7 +30,13 @@ function save(): void {
 
 // 2 到 4. 量容器、算布局、接纳手势提交：都在 useGridHost 里，整包绑到 NestedGrid 上。
 // contextKey 标出这是哪一块布局：换了它，进行中的旧手势就不落账。
-const host = useGridHost({grid, contextKey: "starter", onApplied: save});
+const host = useGridHost({
+    grid,
+    contextKey: "starter",
+    onApplied: save,
+    // 诊断的唯一出口：放不下、被拒的提交都从这里交出。不给时库不打印，开发检查只警告一次“没有出口”。
+    onIssues: (issues) => console.warn("nb-layout issues", issues),
+});
 
 // 5. 结构变了要通知：原地改了树之后调 invalidate()。收起与展开用 host.setCollapsed，它自己重发布局。
 function split(): void {

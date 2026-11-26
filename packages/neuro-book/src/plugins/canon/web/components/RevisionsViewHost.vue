@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 改动记录视图的宿主（同名 .md；docs/specs/canon/author-ui.md 输出 24、26）：经读取层分页读 `revisions` 与章表，折成
- * `RevisionsView` 的 props；“还原”放进窗口里那一个还原对话框，“看回执”打开回执页。
+ * `RevisionsView` 的 props；“还原”放进窗口里那一个还原对话框，“查看详情”打开回执页。
  */
 import {computed} from "vue";
 
