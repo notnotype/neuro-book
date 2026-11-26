@@ -25,11 +25,13 @@ updated: 2026-11-26
 
 ## 当前状态
 
-- 2026-11-26：Spec 草稿与计划第一版提交（cf89b6a38）。计划审查：Opus、Sonnet 前端、Sonnet 整体三份已处理（[处理记录](evidences/plan-review-disposition.txt)），omp `@review` 在后台跑；计划改到[第二版](plan.md)，Spec 同步修订。
-- Work worktree `.worktree/w00033-page-agent`（分支 `feat/w00033-page-agent`）已建、已装依赖，尚未写代码。
+- 2026-11-26：Spec 草稿与计划第一版提交（cf89b6a38）。计划审查：Opus、Sonnet 前端、Sonnet 整体三份已处理（[处理记录](evidences/plan-review-disposition.txt)），omp `@review` 在后台跑；计划改到[第二版](plan.md)，Spec 同步修订（bf94b13f5）。
+- 第 1 片（上游 Spec 的 planned 条目）在 master 上提交（b3c875f37）。
+- 第 3 片（nb-runtime：服务端列实例、服务端订阅在成员链路断开时以 `target-gone` 结束）在 Work 分支提交（d230b10c8），`remote` 目录 97 个测试与 nb-runtime 类型检查通过，两处改动各做了变异检查。
+- 第 2 片：静态稿在草稿 worktree `.worktree/w00033-t03-drafts`（分支 `w00033-t03/drafts`，不合并），`@designer` 的意见已取舍；[评审板](artifacts/review/index.html) v1 已发布，两道题等开发者答复。
 
 ## 下一步
 
-1. 第 1 片：上游几份 Spec 的 planned 条目与包登记文档。
-2. 第 2 片：说明框与 Profile 对象行的静态稿，评审板交开发者；同时开始第 3 片（nb-runtime）。
+1. 读评审板的答复，决定写进本文件，再定稿说明框与 Profile 对象行的规则（补进 `profile-settings.md` 输出 28 的细则）。
+2. 第 4 片：拥有者的只读目录、稳定名、悬停显示规则、消息列表的 skip。
 3. omp 报告回来后按快速审查处理，修正单独提交。
