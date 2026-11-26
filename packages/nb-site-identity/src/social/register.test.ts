@@ -531,6 +531,35 @@ describe("原子性与并发（输出 2，验收 8、14）", () => {
         });
         expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({users: ["first"], used: 1});
     });
+
+    it("封禁与注册意图的回调交错（每一步排在一起跑，同登录意图那条的做法）：上游身份已关联的那个账号在库查过封禁之后被封禁，回调仍是 identity_taken（注册意图在建会话之前就拒了旧账号）；不建账号、不建会话、不扣码", async () => {
+        // 回调先停在上游换令牌，封禁排上队之后再放它往下走，两边对库的每一步轮流跑：封禁的写事务落在库查过封禁之后、建会话之前。
+        const timers = new ManualTimers();
+        const target = await socialIdentity("social-register-ban-race", {}, timers);
+        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+        const ownerId = await target.addUser("owner", CONSENTED);
+        const adminId = await target.addUser("manager", {...CONSENTED, role: "admin"});
+        await insertSocialAccount(target, ownerId, "google", "g-owned");
+        upstream.setUser("google", googleUser("g-owned"));
+        const {cookie: adminCookie} = await target.issue(adminId);
+
+        const started = await startedSocial(await startRegister(target, "google"));
+        const callback = await upstreamCallback(started);
+        const held = upstream.holdToken("google");
+        const registering = openCallback(target, callback, started.stateCookie);
+        await held.arrived;
+        const gate = await holdQueue(target);
+        await gate.started;
+        const banning = target.fetch(`/admin/users/${String(ownerId)}/ban`, {method: "POST", headers: {origin: TEST_SITE_URL, cookie: adminCookie}});
+        await waitUntil("封禁排上队", () => timers.pending === 1);
+        held.release();
+        const [ban, landed] = await lockstep(target, timers, gate, [banning, registering]);
+
+        expect(ban!.status).toBe(200);
+        expect({...landing(landed!), session: hasSessionCookie(landed!)}).toEqual({...rejected("identity_taken"), session: false});
+        const ownerSessions = await target.conn.read((tx) => tx.query<{n: number}, [number]>(`SELECT COUNT(*) AS n FROM "session" WHERE "userId" = ?`).get(ownerId)!.n);
+        expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), ownerSessions}).toEqual({users: ["owner", "manager"], used: 0, ownerSessions: 0});
+    });
 });
 
 describe("回调的查询串（输出 13 的回调一步）", () => {

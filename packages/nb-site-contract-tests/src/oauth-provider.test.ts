@@ -282,22 +282,24 @@ describe("对外 OAuth 的端点与发现文档（输入表、输出 1、2、6�
         }
     });
 
-    it("换码时 PKCE 校验值不对回 invalid_grant、不发令牌（输出 6）", async () => {
+    it("换码时 PKCE 校验值不对回 invalid_grant、不发令牌，码不被用掉（输出 6）", async () => {
         const {code, verifier} = await authorizedCode();
         const wrong = await exchangeCode(site.url, client, code, `${verifier.slice(0, -1)}${verifier.endsWith("A") ? "B" : "A"}`);
         expect({status: wrong.status, error: (JSON.parse(wrong.text) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_grant"});
+        expect((await exchangeCode(site.url, client, code, verifier)).status).toBe(200);
     });
 
-    it("换码不带 PKCE 校验值：不发令牌（输出 6 的“都要带”）", async () => {
-        // 错误码 Spec 只写了“PKCE 不对”的一种；不带校验值的码待定（w00037 t08 晋升前核对 T4），这里只判不发令牌。
-        const {code} = await authorizedCode();
+    it("换码不带 PKCE 校验值：invalid_request，不发令牌，码不被用掉（输出 6）", async () => {
+        const {code, verifier} = await authorizedCode();
         const form = new URLSearchParams({grant_type: "authorization_code", code, redirect_uri: client.redirectUri});
         const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.token, {
             method: "POST",
             headers: {"Content-Type": FORM, Authorization: `Basic ${Buffer.from(`${client.clientId}:${client.clientSecret ?? ""}`).toString("base64")}`},
             body: form.toString(),
         });
-        expect({status: response.status, accessToken: (JSON.parse(response.text) as {access_token?: unknown}).access_token}).toEqual({status: 400, accessToken: undefined});
+        const body = JSON.parse(response.text) as {error?: unknown; access_token?: unknown};
+        expect({status: response.status, error: body.error, accessToken: body.access_token}).toEqual({status: 400, error: "invalid_request", accessToken: undefined});
+        expect((await exchangeCode(site.url, client, code, verifier)).status).toBe(200);
     });
 
     it("grant_type 不是 authorization_code 回 unsupported_grant_type（失败与恢复）", async () => {
