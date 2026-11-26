@@ -1,0 +1,71 @@
+审查对象：w00043-neurobot worktree，HEAD 核对为 ded327b85（与说明一致）。
+
+=== 1 [重要] 轨宽手柄：指针拖动时手柄没有焦点，Esc 取消在鼠标拖动上不生效 ===
+位置：packages/neuro-book/src/plugins/workbench/web/components/use-rail-handle.ts:61-69（onPointerDown）与 :89-96（onKeydown），WorkbenchToolStrip.vue 里手柄 v-on="handle.listeners"
+现象：Esc 只挂在手柄元素自己的 keydown 上。onPointerDown 里 `event.preventDefault()` 加 `setPointerCapture`，没有调 `element.focus()`。
+为什么是问题：Spec 输出 50 的“轨宽手柄”写明 Esc、失去捕获、布局版本变化时整场取消、零写入。鼠标拖动时焦点不在手柄上，Esc 落到别处（或 body），手势照常进行、松手照常提交。只有“先用键盘聚焦手柄、再按住鼠标拖”才碰巧能取消。
+如何核实：在 /tmp/review-t19-impl-5/exp 用 /usr/bin/google-chrome-stable 做了最小实验：一个 tabindex=0 的 div，pointerdown 里 preventDefault + setPointerCapture，mouse.down 之后与 mouse.up 之后 document.activeElement 都是 BODY。代码里整个 workbench/web 没有别的 Escape 监听能接这件事（grep Escape 只在 keymap、命令面板、标题栏、主题编辑器）。
+建议改法：pointerdown 里在捕获前 `element.focus({preventScroll: true})`；或手势期间在 document 上挂 keydown（capture）监听 Esc，结束时摘掉。要补一条 dom 或 e2e：不先聚焦手柄、鼠标按住拖动中按 Esc，断言 preview(null) 且无 commit。
+
+=== 2 [重要] 拖放拒收区没盖住展开按钮、手柄与展开态里入口列的空白，松手会在那里开新浮动窗 ===
+位置：WorkbenchToolStrip.vue:342、345（只有 main、foot 两个 div 带 data-drop-refuse）、:347-361（展开按钮在两者之外）、:362-373（手柄）；layout-drag.ts:856-859（拒收判定）、:700-722（dropAt）、:479（excluded）
+现象：`data-drop-refuse` 只加在 main 与 foot。展开按钮是 nav 的直接子元素，手柄是绝对定位，展开态下 48 宽那一列里入口带与 foot 之间的 1fr 空行（指针下的元素是 nav 自己）、nav 的上下内边距，也都在拒收区之外。指针停在这些地方时 `resolveDrop` 不走拒收分支，进 `dropAt`：不在入口带（`bandAt` 只认 `[data-tool-band]` 的矩形）、`resolveLayoutDrop` 无落点、`layoutDropOverPanel` 为假（右轨卡片不是面板；只有紧贴右栏面板 SEAM_PX 以内才算“在面板上”），于是走 `floatDrop(...)`：松手开新窗。
+为什么是问题：Spec 输出 50“落点”：只有入口带是落点，视图段与底段是拒绝区，松手是取消、不开新窗；底段包含最下面的展开按钮。当前只有 main 与 foot 两块符合。（注意：不能照活动栏的做法把右轨卡片并进 `excluded`：验收 23 写明拖到状态栏要开窗，`excluded` 的语义是“不在面板上”，会走 float，不是拒绝。）
+如何核实：读 layout-drag.ts:700-722 与 nb-workbench-layout/src/layout-drop.ts:292-297。可用 dom 测试：拿起一个视图，elementFromPoint 取展开按钮或展开态入口列空白处，断言判定是 rejected（drop 为 null、rejected 为 true）而不是 float。
+建议改法：把 `data-drop-refuse` 放到 nav 根上（有视图段时），`resolveDrop` 的拒收判定再加一条“指针不在入口带里”（`bandAt(geometry.bands, point) === undefined`）；这样入口带与带后的空白仍是落点，其余整条都是拒绝区。不要逐个元素补属性，nav 自己和网格空格补不到。
+
+=== 3 [重要] 轨宽手柄的预览走“程序改布局”，会触发 470ms 的布局过渡，不跟手（从代码推断，未在真实页面验证） ===
+位置：layout-doc-store.ts:89、205、641-643（railPreview/previewRailWidth）；nb-layout/src/vue/useGridMotion.ts:113-124（decideMotion）；NestedGrid.vue:244、342（previewing 只来自网格自己的手势会话）；WorkbenchSurface.vue:644（只传 dragging）
+现象：手柄每帧把 `railPreview` 写进 store，`railState` 重算，右轨叶厚度、右栏呈现宽与编辑组宽一起变，再投影给 `NestedGrid`。`decideMotion` 只在 `frame.previewing`（网格自己的分隔线手势）、容器尺寸变化、首次渲染时返回 none/stop；轨宽预览都不是，且 `placementMoved` 为真，于是每一帧都开一次 `[data-moving]`：left/width 带 `--nb-layout-motion-layout`（缺省 470ms）的过渡并被下一帧重新打断。
+为什么是问题：Spec 输出 50“轨宽手柄”要求跟手、松手不回弹；plan 的验收也写了跟手。实际是外框追着指针滑、拖尾 470ms，手柄元素（在叶里）与指针错位。程序性的展开、收起、键盘 10px 步进与双击回缺省需要过渡是对的，只有指针拖动要关掉。
+如何核实：真实页面（开着动效）用 `test.sample-views/with-rail` 展开右轨后拖手柄，看 `.nb-grid-frame[data-moving]` 在拖动中是否持续存在、外框 getBoundingClientRect 与指针 x 的差；或直接单测 `decideMotion`：previewing=false 且 items 的宽度逐帧不同时返回 start。
+建议改法：给 `NestedGrid`/`WorkbenchSurface` 一个宿主可设的“跟手”输入（等价于 `previewing`，不新开手势会话），手柄在 session 期间经 store（如 `railPreview !== null`）打开；松手那一帧要和 commit 同帧关掉，避免松手后补一次过渡。同时在 `WorkbenchToolStrip.dom.test.ts` 之外补一条 e2e（开动效取样，指针拖动中外框不带 transition）。
+
+=== 4 [重要] 轨宽手柄的预览值与落账值是“声明范围内的指针宽”，不是预算给出的有效宽：触界后意图比实际宽，之后窗口变宽会突然跳大 ===
+位置：use-rail-handle.ts:37-41（clamp 只夹声明的 minimum/maximum）、:49-58（end 提交 dragging.value）、:77-87（onPointerMove）；layout-doc-store.ts:671-681（commitRailWidth 同样只夹声明范围）；WorkbenchToolStrip.vue:368（aria-valuenow 用 handle.dragging）
+现象：预览经 `railState.requested` 进预算，预算在编辑组与右栏都让到底时给的是 `available`（例如请求 420、实际只能 300，见 rail-budget.test.ts“按能给的展开”那条，width 208 对 260）。手柄的 `dragging` 一直是 420，`aria-valuenow` 也报 420，松手 `commit(420)` 把意图写成 420。
+为什么是问题：1) Spec 输出 50“轨宽手柄”写“触界即停”，且预览与落账应是同一口径（brief 重点 3）；用户松手时看到的是 300，记下来的是 420，窗口变宽或侧栏收起后右轨会自己涨到 420，没有用户动作。2) 指针折返时右轨不动，直到指针退回到 420 以内才响应（死区）。3) 读屏播报的值与可见宽度不一致。4) 键盘同源：生效宽 300（意图 400）时按“变宽”，`options.width()+10=310` 被提交，意图反而从 400 降到 310。
+如何核实：单测 rail-budget 的第三条数字（editor 300、region 400、请求 260 得 208）说明请求与实际可以不等；用 store 的 `previewRailWidth(420)` 后读 `state.rail.width` 与 `requested` 即可看到两者不同；`commitRailWidth(container, 420)` 写入的是 420。
+建议改法：手柄每次预览后读回生效宽（`segment.width` 在预览帧里就是预算结果），`dragging`、`aria-valuenow`、松手提交都用 `min(指针宽, 生效宽)` 的那个口径；键盘步进也以生效宽为准，但生效宽小于意图时“变宽”不应写比现有意图更小的值（取 `max(现有意图, 新值)` 或在生效宽低于意图时忽略变宽键）。补一条用例：窗口窄到预算受限时拖到最大再松手，意图等于生效宽。
+
+=== 5 [建议] 视图加载失败（load-failed）时右轨仍有视图段：能展开出一栏空白；渲染出错的那一份控制没有收回 ===
+位置：WorkbenchShell.vue:163（acceptRailBounds 只排除 "render-failed"）、:200-214（railSegment）；view-instances.ts:170（railOf 只在 ready 时返回控制）、:185-189（renderError 不退休）
+现象：1) 范围来自注册表的 `railOf`（同步读 `implementation()`，不依赖加载结果）。视图 `load()` 失败（状态 `load-failed`，测试视图有 `fail-load` 开关）时 store 仍认为它有视图段：展开按钮在、能展开到 260，`main` 里什么也没有，还占掉编辑组的宽。2) 渲染出错时 `instances.railOf` 因状态不是 ready 返回 null，外壳的分发 `watchEffect` 对它 `continue`，旧的那份控制既不置 `none` 也不退休，`expanded` 留着 true；只在重试渲染（`setContext`）换代时才退休。组件随出错卸载所以没有可见后果，但“换代、渲染出错时旧的那份先收回”这句话对出错那条并不成立。
+为什么是问题：views.md 输出 21 的借用条件是“实例已就绪”；layout 输出 50 列的无视图段情形是“别的容器、渲染出错、交付撤回”，加载失败与它们同类。
+如何核实：用 `test.sample-views/with-rail=1` 与 `fail-load=test.sample-views.rail`（或 view-instances.test.ts 里造 load-failed）看 `state.rail.bounds` 非空；读 view-instances.ts 的 renderError 没有 retire。
+建议改法：`acceptRailBounds` 只在实例状态为 ready 或 loading（或尚未建实例的冷开）时给范围，别的状态一律 null；`renderError` 里顺手 `retireRail`（与 `retireHead` 对称不要求，但出错就等于撤回）。
+
+=== 6 [建议] 展开与收起时侧轨内部排布瞬间切换（grid 与 flex 互换），叶宽还在过渡中；手柄只在进入悬停时有过渡（从代码推断，未在真实页面验证） ===
+位置：WorkbenchToolStrip.vue 样式：`.workbench-tool-strip[data-rail-state="expanded"] {display: grid …}` 与收着时的 flex 列；`.workbench-tool-strip__handle:hover, :focus-visible, [data-dragging] {transition: …}`
+现象：`data-rail-state` 随 `segment.expanded` 在同一帧换掉，而叶的宽度由布局过渡（缺省 470ms）慢慢变。收起时右轨由“右侧 48 列固定、`main` 在左”的 grid 立刻变成 flex 列、`align-items:center`，入口与按钮跳到当前（还很宽的）叶中间，再随叶缩窄滑回右边；展开时反过来是跳回。手柄的 `transition` 写在悬停类上，离开悬停没有过渡（基础规则没有 transition，进入有、离开无）。
+为什么是问题：ui-development 第三节第 6 条：展开与收起要有过渡；跳一下比没有动画更明显。plan 把“过渡与性能：真实页面逐帧看首中末帧”放在片 8，但这是片 5 自己的排布造成的，到那时再改要动版式。
+如何核实：开动效、开发服务真实页面，展开右轨后收起，逐帧看入口列的 x（或 e2e 在 `reducedMotion: "no-preference"` 下取样）。
+建议改法：收着与展开用同一套 grid（收着时 `main` 那一列宽为 0），48 的一列始终贴窗口外缘不动，两态只差 `main` 列的宽；手柄把 `transition: background-color` 写到基础规则上。
+
+=== 7 [建议] 几处小问题合并：展开按钮的名称与状态重复、request 同步抛出、写入失败被报成 revoked、注册表 railOf 的静默 catch、左轨图标不镜像 ===
+1) WorkbenchToolStrip.vue:347-361：按钮同时写 `aria-expanded` 与随状态换的 `aria-label`（展开/收起/窗口太窄）。读屏会念“收起，按钮，已展开”，两个信息打架；惯例是名称固定、状态交给 aria-expanded，“窗口太窄”放进描述。Spec 要求“悬停与读屏给窗口太窄”，可用 `aria-description` 或把名称固定为“侧轨”、状态与原因放描述。左右镜像：图标写死 `panel-right-*`，`region="sidebar"` 时不镜像（目前左轨无视图段，属潜在）。
+2) view-rail.ts:`request: (wanted) => Promise.resolve(retired ? "revoked" : handle(wanted))`：`handle` 同步执行，它抛错时 `request` 同步抛出而不是返回被拒的 Promise，违反 `Promise<ViewRailRequestResult>` 的形状；写成 async 函数即可。
+3) WorkbenchShell.vue:169-175：`requestRailExpanded` 失败（`not-found`、`rejected`、存盘关卡拒绝、`limit-exceeded`）一律映射成 `"revoked"`，没有诊断；视图会把真正的写入失败当成“这份视图段已不是当前的”而不再聚焦。合同只有三个结果，至少在这里写一条诊断，别让写入失败无声地变成撤回。`toggleRailSegment` 忽略结果同理。
+4) registry.ts railOf 的 `catch {}` 没有诊断（仓库规则：静默 catch 至少写一条诊断）；注释已说明是撤回竞态（`published` 已判过，竞态只在同一 tick 内），可以保留，补一条诊断即可。
+5) layout-doc-store 的 `railBounds` 由外壳 `acceptRailBounds` 注入，外壳卸载时不清；闭包持着已卸载外壳的 `instances`。窗口内只有一个外壳时无害，Lab 或多外壳共用 store 时会读到过期状态。
+
+=== 8 [建议] 焦点交接与测试缺口 ===
+1) WorkbenchToolStrip.vue:143-165：`segmentFocused` 只在 `main` 的 focusin/focusout 上维护；`relatedTarget` 为 null（点页面空白处、窗口失焦）时不清，之后任何一次收起碰上“焦点在 body”就会把焦点抢到展开按钮，与 views.md 输出 21“焦点已去别处时不抢回”不一致。`foot` 里的项（视图的固定按钮）与手柄不在跟踪范围：手柄有焦点时被最大化或收起拆掉，焦点落到 body，没有交接。
+2) 测试缺口：WorkbenchToolStrip.dom.test.ts 对手柄只测了键盘与双击，没有指针路径（按下、移动每帧一次预览、松手一次提交、Esc、lostpointercapture、revision 变化取消）。发现 1 在这条路径上，补上就会暴露；注意用例里要“不先聚焦手柄”。拒收区没有 layout-drag 的单测覆盖展开按钮与空白处（发现 2）。
+3) 预算接线本身（railState、budgetFor）读过没有发现问题：`optionsOf(of, false)` 只用在基线，`collapse` 一直按收着算，预览文档沿用已提交文档的 `railState`（所以拿起之后右轨几何冻结是成立的）；`budgetFor` 单次约 0.9ms（默认文档，1400×900，/tmp 里测的），每次只在意图是展开时才多算一次，热路径代价可接受。`requestRailExpanded` 放不下时在 `maximized.value = null` 之前返回，零写入成立。
+
+=== 汇总 ===
+HEAD 核对：审查开始与结束时都是 ded327b85。单测（layout-doc-store、view-instances、registry、rail-budget 共 88 条）与 WorkbenchToolStrip dom（8 条）在该 HEAD 上通过；没有跑 e2e 与开发服务；发现 1 在 /usr/bin/google-chrome-stable 的最小页面上实测，发现 3、6 是从代码推断、未在真实页面验证。
+阻断 0；重要 4（1 Esc 取消对鼠标拖动不生效；2 拒收区漏掉展开按钮、手柄与展开态空白；3 手柄预览触发布局过渡不跟手；4 手柄预览与落账不是生效宽的口径）；建议 4（5、6、7、8，其中 7、8 各含多个小点）。
+排除的假设（读过，没发现问题）：借用分发在换代、换容器、交付撤回、右轨拆掉时都先置 none（分发 watchEffect 为 pre flush，早于渲染）；非借用者与退休的控制 `request` 得 revoked；预算公式与基线取法；widthOverrides 手势落账的语义；键盘方向对右轨（ArrowLeft 变宽）与手柄位置一致；双击在 pointerdown 被 preventDefault 时仍会触发（实测 click、click、dblclick）；展开态入口带的 max-height:100% 在 grid 里有效（实测）。
+
+=== 处理（主会话，2026-11-26，修正提交 9a3aec88a）===
+[1] 成立，改：按下手柄时把焦点给它（`preventDefault` 拦掉了缺省聚焦），Esc 挂在手柄上就接得到。dom 用例：指针按下后焦点在手柄上，拖动中 Esc 取消、不提交。
+[2] 成立，改：`data-drop-refuse` 挂在整条侧轨上，拖放判定在入口带以外才拒（展开按钮、手柄、展开时入口列下的空白、左轨底段同样是拒收区，Spec 输出 50 的“落点”本来就这样写）。没有单测，段 B 的拒收区 e2e 覆盖。
+[3] 成立，改：`NestedGrid` 加可选属性 `gesturing`（宿主自己的尺寸手势进行中，并进网格的“手势预览中不过渡”），外壳在拖手柄期间打开；nb-layout 的接口报告与 `NestedGrid.md` 随之更新，Spec ui/nested-grid 输出 35 加 planned 句子。dom 用例与变异。
+[4] 成立，改：store 交出 `limit`（这一刻最多能展开到多宽，`railLimit`），手柄的上限取它，触界即停；键盘按生效宽加减。store 用例：预览请求比它宽时生效宽正好是它。
+[5] 成立，改：加载失败的视图也按没有视图段；渲染出错时这一代的视图段立即退休（位置 none）。用例与变异。
+[6] 成立，改：收着时各段是贴外缘的 48 一列（左轨靠左、右轨靠右），过渡里叶宽变时入口列不漂到中间。没有自动化用例（布局要真实浏览器），留给段 B 的展开、收起 e2e 与片 8 的逐帧检查。
+[7] 部分成立：展开按钮的名称固定为“展开”，状态只在 `aria-expanded`，太窄写进 `aria-description`、悬停写这一下会做什么；`request` 改成处理函数抛错时交回失败的 Promise。写入失败映射成 `revoked` 不改：失败只可能是容器已经不在入口顺序里，这就是“这一份已经不是当前的”。
+[8] 部分成立：补了手柄指针路径的 dom 用例（跟手、触界即停、松手一次提交、Esc 取消）；`segmentFocused` 在 relatedTarget 为 null 时不清是有意的（元素被拆掉时就是这样丢的焦点），注释已写明。
+另：侧轨组件的 dom 测试原先不卸载组件，等动画帧的用例让前面留着的组件在清空的 body 里重画、报未处理错误；加了自动卸载。
