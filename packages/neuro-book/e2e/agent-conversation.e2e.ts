@@ -79,7 +79,7 @@ async function send(page: Page, text: string): Promise<void> {
     await page.keyboard.press("Enter");
 }
 
-/** 新建一段会话。头上的新建只在已有会话时才有（没选会话时头上没有它），所以经命令面板，两种情况一样。 */
+/** 新建一段会话：经命令面板，不依赖右轨视图段里的“新对话”在不在（视图段收着、展开着、没挂上时都一样）。 */
 const newSession = async (page: Page): Promise<void> => {
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("新建 Agent 会话");
@@ -92,69 +92,55 @@ const CONVERSATION_VIEW = "nbook.agent.conversation";
 const conversationHandle = (page: Page) => page.locator(`[data-panel-tab="view:${CONVERSATION_VIEW}"]`);
 const panelHeadOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
 
-test("宽版（conversation.md 输出 1–3、44）：右栏拖到 600 像素以上是两栏，列表栏常驻、对话的头画在聊天区上方、面板头写“消息”；会话一页点一行在同一个视图打开；收起列表栏后左边换成头像列", async ({page}) => {
+// 覆盖 conversation.md 输出 2、3、44、57“展开”：旧的宽版（右栏拖到 600 像素以上两栏、列表栏常驻、可拖线收成头像列）已经没有，完整列表在右轨展开之后。
+test("展开列表（conversation.md 输出 2、3、44、57）：点底段“会话历史”展开右轨，列表在右轨里、对话的头仍在面板头里；会话一页点一行在同一个视图打开；点展开按钮收回快切列", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await openConversation(page);
     await newSession(page);
-    const root = page.locator("[data-messages-layout]");
-    await expect(root).toHaveAttribute("data-messages-layout", "narrow");
-    // 右栏左边那条竖分隔线：往左拖，右栏变宽。
-    const view = (await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).boundingBox())!;
-    const sash = await page.locator("[data-workbench-surface] .nb-grid-sash").evaluateAll((elements, left) => elements.map((element) => element.getBoundingClientRect()).find((rect) => rect.height > rect.width && Math.abs(rect.right - left) < 24) ?? null, view.x);
-    expect(sash).not.toBeNull();
-    const x = sash!.x + sash!.width / 2;
-    const y = sash!.y + sash!.height / 2;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.mouse.move(x - (720 - view.width), y, {steps: 8});
-    await page.mouse.up();
-    await expect(root).toHaveAttribute("data-messages-layout", "wide");
-    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
-    await expect(page.locator("[data-messages-strip]")).toBeHidden();
-    // 头回到聊天区上方，面板头照常写视图标题。
-    await expect(page.locator("[data-agent-head]")).toBeVisible();
-    await expect(conversationHandle(page)).toHaveText("消息");
-    // 会话一页点一行：聊天区换成那个会话，还是这一个视图。
-    await page.locator("[data-messages-tab='sessions']").click();
-    const rows = page.locator("[data-messages-list-panel] [data-panel-row]");
+    const rail = page.locator('[data-rail="auxiliarybar"]');
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
+    const node = await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).elementHandle();
+
+    await page.locator('[data-messages-open="sessions"]').click();
+    await expect(rail).toHaveAttribute("data-rail-state", "expanded");
+    const list = rail.locator('[data-rail-segment="main"] [data-messages-list-panel]');
+    await expect(list).toBeVisible();
+    await expect(rail.locator("[data-rail-handle]")).toHaveAttribute("aria-valuenow", "260");
+    // 头不随展开换位置：停靠时一直在面板头里，内容里不另画一行头（输出 44、57）。
+    await expect(conversationHandle(page).locator("[data-header-title]")).toBeVisible();
+    await expect(page.locator("[data-agent-head]")).toBeHidden();
+    // 会话一页点一行：聊天区换成那个会话，还是这一个视图、同一份聊天区。
+    const rows = list.locator("[data-panel-row]");
     await expect(rows.first()).toBeVisible();
     await rows.first().click();
-    await expect(page.locator("[data-messages-chat] [data-agent-head]")).toBeVisible();
-    // 拖列表栏右边的线：列表栏变宽。
-    const listWidth = () => page.locator("[data-messages-list-panel]").evaluate((element) => (element as HTMLElement).offsetWidth);
-    expect(await listWidth()).toBe(260);
-    const line = (await root.getByRole("separator").boundingBox())!;
-    await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(line.x + line.width / 2 + 40, line.y + line.height / 2, {steps: 6});
-    await page.mouse.up();
-    expect(Math.abs(await listWidth() - 300)).toBeLessThanOrEqual(1);
-    // 收起列表栏：左边换成头像列，按它的按钮展开；展开后还是拖出来的宽度（宿主记着）。
-    await page.locator("[data-messages-collapse]").click();
-    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
-    await expect(page.locator("[data-messages-strip]")).toBeVisible();
-    await page.locator("[data-messages-toggle]").click();
-    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
-    await expect.poll(async () => Math.abs(await listWidth() - 300)).toBeLessThanOrEqual(1);
+    await expect(conversationHandle(page).locator("[data-header-title]")).toBeVisible();
+    await expect(input(page)).toBeVisible();
+    expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
+
+    // 点展开按钮收起：回到快切列，列表拿掉。
+    await rail.locator("[data-rail-expand]").click();
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
+    await expect(rail.locator('[data-messages-segment-state="collapsed"]')).toBeVisible();
 });
 
-test("对话写在面板头上（conversation.md 输出 44）：窄版时头的三列在面板头里；按标题开列表抽屉，Esc 关掉回到标题", async ({page}) => {
+// 覆盖 conversation.md 输出 44（停靠时照旧接管标题区，左列只留返回）、57：头的标题在面板头里；左列没有“新建”，按标题不开列表、不展开右轨。
+test("对话写在面板头上（conversation.md 输出 44、57）：停靠时头在面板头里，左列没有“新建”（挪进了右轨的视图段）；按标题不开列表、不展开右轨", async ({page}) => {
     await openConversation(page);
     await newSession(page);
     const handle = conversationHandle(page);
-    // 列表在消息视图的抽屉里（右栏默认宽度是窄版）。
-    const sessions = page.locator("[data-messages-list-panel]");
+    const rail = page.locator('[data-rail="auxiliarybar"]');
     await expect(handle.locator("[data-header-title]")).toBeVisible();
     await expect(page.locator("[data-agent-head]")).toBeHidden();
+    await expect(page.locator("[data-header-new]")).toHaveCount(0);
+    await expect(rail.locator("[data-messages-new-session]")).toBeVisible();
 
-    // 按标题开列表抽屉（标题按钮写 aria-expanded）；Esc 关掉，焦点回到标题。
+    // 按标题不再开列表：右轨照旧收着，没有列表，标题按钮也不带“展开着”。
     await handle.click();
-    await expect(sessions).toBeVisible();
-    await expect(handle).toHaveAttribute("aria-expanded", "true");
-    await page.keyboard.press("Escape");
-    await expect(sessions).toBeHidden();
-    await expect(handle).toBeFocused();
-    await expect(handle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(handle).not.toHaveAttribute("aria-expanded", "true");
 });
 
 /** 指针拖一段：按下、过起拖门槛、再走到终点松开。 */
@@ -175,6 +161,7 @@ const centerOf = async (page: Page, selector: string): Promise<{x: number; y: nu
 const hitIn = (page: Page, at: {x: number; y: number}, selector: string): Promise<boolean> =>
     page.evaluate(({at, selector}) => document.elementFromPoint(at.x, at.y)?.closest(selector) != null, {at, selector});
 
+// 待改写（w00043 t19 片 6 之后，第 C 段第 2 部分）：这条按旧的宽窄两版与头像列、抽屉写，浮动窗里的视图段（右边缘、顶格让给“回到停靠”）还没有，现在在 `data-messages-layout` 处失败。
 test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，conversation.md 消息视图）：没有面板头那一行，第一行同高顶到窗口顶；按钮盖在右上角；按空白、标题拖窗口，按钮上不起拖；空白处右键是“移动到”；标题按钮聚焦才显示；成了标签条时面板头回来，拿走后又自绘；宽版也一样", async ({page}) => {
     await openConversation(page);
     await newSession(page);
@@ -864,11 +851,12 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await page.keyboard.press("Delete");
 
     await page.keyboard.type("没写完的字");
-    await page.locator("[data-header-new]").click();
+    // 头上不再有“新建”（输出 44、57）：新对话在右轨视图段里。
+    await page.locator("[data-messages-new-session]").click();
     await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
-    // 头写在面板头上（输出 44）：按面板头的标题开列表抽屉，会话一页里选。
-    await conversationHandle(page).click();
+    // 完整列表在右轨展开之后：点底段“会话历史”，会话一页里选。
+    await page.locator('[data-messages-open="sessions"]').click();
     await page.locator("[data-messages-list-panel] [data-panel-row]", {hasText: "雨夜"}).click();
     await expect(input(page)).toContainText("没写完的字");
     await page.reload();
