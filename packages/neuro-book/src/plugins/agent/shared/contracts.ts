@@ -18,7 +18,7 @@ export {AGENT_MODES_EXTENSION} from "./permissions";
 export type {AgentProfileImplementation} from "./points";
 
 /** 别的内置插件贡献工具（`agent.tools`）用的助手与类型（docs/specs/agent/contributions.md）；第三方插件经 SDK 的 `/agent` 取同一份。 */
-export {agentTool, TOOLS_POINT} from "./points";
+export {agentTool, evalObject, TOOLS_POINT} from "./points";
 export type {AgentToolImplementation} from "./points";
 export type {AgentToolServices} from "./resources";
 
