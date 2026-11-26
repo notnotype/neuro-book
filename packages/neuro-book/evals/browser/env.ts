@@ -6,9 +6,12 @@
 import {readFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
-/** 评测的 `.env` 出错：`env-file-missing` 找不到文件，`env-key-missing` 文件里缺键。message 只写键名与路径，不写取值。 */
+/**
+ * 评测的环境出错：`env-file-missing` 找不到 `.env`，`env-key-missing` 文件里缺键，`proxy-env-present` 进程环境里有代理变量，
+ * `model-proxy-missing` 用到要经代理的模型却没给代理。message 只写键名与路径，不写取值。
+ */
 export class EvalEnvError extends Error {
-    readonly code: "env-file-missing" | "env-key-missing";
+    readonly code: "env-file-missing" | "env-key-missing" | "proxy-env-present" | "model-proxy-missing";
 
     constructor(code: EvalEnvError["code"], message: string) {
         super(message);

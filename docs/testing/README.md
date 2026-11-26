@@ -111,7 +111,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | 服务进程 | 每个测试文件起被测的服务进程，只经 HTTP 与命令行；真端口、真 SQLite 文件（官方站的 `nb-site-contract-tests`） | `test` | 同快速类，按受影响范围；CI 的 `check` 作业经依赖图选中，`site-image` 作业对着打好的产物再跑一遍 |
 | 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收，本地跑（CI 不跑） |
 | 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量 |
-| 评测实机 | 开发用评测（`packages/neuro-book/evals/`）里要真 Chrome、真 bwrap 的用例：文件命名 `*.live.test.ts`，用 `describe.skipIf(process.env.NBOOK_EVAL_LIVE !== "1")` 包住 | `eval:live` | 改到评测的运行器时显式运行；默认的 `test` 与 CI 里显示为跳过 |
+| 评测实机 | 开发用评测（`packages/neuro-book/evals/`）里要真 Chrome、真 bwrap、另起进程控制环境或要等真实时长的用例：文件命名 `*.live.test.ts`，用 `describe.skipIf(process.env.NBOOK_EVAL_LIVE !== "1")` 包住 | `eval:live` | 改到评测的运行器时显式运行；默认的 `test` 与 CI 里显示为跳过 |
 | 全量 | 以上全部 | — | 手动；CI 手动触发时跑全部包的快速类 |
 
 浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接跑单个文件（`npx playwright test -c e2e/playwright.config.ts <文件>`，不带 `-c` 会报 “No tests found”）时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
