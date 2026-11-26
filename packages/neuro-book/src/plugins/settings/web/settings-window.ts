@@ -867,6 +867,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             const sections = catalog();
             return {
                 bound: options.bound,
+                layer: layer.value,
+                layerTitles: {user: text("window.user"), project: text("window.project")},
                 sections: sections.map((section) => ({
                     id: section.id,
                     title: options.text.t(section.title),

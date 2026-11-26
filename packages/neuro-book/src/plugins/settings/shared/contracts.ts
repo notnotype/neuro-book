@@ -59,6 +59,10 @@ export interface SettingsCatalogSetting {
 export interface SettingsCatalogView {
     /** 窗口打开了作品；没有时只有用户层。 */
     readonly bound: boolean;
+    /** 设置窗口此刻（或下次打开时）在哪一层。 */
+    readonly layer: SettingLayer;
+    /** 层切换里两个单选的文字。 */
+    readonly layerTitles: Readonly<Record<SettingLayer, string>>;
     readonly sections: ReadonlyArray<SettingsCatalogSection>;
     readonly settings: ReadonlyArray<SettingsCatalogSetting>;
 }
