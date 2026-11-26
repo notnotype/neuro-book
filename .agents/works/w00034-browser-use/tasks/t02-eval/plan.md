@@ -1,6 +1,6 @@
 # 实施计划：浏览器 Agent 评测体系，第一阶段
 
-第二稿（2026-11-26）：第一稿经 Sonnet 审查，23 条发现按[处理记录](evidences/plan-review-disposition.txt)改成本稿。
+第二稿（2026-11-26）：第一稿经 Sonnet 审查，23 条发现按[处理记录](evidences/plan-review-disposition.txt)改成本稿。实施中按实测改了几处：沙箱里的挂载点、extremelycat 代理的给法、读者站票数的画法、`report` 的参数，都已改在下文对应的位置。
 
 ## Context
 
@@ -22,20 +22,20 @@
 | 数据形状校验 | `typebox`（应用已依赖） | 运行记录、任务定义的读写都过校验 |
 | 统计 | 手写（分层重抽样、分位数、带种子的随机数） | 几十行；否决引入统计库 |
 | 隔离 | 系统的 `bwrap` | 本机无特权可用；否决容器（太重）、另开系统用户（要 root） |
-| 走代理 | Bun `fetch` 的 `proxy` 选项，每条上游显式给：luna `proxy: false`，extremelycat 给环境里的代理地址 | Bun 的 `fetch` 缺省就读环境代理，`proxy: ""` 关不掉，只有 `false` 才直连（审查实测）；否决给子进程设代理变量 |
+| 走代理 | Bun `fetch` 的 `proxy` 选项：extremelycat 的上游显式给代理地址（`--model-proxy`），luna 不给；评测进程的环境里有代理变量就拒绝启动 | Bun 的 `fetch` 缺省就读环境代理，`proxy: ""` 关不掉；`proxy: false` 运行时能直连（审查实测），但 Bun 的类型不收它，所以改成环境里不许有代理变量、代理地址只经参数给；否决给子进程设代理变量 |
 
 ## 关键设计
 
 ### `packages/neuro-book/evals/browser/`（目录与入口）
 
-- `README.md`：怎么准备与运行（照 llmlint 的 `evals/README.md` 的写法）：browser-use 的环境、`.env` 里要有的键、bwrap、`prox`、命令。
+- `README.md`：怎么准备与运行（照 llmlint 的 `evals/README.md` 的写法）：browser-use 的环境、`.env` 里要有的键、bwrap、`--model-proxy`、命令。
 - `cli.ts`（commander），共用 `--env-file`（缺省用 `git rev-parse --git-common-dir` 找主工作区根的 `.env`：worktree 里没有 `.env`），读取时去掉 `\r` 与两端引号；缺文件、缺键分别报错并写明键名，不打印取值：
-  - `run --tasks <id,…|phase1> --models <luna,hydrogen,neon> --arms browser-use --repeat <n> --concurrency 4 --out <目录> [--max-total-input-tokens <n>]`：跑并落盘，可续跑；总输入 token 超过止损线时不再派新运行，已在跑的收完；
-  - `report --in <目录>`：从运行记录算出私有报告与投影；
+  - `run --tasks <id,…|phase1> --models <luna,hydrogen,neon> --repeat <n> --concurrency 4 --out <目录> [--max-total-input-tokens <n>]`：跑并落盘，可续跑；总输入 token 超过止损线时不再派新运行，已在跑的收完（第一阶段只有 browser-use 一边，没有 `--arms`）；
+  - `report --out <目录>`：从运行记录算出私有报告与投影，写在同一个运行目录里；
   - `probe --models … --out <目录>`：每个模型用 browser-use 自己的路径跑一道最小题（打开假站首页、点一下、截一张图、回答一句话，`max_steps` 5），走到“第二次请求带着第一次的工具调用与图片”，用网关记录核对实际发出的推理参数、工具数与图片数；
-  - `sites --serve`：只起假站，给人工打开看页面。
+  - `sites`：只起假站，给人工打开看页面。
 - `--out` 没给时用 `@notnotype/neuro-book-test-support/paths` 分配的系统 Temp 下的 `acceptance/browser-eval/<时间>/` 并打印路径；第一阶段的正式运行显式给 `.local/agent/works/w00034-browser-use/tasks/t02-eval/runs/<名字>/`。
-- `run` 与 `probe` 起手检查：有 extremelycat 的模型时环境里必须有 `https_proxy` 或 `HTTPS_PROXY`（用 `prox` 起），没有就报错。
+- `run` 与 `probe` 起手检查：评测进程的环境里有代理变量（大小写的 `http_proxy`、`https_proxy`、`all_proxy`）就报错，免得 luna 悄悄经代理走；有 extremelycat 的模型时必须给 `--model-proxy`（或环境变量 `NBOOK_EVAL_MODEL_PROXY`），例如 `--model-proxy "$(prox printenv https_proxy)"`，没给就报错。
 - 诊断与异常的 message 用英文（编码规范“文字用哪种语言”）。
 
 ### `evals/browser/record/`（运行记录）
@@ -63,7 +63,7 @@
   | 网关的单次运行预算用完 | `budget-exceeded` | 照判分 |
 
   重跑写成同一 `attempt` 下的新 `try`，旧的保留；每格最多重跑 3 回，超了这格记为缺，报告里单列。上游回 429 不算上游失败（执行者自己的重试会处理），但计数。
-- `store.ts`：目录 `<out>/<taskId>/<model>/<arm>/<attempt>/try-<n>/`，下有 `job/`（任务描述，只读绑到沙箱的 `/job`）、`workspace/`（执行者的工作目录，绑到 `/work`）、`executor/`（绑到 `/out`，执行者交回 `executor.json`）、`shots/`，与调度器写的 `ready.json`、`progress.jsonl`、`record.json`、`score.json`（不在沙箱里，执行者写不到）。每个文件先写临时文件再改名；续跑看每个 `attempt` 最后一个 `try` 的 `score.json` 或终态结局。
+- `store.ts`：目录 `<out>/<taskId>/<model>/<arm>/<attempt>/try-<n>/`，下有 `job/`（任务描述，只读绑到沙箱的 `/tmp/job`）、`workspace/`（执行者的工作目录，绑到 `/tmp/work`）、`executor/`（绑到 `/tmp/out`，执行者交回 `executor.json`）、`shots/`，与调度器写的 `ready.json`、`progress.jsonl`、`record.json`、`score.json`（不在沙箱里，执行者写不到）。每个文件先写临时文件再改名；续跑看每个 `attempt` 最后一个 `try` 的 `score.json` 或终态结局。
 - 长输出按 BU 的办法掐中间（`findings_judge.py` 的 `_truncate` 的写法，单步上限 20 000 字符）。
 
 ### `evals/browser/sites/`（本地假站）
@@ -89,7 +89,7 @@
 | `author-move` | 作家后台 | flow | 拖放、保存 | 三章归到第二卷（40）、顺序对（30）、按页面协议保存（20）、别的章没动（10） |
 | `author-income` | 作家后台 | outcome | 分页表格、类型筛选 | 10 月打赏合计（60）、笔数（40） |
 | `reader-rank` | 读者站 | outcome | 无限滚动 | 第 37 名的书名（50）、作者（50） |
-| `reader-font` | 读者站 | outcome | 新标签页、自定义字体（只能看截图） | 月票数（70）、收藏数（30） |
+| `reader-font` | 读者站 | outcome | 新标签页、票数画在 canvas 上、由打乱顺序的笔画拼成（只能看截图） | 月票数（70）、收藏数（30） |
 | `forum-post` | 论坛 | flow | 跨站 iframe 编辑器 | 帖子在正确版块（30）、标题（20）、正文（30）、按编辑器协议取过草稿凭据（20） |
 | `forum-vote` | 论坛 | flow | shadow DOM、展开后才出现的组件 | 投给正确选项（60）、只投一票（20）、按组件协议确认（20） |
 | `forum-verify` | 论坛 | outcome | 人机验证页（过不去），如实报告 | 打开过精华区（服务端记到验证页的请求，20）、回答以“无法完成：”开头（40）、回答里没有“答案：”行（40） |
@@ -103,30 +103,30 @@
 
 ### `evals/browser/runner/`（调度、Chrome、观察者、网关、隔离）
 
-- `sandbox.ts`：`sandboxArgv({binds, workdir, env, command})` 生成 bwrap 参数：`--ro-bind / /`，`--tmpfs $HOME`、`--tmpfs /run`（藏起用户总线：审查实测在沙箱里经 `systemd-run --user` 能读到 `.env`）、`--tmpfs /tmp`、`--dev /dev`、`--tmpfs /dev/shm`、`--proc /proc`，`--unshare-pid --die-with-parent --new-session`；要用的路径按需 `--ro-bind` 回来；工作目录 `--bind <真实路径> /work`（中性路径：browser-use 会把工作目录写进系统提示，真实路径里有题号与模型名）。网络不隔离。环境变量从空开始，只给列出的。
-- `chrome.ts`：`launchChrome()` 在沙箱里起 `google-chrome-stable`（`--headless=new --remote-debugging-port=0 --user-data-dir=/profile --no-proxy-server --no-first-run --no-default-browser-check --window-size=1280,900 --accept-lang=zh-CN`），环境只给 `PATH`、`HOME`（临时目录）、`TZ=Asia/Shanghai`；临时配置目录 `--bind` 到沙箱里的 `/profile`。Chrome 也进沙箱，是因为执行者能经 CDP 让它打开 `file://` 读本机文件（审查实测）。沙箱里起 Chrome 要实测（第 3 片）：起不来时改给 Chrome 加 `--no-sandbox`（外面已有 bwrap）；仍不行就让 Chrome 留在沙箱外，把“执行者能经 CDP 读本机文件”写进未验证边界。读 `DevToolsActivePort` 得 CDP 地址。`close()`：断开观察者、`terminate`、等收口、删临时配置。完成值区分退出码 0 与信号（给结局表用）。
+- `sandbox.ts`：`sandboxArgv({binds, workdir, env, command})` 生成 bwrap 参数：`--ro-bind / /`，`--tmpfs $HOME`、`--tmpfs /run`（藏起用户总线：审查实测在沙箱里经 `systemd-run --user` 能读到 `.env`）、`--tmpfs /tmp`、`--dev /dev`、`--tmpfs /dev/shm`、`--proc /proc`，`--unshare-pid --die-with-parent --new-session`；要用的路径按需 `--ro-bind` 回来；工作目录 `--bind <真实路径> /tmp/work`（中性路径：browser-use 会把工作目录写进系统提示，真实路径里有题号与模型名）。挂载点都放在 tmpfs 的 `/tmp` 下：`--ro-bind / /` 之后只读的 `/` 上建不了新的挂载点（实测报 `Can't create file`）。网络不隔离。环境变量从空开始，只给列出的。
+- `chrome.ts`：`launchChrome()` 在沙箱里起 `google-chrome-stable`（`--headless=new --remote-debugging-port=0 --user-data-dir=/tmp/profile --no-proxy-server --no-first-run --no-default-browser-check --window-size=1280,900 --accept-lang=zh-CN`），环境只给 `PATH`、`HOME`（临时目录）、`TZ=Asia/Shanghai`；临时配置目录 `--bind` 到沙箱里的 `/tmp/profile`。实测 Chrome 自己的沙箱在 bwrap 里能用，不用 `--no-sandbox`。Chrome 也进沙箱，是因为执行者能经 CDP 让它打开 `file://` 读本机文件（审查实测）。沙箱里起 Chrome 要实测（第 3 片）：起不来时改给 Chrome 加 `--no-sandbox`（外面已有 bwrap）；仍不行就让 Chrome 留在沙箱外，把“执行者能经 CDP 读本机文件”写进未验证边界。读 `DevToolsActivePort` 得 CDP 地址。`close()`：断开观察者、`terminate`、等收口、删临时配置。完成值区分退出码 0 与信号（给结局表用）。
 - `cdp.ts`：薄 CDP 客户端：`connect(wsUrl)`、`send(method, params, {sessionId, timeoutMs})`（缺省 5 秒、截图 8 秒，超时 reject 一个带 `kind: "timeout"` 的错误）、事件订阅、`close()`；连接断开时让在途请求 reject。
 - `observer.ts`：执行开始与结束各截一张；收到执行者的步骤事件时，对所有 `page` 目标截图（扁平会话，不调 `bringToFront`），与该目标上一张相同就丢掉；截图超时（页面上有未处理的对话框时 `Page.captureScreenshot` 不返回，审查实测）记为丢帧原因 `timeout`，不算评测部件出错，不阻塞后面的步骤；同时记下每一步结束时的页面目标与网址。
-- `gateway.ts`：`startGateway({routes})`，`routes` 由调用方注入（测试不读环境变量），每条：模型名、上游地址、真实密钥、`proxy: string | false`。
-  - `Bun.serve` 绑 `127.0.0.1`，每个请求 `server.timeout(req, 0)`；上游 `fetch` 带 `AbortSignal.timeout(时限)`。
+- `gateway.ts`：`startGateway({routes})`，`routes` 由调用方注入（测试不读环境变量），每条：模型名、上游地址、真实密钥、`proxy: string | null`（null 为直连，靠评测进程的环境里没有代理变量保证）。
+  - `Bun.serve` 绑 `127.0.0.1`，每个请求 `server.timeout(req, 0)`（实测 Bun 1.4.4 读完请求体之后本就不受缺省 10 秒空闲期限影响，仍关掉，不依赖这个行为）；上游 `fetch` 带 `AbortSignal.timeout(时限)`。
   - 只认本次登记过的假密钥（`crypto.randomUUID()`，每次运行一个）：没登记的回 401，不转发。
   - 接 `POST /v1/chat/completions`（流式与非流式）。转发时只带 `content-type`、`accept` 与换上的真实 `authorization`，自己设 `accept-encoding: identity`；回给执行者时去掉 `content-encoding`、`content-length`、`transfer-encoding`、`connection`、`set-cookie`。流式边转发边解析 SSE 取最后的 `usage`。
   - 每次请求记一条：模型、`reasoning_effort`、`max_tokens`（没给记为未设置）、工具数、图片数、消息数、是否流式、上游结果（状态码，或 `connect-error`、`timeout`、`reset`）、用量（`prompt_tokens` 记为总输入、`prompt_tokens_details.cached_tokens` 记为缓存读，缺了记为未知，不填 0）、起止时刻。
   - 单次运行的预算（缺省 150 次请求、1500 万总输入 token）：超了回 429 并记 `budget-exceeded`。
   - 对上游不重试，执行者自己的重试照常。
-- `models.ts`：三个模型的路由：luna 读 `JIJI_LUNA_BASE_URL`、`JIJI_LUNA_API_KEY`，`proxy: false`；hydrogen、neon 读 `EXTREMELYCAT_BASE_URL`、`EXTREMELYCAT_API_KEY`，`proxy` 取环境里的 `https_proxy`。推理档都用 `medium`（两个 Gemini 用最小请求试过）；`probe` 里上游以与推理参数相关的 4xx 拒收时改试 `high`，结果写进 `probe.json`，之后固定。
+- `models.ts`：三个模型的路由：luna 读 `JIJI_LUNA_BASE_URL`、`JIJI_LUNA_API_KEY`，直连；hydrogen、neon 读 `EXTREMELYCAT_BASE_URL`、`EXTREMELYCAT_API_KEY`，代理取 `--model-proxy`。推理档都用 `medium`：`probe` 实测两个 Gemini 在 medium 档经 browser-use 多轮工具调用、带图都回 200（2026-11-26），固定下来。
 - `schedule.ts`：按“题 × 模型 × 次数”排出运行，并发 4，同一上游（extremelycat）同时最多 2 个。每次运行：
   1. 起假站、在沙箱里起 Chrome、登记网关的假密钥、写 `ready.json`；这一段出错记 `harness-error`。
   2. 在沙箱里起执行者；它连上浏览器后发 `ready` 事件，从这一刻起按单调时钟计时。browser-use 自己的 `run(timeout=本题时限)` 负责到点收尾（它会在到点前留出一轮只交付）；调度器在 `ready` 后“时限 + 90 秒”才 `terminate` 兜底。
   3. 执行者每个步骤事件到达时，调度器追加写 `progress.jsonl` 并叫观察者截图；被兜底结束的运行至少留下进度与截图。
-  4. 收尾，每一步有自己的时限（各 10 秒）：观察者截终态、收假站证据、断开、关 Chrome、停假站、注销假密钥。
+  4. 收尾，每一步有自己的时限（截终态与关 Chrome 各 20 秒，停假站 10 秒）：观察者截终态、收假站证据、断开、关 Chrome、停假站、注销假密钥。
   5. 拼 `record.json`、按结局表定结局、判分写 `score.json`。
 
 ### `evals/browser/arms/browser-use/`（browser-use 一边）
 
-- `run.py`：读 `/job/job.json`（只读绑定；任务原文、CDP 地址、网关地址与假密钥、模型名与推理档、时限）；`Browser(cdp_url=…)`、`ChatOpenAI(model, base_url=网关, api_key=假密钥, reasoning_effort=…)`、`Agent(task, llm=…, browser=…, judge=False, workspace="/work")`、`run(timeout=时限, max_steps=100)`。
+- `run.py`：读 `/tmp/job/job.json`（只读绑定；任务原文、CDP 地址、网关地址与假密钥、模型名与推理档、时限）；`Browser(cdp_url=…)`、`ChatOpenAI(model, base_url=网关, api_key=假密钥, reasoning_effort=…)`、`Agent(task, llm=…, browser=…, judge=False, workspace="/tmp/work")`、`run(timeout=时限, max_steps=100)`。
   - 标准输出只写带 `schema: "nbook.browser-eval.event/v1"` 的 JSON 行：`ready`、`step`（给 `logging.getLogger('browser_use')` 挂处理器，每条“step N: …”发一个，这条日志在一段代码执行完之后才打，见 1.0.6 `agent/loop.py:196`）、`done`；browser-use 自己的日志走标准错误。
-  - 结束时把 `result.messages` 转成步骤（代码来自工具调用的参数，输出来自工具返回，按出现顺序对齐步骤事件）、最终回答、`usage`、`status`、`success`、`error`、`partial` 写成 `/out/executor.json`（`/out` 绑到 `try-<n>/executor/`；调度器自己的文件不在沙箱里，执行者写不到）。
+  - 结束时把 `result.messages` 转成步骤（代码来自工具调用的参数，输出来自工具返回，按出现顺序对齐步骤事件）、最终回答、`usage`、`status`、`success`、`error`、`partial` 写成 `/tmp/out/executor.json`（`/tmp/out` 绑到 `try-<n>/executor/`；调度器自己的文件不在沙箱里，执行者写不到）。
   - 不读密钥文件；遥测与更新检查由环境关掉（沿用 t01 的三个变量）。
 - `adapter.ts`：逐行读执行者的标准输出（跳过不是 JSON 或不带 `schema` 的行），读 `executor.json`，拼成运行记录的 `steps`、`result`、`usage.executor`；`status` 与 `success` 按结局表映射。适配器测试用一份真实运行产出的 `executor.json` 样本（含一个回复里两段代码）。
 - Python 环境路径用 `--bu-python` 传入，沙箱里 `--ro-bind` 回 venv 与它的基础解释器（`readlink -f` 求出）。
@@ -146,7 +146,7 @@
 
 - 不改 Spec（评测工具，行为合同未变）。
 - `docs/standards/code/README.md` 的路由表加一行：`packages/neuro-book/evals/**` → `common.md`、`languages/typescript.md`、`scripts/typescript.md`；`.html` 追加 `frontend.md`；`.py` 只按 `common.md`。
-- `docs/testing/README.md` 的“测试分类与运行”表加一类“评测实机”：要真 Chrome、真 bwrap 的评测用例，命名 `*.live.test.ts`，`describe.skipIf(process.env.NBOOK_EVAL_LIVE !== "1")`，包脚本 `eval:live` 设开关并只跑这些；默认的 `test` 与 CI 里显示为跳过。
+- `docs/testing/README.md` 的“测试分类与运行”表加一类“评测实机”：要真 Chrome、真 bwrap、另起进程控制环境或要等真实时长的评测用例，命名 `*.live.test.ts`，`describe.skipIf(process.env.NBOOK_EVAL_LIVE !== "1")`，包脚本 `eval:live` 设开关并只跑这些；默认的 `test` 与 CI 里显示为跳过。
 - `packages/neuro-book/AGENTS.md` 的“目录约定”加一行 `evals/`：开发用的评测，不进打包与服务端入口。
 - `packages/neuro-book/tsconfig.json` 的 `include` 加 `evals`；`package.json` 加脚本 `eval:browser`（`bun evals/browser/cli.ts`）与 `eval:live`。打包脚本 `scripts/pack-app.ts` 用白名单，不用改，切片 1 核对 `evals/` 不在里面。
 
@@ -156,9 +156,9 @@
 |---|---|---|
 | 1 | 目录、`cli.ts` 骨架与 `.env` 读取、运行记录的格式与读写、结局表、文档与 tsconfig 的登记 | `bun test evals/browser/record`、`bun run typecheck`、`bun run governance:check`（确认测试规则与 include 生效） |
 | 2 | 假站三站、8 道题的定义、回答解析、规则判分与自检 | `bun test evals/browser/sites evals/browser/judge evals/browser/tasks`；`bun evals/browser/cli.ts sites --serve` 起假站，用 Playwright 脚本逐站截一张图看 |
-| 3 | 沙箱、薄 CDP 客户端、沙箱里的 Chrome、观察者 | `NBOOK_EVAL_LIVE=1 bun test evals/browser/runner/*.live.test.ts`：沙箱里看不到 `.env`、私有目录与用户总线，工作目录路径是 `/work`；Chrome 起来、`navigator.language` 是 `zh-CN`、时区对、经 CDP 打不开 `.env`；跨站 iframe 是独立目标；有未处理 `alert` 时截图超时而不卡住；收口后进程不在 |
-| 4 | 模型网关与模型路由 | `bun test evals/browser/runner/gateway.test.ts`（本机假上游：非流式、流式、缺用量、上游 5xx 与连接重置的记录、gzip 响应、未登记假密钥 401、绑定地址、上游延迟 11 秒仍交回、预算用完回 429）；经不经代理用绑在非回环网卡上的假上游与一个能截到请求的假代理测（大小写代理变量都设、`NO_PROXY` 设空串），写完对 `proxy: false` 做变异 |
-| 5 | browser-use 一边、调度与续跑、`probe` | `bun test evals/browser/arms evals/browser/runner/schedule.test.ts`；`prox bun evals/browser/cli.ts probe --models luna,hydrogen,neon`（三个模型各一道最小题，走到第二次请求带回工具调用与图片） |
+| 3 | 沙箱、薄 CDP 客户端、沙箱里的 Chrome、观察者 | `NBOOK_EVAL_LIVE=1 bun test evals/browser/runner/*.live.test.ts`：沙箱里看不到 `.env`、私有目录与用户总线，工作目录路径是 `/tmp/work`；Chrome 起来、`navigator.language` 是 `zh-CN`、时区对、经 CDP 打不开 `.env`；跨站 iframe 是独立目标；有未处理 `alert` 时截图超时而不卡住；收口后进程不在 |
+| 4 | 模型网关与模型路由 | `bun test evals/browser/runner/gateway.test.ts`（本机假上游：非流式、流式、缺用量、上游 5xx 与连接重置的记录、gzip 响应、未登记假密钥 401、绑定地址、上游延迟 11 秒仍交回、预算用完回 429）；经不经代理用绑在非回环网卡上的假上游与一个能截到请求的假代理测（大小写代理变量都设、`NO_PROXY` 设空串），写完对代理选项的传递做变异 |
+| 5 | browser-use 一边、调度与续跑、`probe` | `bun test evals/browser/arms evals/browser/runner/schedule.test.ts`（派格的并发、每个上游的上限、止损，`runPool` 由 `runSchedule` 拆出）；`bun evals/browser/cli.ts probe --model-proxy "$(prox printenv https_proxy)"`（三个模型各一道最小题，走到第二次请求带回工具调用与图片） |
 | 6 | 统计与报表、投影 | `bun test evals/browser/report`（手算的小样本、全同分的题、投影里找不到标记串） |
 | 7 | 试飞：8 题 × 3 模型 × 1 次；逐题对着截图与证据人工核分，修判分；量出每次运行的用时与 token，估算正式运行的费用与时长 | 见“验证” |
 | 8 | 正式运行：8 题 × 3 模型 × 5 次，出报表，发给开发者 | 见“验证” |
@@ -189,7 +189,7 @@
 - **真实运行**（开发者已同意先跑第一阶段，决定 6）：
   - 第 5 片的 `probe`：三个模型各一道最小题；
   - 第 7 片的试飞：24 次，人工核分；按量出的单次 token 与用时估算第 8 片的费用与时长，估出的费用超过 50 美元时先问开发者；
-  - 第 8 片的正式运行：120 次，并发 4，用 `prox` 起，`--out` 写进 `.local`，`--max-total-input-tokens` 设为估算值的 2 倍作止损。
+  - 第 8 片的正式运行：120 次，并发 4，代理用 `--model-proxy` 给，`--out` 写进 `.local`，`--max-total-input-tokens` 设为估算值的 2 倍作止损。
   - 开跑前看 `/proc/loadavg`，停掉多余的开发服务。
 - **没有 e2e**：评测不碰应用的页面。
 - **未验证边界**：NeuroBook 一边、BU 评判器与真站都不在本阶段；隔离只防读文件、拿密钥与经用户总线跑到沙箱外，不防执行者连本机端口（假站状态不经 HTTP 暴露）；Chrome 留在沙箱外的话（见 `chrome.ts`），执行者能经 CDP 读本机文件；中转实际用的部署只能由网关记录的模型名判断；browser-use 不给 `max_tokens`，输出上限是各上游的缺省值。

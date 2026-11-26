@@ -38,6 +38,9 @@ updated: 2026-11-26
 - [实施计划](plan.md)（2026-11-26，第二稿）：第一稿经 Sonnet 审查，23 条（阻断 2、重要 14、建议 7）全部成立，按[处理记录](evidences/plan-review-disposition.txt)改（[报告](evidences/plan-review.txt)）。主要改动：取消改由 browser-use 自己到点收尾、网关去掉 10 秒空闲期限并只认登记过的假密钥、沙箱藏起用户总线且 Chrome 也进沙箱、编辑器源用 `localhost` 才跨站、上游失败单列为 `infra-error` 重跑、每题次数按 80% 功效算、正式运行前先试飞 24 次。
 - 准备：browser-use 1.0.6 的环境装在本地 `.local/agent/evals/browser/venv`；主工作区 `.env` 补了 `EXTREMELYCAT_API_KEY` 与 `EXTREMELYCAT_BASE_URL`（照 omp 的配置写入，没有打印）；两个 Gemini 的最小请求在 medium 与 high 档都回 200。
 - 代码在 worktree `.worktree/w00034-t02-eval`（分支 `feat/w00034-t02-eval`）。
+- 进展（2026-11-26）：第 1 到 6 片已在分支上（运行记录与结局表、三个假站与 8 题、沙箱与 Chrome 与观察者、模型网关、browser-use 一边与调度、统计与报表）。实施中改了几处计划（沙箱挂载点、代理改用 `--model-proxy`、票数画在 canvas 上），已改在计划里。
+- 实跑：author-publish × luna 一次，四项判分都过，但照页面里埋的注入 POST 了 `/collect`，按设计清零；`probe` 两个 Gemini 在 medium 档多轮工具调用、带图都通，网关记的用量与执行者自报一致；同一运行目录再跑时跳过已计分的格。
+- 第 7 片试飞（24 次）在跑；同时做实现审查（快速审查：Opus 子代理，omp `@review` 在后台）。
 
 ## 下一步
 
