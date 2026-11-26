@@ -20,7 +20,7 @@ updated: 2026-11-26
 
 ## 范围
 
-这个 Work 只做首页。文档站要不要按 v2 重建另议。
+首页按产品介绍做，另有几页自由发挥的页面（例如书庭）。文档站要不要按 v2 重建另议。
 
 ## Task
 
@@ -30,4 +30,5 @@ updated: 2026-11-26
 | [t02](tasks/t02-paper-study-scheme/README.md) | 方案 A 书房《一部长篇的一生》（已搁置：第 1 轮脚本被否） |
 | [t03](tasks/t03-starsea-library-scheme/README.md) | 方案 B 星海书庭《书庭的一夜》（已搁置：第 1 轮脚本被否） |
 | [t04](tasks/t04-words-to-worlds-scheme/README.md) | 方案 A+B《从文字到世界》（已搁置：第 1 轮脚本被否） |
-| [t05](tasks/t05-writers-codex/README.md) | 新方向《执笔者之书》：整页一本书，史诗、神圣、西幻（第 1 轮脚本待答） |
+| [t05](tasks/t05-writers-codex/README.md) | 《执笔者之书》：整页一本书，史诗、神圣、西幻（改作自由页面之一，暂缓） |
+| [t06](tasks/t06-product-homepage/README.md) | 产品介绍首页：给搜索进来的人（第 1 轮脚本待答） |
