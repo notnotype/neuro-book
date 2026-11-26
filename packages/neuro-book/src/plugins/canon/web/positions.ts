@@ -41,16 +41,31 @@ export interface PositionOption {
     readonly label: string;
 }
 
-const INITIAL = "initial";
+/** 位置选择里“最初”的值。 */
+export const INITIAL_POSITION = "initial";
+
+/** “在看”菜单里剧情进度的一章：序号、标题与开头、末尾两个位置的值（输出 7）。 */
+export interface PositionChapter {
+    readonly chapter: string;
+    readonly index: number;
+    readonly title: string | null;
+    readonly start: string;
+    readonly end: string;
+}
+
+/** 章表折成“在看”菜单的章：一章一行，开头与末尾的值同 `positionValue`。 */
+export function positionChapters(chapters: readonly ChapterRef[]): PositionChapter[] {
+    return chapters.map((chapter) => ({chapter: chapter.id, index: chapter.index, title: chapter.title, start: `${chapter.id}:start`, end: `${chapter.id}:end`}));
+}
 
 /** 位置选择的值：“初值”是 `initial`，章的开头、末尾是 `<章 id>:start`、`<章 id>:end`。 */
 export function positionValue(position: ReadPosition): string {
-    return position.kind === "initial" ? INITIAL : `${position.chapter}:${position.edge}`;
+    return position.kind === "initial" ? INITIAL_POSITION : `${position.chapter}:${position.edge}`;
 }
 
 /** `positionValue` 的反面；认不出的值得 null。 */
 export function positionFromValue(value: string): ReadPosition | null {
-    if (value === INITIAL) return {kind: "initial"};
+    if (value === INITIAL_POSITION) return {kind: "initial"};
     const split = value.lastIndexOf(":");
     const edge = value.slice(split + 1);
     if (split <= 0 || (edge !== "start" && edge !== "end")) return null;
@@ -70,7 +85,7 @@ export function positionExists(position: ReadPosition, chapters: readonly Chapte
 
 /** 依次是“初值”，然后每一章的开头、末尾。 */
 export function positionOptions(chapters: readonly ChapterRef[], text: CanonBoundText): PositionOption[] {
-    const options: PositionOption[] = [{value: INITIAL, label: text("position.initial")}];
+    const options: PositionOption[] = [{value: INITIAL_POSITION, label: text("position.initial")}];
     for (const chapter of chapters) {
         for (const edge of ["start", "end"] as const) {
             const label = chapter.title === null || chapter.title === ""

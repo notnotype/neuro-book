@@ -14,7 +14,6 @@ import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
 import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
-import type LineSelect from "nbook/plugins/canon/web/components/LineSelect.vue";
 import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
 import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
 import type MoveDialog from "nbook/plugins/canon/web/components/MoveDialog.vue";
@@ -25,7 +24,6 @@ import type TextConflictDialog from "nbook/plugins/canon/web/components/TextConf
 import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
-import type PositionPicker from "nbook/plugins/canon/web/components/PositionPicker.vue";
 import type EntryPageNav from "nbook/plugins/canon/web/components/EntryPageNav.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
@@ -40,6 +38,7 @@ import type CharacterCard from "nbook/plugins/canon/web/components/CharacterCard
 import type LookCard from "nbook/plugins/canon/web/components/LookCard.vue";
 import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
 import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
+import type ViewPointPicker from "nbook/plugins/canon/web/components/ViewPointPicker.vue";
 import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
 import type GoalGroup from "nbook/plugins/plot/web/components/GoalGroup.vue";
 import type NodeBand from "nbook/plugins/plot/web/components/NodeBand.vue";
@@ -2021,27 +2020,17 @@ function canonEntryPageFixtures() {
         {id: "c2", where: "第 2 章", text: "领了打工的工资", flags: ["held" as const], patches: ["存款 +3,000"]},
         {id: "c1", where: "第 1 章", text: "交了学费", flags: ["undone" as const], patches: ["存款 −800", "状态 → 入学"]},
     ];
-    const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
+    const chapters = [{chapter: "1", index: 1, title: "雨夜的来客", start: "1:start", end: "1:end"}, {chapter: "2", index: 2, title: null, start: "2:start", end: "2:end"}];
     const tabs = [
         {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
         {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
         {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
         {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 4},
     ];
-    const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
+    const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, chapters, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
     /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
     const IDLE = {kind: "idle"} as const;
-    const lineOptions = [{id: "main", name: null, depth: 0}, {id: "l1", name: "重来的那个晚上", depth: 1}, {id: "l2", name: "梦里的那一天", depth: 2}];
     return [
-        defineLabFixture<typeof LineSelect>({
-            component: "LineSelect",
-            scenes: [
-                {id: "follow", label: "跟着章（此刻读主线）", input: {props: {options: lineOptions, resolved: "main"}, model: {line: ""}}},
-                {id: "picked", label: "选了一条子线（按树缩进）", input: {props: {options: lineOptions, resolved: "l1"}, model: {line: "l1"}}},
-                {id: "follow-english", label: "英文界面", input: {props: {options: lineOptions, resolved: "l2"}, model: {line: ""}}},
-            ],
-            load: async () => (await import("./LineSelectFixture.vue")).default,
-        }),
         defineLabFixture<typeof EntryPicker>({
             component: "EntryPicker",
             scenes: [
@@ -2364,23 +2353,32 @@ function canonEntryPageFixtures() {
             })(),
             load: async () => (await import("./EntryPageNavFixture.vue")).default,
         }),
-        defineLabFixture<typeof PositionPicker>({
-            component: "PositionPicker",
+        defineLabFixture<typeof ViewPointPicker>({
+            component: "ViewPointPicker",
             scenes: (() => {
-                const positions = [{value: "initial", label: "最初"}, ...[1, 2, 3].flatMap((n) => [{value: `${String(n)}:start`, label: `第 ${String(n)} 章开头`}, {value: `${String(n)}:end`, label: `第 ${String(n)} 章末尾`}])];
+                const titles = ["雨夜的来客", "妹妹的布丁", "学院开学", "旧校舍的钟", "第一次变身", "对策委员会", "哥哥的秘密", "失物招领", "夏日祭", "回不去的那天", "星瑕的信", "雨停以后"];
+                const chapterOf = (n: number, title: string | null) => ({chapter: `c${String(n)}`, index: n, title, start: `c${String(n)}:start`, end: `c${String(n)}:end`});
+                const three = [chapterOf(1, "好哥哥真难当"), chapterOf(2, "用钱说话"), chapterOf(3, null)];
+                const many = Array.from({length: 60}, (_, index) => chapterOf(index + 1, titles[index % titles.length]!));
+                const lines = [{id: "main", name: null, depth: 0}, {id: "l1", name: "重来的那个晚上", depth: 1}, {id: "l2", name: "梦里的那一天", depth: 2}];
+                const english = [chapterOf(1, "The Visitor on a Rainy Night"), chapterOf(12, "The Long Road Home Begins")];
                 return [
-                    {id: "sample", label: "第 3 章末尾，作品里有计划", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: false}}},
-                    {id: "no-plans", label: "作品里没有计划：没有勾选项", input: {props: {positions}, model: {position: "3:end", planned: false}}},
-                    {id: "planned", label: "算上计划：旁边一枚“算上计划 ×”", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: true}}},
-                    {id: "not-appeared", label: "到这里还没出场", input: {props: {positions, notAppeared: true}, model: {position: "1:end", planned: false}}},
-                    {id: "gone", label: "原来选的那一章不在了", input: {props: {positions, positionGone: true}, model: {position: "3:end", planned: false}}},
-                    {id: "locked", label: "有没提交的主文字：锁着", input: {props: {positions, canPlan: true, locked: "先提交或放弃正在写的主文字"}, model: {position: "3:end", planned: true}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Initial state"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
-                    // 位置带长章标题、英文：标记截断，390 宽不撑出横向滚动。
-                    {id: "long-title-english", label: "英文、长章标题、还没出场", input: {props: {positions: [{value: "initial", label: "Initial state"}, {value: "12:end", label: "End of chapter 12: The Long Road Home Begins"}], notAppeared: true}, model: {position: "12:end", planned: false}}},
+                    {id: "sample", label: "第 3 章末尾，有分支线与计划", input: {props: {chapters: three, canPlan: true, lineOptions: lines, resolvedLine: "main"}, model: {position: "c3:end", planned: false, line: ""}}},
+                    {id: "main-only", label: "只有主线：不提线", input: {props: {chapters: three, canPlan: true}, model: {position: "c3:end", planned: false, line: ""}}},
+                    {id: "pinned", label: "固定看一条分支线", input: {props: {chapters: three, lineOptions: lines, resolvedLine: "l1"}, model: {position: "c2:end", planned: false, line: "l1"}}},
+                    {id: "planned", label: "算上计划", input: {props: {chapters: three, canPlan: true, lineOptions: lines, resolvedLine: "main"}, model: {position: "c3:end", planned: true, line: ""}}},
+                    {id: "many", label: "60 章：菜单里能搜、滚到当前章", input: {props: {chapters: many, canPlan: true, lineOptions: lines, resolvedLine: "main"}, model: {position: "c37:end", planned: false, line: ""}}},
+                    {id: "initial", label: "在“最初”：往前一步不可用", input: {props: {chapters: three}, model: {position: "initial", planned: false, line: ""}}},
+                    {id: "not-appeared", label: "到这里还没出场", input: {props: {chapters: three, notAppeared: true}, model: {position: "c1:end", planned: false, line: ""}}},
+                    {id: "gone", label: "原来选的那一章不在了", input: {props: {chapters: three, positionGone: true}, model: {position: "c3:end", planned: false, line: ""}}},
+                    {id: "locked", label: "有没提交的主文字：锁着", input: {props: {chapters: three, canPlan: true, lineOptions: lines, resolvedLine: "main", locked: "先提交或放弃正在写的主文字"}, model: {position: "c3:end", planned: true, line: ""}}},
+                    {id: "only-plans", label: "空作品里只有计划", input: {props: {chapters: [], canPlan: true}, model: {position: "initial", planned: false, line: ""}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {chapters: english, canPlan: true, lineOptions: lines, resolvedLine: "l2"}, model: {position: "c12:end", planned: true, line: ""}}},
+                    // 英文、长线名、还没出场：标记与结论截断，390 宽不撑出横向滚动。
+                    {id: "long-title-english", label: "英文、长线名、还没出场", input: {props: {chapters: english, notAppeared: true, lineOptions: [{id: "main", name: null, depth: 0}, {id: "l9", name: "The Night Everything Was Undone Again", depth: 1}], resolvedLine: "l9"}, model: {position: "c12:end", planned: false, line: "l9"}}},
                 ];
             })(),
-            load: async () => (await import("./PositionPickerFixture.vue")).default,
+            load: async () => (await import("./ViewPointPickerFixture.vue")).default,
         }),
         defineLabFixture<typeof PageNotices>({
             component: "PageNotices",

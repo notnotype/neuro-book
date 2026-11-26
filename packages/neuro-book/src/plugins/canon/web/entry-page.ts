@@ -80,7 +80,7 @@ export interface PageLine {
 /** 没有附加分页的贡献点时（测试窗口）。 */
 const NO_TABS = new ComponentViewRegistry<EntryTabDeclaration>();
 
-/** 没有窗口的线时（测试窗口）：总是跟着章，只有主线。 */
+/** 没有窗口的线时（测试窗口）：总是按章节自动，只有主线。 */
 const FOLLOW_ONLY: PageLine = {line: ref(""), options: ref([{id: MAIN_LINE, name: null, depth: 0}]), set: () => undefined};
 
 export interface EntryPageOptions {
@@ -100,7 +100,7 @@ export interface EntryPageOptions {
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
-    /** 窗口在看的线（输出 34）；不给时总是跟着章、页头没有线选择。 */
+    /** 窗口在看的线（输出 34）；不给时总是按章节自动、“在看”不提线。 */
     readonly windowLine?: PageLine;
     /**
      * 一个条目页挂上了：设定视图据此选中它的条目。页面标签只在所在组的活动标签时挂载，挂上说明它刚显示出来：切到这个标签、把它拖到

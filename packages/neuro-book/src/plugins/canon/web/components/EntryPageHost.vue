@@ -27,7 +27,7 @@ import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionOptions, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -75,7 +75,7 @@ const props = defineProps<{
      * 推成了 Promise。
      */
     client: Pick<CanonClient, "call">;
-    /** 窗口在看的线（输出 34）：空串是跟着章，读取位置不写线。 */
+    /** 窗口在看的线（输出 34）：空串是按章节自动，读取位置不写线。 */
     windowLine: PageLine;
     views: ComponentViewRegistry;
     /** 附加分页（输出 36）。 */
@@ -163,7 +163,7 @@ const status = computed<EntryPageStatus>(() => {
     return view.value.deleted ? "deleted" : "normal";
 });
 
-// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
+// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：按章节自动时就是这一页正在读的那份，只有读的
 // 正是那里时才报；窗口选了线时另读一份缺省位置的。
 const headElsewhere = computed(() => windowLine.value !== "" || lockedAt.value !== null);
 const headRead = useWorldRead(world, "entry", () => (headElsewhere.value && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
@@ -1074,7 +1074,7 @@ const dataView = computed<{readonly component: Component | null; readonly loadin
 
 /* ---------- 页头 ---------- */
 
-const options = computed(() => positionOptions(chapters.value, text));
+const rows = computed(() => positionChapters(chapters.value));
 const notAppeared = computed(() => view.value !== null && !view.value.appeared);
 const setPosition = (value: string): void => {
     state.position = positionFromValue(value) === null ? null : value;
@@ -1088,7 +1088,7 @@ const setPosition = (value: string): void => {
             :name="view?.name ?? ''"
             :summary="view?.summary ?? ''"
             :same-as="entry?.sameAs ?? null"
-            :positions="options"
+            :chapters="rows"
             :position="positionValue(position)"
             :planned="mode === 'planned'"
             :not-appeared="notAppeared"

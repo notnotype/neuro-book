@@ -1,6 +1,6 @@
 /**
  * 窗口在看的线（docs/specs/canon/author-ui.md 输出 34）接在进程内的真实世界服务上：一主一子两条线，状态栏条目、公开状态与条目页的
- * 读取跟着窗口的线，标签标题不跟；分叉撤销以后回到跟着章。
+ * 读取跟着窗口的线，标签标题不跟；分叉撤销以后回到按章节自动。
  */
 
 import {mkdir, rm, writeFile} from "node:fs/promises";
@@ -80,7 +80,7 @@ function bare(id: string, chapter: string, key: number): StoryChangeDraft {
 }
 
 describe("窗口在看的线", () => {
-    it("一主一子：状态栏写跟着章；选了子线，条目页按子线读、标签标题仍是缺省位置的名字；分叉撤销以后回到跟着章", async () => {
+    it("一主一子：状态栏写按章节自动；选了子线，条目页按子线读、标签标题仍是缺省位置的名字；分叉撤销以后回到按章节自动", async () => {
         venue = await canonNodeWorld(tmp);
         const standIn = pageStandIn();
         const used = services();
@@ -107,7 +107,7 @@ describe("窗口在看的线", () => {
         expect(item.declaration).toMatchObject({alignment: "right", command: {id: "nbook.canon.pick-line"}, when: {requires: ["nbook.canon/lineReady"]}});
         await waitUntil("读到线表，有两条线", () => used.state("nbook.canon/lineReady") === true && used.reads().lineOptions.value.length === 2);
         expect(used.reads().lineOptions.value).toEqual([{id: "main", name: null, depth: 0}, {id: line, name: "回溯以后", depth: 1}]);
-        expect(port.t(item.implementation.text())).toBe("在看：跟着章");
+        expect(port.t(item.implementation.text())).toBe("故事线：按章节自动");
         expect(used.state("nbook.canon/line")).toBe("");
 
         const page = standIn.page<EntryPageState>(ENTRY_PAGE);
@@ -115,34 +115,33 @@ describe("窗口在看的线", () => {
         const context: EditorPageContext<EntryPageState> = {recent: [], arg: starId, state: reactive(page.initialState!(starId))};
         const wrapper = mount(component, {props: {context}, global: {provide: provideText(port)}, attachTo: document.body});
         cleanups.push(() => wrapper.unmount());
-        // 缺省位置是第 2 章末尾，跟着章读的是主线。
+        // 缺省位置是第 2 章末尾，按章节自动读的是主线。
         await waitUntil("主线上的值", () => wrapper.find("[data-value]").exists() && wrapper.find("[data-value]").text().includes("900"));
         expect(page.title!(starId)).toBe("星瑾");
-        // 页头的线选择：跟着章时写这一页实际读的线。
-        expect(wrapper.find('[aria-label="看哪条线"]').exists()).toBe(true);
-        expect(wrapper.text()).toContain("跟着章（此刻：主线）");
+        // 页头的“在看”：按章节自动时写这一页实际读的线。
+        expect(wrapper.get("[data-view-point]").text()).toContain("第 2 章末尾 · 主线");
 
         used.reads().setLine(line);
         expect(used.state("nbook.canon/line")).toBe(line);
-        expect(port.t(item.implementation.text())).toBe("在看：回溯以后");
+        expect(port.t(item.implementation.text())).toBe("故事线：回溯以后");
         await waitUntil("子线上的值", () => wrapper.find("[data-value]").text().includes("500"));
         expect(wrapper.text()).toContain("星瑾（回溯）");
         // 标签标题按缺省位置、不带窗口的线读。
         expect(page.title!(starId)).toBe("星瑾");
 
-        // 撤掉分叉：子线不在了，回到跟着章，下一次选线时要说一句。
+        // 撤掉分叉：子线不在了，回到按章节自动，下一次选线时要说一句。
         const stored = await other.canon.call("object", {ref: {kind: "change", id: ids["tmp:fork"]!}});
         if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
         await publish(other.canon, [{ref: {kind: "change", id: ids["tmp:fork"]!}, after: {...(stored.value.object as StoryChangeDraft), status: "undone"}}]);
-        await waitUntil("回到跟着章", () => used.state("nbook.canon/line") === "");
+        await waitUntil("回到按章节自动", () => used.state("nbook.canon/line") === "");
         expect(used.reads().lineOptions.value).toEqual([{id: "main", name: null, depth: 0}]);
-        expect(port.t(item.implementation.text())).toBe("在看：主线");
+        expect(port.t(item.implementation.text())).toBe("故事线：主线");
         await waitUntil("回到主线上的值", () => wrapper.find("[data-value]").text().includes("900"));
-        // 只剩主线：页头不画线选择。
-        expect(wrapper.find('[aria-label="看哪条线"]').exists()).toBe(false);
+        // 只剩主线：“在看”不提线。
+        expect(wrapper.get("[data-view-point]").text()).not.toContain("主线");
     });
 
-    it("别的插件经服务拿到的页头与位置：标题、线与位置选择；位置的值换成读取位置时带上窗口的线", async () => {
+    it("别的插件经服务拿到的页头与位置：标题与“在看”；位置的值换成读取位置时带上窗口的线", async () => {
         venue = await canonNodeWorld(tmp);
         const used = services();
         const diagnostics = createDiagnosticsPlugin({location: "browser", store: createDiagnosticsStore({identity: {location: "browser", instanceId: "mine"}}), exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
@@ -169,7 +168,7 @@ describe("窗口在看的线", () => {
         cleanups.push(() => head.unmount());
         await waitUntil("页头画出来", () => head.find("[data-page-head]").exists() && head.text().includes("第 1 章开头"));
         expect(head.find("h1").text()).toBe("谁知道什么");
-        expect(head.find('[aria-label="看哪条线"]').exists()).toBe(true);
-        expect(head.text()).toContain("回溯以后");
+        // 窗口固定看着子线：“在看”写线名，带分支的样子。
+        expect(head.get("[data-view-point]").text()).toContain("第 1 章开头 · 回溯以后");
     });
 });

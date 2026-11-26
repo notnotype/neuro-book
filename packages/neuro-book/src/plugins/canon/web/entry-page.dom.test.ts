@@ -797,7 +797,7 @@ describe("写入", () => {
         await startEditing(wrapper);
         // 进来是一个空的输入框，还不算有改动：右边是“取消”，状态行没有“有未提交的修改”，标签没有未提交的内容。
         expect([area(wrapper).value, wrapper.find("[data-text-cancel]").exists(), wrapper.find("[data-text-dirty]").exists(), page.uncommitted!(id)]).toEqual(["", true, false, false]);
-        expect(wrapper.find("[data-position-locked]").exists()).toBe(true);
+        expect(wrapper.find("[data-view-point-locked]").exists()).toBe(true);
 
         const whole = "星瑕是第三魔法学院的学生。\n\n她有 {panel.存款} 元。";
         typeInto(area(wrapper), whole);
@@ -812,7 +812,7 @@ describe("写入", () => {
         expect(await initText(other.canon, id)).toEqual([whole]);
         await waitUntil("回到阅读视图", () => wrapper.find("[data-entry-text]").exists() && wrapper.get("[data-entry-text]").text().includes("第三魔法学院的学生"));
         await waitUntil("提示", () => wrapper.find("[data-notice-bar]").exists() && wrapper.get("[data-notice-bar]").text().includes("改星瑕的主文字"));
-        expect([page.uncommitted!(id), wrapper.find("[data-position-locked]").exists(), wrapper.get("[data-text-edit]").text()]).toEqual([false, false, "编辑"]);
+        expect([page.uncommitted!(id), wrapper.find("[data-view-point-locked]").exists(), wrapper.get("[data-text-edit]").text()]).toEqual([false, false, "编辑"]);
         const revisions = await other.canon.call("revisions", {filter: {entry: id}});
         expect(revisions.ok && revisions.value.items.map((item) => item.title)).toEqual(["改星瑕的主文字", "写入"]);
 
@@ -1056,7 +1056,7 @@ describe("写入", () => {
         await waitUntil("确认放弃", () => document.body.textContent?.includes("放弃没提交的修改？") === true);
         dialogButton("放弃").click();
         await waitUntil("回到阅读视图，读现在的位置", () => wrapper.find("[data-value]").exists() && valueText(wrapper) !== "1,200");
-        expect([page.uncommitted!(id), wrapper.find("[data-position-locked]").exists()]).toEqual([false, false]);
+        expect([page.uncommitted!(id), wrapper.find("[data-view-point-locked]").exists()]).toEqual([false, false]);
     });
 
     it("同一个条目在两个编辑组里各开一页：先挂的那一页卸载以后保存命令照样提交；一页都没挂时保存报没保存成功、稿还在", async () => {

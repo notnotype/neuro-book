@@ -425,10 +425,10 @@
             "text": "Pending {{count}}"
         },
         "line": {
-            "title": "World line in view",
-            "main": "Viewing: main line",
-            "follow": "Viewing: each chapter's line",
-            "named": "Viewing: {{name}}"
+            "title": "Story line",
+            "main": "Story line: main",
+            "follow": "Story line: by chapter",
+            "named": "Story line: {{name}}"
         }
     },
     "state": {
@@ -557,13 +557,35 @@
         }
     },
     "line": {
-        "pickTitle": "Which line to read",
+        "pickTitle": "Which story line to read",
         "lostTitle": "The line you were viewing no longer exists",
         "placeholder": "Pick a line",
-        "follow": "Follow each chapter",
+        "follow": "By chapter",
         "main": "Main line",
-        "followNow": "Follow each chapter (now: {{line}})",
         "label": "World line"
+    },
+    "viewPoint": {
+        "label": "Viewing",
+        "aria": "Viewing: {{summary}}",
+        "withPlans": "with plans",
+        "lines": "Story lines",
+        "linesTip": "Parallel threads of the story: the main line, and other developments that branch off it at some point. A character can differ between lines. \"By chapter\" reads whichever line each chapter tells.",
+        "progress": "Story progress",
+        "progressTip": "Settings change as the story goes on. Pick which moment to look at: \"Initial state\" is the setting before anything happens, or the start or end of a chapter.",
+        "follow": "By chapter",
+        "followNow": "Now: {{line}}",
+        "initialHint": "Starting setting",
+        "start": "Start",
+        "end": "End",
+        "search": "Chapter number or title",
+        "searchLabel": "Find a chapter",
+        "noMatch": "No matching chapter",
+        "prevLabel": "Step back",
+        "nextLabel": "Step forward",
+        "prev": "Step back: {{position}}",
+        "next": "Step forward: {{position}}",
+        "atStart": "Already at the start",
+        "atEnd": "Already at the end"
     },
     "entryPicker": {
         "placeholder": "Find an entry",
