@@ -9,7 +9,7 @@ import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
 import {createDragGesture} from "../drag-gesture";
-import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragState, DragStops} from "../drag-gesture";
+import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragScrollTarget, DragState, DragStops} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 
 /** @experimental */
@@ -93,6 +93,37 @@ function topElementAt(document: Document, point: GridDropPoint): Element | null 
         if (element.closest(FEEDBACK_SELECTOR) === null) return element;
     }
     return null;
+}
+
+const SCROLLABLE_OVERFLOW: ReadonlySet<string> = new Set(["auto", "scroll"]);
+
+/**
+ * 边缘滚动的一个候选容器此刻的样子。一个轴让不让滚只看计算样式的 `overflow-x`、`overflow-y`，不看内容有没有溢出：
+ * `overflow: hidden` 的元素内容照样可以比它宽，程序赋 `scrollLeft` 也照样滚得动（资源树就是横向 hidden、竖向 auto）。
+ * 横向余量按从左到右排版算：从右到左排版时 `scrollLeft` 为负，算出的余量不对，现在没有这样的使用方。
+ */
+function scrollTargetOf(view: Window, element: HTMLElement): DragScrollTarget {
+    const style = view.getComputedStyle(element);
+    const scrollsX = SCROLLABLE_OVERFLOW.has(style.overflowX);
+    const scrollsY = SCROLLABLE_OVERFLOW.has(style.overflowY);
+    const {left, top, right, bottom} = element.getBoundingClientRect();
+    const {scrollLeft, scrollTop} = element;
+    return {
+        rect: {left, top, right, bottom},
+        room: {
+            left: scrollsX ? Math.max(0, scrollLeft) : 0,
+            right: scrollsX ? Math.max(0, element.scrollWidth - element.clientWidth - scrollLeft) : 0,
+            up: scrollsY ? Math.max(0, scrollTop) : 0,
+            down: scrollsY ? Math.max(0, element.scrollHeight - element.clientHeight - scrollTop) : 0,
+        },
+        scrollBy: (x, y) => {
+            const beforeLeft = element.scrollLeft;
+            const beforeTop = element.scrollTop;
+            // `instant`：容器设了 `scroll-behavior: smooth` 时，直接赋值后马上读回来还是旧值，会在第一步就被当成到头。
+            element.scrollBy({left: x, top: y, behavior: "instant"});
+            return element.scrollLeft !== beforeLeft || element.scrollTop !== beforeTop;
+        },
+    };
 }
 
 /** @experimental */
@@ -234,12 +265,7 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
         autoScroll: autoScroll === undefined ? undefined : {
             edgePx: autoScroll.edgePx,
             maxStepPx: autoScroll.maxStepPx,
-            rect: () => autoScroll.element.getBoundingClientRect(),
-            scrollBy: (step) => {
-                const before = autoScroll.element.scrollTop;
-                autoScroll.element.scrollTop = before + step;
-                return autoScroll.element.scrollTop !== before;
-            },
+            targets: () => [scrollTargetOf(view, autoScroll.element)],
         },
         keyboard: keyboard === undefined ? undefined : {
             regions: (source) => keyboard.regions(source),

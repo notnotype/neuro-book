@@ -84,12 +84,27 @@ export interface DragGestureKeyboard<S, R> {
     start(source: S, regions: ReadonlyArray<R>): {readonly region: number; readonly at: number | GridDropPoint};
 }
 
+/** 边缘滚动的一个候选容器此刻的样子（适配层每次现量）。 */
+export interface DragScrollTarget {
+    /** 视口坐标。 */
+    readonly rect: GridDropRect;
+    /** 四个方向还能滚多少像素；这个轴不让滚时两头都是 0。 */
+    readonly room: {readonly left: number; readonly right: number; readonly up: number; readonly down: number};
+    /** 滚一步（负数向左、向上）；返回是否真的滚动了。 */
+    scrollBy(x: number, y: number): boolean;
+}
+
 export interface DragGestureAutoScroll {
-    rect(): GridDropRect;
-    /** 滚一步；返回是否真的滚动了（到头为 false）。 */
-    scrollBy(step: number): boolean;
+    /** 指针在 `point` 时的候选容器，从里到外。没在滚时指针每次移动调一次，在滚时每帧开头调一次（`armAutoScroll` 在已排着滚动帧时不调）。 */
+    targets(point: GridDropPoint): ReadonlyArray<DragScrollTarget>;
     readonly edgePx?: number | undefined;
     readonly maxStepPx?: number | undefined;
+}
+
+/** 一个轴上这一帧滚哪个容器、滚多少。 */
+export interface EdgeScrollPick {
+    readonly target: DragScrollTarget;
+    readonly step: number;
 }
 
 export interface DragGestureHost<S, D, R> {
@@ -174,16 +189,48 @@ function stepOf(key: string, axis: DragStops["axis"]): number {
 }
 
 /**
- * 这一刻边缘滚动该滚多快（负数向上）：指针在横向范围内、离上下边缘不到 `edgePx` 或已越过边缘时滚，越靠边越快；元素矮到
- * 上下两条边缘带相接时不滚，否则指针在哪都在滚。
+ * 这一刻边缘滚动在一个轴上该滚多快（负数向左、向上）：指针在另一个轴的范围内、离这个轴的一端不到 `edgePx` 或已越过这一端时
+ * 滚，越靠边越快；容器在这个轴上短到两条边缘带相接时不滚，否则指针在哪都在滚（32px 高的横向标签条因此不会竖着滚）。
  */
-export function edgeScrollStep(rect: GridDropRect, point: GridDropPoint, edgePx = EDGE_PX_DEFAULT, maxStepPx = EDGE_MAX_STEP_PX_DEFAULT): number {
-    if (point.x < rect.left || point.x > rect.right || rect.bottom - rect.top <= edgePx * 2) return 0;
-    const fromTop = point.y - rect.top;
-    const fromBottom = rect.bottom - point.y;
-    if (fromTop < edgePx) return -Math.ceil(Math.min(1, (edgePx - fromTop) / edgePx) * maxStepPx);
-    if (fromBottom < edgePx) return Math.ceil(Math.min(1, (edgePx - fromBottom) / edgePx) * maxStepPx);
+export function edgeScrollStep(rect: GridDropRect, point: GridDropPoint, axis: "x" | "y", edgePx = EDGE_PX_DEFAULT, maxStepPx = EDGE_MAX_STEP_PX_DEFAULT): number {
+    const vertical = axis === "y";
+    const start = vertical ? rect.top : rect.left;
+    const end = vertical ? rect.bottom : rect.right;
+    const at = vertical ? point.y : point.x;
+    const across = vertical ? point.x : point.y;
+    const acrossStart = vertical ? rect.left : rect.top;
+    const acrossEnd = vertical ? rect.right : rect.bottom;
+    if (across < acrossStart || across > acrossEnd || end - start <= edgePx * 2) return 0;
+    const fromStart = at - start;
+    const fromEnd = end - at;
+    if (fromStart < edgePx) return -Math.ceil(Math.min(1, (edgePx - fromStart) / edgePx) * maxStepPx);
+    if (fromEnd < edgePx) return Math.ceil(Math.min(1, (edgePx - fromEnd) / edgePx) * maxStepPx);
     return 0;
+}
+
+/**
+ * 这一帧怎么滚：横竖两个轴各从前往后（从里到外）挑第一个步进不为 0、这个方向还有余量的容器，所以嵌套时里层到头了交给外层，
+ * 两个轴也可以落在不同的容器上。两个轴都没挑到时为 null。
+ */
+export function edgeScrollPlan(
+    targets: ReadonlyArray<DragScrollTarget>,
+    point: GridDropPoint,
+    edgePx = EDGE_PX_DEFAULT,
+    maxStepPx = EDGE_MAX_STEP_PX_DEFAULT,
+): {readonly x: EdgeScrollPick | null; readonly y: EdgeScrollPick | null} | null {
+    const pick = (axis: "x" | "y"): EdgeScrollPick | null => {
+        for (const target of targets) {
+            const step = edgeScrollStep(target.rect, point, axis, edgePx, maxStepPx);
+            if (step === 0) continue;
+            const {room} = target;
+            const left = axis === "x" ? (step < 0 ? room.left : room.right) : (step < 0 ? room.up : room.down);
+            if (left > 0) return {target, step};
+        }
+        return null;
+    };
+    const x = pick("x");
+    const y = pick("y");
+    return x === null && y === null ? null : {x, y};
 }
 
 interface Armed<S> {
@@ -335,8 +382,9 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         scrollFrame = null;
         const current = active;
         const scroller = host.autoScroll;
-        const step = current === null || scroller === undefined ? 0 : edgeScrollStep(scroller.rect(), current.point, scroller.edgePx, scroller.maxStepPx);
-        if (current === null || scroller === undefined || step === 0) {
+        // 候选每帧现取：指针不动而容器在它底下换了（内容滚动、布局变化），这一帧就换过去。
+        const plan = current === null || scroller === undefined ? null : edgeScrollPlan(scroller.targets(current.point), current.point, scroller.edgePx, scroller.maxStepPx);
+        if (plan === null) {
             autoScrolling = false;
             return;
         }
@@ -344,18 +392,28 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         publish();
         if (active !== current) return;
         autoScrolling = true;
-        if (!scroller.scrollBy(step)) {
+        if (!scrollPlan(plan)) {
             autoScrolling = false;
             return;
         }
         scrollFrame = clock.requestFrame(autoScrollTick);
     }
 
+    /** 按挑中的滚一步；有一个真的滚动了就为真。两个轴落在同一个容器上时一次滚两个方向。 */
+    function scrollPlan(plan: {readonly x: EdgeScrollPick | null; readonly y: EdgeScrollPick | null}): boolean {
+        const {x, y} = plan;
+        if (x !== null && y !== null && x.target === y.target) return x.target.scrollBy(x.step, y.step);
+        // 两次都要调：写成短路的“或”时，横向滚动了，竖向这一步就被跳过。
+        const scrolledX = x !== null && x.target.scrollBy(x.step, 0);
+        const scrolledY = y !== null && y.target.scrollBy(0, y.step);
+        return scrolledX || scrolledY;
+    }
+
     /** 指针进了边缘带就排上边缘滚动；已经在滚时不用排。 */
     function armAutoScroll(point: GridDropPoint): void {
         const scroller = host.autoScroll;
         if (active === null || scroller === undefined || scrollFrame !== null) return;
-        if (edgeScrollStep(scroller.rect(), point, scroller.edgePx, scroller.maxStepPx) !== 0) scrollFrame = clock.requestFrame(autoScrollTick);
+        if (edgeScrollPlan(scroller.targets(point), point, scroller.edgePx, scroller.maxStepPx) !== null) scrollFrame = clock.requestFrame(autoScrollTick);
     }
 
     function begin(from: Armed<S>, point: GridDropPoint): void {

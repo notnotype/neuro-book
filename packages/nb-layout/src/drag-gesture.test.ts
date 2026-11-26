@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {DRAG_GESTURE_DEFAULTS, createDragGesture, defineDropKind, edgeScrollStep} from "./drag-gesture";
-import type {DragCancelReason, DragClock, DragEnd, DragGesture, DragGestureHost, DragState, DragStops} from "./drag-gesture";
+import type {DragCancelReason, DragClock, DragEnd, DragGesture, DragGestureHost, DragScrollTarget, DragState, DragStops} from "./drag-gesture";
 import type {GridDropPoint} from "./grid-drop";
 
 /**
@@ -609,42 +609,70 @@ describe("输出 14：边缘滚动", () => {
     const rect = {left: 0, right: 100, top: 0, bottom: 200};
 
     it("步进：离边缘越近越快，越过边缘是最快；范围外与中段不滚", () => {
-        expect(edgeScrollStep(rect, {x: 50, y: 100})).toBe(0);
-        expect(edgeScrollStep(rect, {x: 150, y: 195})).toBe(0);
-        expect(edgeScrollStep(rect, {x: 50, y: 188})).toBe(8);
-        expect(edgeScrollStep(rect, {x: 50, y: 500})).toBe(16);
-        expect(edgeScrollStep(rect, {x: 50, y: 12})).toBe(-8);
-        expect(edgeScrollStep(rect, {x: 50, y: -50})).toBe(-16);
+        expect(edgeScrollStep(rect, {x: 50, y: 100}, "y")).toBe(0);
+        expect(edgeScrollStep(rect, {x: 150, y: 195}, "y")).toBe(0);
+        expect(edgeScrollStep(rect, {x: 50, y: 188}, "y")).toBe(8);
+        expect(edgeScrollStep(rect, {x: 50, y: 500}, "y")).toBe(16);
+        expect(edgeScrollStep(rect, {x: 50, y: 12}, "y")).toBe(-8);
+        expect(edgeScrollStep(rect, {x: 50, y: -50}, "y")).toBe(-16);
     });
 
     it("元素矮到两条边缘带相接时不滚", () => {
-        expect(edgeScrollStep({left: 0, right: 100, top: 0, bottom: 48}, {x: 50, y: 1})).toBe(0);
+        expect(edgeScrollStep({left: 0, right: 100, top: 0, bottom: 48}, {x: 50, y: 1}, "y")).toBe(0);
     });
 
-    /** 一个有 `limit` 步可滚的元素。 */
-    function scroller(limit: number) {
-        const steps: number[] = [];
-        return {
-            steps,
-            host: {
-                rect: () => rect,
-                scrollBy(step: number) {
-                    if (steps.length >= limit) return false;
-                    steps.push(step);
-                    return true;
-                },
+    it("横向同样：两端按离边的距离、越过一端最快；纵向范围外与中段不滚，窄到两条带相接不滚", () => {
+        const strip = {left: 0, right: 200, top: 0, bottom: 32};
+        expect(edgeScrollStep(strip, {x: 100, y: 16}, "x")).toBe(0);
+        expect(edgeScrollStep(strip, {x: 188, y: 16}, "x")).toBe(8);
+        expect(edgeScrollStep(strip, {x: 12, y: 16}, "x")).toBe(-8);
+        expect(edgeScrollStep(strip, {x: 500, y: 16}, "x")).toBe(16);
+        expect(edgeScrollStep(strip, {x: -50, y: 16}, "x")).toBe(-16);
+        expect(edgeScrollStep(strip, {x: 195, y: 40}, "x")).toBe(0);
+        // 32px 高的条竖向两条带相接：横向条不会竖着滚。
+        expect(edgeScrollStep(strip, {x: 100, y: 2}, "y")).toBe(0);
+        expect(edgeScrollStep({left: 0, right: 48, top: 0, bottom: 32}, {x: 1, y: 16}, "x")).toBe(0);
+    });
+
+    const ROOM = {left: 1000, right: 1000, up: 1000, down: 1000};
+    const NO_ROOM = {left: 0, right: 0, up: 0, down: 0};
+
+    /** 一个容器替身：记下收到的每一步，有 `limit` 步可滚。 */
+    function target(rectOf: {left: number; right: number; top: number; bottom: number}, room: DragScrollTarget["room"] = ROOM, limit = Infinity) {
+        const steps: Array<{readonly x: number; readonly y: number}> = [];
+        const value: DragScrollTarget = {
+            rect: rectOf,
+            room,
+            scrollBy(x, y) {
+                if (steps.length >= limit) return false;
+                steps.push({x, y});
+                return true;
             },
         };
+        return {steps, target: value};
     }
 
-    it("每一帧先判定发布，再滚；滚到头停下，指针再动才接着试", () => {
-        const scroll = scroller(2);
+    /** 一个有 `limit` 步可滚的竖向列表。 */
+    function scroller(limit: number) {
+        const list = target(rect, ROOM, limit);
+        return {steps: list.steps, host: {targets: () => [list.target]}};
+    }
+
+    it("每一帧先判定发布，再滚；滚到头停下，指针再动：有余量就接着滚，没余量不滚", () => {
+        let room: DragScrollTarget["room"] = ROOM;
+        const steps: number[] = [];
         const order: string[] = [];
         const t = setup({
-            autoScroll: {...scroll.host, scrollBy: (step) => {
-                order.push("scroll");
-                return scroll.host.scrollBy(step);
-            }},
+            autoScroll: {targets: () => [{
+                rect,
+                room,
+                scrollBy: (_x, y) => {
+                    order.push("scroll");
+                    if (steps.length >= 2) return false;
+                    steps.push(y);
+                    return true;
+                },
+            }]},
             resolve: () => {
                 order.push("resolve");
                 return null;
@@ -656,10 +684,85 @@ describe("输出 14：边缘滚动", () => {
         t.clock.frame();
         expect(order.slice(-4)).toEqual(["resolve", "scroll", "resolve", "scroll"]);
         t.clock.frame();
-        expect(scroll.steps).toHaveLength(2);
+        expect(steps).toHaveLength(2);
         expect(t.clock.pendingFrames).toBe(0);
         t.gesture.move(1, {x: 50, y: 196}, 1);
         expect(t.clock.pendingFrames).toBeGreaterThan(0);
+        t.clock.frame();
+        room = {...ROOM, down: 0};
+        order.length = 0;
+        t.gesture.move(1, {x: 50, y: 197}, 1);
+        t.clock.frame();
+        t.clock.frame();
+        expect(order).not.toContain("scroll");
+    });
+
+    it("两个轴各挑各的：里层只横向滚、外层只竖向滚时，角上两个都滚；里层这个方向没余量时交给外层；外层这个轴不让滚时不滚", () => {
+        const corner = {x: 390, y: 5};
+        const rowRect = {left: 0, right: 400, top: 0, bottom: 34};
+        const listRect = {left: 0, right: 400, top: 0, bottom: 102};
+        const row = target(rowRect, {...NO_ROOM, left: 100, right: 100});
+        const list = target(listRect, {...NO_ROOM, up: 100, down: 100});
+        const t = setup({autoScroll: {targets: () => [row.target, list.target]}});
+        t.grab(corner);
+        t.clock.frame();
+        expect(row.steps).toEqual([{x: 10, y: 0}]);
+        expect(list.steps).toEqual([{x: 0, y: -13}]);
+        t.gesture.dispose();
+
+        // 里层往右没余量了：横向交给外层（外层两个轴都让滚）。外层够高，指针在里层右端、离外层上下边都远。
+        const tallRect = {left: 0, right: 400, top: 0, bottom: 300};
+        const inRowRightEnd = {x: 390, y: 30};
+        const endRow = target(rowRect, {...NO_ROOM, left: 100});
+        const both = target(tallRect, ROOM);
+        const chained = setup({autoScroll: {targets: () => [endRow.target, both.target]}});
+        chained.grab(inRowRightEnd);
+        chained.clock.frame();
+        expect(endRow.steps).toEqual([]);
+        expect(both.steps).toEqual([{x: 10, y: 0}]);
+        chained.gesture.dispose();
+
+        // 外层横向不让滚：不滚。
+        const vertical = target(tallRect, {...NO_ROOM, up: 100, down: 100});
+        const stopped = setup({autoScroll: {targets: () => [endRow.target, vertical.target]}});
+        stopped.grab(inRowRightEnd);
+        stopped.clock.frame();
+        stopped.clock.frame();
+        expect(endRow.steps).toEqual([]);
+        expect(vertical.steps).toEqual([]);
+    });
+
+    it("两个轴都挑中、是同一个容器：一帧滚一次，两个方向都动", () => {
+        const box = target({left: 0, right: 200, top: 0, bottom: 200});
+        const t = setup({autoScroll: {targets: () => [box.target]}});
+        t.grab({x: 190, y: 190});
+        t.clock.frame();
+        expect(box.steps).toEqual([{x: 10, y: 10}]);
+    });
+
+    it("候选每帧现取：指针不动，下一帧交回别的容器，就滚那一个", () => {
+        const first = target(rect);
+        const second = target(rect);
+        let current = first.target;
+        const t = setup({autoScroll: {targets: () => [current]}});
+        t.grab({x: 50, y: 195});
+        t.clock.frame();
+        expect(first.steps).toHaveLength(1);
+        current = second.target;
+        t.clock.frame();
+        expect(first.steps).toHaveLength(1);
+        expect(second.steps).toHaveLength(1);
+    });
+
+    it("这个方向余量为 0 时，指针进边缘带也不滚", () => {
+        const full = target(rect, {...ROOM, down: 0});
+        const t = setup({autoScroll: {targets: () => [full.target]}});
+        t.grab({x: 50, y: 195});
+        t.gesture.move(1, {x: 50, y: 196}, 1);
+        t.clock.frame();
+        t.clock.frame();
+        expect(full.steps).toEqual([]);
+        expect(t.clock.pendingFrames).toBe(0);
     });
 
     it("自己滚出来的滚动不撤下落点", () => {
