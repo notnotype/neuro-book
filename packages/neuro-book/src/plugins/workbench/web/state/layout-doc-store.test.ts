@@ -1133,15 +1133,18 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(solved(store)).toEqual(before);
         });
 
-        it("窗口太窄：展开请求回报 too-narrow，意图不改、零写入；已展开的在窗口变窄时按收着呈现、意图留着，变宽后恢复（验收 36）", async () => {
+        it("窗口太窄：展开请求回报 too-narrow，意图不改、零写入，按钮上标窗口太窄（变宽了收着不动）；已展开的在窗口变窄时按收着呈现、意图留着，变宽后恢复（验收 36）", async () => {
             const {store} = await railed(1000);
             await settled(store);
             const before = store.actions.document();
+            expect(store.state.rail).toMatchObject({expanded: false, tooNarrow: false});
             expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "too-narrow"});
             expect(store.actions.document()).toBe(before);
             expect(store.state.field.queue).toBe(0);
+            expect(store.state.rail).toMatchObject({expanded: false, tooNarrow: true, width: 48});
 
             store.actions.acceptExtent({width: 1440, height: 900});
+            expect(store.state.rail).toMatchObject({expanded: false, tooNarrow: false, width: 48});
             expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
             store.actions.acceptExtent({width: 1000, height: 900});
             expect(store.state.rail).toMatchObject({expanded: false, tooNarrow: true, width: 48});

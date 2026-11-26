@@ -11,10 +11,11 @@ import type {MessagesSegmentPlacement} from "@notnotype/nb-agent-ui/vue";
 import {computed, nextTick, ref} from "vue";
 
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";
-import {withAgentSceneText} from "./agent-text";
+import {agentSceneLocale, provideAgentSceneText} from "./agent-text";
 
 const props = defineProps<LabFixtureProps>();
-const Messages = withAgentSceneText(AgentMessages);
+// 不用 `withAgentSceneText` 包：包装组件不转发 expose，宿主这一半要调外框的 `focusSearch`。
+provideAgentSceneText(() => agentSceneLocale(props.input?.props?.locale));
 const subject = useLabSubject<typeof AgentMessages>(() => props.input, ["open-contact", "retry-contacts", "open-session", "new-session", "show-list", "escape-search"]);
 
 const docked = computed(() => props.scene.startsWith("docked"));
@@ -43,7 +44,7 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
 
 <template>
     <div class="flex h-[520px] max-w-full" :class="props.scene.includes('390') ? 'w-[390px]' : props.scene.startsWith('docked') ? 'w-[720px]' : 'w-[480px]'" :style="props.scene.includes('short') ? {height: '300px'} : undefined">
-        <Messages ref="frameRef" data-lab-subject class="min-w-0 flex-1" v-bind="{...subject.bindings.value, ...(placement === undefined ? {} : {placement})}" @show-list="showList">
+        <AgentMessages ref="frameRef" data-lab-subject class="min-w-0 flex-1" v-bind="{...subject.bindings.value, ...(placement === undefined ? {} : {placement})}" @show-list="showList">
             <div class="grid h-full place-items-center text-sm text-[var(--text-muted)]">聊天区（AgentConversationView）</div>
             <template #sessions>
                 <div class="flex flex-col gap-2 p-2 text-sm text-[var(--text-muted)]">
@@ -51,7 +52,7 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
                     会话面板（AgentSessionPanel）
                 </div>
             </template>
-        </Messages>
+        </AgentMessages>
         <nav v-if="docked" class="lab-rail" :class="{'lab-rail--expanded': expanded}" :style="{width: `${railWidth}px`}" aria-label="替身侧轨" data-lab-rail>
             <div class="lab-rail__entries"><span class="i-lucide-message-circle lab-rail__entry" aria-hidden="true"></span></div>
             <div ref="mainEl" class="lab-rail__main"></div>

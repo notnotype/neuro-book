@@ -89,6 +89,11 @@ function defineLayoutDocStore(bound: boolean) {
         const railBounds = shallowRef<(viewId: string) => ViewRailBounds | null>(() => null);
         /** 轨宽手柄拖动中的宽（输出 50 的“轨宽手柄”）：只给呈现，不写文档；松手由 `commitRailWidth` 提交。 */
         const railPreview = shallowRef<number | null>(null);
+        /**
+         * 上一次请求展开被预算拒绝的容器（输出 50 的“预算”：被拒时悬停与读屏给“窗口太窄”）。被拒不写文档，没有这一项的话被拒之后按钮上什么都看不出来；
+         * 只在内存，下一次请求（展开成功或收起）清掉。
+         */
+        const refusedRail = shallowRef<string | null>(null);
         const containers = shallowRef<ContainerCatalog>(NO_CONTAINERS);
         /** 这个窗口的文档。打开时读到记录才有；没有记录时是 null，默认树跟着视图目录（目录是陆续交进来的），第一次改动才定下来。 */
         const local = shallowRef<LayoutDoc | null>(null);
@@ -203,6 +208,7 @@ function defineLayoutDocStore(bound: boolean) {
         /**
          * 右轨此刻生效的状态（输出 50 的“展开”“预算”）：当前容器恰有一节、那个视图声明了视图段（`railBounds`，外壳从注册表与实例状态给）、意图是展开时，
          * 按收着求一次基线再算预算。基线只读收着的投影，所以结果不随这次展开本身的呈现变化来回翻。右栏没有当前容器时是 null。
+         * 意图是收着、但刚才请求展开被拒（`refusedRail`）时也按预算判：给不出就标 `tooNarrow`，给得出（窗口变宽了）照旧收着，等用户再点。
          */
         const railState = computed((): RailState | null => {
             const current = doc.value;
@@ -215,9 +221,11 @@ function defineLayoutDocStore(bound: boolean) {
             const intent = current.panels[anchor]?.rail?.[container];
             const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, railPreview.value ?? intent?.width ?? bounds.width));
             const collapsed: RailState = {container, viewId, bounds, expanded: false, tooNarrow: false, width: SHELL_RAIL_WIDTH, requested};
-            if (bounds === null || intent?.expanded !== true) return collapsed;
+            const wanted = intent?.expanded === true;
+            if (bounds === null || (!wanted && refusedRail.value !== container)) return collapsed;
             const budgeted = budgetFor(current, requested, bounds);
             if (budgeted === null || budgeted.budget.result === "too-narrow") return {...collapsed, tooNarrow: true};
+            if (!wanted) return collapsed;
             const {budget, limit} = budgeted;
             return {...collapsed, expanded: true, width: budget.width, limit, ...(budget.regionWidth === undefined ? {} : {regionWidth: budget.regionWidth})};
         });
@@ -670,9 +678,13 @@ function defineLayoutDocStore(bound: boolean) {
                     if (expanded) {
                         const bounds = soleRailBounds(current, container);
                         const budgeted = bounds === null ? null : budgetFor(current, Math.min(bounds.maximum, Math.max(bounds.minimum, intent.width ?? bounds.width)), bounds);
-                        if (budgeted === null || budgeted.budget.result === "too-narrow") return {ok: true, result: "too-narrow"};
+                        if (budgeted === null || budgeted.budget.result === "too-narrow") {
+                            refusedRail.value = container;
+                            return {ok: true, result: "too-narrow"};
+                        }
                         maximized.value = null;
                     }
+                    refusedRail.value = null;
                     const next = {...(expanded ? {expanded: true as const} : {}), ...(intent.width === undefined ? {} : {width: intent.width})};
                     const written = apply((doc) => setContainerRail(doc, {anchor, container, intent: next}), {flush: true, rebase: false});
                     return written.ok ? {ok: true, result: "done"} : written;
