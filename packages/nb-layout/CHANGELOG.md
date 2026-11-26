@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 改动
+
+- `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
+- README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
+
 ## [0.3.0] - 2026-11-26
 
 ### 不兼容的改动
@@ -32,8 +37,6 @@
 - `resizeBranches` 落账保住意图：一个分支应用了这次的收起变化之后，用现有意图布局就得出目标时，意图一个也不改；否则照旧反解，反解后这个分支里还有收起着的按比例分的孩子时，展开着的按比例分的孩子按同一倍数缩回落账前的和，收起着的那块展开时拿回收起前的份额。
 - `createLiveDragSession` 在键盘拖动、`live` 返回 null 的起拖时也把网格的过渡送到终点（`settleMotion`），不只在实时布局开始时：落点指示与键盘拖动的判定量到的是终点的矩形，代价是进行中的过渡会直接跳到终点。
 - `useGridHost` 的 `setCollapsed` 在标记或锁变了时也通知 `onApplied`（`kind: "collapse"`），存档只接这一处；以前要在调用之后另存一次。宿主直接改 `grid.*` 再 `invalidate()` 的照旧不通知。`onApplied` 抛出时的 `notify-failed` 消息改成 “The change was applied, but the host's onApplied threw: …”；`host.setCollapsed` 落账后的布局诊断与这条通知，宿主的 `onIssues` 抛出时也像手势那样被接住、交给 `reportError`，不再冒到调用方。
-- `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
-- README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
 
 ### 修复
 
