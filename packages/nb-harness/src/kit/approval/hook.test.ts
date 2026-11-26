@@ -40,10 +40,11 @@ afterEach(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
 });
 
-/** 工具交出的判定对象：写工具交路径，shell 交命令。 */
+/** 工具交出的判定对象：写工具交路径，shell 交命令，截图交画面加一条路径。 */
 async function subjectsOf(tool: string, args: Readonly<Record<string, unknown>>): Promise<readonly ToolSubject[] | null> {
     if (tool === "kit.write") return [{kind: "path", access: "write", address: args.path as string}];
     if (tool === "kit.shell") return [{kind: "command", dialect: "bash", text: args.command as string}];
+    if (tool === "kit.shot") return [{kind: "screen", value: "window"}, {kind: "path", access: "read", address: "work://a.md"}];
     return [];
 }
 
@@ -138,6 +139,12 @@ describe("转问的来源", () => {
         expect(await judge(s, "kit.write", writeArgs("work://out.md"), "write", "auto")).toEqual({verdict: "ask", reason: "看不懂"});
         expect(s.reviewed.map((item) => item.paths)).toEqual([[{access: "write", address: "work://out.md"}]]);
         expect(s.escalated.map((item) => [item.source, item.reason])).toEqual([["reviewer", "看不懂"]]);
+    });
+
+    test("reviewer：路径与命令之外的判定对象原样交给审批者", async () => {
+        const s = setup();
+        await judge(s, "kit.shot", {}, "exec", "auto");
+        expect(s.reviewed.map((item) => [item.subjects, item.paths])).toEqual([[[{kind: "screen", value: "window"}], [{access: "read", address: "work://a.md"}]]]);
     });
 });
 

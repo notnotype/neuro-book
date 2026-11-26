@@ -138,7 +138,7 @@ export function modelReviewer(options: ModelReviewerOptions): Reviewer {
             if (!ctx.signal.aborted) options.report("permission-auto-failed", `the approval model gave no verdict on ${request.call.tool}; asking the user`, {tool: request.call.tool, kind});
             return {verdict: "ask", reason: options.reasons.failed};
         };
-        const pending = {tool: request.call.tool, effect: request.effect, args: request.call.args as JsonValue, paths: request.paths};
+        const pending = {tool: request.call.tool, effect: request.effect, args: request.call.args as JsonValue, paths: request.paths, ...(request.subjects.length === 0 ? {} : {subjects: request.subjects})};
         if (JSON.stringify(pending).length > MAX_ACTION_CHARS) return failed("too-long");
         const text = JSON.stringify({project: options.projectOf(ctx.context), conversation: conversation(ctx, request.call), pending_action: pending});
 
