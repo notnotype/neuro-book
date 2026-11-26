@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t11-phone-layout
-status: planned
-updated: 2026-11-05
+status: shelved
+updated: 2026-11-26
 ---
 
 # 竖屏手机呈现（验证级）
@@ -20,3 +20,7 @@ updated: 2026-11-05
 ## 下一步
 
 待补充。
+
+## 收尾
+
+2026-11-26 w00026 收尾时核对：开发者 2026-11-06 定这一轮先不做；w00026 收尾时搁置，以后要做时另开 Work 或从这里恢复。
