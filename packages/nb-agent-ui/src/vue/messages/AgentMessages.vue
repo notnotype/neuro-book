@@ -53,9 +53,12 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
         <div class="acv-messages__chat" data-messages-chat>
             <slot />
         </div>
-        <!-- 送进侧轨时这一栏是空的、不占位；画在右边缘时是窗里的一栏。 -->
+        <!--
+            送进侧轨时这一栏是空的、不占位；画在右边缘时是窗里的一栏。none 时藏起来、不卸载：从浮动窗归位时中间有一刻没有地方（窗拆了、右轨的元素下一次渲染才挂上），
+            卸掉的话视图段记着的焦点与滚动跟着丢（views.md 输出 21）。
+        -->
         <aside
-            v-if="props.placement.kind === 'edge' || targets !== null"
+            v-show="props.placement.kind === 'edge' || targets !== null"
             class="acv-messages__edge"
             :class="{'acv-messages__edge--away': targets !== null}"
             :style="edgeStyle"

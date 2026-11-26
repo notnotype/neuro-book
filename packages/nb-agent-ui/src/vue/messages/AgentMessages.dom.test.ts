@@ -186,7 +186,7 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         wrapper.unmount();
     });
 
-    it("从侧轨换到右边缘：同一个列表搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；右边缘有自己的展开按钮，侧轨里没有；none 时不画视图段", async () => {
+    it("从侧轨换到右边缘：同一个列表搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；右边缘有自己的展开按钮，侧轨里没有；none 时藏起来、换回来还是同一个视图段", async () => {
         const {wrapper, placement, expanded, events} = mountFrame({expanded: true});
         expect($("[data-messages-segment-toggle]")).toBeNull();
         const list = $("[data-messages-list-panel]")!;
@@ -217,9 +217,15 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         await nextTick();
         expect([toggle.hasAttribute("data-rail-too-narrow"), toggle.getAttribute("aria-description")]).toEqual([true, "窗口太窄"]);
 
+        // none：不显示，但同一个实例藏着（从浮动窗归位时中间有一刻是 none），换回来还是那一份。
+        const segment = $("[data-messages-segment]")!;
         placement.value = {kind: "none"};
         await nextTick();
-        expect($("[data-messages-segment]")).toBeNull();
+        expect(edge.element.style.display).toBe("none");
+        placement.value = {kind: "edge", width: 260};
+        await nextTick();
+        expect($("[data-messages-segment]")).toBe(segment);
+        expect(edge.element.style.display).toBe("");
         expect(chatMounts).toBe(1);
         wrapper.unmount();
     });
