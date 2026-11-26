@@ -66,6 +66,19 @@ export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, prev
 }
 
 /**
+ * 这一次改了矩形、又不过渡的浮动窗（节点 id）：前后都是浮动窗、不在 `animated` 里（同 `settleFloatMoves` 压回去的那些），矩形真的变了。
+ * 压回去只让判定认不出它的变化；别的窗或树这一轮在过渡时，过渡标记是整个网格的，它的新矩形照样会滑过去，所以 `NestedGrid` 拿这份名单让它这一次不带标记。
+ */
+export function floatRectJumps(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, animated: ReadonlySet<string> = new Set()): ReadonlySet<string> {
+    const before = new Map(previous.map((item) => [item.key, item]));
+    const sameRect = (left: GridRect, right: GridRect): boolean => left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
+    return new Set(items.flatMap((item) => {
+        const old = before.get(item.key);
+        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true && !animated.has(item.node.id) && !sameRect(old.rect, item.rect) ? [item.node.id] : [];
+    }));
+}
+
+/**
  * 这次过渡里内容跟着外框逐帧变化的项（`key`）：前后都有尺寸的叶与活动的内容项。新叶与从零出来的叶内容已经是最终尺寸，外框长出来时露出它，第一次摆放不用在零宽里排版；
  * 降到零的叶内容停放（`shrinkingLeaves`：过渡结束前还画着）。
  */

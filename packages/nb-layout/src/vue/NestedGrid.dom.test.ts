@@ -2228,6 +2228,51 @@ describe("NestedGrid 浮动窗", () => {
         expect(movingParts(released)).toEqual(ALL_PARTS);
     });
 
+    it("同一次发布里 A 松手停在拖到的位置、B 标了 animate 改宽：B 过渡，A 的外框、内容、手柄不带过渡标记、直接画在新位置（输出 105、172）", async () => {
+        const other = {id: "g", rect: {x: 500, y: 70, width: 200, height: 180}};
+        const wrapper = mountFloats({floats: [FLOAT, other]});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await wrapper.setProps({floats: [FLOAT, other]});
+        await wrapper.setProps({floats: [{...FLOAT, gesture: "move"}, other]});
+        const grid = wrapper.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        grid.placeFloat("f", {x: 205, y: 40});
+        grid.placeFloat("f", null);
+        await wrapper.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, x: 305, y: 90}, animate: true}, {...other, rect: {...other.rect, width: 280}, animate: true}]});
+        // 写新矩形的那一次渲染。
+        expect(movingParts(wrapper)).toEqual([]);
+        for (const selector of ALL_PARTS) expect((wrapper.get(selector).element as HTMLElement).style.left).toBe("305px");
+        expect(["[data-leaf=\"g\"]", "[data-float-chrome=\"g\"]"].filter((selector) => wrapper.get(selector).attributes("data-moving") !== undefined)).toHaveLength(2);
+        expect((wrapper.get("[data-leaf=\"g\"]").element as HTMLElement).style.width).toBe("280px");
+    });
+
+    it("同一次发布里 A 松手停在拖到的位置、树里长出一块新叶：新叶过渡，A 不带过渡标记（输出 105、172）", async () => {
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎，量到 0 时新叶没有尺寸
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const wrapper = mountFloats({});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await wrapper.setProps({revision: 1});
+        await wrapper.setProps({floats: [{...FLOAT, gesture: "move"}]});
+        const grid = wrapper.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        grid.placeFloat("f", {x: 205, y: 40});
+        grid.placeFloat("f", null);
+        // 新叶 c 带着内容：它的起点经内容层改了渲染层，同一轮刷新里判定会再跑一次。
+        const grown = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 400, height: 0}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 299, height: 0}},
+            {kind: "leaf", id: "c", ref: "c", size: {width: 299, height: 0}},
+        ]}, {sashSize: SASH});
+        await wrapper.setProps({node: grown.root(), layout: grown.layout(CONTAINER), contents: [{key: "x", leaf: "f", insetTop: 32, active: true}, {key: "y", leaf: "c", insetTop: 32, active: true}], floats: [{...FLOAT, rect: {...FLOAT.rect, x: 305, y: 90}}]});
+        expect(wrapper.get("[data-leaf=\"a\"]").attributes("data-moving")).toBeDefined();
+        expect(movingParts(wrapper)).toEqual([]);
+        for (const selector of ALL_PARTS) expect((wrapper.get(selector).element as HTMLElement).style.left).toBe("305px");
+    });
+
     describe("松手的起点（输出 172）：宿主分两次发布，都在下一帧之前", () => {
         /** 窗 f 回到树里，排在 b 后面。 */
         const docked = () => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [

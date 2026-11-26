@@ -13,7 +13,7 @@
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
-import {consumedReleases, settleFloatMoves, stableOrder} from "../grid-motion";
+import {consumedReleases, floatRectJumps, settleFloatMoves, stableOrder} from "../grid-motion";
 import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
@@ -218,6 +218,22 @@ function clearReleased(): void {
     releaseFrame = null;
     released = new Map();
 }
+/**
+ * 这一轮改了矩形、不过渡的浮动窗（节点 id，`floatRectJumps`，输出 105、172）：别的窗或树正在过渡（`moving`）时，它的外框、内容与手柄在写新矩形的那一次渲染不带过渡标记，
+ * 直接画在新矩形上；别的窗与树上的过渡照走。渲染之后（`nextTick`）清掉：那时新矩形已经画上，再带回标记也不会从旧矩形滑过去。
+ * 不按每次判定现算：同一轮刷新里侦听会重入（起点经内容层改了 `layers`），重入时上一次的项已经是新矩形，现算是空的，渲染就带上了标记。
+ */
+const floatJumps = shallowRef<ReadonlySet<string>>(new Set());
+let floatJumpsClearing = false;
+function holdFloatJumps(jumps: ReadonlySet<string>): void {
+    floatJumps.value = new Set([...floatJumps.value, ...jumps]);
+    if (floatJumpsClearing) return;
+    floatJumpsClearing = true;
+    void nextTick(() => {
+        floatJumpsClearing = false;
+        floatJumps.value = new Set();
+    });
+}
 function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
@@ -353,7 +369,7 @@ const {sashKindOf, sashBoxStyle, sashProps} = useSashPresentation({
  * 起点立即生效，下一次写终点时再带上，过渡才从起点开始。新出现的元素没有上一帧的样式，带不带都一样。
  */
 function contentMoving(item: GridContentPlacement): boolean {
-    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item));
+    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item)) && !floatJumps.value.has(item.leaf);
 }
 
 /**
@@ -362,6 +378,11 @@ function contentMoving(item: GridContentPlacement): boolean {
  */
 function structureMoving(key: string): boolean {
     return moving.value && !growing.value.has(key);
+}
+
+/** 叶外框带不带过渡标记：同 `structureMoving`，这一轮改了矩形、不过渡的浮动窗（`floatJumps`）不带。 */
+function frameMoving(item: GridLeafPlacement<unknown>): boolean {
+    return structureMoving(item.key) && !floatJumps.value.has(item.node.id);
 }
 
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
@@ -389,6 +410,7 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     const releasing = released;
     // 标了 `animate`、这一次与上一次都不在手势里、不是刚放开的窗：矩形变化照常过渡（输出 105）。
     const animated = new Set(props.floats.flatMap((float) => (float.animate === true && float.gesture === undefined && !lastGestures.has(float.id) && !releasing.has(float.id) ? [float.id] : [])));
+    const jumps = previous === undefined ? new Set<string>() : floatRectJumps(next, previous, animated);
     motion.update({
         items: previous === undefined ? next : settleFloatMoves(next, previous, animated),
         previous: previous ?? null,
@@ -401,6 +423,8 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         ...(releasing.size === 0 ? {} : {released: releasing}),
     });
     lastGestures = new Set(floatGestures.value.keys());
+    // 没有过渡时本来就不带标记，不用记（拖着缩放时每一帧都改矩形）。
+    if (jumps.size > 0 && moving.value) holdFloatJumps(jumps);
     if (releasing.size > 0) {
         for (const id of consumedReleases(next, previous ?? [], releasing)) released.delete(id);
         if (released.size === 0) clearReleased();
@@ -685,7 +709,7 @@ defineExpose({
                 :id="domIdOf(item.key)"
                 class="nb-grid-frame"
                 :data-leaf="item.node.id"
-                :data-moving="structureMoving(item.key) ? '' : undefined"
+                :data-moving="frameMoving(item) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
                 :data-float="floatAt.has(item.node.id) || docking.has(item.key) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
@@ -726,7 +750,7 @@ defineExpose({
             </div>
         </template>
         <template v-if="$slots['float-chrome'] !== undefined">
-            <div v-for="float in chromeFloats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
+            <div v-for="float in chromeFloats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving && !floatJumps.has(float.id) ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
                 <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
