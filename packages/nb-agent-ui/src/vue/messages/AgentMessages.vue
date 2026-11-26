@@ -4,7 +4,7 @@
  * 送进侧轨（`rail`）、画在自己的右边缘（`edge`，浮动窗）、没有（`none`）。`rail` 与 `edge` 之间换的是同一个视图段实例，
  * 只换 `Teleport` 的去处，搜索词、当前页、焦点与滚动位置都在（搬完由视图段放回去）；聊天区一直是同一份 DOM。
  */
-import {computed, ref} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import type {AgentLocale, MessagesContactSection, MessagesRecentSession} from "../../types";
 import type {MessagesSegmentPlacement} from "./placement";
@@ -42,15 +42,76 @@ const targets = computed(() => {
     const placement = props.placement;
     return placement.kind === "rail" && placement.main instanceof HTMLElement && placement.foot instanceof HTMLElement ? {main: placement.main, foot: placement.foot} : null;
 });
-const edgeStyle = computed(() => (props.placement.kind === "edge" ? {width: `${props.placement.width}px`} : undefined));
+const edgeWidth = computed(() => (props.placement.kind === "edge" ? props.placement.width : null));
+
+/*
+ * 画在右边缘时，展开与收起由工作台把窗加宽或减宽同样的量，窗的宽度走一段布局过渡，视图段的宽这一次渲染就到位
+ * （docs/specs/ui/workbench-layout.md 输出 51 的“过渡”）。照常排的话聊天区 = 窗宽 − 视图段宽，过渡里先被挤窄（或撑宽）再回来，文字跟着重排两次。
+ * 所以展开状态与宽度一起变的那一刻，按改之前的宽固定住聊天区，视图段那一栏改成占剩下的、裁掉多出的，里面的内容按新宽排在最终位置：
+ * 窗的边扫过去把它露出来或盖住，聊天区与视图段都不动。窗宽到了“聊天区 + 新宽”就放开；窗一直没到（被夹取、过渡中途改了尺寸）时，
+ * 宽度连续 HOLD_STILL_FRAMES 帧不变也放开：换宽之后窗要等一两帧才开始动，这个数要比它大得多。
+ * 只改宽度的（拖轨宽手柄、键盘、双击回缺省）不过渡，窗与视图段同一次到位，不固定；固定着的时候来了这种改动就放开，免得按旧的终点等下去。
+ */
+const HOLD_STILL_FRAMES = 30;
+const rootRef = ref<HTMLElement | null>(null);
+const chatRef = ref<HTMLElement | null>(null);
+const heldChat = ref<number | null>(null);
+let holdFrame = 0;
+
+function release(): void {
+    if (holdFrame !== 0) cancelAnimationFrame(holdFrame);
+    holdFrame = 0;
+    heldChat.value = null;
+}
+
+function holdUntil(root: HTMLElement, target: number): void {
+    if (holdFrame !== 0) cancelAnimationFrame(holdFrame);
+    let last = -1;
+    let still = 0;
+    const tick = (): void => {
+        const width = root.getBoundingClientRect().width;
+        if (Math.abs(width - target) < 0.5 || still >= HOLD_STILL_FRAMES) {
+            holdFrame = 0;
+            heldChat.value = null;
+            return;
+        }
+        still = width === last ? still + 1 : 0;
+        last = width;
+        holdFrame = requestAnimationFrame(tick);
+    };
+    holdFrame = requestAnimationFrame(tick);
+}
+
+// `pre`：在这一次渲染改 DOM 之前量，量到的是换宽之前的聊天区；连着展开收起两次时沿用第一次固定的宽。
+watch(() => [edgeWidth.value, props.expanded] as const, ([width, expanded], [previousWidth, previousExpanded]) => {
+    if (width === previousWidth) return;
+    const root = rootRef.value;
+    const chat = chatRef.value;
+    if (width === null || previousWidth === null || expanded === previousExpanded || root === null || chat === null) {
+        release();
+        return;
+    }
+    const held = heldChat.value ?? chat.getBoundingClientRect().width;
+    heldChat.value = held;
+    holdUntil(root, held + width);
+}, {flush: "pre"});
+
+onBeforeUnmount(release);
+
+const chatStyle = computed(() => (heldChat.value === null ? undefined : {flex: "0 0 auto", width: `${heldChat.value}px`}));
+const edgeStyle = computed(() => {
+    if (edgeWidth.value === null) return undefined;
+    return heldChat.value === null ? {width: `${edgeWidth.value}px`} : {flex: "1 1 0", minWidth: "0", overflow: "hidden"};
+});
+const edgeBodyStyle = computed(() => (edgeWidth.value === null ? undefined : {width: `${edgeWidth.value}px`}));
 
 const segmentRef = ref<InstanceType<typeof AgentMessagesSegment> | null>(null);
 defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focusSearch(page)});
 </script>
 
 <template>
-    <div class="acv-messages" :data-messages-placement="props.placement.kind">
-        <div class="acv-messages__chat" data-messages-chat>
+    <div ref="rootRef" class="acv-messages" :data-messages-placement="props.placement.kind">
+        <div ref="chatRef" class="acv-messages__chat" :style="chatStyle" data-messages-chat>
             <slot />
         </div>
         <!--
@@ -64,30 +125,32 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
             :style="edgeStyle"
             :data-float-rail="props.placement.kind === 'edge' ? '' : undefined"
         >
-            <AgentMessagesSegment
-                ref="segmentRef"
-                v-model:bot-query="botQuery"
-                :targets="targets"
-                :expanded="props.expanded"
-                :sections="props.sections"
-                :selected="props.selected"
-                :recent-sessions="props.recentSessions"
-                :tab="props.tab"
-                :weak="props.weak"
-                :too-narrow="props.placement.kind === 'edge' && props.placement.tooNarrow === true"
-                :now="props.now"
-                :locale="props.locale"
-                @update:tab="emit('update:tab', $event)"
-                @open-contact="emit('open-contact', $event)"
-                @open-session="emit('open-session', $event)"
-                @new-session="emit('new-session')"
-                @show-list="emit('show-list', $event)"
-                @retry-contacts="emit('retry-contacts', $event)"
-                @escape-search="emit('escape-search')"
-                @toggle-expanded="emit('toggle-expanded')"
-            >
-                <template #sessions><slot name="sessions" /></template>
-            </AgentMessagesSegment>
+            <div class="acv-messages__edge-body" :style="edgeBodyStyle">
+                <AgentMessagesSegment
+                    ref="segmentRef"
+                    v-model:bot-query="botQuery"
+                    :targets="targets"
+                    :expanded="props.expanded"
+                    :sections="props.sections"
+                    :selected="props.selected"
+                    :recent-sessions="props.recentSessions"
+                    :tab="props.tab"
+                    :weak="props.weak"
+                    :too-narrow="props.placement.kind === 'edge' && props.placement.tooNarrow === true"
+                    :now="props.now"
+                    :locale="props.locale"
+                    @update:tab="emit('update:tab', $event)"
+                    @open-contact="emit('open-contact', $event)"
+                    @open-session="emit('open-session', $event)"
+                    @new-session="emit('new-session')"
+                    @show-list="emit('show-list', $event)"
+                    @retry-contacts="emit('retry-contacts', $event)"
+                    @escape-search="emit('escape-search')"
+                    @toggle-expanded="emit('toggle-expanded')"
+                >
+                    <template #sessions><slot name="sessions" /></template>
+                </AgentMessagesSegment>
+            </div>
         </aside>
     </div>
 </template>
@@ -109,8 +172,16 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
     min-height: 0;
 }
 
-/* 右边缘的一栏（浮动窗）：顶上让出宿主盖在右上角的按钮（`--acv-segment-inset-top`，缺省 0）。 */
+/* 右边缘的一栏（浮动窗）。宽度写在里面那层：换宽的过渡里外层只是一扇裁切窗，见脚本里固定聊天区那段。 */
 .acv-messages__edge {
+    display: flex;
+    flex: 0 0 auto;
+    height: 100%;
+    min-height: 0;
+}
+
+/* 顶上让出宿主盖在右上角的按钮（`--acv-segment-inset-top`，缺省 0）。 */
+.acv-messages__edge-body {
     display: flex;
     flex: 0 0 auto;
     flex-direction: column;
