@@ -127,6 +127,20 @@
         "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
         "fieldRestored": "Restored “{{label}}” on {{name}}",
+        "views": {
+            "label": "View this group as",
+            "card": "Cards",
+            "agent": "As the AI sees it",
+            "raw": "Raw data",
+            "agentPosition": "Viewing: {{position}}",
+            "initial": "Initial value",
+            "initialNone": "Not in the initial value",
+            "changes": "Story changes ({{count}})",
+            "changesNone": "No story change touches this group",
+            "more": "Show {{count}} more",
+            "failed": "Couldn’t read it: {{reason}}",
+            "retry": "Retry"
+        },
         "addGroup": {
             "search": "Search settings groups",
             "fits": "For {{kind}}",

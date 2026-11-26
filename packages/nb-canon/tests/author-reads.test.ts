@@ -432,6 +432,28 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
         expect(listed(xia)).toEqual([story["tmp:cast"]!, story["tmp:as"]!, late, story["tmp:involves"]!, story["tmp:patch"]!]);
     });
 
+    test("changes 按命名空间筛：给了条目只列改了这个条目这个命名空间的，只经参与、涉及的不列；不给条目时算任何条目上的改动", async () => {
+        const panel = (deposit: number) => ({panel: {type: PANEL.id!, version: 1, enabled: true, fields: {存款: deposit, 魔力上限: null, 魔力: null, 物品: []}}});
+        const ids = await publish([entry("tmp:xia", "星瑕", {}, panel(100)), entry("tmp:other", "白灵", {}, panel(50))]);
+        const [xia, other] = [ids["tmp:xia"]!, ids["tmp:other"]!];
+        const story = await publish([
+            written("tmp:cast", at("ch1", 10), [], {cast: [{who: xia, role: "present"}]}),
+            written("tmp:mine", at("ch2", 10), [{op: "add", at: {entry: xia, path: "panel.存款"}, value: 5}]),
+            written("tmp:theirs", at("ch3", 10), [{op: "add", at: {entry: other, path: "panel.存款"}, value: 7}], {involves: [xia]}),
+            written("tmp:name", at("ch4", 10), [{op: "set", at: {entry: xia, path: "entry.name"}, value: "星瑕二号"}]),
+        ]);
+        const listed = (filter: {entry?: string; namespace: string}): string[] => {
+            const page = service.changes(filter);
+            if (typeof page === "string") throw new Error(page);
+            return page.items.map((item) => item.change.id);
+        };
+        expect(listed({entry: xia, namespace: "panel"})).toEqual([story["tmp:mine"]!]);
+        expect(listed({entry: other, namespace: "panel"})).toEqual([story["tmp:theirs"]!]);
+        // 改名字不算任何命名空间；没有这个命名空间的改动：空列表。
+        expect(listed({entry: xia, namespace: "character"})).toEqual([]);
+        expect(listed({namespace: "panel"}).filter((id) => Object.values(story).includes(id))).toEqual([story["tmp:mine"]!, story["tmp:theirs"]!]);
+    });
+
     test("条目读取带每个命名空间生效的字段声明，含条目上实例声明的；来历对“不是列表的字段带元素”是空的", async () => {
         const {xia} = await withLine();
         const read = service.entry(xia, end("ch1"), "actual");

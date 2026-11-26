@@ -13,6 +13,7 @@ import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
+import {fieldsText} from "../../shared/agent-fields";
 import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
@@ -27,7 +28,7 @@ import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionLabel, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -50,6 +51,8 @@ import type {EntryTextBlock, TextAddress} from "./entry-text";
 import type {InsertItem} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
+import ComponentAgentView from "./ComponentAgentView.vue";
+import ComponentRawView from "./ComponentRawView.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
 import {LOOK_PICK_KEY} from "../look-handoff";
@@ -1115,6 +1118,41 @@ const extraView = computed<{readonly component: Component | null; readonly loadi
 });
 
 /** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
+/* ---------- 设定组的三种看法（输出 54） ---------- */
+
+type DataLook = "card" | "agent" | "raw";
+/** 设定组分页看哪一种；换分页回到卡片（不记进标签状态：重开页面也是卡片）。 */
+const dataLook = shallowRef<DataLook>("card");
+watch(tab, () => {
+    dataLook.value = "card";
+});
+const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: text(`entry.views.${value}`), testId: `data-look-${value}`})));
+/** “给 AI 看”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。 */
+const agentText = computed(() => {
+    const namespace = dataNamespace.value;
+    if (dataLook.value !== "agent" || namespace === null || view.value === null) return "";
+    return fieldsText(view.value, entry.value?.declarations ?? {}, componentsRead.value?.data?.items ?? [], {namespace});
+});
+/** “原始数据”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
+const rawEntry = useWorldRead(world, "object", () => (dataLook.value === "raw" ? {ref: {kind: "entry" as const, id: props.id}} : null));
+const rawChanges = useWorldList(world, "changes", () => (dataLook.value === "raw" && dataNamespace.value !== null ? {filter: {entry: props.id, namespace: dataNamespace.value}} : null), 20);
+const rawView = computed(() => {
+    const namespace = dataNamespace.value ?? "";
+    const stored = rawEntry.value?.data?.object as Entry | null | undefined;
+    const list = rawChanges.state.value;
+    const failure = rawEntry.value?.error ?? list?.error ?? null;
+    const total = list?.data?.total ?? 0;
+    return {
+        initial: stored?.init.data[namespace],
+        // 每条只留落在这个条目这一组下的改动：同一条变更里别的条目、别的组的改动与这一页无关。
+        changes: (list?.items ?? []).map(({change}) => ({...change, patches: change.patches.filter((patch) => patch.at.entry === props.id && patch.at.path.startsWith(`${namespace}.`))})),
+        total,
+        remaining: Math.max(0, total - (list?.items.length ?? 0)),
+        loading: (rawEntry.value?.loading ?? true) || (list?.loading ?? true),
+        failed: failure === null ? null : port.t(failureText(failure).text),
+    };
+});
+
 const dataView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
     const namespace = dataNamespace.value;
     if (namespace === null) return {component: null, loading: false, failed: null};
@@ -1255,10 +1293,19 @@ const setPosition = (value: string): void => {
                 @more="plot.more()"
             />
             <template v-else-if="dataNamespace !== null">
-                <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
-                <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
-                <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
-                <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                <div class="mb-3 flex justify-end">
+                    <SegmentedControl size="xs" :aria-label="text('entry.views.label')" :options="dataLooks" :model-value="dataLook" data-data-look @update:model-value="(value) => (dataLook = value as DataLook)" />
+                </div>
+                <Transition name="nb-ui-switch" mode="out-in">
+                    <ComponentAgentView v-if="dataLook === 'agent'" :text="agentText" :position="positionLabel(position, chapters, text)" />
+                    <ComponentRawView v-else-if="dataLook === 'raw'" v-bind="rawView" @more="rawChanges.more()" @retry="world.retry()" />
+                    <div v-else>
+                        <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
+                        <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+                        <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                        <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                    </div>
+                </Transition>
             </template>
             <template v-else-if="extraTab !== null">
                 <p v-if="extraView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: extraView.failed}) }}</p>

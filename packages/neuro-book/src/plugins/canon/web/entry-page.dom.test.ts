@@ -301,6 +301,42 @@ describe("条目页", () => {
         expect(wrapper.get("[data-card='panel.存款']").text()).toContain("900 元");
     });
 
+    it("设定组分页能换着看：“给 AI 看”是按“在看”读到的这一组那一节，“原始数据”是初值与改过这一组的变更；换分页回到卡片（输出 54）", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        await publish(other.canon, [change(id, "1", "领了工资", 200), change(id, "2", "买了书", -300)]);
+        const {wrapper, state} = await open(id);
+        state.tab = "data:panel";
+        await waitUntil("数值的卡片", () => wrapper.find("[data-card='panel.存款']").exists());
+        const look = async (value: "card" | "agent" | "raw"): Promise<void> => {
+            await wrapper.get(`[data-testid='data-look-${value}']`).trigger("click");
+        };
+
+        await look("agent");
+        await waitUntil("给 AI 看", () => wrapper.find("[data-agent-text]").exists());
+        const agent = wrapper.get("[data-agent-text]").text();
+        expect(agent).toContain("【数值】");
+        expect(agent).toContain("- 存款 = 900");
+        // 只有这一组：人物那一节不在这里。
+        expect(agent).not.toContain("性格");
+        expect(wrapper.get("[data-agent-view]").text()).toContain("在看：第 2 章末尾");
+
+        await look("raw");
+        await waitUntil("原始数据", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("剧情变更（2 条）"));
+        expect(wrapper.get("[data-raw-initial]").text()).toContain("1000");
+        expect(wrapper.get("[data-raw-changes]").text()).toContain("领了工资");
+        expect(wrapper.get("[data-raw-changes]").text()).toContain("买了书");
+
+        // 换到人物分页回到卡片；人物这一组没有剧情变更改过。
+        state.tab = "data:character";
+        await waitUntil("人物的卡片", () => wrapper.find("[data-character-card]").exists());
+        expect(wrapper.find("[data-raw-view]").exists()).toBe(false);
+        await look("raw");
+        await waitUntil("人物的原始数据", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("没有剧情变更改过这组设定"));
+        expect(wrapper.get("[data-raw-initial]").text()).toContain("黑发");
+    });
+
     it("人物条目：种类登记的默认设定组排在“文字”前面、打开时先看人物；“添加一组设定”里适用于人物的排在前面（输出 9、38）", async () => {
         // 一个不写适用种类的类型，id 排在内置的前面：没有按种类排时它会是下拉里的第一项。
         const badge: PluginDefinition = {id: "a.test", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "a.test.badge", declaration: {label: "徽章", namespace: "badge", version: 1, fields: [{id: "图案", label: "图案", kind: "text"}]}}]};

@@ -127,6 +127,20 @@
         "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
         "fieldRestored": "恢复了{{name}}的“{{label}}”",
+        "views": {
+            "label": "这一组怎么看",
+            "card": "卡片",
+            "agent": "给 AI 看",
+            "raw": "原始数据",
+            "agentPosition": "在看：{{position}}",
+            "initial": "初值",
+            "initialNone": "初值里没有这组设定",
+            "changes": "剧情变更（{{count}} 条）",
+            "changesNone": "没有剧情变更改过这组设定",
+            "more": "再显示 {{count}} 条",
+            "failed": "没有读出来：{{reason}}",
+            "retry": "重试"
+        },
         "addGroup": {
             "search": "搜索设定组",
             "fits": "适用于{{kind}}",
