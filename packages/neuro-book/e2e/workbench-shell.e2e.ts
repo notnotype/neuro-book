@@ -312,18 +312,33 @@ test.describe("产品页", () => {
         await toggle.click();
         await expect(empty).toBeVisible();
 
-        // 把对话拖进去：整块一个落点；对话是它容器唯一的视图，整个容器搬过去，id 不变（输出 45）。
-        const from = (await headOf(page, CONVERSATION).locator("[data-panel-tab]").boundingBox())!;
+        // 对话在单标签窗里，拿标题拖是整窗拖动：经过打开着的空区域不停靠，没有落点指示（输出 39、48）。消息视图在窗里自绘头，标题按钮平时不接指针
+        // （views 输出 19）：从“回到停靠”往回 Tab 一次到它，键盘聚焦时它显示在左上角、点得到。
+        const title = headOf(page, CONVERSATION).locator("[data-panel-tab]");
+        await frame(page, CONVERSATION, "dock").focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect(title).toBeFocused();
+        await expect(title).toHaveCSS("opacity", "1");
+        const from = (await title.boundingBox())!;
         const target = (await leaf(page, "auxiliarybar").boundingBox())!;
+        const windowBefore = (await page.locator("[data-float-chrome]").boundingBox())!;
         await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
         await page.mouse.down();
         await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2 + 12, {steps: 3});
         await page.mouse.move(target.x + target.width / 2, target.y + target.height / 3, {steps: 8});
-        await expect(page.locator("[data-drop-feedback-label]")).toHaveText("放在这里");
+        // 窗跟着指针走（证明这一场确实在拖），指针下是空区域却没有落点。
+        await expect.poll(async () => (await page.locator("[data-float-chrome]").boundingBox())!.x).toBeGreaterThan(windowBefore.x + 100);
+        await expect(page.locator("[data-drop-feedback-label]")).toHaveCount(0);
+        await expect(page.locator("[data-drop-kind]")).toHaveCount(0);
         await page.mouse.up();
+        await expect(empty).toBeVisible();
+        // 整个容器搬进去的办法是“回到停靠”（窗被拖到了屏幕边上，按钮在视口外，用键盘）：对话是它容器唯一的视图，容器 id 不变（输出 45）。
+        await frame(page, CONVERSATION, "dock").focus();
+        await page.keyboard.press("Enter");
         await expect(empty).toHaveCount(0);
         await expect(content(page, CONVERSATION)).toBeVisible();
-        await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.activeContainer).toBe(container);
+        // 没有写过容器的视图停在它的隐式容器里，容器 id 是 `view:<视图 id>`；回到停靠把它写成区域的当前容器。
+        await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.activeContainer).toBe(container ?? `view:${CONVERSATION}`);
 
         // 再浮出：这一次把右栏拖空了，右栏随之隐藏。
         await moveViaMenu(page, CONVERSATION, "浮动");
