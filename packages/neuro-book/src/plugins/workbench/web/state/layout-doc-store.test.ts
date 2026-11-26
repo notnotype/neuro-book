@@ -1154,7 +1154,7 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(store.state.rail).toMatchObject({expanded: true, width: 260});
         });
 
-        it("切到别的容器之后右轨的宽（输出 50 的“切换容器”，外壳据此决定原地滚还是走布局过渡）：展开着视图段的容器是展开宽，别的是收着的宽；预算按切过去之后的布局算", async () => {
+        it("切到别的容器之后右轨的宽（输出 50 的“切换容器”，外壳据此决定原地滚还是走布局过渡）：展开着视图段的容器是展开宽，别的是收着的宽", async () => {
             const {store} = await railed();
             expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
             expect(store.actions.moveView("test.s4", {newContainerIn: "auxiliarybar"}).ok).toBe(true);
