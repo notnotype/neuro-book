@@ -169,3 +169,6 @@
 | 2026-11-26 | t60 | 公开接口行为 | `clampFloatRect` 收区域矩形（带原点），`keep` 可省且不超过窗缩后的尺寸；类型只放宽，记进 CHANGELOG 的“改动” | 旧行为把比区域大的窗推出区域（x=-200），传矩形时原点被静默忽略；工作台两处调用不触发（探针 11817 个样本逐个相同） | 低 | [t60 计划](tasks/t60-float-geometry/plan.md) |
 | 2026-11-26 | t60 | 产品取舍 | 松手的起点进库：拖着的窗回到树里从松手处出发，桌面示例与工作台共用；桌面的 `tileOnNextFrame` 删掉 | 两个使用方共用一份；工作台停靠今天跳不跳由片 0 核 | 中：撤掉 `releaseStarts`，桌面恢复下一帧再改树 | [t60 计划](tasks/t60-float-geometry/plan.md) |
 | 2026-11-26 | t60 | 示例行为 | 桌面示例：焦点进入窗也抬升；最大化与还原有布局过渡，键盘移动与被夹的窗照旧瞬变；拖分隔线时浮动窗跟着让位（片 4 浏览器核过才算） | 库的新事件与开关的直接结果，与工作台“点击或焦点进入提到最前”一致；全标的话键盘移动每步滑 470ms | 低 | [t60 计划](tasks/t60-float-geometry/plan.md) |
+| 2026-11-26 | t62 | 公开接口 | `DragSessionOptions.autoScroll` 去掉 `element`，只留 `containers({point, top})`（从里到外的候选容器），记 CHANGELOG 的不兼容 | 两处调用方各改一行；一个入口 | 低 | [t62 计划](tasks/t62-drag-edge-scroll-axes/plan.md) |
+| 2026-11-26 | t62 | 产品取舍 | 工作台的标签条这次不接边缘滚动，记进 Work 的“后续” | 实时布局冻结的量取、`unmoved`/`sticky` 的假定与边缘滚动冲突，要另做 | 低 | [t62 计划](tasks/t62-drag-edge-scroll-axes/plan.md) |
+| 2026-11-26 | t62 | 产品取舍 | 多行标签区的纵向滚动不随拖动滚；两个轴同时在边缘带时一起滚；`scroll-behavior: smooth` 下用 `scrollBy({behavior: "instant"})`，只写进注释与 CHANGELOG | 多行标签区最多三行，边缘带会盖住第一行大半；每轴各挑各的不另加判断 | 低 | [t62 计划](tasks/t62-drag-edge-scroll-axes/plan.md) |
