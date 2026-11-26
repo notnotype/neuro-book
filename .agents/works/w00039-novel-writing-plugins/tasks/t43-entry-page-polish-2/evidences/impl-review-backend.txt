@@ -1,0 +1,71 @@
+# w00039 t43 后端审查（5b6cac15b..eaedff944）
+
+## 1. 内核测试没有区分“同一条变更改了两个条目”：按补丁逐个限定条目的写法换成按变更整体判断也能过
+- 严重程度：建议；类别：测试
+- 位置：packages/nb-canon/tests/author-reads.test.ts 新用例（约 435 行起）；被测 packages/nb-canon/src/service/reads.ts touchesNamespace
+- 现象：用例里每条变更只有一个补丁（mine、theirs、name），没有“一条变更里条目 A 的补丁在 character、条目 B 的补丁在 panel”的情形。
+- 为什么是问题：给了 entry 时 touchesNamespace 的判据是“同一个补丁既是这个条目又在这个命名空间下”。若改成 `patches.some(条目对) && patches.some(命名空间对)`（两个 some 各判各的），namespace=panel、entry=A 时会误列这条变更，现有用例全部仍通过。宿主“原始数据”也依赖这个口径（EntryPageHost 另按补丁二次过滤，但 total 与分页条数来自内核）。
+- 如何核实：读用例的 publish 数据，每条 change 的 patches 长度均为 1；实现里 `some` 内同时判 entry 与 path，见 reads.ts touchesNamespace。我用真实世界服务（星瑕样本，29 条变更，命名空间 character、panel）对 `startsWith("<ns>.")` 的独立口径逐条目逐命名空间对过（4 组加不给条目），结果相同，说明实现本身没错，缺的是能挡住回归的用例。
+- 建议改法：在同一用例加一条变更：补丁 1 改 xia 的 character.性格、补丁 2 改 other 的 panel.存款，断言 `{entry: xia, namespace: "panel"}` 不列它、`{entry: other, namespace: "panel"}` 列它。
+
+## 2. 路径写法与游标没有测到：列表元素、子字段、启用开关、text[块]，以及换命名空间拿旧游标得到 cursor-stale
+- 严重程度：建议；类别：测试
+- 位置：同上用例；packages/nb-canon/src/service/service.ts changes（约 1081 行）与 viewed().changes（约 896 行）
+- 现象：用例只有 `panel.存款`、`entry.name` 两种路径。brief 点名的 `panel.物品[el]`、`panel.物品[el].数量`、`panel.启用`、`text[块]` 都没测；游标那一条也没有 namespace 的用例（已有的 cursor-stale 用例只换 before、order）。
+- 为什么是问题：实现用 parsePath 判，我用脚本核对过这些写法的解析结果（panel.物品[i1]、panel.物品[i1].数量、panel.启用 都得 root=namespace、namespace=panel；entry.name、text[b1] 得别的根；panel.a.b、panel.、panel 得 null），行为是对的；但把 touchesNamespace 改成 `path.startsWith(namespace)`（漏点号，panel 会连 panel2.x 一起命中）或改成只认 `parsed.field` 无元素的路径，现有用例都发现不了。游标：`namespace` 靠 `{method, ...filter, worldline}` 与 `{method, view, ...scoped}` 里展开 filter 进入摘要，我用真实服务验证了 panel 的游标拿去换 character、换成不带筛选都得 cursor-stale，换回 panel 可续读，现在行为对，但没有用例钉住（展开 filter 若改成挑字段就会悄悄漏掉）。视图令牌分支（viewed().changes）同样只靠展开，没有 namespace 的用例。
+- 如何核实：见上；脚本 /tmp/review-t43-impl/scratch-backend/ns.test.ts、p.ts。
+- 建议改法：在同一用例里加一条带列表元素与启用开关补丁、另有一个以 `panel` 为前缀的命名空间（如 panel2）的数据；加一个拿旧游标换命名空间得 cursor-stale 的断言。令牌分支可以只加一行 viewed(...).changes 带 namespace 的断言。
+
+## 3. fieldsText 新增的 only.namespace 分支没有单测：“不写以后才启用、去掉过两行”那句可以删掉而全部测试照过
+- 严重程度：建议；类别：测试
+- 位置：packages/neuro-book/src/plugins/canon/shared/agent-fields.ts 的 `if (only.namespace !== undefined) return lines.join("\n");`；覆盖它的只有 web/entry-page.dom.test.ts 的“设定组分页能换着看”
+- 现象：该 dom 用例里的条目既没有“以后才启用”的组，也没有去掉过的组，只断言了含“【数值】”“- 存款 = 900”、不含“性格”。agent-tools.test.ts 只走不带 namespace 的老路径。
+- 为什么是问题：这条早退是新分支里唯一的“规则”（注释写“说的是整个条目”），删掉它测试仍过（空过）。另外 brief 点名的情形没有断言：实例声明的字段（panel 的 declared）、只读的组（header 的“只读”）、按 `candidate.namespace === namespace` 找类型时 label 与“可以加字段”。其中前两项由 view.namespaces 与 declarations 决定，与 canon_read 同源，当前代码是对的，仅缺钉住。
+- 如何核实：读 dom 用例的 person()/publish 数据；grep `namespace:` 在 shared 与 backend 的测试里没有 fieldsText 的直接调用。
+- 建议改法：在 agent-tools.test.ts（后端，真实世界）或一个 shared 小测里，造一个有“以后才启用”组与去掉过的组的条目，断言整条目读取含那两行、`{namespace}` 读取不含，且 `{namespace}` 的输出等于整条目输出里该节的原文（正好钉住“同一个函数”）。
+
+## 4. 不给 entry 只给 namespace 时每次整表扫描并逐个补丁解析路径
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/nb-canon/src/service/reads.ts listChanges 的 `filter.namespace` 一行与 touchesNamespace
+- 现象：没有 entry 时候选是 world.data.changes.values() 全表，每条变更对所有补丁各跑一次 parsePath（正则）才能判定“不在这个命名空间”；命中才会提前结束。namespace 的判断排在 line、kind、status、nature、progress 这些更便宜或更能淘汰的判断之前。
+- 为什么是问题：数字：parsePath 约 1.2 微秒一次（实测 50000 次 58.8 毫秒）。全书一万条变更、每条平均 5 个补丁即 5 万次，约 60 毫秒一次读取，每次世界版本变化都重读一次；再加 sortByPlacement 对结果排序。现在没有调用方不给 entry（UI 只有宿主带 entry 的一处），所以不是现实问题，只是这条路径对一万条的量级不便宜。
+- 如何核实：/tmp/review-t43-impl/scratch-backend/p.ts 的计时；调用方 grep：`namespace:` 只出现在 EntryPageHost 的 rawChanges 与测试。
+- 建议改法：可以不改（窄场景，计划已把这条路径定义成“任何条目上的改动”）；若改，先用 `path.startsWith(namespace + ".")` 之类的无正则前缀预判（比 parsePath 便宜一个量级）命中后再 parsePath 确认，并把 namespace 判断挪到 kind、status、nature 之后。
+
+## 5. “给 AI 看”在设定组类型列表没读到时静默退成别的文字
+- 严重程度：建议；类别：正确性
+- 位置：packages/neuro-book/src/plugins/canon/web/components/EntryPageHost.vue agentText（约 1131 行）：`componentsRead.value?.data?.items ?? []`
+- 现象：components 读取失败或还没到时，传空数组：节头写成“【panel】（设定组 panel）”，丢掉中文名与“，可以加字段”，而页面仍称这是“模型读到的”那一节；没有失败提示（rawView 有 failed，agentText 没有）。
+- 为什么是问题：Spec 输出 54 说与模型读到的同一处写出。components 读取在页面打开时就发出（188 行无条件读），用户点到“给 AI 看”时通常已读到，所以实际很少出现；失败时却是悄悄给出与模型所见不同的文字。
+- 如何核实：从代码推断，未在真实页面复现。
+- 建议改法：componentsRead 没有 data 时 agentText 给出读取中或失败状态（沿用 rawView 的 failed/loading 口径），不要用空列表兜底。
+
+## 6. Spec 输出 19 与 31 没写 namespace 属于游标读取参数（文档）
+- 严重程度：建议；类别：文档
+- 位置：docs/specs/canon/project.md 输出 31 末句“`before` 与 `order` 属于游标的读取参数”
+- 现象：计划写了“方法表与输出 31 补一句”，方法表已补，输出 31 没补；实现里 namespace 同 before、order 一样随 filter 进游标参数。
+- 为什么是问题：只有方法表一处提到 namespace；游标与不给 entry 时的口径，读 Spec 的人从输出 31 查不到。
+- 建议改法：输出 31 末句加上 `namespace`，并写“不给条目时算任何条目上的改动”（计划实施中改的那条）。
+
+有效发现的编号：1、2、3、4、5、6（均为建议）
+
+## 未发现问题的方面
+- 路径判法：touchesNamespace 用 parsePath，我用真实 parsePath 核了列表元素、子字段、启用、text[块]、entry.name、非法写法；与前端 `startsWith("<命名空间>.")` 比，内核命中必为前端命中的子集（parsed.namespace===namespace 蕴含路径以“命名空间.”开头），所以“内核列了、前端把补丁全滤空”的情形不存在。
+- 游标：真实服务上换 namespace 或去掉 namespace 拿旧游标得 cursor-stale，同筛选可续读。viewed().changes 与 service.changes 都是 `...filter` 展开，没有漏传或改写。
+- 契约与缓存键：contracts.ts 的 filter schema 已加 namespace；remote.ts 两条分支都原样传 input.filter；前端 useWorldList 键是 JSON.stringify(整个输入)，带 namespace。
+- agent-fields.ts：与迁出前逐字相同（agent-tools.test.ts 11 条、author-reads.test.ts 21 条在本机通过）；`field === undefined ? {} : {field}` 等价；导入链只有 @notnotype/nb-canon/schema 的 displayText 与类型，web 里已有同样的值导入，浏览器打包没有后端独有的依赖；LIST_ROWS、kindText 无别处引用。按类型找声明用 `candidate.namespace === namespace`，注册表对同一命名空间只留一个类型（冲突的排除并报诊断），与按 `data.type` 找等价。
+- 组件标签“面板”改“数值”：后端与 Spec 里没有按“面板”这个标签的硬编码；agent-tools.test.ts 的改动只是跟着改名（Agent 照旧可以写命名空间 panel 或类型 id）。
+
+## 数量
+阻断 0，重要 0，建议 6。
+
+## 主会话的处理（2026-11-26）
+
+审查者：Claude Sonnet（reviewer），说明见会话；提交范围 5b6cac15b..eaedff944 的后端与共用部分。
+
+1. 成立，改了。nb-canon 的用例加了一条“星瑕的补丁改简介、白灵的补丁在 panel”的变更：按星瑕与 panel 筛不列，按白灵与 panel 筛列。变异检查见 Task README。
+2. 成立，改了。同一用例加了列表元素的路径（`panel.物品[sword].数量`）、只对上开头的命名空间（`pan`）、换命名空间与去掉命名空间拿旧游标得 `cursor-stale`、同筛选续读到下一条。视图令牌那一支没另加：同样是展开整个筛选，接受。
+3. 成立，改了。新加 `canon/shared/agent-fields.test.ts`：整条目写那两行；只出一组时与整条目里那一节逐字相同、不写那两行；只读的组、可以加字段的组、条目上自己加的字段照写。
+4. 成立，接受取舍。现在没有调用方不给条目，计划把这条路径定成“任何条目上的改动”；一万条约 60 毫秒，有了调用方再优化。
+5. 成立，改了。宿主的“给 AI 看”在设定组类型列表没读到时写“读取中”，读失败写原因与“重试”（ComponentAgentView 加 `loading`、`failed` 与 `retry`），不再拿空列表凑字；dom 测试与 Lab 场景补上。
+6. 成立，改了。project.md 输出 31 写明 `namespace` 进游标的读取参数、不给条目时的口径（master 2ce9dfd35）。
