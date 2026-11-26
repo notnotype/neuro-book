@@ -220,14 +220,19 @@ class RemoteRouterImpl implements RemoteRouter {
      */
     #register(descriptor: InstanceDescriptor, peer: Peer, binding: Member["binding"]): Member {
         const existing = this.#members.get(descriptor.id);
-        const member: Member = {descriptor, peer, binding};
+        // 描述经 instances() 原样交给同进程的服务端插件，冻结后插件改不动路由用的这一份。
+        const member: Member = {descriptor: Object.freeze({...descriptor, project: descriptor.project === null ? null : Object.freeze({...descriptor.project})}), peer, binding};
         this.#members.set(descriptor.id, member);
         existing?.peer.close();
         return member;
     }
 
+    /**
+     * 此刻在线的实例。成员链路关闭时，Peer 先结束它上面的订阅、之后路由才删掉成员：订阅的结束回调里查目录，
+     * 链路已关的成员不应再列出，所以按 `peer.closed` 过滤，而不是只看成员表。
+     */
     instances(): ReadonlyArray<InstanceDescriptor> {
-        return [this.#hub.instance, ...[...this.#members.values()].map((member) => member.descriptor)];
+        return [this.#hub.instance, ...[...this.#members.values()].filter((member) => !member.peer.closed).map((member) => member.descriptor)];
     }
 
     stopAdmission(): void {

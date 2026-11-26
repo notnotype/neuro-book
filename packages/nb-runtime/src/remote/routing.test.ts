@@ -989,11 +989,15 @@ describe("Spec plugin-channel 输出 7：订阅", () => {
 });
 
 describe("Spec plugin-channel 输出 7、8，场景 23、24：服务端作订阅方与查询实例", () => {
-    it("服务端订阅客户端：客户端链路断开即以 target-gone 结束；客户端同实例重连后不重建", async () => {
+    it("服务端订阅客户端：客户端链路断开即以 target-gone 结束，结束回调里查目录已不含它；客户端同实例重连后不重建", async () => {
         const t = await topology();
         const ended: string[] = [];
         const received: unknown[] = [];
-        const subscribed = await t.remote(t.hub).use(echo).at({client: "browser-2"}).events.ticks.subscribe({topic: "a"}, (payload) => received.push(payload), {onEnd: (reason) => ended.push(reason)});
+        let listedAtEnd: ReturnType<ReturnType<typeof t.remote>["instances"]> | null = null;
+        const subscribed = await t.remote(t.hub).use(echo).at({client: "browser-2"}).events.ticks.subscribe({topic: "a"}, (payload) => received.push(payload), {onEnd: (reason) => {
+            ended.push(reason);
+            listedAtEnd = t.remote(t.hub).instances();
+        }});
         expect(subscribed.ok).toBe(true);
         await drain();
         const sink = t.probes.browser2.sinks[0]!;
@@ -1002,6 +1006,8 @@ describe("Spec plugin-channel 输出 7、8，场景 23、24：服务端作订阅
         await drain();
         expect(ended).toEqual(["target-gone"]);
         expect(sink.signal.aborted).toBe(true);
+        const atEnd = await listedAtEnd!;
+        expect(atEnd.ok && atEnd.value.map((instance) => instance.id)).not.toContain("browser-2");
 
         await t.connect(t.browser2);
         await drain();
@@ -1049,6 +1055,11 @@ describe("Spec plugin-channel 输出 7、8，场景 23、24：服务端作订阅
         expect(fromHub).toEqual(fromBrowser);
         if (fromHub.ok) {
             expect(fromHub.value.map((instance) => instance.id).sort()).toEqual(["browser-1", "browser-2", "hub", "project-P"]);
+            // 同进程拿到的是路由手里的那份描述：改不动，下一次查到的不变。
+            const browser = fromHub.value.find((instance) => instance.id === "browser-1")!;
+            expect(() => Object.assign(browser, {client: "forged"})).toThrow(TypeError);
+            const again = await t.remote(t.hub).instances();
+            expect(again).toEqual(fromBrowser);
         }
     });
 });
