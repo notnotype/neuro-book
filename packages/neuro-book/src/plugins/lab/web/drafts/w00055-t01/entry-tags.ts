@@ -368,16 +368,31 @@ export function createEntrySyntax(host: () => AtomHost): MarkdownSyntax {
             return match === null ? undefined : {type: "entryTag", raw: match[0]};
         },
     };
+    // 一行只有一个标签：CommonMark 会把它读成 HTML 块，原样语法的块级分词又抢在 `html` 的读法之前，落成不能编辑的原样块。
+    // 这里在块层先认下这样的一行，读成只含这个小块的段落；写回时段落照常写出这一行，读回还是它。
+    const lineTokenizer = {
+        name: "entryLine",
+        level: "block" as const,
+        start: (source: string) => {
+            const match = /(?:^|\n) {0,3}<(?:V|Ref|If)\b/u.exec(source);
+            return match === null ? undefined : match.index + (match[0].startsWith("\n") ? 1 : 0);
+        },
+        tokenizer: (source: string) => {
+            const line = /^ {0,3}(\S[^\n]*?)[ \t]*(?:\n|$)/u.exec(source);
+            if (line === null) return undefined;
+            const tag = line[1]!;
+            const whole = V_TAG.exec(tag) ?? REF_TAG.exec(tag) ?? IF_TAG.exec(tag);
+            return whole !== null && whole[0] === tag ? {type: "entryLine", raw: line[0], tag} : undefined;
+        },
+    };
     return {
         name: "entry-tags-spike",
         extensions: [valueNode, ifNode, refNode],
-        marked: [{extensions: [tokenizer]}],
+        marked: [{extensions: [tokenizer, lineTokenizer]}],
         inlineTags: ["V", "Ref", "If", "Else", "ElseIf"],
-        // 单独占一行的标签，词法器给的是 HTML 块：认成只有这一个节点的段落，免得落成不能编辑的原样块。
-        read: {html: (token) => {
-            const raw = token.raw.trim();
-            const nodes = read(raw);
-            return nodes !== null && (V_TAG.exec(raw) ?? REF_TAG.exec(raw) ?? IF_TAG.exec(raw))?.[0] === raw ? [{type: "paragraph", content: nodes}] : null;
+        read: {entryLine: (token) => {
+            const nodes = read((token as unknown as {tag: string}).tag);
+            return nodes === null ? null : [{type: "paragraph", content: nodes}];
         }},
         readInline: {entryTag: (token) => read(token.raw)},
         writeInline: {
