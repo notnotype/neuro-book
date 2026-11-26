@@ -43,7 +43,7 @@ export type PaletteItem = Readonly<{
     labelMatches?: readonly Range[];
 }>;
 
-type TextMatch = Readonly<{score: number; ranges: readonly Range[]}>;
+export type TextMatch = Readonly<{score: number; ranges: readonly Range[]}>;
 
 /** code point 列表与每个 code point 的 UTF-16 起始偏移（最后一项是总长度）。 */
 function splitCodePoints(value: string): {points: string[]; offsets: number[]} {
