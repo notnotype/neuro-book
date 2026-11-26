@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 2 轮：页头的“看哪一刻”与就地改</title>
+<title>第 3 轮：“在看”的章表、改值的写法与理由、长文字</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -25,111 +25,95 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
-.now { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 900px) { .now { grid-template-columns: minmax(0, 1fr); } }
-.now img { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+td img { width: 100%; max-width: 520px; border: 1px solid var(--line); border-radius: 6px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
-<h1>第 2 轮：页头的“看哪一刻”与就地改</h1>
+<h1>第 3 轮：“在看”的章表、改值的写法与理由、长文字</h1>
 
-<section data-nbdev-question="view-point" data-nbdev-type="single" data-nbdev-recommend="merged">
-  <h2>页头“看的是哪条线、哪个时间点”用哪种做法？</h2>
-  <p class="rec"><strong>推荐 A：一个控件写出结论（“在看 第 3 章末尾 · 主线”），贴在内容上面，一眼知道下面的值是哪一刻的；菜单里两段的小标题就说清了各管什么，手机上也只占一行。</strong></p>
-  <div class="cands" style="--n: 3">
-    <div class="cand" data-nbdev-option="merged" data-nbdev-label="A 合成一个“在看”">
-      <h3>A 合成一个“在看”</h3>
-      <img src="r2/vp-merged.webp" alt="页头第二行右边一个浅底控件：在看 第 3 章末尾 · 主线">
-      <img src="r2/vp-merged-menu.webp" alt="展开：故事线一段（按章节自动 当前主线、主线、重来的那个晚上），剧情进度一段（最初 起始设定，每章一行带开头、末尾两个小按钮），最下面算上计划中的情节开关">
-      <img src="r2/vp-merged-pinned.webp" alt="固定看分支线时控件变成强调色底、带分支图标：在看 第 3 章末尾 · 重来的那个晚上">
-      <img class="phone" src="r2/vp-merged-phone.webp" alt="手机：在看控件占满一行">
-      <p>只有主线时不写线；算上计划时写“· 含计划”；固定看一条分支线时整块变成强调色。</p>
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-merged-default" target="_blank">缺省</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-merged-menu" target="_blank">菜单</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-merged-pinned" target="_blank">固定分支线</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-merged-plan" target="_blank">含计划</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-merged-main-only" target="_blank">只有主线</a></p>
-    </div>
-    <div class="cand" data-nbdev-option="labeled" data-nbdev-label="B 两个控件，同一种样子、各带名字">
-      <h3>B 两个控件，同一种样子、各带名字</h3>
-      <img src="r2/vp-labeled.webp" alt="页头右上角两个浅底控件：剧情线 主线 按章节，时间点 第 3 章末尾">
-      <img src="r2/vp-labeled-menu.webp" alt="时间点展开：最初 起始设定，每章一行带开头、末尾，算上计划开关">
-      <img src="r2/vp-labeled-line-menu.webp" alt="剧情线展开：按章节自动 当前主线、主线、重来的那个晚上">
-      <img class="phone" src="r2/vp-labeled-phone.webp" alt="手机：两个控件换到简介下面一行">
-      <p>位置不变，改动最小；还是两个控件，各写一个名字。</p>
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-labeled-default" target="_blank">缺省</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-labeled-menu" target="_blank">时间点菜单</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-labeled-line-menu" target="_blank">线的菜单</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-labeled-pinned" target="_blank">固定分支线</a></p>
-    </div>
-    <div class="cand" data-nbdev-option="timeline" data-nbdev-label="C 时间条">
-      <h3>C 时间条</h3>
-      <img src="r2/vp-timeline.webp" alt="页头下面一条时间条：左边线的控件和前后两步，轨道上最初一个点、每章一段，当前第 3 章末尾是蓝点，最右含计划">
-      <img src="r2/vp-timeline-pinned.webp" alt="固定看分支线时左边线的控件变成强调色">
-      <img src="r2/vp-timeline-plan.webp" alt="算上计划时右边含计划变成警告色底">
-      <img class="phone" src="r2/vp-timeline-phone.webp" alt="手机：时间条自己占一行">
-      <p>看得出在故事里的哪一段，左右一步一步走能看值怎么变；多占一行，章多了（几十章）刻度要压缩。</p>
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-timeline-default" target="_blank">缺省</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-timeline-pinned" target="_blank">固定分支线</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-timeline-plan" target="_blank">含计划</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r2-timeline-main-only" target="_blank">只有主线</a></p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="edit-style" data-nbdev-type="single" data-nbdev-recommend="outcome">
-  <h2>改一个值用哪种编辑控件？</h2>
-  <p class="rec"><strong>推荐 B：卡住人的是“改设定还是剧情里变了”，B 把两项写成改完以后的样子（“设定改成 18 岁 / 第 3 章里变成 18 岁”，下面一行说之前怎样），不用懂这两个词；比 A 高两行，换来不用猜。</strong></p>
-  <div class="cands" style="--n: 3">
-    <div class="cand" data-nbdev-option="compact" data-nbdev-label="A 紧凑浮层，意图写成落点">
-      <h3>A 紧凑浮层，意图写成落点</h3>
-      <img src="r2/ed-compact-age.webp" alt="年龄下面一块浮层：输入框，下一行是改最初、第 3 章变了两段的切换，取消、保存">
-      <img src="r2/ed-compact-where.webp" alt="现在在哪（第 2 章改过）：切换写改第 2 章、第 3 章变了">
-      <img src="r2/ed-compact-height.webp" alt="身高改成 165：输入框下面一条警告色浅底的提示，保存后多 1 条待处理">
-      <p>两项写成落点：改最初、改第 2 章、第 3 章变了；没有别的变化时不写预览，有影响才出一条提示。</p>
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-where" target="_blank">现在在哪</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-height" target="_blank">身高</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-gender" target="_blank">性别</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-initial" target="_blank">看最初时</a></p>
-    </div>
-    <div class="cand" data-nbdev-option="outcome" data-nbdev-label="B 浮层里两项写成结果">
-      <h3>B 浮层里两项写成结果</h3>
-      <img src="r2/ed-outcome-age.webp" alt="浮层：输入框，两个单选：设定改成 18 岁（从最初起就是这样），第 3 章里变成 18 岁（第 3 章之前仍是 17 岁）">
-      <img src="r2/ed-outcome-where.webp" alt="现在在哪：把第 2 章那一笔改成学院宿舍，第 3 章里变成学院宿舍（之前仍是星家老宅）">
-      <img src="r2/ed-outcome-height.webp" alt="身高：两个单选下面一条多 1 条待处理的提示">
-      <p>两项各一句改完以后的样子，下面小字说之前怎样；看“最初”时没有这一问。</p>
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-outcome-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-outcome-where" target="_blank">现在在哪</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-outcome-height" target="_blank">身高</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-outcome-gender" target="_blank">性别</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-outcome-initial" target="_blank">看最初时</a></p>
-    </div>
-    <div class="cand" data-nbdev-option="inline" data-nbdev-label="C 原地展开，不弹浮层">
-      <h3>C 原地展开，不弹浮层</h3>
-      <img src="r2/ed-inline-age.webp" alt="年龄这一行变成占满两栏的输入框，下一行改最初、第 3 章变了的切换与叉、勾两个图标按钮，下面的行往下让">
-      <img src="r2/ed-inline-where.webp" alt="现在在哪原地展开">
-      <img src="r2/ed-inline-height.webp" alt="身高原地展开，输入框下面一条多 1 条待处理">
-      <p>什么都不盖，下面的行往下让；改的那一行临时占满两栏。</p>
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-where" target="_blank">现在在哪</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-height" target="_blank">身高</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-gender" target="_blank">性别</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-initial" target="_blank">看最初时</a></p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="long-text" data-nbdev-type="single" data-nbdev-recommend="in-flow">
-  <h2>长文字（性格、背景这类）改的时候盖在上面，还是在原处展开？</h2>
-  <p class="rec"><strong>推荐 B：长文字要看着上下文改，浮层会盖住下一节；在原处展开、下面让开，和这一段本来的位置一样。代价是和短项不是同一种控件（设计语言第 4 条“改一个值处处同一种浮层”要改一句）。</strong></p>
+<section data-nbdev-question="chapter-finding" data-nbdev-type="single" data-nbdev-recommend="search-steps">
+  <h2>章多了，“在看”怎么找到一章？</h2>
+  <p class="rec"><strong>推荐 B：查一个人怎么变过来，最常做的是往前往后一章一章看，两边各一个按钮就不用每次开菜单；跳远了再开菜单搜。</strong></p>
   <div class="cands" style="--n: 2">
-    <div class="cand" data-nbdev-option="overlay" data-nbdev-label="A 浮层盖在这一段上">
-      <h3>A 浮层盖在这一段上</h3>
-      <img src="r2/ed-compact-personality.webp" alt="性格那一段上盖着一块浮层：多行输入框、改最初与第 3 章变了的切换、取消、保存，下一节说话方式被盖住一部分">
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-personality" target="_blank">紧凑浮层</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-outcome-personality" target="_blank">选项写成结果</a></p>
+    <div class="cand" data-nbdev-option="search" data-nbdev-label="A 菜单里能搜，打开时滚到当前章">
+      <h3>A 菜单里能搜，打开时滚到当前章</h3>
+      <img src="r3/many.webp" alt="60 章的作品：剧情进度一段上面一个搜索框，“最初”固定在上，章表约 8 行高，打开时第 37 章在中间、末尾选中">
+      <img src="r3/many-search.webp" alt="搜“钟”：只剩第 4、16、28、40、52 章">
+      <p>章多于 12 章才出搜索框；章号、“第 N 章”、标题里的字都能搜。</p>
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-many" target="_blank">60 章</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-many-search" target="_blank">搜索</a></p>
     </div>
-    <div class="cand" data-nbdev-option="in-flow" data-nbdev-label="B 在原处展开，下面让开">
-      <h3>B 在原处展开，下面让开</h3>
-      <img src="r2/ed-inline-personality.webp" alt="性格那一段变成多行输入框，下面一行切换与取消、保存，说话方式整节往下挪">
+    <div class="cand" data-nbdev-option="search-steps" data-nbdev-label="B A 加上两边往前、往后一处">
+      <h3>B A 加上两边往前、往后一处</h3>
+      <img src="r3/steppers.webp" alt="在看 第 37 章末尾 · 主线 两边各一个小箭头按钮">
+      <img class="phone" src="r3/steppers-phone.webp" alt="手机：箭头在在看控件两头">
+      <p>一步是一处：第 37 章末尾往前是第 37 章开头，再往前是第 36 章末尾；悬停写出要去哪。</p>
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-steppers" target="_blank">前后一步</a>、<a href="http://127.0.0.1:4317/lab?c=ViewPointDraft&amp;s=r3-merged-steppers-menu" target="_blank">菜单打开</a></p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="intent-words" data-nbdev-type="single" data-nbdev-recommend="since">
+  <h2>改值时那个二选一怎么写？</h2>
+  <p class="rec"><strong>推荐 A：两项都在说“新值从什么时候起算”，读完就知道改完会怎样；值来自第 2 章的那一笔时写“从第 2 章起”，不用懂改哪一笔。</strong></p>
+  <div class="cands" style="--n: 3">
+    <div class="cand" data-nbdev-option="since" data-nbdev-label="A 从什么时候起：从最初起 | 从第 3 章起">
+      <h3>A 从什么时候起</h3>
+      <img src="r3/since-age.webp" alt="年龄（只在最初设过）：从最初起 | 从第 3 章起">
+      <img src="r3/since-where.webp" alt="现在在哪（第 2 章改过）：从第 2 章起 | 从第 3 章起">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-since-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-since-where" target="_blank">现在在哪</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="why" data-nbdev-label="B 为什么改：更正设定 | 剧情里变了">
+      <h3>B 为什么改</h3>
+      <img src="r3/why-age.webp" alt="年龄：更正设定 | 剧情里变了">
+      <img src="r3/why-where.webp" alt="现在在哪：更正设定 | 剧情里变了">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-why-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-why-where" target="_blank">现在在哪</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="where" data-nbdev-label="C 落点（上一轮）：改最初 | 第 3 章变了">
+      <h3>C 落点（上一轮）</h3>
+      <img src="r3/where-age.webp" alt="年龄：改最初 | 第 3 章变了">
+      <img src="r3/where-where.webp" alt="现在在哪：改第 2 章 | 第 3 章变了">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-where-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-where-where" target="_blank">现在在哪</a></p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="story-note" data-nbdev-type="single" data-nbdev-recommend="optional">
+  <h2>选“从第 3 章起”（剧情里变了）时，要不要写一句发生了什么？</h2>
+  <p class="rec"><strong>推荐 A 选填：这一句就是情节里那一条的文字，写了以后情节分页与来历里读得出“过了 18 岁生日”，不写就自动写“年龄变成 18 岁”（现在写的是“改年龄”）；“从最初起”是更正，不问为什么，改前改后回执里都有。</strong></p>
+  <div class="cands" style="--n: 3">
+    <div class="cand" data-nbdev-option="optional" data-nbdev-label="A 选填一行，不填自动写“年龄变成 18 岁”">
+      <h3>A 选填一行</h3>
+      <img src="r3/note-age.webp" alt="选着从第 3 章起时，输入框下面多一行：发生了什么（选填，不填就写年龄变成 18 岁）">
+      <img src="r3/note-height.webp" alt="身高：发生了什么一行，下面一条多 1 条待处理">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-note-age" target="_blank">年龄</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-note-height" target="_blank">身高</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="B 不加，情节里写“年龄变成 18 岁”">
+      <h3>B 不加</h3>
+      <p>浮层和上一轮一样；情节里那一条自动写“年龄变成 18 岁”。</p>
+    </div>
+    <div class="cand" data-nbdev-option="required" data-nbdev-label="C 必填，不写不能保存">
+      <h3>C 必填</h3>
+      <p>样子同 A，没写时“保存”不可用；回车也不存。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="long-card" data-nbdev-type="single" data-nbdev-recommend="same-card">
+  <h2>长文字原处展开，用不用和短项同一张卡？</h2>
+  <p class="rec"><strong>推荐 A：同一张卡、同一条底栏（二选一、取消、保存），只是不浮起来、把下面推开；作者看到的是同一个编辑控件，只有放的位置不同。</strong></p>
+  <div class="cands" style="--n: 2">
+    <div class="cand" data-nbdev-option="same-card" data-nbdev-label="A 同一张卡，放在原处">
+      <h3>A 同一张卡，放在原处</h3>
+      <img src="r3/long-card.webp" alt="性格那一段变成一张卡：多行输入，下面从最初起、从第 3 章起，取消、保存；说话方式往下让">
+      <img src="r3/long-card-note.webp" alt="选着从第 3 章起时，卡里多一行发生了什么">
+      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-long-card" target="_blank">长文字</a>、<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r3-long-card-note" target="_blank">选剧情里变了</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="bare" data-nbdev-label="B 上一轮的样子：输入框加底栏，没有卡">
+      <h3>B 上一轮的样子</h3>
+      <img src="r2/ed-inline-personality.webp" alt="性格那一段变成输入框，下面一行切换与取消、保存，没有卡片">
       <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-inline-personality" target="_blank">原地展开</a></p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="edit-surface" data-nbdev-type="single" data-nbdev-recommend="solid">
-  <h2>编辑浮层用不透明的面，还是和菜单一样的玻璃？</h2>
-  <p class="rec"><strong>推荐 A：编辑浮层压在密密的字上，玻璃把底下的字和蓝色块透上来，看着脏；它要人盯着填，用不透明的面。菜单那些一闪而过的浮层仍是玻璃。</strong></p>
-  <div class="cands" style="--n: 2">
-    <div class="cand" data-nbdev-option="solid" data-nbdev-label="A 不透明">
-      <h3>A 不透明</h3>
-      <img src="r2/ed-solid.webp" alt="不透明的编辑浮层：建议列表嵌在里面，底下的字一点都不透">
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-gender" target="_blank">不透明</a></p>
-    </div>
-    <div class="cand" data-nbdev-option="glass" data-nbdev-label="B 玻璃（现在的样子）">
-      <h3>B 玻璃（现在的样子）</h3>
-      <img src="r2/ed-glass.webp" alt="玻璃的编辑浮层：底下的值与链接模糊地透出来">
-      <p class="links" data-nbdev-skip>Lab：<a href="http://127.0.0.1:4317/lab?c=InPlaceEditDraft&amp;s=r2-compact-gender-glass" target="_blank">玻璃</a></p>
     </div>
   </div>
 </section>
@@ -139,36 +123,19 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <table>
     <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
     <tbody>
-      <tr><td>建议值（性别这类）</td><td>打开时列出全部，当前值打勾，开始打字才筛（现在按当前值筛，只剩“不明”一项）；列表放进编辑浮层里，不再是第二层浮层、不盖住下面那一行</td></tr>
-      <tr><td>看“最初”时改值</td><td>不问“改设定 / 剧情里变了”（只能改设定）</td></tr>
-      <tr><td>编辑浮层的位置</td><td>不越出编辑区（现在改年龄的浮层越过右边界盖到侧栏）；右边一栏的项浮层靠右对齐</td></tr>
-      <tr><td>主色</td><td>编辑浮层里只有“保存”一处主色；意图的切换用浅轨道、浮起的选中块（现在选中的“改设定”是实心蓝，比保存还重）</td></tr>
-      <tr><td>多行输入</td><td>按内容长高，不露浏览器的拉伸角；保存写明 Ctrl+回车</td></tr>
-      <tr><td>线的菜单</td><td>“跟着章（此刻：主线）”改说“按章节自动”，右边小字“当前：主线”；分支线前加从属的折线图标；菜单宽度随内容，不截断</td></tr>
-      <tr><td>时间点菜单</td><td>一章一行，开头、末尾是这一行里的两个小按钮（章标题不再写两遍）；“最初”旁写“起始设定”；“算上计划中的情节”是开关</td></tr>
-      <tr><td>状态栏的“在看”</td><td>和页头同一说法（选 A 时写“在看：第 3 章末尾 · 主线”这一类）</td></tr>
-      <tr><td>窄屏横排分页</td><td>右缘渐隐，看得出右边还有分页（现在正好切在一页的边上，像是只有这几页）</td></tr>
+      <tr><td>“在看”菜单的两段<br><img src="r3/tip.webp" alt="故事线旁的问号悬停：作品里平行发展的几条剧情……"></td><td>“故事线”“剧情进度”旁各一个说明图标，悬停看：<br>故事线：作品里平行发展的几条剧情：主线，以及从主线某一处分出去的另一种发展。同一个人在不同的线上可以不一样。“按章节自动”是哪一章讲哪条线，就看哪条线。<br>剧情进度：设定会随剧情变。这里选看故事进行到哪一刻的样子：“最初”是一切发生之前的起始设定，也可以看某一章的开头或末尾。</td></tr>
+      <tr><td>第 2 轮“直接修”那张表</td><td>照做：建议值列全、看“最初”时不问、浮层不越出编辑区、一处主色、多行输入长高、线与时间点的菜单、状态栏同一说法、窄屏分页右缘渐隐</td></tr>
     </tbody>
   </table>
 </section>
 
 <section>
-  <h2>现状</h2>
-  <div class="now">
-    <img src="r2/now-line.webp" alt="现在：线的下拉，第一项被截成跟着章（此刻：主…">
-    <img src="r2/now-position.webp" alt="现在：时间点菜单，每章开头、末尾各一行，章标题写两遍">
-    <img src="r2/now-age.webp" alt="现在：改年龄的浮层，这是 改设定 剧情里变了，两行小灰字">
-    <img src="r2/now-gender.webp" alt="现在：改性别，建议列表只剩不明一项，盖住意图那一行，底下的蓝色透上来">
-  </div>
-</section>
-
-<section>
   <h2>已定</h2>
   <ol class="decided">
-    <li>分页宽时在内容左边竖排，窄了横排；横排放不下时在分页条里滑动，每页写名字（第 1 轮、2026-11-26）</li>
-    <li>保存后的提示 6 秒后自己收起，指着或焦点在里面时不收；提示写记在哪（第 1 轮、2026-11-26）</li>
-    <li>初值的位置叫“最初”；提示按钮叫“还原”（2026-11-26）</li>
-    <li>每组设定各一个分页；改一项时就地改，不用页顶的确认条（t41 第 1 轮）</li>
+    <li>页头合成一个“在看”控件（第 2 轮）</li>
+    <li>改值用紧凑浮层，玻璃的面；长文字在原处展开（第 2 轮）</li>
+    <li>分页宽时竖排、窄了横排滑动；保存提示 6 秒收起、写记在哪；初值叫“最初”；按钮叫“还原”（第 1 轮、2026-11-26）</li>
+    <li>每组设定各一个分页；改一项时就地改（t41 第 1 轮）</li>
   </ol>
 </section>
 </main>
