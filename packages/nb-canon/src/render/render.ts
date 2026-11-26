@@ -352,9 +352,9 @@ function collectStatic(analysis: BlockAnalysis, context: PlainContext, reads: Se
         else if (meaning.kind === "test") meaning.test.references.forEach(read);
         else if (meaning.kind === "ref") mentions.add(meaning.id);
         else if (meaning.kind === "image" && meaning.of !== null) read(meaning.of);
-        // 字面的标签照原文写会把条目 id 与写法给读者；写坏的内置标签读不全它的属性（输出 15）。
+        // 字面的标签照原文写会把条目 id 与写法给读者，写坏的读不全它的属性（输出 15）。写坏的内置标签落在正文里时写入就拒收了，
+        // 存下来的只会在代码里或转义之后，这一条一并报。
         if (tag.place === "code" || tag.place === "escaped") problems.add("syntax");
-        if (tag.kind === "malformed" && (tag.attributeLike || tag.closing) && ["V", "If", "ElseIf", "Else", "Ref", "Image"].includes(tag.name)) problems.add("syntax");
         if (tag.place === "live" && meaning.kind === "unregistered") problems.add("unknown-tag");
     });
 }

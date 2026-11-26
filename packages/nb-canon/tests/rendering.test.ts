@@ -343,6 +343,10 @@ describe("canon.rendering 输出 6、7、9：读不到的值、引用与显示�
         expect(gone.line().engine.entry("e2", position, "actual")).toMatchObject({namespaces: {link: {readOnly: "component-unknown", fields: {n: {value: 1}}}}});
     });
 
+    test("给 Agent（列表字段）：显示名与 id 不同时带 label，列表元素的地址不带", () => {
+        expect(agentBlocks(plainWorld(['<V of="rel.清单" /> <V of="rel.清单[x1].数量" />']), at("ch1"))).toEqual(['<V of="rel.清单" label="随身物品">[{"id":"x1","label":"短剑","数量":1}]</V> <V of="rel.清单[x1].数量">1</V>']);
+    });
+
     test("版本对不上：照常给值", () => {
         const base = linked();
         const moved = base.withOptions({...base.options, registry: buildRegistry([{...LINK, version: 2} as never])});
@@ -485,7 +489,7 @@ const REL: ComponentDeclaration = {
     fields: [
         {id: "对象", label: "对象", kind: "ref"},
         {id: "关系", label: "关系", kind: "list", keyedBy: "ref", item: [{id: "态度", label: "态度", kind: "text"}, {id: "起因", label: "起因", kind: "ref"}]},
-        {id: "清单", label: "清单", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
+        {id: "清单", label: "随身物品", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
     ],
 };
 
