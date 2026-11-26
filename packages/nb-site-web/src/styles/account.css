@@ -1,0 +1,85 @@
+/*
+ * 账号页各节共用的行（t10 计划 3.12，照 t09 第 3 轮的账号页静态稿）：登录与安全、已登录的设备、邀请码三节都是一行一项，
+ * 左边是名字，右边是灰色的说明与这一项的按钮，行与行之间一条细线。在 components 层：站点的原子类压得过它。
+ *
+ * - `.account-rows`：列表。`li` 至少 48px 高。
+ * - `.account-rows__main`：名字，可以跟一枚徽标（“这台设备”）。
+ * - `.account-rows__meta`：说明，靠右。窄屏（560px 及以下）换到名字下面一行、靠左。
+ * - `.account-rows__actions`：这一行的按钮，跟在说明后面。
+ * - `.account-row-*`：行进出与重排的过渡（`TransitionGroup` 的 `name="account-row"`）。
+ */
+
+@layer components {
+    .account-rows {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+
+    .account-rows > li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+    }
+
+    .account-rows > li + li {
+        border-top: 1px solid var(--border-color);
+    }
+
+    .account-rows__main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .account-rows__meta {
+        margin-left: auto;
+        color: var(--text-muted);
+        font-size: var(--text-sm);
+        text-align: right;
+    }
+
+    .account-rows__actions {
+        display: flex;
+        flex: none;
+        gap: 8px;
+    }
+
+    .account-code {
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+    }
+
+    @media (max-width: 560px) {
+        .account-rows > li {
+            flex-wrap: wrap;
+            row-gap: 2px;
+            padding: 10px 0;
+        }
+
+        /* 名字占满按钮左边的地方，按钮总跟名字在同一行；名字太长时自己折行，不把按钮挤到下一行。 */
+        .account-rows__main {
+            flex: 1 1 0;
+        }
+
+        .account-rows__meta {
+            order: 3;
+            flex: 1 1 100%;
+            margin-left: 0;
+            text-align: left;
+        }
+    }
+
+    .account-row-enter-active,
+    .account-row-leave-active {
+        transition: opacity var(--motion-base) var(--ease-layout);
+    }
+
+    .account-row-enter-from,
+    .account-row-leave-to {
+        opacity: 0;
+    }
+}

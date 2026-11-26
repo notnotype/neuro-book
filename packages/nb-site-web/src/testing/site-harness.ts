@@ -18,6 +18,9 @@ import type {ManualClock} from "./manual-clock";
 
 export const identityUrl = (relative: string): string => `${IDENTITY_API_PREFIX}${relative}`;
 
+/** 账号页读的三份列表（`pages/account/account-lists.ts`）。 */
+const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map(identityUrl));
+
 /** 用例里的“现在”。草稿的写入时刻、`Retry-After` 的倒数都从这里算。 */
 export const NOW = Date.parse("2026-11-26T10:00:00Z");
 
@@ -31,6 +34,8 @@ export type Role = MeResponse["role"];
 export interface Session {
     role: Role;
     consentRequired: boolean;
+    /** `GET me` 的回答；缺省按 `role` 与 `consentRequired` 拼一份有邮箱、有密码的。账号页的用例在这里换成别的账号，改资料的回答也写回这里。 */
+    me?: MeResponse;
 }
 
 export function profile(role: Role): PublicProfile {
@@ -38,6 +43,7 @@ export function profile(role: Role): PublicProfile {
 }
 
 export function me(session: Session): MeResponse {
+    if (session.me !== undefined) return session.me;
     return {...profile(session.role), email: "alice@example.com", emailPending: false, hasPassword: true, consentRequired: session.consentRequired};
 }
 
@@ -67,7 +73,7 @@ export interface Harness {
     readonly target: HTMLElement;
     readonly server: Server;
     readonly clock: ManualClock;
-    /** 除了 `whoami`、`me` 之外的请求，按发出的先后。 */
+    /** 除了 `GET whoami`、`GET me` 之外的请求，按发出的先后。 */
     readonly requests: Request[];
     /** `leave` 收到的地址，与那一刻存储里社交注册草稿的原文（没有时是 `null`）：看得出跳走之前有没有写草稿。 */
     readonly left: {readonly url: string; readonly draft: string | null}[];
@@ -125,11 +131,12 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
         leave: (url) => left.push({url, draft: window.sessionStorage.getItem(DRAFT_KEY)}),
         fetch: async (input, init) => {
             const method = String(init.method ?? "GET");
-            if (input === identityUrl(IDENTITY_PATHS.whoami)) {
+            // 只有读的 `GET` 由装置自己答：账号页还会对 `me` 发 `PATCH`，那是用例要准备、要看见的请求。
+            if (method === "GET" && input === identityUrl(IDENTITY_PATHS.whoami)) {
                 const session = server.session;
                 return Response.json((session === undefined ? {state: "anonymous"} : {state: "authenticated", user: {id: 7, username: "alice", role: session.role}}) satisfies WhoamiResponse);
             }
-            if (input === identityUrl(IDENTITY_PATHS.me)) {
+            if (method === "GET" && input === identityUrl(IDENTITY_PATHS.me)) {
                 return server.session === undefined ? failure({error: {code: "unauthenticated"}}, 401) : Response.json(me(server.session));
             }
             const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
@@ -137,6 +144,8 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
             if (method === "GET" && input === identityUrl(IDENTITY_PATHS.meta)) return server.meta();
             const handler = server.handlers.get(`${method} ${input}`);
             if (handler !== undefined) return handler(body, server);
+            // 登录、注册、补交同意之后都落在账号页，它一打开就读这三份列表。在乎列表内容的用例自己准备处理器，其余的回空列表。
+            if (method === "GET" && ACCOUNT_LISTS.has(input)) return Response.json({items: []});
             unexpected.push(`${method} ${input}`);
             return failure({error: {code: "not_found"}}, 404);
         },

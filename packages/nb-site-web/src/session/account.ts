@@ -41,6 +41,11 @@ export interface CurrentAccount {
     refresh(): Promise<AccountState>;
     /** 登出或会话没了：当作匿名。正在进行的取数结果到达时丢掉。 */
     clear(): void;
+    /**
+     * 已登录时换上一份服务端刚确认过的资料（`PATCH me` 的回答，或改密码成功之后的 `hasPassword`），不再取一次。
+     * 正在进行的取数结果到达时丢掉：它是在这次改动之前发出的。不是已登录时什么都不做（会话已经没了，不该凭一份资料“登录回来”）。
+     */
+    update(me: MeResponse): void;
 }
 
 /** 分派与守卫用的那部分；`unknown`、`unavailable` 回 `undefined`。 */
@@ -99,6 +104,12 @@ export function createCurrentAccount(source: AccountSource): CurrentAccount {
             generation += 1;
             inflight = undefined;
             state.value = {kind: "anonymous"};
+        },
+        update(me) {
+            if (state.value.kind !== "signed-in") return;
+            generation += 1;
+            inflight = undefined;
+            state.value = {kind: "signed-in", me};
         },
     };
 }

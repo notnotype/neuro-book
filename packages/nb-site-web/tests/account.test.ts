@@ -120,4 +120,36 @@ describe("当前账号", () => {
         expect(await pending).toEqual({kind: "anonymous"});
         expect(account.state.value).toEqual({kind: "anonymous"});
     });
+
+    it("update 换上服务端确认过的资料，不再发请求；之前发起的取数结果到达时丢掉", async () => {
+        let release: (() => void) | undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let slow = false;
+        const {account, requested} = setup({
+            [WHOAMI]: async () => {
+                if (slow) await gate;
+                return signedInWhoami();
+            },
+            [ME]: () => Response.json(ME_BODY),
+        });
+        await account.ensure();
+        slow = true;
+        const pending = account.refresh();
+        const saved: MeResponse = {...ME_BODY, displayName: "爱丽丝", email: "alice@example.com", emailPending: false};
+        account.update(saved);
+        expect(account.state.value).toEqual({kind: "signed-in", me: saved});
+        release!();
+        await pending;
+        expect(account.state.value).toEqual({kind: "signed-in", me: saved});
+        expect(requested).toEqual([WHOAMI, ME, WHOAMI, ME]);
+    });
+
+    it("不是已登录时 update 什么都不做", async () => {
+        const {account} = setup({[WHOAMI]: anonymousWhoami});
+        await account.ensure();
+        account.update(ME_BODY);
+        expect(account.state.value).toEqual({kind: "anonymous"});
+    });
 });

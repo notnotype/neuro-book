@@ -18,12 +18,19 @@ import {codeText, failureText} from "../http/failure-text";
 import type {SiteClock} from "../host/clock";
 import {siteRef} from "../text";
 
-/** 状态行上的一条：`reason` 是哪件事（失败码，或页面自己判出的），`action` 是跟在原因后面的链接。 */
+/**
+ * 状态行上的一条：`reason` 是哪件事（失败码，或页面自己判出的），`action` 是跟在原因后面的链接。`tone` 缺省是失败；
+ * `success` 是账号页每一节保存成功之后的那一句（计划 3.12），由 `showSuccess` 写，到时自己清掉。
+ */
 export interface StatusEntry {
     readonly reason: string;
     readonly text: TextRef;
     readonly action?: "register";
+    readonly tone?: "success";
 }
+
+/** 成功的那一句在状态行上留多久（计划 3.12：“已保存”3 秒后清空）。 */
+export const SUCCESS_STATUS_MS = 3_000;
 
 export interface FormFeedback<Field extends string> {
     readonly status: ShallowRef<StatusEntry | undefined>;
@@ -37,7 +44,7 @@ export interface FormFeedback<Field extends string> {
     fieldError(field: Field): string;
     isInvalid(field: Field): boolean;
     /**
-     * 标红这些字段，焦点给第一个（表单里 `name` 是它的那个输入框）。`focus: false` 只标红：离开一个字段时查出的不合规则，
+     * 标红这些字段，焦点给第一个（表单里 `name` 是它的那个输入框或多行输入框）。`focus: false` 只标红：离开一个字段时查出的不合规则，
      * 焦点已经去了下一个字段，不拉回来。
      */
     mark(fields: readonly Field[], options?: {readonly focus?: boolean}): Promise<void>;
@@ -50,9 +57,14 @@ export interface FormFeedback<Field extends string> {
      * 它会把人带走。哪些字段标红由页面按码决定。
      */
     showFailure(failure: Failure): boolean;
+    /** 写一句成功的话（`tone: "success"`），`SUCCESS_STATUS_MS` 之后清掉；这期间换成了别的一条时不清别的。 */
+    showSuccess(reason: string, text: TextRef): void;
 }
 
-export function useFormFeedback<Field extends string>(form: Readonly<Ref<HTMLFormElement | null>>, clock: SiteClock): FormFeedback<Field> {
+/**
+ * `form` 是放这些字段的元素（稿纸页是表单，账号页是一节），标红后按 `name` 在它里面找输入框给焦点。
+ */
+export function useFormFeedback<Field extends string>(form: Readonly<Ref<HTMLElement | null>>, clock: SiteClock): FormFeedback<Field> {
     const port = useText();
     const status = shallowRef<StatusEntry>();
     const invalid = shallowRef<ReadonlySet<Field>>(new Set());
@@ -80,6 +92,14 @@ export function useFormFeedback<Field extends string>(form: Readonly<Ref<HTMLFor
         stopTicking = undefined;
     }
 
+    // 成功那一句的清除：时钟只有按间隔重复的计时，到点第一次就停掉。
+    let stopSuccessTimer: (() => void) | undefined;
+
+    function stopSuccess(): void {
+        stopSuccessTimer?.();
+        stopSuccessTimer = undefined;
+    }
+
     function startCountdown(seconds: number): void {
         stopCountdown();
         now.value = clock.now();
@@ -95,7 +115,10 @@ export function useFormFeedback<Field extends string>(form: Readonly<Ref<HTMLFor
         });
     }
 
-    onBeforeUnmount(stopCountdown);
+    onBeforeUnmount(() => {
+        stopCountdown();
+        stopSuccess();
+    });
 
     return {
         status,
@@ -110,7 +133,7 @@ export function useFormFeedback<Field extends string>(form: Readonly<Ref<HTMLFor
             if (first === undefined || options?.focus === false) return;
             // 标红要等这一轮渲染之后才落到控件上，所以聚焦放在 `nextTick`。
             await nextTick();
-            form.value?.querySelector<HTMLInputElement>(`input[name="${first}"]`)?.focus();
+            form.value?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`input[name="${first}"], textarea[name="${first}"]`)?.focus();
         },
         unmark() {
             if (invalid.value.size > 0) invalid.value = new Set();
@@ -124,6 +147,15 @@ export function useFormFeedback<Field extends string>(form: Readonly<Ref<HTMLFor
             status.value = {reason: failure.kind === "code" ? failure.code : failure.kind, text: failureText("identity", failure)};
             if (failure.kind === "code" && failure.code === "rate_limited") startCountdown(failure.retryAfterSeconds ?? RETRY_AFTER_FALLBACK_SECONDS);
             return true;
+        },
+        showSuccess(reason, text) {
+            stopSuccess();
+            const entry: StatusEntry = {reason, text, tone: "success"};
+            status.value = entry;
+            stopSuccessTimer = clock.every(SUCCESS_STATUS_MS, () => {
+                stopSuccess();
+                if (status.value === entry) status.value = undefined;
+            });
         },
     };
 }

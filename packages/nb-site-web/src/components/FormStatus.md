@@ -5,7 +5,7 @@
 
 # FormStatus
 
-表单里固定位置的状态行（t10 计划 3.1“状态行与表单错误”）。提交之后才知道的错（服务端回的失败码、网络不通）写在这里，不在字段下插字；空着时也占同样的高度，所以出错与恢复都不推动表单里别的东西。写法照 nb-ui 对话框页脚的状态行：危险色、带图标、超长截断、全文在 `title` 里、`aria-live` 播报。
+表单里固定位置的状态行（t10 计划 3.1“状态行与表单错误”）。提交之后才知道的错（服务端回的失败码、网络不通）写在这里，不在字段下插字；空着时也占同样的高度，所以出错与恢复都不推动表单里别的东西。写法照 nb-ui 对话框页脚的状态行：危险色、带图标、超长截断、全文在 `title` 里、`aria-live` 播报。账号页每一节保存成功之后的那一句（计划 3.12 的“已保存”）也写在这里，换成成功色与对勾，由页面到时清掉。
 
 ## 布局
 
@@ -30,6 +30,8 @@ defineProps<{
     reason?: string;
     /** 给读屏的固定说法；给了时看得见的 `text` 不进读屏。`text` 会按秒变时必须给。默认空串，表示读屏读 `text`。 */
     spoken?: string;
+    /** 失败（`danger`）还是成功（`success`）。默认 `danger`。 */
+    tone?: "danger" | "success";
 }>();
 
 defineSlots<{
@@ -43,8 +45,10 @@ defineSlots<{
 ## 状态
 
 - 空：占着同样的高度，什么都不显示；根元素没有 `data-site-form-status-error`。
-- 有原因：危险色的图标与文字；根元素带 `data-site-form-status-error`。
+- 有原因：危险色的图标与文字；根元素带 `data-site-form-status-error` 与 `data-site-form-status-tone="danger"`。
+- 成功：成功色的对勾与文字；根元素带 `data-site-form-status-tone="success"`，没有 `data-site-form-status-error`。
 
 ## 不支持
 
-- 不支持超过上面行数的原因，也不支持成功或提示类的颜色：这里只放错误的原因。
+- 不支持超过上面行数的原因，也不支持提示类（中性、警告）的颜色：这里只放失败的原因与刚完成的那一步。
+- 不自己计时清掉成功的那一句：多久清、换成别的时清不清由页面定（`pages/form-feedback.ts` 的 `showSuccess`）。

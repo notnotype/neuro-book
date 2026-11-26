@@ -79,7 +79,86 @@
         "notEntered": "已经同意，但没能打开下一页，请刷新页面"
     },
     "account": {
-        "title": "账号"
+        "title": "账号",
+        "toc": "账号的各节",
+        "pending": "有待补的内容",
+        "menu": "账号菜单",
+        "admin": "管理面板",
+        "signOut": "退出登录",
+        "loading": "正在载入",
+        "loadFailed": "没能载入账号的内容",
+        "retry": "重试",
+        "save": "保存",
+        "cancel": "取消",
+        "saved": "已保存",
+        "profile": {
+            "title": "资料",
+            "username": "用户名",
+            "displayName": "显示名",
+            "email": "邮箱",
+            "emailPending": "待补",
+            "website": "网站",
+            "avatarUrl": "头像地址",
+            "bio": "签名"
+        },
+        "rules": {
+            "displayName": "显示名要 1 到 50 个字",
+            "email": "邮箱的写法不对",
+            "emailRequired": "邮箱不能留空",
+            "webUrl": "地址要以 http:// 或 https:// 开头，至多 500 个字符",
+            "bio": "签名至多 200 个字",
+            "newPassword": "密码要 8 到 128 个字符"
+        },
+        "security": {
+            "title": "登录与安全",
+            "password": "密码",
+            "passwordSet": "已设置",
+            "passwordUnset": "没有设置",
+            "changePassword": "修改密码",
+            "setPassword": "设置密码",
+            "passwordChanged": "密码已修改",
+            "passwordCreated": "密码已设置",
+            "currentPassword": "当前密码",
+            "newPassword": "新密码",
+            "notLinked": "没有关联",
+            "link": "关联",
+            "unlink": "解除关联",
+            "linkTitle": "关联 {{provider}}",
+            "linkContinue": "继续",
+            "identityGone": "这个关联已经不在了",
+            "provider": {
+                "github": "GitHub",
+                "google": "Google"
+            }
+        },
+        "sessions": {
+            "title": "已登录的设备",
+            "current": "这台设备",
+            "unknownDevice": "认不出的设备",
+            "device": "{{browser}}，{{os}}",
+            "createdAt": "登录于 {{time}}",
+            "lastUsedAt": "最后使用 {{time}}",
+            "inUse": "正在使用",
+            "end": "退出",
+            "endOthers": "退出其它所有设备",
+            "endedOthers": "其它设备都已退出",
+            "partial": "结束了 {{ended}} 个，{{failed}} 个没结束"
+        },
+        "invites": {
+            "title": "邀请码",
+            "used": "已用 {{count}} 次",
+            "usedOf": "已用 {{count}} / {{max}} 次",
+            "expires": "{{time}} 到期",
+            "unusable": "不能再用",
+            "copy": "复制链接",
+            "disable": "停用",
+            "disableTitle": "停用 {{code}}？",
+            "disableDescription": "停用之后不能再用它注册",
+            "generate": "生成邀请码",
+            "remaining": "还能生成 {{count}} 个",
+            "full": "有效的邀请码已有 {{limit}} 个，先停用一个",
+            "empty": "还没有邀请码"
+        }
     },
     "oauthConsent": {
         "title": "授权确认"

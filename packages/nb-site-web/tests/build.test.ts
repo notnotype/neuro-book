@@ -97,8 +97,14 @@ async function gzipBytes(files: Iterable<string>): Promise<number> {
     return total;
 }
 
-/** 一个块的 sourcemap 里的来源路径。 */
+/**
+ * 一个块的 sourcemap 里的来源路径。只由虚拟模块组成的块（几个页面共用的 `@vitejs/plugin-vue` 的 export helper）没有来源文件，
+ * 构建不给它写 `.map`，末尾也没有 `sourceMappingURL` 那行注释：这样的块没有来自哪个包的代码，按没有来源算。有注释却读不到 `.map`
+ * 照样抛出。
+ */
 async function sourcesOf(file: string): Promise<readonly string[]> {
+    const code = await readFile(join(outDir, file), "utf8");
+    if (!/\/\/# sourceMappingURL=\S+\s*$/u.test(code)) return [];
     return (JSON.parse(await readFile(join(outDir, `${file}.map`), "utf8")) as {readonly sources: readonly string[]}).sources;
 }
 

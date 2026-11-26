@@ -2,20 +2,28 @@
  * 账号模块的接口（t10 计划 3.2；`site.accounts` 输入与前置条件的接口表）。建在接口层的核心上，每个函数声明路径、方法与
  * 自己处理哪些码；页面只拿 `Result`。路径与类型都取合同包，不在这里另写一份。
  *
- * 各片用到哪个接口就在这里加哪个：现在是取身份的两个（当前账号用）、`meta`、登录、登出、注册、补交同意与社交流程的发起。
+ * 各片用到哪个接口就在这里加哪个：现在是取身份的两个（当前账号用）、`meta`、登录、登出、注册、补交同意、社交流程的发起，
+ * 与账号页用的资料、密码、会话、上游身份、邀请码（B4）。
  */
 
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS, identityPath} from "@notnotype/nb-site-identity-contract/constants";
 import type {
+    ChangePasswordRequest,
     ConsentRequest,
     ConsentResponse,
     EmptyResponse,
+    IdentityListResponse,
+    InviteCodeItem,
+    InviteCodeListResponse,
     LoginRequest,
     LoginResponse,
     MeResponse,
     MetaResponse,
+    PatchInviteCodeRequest,
+    PatchMeRequest,
     RegisterRequest,
     RegisterResponse,
+    SessionListResponse,
     SocialProvider,
     SocialStartRequest,
     SocialStartResponse,
@@ -39,6 +47,24 @@ export interface IdentityApi extends AccountSource {
     consent(body: ConsentRequest): Promise<Result<ConsentResponse>>;
     /** 发起社交登录、注册或关联（输出 11、13、15）：成功回上游的地址，由调用方带浏览器过去。 */
     socialStart(provider: SocialProvider, body: SocialStartRequest): Promise<Result<SocialStartResponse>>;
+    /** 改自己的资料（输出 8）：成功回改过之后的资料。 */
+    patchMe(body: PatchMeRequest): Promise<Result<MeResponse>>;
+    /** 改密码或给没有密码的账号设密码（输出 9）。成功后别的会话都已结束（输出 6），当前这个保留。 */
+    changePassword(body: ChangePasswordRequest): Promise<Result<EmptyResponse>>;
+    /** 自己的会话（输出 17）。 */
+    sessions(): Promise<Result<SessionListResponse>>;
+    /** 结束自己的一个会话（输出 17）；不是自己的或不存在的回 `not_found`。 */
+    endSession(id: number): Promise<Result<EmptyResponse>>;
+    /** 已关联的上游身份（输出 24）。 */
+    identities(): Promise<Result<IdentityListResponse>>;
+    /** 解绑一个上游身份（输出 16、24）：解绑后没有登录方式回 `last_login_method`，不是自己的或不存在的回 `not_found`。 */
+    unlinkIdentity(id: number): Promise<Result<EmptyResponse>>;
+    /** 自己的邀请码，含停用、过期与用完的（输出 18）。 */
+    inviteCodes(): Promise<Result<InviteCodeListResponse>>;
+    /** 生成一个邀请码（输出 18）：已有 10 个能用的回 `invite_code_limit`。 */
+    createInviteCode(): Promise<Result<InviteCodeItem>>;
+    /** 停用自己的一个邀请码（输出 18）：成功回停用之后的那一项。 */
+    disableInviteCode(id: number): Promise<Result<InviteCodeItem>>;
 }
 
 const path = (relative: string): string => `${IDENTITY_API_PREFIX}${relative}`;
@@ -67,5 +93,16 @@ export function createIdentityApi(core: ApiCore): IdentityApi {
             body,
             ...(body.intent === "register" ? {handles: ["consent_required"] as const} : {}),
         }),
+        // 下面是账号页的接口，都要有会话、都在同意门槛之内：`unauthenticated` 与门槛那种 `consent_required` 照常走统一处理。
+        patchMe: (body) => core.request<MeResponse>({method: "PATCH", path: path(IDENTITY_PATHS.me), body}),
+        changePassword: (body) => core.request<EmptyResponse>({method: "POST", path: path(IDENTITY_PATHS.mePassword), body}),
+        sessions: () => core.request<SessionListResponse>({method: "GET", path: path(IDENTITY_PATHS.meSessions)}),
+        // 不需要参数的写接口不带请求体（输出 22）。
+        endSession: (id) => core.request<EmptyResponse>({method: "DELETE", path: path(identityPath.meSession(id))}),
+        identities: () => core.request<IdentityListResponse>({method: "GET", path: path(IDENTITY_PATHS.meIdentities)}),
+        unlinkIdentity: (id) => core.request<EmptyResponse>({method: "DELETE", path: path(identityPath.meIdentity(id))}),
+        inviteCodes: () => core.request<InviteCodeListResponse>({method: "GET", path: path(IDENTITY_PATHS.meInviteCodes)}),
+        createInviteCode: () => core.request<InviteCodeItem>({method: "POST", path: path(IDENTITY_PATHS.meInviteCodes)}),
+        disableInviteCode: (id) => core.request<InviteCodeItem>({method: "PATCH", path: path(identityPath.meInviteCode(id)), body: {disabled: true} satisfies PatchInviteCodeRequest}),
     };
 }

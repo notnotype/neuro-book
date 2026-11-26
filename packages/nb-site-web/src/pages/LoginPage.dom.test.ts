@@ -30,6 +30,8 @@ const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
 const LOGIN = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.login}`;
 const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
 const SOCIAL_START = new Map(SOCIAL_PROVIDERS.map((provider) => [`${IDENTITY_API_PREFIX}${identityPath.socialStart(provider)}`, provider]));
+/** 账号页一打开就读的三份列表：登录成功后普通用户落在账号页，这里回空列表。 */
+const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map((path) => `${IDENTITY_API_PREFIX}${path}`));
 
 const OPEN_META: MetaResponse = {termsVersion: "2026-11-01", registrationOpen: true, providers: {google: true, github: true}};
 const upstreamUrl = (provider: SocialProvider): string => `https://${provider}.example/authorize?state=s1`;
@@ -132,6 +134,7 @@ function start(path: string, options: ServerOptions = {}): Started {
                 return server.login(body, server);
             }
             if (input === META && init.method === "GET") return server.meta();
+            if (ACCOUNT_LISTS.has(input) && init.method === "GET") return Response.json({items: []});
             const provider = SOCIAL_START.get(input);
             if (provider !== undefined && init.method === "POST") {
                 const body = JSON.parse(String(init.body)) as SocialStartRequest;

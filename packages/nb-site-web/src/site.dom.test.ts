@@ -17,6 +17,10 @@ import type {Site} from "./site";
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
 const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
 const ADMIN_USERS = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.adminUsers}`;
+
+/** 账号页进来时自己取的三份列表；看守卫与统一处理发了哪些请求时滤掉它们。 */
+const ACCOUNT_PAGE_LISTS = [IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map((path) => `${IDENTITY_API_PREFIX}${path}`);
+const withoutAccountPage = (requested: readonly string[]): string[] => requested.filter((url) => !ACCOUNT_PAGE_LISTS.includes(url) && url !== META);
 const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
 
 /** 稿纸页进来时取 `meta`（社交图标、注册是否开放）。 */
@@ -45,20 +49,21 @@ function me(role: Role, consentRequired = false): MeResponse {
 interface Server {
     whoami: () => Response;
     me: () => Response;
-    other: () => Response;
+    /** 别的接口；缺省回一份空列表（账号页进来时取的三份列表都是这个形状）。 */
+    other: (input: string) => Response;
 }
 
 const anonymousServer = (): Server => ({
     whoami: () => Response.json({state: "anonymous"} satisfies WhoamiResponse),
     me: () => Response.json({error: {code: "unauthenticated"}}, {status: 401}),
-    other: () => Response.json({}),
+    other: () => Response.json({items: []}),
 });
 
 function signedInServer(role: Role, consentRequired = false): Server {
     return {
         whoami: () => Response.json({state: "authenticated", user: {id: 7, username: "alice", role}} satisfies WhoamiResponse),
         me: () => Response.json(me(role, consentRequired)),
-        other: () => Response.json({}),
+        other: () => Response.json({items: []}),
     };
 }
 
@@ -96,7 +101,7 @@ function start(path: string, server: Server): Started {
             if (input === WHOAMI) return server.whoami();
             if (input === ME) return server.me();
             if (input === META) return Response.json(META_RESPONSE);
-            return server.other();
+            return server.other(input);
         },
     });
     started.push(site);
@@ -204,7 +209,7 @@ describe("守卫走真实的路由", () => {
         await settledAt(started, "/account", "account");
         await started.site.router.push("/privacy");
         await settledAt(started, "/privacy", "privacy");
-        expect(started.requested).toEqual([WHOAMI, ME]);
+        expect(withoutAccountPage(started.requested)).toEqual([WHOAMI, ME]);
     });
 });
 
@@ -266,11 +271,15 @@ describe("按码统一处理之后的跳转", () => {
         const started = start("/admin/users", signedInServer("admin"));
         await settledAt(started, "/admin/users", "admin-users");
 
-        Object.assign(started.server, {...signedInServer("user"), other: () => Response.json({error: {code: "forbidden"}}, {status: 403})});
+        // 只有管理接口回 `forbidden`：分派到账号页之后，那一页自己取的列表照常回答。
+        Object.assign(started.server, {
+            ...signedInServer("user"),
+            other: (input: string) => (input === ADMIN_USERS ? Response.json({error: {code: "forbidden"}}, {status: 403}) : Response.json({items: []})),
+        });
         const result = await started.site.api.request({method: "GET", path: ADMIN_USERS});
         expect(result).toEqual({ok: false, failure: {kind: "code", status: 403, code: "forbidden", handled: true}});
         await settledAt(started, "/account", "account");
-        expect(started.requested).toEqual([WHOAMI, ME, ADMIN_USERS, WHOAMI, ME]);
+        expect(withoutAccountPage(started.requested)).toEqual([WHOAMI, ME, ADMIN_USERS, WHOAMI, ME]);
     });
 
     it("某个请求回 unauthenticated：当作匿名，带着当前地址去登录", async () => {

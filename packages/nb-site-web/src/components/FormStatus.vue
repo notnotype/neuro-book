@@ -2,6 +2,7 @@
 /**
  * 表单里固定位置的状态行（t10 计划 3.1“状态行与表单错误”；nb-ui ui-development-spec“表单与无障碍”第 7 条）。写法照 nb-ui 对话框
  * 页脚的状态行（`DialogSurface` 的 `data-dialog-status`）：危险色、带图标、超长截断并把全文放进 `title`、`aria-live` 播报。
+ * 账号页每一节保存成功后的那一句（计划 3.12“已保存”）用 `tone="success"`：成功色、对勾图标，其余相同。
  * 宽屏一行、窄屏两行（审查第 12 条：手机上没有悬停，`title` 看不到，原因要读得全）；空着时也占同样的高度，出错与恢复都不推动
  * 表单里别的东西。
  *
@@ -21,21 +22,25 @@ const props = withDefaults(defineProps<{
     reason?: string;
     /** 给读屏的固定说法；给了时看得见的 `text` 不进读屏。`text` 会按秒变时必须给。空串表示读屏读 `text`。 */
     spoken?: string;
-}>(), {id: undefined, text: "", reason: "", spoken: ""});
+    /** 失败（缺省）还是成功。 */
+    tone?: "danger" | "success";
+}>(), {id: undefined, text: "", reason: "", spoken: "", tone: "danger"});
 </script>
 
 <template>
     <p
         :id="props.id"
         class="form-status"
+        :class="{'form-status--success': props.tone === 'success'}"
         :title="props.text || undefined"
         aria-live="polite"
         data-site-form-status
-        :data-site-form-status-error="props.text !== '' ? '' : undefined"
+        :data-site-form-status-error="props.text !== '' && props.tone === 'danger' ? '' : undefined"
+        :data-site-form-status-tone="props.text !== '' ? props.tone : undefined"
     >
         <Transition name="form-status">
             <span v-if="props.text !== ''" :key="props.reason || props.text" class="form-status__line">
-                <span class="i-lucide-circle-alert form-status__icon" aria-hidden="true"></span>
+                <span :class="props.tone === 'success' ? 'i-lucide-circle-check' : 'i-lucide-circle-alert'" class="form-status__icon" aria-hidden="true"></span>
                 <span v-if="props.spoken !== ''" class="sr-only" data-site-form-status-spoken>{{ props.spoken }}</span>
                 <span class="form-status__text" :aria-hidden="props.spoken !== '' ? 'true' : undefined" data-site-form-status-text>{{ props.text }}</span>
                 <slot name="action" />
@@ -55,6 +60,10 @@ const props = withDefaults(defineProps<{
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     user-select: text;
+}
+
+.form-status--success {
+    color: var(--status-success);
 }
 
 /* 与稿纸的手机版式同一个断点（`PaperSheet.vue`）：卡片里放得下的字少，留两行。 */

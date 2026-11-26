@@ -60,7 +60,7 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
             {path: "/login", name: "login", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title", signedInWithContinue: true}},
             {path: "/register", name: "register", component: () => import("./pages/RegisterPage.vue"), meta: {access: "guest", layout: "paper", titleKey: "register.title"}},
             {path: "/consent", name: "consent", component: () => import("./pages/ConsentPage.vue"), meta: {access: "consent", layout: "paper", titleKey: "consent.title"}},
-            {path: "/account", name: "account", component: shell, meta: {access: "user", layout: "account", titleKey: "account.title"}},
+            {path: "/account", name: "account", component: () => import("./pages/account/AccountPage.vue"), meta: {access: "user", layout: "account", titleKey: "account.title"}},
             // 路径暂定，随 `site.oauth-provider` 的改写定（计划 3.1）。
             {path: "/oauth/consent", name: "oauth-consent", component: shell, meta: {access: "user", layout: "paper", titleKey: "oauthConsent.title"}},
             {path: "/admin", name: "admin-dashboard", component: () => import("./pages/admin/DashboardPage.vue"), meta: {access: "admin", layout: "admin", titleKey: "admin.dashboard.title"}},
