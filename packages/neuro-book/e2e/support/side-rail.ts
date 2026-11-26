@@ -142,6 +142,18 @@ export async function pickUp(page: Page, source: Locator): Promise<void> {
     await expect(ghost(page)).toBeVisible();
 }
 
+/**
+ * 实时布局的拿起：减少动效时拖动一律落点指示，调用方先 `emulateMedia({reducedMotion: "no-preference"})`。实时布局没有拖影，
+ * 落点的高亮画在入口上（`data-tool-merge`），所以等的是 `data-drag-feel=live`。
+ */
+export async function pickUpLive(page: Page, source: Locator): Promise<void> {
+    const from = await centerOf(source);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+    await expect(page.locator("[data-workbench-surface]")).toHaveAttribute("data-drag-feel", "live");
+}
+
 export async function moveTo(page: Page, to: Point): Promise<void> {
     await page.mouse.move(to.x, to.y, {steps: 8});
 }
@@ -158,9 +170,9 @@ export async function cancelDrag(page: Page): Promise<void> {
 }
 
 /** 落点是下一帧才画出来的：等两帧再断言没有，免得断言在落点出现之前通过。 */
-export async function expectNoFeedback(page: Page): Promise<void> {
+export async function expectNoFeedback(page: Page, where?: string): Promise<void> {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await expect(dropFeedback(page)).toHaveCount(0);
+    await expect(dropFeedback(page), where).toHaveCount(0);
 }
 
 /** 一次完整的拖放：按下、移到 `to`、松手。 */

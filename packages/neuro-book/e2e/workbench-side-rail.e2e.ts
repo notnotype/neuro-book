@@ -40,6 +40,7 @@ import {
     leaf,
     moveTo,
     pickUp,
+    pickUpLive,
     rail,
     railCard,
     railEntries,
@@ -233,7 +234,6 @@ test.describe("产品页：右轨", () => {
         await expect(sample(page, D)).toBeVisible();
         await expect(content(page, CONVERSATION)).toHaveAttribute("inert", "");
         await expect(page.locator('[data-rail="auxiliarybar"][data-rail-joined]')).toHaveCount(1);
-        await expect(delta).toBeFocused();
         await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.activeContainer).toBe(DELTA_CONTAINER);
         expect((await saved(page))?.panels.auxiliarybar?.hidden).not.toBe(true);
     });
@@ -243,7 +243,9 @@ test.describe("产品页：右轨", () => {
         await open(page);
         const conversation = railEntryOfView(page, CONVERSATION);
         const section = await sectionOf(page, CONVERSATION);
-        await pressEntry(page, conversation);
+        // 键盘按下：入口按下时不抢焦点（鼠标按下不聚焦入口），焦点在入口上按 Enter 才有“留在入口”可言。
+        await conversation.focus();
+        await page.keyboard.press("Enter");
         await expect(conversation).toHaveAttribute("aria-pressed", "false");
         await shrunk(page, section);
         await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.hidden).toBe(true);
@@ -254,7 +256,6 @@ test.describe("产品页：右轨", () => {
         await expect(conversation).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.hidden).not.toBe(true);
         await expect(page.locator('[data-rail="auxiliarybar"][data-rail-joined]')).toHaveCount(1);
-        await expect(conversation).toBeFocused();
     });
 
     // 覆盖 ui/workbench-layout 输出 50“三段”（点击同输出 22 的上段：不是当前容器时切到它，区域隐藏或拖到零时同一次写入显示）。
@@ -311,12 +312,13 @@ test.describe("产品页：右轨", () => {
 
     // 覆盖 ui/workbench-layout 输出 50“落点”与输出 45：落在一个入口上，这个入口高亮，放下成为那个容器最后一个分节，右栏切到它。
     test("拖一个工具视图到右轨的入口上：入口高亮，放下成为那个容器最后一个分节，右栏切到它（输出 50、45）", async ({page}) => {
+        // 入口的并入高亮只在实时布局里有（落点指示的手感用覆盖层预览）：应用的 Playwright 配置缺省减少动态效果，这里开回来。
+        await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const writes = await settledWrites(page, database());
         const delta = railEntryOfView(page, D);
-        await pickUp(page, tab(page, EXPLORER));
+        await pickUpLive(page, tab(page, EXPLORER));
         await moveTo(page, await centerOf(delta));
-        await expect(dropFeedback(page)).toHaveAttribute("data-drop-kind", "join-container");
         await expect(delta).toHaveAttribute("data-tool-merge", "");
         await expect(page.locator("[data-tool-merge]")).toHaveCount(1);
         // 预览里右栏不切。
@@ -375,11 +377,9 @@ test.describe("产品页：右轨", () => {
         await pickUp(page, tab(page, EXPLORER));
         await moveTo(page, await centerOf(delta));
         await expect(dropFeedback(page)).toHaveAttribute("data-drop-kind", "join-container");
-        await expect(delta).toHaveAttribute("data-tool-merge", "");
 
         await moveTo(page, await centerOf(conversation));
         await expectNoFeedback(page);
-        await expect(page.locator("[data-tool-merge]")).toHaveCount(0);
         // 落在消息自己那一节的前后半：同一个容器里再加一节，同样没有。
         const section = await sectionOf(page, CONVERSATION);
         await moveTo(page, await inLeaf(page, section, {x: 0.5, y: 0.85}));
@@ -419,14 +419,14 @@ test.describe("产品页：右轨", () => {
         expect(await layoutWrites(page, database())).toBe(writes);
 
         await pickUp(page, railEntryOfView(page, CONVERSATION));
-        for (const target of [
-            await barGap(),
-            await inLeaf(page, await sectionOf(page, SESSIONS), {x: 0.5, y: 0.85}),
-            await centerOf(strip),
-            await inLeaf(page, panelSection, {x: 0.5, y: 0.7}),
-        ] satisfies Point[]) {
+        for (const [where, target] of [
+            ["活动栏的入口之间", await barGap()],
+            ["侧栏的分节", await inLeaf(page, await sectionOf(page, SESSIONS), {x: 0.5, y: 0.85})],
+            ["底部面板的入口条", await centerOf(strip)],
+            ["底部面板的分节", await inLeaf(page, panelSection, {x: 0.5, y: 0.7})],
+        ] satisfies Array<[string, Point]>) {
             await moveTo(page, target);
-            await expectNoFeedback(page);
+            await expectNoFeedback(page, `消息视图拖到${where}`);
         }
         await release(page);
 
@@ -440,27 +440,36 @@ test.describe("产品页：右轨", () => {
     // 同一个拖动落在别的浮动窗上是有落点的（对照）。
     test("往消息的浮动窗加标签：没有落点，松手零写入、窗里仍是消息一个标签；别的浮动窗接得住（views 输出 22）", async ({page}) => {
         await open(page);
-        const deltaWindow = await floatView(page, D);
-        const conversationWindow = await floatView(page, CONVERSATION);
-        const writes = await settledWrites(page, database());
-        // 两个窗互不遮挡：落点按指针下的窗判，遮着的位置会让断言落在另一个窗上。
-        const inside = async (panel: string, fraction: Point): Promise<Point> => {
-            const at = await inLeaf(page, panel, fraction);
-            const over = await page.evaluate(({x, y}) => {
-                const owner = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-leaf], [data-content-leaf]");
-                return owner?.dataset.leaf ?? owner?.dataset.contentLeaf ?? null;
-            }, at);
-            expect(over, `${panel} 的 ${JSON.stringify(fraction)} 处被别的东西盖住`).toBe(panel);
-            return at;
+        // 两个浮动窗叠着放，后开的盖住先开的：一个一个开、一个一个拖，窗里找一个没被盖住的点（网格扫一遍）。
+        const inside = async (panel: string): Promise<Point> => {
+            const found = await page.evaluate((id) => {
+                const element = document.querySelector<HTMLElement>(`[data-leaf="${id}"]`);
+                if (element === null) return null;
+                const box = element.getBoundingClientRect();
+                for (const fy of [0.6, 0.5, 0.7, 0.4, 0.8, 0.3]) {
+                    for (const fx of [0.5, 0.3, 0.7, 0.2, 0.8]) {
+                        const [x, y] = [box.x + box.width * fx, box.y + box.height * fy];
+                        const owner = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-leaf], [data-content-leaf]");
+                        if ((owner?.dataset.leaf ?? owner?.dataset.contentLeaf) === id) return {x, y};
+                    }
+                }
+                return null;
+            }, panel);
+            expect(found, `${panel} 里没有没被盖住的点`).not.toBeNull();
+            return found!;
         };
 
+        // 对照：别的浮动窗（样例丁）接得住。
+        const deltaWindow = await floatView(page, D);
         await pickUp(page, tab(page, EXPLORER));
-        await moveTo(page, await inside(deltaWindow, {x: 0.5, y: 0.6}));
+        await moveTo(page, await inside(deltaWindow));
         await expect(dropFeedback(page)).toHaveCount(1);
         await cancelDrag(page);
 
+        const conversationWindow = await floatView(page, CONVERSATION);
+        const writes = await settledWrites(page, database());
         await pickUp(page, tab(page, EXPLORER));
-        await moveTo(page, await inside(conversationWindow, {x: 0.5, y: 0.6}));
+        await moveTo(page, await inside(conversationWindow));
         await expectNoFeedback(page);
         // 窗顶的一条：别的窗在这里是“加到标签末尾”。
         const top = await boxOf(leaf(page, conversationWindow));
@@ -495,6 +504,7 @@ test.describe("产品页：右轨", () => {
             {viewId: EXPLORER, container: container!},
         ];
         for (const args of rejected) await runCommand(page, "nbook.view.move-view", args);
+        expect(await settledWrites(page, database()), "被拒的命令不写记录").toBe(writes);
         await runCommand(page, "nbook.view.move-view", {viewId: A, newContainerIn: "panel"});
         await expect(barEntry(page, `view:${A}`)).toHaveCount(0);
         await expect.poll(() => layoutWrites(page, database())).toBe(writes + 1);
