@@ -71,6 +71,12 @@ describe("摘掉来源之后的插入位", () => {
         expect(tabStripInsertionIn(snapshot, {x: 800, y: 10})).toMatchObject({before: null, after: "p2", partition: "normal"});
     });
 
+    it("单行、普通区的标签滚出了行尾：过了最后一个看得见的固定标签，是固定区的末尾，不插到滚出去的普通标签前面", () => {
+        // 行宽 200：p1、p2 看得见，n1 在 200 到 300、整个滚出去了。共享算法会把这个位置换成“插到 n1 前面”，那就进了普通区。
+        const snapshot = measureTabStrip(stripOf([{tabs: [pinned("p1"), pinned("p2"), normal("n1")]}], 200));
+        expect(tabStripInsertionIn(snapshot, {x: 180, y: 10})).toMatchObject({before: null, after: "p2", partition: "pinned"});
+    });
+
     it("单行、来源不在行尾：行尾的分区看最后一个标签", () => {
         const snapshot = measureTabStrip(stripOf([{tabs: [pinned("p1"), normal("s"), normal("n")]}]), "s");
         expect(tabStripInsertionIn(snapshot, {x: 800, y: 10})).toMatchObject({before: null, after: "n", partition: "normal"});
