@@ -253,7 +253,7 @@ test.describe("产品页：右轨的视图段", () => {
         // 一旦给不出就不再回来（随窗口变窄单调）。
         const firstRefused = rows.findIndex((row) => row.state === "collapsed");
         expect(rows.slice(firstRefused).every((row) => row.state === "collapsed"), log).toBe(true);
-        await expect(expandButton(page)).toHaveAccessibleName("窗口太窄");
+        await expect(expandButton(page)).toHaveAttribute("aria-description", "窗口太窄");
         // 布局记录里的意图不因预算改变，期间零写入。
         expect(await intentOf(page)).toEqual(intent);
         expect(await layoutWrites(page, database())).toBe(writes);
@@ -375,9 +375,12 @@ test.describe("产品页：右轨的视图段", () => {
         await open(page);
         const section = leaf(page, await sectionOf(page, RAIL));
         // 右栏的宽度意图：区域节点与它里面各分节的尺寸。别的节点（根、编辑区）的记录值随窗口与显隐的重算变，不是右栏的意图。
-        const intentOfRight = async (): Promise<Record<string, string>> => {
+        // 只比宽度：高度随窗口与显隐重算（根节点的高度在隐藏右栏后也变），不是右栏的宽度意图。
+        const intentOfRight = async (): Promise<Record<string, number>> => {
             const all = await sizesOf(page);
-            return Object.fromEntries(Object.entries(all).filter(([id]) => id === "auxiliarybar" || id === "region:auxiliarybar" || id.startsWith("section:test.sample-views.rail") || id === "section:nbook.agent.conversation" || id === "section:test.sample-views.delta"));
+            return Object.fromEntries(Object.entries(all)
+                .filter(([id]) => id === "auxiliarybar" || id === "region:auxiliarybar" || id.startsWith("section:test.sample-views.rail") || id === "section:nbook.agent.conversation" || id === "section:test.sample-views.delta")
+                .map(([id, size]) => [id, (JSON.parse(size) as {width: number}).width]));
         };
         const sizes = await intentOfRight();
         expect(Object.keys(sizes).length).toBeGreaterThanOrEqual(4);
@@ -437,9 +440,9 @@ test.describe("产品页：右轨的视图段", () => {
         await page.mouse.up();
         await expect.poll(async () => Math.round((await boxOf(section)).width)).toBe(Math.round(rightWidth + 30));
         await settledWrites(page, database());
+        // 只加上拖动的那一段：右栏区域与当前容器的这一节各加 30，别的节点（别的容器的分节、右栏的锚）不动。
         const dragged = await intentOfRight();
-        const widthOfNode = (record: Record<string, string>, id: string): number => (JSON.parse(record[id]!) as {width: number}).width;
-        expect(widthOfNode(dragged, "auxiliarybar") - widthOfNode(sizes, "auxiliarybar"), JSON.stringify({sizes, dragged})).toBe(30);
+        expect(dragged, JSON.stringify({sizes, dragged})).toEqual({...sizes, "region:auxiliarybar": sizes["region:auxiliarybar"]! + 30, [`section:${RAIL}`]: sizes[`section:${RAIL}`]! + 30});
         // 轨宽的意图不因拖分隔线改变。
         expect(await intentOf(page)).toEqual({expanded: true, width: DEFAULT_WIDTH + 40});
     });
