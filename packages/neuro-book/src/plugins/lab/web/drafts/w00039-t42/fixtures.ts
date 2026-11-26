@@ -19,7 +19,7 @@ const SCENES: ReadonlyArray<readonly [string, string, Props]> = [
     ["rail-notice", "竖排：保存后的提示", {variant: "rail", scene: "notice"}],
 ];
 
-type ViewPointProps = {readonly variant: "merged" | "labeled" | "timeline"; readonly state: "default" | "menu" | "line-menu" | "pinned" | "plan" | "main-only"};
+type ViewPointProps = {readonly variant: "merged" | "labeled" | "timeline"; readonly state: "default" | "menu" | "line-menu" | "pinned" | "plan" | "main-only"; readonly many?: boolean; readonly search?: string; readonly steppers?: boolean};
 const VIEW_POINT_LABELS = {merged: "A 合成一个“在看”", labeled: "B 两个控件各带名字", timeline: "C 时间条"} as const;
 const VIEW_POINT_STATES: ReadonlyArray<readonly [ViewPointProps["state"], string]> = [
     ["default", "缺省"],
@@ -32,9 +32,14 @@ const VIEW_POINT_STATES: ReadonlyArray<readonly [ViewPointProps["state"], string
 const VIEW_POINT_SCENES: ReadonlyArray<readonly [string, string, ViewPointProps]> = [
     ...(["merged", "labeled", "timeline"] as const).flatMap((variant) => VIEW_POINT_STATES.filter(([state]) => !(variant === "timeline" && state === "menu")).map(([state, label]) => [`r2-${variant}-${state}`, `${VIEW_POINT_LABELS[variant]}：${label}`, {variant, state}] as const)),
     ["r2-labeled-line-menu", `${VIEW_POINT_LABELS.labeled}：线的菜单打开`, {variant: "labeled", state: "line-menu"}],
+    // 第 3 轮（开发者选了 A）：章多了怎么找、两边要不要前后一步。
+    ["r3-merged-many", "第 3 轮 A：60 章，菜单滚到当前章", {variant: "merged", state: "menu", many: true}],
+    ["r3-merged-many-search", "第 3 轮 A：60 章，搜“钟”", {variant: "merged", state: "menu", many: true, search: "钟"}],
+    ["r3-merged-steppers", "第 3 轮 A：两边前后一步", {variant: "merged", state: "default", many: true, steppers: true}],
+    ["r3-merged-steppers-menu", "第 3 轮 A：两边前后一步，菜单打开", {variant: "merged", state: "menu", many: true, steppers: true}],
 ];
 
-type InPlaceProps = {readonly variant: "compact" | "outcome" | "inline"; readonly case: "age" | "where" | "height" | "gender" | "personality" | "initial"; readonly surface?: "glass"};
+type InPlaceProps = {readonly variant: "compact" | "outcome" | "inline"; readonly case: "age" | "where" | "height" | "gender" | "personality" | "initial"; readonly surface?: "glass"; readonly words?: "where" | "since" | "why"; readonly storyNote?: boolean; readonly longCard?: boolean};
 const IN_PLACE_LABELS = {compact: "A 紧凑浮层", outcome: "B 选项写成结果", inline: "C 原地展开"} as const;
 const IN_PLACE_CASES: ReadonlyArray<readonly [InPlaceProps["case"], string]> = [
     ["age", "改年龄（只在最初设过）"],
@@ -49,6 +54,12 @@ const IN_PLACE_SCENES: ReadonlyArray<readonly [string, string, InPlaceProps]> = 
     ...(["compact", "outcome", "inline"] as const).flatMap((variant) => IN_PLACE_CASES.map(([edit, label]) => [`r2-${variant}-${edit}`, `${IN_PLACE_LABELS[variant]}：${label}`, {variant, case: edit}] as const)),
     ["r2-compact-age-glass", `${IN_PLACE_LABELS.compact}：改年龄，玻璃的面`, {variant: "compact", case: "age", surface: "glass"}],
     ["r2-compact-gender-glass", `${IN_PLACE_LABELS.compact}：改性别，玻璃的面`, {variant: "compact", case: "gender", surface: "glass"}],
+    // 第 3 轮（开发者选了紧凑浮层、玻璃）：二选一怎么写、要不要写一句发生了什么、长文字原处展开用同一张卡。
+    ...(["since", "why", "where"] as const).flatMap((words) => (["age", "where"] as const).map((edit) => [`r3-${words}-${edit}`, `第 3 轮写法 ${({since: "从什么时候起", why: "为什么改", where: "落点"})[words]}：${edit === "age" ? "年龄" : "现在在哪"}`, {variant: "compact", case: edit, surface: "glass", words}] as const)),
+    ["r3-note-age", "第 3 轮：选剧情里变了，多一行发生了什么", {variant: "compact", case: "age", surface: "glass", words: "since", storyNote: true}],
+    ["r3-note-height", "第 3 轮：选剧情里变了，多一条待处理", {variant: "compact", case: "height", surface: "glass", words: "since", storyNote: true}],
+    ["r3-long-card", "第 3 轮：长文字原处展开，同一张卡", {variant: "compact", case: "personality", surface: "glass", words: "since", longCard: true}],
+    ["r3-long-card-note", "第 3 轮：长文字原处展开，选剧情里变了", {variant: "compact", case: "personality", surface: "glass", words: "since", longCard: true, storyNote: true}],
 ];
 
 export const fixtures = [

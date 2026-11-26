@@ -6,9 +6,9 @@
  * - timeline：页头下面一条时间条，章是刻度，左右两个按钮一步一步走，线在左边。
  * 不接世界，样本写死；下面是真实的 `Tabs` 与 `CharacterCard`，看“第 2 章改过”这些标记与控件的关系。
  */
-import {computed, ref} from "vue";
+import {computed, onMounted, ref} from "vue";
 
-import {IconButton, Switch, Tabs} from "@notnotype/nb-ui/components";
+import {IconButton, InfoTip, Input, Switch, Tabs} from "@notnotype/nb-ui/components";
 
 import CharacterCard from "nbook/plugins/canon/web/components/CharacterCard.vue";
 
@@ -21,7 +21,13 @@ const props = withDefaults(defineProps<{
     variant?: Variant;
     /** default 缺省；menu 时间点（合成时是整个）菜单打开；line-menu 线的菜单打开（只 labeled）；pinned 固定看分支线；plan 算上计划；main-only 只有主线。 */
     state?: State;
-}>(), {variant: "merged", state: "default"});
+    /** 第 3 轮：作品有 60 章（当前第 37 章末尾），菜单里的章表可搜、滚到当前章。 */
+    many?: boolean;
+    /** 第 3 轮：章表搜索框里已经填的字。 */
+    search?: string;
+    /** 第 3 轮：“在看”两边各一个按钮，不开菜单往前、往后走一处。 */
+    steppers?: boolean;
+}>(), {variant: "merged", state: "default", many: false, search: "", steppers: false});
 
 /** 样例作品的章：第 3 章还没有标题。 */
 const CHAPTERS = [
@@ -35,8 +41,28 @@ const lines = computed(() => props.state !== "main-only");
 const pinned = computed(() => props.state === "pinned");
 const planned = ref(props.state === "plan");
 const lineName = computed(() => (pinned.value ? BRANCH : "主线"));
-/** 当前时间点：第 3 章末尾。 */
-const current = {chapter: 3, edge: "end" as "start" | "end"};
+/** 长篇的样本：60 章，标题轮着用。 */
+const TITLES = ["雨夜的来客", "妹妹的布丁", "学院开学", "旧校舍的钟", "第一次变身", "对策委员会", "哥哥的秘密", "失物招领", "夏日祭", "回不去的那天", "星瑕的信", "雨停以后"];
+const chapters = computed<ReadonlyArray<{readonly n: number; readonly title: string | null}>>(() => (props.many ? Array.from({length: 60}, (_, index) => ({n: index + 1, title: TITLES[index % TITLES.length]!})) : CHAPTERS));
+/** 当前时间点：第 3 章末尾（长篇时第 37 章末尾）。 */
+const current = {chapter: props.many ? 37 : 3, edge: "end" as "start" | "end"};
+/** 章多了（多于 12 章）才出搜索框：少的时候一眼看得完。 */
+const searchable = computed(() => chapters.value.length > 12);
+const query = ref(props.search);
+const shownChapters = computed(() => {
+    const words = query.value.trim();
+    if (words === "") return chapters.value;
+    return chapters.value.filter((chapter) => String(chapter.n) === words || `第 ${String(chapter.n)} 章`.includes(words) || (chapter.title ?? "").includes(words));
+});
+/** 章表打开时滚到当前那一章，放在中间。 */
+const chapterList = ref<HTMLElement | null>(null);
+onMounted(() => {
+    const list = chapterList.value;
+    const row = list?.querySelector<HTMLElement>("[data-current]");
+    if (list !== null && list !== undefined && row !== null && row !== undefined) list.scrollTop = row.offsetTop - list.offsetTop - list.clientHeight / 2 + row.offsetHeight / 2;
+});
+const LINE_TIP = "作品里平行发展的几条剧情：主线，以及从主线某一处分出去的另一种发展。同一个人在不同的线上可以不一样。“按章节自动”是哪一章讲哪条线，就看哪条线。";
+const PROGRESS_TIP = "设定会随剧情变。这里选看故事进行到哪一刻的样子：“最初”是一切发生之前的起始设定，也可以看某一章的开头或末尾。";
 const timeLabel = computed(() => `第 ${String(current.chapter)} 章${current.edge === "start" ? "开头" : "末尾"}`);
 const menuOpen = computed(() => props.state === "menu");
 const lineMenuOpen = computed(() => props.state === "line-menu");
@@ -101,27 +127,33 @@ const edgeLabel = (chapter: number, edge: "start" | "end"): string => `第 ${Str
             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span class="inline-flex items-center gap-1 text-[length:var(--text-xs)] text-[var(--text-secondary)]"><span class="i-lucide-plus size-3.5" aria-hidden="true" />添加别名</span>
                 <!-- A：合成一个“在看”，放在紧贴内容的这一行右边。 -->
-                <div v-if="props.variant === 'merged'" class="vp-merged relative ml-auto">
+                <div v-if="props.variant === 'merged'" class="vp-merged relative ml-auto flex items-center gap-0.5">
+                    <IconButton v-if="props.steppers" size="sm" icon-class="i-lucide-chevron-left" aria-label="往前一处" :title="`往前一处：第 ${String(current.chapter)} 章开头`" />
                     <button type="button" class="vp-chip" :class="{'vp-chip--pinned': pinned, 'vp-chip--open': menuOpen}" data-vp-merged>
                         <span v-if="pinned" class="i-lucide-git-branch size-3.5 shrink-0" aria-hidden="true" />
                         <span class="vp-chip__name">在看</span>
                         <span class="vp-chip__value">{{ timeLabel }}<template v-if="lines"> · {{ lineName }}</template><template v-if="planned"> · 含计划</template></span>
                         <span class="i-lucide-chevron-down size-3.5 shrink-0 opacity-60" aria-hidden="true" />
                     </button>
+                    <IconButton v-if="props.steppers" size="sm" icon-class="i-lucide-chevron-right" aria-label="往后一处" :title="props.many ? `往后一处：第 ${String(current.chapter + 1)} 章开头` : '已经是最后'" :disabled="!props.many" />
                     <div v-if="menuOpen" class="vp-menu nb-ui-popover-surface right-0 w-[22rem]" role="menu">
                         <template v-if="lines">
-                            <p class="vp-menu__head">故事线</p>
+                            <p class="vp-menu__head">故事线<InfoTip :text="LINE_TIP" side="left" /></p>
                             <button type="button" class="nb-ui-menu-item w-full"><span class="i-lucide-check size-3.5" aria-hidden="true" /><span class="flex-1 text-left">按章节自动</span><span class="vp-menu__aside">当前：主线</span></button>
                             <button type="button" class="nb-ui-menu-item w-full"><span class="size-3.5" aria-hidden="true" /><span class="flex-1 text-left">主线</span></button>
                             <button type="button" class="nb-ui-menu-item w-full"><span class="size-3.5" aria-hidden="true" /><span class="i-lucide-corner-down-right size-3.5 text-[var(--text-muted)]" aria-hidden="true" /><span class="flex-1 text-left">{{ BRANCH }}</span></button>
                             <div class="vp-menu__sep" />
                         </template>
-                        <p class="vp-menu__head">剧情进度</p>
+                        <p class="vp-menu__head">剧情进度<InfoTip :text="PROGRESS_TIP" side="left" /></p>
+                        <Input v-if="searchable" v-model="query" class="mx-1 mb-1" size="sm" type="search" placeholder="章号或标题" aria-label="找一章" />
                         <button type="button" class="nb-ui-menu-item w-full"><span class="size-3.5" aria-hidden="true" /><span class="flex-1 text-left">最初</span><span class="vp-menu__aside">起始设定</span></button>
-                        <div v-for="chapter in CHAPTERS" :key="chapter.n" class="vp-chapter" :data-current="chapter.n === current.chapter ? '' : undefined">
-                            <span class="vp-chapter__n">第 {{ chapter.n }} 章</span>
-                            <span class="vp-chapter__title">{{ chapter.title ?? "" }}</span>
-                            <span class="vp-edges"><button type="button" :data-on="chapter.n === current.chapter && current.edge === 'start' ? '' : undefined">开头</button><button type="button" :data-on="chapter.n === current.chapter && current.edge === 'end' ? '' : undefined">末尾</button></span>
+                        <div ref="chapterList" class="vp-chapters" :class="{'vp-chapters--scroll': searchable}">
+                            <div v-for="chapter in shownChapters" :key="chapter.n" class="vp-chapter" :data-current="chapter.n === current.chapter ? '' : undefined">
+                                <span class="vp-chapter__n">第 {{ chapter.n }} 章</span>
+                                <span class="vp-chapter__title">{{ chapter.title ?? "" }}</span>
+                                <span class="vp-edges"><button type="button" :data-on="chapter.n === current.chapter && current.edge === 'start' ? '' : undefined">开头</button><button type="button" :data-on="chapter.n === current.chapter && current.edge === 'end' ? '' : undefined">末尾</button></span>
+                            </div>
+                            <p v-if="shownChapters.length === 0" class="vp-menu__empty">没有对得上的章</p>
                         </div>
                         <div class="vp-menu__sep" />
                         <label class="vp-plan"><span class="flex-1">算上计划中的情节</span><Switch v-model="planned" size="sm" aria-label="算上计划中的情节" /></label>
@@ -235,8 +267,22 @@ const edgeLabel = (chapter: number, edge: "start" | "end"): string => `第 ${Str
     padding: 6px;
 }
 .vp-menu__head {
+    display: flex;
+    align-items: center;
+    gap: 2px;
     padding: 6px 8px 2px;
     font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+/* 长篇的章表：约 8 行高，在里面滚；滚动条用宿主根上的细滚动条。 */
+.vp-chapters--scroll {
+    max-height: 16.5rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.vp-menu__empty {
+    padding: 8px 34px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
 }
 .vp-menu__aside {

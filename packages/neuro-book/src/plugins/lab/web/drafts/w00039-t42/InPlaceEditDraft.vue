@@ -25,7 +25,13 @@ const props = withDefaults(defineProps<{
      */
     case?: Case;
     surface?: "solid" | "glass";
-}>(), {variant: "compact", case: "age", surface: "solid"});
+    /** 第 3 轮：二选一的写法。where 写落点（改最初 | 第 3 章变了）；since 写从什么时候起（从最初起 | 从第 3 章起）；why 写为什么（更正设定 | 剧情里变了）。 */
+    words?: "where" | "since" | "why";
+    /** 第 3 轮：选着“剧情里变了”，下面多一行选填的“发生了什么”。 */
+    storyNote?: boolean;
+    /** 第 3 轮：长文字在原处展开，用和短项同一张卡（compact 的样子），把下面推开。 */
+    longCard?: boolean;
+}>(), {variant: "compact", case: "age", surface: "solid", words: "where", storyNote: false, longCard: false});
 
 /** 每种情形：改哪一项、旧值、新值、两种去处的说法、有没有连锁影响。 */
 const CASES = {
@@ -41,7 +47,8 @@ const spec = computed(() => CASES[props.case]);
 const atInitial = computed(() => props.case === "initial");
 const passage = computed(() => props.case === "personality");
 const value = ref<string>(CASES[props.case].next);
-const intent = ref<"source" | "story">("source");
+const intent = ref<"source" | "story">(props.storyNote ? "story" : "source");
+const note = ref("");
 const SUGGESTIONS = ["男", "女", "不明", "无"];
 
 /** 卡片的数据：样本加一项身高，好画“多一条待处理”。看“最初”时没有“第 N 章改过”（资料与现在的状态都没有）。 */
@@ -54,9 +61,18 @@ const card = computed(() => {
 /** 右边一列的项（第 2、4、6……个）浮层靠右对齐，不越出卡片。 */
 const alignRight = computed(() => card.value.facts.findIndex((fact) => fact.id === spec.value.id) % 2 === 1);
 
-const sourceLabel = computed(() => `改${spec.value.source}`);
-const storyLabel = "第 3 章变了";
-const intentOptions = computed(() => [{value: "source", label: sourceLabel.value}, {value: "story", label: storyLabel}]);
+const WORDS = {
+    where: (source: string) => [`改${source}`, "第 3 章变了"],
+    since: (source: string) => [`从${source}起`, "从第 3 章起"],
+    why: (_source: string) => ["更正设定", "剧情里变了"],
+} as const;
+const intentOptions = computed(() => {
+    const [own, story] = WORDS[props.words](spec.value.source);
+    return [{value: "source", label: own}, {value: "story", label: story}];
+});
+/** “发生了什么”只在选着剧情里变了时出：它是这一条剧情变更的文字，不填就写“年龄变成 18 岁”。 */
+const noteShown = computed(() => props.storyNote && intent.value === "story" && !atInitial.value);
+const notePlaceholder = computed(() => `发生了什么（选填，不填就写“${spec.value.id}变成 ${passage.value ? "新的样子" : value.value}”）`);
 const outcomeOptions = computed(() => {
     const next = passage.value ? "这段" : value.value;
     return [
@@ -72,7 +88,7 @@ const editing = (id: string): boolean => id === spec.value.id;
         <div class="ed-column mx-auto w-full px-8 py-6">
             <!-- 这一页此刻在看的时间点，决定“改最初 / 第 3 章变了”这一问出不出。 -->
             <p class="mb-4 flex items-center gap-1.5 text-[length:var(--text-sm)] text-[var(--text-muted)]">在看<span class="text-[var(--text-main)]">{{ atInitial ? "最初" : "第 3 章末尾 · 主线" }}</span></p>
-            <CharacterCard v-bind="card" namespace="character" :class="['ed-card', {'ed-card--inline': props.variant === 'inline'}]" :data-editing="spec.id">
+            <CharacterCard v-bind="card" namespace="character" :class="['ed-card', {'ed-card--inline': props.variant === 'inline', 'ed-card--flow': props.longCard}]" :data-editing="spec.id">
                 <template #editor="{id}">
                     <template v-if="editing(id) && !passage">
                         <!-- C：原地展开。值本身藏起来（样式按 data-editing），输入框占它的位置，下一行是意图与保存。 -->
@@ -92,6 +108,7 @@ const editing = (id: string): boolean => id === spec.value.id;
                         <!-- A、B：浮层。 -->
                         <div v-else class="ed-pop nb-ui-popover-surface" :class="{'ed-pop--solid': props.surface === 'solid', 'ed-pop--right': alignRight, 'ed-pop--wide': props.variant === 'outcome'}" data-ed-pop>
                             <Input v-model="value" size="sm" autofocus />
+                            <Input v-if="noteShown" v-model="note" size="sm" :placeholder="notePlaceholder" aria-label="发生了什么" data-ed-note />
                             <ul v-if="props.case === 'gender'" class="ed-suggest" role="listbox" aria-label="建议值">
                                 <li v-for="item in SUGGESTIONS" :key="item"><button type="button" class="nb-ui-menu-item w-full" role="option" :aria-selected="item === value"><span class="flex-1 text-left">{{ item }}</span><span v-if="item === value" class="i-lucide-check size-3.5" aria-hidden="true" /></button></li>
                             </ul>
@@ -108,7 +125,18 @@ const editing = (id: string): boolean => id === spec.value.id;
                 </template>
                 <template #passage-editor="{id}">
                     <template v-if="editing(id) && passage">
-                        <div v-if="props.variant === 'inline'" class="ed-inline ed-inline--passage" data-ed-inline>
+                        <!-- 第 3 轮：长文字原处展开，但还是短项那一张卡与同一条底栏，只是不浮起来、把下面推开。 -->
+                        <div v-if="props.longCard" class="ed-pop ed-pop--flow nb-ui-popover-surface" :class="{'ed-pop--solid': props.surface === 'solid'}" data-ed-pop>
+                            <Textarea v-model="value" autosize :rows="3" autofocus />
+                            <Input v-if="noteShown" v-model="note" size="sm" :placeholder="notePlaceholder" aria-label="发生了什么" data-ed-note />
+                            <div class="ed-foot">
+                                <SegmentedControl v-model="intent" variant="raised" size="xs" :options="intentOptions" aria-label="这次改的是" />
+                                <span class="flex-1" />
+                                <Button size="sm" variant="ghost">取消</Button>
+                                <Button size="sm" variant="primary">保存<span class="ed-enter" aria-hidden="true">Ctrl ↵</span></Button>
+                            </div>
+                        </div>
+                        <div v-else-if="props.variant === 'inline'" class="ed-inline ed-inline--passage" data-ed-inline>
                             <Textarea v-model="value" autosize :rows="3" autofocus />
                             <div class="ed-inline__foot">
                                 <SegmentedControl v-model="intent" variant="raised" size="xs" :options="intentOptions" aria-label="这次改的是" />
@@ -156,7 +184,8 @@ const editing = (id: string): boolean => id === spec.value.id;
 .ed-card--inline[data-editing="性别"] :deep([data-fact="性别"] .character-card__value),
 .ed-card--inline[data-editing="现在在哪"] :deep([data-fact="现在在哪"] .character-card__value),
 .ed-card--inline[data-editing="现在在哪"] :deep([data-fact="现在在哪"] .character-card__mark),
-.ed-card--inline[data-editing="性格"] :deep([data-passage="性格"] .character-card__passage) {
+.ed-card--inline[data-editing="性格"] :deep([data-passage="性格"] .character-card__passage),
+.ed-card--flow[data-editing="性格"] :deep([data-passage="性格"] .character-card__passage) {
     display: none;
 }
 .ed-card--inline :deep([data-fact] dd) {
@@ -202,6 +231,12 @@ const editing = (id: string): boolean => id === spec.value.id;
     right: -10px;
     left: -10px;
     width: auto;
+}
+/* 原处展开的长文字：同一张卡，不浮起来，占这一段的位置。 */
+.ed-pop--flow {
+    position: static;
+    width: auto;
+    margin: 0 -10px;
 }
 .ed-foot {
     display: flex;
