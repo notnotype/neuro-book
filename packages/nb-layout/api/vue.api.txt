@@ -347,6 +347,7 @@ attrs:
 events:
   content-parked(key: string)
   extent(extent: GridExtent | null)
+  float-raise(id: string)
   gesture-cancel(info: GridGestureCancellation)
   gesture-end(commit: GridGestureCommit)
   gesture-start(info: GridGestureStart)
@@ -361,6 +362,7 @@ slots:
   leaf(props: { node: GridLeaf<unknown>; }): unknown
   overlay?(): unknown
 exposed:
+  leafRect: (id: string) => GridRect | null
   motionMs: () => number
   moving: boolean
   origin: () => { x: number; y: number; }

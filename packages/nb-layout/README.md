@@ -152,6 +152,7 @@ function toggleFiles(): void {
 | 只要一行或一列的分栏 | `Splitter` | `./vue` |
 | 可排序的列表 | `SortableList`、`useSortable` | `./vue` |
 | 浮动窗的把手 | `FloatWindowHandles`（示例见 desktop） | `./vue` |
+| 某块叶此刻摆在哪（把浮动窗夹进这块叶） | `NestedGrid.leafRect(id)`（expose；[说明](src/vue/NestedGrid.md)） | `./vue` |
 | 把浮动窗的矩形夹进一块区域、按手柄改尺寸 | `clampFloatRect`、`resizeFloatRect`（夹取的区域可带原点，缺省整扇窗留在里面；改尺寸可给区域当边界；示例见 desktop） | 根 |
 | 换主题 | 设 `--nb-layout-*` 变量；全部名单 `NB_LAYOUT_THEME_VARS` | 根 |
 | 换文字、换语言 | `LAYOUT_TEXT_KEY` 注入翻译函数；只有一种语言时用 `layoutCatalogTranslate`；目录在 `./locales` | `./text`、`./locales` |

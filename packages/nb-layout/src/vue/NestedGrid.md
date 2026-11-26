@@ -116,6 +116,10 @@
 
 `floats`（`{id, rect, gesture?}`）是浮动窗。窗回到树里时叶的 id 不变，外框就从窗的位置过渡回去；摘掉 `data-float` 的那一刻外框还带着 `data-moving`，窗的投影、底色与圆角跟着过渡掉。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)）。
 
+- 层叠：`floats` 后面的压在前面的上面，层级写在 `z-index` 上。换次序只改层级，外框、内容与手柄层都不搬节点，手柄里的焦点与指针捕获不丢。手柄层的 DOM 次序是出现的次序：还在的保持相对次序，新开的窗排在它在 `floats` 里前一扇之后，所以手柄之间的 Tab 次序也是这个次序，不是叠放次序。
+- 抬升：指针在一扇窗上按下（外框、内容、手柄层，含嵌在里面的网格；任何指针键），或焦点进入它，它又不是 `floats` 的最后一个时，网格发 `float-raise`（窗的 id）。按下在捕获阶段判，手柄在 `pointerdown` 里阻止冒泡也收得到。网格不改次序：宿主把这扇窗挪到 `floats` 末尾。宿主不想按焦点抬升时，不接这个事件、自己在外层听按下。
+- 某块树里的叶此刻摆在哪：expose 的 `leafRect(id)`，例如浮动窗要夹在“桌面”那块叶里。见下面 expose 的说明。
+
 焦点：DOM 序与树序不一致（叶换了位置）时，根上有 `aria-owns`，Tab 走出一块时由组件按树序接管，内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管，走出最后一项时离开这个 grid。`moveGridFocus(container, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过，嵌套时内层先走、走到头交给外层，最外层绕回。完整规则见 [Spec](https://github.com/notnotype/neuro-book/blob/master/docs/specs/ui/nested-grid.md) 的“Tab”“移动焦点”“读屏顺序”几条。
 
 根、外框与内容都不接焦点：点在空白处时焦点落到 `body`，挂在网格根上的快捷键这时收不到。要在网格里接快捷键，宿主把键挂在 `window` 上，或给承载盒加 `tabindex="-1"`、按下时聚焦它。
@@ -187,7 +191,7 @@ type NestedGridProps = {
     lifted?: {key: string} | null;
     /** 宿主的拖动进行中（不论内容拿没拿起）：离开的叶立即消失，不留着缩回去。默认 false。 */
     dragging?: boolean;
-    /** 浮动窗：不在树里的叶，后面的压在前面的上面；矩形相对网格根，只有矩形变了不过渡。默认没有。 */
+    /** 浮动窗：不在树里的叶，后面的压在前面的上面；矩形相对网格根，只有矩形变了不过渡；按下或焦点进入后面的窗时发 float-raise。默认没有。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 data-sash-kind，宿主据此给不同的线不同的颜色；默认不写。 */
     sashKind?: (sash: {branch: string; before: string; after: string}) => string | undefined;
@@ -240,6 +244,8 @@ type NestedGridEmits = {
     (event: "content-parked", key: string): void;
     /** 量到的根盒：挂载后量到就同步发、两轴变了才再发；卸载前发 null。`useGridHost` 的整包里带着接它的处理。 */
     (event: "extent", extent: GridExtent | null): void;
+    /** 指针在一扇浮动窗上按下（捕获阶段）或焦点进入它，它又不在最上面：宿主把它挪到 floats 末尾。已在最上面不发。 */
+    (event: "float-raise", id: string): void;
 };
 
 type NestedGridSlots = {
@@ -258,7 +264,9 @@ type NestedGridSlots = {
 };
 ```
 
-Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 五个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少，`origin()` 是网格根的左上角（视口坐标），`motionMs()` 是网格元素上的布局过渡时长（减少动效时是 0）。
+Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 六个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少，`origin()` 是网格根的左上角（视口坐标），`motionMs()` 是网格元素上的布局过渡时长（减少动效时是 0），`leafRect(id)` 是树里这块叶此刻的矩形。
+
+`leafRect(id)` 交回树里这块叶此刻的矩形（相对网格根，CSS px）：与网格渲染用的是同一份摆放，手势预览中是预览的，最大化时最大化的那块是盖住的外接矩形，取整与网格相同；不给过渡的中间帧。浮动窗、离开中还画着的叶、不存在的 id 交回 null。在计算属性里调用，摆放变了会重算。它只看树、不看 `floats`，所以宿主可以拿它算 `floats`（把窗夹进某块叶）而不会转个不停；同理，传给网格的 `layout` 要是发布出来的那一份，别在渲染函数里每次新算一份。
 
 expose 的读数：
 

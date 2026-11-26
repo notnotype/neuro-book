@@ -13,7 +13,7 @@
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
-import {settleFloatMoves} from "../grid-motion";
+import {settleFloatMoves, stableOrder} from "../grid-motion";
 import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
@@ -125,6 +125,11 @@ const emit = defineEmits<{
      * 所以宿主不用自己再量一遍承载盒。
      */
     (e: "extent", extent: GridExtent | null): void;
+    /**
+     * 抬升的请求（Spec 输出 173）：指针在一扇浮动窗上按下（捕获阶段判，手柄阻止冒泡也收得到；外框、内容、手柄层，含其中嵌的网格），或焦点进入它，
+     * 它又不是 `floats` 的最后一个。网格不改次序，宿主把它挪到 `floats` 末尾。
+     */
+    (e: "float-raise", id: string): void;
 }>();
 
 defineSlots<{
@@ -200,6 +205,38 @@ const floatGestures = computed(() => new Map(props.floats.flatMap((float) => (fl
 function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
+}
+/**
+ * 手柄层的渲染次序（Spec 输出 103）：抬升只改 `z-index`，不搬节点。按 `floats` 的次序渲染的话，抬升会让 Vue 搬手柄层的节点，
+ * 按在手柄上的焦点就丢了。所以和外框、内容一样由上一轮的次序算（`stableOrder`：还在的保持相对次序，新的排在它在 `floats` 里前一扇之后）。
+ * 理由同 `useRenderOrder`：必须在 `computed` 里同步算，每轮只算一次，“上一轮”不会漂移；不要在它之外再读 `renderedChrome`。
+ */
+let renderedChrome: string[] = [];
+const chromeFloats = computed<ReadonlyArray<GridFloatInput>>(() => {
+    const byId = new Map(props.floats.map((float) => [float.id, float]));
+    renderedChrome = stableOrder(renderedChrome, props.floats.map((float) => float.id));
+    return renderedChrome.map((id) => byId.get(id) as GridFloatInput);
+});
+/**
+ * 事件落在哪扇浮动窗上：从目标往上走到网格根的直接子元素（外框、内容、手柄层），读它的标记。嵌在窗内容里的网格的元素也走到外层这扇窗；
+ * 不在窗上（树里的叶、分隔线、盖层）时为 null。
+ */
+function floatOfTarget(target: EventTarget | null): string | null {
+    const root = rootEl.value;
+    let element = target instanceof Element ? target : null;
+    while (element !== null && element.parentElement !== root) element = element.parentElement;
+    if (!(element instanceof HTMLElement)) return null;
+    const id = element.dataset.leaf ?? element.dataset.contentLeaf ?? element.dataset.floatChrome;
+    return id !== undefined && floatAt.value.has(id) ? id : null;
+}
+/** 按下或焦点进入一扇窗时请求抬升（输出 173）；已在最上面不发。 */
+function requestRaise(target: EventTarget | null): void {
+    const id = floatOfTarget(target);
+    if (id !== null && floatAt.value.get(id) !== props.floats.length - 1) emit("float-raise", id);
+}
+function onFocusin(event: FocusEvent): void {
+    focus.onFocusin(event);
+    requestRaise(event.target);
 }
 /** 叶的卡片形状（`leafShape`）。浮动窗不按它裁：窗的投影画在外框自身，外框一裁就没了。 */
 function shapeOf(leaf: string): GridLeafShape | undefined {
@@ -569,6 +606,15 @@ defineExpose({
     placeLifted,
     placeFloat,
     /**
+     * 树里这块叶此刻的矩形（相对网格根，CSS px，Spec 输出 174）：与网格渲染同一份树的摆放，手势预览中是预览的，最大化时最大化的那块是盖住的外接矩形，
+     * 取整与网格相同。浮动窗、离开中的叶、不存在的 id 交回 null。读的是树的摆放而不是含浮动窗的那份：宿主多半由它算 `floats`，读后者会让
+     * “叶的矩形 → floats → 摆放 → 叶的矩形”转个不停。在计算属性里调用，摆放变了会重算。
+     */
+    leafRect: (id: string): GridRect | null => {
+        const found = treePlacement.value?.items.find((item) => item.kind === "leaf" && item.node.id === id);
+        return found?.rect ?? null;
+    },
+    /**
      * 离开、过渡结束前还画着的叶（节点 id）：离开了的（已经不在 `node` 里，缩回去或交换里滑出去）与降到零的（还在，尺寸已经是零）。宿主按它们离开之前的样子
      * 画挨着的东西（相连的卡片），不按这一刻的布局：那已经是终点了。过渡结束就空了。
      */
@@ -588,7 +634,7 @@ defineExpose({
 </script>
 
 <template>
-    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="order.ariaOwns.value" @keydown="focus.onKeydown" @focusin="focus.onFocusin">
+    <div ref="rootEl" class="nb-nested-grid" :data-grid-scope="instanceId" :aria-owns="order.ariaOwns.value" @keydown="focus.onKeydown" @focusin="onFocusin" @pointerdown.capture="requestRaise($event.target)">
         <span v-if="order.outOfOrder.value" :ref="(el) => (focus.enterSentinel.value = el as HTMLElement | null)" tabindex="-1" aria-hidden="true"></span>
         <!-- 在所有外框之前：外框不写 z-index，按 DOM 序叠在它上面。 -->
         <div v-if="swapBackdrop !== null && $slots['swap-backdrop'] !== undefined" class="nb-grid-swap-backdrop" data-swap-backdrop aria-hidden="true" :style="swapBackdrop.style">
@@ -641,7 +687,7 @@ defineExpose({
             </div>
         </template>
         <template v-if="$slots['float-chrome'] !== undefined">
-            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
+            <div v-for="float in chromeFloats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
                 <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
