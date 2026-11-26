@@ -540,9 +540,9 @@ const anchor = computed(() => open.value?.dom ?? null);
 }
 
 /* 行内小块：值是此刻的样子，所以字用正文色；底色与描边用信息色（“引用”）淡淡地标出这是取来的。 */
-/* 小块外面的壳：左右内边距就是与两边的字的空隙，光标画在这里（见 entry-tags.ts 的 atomNode）。 */
+/* 小块外面的壳：左边的内边距与末尾的细空格就是与两边的字的空隙，光标画在这里（见 entry-tags.ts 的 atomNode）。 */
 .entry-rich__mount :deep(.entry-atom) {
-    padding: 0 0.2em;
+    padding-left: 0.2em;
 }
 /*
  * 小块画成行内块：小块是一段最后一个东西时，光标的 DOM 位置在它后面，Chrome 会把光标贴在前面最后一段文字的末尾画——那段文字在

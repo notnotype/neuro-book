@@ -310,14 +310,18 @@ function atomNode(name: string, attributes: Record<string, unknown>, paint: (dom
         },
         addNodeView() {
             return ({node, getPos}) => {
-                // 外面一层透明的壳、里面才是画出来的小块：光标停在小块后面时，DOM 里的位置是“段落的第 n 个子节点前”，Chrome 把光标
-                // 贴着前一个元素的右边框画。壳带左右内边距，光标就画在空隙里、小块外面；壳整个不可编辑，光标进不去。
+                // 外面一层透明的壳、里面才是画出来的小块。光标停在小块后面时，DOM 里的位置是“段落的第 n 个子节点前”，Chrome 贴着
+                // 前面最后一段文字画光标；那段文字若在小块里（行内折行的长值、条件生效的那句），光标就画在值里面。壳的末尾放一个
+                // 细空格当尾巴，光标贴着它画，落在小块与后文之间的空隙里；左边的空隙用内边距。壳整个不可编辑，光标进不去。
                 const dom = document.createElement("span");
                 dom.dataset.entryAtom = kind;
                 dom.className = "entry-atom";
                 dom.contentEditable = "false";
                 const face = document.createElement("span");
-                dom.append(face);
+                const tail = document.createElement("span");
+                tail.className = "entry-atom__tail";
+                tail.textContent = "\u2009";
+                dom.append(face, tail);
                 let attrsNow = node.attrs as Record<string, unknown>;
                 const repaint = () => paint(face, attrsNow, host());
                 repaint();
