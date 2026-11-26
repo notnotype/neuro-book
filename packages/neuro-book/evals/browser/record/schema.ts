@@ -146,6 +146,8 @@ export const RunRecordSchema = Type.Object({
     outcome: Outcome,
     timing: Timing,
     versions: Type.Record(Type.String(), Type.String()),
+    /** 评测这一侧的附注：收尾某一步超时、观察者出错、执行者的结果读不出之类，不影响结局但要看得到。 */
+    notes: Type.Array(Type.String()),
 }, {additionalProperties: false});
 
 export type RunRecord = Static<typeof RunRecordSchema>;

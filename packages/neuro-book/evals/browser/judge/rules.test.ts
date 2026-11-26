@@ -39,6 +39,7 @@ function record(task: TaskDefinition, site: SiteEvidenceRecord | null, finalAnsw
         outcome: {kind: outcome, phase: "execution", detail: null},
         timing: {readyAt: 0, deadlineAt: 600_000, endedAt: 1, observerMs: 0},
         versions: {},
+        notes: [],
     };
     if (!Value.Check(RunRecordSchema, value)) throw new Error("test record does not match the schema");
     return value;

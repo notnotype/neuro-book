@@ -16,8 +16,25 @@
 
   （路径相对主工作区根；运行时用 `--bu-python` 指过去。）
 - **模型密钥**：主工作区根的 `.env` 要有 `JIJI_LUNA_BASE_URL`、`JIJI_LUNA_API_KEY`（gpt-6-luna），`EXTREMELYCAT_BASE_URL`、`EXTREMELYCAT_API_KEY`（两个 Gemini）。评测缺省读主工作区的 `.env`（worktree 里没有），`--env-file` 可以换。取值只交给评测自己的模型网关，不进运行记录。
-- **代理**：extremelycat 直连时握手被重置，评测要用 `prox` 起；只有发往它的模型请求走代理，Chrome 与执行者的流量不走。
+- **代理**：extremelycat 直连时握手被重置，发往它的模型请求要经代理。评测进程的环境里不能有代理变量（Bun 的 `fetch` 会自动读它们，luna 就会悄悄经代理走），代理地址用 `--model-proxy` 或环境变量 `NBOOK_EVAL_MODEL_PROXY` 给，例如 `--model-proxy "$(prox printenv https_proxy)"`；Chrome 与执行者的流量不走代理。
 - **bwrap**：执行者与 Chrome 都在 bwrap 的沙箱里跑（看不到 `.env`、`~/.omp` 与评测的私有目录）。
+
+## 运行
+
+在 `packages/neuro-book` 里：
+
+```bash
+# 每个模型跑一道最小题，核对网关记下的实收参数（推理档、工具数、图片），走到多轮工具调用
+bun run eval:browser probe --model-proxy "$(prox printenv https_proxy)"
+
+# 跑题：缺省第一阶段的 8 道题、三个模型、各 1 次；同一个 --out 再跑时续跑
+bun run eval:browser run --repeat 5 --out <运行目录> --model-proxy "$(prox printenv https_proxy)" --max-total-input-tokens <止损线>
+
+# 只起假站，人工打开看页面
+bun run eval:browser sites
+```
+
+`run` 的标准输出是一行 `nbook.browser-eval.run-summary/v1`，进度在标准错误。运行目录的布局是 `<题>/<模型>/<执行者>/a<第几次>/try-<第几回>/`：`record.json` 是运行记录，`score.json` 是判分，`shots/` 是观察者的截图，`executor-stderr.txt` 是执行者的日志。
 
 ## 测试
 

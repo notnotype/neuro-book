@@ -8,9 +8,3 @@ import type {TaskDefinition} from "./types";
 export const TASKS: readonly TaskDefinition[] = [authorPublish, authorMove, authorIncome, readerRank, readerFont, forumPost, forumVote, forumVerify];
 
 export const PHASE1 = TASKS.map((task) => task.id);
-
-export function taskById(id: string): TaskDefinition {
-    const task = TASKS.find((item) => item.id === id);
-    if (task === undefined) throw new Error(`unknown task: ${id}`);
-    return task;
-}

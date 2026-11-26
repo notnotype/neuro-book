@@ -22,12 +22,6 @@ export const MODELS: readonly ModelChoice[] = [
     {id: "neon", model: "gemini-4-neon", reasoning: "medium", provider: "extremelycat"},
 ];
 
-export function modelById(id: string): ModelChoice {
-    const model = MODELS.find((item) => item.id === id);
-    if (model === undefined) throw new Error(`unknown model: ${id} (known: ${MODELS.map((item) => item.id).join(", ")})`);
-    return model;
-}
-
 const PROXY_VARS = ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
 
 /** 调度器进程的环境里有代理变量时报错：Bun 的 `fetch` 缺省会读它们，luna 就会悄悄经代理走。 */

@@ -22,6 +22,8 @@ export interface SandboxSpec {
     /** 原样（同一路径）只读绑回来的宿主路径，例如 Python 环境与它的解释器。 */
     readonly readonly?: readonly string[];
     readonly binds?: readonly SandboxBind[];
+    /** 在沙箱里新建的空目录（建在 tmpfs 上，例如家目录 `/tmp/home`）。 */
+    readonly dirs?: readonly string[];
     /** 沙箱里的全部环境变量：从空开始，不继承调度器的环境（里面有代理与别的东西）。 */
     readonly env: Readonly<Record<string, string>>;
     readonly cwd: string;
@@ -41,6 +43,7 @@ export function sandboxArgv(spec: SandboxSpec, home: string = homedir()): string
     ];
     for (const path of spec.readonly ?? []) argv.push("--ro-bind", path, path);
     for (const bind of spec.binds ?? []) argv.push(bind.writable ? "--bind" : "--ro-bind", bind.host, bind.sandbox);
+    for (const dir of spec.dirs ?? []) argv.push("--dir", dir);
     argv.push("--unshare-pid", "--die-with-parent", "--new-session", "--clearenv");
     for (const [key, value] of Object.entries(spec.env)) argv.push("--setenv", key, value);
     argv.push("--chdir", spec.cwd, "--", ...spec.command);
