@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>产品介绍首页：入殿·俯案成界（第 6 轮）</title>
+<title>产品介绍首页：入殿·俯案成界（第 7 轮）</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
@@ -18,72 +18,80 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .rec { margin: 0 0 16px; color: var(--rec); }
 img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
 .pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
-.cap { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cap { margin: 8px 0 18px; font-size: 14px; color: var(--muted); }
 .lab { margin: 10px 0 0; font-size: 14px; }
 .lab a { color: var(--rec); }
-ol.beats, ul.notes { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
+ul.notes, ol.steps { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
-.issue { margin: 12px 0 0; padding: 10px 14px; border-left: 3px solid #b26b00; background: #fff8ec; font-size: 15px; }
 @media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <main>
-<h1>产品介绍首页：入殿·俯案成界（第 6 轮）</h1>
-<p class="intro">照第 5 轮会话里的意见改：第一幕的演示不再跟着滚动逐帧走，改成“滚动只决定停在哪一拍”，拖动都是产品真的手势与实时布局，访客动过以后会摆回去；加了一拍介绍编辑器的高亮与批注；整页有了白天；首屏的三张纸轮流动起来；按钮出了四版。</p>
+<h1>产品介绍首页：入殿·俯案成界（第 7 轮）</h1>
+<p class="intro">照第 6 轮会话里的三条意见改：第一幕不靠滚动，落地以后自己连播，字幕上面一条章节条看得出演到哪、这一段看完没有；拖动不再画上下左右中的落点分区；首屏的动静换成一条单线接力的叙事，加上跟着指针的视差与鎏金反光。</p>
 
-<section data-nbdev-question="act-one-r6" data-nbdev-type="single" data-nbdev-options="continue:其余几幕照这个做法|revise:先改第一幕（备注写哪里）" data-nbdev-recommend="continue">
-  <h2>第一幕的演示这样做稳了吗？其余几幕照着做吗？</h2>
-  <p class="rec"><strong>推荐照着做：</strong>滚动只决定停在哪一拍，演示只是两拍之间的装饰，滚得快、往回滚、半路被打断都落在一个记下的样子上，不会停在半截；拖动是真的实时布局，和访客自己拖一模一样。</p>
-  <h3>你问的做法：滚动只决定状态，动画只负责装饰</h3>
+<section data-nbdev-question="act-one-r7" data-nbdev-type="single" data-nbdev-options="ok:第一幕这样连播可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
+  <h2>第一幕改成自己连播，看得出演到哪、看完没有吗？</h2>
+  <p class="rec"><strong>推荐可以：</strong>访客什么都不用做，落地就从第一拍演到最后；章节条上看过的段是实金，正在演的那一段一道光丝往右推，说出这一拍的结论那一刻补满，停 0.7 秒再换下一拍，所以“看完没有”看条就知道。</p>
+  <img src="r7/act-one.webp" alt="第一幕连播的四个时刻，每张下面是章节条与字幕：左上在演第二段“高亮批注”，第一段已是实金，第二段的光丝推到一半，字幕“两处敲门，各划一道高亮。”；右上是访客按了一下工作台，演示让开，光丝定格压暗，条尾换成“继续演示”；左下是点了第四段“视图换位”，前面几段一下摆好，从第四段的开头演；右下是演完，六段都是实金，条尾只留从头再看，字幕换成星璃说“换你来：拖一个标签，摆到顺手的地方。”和两个按钮，第一章的标签上一圈金环">
+  <p class="cap">左上：在演。右上：访客按了一下工作台，演示让开。左下：点了第四段。右下：演完，交给访客，第一章的标签上一圈金环，隔一会儿往右挪一下，示意能拖。</p>
   <ul class="notes">
-    <li>每一拍有一个终态（布局、标签、正文、对话），演完或摆好就记下来。滚动只给“停在第几拍”，停稳约 0.2 秒才算数，快速滚过的拍不演。</li>
-    <li>往前一拍就演；往回滚直接摆回那一拍的终态，不重演；一下跳过几拍时先快速摆好前面几拍，再演停住的那一拍。</li>
-    <li>同一时间只有一段在走：换目标先打断正在演的，撤下没松开的拖动、指针与光圈，再按新目标走。</li>
-    <li>访客动过工作台：演示让开，字幕后面出现“接着看”“摆回去”；不按也行，下一次换拍先摆回再接着演。能就地摆就走产品的布局动画，从访客摆的样子走回去；正文对不上（打过字、演到一半）时压一层薄暮，按记下的重新挂一台再揭开。</li>
+    <li>点哪一段就从那一段的开头演；条尾是暂停与从头再看。点后面的段，路过的拍快速摆上；点前面的段，按记下的样子一步摆回去再演。</li>
+    <li>访客一按工作台，演示让开：光丝定格、压暗，条尾换成“继续演示”；访客摆的样子留着，按了才从它走回去接着演。</li>
+    <li>滚走一半、或往回滚到首屏，演示自己停下，回来接着演；从不锁滚动，落地以后舞台再钉 0.8 屏，再往下滚就是下一幕。</li>
+    <li>拖动不画上下左右中的落点分区：实时布局本来就不画，拖作品入口这类走落点指示的，也只留落点的框。</li>
   </ul>
-  <img src="r6/act-one.webp" alt="第一幕十帧：第一章拖到右缘时实时布局排开、卡片跟着金色指针；选区菜单出现；批注卡片里打字；艾莉丝的设定浮成窗；拉窗角收到作品树下面；作品的入口拖向右栏；作品树搬到右栏、左边换成设定；双击后正文铺满；关灯；重新打开后一切都在">
-  <ol class="beats">
-    <li>两章并排：第五章打出那半句，作者问、星璃边打边答；第一章的标签沿标签条拖到右端、再落进右缘，布局一路排开，松手两章并排。</li>
-    <li>划出来，记一笔（新加）：拖选两处敲门，点编辑器选区菜单上的高亮；再选第五章那半句，点“批注”，在卡片里写“第四下不会响：门外的人不是师傅。”，保存后点批注的小符号把卡片打开。</li>
-    <li>人物浮在手边：艾莉丝的标签拖到状态栏上松手，浮出一扇窗；拉右上角的手柄，收到作品树下面。</li>
-    <li>视图换个位置：作品的入口拖到右栏，作品树整块搬过去（和星璃上下两段），左边换成设定。</li>
-    <li>专心：真的双击标签栏，正文铺满；再双击还原。</li>
-    <li>下次还是这样：关灯，存盘并重新挂一台，再开灯：分栏、浮窗、高亮与批注、打到一半的那句、对话都在。</li>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕连播（中途按一下工作台试试让开与“继续演示”）</a></p>
+</section>
+
+<section data-nbdev-question="rail-r7" data-nbdev-type="single" data-nbdev-options="ruler:A 古籍标尺|diamonds:B 菱形与进度环|ribbon:C 赤红书签" data-nbdev-recommend="ruler">
+  <h2>章节条用哪一版？</h2>
+  <p class="rec"><strong>推荐 A 古籍标尺：</strong>一条极细的暗金线分六格，光丝推到哪一眼就看见，最像书上的界尺，也最安静（@designer 第 7 轮推荐）。B 的进度只画在一粒菱形上，离远了看不清走了多少；C 的书签好看，但整幕一条通长的线，看不出这一段还剩多少。</p>
+  <img src="r7/rails.webp" alt="三版章节条压在暗绒上，都停在第三段“人物浮窗”演到一半：A 一条细金线分六格，前两格实金，第三格的光丝推到一半，后面是暗金虚线；B 每个标题下一粒菱形，前两粒实心，第三粒外面一圈金环画了一半；C 一条通长的金线填到三分之一，一枚赤红书签挂在“人物浮窗”下面">
+  <p class="cap">从上到下：A 古籍标尺、B 菱形与进度环、C 赤红书签，都停在第三段演到一半。</p>
+  <img src="r7/rail-states.webp" alt="A 的另外两种样子：上面是访客动了工作台，光丝定格压暗，条尾换成“继续演示”；下面是演完了，六格都是实金，条尾只留从头再看">
+  <p class="cap">A 让开以后（上）与演完以后（下）。</p>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">A 在第一幕里</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one-diamonds&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">B 在第一幕里</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one-ribbon&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">C 在第一幕里</a>　<a href="http://127.0.0.1:4717/lab?c=ChapterRail&amp;s=r7-ruler&amp;vp=1000x260&amp;cw=light&amp;theme=nbook">章节条单独看</a></p>
+</section>
+
+<section data-nbdev-question="hero-r7" data-nbdev-type="single" data-nbdev-options="all:从字到世界加指针响应|relay:只要从字到世界|pointer:只要指针响应|revise:再改（备注写哪里）" data-nbdev-recommend="all">
+  <h2>首屏的动静这样够了吗？</h2>
+  <p class="rec"><strong>推荐两样都要：</strong>停着时有一条叙事自己往前走（约五秒一步，进屏一秒内起笔），鼠标一动，悬着的纸、书角与丝带跟着轻轻转向你；一个讲“从字到世界”，一个让人想伸手，都不抢标题与按钮。</p>
+  <img src="r7/relay-wide.webp" alt="首屏停着时的一刻：一粒金尘拖着光尾从左边手稿上的批注拱过标题，正要落到右边的人物卡上">
+  <p class="cap">第四步的那一下：金尘从手稿上的批注拱过标题，快落到人物卡上（花饰右边那一粒光点，后面拖着一串渐暗的金星）。</p>
+  <img src="r7/relay.webp" alt="从字到世界六步的特写，每格左上是步数：1 手稿上敲门那一行写到一半，笔尖停在“门”后面；2 地图上海岸线、灰塔与霜港到灰塔的红色航线都显出来了；3 敲门那一行涂了高亮，“三下”被红笔圈住，牵一条线写“伏笔：第五章再响”；4 人物卡下面抽出星璃的便笺，写着“第一章的敲门声，第五章又响了一次。读者会和她一起等第四下。”，右下角是她的小头像；5 剧情时间线换到地图上面，一道红色虚线连起第一章与第五章，标着“同一种敲法”；6 敲门那一行连同高亮、红圈与批注褪成纸色，正在隐去">
+  <p class="cap">六步的特写，步数同下面的列表。</p>
+  <img src="r7/pointer.webp" alt="指针响应：左边两张是人物卡，指针停上去以后那张卡微微前倾、压在下面的那张多探出一点；右边两张是书角，金色包角上的反光随指针换了位置">
+  <p class="cap">左两张：指针不在、指针停在人物卡上。右两张：指针在左与在右时，书角包金上的反光。</p>
+  <ol class="steps">
+    <li>落墨：手稿上敲门那一行从左往右写出来，笔尖前一团湿墨，刚写的墨更黑，慢慢干。</li>
+    <li>一粒金尘从那一行飞到地图上：海岸线描出来、陆地染上、灰塔升起，红色航线从霜港流向灰塔。</li>
+    <li>高亮涂过那一行，红笔圈出“三下”，牵一条线写“伏笔：第五章再响”。</li>
+    <li>金尘从批注飞到人物卡，压在下面的星璃便笺斜着抽出一截，露出她的话与小头像。</li>
+    <li>金尘沿航线走到灰塔，剧情时间线换到地图上面，红线连起第一章与第五章那两声敲门。</li>
+    <li>墨沉回纸里（字与线先褪成纸色再隐掉），便笺收回，时间线换回下面，再来一圈（一圈约 30 秒）。</li>
   </ol>
-  <h3>访客动手以后</h3>
-  <img src="r6/recover.webp" alt="三帧：演到第二拍时访客点了一下正文、又把第一章拖成上下两栏，字幕后面出现接着看与摆回去；滚到下一拍时工作台走回记下的样子；接着演艾莉丝那一拍">
-  <p class="cap">左：第二拍演到一半访客点了正文、又把第一章拖成上下两栏，演示让开。中：滚到下一拍，工作台走回上一拍记下的样子。右：补上第二拍的高亮与批注，接着演第三拍。</p>
-  <img src="r6/handoff.webp" alt="交给访客：第一章的标签上一圈金环，字幕那一行是星璃的小贴纸、邀请与两个按钮">
-  <p class="issue">顺带发现一个产品本身的问题：高亮的颜色是写进 Markdown 的浅色（色板在 markdown 插件的 palette.ts），夜间配色下字跟着正文用浅色，涂上就看不清。首页先在自己这台工作台里把高亮里的字压成深墨；产品里要不要改、怎么改（字换深色，或夜里把高亮调暗）另说。</p>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r6-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕（往下滚换拍；中途按一下工作台试试让开与摆回）</a></p>
+  <ul class="notes">
+    <li>指针响应：纸、书角与丝带按远近挪几个像素，纸倾不过两度，带惯性；书角、花饰与按钮的金边上一团柔和的反光跟着走；停在哪张纸上，那张稳住、微微前倾，下面那张多探出一点；丝带的末端比书角慢半拍摆过去。顶光不动。</li>
+    <li>没做的（@designer 第 7 轮建议砍掉）：更快的 3D 翻牌与弹落，像抽卡；标题掠光与顶光扫动，像页游与探照灯。</li>
+  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">两样都有</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-hero-relay&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">只有从字到世界</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-hero-pointer&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">只有指针响应</a></p>
 </section>
 
 <section data-nbdev-question="day-r6" data-nbdev-type="single" data-nbdev-options="ok:白天这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>白天这样成立吗？</h2>
+  <h2>白天这样成立吗？（第 6 轮的题，还没答）</h2>
   <p class="rec"><strong>推荐可以：</strong>夜是暗夜圣殿，昼是午后的抄经室：偏暖的灰石墙（比羊皮纸暗半阶，纸不会糊在底上）、左上高窗斜进来一道日光、深墨的字；工作台跟着换产品的日间配色。缺省仍是夜。</p>
   <img src="r6/day.webp" alt="白天：首屏是暖灰的石墙、斜进来的日光、提亮的羊皮纸与深墨的标题；第一幕的工作台是日间配色，高亮与批注卡片清楚，四周是枣红丝绒">
   <div class="pair">
-    <p class="cap">左：白天的首屏。右：白天的第一幕（字幕在丝绒上，昼夜都用浅色的字）。昼夜开关在导航最右端，落地以后在字幕那一条的右端，是同一个开关。</p>
+    <p class="cap">左：白天的首屏。右：白天的第一幕（字幕在丝绒上，昼夜都用浅色的字）。昼夜开关在导航最右端，落地以后在字幕那一条的一端，是同一个开关（图里是第 6 轮的右端；第 7 轮挪到左端，右端让给章节条的条尾）。</p>
     <img src="r6/day-narrow.webp" alt="390 宽的白天：导航收起了更新日志，题辞、标题、花饰、说明与按钮在上，工作台平放在下面；往下滚只换字幕">
   </div>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r6-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看白天（从首屏起）</a></p>
-</section>
-
-<section data-nbdev-question="hero-r6" data-nbdev-type="single" data-nbdev-options="ok:首屏这样动可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>首屏的纸这样“静中有动”可以吗？</h2>
-  <p class="rec"><strong>推荐可以：</strong>不翻牌（@designer 说翻牌加扫光像抽卡），改成纸上的东西自己演进、叠着的纸换上来；约每 6.5 秒轮到一张，一次只动一张，镜头推走或页面在后台时不动，访客要求少动效时不动。</p>
-  <img src="r6/slips.webp" alt="首屏四帧：起初三张纸是手稿、人物卡与地图；人物卡往一边让开、下面星璃的便笺斜着抽出来；手稿上敲门那一行被红笔圈出、写着伏笔，星璃的便笺换到了上面；地图换成了剧情时间线，第一章与第五章那两声敲门连着一道红线">
-  <ul class="notes">
-    <li>手稿：敲门那一行涂上一道高亮，红笔圈出来、牵一条线写“伏笔：第五章再响”，下一轮再淡掉（和第一幕“划出来，记一笔”是同一件事）。</li>
-    <li>人物卡下面压着星璃的便笺（她的头像与一句提醒），轮到时便笺斜着抽出来换到上面。</li>
-    <li>地图下面压着剧情的时间线（四章四件事，两声敲门连着红线），换法同上。</li>
-  </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r6-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看首屏（停在首屏等二十秒）</a></p>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看白天（从首屏起）</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天的第一幕（带章节条）</a></p>
 </section>
 
 <section data-nbdev-question="buttons-r6" data-nbdev-type="single" data-nbdev-options="a:A 双线金边|b:B 皮面烫金|c:C 书脊签|d:D 封蜡" data-nbdev-recommend="b">
-  <h2>按钮用哪一版？</h2>
+  <h2>按钮用哪一版？（第 6 轮的题，还没答）</h2>
   <p class="rec"><strong>推荐 B 皮面烫金：</strong>和首屏那本书的皮面、鎏金包角是一套，主次分得最开（次按钮只留细金框与四角，白天不压人、夜里不沉底）。想最稳就选 A，它是第 5 轮那一版的精修。</p>
   <img src="r6/buttons.webp" alt="按钮四版，每版左边在夜里、右边在白天：A 赤红底双线金边、两端金菱形；B 哑光深红皮面、烫金细框与四角角花、金字，次按钮只有细金框与四角；C 修长的赤红签条、极细单金框、字两侧各一小段金线；D 羊皮纸色签条，主按钮左端压一枚红色火漆印">
   <ul class="notes">
@@ -106,6 +114,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>第一幕放慢讲清楚，加回浮窗、视图换位置、关掉再打开，和首屏一样华丽（第 4 轮与会话）</li>
     <li>首句用 e3“每一个世界，都从一行字开始。”，配 From words to world.（第 4 轮与会话）</li>
     <li>演示的拖动用实时布局；访客动过要有恢复动画；顺手介绍编辑器的标注与高亮；整个页面要有白天；首屏静中有动、纸条可以轮播；按钮出几版（第 5 轮之后的会话）</li>
+    <li>第一幕不用访客滚动：落地以后自动连播，访客愿意就停着看；拖动不要上下左右中的落点分区；首屏的动静要快一些、大一些、更高级（第 6 轮之后的会话）</li>
   </ol>
 </section>
 </main>
