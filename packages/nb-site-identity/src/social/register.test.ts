@@ -1,11 +1,13 @@
 /**
- * 社交注册（`start.ts` 的注册意图、`hooks.ts` 的建用户与建账号前钩子、建会话前的判断；`site.accounts` 输出 2、3、13、14、23，
- * 验收 4、5、8、9）。
+ * 社交注册（`start.ts` 的注册意图、`hooks.ts` 的建用户与建账号前钩子、建会话前的判断、`callback.ts` 的查询串上限；`site.accounts`
+ * 输出 2、3、13、14、23，验收 4、5、8、9、14）。
  *
  * 上游是仿真上游（第三方的替身），站点是真的模块。合同测试（`nb-site-contract-tests` 的 `accounts-social.test.ts`）走同样的
  * 场景；这里另测合同里造不出、或要读库才看得到的：
  * - 注册写到一半失败（在补充资料的表、库的 `account` 表上临时加拒绝插入的触发器）时全部回滚，码不扣、没有会话。
  * - 建出的账号的库列：`emailVerified`、头像、原样的用户名写法、没有密码登录方式，`account` 行不含上游令牌。
+ * - 关联与注册争同一个上游身份时按固定的先后认名字（验收 14）：经占住连接的队列让两边一步一步走（`lockstep`），合同测试只能
+ *   并发打开、不定先后。
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
@@ -13,9 +15,23 @@ import {afterEach, beforeEach, describe, expect, it} from "bun:test";
 import {startFakeUpstream, type FakeGitHubUser, type FakeGoogleUser, type FakeUpstream} from "@notnotype/neuro-book-test-support/oauth-upstream";
 
 import {libDate} from "../db/library-rows";
-import {TEST_SITE_URL} from "../testing/library";
+import {ManualTimers, TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, SESSION_COOKIE, sessionCookieOf, TEST_CLIENT_ADDRESS_HEADER, TEST_TERMS_VERSION, type TestIdentity} from "../testing/module";
-import {fakeSocialConfig, followSocial, insertSocialAccount, landing, startSocial} from "../testing/social";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
+import {
+    fakeSocialConfig,
+    followSocial,
+    holdQueue,
+    insertSocialAccount,
+    landing,
+    lockstep,
+    openCallback,
+    startedSocial,
+    startSocial,
+    upstreamCallback,
+} from "../testing/social";
+import {MAX_CALLBACK_QUERY_CHARS} from "./callback";
 
 let upstream: FakeUpstream;
 let identity: TestIdentity | undefined;
@@ -36,8 +52,8 @@ let address = 0;
 /** 每次发起换一个来源地址：注册按来源每小时 5 次，限流只在专门的用例里测。 */
 const nextAddress = () => `198.51.100.${String(++address % 250)}`;
 
-async function socialIdentity(name: string, config: {readonly registrationOpen?: boolean} = {}): Promise<TestIdentity> {
-    identity = await createTestIdentity(name, {config: {social: fakeSocialConfig(upstream), ...config}});
+async function socialIdentity(name: string, config: {readonly registrationOpen?: boolean} = {}, timers?: ManualTimers): Promise<TestIdentity> {
+    identity = await createTestIdentity(name, {config: {social: fakeSocialConfig(upstream), ...config}, ...(timers === undefined ? {} : {timers})});
     return identity;
 }
 
@@ -288,7 +304,7 @@ describe("回调时的拒绝：不建账号、不扣码（输出 2、13、14，�
     });
 });
 
-describe("原子性与并发（输出 2，验收 8）", () => {
+describe("原子性与并发（输出 2，验收 8、14）", () => {
     it("写到一半失败（补充资料、库的 account 行）：全部回滚、码不扣、没有会话；去掉故障之后同一个码能注册", async () => {
         const target = await socialIdentity("social-register-injected");
         const codeId = await addCode(target, "identity_registration_code", "REG-CODE", {maxUses: 1});
@@ -337,5 +353,91 @@ describe("原子性与并发（输出 2，验收 8）", () => {
         expect(results.filter((code) => code !== null)).toEqual(["registration_code_invalid", "registration_code_invalid"]);
         const orphans = await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "user" u LEFT JOIN identity_profile p ON p.user_id = u."id" WHERE p.user_id IS NULL`).get()!.n);
         expect({users: (await usernames(target)).length, used: await usedCount(target, "identity_registration_code", codeId), orphans}).toEqual({users: 1, used: 1, orphans: 0});
+    });
+
+    // 两个流程同一个上游身份（仿真上游一个上游只记一个用户），换令牌都先挡住，按 `first` 放开：先放的那一个的每一步都排在另一个的
+    // 同一步前面（`lockstep`）。注册在库的事务里认上游名字（`claimUpstreamName`），与关联钩子的认名排在同一轮。
+    for (const first of ["link", "register"] as const) {
+        it(`关联与社交注册同时争同一个上游身份（验收 14，${first === "link" ? "关联" : "注册"}先认名字）：恰好一个成，注册输了不建账号、不扣码，回 identity_taken`, async () => {
+            const timers = new ManualTimers();
+            const target = await socialIdentity(`social-register-vs-link-${first}`, {}, timers);
+            const codeId = await addCode(target, "identity_registration_code", "REG-CODE", {maxUses: 1});
+            const aliceId = await target.addUser("alice", {...CONSENTED, password: "correct horse battery"});
+            const {cookie} = await target.issue(aliceId);
+            upstream.setUser("google", googleUser("g-shared"));
+            const link = await startedSocial(await startSocial(target, "google", {intent: "link", currentPassword: "correct horse battery"}, cookie));
+            const register = await startedSocial(await startRegister(target, "google"));
+            const flows = {
+                link: {callback: await upstreamCallback(link), cookie: `${link.stateCookie}; ${cookie}`},
+                register: {callback: await upstreamCallback(register), cookie: register.stateCookie},
+            };
+            const order = first === "link" ? (["link", "register"] as const) : (["register", "link"] as const);
+            const held = [];
+            const opened: Promise<Response>[] = [];
+            for (const name of order) {
+                const token = upstream.holdToken("google");
+                opened.push(openCallback(target, flows[name].callback, flows[name].cookie));
+                await token.arrived;
+                held.push(token);
+            }
+            const gate = await holdQueue(target);
+            await gate.started;
+            held[0]!.release();
+            await waitUntil("先放的那一个的第一步排上", () => timers.pending === 1);
+            held[1]!.release();
+            const responses = await lockstep(target, timers, gate, opened);
+            const byName = Object.fromEntries(order.map((name, index) => [name, responses[index]!])) as Record<"link" | "register", Response>;
+
+            const accounts = await target.conn.read((tx) => tx.query(`SELECT "userId", "providerId", "accountId" FROM "account" WHERE "providerId" <> 'credential'`).all());
+            const names = await target.conn.read((tx) => tx.query(`SELECT user_id, provider, upstream_account_id FROM identity_upstream_name`).all());
+            if (first === "link") {
+                expect({link: landing(byName.link), register: {...landing(byName.register), session: hasSessionCookie(byName.register)}}).toEqual({
+                    link: {status: 302, path: "/account", socialError: null},
+                    register: {...rejected("identity_taken"), session: false},
+                });
+                expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), accounts, names}).toEqual({
+                    users: ["alice"],
+                    used: 0,
+                    accounts: [{userId: aliceId, providerId: "google", accountId: "g-shared"}],
+                    names: [{user_id: aliceId, provider: "google", upstream_account_id: "g-shared"}],
+                });
+            } else {
+                expect({link: landing(byName.link), register: {...landing(byName.register), session: hasSessionCookie(byName.register)}}).toEqual({
+                    link: {status: 302, path: "/account", socialError: "identity_taken"},
+                    register: {status: 302, path: "/", socialError: null, session: true},
+                });
+                const erinId = await target.conn.read((tx) => tx.query<{id: number}, []>(`SELECT "id" FROM "user" WHERE "username" = 'erin'`).get()!.id);
+                expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), accounts, names}).toEqual({
+                    users: ["alice", "erin"],
+                    used: 1,
+                    accounts: [{userId: erinId, providerId: "google", accountId: "g-shared"}],
+                    names: [{user_id: erinId, provider: "google", upstream_account_id: "g-shared"}],
+                });
+            }
+        });
+    }
+});
+
+describe("回调的查询串（输出 13 的回调一步）", () => {
+    it(`超过 ${String(MAX_CALLBACK_QUERY_CHARS)} 个字符：social_state_invalid，落到发起意图的失败页，不认领流程；正好 ${String(MAX_CALLBACK_QUERY_CHARS)} 个时照常处理`, async () => {
+        const target = await socialIdentity("social-register-long-query");
+        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+        upstream.setUser("google", googleUser("g-erin"));
+        const started = await startedSocial(await startRegister(target, "google"));
+        const callback = await upstreamCallback(started);
+        const query = callback.slice(callback.indexOf("?") + 1);
+        // 补一个上游不会带、库不认的参数把查询串凑到指定长度（不含 `?`）。
+        const padded = (length: number): string => {
+            const prefix = `${callback}&pad=`;
+            return prefix + "x".repeat(length - (query.length + "&pad=".length));
+        };
+
+        const tooLong = await openCallback(target, padded(MAX_CALLBACK_QUERY_CHARS + 1), started.stateCookie);
+        expect({...landing(tooLong), session: hasSessionCookie(tooLong)}).toEqual({...rejected("social_state_invalid"), session: false});
+        expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({users: [], used: 0});
+
+        const atLimit = await openCallback(target, padded(MAX_CALLBACK_QUERY_CHARS), started.stateCookie);
+        expect({...landing(atLimit), session: hasSessionCookie(atLimit)}).toEqual({status: 302, path: "/", socialError: null, session: true});
+        expect(await usernames(target)).toEqual(["erin"]);
     });
 });

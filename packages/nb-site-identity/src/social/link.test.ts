@@ -15,7 +15,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {endAllSessions} from "../session";
 import {ManualTimers} from "../testing/library";
 import {createTestIdentity, SESSION_COOKIE, TEST_TERMS_VERSION, type TestIdentity} from "../testing/module";
-import {fakeSocialConfig, followSocial, landing, openCallback, startedSocial, startSocial, upstreamCallback} from "../testing/social";
+import {fakeSocialConfig, followSocial, holdQueue, landing, lockstep, openCallback, startedSocial, startSocial, upstreamCallback} from "../testing/social";
 import {UPSTREAM_NAME_CLAIM_GRACE_MS} from "./upstream-name";
 
 let upstream: FakeUpstream;
@@ -86,47 +86,6 @@ async function upstreamNames(target: TestIdentity): Promise<{readonly user_id: n
 /** 五个令牌列都为空的一行（上游令牌不落库）。 */
 function withoutTokens(userId: number, providerId: string, accountId: string): AccountRow {
     return {userId, providerId, accountId, accessToken: null, refreshToken: null, idToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null};
-}
-
-/**
- * 占住连接的队列（一个开着的库事务），直到放开。`started` 在取到锁时 resolve。手动计时器只用来数排队等锁的个数：占位取到锁之后，
- * `timers.pending` 就是排在它后面的个数。
- */
-async function holdQueue(target: TestIdentity): Promise<{readonly started: Promise<void>; release(): Promise<void>}> {
-    const {adapter} = await target.assembly.auth.$context;
-    const started = Promise.withResolvers<void>();
-    const finish = Promise.withResolvers<void>();
-    const done = target.conn.withLibTransaction(adapter, async () => {
-        started.resolve();
-        await finish.promise;
-    });
-    return {started: started.promise, release: async () => (finish.resolve(), await done)};
-}
-
-/**
- * 让几个回调对库的每一步访问都排在一起跑：先占住队列、等每个回调的下一步都排上；再在它们后面排一个新占位，放开旧的；它们的这一步
- * 跑完、下一步都排在新占位后面……直到有一个回调做完。这样“每个回调的第 i 步”都在“任何一个的第 i+1 步”之前跑完：关联钩子的写
- * （第 i 步）都在库插 `account`（第 i+1 步）之前，两个并发的关联都看不到对方的 `account` 行。调用前 `first` 已占住队列。
- */
-async function lockstep(target: TestIdentity, timers: ManualTimers, first: Awaited<ReturnType<typeof holdQueue>>, requests: readonly Promise<Response>[]): Promise<Response[]> {
-    let settled = 0;
-    const count = (): void => {
-        settled += 1;
-    };
-    // 这里只数做完的个数；失败由调用方 `Promise.all` 时看到。
-    for (const request of requests) request.then(count, count);
-    let gate = first;
-    for (;;) {
-        await waitUntil("每个回调的下一步都排上，或有一个做完了", () => timers.pending === requests.length || settled > 0);
-        if (settled > 0) break;
-        const next = await holdQueue(target);
-        await waitUntil("新占位排在它们后面", () => timers.pending === requests.length + 1);
-        await gate.release();
-        await next.started;
-        gate = next;
-    }
-    await gate.release();
-    return Promise.all(requests);
 }
 
 describe("社交关联", () => {
