@@ -123,16 +123,17 @@ attrs:
   → <div>（inheritAttrs: false）
 
 ### experimental component FloatWindowHandles
-引用：GridExtent, GridRect
+引用：GridExtent, GridRect, LayoutFloatResize
 props:
-  max: GridExtent
+  area?: GridRect | undefined = undefined
+  max?: GridExtent | undefined = undefined
   min: GridExtent
   moveIconClass?: string | undefined = ""
   rect: GridRect
 attrs:
   → 根元素
 events:
-  commit(rect: GridRect)
+  commit(rect: GridRect, direction: LayoutFloatResize)
   move(position: { readonly x: number; readonly y: number; })
   preview(rect: GridRect | null)
 

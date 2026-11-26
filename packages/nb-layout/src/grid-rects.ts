@@ -164,15 +164,23 @@ export interface GridPlacement<R> {
 }
 
 /**
- * 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。
+ * 把窗夹进一块区域（相对网格根）：窗口变小时呈现用夹取之后的矩形，记录不改。比区域还宽或高时缩到区域。
+ *
+ * - `area` 带原点（`x`、`y`）时夹进这块矩形；只给宽高时原点是 0。
+ * - `keep` 是至少留在区域里的宽与高（例如只保证标签条抓得到）：不给时是整扇窗；给了也不超过窗缩后的尺寸，比区域大的窗不会被推出区域。
+ * - 窗的上边总在区域里。
  * @experimental
  */
-export function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {readonly width: number; readonly height: number}): GridRect {
-    const width = Math.min(rect.width, extent.width);
-    const height = Math.min(rect.height, extent.height);
+export function clampFloatRect(rect: GridRect, area: GridRect | GridExtent, keep?: {readonly width: number; readonly height: number}): GridRect {
+    const ox = "x" in area && Number.isFinite(area.x) ? area.x : 0;
+    const oy = "y" in area && Number.isFinite(area.y) ? area.y : 0;
+    const width = Math.min(rect.width, area.width);
+    const height = Math.min(rect.height, area.height);
+    const keepWidth = Math.min(keep?.width ?? width, width);
+    const keepHeight = Math.min(keep?.height ?? height, height);
     return {
-        x: Math.min(Math.max(rect.x, keep.width - width), extent.width - keep.width),
-        y: Math.min(Math.max(rect.y, 0), extent.height - keep.height),
+        x: ox + Math.min(Math.max(rect.x - ox, keepWidth - width), area.width - keepWidth),
+        y: oy + Math.min(Math.max(rect.y - oy, 0), area.height - keepHeight),
         width,
         height,
     };
@@ -188,13 +196,26 @@ export interface LayoutFloatResize {
 }
 
 /**
- * 缩放之后的矩形。到了尺寸的上下限时对边不动。
+ * 缩放之后的矩形。到了尺寸的上下限时对边不动；最小尺寸优先。
+ *
+ * - `max` 是尺寸上限，不给时不限。
+ * - `area` 是边界（相对网格根的矩形）：跟着指针的边不越过它。起点就在区域外的边不再往外拉，也不往里跳；不动的边不变。
  * @experimental
  */
-export function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max: GridExtent}): GridRect {
+export function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max?: GridExtent; readonly area?: GridRect}): GridRect {
     const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high));
-    const width = clamp(start.width + direction.width * delta.x, bounds.min.width, bounds.max.width);
-    const height = clamp(start.height + direction.height * delta.y, bounds.min.height, bounds.max.height);
+    let maxWidth = bounds.max?.width ?? Number.POSITIVE_INFINITY;
+    let maxHeight = bounds.max?.height ?? Number.POSITIVE_INFINITY;
+    const {area} = bounds;
+    // 边界折成那一轴的尺寸上限：动的边最远到区域边缘，起点已在区域外时最远到起点（不往外，也不往里跳）。
+    if (area !== undefined) {
+        if (direction.width === 1) maxWidth = Math.min(maxWidth, Math.max(area.x + area.width, start.x + start.width) - start.x);
+        if (direction.width === -1) maxWidth = Math.min(maxWidth, start.x + start.width - Math.min(area.x, start.x));
+        if (direction.height === 1) maxHeight = Math.min(maxHeight, Math.max(area.y + area.height, start.y + start.height) - start.y);
+        if (direction.height === -1) maxHeight = Math.min(maxHeight, start.y + start.height - Math.min(area.y, start.y));
+    }
+    const width = clamp(start.width + direction.width * delta.x, bounds.min.width, maxWidth);
+    const height = clamp(start.height + direction.height * delta.y, bounds.min.height, maxHeight);
     return {
         x: direction.width === -1 ? start.x + start.width - width : start.x,
         y: direction.height === -1 ? start.y + start.height - height : start.y,

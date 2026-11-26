@@ -12,10 +12,14 @@
 
 - `sashSize` 的函数形式多收第三个参数 `{before, after}`：挨着这条线的两个直接孩子的 id，与 `NestedGrid` 的 `sashDisabled` 同一个认法，宿主不用再按分支 id 加序号认线（序号随结构变）；只用前两个参数的函数照旧可用。类型 `GridSashResolver` 跟着改，`GridOptions.sashSize` 改用它。
 - 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
+- `resizeFloatRect` 的 `bounds` 可以给 `area`（相对网格根的矩形）：跟着指针的边不越过它，起点就在区域外的边不再往外，也不往里跳，最小尺寸优先。`FloatWindowHandles` 多了同义的 `area` 属性，指针与键盘缩放都按它。
+- `FloatWindowHandles` 的 `commit` 多了第二个参数 `direction`（`LayoutFloatResize`）：这次动的边，键盘缩放是右下角。`rect` 里没动的那一轴是夹过的值，要保住记录的宿主只取 `direction` 不为 0 的轴。只接第一个参数的监听不用改。
 
 ### 改动
 
 - 边缘滚动改用 `scrollBy({behavior: "instant"})`，设了 `scroll-behavior: smooth` 的容器也一帧一步地滚。以前第一步之后读回来的位置没变，被当成滚到头停了。
+- `clampFloatRect` 的第二个参数可以是带原点的矩形（相对网格根），窗夹进这块矩形；只给宽高时照旧从 0 开始。第三个参数 `keep` 可以不给（整扇窗留在区域里），给了也不超过窗缩到区域之后的尺寸：比区域大的窗不再被推出区域（以前 800 宽的窗、600 宽的区域、`keep` 取窗自己的大小时 `x` 是 -200）。`keep` 不超过窗缩后尺寸的调用结果不变。
+- `resizeFloatRect` 的 `bounds.max` 与 `FloatWindowHandles` 的 `max` 可以不给（不限）。
 - `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
 - README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
 
