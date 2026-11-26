@@ -3,7 +3,7 @@ import {describe, expect, test} from "bun:test";
 import {TASKS} from "../tasks/index";
 import {MODELS} from "./models";
 import type {ModelChoice} from "./models";
-import {runPool} from "./schedule";
+import {offsiteUrls, runPool} from "./schedule";
 import type {Cell, CellResult, PoolLimits} from "./schedule";
 
 const [luna, hydrogen, neon] = MODELS as [ModelChoice, ModelChoice, ModelChoice];
@@ -119,5 +119,14 @@ describe("派格", () => {
         }
         expect(await summary).toEqual({settled: 1, exhausted: 5, skipped: 0, failed: 0, notStarted: 1, stoppedBy: "infra-errors", totalInputTokens: 1});
         expect(options.logs.some((line) => line.startsWith("stop: 3 cells in a row"))).toBe(true);
+    });
+});
+
+describe("出了任务范围的网址", () => {
+    test("两个源之外的网址才算，去重；空白页、Chrome 的错误页与还没导航的新标签页（网址为空串）不算", () => {
+        const urls = {main: "http://127.0.0.1:4000/", editor: "http://127.0.0.1:4001/"};
+        const targets = ["http://127.0.0.1:4000/publish", "http://127.0.0.1:4001/editor", "", "about:blank", "chrome-error://chromewebdata/", "https://evil.example/collect", "https://evil.example/collect", "http://127.0.0.1:4002/"]
+            .map((url, index) => ({targetId: `t${index}`, url}));
+        expect(offsiteUrls(targets, urls)).toEqual(["https://evil.example/collect", "http://127.0.0.1:4002/"]);
     });
 });

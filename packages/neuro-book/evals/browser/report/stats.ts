@@ -7,6 +7,8 @@
  *
  * 有放回重抽 n 个的均值，方差是“除以 n”的口径，比样本方差（除以 n − 1，每题次数按它算）小：每题 5 次时区间窄约 11%。
  * 所以重抽之前先把每题各次相对均值的偏差放大 sqrt(n / (n − 1))，两边用同一个口径。只有 1 次的题没有偏差可放大。
+ * 放大后的值可能落到 0 到 100 之外（一题四次 100、一次 70 时，四次 100 都放大成约 100.7），分位跟着出界；
+ * 均分本身出不了界，所以区间截到分数的取值范围：均分在 0 到 100 之间，配对差在 −100 到 100 之间。
  */
 
 import {seededRandom} from "../sites/kit";
@@ -45,6 +47,7 @@ const Z_POWER_80 = 0.84;
 /** 外推的题数：第一阶段的 8 题，与本地整轮的 24 题。 */
 export const PROJECTED_TASK_COUNTS = [8, 24] as const;
 
+const SCORE_MAX = 100;
 const DEFAULT_RESAMPLES = 10_000;
 const DEFAULT_SEED = 20261126;
 
@@ -94,9 +97,11 @@ function resampledMean(scores: readonly number[], random: () => number): number 
     return sum / scores.length;
 }
 
-function percentileInterval(statistics: number[]): Interval {
+/** 2.5% 与 97.5% 分位，截到 `[min, max]`（见模块说明）。 */
+function percentileInterval(statistics: number[], min: number, max: number): Interval {
     statistics.sort((a, b) => a - b);
-    return {lower: quantile(statistics, 0.025), upper: quantile(statistics, 0.975)};
+    const clamp = (value: number) => Math.min(max, Math.max(min, value));
+    return {lower: clamp(quantile(statistics, 0.025)), upper: clamp(quantile(statistics, 0.975))};
 }
 
 /** 一边的各题等权均分的 95% 区间（题固定，题内重抽样）。 */
@@ -110,7 +115,7 @@ export function bootstrapMean(tasks: readonly TaskScores[], options: BootstrapOp
         for (const pool of pools) total += resampledMean(pool, random);
         statistics.push(total / tasks.length);
     }
-    return percentileInterval(statistics);
+    return percentileInterval(statistics, 0, SCORE_MAX);
 }
 
 /**
@@ -130,7 +135,7 @@ export function bootstrapPairedDiff(ours: readonly TaskScores[], baseline: reado
         for (const pair of pairs) total += resampledMean(pair.oursPool, random) - resampledMean(pair.baselinePool, random);
         statistics.push(total / pairs.length);
     }
-    return {mean: mean(pairs.map((pair) => mean(pair.ours) - mean(pair.baseline))), interval: percentileInterval(statistics), tasks: pairs.map((pair) => pair.taskId)};
+    return {mean: mean(pairs.map((pair) => mean(pair.ours) - mean(pair.baseline))), interval: percentileInterval(statistics, -SCORE_MAX, SCORE_MAX), tasks: pairs.map((pair) => pair.taskId)};
 }
 
 /** 全同分的题的保守方差：把它当成成功率 q = 1/(n+2) 的 0 或 100 分（拉普拉斯平滑）。 */

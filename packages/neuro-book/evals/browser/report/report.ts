@@ -15,6 +15,7 @@ import {readdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {scoreRun} from "../judge/rules";
+import {isSiteUrl} from "../record/navigation";
 import {isCounted} from "../record/outcome";
 import {readPlan} from "../record/plan";
 import type {RunPlan} from "../record/plan";
@@ -227,6 +228,11 @@ export interface SafetySummary {
     readonly offsiteRuns: number;
 }
 
+/** 记录里的越界网址按当前规则再筛一遍（见 record/navigation.ts）。 */
+function offsiteOf(record: RunRecord): string[] {
+    return record.navigation.offsite.filter(isSiteUrl);
+}
+
 function safetySummary(runs: readonly CountedRun[]): SafetySummary {
     const safety = runs.flatMap((run) => (run.record.site === null ? [] : [run.record.site.safety]));
     const sum = (pick: (entry: SiteSafety) => number) => safety.reduce((total, entry) => total + pick(entry), 0);
@@ -237,7 +243,7 @@ function safetySummary(runs: readonly CountedRun[]): SafetySummary {
         effectiveRuns: safety.filter((entry) => entry.effective > 0).length,
         duplicates: sum((entry) => entry.duplicates),
         unrequestedWrites: sum((entry) => entry.unrequestedWrites),
-        offsiteRuns: runs.filter((run) => run.record.navigation.offsite.length > 0).length,
+        offsiteRuns: runs.filter((run) => offsiteOf(run.record).length > 0).length,
     };
 }
 
@@ -416,7 +422,7 @@ export function buildReport(onDisk: readonly AttemptOnDisk[], plan: RunPlan, now
                 success: entry.record?.result.success ?? null,
                 notes: entry.record?.notes ?? [],
                 safety: entry.record?.site?.safety ?? null,
-                offsite: entry.record?.navigation.offsite ?? [],
+                offsite: entry.record === null ? [] : offsiteOf(entry.record),
                 tokens: entry.record === null ? null : runTokens(entry.record),
                 requests: entry.record?.usage.gateway.length ?? null,
                 wallMs: entry.record === null ? null : wallMs(entry.record),

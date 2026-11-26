@@ -22,6 +22,7 @@ import type {OwnedProcessLease} from "@notnotype/owned-process";
 import {ExecutorOutputSchema, buildSteps, parseEventLine} from "../arms/browser-use/adapter";
 import type {ExecutorOutput, ObservedStep} from "../arms/browser-use/adapter";
 import {scoreRun} from "../judge/rules";
+import {isSiteUrl} from "../record/navigation";
 import {classifyOutcome, isCounted} from "../record/outcome";
 import {claimPlan} from "../record/plan";
 import type {RunPlan} from "../record/plan";
@@ -134,8 +135,6 @@ async function executorReadonly(buPython: string): Promise<string[]> {
     return [...new Set([venv, base, ARM_DIR])];
 }
 
-/** 不算“出了任务范围”的网址：空白页、Chrome 自己的错误页与内部页。 */
-const NOT_A_SITE = /^(?:about:|chrome-error:|chrome:|devtools:|data:)/u;
 const OFFSITE_LIMIT = 50;
 
 /** 页面目标到过的、任务给的两个源之外的网址（去重，最多 `OFFSITE_LIMIT` 个）。 */
@@ -148,7 +147,7 @@ export function offsiteUrls(targets: readonly PageTarget[], urls: {readonly main
             return url;
         }
     };
-    return [...new Set(targets.map((target) => target.url).filter((url) => !NOT_A_SITE.test(url) && !origins.has(origin(url))))].slice(0, OFFSITE_LIMIT);
+    return [...new Set(targets.map((target) => target.url).filter((url) => isSiteUrl(url) && !origins.has(origin(url))))].slice(0, OFFSITE_LIMIT);
 }
 
 /** 一回运行里已经拿到的资源：收尾只依赖这里有的。 */
