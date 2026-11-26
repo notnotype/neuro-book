@@ -8,6 +8,7 @@
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
 import {activateTab, applyGestureCommit, applyLayoutDrop, carryDynamicTabs, findTab, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseForOperation, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setContainerRail, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import {createGrid} from "@notnotype/nb-layout";
 import type {GridExtent, GridFloatInput} from "@notnotype/nb-layout";
 import type {LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
@@ -24,7 +25,9 @@ import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainer
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
 import {guardPlacement} from "./placement";
-import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints} from "./layout-constraints";
+import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints, railBaseline, railBudget} from "./layout-constraints";
+import {SHELL_RAIL_WIDTH} from "../shell/sizes";
+import type {ViewRailBounds} from "../../shared/contracts";
 import {effectiveVisibleTabs, mergedSections, regionOccupied, viewKey} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
@@ -42,13 +45,32 @@ export type LayoutDocProblem =
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
 
+/**
+ * 右轨此刻生效的状态（docs/specs/ui/workbench-layout.md 输出 50）。`bounds` 为 null：当前容器没有视图段（几节、别的视图、没声明、出错或撤回），按收着呈现。
+ * `requested` 是意图的宽（没写时是声明的缺省）夹进声明范围之后；`width` 是这一次生效的卡片宽；`tooNarrow` 是意图要展开、预算给不出。
+ */
+export interface RailState {
+    readonly container: string;
+    readonly viewId: string | null;
+    readonly bounds: ViewRailBounds | null;
+    readonly expanded: boolean;
+    readonly tooNarrow: boolean;
+    readonly width: number;
+    readonly requested: number;
+    readonly regionWidth?: number;
+}
+
+/** 展开请求的结果（views.md 输出 21 的 `request`，工作台这一侧）：`too-narrow` 时意图不改。 */
+export type RailRequestResult = {readonly ok: true; readonly result: "done" | "too-narrow"} | Exclude<LayoutResult, {readonly ok: true}>;
+
 /** “移动到”的目标（输出 23）：一个容器的 id，或在哪个区域里新建一个用户容器。 */
 export type MoveViewTarget = {readonly container: string} | {readonly newContainerIn: PanelName};
 
 /** 存盘之前的关卡（`EditorSaveGate`）：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
 export type LayoutSaveGate = EditorSaveGate;
 
-const notFound = (id: string): LayoutResult => ({ok: false, code: "not-found", message: `Not found: ${id}`});
+type LayoutFailure = Exclude<LayoutResult, {readonly ok: true}>;
+const notFound = (id: string): LayoutFailure => ({ok: false, code: "not-found", message: `Not found: ${id}`});
 
 /** 记录与模板里的文档能不能用：过校验，还要合骨架（输出 1）。 */
 function usableDoc(value: unknown): LayoutDoc | null {
@@ -61,6 +83,8 @@ function defineLayoutDocStore(bound: boolean) {
         const field = persist<LayoutDocRecord>(LAYOUT_DOC_RECORDS[bound ? "project" : "user"], {initial: {doc: null}});
         const template = persist<LayoutDocRecord>(LAYOUT_TEMPLATE_RECORD, {initial: {doc: null}});
         const catalog = shallowRef<ViewCatalog>(new Map());
+        /** 视图声明的视图段（外壳交进来：注册表的 `railOf`，渲染出错、交付撤回的视图给 null，输出 50 的“展开”）。 */
+        const railBounds = shallowRef<(viewId: string) => ViewRailBounds | null>(() => null);
         const containers = shallowRef<ContainerCatalog>(NO_CONTAINERS);
         /** 这个窗口的文档。打开时读到记录才有；没有记录时是 null，默认树跟着视图目录（目录是陆续交进来的），第一次改动才定下来。 */
         const local = shallowRef<LayoutDoc | null>(null);
@@ -154,8 +178,44 @@ function defineLayoutDocStore(bound: boolean) {
             if (current === null) return {removed: new Set<string>() as ReadonlySet<string>, squeezed: false};
             return presentationCollapse(doc.value, current, {...layoutProjectionOptions({doc: doc.value, catalog: catalog.value, viewportWidth: current.width, cardGap: cardGap.value}), order: collapseOrder(doc.value), focused: currentPanel.value});
         });
-        /** 约束按面板所在的区域取（输出 6），区域要从被投影的那份文档里问：预览的文档另算一份选项。 */
-        const optionsFor = (of: LayoutDoc): LayoutProjectionOptions => layoutProjectionOptions({doc: of, catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, squeezed: collapse.value.squeezed, cardGap: cardGap.value});
+        /**
+         * 投影选项。约束按面板所在的区域取（输出 6），区域要从被投影的那份文档里问：预览的文档另算一份选项。`expanded` 为假时侧轨都按收着算：
+         * 预算的基线按它求（输出 50 的“预算”）。
+         */
+        const optionsOf = (of: LayoutDoc, expanded: boolean): LayoutProjectionOptions => {
+            const rail = expanded ? railState.value : null;
+            const budget = rail?.expanded === true ? {railWidth: rail.width, ...(rail.regionWidth === undefined ? {} : {regionWidth: rail.regionWidth})} : {};
+            return layoutProjectionOptions({doc: of, catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, squeezed: collapse.value.squeezed, cardGap: cardGap.value, ...budget});
+        };
+        /**
+         * 右轨此刻生效的状态（输出 50 的“展开”“预算”）：当前容器恰有一节、那个视图声明了视图段（`railBounds`，外壳从注册表与实例状态给）、意图是展开时，
+         * 按收着求一次基线再算预算。基线只读收着的投影，所以结果不随这次展开本身的呈现变化来回翻。右栏没有当前容器时是 null。
+         */
+        const railState = computed((): RailState | null => {
+            const current = doc.value;
+            const anchor = regionAnchor(current, "auxiliarybar");
+            const container = anchor === null ? null : current.panels[anchor]?.activeContainer ?? null;
+            if (anchor === null || container === null) return null;
+            const sections = regionSections(current, "auxiliarybar").filter((section) => section.container === container);
+            const viewId = sections.length === 1 ? sections[0]?.viewId ?? null : null;
+            const bounds = soleRailBounds(current, container);
+            const intent = current.panels[anchor]?.rail?.[container];
+            const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, intent?.width ?? bounds.width));
+            const collapsed: RailState = {container, viewId, bounds, expanded: false, tooNarrow: false, width: SHELL_RAIL_WIDTH, requested};
+            if (bounds === null || intent?.expanded !== true) return collapsed;
+            const budget = budgetFor(current, requested, bounds);
+            if (budget === null || budget.result === "too-narrow") return {...collapsed, tooNarrow: true};
+            return {...collapsed, expanded: true, width: budget.width, ...(budget.regionWidth === undefined ? {} : {regionWidth: budget.regionWidth})};
+        });
+        /** 按收着的投影求一次布局，取基线、算预算；窗口尺寸还不知道、找不到编辑组时是 null（不能展开）。 */
+        function budgetFor(of: LayoutDoc, request: number, bounds: ViewRailBounds) {
+            const area = extent.value;
+            if (area === null) return null;
+            const collapsedProjection = projectLayoutDoc(of, optionsOf(of, false));
+            const baseline = railBaseline(of, collapsedProjection, createGrid<string>(collapsedProjection.input, {sashSize: collapsedProjection.sashSize}).layout(area));
+            return baseline === null ? null : railBudget({baseline, request, segment: bounds});
+        }
+        const optionsFor = (of: LayoutDoc): LayoutProjectionOptions => optionsOf(of, true);
         const projectionOptions = computed(() => optionsFor(doc.value));
         const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
         /**
@@ -301,6 +361,13 @@ function defineLayoutDocStore(bound: boolean) {
             return {region: containerRegion(current, home.container) ?? home.location, container: home.container};
         }
 
+        /** 右栏里这个容器恰有一节、那个视图声明了视图段时的范围；别的都是 null。 */
+        function soleRailBounds(of: LayoutDoc, container: string): ViewRailBounds | null {
+            const sections = regionSections(of, "auxiliarybar").filter((section) => section.container === container);
+            const viewId = sections.length === 1 ? sections[0]?.viewId ?? null : null;
+            return viewId === null ? null : railBounds.value(viewId);
+        }
+
         /**
          * `moveView` 的结构部分（输出 23）：移进一个容器，或在一个区域里新建一个只含它的用户容器。新容器的 id 只在这里生成；试算（`permitsMoveView`）也走这里，
          * 生成的 id 只在那份算完就丢的文档里。
@@ -322,7 +389,7 @@ function defineLayoutDocStore(bound: boolean) {
         };
 
         return {
-            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, recordRepairs},
+            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, recordRepairs, rail: railState},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -568,6 +635,42 @@ function defineLayoutDocStore(bound: boolean) {
                     if (!moved.ok || anchor === null || moved.doc.panels[anchor]?.rail?.[container] === undefined) return moved;
                     return setContainerRail(moved.doc, {anchor, container, intent: null});
                 }, {flush: true}),
+                /** 视图段的范围从哪里读（外壳交进来，见 `railBounds`）。 */
+                acceptRailBounds: (next: (viewId: string) => ViewRailBounds | null): void => {
+                    railBounds.value = next;
+                },
+                /**
+                 * 右栏这个容器的侧轨展开或收起（输出 50 的“展开”）：只写这一项的 `expanded`，不写回尺寸意图。展开时先按此刻的布局算一次预算，
+                 * 给不出（窗口太窄、没有视图段）就不写、回报 `too-narrow`，意图不改；能展开时退出别的面板的最大化。已经是这样时零写入。
+                 */
+                requestRailExpanded: (container: string, expanded: boolean): RailRequestResult => {
+                    const current = doc.value;
+                    const anchor = regionAnchor(current, "auxiliarybar");
+                    const record = anchor === null ? undefined : current.panels[anchor];
+                    if (anchor === null || record?.entries?.includes(container) !== true) return notFound(container);
+                    const intent = record.rail?.[container] ?? {};
+                    if (expanded) {
+                        const bounds = soleRailBounds(current, container);
+                        const budget = bounds === null ? null : budgetFor(current, Math.min(bounds.maximum, Math.max(bounds.minimum, intent.width ?? bounds.width)), bounds);
+                        if (budget === null || budget.result === "too-narrow") return {ok: true, result: "too-narrow"};
+                        maximized.value = null;
+                    }
+                    const next = {...(expanded ? {expanded: true as const} : {}), ...(intent.width === undefined ? {} : {width: intent.width})};
+                    const written = apply((doc) => setContainerRail(doc, {anchor, container, intent: next}), {flush: true, rebase: false});
+                    return written.ok ? {ok: true, result: "done"} : written;
+                },
+                /**
+                 * 轨宽手柄落账（输出 50 的“轨宽手柄”）：只写这一项的 `width`，取整、夹进视图段声明的范围；等于声明的缺省时不写（意图只记偏离缺省的部分）。
+                 */
+                commitRailWidth: (container: string, width: number): LayoutResult => apply((current) => {
+                    const anchor = regionAnchor(current, "auxiliarybar");
+                    const record = anchor === null ? undefined : current.panels[anchor];
+                    if (anchor === null || record?.entries?.includes(container) !== true) return notFound(container);
+                    const bounds = soleRailBounds(current, container);
+                    const clamped = Math.round(bounds === null ? width : Math.min(bounds.maximum, Math.max(bounds.minimum, width)));
+                    const expandedIntent = record.rail?.[container]?.expanded === true ? {expanded: true as const} : {};
+                    return setContainerRail(current, {anchor, container, intent: {...expandedIntent, ...(bounds !== null && clamped === bounds.width ? {} : {width: clamped})}});
+                }, {flush: true, rebase: false}),
                 /** 最大化（输出 13）：只在内存；再点同一块退出。 */
                 toggleMaximized: (panel: string): boolean => {
                     // 浮动窗不可最大化：它不在树里，盖不了别的面板。区域的锚也不行：区域里最大化的是一个分节（输出 13）。

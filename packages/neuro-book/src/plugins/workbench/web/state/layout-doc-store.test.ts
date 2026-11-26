@@ -11,7 +11,7 @@ import {effect} from "@vue/reactivity";
 import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {createGrid, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
 import {barRef, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setContainerRail, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -1102,6 +1102,83 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             second.store.actions.acceptViewCatalog(VIEWS);
             expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {width: 310}});
             expect(second.store.state.recordRepairs).toHaveLength(1);
+        });
+
+        /** 消息视图的范围（conversation 输出 57）：缺省 260，200–420，展开时聊天区至少 320。 */
+        const BOUNDS = {width: 260, minimum: 200, maximum: 420, chatMinimum: 320};
+        const railed = async (width = 1440) => {
+            const opened = await open();
+            opened.store.actions.acceptRailBounds((viewId) => (viewId === "test.x1" ? BOUNDS : null));
+            opened.store.actions.acceptExtent({width, height: 900});
+            return opened;
+        };
+        /** 呈现里右轨叶与右栏节点按这一刻的投影求出来的宽。 */
+        const solved = (store: LayoutDocStore) => {
+            const projection = store.actions.presentation();
+            const sizes = createGrid<string>(projection.input, {sashSize: projection.sashSize}).layout(store.state.extent ?? {width: 0, height: 0}).sizes;
+            return {rail: sizes["rail:auxiliarybar"]?.width, region: sizes[presentedRegion(store, "auxiliarybar")]?.width};
+        };
+
+        it("展开：意图只写 expanded，右轨按声明的缺省宽呈现，编辑组让出；收起写回原状、零写入地回到收着（输出 50 的“展开”“预算”）", async () => {
+            const {store} = await railed();
+            expect(store.state.rail).toMatchObject({container: X1, viewId: "test.x1", expanded: false, width: 48});
+            const before = solved(store);
+            expect(before.rail).toBe(48);
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+            expect(store.state.rail).toMatchObject({expanded: true, tooNarrow: false, width: 260});
+            expect(solved(store)).toEqual({rail: 260, region: before.region});
+            expect(store.actions.requestRailExpanded(X1, false)).toEqual({ok: true, result: "done"});
+            expect(anchorOf(store, "auxiliarybar")).not.toHaveProperty("rail");
+            expect(solved(store)).toEqual(before);
+        });
+
+        it("窗口太窄：展开请求回报 too-narrow，意图不改、零写入；已展开的在窗口变窄时按收着呈现、意图留着，变宽后恢复（验收 36）", async () => {
+            const {store} = await railed(1000);
+            await settled(store);
+            const before = store.actions.document();
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "too-narrow"});
+            expect(store.actions.document()).toBe(before);
+            expect(store.state.field.queue).toBe(0);
+
+            store.actions.acceptExtent({width: 1440, height: 900});
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            store.actions.acceptExtent({width: 1000, height: 900});
+            expect(store.state.rail).toMatchObject({expanded: false, tooNarrow: true, width: 48});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+            expect(solved(store).rail).toBe(48);
+            store.actions.acceptExtent({width: 1440, height: 900});
+            expect(store.state.rail).toMatchObject({expanded: true, width: 260});
+        });
+
+        it("轨宽：取整、夹进声明的范围，等于缺省时不写；收着时写的宽照样留着，展开时按它", async () => {
+            const {store} = await railed();
+            expect(store.actions.commitRailWidth(X1, 300.4).ok).toBe(true);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {width: 300}});
+            expect(store.state.rail).toMatchObject({expanded: false, requested: 300, width: 48});
+            store.actions.requestRailExpanded(X1, true);
+            expect(store.state.rail).toMatchObject({expanded: true, width: 300});
+            store.actions.commitRailWidth(X1, 900);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true, width: 420}});
+            store.actions.commitRailWidth(X1, 260);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+        });
+
+        it("当前容器没有视图段（视图没声明、交付撤回）：按收着呈现，记录不改；展开请求回报 too-narrow", async () => {
+            const {store} = await railed();
+            expect(store.actions.requestRailExpanded(X1, true).ok).toBe(true);
+            store.actions.acceptRailBounds(() => null);
+            expect(store.state.rail).toMatchObject({bounds: null, expanded: false, width: 48});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "too-narrow"});
+        });
+
+        it("别的面板最大化时展开：先退出最大化（输出 50 的“预算”）", async () => {
+            const {store} = await railed();
+            expect(store.actions.toggleMaximized(INITIAL_EDITOR_PANEL)).toBe(true);
+            expect(store.state.maximized).toBe(INITIAL_EDITOR_PANEL);
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            expect(store.state.maximized).toBeNull();
         });
 
         it("视图浮出时意图带进窗、归位时带回；视图的“重置位置”（从别处回到声明的容器）同一次提交清掉它", async () => {

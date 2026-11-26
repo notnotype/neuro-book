@@ -20,7 +20,8 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
-import {VIEW_HEAD, VIEW_OWN_HEAD} from "../../shared/contracts";
+import {VIEW_HEAD, VIEW_OWN_HEAD, VIEW_RAIL} from "../../shared/contracts";
+import type {ViewRailBounds} from "../../shared/contracts";
 import type {ViewImplementation} from "../contracts";
 import {regionContainers} from "../state/containers";
 import {defaultLayoutDoc} from "../state/default-tree";
@@ -73,6 +74,8 @@ interface ContributorControl {
     head?: boolean;
     /** 实现声明浮动窗里自绘头（同条的“自绘头”）。 */
     ownHead?: {readonly band: number};
+    /** 实现声明的视图段（输出 21）。 */
+    rail?: unknown;
 }
 
 const Sample = defineComponent({name: "SampleView", render: () => null});
@@ -90,7 +93,7 @@ function contributor(id: string, views: ReadonlyArray<string>, control: Contribu
                 if (control.fail) throw new Error("样例入口按开关激活失败");
                 control.context = context;
                 const badge = control.badge;
-                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()}), ...(control.head === true ? {[VIEW_HEAD]: true as const} : {}), ...(control.ownHead === undefined ? {} : {[VIEW_OWN_HEAD]: control.ownHead})};
+                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()}), ...(control.head === true ? {[VIEW_HEAD]: true as const} : {}), ...(control.ownHead === undefined ? {} : {[VIEW_OWN_HEAD]: control.ownHead}), ...(control.rail === undefined ? {} : {[VIEW_RAIL]: control.rail as ViewRailBounds})};
                 return {contributions: {[WORKBENCH_VIEWS_POINT]: Object.fromEntries(views.map((view) => [view, implementation]))}};
             },
             ...extra,
@@ -152,6 +155,23 @@ describe("视图注册表", () => {
         expect(owner.reports.filter((report) => report.includes("badge()"))).toHaveLength(1);
         expect(loads).toBe(0);
         expect(registry.badge("test.missing")).toBeNull();
+    });
+
+    it("视图段：不加载视图就能读，加载结果也带着；形状不合按没声明；撤回后没有（views.md 输出 21）", async () => {
+        let loads = 0;
+        const bounds = {width: 260, minimum: 200, maximum: 420, chatMinimum: 320};
+        const good = control({load: async () => {
+            loads += 1;
+            return Sample;
+        }, rail: bounds});
+        const {registry} = await start([contributor("test.rail", ["test.rail.view"], good), contributor("test.bad", ["test.bad.low", "test.bad.nan"], control({rail: {width: 100, minimum: 200, maximum: 420, chatMinimum: 320}}))]);
+        expect(registry.railOf("test.rail.view")).toEqual(bounds);
+        expect(loads).toBe(0);
+        expect(registry.railOf("test.bad.low")).toBeNull();
+        expect(await registry.load("test.rail.view")).toMatchObject({status: "loaded", rail: bounds});
+        expect(registry.railOf("test.missing")).toBeNull();
+        await stopEntry(good);
+        expect(registry.railOf("test.rail.view")).toBeNull();
     });
 
     it("目录来自已接受的声明：没交付的视图也在目录里；不合规则的声明不进目录", async () => {
