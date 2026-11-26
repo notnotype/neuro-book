@@ -1,0 +1,128 @@
+w00055 t02 S2+S3 实现审查：451d94623..5da1c66c1（7 个提交）。开始时确认 HEAD 为 5da1c66c1、分支为 feat/w00055-entry-rich-text，工作区无待提交改动。依据固定的第 4 稿与 Spec；旧内核和 S4 起的切片不在范围内。下文源码位置相对被审 worktree。
+
+### 1. 表格里含管道符的字面标签能读不能重写
+严重程度：重要；类别：正确性
+位置：packages/nb-markdown/src/language/codec/render/inline.ts:180–183、206–222；packages/nb-canon/src/grammar/parse.ts:117–134
+现象：两列表格的数据行是 `| \`<V expr="panel.a || panel.b" />\` | <Ref id="e2" /> |`（这里反斜杠只用于标示内层反引号，输入没有它）。内核放行，V 落在 `code`、Ref 活着；编辑器原样写回成功，但拿空来源表重写同一文档得到 `unrepresentable`（“各级写法都读不回来”）。行内代码分支无条件给两个 `|` 加反斜杠，重新分词先遮罩整个标签，表格不再消掉反斜杠，两处字节变化使写回校验失败。把代码反引号换成 `\<V` 的转义形态也是合法输入；整篇重写虽能成功，却把标签从 `escaped` 变成 `malformed/prose`，丢掉其完整属性与字面落点。输出 17、21 都涵盖代码和转义形态。旧写法给代码里的 `|` 加反斜杠是对的，新增遮罩改变了前提。已有测试分别覆盖表格里的活标签、表格外的字面标签；未覆盖两者相交。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的“表格中的代码标签／转义标签”两行；走真实 `codecFor().read/write` 和 `checkEntryText`。
+建议：让表格转义对完整单元格输出共享一份原子范围，不要只在节点输出分支跳过原子。代码、转义文字和跨标记开闭的输出都按同一份范围决定哪些管道符要转义；测试同时断言活标签、字面标签的落点与原文。
+
+### 2. 一个私用区字让已定义的引用式链接退化为普通文字
+严重程度：重要；类别：不变量
+位置：packages/nb-markdown/src/marked/lexing.ts:106–132、136–154、252–257
+现象：`[看][\uE000]\n\n[\uE000]: /ok "title"`（`\uE000` 是实际字符）在条目语言里通过写入检查，但编辑器只显示字面的 `[看][…]`，整篇重写还会把两个方括号转义。相同原字符的两处被分配不同身份字，marked 用已遮罩的标签作定义键与引用查找，分词后还原无法补回丢失的链接；`unmask` 仅恢复值，也未恢复 `tokens.links` 的键。没有原子的章节语言不会遮罩这两个字。违反输出 17“私用区的字照常是文字”与输出 21 共用 Markdown 读法；ASCII 引用标签对照正常。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的“独立引用定义内私用区”行，检查编辑器节点不含 link mark。
+建议：让引用定义建键、引用查找和定义表还原遵循同一套原文规范化；不能给参与相等性比较的文本每处无条件分配不同的身份。补同一私用字重复引用、多个私用字相邻及分段读回测试。
+
+### 3. 合法式子的最外层括号被当成多余输入
+严重程度：重要；类别：正确性
+位置：packages/nb-canon/src/grammar/expression.ts:50–67；packages/nb-canon/src/grammar/check.ts:89–91
+现象：`<If test="(panel.a > 0)">是</If>` 和 `<V expr=" (panel.a + 1) " />` 得 `forbidden-syntax`，`<V expr="panel.a * (panel.b + 1)" />` 却通过。acorn 默认剥掉括号，`node.end` 是内层式子的结束，不能用它判断词法是否读到末尾。计划把括号列为已确认的写法；旧实现按 MDX 给出的整个表达式语句检查，不把右括号当尾随内容。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的“括号”与 `式子 {"text":"(panel.a)"…}`。后者在合法闭括号偏移 8 报 `only a single expression is allowed`。
+建议：用 acorn 的实际已消费位置（或启用 `preserveParens` 后明确消解括号节点）检查尾随内容，保留原偏移和禁注释。用完整标签测试根式子带括号、嵌套括号及合法式子后的额外输入。
+
+### 4. 引用里的非法单元把诊断位置记到了后文同样的块
+严重程度：重要；类别：正确性
+位置：packages/nb-canon/src/grammar/check.ts:40–58、130–143
+现象：检查 `> <!-- 注\n> 释 -->\n\n<Ref />\n\n<!-- 注\n释 -->`，结果是 `unknown-tag` 第 4 行第 1 列，随后两个 `unsupported-markdown` 都在第 6 行第 1 列。实际第一个错误是第 1 行第 3 列的注释。`marked` 去掉引用行首 `>` 后，子单元 `raw` 不能在所属块内直接匹配；无上界的 `indexOf` 匹配到了下一个顶层块。只有排序，不能弥补定位错误。旧解析直接取语法单元坐标，没有这条回搜。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的“偏移匹配跳到后文”。
+建议：来源映射要沿父单元传播，容器去前缀时保留子单元至原文的坐标；至少不要越过所属顶层块回搜。同测嵌套引用／列表、后文有完全相同的文本和首个拒收码。
+
+### 5. 有限数经过“去尾差”反而变成 Infinity
+严重程度：重要；类别：正确性
+位置：packages/nb-canon/src/grammar/expression.ts:187–192、240–244；packages/nb-canon/src/grammar/tags.ts:137–139
+现象：`panel.max * 1` 在 `panel.max = Number.MAX_VALUE` 时返回 `Infinity`。`finite` 只检查舍入前的值；`toPrecision(15)` 得 `1.79769313486232e+308`，再转回数字就溢出。违反输出 5 的“不是有限数时未知”；后续比较可把这个值判断成大于任何有限数，而带值 JSON 又会把它写成 `null`。去尾差是本次新增路径。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的 `panel.max * 1` 行，走公开的 `parseExpression`、`evaluate`。
+建议：不能返回非有限数；如果只是 15 位近似导致溢出，应保留原本有限的计算结果，不要把原本没溢出的乘法变成未知。加最大有限值、实际溢出、普通尾差三个对照。
+
+### 6. 片段分词用自己的身份表把已还原的引用地址改成别处的标签
+严重程度：重要；类别：不变量
+位置：packages/nb-markdown/src/marked/lexing.ts:136–154、252–257、269–295；packages/nb-markdown/src/language/codec/read.ts:195–203；packages/nb-markdown/src/language/syntax/callout/index.ts:216–223
+现象：用内置提示块、条目语法和 core 组装公开编解码器。定义 `[r]: /\uE000`（实际私用区字），提示块正文为 `[甲][r] <V of="panel.a" />`，外面也有 `[乙][r]`。两处原文引用同一地址，实际外面是 `/\uE000`，提示块内变成 `/V of="panel.a" /`；重写时错误地址被写成行内链接。顶层先把定义地址还原，提示块另分词时又把它当成片段的第一个身份字；`unmask` 既改新链接又原地污染共享的 `lexer.tokens.links`，后续另分词跟着读错。base 的提示块另分词不替换定义值。与第 2 条不同，这里引用键是 ASCII，坏的是定义值和已解析的链接值。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/context.ts` 的“真实提示块另分词的定义表”，走现成 `callout` 的读法，没有仿造词法器状态。
+建议：片段的定义环境与外层隔离；让参与本轮引用查找的键和值都来自同一套遮罩，在片段结束时只还原其新增对象，不能对继承来的原文或上轮已还原对象套用本轮表。
+
+### 7. 开闭标签在字面位置预先配对会吃掉它们之间的 Markdown
+严重程度：重要；类别：正确性
+位置：packages/nb-canon/src/grammar/tags.ts:90–105、114–116；packages/nb-canon/src/grammar/parse.ts:128–135
+现象：两个行内代码片段分别写开标签和闭标签，中间写 `**粗**`：源码为“反引号 + `<V of="panel.a">` + 反引号 + ` **粗** ` + 反引号 + `</V>` + 反引号”。内核放行，只给一个 `paired/code`；编辑器读成一整个代码片段，`粗` 不再加粗，重写后也变成用双反引号围起来的一个代码片段。用两个显式转义的尖括号替代反引号同样吞掉中间强调。`lexTags` 在识别代码、转义的位置之前，将两段之间的反引号、星号也替换为填充字；事后恢复只能还原字节，不能还原 Markdown 结构。违反输出 17 的字面范围及共用 core 的读法；无原子时两个代码片段彼此独立。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/context.ts` 的“两个代码片段被配对／两个转义标签吞掉中间强调”。
+建议：源文不预合并字面的开闭标签；先按单个标签判断真实落点。只在带值文法中识别活的、完整的装饰封套，不能用“下一个 `<` 是同名闭合”替代 Markdown 边界。
+
+### 8. 表格保住多余单元格时，连内核认作活的标签也被整个藏进原样块
+严重程度：重要；类别：正确性
+位置：packages/nb-markdown/src/language/syntax/core/index.ts:300–312；packages/nb-canon/src/grammar/parse.ts:241–255
+现象：`| a |\n|---|\n| <Ref id="e2" /> | 多余 |` 通过写入检查，内核把 `Ref` 分类为 `live`。编辑器遵照既有无损策略把整张表读成一个 `rawBlock`，没有条目节点。输出 21 保证在同一段主文字中活标签和落点一致；当前检查仅发现被 marked 丢掉的标签，多余格是普通文字时仍放行这张表。删掉 `多余` 那一格以后两边一致。base 章节编辑器保原样没有问题，回归是新入口把一个编辑器无法表达的表里的标签判作活的。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/context.ts` 的“合法的表格含多单元格的普通文字”。
+建议：共用单元格识别与溢出结果；条目不能一边把表当不透明、一边解释表内标签。不能改章节编辑器保留原文的行为；在条目合同上明确这类输入应拒收，还是两端用同一种可保留全部单元格的结构。
+
+### 9. 拒收嵌套 If 之前，白名单检查按指数级重走同一批单元
+严重程度：阻断；类别：安全与性能
+位置：packages/nb-canon/src/grammar/check.ts:44–58、130–136；packages/nb-canon/src/grammar/parse.ts:148–162、197–215
+现象：621 个码元、40 个标签、20 层 HTML 强调与 If 交替嵌套的文本，`parseEntryText` 约 36 ms，`checkEntryText` 约 2.06 s，最后才返回 `cross-block`。合法输入的长度或标签上限挡不住这种错误路径。`entryIf.tokens` 与 `branches[].tokens` 共享分支中的容器对象；`unsupportedTokens` 的 `seen` 只阻止重复报告，仍两次下钻到同一个下一层。有 n 层共享容器就会产生约 2^n 次遍历。20 层后接着测的 100 层案例未在整组 60 s 截止前返回。旧白名单对每个节点最多访问一次，并在首错停下。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/timing.ts html-if 20`，入口是公开的 `parseEntryText` 和 `checkEntryText`，无需跑超出这个规模的案例。
+建议：只用 `entryIf.tokens` 或只用包含分支边界的唯一结构做全树检查；若保留两份视图，进过的节点要在递归之前跳过。同层未闭合 If 还应一次扫描配对，而不是每个开标签再扫余下兄弟。测试用可确定的访问量或明确的上界，不绑单机计时。
+
+### 10. `of` 拒绝内核已有的合法地址，要求使用 JS 下标写法
+严重程度：重要；类别：正确性
+位置：packages/nb-canon/src/grammar/expression.ts:81–87、141–170；packages/nb-canon/src/core/address.ts:19–34；packages/nb-canon/src/components/values.ts:48–55
+现象：`parsePath` 和列表元素校验允许 id 为 `true`；存下来的地址 `panel.list[true]` 合法，但 `<V of="panel.list[true]" />` 得 `forbidden-syntax`，改成 `panel.list['true']` 才能写。`text[default]` 和 `panel.list[null].name` 同样被拒。`of` 本应沿用内核的 `parsePath`（计划第 2 节），但实现先过 acorn，由 JavaScript 决定 `true` 是布尔值、`default` 是关键字。结果是编辑器/API 从合法字段路径直接拼出的标签不能写入。base 已支持这些持久化地址，旧 MDX 表达式使用字符串下标不表示新 `of` 可以缩窄地址合同。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/roundtrip.ts` 的“地址合同”；失败码经 `checkEntryText` 获得，`parsePath` 只作合同对照。
+建议：给 `of` 走 `parsePath` 路径语法，不先经 JS 语法；式子内的 `ref` 和计算下标仍由 acorn 检查。若保留带引号下标作别名，不得拒绝任何合法的持久化路径。
+
+### 11. 未闭合的带值标签可以把转义的 `</V>` 借作闭标签
+严重程度：重要；类别：正确性
+位置：packages/nb-canon/src/grammar/tags.ts:90–103；packages/nb-canon/src/grammar/text.ts:61–69
+现象：Agent 交回 `甲 <V of="panel.a">1\</V> 后` 时，`\</V>` 是字面闭标签，前面的开标签没有闭合。`stripEntryText` 却输出 `甲 <V of="panel.a" /> 后`，写入检查全通过；字面的 `\</V>` 被程序吞掉。只改装饰属性仍去得掉，真正不带闭标签的半截会被拒，绕过来自词法使用下一个同名闭标签却不识别反斜杠。违反输出 22“只动活的标签”，也不符合设计处理记录对截断写法的拒收。第 7 条是同一预配对在源文读法的损害；本条是去值后被当成合法写入。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的首条“Agent 交回”行，检查 `after` 为空、原转义片段消失。
+建议：带值封套的闭标签必须处于同一活的行内上下文、没有转义；没找到就保留不完整输入交校验，不要从字面位置借结束符。
+
+### 12. 共用原子 API 把 `atomAt` 已返回的原文再当占位还原
+严重程度：建议；类别：不变量
+位置：packages/nb-markdown/src/marked/lexing.ts:82–85、136–154、176–199
+现象：模块按公开的 `atomAt` 查回 `<One \uE000>` 的原文字段 `One \uE000`，像现有词法测试的模块一样把它放到自定义单元字段中。`lexAtoms` 返回 `One One \uE000`，并把原文字段误报成一个遮罩落点。这里不是原子表跨 lexer 残留；是递归枚举所有字段时，不区分 marked 产生的带占位字段和扩展用真原文造的字段。被审的 `entryTag` 只存 `raw`、数字偏移，因此这个最小用例不归为条目内核故障；共用公开 API 的合同本身已破坏。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/context.ts` 的“AtomAt 的原文进入自定义字段”，用公开 `MarkdownLexing`、`atomAt`、`lexAtoms` 组装真实 marked 扩展。
+建议：让模块声明哪些字段仍是遮罩过的输入，或把占位还原限制在明确持有 marked 源文字的字段里；新增测试让原子原文恰好含本次使用的身份字与填充字。
+
+### 13. `round` 在十进制半点向错误方向舍入
+严重程度：建议；类别：正确性
+位置：packages/nb-canon/src/grammar/expression.ts:273–275、287–291
+现象：合法字段值 `1.005` 代入 `round(panel.decimal, 2)` 结果是 `1`，不是 `1.01`：先乘 100 得 100.49999999999999，已经选错了一侧，最后的 `finite` 无法补回。`percent(-panel.one, 40)` 在 `panel.one=1` 时输出 `"-2%"`；`Math.round` 的负半点向正无穷舍入，与通常的四舍五入 `"-3%"` 不同。两条函数都是本次新增，测试只覆盖普通正数。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 的 `round(1.005, 2)` 与 `percent(-1, 40)`；完整的 `<V expr="round(panel.decimal, 2)" />` 也通过写入检查，按字段取到 `1.005` 后结果为 `1`。
+建议：先明确正负半点合同，再用同一个十进制舍入过程，保证不会被放大时的浮点尾差推到错误的一侧。测正负半点和半点上下的非等值。
+
+### 14. 6000 的配额没有计入补充平面的 Unicode 私用字符
+严重程度：建议；类别：正确性
+位置：packages/nb-markdown/src/marked/lexing.ts:72–78、106–120；packages/nb-canon/src/grammar/parse.ts:234–239
+现象：一块 6001 个 U+E000 正确返回 `too-many-tags`，一块同样是 6001 个私用字符、换成 U+F0000 则通过。正则只数 BMP 私用区；Spec 输出 1、17 与计划写的是 Unicode 私用区，未限定 BMP。补充私用字不与现有身份字相撞，但不等于可以在配额中忽略。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/contracts.ts` 最后两行，走 `checkEntryText`。
+建议：明确配额是数全部 Unicode 私用字符，还是仅数可当占位冲突的 BMP 字符。前者要按码点统计并保持补充字符遮罩仍为两个 UTF-16 码元，后者要收窄合同。
+
+### 15. 合法原子越多，私用字检测反复搜索越长的剩余原文
+严重程度：建议；类别：安全与性能
+位置：packages/nb-markdown/src/marked/lexing.ts:106–118
+现象：一段 156,000 个码元、恰好 6000 个合法 Image 标签、没有私用字，公开入口解析用 1,954.5 ms，随后写入检查 13.8 ms（同次测量，750／1500／3000 个标签的解析分别为 166.9／224.7／570.2 ms）。`takePrivateUse(until)` 虽然只要到下一个原子起点，却对整段原文 `exec`；找不到字符时，每个标签都扫完之后的整段后缀。这一输入的后缀合计约 4.68 亿个码元。base 没有这层扫描；测量包含 marked 的开销，不把全部耗时归给这一个循环。
+如何核实：`bun /tmp/review-w00055-t02-s3/lab-omp/suffix-scan.ts`；测试的两组字数与标签数一致，均过检查。
+建议：用一次向前扫描合并已排序的标签范围和私用字位置，跨过标签内部的匹配；不要为每个空区间重置 `lastIndex` 并向后找。
+
+## 证据补充
+
+- 第 5 条不要求持久化字段接受 `Number.MAX_VALUE`。`bun /tmp/review-w00055-t02-s3/lab-omp/small-cases.ts` 验证了完整的 `<V expr="panel.one * 1.7976931348623157e308" />` 通过写入检查；合法字段值 `1` 代入后仍得到 `Infinity`，`agentJson` 写成 `null`。
+- 第 12 条另用同一脚本经 `codecFor().read` 复核了用户可见结果：扩展读法明确取 `atomAt` 返回的 `One \uE000`，编辑器正文却是 `One One \uE000`。
+
+## 未发现问题的方面
+
+- 无原子的章节语言：定向编解码器测试覆盖的块切分、原文复用、编辑后重写、Markdown 方言、frontmatter 与来源表未见回归。独立提示词文本读写的定向测试通过。
+- 式子白名单：在实测的可选链、`new`、`in`、`void`、模板、`import.meta`、对象／数组、注释等禁用写法上，未发现接受面扩张；三值逻辑的定向用例通过，数值边界问题见第 5、13 条。
+- 带值往返：普通活标签在链接正文、表格、强调、引用、标题与列表中的实测值，及按约定编码的实体、换行、U+2028／U+2029、私用字，未发现另外的逐字往返差异。截断带值写法的例外见第 11 条。
+
+## 验证记录
+
+- `packages/nb-canon`：`bun test tests/grammar.test.ts` 为 103 通过、0 失败；`bun test tests/architecture.test.ts` 为 3 通过、0 失败；`bun run typecheck` 退出码 0。
+- `packages/nb-markdown`：`bun test src/marked/lexing.test.ts src/language/codec/language-options.test.ts` 为 18 通过、0 失败；`bun test src/language/codec/{codec,dialects,editing,frontmatter,properties,source,write}.test.ts src/boundary.test.ts` 为 179 通过、0 失败；`bun test src/prompt/prompt-text.test.ts` 为 125 通过、0 失败；`bun run typecheck` 退出码 0。
+- `packages/neuro-book`：`bun test src/plugins/canon/web/entry-syntax.test.ts` 为 12 通过、0 失败。
+- 以上均为被审版本的定向检查，不是全量套件。未跑 e2e、开发服务或浏览器，未验证 S4–S6 接入。收尾 `git rev-parse --short=9 HEAD` 为 `5da1c66c1`，`git status --short` 无输出。
+
+合计：阻断 1 条（第 9 条）；重要 10 条（第 1–8、10、11 条）；建议 4 条（第 12–15 条）。
+
+有效编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15

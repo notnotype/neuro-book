@@ -39,6 +39,10 @@ updated: 2026-11-26
   - canon 插件 `web/entry-syntax.ts`（编辑器一侧的最小条目语法模块）与 `web/entry-syntax.test.ts`：真实编解码器读出的条目节点与内核的活标签逐个相同、原样写回不变、整篇重写过写入检查（10 例加 300 份随机）。
   - S0 的快照测试补了类型（`451d94623` 起 nb-canon 的 typecheck 是坏的，S3 修好）。应用的 typecheck 通过；`src/architecture.test.ts` 有一条失败来自 w00056 t06 的 Lab 草稿引了别的插件的图片，分支起点上就有，与本 Task 无关。
 
+- S3 的实现审查（快速审查，Opus 子代理与 omp `@review` 同时审 `451d94623..5da1c66c1`）：Opus 10 条、omp 15 条（含 1 条阻断：嵌套 If 的检查指数级），按[处理记录](evidences/s3-review-resolution.txt)修了 23 条，两条接受取舍（提示块与原子同在一门语言里的另分词、`atomAt` 原文的用法约束）。修正提交 `d51958ec9` 到 `a0d8d6e7b`，在单独的 worktree 里做、快进合入 Work 分支。Spec 跟着改：`tag-malformed` 收进单引号等近似写法，链接里写坏的候选照正文判，表格行比表头多拒收，`round` 的舍入与负位数，`too-many-tags` 按不同的私用区字计，`of` 认存下来的地址写法；markdown-syntaxes 写明另分词的时机与私用区字共用占位。
+
+- S4（分支 `938996b32`）：`packages/nb-canon/src/render/legacy/convert.ts`，按旧 `parseBlock` 给的偏移拼接：单地址写成 `of`，`ref(…)` 写成 `entry` 加 `of`，别的表达式写成 `expr`（字符串换成单引号），顶层三元式写成 `If`（else 支的三元式接成 `ElseIf`，各支的字面量按旧的作者显示写成正文），只含注释的去掉并计数，`<Ref>`、`<Image>` 写成规范写法，`<Image src={地址}>` 写成 `of`；转完用新的写入检查再查一遍，转不了的交回原因。`tests/legacy-convert.test.ts` 17 条；星瑕样本里 44 处全部转成功。
+
 ## 下一步
 
-1. S3 的实现交快速审查（Opus 子代理先审，omp `@review` 在后台），范围 `451d94623..5da1c66c1`（含 S2）；Opus 的结论处理完就开始 S4 转换器。
+1. S5：内核换上新文法，连同样本与测试数据迁移（一个提交范围）。
