@@ -76,11 +76,32 @@ describe("上传凭证（截图状态）", () => {
         expect(slot.take()).toBeNull();
     });
 
-    it("同一凭证的两笔同时到：先到的占住凭证，另一笔得 410，收下的是先到那笔", async () => {
+    it("同一凭证的两笔同时到：先到的占住凭证，后到的不等它读完就得 410；收下的是先到那笔", async () => {
         const {store, put} = setup();
         const slot = store.issue(live());
-        const responses = await Promise.all([put(slot.token, JPEG_64X40), put(slot.token, JPEG_1281X8)]);
-        expect(responses.map((response) => response.status)).toEqual([204, 410]);
+        // 先到的那笔传得慢：第一块之后要等放行才给剩下的。后到的一笔是完整的，先读完的一笔不能因此得到凭证。
+        let release = (): void => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let pulls = 0;
+        const slow = new ReadableStream<Uint8Array>({
+            pull: async (controller) => {
+                pulls += 1;
+                if (pulls === 1) {
+                    controller.enqueue(JPEG_64X40.subarray(0, 64));
+                    return;
+                }
+                await gate;
+                controller.enqueue(JPEG_64X40.subarray(64));
+                controller.close();
+            },
+        });
+        const first = put(slot.token, slow);
+        const second = put(slot.token, JPEG_64X40);
+        expect((await second).status).toBe(410);
+        release();
+        expect((await first).status).toBe(204);
         expect(slot.take()).toEqual({bytes: JPEG_64X40, width: 64, height: 40});
     });
 
