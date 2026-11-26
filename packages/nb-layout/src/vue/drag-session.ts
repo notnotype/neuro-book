@@ -65,8 +65,17 @@ export interface DragSessionOptions<S, D, R> {
     sampled?(): void;
     /** 滚动时重新判定（缺省），或撤下落点直到指针再动。 */
     readonly scroll?: "reevaluate" | "withdraw";
-    /** 边缘滚动的元素；缺省不滚。 */
-    readonly autoScroll?: {readonly element: HTMLElement; readonly edgePx?: number; readonly maxStepPx?: number};
+    /**
+     * 边缘滚动（docs/specs/ui/layout-drag.md 输出 14）；缺省不滚。
+     * `containers`：指针此刻所在的、要边缘滚动的容器，从里到外；空数组不滚。没在滚时指针每次移动调一次，在滚时每帧开头调一次，可以现读状态。
+     * 指针越过容器的一端也算在那一端的边缘带里：并排的几个容器只交指针所在的那个，不然指针在后一个里时前一个也在滚。
+     * `top` 同 `resolve` 的（反馈元素不算，视口外为 null）；固定的列表不用看它，交 `() => [element]`。
+     */
+    readonly autoScroll?: {
+        containers(query: {readonly point: GridDropPoint; readonly top: Element | null}): ReadonlyArray<HTMLElement>;
+        readonly edgePx?: number;
+        readonly maxStepPx?: number;
+    };
     /** 键盘拖动；缺省只有指针。 */
     readonly keyboard?: DragKeyboardOptions<S, R>;
     /** 起拖门槛。 */
@@ -265,7 +274,8 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
         autoScroll: autoScroll === undefined ? undefined : {
             edgePx: autoScroll.edgePx,
             maxStepPx: autoScroll.maxStepPx,
-            targets: () => [scrollTargetOf(view, autoScroll.element)],
+            // `top` 每次现算：在 `pointermove` 里调时这一下还没判定，没有现成的。
+            targets: (point) => autoScroll.containers({point, top: topElementAt(document, point)}).map((element) => scrollTargetOf(view, element)),
         },
         keyboard: keyboard === undefined ? undefined : {
             regions: (source) => keyboard.regions(source),

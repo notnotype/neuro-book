@@ -4,8 +4,17 @@
 
 ## [Unreleased]
 
+### 不兼容的改动
+
+- 拖动会话的 `autoScroll` 不再收 `element`，改收 `containers({point, top})`：指针此刻所在的、要边缘滚动的容器，从里到外，没在滚时指针每次移动调一次，在滚时每帧开头调一次。原来的 `autoScroll: {element}` 改成 `autoScroll: {containers: () => [element]}`，竖向列表的行为不变（越过上下边照旧最快）。`overflow-y: hidden` 的元素以前给了就滚 `scrollTop`，现在不滚：轴看计算样式。
+
+### 新增
+
+- 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
+
 ### 改动
 
+- 边缘滚动改用 `scrollBy({behavior: "instant"})`，设了 `scroll-behavior: smooth` 的容器也一帧一步地滚。以前第一步之后读回来的位置没变，被当成滚到头停了。
 - `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
 - README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
 

@@ -52,7 +52,7 @@ const {state} = useDragSession<string, Drop, HTMLElement>(rootEl, () => {
     if (scroller === null) throw new Error("DragSessionScene：滚动容器没有挂上");
     return {
         scroll: "withdraw",
-        autoScroll: {element: scroller},
+        autoScroll: {containers: () => [scroller]},
         sourceAt: (target) => target.closest<HTMLElement>("[data-source]")?.dataset.source ?? target.closest<HTMLElement>("[data-row]")?.dataset.row ?? null,
         resolve: ({top}) => {
             const seen = top === null ? "null" : "element";

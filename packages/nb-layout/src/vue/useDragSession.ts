@@ -4,8 +4,8 @@
  *
  * - 时序：根已有值时在调用时立即建；模板 ref 的根在组件挂载后的那次刷新里才有，挂载回调里 `session` 还是 null。
  * - `createOptions(root)` 每在一个根上建会话时调一次，会话建好后不再读，所以它不被追踪：`autoScroll`、`keyboard`、`scroll`、
- *   `config` 在建时定死；要随状态变的东西写成回调里现读的值。`autoScroll` 取自 `v-if`、`v-for` 后面的模板 ref 时，建会话那一刻
- *   可能还是 null。
+ *   `config` 在建时定死；要随状态变的东西写成回调里现读的值，`autoScroll.containers` 每次现调，取 `v-if`、`v-for` 后面的模板 ref
+ *   也读得到当时的值。
  * - `createOptions` 抛错照 Vue 的规则交给应用的错误处理，这个根上没有会话。
  */
 

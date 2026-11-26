@@ -257,7 +257,7 @@ interface Hovered {
 const {session: gesture, state: gestureState} = useDragSession<string, Hovered>(root, (element) => ({
     // 用户自己滚动或行变了而指针没动：指针下已经不是显示的那一行，撤下落点（files-explorer 验收 15）。
     scroll: "withdraw",
-    autoScroll: {element},
+    autoScroll: {containers: () => [element]},
     sourceAt: (target) => treeSourceAt(element, target),
     activate: (id) => props.startDrag?.(id) ?? false,
     resolve: ({top, point}) => overOf(resolveTreeTarget(element, top, point)),
