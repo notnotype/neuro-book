@@ -30,9 +30,14 @@ bun run eval:browser probe --model-proxy "$(prox printenv https_proxy)"
 # 跑题：缺省第一阶段的 8 道题、三个模型、各 1 次；同一个 --out 再跑时续跑
 bun run eval:browser run --repeat 5 --out <运行目录> --model-proxy "$(prox printenv https_proxy)" --max-total-input-tokens <止损线>
 
+# 出报表：运行目录里写私有的 report.json、report.html，与可入库的投影 summary.json、summary.html
+bun run eval:browser report --out <运行目录>
+
 # 只起假站，人工打开看页面
 bun run eval:browser sites
 ```
+
+投影只含题号、模型、数值、结局与判分条目状态的枚举、版本号；写完会扫一遍，扫出最终回答、证据、题面原文、本机路径或 `sk-` 开头的串就报错、不留投影文件。私有报告留在运行目录，不入库。
 
 `run` 的标准输出是一行 `nbook.browser-eval.run-summary/v1`，进度在标准错误。运行目录的布局是 `<题>/<模型>/<执行者>/a<第几次>/try-<第几回>/`：`record.json` 是运行记录，`score.json` 是判分，`shots/` 是观察者的截图，`executor-stderr.txt` 是执行者的日志。
 

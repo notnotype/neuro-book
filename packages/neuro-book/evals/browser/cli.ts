@@ -12,6 +12,7 @@ import {resolveAgentTempRoot} from "@notnotype/neuro-book-test-support/paths";
 import {EvalEnvError, defaultEnvFile, readEnvFile} from "./env";
 import {RunRecordSchema} from "./record/schema";
 import {attemptDir, readJson, tryDir, tryLayout} from "./record/store";
+import {ProjectionLeakError, writeReport} from "./report/report";
 import {startGateway} from "./runner/gateway";
 import {MODELS, assertNoProxyEnv, routesFor} from "./runner/models";
 import type {ModelChoice} from "./runner/models";
@@ -151,6 +152,14 @@ function program(): Command {
             }
         });
 
+    cli.command("report")
+        .description("从运行目录出报表：私有的 report.json、report.html 与可入库的投影 summary.json、summary.html")
+        .requiredOption("--out <dir>", "运行目录")
+        .action(async (options: {out: string}) => {
+            const paths = await writeReport(resolve(options.out));
+            process.stdout.write(`${JSON.stringify({format: "nbook.browser-eval.report-paths/v1", ...paths})}\n`);
+        });
+
     cli.command("sites")
         .description("只起假站，给人工打开看页面；Ctrl-C 停止")
         .option("--task <id>", "按这道题的种子起它的站（缺省每个站各起一份，用第一道用到它的题的种子）")
@@ -175,6 +184,10 @@ try {
     await program().parseAsync(process.argv);
 } catch (error) {
     if (error instanceof CommanderError) process.exit(error.exitCode === 0 ? 0 : 2);
+    if (error instanceof ProjectionLeakError) {
+        process.stderr.write(`projection-leak: ${error.message}\n`);
+        process.exit(1);
+    }
     if (error instanceof EvalEnvError || error instanceof UsageError) {
         process.stderr.write(`${error instanceof EvalEnvError ? error.code : "usage"}: ${error.message}\n`);
         process.exit(2);
