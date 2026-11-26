@@ -239,7 +239,7 @@ describe("eval", () => {
         expect(after!.text).toBe("undefined");
     });
 
-    test("输出 4：代码里调的工具交回的图并进结果；一个单元至多 8 张，多的写明", async () => {
+    test("输出 4：代码里调的工具交回的图并进结果（带着宽高）；一个单元至多 8 张，多的写明", async () => {
         const w = await world();
         const {session, home} = await open(w);
         await writeFile(join(home, "图.png"), Buffer.from(PNG, "base64"));
@@ -247,7 +247,7 @@ describe("eval", () => {
             {code: "await tool.read({path: 'session://图.png'}); '读了'"},
             {code: `for (let i = 0; i < 9; i++) display({data: "${PNG}", mime: "image/png"}); display({data: new Uint8Array(Buffer.from("${PNG}", "base64")), mime: "image/png"}); "画好了"`},
         );
-        expect(fromTool!.images).toHaveLength(1);
+        expect(fromTool!.images).toEqual([expect.objectContaining({width: expect.any(Number), height: expect.any(Number)})]);
         expect(many!.images).toHaveLength(8);
         expect(many!.text).toContain("另有 2 张图没有附上");
     });

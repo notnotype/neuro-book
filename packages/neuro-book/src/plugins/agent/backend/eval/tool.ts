@@ -14,7 +14,7 @@ import {Value} from "typebox/value";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {OutputCapture, saveFullOutput} from "@notnotype/nb-harness/kit/tools";
-import type {JsonValue, NestedOutcome, ToolContext, ToolDeclaration, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {JsonValue, NestedOutcome, ToolContext, ToolDeclaration, ToolImage, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {defineContract, implement, shape, slice} from "@notnotype/nb-harness/kernel";
 
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
@@ -292,10 +292,11 @@ class SessionKernel implements KernelHolder {
 
     async #run(kernel: Kernel, cell: number, source: string, code: string, tools: readonly CodeTool[], globals: GlobalObjects, ctx: ToolContext, timeoutSeconds: number | undefined): Promise<CellOutcome> {
         const capture = new OutputCapture();
-        const images: {data: string; mime: string}[] = [];
+        const images: ToolImage[] = [];
         let dropped = 0;
-        const addImage = (image: {readonly data: string; readonly mime: string}): void => {
-            if (images.length < MAX_IMAGES) images.push({data: image.data, mime: image.mime});
+        // 宽高随图转交：harness 按它估图片的 token、在占位文字里写尺寸，丢了就只能按上限估。
+        const addImage = (image: ToolImage): void => {
+            if (images.length < MAX_IMAGES) images.push({data: image.data, mime: image.mime, ...(image.width === undefined ? {} : {width: image.width}), ...(image.height === undefined ? {} : {height: image.height})});
             else dropped += 1;
         };
         // 这个单元的范围：超时或停止时触发，内核按宽限期结算在途的嵌套调用（harness/runtime.md 输出 100）。
@@ -402,7 +403,7 @@ class SessionKernel implements KernelHolder {
 interface CellOutcome {
     readonly end: CellEnd;
     readonly capture: OutputCapture;
-    readonly images: readonly {data: string; mime: string}[];
+    readonly images: readonly ToolImage[];
     readonly dropped: number;
     readonly code: string;
     readonly why: "timeout" | "aborted" | undefined;
