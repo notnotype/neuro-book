@@ -33,11 +33,12 @@ updated: 2026-11-26
 - 第 4 片在 Work 分支：设置的只读目录 `settingsCatalogKey`（ab11a5237）、工作台的界面目录 `workbenchCatalogKey` 与命令面板打分移进 `shared/`（fec523a10）、`nb-page-agent` 包骨架与 `./attrs`（7dbcba70b）、拥有者写稳定名（d02891fca）。实现中定了：一个元素只带一个稳定名（容器入口一律是容器、视图标题一律是视图）；标签带与分段控件里的项按角色与名字在组里定位；包用 AGPL-3.0-only（同 nb-host）。Spec 与计划已照改。还剩悬停显示规则与消息列表的 skip。
 - 第 4 片的悬停显示规则（dc83f6ebd，Lab e2e 用例随第一段 e2e 一起跑）与消息列表的 skip（7c8a67915）也已提交，第 4 片完成。
 - 第 2 片：静态稿在草稿 worktree `.worktree/w00033-t03-drafts`（分支 `w00033-t03/drafts`，不合并），`@designer` 的意见已取舍；[评审板](artifacts/review/index.html) v1 两道题已答（决定 4、5）。开发者在答复里另问了两件事，已在会话里给出建议、等开发者定：要不要做可选的遮罩；引导能不能回退。
+- omp 计划审查（24 条）已按第二版核对并处理（[处理记录](evidences/plan-review-disposition.txt)文末）：计划改到第三版，Spec 补了几处上限与时序；内核一处修正在 Work 分支（233e0e599）。第 10 条（换窗口再选回原窗口时旧引用算不算数）与 t01 决定 3 的字面不符，已在会话里问开发者。
 - 第 5 片（核心第一段）进行中。
 
 ## 下一步
 
 1. 开发者定遮罩与回退后，把决定 4、5 与这两项一起写进 Spec（`page-agent.md` 输出 9、10，`profile-settings.md` 输出 28）。
 2. 第 5 片：快照、引用、定位与夹具测试，先量 500 个元素的耗时。
-3. omp 报告回来后按快速审查处理，修正单独提交。
+3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）。
 4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。

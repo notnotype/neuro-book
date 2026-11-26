@@ -1,6 +1,6 @@
 # 实施计划：第一批 `ui`（快照、界面目录、截图与引导）
 
-第二版：按计划审查（Opus、Sonnet 前端、Sonnet 整体）修订，审查的处理见 [evidences/plan-review-disposition.txt](evidences/plan-review-disposition.txt)。
+第三版：第二版按计划审查（Opus、Sonnet 前端、Sonnet 整体）修订，第三版补 omp 报告里成立的条目；审查的处理见 [evidences/plan-review-disposition.txt](evidences/plan-review-disposition.txt)。
 
 ## Context
 
@@ -15,7 +15,7 @@
 |---|---|---|
 | 可访问名 | `dom-accessibility-api`（MIT，Testing Library 在用）；第 5 片先量 500 个元素的耗时，超预算就只给可交互元素与带名容器算名字 | 照抄 Playwright 的 `roleUtils`（依赖其内部模块） |
 | 说明框定位 | `@floating-ui/dom`（MIT；锁文件里已有，经 reka-ui 间接依赖） | 自写定位（翻转、避让边界要重写一遍） |
-| 截图 | `@zumer/snapdom`（MIT），放核心包单独的 `./capture` 入口 | modern-screenshot、html-to-image（实验 1：慢 10 倍以上、弹层缺失） |
+| 截图 | `@zumer/snapdom`（MIT），放核心包单独的 `./capture` 入口；编码统一 JPEG | modern-screenshot、html-to-image（实验 1：慢 10 倍以上、弹层缺失）；WebP（模型适配器对不收 WebP 的端点转 PNG，会超出 512 KB，omp 15） |
 | 目录搜索 | 命令面板现有的跨语言子序列打分，移进工作台的 `shared/` 后两边共用 | 新写分词匹配 |
 | 参数与返回 | TypeBox（仓库已用） | — |
 | 真实浏览器测试 | Playwright，`channel: "chrome"`（仓库约定，照 nb-layout 的 `e2e/`） | happy-dom（布局、命中检查、`popover` 都不真实） |
@@ -44,14 +44,16 @@
 - 包：`private`、AGPL-3.0-only（同 nb-host、nb-models），`exports` 指 `src`（照 nb-flock）；入口 `.`（引擎）、`./api`（TypeBox schema，无 DOM）、`./attrs`（`nbTarget`）、`./capture`（snapdom 截图）。依赖只有 `dom-accessibility-api`、`@floating-ui/dom`、`@zumer/snapdom`、`typebox`。登记：根 `AGENTS.md` 结构图、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md`、`packages/neuro-book/src/architecture.test.ts` 的 `PACKAGE_SIDES`（主入口 `web`，`./api`、`./attrs` 为 `neutral`）、包 README（Owner、Interface、依赖方向、验证命令）。发布与否等 w00034 要用时再定。
 - 不认识 NeuroBook：`./api` 只放页面里的概念（定位、快照、高亮的参数与页面结局、`stale-ref`、`ambiguous`、`not-found`）；`find`、窗口类失败码、`command` 定位由插件扩展（插件把 `{command}` 换成 `{target: "command", key}` 再交给引擎）。宿主注入：截图实现、界面文字表、悬停显示钩子 `reveal(target) → Element[]`、主题（CSS 变量 `--nb-page-agent-*` 加兜底值）。
 - `src/snapshot/`：可见性（累乘不透明度、`faint`）、命中检查（中心退四角，分清被盖住与滚出；用 `elementsFromPoint` 跳过自己的节点，递归 open shadow root）、层、列表摘要、主名、转义、预算、字节上限（按 UTF-8 量）、跳过区域写占位行。
-- `src/refs.ts`：加载前缀、单调发号、身份核对；同层重找只给不改页面的调用。
+- `src/refs.ts`：加载前缀、单调发号、身份核对；同层重找只给不改页面的调用；前缀不是这次加载的直接 `stale-ref`，不重找（别的窗口没有发号时的身份，omp 10）。
+- 回复的总大小：窗口交回的每个结果（快照、目录、失败、订阅的结局）按 JSON 序列化后至多 256 KB 的 UTF-8（宿主 WebSocket 的单条消息上限是 1 MiB）；快照超了先裁元素再裁文字，并在 `warnings` 标明（omp 14）。
 - `src/locate.ts`：扁平定位对象的校验与匹配（调用方把它放在 `at`、`of`、`scope`、`within`）。
 - `src/guide/`：
   - 描边框与说明框：open shadow root、`popover="manual"`，重置 UA 的 popover 样式；挂进目标所在的层（按目标祖先链上的弹层与 top layer 判定）。每次重算检查是否还在页面上、那一层是否还在，变了就换到目标现在所在的层。
   - 不抢焦点：整个说明框在 `pointerdown`、`mousedown` 取消默认（提问框除外）。键盘隔离：说明框宿主在冒泡阶段截住 `keydown`、`keyup`、`keypress`、`beforeinput`、`input`；提问 Enter 提交（`isComposing` 时不提交），Esc 清空并还焦点；提交后焦点还给原来的元素。
   - 跟随：`ResizeObserver`、捕获阶段的滚动、DOM 变化（忽略自己的节点）；只在目标祖先链上有动画或过渡时逐帧更新，结束即停；结局时全部撤掉。
-  - `highlight()` 交回 `{installed, outcome}` 两个 Promise 与 `cancel()`；引擎另报当前在等的高亮数，插件据此处理 `replaced`。
-- `src/capture.ts`（`./capture`）：snapdom 重画、缩放、WebP（不支持时 JPEG）编码与大小上限。
+  - `highlight()` 交回 `{installed, outcome}` 两个 Promise 与 `cancel()`。一个窗口只有一个当前高亮：新的一次开始（订阅到达）就把旧的以 `replaced` 结束，不等新的装上；旧的迟到装上时核对自己已不是当前的，不再画。每条订阅只撤自己画的东西，清共享槽前核对仍属于自己（omp 11）。
+  - 订阅处理函数对业务失败不抛错，交 `failed`；装了一半出异常时自己撤掉已装的（内核在提供方抛错时不触发它的 signal，omp 12）。
+- `src/capture.ts`（`./capture`）：snapdom 重画、缩放、JPEG 编码与大小上限。
 - `e2e/`：夹具页只测与具体弹层库无关的规则（原生与 ARIA 控件、open shadow root、遮挡层、嵌套滚动、以 index 为 key 的列表、500 元素的性能页）；真实弹层的用例放应用 e2e。
 
 ### `packages/nb-harness/src/kernel/`
@@ -59,24 +61,25 @@
 - `ToolContext.waitingForUser<T>(promise)`：嵌套调用里在 promise 未结算期间向父工具报 `onWaiting(true)`，结算或取消时报 `false`。`invokeNested` 记下每次嵌套调用未收回的等待，调用结算时（`writeResult` 或 attempt 的 `finally`）补齐 `false`：提供方被撤回、promise 永不结算时计时也能恢复。
 - 锁不变：等用户期间仍占着它的并发名额，写进 `harness/runtime.md`。
 - 不加 `foreground` 声明：前台过滤在 agent 插件做（下一节）。
+- 审批请求带上扩展判定对象：`permissions.md` 输出 20 已写审批模型看“判定对象”，`kit/approval` 的 `ReviewRequest` 现在只带路径；截图的 `{kind: "screen"}` 要随请求交给审批模型并计入长度上限（omp 21）。
 
 ### `packages/neuro-book/src/plugins/agent/`
 
-- 失败详情：`agent.tools` 声明加可选 `errors: {[code]: schema}`，与 `returns` 对称；只有声明了的码、且 `details` 通过校验、按 JSON 序列化后至多 8 KB 时，才交给代码里的 `ToolCallError.details`。文档按声明列出失败码与形状。
-- `tsType`：没有任何字段带说明或缺省时保持单行；否则换行缩进，加字段的 JSDoc（说明里的 `*/` 写成 `*\/`、换行折成空格）。现有 `objects.test.ts` 与 SDK 场景 `10-eval-object` 的断言不变。
-- 前台过滤：`agent.tools` 声明加 `foreground: true`（`points.ts` 的 schema、`tools.ts` 的 `#declaration` 透传、SDK 类型、`contributions.md`）。`agent.ts` 在 `forProfile` 的调用处按 `context.background` 或 `context.owner` 去掉这些工具，eval 说明、代码的全局对象与内核工具表用同一份结果。
-- 按对象绑定：绑定加 `objects: {added, removed}`，`profileToolIds` 先展开对象（含以后新增的方法），再套方法级的增减；页面只给对象行，旧的方法级条目在动对象行时去掉。旧版本读到新字段的处理写进 `profile-settings.md` 的已知限制。
+- 失败详情：`agent.tools` 声明加可选 `errors: {[code]: schema}`，与 `returns` 对称；只有声明了的码、且 `details` 通过校验、按 JSON 序列化后至多 8 KB 时，才交给代码里的 `ToolCallError.details`。在 `replyOf` 的失败分支做：`JSON.stringify` 放进 `try`，量 UTF-8 字节，交给代码的是 `JSON.parse` 回来的副本；不合格或超限只丢 `details` 并记一条诊断，回信照发（omp 7）。文档按声明列出失败码与形状。
+- `tsType`：没有任何字段带说明或缺省时保持单行；否则换行缩进，加字段的 JSDoc（说明里的 `*/` 写成 `*\/`、换行折成空格）。现有 `objects.test.ts` 与 SDK 场景 `10-eval-object` 的断言不变。参数校验不填 schema 的 `default`，缺省值由插件的业务代码填，插件测试覆盖省略字段（omp 19）。
+- 前台过滤：`agent.tools` 声明加 `foreground: true`（`points.ts` 的 schema、`tools.ts` 的 `#declaration` 透传、SDK 类型、`contributions.md`）。`agent.ts` 在 `forProfile` 的调用处按 `context.background` 或 `context.owner` 去掉这些工具，eval 说明、代码的全局对象与内核工具表用同一份结果：`SessionEnv.tools.declarations` 与 `runtime.codeTools` 两条路都取它（omp 5）。用户 Profile 把 `ui` 的方法写进 `required` 时，后台会话按通用的 `tools-missing` 收口。
+- 按对象绑定：绑定加 `objects: {added, removed}`，`profileToolIds` 先展开对象（含以后新增的方法），再套方法级的增减；页面只给对象行，旧的方法级条目在动对象行时去掉。`changeToolBinding`、`withToolBinding` 保留 `objects`，几张表都空才删项；`objects` 只加在工具绑定上，Agent、Skill、表情包的绑定形状不变（omp 8）。对象里有 Profile 必需的方法时，这一行不能去掉，与必需的工具一样；Profile 只绑了对象的一部分方法时，关掉再加回恢复原来那几个，不扩大成全部（omp 17）。旧版本读到新字段的处理写进 `profile-settings.md` 的已知限制。
 - Profile 页的对象行：名字、档位、说明、去掉与加回、恢复默认、计数、已卸载、没有 `eval` 时怎样显示，按静态稿定稿后写进 `profile-settings.md`。定位：行 `data-profile-tool-object="ui"`，去掉按钮沿用 `data-profile-tool-remove`。
 
 ### `packages/neuro-book/src/plugins/page-agent/`（新内置插件 `nbook.page-agent`）
 
 - 接线：`src/manifest.ts` 的 `productPlugins`、`src/server/plugins.ts`、`src/web/plugins.ts`、`src/server/server.test.ts` 的插件列表、`vite.config.ts` 的 `optimizeDeps.include`（三个新依赖与用到的子路径）、locales、第三方许可清单核对。
-- `shared/contracts.ts`：窗口合同 `nbook.page-agent/window`（provider client、callers `["server"]`）：`info()`、`snapshot`、`find`、`capture({token})`，以及订阅 `highlight`，载荷是判别联合 `installed`、`outcome`、`failed`（带码与 `details`）。输出 schema 写字符与条数上限作兜底，字节上限由窗口回复前按 UTF-8 量并截断。
+- `shared/contracts.ts`：窗口合同 `nbook.page-agent/window`（provider client、callers `["server"]`）：`info()`、`snapshot`、`find`、`capture({token, of?})`，以及订阅 `highlight`，载荷是判别联合 `installed`、`outcome`、`failed`（带码与 `details`）。截图的定位在窗口里做，给了 `of` 却找不到时得 `not-found`、不改截整窗（omp 3）。输出 schema 写字符与条数上限作兜底（`find` 的 `limit` 至多 20、提问至多 2000 字），字节上限由窗口回复前按 UTF-8 量并截断。
 - `backend/`：
   - 工具：`agent.evalObjects` 登记 `ui`；四个方法工具各声明 `global: {object: "ui", method}`、`defaultForAll`、`shared`。`snapshot`、`find`、`highlight` 为 read，`screenshot` 为 exec 并交判定对象。第 7 片之后加 `foreground` 与 `errors`。
-  - 选窗口：`instances()` 按会话的作品筛选，再并发问 `info()`（每个 800 毫秒）。通道失败按 Spec 输出 14 换算。会话小表只在内存里，带条数上限。
-  - 截图上传：路由 `PUT /api/nbook.page-agent/captures/<token>` 按 Spec 的截图状态表实现。凭证签发在审批之后、20 秒到期，调用的 signal 触发或插件停止时连同暂存一起作废。按流读取，超过 512 KB 得 413，作废或到期的凭证得 410；另做来源检查与类型、尺寸校验。
-  - 高亮：先建好“只结算一次”的结局，再 `subscribe`。收到 `installed` 才调 `waitingForUser`；收到 `outcome` 或 `failed`，或 `onEnd` 按输出 14 换算后，就结算并 `release()`（任何结局都 release）。`timeout` 由服务端以注入时钟计；插件停止时把在等的高亮以 `window-gone` 结算。
+  - 选窗口：`instances()` 按会话的作品筛选，再并发问 `info()`（每个 800 毫秒）。通道失败按 Spec 输出 14 换算：有候选超时、又没有可用的，得 `window-unresponsive`。同一会话的选窗口串行（只串行选的那一步，不串行工具调用），“上次用的窗口”在派发时记，迟到的旧调用不会改回去；`info()` 与之后的调用都带工具调用的 signal（omp 9）。会话小表只在内存里，带条数上限。
+  - 截图上传：路由 `PUT /api/nbook.page-agent/captures` 按 Spec 的截图状态表实现。凭证高熵、只经这次 RPC 交给选中的窗口实例，放请求头 `x-nb-capture-token`，不进路径与诊断（omp 16）。签发在审批之后、20 秒到期（宿主时钟），调用的 signal 触发或插件停止时连同暂存一起作废。第一笔 PUT 在第一个 `await` 之前占住凭证，重复的得 410；按流读取，超过 512 KB 得 413，作废或到期的凭证得 410，作废时取消正在读的正文；收完整、核对过 JPEG 的文件头与解码尺寸才算收到。窗口回报成功、图已收到、调用仍有效三者都成立时一次交图，其余情况丢弃（omp 13、15）。另做来源检查。
+  - 高亮：先建好“只结算一次”的结局，再 `subscribe`。收到 `installed` 才调 `waitingForUser`；收到 `outcome` 或 `failed`，或 `onEnd` 按输出 14 换算后，就结算并 `release()`（任何结局都 release）。订阅开始到 `installed` 有服务端截止（10 秒），到期得 `window-unresponsive`；句柄交回之前就结算了的（取消、事件先到），拿到句柄即 release（omp 1）。`timeout` 从 `installed` 起由服务端以注入时钟计；插件停止时把在等的高亮以 `window-gone` 结算。
 - `web/`：
   - 浏览器入口随窗口启动激活，`info()` 只读焦点、可见性与最近一次真实输入的时刻，不碰引擎。
   - 引擎经 `.vue` 门面在空闲时预加载（后端 tsc 不检查 DOM，见 `packages/neuro-book/AGENTS.md`）。
@@ -169,3 +172,5 @@
   - 第一次调用的时限：浏览器入口随窗口激活、引擎空闲时预加载，e2e 场景 8 兜底。
   - 绑定存储加字段后，旧版本读新设置的行为写进已知限制。
   - token：冒烟时记请求数与输入 token，对照调研里薄接口的量级。
+  - 已知不回收：服务端插件入口的 `RemoteAccess` 按目标记下联系过的实例，窗口每刷新一次多一条（几十字节），服务端重启清空（omp 22）。
+  - 内核：提供方的 `subscribe` 抛错时，订阅以 `provider-error` 结束却不触发提供方的 signal（omp 12，有探针）；不在本 Task 修，窗口一侧自己收口，记为后续。
