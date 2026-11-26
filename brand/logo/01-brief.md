@@ -69,10 +69,10 @@
 
 ## 7. 品牌资料与概念空间
 
-- 品牌母题库（本地 `.local/brand/lore/NeuroBookBrandLora.md`）：`From words, worlds.`、Word → World、叙事之线、记忆、创造与世界等。
+- 品牌母题库（本地 `.local/brand/lore/NeuroBookBrandLora.md`）：`From words to world.`、Word → World、叙事之线、记忆、创造与世界等。
 - 品牌状态文案（本地 `.local/brand/lore/AgentThinkingStatusMessages.md`）：文学、想象力、温柔、幽默与角色化表达的参考。
 
-这些资料提供概念来源，不要求将全部意象放进一个图形。`From words, worlds.` 可作为品牌叙事参考，本轮尚未确认把它固定加入标志组合。
+这些资料提供概念来源，不要求将全部意象放进一个图形。`From words to world.` 可作为品牌叙事参考，本轮尚未确认把它固定加入标志组合。
 
 下一阶段应比较不同的概念思路，而不是只为旧图形替换表情。任何具体符号都需要同时接受亲近感、辨识度与小尺寸表现的检验。
 
