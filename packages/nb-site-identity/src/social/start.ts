@@ -3,11 +3,15 @@
  *
  * 先后：来源头与请求体上限由子应用的中间件先查 → 上游（不是两个上游之一 `not_found`，没开放 `provider_disabled`）→ 请求体（先按
  * `intent` 选出那一支的 schema，再按它判：联合类型整个判时，`fields` 会混进别的意图的键）→ 按意图的检查 → 调库拿上游地址与 state
- * Cookie → 写流程行（`flow.ts`）→ 回 `{url}`，转发库的 state Cookie。注册意图例外的一处：取不到来源地址、注册关闭在判请求体
- * 之前（与密码注册同一个先后，`register.ts`）。
+ * Cookie → 写流程行（`flow.ts`）→ 回 `{url}`，转发库的 state Cookie。登录与注册意图例外的一处：取不到来源地址（`forbidden_origin`）
+ * 在判请求体之前，注册意图的注册关闭也是（与密码登录、密码注册同一个先后，`login.ts`、`register.ts`）。
+ *
+ * 调库时上游可能不在库的提供方表里：Google 的发现文档库在启动时取，没取到的上游库先不建，发起时再取一次（升级清单“社交上游”）。
+ * 这次仍没取到时库抛 `PROVIDER_NOT_FOUND`，这里换成 503 `unavailable`（`site.accounts` 输出 11 末句），不当程序错误。
  *
  * 按意图：
- * - `login`：带了 `continue` 的解它，合格的继续地址存进流程（输出 11、23），不合格照常发起。
+ * - `login`：计入登录的来源地址计数（输出 19，与密码登录共用键与额度），在调库、写库之前：这个接口不要会话，每次发起都往库里写
+ *   行（库的 state 行与流程行）。带了 `continue` 的解它，合格的继续地址存进流程（输出 11、23），不合格照常发起。
  * - `register`（输出 13）：照密码注册（`register.ts`）的先后判来源地址、注册关闭、字段、限流（计入注册的来源地址计数：社交注册
  *   也是注册）、同意、注册码与邀请码可用、用户名没被占（只读，不扣码）；邮箱这时不知道，回调时判。不合格就不跳转。校验过的内容
  *   与 `continue` 解出的继续地址存进流程，回调里的注册钩子按它建账号（`hooks.ts`）。调库时带 `requestSignUp`：两个上游都
@@ -57,9 +61,10 @@ export interface SocialStartOptions {
     readonly rateLimits: IdentityRateLimits;
     readonly passwords: PasswordFunctions;
     readonly resolveContinue: ContinueResolver;
+    /** 登录与注册意图按它计限流，与密码登录、密码注册的同名选项同一份（`LoginOptions`、`RegisterOptions`）。 */
+    readonly clientAddress: (c: Context) => string | null;
     /** 注册意图的检查要的，与密码注册的同名选项同一份（`RegisterOptions`）。 */
     readonly registration: {
-        readonly clientAddress: (c: Context) => string | null;
         readonly termsVersion: string;
         readonly registrationOpen: boolean;
     };
@@ -89,6 +94,16 @@ function stateOf(url: string): string {
     return state;
 }
 
+/**
+ * 库没有这个上游时抛的错误（库 1.7.27 的 `APIError`，`body.code` 为 `PROVIDER_NOT_FOUND`）。只看码，不看文字。开放了的上游都交给了
+ * 库（`providers.ts`），所以只会是发现文档没取到的 Google（文件头）。
+ */
+function isProviderNotFound(error: unknown): boolean {
+    if (typeof error !== "object" || error === null || !("body" in error)) return false;
+    const body = (error as {body: unknown}).body;
+    return typeof body === "object" && body !== null && (body as {code?: unknown}).code === "PROVIDER_NOT_FOUND";
+}
+
 export function registerSocialStartRoute(app: Hono, options: SocialStartOptions): void {
     const {auth, conn, sessions, clock, hashLimiter, rateLimits, passwords, log} = options;
     const open = new Set<SocialProvider>(options.providers);
@@ -96,6 +111,17 @@ export function registerSocialStartRoute(app: Hono, options: SocialStartOptions)
     const targets = {
         callbackURL: `${options.siteOrigin}${SOCIAL_LIBRARY_TARGETS.ok}`,
         errorCallbackURL: `${options.siteOrigin}${SOCIAL_LIBRARY_TARGETS.error}`,
+    };
+
+    /** 调库拿上游地址；库没有这个上游时换成 `unavailable`（文件头），别的错误照原样交出错出口。 */
+    const fromLibrary = async <T>(provider: SocialProvider, work: () => Promise<T>): Promise<T> => {
+        try {
+            return await work();
+        } catch (error) {
+            if (!isProviderNotFound(error)) throw error;
+            log.warn("identity.social_provider_unavailable", "the library has no usable configuration for an open upstream; its discovery has not succeeded", {provider});
+            throw new IdentityFailure("unavailable");
+        }
     };
 
     const limited = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -144,10 +170,10 @@ export function registerSocialStartRoute(app: Hono, options: SocialStartOptions)
         const provider = name;
         const raw = await readBody(c, AnyObject);
         let address: string | null = null;
-        if (raw.intent === "register") {
-            address = registration.clientAddress(c);
+        if (raw.intent === "login" || raw.intent === "register") {
+            address = options.clientAddress(c);
             if (address === null) throw new IdentityFailure("forbidden_origin");
-            if (!registration.registrationOpen) throw new IdentityFailure("registration_closed");
+            if (raw.intent === "register" && !registration.registrationOpen) throw new IdentityFailure("registration_closed");
         }
         const body = readIntentBranch(raw);
 
@@ -156,9 +182,13 @@ export function registerSocialStartRoute(app: Hono, options: SocialStartOptions)
         let sessionId: number | null = null;
         switch (body.intent) {
             case "login": {
+                // 上面已为登录意图取到来源地址。
+                if (address === null) throw new Error("a social sign-in reached its checks without a client address");
+                const decision = rateLimits.socialLoginStart(address);
+                if (!decision.ok) throw new IdentityFailure("rate_limited", [], decision.retryAfterSeconds);
                 const continueUrl = body.continue === undefined ? null : await options.resolveContinue(body.continue, "login");
                 if (continueUrl !== null) payload = {continueUrl};
-                const {headers, response} = await auth.api.signInSocial({body: {provider, ...targets, disableRedirect: true}, headers: new Headers(), returnHeaders: true});
+                const {headers, response} = await fromLibrary(provider, () => auth.api.signInSocial({body: {provider, ...targets, disableRedirect: true}, headers: new Headers(), returnHeaders: true}));
                 if (response.url === undefined) throw new Error("the library gave no authorization url for a social sign-in");
                 started = {url: response.url, cookies: headers.getSetCookie()};
                 break;
@@ -169,11 +199,13 @@ export function registerSocialStartRoute(app: Hono, options: SocialStartOptions)
                 const registered = await checkRegister(address, body);
                 const continueUrl = body.continue === undefined ? null : await options.resolveContinue(body.continue, "login");
                 payload = {register: registered, ...(continueUrl === null ? {} : {continueUrl})};
-                const {headers, response} = await auth.api.signInSocial({
-                    body: {provider, ...targets, newUserCallbackURL: `${options.siteOrigin}${SOCIAL_LIBRARY_TARGETS.newUser}`, requestSignUp: true, disableRedirect: true},
-                    headers: new Headers(),
-                    returnHeaders: true,
-                });
+                const {headers, response} = await fromLibrary(provider, () =>
+                    auth.api.signInSocial({
+                        body: {provider, ...targets, newUserCallbackURL: `${options.siteOrigin}${SOCIAL_LIBRARY_TARGETS.newUser}`, requestSignUp: true, disableRedirect: true},
+                        headers: new Headers(),
+                        returnHeaders: true,
+                    }),
+                );
                 if (response.url === undefined) throw new Error("the library gave no authorization url for a social registration");
                 started = {url: response.url, cookies: headers.getSetCookie()};
                 break;
@@ -181,7 +213,9 @@ export function registerSocialStartRoute(app: Hono, options: SocialStartOptions)
             case "link": {
                 const link = await checkLink(c, body);
                 sessionId = link.sessionId;
-                const {headers, response} = await auth.api.linkSocialAccount({body: {provider, ...targets, disableRedirect: true}, headers: new Headers({cookie: link.cookie}), returnHeaders: true});
+                const {headers, response} = await fromLibrary(provider, () =>
+                    auth.api.linkSocialAccount({body: {provider, ...targets, disableRedirect: true}, headers: new Headers({cookie: link.cookie}), returnHeaders: true}),
+                );
                 started = {url: response.url, cookies: headers.getSetCookie()};
                 break;
             }

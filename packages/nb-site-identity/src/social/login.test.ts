@@ -2,17 +2,21 @@
  * 社交登录（`start.ts`、`callback.ts`；`site.accounts` 输出 11、12、15、23 的登录意图，时序一节“发起起 10 分钟、只能用一次”，验收 11）。
  *
  * 上游是仿真上游（第三方的替身），站点是真的模块。合同测试（`nb-site-contract-tests` 的 `accounts-social.test.ts`）走同样的
- * 场景；这里另测合同测试里不好造的：拨模块时钟让流程过期、清理任务删流程行、库给的 state Cookie 换成另一份。
+ * 场景；这里另测合同测试里不好造的：拨模块时钟让流程过期、清理任务删流程行、库给的 state Cookie 换成另一份、同一个回调并发到达
+ * （经占住连接的队列让三个都排在认领之前）、Google 的发现文档取不到、发起的限流。
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
+import {createServer} from "node:net";
 
 import {startFakeUpstream, type FakeUpstream} from "@notnotype/neuro-book-test-support/oauth-upstream";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {LIB_BASE_PATH} from "../auth";
 import {SOCIAL_FLOW_MS} from "./flow";
-import {createTestIdentity, SESSION_COOKIE, TEST_TERMS_VERSION, type TestIdentity} from "../testing/module";
-import {fakeSocialConfig, followSocial, insertSocialAccount, landing, openCallback, startedSocial, startSocial, upstreamCallback} from "../testing/social";
+import {ManualTimers, TEST_SITE_URL} from "../testing/library";
+import {createTestIdentity, SESSION_COOKIE, TEST_CLIENT_ADDRESS_HEADER, TEST_TERMS_VERSION, type TestIdentity} from "../testing/module";
+import {fakeSocialConfig, followSocial, holdQueue, insertSocialAccount, landing, openCallback, startedSocial, startSocial, upstreamCallback} from "../testing/social";
 
 let upstream: FakeUpstream;
 let identity: TestIdentity | undefined;
@@ -41,6 +45,23 @@ function hasSessionCookie(response: Response): boolean {
 
 async function flowCount(target: TestIdentity): Promise<number> {
     return target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM identity_social_flow`).get()!.n);
+}
+
+async function sessionCount(target: TestIdentity): Promise<number> {
+    return target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "session"`).get()!.n);
+}
+
+/** 一个此刻没人监听的本机端口：先监听再关掉，连它会被拒绝。 */
+async function refusedPort(): Promise<number> {
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error === undefined ? resolve() : reject(error))));
+    if (address === null || typeof address === "string") throw new Error("the probe server has no port");
+    return address.port;
 }
 
 describe("社交登录", () => {
@@ -104,6 +125,32 @@ describe("社交登录", () => {
         upstream.failToken("github");
         upstream.setUser("github", {id: 7, login: "x", name: null, email: null, emails: []});
         expect(landing(await followSocial(target, await startSocial(target, "github", {intent: "login"})))).toEqual({status: 302, path: "/login", socialError: "social_failed"});
+    });
+
+    it("同一个回调地址的三个请求同时到达（都排在认领之前）：恰好一个登录成功、只建一个会话，另两个 social_state_invalid", async () => {
+        const timers = new ManualTimers();
+        const target = await createTestIdentity("social-login-concurrent-callbacks", {config: {social: fakeSocialConfig(upstream)}, timers});
+        identity = target;
+        const userId = await target.addUser("alice", CONSENTED);
+        await insertSocialAccount(target, userId, "google", ALICE.sub);
+        upstream.setUser("google", ALICE);
+
+        const started = await startedSocial(await startSocial(target, "google", {intent: "login"}));
+        const callback = await upstreamCallback(started);
+        // 占住连接的队列，三个回调对库的第一次访问（认领）都排在它后面，再一起放开：认领若不是一次原子的写，三个都会认领到。
+        const gate = await holdQueue(target);
+        await gate.started;
+        const opened = [0, 1, 2].map(() => openCallback(target, callback, started.stateCookie));
+        await waitUntil("三个回调的认领都排上", () => timers.pending === opened.length);
+        await gate.release();
+        const landings = (await Promise.all(opened)).map((response) => ({...landing(response), session: hasSessionCookie(response)}));
+
+        expect(landings.filter((item) => item.socialError === null)).toEqual([{status: 302, path: "/", socialError: null, session: true}]);
+        expect(landings.filter((item) => item.socialError !== null)).toEqual([
+            {status: 302, path: "/login", socialError: "social_state_invalid", session: false},
+            {status: 302, path: "/login", socialError: "social_state_invalid", session: false},
+        ]);
+        expect(await sessionCount(target)).toBe(1);
     });
 
     it("同一个回调地址只能用一次：第二次 social_state_invalid、不发会话", async () => {
@@ -185,6 +232,51 @@ describe("社交登录", () => {
         expect(((await meta.json()) as {providers: unknown}).providers).toEqual({google: false, github: true});
         // 没开放的上游连回调也不放（挂载层）。
         expect((await identity.request(`${LIB_BASE_PATH}/callback/google?state=x&code=y`)).status).toBe(404);
+    });
+
+    it("Google 的发现文档取不到（上游拒绝连接）：站点照常起来、站点信息仍说开放，发起回 503 unavailable、不写流程行（输出 11）", async () => {
+        const social = fakeSocialConfig(upstream);
+        const issuer = `http://127.0.0.1:${String(await refusedPort())}/google`;
+        identity = await createTestIdentity("social-login-discovery-down", {config: {social: {...social, google: {...social.google!, issuer}}}});
+        const meta = await identity.fetch("/meta");
+        expect(((await meta.json()) as {providers: unknown}).providers).toEqual({google: true, github: true});
+
+        const start = await startSocial(identity, "google", {intent: "login"});
+        expect({status: start.status, body: await start.json()}).toEqual({status: 503, body: {error: {code: "unavailable"}}});
+        expect(await flowCount(identity)).toBe(0);
+        expect(identity.log.lines.filter((line) => line.event === "identity.social_provider_unavailable" || line.event === "identity.unhandled_error").map((line) => line.event)).toEqual([
+            "identity.social_provider_unavailable",
+        ]);
+        // 没用发现文档的 GitHub 不受影响。
+        expect((await startSocial(identity, "github", {intent: "login"})).status).toBe(200);
+    });
+
+    it("登录意图的发起计入登录的来源地址计数，与密码登录共用额度：超限回 429 rate_limited 带 Retry-After、不写流程行；别的来源不受影响（输出 19）", async () => {
+        identity = await createTestIdentity("social-login-rate-limit", {config: {social: fakeSocialConfig(upstream)}, start: Date.UTC(2026, 10, 25, 10, 0, 0)});
+        const target = identity;
+        const from = "198.51.100.40";
+        // 先用掉 10 次密码登录（每次一个不存在的用户名，来源加用户名的键不会先满），再发起社交登录用完剩下的 20 次。
+        for (let index = 0; index < 10; index += 1) {
+            const password = await target.fetch("/login", {
+                method: "POST",
+                headers: {origin: TEST_SITE_URL, "content-type": "application/json", [TEST_CLIENT_ADDRESS_HEADER]: from},
+                body: JSON.stringify({identifier: `nobody${String(index)}`, password: "wrong password"}),
+            });
+            expect(password.status).toBe(401);
+        }
+        for (let index = 0; index < 20; index += 1) expect((await startSocial(target, "google", {intent: "login"}, undefined, from)).status).toBe(200);
+        expect(await flowCount(target)).toBe(20);
+
+        const limited = await startSocial(target, "google", {intent: "login"}, undefined, from);
+        expect({status: limited.status, body: await limited.json(), retryAfter: limited.headers.get("retry-after")}).toEqual({status: 429, body: {error: {code: "rate_limited"}}, retryAfter: "300"});
+        expect(await flowCount(target)).toBe(20);
+        const password = await target.fetch("/login", {
+            method: "POST",
+            headers: {origin: TEST_SITE_URL, "content-type": "application/json", [TEST_CLIENT_ADDRESS_HEADER]: from},
+            body: JSON.stringify({identifier: "nobody-else", password: "wrong password"}),
+        });
+        expect(password.status).toBe(429);
+        expect((await startSocial(target, "google", {intent: "login"}, undefined, "198.51.100.41")).status).toBe(200);
     });
 
     it("发起发的 state Cookie 活 10 分钟，与流程的时限一样长", async () => {

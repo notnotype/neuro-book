@@ -52,7 +52,9 @@ function readIdentities(tx: IdentityTx, userId: number): IdentityRow[] {
 
 function itemOf(row: IdentityRow): IdentityItem {
     // 本模块建上游身份的两条路（关联钩子、注册钩子）都先写名字、库才插 `account` 行，名字只与 `account` 行一起删。没有名字的行
-    // 是别处写了库表，不把一个不合 `IdentityItem` 的值发出去。
+    // 是别处写了库表，不把一个不合 `IdentityItem` 的值发出去。旧站导入（`docs/specs/site/legacy-import.md` 的去向表“GitHub 身份”一行）
+    // 也是“别处”：它写 `account` 行时要一并写 `identity_upstream_name`，名字取旧站的 GitHub 用户名、关联时间取导入时刻，不然这个
+    // 账号的身份列表整个回 500。
     if (row.name === null || row.linkedAt === null) throw new Error("an upstream identity has no recorded upstream name");
     // 读成毫秒再写回：不是模块的时间写法时在这里抛错（与会话列表一样）。
     return {id: row.id, provider: row.provider, accountName: row.name, linkedAt: libDate(libDateMs(row.linkedAt))};

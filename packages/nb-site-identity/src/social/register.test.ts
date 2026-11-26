@@ -239,13 +239,16 @@ describe("发起时的检查（输出 3、13，验收 4 前半）", () => {
 });
 
 describe("回调时的拒绝：不建账号、不扣码（输出 2、13、14，验收 5、9）", () => {
-    it("上游的邮箱没验证过、或没有主邮箱：social_email_missing", async () => {
+    it("上游的邮箱没验证过、没有主邮箱、或已验证却不合站点的邮箱规则：social_email_missing", async () => {
         const target = await socialIdentity("social-register-unverified");
         const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
         const upstreams: readonly [string, () => void][] = [
             ["google", () => upstream.setUser("google", googleUser("g-unverified", "erin@gmail.test", false))],
             ["github", () => upstream.setUser("github", githubUser(5, [{email: "erin@github.test", primary: true, verified: false, visibility: null}]))],
             ["github", () => upstream.setUser("github", githubUser(6, [{email: "erin@github.test", primary: false, verified: true, visibility: null}]))],
+            // 已验证、但不合输出 3 的邮箱规则：本地部分含非 ASCII；以留给占位邮箱的 `.invalid` 结尾。
+            ["google", () => upstream.setUser("google", googleUser("g-non-ascii", "érin@gmail.test"))],
+            ["github", () => upstream.setUser("github", githubUser(7, [{email: "erin@example.invalid", primary: true, verified: true, visibility: null}]))],
         ];
         for (const [provider, setUser] of upstreams) {
             setUser();

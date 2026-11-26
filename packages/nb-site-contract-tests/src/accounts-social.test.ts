@@ -124,6 +124,11 @@ describe("社交登录与关联（输出 11、12、15、23，验收 10 到 13；
         expect({status: unknown.status, body: unknown.body}).toEqual({status: 404, body: {error: {code: "not_found"}}});
     });
 
+    it("可信代理不给转发头、取不到来源地址：社交登录的发起得 forbidden_origin（输出 19：登录意图计入登录的来源计数）", async () => {
+        const response = await identityRequest(site.url, identityPath.socialStart("google"), {method: "POST", jar: cookieJar(), from: from(), headers: {"X-Forwarded-For": null}, body: {intent: "login"}});
+        expect({status: response.status, body: response.body}).toEqual({status: 403, body: {error: {code: "forbidden_origin"}}});
+    });
+
     it("没有关联任何账号的上游身份：回 /login 带 social_not_registered，不发会话（输出 12、23）", async () => {
         upstream.setUser("google", googleUser("g-stranger"));
         const browser = cookieJar();

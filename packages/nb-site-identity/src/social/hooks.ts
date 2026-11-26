@@ -17,12 +17,18 @@
 
 import {APIError} from "better-auth/api";
 
-import type {SocialErrorCode, SocialProvider} from "@notnotype/nb-site-identity-contract";
+import {EMAIL, type SocialErrorCode, type SocialProvider} from "@notnotype/nb-site-identity-contract";
 
 import {inLibraryTransaction, type IdentityConnection} from "../db/connection";
 import {claimRegistration, writeRegistrationRecords} from "../register";
 import {currentFrame, liveFlowSessionUser, type SocialFrame} from "./flow";
 import {claimUpstreamName} from "./upstream-name";
+
+/**
+ * 站点的邮箱字段规则（`site.accounts` 输出 3）。上游说“已验证”只说明能收信，不说明合本站的规则（非 ASCII、`.invalid` 结尾等）；不合的
+ * 写进 `user.email` 后，`GET me`、对外的用户信息都会发出不合自己合同的值，`.invalid` 后缀也留给导入的占位邮箱（`site.legacy-import`）。
+ */
+const EMAIL_PATTERN = new RegExp(EMAIL.pattern, "u");
 
 /** 库的 `account` 行里存上游令牌的五列，建行与改行时都置空。 */
 const NO_UPSTREAM_TOKENS = {accessToken: null, refreshToken: null, idToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null} as const;
@@ -91,9 +97,9 @@ export function socialDatabaseHooks(options: SocialHooksOptions) {
     return {
         user: {
             create: {
-                // 只有注册意图建用户：登录意图下库因 `disableImplicitSignUp` 不建（`providers.ts`），走到这里是兜底。邮箱要上游标明验证过
-                // （输出 13；没给邮箱的库先以 `email_not_found` 拒了）。然后在库的事务里扣码、复核占用；回冲突时这一次写已提交到库的事务
-                // 里，抛出让库的事务整个回滚，扣掉的次数一起撤销。改写库要插入的行：用户名、显示名照发起时的，邮箱不算验证过，没有
+                // 只有注册意图建用户：登录意图下库因 `disableImplicitSignUp` 不建（`providers.ts`），走到这里是兜底。邮箱要上游标明验证过，
+                // 并且合站点的邮箱规则（`EMAIL_PATTERN`），不合的与没验证过的同一个结论（输出 13；没给邮箱的库先以 `email_not_found` 拒了）。
+                // 然后在库的事务里扣码、复核占用；回冲突时这一次写已提交到库的事务里，抛出让库的事务整个回滚，扣掉的次数一起撤销。改写库要插入的行：用户名、显示名照发起时的，邮箱不算验证过，没有
                 // 头像（与密码注册建出的账号一样；上游的头像地址不一定合资料的字段规则），时间用模块时钟。
                 before: async (user: UserCreate) => {
                     const frame = currentFrame();
@@ -101,7 +107,7 @@ export function socialDatabaseHooks(options: SocialHooksOptions) {
                     if (frame.flow.intent !== "register") reject(frame, "social_not_registered");
                     const registration = frame.flow.payload.register;
                     if (registration === undefined) throw new Error("a social registration flow carries no registration");
-                    if (frame.upstream?.emailVerified !== true) reject(frame, "social_email_missing");
+                    if (frame.upstream?.emailVerified !== true || !EMAIL_PATTERN.test(user.email)) reject(frame, "social_email_missing");
                     const nowMs = clock.now();
                     const claimed = await conn.joinLibTransaction(() => conn.write((tx) => claimRegistration(tx, registration, user.email, nowMs)));
                     if (typeof claimed === "string") reject(frame, claimed);

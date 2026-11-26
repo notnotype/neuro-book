@@ -10,6 +10,8 @@
 -- 两个 UNIQUE 是“一个账号在一个上游至多一个身份”“一个上游身份只属于一个账号”的判据（src/social/upstream-name.ts）：库的 account
 -- 行在关联钩子提交之后才插，两个并发的关联都看不到对方的 account 行，只有这张表在钩子的写事务里看得到。
 -- name 至多 200 个字符，写入前截断。
+-- 每个上游身份（库的 account 行）都要有这里的一行：身份列表遇到没有名字的身份当作程序错误（src/social/identities.ts）。导入旧站的
+-- GitHub 身份时一并写它：name 取旧站的 GitHub 用户名，linked_at 取导入时刻（docs/specs/site/legacy-import.md 的去向表“GitHub 身份”一行）。
 CREATE TABLE identity_upstream_name (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES "user" (id),
