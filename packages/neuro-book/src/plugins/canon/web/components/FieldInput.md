@@ -23,6 +23,8 @@ type FieldInputProps = {
     refName?: string;
     /** 文字的行数；缺省 2。1 时是单行的输入框（就地改的浮层里的短文字，回车由外面的确认条当保存）。 */
     rows?: number;
+    /** 放在就地改的编辑卡里：建议值嵌在输入框下面、成段的文字按内容长高；缺省 false。 */
+    inline?: boolean;
 };
 
 type FieldInputEmits = {

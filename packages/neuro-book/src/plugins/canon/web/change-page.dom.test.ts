@@ -127,7 +127,7 @@ describe("变更详情页", () => {
         await waitUntil("找不到", () => missing.text().includes("找不到这条情节"));
     });
 
-    it("改一处的值：确认条写会写回这条情节与带来的变化；保存后存款跟着变、顶上有提示、焦点回到“改”；切走再回来填的值还在", async () => {
+    it("改一处的值：确认条写带来的变化；保存后存款跟着变、顶上有提示、焦点回到“改”；切走再回来填的值还在", async () => {
         const {other, open} = await setup();
         const {star, change} = await sample(other.canon);
         const opened = open(change);
@@ -136,8 +136,8 @@ describe("变更详情页", () => {
         await waitUntil("确认条", () => opened.wrapper.find("[data-confirm-bar]").exists());
         expect(opened.wrapper.get("[data-confirm-bar] h3").text()).toBe("改星瑕的存款");
         await opened.wrapper.get("[data-confirm-bar] input").setValue("500");
-        await waitUntil("预览", () => opened.wrapper.get("[data-confirm-preview]").text().includes("会写回这条情节"));
-        expect(opened.wrapper.get("[data-confirm-preview]").text()).toContain("星瑕的存款：1,200 → 1,500");
+        await waitUntil("预览", () => opened.wrapper.find("[data-confirm-bar][data-previewed]").exists());
+        expect(opened.wrapper.get("[data-edit-impact]").text()).toContain("星瑕的存款：1,200 → 1,500");
 
         opened.wrapper.unmount();
         const again = opened.remount();
