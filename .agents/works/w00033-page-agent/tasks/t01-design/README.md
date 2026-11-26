@@ -51,4 +51,4 @@ updated: 2026-11-26
 
 ## 下一步
 
-先做设计稿列的 8 个实验，结论回写设计稿，再按 implementation-planning 写计划并送计划审查（开发者同意不审第三轮设计）。
+开工前的 8 个实验已做（2026-11-26，三个子代理：[快照、层与界面目录](evidences/experiments-snapshot-layers-catalog.txt)、[截图、说明框、点击事件与 CSP](evidences/experiments-capture-callout-clicks-csp.txt)、[订阅](evidences/experiments-subscription.txt)），结论回写[设计稿](design.md)第四稿（实验后修订）：截图选 snapdom；说明框以 `popover` 挂进最上层弹层；“点了目标”认 `click` 与 `pointerup`；设置窗口不是模态，层按命中检查判断；界面目录的数据源与标记按实测改；内核另有一处缺口（窗口断开时服务端发起的订阅收不到结束），列进上游。实验 3 曾误把实验开发服务的主题改了约一分钟，已恢复。下一步按 implementation-planning 写计划并送计划审查（开发者同意不审第三轮设计）。
