@@ -49,6 +49,8 @@ updated: 2026-11-25
 
 13. 提案第三稿接受（开发者 2026-11-25 答“同意”），不再审第三轮；下一步写 Spec（planned）与 `plan.md`，计划交设计审查（前端 Sonnet，网格与布局记录部分 gpt）。
 
+14. 浮动窗里拖视图段内侧的轨宽手柄时，窗的右边不动、左边往外长，手柄跟着指针（开发者 2026-11-26 在选择框里选了推荐项“窗的左边往外长”）；写进 Spec 输出 51 的“矩形”。
+
 ## 当前状态
 
 - 草稿在草稿 worktree `.worktree/w00043-t19-drafts`（分支 `w00043-t19/drafts`，不合并）：直接在 `AgentMessages.vue` 里按 `globalThis.__msgDraft` 切变体，开发服务的真实页面上看（头、区域入口条与左边活动栏只在真实页面里有）；“头像列通到顶”的版本由截图脚本改入口条的样式摆出来。假模型端点造的三段对话。原图在本地 `shots/r1/`。
@@ -81,7 +83,10 @@ updated: 2026-11-25
 - 片 7（消息视图停靠在右轨的部分；片 6 等 w00026 t60，顺序调到它前面）四个提交：`69be05bba` nb-agent-ui 新组件 `AgentMessagesSegment`（收着：bot、短线、新对话与最近会话、底段两个按钮，按中段高度截几项 `src/messages-segment-fit.ts`；展开：完整列表淡入）、`AgentMessages` 改成聊天区加视图段（`placement` 为 `rail`/`edge`/`none`，同一实例只换 `Teleport` 去处）、列表的 `v-model:botQuery`、`focusSearch` 与搜索框 `Esc`；宿主声明 `confinedTo` 与视图段（260、200–420、聊天下限 320），头恒接管标题区、左列不画“新建”、按标题不开列表，首屏盖层加“全部 bot”，去掉宽窄版式记忆与旧 Lab 场景；`7b166b1ff` 最近会话改用与第一屏共用的独立查询，画出来、换会话、面板重取、窗口回到前台与每 15 秒重取；`e1cbca0de` 揭示通道（就是 `nbook.view.open`：显示右栏、退出盖着的最大化；先选后揭示，只有最后一次给焦点）与命令“搜索会话”；`f3d59240f` 去掉列表里不再用的 `windowDrag`。nb-agent-ui 全包 230 条、agent 插件 624 条单测与 76 条 dom、Lab 夹具登记、两个包的类型检查、治理与文档检查都过；变异 4 处都被抓住。开发服务真实页面看了收着、展开（编辑组让出、“会话历史”按下）与揭示（隐藏右栏后点右轨的会话，右栏回来并打开它）。
 - 片 7 前端实现审查（Sonnet）9 条（重要 5、建议 4），处理见 [`evidences/impl-review-7-sonnet.txt`](evidences/impl-review-7-sonnet.txt) 末尾，修正 `49ab9a56d`；搬动后的焦点与滚动、浮动窗里的收起挪进片 6。
 - 测试第 C 段第 1 部分交回（报告与处理 [`evidences/e2e-segment-c1-report.txt`](evidences/e2e-segment-c1-report.txt)）：新文件 `agent-messages-rail.e2e.ts` 17 条，改写 `agent-conversation`、`lab-agent-ui`（旧分栏换成 14 条侧轨用例）、`bots-chat`、`text-selection`，已并入。它报的 5 处里 3 处是产品问题已修（点 bot、新对话后的输入框焦点；被预算拒绝时展开按钮标“窗口太窄”），2 处是 Lab 夹具不转发 expose（已修）。复跑只剩预期的片 6 那条；两处否定断言补了变异。
-- 下一步：片 6（浮动）。
+- 2026-11-26：w00026 t60 已合入 master，片 6 开工。master 并进 Work 分支（`29f552700`，只有 `NestedGrid.md` 一处文字冲突，两边的句子都留；master 上 w00056 t06 的 Lab 草稿还传着片 3b 删掉的 `WorkbenchRegionStrip` 的 `variant`，在分支上删掉那一行并在 t06 的 README 留了协调说明）。片 6 拆四段：第 1 段 `b40104617` 浮动窗里的视图段（单标签视图窗给 `window` 位置；展开写窗上的意图，画出来的窗加宽、这一次走布局过渡、靠右往左挪、放不下标“窗口太窄”；缩放落账只取动的边、减回展开的宽；`setFloatRail` 导出并补单测；消息视图在窗的右边缘画展开按钮、顶格让给“回到停靠”，换位置后恢复焦点与滚动），store 单测与两处变异、开发服务上看了浮出与展开。剩下：第 3 段右轨没有内容的叶离场保留，第 4 段视图段在过渡层里飞。第 2 段 `bd7c9db5a`：浮动窗的轨宽手柄（`WorkbenchFloatRailHandle`，画在窗的零件层，手势同右轨的 `useRailHandle`；拖动中右边不动、左边跟着长，按开发者第 14 条），store 单测与变异；开发服务上拖了 40 像素，右边停在原处、左边与手柄跟着走。中途开发服务的模块是旧的（布局库加了新导出，Vite 缓存了包解析），重启后正常。
+- 片 6 第 3、4 段取消（已记待确认清单）：第 3 段先按计划做了 `NestedGrid` 的 `keepLeaving` 名单（`f64d257e6`，单测与变异都过），到开发服务上探针才看出侧轨跟着右区，只在右区没有分节时才离开，那时它和右区的卡片一起离开、两侧兄弟不合拢，名单不生效；右区还有别的容器时，会话视图浮出去侧轨也留着，视图段随窗的内容一起飞。撤回提交 `c51e70e77`，master 上 nested-grid 那句 planned 也撤回（`749313021`、`6f600729a`）。探针都在开发服务上跑，跑完布局按叶与入口逐项对照起点恢复。
+- 写第 C 段第 2 部分的说明时发现：浮动窗里展开被预算拒绝后按钮上什么都看不出（`window` 位置只带宽度）。`7e660d554` 让它带上 store 算好的 `tooNarrow`，视图段底下的展开按钮照右轨的写法给“窗口太窄”（`data-rail-too-narrow`、读屏描述）；dom 测试与一处变异。Spec 输出 51 的“过渡”改成视图段随窗飞、右轨跟着右栏（master `aebaecd74`，planned）。
+- 测试第 C 段第 2 部分（浮动）已派出（说明在仓库外 `/tmp/review-t19-e2e/segment-c2.md`），开发服务已停。下一步：处理它的报告；之后片 8（性能）。
 - 写底层提案（右栏入口条竖排成侧轨、视图段、展开、位置限制、浮动），要点先给开发者看，再交 omp `@review` 审一轮（开发者要求改底层要 gpt 审）；之后写 Spec（planned）与 `plan.md`，在 Work worktree 实现。左右整列对调另开 Task。
 - 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者；开发者 2026-11-25 同意按归纳的方向出稿。
 - 评审板第 3 轮（取代第 2 轮两题）：`rail-kind` 甲 工作台的侧轨（推荐）对 乙 头像列留在视图里贴右边、无竖线、底色深一档；`list-switcher` A 锚在按钮旁的浮层（推荐）对 B 顶部居中的 QuickPick；附左右对调整窗稿（对调另开 Task）。稿面修了：接缝按相连画、聊天区铺满、当前会话改描边只突出一层、底部图标换成机器人与搜索列表。原图在本地 `shots/r3/`。

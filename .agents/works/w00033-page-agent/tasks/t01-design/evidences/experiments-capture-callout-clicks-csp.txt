@@ -1,0 +1,85 @@
+# w00033 t01 实验 1、2、3、8 结果（ui-b）。每做完一项追加。实测 = 在本机 Chrome（google-chrome-stable，视口 1440x900，亮色）里跑出来的。
+
+========== 实验 8：严格 CSP 页面里 shadow root 与 adoptedStyleSheets（实测）==========
+问题：外部页面带 `Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'` 时，经 CDP 求值（Playwright page.evaluate / addInitScript，同 Runtime.evaluate 路径）注入的 shadow host + adoptedStyleSheets + popover="manual" 浮层是否生效。
+做法：exp8-csp-server.ts（bun 静态服务，每个响应都带上述 CSP）+ exp8-csp.mjs；先 `bun exp8-csp-server.ts 4901`，再 `node exp8-csp.mjs 4901`；完整输出在 exp8-output.txt，截图 shots/exp8-csp.png。违规用 document 上的 securitypolicyviolation 监听（addInitScript 装）并读 console。
+事实：
+- 页面自己的同源 <script src>/<link rel=stylesheet> 正常（script 跑了，h1 颜色 rgb(1,2,3)）。
+- 生效、无违规：`new CSSStyleSheet()` + `replaceSync` + `shadowRoot.adoptedStyleSheets = [sheet]`（样式全部命中：背景、颜色、:host 的 position:fixed 都对）；之后对该表 `insertRule` 也生效；`el.style.x = ...` 与 `el.style.cssText = ...`（CSSOM）生效；shadow root 里 `<link rel=stylesheet href=同源>` 生效；shadow 里元素的内容、事件监听照常。
+- 被拦（style-src-elem / style-src-attr，控制台 error）：往 head 里 append `<style>textContent</style>`（sheet 为 null，样式不生效）；shadow root 里 append `<style>`（同样被拦）；`setAttribute("style", ...)`（style-src-attr，不生效）。
+- 被拦的另一类：adopted 样式表里 `background-image:url(data:...)` 被 img-src（回落到 default-src 'self'）拦掉，控制台有 error；即严格 CSP 下浮层的图标不能用 data: URI 背景图，要用内联 SVG 元素（DOM 创建，不涉及 CSP）或同源文件。
+- popover：host 设 `popover="manual"` 再 `showPopover()` 成功（`:popover-open` 为 true，无违规）；页面上放一个 z-index:2147483647 的全屏盖板，host 仍压在上面（elementFromPoint 命中 host 而不是盖板）。注意 popover 的 UA 样式带 overflow:auto，host 尺寸之外的子元素会被裁掉（实验里第一次把按钮放在 host 外，点不到）。
+- Playwright 的可信点击能点到顶层 popover 里 shadow 内的按钮（click 事件 isTrusted=true）。
+- 控制台只有上述被拦项的 CSP error（另有一条 favicon 404，与 CSP 无关）；adopted 与 popover 路径没有任何 CSP 报错。
+结论：w00034 的浮层可以用“shadow host + adoptedStyleSheets + popover=manual”，在严格 style-src 'self' 下样式全部生效、进顶层；必须避开的三样是 <style> 元素、style 属性（改用 CSSOM 设样式）、CSS 里的 data: 图（改内联 SVG 元素）。未测（超出任务范围）：字体 @font-face 的 font-src、@import（adopted 表里本来就不支持 @import）。
+
+========== 实验 1：截图库对比（实测）==========
+问题：snapdom、html-to-image、modern-screenshot 三个 DOM 重画库，在真实工作台、设置窗口、命令面板上的失真、耗时、缩到长边 1280 后的 JPEG/WebP 字节数。
+做法：`prox npm pack` 取三个包放进 vendor/（@zumer/snapdom 3.8.3、html-to-image 1.11.13、modern-screenshot 4.7.0），用它们的浏览器构建（snapdom.js、html-to-image.js、index.js 的 UMD/IIFE）经 page.evaluate 注入（不能用 addScriptTag：留在 DOM 里的 <script> 带库源码，里面有 XML 不允许的字符，html-to-image 序列化后整张图载入失败，我第一次就栽在这里）。脚本 exp1-screenshots.mjs（`node exp1-screenshots.mjs 9`；加环境变量 VARIANTS=1 跑字体变体）。每个场景先 page.screenshot 截真实图，再让库截同一个页面（documentElement，1440x900，scale 1），每库 9 次，canvas 缩到 1280x800 后 toBlob 的 jpeg(0.8)/webp(0.8) 字节；差异是逐像素“任一通道差 >16 / >64 的像素占比”与平均绝对差。截图在 shots/（场景-库.png，-diff.png 是差异图，-real.png 是真实图）；汇总 exp1-results.json、exp1b-results.json，原始输出 exp1-output.txt、exp1b-output.txt。场景里打开的章节标签与展开的“正文”都已关回（结束时 1 个标签、5 行）。
+环境：测量时机器负载 8 到 14（别的会话在跑），headless Chrome 软件渲染，绝对耗时偏高，看比例；snapdom 前两次含缓存冷启动。
+数字（耗时是 9 次的中位数，毫秒；括号是第一次）：
+                          工作台                      设置窗口                    命令面板
+ snapdom                  272 (1483)                  575 (2746)                  300 (1434)
+ modern-screenshot        3569 (3258)                 6901 (4308)                 4508 (3047)
+ html-to-image            5669 (6242)                 8725 (9576)                 6595 (6711)
+ 编码后字节 JPEG/WebP（真实截图作对照）：真实 89060/53908、83219/43858、78226/45004
+   snapdom                90421/54036                 83689/43998                 78320/45088
+   modern-screenshot      90377/54036                 83490/43768                 78207/44906
+   html-to-image          89434/53640                 60487/34200（缺窗口）       60371/34008（缺面板）
+ 差异 平均绝对差 / >16 像素占比 / >64 像素占比：
+   snapdom                0.38/0.54%/0.50%            0.37/0.34%/0.24%            0.54/0.69%/0.32%
+   modern-screenshot      0.39/0.56%/0.50%            0.28/0.37/0.25%             0.04/0.07%/0.01%
+   html-to-image          4.56/4.57%/2.92%            14.67/19.7%/4.9%            5.02/6.27%/2.45%
+- 缩到 1280 后编码，三库与真实截图的字节数几乎一样（JPEG 约 78 到 90 KB，WebP 约 44 到 54 KB），离 512 KB 上限很远；html-to-image 在设置窗口与命令面板里更小，只因为图里没有窗口。
+- 字体处理不是耗时来源：html-to-image 预先算好 fontEmbedCSS 或 skipFonts 都没变快（4.7 到 6 秒），modern-screenshot 关字体嵌入（font:false）只快一点（工作台 2.4 秒，设置窗口/命令面板 4.9/5.9 秒，负载在波动）。慢的原因（实测 html-to-image 的 SVG 输出约 15 MB，每个节点内联全部计算样式含自定义属性；modern-screenshot 同类做法是从代码推断，未单独量）：两库把每个节点的全部计算样式内联进克隆；snapdom 明显更省。
+人工看图（对照 shots/*-real.png）：
+- snapdom：版面、颜色、主题变量、图标、字体（中文、衬线标题）、窗口的圆角与阴影、窗口后面的模糊（backdrop-filter）都对得上。差异：自绘滚动条（::-webkit-scrollbar 之类的伪元素样式）变成带箭头的系统滚动条（设置窗口左侧导航、编辑区右/下）；悬停高亮没带上（设置窗口里“表情包”行在真实图里是悬停态，克隆里没有）；菜单栏等小字的抗锯齿差一两个像素；贴纸头像有细微色差。
+- modern-screenshot：与 snapdom 同类的差异（滚动条、悬停态），另外个别图标有细微差（Agent 输入框的 4 个小图标）；命令面板场景最接近真实（平均差 0.04），但耗时最长之一（3 到 7 秒）。
+- html-to-image：设置窗口、命令面板整块缺失（只剩背后的工作台）。原因已验证：克隆保留了弹层的入场动画（nb-dialog-in，0.34s），在 SVG 图像里从头重放，起点透明；往页面临时注入 `*{animation:none!important}` 后窗口就出来了（shots/h2i-anim-on.png、h2i-anim-off.png；脚本 dbg-h2i-anim.mjs）。要在不改页面的前提下规避它得改库或另想办法。其余：衬线大标题字重偏轻，段落换行位置与真实不同（“第一章”正文行尾差一个字，字体或字距特性没复制全），滚动条同上。另外开发构建里 Vue 模板注释（含 `--`）留在 DOM，序列化成 XML 后非法，整张图载入失败，要加 `filter: n => n.nodeType !== 8`；生产构建没有这些注释（从代码推断，未在生产构建上验证）。
+结论：只有 snapdom 同时做到版面保真、包括弹层与背景模糊、并且耗时在亚秒量级（取舍：自绘滚动条与悬停态会失真，设计稿“DOM 重画是近似”已经写了这一点）；modern-screenshot 保真相当但慢 10 倍以上；html-to-image 对带入场动画的弹层会丢画面且最慢。设计稿的选型可定 snapdom，缓存冷启动的第一次约 1.4 到 2.7 秒（加载本身，需要在 15 秒时限内留余量）。三库都只在 1440x900 的 headless Chrome、亮色主题下测过；暗色主题没测。
+
+========== 实验 3：用户“点了目标”看哪个事件（实测）==========
+问题：reka Select、DropdownMenu、ContextMenu 与 nb-ui Tabs 上，真实点击与键盘选择时 pointerdown/mousedown/pointerup/mouseup/click 的先后、target、isTrusted、click 时目标是否还在 DOM；`until: "click"` 认哪个事件；`missed` 的排除条件。
+做法：rec.mjs 在 window 捕获阶段记事件（含 isTrusted、pointerType、click 的 detail、target 与“最近的选项/菜单项/标签/行”、target 当时/微任务后/50ms 后是否仍在 DOM、按在滚动容器上时的 offset 是否落在内容区外）。exp3-events.mjs 用 Playwright 的真实鼠标与键盘操作：Select=设置窗口“主题”，DropdownMenu=标题栏项目菜单，ContextMenu=资源管理器行右键，Tabs=Lab 场景 `/lab?c=Tabs&s=default`（Lab 是同一开发服务上的另一个页面，不碰工作台状态）。运行 `node exp3-events.mjs > exp3-output.txt`，完整时间线在 exp3-output.txt。
+事故与恢复：第一次跑的键盘用例里，Select 的 ArrowDown、ArrowUp 在高亮还没跟上时就按了 Enter，实际选中了“书房”，把“主题”设置改成了“书房”（共享开发服务上的别的窗口会短暂换主题）。发现后用 restore-theme.mjs 改回 NeuroBook 并点“重置”回到未修改（原来该行没有重置按钮）；复查 `data-settings-row-modified` 为 false。脚本已改成回到原值才按 Enter。另一次键盘用例误选了菜单第二项“回到书架”，只让我自己的页面导航走了。ContextMenu 的键盘用例按次数数 ArrowDown 误选过“粘贴”，查了样例目录（.dev-sample/sample）没有新增或改动文件；脚本已改成按高亮项文字找“复制”。样例作品文件与布局没有改动（展开的“正文”与打开的章节标签也关回了）。
+实测事实：
+1. 鼠标点选项/菜单项/标签/右键菜单项：五个事件都是可信的（isTrusted=true），先后固定 pointerdown、mousedown、pointerup、mouseup、click；target 是项里面的子节点（常是文字 span，例如 span“NeuroBook”在 div[role=option] 里），不是项本身，所以要用 `closest`/`contains` 判断，不能判相等。click 事件发出时 target 还在 DOM 里；DropdownMenu 点“打开项目…”后 50ms 内菜单项被摘掉（inDOM 1/1/0），Select、Tabs、ContextMenu 的项到 50ms 后仍在（出场动画）。
+2. Select 按住拖选：在触发器上按下（pointerdown 开列表），拖到选项上松开：pointerup、mouseup 的 target 是选项，选中也是在这时发生，但 click 的 target 是 body（按下与松开的共同祖先）——只听 click 会漏掉这种选法，所以“click 或目标上的 pointerup”两个都要认（设计稿已这样写，实测证实必要）。同样，菜单项上按下后移到菜单外松开：不选中，click 落在 body，pointerup 在别的元素上。
+3. DropdownMenu（标题栏项目菜单）是点一下才展开（pointerdown 不开），没有“按住拖选”这种路径；ContextMenu 右键只有 pointerdown、mousedown、contextmenu、pointerup、mouseup，没有 click。
+4. 键盘：
+   - Tabs：Enter、Space 在原生 button 上得到可信的 click（isTrusted=true，detail=0）；方向键 ArrowRight/ArrowLeft 直接改选中标签，没有 click、没有 pointer 事件（选中跟随焦点）。
+   - DropdownMenu、ContextMenu：Enter 之后 keydown 的 target 是高亮项，接着页面自己调 `.click()`：click 的 isTrusted=false，detail=0，target 是菜单项。展开后焦点已经在第一项上（再按 ArrowDown 会到第二项）。
+   - Select：Enter 选中选项时只有 keydown/keyup（target 是高亮的选项），没有 click 也没有 pointer 事件。
+   - 页面脚本自己 `.click()`（F 组，对 Tabs 标签）：只有一个 click，isTrusted=false，detail=0，没有 pointer/mouse 事件。所以 isTrusted=false 的 click 既可能来自 reka 对键盘的转发，也可能来自页面脚本（以后 Agent 的动作也是这样），第一批“不区分真伪”的决定是自洽的；鼠标产生的 click 一律 detail>=1。
+5. 点说明框（页面里一个悬浮 div 加按钮，对照）：事件和普通元素一样，五件套、target 就是被点的节点，没有特别的。
+6. 滚动条：系统滚动条（要去掉 Playwright 的 --hide-scrollbars 才有，默认 headless 下厚度为 0，所以单独起了带滚动条的浏览器）：点轨道、拖滑块只有 pointerdown、mousedown、pointerup、mouseup，没有 click；target 是滚动容器本身，且 pointerdown 的 offsetX 落在 clientWidth 之外（设置窗口导航栏、注入的容器都是 offset=173..195 对 client=166..190）；滚轮没有任何点击类事件。所以滚动条可以用“target 是滚动容器、`offsetX >= clientWidth` 或 `offsetY >= clientHeight`”判断（实测在两处成立）。
+7. 设置窗口不是模态：开着时点窗口外（工作台里别的地方）事件正常发到下面的元素，窗口不关、没有遮罩（elementFromPoint 是 html/下层元素）。真正的模态是“打开项目…”这类对话框：有一层 `div.fixed.inset-0`（aria-hidden=true，pointer-events:auto）当遮罩，body 的 pointer-events 为 none；点遮罩：只有 pointerdown（target=遮罩），对话框在这一刻关闭（reka 的“点外面就关”靠 pointerdown），随后 pointerup 落在下层元素（工作台的 tool-band）上，没有 mousedown/mouseup/click。
+结论（给设计稿）：
+- `until: "click"`：在 window 捕获阶段听 `click` 与 `pointerup`，用 `target.closest(目标)`（目标可含子孙）判断；两者任一命中即 `clicked`，因为 Select 的拖选只有 pointerup，普通点击两个都有。键盘还要加 `keydown`（Enter、Space）target 在目标内这一路，否则 Select 的键盘选中不会被发现；Tabs 的方向键选中、菜单的方向键移动不算“点了”。`click.detail===0` 与 isTrusted 可用来区分键盘/脚本触发的 click，第一批不用。
+- 判断时机：这些事件发出时目标都还在 DOM 里，捕获阶段同步读即可，不会因弹层随后关闭而读不到。
+- `missed` 的依据：只看 pointerdown（主键），按下的 target 在以下情形一律不算：在说明框与引擎自己的节点内（用 composedPath）、滚动条（上面第 6 条的判断）、aria-hidden 且不可交互的遮罩（第 7 条，遮罩上的 pointerdown 之后既没有 click 也没有 mousedown）、非主键（右键只有 pointerdown+contextmenu）。其余按下的是可交互元素且不在目标内就是 `missed`。对话框这类“点外面就关”的情形，目标会随之 `gone`，应优先于 `missed` 结算。
+
+========== 实验 2：自写高亮说明框样机（实测）==========
+问题：描边框加说明框（标题、说明、“下一步”、“跳过引导”、小的“提问”输入）挂在 body 下，与挂进最上层弹层的 DOM 子树里，在设置窗口、命令面板、下拉菜单里：弹层会不会关、焦点会不会被拉回、输入框能不能打字；预先聚焦的输入框焦点与选区；嵌套滚动与入场动效时描边框跟不跟。
+做法：overlay.js 是样机（页面里执行；矩形定位，描边框 + 说明框；重算由 ResizeObserver、捕获阶段滚动、transitionend/animationend、MutationObserver 触发，另有“动画一开始就逐帧重算”和“每帧 rAF”两个变体；根节点 position:fixed;inset:0，用根自己的 rect 换算原点）。exp2-overlay.mjs 用 Playwright 真实点击与键盘（可信事件）：显示后依次点说明框空白处、“下一步”、“提问”输入框、逐键键入 `ab打开cd`、点“问”、点“跳过引导”，每步记弹层是否还开、activeElement、focusin/focusout 序列。运行 `node exp2-overlay.mjs settings|palette|dropdown`（STOP=1 跑“卡片阻断 pointerdown 冒泡”变体）；输出 exp2-*-output.txt，截图 shots/exp2-*.png。补充实验 exp2b-extra.mjs A|B|C（输出 exp2b-*-output.txt）。
+实际的弹层类型（与设计稿假设不同的地方）：
+- 设置窗口不是模态：没有遮罩、body 的 pointer-events 为 auto、点窗口外不关（见实验 3）。它是 section[data-dialog-surface][data-dismissable-layer]，overflow:hidden，入场动画 nb-dialog-in 0.34 秒。
+- 命令面板（QuickPick）：div[role=dialog][data-dismissable-layer]，开着时 body 的 pointer-events 为 none，点外面（pointerdown）就关，且有焦点圈定（把焦点拉回面板的输入框）。“打开项目…”选择器是同一个组件。
+- 下拉菜单（reka DropdownMenu）：内容元素 div[role=menu] 在 Popper 外壳（position:fixed + transform）里，内容 overflow:hidden，标题栏项目菜单只有 160x70。
+结果（逐键、逐点都是可信事件）：
+1. 设置窗口：挂 body 与挂弹层内都完全可用：窗口始终开着，“下一步”“跳过引导”触发（isTrusted=true），“提问”输入框能打字（值 ab打开cd），点“问”得到完整文字。区别在焦点：点说明框空白处时，挂 body 的焦点落到 body（窗口里原来的焦点丢了）；挂弹层内的焦点落到窗口容器上（仍在窗口里）。点“跳过引导”后根节点被摘掉，焦点掉到 body（两种都是，引擎收尾时要自己把焦点还给原来的元素）。
+2. 命令面板：挂 body：在说明框上第一次按下（空白处）就把面板关了（点外面就关；面板消失，目标也没了，说明框还留着）。挂弹层内：面板一直开着；“下一步”“跳过引导”可用；“提问”框能打字，面板自己的筛选输入框没有收到字；缺点是点说明框时面板的输入框失焦（焦点落到面板容器上，不自动回去）。变体“卡片阻断 pointerdown/mousedown/focusin 冒泡”：面板不再被关，但面板的焦点圈定把焦点拉回面板输入框：点“提问”框后焦点立刻回到面板自己的筛选框，键入的 `ab打开cd` 进了面板的输入框，“提问”框收不到字（ask 为空）；按钮点击仍可用。结论：命令面板这类带焦点圈定的模态弹层里，“提问”输入框只能挂在弹层内。
+3. 下拉菜单：挂 body：第一次在说明框上按下菜单就关。挂弹层内（role=menu 内）：菜单一直开着，按钮可用，“提问”框能打字，没有被 reka 的前缀搜索抢走焦点，菜单项没有被误触发；但说明框被菜单内容的 overflow:hidden 裁切（说明框 260x118，菜单 160x70，采样点 9 个只有 4 个落在说明框上；截图 shots/exp2-dropdown-layer.png 里说明框被切到菜单大小，还盖住了菜单项），所以小浮层里说明框得很小，或要用别的办法（只在这种弹层里省掉说明文字、只描边）。挂在 Popper 外壳（在内容元素外面一层，没有裁切）：不属于内容，第一次按下菜单就关，整个外壳连说明框一起消失。变体“卡片阻断冒泡”挂 body：菜单不关，所有按钮和输入都正常（菜单没有焦点圈定），键入没有被抢；焦点从菜单内容移到了 body，菜单仍开。
+4. 预先聚焦的输入框（设置窗口的“搜索设置”框，值 abcdef，选区 1 到 4）：说明框出现时焦点与选区都不变（挂 body 与弹层内一样，因为没有调用 focus()）。点说明框里的按钮时：不处理则焦点移到按钮，输入框失焦（之后按 X 进不了输入框）；在说明框上取消 pointerdown/mousedown 的默认行为（输入框以外的部分）则焦点与选区保持（1 到 4），再按 X 得到 `aXef`。所以说明框的按钮需要“按下取消默认”才能做到“不抢焦点”（设计稿写了“出现时不抢焦点”，按钮按下也算）。
+5. 嵌套滚动（设置窗口导航栏，overflow:auto，scrollHeight 649 对 clientHeight 520）：滚轮滚动（上下各一次，共约 60 帧）期间，描边框与目标的偏差 0，挂 body 与弹层内、事件触发与每帧 rAF 都一样（badFrames 0，maxDeviation 0）。限制：用每帧 rAF 采样量，量不到合成线程比主线程快一帧的视觉滞后。目标滚出滚动容器可视区后，描边框仍然画在目标的（可视区外的）位置：挂 body 时会画到导航栏外面，说明框要在目标被祖先裁掉时隐藏（样机没做）。
+6. 入场动效（设置窗口 0.34 秒、下拉菜单；每格 900ms 逐帧测描边框与目标矩形的偏差，两次完整运行都复现；节选第二次）：
+   - 挂 body：只用事件重算，设置窗口有 2 帧偏差最大 24.7px、下拉菜单 5 帧最大 6px（都在显示后约 70 毫秒内）；“动画一开始就逐帧重算直到没有运行中的动画”与“每帧 rAF”两个变体偏差为 0 帧。
+   - 挂弹层内：设置窗口三种重算方式都有 3 到 4 帧偏差最大约 27px（前约 65 到 90 毫秒），下拉菜单 2 到 6 帧最大 6px；原因是弹层入场时在缩放（transform scale），说明框根节点在缩放的坐标系里，用屏幕坐标差去设 left/top 会偏，缩放回到 1 就对了；若挂弹层内，换算要除以当前缩放（或用局部坐标）。
+   - 减弱动效（reducedMotion=reduce）：弹层没有动画（运行中动画数 0），所有组合偏差 0 帧。
+   - 帧数：运行 900 毫秒约 50 到 56 帧，一次首跑只有 19 帧（负载抖动），已被第二次覆盖。
+没测：亮暗主题（改主题设置不允许，样机颜色也是写死的）、“悬停才出现的目标”（本任务说明没要求）。
+结论（给设计稿“说明框”一节）：
+- “挂进当前最上层容器的 DOM 子树内”对命令面板与下拉菜单是必要的：挂 body 会让这两类弹层在第一次按下说明框时关闭；对带焦点圈定的面板，“提问”输入框只有挂在弹层内才收得到字。设置窗口（非模态）两种都行。
+- 小弹层（下拉菜单这类 overflow:hidden 的小盒子）里说明框会被裁到弹层大小：设计稿需要决定小弹层里说明框怎么放（缩小、只描边、或省略“提问”）；挂 Popper 外壳不行（算外面）。
+- 说明框按钮要在 pointerdown/mousedown 上取消默认才不抢焦点；点说明框空白处时焦点会跑，建议同样取消默认；收尾摘说明框时把焦点还给原来的元素。
+- 弹层入场期间只靠事件重算会滞后几十毫秒、最多 25px；加“动画开始就逐帧重算、没有运行中动画就停”可消除；挂弹层内时还要处理缩放换算。

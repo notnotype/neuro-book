@@ -152,6 +152,9 @@ interface ViewContainerDeclaration {
     - 内容区的名称仍是声明标题，不随按钮的文字变。
     - 实例换代时标题区跟着换；头在面板头与内容之间换位置（标签数变了）时，视图的状态（开着的列表、菜单）不丢。
     - 视图的头渲染出错时与内容出错相同（输出 5），实例进入渲染出错，面板头退回写声明标题。
+23. **界面目录读取**（planned）：工作台给出一个只读服务（服务键在 `shared/contracts.ts`），按当前布局交回视图（id、标题、所在容器 id、是否可见、标题栏动作的命令 id）、容器（id、标题、入口所在区域）与活动栏项（id、标题、命令 id）。命令面板的匹配与打分由同一处导出，命令面板与别的插件用同一份。
+24. **稳定名**（planned）：视图与编辑区标题栏上画成按钮的命令写 `command` 加命令 id；活动栏项写 `workbench.activity` 加项 id；容器入口（活动栏上段、右栏与底部面板的入口条）写 `workbench.container` 加容器 id；面板头里视图的标题按钮写 `workbench.view` 加视图 id（[`agent/page-agent.md`](../agent/page-agent.md) 输出 6）。
+25. **悬停动作的显示**（planned）：悬停动作区（`[data-hover-actions]`）带 `data-nb-agent-reveal` 时照样显示，不论有没有悬停或聚焦。
 
 ### 约定键
 
@@ -229,6 +232,7 @@ Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test
 
 ## 证据
 
+- 批准依据：界面目录读取、稳定名与悬停动作的显示（输出 23 到 25，planned）依据 [w00033 t03 计划](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/plan.md)（开发者 2026-11-26 确认）
 - 实现入口：[`web/views/registry.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.ts)、[`web/views/view-instances.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-instances.ts)、[`web/components/WorkbenchViewFrame.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue)、[`web/host/window-plugins.ts`](../../../packages/neuro-book/src/web/host/window-plugins.ts)；视图的标题区（输出 19）：[`web/views/view-head.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-head.ts)（工作台一端）、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/contracts.ts) 的“视图的标题区”（视图取的一端，跨插件只引共用合同）、[`WorkbenchPanelHead.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue)
 - 合同测试：标题动作（输出 10、11：placement 与“⋯”、别的插件贡献的项、按钮上限、按 key 执行）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数、实例还没建立）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）；打开视图（输出 14）为 [`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)（真实布局 store 与真实命令注册表：侧栏与面板被隐藏、面板收起时显示并选中容器，多视图容器里收起的视图展开，未知视图与没有布局，选择与取消，Agent 调用得 `not-exposed`）；标题区（输出 19）：[`view-instances.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-instances.test.ts)（就绪才有、换代换一份、旧的位置清空且收不到按下）、[`registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（申请标记）、[`WorkbenchPanelHead.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.dom.test.ts)（三列、拖动源不变、隐藏标题命名、弹出状态）
 - Smoke：打开视图（验收 10）为 `workbench-views.e2e.ts` 的“命令面板的打开视图……”一例；别的插件贡献的标题动作（验收 8）为 `workbench-views.e2e.ts` 的“视图自己的按钮在前、贡献的在后……”一例（测试插件 `test.menus`）；标题动作与滚动条随鼠标显示（验收 9）为同一文件的“标题动作与滚动条随鼠标显示……”一例；标题动作为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（经标题动作新建、全部收起、切换清单文件）；[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）；标题区（输出 19）：`lab-workbench-surface.e2e.ts` 的“视图的标题区”与 `agent-conversation.e2e.ts` 的“对话写在面板头上”。已知缺口：“面板收着时按标题只展开、不通知视图”（`WorkbenchShell.vue` 的 `activateTab`）没有自动化测试，只有代码审读

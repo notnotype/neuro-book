@@ -266,6 +266,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 本机统计 | [`stats/local.md`](stats/local.md) | 指标的声明与四种类型、记数服务与归日、字数与模型用量与错误码的来源、仪表盘、从不联网 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 世界引擎：给 Agent 的设定工具 | [`canon/agent-tools.md`](canon/agent-tools.md) | `canon_lookup`、`canon_tree`、`canon_read`、`canon_write`：按会话的作品取租约调世界、名字与地址的解析、版本串与读取戳、写入者与请求 id、失败的回话 |
+| Agent 看懂并引导界面 | [`agent/page-agent.md`](agent/page-agent.md) | eval 对象 `ui`：选当前窗口、文字快照与引用、稳定名、界面目录、截图、高亮引导与等用户 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |

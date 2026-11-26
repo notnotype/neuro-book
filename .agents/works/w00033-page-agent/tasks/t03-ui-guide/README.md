@@ -1,0 +1,44 @@
+---
+schema: nbook.task/v2
+taskId: t03-ui-guide
+status: active
+updated: 2026-11-26
+---
+
+# 第一批实现：快照、界面目录、截图与引导（ui 对象）
+
+## 目标与范围
+
+按 t01 设计稿第四稿与 Spec agent/page-agent 实现 eval 全局对象 ui 的第一批：选当前窗口、文字快照与引用、稳定名、界面目录、截图、高亮引导与等用户；先补内核、harness、agent、设置与工作台的上游缺口
+
+合同：[`agent/page-agent.md`](../../../../../docs/specs/agent/page-agent.md)（planned，新建）；上游几份 Spec 的 planned 条目见 [plan.md](plan.md) 的“Spec 与文档改动”。计划：[plan.md](plan.md)。
+
+## 决定
+
+| 编号 | 日期 | 决定 |
+|---|---|---|
+| 1 | 2026-11-26 | 稳定名由控件的拥有者写 `data-nb-target`（工作台与设置窗口的六处各加一行），删掉 page-agent 的映射表；按命令定位统一成同一对属性。取代 t01 决定 14 的“自动层”（计划审查整体视角第 5 条，开发者选“拥有者自己写”） |
+| 2 | 2026-11-26 | 切片按功能分两轮：先把快照、目录、截图做通到真实应用并派第一段 e2e，高亮所需的 harness 改动与说明框放第二轮；说明框的静态稿写完 Spec 就出、与第一轮并行；每项上游改动单独提交（计划审查整体视角第 7 条，开发者选“按功能分两轮”） |
+| 3 | 2026-11-26 | 选窗口只选打开会话所属作品的窗口；会话不属于作品时只选不绑定作品的窗口（Opus 第 6 条、整体视角第 6 条，开发者选“只选同一作品的窗口”） |
+| 4 | 2026-11-26 | 说明框里的提问平时收成“提问”按钮，点开后输入框在原位换掉按钮那一行（评审板第 1 轮 `ask-layout`，开发者选 B）。开发者附言：“注意 ui 规范，状态改变尽量少造成布局的不同。布局的不同要加动画。”实现时展开与收起不推动说明框里别的内容，高度有变化的地方加过渡 |
+| 5 | 2026-11-26 | 说明框、描边与 Profile 的 `ui` 一行按第 1 轮静态稿实现，含评审板“直接定，不用答”表里的八条（`approve-look`，开发者同意）；Profile 一行的细则补进 `profile-settings.md` 输出 28 |
+
+开发者 2026-11-26 对计划第一版的原话：“没问题”（确认先补上游的顺序、三个新依赖、e2e 分两段交子代理）；顺序已被决定 2 取代。
+
+## 当前状态
+
+- 2026-11-26：Spec 草稿与计划第一版提交（cf89b6a38）。计划审查：Opus、Sonnet 前端、Sonnet 整体三份已处理（[处理记录](evidences/plan-review-disposition.txt)），omp `@review` 在后台跑；计划改到[第二版](plan.md)，Spec 同步修订（bf94b13f5）。
+- 第 1 片（上游 Spec 的 planned 条目）在 master 上提交（b3c875f37）。
+- 第 3 片（nb-runtime：服务端列实例、服务端订阅在成员链路断开时以 `target-gone` 结束）在 Work 分支提交（d230b10c8），`remote` 目录 97 个测试与 nb-runtime 类型检查通过，两处改动各做了变异检查。
+- 第 4 片在 Work 分支：设置的只读目录 `settingsCatalogKey`（ab11a5237）、工作台的界面目录 `workbenchCatalogKey` 与命令面板打分移进 `shared/`（fec523a10）、`nb-page-agent` 包骨架与 `./attrs`（7dbcba70b）、拥有者写稳定名（d02891fca）。实现中定了：一个元素只带一个稳定名（容器入口一律是容器、视图标题一律是视图）；标签带与分段控件里的项按角色与名字在组里定位；包用 AGPL-3.0-only（同 nb-host）。Spec 与计划已照改。还剩悬停显示规则与消息列表的 skip。
+- 第 4 片的悬停显示规则（dc83f6ebd，Lab e2e 用例随第一段 e2e 一起跑）与消息列表的 skip（7c8a67915）也已提交，第 4 片完成。
+- 第 2 片：静态稿在草稿 worktree `.worktree/w00033-t03-drafts`（分支 `w00033-t03/drafts`，不合并），`@designer` 的意见已取舍；[评审板](artifacts/review/index.html) v1 两道题已答（决定 4、5）。开发者在答复里另问了两件事，已在会话里给出建议、等开发者定：要不要做可选的遮罩；引导能不能回退。
+- omp 计划审查（24 条）已按第二版核对并处理（[处理记录](evidences/plan-review-disposition.txt)文末）：计划改到第三版，Spec 补了几处上限与时序；内核一处修正在 Work 分支（233e0e599）。第 10 条（换窗口再选回原窗口时旧引用算不算数）与 t01 决定 3 的字面不符，已在会话里问开发者。
+- 第 5 片（核心第一段）进行中。
+
+## 下一步
+
+1. 开发者定遮罩与回退后，把决定 4、5 与这两项一起写进 Spec（`page-agent.md` 输出 9、10，`profile-settings.md` 输出 28）。
+2. 第 5 片：快照、引用、定位与夹具测试，先量 500 个元素的耗时。
+3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）。
+4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。
