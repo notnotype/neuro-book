@@ -13,7 +13,8 @@ const props = defineProps<{
     changes: readonly unknown[];
     total: number;
     remaining: number;
-    loading: boolean;
+    initialLoading: boolean;
+    changesLoading: boolean;
     failed: string | null;
 }>();
 
@@ -35,16 +36,16 @@ const PAGE = 20;
         </p>
         <section data-raw-initial>
             <h3 class="component-raw-view__title">{{ text("entry.views.initial") }}</h3>
-            <p v-if="props.loading && props.changes.length === 0" class="component-raw-view__note">{{ text("entries.loading") }}</p>
+            <p v-if="props.initialLoading && props.initial === undefined" class="component-raw-view__note">{{ text("entries.loading") }}</p>
             <p v-else-if="props.initial === undefined" class="component-raw-view__note">{{ text("entry.views.initialNone") }}</p>
             <JsonViewer v-else :value="props.initial" :max-height="320" />
         </section>
         <section data-raw-changes>
             <h3 class="component-raw-view__title">{{ text("entry.views.changes", {count: props.total}) }}</h3>
-            <p v-if="props.loading && props.changes.length === 0" class="component-raw-view__note">{{ text("entries.loading") }}</p>
+            <p v-if="props.changesLoading && props.changes.length === 0" class="component-raw-view__note">{{ text("entries.loading") }}</p>
             <p v-else-if="props.changes.length === 0" class="component-raw-view__note">{{ text("entry.views.changesNone") }}</p>
             <JsonViewer v-else :value="props.changes" :max-height="480" />
-            <Button v-if="props.remaining > 0" class="mt-2" size="sm" variant="ghost" :loading="props.loading" data-raw-more @click="emit('more')">{{ text("entry.views.more", {count: Math.min(PAGE, props.remaining)}) }}</Button>
+            <Button v-if="props.remaining > 0" class="mt-2" size="sm" variant="ghost" :loading="props.changesLoading" data-raw-more @click="emit('more')">{{ text("entry.views.more", {count: Math.min(PAGE, props.remaining)}) }}</Button>
         </section>
     </div>
 </template>

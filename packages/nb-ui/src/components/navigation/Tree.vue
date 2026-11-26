@@ -97,14 +97,14 @@ function emitModelValue(value: GenericTreeNode | GenericTreeNode[] | undefined):
 }
 
 /** 这一下点在箭头上（`arrow` 时箭头那一格带 `data-tree-toggle`）。 */
-const onToggle = (event: TreeItemEvent): boolean => {
+const isArrowClick = (event: TreeItemEvent): boolean => {
     const target = event.detail?.originalEvent?.target;
     return target instanceof Element && target.closest("[data-tree-toggle]") !== null;
 };
 
 /** `arrow` 时点箭头只切换展开：取消 reka 跟着这次点击做的选中，也不往外发 `select`。 */
 function onItemSelect(event: TreeItemEvent, node: GenericTreeNode): void {
-    if (props.toggleOn === "arrow" && onToggle(event)) {
+    if (props.toggleOn === "arrow" && isArrowClick(event)) {
         event.preventDefault();
         return;
     }
@@ -113,7 +113,7 @@ function onItemSelect(event: TreeItemEvent, node: GenericTreeNode): void {
 
 /** `arrow` 时点行（不在箭头上）不切换展开；键盘的左右键照常（原始事件不是鼠标事件）。 */
 function onItemToggle(event: TreeItemEvent): void {
-    if (props.toggleOn === "arrow" && event.detail?.originalEvent instanceof MouseEvent && !onToggle(event)) event.preventDefault();
+    if (props.toggleOn === "arrow" && event.detail?.originalEvent instanceof MouseEvent && !isArrowClick(event)) event.preventDefault();
 }
 
 const surfaceClass = computed(() => props.surface === "card"

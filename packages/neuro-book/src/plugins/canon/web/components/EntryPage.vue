@@ -287,8 +287,9 @@ watch(() => props.tab, (now, before) => {
 }, {flush: "pre"});
 const panelStyle = computed(() => ({"--entry-page-tab-x": `${String(tabShift.value.x)}px`, "--entry-page-tab-y": `${String(tabShift.value.y)}px`}));
 /**
- * 新内容进来之前（旧的已经淡出、还没画新的）：滚过了分页条的，把分页内容的顶滚回吸顶的页头下沿，不让新的一页从半中间开始；
- * 没滚过的不动。这时画面上没有内容，跳一下看不出来。
+ * 新内容进来之前（旧的已经淡出、还没画新的）：滚过了分页条的，让新的一页从吸顶的页头下沿开始，不从半中间开始（输出 9）。
+ * 这里一读位置，浏览器就按空着的分页排一次版：页面变矮，滚动位置先被夹回，现在的版式（分页内容之后没有别的东西）多半已经回到
+ * 页头下沿；夹不回来的（分页后面还有内容、页面仍比视口高）由下面再滚。没滚过的不动。这时画面上没有内容，跳一下看不出来。
  */
 const alignPanel = (): void => {
     const panel = document.getElementById(PANEL_ID);
@@ -482,7 +483,7 @@ watch(rail, async () => {
     grid-template-columns: 168px minmax(0, 1fr);
     column-gap: 32px;
 }
-/* 换分页（输出 9）：退场只淡出，进场从切换方向那一边挪进来并淡入；减弱动效时令牌为 0，没有过渡。 */
+/* 换分页（输出 9）：退场只淡出，进场从切换方向那一边挪进来并淡入；减弱动效时令牌为 0，没有过渡（Vue 的 Transition 仍隔两帧才换上，同 nb-ui-switch）。 */
 .entry-page-tab-leave-active {
     transition: opacity var(--motion-fast) var(--ease-dialog-leave);
 }

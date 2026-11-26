@@ -38,7 +38,7 @@ const text = useCanonText();
             各行的数对得齐；发生了什么独占第二行整行，窄的流水（面板分页右边一栏）里也不挤成几个字一行。初值一行没有位置：第一行左边
             写“最初”这一句，第二行只剩依据。
         -->
-        <ol v-else-if="props.rows.length > 0" class="m-0 list-none p-0">
+        <ol v-else-if="props.rows.length > 0" class="origin-list__rows m-0 list-none p-0">
             <li v-for="row in props.rows" :key="row.key" class="origin-list__row border-t border-[var(--divider)] py-1.5" data-origin-row>
                 <span class="origin-list__where" :class="row.where === '' ? 'text-[var(--text-main)]' : 'text-[length:var(--text-xs)] text-[var(--text-muted)]'">{{ row.where === "" ? row.what : row.where }}</span>
                 <span class="origin-list__delta font-mono text-[var(--text-secondary)]"><span v-if="row.delta !== undefined" class="sr-only">{{ text("origin.delta") }}</span>{{ row.delta ?? "" }}</span>
@@ -60,11 +60,19 @@ const text = useCanonText();
 </template>
 
 <style scoped>
-/* 位置一列伸缩，变化、结果、按钮固定宽：各行的数上下对齐。发生了什么从第二行起占满整行。 */
-.origin-list__row {
+/*
+ * 列定在整张表上，每行用 subgrid 接过去：变化、结果、按钮三列按所有行里最宽的那格定宽，各行的数上下对齐；位置一列拿剩下的。
+ * 不写死三列的宽：窄屏（390）上写死的宽占掉大半行，位置只剩 40 像素、折成几行，英文的按钮又放不下。发生了什么从第二行起占满整行。
+ */
+.origin-list__rows {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 5rem 6rem 4.5rem;
+    grid-template-columns: minmax(4em, 1fr) auto auto auto;
     column-gap: 0.75rem;
+}
+.origin-list__row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
     row-gap: 0.125rem;
     align-items: baseline;
 }

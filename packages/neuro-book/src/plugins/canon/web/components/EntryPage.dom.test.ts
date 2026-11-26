@@ -153,9 +153,18 @@ describe("EntryPage", () => {
         search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
         await flushPromises();
         expect(wrapper.emitted("show-component")).toEqual([["nbook.canon.person"]]);
+        // Tab 离开搜索框：浮层关上，焦点先回到“＋”（Tab 的默认动作再从它往下走），不留在被卸掉的搜索框上。
+        await add.trigger("click");
+        await flushPromises();
+        const opened = document.querySelector<HTMLInputElement>("[data-suggestion-menu-header] input")!;
+        expect(document.activeElement).toBe(opened);
+        opened.dispatchEvent(new KeyboardEvent("keydown", {key: "Tab", bubbles: true}));
+        await flushPromises();
+        expect(add.attributes("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(add.element);
         await add.trigger("click");
         await add.trigger("click");
-        expect(wrapper.emitted("add-open")).toHaveLength(3);
+        expect(wrapper.emitted("add-open")).toHaveLength(4);
         expect(add.attributes("aria-expanded")).toBe("false");
         const more = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "delete"))!;
         expect((more.props("items") as {id: string}[]).map((item) => item.id)).not.toContain("add-component");

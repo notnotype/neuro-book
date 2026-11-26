@@ -8,7 +8,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof ComponentAgentView>(() => props.input, []);
+const subject = useLabSubject<typeof ComponentAgentView>(() => props.input, ["retry"]);
 </script>
 
 <template>

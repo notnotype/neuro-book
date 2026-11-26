@@ -432,8 +432,8 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
         expect(listed(xia)).toEqual([story["tmp:cast"]!, story["tmp:as"]!, late, story["tmp:involves"]!, story["tmp:patch"]!]);
     });
 
-    test("changes 按命名空间筛：给了条目只列改了这个条目这个命名空间的，只经参与、涉及的不列；不给条目时算任何条目上的改动", async () => {
-        const panel = (deposit: number) => ({panel: {type: PANEL.id!, version: 1, enabled: true, fields: {存款: deposit, 魔力上限: null, 魔力: null, 物品: []}}});
+    test("changes 按命名空间筛：给了条目只列改了这个条目这个命名空间的（同一个补丁上两样都对才算），只经参与、涉及的不列；不给条目时算任何条目上的改动；命名空间随筛选进游标", async () => {
+        const panel = (deposit: number) => ({panel: {type: PANEL.id!, version: 1, enabled: true, fields: {存款: deposit, 魔力上限: null, 魔力: null, 物品: [{id: "sword", label: "剑", 数量: 1}]}}});
         const ids = await publish([entry("tmp:xia", "星瑕", {}, panel(100)), entry("tmp:other", "白灵", {}, panel(50))]);
         const [xia, other] = [ids["tmp:xia"]!, ids["tmp:other"]!];
         const story = await publish([
@@ -441,17 +441,28 @@ describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisio
             written("tmp:mine", at("ch2", 10), [{op: "add", at: {entry: xia, path: "panel.存款"}, value: 5}]),
             written("tmp:theirs", at("ch3", 10), [{op: "add", at: {entry: other, path: "panel.存款"}, value: 7}], {involves: [xia]}),
             written("tmp:name", at("ch4", 10), [{op: "set", at: {entry: xia, path: "entry.name"}, value: "星瑕二号"}]),
+            written("tmp:item", at("ch4", 20), [{op: "add", at: {entry: xia, path: "panel.物品[sword].数量"}, value: 1}]),
+            // 一条变更里星瑕的补丁不在 panel、白灵的补丁在 panel：按星瑕与 panel 筛时不算。
+            written("tmp:mixed", at("ch4", 30), [{op: "set", at: {entry: xia, path: "entry.summary"}, value: "改了简介"}, {op: "add", at: {entry: other, path: "panel.存款"}, value: 1}]),
         ]);
         const listed = (filter: {entry?: string; namespace: string}): string[] => {
             const page = service.changes(filter);
             if (typeof page === "string") throw new Error(page);
             return page.items.map((item) => item.change.id);
         };
-        expect(listed({entry: xia, namespace: "panel"})).toEqual([story["tmp:mine"]!]);
-        expect(listed({entry: other, namespace: "panel"})).toEqual([story["tmp:theirs"]!]);
-        // 改名字不算任何命名空间；没有这个命名空间的改动：空列表。
+        expect(listed({entry: xia, namespace: "panel"})).toEqual([story["tmp:mine"]!, story["tmp:item"]!]);
+        expect(listed({entry: other, namespace: "panel"})).toEqual([story["tmp:theirs"]!, story["tmp:mixed"]!]);
+        // 改名字、简介不算任何命名空间；没有这个命名空间的改动、只是命名空间名字的开头对上：空列表。
         expect(listed({entry: xia, namespace: "character"})).toEqual([]);
-        expect(listed({namespace: "panel"}).filter((id) => Object.values(story).includes(id))).toEqual([story["tmp:mine"]!, story["tmp:theirs"]!]);
+        expect(listed({entry: xia, namespace: "pan"})).toEqual([]);
+        expect(listed({namespace: "panel"}).filter((id) => Object.values(story).includes(id))).toEqual([story["tmp:mine"]!, story["tmp:theirs"]!, story["tmp:item"]!, story["tmp:mixed"]!]);
+        const first = service.changes({entry: xia, namespace: "panel"}, undefined, 1);
+        if (typeof first === "string" || first.cursor === undefined) throw new Error("应当还有下一页");
+        expect(service.changes({entry: xia, namespace: "character"}, first.cursor, 1)).toBe("cursor-stale");
+        expect(service.changes({entry: xia}, first.cursor, 1)).toBe("cursor-stale");
+        const second = service.changes({entry: xia, namespace: "panel"}, first.cursor, 1);
+        if (typeof second === "string") throw new Error(second);
+        expect(second.items.map((item) => item.change.id)).toEqual([story["tmp:item"]!]);
     });
 
     test("条目读取带每个命名空间生效的字段声明，含条目上实例声明的；来历对“不是列表的字段带元素”是空的", async () => {

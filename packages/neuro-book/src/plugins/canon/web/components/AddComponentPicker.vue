@@ -95,7 +95,10 @@ const onKeydown = (event: KeyboardEvent): void => {
         event.preventDefault();
         event.stopPropagation();
         emit("close", true);
-    } else if (event.key === "Tab") emit("close", false);
+    } else if (event.key === "Tab") {
+        // 浮层传送在页面末尾：先把焦点放回锚，Tab 的默认动作再从锚走到下一个（Shift+Tab 到上一个），不掉到页面最后。
+        emit("close", true);
+    }
 };
 
 /** 开着时按在浮层与锚以外的地方：关上，焦点不动（按在锚上由宿主的开关处理）。 */
@@ -138,7 +141,6 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onPointerdown,
         :anchor="props.anchor"
         :label="text('entry.addComponentShort')"
         :empty-text="text('entry.addGroup.none', {query: query.trim()})"
-        side="bottom"
         @select="choose"
         @highlight="(id: string) => (activeId = id)"
     >

@@ -100,7 +100,7 @@ describe("AddComponentPicker", () => {
         expect(wrapper.emitted("show")).toEqual([["nbook.canon.person"]]);
     });
 
-    it("点一项同回车；Escape 发 close(true) 且不往外传，Tab 发 close(false)", async () => {
+    it("点一项同回车；Escape 发 close(true) 且不往外传；Tab 也发 close(true)（焦点先回锚，默认动作再往下走）", async () => {
         const {wrapper} = await open();
         document.querySelectorAll<HTMLElement>("[role='option']")[2]!.click();
         expect(wrapper.emitted("add")).toEqual([["nbook.canon.inventory"]]);
@@ -113,7 +113,7 @@ describe("AddComponentPicker", () => {
         document.body.removeEventListener("keydown", listen);
         expect(outer).toBe(0);
         await key("Tab");
-        expect(wrapper.emitted("close")).toEqual([[true], [true], [false]]);
+        expect(wrapper.emitted("close")).toEqual([[true], [true], [true]]);
     });
 
     it("开着时按在浮层与锚以外的地方发 close(false)；按在浮层里、锚上不发；关上以后不再听", async () => {

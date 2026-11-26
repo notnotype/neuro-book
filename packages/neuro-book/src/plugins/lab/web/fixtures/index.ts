@@ -2265,6 +2265,9 @@ function canonEntryPageFixtures() {
                 {id: "loading", label: "流水读取中", input: {props: {cards, selected: "panel.魔力", ledger: [], ledgerLoading: true}}},
                 {id: "empty", label: "面板还没有内容", input: {props: {cards: []}}},
                 {id: "sample-english", label: "英文界面", input: {props: {cards, selected: "panel.存款", ledger: origins}}},
+                // 能改：可改的卡右边有“改”，随身物品不能改、那一格空着；英文的 Edit 比“改”宽，看那一格是否放得下、各卡是否仍等宽。
+                {id: "editing", label: "能改：可改的卡右边有“改”", input: {props: {cards: cards.map((card, index) => ({...card, editable: index !== 2})), selected: "panel.存款", ledger: origins, editing: true}}},
+                {id: "editing-english", label: "能改（英文界面）", input: {props: {cards: cards.map((card, index) => ({...card, editable: index !== 2})), selected: "panel.存款", ledger: origins, editing: true}}},
             ],
             load: async () => (await import("./PanelViewFixture.vue")).default,
         }),
@@ -2406,6 +2409,8 @@ function canonEntryPageFixtures() {
             scenes: [
                 {id: "panel", label: "数值：给模型的那一节", input: {props: {position: "第 2 章末尾", text: "【数值】（设定组 panel，可以加字段）\n- 存款 = 900｜数｜单位 元\n- 魔力上限 = 3000｜数\n- 魔力 = 未知｜数（语义档：改起点或记一句）\n- 物品｜列表｜2 项\n  - [wand] 魔杖｜数量=1\n  - [cape] 斗篷｜数量=1"}}},
                 {id: "long-line", label: "很长的一行折行", input: {props: {position: "最初", text: "【人物】（设定组 character）\n- 性格 = 黑发，左眼下有颗痣，平时话少，遇到和妹妹有关的事会突然变得很固执，打工的地方没人知道她是魔法少女，也没人知道她其实是男生变的｜文字"}}},
+                {id: "loading", label: "设定组类型还在读", input: {props: {position: "第 2 章末尾", text: "", loading: true}}},
+                {id: "failed", label: "设定组类型读失败", input: {props: {position: "第 2 章末尾", text: "", failed: "世界已断开"}}},
                 {id: "panel-english", label: "英文界面", input: {props: {position: "End of chapter 2", text: "【数值】（设定组 panel）\n- 存款 = 900｜数｜单位 元"}}},
             ],
             load: async () => (await import("./ComponentAgentViewFixture.vue")).default,
@@ -2417,12 +2422,13 @@ function canonEntryPageFixtures() {
                 const step = (id: string, chapter: string, text: string, value: number) => ({id, kind: "written", text, at: {kind: "chapter", chapter, key: 10}, status: "active", patches: [{op: "add", at: {entry: "xingxia", path: "panel.存款"}, value}]});
                 const changes = [step("c1", "1", "领了工资", 200), step("c2", "2", "买了书", -300)];
                 return [
-                    {id: "panel", label: "数值：初值与两条变更", input: {props: {initial, changes, total: 2, remaining: 0, loading: false, failed: null}}},
-                    {id: "more", label: "变更多于一页：再显示", input: {props: {initial, changes, total: 45, remaining: 43, loading: false, failed: null}}},
-                    {id: "added-by-change", label: "初值里没有、也没有变更", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, loading: false, failed: null}}},
-                    {id: "loading", label: "读取中", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, loading: true, failed: null}}},
-                    {id: "failed", label: "读失败", input: {props: {initial, changes, total: 2, remaining: 0, loading: false, failed: "世界已断开"}}},
-                    {id: "panel-english", label: "英文界面", input: {props: {initial, changes, total: 45, remaining: 43, loading: false, failed: null}}},
+                    {id: "panel", label: "数值：初值与两条变更", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "more", label: "变更多于一页：再显示", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "added-by-change", label: "初值里没有、也没有变更", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "loading", label: "读取中", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, initialLoading: true, changesLoading: true, failed: null}}},
+                    {id: "changes-first", label: "变更先读回来、初值还在读", input: {props: {initial: undefined, changes, total: 2, remaining: 0, initialLoading: true, changesLoading: false, failed: null}}},
+                    {id: "failed", label: "读失败", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: "世界已断开"}}},
+                    {id: "panel-english", label: "英文界面", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
                 ];
             })(),
             load: async () => (await import("./ComponentRawViewFixture.vue")).default,

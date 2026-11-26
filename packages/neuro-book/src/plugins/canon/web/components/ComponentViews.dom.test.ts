@@ -1,6 +1,6 @@
 /**
  * 设定组的两种看法（ComponentAgentView、ComponentRawView，同名 .md，docs/specs/canon/author-ui.md 输出 54）：给 AI 看的字原样摆出、
- * 头一行写在看的位置；原始数据的初值、变更、空的与读取中的写法，“再显示”与“重试”。接到条目页上的读取在 entry-page.dom.test。
+ * 头一行写在看的位置、读取中与读失败；原始数据的初值、变更、空的与各自读取中的写法，“再显示”与“重试”。接到条目页上的读取在 entry-page.dom.test。
  */
 
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
@@ -19,9 +19,9 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const RAW = {initial: {type: "nbook.canon.panel", fields: {存款: 1000}} as unknown, changes: [{id: "c1", text: "领了工资", patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: 3000}]}] as readonly unknown[], total: 1, remaining: 0, loading: false, failed: null as string | null};
+const RAW = {initial: {type: "nbook.canon.panel", fields: {存款: 1000}} as unknown, changes: [{id: "c1", text: "领了工资", patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: 3000}]}] as readonly unknown[], total: 1, remaining: 0, initialLoading: false, changesLoading: false, failed: null as string | null};
 
-async function agentView(props: {text: string; position: string}): Promise<VueWrapper> {
+async function agentView(props: {text: string; position: string; loading?: boolean; failed?: string | null}): Promise<VueWrapper> {
     const wrapper = mount(ComponentAgentView, {props, global: {provide: provideText(port)}, attachTo: document.body});
     mounted.push(wrapper);
     await flushPromises();
@@ -39,6 +39,17 @@ describe("ComponentAgentView", () => {
         const wrapper = await agentView({text: "【数值】（设定组 panel）\n- 存款 = 900｜数｜单位 元", position: "第 2 章末尾"});
         expect(wrapper.text()).toContain("在看：第 2 章末尾");
         expect(wrapper.get("[data-agent-text]").element.textContent).toBe("【数值】（设定组 panel）\n- 存款 = 900｜数｜单位 元");
+    });
+
+    it("写那段字要用的东西还在读时写“读取中”、不出字；读失败写原因，点“重试”发 retry", async () => {
+        const wrapper = await agentView({text: "", position: "第 2 章末尾", loading: true});
+        expect(wrapper.text()).toContain("读取中");
+        expect(wrapper.find("[data-agent-text]").exists()).toBe(false);
+        await wrapper.setProps({loading: false, failed: "世界已断开"});
+        expect(wrapper.get("[role='alert']").text()).toContain("没有读出来：世界已断开");
+        expect(wrapper.find("[data-agent-text]").exists()).toBe(false);
+        await wrapper.get("[role='alert'] button").trigger("click");
+        expect(wrapper.emitted("retry")).toHaveLength(1);
     });
 });
 
@@ -63,11 +74,15 @@ describe("ComponentRawView", () => {
         expect(wrapper.emitted("more")).toHaveLength(1);
     });
 
-    it("读取中两节都写“读取中”；读失败写原因，点“重试”发 retry", async () => {
-        const wrapper = await rawView({...RAW, initial: undefined, changes: [], total: 0, loading: true});
+    it("两节各按自己的读取写“读取中”：变更先回来时初值一节仍是读取中，不写“初值里没有”；读失败写原因，点“重试”发 retry", async () => {
+        const wrapper = await rawView({...RAW, initial: undefined, changes: [], total: 0, initialLoading: true, changesLoading: true});
         expect(wrapper.get("[data-raw-initial]").text()).toContain("读取中");
         expect(wrapper.get("[data-raw-changes]").text()).toContain("读取中");
-        await wrapper.setProps({loading: false, failed: "世界已断开"});
+        await wrapper.setProps({changes: RAW.changes, total: 1, changesLoading: false});
+        expect(wrapper.get("[data-raw-initial]").text()).toContain("读取中");
+        expect(wrapper.get("[data-raw-initial]").text()).not.toContain("初值里没有这组设定");
+        expect(wrapper.get("[data-raw-changes]").text()).toContain("领了工资");
+        await wrapper.setProps({initialLoading: false, failed: "世界已断开"});
         expect(wrapper.get("[role='alert']").text()).toContain("没有读出来：世界已断开");
         await wrapper.get("[role='alert'] button").trigger("click");
         expect(wrapper.emitted("retry")).toHaveLength(1);

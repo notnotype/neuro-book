@@ -185,8 +185,9 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await valueOf(page, "character.年龄").click();
     const age = editorOf(page, "character.年龄");
     await expect(age).toBeVisible();
+    // 量浮层的外框（内边距与边框外面），不量里面的编辑卡：差的十几像素正是会盖住标签列的那一段。
     const valueLeft = (await valueOf(page, "character.年龄").boundingBox())!.x;
-    expect((await age.boundingBox())!.x).toBeGreaterThanOrEqual(valueLeft);
+    expect((await page.locator(".nb-ui-popover-surface").filter({has: age}).boundingBox())!.x).toBeGreaterThanOrEqual(valueLeft);
     await expect(age.locator("[data-edit-intent]")).toHaveCount(0);
     await expect(age).not.toContainText("改最初的值");
     await age.getByRole("textbox").fill("十七");
@@ -254,7 +255,7 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
     await expect(page.locator("[data-notice-bar]")).toContainText("现在穿的变成 学院制服");
 });
 
-test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，换分页回到卡片；“添加一组设定”是带搜索的浮层，Escape 回到“＋”，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
+test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，换分页回到卡片；“添加一组设定”是带搜索的浮层，Escape 回到“＋”、Tab 从“＋”往下走，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
     await open(page, "book");
     await openEntry(page, "星瑕");
     await tab(page, "数值").click();
@@ -281,6 +282,12 @@ test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，
     await search.press("Escape");
     await expect(picker).toBeHidden();
     await expect(add).toBeFocused();
+    // Tab：浮层关上，焦点回到“＋”再往下走一个，仍在条目页里，不掉到页面末尾。
+    await add.click();
+    await expect(search).toBeFocused();
+    await search.press("Tab");
+    await expect(picker).toBeHidden();
+    expect(await page.evaluate(() => document.activeElement !== document.body && document.activeElement?.closest("[data-entry-page]") !== null)).toBe(true);
 
     await add.click();
     await search.fill("形象");

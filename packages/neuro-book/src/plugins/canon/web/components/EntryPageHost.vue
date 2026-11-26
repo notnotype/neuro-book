@@ -915,7 +915,8 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                  * 放得下就不往左让、不盖住左边的标签列；连 16rem 都放不下时才由避让往左挪（输出 51）。打开时量一次。
                  */
                 const popoverWidth = shallowRef<number | null>(null);
-                const POPOVER_PADDING = 24;
+                /** 浮层表面两侧的内边距（各 12）与边框（各 1）。 */
+                const POPOVER_PADDING = 26;
                 watch([active, () => inner.anchor], ([on, anchor]) => {
                     if (!on || !(anchor instanceof HTMLElement)) return;
                     const page = anchor.closest("[data-entry-page]");
@@ -1117,7 +1118,6 @@ const extraView = computed<{readonly component: Component | null; readonly loadi
     return {component: null, loading: slot.status === "loading", failed: slot.status === "failed" ? slot.reason : null};
 });
 
-/** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
 /* ---------- 设定组的三种看法（输出 54） ---------- */
 
 type DataLook = "card" | "agent" | "raw";
@@ -1127,11 +1127,19 @@ watch(tab, () => {
     dataLook.value = "card";
 });
 const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: text(`entry.views.${value}`), testId: `data-look-${value}`})));
-/** “给 AI 看”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。 */
-const agentText = computed(() => {
+/**
+ * “给 AI 看”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
+ * “可以加字段”来自设定组类型列表：还没读到或读失败时写读取中、失败，不拿空列表写出一段与模型所见不同的字。
+ */
+const agentView = computed(() => {
     const namespace = dataNamespace.value;
-    if (dataLook.value !== "agent" || namespace === null || view.value === null) return "";
-    return fieldsText(view.value, entry.value?.declarations ?? {}, componentsRead.value?.data?.items ?? [], {namespace});
+    const types = componentsRead.value?.data?.items;
+    if (dataLook.value !== "agent" || namespace === null || view.value === null) return {text: "", loading: false, failed: null};
+    if (types === undefined) {
+        const failure = componentsRead.value?.error ?? null;
+        return {text: "", loading: failure === null, failed: failure === null ? null : port.t(failureText(failure).text)};
+    }
+    return {text: fieldsText(view.value, entry.value?.declarations ?? {}, types, {namespace}), loading: false, failed: null};
 });
 /** “原始数据”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
 const rawEntry = useWorldRead(world, "object", () => (dataLook.value === "raw" ? {ref: {kind: "entry" as const, id: props.id}} : null));
@@ -1148,11 +1156,13 @@ const rawView = computed(() => {
         changes: (list?.items ?? []).map(({change}) => ({...change, patches: change.patches.filter((patch) => patch.at.entry === props.id && patch.at.path.startsWith(`${namespace}.`))})),
         total,
         remaining: Math.max(0, total - (list?.items.length ?? 0)),
-        loading: (rawEntry.value?.loading ?? true) || (list?.loading ?? true),
+        initialLoading: rawEntry.value?.loading ?? true,
+        changesLoading: list?.loading ?? true,
         failed: failure === null ? null : port.t(failureText(failure).text),
     };
 });
 
+/** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
 const dataView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
     const namespace = dataNamespace.value;
     if (namespace === null) return {component: null, loading: false, failed: null};
@@ -1297,7 +1307,7 @@ const setPosition = (value: string): void => {
                     <SegmentedControl size="xs" :aria-label="text('entry.views.label')" :options="dataLooks" :model-value="dataLook" data-data-look @update:model-value="(value) => (dataLook = value as DataLook)" />
                 </div>
                 <Transition name="nb-ui-switch" mode="out-in">
-                    <ComponentAgentView v-if="dataLook === 'agent'" :text="agentText" :position="positionLabel(position, chapters, text)" />
+                    <ComponentAgentView v-if="dataLook === 'agent'" v-bind="agentView" :position="positionLabel(position, chapters, text)" @retry="world.retry()" />
                     <ComponentRawView v-else-if="dataLook === 'raw'" v-bind="rawView" @more="rawChanges.more()" @retry="world.retry()" />
                     <div v-else>
                         <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
