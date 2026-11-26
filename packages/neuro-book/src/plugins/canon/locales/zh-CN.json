@@ -78,7 +78,7 @@
             "title": "人物"
         },
         "panel": {
-            "title": "面板"
+            "title": "数值"
         },
         "look": {
             "title": "形象"
@@ -127,6 +127,15 @@
         "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
         "fieldRestored": "恢复了{{name}}的“{{label}}”",
+        "addGroup": {
+            "search": "搜索设定组",
+            "fits": "适用于{{kind}}",
+            "canon": "设定",
+            "plot": "剧情",
+            "other": "插件",
+            "added": "已添加",
+            "none": "没有叫“{{query}}”的设定组"
+        },
         "addComponentShort": "添加一组设定",
         "groupAlreadyAdded": "这组设定已经加上了",
         "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次"
@@ -172,8 +181,6 @@
         "basisDerived": "由核对推出",
         "editStep": "改这一笔",
         "failed": "来历没有读出来",
-        "where": "位置",
-        "what": "发生了什么",
         "delta": "变化",
         "result": "结果"
     },
@@ -185,9 +192,9 @@
         "notesMore": "还有更早的 {{count}} 句"
     },
     "panel": {
-        "empty": "这个面板还没有内容",
+        "empty": "这组数值还没有内容",
         "ledger": "{{label}}的流水",
-        "cards": "面板的值"
+        "cards": "各项数值"
     },
     "plot": {
         "empty": "还没有涉及它的情节",
@@ -250,7 +257,7 @@
         "delta": "变化",
         "text": "发生了什么",
         "deltaPlaceholder": "+300 或 -200",
-        "textPlaceholder": "比如：领了工资",
+        "textPlaceholder": "发生了什么",
         "submit": "记一笔",
         "saved": "记了一笔：{{text}}"
     },

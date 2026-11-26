@@ -63,16 +63,19 @@ const selectedCard = (): FieldRow | undefined => props.cards.find((card) => card
                     </span>
                     <span v-else class="mt-0.5 block font-mono text-[length:var(--text-lg)]" :class="card.unknown || card.incomplete ? 'text-[var(--status-warning)]' : 'text-[var(--text-main)]'">{{ card.display }}</span>
                 </button>
-                <Button
-                    v-if="props.editing && card.editable"
-                    size="sm"
-                    variant="ghost"
-                    :data-edit="card.path"
-                    :disabled="props.editReason !== ''"
-                    :title="props.editReason !== '' ? props.editReason : undefined"
-                    :aria-label="text('edit.label', {label: card.label})"
-                    @click="emit('edit', card.path)"
-                >{{ text("edit.button") }}</Button>
+                <!-- “改”那一格每张卡都留着（不能改的空着）：卡片等宽，按钮上下对齐（nb-ui 界面开发规范“几何、排版与动效”第 6 条）。 -->
+                <span v-if="props.editing" class="flex w-9 shrink-0 justify-end">
+                    <Button
+                        v-if="card.editable"
+                        size="sm"
+                        variant="ghost"
+                        :data-edit="card.path"
+                        :disabled="props.editReason !== ''"
+                        :title="props.editReason !== '' ? props.editReason : undefined"
+                        :aria-label="text('edit.label', {label: card.label})"
+                        @click="emit('edit', card.path)"
+                    >{{ text("edit.button") }}</Button>
+                </span>
             </div>
         </div>
         <section v-if="selectedCard() !== undefined" class="min-w-64 flex-1 basis-80">

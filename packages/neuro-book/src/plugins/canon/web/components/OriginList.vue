@@ -33,30 +33,58 @@ const text = useCanonText();
             <Button size="sm" variant="ghost" @click="emit('retry')">{{ text("world.retry") }}</Button>
         </p>
         <p v-if="props.loading && props.rows.length === 0" class="py-1 text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
-        <template v-else-if="props.rows.length > 0">
-            <!-- 表头与各行同一套换行规则：容器窄时“变化”“结果”换到第二行，表头也一样。窄屏只留给读屏。 -->
-            <div class="flex flex-wrap gap-x-3 pb-1 text-[length:var(--text-xs)] text-[var(--text-muted)] max-[480px]:sr-only">
-                <span class="w-16 shrink-0">{{ text("origin.where") }}</span>
-                <span class="min-w-32 flex-1 basis-48">{{ text("origin.what") }}</span>
-                <span class="w-20 shrink-0 text-right">{{ text("origin.delta") }}</span>
-                <span class="w-24 shrink-0 text-right">{{ text("origin.result") }}</span>
-                <span class="w-[4.5rem] shrink-0" />
-            </div>
-            <ol class="m-0 list-none p-0">
-                <li v-for="row in props.rows" :key="row.key" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-t border-[var(--divider)] py-1.5" data-origin-row>
-                    <span class="w-16 shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.where }}</span>
-                    <span class="min-w-32 flex-1 basis-48 text-[var(--text-main)]">
-                        {{ row.what }}
-                        <span v-if="row.basis !== undefined" class="block text-[length:var(--text-xs)]" :class="row.basis.estimate ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'">{{ row.basis.text }}</span>
-                    </span>
-                    <span class="w-20 shrink-0 text-right font-mono text-[var(--text-secondary)]">{{ row.delta ?? "" }}</span>
-                    <span class="w-24 shrink-0 text-right font-mono" :class="row.check === 'mismatch' ? 'text-[var(--status-danger)]' : 'text-[var(--text-main)]'">{{ row.result }}</span>
-                    <span class="w-[4.5rem] shrink-0 text-right">
-                        <Button v-if="row.change !== undefined" size="sm" variant="ghost" @click="emit('change', row.change)">{{ text("origin.editStep") }}</Button>
-                    </span>
-                </li>
-            </ol>
-        </template>
+        <!--
+            一步两行，不要表头：第一行是位置、变化、结果与“改这一笔”，第二行是发生了什么（与依据）。变化、结果、按钮各占固定宽的一列，
+            各行的数对得齐；发生了什么独占第二行整行，窄的流水（面板分页右边一栏）里也不挤成几个字一行。初值一行没有位置：第一行左边
+            写“最初”这一句，第二行只剩依据。
+        -->
+        <ol v-else-if="props.rows.length > 0" class="m-0 list-none p-0">
+            <li v-for="row in props.rows" :key="row.key" class="origin-list__row border-t border-[var(--divider)] py-1.5" data-origin-row>
+                <span class="origin-list__where" :class="row.where === '' ? 'text-[var(--text-main)]' : 'text-[length:var(--text-xs)] text-[var(--text-muted)]'">{{ row.where === "" ? row.what : row.where }}</span>
+                <span class="origin-list__delta font-mono text-[var(--text-secondary)]"><span v-if="row.delta !== undefined" class="sr-only">{{ text("origin.delta") }}</span>{{ row.delta ?? "" }}</span>
+                <span class="origin-list__result font-mono" :class="row.check === 'mismatch' ? 'text-[var(--status-danger)]' : 'text-[var(--text-main)]'">
+                    <span v-if="row.delta !== undefined" class="i-lucide-arrow-right mr-1 size-3 align-[-1px] text-[var(--text-muted)]" aria-hidden="true" />
+                    <span v-if="row.result !== ''" class="sr-only">{{ text("origin.result") }}</span>{{ row.result }}
+                </span>
+                <span class="origin-list__action">
+                    <Button v-if="row.change !== undefined" size="sm" variant="ghost" @click="emit('change', row.change)">{{ text("origin.editStep") }}</Button>
+                </span>
+                <span v-if="row.where !== '' || row.basis !== undefined" class="origin-list__what">
+                    <span v-if="row.where !== ''" class="text-[var(--text-main)]">{{ row.what }}</span>
+                    <span v-if="row.basis !== undefined" class="block text-[length:var(--text-xs)]" :class="row.basis.estimate ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'">{{ row.basis.text }}</span>
+                </span>
+            </li>
+        </ol>
         <Button v-if="props.remaining > 0" class="mt-1" size="sm" variant="ghost" @click="emit('more')">{{ text("origin.more", {count: props.remaining}) }}</Button>
     </div>
 </template>
+
+<style scoped>
+/* 位置一列伸缩，变化、结果、按钮固定宽：各行的数上下对齐。发生了什么从第二行起占满整行。 */
+.origin-list__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 5rem 6rem 4.5rem;
+    column-gap: 0.75rem;
+    row-gap: 0.125rem;
+    align-items: baseline;
+}
+.origin-list__where {
+    grid-area: 1 / 1;
+    min-width: 0;
+}
+.origin-list__delta {
+    grid-area: 1 / 2;
+    text-align: right;
+}
+.origin-list__result {
+    grid-area: 1 / 3;
+    text-align: right;
+}
+.origin-list__action {
+    grid-area: 1 / 4;
+    text-align: right;
+}
+.origin-list__what {
+    grid-area: 2 / 1 / 3 / 5;
+}
+</style>

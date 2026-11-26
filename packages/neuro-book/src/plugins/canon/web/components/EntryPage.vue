@@ -249,6 +249,27 @@ const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
 const PANEL_ID = `canon-entry-panel-${useId()}`;
 const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
+/**
+ * 换分页的过渡（输出 9）：旧内容淡出，新内容从切换方向那一边挪进来 12 像素并淡入，不补间高度。往后切（列表里靠后的一页）从后方进来，
+ * 往前切从前方；横排时沿横轴，竖排（`rail`）时沿纵轴。时长取令牌：减弱动效时令牌是 0，直接换。方向在换内容之前定（`flush: "pre"`）。
+ */
+const tabShift = shallowRef({x: 0, y: 0});
+watch(() => props.tab, (now, before) => {
+    const order = props.tabs.map((item) => item.value);
+    const distance = 12 * Math.sign(order.indexOf(now) - order.indexOf(before));
+    tabShift.value = rail.value ? {x: 0, y: distance} : {x: distance, y: 0};
+}, {flush: "pre"});
+const panelStyle = computed(() => ({"--entry-page-tab-x": `${String(tabShift.value.x)}px`, "--entry-page-tab-y": `${String(tabShift.value.y)}px`}));
+/**
+ * 新内容进来之前（旧的已经淡出、还没画新的）：滚过了分页条的，把分页内容的顶滚回吸顶的页头下沿，不让新的一页从半中间开始；
+ * 没滚过的不动。这时画面上没有内容，跳一下看不出来。
+ */
+const alignPanel = (): void => {
+    const panel = document.getElementById(PANEL_ID);
+    if (scroller === null || panel === null) return;
+    const gap = panel.getBoundingClientRect().top - (scroller.getBoundingClientRect().top + sticky.value.top);
+    if (gap < 0) scroller.scrollTop += gap;
+};
 // 两种排法是两套元素：焦点在分页上时直接换会落到 body，换完把焦点放到新那套的选中项上（同一页，按 id 找）。
 watch(rail, async () => {
     const focused = document.activeElement;
@@ -375,8 +396,12 @@ watch(rail, async () => {
                 />
                 <div class="min-w-0">
                     <slot name="bar" />
-                    <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)">
-                        <slot />
+                    <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)" :style="panelStyle">
+                        <Transition name="entry-page-tab" mode="out-in" @before-enter="alignPanel">
+                            <div :key="props.tab" data-tab-content>
+                                <slot />
+                            </div>
+                        </Transition>
                     </div>
                 </div>
             </div>
@@ -406,6 +431,25 @@ watch(rail, async () => {
     display: grid;
     grid-template-columns: 168px minmax(0, 1fr);
     column-gap: 32px;
+}
+/* 换分页（输出 9）：退场只淡出，进场从切换方向那一边挪进来并淡入；减弱动效时令牌为 0，没有过渡。 */
+.entry-page-tab-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-dialog-leave);
+}
+.entry-page-tab-enter-active {
+    transition: opacity var(--motion-base) var(--ease-layout), transform var(--motion-base) var(--ease-layout);
+}
+.entry-page-tab-leave-to {
+    opacity: 0;
+}
+.entry-page-tab-enter-from {
+    opacity: 0;
+    transform: translate(var(--entry-page-tab-x, 0px), var(--entry-page-tab-y, 0px));
+}
+@media (prefers-reduced-motion: reduce) {
+    .entry-page-tab-enter-from {
+        transform: none;
+    }
 }
 /* 竖排的分页吸在页头下面，内容往下滚时它还在。 */
 .entry-page__nav {

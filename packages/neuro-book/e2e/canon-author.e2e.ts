@@ -90,7 +90,8 @@ async function openEntry(page: Page, name: string, parents: readonly string[] = 
     for (const folder of ["人物", ...parents]) {
         const item = row(page, folder);
         await expect(item).toBeVisible();
-        if ((await item.getAttribute("aria-expanded")) !== "true") await item.click();
+        // 展开只认点箭头：点行是打开那个条目（author-ui 输出 5）。
+        if ((await item.getAttribute("aria-expanded")) !== "true") await item.locator("[data-tree-toggle]").click();
         await expect(item).toHaveAttribute("aria-expanded", "true");
     }
     await row(page, name).click();
@@ -119,7 +120,7 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
 
     // 马甲“哥哥”挂在星瑕下面；它的面包屑多一级，点其中的“星瑕”回到星瑕的页。
     const star = row(page, "星瑕");
-    if ((await star.getAttribute("aria-expanded")) !== "true") await star.click();
+    if ((await star.getAttribute("aria-expanded")) !== "true") await star.locator("[data-tree-toggle]").click();
     await row(page, "哥哥").click();
     await expect(activeTabLabel(page)).toHaveText("哥哥");
     await expect(crumbs(page)).toHaveText(["设定", "人物", "星瑕", "哥哥"]);
@@ -128,14 +129,14 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     // 人物的条目先看人物分页，形象跟在后面、文字在它们之后（输出 9）。
     await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");
     // 编辑区窄时没选中的分页只剩图标（author-ui 输出 9），名字在可访问名里。
-    await expect.poll(() => tabNames(page)).toEqual(["人物", "形象", "文字", "面板", "经历", "情节"]);
+    await expect.poll(() => tabNames(page)).toEqual(["人物", "形象", "文字", "数值", "经历", "情节"]);
     await textTab(page);
 
     const latest = await value(page, "panel.存款").innerText();
     await choosePosition(page, /第 1 章末尾/u);
     await expect(value(page, "panel.存款")).toHaveText("41,800");
     expect(latest).not.toBe("41,800");
-    await entryPage(page).getByRole("tab", {name: "面板"}).click();
+    await entryPage(page).getByRole("tab", {name: "数值"}).click();
     await expect(entryPage(page).locator("[data-card=\"panel.存款\"]")).toContainText("41,800");
     await entryPage(page).getByRole("tab", {name: "文字"}).click();
 
@@ -504,21 +505,48 @@ test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左�
     const nav = entryPage(page).locator("[data-entry-page-nav]");
     await expect(nav).toBeVisible();
     await expect(nav.getByRole("tab")).not.toHaveCount(0);
-    await nav.getByRole("tab", {name: /^面板/u}).click();
-    await expect(nav.getByRole("tab", {name: /^面板/u})).toHaveAttribute("aria-selected", "true");
+    await nav.getByRole("tab", {name: /^数值/u}).click();
+    await expect(nav.getByRole("tab", {name: /^数值/u})).toHaveAttribute("aria-selected", "true");
     expect(await horizontalScrolls(entryPage(page))).toEqual([]);
     // 页头的名字（按钮带负外边距的浅底）一行写得下就是一行（workbench/editor 输出 53 的标签图标也在这一页上看）。
     const nameHeight = async () => (await entryPage(page).locator("[data-edit='entry.name']").boundingBox())!.height;
     expect(await nameHeight()).toBeLessThan(40);
     await expect(page.locator("[data-editor-tab-icon].i-lucide-user-round")).toBeVisible();
 
-    await nav.getByRole("tab", {name: /^面板/u}).focus();
+    await nav.getByRole("tab", {name: /^数值/u}).focus();
     await page.setViewportSize({width: 1440, height: 900});
     await expect(nav).toHaveCount(0);
-    const panelTab = entryPage(page).getByRole("tab", {name: /^面板/u});
+    const panelTab = entryPage(page).getByRole("tab", {name: /^数值/u});
     await expect(panelTab).toHaveAttribute("aria-selected", "true");
     await expect(panelTab).toBeFocused();
     expect(await nameHeight()).toBeLessThan(40);
+
+    // 编辑区的滚动条叠在内容上（OverlayScrollbar）：原生滚动条不画、不占宽度，内容在要滚与不要滚之间变时宽度不跳（nb-ui 界面开发规范“滚动条”）。
+    const host = page.locator("[data-editor-page]");
+    expect(await host.evaluate((element) => getComputedStyle(element).scrollbarWidth)).toBe("none");
+    // 换分页有过渡（不减弱动效时）：记下内容那一层出现过进场的过渡类。
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await entryPage(page).locator("[role='tabpanel']").evaluate((panel) => {
+        const seen = new Set<string>();
+        (window as unknown as {tabTransitions: Set<string>}).tabTransitions = seen;
+        new MutationObserver((records) => {
+            for (const record of records) if (record.target instanceof Element) for (const name of record.target.classList) if (name.startsWith("entry-page-tab-")) seen.add(name);
+        }).observe(panel, {subtree: true, attributes: true, attributeFilter: ["class"], childList: true});
+    });
+    // 滚过分页条以后换分页：新的一页从吸顶的页头下沿开始，不停在半中间。
+    await entryPage(page).getByRole("tab", {name: /^情节/u}).click();
+    await expect(entryPage(page).getByRole("tab", {name: /^情节/u})).toHaveAttribute("aria-selected", "true");
+    await host.evaluate((element) => element.scrollTo({top: element.scrollHeight}));
+    await entryPage(page).getByRole("tab", {name: /^人物/u}).click();
+    await expect.poll(() => page.evaluate(() => [...(window as unknown as {tabTransitions: Set<string>}).tabTransitions].sort())).toEqual(expect.arrayContaining(["entry-page-tab-enter-active", "entry-page-tab-leave-active"]));
+    await expect(entryPage(page).locator("[data-character-card]")).toBeVisible();
+    const gap = () => entryPage(page).evaluate((root) => {
+        const panel = root.querySelector("[role='tabpanel']")!.getBoundingClientRect().top;
+        const header = root.querySelector("header")!.getBoundingClientRect().bottom;
+        return Math.round(panel - header);
+    });
+    await expect.poll(gap).toBeGreaterThanOrEqual(0);
+    expect(await gap()).toBeLessThan(40);
 });
 
 test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动；条目页的分页横排、每页写名字，放不下时在分页条里滑动，选中的一页看得见", async ({page}) => {
@@ -533,7 +561,7 @@ test("验收 14：390 像素宽时，条目页、回执页、变更详情页与�
     // 变窄以后仍在看得见的范围里（中心点上是它自己；click 会先把它滚进来，看不出来）。
     await openEntry(page, "星瑕");
     const strip = entryPage(page).getByRole("tablist", {name: "条目的分页"});
-    for (const tab of ["文字", "人物", "形象", "面板", "情节"]) {
+    for (const tab of ["文字", "人物", "形象", "数值", "情节"]) {
         await entryPage(page).getByRole("tab", {name: new RegExp(`^${tab}`, "u")}).click();
         await page.setViewportSize({width: 390, height: 844});
         const selected = strip.getByRole("tab", {selected: true});

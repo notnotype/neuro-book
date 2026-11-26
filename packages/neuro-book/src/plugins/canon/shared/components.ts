@@ -85,7 +85,7 @@ export const BUILTIN_COMPONENTS: readonly ComponentDeclaration[] = [
     },
     {
         id: PANEL_COMPONENT,
-        label: "面板",
+        label: "数值",
         namespace: "panel",
         version: 1,
         instanceFields: true,

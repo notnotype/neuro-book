@@ -90,7 +90,8 @@ async function openEntry(page: Page, name: string, parents: readonly string[]): 
     for (const folder of parents) {
         const item = row(folder);
         await expect(item).toBeVisible();
-        if ((await item.getAttribute("aria-expanded")) !== "true") await item.click();
+        // 展开只认点箭头：点行是打开那个条目（canon/author-ui 输出 5）。
+        if ((await item.getAttribute("aria-expanded")) !== "true") await item.locator("[data-tree-toggle]").click();
         await expect(item).toHaveAttribute("aria-expanded", "true");
     }
     await row(name).click();

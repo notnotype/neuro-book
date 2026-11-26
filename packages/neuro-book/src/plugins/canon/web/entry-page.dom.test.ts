@@ -100,7 +100,11 @@ async function setup(project: readonly PluginDefinition[] = [], browser: readonl
 
 const valueText = (wrapper: ReturnType<typeof mount>): string => wrapper.find("[data-value]").text();
 /** 一行里各段的文字用空格隔开（段与段之间在页面上是间距，不是空格）。 */
-const cells = (element: Element): string => [...element.children].map((child) => child.textContent?.replace(/\s+/gu, " ").trim() ?? "").filter((part) => part !== "").join(" ");
+/** 看得见的字：逐个节点取，块与块之间一个空格；只给读屏的（`sr-only`，例如来历里的“变化”“结果”）不算。 */
+const cells = (element: Element): string => [...element.childNodes].map((node) => {
+    if (node instanceof Element) return node.classList.contains("sr-only") ? "" : cells(node);
+    return node.nodeType === Node.TEXT_NODE ? node.textContent?.replace(/\s+/gu, " ").trim() ?? "" : "";
+}).filter((part) => part !== "").join(" ");
 const originRows = (wrapper: ReturnType<typeof mount>): string[] => wrapper.findAll("[data-origin-row]").map((row) => cells(row.element));
 
 describe("条目页", () => {
@@ -157,8 +161,8 @@ describe("条目页", () => {
         await wrapper.get("[data-value]").trigger("click");
         await waitUntil("来历", () => originRows(wrapper).length === 3);
         expect(originRows(wrapper)).toEqual([
-            "第 2 章 买了书 估计：书大概三百 −300 900 元 改这一笔",
-            "第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔",
+            "第 2 章 −300 900 元 改这一笔 买了书 估计：书大概三百",
+            "第 1 章 +200 1,200 元 改这一笔 领了工资 作者给的",
             "最初 1,000 元",
         ]);
         expect(wrapper.find("[data-origin-row] .text-\\[var\\(--status-warning\\)\\]").text()).toBe("估计：书大概三百");
@@ -178,7 +182,7 @@ describe("条目页", () => {
 
         await publish(other.canon, [change(id, "2", "又买了笔", -50)]);
         await waitUntil("来历跟着更新", () => originRows(wrapper).length === 4);
-        expect(originRows(wrapper)[0]).toBe("第 2 章 又买了笔 作者给的 −50 850 元 改这一笔");
+        expect(originRows(wrapper)[0]).toBe("第 2 章 −50 850 元 改这一笔 又买了笔 作者给的");
 
         const seen: string[] = [];
         const observer = new MutationObserver(() => seen.push(wrapper.text()));
@@ -186,7 +190,7 @@ describe("条目页", () => {
         cleanups.push(() => observer.disconnect());
         state.position = "1:end";
         await waitUntil("值与来历都换成第 1 章末尾的", () => valueText(wrapper) === "1,200" && originRows(wrapper).length === 2);
-        expect(originRows(wrapper)).toEqual(["第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔", "最初 1,000 元"]);
+        expect(originRows(wrapper)).toEqual(["第 1 章 +200 1,200 元 改这一笔 领了工资 作者给的", "最初 1,000 元"]);
         expect(seen.some((shown) => shown.includes("读取中"))).toBe(false);
     });
 
@@ -222,7 +226,7 @@ describe("条目页", () => {
         await waitUntil("读完", () => originRows(wrapper).length === 26);
         expect(wrapper.text()).not.toContain("再显示更早的");
         // 读完以后最早那一笔的变化量按初值算出来了。
-        expect(originRows(wrapper).at(-2)).toBe("第 1 章 第 1 笔 作者给的 +10 1,010 元 改这一笔");
+        expect(originRows(wrapper).at(-2)).toBe("第 1 章 +10 1,010 元 改这一笔 第 1 笔 作者给的");
     });
 
     it("标签的状态随标签：卸载再挂上还在；两个条目各有各的", async () => {
@@ -278,7 +282,7 @@ describe("条目页", () => {
         await waitUntil("值", () => wrapper.find("[data-value]").exists());
         const tabs = () => wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
         await waitUntil("情节的条数", () => tabs().includes("情节2"));
-        expect(tabs()).toEqual(["文字", "人物", "面板", "情节2"]);
+        expect(tabs()).toEqual(["文字", "人物", "数值", "情节2"]);
 
         state.tab = "plot";
         await waitUntil("情节", () => wrapper.findAll("[data-change]").length === 2);
@@ -305,8 +309,8 @@ describe("条目页", () => {
         const {wrapper, state} = await open(id);
         const tabs = () => wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
         // 作品里还没有剧情变更：没有“情节”（输出 9）。
-        await waitUntil("分页", () => tabs().includes("文字") && tabs().includes("面板"));
-        expect(tabs()).toEqual(["人物", "文字", "面板"]);
+        await waitUntil("分页", () => tabs().includes("文字") && tabs().includes("数值"));
+        expect(tabs()).toEqual(["人物", "文字", "数值"]);
         await waitUntil("先看人物", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "人物");
 
         // “＋”里能加的：适用于人物的（形象）在前，其余（徽章）接在后面。
@@ -319,8 +323,8 @@ describe("条目页", () => {
         const itemId = (await publish(other.canon, [item]))[item.id]!;
         const other2 = await open(itemId);
         const tabs2 = () => other2.wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""));
-        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().includes("面板"));
-        expect(tabs2()).toEqual(["文字", "人物", "面板"]);
+        await waitUntil("物品的分页", () => tabs2().includes("文字") && tabs2().includes("数值"));
+        expect(tabs2()).toEqual(["文字", "人物", "数值"]);
     });
 
     it("人物条目有没提交的主文字稿时，打开页面选“文字”、直接在编辑里（输出 9、45）", async () => {
@@ -1175,7 +1179,7 @@ describe("写入", () => {
         trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
         await waitUntil("菜单", () => document.body.querySelector("[role='menuitem']") !== null);
         const item = [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")].find((candidate) => candidate.textContent?.trim().endsWith("存款"));
-        expect(item?.textContent?.trim()).toBe("面板 · 存款");
+        expect(item?.textContent?.trim()).toBe("数值 · 存款");
         item!.click();
         await waitUntil("写进输入框", () => input.value === "她有{panel.存款}钱。");
         expect(document.activeElement).toBe(input);

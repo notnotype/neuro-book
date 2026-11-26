@@ -37,9 +37,9 @@ describe("PanelView", () => {
         expect(wrapper.emitted("select")).toEqual([["panel.物品"]]);
     });
 
-    it("没有字段时写“这个面板还没有内容”", () => {
+    it("没有字段时写“这组数值还没有内容”", () => {
         const wrapper = mount(PanelView, {props: {cards: []}, global: {provide: provideText(port)}});
         mounted.push(wrapper);
-        expect(wrapper.text()).toBe("这个面板还没有内容");
+        expect(wrapper.text()).toBe("这组数值还没有内容");
     });
 });

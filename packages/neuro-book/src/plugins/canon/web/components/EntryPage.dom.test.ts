@@ -53,6 +53,20 @@ describe("EntryPage", () => {
         expect(wrapper.find("button[aria-label='更多']").exists()).toBe(true);
     });
 
+    it("换分页时内容换成新的一页，过渡的方向跟着列表里的先后：往后切从后方进来，往前切从前方（输出 9）", async () => {
+        const tabs = [...base.tabs.slice(0, 1), {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const}, base.tabs[1]!];
+        const wrapper = page({tabs, tab: "text"});
+        const shift = () => {
+            const style = (wrapper.get("[role='tabpanel']").element as HTMLElement).style;
+            return [style.getPropertyValue("--entry-page-tab-x"), style.getPropertyValue("--entry-page-tab-y")];
+        };
+        await wrapper.setProps({tab: "plot"});
+        expect(shift()).toEqual(["12px", "0px"]);
+        await wrapper.setProps({tab: "data:look"});
+        expect(shift()).toEqual(["-12px", "0px"]);
+        expect(wrapper.get("[role='tabpanel'] [data-tab-content] [data-content]").text()).toBe("分页内容");
+    });
+
     it("没有章、没有计划又只有主线（空作品）时不出“在看”；作品里有计划、或不止一条线时出", async () => {
         const empty = page({chapters: [], position: "initial"});
         expect(empty.find("[data-view-point]").exists()).toBe(false);

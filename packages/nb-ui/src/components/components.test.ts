@@ -1466,6 +1466,33 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    it("toggleOn arrow: clicking a row only selects it, clicking the arrow only toggles it, arrow keys still expand", async () => {
+        const items = [{id: "star", title: "星瑕", children: [{id: "brother", title: "哥哥"}]}, {id: "plain", title: "星瑾"}];
+        const wrapper = mount(Tree, {props: {items, expanded: [], toggleOn: "arrow"}, attachTo: document.body});
+        const row = () => wrapper.findAll("[role='treeitem']")[0]!;
+        // 点行：选中、发 select，不切换展开。
+        await row().trigger("click");
+        expect(wrapper.emitted("select")?.map(([node]) => (node as {id: string}).id)).toEqual(["star"]);
+        expect(wrapper.emitted("update:expanded")).toBeUndefined();
+        // 点箭头：只切换展开，不选中。
+        await row().get("[data-tree-toggle]").trigger("click");
+        expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([["star"]]);
+        expect(wrapper.emitted("select")).toHaveLength(1);
+        expect(wrapper.emitted("update:modelValue")).toHaveLength(1);
+        // 键盘：右键展开照常。
+        await wrapper.setProps({expanded: []});
+        (row().element as HTMLElement).focus();
+        await row().trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([["star"]]);
+        // 缺省的 row：点行同一次也切换展开，没有单独的箭头目标。
+        const legacy = mount(Tree, {props: {items, expanded: []}});
+        expect(legacy.find("[data-tree-toggle]").exists()).toBe(false);
+        await legacy.findAll("[role='treeitem']")[0]!.trigger("click");
+        expect(legacy.emitted("update:expanded")?.at(-1)).toEqual([["star"]]);
+        legacy.unmount();
+        wrapper.unmount();
+    });
+
     it("tree rows carry their node id, a muted title and the caller's suffix", () => {
         const wrapper = mount(Tree, {
             props: {items: [{id: "star", title: "星瑾"}, {id: "brother", title: "哥哥", muted: true}]},

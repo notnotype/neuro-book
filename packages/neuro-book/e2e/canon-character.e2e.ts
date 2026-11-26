@@ -79,7 +79,7 @@ const positionSelect = (page: Page) => entryPage(page).locator("[data-view-point
 async function openEntry(page: Page, name: string): Promise<void> {
     if (!(await row(page, "人物").isVisible())) await tree(page).click();
     const folder = row(page, "人物");
-    if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.click();
+    if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.locator("[data-tree-toggle]").click();
     await row(page, name).click();
     await expect(positionSelect(page)).toBeVisible();
 }
