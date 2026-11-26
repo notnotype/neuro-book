@@ -39,7 +39,7 @@ export {World, type ChapterLine, type ConflictDetail, type Problem, type RevertF
 export {authorizationBinds, fieldsDigest, requestDigest, signedContent, type NeededAuthorization, type RevertRequest} from "./world/authorization";
 export {NO_REASON, type DecisionView, type Transition} from "./world/decisions";
 export {editInPlace, previewEdit, recordDelta, recordNote, replaceOnce, type DeltaRecord, type EditFailure, type EditPreview, type EditPreviewInput, type EditResult, type EditRoute, type InPlaceEdit, type NoteRecord} from "./world/edits";
-export {editEntries, ENTRY_EDITS_MAX, previewEntries, type EntryEditFailure, type EntryEditResult, type EntryEdits, type EntryOp, type NewEntry, type StaleRead} from "./world/entry-edits";
+export {editEntries, ENTRY_EDITS_MAX, previewEntries, staleRead, type EntryEditFailure, type EntryEditResult, type EntryEdits, type EntryOp, type NewEntry, type StaleRead} from "./world/entry-edits";
 export {textBlocks, type TextBlockInfo, type TextBlocksRead} from "./world/text-blocks";
 export {analyzeBlock, blockProblem, MAX_BLOCK_LENGTH, normalizeBlockSource, type BlockAnalysis, type BlockCheckOptions, type FieldReference, type SyntaxCode, type SyntaxProblem} from "./render/syntax";
 export {displayText, evaluate, renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type AuthorValue, type Evaluated, type PlainBlock, type PlainProblem, type RenderContext, type Resolve, type Resolved} from "./render/render";

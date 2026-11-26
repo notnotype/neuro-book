@@ -14,7 +14,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {agentTool, TOOLS_POINT} from "@notnotype/nb-plugin-sdk/agent";
 import type {AgentToolImplementation} from "@notnotype/nb-plugin-sdk/agent";
 import type {JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-import {generateFieldId, normalizeBlockSource} from "@notnotype/nb-canon";
+import {generateFieldId, staleRead} from "@notnotype/nb-canon";
 import type {ComponentType, EntryEdits, EntryOp, EntryView, FieldDeclaration, FieldDraft, FieldKind, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {projectsKey} from "nbook/shared/projects";
@@ -25,7 +25,7 @@ import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
 import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
 import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
-import {agentBlockText, replaceInBlock, sameAsStored} from "./agent-entry-text";
+import {agentBlockText, replaceInBlock} from "./agent-entry-text";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
 import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
@@ -476,9 +476,9 @@ async function currentBlock(context: Context, entry: string, path: string): Prom
 async function writeBlock(context: Context, entry: string, path: string, submitted: string, keys: ReadonlyMap<string, string>, current: Awaited<ReturnType<typeof currentBlock>>, replaced = false): Promise<Translated | {readonly problem: string}> {
     if ("problem" in current) return current;
     if (!replaced && current.text.length > BLOCK_PAGE) return {problem: `这一块有 ${String(current.text.length)} 字，canon_read 一页读不全；整段写回会丢掉没读到的部分。改局部用 replace（find 写要换掉的那几句）。`};
-    const written = agentBlockText(submitted, keys, current.broken ? {verbatim: true} : {current: current.text});
+    const written = agentBlockText(submitted, keys, {current: current.text, verbatim: current.broken});
     if ("problem" in written) return written;
-    const unchanged = current.broken ? written.source === current.source : sameAsStored(written.source, current.source, normalizeBlockSource);
+    const unchanged = written.unchanged === true;
     return {op: {op: "set", at: {entry, path}, value: written.source, read: current.source}, ...(written.notes.length === 0 ? {} : {notes: written.notes}), ...(unchanged ? {unchanged: true as const} : {})};
 }
 
@@ -707,15 +707,13 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
 }
 
 /**
- * 读取戳从 Agent 读过之后变了没有（内核 `editEntries` 比读取戳的同一条规则）：变了交回 `stale-read`，带上之间的修订（最近 5 条里
- * 版本更新的）。`now` 是这次调用里读到的章表的读取戳。
+ * 读取戳从 Agent 读过之后变了没有：用内核 `editEntries` 比读取戳的同一个函数（`staleRead`），变了交回 `stale-read`，带上之间的修订。
+ * 修订表按最新在前给，取最近 5 条里版本更新的；取不到时不列修订（回话照样请它重读）。`now` 是这次调用里读到的章表的读取戳。
  */
 async function staleSince(call: Call, wanted: {readonly version: number; readonly input: string}, now: {readonly version: number; readonly inputDigest: string}): Promise<CanonFailure | null> {
-    const inputChanged = !now.inputDigest.startsWith(wanted.input);
-    if (now.version === wanted.version && !inputChanged) return null;
+    if (staleRead(wanted, now, []) === null) return null;
     const recent = await call("revisions", {limit: 5});
-    const revisions = recent.ok ? recent.value.items.filter((revision) => revision.version > wanted.version).map(({id, title, by}) => ({id, title, by})) : [];
-    return {code: "stale-read", inputChanged: now.version === wanted.version && inputChanged, revisions} as unknown as CanonFailure;
+    return staleRead(wanted, now, recent.ok ? recent.value.items : []);
 }
 
 /** 内核的失败里操作的序号（`op`、`problems[].op`、`ops[N]` 路径）换成第几项：没写的项不在操作里。 */

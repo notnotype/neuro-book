@@ -29,9 +29,9 @@ export interface Reference {
     readonly targets?: readonly string[];
 }
 
-/** 请求里哪些主文字是新写的：条目初值里的块（按请求里写的条目 id、块 id 与源文），变更的补丁（按请求里写的变更 id 与序号）。 */
+/** 请求里哪些主文字是新写的：条目初值里的块（按请求里写的条目 id 与块 id），变更的补丁（按请求里写的变更 id 与序号）。 */
 export interface WrittenText {
-    readonly block: (entry: string, block: unknown, source: string) => boolean;
+    readonly block: (entry: string, block: unknown) => boolean;
     readonly patch: (change: string, index: number) => boolean;
 }
 
@@ -295,7 +295,7 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
         if (put.ref.kind === "check") swapAddress(after.at as {entry?: unknown; path?: unknown});
         if (put.ref.kind === "entry") {
             const init = after.init as {text?: unknown} | null | undefined;
-            if (init !== null && typeof init === "object") for (const [, block] of objectItems(init.text)) if (typeof block.source === "string" && written.block(requested, block.id, block.source)) block.source = swapText(block.source);
+            if (init !== null && typeof init === "object") for (const [, block] of objectItems(init.text)) if (typeof block.source === "string" && written.block(requested, block.id)) block.source = swapText(block.source);
         }
         if (put.ref.kind === "change") {
             for (const [index, patch] of objectItems(after.patches)) {

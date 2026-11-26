@@ -371,10 +371,13 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         expect(initial.status).not.toBe("error");
         expect(textOf(await readAt({chapter: 2}))).toBe('性格 <V of="character.性格">"热情"</V>，魔力翻倍是 <V expr="panel.魔力 * 2">6</V>，住在宿舍。');
 
-        // 原样交回的块在前、后面一项被内核拒收：回话里的项号是交来的第几项，不是写进去的第几个操作。
+        // 原样交回的块在前、后面一项被内核拒收：回话里的项号是交来的第几项，不是写进去的第几个操作（三种带序号的失败：
+        // 路径 ops[N]、问题里的 op、失败本身的 op）。
         read = await readAt("initial");
         const numbered = await run(AGENT_TOOL_IDS.write, {title: "记一笔", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read)}, {op: "add", entry: xia, field: "面板.魔力", delta: 1}]});
         expect([numbered.status, numbered.text]).toEqual(["error", expect.stringContaining("第 2 项")]);
+        const located = await run(AGENT_TOOL_IDS.write, {title: "加插件标签", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read)}, {op: "addBlock", entry: xia, text: '<Plot id="x" />'}]});
+        expect([located.status, located.text]).toEqual(["error", expect.stringMatching(/^validation-failed：第 2 项 unknown-tag/u)]);
 
         // 算出来的值在文字里改了：不写，提示改它依赖的字段。
         const computed = await run(AGENT_TOOL_IDS.write, {title: "改算出来的值", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read).replace(">6<", ">60<").replace("宿舍", "家")}]});
@@ -383,6 +386,21 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         // 读过之后这一块被改了：带旧版本做 replace，find 在现在的文字里已经没有了；回话是 stale-read，不是“抄错了”。
         const late = await run(AGENT_TOOL_IDS.write, {title: "换回学院", version: versionIn(read), at: "initial", edits: [{op: "replace", entry: xia, field: "text[b1]", find: "宿舍", with: "学院"}]});
         expect([late.code, late.text]).toEqual(["stale-read", expect.stringContaining("改算出来的值")]);
+        // 作者手写在块里的 `$` 写法原样留着：Agent 改这一块照常，同一批碰巧 create 了同名的代号也不改绑。
+        const latest = await author.canon.call("status", {});
+        expect((await author.canon.call("editEntries", {input: {requestId: "author-dollar", by: {kind: "author"}, what: "edit", baseVersion: latest.ok ? latest.value.version : 0, title: "作者手写", ops: [{op: "addBlock", entry: xia, source: '作者写的 <Ref id="$foo" /> 在学院。'}]}})).ok).toBe(true);
+        read = await readAt("initial");
+        const kept = await run(AGENT_TOOL_IDS.write, {title: "改作者那块", version: versionIn(read), at: "initial", edits: [{op: "create", key: "foo", name: "阿福", kind: "人物"}, {op: "replace", entry: xia, field: "text[b2]", find: "学院", with: "宿舍"}]});
+        expect(kept.status).not.toBe("error");
+        expect(/\[b2\] (.*)/u.exec((await readAt("initial")).text)?.[1]).toBe('作者写的 <Ref id="$foo" name="已删除的条目" /> 在宿舍。');
+
+        // 失败本身带的序号：原样交回 b2 不写，给一个还没有值的数记一笔（incomplete-field，带操作序号）。
+        read = await readAt("initial");
+        expect((await run(AGENT_TOOL_IDS.write, {title: "加体力", version: versionIn(read), at: "initial", edits: [{op: "addField", entry: xia, component: "面板", label: "体力", kind: "number"}]})).status).not.toBe("error");
+        read = await readAt({chapter: 1});
+        const b2 = /\[b2\] (.*)/u.exec(read.text)?.[1] ?? "";
+        const conflict = await run(AGENT_TOOL_IDS.write, {title: "记体力", version: versionIn(read), intent: "story", at: {chapter: 1}, edits: [{op: "set", entry: xia, field: "text[b2]", value: b2}, {op: "add", entry: xia, field: "面板.体力", delta: 1}]});
+        expect([conflict.status, conflict.text]).toEqual(["error", expect.stringMatching(/^第 2 项：incomplete-field/u)]);
         await close();
     }, 60_000);
 

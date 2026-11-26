@@ -51,20 +51,23 @@ function changedValueNotes(submitted: Values, current: Values): string[] {
     return [...new Set(notes)];
 }
 
-/** 交回的一块写成要存的源文，带着回话里要提的值的提示。 */
-export type AgentBlockText = {readonly source: string; readonly notes: readonly string[]} | {readonly problem: string};
+/** 交回的一块写成要存的源文，带着回话里要提的值的提示，与它是不是与当时的这一块相同（`unchanged`，只在给了当时的文字时有）。 */
+export type AgentBlockText = {readonly source: string; readonly notes: readonly string[]; readonly unchanged?: boolean} | {readonly problem: string};
 
 /**
- * Agent 交回的一块主文字写成要存的源文：太长的不读；去值；指向同一批新建条目的 `$代号`（`V` 的 `entry`、`Ref` 的 `id`、式子里的
- * `ref('…')`）换成它的临时 id，发布时内核再换成正式 id（components.md 输出 18）。`keys` 是这一批到这一项为止的代号表。
+ * Agent 交回的一块主文字写成要存的源文：太长的不读；先去 BOM、换行统一成 LF（与内核写入前的规范化相同，免得开头的 BOM 让读法与存下的
+ * 不同）；去值；指向同一批新建条目的 `$代号`（`V` 的 `entry`、`Ref` 的 `id`、式子里的 `ref('…')`）换成它的临时 id，发布时内核再换成
+ * 正式 id（components.md 输出 18）。`keys` 是这一批到这一项为止的代号表。
  *
- * `current` 是这一块当时的带值写法（新加的块没有）：交回的值与它不同的几处写成提示。`verbatim` 时（出错的块，读到的就是源文）不去值：
- * 里面的标签没有值，去值只会把作者原来的写法改成规范写法。
+ * `current` 是这一块当时的带值写法（新加的块没有）：交回的值与它不同的几处写成提示；当时的文字里已有的 `$` 开头的 id（作者手写的）按
+ * 出现的次数原样留着，不当成代号；`unchanged` 是去值以后与当时相同（当时的文字去值就是存下的源文的规范写法，交回的一侧去值时已写成
+ * 规范写法，两边都不再走内核带缓存的规范化：交回的文字只用一次）。`verbatim` 时（出错的块，读到的就是源文）不去值：里面的标签没有
+ * 值，去值只会把作者原来的写法改成规范写法。
  */
 export function agentBlockText(submitted: string, keys: ReadonlyMap<string, string>, options: {readonly current?: string; readonly verbatim?: boolean} = {}): AgentBlockText {
     if (submitted.length > MAX_SUBMITTED_LENGTH) return {problem: TOO_LONG};
     try {
-        return readBlockText(submitted, keys, options);
+        return readBlockText(normalizeEntrySource(submitted), keys, options);
     } catch (error) {
         // 嵌套深到读的时候栈溢出（几万层引用）：不让它从服务端的工具里抛出去。
         if (error instanceof RangeError) return {problem: TOO_DEEP};
@@ -74,34 +77,50 @@ export function agentBlockText(submitted: string, keys: ReadonlyMap<string, stri
 
 const TOO_DEEP = "这一块嵌套太深，读不出结构：把引用、列表、强调展开一些再写。";
 
+/** 一段文字里活的标签指向的、`$` 开头的条目 id，按出现的次数。 */
+function dollarIds(text: string): Map<string, number> {
+    const found = new Map<string, number>();
+    if (!text.includes("$")) return found;
+    rewriteEntryIds(text, (id) => {
+        if (id.startsWith("$")) found.set(id, (found.get(id) ?? 0) + 1);
+        return id;
+    });
+    return found;
+}
+
 function readBlockText(submitted: string, keys: ReadonlyMap<string, string>, options: {readonly current?: string; readonly verbatim?: boolean}): AgentBlockText {
     let source = submitted;
     let notes: string[] = [];
-    if (options.verbatim !== true) {
+    let unchanged: boolean | undefined;
+    if (options.verbatim === true) {
+        if (options.current !== undefined) unchanged = submitted === normalizeEntrySource(options.current);
+    } else {
         const parsed = parseEntryText(submitted);
         source = stripEntryText(parsed);
-        if (options.current !== undefined) notes = changedValueNotes(valuesOf(parsed), valuesOf(parseEntryText(options.current)));
+        if (options.current !== undefined) {
+            const current = parseEntryText(normalizeEntrySource(options.current));
+            notes = changedValueNotes(valuesOf(parsed), valuesOf(current));
+            unchanged = source === stripEntryText(current);
+        }
     }
-    if (source.length > MAX_BLOCK_LENGTH) return {problem: TOO_LONG};
     if (source.includes("$")) {
+        const kept = dollarIds(options.current ?? "");
         const missing = new Set<string>();
         source = rewriteEntryIds(source, (id) => {
             if (!id.startsWith("$")) return id;
+            const left = kept.get(id) ?? 0;
+            if (left > 0) {
+                kept.set(id, left - 1);
+                return id;
+            }
             const tmp = keys.get(id.slice(1));
             if (tmp === undefined) missing.add(id);
             return tmp ?? id;
         });
         if (missing.size > 0) return {problem: `主文字里的 ${[...missing].join("、")} 不是这一批前面 create 的代号；新建的条目先 create（key 写代号），再在后面的项里用“$代号”。`};
     }
-    return {source, notes};
-}
-
-/**
- * 去值以后的一块与存下的源文比有没有改动（agent-tools 输出 6：规范化以后相同算没有改动）。去值时活的标签已经写成规范写法，交回的
- * 一侧只差 BOM 与换行，不再解析（也不进分析的缓存：这段文字只用一次）；存下的一侧按内核的规范化比（存下的源文稳定，走缓存）。
- */
-export function sameAsStored(source: string, stored: string, normalizeStored: (text: string) => string): boolean {
-    return normalizeEntrySource(source) === normalizeStored(stored);
+    if (source.length > MAX_BLOCK_LENGTH) return {problem: TOO_LONG};
+    return {source, notes, ...(unchanged === undefined ? {} : {unchanged})};
 }
 
 /** 程序加的装饰的写法（canon.rendering 输出 9）：`find` 里有这些多半是从按计划模式读到的文字抄的。 */

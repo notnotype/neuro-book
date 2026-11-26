@@ -975,7 +975,7 @@ function routeSet(world: World, draft: Draft, position: ReadPosition, intent: "c
 }
 
 /** 在候选世界上逐项读回核对（输出 25）：剧情变化在新变更之后的那一点读，改设定在读取位置读。 */
-export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult {
+export function checkPlan(plan: EntryPlan, result: WriteResult, before: World): EntryEditResult {
     if (!result.ok) {
         if (result.failure.code !== "validation-failed" || plan.targets.length === 0) return result;
         // 发布前的校验按候选对象与路径报问题：对得上某一项写下的位置时带上它的序号。
@@ -1001,12 +1001,16 @@ export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult
             const after = currentAt(result.world, plan.position, expect.at);
             got = after === "chapter-not-found" || after === "line-not-found" ? undefined : after.value;
         }
-        // 写进主文字的临时 id 发布时换成了正式 id（components.md 输出 18）：期望的文字照同一份换法算。与旧块相同的文字是原样留着的，
-        // 不换（`replaceRequestTempIds` 只换新写的），所以没换的期望也算对上。
-        const swapped = "value" in expect && typeof expect.value === "string" && expect.at.path.startsWith("text[") ? replaceTextTempIds(expect.value, result.ids) : undefined;
-        const wanted = !("value" in expect) ? undefined : expect.value;
+        // 写进主文字的临时 id 发布时换成了正式 id（components.md 输出 18）：期望的文字照同一份换法算。只有与旧块相同的文字是原样
+        // 留着的、不换（`replaceRequestTempIds` 只换新写的）：这时期望的是没换的原文。
+        const text = "value" in expect && typeof expect.value === "string" && expect.at.path.startsWith("text[") ? expect.value : undefined;
+        const kept = text !== undefined && (() => {
+            const old = currentAt(before, plan.position, expect.at);
+            return old !== "chapter-not-found" && old !== "line-not-found" && old.value === text;
+        })();
+        const wanted = !("value" in expect) ? undefined : text !== undefined && !kept ? replaceTextTempIds(text, result.ids) : expect.value;
         const matches = "value" in expect
-            ? sameJson(got ?? null, wanted ?? null) || (swapped !== undefined && got === swapped) || (wanted === undefined && got === undefined)
+            ? sameJson(got ?? null, wanted ?? null) || (wanted === undefined && got === undefined)
             : Array.isArray(got) && (got as unknown[]).some((item) => (typeof item === "string" ? item : (item as {id?: unknown} | null)?.id) === expect.has) === expect.present;
         if (!matches) return {ok: false, failure: {code: "result-mismatch", got, op: expect.op}};
     }
@@ -1057,7 +1061,7 @@ export function editEntries(world: World, input: EntryEdits, time: string, optio
     }
     const planned = planEntries(world, input);
     if (!planned.ok) return planned;
-    return checkPlan(planned, world.publish(planned.request, time, digest));
+    return checkPlan(planned, world.publish(planned.request, time, digest), world);
 }
 
 /** 只算不发布（输出 25 与 22）：与写入同一份方案；用一个没人用过的请求 id 去算，返回时写回调用方的请求 id。 */
@@ -1066,6 +1070,6 @@ export function previewEntries(world: World, input: EntryEdits, time: string): E
     if (!planned.ok) return planned;
     let requestId = `preview:${planned.request.requestId}`;
     while (world.requested(requestId) !== undefined) requestId = `preview:${requestId}`;
-    const result = checkPlan(planned, world.preview({...planned.request, requestId}, time));
+    const result = checkPlan(planned, world.preview({...planned.request, requestId}, time), world);
     return result.ok ? {...result, revision: {...result.revision, requestId: planned.request.requestId}} : result;
 }

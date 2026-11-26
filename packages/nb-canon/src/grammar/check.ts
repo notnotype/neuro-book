@@ -41,7 +41,8 @@ const ALLOWED_TOKENS: ReadonlySet<string> = new Set([
 const RAW_HTML: ReadonlySet<string> = new Set(["html", "rawHtmlBlock", "rawHtmlInline"]);
 
 /**
- * 单元最多嵌套这么多层（rendering.md 输出 1；引用套列表、强调套强调都算一层）。写入拒收，渲染照出错的块给：分词与阅读视图都按层递归，
+ * 单元树最多这么多层（rendering.md 输出 1）：一层引用、一层强调各算一层，一级列表算两层（列表与列表项），段落与里面的文字也各占一层，
+ * 所以约是 98 层引用或 49 级列表。写入拒收，渲染照出错的块给：分词与阅读视图都按层递归，
  * 栈的深度随运行时变（Bun 上几千层引用照常分词，浏览器的 V8 在两三千层时渲染就栈溢出），界线不能交给栈；正常的文字不到十层。
  */
 export const MAX_NESTING_DEPTH = 100;

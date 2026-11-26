@@ -718,7 +718,7 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
         expect(splitBlocks(deep)).toEqual([{id: "b1", source: deep}]);
     });
 
-    test("单元嵌套超过 100 层拒收，存下的旧数据照出错的块给（与运行时的栈深无关）；100 层照常", () => {
+    test("单元树超过 100 层拒收（98 层引用加段落与文字是 100 层，照常；99 层拒收），存下的旧数据照出错的块给（与运行时的栈深无关）", () => {
         const quotes = (levels: number) => `${"> ".repeat(levels)}字`;
         expect(rejected(writeText(world(), [quotes(98)]))).toBe("ok");
         expect(rejected(writeText(world(), [quotes(99)]))).toEqual([{code: "unsupported-markdown", path: "init.text[b1]"}]);
@@ -752,6 +752,14 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
             const x = done.ids["tmp:x"]!;
             expect(textOf(done.world).map((block) => block.source)).toEqual(['提到 <Ref id="tmp:x" />。', `又提到 <Ref id="${x}" />。`]);
         }
+        // 变更的补丁一侧同样：原样留着的旧补丁不换，新加的补丁照换。
+        const withPatch = ok(publishPuts(world(), [textChange("tmp:c1", '第 4 章 <Ref id="tmp:x" />')]));
+        const change = withPatch.ids["tmp:c1"]!;
+        const old = structuredClone(withPatch.world.data.changes.get(change)!);
+        const added = {op: "set", at: {entry: "e1", path: "text[b1]"}, value: '新 <Ref id="tmp:x" />'} as StoryChange["patches"][number];
+        const again = ok(publishPuts(withPatch.world, [{ref: {kind: "entry", id: "tmp:x"}, after: newcomer}, {ref: {kind: "change", id: change}, after: {...old, patches: [...old.patches, added]}}]));
+        const patches = again.world.data.changes.get(change)!.patches;
+        expect([patches[0]!.value, patches[1]!.value]).toEqual(['第 4 章 <Ref id="tmp:x" />', `新 <Ref id="${again.ids["tmp:x"]!}" />`]);
     });
 
     test("按块渲染（Agent 写回一块时用）：只给那一块，给 Agent 的另带存下的源文；没有那块时没有块", () => {
