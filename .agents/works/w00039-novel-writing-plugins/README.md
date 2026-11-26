@@ -125,6 +125,8 @@ updated: 2026-11-26
 | 1 | [t39](tasks/t39-entry-text-editor/README.md) | 条目主文字的整篇编辑：不分节，点“编辑”在一个输入框里改整篇源文字，写法与内核不动（11-24 开发者定为下一步、改选源文字编辑；同日合入 master，等开发者试用，Spec 待晋升；之后是人物设定组，再是最小的记账闭环） | t28 |
 | 1 | [t40](tasks/t40-entry-text-preview/README.md) | 条目主文字的分屏预览与源文字高亮：编辑时旁边看渲染结果（内核加一条按源文字渲染的只读方法），输入框按条目的写法着色（11-24 开发者提出，同日合入 master；开发者试用后修了三处，说“勉强能用，足够我们进行下一步了”；Spec 待晋升） | t39 |
 | 1 | [t41](tasks/t41-character-component/README.md) | 人物设定组：清单的第一期（内核补在条目上加、改名、去掉、恢复字段；人物与形象两组各一个分页、就地改；种类登记的默认设定组；图片的显示、选图与上传；Agent 工具的字段操作）。11-25 合入 master，同日 Spec 晋升（逐句核对、补断言） | t10、t40 |
+| 1 | [t42](tasks/t42-entry-page-redesign/README.md) | 条目页重做：在看、编辑卡、分页条带图标与添加设定组（11-26 合入 master，完成） | t41 |
+| 1 | [t43](tasks/t43-entry-page-polish-2/README.md) | 设定页体验第二轮：开发者 11-26 试用星瑕设定页的九条（条目树点击、编辑卡高度、分页切换动画、滚动条、Lab 的组织；原始数据与多视图、几十个设定组的添加入口先出方案） | t42 |
 | — | [t38](tasks/t38-kernel-shared-parser/README.md) | 内核改用与章节相同的解析器（11-23 从 t28 拆出；11-26 开发者定换成标签写法，连同富文本编辑器转到 [w00055](../w00055-entry-rich-text/README.md)） | t39 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |
