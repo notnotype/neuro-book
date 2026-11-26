@@ -47,10 +47,19 @@ updated: 2026-11-26
   - `ui` 的三个方法加上 `foreground` 与按码声明的 `errors`（fda79be91）。
 
   验证：nb-harness 测试 1100 条、agent 与 page-agent 插件加 SDK 场景 10 与 `src/sdk` 共 675 条，全部通过；应用三段类型检查通过。前台过滤、`waitingForUser`、失败详情的声明各做了变异检查，补了一条用例（代码一侧不过滤时，后台会话里看得到全局对象）后全部能抓到。
+- 第一段 e2e（Sonnet 子代理，黑盒）并回 Work 分支（c10adb816，验收 8 的焦点模拟顺序另修在 d010f68e2）：
+  - 核心夹具 `spec-outputs.e2e.ts` 22 条，按输出 3 到 6 逐句补。
+  - 应用 `page-agent.e2e.ts` 5 条：验收 2（不含 2 分钟到期）、3 的引用部分、4、5、8。
+  - 合并后在 Work 分支上重新构建三份产物再跑：核心 59 条通过（耗时测量按条件跳过 1 条），应用 5 条通过；没有产品缺陷。
+  - 打了折扣的几处：
+    - 2 分钟到期留给插件测试。
+    - 转后台在页面里改写 `visibilityState` 来模拟。
+    - 验收 5 断言“截断后在上限内、标明截断、连接不断”，`maxTokens` 先于字节上限生效，字节上限本身由核心包的测试覆盖。
+  - 子代理的观察：嵌套的树行，名字含子孙的文字。Spec 输出 3 没说，工作台的资源管理器是平铺的行，不受影响；以后有嵌套的树再定。
 
 ## 下一步
 
 1. 开发者定遮罩与回退后，把决定 4、5 与这两项一起写进 Spec（`page-agent.md` 输出 9、10，`profile-settings.md` 输出 28）。
-2. 第一段 e2e 已派出（Sonnet，worktree `.worktree/w00033-t03-e2e1`），等它交回后审 diff、并回 Work 分支。第 8 片（核心第二段：说明框、跟随、结局）等第 2 片定稿，也就是开发者定遮罩与回退之后。
+2. 第 8 片（核心第二段：说明框、跟随、结局）等第 2 片定稿，也就是开发者定遮罩与回退之后。
 3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）。
 4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。
