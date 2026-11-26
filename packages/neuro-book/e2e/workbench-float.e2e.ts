@@ -388,7 +388,7 @@ test.describe("应用内浮动", () => {
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
-    test("停靠的过渡从松手处出发：首帧离松手处近，不先跳回按下之前的位置（ui/nested-grid 输出 172）", async ({page}) => {
+    test("停靠的过渡从松手处出发：首帧离松手处近，不先跳回按下之前的位置；投影与圆角随过渡淡去（ui/nested-grid 输出 110、172）", async ({page}) => {
         await open(page);
         const panel = await floatOut(page, E, {x: 0.3, y: 0.3});
         const moving = page.locator("[data-workbench-surface] [data-moving]");
@@ -404,15 +404,17 @@ test.describe("应用内浮动", () => {
         const dropped = await boxOf(page, panel);
         // 松手后每一帧记下这块外框的位置。采样会读布局、强制浏览器算样式，所以从松手之后才开始：
         // `pointerup` 监听挂在 window 的冒泡阶段，晚于工作台的提交。
+        // 投影与圆角按外框的计算样式读，不按 `data-float` 挑帧：从松手处出发时外框还画成窗的那一次渲染在第一帧之前。
         await page.evaluate((id) => {
-            const win = window as unknown as {__frames: {x: number; y: number}[]; __sampling: boolean};
+            const win = window as unknown as {__frames: {x: number; y: number; radius: number; shadow: string}[]; __sampling: boolean};
             win.__frames = [];
             win.__sampling = true;
             const sample = () => {
                 const element = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${id}"]`);
                 if (element !== null) {
                     const {x, y} = element.getBoundingClientRect();
-                    win.__frames.push({x, y});
+                    const style = getComputedStyle(element);
+                    win.__frames.push({x, y, radius: Number.parseFloat(style.borderTopLeftRadius), shadow: style.boxShadow});
                 }
                 if (win.__sampling) requestAnimationFrame(sample);
             };
@@ -423,7 +425,7 @@ test.describe("应用内浮动", () => {
         await expect(moving.first()).toBeAttached();
         await expect(moving).toHaveCount(0);
         const frames = await page.evaluate(() => {
-            const win = window as unknown as {__frames: {x: number; y: number}[]; __sampling: boolean};
+            const win = window as unknown as {__frames: {x: number; y: number; radius: number; shadow: string}[]; __sampling: boolean};
             win.__sampling = false;
             return win.__frames;
         });
@@ -436,6 +438,12 @@ test.describe("应用内浮动", () => {
         expect(distance(start, dropped)).toBeLessThan(distance(start, pressed));
         // 之后还有几帧才到终点：确实是在飞，不是一帧就到。
         expect(frames.length - first).toBeGreaterThanOrEqual(4);
+        // 投影与圆角随过渡淡去（输出 110）：松手后第一帧还是卡片，圆角一路只减不增，走完才没。和框架按钮的停靠是同一条曲线（见“框架按钮浮动、停靠的过渡”）。
+        expect(frames[0]!.radius).toBeGreaterThan(0);
+        expect(frames[0]!.shadow).not.toBe("none");
+        for (let index = 1; index < frames.length; index += 1) expect(frames[index]!.radius).toBeLessThanOrEqual(frames[index - 1]!.radius + 0.01);
+        expect(frames.at(-1)!.radius).toBe(0);
+        expect(frames.at(-1)!.shadow).toBe("none");
     });
 
     test("多标签的窗：并入标签条；拖标签是撕下，拖标签条空白是移动整窗", async ({page}) => {

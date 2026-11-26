@@ -121,6 +121,15 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
 }
 
 /**
+ * 这一次从浮动窗回到树里的叶（外框的 `key`）：上一帧是浮动窗、这一帧是树里的同一块叶。它们的投影、底色与圆角随这一轮的过渡淡去（docs/specs/ui/nested-grid.md 输出 110），
+ * 要在带着过渡标记的那一次渲染里摘掉浮动窗的样子，见 `useGridMotion` 的 `docking`。
+ */
+export function dockedLeaves(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
+    const wasFloat = new Set(previous.flatMap((item) => (item.kind === "leaf" && item.float === true ? [item.key] : [])));
+    return new Set(items.flatMap((item) => (item.kind === "leaf" && item.float !== true && wasFloat.has(item.key) ? [item.key] : [])));
+}
+
+/**
  * 松手的起点（docs/specs/ui/nested-grid.md 输出 172）：宿主拖动中用 `placeFloat` 挪过、刚放开的窗（`released`：id 到最后一次的偏移），这一次离开了 `floats`
  * （回到树里、并进别的叶、关掉）时，它要过渡的部分从松手时画着的位置出发：上一帧的外框矩形加偏移，上一帧属于它的活动内容同样加偏移（`key` 到矩形）。
  * 偏移在 `translate` 上、不在布局里，`placeFloat(id, null)` 清掉它之后，不给起点的话过渡从记录矩形（按下之前的位置）出发，窗先跳回去再飞。

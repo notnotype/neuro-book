@@ -516,7 +516,7 @@ test("同一侧换窗：被换下的回到它的浮动矩形；取消平铺回�
     await expectRect(page, "desktop", {x: 0});
 });
 
-test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按下之前的位置", async ({page}) => {
+test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按下之前的位置；投影与圆角随过渡淡去", async ({page}) => {
     // 过渡要真的在跑：时长为 0 时采样不到中间帧，用例会空过。
     await page.emulateMedia({reducedMotion: "no-preference"});
     const pressed = await boxOf(frame(page, "notes"));
@@ -525,15 +525,17 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
     const dropped = await boxOf(frame(page, "notes"));
     // 松手后每一帧都记下窗外框的矩形，直到平铺完成、过渡结束。示例在松手的同一拍里改树，起点靠网格记着的最后偏移；
     // 采样本身会读布局、强制浏览器算样式，所以从松手那一刻之后才开始：它的 `pointerup` 监听挂在 window 的冒泡阶段，晚于示例的提交。
+    // 投影与圆角按外框的计算样式读，不按 `data-float` 挑帧：从松手处出发时，外框还画成窗的那一次渲染在第一帧之前。
     await page.evaluate(() => {
-        const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
+        const win = window as unknown as {__frames: {y: number; height: number; radius: number; shadow: string}[]; __sampling: boolean};
         win.__frames = [];
         win.__sampling = true;
         const sample = () => {
             const element = document.querySelector("[data-leaf='notes']");
             if (element !== null) {
                 const {y, height} = element.getBoundingClientRect();
-                win.__frames.push({y, height});
+                const style = getComputedStyle(element);
+                win.__frames.push({y, height, radius: Number.parseFloat(style.borderTopLeftRadius), shadow: style.boxShadow});
             }
             if (win.__sampling) requestAnimationFrame(sample);
         };
@@ -544,7 +546,7 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
     await expect(page.locator("[data-moving]").first()).toBeAttached();
     await settled(page);
     const frames = await page.evaluate(() => {
-        const win = window as unknown as {__frames: {y: number; height: number}[]; __sampling: boolean};
+        const win = window as unknown as {__frames: {y: number; height: number; radius: number; shadow: string}[]; __sampling: boolean};
         win.__sampling = false;
         return win.__frames;
     });
@@ -556,6 +558,12 @@ test("松手到边缘：窗从松手的位置飞进那一侧，不先跳回按�
     expect(Math.abs(start.y - dropped.y)).toBeLessThan(Math.abs(start.y - pressed.y));
     // 之后还有几帧才到终点：确实是在飞，不是一帧就到。
     expect(frames.length - first).toBeGreaterThanOrEqual(4);
+    // 窗的投影与圆角随过渡淡去：松手后第一帧还是卡片，圆角一路只减不增，走完才没。
+    expect(frames[0]!.radius).toBeGreaterThan(0);
+    expect(frames[0]!.shadow).not.toBe("none");
+    for (let index = 1; index < frames.length; index += 1) expect(frames[index]!.radius).toBeLessThanOrEqual(frames[index - 1]!.radius + 0.01);
+    expect(frames.at(-1)!.radius).toBe(0);
+    expect(frames.at(-1)!.shadow).toBe("none");
 });
 
 test("拖平铺窗与桌面之间的分隔线：浮动窗跟着让进桌面，手势不被打断，松手不跳", async ({page}) => {

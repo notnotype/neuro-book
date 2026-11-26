@@ -169,7 +169,7 @@ const snapHost = useSashSnap(rootEl);
 const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (issue) => emit("issues", [issue])});
-const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
+const {moving, growing, docking, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
@@ -683,7 +683,7 @@ defineExpose({
                 :data-leaf="item.node.id"
                 :data-moving="structureMoving(item.key) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
-                :data-float="floatAt.has(item.node.id) ? '' : undefined"
+                :data-float="floatAt.has(item.node.id) || docking.has(item.key) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
@@ -859,7 +859,7 @@ defineExpose({
 }
 
 /*
- * 浮动窗回到树里（叶不换）：这一次渲染摘掉 `data-float`，窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
+ * 浮动窗回到树里（叶不换）：带着过渡标记的那一次渲染摘掉 `data-float`（从起点出发时晚一次，见 `useGridMotion` 的 `docking`），窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
  * 一下子摘掉的话飞回去的只是一块没有边的底色，像没有动画。三样都用加速的曲线，到快落地才没：圆角跟着位置先变直，底色还没淡，半路就是一张方角的卡片。
  * 别的叶这几样不变，过渡不到它们。
  */
