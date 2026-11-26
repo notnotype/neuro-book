@@ -14,6 +14,7 @@ import {afterAll, beforeAll, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {ReadPosition} from "../src/index";
+import type {World} from "../src/world/world";
 import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain} from "../src/render/entry";
 import type {Mode} from "../src/engine/types";
 import {loadXingxiaSample} from "../src/sample/index";
@@ -69,7 +70,8 @@ function agentValues(text: string): string[] {
 }
 
 export function snapshotOf(replayed: Replayed, entries: ReadonlyMap<string, string>, positions: readonly ReadPosition[], blockAgent: (text: string) => readonly string[] = agentValues, blockAuthor: (block: unknown) => readonly string[] = (block) => authorTexts((block as {tree?: unknown}).tree)): Record<string, BlockSnapshot> {
-    const world = replayed.service.world;
+    // 服务交出的是只读的世界（类型只挑了几个成员），实际对象就是 World；旧的渲染入口要整个 World，快照只读不写。
+    const world = replayed.service.world as World;
     const out: Record<string, BlockSnapshot> = {};
     for (const position of positions) {
         for (const mode of MODES) {
