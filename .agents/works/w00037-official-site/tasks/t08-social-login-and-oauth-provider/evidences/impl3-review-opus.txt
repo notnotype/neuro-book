@@ -1,0 +1,71 @@
+# w00037 t08 第 8 到 10 片实现审查（Opus）
+
+范围 0f942f893..ae385153d，审查 worktree .worktree/w00037-t08-review-impl3。条目按发现先后追加，文末“汇总”按影响排序。
+
+### 1. Google 的发现文档在启动时无超时地取：上游不答时整个站点起不来；取失败时 meta 仍说开放、发起回 500
+- 严重程度：重要
+- 类别：正确性 / 不变量（初始化与外部依赖）
+- 位置：packages/nb-site-identity/src/social/providers.ts:44（`discoveryUrl`）；packages/nb-site-identity/src/module.ts（`assembleIdentity` 里 `await auth.$context`）；库 node_modules/better-auth/dist/plugins/generic-oauth/index.mjs:121（`buildProviders` 启动时 `fetchDiscovery(c.discoveryUrl, c.discoveryHeaders, discoveryTimeout)`，init 调用时 `discoveryTimeout` 为 undefined → 不带 signal）、:340、:344（失败的进 `genericOAuthPendingDiscovery`，请求时再试，重试才有 10 秒上限）；app.ts 的 meta 按配置给 providers；start.ts:161。
+- 现象（实测，审查 worktree，进程内 `createTestIdentity` 经真实 `assembleIdentity`）：
+  a) Google issuer 指向一个接受连接却不回答的端口：`createTestIdentity` 超过 330 秒仍未返回（对照：同一脚本指向仿真上游 1303 ms 装配完）。即入口的模块初始化会一直挂着，`site.listening`、就绪检查都不会出现，也不按 `start_failed` 收口。
+  b) issuer 指向拒绝连接的端口：627 ms 装配完；`GET meta` 回 `providers.google: true`；`POST social/google/start {intent:login}` 回 500 `{"error":{"code":"internal"}}`，日志 `identity.unhandled_error`（errorType APIError，库的 PROVIDER_NOT_FOUND）。每次发起都会让库再试一次发现（至多 10 秒）。
+- 为什么是问题：Google 正式地址是缺省值，生产启动直接依赖外网的一次没有超时的请求；网络黑洞、DNS 卡住、上游故障都会让账号模块（连同整个进程）无法启动，与“上游只是登录方式之一”的定位不符。b 里 meta 与发起不一致，且 500 不在 `site.accounts` 失败表里。仿真上游总在，合同与包内用例碰不到这两条路。计划 3.4、3.12 与升级清单“社交上游”一行只写了“库启动时取发现文档”，没写失败或挂起时的去向。
+- 如何核实：/tmp/review-w00037-t08-impl3/lab-opus/discovery-hang.test.ts、discovery-refused.test.ts、discovery-control.test.ts（设 NBOOK_HOST_SYSTEM_TEMP_ROOT 与 NBOOK_AGENT_TEMP_ROOT 后 `bun test`）。
+- 建议改法：首选不让库在启动时联网：Google 改成显式写 `authorizationUrl`、`tokenUrl`、`userInfoUrl` 与 id_token 校验所需的 issuer/JWKS（若 1.7.27 的 genericOAuth 不经 discovery 就不验 id_token，则改走 userinfo，按 userinfo 的 `email_verified`）；做不到时至少给启动发现套超时（模块里先自己带超时探一次，或给库传 `discoveryHeaders` 之外能限时的入口），并把“发现失败”定成可观察行为：meta 里该上游为 false 或发起回 `unavailable`（503），写进 Spec 失败表与升级清单，补一条用不回答的上游启动的包内用例。
+- 第 1 条补记（实验跑完）：不回答的上游下 `createTestIdentity` 在 362937 ms（约 6 分钟，Bun 自己的连接空闲上限）才返回，之后按 b 的状态运行（meta 说开放、发起 500）。“一直挂着”应读作“启动被拖住约 6 分钟，然后带着一个坏掉的上游起来”。
+
+### 2. “同一次流程的回调并发到达至多一个生效”没有用例：计划验收映射点名的“并发三个回调在包内”没写，认领的原子性没人守
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/nb-site-identity/src/social/flow.ts:120（`claimFlow` 的条件 `UPDATE … RETURNING`）；计划第 6 节 `site.accounts` 表最后一行“时序‘社交流程 10 分钟、只能用一次、并发至多一个’｜拨钟、重放｜合同；并发三个回调在包内（问 7.4 的做法）”；Spec `site.accounts` 状态与转换一节第 100 行“同一次流程的回调并发到达时至多一个生效”。
+- 现象：在 nb-site-identity/src/social/*.test.ts 与 nb-site-contract-tests/src/accounts-social.test.ts 里搜不到同一个回调地址并发打开的用例（`Promise.all` 只出现在两个不同流程的并发注册、关联对注册）。重放用例是先后两次；README 自己写了“只有‘另一个浏览器先用掉’那条用例分得出两道”，那条也是先后。
+- 为什么是问题：认领的价值正在“并发时只有一个往下走”：库的 `parseGenericState` 是 `findVerificationValue` 再 `deleteVerificationByIdentifier`，两步不原子，两个同 state 的回调并发时库自己挡不住，只靠这一条 UPDATE。把它改成“先 SELECT 再另开一个写事务 UPDATE”（或去掉 `RETURNING` 改成读后写）的变异，现有用例都抓不到（从代码推断，未跑变异）。现实里上游的码也只能换一次，所以后果多半是第二个回调 `social_failed`，不是双开会话；这条是计划写了而没落地的验收。
+- 如何核实：`grep -n 'Promise.all' packages/nb-site-identity/src/social/login.test.ts packages/nb-site-contract-tests/src/accounts-social.test.ts`；对照计划第 6 节那一行。
+- 建议改法：包内补一条：同一个 state 的三个回调用 `holdQueue` 卡在认领之前一起放开（或直接 `Promise.all` 三个 `openCallback`，认领本身在一个写事务里，排队即可分出先后），断言恰好一个落到成功、其余 `social_state_invalid`、只建一个会话；用“认领拆成读后写”做一次变异确认它会失败。
+
+### 3. 匿名的社交登录发起每次写两行、不限流：唯一一个不要会话、不计数却写库的接口
+- 严重程度：建议
+- 类别：安全与性能（单写者队列）
+- 位置：packages/nb-site-identity/src/social/start.ts:158（`login` 分支没有任何计数）、:161（库的 `signInSocial` 写一行 `verification`）、:191（`createFlow` 再写一行 `identity_social_flow`）；清理是 `purge` 每 10 分钟一次（module.ts:187）。
+- 现象：`POST social/google/start {"intent":"login"}` 只经来源头与请求体上限，不要会话、不计入任何限流键（注册意图计来源地址、关联意图计改密码的按账号计数，登录意图什么都不计），每次两个写事务、两行，到期后最多再留一个清理周期。nb-site-server 里也没有入口级的限流（`grep -rln 'rateLimit\|rate_limited' packages/nb-site-server/src` 为空）。
+- 为什么是问题：账号模块是单连接写队列（等锁 10 秒即 `unavailable`），一个来源用这一个接口就能持续占写队列、让两张表在 10 到 20 分钟里涨到任意行数，挤掉别人的登录、注册写入。t07 的其余匿名接口要么不写库，要么按来源计数（`site.accounts` 输出 19）。Spec 的限流一节没有提到社交发起，所以这也是 Spec 的空白，不只是实现。
+- 如何核实：读 start.ts 的 `login` 分支；对照 `site.accounts` 输出 19 与失败表“注册”“登录”两行的先后。
+- 建议改法：交开发者定是否补一条“社交发起按来源地址计（可与登录的来源计数共用）”写进输出 19 与失败表；实现时放在调库之前，和注册意图的 `clientAddress` 取法一致（取不到来源时 `forbidden_origin`）。若决定不限，在 Spec 的边界一节写明这是已知的写放大。
+
+### 4. `0003` 定稿前没对上旧站导入：导入的 GitHub 身份要是没写 `identity_upstream_name`，`GET me/identities` 整个 500
+- 严重程度：建议
+- 类别：不变量 / 隐含的跨 Task 耦合
+- 位置：packages/nb-site-identity/src/social/identities.ts:53 到 56（`itemOf` 遇到没有名字行的 `account` 行就抛 `Error`，整个列表走 `identity.unhandled_error` → 500）；migrations/0003_social.sql:163 到 172（`name`、`linked_at` 都 NOT NULL）；docs/specs/site/legacy-import.md 第 43 行“GitHub 身份：上游身份的 id 取旧库存的 GitHub 数字 id；展示用的 GitHub 用户名原样”、输出 4“每个有 GitHub 身份的旧账号用那个 GitHub 账号能登录”。
+- 现象：`itemOf` 的注释把“没有名字的行”定性为“别处写了库表”，但 planned 的 `site.legacy-import` 正是要“别处”批量写库的 `account` 表。它的去向表没有关联时间这一列，旧库多半也没有；0003 文件头与 `upstream-name.ts` 都没写“导入必须同时写名字行、`linked_at` 取什么”。本片的包内用例自己就用 `insertSocialAccount`（testing/social.ts:91）只写 `account` 行，说明这种形状在代码里是能造出来的。
+- 为什么是问题：计划把 0003 定在这一轮定稿，之后改要加迁移。导入若照去向表只写 `account`，每个导入的 GitHub 用户打开账号页就 500；若写了名字行而 `linked_at` 取导入时刻，“在用”判断不受影响，但这是要在两边写明的约定。
+- 如何核实：读 identities.ts:53；`grep -n 'GitHub' docs/specs/site/legacy-import.md`。
+- 建议改法：二选一并写下来：(a) 在 0003 文件头与 legacy-import 的去向表补一句“导入为每个上游身份写 `identity_upstream_name`，`name` 取旧站用户名，`linked_at` 取导入时刻”，并记进导入 Task；(b) 列表对没有名字行的身份退到 `accountName` 取 `accountId`、`linkedAt` 取 `account.createdAt`，并记一行 warn，不让整页 500。
+
+### 5. 社交注册收下的邮箱不按站点的邮箱字段规则校验
+- 严重程度：建议
+- 类别：安全与性能（外部输入在边界校验）
+- 位置：packages/nb-site-identity/src/social/hooks.ts:98 到 121（建用户前钩子只判 `emailVerified`，邮箱原样交给库，库只转小写）；对照合同 packages/nb-site-identity-contract/src/fields.ts:56 到 61（`EMAIL`：WHATWG 规则、只含 ASCII、至多 254、拒 `.invalid` 结尾）与 account.ts:96、oauth.ts:214（`MeResponse.email`、`UserInfoResponse.email` 都是 `Email`）。
+- 现象：密码注册的邮箱经合同 schema 判过；社交注册的邮箱来自上游，不经这条规则就写进 `user.email`，之后经 `GET me`、管理员列表、对外用户信息原样发出。
+- 为什么是问题：上游说“已验证”只说明能收信，不说明合本站的字段规则（例如国际化域名或非 ASCII 的本地部分、带引号的本地部分）。这样的账号会让站点自己的响应不合自己的合同，且 `.invalid` 后缀本来留给导入的占位邮箱（`site.legacy-import` 输出 8 靠“上游给不出”这一点）。现实中 Google、GitHub 多半给不出这样的地址，所以只记建议。
+- 如何核实：读 hooks.ts 建用户前钩子；`grep -n 'EMAIL' packages/nb-site-identity-contract/src/fields.ts`。
+- 建议改法：建用户前钩子里先用合同包的 `EMAIL.pattern` 判 `user.email`，不合格按 `social_email_missing`（或新码，交开发者定）拒绝，与“没验证过”走同一条不扣码的路；补一条仿真上游给 `x@例子.test` 的包内用例。
+
+## 未发现问题的方面
+
+逐项读过、对着库 1.7.27 源码核过，没有发现问题的：
+- 流程认领：`claimFlow` 的条件 UPDATE 同时比 state、上游、未用、模块时钟 10 分钟，与清理的 `<=` 边界一致；关联意图的会话复核与认领在同一个写事务里，失败也用掉流程；超长查询串在认领之前判、不认领。库的 `parseGenericState`（数据库策略）在 Cookie 不对时先抛、不删 state 行，所以“另一个浏览器先用掉”只能靠本站的认领，用例覆盖了。
+- 错误码来源：地址里重复的 `error`、`state`、`code` 在 better-call 里成数组，zod 判不过，落到 `social_failed` 或 `social_state_invalid`；`error=` 空值时库不进错误分支；只有库转出的码与地址里的完全相同时才按地址判，不同时库能给的只有 state 类与 `internal_server_error`，借参数造不出 `identity_taken` 一类的结论。`mapSocialError` 先信帧。
+- 注册原子性：建用户前、建账号前两个钩子都经 `joinLibTransaction` 落进库的 `runWithTransaction`（保存点），钩子抛的 `APIError` 让库的事务回滚，扣码、资料、同意、上游名字、`user`、`account` 同提交同回滚；会话在提交之后建，`admitSocialSession` 认出“注册意图却登录了旧账号”。`with-hooks` 是 `{...库的, ...钩子的}` 合并，钩子改写的列都生效。密码注册拆出共用函数后先后与码的语义不变（`registrantOf` 与原来的显示名、邀请码空串处理逐项相同）。两个同身份的社交注册并发时后一个在事务里撞 `email_taken`。
+- 关联授权边界：发起要会话与同意门槛、有密码时校验当前密码并经哈希限额；钩子在写事务里复核会话、账号未封、会话的账号等于库要关联的账号；`claimUpstreamName` 的两种在用判断与孤行清理在同一个写事务里，库插 `account` 走队列、等锁上限 10 秒，远小于 1 分钟的宽限；关联对注册两种先后都有用例。重复关联同一身份走 `updateAccount`，被改账号前钩子拒成 `identity_exists`。
+- 上游数据：建行、改行都置空五个令牌列，`updateAccountOnSignIn: false`；`resolveOAuthAccountFields` 只在提供方配了 `getAccountFields` 时写列（两个上游都没配）；GitHub 只取 `primary` 且 `verified === true`；Google 走 id_token（库按发现文档的 JWKS 验签、比 `aud` 与 `nonce`）；`user.update.before` 把库在再登录时写的 `emailVerified: true` 改回 false；库的日志只取 message。
+- 配置与挂载：一个上游只给一半时报在缺的那个变量上；地址带用户信息、查询串、片段或非回环的 http 都不启动；回调只收 GET、只放开放了的上游；编码路径在前一片已拒。
+- 解绑：在写事务里复核会话、只认上游名的行、数剩下的登录方式（与删同一事务），名字行一起删，解绑后马上能再关联。
+- 仿真上游：Google 的 userinfo 与 id_token 给同一组字段，库若改调 userinfo 用例不会空过；换码核对客户端、回调地址与 PKCE。
+
+## 汇总（按影响排序）
+
+- 重要 1 条：第 1 条（Google 发现文档在启动时无超时、失败后 meta 与发起不一致）。
+- 建议 4 条：第 2 条（并发回调没有用例）、第 3 条（匿名社交发起写库不限流）、第 4 条（0003 与旧站导入的名字行约定）、第 5 条（上游邮箱不按站点规则校验）。
+- 阻断 0 条。
+
+有效发现：1、2、3、4、5
