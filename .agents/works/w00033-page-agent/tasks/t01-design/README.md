@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-design
-status: planned
-updated: 2026-10-30
+status: active
+updated: 2026-11-26
 ---
 
 # 设计：核心包与插件的接口、快照与控件名、动作、截图、高亮、光标
