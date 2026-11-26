@@ -154,10 +154,11 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 ## 后续
 
-- 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
+- （2026-11-26 t64 已修）插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
 - 插件 SDK 只导出 `NestedGrid` 组件，不导出 `createGrid` 与宿主工具，插件建不出网格（t39 设计审查第 9 条）。要不要给插件开放网格宿主（`createGrid`、`useGridHost` 一起，放哪个子路径、兼容承诺多大）另行决定。
 - ADR 0054 第 10 条的另两项（主题级 CSS 变量、README 的 `data-*` 表）没有机检（t48 只做了 `@stable` 符号那一项）。
 - nb-layout 的后续改进：t50 [摩擦记录](tasks/t50-example-app/friction.md)开头的六组里，第 5、4、1、2 组排成 t56 到 t59；第 3 组（浮动窗的几何接口）等有浮动窗的使用方再定，第 6 组按需。
 - 工作台不接 `WorkbenchSurface` 的 `issues`，产品里网格的诊断与被拒的提交都静默丢掉（`useGridHost.md` 说它是诊断的唯一出口；t55 调研 app 的顺便发现 1）。开发者 2026-11-23 定：接到诊断出口，另开 Task，不放进 t55；2026-11-25 排成 [t57](tasks/t57-grid-diagnostics/README.md)。
 - 工作台的标签条拖到两端不会自己滚（2026-11-26 t62 只给库与标签编组示例做了横向、按指针挑容器的边缘滚动）：接工作台要先解决实时布局拿起时冻结标签条量取、`live.unmoved`/`sticky` 假定内容不动、`TabStrip` 的 `reveal` 与边缘滚动的配合，草稿条目（`ui/workbench-layout` 一条输出、一条验收）在 [t62 计划](tasks/t62-drag-edge-scroll-axes/plan.md)。没有排 Task。
+- 已知问题（2026-11-26 t60 浏览器探针发现，从探针推断分支之前就有）：把浮动窗拖回树里停靠（工作台）或贴边平铺（桌面示例）时，松手后第一帧投影与圆角就没了，只有位置在过渡，不合 `ui/nested-grid` 输出 110 的“投影、底色与圆角随过渡淡去”；框架按钮“回到停靠”那条路径的 e2e 是过的。t60 试过在起点那次渲染保留 `data-float`，浏览器里不起作用，已撤掉。要查 CSS 过渡在起点表那次强制布局之后为什么不接投影与圆角。没有排 Task。
 - API 报告列出 9 个类型与 1 个值“由公开名字引到、没有导出”（`GridPlacement` 一族、`GridRestoreReport`、`DragStops`、`DragActivation`、`dropKindData`）：要不要导出，等有使用方时再定。

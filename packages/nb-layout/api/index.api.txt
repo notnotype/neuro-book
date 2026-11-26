@@ -219,6 +219,7 @@ interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
     readonly gesture?: "move" | "resize";
+    readonly animate?: boolean;
 }
 
 ### experimental type GridGestureBaseline
@@ -724,7 +725,7 @@ declare const UNBOUNDED_EXTENT: GridExtent;
 
 ### experimental function clampFloatRect
 引用：GridExtent, GridRect
-declare function clampFloatRect(rect: GridRect, extent: GridExtent, keep: {
+declare function clampFloatRect(rect: GridRect, area: GridRect | GridExtent, keep?: {
     readonly width: number;
     readonly height: number;
 }): GridRect;
@@ -760,7 +761,8 @@ declare function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, 
     readonly y: number;
 }, bounds: {
     readonly min: GridExtent;
-    readonly max: GridExtent;
+    readonly max?: GridExtent;
+    readonly area?: GridRect;
 }): GridRect;
 
 ### experimental function resolveGridEdgeDrop

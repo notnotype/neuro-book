@@ -48,12 +48,13 @@ export function placementMoved(items: ReadonlyArray<GridLayerItem<unknown>>, pre
 
 /**
  * 只有浮动窗的矩形变了不算布局变化（移动、缩放是手势，不过渡）：同一块浮动窗和它还在里面的内容，矩形按上一次的算，判定就认不出变化。浮动窗出现、消失，内容进出浮动窗不在这里，照常过渡。
+ * `animated` 里的窗（节点 id）不压：宿主标了 `animate`、这一次与上一次都不在手势里、不是刚松手的（docs/specs/ui/nested-grid.md 输出 105），它的矩形变化照常算布局变化。集合由 `NestedGrid` 算。
  */
-export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>): ReadonlyArray<GridLayerItem<R>> {
+export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>, animated: ReadonlySet<string> = new Set()): ReadonlyArray<GridLayerItem<R>> {
     const before = new Map(previous.map((item) => [item.key, item]));
     const stayed = new Set(items.flatMap((item) => {
         const old = before.get(item.key);
-        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true ? [item.node.id] : [];
+        return item.kind === "leaf" && item.float === true && old?.kind === "leaf" && old.float === true && !animated.has(item.node.id) ? [item.node.id] : [];
     }));
     if (stayed.size === 0) return items;
     return items.map((item) => {
@@ -117,6 +118,30 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
         if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !rectsIntersect(oldRect, rect) || docked(leaf)) flying.add(item.key);
     }
     return flying;
+}
+
+/**
+ * 松手的起点（docs/specs/ui/nested-grid.md 输出 172）：宿主拖动中用 `placeFloat` 挪过、刚放开的窗（`released`：id 到最后一次的偏移），这一次离开了 `floats`
+ * （回到树里、并进别的叶、关掉）时，它要过渡的部分从松手时画着的位置出发：上一帧的外框矩形加偏移，上一帧属于它的活动内容同样加偏移（`key` 到矩形）。
+ * 偏移在 `translate` 上、不在布局里，`placeFloat(id, null)` 清掉它之后，不给起点的话过渡从记录矩形（按下之前的位置）出发，窗先跳回去再飞。
+ *
+ * 这一次它还是浮动窗时不给，不比较矩形：`settleFloatMoves` 已把留在原处的浮动窗压回上一帧的矩形，按“等于上一帧加偏移”判永远不成立，
+ * 移动的提交正好是这一种（窗停在拖到的位置，不过渡）。上一帧它不是浮动窗、偏移为零的也不给。
+ */
+export function releaseStarts(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, released: ReadonlyMap<string, {readonly x: number; readonly y: number}>): Map<string, GridRect> {
+    const starts = new Map<string, GridRect>();
+    if (released.size === 0) return starts;
+    const before = new Map(previous.map((item) => [item.key, item]));
+    const floating = new Set(items.flatMap((item) => (item.kind === "leaf" && item.float === true ? [item.node.id] : [])));
+    for (const [id, offset] of released) {
+        if (offset.x === 0 && offset.y === 0) continue;
+        const old = before.get(`leaf:${id}`);
+        if (old?.kind !== "leaf" || old.float !== true || floating.has(id)) continue;
+        const shifted = (rect: GridRect): GridRect => ({...rect, x: rect.x + offset.x, y: rect.y + offset.y});
+        starts.set(old.key, shifted(old.rect));
+        for (const item of previous) if (item.kind === "content" && item.leaf === id && item.active && item.rect !== null) starts.set(item.key, shifted(item.rect));
+    }
+    return starts;
 }
 
 type LeafItem<R> = Extract<GridPlacementItem<R>, {readonly kind: "leaf"}>;

@@ -4,9 +4,10 @@
  * 库在这里只给了会话（按下、过门槛、取消）与反馈层；整窗移动没有现成的落点几何，指针靠近桌面左右边缘算平铺，
  * 是这个示例自己的规则。
  */
+import {clampFloatRect} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridRect} from "@notnotype/nb-layout";
 
-import {deskClamp, roundRect, type Side} from "./model";
+import {roundRect, type Side} from "./model";
 
 /** 离桌面叶左右缘多近算贴边（CSS px）。越过边缘也算：指针被甩出桌面时不该失去落点。 */
 export const EDGE_BAND = 20;
@@ -22,8 +23,7 @@ export type Drop =
 
 /** 窗被拖到哪：起点矩形加上指针从按下处走过的偏移，夹进桌面、取整。只返回 `x`、`y`：宽高不跟着改。 */
 export function moveTarget(start: GridRect, pressed: GridDropPoint, point: GridDropPoint, desk: GridRect): {readonly x: number; readonly y: number} {
-    const clamped = deskClamp({...start, x: start.x + point.x - pressed.x, y: start.y + point.y - pressed.y}, desk);
-    const {x, y} = roundRect(clamped);
+    const {x, y} = roundRect(clampFloatRect({...start, x: start.x + point.x - pressed.x, y: start.y + point.y - pressed.y}, desk));
     return {x, y};
 }
 

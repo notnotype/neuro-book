@@ -12,10 +12,19 @@
 
 - `sashSize` 的函数形式多收第三个参数 `{before, after}`：挨着这条线的两个直接孩子的 id，与 `NestedGrid` 的 `sashDisabled` 同一个认法，宿主不用再按分支 id 加序号认线（序号随结构变）；只用前两个参数的函数照旧可用。类型 `GridSashResolver` 跟着改，`GridOptions.sashSize` 改用它。
 - 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
+- `resizeFloatRect` 的 `bounds` 可以给 `area`（相对网格根的矩形）：跟着指针的边不越过它，起点就在区域外的边不再往外，也不往里跳，最小尺寸优先。`FloatWindowHandles` 多了同义的 `area` 属性，指针与键盘缩放都按它。
+- `FloatWindowHandles` 的 `commit` 多了第二个参数 `direction`（`LayoutFloatResize`）：这次动的边，键盘缩放是右下角。`rect` 里没动的那一轴是夹过的值，要保住记录的宿主只取 `direction` 不为 0 的轴。只接第一个参数的监听不用改。
+- `NestedGrid` 的 expose 加 `leafRect(id)`：树里这块叶此刻的矩形（相对网格根），手势预览中跟着预览、最大化时是盖住的外接矩形，浮动窗、离开中的叶与不存在的 id 是 `null`；在计算属性里读会跟着摆放重算。它不看 `floats`，可以拿来算 `floats`。
+- `NestedGrid` 的新事件 `float-raise`（窗的 id）：指针在一扇浮动窗上按下（捕获阶段判，按在手柄上也收得到）或焦点进入它，它又不是 `floats` 的最后一个时发；网格不改次序，宿主把它挪到末尾。
+- `GridFloatInput.animate`：宿主标了的浮动窗，矩形变化走布局过渡（例如最大化与还原）；这一次或上一次带着 `gesture`、或是松手放开的那一次照旧不过渡。不标时照旧只有矩形变了不过渡。
 
 ### 改动
 
 - 边缘滚动改用 `scrollBy({behavior: "instant"})`，设了 `scroll-behavior: smooth` 的容器也一帧一步地滚。以前第一步之后读回来的位置没变，被当成滚到头停了。
+- `clampFloatRect` 的第二个参数可以是带原点的矩形（相对网格根），窗夹进这块矩形；只给宽高时照旧从 0 开始。第三个参数 `keep` 可以不给（整扇窗留在区域里），给了也不超过窗缩到区域之后的尺寸：比区域大的窗不再被推出区域（以前 800 宽的窗、600 宽的区域、`keep` 取窗自己的大小时 `x` 是 -200）。`keep` 不超过窗缩后尺寸的调用结果不变。
+- `resizeFloatRect` 的 `bounds.max` 与 `FloatWindowHandles` 的 `max` 可以不给（不限）。
+- `NestedGrid` 的手柄层（`float-chrome`）不再按 `floats` 的次序渲染：抬升只改层级、不搬节点，按在手柄上的焦点不再丢。手柄之间的 Tab 次序因此是窗出现的次序，不是叠放次序。
+- `placeFloat(id, null)` 之后、下一帧之前把窗放回树里（或把它的内容并进别的叶）时，过渡从松手时画着的位置出发，不再先跳回按下之前的位置：宿主不用再等下一帧才改树。下一帧之后才发布的照旧从记录矩形出发。
 - `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
 - README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
 

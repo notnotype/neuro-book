@@ -68,7 +68,7 @@ const emit = defineEmits<{
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。宿主据此记当前面板（输出 36）。 */
     (event: "focus-panel", panel: string | null): void;
-    /** 指针按在浮动窗上，或焦点进了它：提到最前。 */
+    /** 指针按在浮动窗上，或焦点进了它：提到最前。已在最前不发（转发网格的 `float-raise`）。 */
     (event: "raise-float", panel: string): void;
 }>();
 
@@ -526,15 +526,8 @@ function leafOf(target: EventTarget | null): string | null {
     return element?.getAttribute("data-content-leaf") ?? element?.getAttribute("data-leaf") ?? null;
 }
 
-function raiseIfFloat(target: EventTarget | null): void {
-    const chrome = target instanceof Element ? target.closest("[data-float-chrome]")?.getAttribute("data-float-chrome") : null;
-    const panel = chrome ?? leafOf(target);
-    if (panel !== null && props.floats.some((float) => float.id === panel)) emit("raise-float", panel);
-}
-
 function onFocusIn(event: FocusEvent): void {
     focusedLeaf.value = leafOf(event.target);
-    raiseIfFloat(event.target);
 }
 
 function onFocusOut(event: FocusEvent): void {
@@ -567,7 +560,6 @@ defineExpose({
         data-workbench-surface
         @pointerover="pointerLeaf = leafOf($event.target)"
         @pointerleave="pointerLeaf = null"
-        @pointerdown.capture="raiseIfFloat($event.target)"
         @focusin="onFocusIn"
         @focusout="onFocusOut"
     >
@@ -588,6 +580,7 @@ defineExpose({
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"
             @content-parked="(key: string) => emit('content-parked', key)"
+            @float-raise="(id: string) => emit('raise-float', id)"
         >
             <template #leaf="{node}">
                 <div class="workbench-surface__slot" :style="insetOf(node.id)">
