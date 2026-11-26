@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t43-entry-page-polish-2
-status: planned
+status: active
 updated: 2026-11-26
 ---
 
@@ -55,4 +55,4 @@ updated: 2026-11-26
 
 ## 下一步
 
-[plan.md](plan.md) 第 1 稿已写，等开发者看。第 3 条（Lab 与组件目录）按计划另建 t44。“+”挪进分页条中间与分页条只能放分页的规则冲突，计划里改成留在分页条外、紧跟其后，要开发者知悉。
+[plan.md](plan.md) 第 1 稿开发者 2026-11-26 答“都同意”（含“+”留在分页条外、紧跟其后：挪进分页条中间与分页条只能放分页的规则冲突）。第 3 条（Lab 与组件目录）另建 [t44](../t44-lab-and-component-folders/README.md)。按切片 S1 到 S7 实施，分支 `feat/w00039-t43-entry-page-polish`。
