@@ -6,13 +6,14 @@
 
 ## 边界
 
-- 只经两个合同包认识后端的接口，按白名单检查（`tests/boundary.test.ts`）：`src/` 里的源码与样式只许导入 nb-ui、两个合同包与第三方包，不许别的工作区包与 `bun:`、`node:` 内置模块（前端代码跑在浏览器里）；`tests/` 与 `vite.config.ts`、`vitest.config.ts` 另许 `bun:`、`node:` 与测试支持包。清单里的工作区包：`dependencies` 只有 nb-ui 与两个合同包，`devDependencies` 只有测试支持包。要放开一项，先在这里写明理由，再改检查。
+- 只经两个合同包认识后端的接口，按白名单检查（`tests/boundary.test.ts`）：`src/` 里的源码与样式只许导入 nb-ui、两个合同包与第三方包，不许别的工作区包与 `bun:`、`node:` 内置模块（前端代码跑在浏览器里）；`tests/`、`e2e/` 与 `vite.config.ts`、`vitest.config.ts` 另许 `bun:`、`node:` 与测试支持包。清单里的工作区包：`dependencies` 只有 nb-ui 与两个合同包，`devDependencies` 只有测试支持包。要放开一项，先在这里写明理由，再改检查。
 
 ## 测试
 
 - `tests/` 下是纯逻辑与构建的测试，由 `bun test` 跑：分派与守卫、接口层的核心、当前账号、失败码的文案覆盖、依赖边界、构建。
 - `src/` 下的 `*.dom.test.ts` 是要浏览器接口的测试（组件、`sessionStorage`、主题写到根元素、装起来的站点），由 `vitest` 在 happy-dom 里跑（`vitest.config.ts`）；包内 `bunfig.toml` 让 `bun test` 跳过它们。
 - 包脚本 `bun run test` 两样都跑；`bun run test:affected --package nb-site-web` 走的也是它。
+- `e2e/` 下的 `*.e2e.ts` 是浏览器场景（Playwright，用本机 Chrome）：`bun run test:e2e` 先 `vite build`，再起 Vite 的预览服务（端口默认 4360，被占时设 `NB_SITE_WEB_E2E_PORT`），由 `e2e/fake-api.ts` 截下 `/api/` 的请求按合同的形状回答，数据在 `e2e/fixtures/`（`tests/e2e-fixtures.test.ts` 用合同的 schema 检查每份）。只量 happy-dom 量不了的：真实布局、溢出、格线对齐、颜色与对比度、主路径。不进 `bun run test`。
 
 ## 完成门禁
 

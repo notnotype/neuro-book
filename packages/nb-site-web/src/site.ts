@@ -11,8 +11,11 @@ import type {Router, RouterHistory} from "vue-router";
 
 import {createApiCore} from "./api/core";
 import type {ApiCore} from "./api/core";
+import {createIdentityApi} from "./api/identity";
+import type {IdentityApi} from "./api/identity";
 import App from "./App.vue";
 import {SITE_CONTEXT_KEY} from "./context";
+import type {SiteClock} from "./host/clock";
 import {createSiteStorage} from "./host/storage";
 import type {SiteStorage} from "./host/storage";
 import {createSiteTheme} from "./host/theme";
@@ -22,7 +25,6 @@ import {createCurrentAccount, knownAccount} from "./session/account";
 import type {CurrentAccount} from "./session/account";
 import {dispatch} from "./session/dispatch";
 import {afterConsentRequired, afterUnauthenticated} from "./session/guard";
-import {identityAccountSource} from "./session/identity-source";
 
 export interface StartSiteOptions {
     /** 挂载点。 */
@@ -30,7 +32,8 @@ export interface StartSiteOptions {
     readonly window: Window;
     readonly fetch: (input: string, init: RequestInit) => Promise<Response>;
     readonly history: RouterHistory;
-    readonly now: () => number;
+    /** 当前时刻与重复的计时（`host/clock.ts`）；产品里是浏览器的时钟，组件测试给手动推进的。 */
+    readonly clock: SiteClock;
 }
 
 export interface Site {
@@ -39,7 +42,9 @@ export interface Site {
     readonly account: CurrentAccount;
     readonly theme: SiteTheme;
     readonly api: ApiCore;
+    readonly identity: IdentityApi;
     readonly storage: SiteStorage;
+    readonly clock: SiteClock;
     /** 卸载应用、解除对系统明暗的监听。 */
     stop(): void;
 }
@@ -59,7 +64,7 @@ export function startSite(options: StartSiteOptions): Site {
 
     const api = createApiCore({
         fetch: options.fetch,
-        now: options.now,
+        now: () => options.clock.now(),
         handlers: {
             onUnauthenticated() {
                 account.clear();
@@ -81,12 +86,13 @@ export function startSite(options: StartSiteOptions): Site {
         },
     });
 
-    const account = createCurrentAccount(identityAccountSource(api));
+    const identity = createIdentityApi(api);
+    const account = createCurrentAccount(identity);
     const router = createSiteRouter({history: options.history, account, origin: win.location.origin});
-    const storage = createSiteStorage({storage: () => win.sessionStorage, now: options.now});
+    const storage = createSiteStorage({storage: () => win.sessionStorage, now: () => options.clock.now()});
 
     const app = createApp(App);
-    app.provide(SITE_CONTEXT_KEY, {account, theme, api, storage});
+    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock});
     app.use(router);
     app.mount(options.target);
 
@@ -96,7 +102,9 @@ export function startSite(options: StartSiteOptions): Site {
         account,
         theme,
         api,
+        identity,
         storage,
+        clock: options.clock,
         stop() {
             app.unmount();
             theme.dispose();

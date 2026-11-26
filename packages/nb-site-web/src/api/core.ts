@@ -39,6 +39,14 @@ const HANDLED_CODES = {
 
 export type HandledCode = keyof typeof HANDLED_CODES;
 
+/**
+ * 统一处理接管的码。接口没在 `handles` 里声明它时，统一处理已经管了（跳转、清空当前账号），页面拿到这样的失败不再显示。
+ * 用 `Object.hasOwn`：码是服务端给的任意字符串，`constructor` 这类会从原型上取到东西。
+ */
+export function isHandledCode(code: string): code is HandledCode {
+    return Object.hasOwn(HANDLED_CODES, code);
+}
+
 export interface ApiRequest {
     readonly method: "GET" | "POST" | "PATCH" | "DELETE";
     /** 站内的绝对路径（含模块前缀与查询串），由合同包的前缀与路径常量拼成。 */
@@ -136,11 +144,7 @@ export function createApiCore(options: ApiCoreOptions): ApiCore {
             }
         }
 
-        // `Object.hasOwn`：码是服务端给的任意字符串，`constructor` 这类会从原型上取到东西。
-        if (Object.hasOwn(HANDLED_CODES, error.code)) {
-            const code = error.code as HandledCode;
-            if (!(request.handles ?? []).includes(code)) options.handlers[HANDLED_CODES[code]]();
-        }
+        if (isHandledCode(error.code) && !(request.handles ?? []).includes(error.code)) options.handlers[HANDLED_CODES[error.code]]();
 
         return failed({
             kind: "code",

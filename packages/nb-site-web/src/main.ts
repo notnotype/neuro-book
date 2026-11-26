@@ -1,6 +1,7 @@
 import "./app.css";
 import {createWebHistory} from "vue-router";
 
+import {browserClock} from "./host/clock";
 import {startSite} from "./site";
 
 // 浏览器的真东西都在这里交给 `startSite`；装法本身在 `site.ts`，由组件测试守着。
@@ -11,5 +12,5 @@ startSite({
     window,
     fetch: globalThis.fetch.bind(globalThis),
     history: createWebHistory(),
-    now: () => Date.now(),
+    clock: browserClock(window),
 });

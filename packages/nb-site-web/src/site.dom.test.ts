@@ -11,6 +11,7 @@ import {createMemoryHistory} from "vue-router";
 
 import zhCN from "./locales/zh-CN.json";
 import {startSite} from "./site";
+import {manualClock} from "./testing/manual-clock";
 import type {Site} from "./site";
 
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
@@ -82,7 +83,7 @@ function start(path: string, server: Server): Started {
         target,
         window,
         history,
-        now: () => Date.parse("2026-11-26T10:00:00Z"),
+        clock: manualClock(Date.parse("2026-11-26T10:00:00Z")),
         fetch: async (input) => {
             requested.push(input);
             if (input === WHOAMI) return server.whoami();
@@ -223,6 +224,30 @@ describe("取不到身份", () => {
 
         started.server.whoami = anonymousServer().whoami;
         alert.querySelector("button")!.click();
+        await settledAt(started, "/login?next=%2Faccount", "login");
+        expect(started.target.querySelector("[data-site-unavailable]")).toBeNull();
+    });
+
+    it("重试时取到了身份、跳转却失败：仍挡着页面、写明没能打开，再点重试能进", async () => {
+        const started = start("/account", {...anonymousServer(), whoami: () => Response.json({error: {code: "unavailable"}}, {status: 503})});
+        await vi.waitFor(() => expect(started.target.querySelector("[data-site-unavailable]")).not.toBeNull());
+
+        started.server.whoami = anonymousServer().whoami;
+        // 页面的块加载失败、守卫出错都表现为跳转 reject；用路由的公开接口加一个会抛错的守卫造出来。
+        const removeBrokenGuard = started.site.router.beforeEach(() => {
+            throw new Error("测试造的跳转失败");
+        });
+        started.target.querySelector<HTMLButtonElement>("[data-site-unavailable] button")!.click();
+        await vi.waitFor(() => {
+            const alert = started.target.querySelector("[data-site-unavailable]");
+            expect(alert?.textContent).toContain(zhCN.shell.navigationFailed);
+            expect(alert?.querySelector("button")?.disabled).toBe(false);
+        });
+        expect(started.site.account.state.value).toEqual({kind: "anonymous"});
+        expect(started.target.querySelector("[data-site-page]")).toBeNull();
+
+        removeBrokenGuard();
+        started.target.querySelector<HTMLButtonElement>("[data-site-unavailable] button")!.click();
         await settledAt(started, "/login?next=%2Faccount", "login");
         expect(started.target.querySelector("[data-site-unavailable]")).toBeNull();
     });

@@ -6,7 +6,8 @@
  * - `src/` 的源码（`.ts`、`.vue`，连同将来放在这里的组件测试）：`@notnotype/*` 只许 nb-ui 与两个合同包（含子路径），第三方包不限；
  *   不许 `bun:`、`node:`，它们在浏览器里没有，要到构建或运行时才失败。
  * - `src/` 的样式：`@import` 的包照上一条；`@source` 的相对路径不出本包。样式里的 `@import` 能把别的包的源码带进来。
- * - `tests/` 与包根的 `vite.config.ts`、`vitest.config.ts`：跑在 Bun 或 Node 里，另许 `bun:`、`node:` 与测试支持包。
+ * - `tests/`、`e2e/`（Playwright，由 Node 跑）与包根的 `vite.config.ts`、`vitest.config.ts`：跑在 Bun 或 Node 里，另许 `bun:`、`node:`
+ *   与测试支持包。
  * - 相对导入不出本包。
  * - 清单：`dependencies`（及 `peerDependencies`、`optionalDependencies`）里的工作区包只许 nb-ui 与两个合同包，
  *   `devDependencies` 里的只许测试支持包。
@@ -45,11 +46,12 @@ function filesUnder(directory: string, pattern: RegExp): string[] {
         .map((entry) => join(entry.parentPath, entry.name));
 }
 
-/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则，`tests/` 与两个构建配置照 Bun 的。 */
+/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则，`tests/`、`e2e/` 与两个构建配置照 Bun 的。 */
 function scannedFiles(): {readonly file: string; readonly rule: ImportRule}[] {
     return [
         ...filesUnder("src", /\.(?:ts|vue|css)$/u).map((file) => ({file, rule: BROWSER_RULE})),
         ...filesUnder("tests", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
+        ...filesUnder("e2e", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
         {file: join(PACKAGE_ROOT, "vite.config.ts"), rule: BUN_RULE},
         {file: join(PACKAGE_ROOT, "vitest.config.ts"), rule: BUN_RULE},
     ];

@@ -4,8 +4,10 @@
  *
  * - `--site-viz-1` 到 `--site-viz-3`：看板趋势图的三条序列（t09 第 14 条，dataviz 参考配色的前三格，对着 nbook 的面板底色验过）。
  * - `--site-seq-1` 到 `--site-seq-5`：错误次数的红色色阶，由浅到深（t09 第 15 条）。暗色先用同一组，B5 在浏览器里对着暗色面板底色验过再定。
- * - `--site-paper-line`、`--site-paper-seal`：稿纸的格线与印章（计划 3.6）。亮色是定稿草稿里的值；暗色的值由 B2 在浏览器里
- *   对着暗色底色定，在那之前与亮色相同。
+ * - `--site-paper-line`、`--site-paper-seal`：稿纸的格线与印章（计划 3.6），纸的底色是 nbook 的 `--bg-panel`。亮色是定稿草稿里的值。
+ *   暗色按与亮色同样的分量定：格线同一种绿，比例从 42% 降到 36%，合成后对纸的对比度约 1.62（亮色约 1.64），
+ *   原比例在暗底上约 1.76，格子比亮色的更显眼；印章换成亮一点的红 `#cc4236`，对暗色纸约 3.0（图形的下限 3:1，原色只有 2.65），
+ *   上面的白字约 4.8（文字的下限 4.5:1）。`e2e/login.e2e.ts` 在两种明暗下量这几个对比度。
  */
 
 @layer base {
@@ -31,7 +33,7 @@
         --site-seq-3: #d64a45;
         --site-seq-4: #b3302c;
         --site-seq-5: #861f1d;
-        --site-paper-line: color-mix(in srgb, #3f9468 42%, transparent);
-        --site-paper-seal: #c0392b;
+        --site-paper-line: color-mix(in srgb, #3f9468 36%, transparent);
+        --site-paper-seal: #cc4236;
     }
 }

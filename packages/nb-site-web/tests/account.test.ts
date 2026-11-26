@@ -8,8 +8,8 @@ import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-c
 import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
 
 import {createApiCore} from "../src/api/core";
+import {createIdentityApi} from "../src/api/identity";
 import {createCurrentAccount} from "../src/session/account";
-import {identityAccountSource} from "../src/session/identity-source";
 
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
 const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
@@ -48,7 +48,7 @@ function setup(answers: Record<string, Answer>) {
             onForbidden: () => handled.push("forbidden"),
         },
     });
-    return {account: createCurrentAccount(identityAccountSource(api)), requested, handled};
+    return {account: createCurrentAccount(createIdentityApi(api)), requested, handled};
 }
 
 const signedInWhoami: Answer = () => Response.json({state: "authenticated", user: {id: 7, username: "alice", role: "user"}} satisfies WhoamiResponse);

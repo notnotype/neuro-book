@@ -1,5 +1,6 @@
 /**
- * 路由表与守卫（t10 计划 3.1）。页面按需加载：访客的入口块里只有外壳，管理面板、看板（B5 起带 ECharts）点到才取。
+ * 路由表与守卫（t10 计划 3.1）。页面按需加载：访客的入口块里只有外壳与登录页（它就是主页，打开站点第一眼就要它），
+ * 管理面板、看板（B5 起带 ECharts）点到才取。
  *
  * 还没做的页面先挂同一个空壳 `ShellPage`，只显示路由的标题；各片做到那一页时换成自己的组件。看板从一开始就是单独的
  * `admin/DashboardPage.vue`：构建测试按它认出看板的块（ECharts 只许在那里）。
@@ -8,6 +9,7 @@
 import {createRouter} from "vue-router";
 import type {RouteLocationNormalized, Router, RouterHistory} from "vue-router";
 
+import LoginPage from "./pages/LoginPage.vue";
 import {knownAccount} from "./session/account";
 import type {CurrentAccount} from "./session/account";
 import {guard} from "./session/guard";
@@ -51,8 +53,8 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
     const router = createRouter({
         history: options.history,
         routes: [
-            {path: "/", name: "home", component: shell, meta: {access: "guest", layout: "paper", titleKey: "login.title"}},
-            {path: "/login", name: "login", component: shell, meta: {access: "guest", layout: "paper", titleKey: "login.title", signedInWithContinue: true}},
+            {path: "/", name: "home", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title"}},
+            {path: "/login", name: "login", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title", signedInWithContinue: true}},
             {path: "/register", name: "register", component: shell, meta: {access: "guest", layout: "paper", titleKey: "register.title"}},
             {path: "/consent", name: "consent", component: shell, meta: {access: "consent", layout: "paper", titleKey: "consent.title"}},
             {path: "/account", name: "account", component: shell, meta: {access: "user", layout: "account", titleKey: "account.title"}},

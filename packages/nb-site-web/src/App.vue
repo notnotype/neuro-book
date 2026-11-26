@@ -22,8 +22,13 @@ const {account} = useSite();
 const route = useRoute();
 const router = useRouter();
 
-const unavailable = computed(() => account.state.value.kind === "unavailable");
 const retrying = shallowRef(false);
+// 重试时身份取到了、守卫还没对当前地址重走完：这段时间仍挡着页面。上一次放行时不知道身份，路由停着的可能是这个人进不了的页
+// （匿名的人停在 `/account`），揭开早了会先画出那一页再被送走。
+const reguarding = shallowRef(false);
+// 重走守卫时跳转失败了（守卫抛错、页面的块加载失败）：留在这一屏，写明原因，可以再点重试。
+const navigationFailed = shallowRef(false);
+const unavailable = computed(() => account.state.value.kind === "unavailable" || reguarding.value);
 
 watchEffect(() => {
     document.documentElement.lang = locale.value;
@@ -36,10 +41,20 @@ watchEffect(() => {
 
 async function retry(): Promise<void> {
     retrying.value = true;
+    reguarding.value = true;
+    navigationFailed.value = false;
     try {
-        await account.refresh();
-        // 守卫上一次因为不知道身份而放行了；现在知道了，对同一个地址再走一遍守卫（同一地址的导航要 `force` 才会发生）。
-        await router.replace({path: route.path, query: route.query, hash: route.hash, force: true});
+        const state = await account.refresh();
+        // 还是取不到：`account.state` 自己挡着页面。
+        if (state.kind !== "unavailable") {
+            // 守卫上一次因为不知道身份而放行了；现在知道了，对同一个地址再走一遍守卫（同一地址的导航要 `force` 才会发生）。
+            // 回来的导航失败（被更晚的导航取代）不算出错：那次导航同样走守卫。
+            await router.replace({path: route.path, query: route.query, hash: route.hash, force: true});
+        }
+        reguarding.value = false;
+    } catch (error) {
+        console.warn("重试之后没能打开这一页", error);
+        navigationFailed.value = true;
     } finally {
         retrying.value = false;
     }
@@ -49,7 +64,7 @@ async function retry(): Promise<void> {
 <template>
     <div class="min-h-svh">
         <main v-if="unavailable" class="flex min-h-svh flex-col items-center justify-center gap-4 px-6" role="alert" data-site-unavailable>
-            <p class="text-md">{{ t("shell.unavailable") }}</p>
+            <p class="text-md">{{ t(navigationFailed ? "shell.navigationFailed" : "shell.unavailable") }}</p>
             <Button variant="secondary" :loading="retrying" @click="retry">{{ t("shell.retry") }}</Button>
         </main>
         <RouterView v-else />

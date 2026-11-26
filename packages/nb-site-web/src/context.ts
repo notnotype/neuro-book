@@ -6,6 +6,8 @@ import {inject} from "vue";
 import type {InjectionKey} from "vue";
 
 import type {ApiCore} from "./api/core";
+import type {IdentityApi} from "./api/identity";
+import type {SiteClock} from "./host/clock";
 import type {SiteStorage} from "./host/storage";
 import type {SiteTheme} from "./host/theme";
 import type {CurrentAccount} from "./session/account";
@@ -14,7 +16,10 @@ export interface SiteContext {
     readonly account: CurrentAccount;
     readonly theme: SiteTheme;
     readonly api: ApiCore;
+    /** 账号模块的接口（建在 `api` 上）。 */
+    readonly identity: IdentityApi;
     readonly storage: SiteStorage;
+    readonly clock: SiteClock;
 }
 
 export const SITE_CONTEXT_KEY: InjectionKey<SiteContext> = Symbol("nb-site.context");
