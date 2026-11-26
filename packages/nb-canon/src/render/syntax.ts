@@ -62,7 +62,7 @@ export interface BlockAnalysis {
     /** 与 `parsed.tags` 一一对应。 */
     readonly meanings: readonly TagMeaning[];
     readonly conditions: readonly Condition[];
-    /** 没有读结构（太长，或嵌套深到读不出）：`parsed` 是空的，`error` 是不可免的问题。 */
+    /** 嵌套深到读不出结构：`parsed` 是空的，`error` 是不可免的问题。 */
     readonly unread?: true;
 }
 
@@ -149,19 +149,18 @@ function readable(source: string): ParsedEntryText | null {
 }
 
 /**
- * 一块主文字最多这么多个字符（UTF-16 码元，rendering.md 输出 1）。marked 在嵌套强调、引用套列表这类写法上大致按长度的平方变慢
- * （实测 1 万字最坏约 1 到 2 秒、2 万字约 6 秒，正常文字 2 万字约 50 毫秒），写入在单写者队列里做，长度有了上界，一块最坏只占住
- * 队列一两秒。作者界面按段落一块一块提交，正常写不到这个长度。超过的不解析：写入拒收，存下来的旧数据照出错的块给。这个长度以内
- * 试过的写法都不会让分词栈溢出，`TOO_DEEP` 留作兜底。
+ * 一块主文字最多这么多个字符（UTF-16 码元，rendering.md 输出 1；开发者 2026-11-26 定）。作者界面整篇编辑时把整篇写进一块，所以它也是
+ * 作者改过的条目整篇的上限，与预览一次肯渲染的长度相同。marked 在嵌套强调、引用套列表这类写法上大致按长度的平方变慢（实测 1 万字
+ * 最坏约 1 到 2 秒、2 万字约 6 秒；正常文字 2 万字约 50 毫秒），写入在单写者队列里做，长度有了上界，刻意构造的最坏输入也只占住
+ * 队列几十秒。只管写入：超过的不解析、直接拒收；渲染不看它，存下来的旧数据照常渲染。嵌套深到读不出结构的由 `TOO_DEEP` 兜底。
  */
-export const MAX_BLOCK_LENGTH = 10_000;
+export const MAX_BLOCK_LENGTH = 50_000;
 
 const TOO_LARGE = {code: "block-too-large", line: 1, column: 1, message: `a block of entry text may have at most ${String(MAX_BLOCK_LENGTH)} characters; split it into several blocks`} as const satisfies SyntaxProblem;
 
 const unread = (source: string, error: SyntaxProblem): BlockAnalysis => ({source, parsed: parseEntryText(""), error, problems: [], unread: true, meanings: [], conditions: []});
 
 function analyzeUncached(source: string): BlockAnalysis {
-    if (source.length > MAX_BLOCK_LENGTH) return unread(source, TOO_LARGE);
     const parsed = readable(source);
     if (parsed === null) return unread(source, TOO_DEEP);
     const problems = checkEntryText(parsed);
@@ -203,6 +202,7 @@ const excused = (tag: EntryTag, options: BlockCheckOptions): boolean => tag.kind
 
 /** 写入时检查一块（输出 1、19；源文已规范化）；合格返回 null。 */
 export function blockProblem(source: string, options: BlockCheckOptions = {}): SyntaxProblem | null {
+    if (source.length > MAX_BLOCK_LENGTH) return TOO_LARGE;
     const analysis = analyzeBlock(source);
     if (analysis.unread === true) return analysis.error;
     const parsed = analysis.parsed;
@@ -222,10 +222,11 @@ export function unregisteredTags(source: string): string[] {
 
 /**
  * 写入之前的规范化（输出 1、18）：去 BOM、换行规范成 LF、活的标签写成规范写法。对规范的源文不变，可以重复做。分析经缓存：源文
- * 本来就是规范写法时（多数情况），接着的写入检查用的是同一份解析。太长或读不出结构的原样交给写入检查拒收。
+ * 本来就是规范写法时（多数情况），接着的写入检查用的是同一份解析。太长或读不出结构的原样交给写入检查拒收（太长的不解析）。
  */
 export function normalizeBlockSource(text: string): string {
     const normalized = normalizeEntrySource(text);
+    if (normalized.length > MAX_BLOCK_LENGTH) return normalized;
     const analysis = analyzeBlock(normalized);
     return analysis.unread === true ? normalized : canonicalEntryText(analysis.parsed);
 }

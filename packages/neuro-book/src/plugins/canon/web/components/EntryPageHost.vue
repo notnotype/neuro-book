@@ -729,7 +729,7 @@ const preview = useTextPreview({
 const previewBlocks = computed((): readonly EntryTextBlock[] | null => {
     const block = preview.block.value;
     if (block === null) return null;
-    return (block.tree.children ?? []).length === 0 ? [] : [block];
+    return block.source.trim() === "" ? [] : [block];
 });
 const previewNote = computed(() => {
     if (preview.failure.value !== null) return text(preview.failure.value === "too-large" ? "textEdit.previewTooLarge" : "textEdit.previewUnavailable");
@@ -766,7 +766,7 @@ const focusEditor = (): void => {
 /** “插入”里列的写法：本条目各设定组的字段，写成“设定组 · 字段”。 */
 const inserts = computed((): InsertItem[] => namespaces.value.flatMap((namespace) => {
     const group = typeLabel(view.value?.namespaces[namespace]?.type ?? "");
-    return (entry.value?.declarations?.[namespace] ?? []).map((field) => ({label: `${group} · ${field.label}`, snippet: `{${namespace}.${field.id}}`}));
+    return (entry.value?.declarations?.[namespace] ?? []).map((field) => ({label: `${group} · ${field.label}`, snippet: `<V of="${namespace}.${field.id}" />`}));
 }));
 // 页面转入后台（切标签、最小化、关窗之前）：把还没写下去的稿写进暂存。
 const onHidden = (): void => {

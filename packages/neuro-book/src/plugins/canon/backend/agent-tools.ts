@@ -25,6 +25,7 @@ import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
 import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
 import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
+import {changedValueNotes, replaceInBlock, stripAgentText} from "./agent-entry-text";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
 import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
@@ -65,7 +66,7 @@ const read = agentTool(AGENT_TOOL_IDS.read, {
     providerName: "canon_read",
     description: [
         "读一个设定条目。第一行给出位置与版本（写入时把版本原样带给 canon_write 的 version）。",
-        "show 缺省 [\"fields\"]：每个设定组的字段、值、种类与可取的值；\"text\"：主文字；\"origins\"：field 这个字段的值是怎么来的；\"history\"：最近的修订。",
+        "show 缺省 [\"fields\"]：每个设定组的字段、值、种类与可取的值；\"text\"：主文字（每块前面方括号里是块 id，标签带着这个位置上的值，见 canon_write）；\"origins\"：field 这个字段的值是怎么来的；\"history\"：最近的修订。",
         "field 写“设定组.字段”，只读这一个字段（列表读全）。",
     ].join("\n"),
     parameters: {
@@ -74,7 +75,8 @@ const read = agentTool(AGENT_TOOL_IDS.read, {
         required: ["entry"],
         additionalProperties: false,
     },
-    version: "1",
+    // 2：主文字换成标签写法，读到的是带值写法（w00055 t02）。
+    version: "2",
     effect: "read",
     concurrency: "shared",
     group: "设定",
@@ -97,6 +99,8 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "有的设定组（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 设定组、label 显示名、kind 缺省 text（还有 number、enum、boolean、list、image、ref），可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"设定组\": [声明…]}，addComponent 写 [声明…]。",
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
         "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
+        "主文字是 Markdown 加标签：<V of=\"设定组.字段\" /> 写本条目字段的值，<V entry=\"条目 id\" of=\"设定组.字段\" /> 写别的条目的；<V expr=\"panel.魔力 >= 1000\" /> 写算出来的值（式子里的字符串用单引号，可用 round、floor、ceil、min、max、abs、percent）；<If test=\"式子\">…<ElseIf test=\"…\" />…<Else />…</If> 按条件写一段之内的文字；<Ref id=\"条目 id\" /> 写条目的名字；<Image of=\"设定组.图片字段\" alt=\"说明\" /> 或 <Image src=\"路径\" alt=\"说明\" />。要在正文里写 < 加大写字母，写成 \\<。",
+        "canon_read 读到的标签带着值：<V of=\"panel.魔力\">3110</V>，以及 label、incomplete、unavailable、value、name、path 这些属性。它们只给你看，写回时去掉：改文字照抄带值的写法就行，文字里改了值不会写进字段，改值用 set 写那个字段。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
     ].join("\n"),
     parameters: {
@@ -113,7 +117,8 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         required: ["title"],
         additionalProperties: false,
     },
-    version: "1",
+    // 2：主文字换成标签写法，交回的文字去值后写入（w00055 t02）。
+    version: "2",
     effect: "write",
     concurrency: "exclusive",
     strict: false,
@@ -408,7 +413,31 @@ function readTool(services: Services): AgentToolImplementation {
 type Edit = Record<string, unknown> & {readonly op: string};
 
 /** 模型写的一项换成内核的操作；名字、地址与引用都在这里换成 id。 */
-async function translate(context: Context, edit: Edit, index: number, keys: Map<string, string>): Promise<{readonly op: EntryOp} | {readonly problem: string}> {
+/**
+ * 一项改动换成的操作。写主文字的带着回话里要提的：交回的值与当时不同的几处（`notes`），去值以后与现在相同（`unchanged`）。
+ */
+type Translated = {readonly op: EntryOp; readonly notes?: readonly string[]; readonly unchanged?: true};
+
+/** 这一块按实际模式的带值写法与源文（agent-tools 输出 6：`replace` 在带值写法里找，交回的值按它比）。出错的块给的就是源文。 */
+async function currentBlock(context: Context, entry: string, path: string): Promise<{readonly text: string; readonly source: string} | {readonly problem: string}> {
+    const rendered = await context.call("render", {entry, position: context.position, mode: "actual", audience: "agent"});
+    if (!rendered.ok) return {problem: failureText(rendered.failure as {code: string} & Record<string, unknown>)};
+    const id = path.slice("text[".length, -1);
+    const block = ((rendered.value?.blocks ?? []) as Array<{id?: string; text?: string; error?: unknown}>).find((candidate) => candidate.id === id);
+    if (block === undefined || typeof block.text !== "string") return {problem: `这个位置上没有块 ${id}。`};
+    return {text: block.text, source: block.error === undefined ? stripAgentText(block.text) : block.text};
+}
+
+/** 整段写一块主文字：去值，按当时的带值写法比出改了的值，去值后与现在相同的标成没有改动。 */
+async function writeBlock(context: Context, entry: string, path: string, submitted: string): Promise<Translated | {readonly problem: string}> {
+    const current = await currentBlock(context, entry, path);
+    if ("problem" in current) return current;
+    const value = stripAgentText(submitted);
+    const notes = changedValueNotes(submitted, current.text);
+    return {op: {op: "set", at: {entry, path}, value, read: current.source}, ...(notes.length === 0 ? {} : {notes}), ...(value === current.source ? {unchanged: true as const} : {})};
+}
+
+async function translate(context: Context, edit: Edit, index: number, keys: Map<string, string>): Promise<Translated | {readonly problem: string}> {
     const at = (problem: string) => ({problem: `第 ${String(index + 1)} 项（${edit.op}）：${problem}`});
     if (edit.op === "create") {
         if (typeof edit.name !== "string" || typeof edit.kind !== "string") return at("create 要写 name 与 kind。");
@@ -474,7 +503,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             }
             target.fields = {...(target.fields ?? {}), [field.id]: checked.value};
         }
-        return {op: {op: "create", id: tmp, entry: {name: edit.name, kind: edit.kind, parent, ...(typeof edit.folder === "string" ? {folder: edit.folder} : {}), ...(typeof edit.summary === "string" ? {summary: edit.summary} : {}), ...(Array.isArray(edit.aliases) ? {aliases: edit.aliases as string[]} : {}), ...(components.length === 0 ? {} : {components}), ...(typeof edit.text === "string" ? {text: [edit.text]} : {})}}};
+        return {op: {op: "create", id: tmp, entry: {name: edit.name, kind: edit.kind, parent, ...(typeof edit.folder === "string" ? {folder: edit.folder} : {}), ...(typeof edit.summary === "string" ? {summary: edit.summary} : {}), ...(Array.isArray(edit.aliases) ? {aliases: edit.aliases as string[]} : {}), ...(components.length === 0 ? {} : {components}), ...(typeof edit.text === "string" ? {text: [stripAgentText(edit.text)]} : {})}}};
     }
     if (typeof edit.entry !== "string") return at("要写 entry。");
     const entry = await resolveEntry(context, edit.entry, keys);
@@ -488,7 +517,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             return {op: {op: "aliases", entry: id, ...(Array.isArray(edit.add) ? {add: edit.add as string[]} : {}), ...(Array.isArray(edit.remove) ? {remove: edit.remove as string[]} : {})}};
         case "addBlock":
             if (typeof edit.text !== "string") return at("addBlock 要写 text。");
-            return {op: {op: "addBlock", entry: id, source: edit.text, ...(typeof edit.after === "string" || edit.after === null ? {after: edit.after} : {})}};
+            return {op: {op: "addBlock", entry: id, source: stripAgentText(edit.text), ...(typeof edit.after === "string" || edit.after === null ? {after: edit.after} : {})}};
         case "removeBlock":
             if (typeof edit.block !== "string") return at("removeBlock 要写 block（块 id，canon_read 的 show: [\"text\"] 里方括号中的）。");
             return {op: {op: "removeBlock", at: {entry: id, path: `text[${edit.block}]`}}};
@@ -565,14 +594,27 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         case "removeField":
             return {op: {op: "fieldRemove", at: target}};
         case "set": {
+            if (address.path.startsWith("text[")) {
+                if (typeof edit.value !== "string") return at("主文字的块写成一段文字。");
+                const written = await writeBlock(context, id, address.path, edit.value);
+                return "problem" in written ? at(written.problem) : written;
+            }
             const declaration = address.item ?? (address.path.includes("[") ? undefined : address.field);
             const checked = await resolveValue(context, declaration, edit.value, keys);
             if ("problem" in checked) return at(checked.problem);
             return {op: {op: "set", at: target, value: checked.value}};
         }
-        case "replace":
+        case "replace": {
             if (typeof edit.find !== "string" || typeof edit.with !== "string") return at("replace 要写 find 与 with。");
-            return {op: {op: "replace", at: target, find: edit.find, with: edit.with}};
+            if (!address.path.startsWith("text[")) return {op: {op: "replace", at: target, find: edit.find, with: edit.with}};
+            // 主文字的块：在读到的带值写法里找与换，整块去值后写回（find 与 with 不单独去值：半个带值标签也能当 find）。
+            const current = await currentBlock(context, id, address.path);
+            if ("problem" in current) return at(current.problem);
+            const replaced = replaceInBlock(current.text, edit.find, edit.with);
+            if ("problem" in replaced) return at(replaced.problem);
+            const written = await writeBlock(context, id, address.path, replaced.text);
+            return "problem" in written ? at(written.problem) : written;
+        }
         case "add":
             if (typeof edit.delta !== "number") return at("add 要写 delta（数）。");
             return {op: {op: "add", at: target, delta: edit.delta}};
@@ -614,7 +656,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
  * 写入成功的回话（输出 11）。新建条目的代号到 id 取自修订的 `idMap`：临时 id 是“tmp:代号”，没写代号的是“#第几项”。
  * 重发同一次调用时没有“后面还有几条记录”（那是写入那一刻算的）。
  */
-async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number; readonly groups?: ReadonlyMap<string, readonly string[]>}): Promise<ToolResult> {
+async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number; readonly groups?: ReadonlyMap<string, readonly string[]>; readonly note?: string}): Promise<ToolResult> {
     const read = await call("revision", {id: written.revision});
     const revision = read.ok ? read.value.revision : null;
     const ids = revision?.idMap ?? {};
@@ -631,6 +673,7 @@ async function writtenReply(call: Call, written: {readonly revision: string; rea
         created.length === 0 ? "" : `新建：${created.join("；")}`,
         impact === "" ? "" : `带来的变化：\n${impact}`,
         written.laterRecords !== undefined && written.laterRecords > 0 ? `后面还有 ${String(written.laterRecords)} 条记录改过同一处，看一眼是否也要改。` : "",
+        written.note ?? "",
     ].filter((line) => line !== "").join("\n");
     return {text: clip(text, 1500, "看改动记录"), details: {revision: written.revision, version: written.version, ids: {...ids}}};
 }
@@ -662,11 +705,18 @@ function writeTool(services: Services): AgentToolImplementation {
                 if (stamp === null && !edits.every((edit) => edit.op === "create")) return failed("no-version", "要带 version（canon_read 或 canon_lookup 第一行的版本）；只建新条目时可以不给。");
                 const keys = new Map<string, string>();
                 const ops: EntryOp[] = [];
+                const notes: string[] = [];
+                let unchanged = 0;
                 for (const [index, edit] of edits.entries()) {
                     const translated = await translate(context, edit, index, keys);
                     if ("problem" in translated) return failed("bad-edit", translated.problem);
                     ops.push(translated.op);
+                    notes.push(...(translated.notes ?? []));
+                    if (translated.unchanged === true) unchanged += 1;
                 }
+                const valueNote = notes.length === 0 ? "" : `文字里的值不写入：${[...new Set(notes)].join("；")}。`;
+                // 只交回了主文字、去值以后都与现在相同：没有要写的，不发布（不留一条空的修订）。
+                if (unchanged === ops.length) return {text: ["主文字没有改动：去掉读到的值以后与现在相同，没有写入。", valueNote].filter((line) => line !== "").join("\n"), details: {unchanged: true}};
                 const input: EntryEdits = {
                     requestId,
                     by,
@@ -681,7 +731,7 @@ function writeTool(services: Services): AgentToolImplementation {
                 const written = await call("editEntries", {input});
                 if (!written.ok) return worldFailed(written.failure);
                 const groups = new Map(ops.flatMap((op) => (op.op === "create" ? [[op.id, (op.entry.components ?? []).map((component) => context.components.find((type) => type.id === component.type)?.label ?? component.type)] as const] : [])));
-                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, groups, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length})});
+                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, groups, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length}), ...(valueNote === "" ? {} : {note: valueNote})});
             }),
         }),
     };

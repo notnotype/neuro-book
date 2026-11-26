@@ -153,6 +153,7 @@
         "label": "{{label}}: {{value}}",
         "blockFailed": "This block could not be rendered: {{reason}}",
         "deletedRef": "deleted entry",
+        "needsPlugin": "needs a plugin",
         "listSeparator": ", ",
         "yes": "yes",
         "no": "no",

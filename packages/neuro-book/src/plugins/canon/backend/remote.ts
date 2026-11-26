@@ -165,7 +165,6 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 const result = service.previewEdit(input.input);
                 return result.ok ? within({route: result.route, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : editFailure(result.failure as CanonFailure);
             }),
-            writeBack: ({token, view, ...input}) => withWorld(async (service) => denied(service, view, "writeBack") ?? published(await service.writeBack(input, token))),
             revert: ({token, view, revision, withDependents, ...meta}) => withWorld(async (service) => denied(service, view, "revert") ?? published(await service.revert(revision, withDependents, meta, token))),
             openView: (input) => withWorld((service) => {
                 const opened = service.openView(input);

@@ -12,6 +12,7 @@ import type BreakExclusiveDialog from "nbook/plugins/canon/web/components/BreakE
 import type ConfirmBar from "nbook/plugins/canon/web/components/ConfirmBar.vue";
 import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
 import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
+import type {EntryTextBlock, EntryTextValue} from "nbook/plugins/canon/web/components/entry-text";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
 import type EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
@@ -2001,12 +2002,24 @@ function canonEntryPageFixtures() {
         row("character.态度", "现在的态度", "对学院长提防，对白灵信任", {mark: "第 2 章改过", notes: [{where: "第 1 章", text: "起点：谁也不信"}, {where: "第 2 章", text: "白灵替她挡了一次"}], notReduced: true}),
         row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"], elementIds: ["i1", "i2", "i3"]}),
     ];
-    const t = (value: string) => ({type: "text", value});
-    const value = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({type: "canonValue", path, entry: null, label, display, ...extra});
-    const blocks = [
-        {id: "b1", tree: {type: "root", children: [{type: "heading", depth: 1, children: [t("近况")]}, {type: "paragraph", children: [t("星瑕现在有 "), value("panel.存款", "存款", "2,400"), t(" 元，魔力 "), value("panel.魔力", "魔力", "未知", {unknown: true}), t("。")]}]}},
-        {id: "b2", tree: {type: "root", children: [{type: "paragraph", children: [t("她的另一个身份是 "), {type: "canonRef", id: "gege", name: "哥哥", deleted: false}, t("。"), {type: "strong", children: [t("没人知道。")]}]}]}},
-        {id: "b3", error: {message: "不认识的标签 <Foo>"}, text: "<Foo>坏掉的一块</Foo>"},
+    /** 一块：源文与值表；每项的起点按它的标签在源文里依次出现的位置算。 */
+    const valued = (id: string, source: string, items: ReadonlyArray<readonly [string, Record<string, unknown>]>): EntryTextBlock => {
+        let cursor = 0;
+        return {id, source, values: items.map(([tag, item]) => {
+            const start = source.indexOf(tag, cursor);
+            cursor = start + 1;
+            return {tag: tag.slice(1).split(/[\s/>]/u)[0]!, start, ...item} as unknown as EntryTextValue;
+        })};
+    };
+    const value = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({path, entry: null, label, raw: display, display, ...extra});
+    const blocks: EntryTextBlock[] = [
+        valued("b1", '# 近况\n\n星瑕现在有 <V of="panel.存款" /> 元，魔力 <V of="panel.魔力" />，<If test="panel.存款 > 1000">交得起学费<Else />学费还差一截</If>。', [
+            ['<V of="panel.存款"', value("panel.存款", "存款", "2,400")],
+            ['<V of="panel.魔力"', value("panel.魔力", "魔力", "未知", {raw: null, unknown: true})],
+            ["<If", {result: true, taken: 0}],
+        ]),
+        valued("b2", '她的另一个身份是 <Ref id="gege" />。**没人知道。**', [['<Ref id="gege"', {id: "gege", name: "哥哥", deleted: false}]]),
+        {id: "b3", error: {message: "<div> is not supported in entry text"}, text: "<div>坏掉的一块</div>"},
     ];
     const marks = {"panel.存款": "第 3 章改过"};
     const cards = [
@@ -2205,7 +2218,7 @@ function canonEntryPageFixtures() {
                     {id: "empty", label: "没有主文字：一个空的输入框", input: {props: {...base, text: "", inserts}, model: {preview: false}}},
                     {id: "no-fields", label: "条目没有字段：不出“插入”", input: {props: {...base, text: plain}, model: {preview: false}}},
                     {id: "dirty", label: "改过：已暂存", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n新加的一段。`, inserts}, model: {preview: false}}},
-                    {id: "problem", label: "写得不对：原因在输入框下面", input: {props: {...base, dirty: true, saved: "saved", text: "存款 {panel.存款 联邦币。", problem: "写得不对：Unexpected end of file in expression, expected a corresponding closing brace for `{` (1:4)", inserts}, model: {preview: false}}},
+                    {id: "problem", label: "写得不对：原因在输入框下面", input: {props: {...base, dirty: true, saved: "saved", text: "存款 <V of=\"panel.存款\" 联邦币。", problem: "写得不对：<V is not a complete tag; finish it, or write \\< to keep it as text (1:4)", inserts}, model: {preview: false}}},
                     {id: "not-saved", label: "暂存写不进去", input: {props: {...base, dirty: true, saved: "failed", text: plain, inserts}, model: {preview: false}}},
                     {id: "unsaved", label: "正在打字：还没暂存，那一行不写状态", input: {props: {...base, dirty: true, saved: "unsaved", text: plain, inserts}, model: {preview: false}}},
                     {id: "too-large", label: "内容太大，没有暂存", input: {props: {...base, dirty: true, saved: "too-large", text: plain, inserts}, model: {preview: false}}},
@@ -2217,9 +2230,9 @@ function canonEntryPageFixtures() {
                     {id: "frozen", label: "开始编辑时的那一章没了：只能看与放弃", input: {props: {...base, dirty: true, saved: "saved", frozen: true, message: "开始编辑时的那一章已经不在了：复制要留的文字，然后放弃", text: "改过的文字，还能选中复制。", inserts}, model: {preview: false}}},
                     {id: "long", label: "四十段", input: {props: {...base, text: Array.from({length: 40}, (_, index) => `第 ${String(index + 1)} 段的文字。`).join("\n\n"), inserts}, model: {preview: false}}},
                     {id: "preview", label: "预览开着：够宽时左右各半，窄处预览排在下面", input: {props: {...base, dirty: true, saved: "saved", text: `## 近况\n\n${plain}`, inserts}, model: {preview: true}}},
-                    {id: "preview-problem", label: "预览开着、写得不对：栏顶上写行与原因，栏里是上一次的样子", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n魔力 {panel.魔力`, previewNote: "第 7 行第 4 列写得不对：Unexpected end of file in expression, expected a corresponding closing brace for `{`", inserts}, model: {preview: true}}},
+                    {id: "preview-problem", label: "预览开着、写得不对：栏顶上写行与原因，栏里是上一次的样子", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n魔力 <V of="panel.魔力"`, previewNote: "第 7 行第 4 列写得不对：<V is not a complete tag; finish it, or write \\< to keep it as text", inserts}, model: {preview: true}}},
                     {id: "preview-long", label: "预览开着、四十段：预览栏自己滚", input: {props: {...base, text: Array.from({length: 40}, (_, index) => `第 ${String(index + 1)} 段的文字，写得长一点好看出两栏各自折行以后的高度差多少。`).join("\n\n"), inserts}, model: {preview: true}}},
-                    {id: "preview-english", label: "英文界面：预览开着", input: {props: {...base, dirty: true, saved: "saved", text: "## Lately\n\nXingxia rarely leaves her flat; she lives on contract work for small studios.\n\nSavings: <V of=\"panel.存款\" /> credits.", previewNote: "Line 5, column 10 is not valid: Unexpected end of file in expression", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: true}}},
+                    {id: "preview-english", label: "英文界面：预览开着", input: {props: {...base, dirty: true, saved: "saved", text: "## Lately\n\nXingxia rarely leaves her flat; she lives on contract work for small studios.\n\nSavings: <V of=\"panel.存款\" credits.", previewNote: "Line 5, column 10 is not valid: <V is not a complete tag; finish it, or write \\< to keep it as text", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: true}}},
                     {id: "dirty-english", label: "英文界面", input: {props: {...base, dirty: true, saved: "saved", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.\n\nHer silver hair is natural.", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: false}}},
                     {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, dirty: true, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: false}}},
                 ];

@@ -40,7 +40,7 @@
 ```ts
 interface InsertItem {
     label: string;
-    /** 写进源文字的写法，例如 `{panel.魔力}`；同一个菜单里不重复。 */
+    /** 写进源文字的写法，例如 `<V of="panel.魔力" />`；同一个菜单里不重复。 */
     snippet: string;
 }
 

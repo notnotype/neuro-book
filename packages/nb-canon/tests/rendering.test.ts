@@ -102,14 +102,14 @@ describe("canon.rendering 输出 1、3、18：写入时检查与规范写法", (
         ["带着装饰的 Ref", '<Ref id="e2" name="星瑾" />', "unknown-tag"],
         ["式子写错", '<V expr="panel.+" />', "forbidden-syntax"],
         ["If 没闭合", '<If test="panel.魔力 > 0">有', "cross-block"],
-        ["一块超过 1 万个字符（几万层引用这类也在这里拦下）", "> ".repeat(25_000), "block-too-large"],
+        ["嵌套深到读不出结构（几万层引用）", "> ".repeat(25_000), "unsupported-markdown"],
     ])("拒收：%s", (_name, source, code) => {
         expect(rejected(writeText(world(), [source]))).toEqual([{code, path: "init.text[b1]"}]);
     });
 
-    test("一块正好 1 万个字符照常写入，多一个字拒收", () => {
-        expect(rejected(writeText(world(), ["字".repeat(10_000)]))).toBe("ok");
-        expect(rejected(writeText(world(), ["字".repeat(10_001)]))).toEqual([{code: "block-too-large", path: "init.text[b1]"}]);
+    test("一块正好 5 万个字符照常写入，多一个字拒收", () => {
+        expect(rejected(writeText(world(), ["字".repeat(50_000)]))).toBe("ok");
+        expect(rejected(writeText(world(), ["字".repeat(50_001)]))).toEqual([{code: "block-too-large", path: "init.text[b1]"}]);
     });
 
     test("变更里的整段替换也过检查", () => {
@@ -311,9 +311,11 @@ describe("canon.rendering 输出 16：按给的源文字渲染", () => {
         expect(analyzeDraft(BLOCK)).toBe(analyzeBlock(BLOCK));
     });
 
-    test("超过一块的长度上限的源文字（几万层引用这类）：照出错的块给，不抛", () => {
+    test("嵌套深到读不出结构的源文字（几万层引用）：照出错的块给，不抛；超过一块的长度上限照常渲染（上限只管写入）", () => {
         const deep = "> ".repeat(25_000);
-        expect(sourceBlock(world(), deep, "ch5").blocks).toEqual([{id: "source", error: expect.objectContaining({code: "block-too-large", line: 1}), text: deep}]);
+        expect(sourceBlock(world(), deep, "ch5").blocks).toEqual([{id: "source", error: expect.objectContaining({code: "unsupported-markdown", line: 1}), text: deep}]);
+        const long = `${"字".repeat(52_000)}<V of="panel.魔力" />`;
+        expect(sourceBlock(world(), long, "ch5").blocks[0]).toMatchObject({id: "source", values: [{tag: "V", raw: 3110}]});
     });
 });
 

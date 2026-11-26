@@ -294,6 +294,60 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
+    it("写主文字（agent-tools 输出 6）：读到带值写法；交回的整块去值再写，文字里改了的值不写进字段、回话提示改值用 set；去值以后没有改动就不发布", async () => {
+        const {author, run, close} = await scene();
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物"], fields: {"人物.性格": "冷静"}, text: '性格 <V of="character.性格">"抄来的值"</V>。'}]});
+        expect(created.status).not.toBe("error");
+        const xia = (created.details as {ids: Record<string, string>}).ids["tmp:xia"]!;
+        const sources = async () => {
+            const blocks = await author.canon.call("textBlocks", {id: xia});
+            return blocks.ok ? blocks.value?.blocks.map((block) => block.source) : null;
+        };
+        expect(await sources()).toEqual(['性格 <V of="character.性格" />。']);
+
+        const read = await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]});
+        expect(read.text).toContain('[b1] 性格 <V of="character.性格">"冷静"</V>。');
+
+        const set = await run(AGENT_TOOL_IDS.write, {title: "改文字", version: versionIn(read), edits: [{op: "set", entry: xia, field: "text[b1]", value: '她的性格 <V of="character.性格">"热情"</V>。'}]});
+        expect(set.status).not.toBe("error");
+        expect(set.text).toContain('文字里的值不写入：character.性格 现在是 "冷静"，改值用 set。');
+        expect(await sources()).toEqual(['她的性格 <V of="character.性格" />。']);
+        const fields = await run(AGENT_TOOL_IDS.read, {entry: xia, field: "人物.性格"});
+        expect(fields.text).toContain("冷静");
+
+        const again = await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]});
+        const unchanged = await run(AGENT_TOOL_IDS.write, {title: "原样交回", version: versionIn(again), edits: [{op: "set", entry: xia, field: "text[b1]", value: '她的性格 <V of="character.性格">"冷静"</V>。'}]});
+        expect([unchanged.status, unchanged.text]).toEqual([undefined, "主文字没有改动：去掉读到的值以后与现在相同，没有写入。"]);
+        expect(versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]}))).toBe(versionIn(again));
+        await close();
+    }, 60_000);
+
+    it("写主文字：replace 在这一块按实际模式的带值写法里找（整个带值的 V、半个标签都行），整块去值再写；找不到而 find 带着值时请它重读", async () => {
+        const {author, run, close} = await scene();
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物"], fields: {"人物.性格": "冷静"}, text: '性格 <V of="character.性格" />，住在学院。'}]});
+        const xia = (created.details as {ids: Record<string, string>}).ids["tmp:xia"]!;
+        const sources = async () => {
+            const blocks = await author.canon.call("textBlocks", {id: xia});
+            return blocks.ok ? blocks.value?.blocks.map((block) => block.source) : null;
+        };
+        let version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]}));
+        const whole = await run(AGENT_TOOL_IDS.write, {title: "换值的位置", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: '性格 <V of="character.性格">"冷静"</V>，', with: '<V of="character.性格">"冷静"</V>的性子，'}]});
+        expect(whole.status).not.toBe("error");
+        expect(await sources()).toEqual(['<V of="character.性格" />的性子，住在学院。']);
+
+        version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]}));
+        const half = await run(AGENT_TOOL_IDS.write, {title: "改半句", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: '"</V>的性子', with: '"</V>的脾气'}]});
+        expect(half.status).not.toBe("error");
+        expect(await sources()).toEqual(['<V of="character.性格" />的脾气，住在学院。']);
+
+        version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]}));
+        const stale = await run(AGENT_TOOL_IDS.write, {title: "抄错了值", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: '<V of="character.性格">"热情"</V>', with: "热情"}]});
+        expect([stale.status, stale.text]).toEqual(["error", '第 1 项（replace）：这一块里找不到 find：find 里带着读到的值，值可能变了或是按计划模式读的。按实际模式重读这一块再抄。']);
+        const missing = await run(AGENT_TOOL_IDS.write, {title: "找不到", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: "宿舍", with: "家"}]});
+        expect(missing.text).toBe("第 1 项（replace）：这一块里找不到 find，原样抄读到的文字。");
+        await close();
+    }, 60_000);
+
     it("读过之后作者改了：带旧版本的写入被拒，回话写明之间的修订，请它重读", async () => {
         const {author, run, close} = await scene();
         await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", name: "星瑕", kind: "人物", components: ["人物"]}]});

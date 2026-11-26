@@ -870,7 +870,7 @@ describe("写入", () => {
         expect([area(wrapper).value, wrapper.find("[data-text-cancel]").exists(), wrapper.find("[data-text-dirty]").exists(), page.uncommitted!(id)]).toEqual(["", true, false, false]);
         expect(wrapper.find("[data-view-point-locked]").exists()).toBe(true);
 
-        const whole = "星瑕是第三魔法学院的学生。\n\n她有 {panel.存款} 元。";
+        const whole = `星瑕是第三魔法学院的学生。\n\n她有 <V of="panel.存款" /> 元。`;
         typeInto(area(wrapper), whole);
         await waitUntil("有未提交的修改", () => wrapper.find("[data-text-dirty]").exists() && wrapper.get("[data-text-dirty]").text() === "有未提交的修改");
         expect(page.uncommitted!(id)).toBe(true);
@@ -890,7 +890,7 @@ describe("写入", () => {
         // 标签的保存命令（Ctrl+S）调页面的 commit：同样提交。
         await startEditing(wrapper);
         expect(area(wrapper).value).toBe(whole);
-        const longer = "星瑕是第三魔法学院的学生。\n\n她有 {panel.存款} 元，都存在学院的柜子里。";
+        const longer = `星瑕是第三魔法学院的学生。\n\n她有 <V of="panel.存款" /> 元，都存在学院的柜子里。`;
         typeInto(area(wrapper), longer);
         await waitUntil("有改动", () => page.uncommitted!(id));
         await page.commit!(id);
@@ -929,20 +929,20 @@ describe("写入", () => {
         // 预览里的值只是文字；页面放宽成两栏的宽度；预览不算阅读视图。
         expect([pane().findAll("button").length, wrapper.get("[data-entry-page]").attributes("data-wide"), wrapper.find("[data-entry-text]").exists()]).toEqual([0, "", false]);
 
-        typeInto(area(wrapper), "她有 {panel.存款} 元，都存着。");
+        typeInto(area(wrapper), `她有 <V of="panel.存款" /> 元，都存着。`);
         await waitUntil("预览跟着打的字变", () => pane().text().includes("她有 1,000 元，都存着。"));
         await editElsewhere(other.canon, [{op: "set", at: {entry: id, path: "panel.存款"}, value: 250}]);
         await waitUntil("别处改了值，预览跟着变", () => pane().text().includes("她有 250 元，都存着。"));
 
-        typeInto(area(wrapper), "她有 {panel.存款 元");
+        typeInto(area(wrapper), '她有 <V of="panel.存款" 元');
         await waitUntil("写得不对", () => wrapper.find("[data-text-preview-note]").exists());
         expect([wrapper.get("[data-text-preview-note]").text().startsWith("第 1 行第 "), pane().text().includes("她有 250 元，都存着。"), wrapper.find("[data-text-problem]").exists()]).toEqual([true, true, false]);
-        typeInto(area(wrapper), "她有 {panel.存款} 元。");
+        typeInto(area(wrapper), `她有 <V of="panel.存款" /> 元。`);
         await waitUntil("改对了", () => !wrapper.find("[data-text-preview-note]").exists() && pane().text().includes("她有 250 元。"));
 
         await wrapper.get("[data-text-preview-toggle]").trigger("click");
         await waitUntil("预览栏收起", () => !pane().exists());
-        expect([state.preview, wrapper.get("[data-entry-page]").attributes("data-wide"), area(wrapper).value]).toEqual([false, undefined, "她有 {panel.存款} 元。"]);
+        expect([state.preview, wrapper.get("[data-entry-page]").attributes("data-wide"), area(wrapper).value]).toEqual([false, undefined, `她有 <V of="panel.存款" /> 元。`]);
     });
 
     it("别处也改了主文字：提交时出一条对照，选“我的”以后以我的为准、选“现在的”放弃我的；别处改的是这个条目的字段或别的条目时不问，直接发布（验收 16）", async () => {
@@ -1086,7 +1086,7 @@ describe("写入", () => {
     it("有稿时这一页停在稿开始的位置、按实际读：位置与“按计划”换了也不换读取；稿开始的那一章没了：输入框只读地显示稿里的整篇，只能放弃，放弃以后才跟到现在的位置", async () => {
         const {other, open, page} = await setup();
         const star = person("星瑕");
-        star.init.text = [{id: "b1", source: "她有 {panel.存款} 元。"}, {id: "b2", source: "第二块。"}];
+        star.init.text = [{id: "b1", source: `她有 <V of="panel.存款" /> 元。`}, {id: "b2", source: "第二块。"}];
         const id = (await publish(other.canon, [star]))[star.id]!;
         await publish(other.canon, [change(id, "1", "领了工资", 200), change(id, "2", "买了书", -300)]);
         const {wrapper, state} = await open(id);
@@ -1094,8 +1094,8 @@ describe("写入", () => {
         state.position = "1:end";
         await waitUntil("第 1 章末尾的值", () => wrapper.find("[data-value]").exists() && valueText(wrapper) === "1,200");
         await startEditing(wrapper);
-        expect(area(wrapper).value).toBe("她有 {panel.存款} 元。\n\n第二块。");
-        const edited = "她有 {panel.存款} 元。\n\n改过的第二块。";
+        expect(area(wrapper).value).toBe(`她有 <V of="panel.存款" /> 元。\n\n第二块。`);
+        const edited = `她有 <V of="panel.存款" /> 元。\n\n改过的第二块。`;
         typeInto(area(wrapper), edited);
         await waitUntil("有改动", () => page.uncommitted!(id));
 
@@ -1156,7 +1156,7 @@ describe("写入", () => {
         expect([await initText(other.canon, id), page.uncommitted!(id)]).toEqual([["第一块（改）。"], true]);
     });
 
-    it("“插入”：条目启用了有字段的设定组时，选一个字段，输入框里光标处多出 {命名空间.字段}，焦点回到输入框", async () => {
+    it(`“插入”：条目启用了有字段的设定组时，选一个字段，输入框里光标处多出 <V of="命名空间.字段" />，焦点回到输入框`, async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         star.init.text = [{id: "b1", source: "她有钱。"}];
@@ -1177,7 +1177,7 @@ describe("写入", () => {
         const item = [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")].find((candidate) => candidate.textContent?.trim().endsWith("存款"));
         expect(item?.textContent?.trim()).toBe("面板 · 存款");
         item!.click();
-        await waitUntil("写进输入框", () => input.value === "她有{panel.存款}钱。");
+        await waitUntil("写进输入框", () => input.value === '她有<V of="panel.存款" />钱。');
         expect(document.activeElement).toBe(input);
         await waitUntil("算作有改动", () => wrapper.find("[data-text-dirty]").exists());
     });
