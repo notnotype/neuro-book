@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>《执笔者之书》：分场脚本（第 1 轮）</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; --stage: #140e13; --gold: #e1b285; --parchment: #f1e6cf; --ink: #2e211b; --crimson: #871222; --now: #1f7a4d; --todo: #a15c07; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+h3 { margin: 20px 0 8px; font-size: 16px; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; width: 7em; }
+.scene { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); }
+.no { grid-column: 1 / -1; margin: 0 0 -8px; font-size: 13px; color: var(--muted); letter-spacing: .03em; }
+.copies { display: grid; gap: 10px; align-content: start; }
+.copy { padding: 22px 20px; border-radius: 8px; }
+.copy.stage { background: radial-gradient(120% 90% at 50% 0%, #2a1c24 0%, var(--stage) 70%); color: #f7f2ec; }
+.copy.page { background: var(--parchment); color: var(--ink); box-shadow: inset 0 0 0 1px #e2d3b2; }
+.copy .latin { margin: 0 0 6px; font-family: "Cormorant Garamond", "Fraunces", "Times New Roman", serif; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.copy.page .latin { color: #8a5f24; }
+.copy .head { margin: 0; font-family: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif; font-size: 22px; line-height: 1.5; font-weight: 600; }
+.copy.stage .head { color: #f3dfc0; }
+.copy.page .head { font-family: "LXGW WenKai", "Kaiti SC", "STKaiti", "AR PL UKai CN", "Noto Serif CJK SC", serif; }
+.copy .sub { margin: 10px 0 0; font-size: 14px; }
+.copy.stage .sub { color: #cdbfae; }
+.copy.page .sub { color: #5e4a3a; }
+.copy .seal { display: inline-block; margin-top: 12px; padding: 2px 10px; border-radius: 999px; background: var(--crimson); color: #f7e3c4; font-size: 12px; letter-spacing: .1em; }
+.notes4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.notes4 p { margin: 0; padding: 8px 10px; border-left: 1px solid var(--gold); font-size: 13.5px; color: #e8dccb; }
+.notes4 b { color: var(--gold); font-weight: 600; margin-right: 4px; }
+dl { margin: 0; display: grid; align-content: start; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px 10px; font-size: 14.5px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 20px; }
+.tag.now { background: #e3f1e8; color: var(--now); }
+.tag.todo { background: #fbeedb; color: var(--todo); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+.cand .copy { padding: 18px 14px; }
+.cand .copy .head { font-size: 19px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+@media (max-width: 720px) { .scene, .cands, .notes4 { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+<h1>《执笔者之书》：分场脚本（第 1 轮）</h1>
+
+<section data-nbdev-question="script" data-nbdev-type="single" data-nbdev-options="storyboard:照这版出分镜|revise:改过再看一轮|drop:这个方向不往下做" data-nbdev-recommend="storyboard">
+  <h2>这版脚本往下做吗？</h2>
+  <p class="rec"><strong>推荐照这版出分镜，并先把第 1、2 场（封面与启封）做成原型：整页的高级感全系在这本书的做工上，先亲眼看到它。</strong></p>
+
+  <table>
+    <tbody>
+      <tr><th>梗概</th><td>一本写给执笔者的书。翻开封面，你写下第一行；书里的世界记得每一章，预言等着应验，守书人替你看着书页；再看看这本书是由什么做成的。读到最后一页，书合上，桌上多了一本空白的书，等你来写。</td></tr>
+      <tr><th>美术</th><td>史诗、神圣、西幻。深色的舞台，一束光；赤红皮面、鎏金、黄铜书扣；羊皮纸、泥金首字；英文用古典花体，中文用楷体，卷名配拉丁文。不用现成的 NovelAI 场景图：书、金饰、卷轴、器物图都用代码与矢量画，星璃的肖像另画一张。</td></tr>
+      <tr><th>招牌动作</th><td>一本书贯穿全页：书立在舞台中央，滚动就是翻页（真 3D 拱起翻折，跟手，往回滚就翻回去）。</td></tr>
+      <tr><th>每场的一下</th><td>首字贴金、旧字被划去改写、卷轴被火漆拦住、肖像从纸里显出、新页缝进书脊、空白的书从光里出现：每场只有一个自己的动作，翻页的手感全页一样。</td></tr>
+      <tr><th>星璃</th><td>第 6 场出现一次，是守书人：肖像、誓言、一问一答。</td></tr>
+      <tr><th>小猫</th><td>封面中央的金色浮雕；最后从空白的新书后面探出头。</td></tr>
+      <tr><th>现状与愿景</th><td>只有第 5 场“预言之卷”在做，用一枚“尚未启封”的火漆封着，页面上一眼看得出。</td></tr>
+      <tr><th>示例小说</th><td>全页用同一部《灰塔制图师》：灰塔的制图学徒艾莉丝、一把没有齿的银钥匙、灰塔下盲眼的守门人、一句“当钥匙找到它的门，灰塔将重新点灯”的预言。</td></tr>
+      <tr><th>和上一轮的分别</th><td>不列痛点，不做对比表，不用旧首页的例子；不是一节一张功能卡，而是一本书从封面翻到跋；平台的四项合成一幅“纸、墨、线、匣”的器物图。</td></tr>
+      <tr><th>和契约仪式的分别</th><td>借它的气氛与做工（皮面、鎏金、羊皮纸、花体、3D 翻页的手感），不借它的书：封面是 NeuroBook 与品牌的书后小猫，没有《万界真典》、宝石槽与契约。</td></tr>
+      <tr><th>篇幅</th><td>约 12 屏。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>分场</h3>
+
+  <div class="scene">
+    <p class="no">第 1 场 · 封面 · 1 屏</p>
+    <div class="copies"><div class="copy stage"><p class="latin">Liber Scriptoris</p><p class="head">每一个世界，都从一行字开始。</p><p class="sub">NeuroBook：本地的长篇写作工作区。你执笔，它替你记住整个世界。</p></div></div>
+    <dl>
+      <dt>画面</dt><dd>深色的舞台，像夜里的书房，只有一束光落在中央。光里立着一本合着的大书：赤红皮面，书名 NeuroBook 烫金，下面一行小字 LIBER SCRIPTORIS（执笔者之书）；封面中央是品牌的书后小猫，做成金色浮雕，头顶的光环是一道真的金环；底边一行拉丁箴言 EX VERBIS, MUNDI（以言成界）；两道黄铜书扣扣着，书口鎏金。标题与按钮“下载桌面版”在书下方。</dd>
+      <dt>动</dt><dd>载入时那束光从上往下慢慢亮起，光环上流过一道光；书扣上的星徽缓缓呼吸；鼠标移动时，皮面与鎏金跟着光微微反光。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>品牌标识（书后小猫与光环）；产品一句话。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 2 场 · 启封 · 1 屏 · 钉住</p>
+    <div class="copies"><div class="copy page"><p class="latin">Dedicatio</p><p class="head">献给每一位执笔者。</p></div></div>
+    <dl>
+      <dt>画面</dt><dd>书扣一道道弹开，封面以书脊为轴翻开，书移到舞台正中；扉页是一张羊皮纸，献词用花体写出，下面压着一枚小小的金色小猫印记。</dd>
+      <dt>动</dt><dd>跟手：弹扣、翻封（书脊处有阴影）、献词一笔一画写出；往回滚，书就合上。</dd>
+      <dt>依据</dt><dd>过场。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 3 场 · 落笔 · 1.5 屏</p>
+    <div class="copies"><div class="copy page"><p class="latin">I · Scriptura</p><p class="head">落笔的地方。</p><p class="sub">中文排得讲究，页边留得下批注；稿子是 Markdown，哪里都打得开。</p></div></div>
+    <dl>
+      <dt>画面</dt><dd>左页一个泥金装饰的“霜”字作首字，金叶与藤蔓绕着它。右页贴着一张产品编辑器的真截图，像书里的插页，四角用金色相角固定；截图里是《灰塔制图师》第一章：“霜港的钟敲到第七下时，艾莉丝把那把没有齿的银钥匙藏进了袖口。”页边有一张批注卡片。</dd>
+      <dt>动</dt><dd>翻到这一页；翻定后，首字的金叶一片片亮起，批注用手写体浮现。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Markdown 编辑器、中文排版、批注、插图、属性面板。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 4 场 · 世界之卷 · 2 屏 · 钉住</p>
+    <div class="copies"><div class="copy page"><p class="latin">II · Mundus</p><p class="head">世界记得每一章。</p><p class="sub">人物、地点、物品、规矩，各有一页设定，随章节改写；每一笔从哪一章来，都查得到。</p></div></div>
+    <dl>
+      <dt>画面</dt><dd>左页是艾莉丝的设定页，像羊皮纸上的人物小传：“身份：灰塔的制图学徒”，页边一行小字“第 4 章”。右页是一条章节刻度，像垂下的书签流苏。</dd>
+      <dt>动</dt><dd>钉住。滚动时刻度走到第 27 章，“制图学徒”被一道细墨线划去，旁边用花体写上“王室制图师”；走到第 61 章，又改成“流放者”。划去的旧字淡淡留在纸上，像一页重写本。点“流放者”，一道金线连到第 61 章里定下它的那句话。往回滚，字迹一层层退回。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>世界引擎的设定、按章节的状态、来历与还原。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 5 场 · 预言之卷 · 1.5 屏</p>
+    <div class="copies"><div class="copy page"><p class="latin">III · Prophetia</p><p class="head">每一句预言，终将应验。</p><p class="sub">伏笔、谁知道什么、人物各自想要什么，都会记在这一卷：埋下、推进、应验。</p><span class="seal">尚未启封</span></div></div>
+    <dl>
+      <dt>画面</dt><dd>一卷羊皮纸卷轴从书页间升起，写着第 4 章那句预言：“当钥匙找到它的门，灰塔将重新点灯。”下面列着听过这句话的人（艾莉丝、盲眼的守门人），最后一行空着：“应验于第 __ 章”。卷轴被一枚赤红火漆封着，火漆上印着“尚未启封”。</dd>
+      <dt>动</dt><dd>卷轴随滚动展开到一半，被火漆拦住；鼠标停在火漆上时，它微微发亮，旁边浮出一行小字：“这一卷还在写。”</dd>
+      <dt>依据</dt><dd><span class="tag todo">在做</span>剧情插件的内核已有，伏笔、谁知道什么、人物目标的作者界面在做。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 6 场 · 守书人 · 2 屏</p>
+    <div class="copies"><div class="copy page"><p class="latin">IV · Custos</p><p class="head">守书的人。</p><p class="sub">星璃替你翻稿、查资料、陪你推敲；要动你的稿子，她每一次都先问你。</p></div></div>
+    <dl>
+      <dt>画面</dt><dd>左页是星璃的肖像插页：椭圆金框里的半身像，下面是她的花体署名 Astria Lyra。右页正中写着她的誓言：“护火种，不擅代笔。”下面是一问一答。执笔者：“那把银钥匙，是谁给她的？”星璃：“是第 4 章灰塔下那位盲眼的守门人哦。他还说过一句‘门只认得心意’——Master，是打算在这里收线吗？”</dd>
+      <dt>动</dt><dd>金框先描出，肖像再从纸里显出来；誓言一笔一画写出；问答一来一回浮现。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>星璃是常驻的搭档（书房里点案头的看板娘就能和她说话），工具与模式同主创：翻稿、网页搜索、子代理、讨论与计划模式；改稿默认每次询问。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 7 场 · 纸、墨、线、匣 · 2 屏 · 钉住</p>
+    <div class="copies"><div class="copy stage"><p class="latin">Materia Libri</p><p class="head">一本书，由纸、墨、线与匣做成。</p>
+      <div class="notes4">
+        <p><b>纸</b>纸是你的：作品是你电脑里的一个文件夹；NeuroBook 本身开源。</p>
+        <p><b>墨</b>墨由你调：接你自己的模型服务商，四档角色各配一个，用量与花费都看得见。</p>
+        <p><b>线</b>线可以续：插件能给这本书加页，视图、命令、菜单与设置都对插件开放。</p>
+        <p><b>匣</b>匣随身带：Windows 与 macOS 都能装，自带运行环境，新版本会提示你更新。</p>
+      </div></div></div>
+    <dl>
+      <dt>画面</dt><dd>书合上、侧转，变成一幅版画般的器物图：一叠纸、一只墨水瓶、书脊的装订线、一只皮质书匣，四处各引出一条细线接着注释，像古籍里的器物图。</dd>
+      <dt>动</dt><dd>钉住；四条注释依次画出引线、写出字。到“线”那一条，一页新纸从画面外滑进来，被金线缝进书脊。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>本地文件与 AGPL 开源；服务商模板、模型角色（轻量、快速、主力、深度）、会话的用量与费用；插件平台与 SDK；Windows 与 macOS 桌面版。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 8 场 · 跋 · 1.5 屏</p>
+    <div class="copies">
+      <div class="copy page"><p class="latin">Explicit</p><p class="head">全书至此。</p></div>
+      <div class="copy stage"><p class="head">你的书，从这里开始。</p><p class="sub">下载桌面版就能写：Windows · macOS（Apple 芯片，预览）。0.17 预览版。</p></div>
+    </div>
+    <dl>
+      <dt>画面</dt><dd>跋页一行花体 Explicit。书合上，书扣扣好，退到舞台一侧；中央的光里浮现一本素白的新书，封面只有一块空着的书名签；品牌的小猫从这本新书后面探出头。按钮下面一行“也可以用 Bun 安装：bun add -g @notnotype/neuro-book”，再下面是 GitHub、Discord、QQ 群与许可证。</dd>
+      <dt>动</dt><dd>合书（跟手）；新书从光里显形；小猫探头，鼠标移到下载按钮上时，它竖起耳朵。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Windows 安装版与便携版、macOS 预览版、npm 安装。</dd>
+    </dl>
+  </div>
+
+  <h3>风险与素材</h3>
+  <table>
+    <tbody>
+      <tr><th>做工</th><td>高级感全系在书的做工：皮面与鎏金的光、3D 翻页的手感、花体一笔一画的节奏。做不到位就像游戏菜单。w00050 t06 草稿里已经调顺的 3D 翻页可以借做法，不借画面。</td></tr>
+      <tr><th>滚动</th><td>整页钉在一本书上翻，容易像在劫持滚动：翻页之间留自由滚动的余量，书签流苏当目录、随时能跳卷；减弱动效时直接平铺成一页页的普通长页。</td></tr>
+      <tr><th>手机</th><td>双页摊不开，改成单页，一页一页翻。</td></tr>
+      <tr><th>字体</th><td>英文花体与中文楷体都用开源字体，只打包用到的字。</td></tr>
+      <tr><th>素材</th><td>书（CSS 3D，封面光泽可用着色器）、鎏金与黄铜、泥金首字、重写本的字迹（花体 SVG 路径）、预言卷轴与火漆、器物图（版画风矢量）、星璃肖像（新画）、产品编辑器的真截图、品牌小猫的浮雕版与现成的心情组件。</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section data-nbdev-question="first-line" data-nbdev-type="single" data-nbdev-recommend="d1">
+  <h2>首屏第一句用哪一句？</h2>
+  <p class="rec"><strong>推荐 d1：第一次来的人一读就懂，又是“以言成界”的白话说法；“以言成界”留作封面上的箴言。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="d1" data-nbdev-label="d1 每一个世界，都从一行字开始。">
+      <h3>d1</h3>
+      <div class="copy stage"><p class="head">每一个世界，都从一行字开始。</p></div>
+    </div>
+    <div class="cand" data-nbdev-option="d2" data-nbdev-label="d2 以言成界。">
+      <h3>d2</h3>
+      <div class="copy stage"><p class="head">以言成界。</p></div>
+      <p>最有史诗感，但第一次来的人要想一下。</p>
+    </div>
+    <div class="cand" data-nbdev-option="d3" data-nbdev-label="d3 这本书，等你来写。">
+      <h3>d3</h3>
+      <div class="copy stage"><p class="head">这本书，等你来写。</p></div>
+      <p>和结尾呼应，但没说产品是什么。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="lyra-portrait" data-nbdev-type="single" data-nbdev-recommend="new">
+  <h2>第 6 场的星璃用什么画？</h2>
+  <p class="rec"><strong>推荐 A 另画一张肖像插页：守书人这一场要有她的脸；契约仪式也要新画立绘，可以一起出。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="new" data-nbdev-label="A 另画一张肖像插页">
+      <h3>A 另画一张肖像插页</h3>
+      <div class="copy page"><p class="sub">椭圆金框里的半身像，画风贴近版画或油画，和书页一个质感。</p></div>
+    </div>
+    <div class="cand" data-nbdev-option="silhouette" data-nbdev-label="B 金线勾的剪影">
+      <h3>B 金线勾的剪影</h3>
+      <div class="copy page"><p class="sub">只用金线勾出猫耳、光环与斗篷的轮廓，不画脸。</p></div>
+      <p>不用等画，但守书人没有脸。</p>
+    </div>
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="C 不出肖像，只留誓言与署名">
+      <h3>C 不出肖像</h3>
+      <div class="copy page"><p class="sub">左页只写誓言，右页是署名与问答。</p></div>
+      <p>最省事，但这一场会显得空。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="notes" data-nbdev-type="text">
+  <h2>哪一场要改，怎么改？</h2>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>重写的是文档站首页 blog.notnotype.com/neuro-book/official/（t01 第 1 条）</li>
+    <li>要高级感；整页讲一个故事，用滚动叙事（t01 第 3 条）</li>
+    <li>上一轮三个方案都不用：像在照着旧首页再做；例子要换，不用断臂的例子（2026-11-26）</li>
+    <li>基调取 w00050 t06 契约仪式页的史诗、神圣、西幻气氛，尤其是书的设计，不复制（2026-11-26）</li>
+    <li>现有的 NovelAI 场景图不直接拿来用（2026-11-26）</li>
+    <li>要讲的功能：写作与编辑器、世界引擎、剧情（在做）、星璃与 Agent、本地与开源、插件与 SDK、桌面版、模型自选；llmlint 已退役，不列（2026-11-26）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,117 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t05-writers-codex",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "《执笔者之书》：分场脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "1bdff47cb8f463d89c481e6a167550b96ec0b0464bc85396f4a90181996a87d2",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "storyboard",
+                    "label": "照这版出分镜"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方向不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "storyboard"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "d1",
+                    "label": "d1 每一个世界，都从一行字开始。"
+                },
+                {
+                    "value": "d2",
+                    "label": "d2 以言成界。"
+                },
+                {
+                    "value": "d3",
+                    "label": "d3 这本书，等你来写。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "d1"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "lyra-portrait",
+            "type": "single",
+            "label": "第 6 场的星璃用什么画？",
+            "options": [
+                {
+                    "value": "new",
+                    "label": "A 另画一张肖像插页"
+                },
+                {
+                    "value": "silhouette",
+                    "label": "B 金线勾的剪影"
+                },
+                {
+                    "value": "none",
+                    "label": "C 不出肖像，只留誓言与署名"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "new"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一场要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T06:17:27.930Z"
+}
