@@ -70,7 +70,7 @@ owners:
 3. **授权请求。** 请求必须带已登记且没停用的客户端、与某个登记值相等的回调地址（逐字相等；公开客户端的 `http` 回环地址不比端口，主机不分大小写、路径仍逐字比，`localhost` 与 `127.0.0.1` 不算相等）、`response_type=code`、`S256` 的 PKCE（机密客户端也要）、含 `openid` 且在允许之内的范围；可带 `state`、`nonce`、`prompt`、`max_age`、`response_mode=query`；`claims`、`resource` 与本条没列的参数被忽略，带不带结果相同（`resource` 不改变发出的访问令牌）。POST 发起时参数在 `application/x-www-form-urlencoded` 的请求体里，规则与 GET 相同；客户端从别的站点以 POST 发起时浏览器不带站点的会话 Cookie，按没有会话处理（输出 4）。客户端没登记或已停用、回调地址与登记的不等时不跳回客户端，浏览器被带到 `/oauth/consent?error=<码>`，码分别是 `client_not_found`、`redirect_uri_invalid`。其它不合格的跳回客户端并带标准的错误码：不带 `openid` 是 `invalid_scope`，带 `request` 或 `request_uri` 分别是 `request_not_supported`、`request_uri_not_supported`，`response_mode` 不是 `query` 是 `invalid_request`，查询串（POST 时是请求体）超过 4096 个字符是 `invalid_request`，原样与按标准编码重写后的长度各算一次。POST 的请求体超过 16 KiB 时读不到客户端与回调地址，回 400 `invalid_request`（JSON），不跳转。
 4. **先登录。** 资源所有者没有会话（或输出 13 要求重新登录）时，授权端点把人带到 `/login?continue=<续接令牌>`。登录请求带上这个令牌、且它合格时，登录响应给出一个站内的继续地址，浏览器去那里就回到这次授权请求，请求的参数不变（`prompt=login` 与 `max_age` 已由这次登录满足，不再要求登录）。输出 3 收下的授权请求，参数再长，续接令牌也不因长度不合格。令牌被篡改或超过 10 分钟时照常登录，响应不带继续地址。从这样的登录页改走注册或社交登录时续接不丢，见 [`site.accounts`](accounts.md) 输出 4、11、23。
 5. **确认。** 客户端不免确认、且这个用户没有对它给过覆盖本次范围的授权时（或请求带 `prompt=consent` 时），授权端点把人带到 `/oauth/consent?request=<标识>`；同意后带授权码跳回客户端，拒绝时带 `access_denied` 跳回。跳回的地址里带 `state`（原样）与 `iss`。同意过的范围之外多要了范围时重新确认。
-6. **换令牌。** 机密客户端用 `client_secret_basic` 认证，公开客户端不带密钥、在请求里带 `client_id`；都要带与授权请求对应的 PKCE 校验值。成功时回一个不透明的访问令牌（`token_type` 为 `Bearer`）、它的有效期（1 小时）与 id_token（输出 11）。授权码 10 分钟内有效，只能换一次；重复使用、过期、PKCE 不对都回 `invalid_grant`。请求带 `DPoP` 头时回 `invalid_request`，不发令牌。请求里的 `resource` 参数被忽略。
+6. **换令牌。** 机密客户端用 `client_secret_basic` 认证，公开客户端不带密钥、在请求里带 `client_id`；都要带与授权请求对应的 PKCE 校验值。成功时回一个不透明的访问令牌（`token_type` 为 `Bearer`）、它的有效期（1 小时）与 id_token（输出 11）。授权码 10 分钟内有效，只能换一次；重复使用、过期、PKCE 校验值不对都回 `invalid_grant`，不带校验值回 `invalid_request`；校验值不对或不带时码不被用掉，之后带对的照常换出。请求带 `DPoP` 头时回 `invalid_request`，不发令牌。请求里的 `resource` 参数被忽略。
 7. **用户信息。** 带有效访问令牌（GET 或 POST，`Authorization: Bearer`）调用户信息端点，回 `sub`（账号的数字 id 的字符串形式）；有 `profile` 范围时另有 `preferred_username`（登录用的小写用户名）与 `name`（显示名）；有 `email` 范围时另有 `email_pending`（邮箱是否待补），它为 `false` 时另有 `email` 与 `email_verified`（站点不验证邮箱，恒为 `false`，用社交登录或关联过上游身份也不变），为 `true` 时不出现这两项。不出现别的字段（账号设了头像也不出现 `picture`）。
 8. **令牌随账号失效。** 下面任一件事之后，此前发出的、受它影响的访问令牌调用户信息端点得 401，没用掉的授权码换不出令牌（`invalid_grant`）：
    - 账号被封禁、角色被改、密码被重置、管理员结束了它的全部会话：这个账号名下的全部；
@@ -111,7 +111,7 @@ owners:
 
 ## 失败与恢复
 
-标准端点用 OAuth 与 OpenID Connect 规定的错误码：`invalid_request`、`invalid_client`、`invalid_grant`、`access_denied`、`unsupported_grant_type`、`unsupported_response_type`、`invalid_scope`、`login_required`、`consent_required`、`interaction_required`、`request_not_supported`、`request_uri_not_supported`。用户信息端点按 RFC 6750 回 401 与 `WWW-Authenticate`：不带令牌是 `invalid_request`，令牌无效、过期或被撤销是 `invalid_token`。
+标准端点用 OAuth 与 OpenID Connect 规定的错误码：`invalid_request`、`invalid_client`、`invalid_grant`、`access_denied`、`unsupported_grant_type`、`unsupported_response_type`、`invalid_scope`、`login_required`、`consent_required`、`interaction_required`、`request_not_supported`、`request_uri_not_supported`。用户信息端点按 RFC 6750 回 401 与只含 `Bearer` 质询的 `WWW-Authenticate`：不带令牌时响应体是 `invalid_request`、质询里不带错误码，令牌无效、过期或被撤销时质询与响应体都是 `invalid_token`。
 
 自家接口与站点错误页的码：
 
