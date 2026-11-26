@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.oauth-provider
 owners:
   - nb-site-identity
@@ -159,6 +159,17 @@ owners:
 
 Smoke：合同测试包里的完整授权流程用例（含 id_token 的验证）。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-site-identity` 的 `createIdentityModule` 另回 `oauth`（标准端点与社交回调的子应用）与 `wellKnown`（两份发现文档），由 `nb-site-server` 挂在 `/api/identity/auth/` 与 `/.well-known/` 下；端点路径、发现文档、用户信息与客户端接口的 schema 在 `@notnotype/nb-site-identity-contract`。
+- owner 是 `nb-site-identity`；协议由 Better Auth 的 `oauthProvider` 与 `jwt` 插件实现（`@better-auth/oauth-provider` 与 `better-auth` 同钉一个精确版本），依赖库内部行为的地方逐行列在包的升级清单（`packages/nb-site-identity/AGENTS.md`），每行点名守它的用例。
+- 库的端点只经挂载层的白名单可达：按“方法加路径”逐个放行，编码后的路径与解码后不同的回 404；守卫用例遍历库的全部端点与方法。
+- 授权请求只把列出的参数交给库，长度上限按原样与重新编码两种算法都判；`resource`、`claims` 在交库之前去掉。
+- 让会话失效的四种变更（结束会话、封禁、改角色、改密码）在同一个写事务里撤掉对应的访问令牌与没用掉的授权码，都经删会话的那组函数。
+
 ## 证据
 
 - 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)、开发者 2026-11-24 的决定（按标准 OpenID Connect；签发者为站点地址）与 2026-11-25 的四条决定（结束会话与改密码撤 OAuth 令牌、社交注册只收已验证邮箱、关联不要求邮箱相同），见 [t08 的 Task 记录](../../../.agents/works/w00037-official-site/tasks/t08-social-login-and-oauth-provider/README.md)
+- 实现入口：[`packages/nb-site-identity/src/oauth/mount.ts`](../../../packages/nb-site-identity/src/oauth/mount.ts)
+- 合同测试：[`oauth-provider.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-provider.test.ts)、[`oauth-invalidation.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-invalidation.test.ts)、[`oauth-admin.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-admin.test.ts)
+- Smoke：[`oauth-provider.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-provider.test.ts)

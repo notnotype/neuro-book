@@ -239,16 +239,27 @@ function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
 }
 /**
- * 手柄层的渲染次序（Spec 输出 103）：抬升只改 `z-index`，不搬节点。按 `floats` 的次序渲染的话，抬升会让 Vue 搬手柄层的节点，
- * 按在手柄上的焦点就丢了。所以和外框、内容一样由上一轮的次序算（`stableOrder`：还在的保持相对次序，新的排在它在 `floats` 里前一扇之后）。
- * 理由同 `useRenderOrder`：必须在 `computed` 里同步算，每轮只算一次，“上一轮”不会漂移；不要在它之外再读 `renderedChrome`。
+ * 浮动窗之间不随叠放变的次序（`stableOrder`：还在的保持相对次序，新的排在它在 `floats` 里前一扇之后）。`floats` 的次序是叠放（Spec 输出 103），
+ * 每次按下或焦点进窗都会变（输出 173），所以两样东西不按它、按这里：
+ * - 手柄层的渲染次序：按 `floats` 渲染的话，抬升会让 Vue 搬手柄层的节点，按在手柄上的焦点就丢了；
+ * - 导航序（`navLayers`）里窗的先后：按叠放的话，Tab 进一扇窗它就成了最后一项，走出它的正文就离开网格，回到页面前面重走。
+ * 理由同 `useRenderOrder`：必须在 `computed` 里同步算，每轮只算一次，“上一轮”不会漂移；不要在它之外再读 `renderedFloats`。
  */
-let renderedChrome: string[] = [];
+let renderedFloats: string[] = [];
+const floatOrder = computed<ReadonlyArray<string>>(() => {
+    renderedFloats = stableOrder(renderedFloats, props.floats.map((float) => float.id));
+    return renderedFloats;
+});
 const chromeFloats = computed<ReadonlyArray<GridFloatInput>>(() => {
     const byId = new Map(props.floats.map((float) => [float.id, float]));
-    renderedChrome = stableOrder(renderedChrome, props.floats.map((float) => float.id));
-    return renderedChrome.map((id) => byId.get(id) as GridFloatInput);
+    return floatOrder.value.map((id) => byId.get(id) as GridFloatInput);
 });
+/** 手柄层的元素，按 DOM 序（即 `floatOrder`）：Tab 接管时排在所有窗的正文之后（`useGridFocus` 的 `floatChrome`）。 */
+function chromeElements(): HTMLElement[] {
+    const root = rootEl.value;
+    if (root === null) return [];
+    return [...root.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child.dataset.floatChrome !== undefined);
+}
 /**
  * 事件落在哪扇浮动窗上：从目标往上走到网格根的直接子元素（外框、内容、手柄层），读它的标记。嵌在窗内容里的网格的元素也走到外层这扇窗；
  * 不在窗上（树里的叶、分隔线、盖层）时为 null。
@@ -339,10 +350,45 @@ const frozenLeaves = computed<ReadonlySet<string>>(() => {
     return new Set([...leavingLeaves.value].filter((id) => swapSide.value.leaves.get(id) !== "out"));
 });
 
+/**
+ * 导航序：Tab、F6 与读屏走的树序（Spec 输出 101、121、132），也是渲染序列的依据。和 `layers` 只差浮动窗之间的先后：`layers` 里窗按 `floats`
+ * 的叠放次序排，这里按 `floatOrder`（理由见那里）。窗的项在 `layers` 里排在树后面、连成一段，这里在那一段的位置上按 `floatOrder` 重排，
+ * 每扇窗的外框与内容项保持原来的相对次序。
+ */
+const navLayers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => {
+    const items = layers.value;
+    const floats = floatAt.value;
+    if (floats.size < 2) return items;
+    const floatOf = (item: GridLayerItem<unknown>): string | null => {
+        const id = item.kind === "leaf" ? item.node.id : item.kind === "content" ? item.leaf : null;
+        return id !== null && floats.has(id) ? id : null;
+    };
+    const groups = new Map<string, GridLayerItem<unknown>[]>();
+    for (const item of items) {
+        const id = floatOf(item);
+        if (id === null) continue;
+        const group = groups.get(id);
+        if (group === undefined) groups.set(id, [item]);
+        else group.push(item);
+    }
+    const result: GridLayerItem<unknown>[] = [];
+    let placed = false;
+    for (const item of items) {
+        if (floatOf(item) === null) {
+            result.push(item);
+            continue;
+        }
+        if (placed) continue;
+        placed = true;
+        for (const id of floatOrder.value) result.push(...(groups.get(id) ?? []));
+    }
+    return result;
+});
+
 // 交换里滑出去的分隔线对读屏隐藏（`detached`），不列进 `aria-owns`。
-const order = useRenderOrder(layers, instanceId, (item) => (item.kind === "content" && contentLayer.isParked(item)) || (item.kind === "sash" && item.leaving === true));
+const order = useRenderOrder(navLayers, instanceId, (item) => (item.kind === "content" && contentLayer.isParked(item)) || (item.kind === "sash" && item.leaving === true));
 const {domIdOf} = order;
-const focus = useGridFocus({root: rootEl, layers, order});
+const focus = useGridFocus({root: rootEl, layers: navLayers, order, floatChrome: chromeElements});
 
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
 function controlledIds(leaf: string): string {

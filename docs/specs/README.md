@@ -249,8 +249,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | bot 在消息视图里 | [`bots/view.md`](bots/view.md) | `nbook.bots` 当消息视图的归属插件：联系人、第二行、打开主对话、看到与未读计数 |
 | 官方站：运行与部署 | [`site/operations.md`](site/operations.md) | 进程入口的四个命令、环境变量配置、迁移先于服务、两个健康检查、相邻版本可互换、备份；部署侧的几条要求是 planned |
 | 官方站：统计的写入 | [`site/telemetry-ingest.md`](site/telemetry-ingest.md) | 三个写入口的服务端行为、原始上报留 7 天、聚合、不留来源地址、限流 |
-| 官方站：账号 | [`site/accounts.md`](site/accounts.md) | 凭注册码注册、密码登录、会话与失效、同意门槛、资料、会话列表与邀请码、限流、“问身份”端点；Google 与 GitHub 登录、关联与解绑是 planned |
+| 官方站：账号 | [`site/accounts.md`](site/accounts.md) | 凭注册码注册、密码登录、会话与失效、同意门槛、资料、会话列表与邀请码、限流、“问身份”端点、Google 与 GitHub 的登录、注册、关联与解绑；导入码的次数与注册页预填邀请码是 planned |
 | 官方站：账号管理 | [`site/admin.md`](site/admin.md) | 管理员对账号的封禁、改角色、重置密码，注册码的发放与停用，审计记录 |
+| 官方站：对外 OAuth 服务 | [`site/oauth-provider.md`](site/oauth-provider.md) | 可达端点的清单、客户端登记、授权码加 PKCE、授权确认、不透明访问令牌与用户信息 |
 
 ## 待实现规范
 
@@ -258,7 +259,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| 官方站：对外 OAuth 服务 | [`site/oauth-provider.md`](site/oauth-provider.md) | 可达端点的清单、客户端登记、授权码加 PKCE、授权确认、不透明访问令牌与用户信息 |
 | 官方站：统计看板 | [`site/telemetry-dashboard.md`](site/telemetry-dashboard.md) | 给管理员的只读查询：活跃数的算法、新增与留存、在线、分维度与小格子、错误码 |
 | 官方站：旧站数据导入 | [`site/legacy-import.md`](site/legacy-import.md) | 旧库到新库逐项的去向、预检、全有或全无、导入后的可登录性与报告 |
 | 遥测：上报协议与收集清单 | [`telemetry/protocol.md`](telemetry/protocol.md) | 每日上报、在线心跳、立即事件的字段与取值，重发去重，清单按档的版本 |
