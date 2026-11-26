@@ -207,6 +207,10 @@
             "name": "Network",
             "description": "The Network section in settings: automatic model list updates, and later a proxy."
         },
+        "nbook-page-agent": {
+            "name": "UI Guide",
+            "description": "Lets the writing assistant see the current window (text snapshots, screenshots, where settings and commands are) and guide you step by step by highlighting controls."
+        },
         "nbook-plot": {
             "name": "Story",
             "description": "Knowledge, foreshadowing and character goals on top of the world engine: who knows what, and how far each setup has come."

@@ -30,6 +30,7 @@ import {stickersBackendPlugin} from "nbook/plugins/stickers/backend/plugin";
 import {botsBackendPlugin} from "nbook/plugins/bots/backend/plugin";
 import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import {webBackendPlugin} from "nbook/plugins/web-tools/backend/plugin";
+import {pageAgentBackendPlugin} from "nbook/plugins/page-agent/backend/plugin";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
 import type {ServerConfig} from "./config";
@@ -73,6 +74,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.stickers": stickersBackendPlugin,
     "nbook.bots": botsBackendPlugin,
     "nbook.web": webBackendPlugin,
+    "nbook.page-agent": pageAgentBackendPlugin,
     "nbook.files": filesBackendPlugin,
 };
 
