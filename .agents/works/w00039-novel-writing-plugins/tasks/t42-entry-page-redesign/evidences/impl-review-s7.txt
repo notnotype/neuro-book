@@ -1,0 +1,82 @@
+## 发现 1
+严重程度：重要
+类别：正确性（布局与不变量，“状态不同，布局要相同”）
+位置：packages/neuro-book/src/plugins/canon/web/components/EntryPage.vue:343-347（横排分页的 Tabs 与“＋”）；packages/nb-ui/src/components/controls/Tabs.vue 的 scroll 分支（class 含 overflow-x-auto）
+现象：条目页横排分页改成 Tabs 默认的 scroll 档以后，桌面浏览器（经典滚动条，应用根上挂了 nb-ui-scrollbar-thin）里分页条一旦放不下，横向滚动条就占一条高度：分页条变高，下面的内容被推下去；而外层 flex 是 items-end，“＋”按钮贴着分页条底边，变成比标签低一个滚动条厚度。放得下时没有这一条，两种状态的版式不同。
+为什么是问题：UI 规范要求溢出与不溢出两种状态版式一致；加一组设定、窗口缩放、章数变化都会让分页条在“放得下/放不下”之间切换，内容整体跳动 10px，“＋”与标签错位。e2e 抓不到：Playwright 无头模式默认带 --hide-scrollbars，经典滚动条被藏掉了，390 宽的用例也看不出（触屏是叠加滚动条、不占高度）。
+如何核实：我用本机 google-chrome-stable、ignoreDefaultArgs: ["--hide-scrollbars"]，在 /tmp/review-t42-followup/exp/t.html 里复刻同样的结构（flex items-end；里面 overflow-x:auto 的 flex 条，scrollbar-width:thin，按钮高 26px，旁边一个高 24px 的按钮）。放不下时条高 36px，放得下时 26px；放不下时“＋”的底边 44，标签底边 34，错位 10px。（脚本 run.mjs 同目录。）
+建议改法：横向滚动条本身隐藏（给 Tabs 的 scroll 根加 nb-ui-scrollbar-none，或让 EntryPage 的 .entry-page__tabs 写 scrollbar-width:none），靠“选中项自动滚进来”与被裁的标签露半个做可发现性；或把滚动条放在条外不占高（overlay 方案）。要补一条 e2e：用带经典滚动条的浏览器配置（去掉 --hide-scrollbars）量放不下与放得下时分页条高度相同、“＋”底边与标签底边相同；这条在无头默认配置下恒过，写测试时要说明并先变异（去掉隐藏声明应失败）。若 Tabs 是公共组件，宜在组件层解决，其它 scroll 档使用方（dev-panel ArtifactPage、nb-story RevisionsPage、DrawerCard）同样受益。
+
+## 发现 2
+严重程度：重要
+类别：正确性（预览与保存不一致时提示写错位置）
+位置：packages/neuro-book/src/plugins/canon/web/in-place-edit.ts:135-136（注释的假设）、:241-246（预览触发的 watch 键）、:196（inputOf 在保存时才读 options.position()）、:289-292（保存时交出 previewedWhere）
+现象：previewedWhere 是“最近一次预览”算出的位置，注释断言“保存发的输入与那次预览相同，世界版本变了会先重取预览”。但触发重新预览的键只有 JSON.stringify([path, value, intent, read])，不含读取位置。确认条开着时作者在页头改时间点（例如从第 3 章末尾换到第 5 章末尾）：草稿不关、预览不重取、预览条仍写“在第 3 章末尾记一条变更”，而保存时 inputOf 读的是当前的 options.position()，请求写到第 5 章；成功后的提示写“记在第 3 章”，与实际落点不符（EntryPageHost.vue 里 setPosition 只改 state.position，没有任何地方在位置变时关草稿，grep state.edit 只有 :315、:818 两处写入）。
+为什么是问题：这条提示的存在就是告诉作者“这次记在哪”，现在可能报一个明确错误的章号；而且还原等后续操作靠这条提示指路。此前预览条本身就是旧的，这一片把旧问题放大成成功提示里的一句假话。
+如何核实：从代码推断，未跑。可用 entry-page.dom.test.ts 的 setup 复现：开“改”、填值等预览回来、把 state.position 换成别的章、点保存，断言 [data-notice-where]。
+建议改法：二选一。a) 把 options.position() 放进触发预览的 watch 键（JSON.stringify([path, value, intent, read, position])），位置变了就重取预览，保存时 where 与输入同源；同时修了预览条过期的旧问题。b) 不从预览取，保存成功后按写入结果算：用 input.position 与结果里这次修订的安放（patch 路由时取被改那一笔的安放）。a 改动最小。无论哪种，补一条 dom 测试：预览回来后换位置再保存，提示写新位置（先变异：去掉键里的 position 应失败）。
+
+## 发现 3
+严重程度：建议
+类别：正确性（陈旧状态）
+位置：packages/neuro-book/src/plugins/canon/web/in-place-edit.ts:135-136、:140-146（resetFeedback）、:219-220、:350-351（recheck）
+现象：previewedWhere 是闭包变量，只在预览成功时被覆盖；resetFeedback（打开新草稿、取消）、预览失败（preview.value = null）与输入不可解析（inputOf 返回 null）时都不清。save() 要求 preview.value !== null 才提交，所以平常不会用到旧值，但 recheck（失败以后的“再核对”按钮，直接 void submit()）不经过预览：草稿 A 预览成功（where=“第 2 章”）→ 取消 → 打开草稿 B → 预览失败并出现需要重新核对的失败 → 点 recheck 保存成功，提示写的是 A 的位置。
+为什么是问题：同一个变量跨草稿存活，靠“目前只有 save 把关”才碰巧不出错；以后再加一条直接提交的路就会写错。
+如何核实：从代码推断。
+建议改法：在 resetFeedback 与预览失败/输入无效的分支里把 previewedWhere 置回 undefined（与 preview.value = null 同处），或把它放进 preview 这个 shallowRef 的值里一起清。另：describe 里 where 可能是“未安放”（patch 到一笔没安放的变更，或 placementLabel 退回时），提示会写“记在未安放”，读起来像没记成；建议此时不给 where（返回 undefined）。
+
+## 发现 4
+严重程度：建议
+类别：UI / 无障碍与文案
+位置：packages/neuro-book/src/plugins/canon/web/components/PageNotices.vue:117 与样式 .page-notice__text（:178-185）、.page-notice__where（:187-190）
+现象：a) “记在某处”是标题后面的内嵌 span，只靠 margin-left: 8px 隔开，DOM 文本里标题与“记在最初”紧挨（dom 测试里 wrapper.text() 就是“改外观记在第 3 章”）；读屏（外层是 role=status）念成一串，复制出来也连在一起。b) .page-notice__text 是 nowrap + 省略号，位置在句尾，所以 390 宽或标题长（例如“记了一笔：……”一句话很长）时最先被截掉的正是这次新增的信息，而且没有 title 提示可看全。
+为什么是问题：开发者要的是“写出这次记在哪”；窄屏恰是最容易看不到的地方。
+如何核实：从代码推断；可在 390 宽用 Lab 里一条长标题的提示截图确认。
+建议改法：a) 标题与位置之间放一个真实的分隔（例如位置 span 里前面加一个空格或用顿号/括号的文本），或给整条 aria-label；b) 位置作为不收缩、不截断的一段（flex 子项 flex-shrink:0），只截标题；或像错误行那样允许 wrap。工作台通知那一路已经是“标题（记在X）”，两路的写法不一致，页面里改成同样括号写法也可。
+
+## 发现 5
+严重程度：建议
+类别：公共组件 nb-ui Tabs 的隐含假设
+位置：packages/nb-ui/src/components/controls/Tabs.vue:134-172（revealSelected、onMounted 里的 ResizeObserver、watch）
+现象与问题：
+a) ResizeObserver 只在 onMounted 里建一次，并且只在 adaptive 为假、list 存在时观察那一个元素。overflow 在运行时从 adapt 换到 scroll（或反过来）时，v-if/v-else 会换掉整个根元素：scroll 档下新元素没有观察者（observer 要么从没建，要么指着已卸载的旧元素），变窄后不再把选中项滚进来；Tabs.md 的“标签栏变窄时”承诺随之失效。当前所有使用方的 overflow 都是常量，所以现在不触发，但组件合同没有写“overflow 不能运行时切换”。要么在 watch(adaptive)/tablistRef 变化时重建观察，要么在 .md 的 props 里写明。
+b) 只观察标签栏的宽度；标签自己变宽（计数徽标晚到、字体加载、标签文字换语言）会把选中项挤出范围，既没有 ResizeObserver 触发也不是“选中项变了”。刚挂上时标签的内容就是最终的当然没事；条目页的标签带计数（EntryTab 的 count），如果计数在读取回来之后才出现，选中项靠后（例如“情节”）时挂上那一下滚到位、计数一出现就又露不全。这条是推测，未验证。
+c) 选中的标签比标签栏本身还宽时（极窄栏）revealSelected 先按“左边被裁”对齐，下一次调用又按“右边被裁”滚到右端，行为在两端间摆动；不严重，只是没处理。
+d) .nb-ui-tabs-scroll { scroll-behavior: smooth } 加在所有 scroll 档标签栏上，影响所有使用方：使用方或测试里写 scrollLeft = x 会变成动画（nb-ui 自己的 e2e 已经改用 behavior:"instant"，说明踩到过）。另外 smooth 是写在样式里、reveal 传 "auto" 依赖它，二者耦合：以后有人移除这段样式，换选中项就变成瞬移而不报错。
+如何核实：a)、c) 读代码；b) 在条目页里延迟计数验证；d) grep 其它 <Tabs 使用方（dev-panel ArtifactPage.vue:246、nb-story RevisionsPage.vue:67、DrawerCard.vue:145）没有受影响的 scrollLeft 写入，所以当前不出错。
+建议改法：a) 用 watch([adaptive, tablistRef]) 重建观察者，或把滚动档拆成自己的内层元素；d) revealSelected 的 behavior 直接按 matchMedia("(prefers-reduced-motion: reduce)") 传 "smooth"/"instant"，不依赖 CSS 的 scroll-behavior，也不改变用户键盘/脚本滚动的行为。
+
+## 发现 6
+严重程度：建议
+类别：测试
+位置：packages/neuro-book/src/plugins/canon/web/entry-page.dom.test.ts（提示写位置的新断言）；packages/neuro-book/e2e/canon-author.e2e.ts 验收 14 的新增部分与 horizontalScrolls
+现象：
+a) 位置提示只测了两条路径：初值路由（“记在最初”）与记一笔（“记在第 2 章”）。in-place-edit.ts 里 patch 路由（改已有那一笔，位置取被改变更的安放）与 change 路由（在所选位置新记一条）两个分支没有断言，前史（placementLabel 的 prehistory）也没有；而发现 2、3 的问题恰在这两路。没有“预览后换位置再保存”“预览失败后 recheck”的用例。
+b) 验收 14 新增的 `for (const label of await strip.getByRole("tab").allTextContents()) expect(label.trim()).not.toBe("")` 在 scroll 档下恒真：标签文字总在 DOM 里（只有 adapt 的只留图标才把文字从 DOM 拿掉），它测不到“每页写名字”这个要求；删掉实现里任何东西都不会让它失败。
+c) horizontalScrolls 把所有 role=tablist 全部排除出候选，而不是只排除条目页分页条这一条；以后别的 tablist（回执页、待处理视图）真的横向撑开页面也不报。应只排除 [aria-label="条目的分页"]（或带 data 标记）那一个。
+d) 经典滚动条（发现 1）在 Playwright 无头默认下不存在，e2e 全部绿也不能证明桌面版式；见发现 1 的建议。
+e) nb-ui e2e（tabs-scroll.spec.ts）测到了三条行为，且“只改计数不拽回”那条能抓住把 watch 改成深度监听的错误，这点是好的；但没覆盖 CSS zoom 的换算分支（revealSelected 里 scale），也没覆盖键盘方向键移动选中（reveal 与 focus 滚动并存）。zoom 分支是 Component Lab 的画布实际会走的路径，建议在夹具外层套 zoom:0.5 再量一次。
+建议改法：补 a) 的两个路由与位置变化的 dom 用例（先变异再认）；b) 改成量布局：每个标签 getBoundingClientRect().width 大于只有图标的宽度，或断言标签文字节点可见；c) 收窄排除范围。
+
+## 发现 7
+严重程度：建议
+类别：文案与一致性
+位置：packages/neuro-book/src/plugins/canon/locales/en-US.json（initial、notice.where、notice.withWhere）；packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:2378、2380
+现象：
+a) 英文 “Initial state” 作位置名在提示里拼成 “Saved to Initial state” / “(saved to Initial state)”，大写 I 夹在句中不自然；中文“记在最初”还通顺，英文是名词短语被当地点用。可考虑 where 里用小写或给提示单独一个 key（“Saved at the start”）。
+b) Lab 夹具里 PositionPicker 的英文场景仍写 positions: [{value:"initial", label:"Before the story"}]（两处），与 en-US 的 position.initial（现为 Initial state）不一致，Lab 里看到的英文界面与真实产品不同；这是本提交漏掉的 grep 命中（全仓库 “Before the story” 只剩这两处）。
+c) 给 Agent 的说法：agent-tools.ts:35 写“\"initial\" 是最初：什么都没套，连前史也没套”，先后关系是清楚的；但 agent-text.ts 里别处给 Agent 看的读取位置文字（“最初”“第 3 章（ch3）末尾”）没有再提前史，Agent 读结果时看不出“第 1 章开头”才是套完前史。属信息量问题，不必改，只是 “initial 与前史的先后”只在参数描述这一处讲。
+d) 术语：数据写入文案里“初值”仍用于新建条目的字段值（agent-tools.ts:91、98、237、463、467 等“初值写在 create 里”），与读取位置的“最初”是两个概念；同一份 Agent 提示词里同时出现“最初”（位置）与“初值”（建条目时的字段值），可能让模型把“在最初不能记剧情变化”与“初值只能写在 create”混在一起，建议在 intent-not-allowed 那句里带上“给 at 一个章”之外的解释无需，但 canon_read 的位置描述里可补一句“与 create 的初值是同一层”——可选。
+
+## 未发现问题的方面
+- Tabs 的 revealSelected 只用 list.scrollTo，不用 scrollIntoView，不会滚外层页面；挂上时用 behavior:"instant"，不受样式里 smooth 影响；隐藏容器（display:none）里矩形全 0，delta 为 0 不动，显示后靠 ResizeObserver 补上。
+- CSS zoom 换算：scale = offsetWidth / rect.width，与“scrollLeft 用元素本地坐标、矩形是视觉坐标”的约定一致，未发现错。
+- 其它 Tabs 使用方（dev-panel ArtifactPage、nb-story RevisionsPage、DrawerCard）都是几项的标签栏、overflow 不切换，没有写 scrollLeft；新增的挂上时 reveal 对它们是空操作。
+- 分段竖线 [data-segment-start]::before 在 scroll 档下仍在标签盒子的 margin 区里，没被 overflow 裁掉；“＋”在 EntryPage 外层 flex 里仍是 shrink-0（版式错位的问题只来自发现 1 的滚动条高度）。
+- EntryPageHost 记一笔：位置在发请求时取 at 并同时用于请求与提示，请求在途换位置不会错；initial 在上面已被 blocked.initial 拦下。
+- notices.ts 工作台通知那一路 withWhere 的 Text 参数、sticky:false 与原有行为一致，notices.test.ts 的新断言真的检查了 key 与 params。
+- 验证：bun test notices.test.ts 10 通过；vitest PageNotices.dom.test.ts 6 通过；vue-tsc --noEmit -p tsconfig.web.json 无错误；backend bun test 5 通过。未跑 e2e 与开发服务。
+
+## 汇总
+阻断 0，重要 2（发现 1、2），建议 5（发现 3 到 7；发现 7d 是可选的措辞建议）。
+有效发现：1、2、3、4、5、6、7
