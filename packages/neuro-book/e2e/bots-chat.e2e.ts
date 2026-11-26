@@ -53,9 +53,9 @@ test.afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-/** 右栏的消息视图（右栏默认宽度下是窄版：头像列加聊天区，对话的头在面板头上）。 */
+/** 右栏的消息视图：聊天区加借给右轨的视图段（收着时是 bot 头像列，对话的头在面板头上）。 */
 const MESSAGES = "nbook.agent.conversation";
-const contact = (page: Page) => page.locator("[data-strip-contact='nbook.bots/lyra']");
+const contact = (page: Page) => page.locator("[data-rail=\"auxiliarybar\"] [data-strip-contact='nbook.bots/lyra']");
 const chat = (page: Page) => page.locator("[data-messages-chat]");
 const handle = (page: Page) => page.locator(`[data-panel-tab="view:${MESSAGES}"]`);
 const input = (page: Page) => chat(page).getByRole("textbox", {name: "消息输入框"});
