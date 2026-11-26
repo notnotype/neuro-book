@@ -170,7 +170,12 @@ function onEntryContextMenu(id: string, event: MouseEvent): void {
     emit("context-menu", id, {x: event.clientX, y: event.clientY});
 }
 
-/** 放不下时排在后面的收进“更多”，当前容器的入口总在外面（输出 22）。量不到条目区（还没挂上）时全部摆出来，条目区自己纵向滚动兜底。 */
+/**
+ * 放不下时排在后面的收进“更多”，当前容器的入口总在外面（输出 22）。量不到条目区（还没挂上）时全部摆出来，条目区自己纵向滚动兜底。
+ * 能摆多少按条目区能长到多高算，不按它此刻的高：有视图段时条目区只有内容那么高（视图段在中间独立滚动、让出地方，输出 50 的“三段”），
+ * 按此刻的高算的话多一个入口（拖进来的预览、新建的容器）永远放不下。收着时加上视图段 `main` 的高（它 `flex: 1 1 0`，能让到零）；
+ * 展开时条目区在网格里跨到下面那一行空着的 `1fr`，它自己的高就是能长到的高。
+ */
 const bandEl = ref<HTMLElement | null>(null);
 const available = ref<number | null>(null);
 const ITEM_PX = 38;
@@ -179,7 +184,8 @@ function measureBand(): void {
     const band = bandEl.value;
     if (band === null) return;
     const style = getComputedStyle(band);
-    const height = band.clientHeight - (Number.parseFloat(style.paddingTop) || 0) - (Number.parseFloat(style.paddingBottom) || 0);
+    const yielded = props.segment !== null && props.segment.expanded !== true ? mainEl.value?.clientHeight ?? 0 : 0;
+    const height = band.clientHeight + yielded - (Number.parseFloat(style.paddingTop) || 0) - (Number.parseFloat(style.paddingBottom) || 0);
     available.value = height > 0 ? height : null;
 }
 
@@ -190,6 +196,13 @@ onMounted(() => {
     observer = new ResizeObserver(measureBand);
     observer.observe(bandEl.value);
 });
+// 视图段挂上、换掉或收起展开时重新观察 `main`：收着时条目区能长到多高要算上它。
+watch(mainEl, (next, previous) => {
+    if (previous) observer?.unobserve(previous);
+    if (next) observer?.observe(next);
+    measureBand();
+}, {flush: "post"});
+watch(() => props.segment?.expanded === true, () => void nextTick(measureBand));
 onBeforeUnmount(() => observer?.disconnect());
 
 const strip = computed(() => {
@@ -621,8 +634,10 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
 }
 
 .workbench-tool-strip[data-rail-state="expanded"] > .workbench-tool-strip__entries {
-    grid-row: 1;
+    /* 跨到下面空着的 `1fr` 一行：条目区量自己的高就是能摆入口的高（见脚本里的 `measureBand`）。入口照常从上往下排。 */
+    grid-row: 1 / 3;
     grid-column: 1;
+    align-self: stretch;
     max-height: 100%;
 }
 
