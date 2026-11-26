@@ -59,6 +59,8 @@ export interface FakeUpstream {
      * 只是文档里不指向它。
      */
     omitJwksUri(omitted: boolean): void;
+    /** 之后 Google 的发现文档带不带 `issuer`（缺省带）：造“发现文档缺验 id_token 所需的签发者”的上游。 */
+    omitIssuer(omitted: boolean): void;
     close(): Promise<void>;
 }
 
@@ -103,6 +105,7 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
     const holds: Record<FakeProvider, {readonly arrive: () => void; readonly released: Promise<void>}[]> = {google: [], github: []};
     const releases: (() => void)[] = [];
     let jwksUriOmitted = false;
+    let issuerOmitted = false;
     let base = "";
 
     const server = createServer((request, response) => {
@@ -121,7 +124,7 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
 
         if (path === "/google/.well-known/openid-configuration") {
             return json(response, 200, {
-                issuer: `${base}/google`,
+                ...(issuerOmitted ? {} : {issuer: `${base}/google`}),
                 authorization_endpoint: `${base}/google/o/oauth2/v2/auth`,
                 token_endpoint: `${base}/google/token`,
                 userinfo_endpoint: `${base}/google/v1/userinfo`,
@@ -277,6 +280,9 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
         },
         omitJwksUri(omitted) {
             jwksUriOmitted = omitted;
+        },
+        omitIssuer(omitted) {
+            issuerOmitted = omitted;
         },
         close() {
             // 先放掉挡着的请求（到了的与还没到的），免得 close 等一个永远不回答的连接、用例等一个永远不 resolve 的 `arrived`。

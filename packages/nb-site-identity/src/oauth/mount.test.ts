@@ -462,16 +462,27 @@ describe("用户信息端点", () => {
         expect(Value.Check(UserInfoResponse, info.body)).toBe(true);
     });
 
-    it("没有令牌与令牌不对都是 401，带 WWW-Authenticate、不许缓存", async () => {
-        const missing = await identity.request(OAUTH_ENDPOINT_PATHS.userinfo);
-        const wrong = await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers: {authorization: "Bearer not-a-token"}});
-        for (const [name, response] of [["missing", missing], ["wrong", wrong]] as const) {
-            expect({name, status: response.status, cacheControl: response.headers.get("cache-control"), bearer: /^Bearer\b/u.test(response.headers.get("www-authenticate") ?? "")}).toEqual({
+    it("没有令牌与令牌不对都是 401、不许缓存；WWW-Authenticate 只有一个 Bearer 质询、不宣告 DPoP，令牌不对时带 invalid_token；体里的 error 分别是 invalid_request、invalid_token（失败与恢复）", async () => {
+        // 以 DPoP 方案带令牌时库只给 DPoP 质询（升级清单“用户信息的字段”一行）：照样只回 Bearer。不带令牌时按 RFC 6750 第 3.1 节
+        // 质询里不带错误码，码在体里。
+        const cases = [
+            ["不带令牌", {}, null, "invalid_request"],
+            ["令牌不对", {authorization: "Bearer not-a-token"}, "invalid_token", "invalid_token"],
+            ["以 DPoP 方案带令牌", {authorization: "DPoP not-a-token"}, "invalid_token", "invalid_token"],
+        ] as const;
+        for (const [name, headers, challengeError, bodyError] of cases) {
+            const response = await identity.request(OAUTH_ENDPOINT_PATHS.userinfo, {headers});
+            const challenge = response.headers.get("www-authenticate") ?? "";
+            expect({
                 name,
-                status: 401,
-                cacheControl: "no-store",
-                bearer: true,
-            });
+                status: response.status,
+                cacheControl: response.headers.get("cache-control"),
+                // 质询的方案名是开头的 token，与逗号之后、后面跟空白或行尾的 token（下一个质询）；参数名后面跟的是 `=`。
+                schemes: [...challenge.matchAll(/(?:^|,)\s*([A-Za-z][\w-]*)(?=\s+[\w-]+=|\s*,|\s*$)/gu)].map((match) => match[1]),
+                dpop: /dpop/iu.test(challenge),
+                challengeError: /\berror="([^"]*)"/u.exec(challenge)?.[1] ?? null,
+                bodyError: ((await response.json()) as {error?: unknown}).error,
+            }).toEqual({name, status: 401, cacheControl: "no-store", schemes: ["Bearer"], dpop: false, challengeError, bodyError});
         }
     });
 });

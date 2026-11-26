@@ -109,6 +109,22 @@ describe("一次会话结束：在这次会话里发出的失效，别的会话�
         await target.jobs.find((job) => job.name === "purge")!.run();
         expect([await observe(target, inS1), await observe(target, inLater)]).toEqual([REVOKED, UNTOUCHED]);
     });
+
+    it("会话到期之后、清理任务之前换它名下的码回 invalid_request，换不出令牌；清理之后是 invalid_grant（时序一节）", async () => {
+        const {target, s1, inS1, inS2} = await setup("identity-revoke-expired-before-purge");
+        // 换码时库按系统时间查这个码所属的会话是否到期，模块的时钟它看不出。会话的到期时刻改到系统时间的一秒之前，就是系统时间
+        // 走过了它的样子；模块的时钟与系统时间起点相同，按它也已到期。
+        await target.conn.write((tx) => tx.query(`UPDATE "session" SET "expiresAt" = ? WHERE "id" = ?`).run(libDate(Date.now() - 1000), s1.sessionId));
+        const exchangeError = async (code: Issued["code"]) => {
+            const response = await exchange(target, inS1.client, code);
+            return {status: response.status, error: ((await response.json()) as {error?: unknown}).error};
+        };
+        expect(await exchangeError(inS1.code)).toEqual({status: 400, error: "invalid_request"});
+        expect(await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT count(*) AS n FROM "oauthAccessToken"`).get()!.n)).toBe(3);
+        await target.jobs.find((job) => job.name === "purge")!.run();
+        expect(await exchangeError(inS1.code)).toEqual({status: 400, error: "invalid_grant"});
+        expect(await observe(target, inS2)).toEqual(UNTOUCHED);
+    });
 });
 
 describe("账号名下的全部失效（封禁、改角色、重置密码、结束全部会话）", () => {

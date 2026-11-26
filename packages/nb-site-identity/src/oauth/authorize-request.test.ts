@@ -236,10 +236,12 @@ describe("第 3 步与站点同意", () => {
         expect(where(await follow(await submitConsent(bob.cookie, continueOf(consent.location)), bob.cookie))).toEqual(page(OAUTH_PAGES.consent));
     });
 
-    it("会话在 max_age 之内时去站点同意页，补交同意后续接拿到码（输出 12、13）", async () => {
+    it("会话在 max_age 之内时去站点同意页；补交花的时间让会话超过 max_age 也不再要求登录，续接拿到码（输出 12、13）", async () => {
         identity.clock.advance(50_000);
         const {location} = await send("GET", params({max_age: "100"}), bob.cookie);
         expect(where(location)).toEqual(page(OAUTH_PAGES.siteConsent));
+        // 在站点同意页上停过 max_age 剩下的 50 秒：发起时已满足的 max_age 不因补交花的时间再要求登录（输出 12）。
+        identity.clock.advance(60_000);
         expect(where(await follow(await submitConsent(bob.cookie, continueOf(location)), bob.cookie))).toEqual(backWithCode);
     });
 

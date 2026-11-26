@@ -1,6 +1,6 @@
 /**
  * 社交注册（`start.ts` 的注册意图、`hooks.ts` 的建用户与建账号前钩子、建会话前的判断、`callback.ts` 的查询串上限；`site.accounts`
- * 输出 2、3、13、14、23，验收 4、5、8、9、14）。
+ * 输出 2、3、11、13、14、23、24，验收 4、5、8、9、14）。
  *
  * 上游是仿真上游（第三方的替身），站点是真的模块。合同测试（`nb-site-contract-tests` 的 `accounts-social.test.ts`）走同样的
  * 场景；这里另测合同里造不出、或要读库才看得到的：
@@ -172,13 +172,14 @@ describe("社交注册成功（输出 13、23，验收 4）", () => {
         expect(await target.conn.read((tx) => tx.query<{v: number}, [number]>(`SELECT "emailVerified" AS v FROM "user" WHERE "id" = ?`).get(userId)!.v)).toBe(0);
     });
 
-    it("GitHub：邮箱取已验证的主邮箱，上游名字是 login", async () => {
+    it("GitHub：邮箱取已验证的主邮箱，上游名字是 login；上游改了 login 之后再登录，列表里的名字仍是注册时记下的（输出 24）", async () => {
         const target = await socialIdentity("social-register-github");
         await addCode(target, "identity_registration_code", "REG-CODE");
-        upstream.setUser("github", githubUser(77, [
+        const emails = [
             {email: "other@github.test", primary: false, verified: true, visibility: null},
             {email: "erin@github.test", primary: true, verified: true, visibility: null},
-        ]));
+        ];
+        upstream.setUser("github", githubUser(77, emails));
 
         expect(landing(await followSocial(target, await startRegister(target, "github")))).toEqual({status: 302, path: "/", socialError: null});
         const records = await target.conn.read((tx) => ({
@@ -186,6 +187,13 @@ describe("社交注册成功（输出 13、23，验收 4）", () => {
             upstreamName: tx.query(`SELECT provider, upstream_account_id, name FROM identity_upstream_name`).all(),
         }));
         expect(records).toEqual({email: "erin@github.test", upstreamName: [{provider: "github", upstream_account_id: "77", name: "gh-77"}]});
+
+        // 同一个 id 在上游改了名，再以登录意图回来：认的是 id，名字不跟着改。
+        upstream.setUser("github", {...githubUser(77, emails), login: "gh-renamed"});
+        const again = await followSocial(target, await startSocial(target, "github", {intent: "login"}));
+        expect(landing(again)).toEqual({status: 302, path: "/", socialError: null});
+        const listed = await target.fetch("/me/identities", {headers: {cookie: sessionCookieOf(again.headers.getSetCookie())}});
+        expect(((await listed.json()) as {items: {provider: string; accountName: string}[]}).items.map(({provider, accountName}) => ({provider, accountName}))).toEqual([{provider: "github", accountName: "gh-77"}]);
     });
 });
 
@@ -216,34 +224,41 @@ describe("发起时的检查（输出 3、13，验收 4 前半）", () => {
         expect(await flowCount(target)).toBe(0);
     });
 
-    it("Google 的发现文档缺公钥地址：发起回 503 unavailable，不写流程行、不建账号、不扣码；文档补上之后下一次发起照常（输出 11）", async () => {
-        upstream.omitJwksUri(true);
-        const target = await socialIdentity("social-register-discovery-no-jwks");
-        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
-        upstream.setUser("google", googleUser("g-erin"));
+    // 两样都是库验上游 id_token 要的（`providers.ts`）：缺哪一样都不建上游。
+    const discoveryGaps = [
+        ["公钥地址", "jwks", (omitted: boolean) => upstream.omitJwksUri(omitted)],
+        ["签发者", "issuer", (omitted: boolean) => upstream.omitIssuer(omitted)],
+    ] as const;
+    for (const [label, slug, omit] of discoveryGaps) {
+        it(`Google 的发现文档缺${label}：发起回 503 unavailable，不写流程行、不建账号、不扣码；文档补上之后下一次发起照常（输出 11）`, async () => {
+            omit(true);
+            const target = await socialIdentity(`social-register-discovery-no-${slug}`);
+            const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+            upstream.setUser("google", googleUser("g-erin"));
 
-        expect(await outcome(await startRegister(target, "google"))).toEqual({status: 503, body: {error: {code: "unavailable"}}});
-        expect(await outcome(await startSocial(target, "google", {intent: "login"}))).toEqual({status: 503, body: {error: {code: "unavailable"}}});
-        expect({flows: await flowCount(target), users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), side: await sideRows(target)}).toEqual({
-            flows: 0,
-            users: [],
-            used: 0,
-            side: {profiles: 0, consents: 0, upstreamNames: 0, accounts: 0},
-        });
-        expect(await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "session"`).get()!.n)).toBe(0);
-        expect(target.log.lines.filter((line) => line.event === "identity.unhandled_error")).toEqual([]);
+            expect(await outcome(await startRegister(target, "google"))).toEqual({status: 503, body: {error: {code: "unavailable"}}});
+            expect(await outcome(await startSocial(target, "google", {intent: "login"}))).toEqual({status: 503, body: {error: {code: "unavailable"}}});
+            expect({flows: await flowCount(target), users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), side: await sideRows(target)}).toEqual({
+                flows: 0,
+                users: [],
+                used: 0,
+                side: {profiles: 0, consents: 0, upstreamNames: 0, accounts: 0},
+            });
+            expect(await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "session"`).get()!.n)).toBe(0);
+            expect(target.log.lines.filter((line) => line.event === "identity.unhandled_error")).toEqual([]);
 
-        // 发起时库再取一次发现文档（升级清单“社交上游”一行）：带上了公钥地址就建出上游，注册照常走完。
-        upstream.omitJwksUri(false);
-        const landed = await followSocial(target, await startRegister(target, "google"));
-        expect({...landing(landed), session: hasSessionCookie(landed), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({
-            status: 302,
-            path: "/",
-            socialError: null,
-            session: true,
-            used: 1,
+            // 发起时库再取一次发现文档（升级清单“社交上游”一行）：缺的那一样补上了就建出上游，注册照常走完。
+            omit(false);
+            const landed = await followSocial(target, await startRegister(target, "google"));
+            expect({...landing(landed), session: hasSessionCookie(landed), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({
+                status: 302,
+                path: "/",
+                socialError: null,
+                session: true,
+                used: 1,
+            });
         });
-    });
+    }
 
     it("注册关闭：registration_closed，不看请求的内容", async () => {
         const target = await socialIdentity("social-register-closed", {registrationOpen: false});
@@ -333,6 +348,42 @@ describe("回调时的拒绝：不建账号、不扣码（输出 2、13、14，�
 
         const login = await followSocial(target, await startSocial(target, "google", {intent: "login"}));
         expect({...landing(login), session: hasSessionCookie(login)}).toEqual({status: 302, path: "/", socialError: null, session: true});
+    });
+
+    it("注册意图碰上已关联的上游身份，判 identity_taken 之前库先查邮箱与封禁：上游这次没给邮箱是 social_email_missing，那个账号被封禁是 social_failed；都不建账号、不建会话、不扣码", async () => {
+        const target = await socialIdentity("social-register-linked-before-checks");
+        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+        const ownerId = await target.addUser("owner", CONSENTED);
+        await insertSocialAccount(target, ownerId, "google", "g-owned");
+
+        upstream.setUser("google", googleUser("g-owned", null));
+        const noEmail = await followSocial(target, await startRegister(target, "google"));
+        expect({...landing(noEmail), session: hasSessionCookie(noEmail)}).toEqual({...rejected("social_email_missing"), session: false});
+
+        upstream.setUser("google", googleUser("g-owned"));
+        await target.conn.write((tx) => void tx.query(`UPDATE "user" SET "banned" = 1 WHERE "id" = ?`).run(ownerId));
+        const banned = await followSocial(target, await startRegister(target, "google"));
+        expect({...landing(banned), session: hasSessionCookie(banned)}).toEqual({...rejected("social_failed"), session: false});
+
+        const sessions = await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "session"`).get()!.n);
+        expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), sessions}).toEqual({users: ["owner"], used: 0, sessions: 0});
+    });
+
+    it("上游给的邮箱已被别的账号占用、又没验证过：email_taken，不是 social_email_missing（输出 14）", async () => {
+        const target = await socialIdentity("social-register-taken-unverified");
+        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+        // `addUser` 的邮箱是 `<用户名>@example.com`。
+        await target.addUser("grace", CONSENTED);
+        const upstreams: readonly [string, () => void][] = [
+            ["google", () => upstream.setUser("google", googleUser("g-grace", "grace@example.com", false))],
+            ["github", () => upstream.setUser("github", githubUser(8, [{email: "grace@example.com", primary: true, verified: false, visibility: null}]))],
+        ];
+        for (const [provider, setUser] of upstreams) {
+            setUser();
+            const response = await followSocial(target, await startRegister(target, provider));
+            expect({provider, ...landing(response), session: hasSessionCookie(response)}).toEqual({provider, ...rejected("email_taken"), session: false});
+        }
+        expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({users: ["grace"], used: 0});
     });
 });
 
@@ -448,6 +499,38 @@ describe("原子性与并发（输出 2，验收 8、14）", () => {
             }
         });
     }
+
+    it("同一个新的上游身份的两次注册同时回调（每一步排在一起跑）：恰好一个建出账号，输的一边是 email_taken，不扣码、没有会话", async () => {
+        const timers = new ManualTimers();
+        const target = await socialIdentity("social-register-same-identity-race", {}, timers);
+        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+        upstream.setUser("google", googleUser("g-twice"));
+        const flows = [await startedSocial(await startRegister(target, "google", {username: "first"})), await startedSocial(await startRegister(target, "google", {username: "second"}))];
+        const callbacks = [await upstreamCallback(flows[0]!), await upstreamCallback(flows[1]!)];
+        const held = [];
+        const opened: Promise<Response>[] = [];
+        for (const [index, flow] of flows.entries()) {
+            const token = upstream.holdToken("google");
+            opened.push(openCallback(target, callbacks[index]!, flow.stateCookie));
+            await token.arrived;
+            held.push(token);
+        }
+        const gate = await holdQueue(target);
+        await gate.started;
+        held[0]!.release();
+        await waitUntil("先放的那一个的第一步排上", () => timers.pending === 1);
+        held[1]!.release();
+        const [won, lost] = await lockstep(target, timers, gate, opened);
+
+        expect({
+            won: {...landing(won!), session: hasSessionCookie(won!)},
+            lost: {...landing(lost!), session: hasSessionCookie(lost!)},
+        }).toEqual({
+            won: {status: 302, path: "/", socialError: null, session: true},
+            lost: {...rejected("email_taken"), session: false},
+        });
+        expect({users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({users: ["first"], used: 1});
+    });
 });
 
 describe("回调的查询串（输出 13 的回调一步）", () => {

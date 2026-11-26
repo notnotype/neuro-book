@@ -216,11 +216,97 @@ function filterUserInfo(claims: Readonly<Record<string, unknown>>): Record<strin
     return kept;
 }
 
+/** `WWW-Authenticate` 里的一个质询（RFC 7235 第 4.1 节）：方案名与它的参数，参数保留库写的原文（`name=value` 或 `name="…"`）。 */
+interface Challenge {
+    readonly scheme: string;
+    readonly params: string[];
+}
+
+/** RFC 7230 的 token 字符。 */
+const TOKEN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+const AUTH_PARAM = new RegExp(`^(${TOKEN})\\s*=\\s*(?:${TOKEN}|"(?:[^"\\\\]|\\\\.)*")$`, "u");
+const CHALLENGE_START = new RegExp(`^(${TOKEN})(?:\\s+(.+))?$`, "su");
+
 /**
- * 用户信息端点：交库，200 的 JSON 按 `filterUserInfo` 滤过再回；401 没有 `WWW-Authenticate` 时补上 `Bearer`（失败与恢复一节的
- * RFC 6750；库 1.7.27 都带着，补的一步防库改了这一处）。都不许缓存：回答里有令牌换来的资料。
+ * 按 RFC 7235 的结构拆 `WWW-Authenticate`：逗号既分质询也分参数，所以先在引号之外按逗号切开，再看每一段是参数（`name=value`，
+ * 归前一个质询）还是新质询的开头（方案名，后面可以跟着它的第一个参数）。有一段两样都不是（例如 token68 写法、引号没闭合）时
+ * 回 null，由调用方按认不出处理。
  */
-function userInfoEndpoint(auth: IdentityAuth): Handler {
+function parseChallenges(header: string): Challenge[] | null {
+    const parts: string[] = [];
+    let current = "";
+    let quoted = false;
+    let escaped = false;
+    for (const char of header) {
+        if (escaped) escaped = false;
+        else if (quoted && char === "\\") escaped = true;
+        else if (char === '"') quoted = !quoted;
+        else if (char === "," && !quoted) {
+            parts.push(current);
+            current = "";
+            continue;
+        }
+        current += char;
+    }
+    if (quoted) return null;
+    parts.push(current);
+
+    const challenges: Challenge[] = [];
+    for (const raw of parts) {
+        const part = raw.trim();
+        // RFC 7230 的列表写法允许空的元素（`Bearer, , DPoP`）。
+        if (part === "") continue;
+        if (AUTH_PARAM.test(part)) {
+            const last = challenges.at(-1);
+            if (last === undefined) return null;
+            last.params.push(part);
+            continue;
+        }
+        const start = CHALLENGE_START.exec(part);
+        if (start === null) return null;
+        const [, scheme, first] = start;
+        if (first !== undefined && !AUTH_PARAM.test(first.trim())) return null;
+        challenges.push({scheme: scheme!, params: first === undefined ? [] : [first.trim()]});
+    }
+    return challenges;
+}
+
+/** RFC 6750 第 3.1 节的错误码：DPoP 质询里的 `error` 只有这几个能原样挪进 `Bearer` 质询。 */
+const BEARER_ERRORS: ReadonlySet<string> = new Set(["invalid_request", "invalid_token", "insufficient_scope"]);
+
+/**
+ * 用户信息 401 的 `WWW-Authenticate` 只留 `Bearer` 质询（失败与恢复一节；目标与非目标：不支持 DPoP 绑定的令牌，不能对外宣告
+ * DPoP）。库 1.7.27 对不带令牌的请求给 `Bearer, DPoP algs="…"`，对以 `DPoP` 方案带令牌的请求只给 `DPoP error="…", …` 质询
+ * （升级清单“用户信息的字段”一行）。有 `Bearer` 质询时原样留它和它的参数（`error`、`error_description`）；没有时补一个，从被
+ * 去掉的质询里挪 RFC 6750 的 `error` 与它的 `error_description`。认不出结构时只给 `Bearer`、记一行 warn。
+ */
+function bearerChallengeOnly(header: string, log: OAuthMountOptions["log"]): string {
+    const challenges = parseChallenges(header);
+    if (challenges === null) {
+        log.warn("identity.oauth_userinfo_challenge_unparsed", "the library's WWW-Authenticate on userinfo could not be parsed; answering with a bare Bearer challenge", {});
+        return "Bearer";
+    }
+    const bearer = challenges.find((challenge) => challenge.scheme.toLowerCase() === "bearer");
+    if (bearer !== undefined) return [bearer.scheme, bearer.params.join(", ")].filter((piece) => piece !== "").join(" ");
+    const borrowed = challenges.map((challenge) => challenge.params).find((params) => params.some((param) => BEARER_ERRORS.has(paramValue(param, "error") ?? "")));
+    const kept = borrowed?.filter((param) => paramValue(param, "error") !== null || paramValue(param, "error_description") !== null) ?? [];
+    return kept.length === 0 ? "Bearer" : `Bearer ${kept.join(", ")}`;
+}
+
+/** 参数原文是 `name` 时回它的值（去掉引号与转义）；名字不同时为 null。 */
+function paramValue(param: string, name: string): string | null {
+    const match = AUTH_PARAM.exec(param);
+    if (match === null || match[1]!.toLowerCase() !== name) return null;
+    const value = param.slice(param.indexOf("=") + 1).trim();
+    return value.startsWith('"') ? value.slice(1, -1).replaceAll(/\\(.)/gsu, "$1") : value;
+}
+
+/**
+ * 用户信息端点：交库，200 的 JSON 按 `filterUserInfo` 滤过再回；401 的 `WWW-Authenticate` 只留 `Bearer` 质询（`bearerChallengeOnly`），
+ * 库没给这个头时补上 `Bearer`（失败与恢复一节的 RFC 6750；库 1.7.27 都带着，补的一步防库改了这一处）。都不许缓存：回答里有令牌
+ * 换来的资料。
+ */
+function userInfoEndpoint(auth: IdentityAuth, log: OAuthMountOptions["log"]): Handler {
     return async (c) => {
         const response = await auth.handler(c.req.raw);
         if (response.status === 200) {
@@ -233,7 +319,7 @@ function userInfoEndpoint(auth: IdentityAuth): Handler {
             return new Response(JSON.stringify(filterUserInfo(body as Record<string, unknown>)), {status: 200, headers});
         }
         const answer = noStore(response);
-        if (response.status === 401 && !answer.headers.has("www-authenticate")) answer.headers.set("WWW-Authenticate", "Bearer");
+        if (response.status === 401) answer.headers.set("WWW-Authenticate", bearerChallengeOnly(answer.headers.get("www-authenticate") ?? "Bearer", log));
         return answer;
     };
 }
@@ -328,7 +414,7 @@ export function createOAuthApp(options: OAuthMountOptions): Hono {
     const handlers = {
         "/oauth2/authorize": authorizeEndpoint(options),
         "/oauth2/token": tokenEndpoint(auth, log),
-        "/oauth2/userinfo": userInfoEndpoint(auth),
+        "/oauth2/userinfo": userInfoEndpoint(auth, log),
         "/oauth2/revoke": revokeEndpoint(auth),
         "/jwks": jwksEndpoint(auth),
         "/callback/:id": callbackEndpoint(options.social),

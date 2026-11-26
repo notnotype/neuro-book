@@ -1,7 +1,7 @@
 /**
  * 对外 OAuth 的令牌随账号失效、已给的授权与重启的黑盒合同（docs/specs/site/oauth-provider.md）：起真实的 `nb-site` 进程，扮演接入的
  * 第三方应用（`testing/oauth-client.ts`），只经 HTTP 看它。覆盖输出 8 的每一项（封禁、改角色、管理员重置密码、管理员结束全部会话、
- * 自己改密码、登出、结束单个会话、会话到期加 `purge`、撤销授权、停用客户端与再启用）、输出 15、输出 17 与时序一节的重启；验收 3、
+ * 自己改密码、登出、结束单个会话、会话到期加 `purge`、撤销授权、停用客户端与再启用）、输出 15、输出 17、副作用一节的撤销不写审计与时序一节的重启；验收 3、
  * 5、9、10、16、17、19，验收 22 的改密码那半；`site.admin` 输出 2、3、4 与结束全部会话的 OAuth 那一半。
  *
  * “失效”按 Spec 看两样：访问令牌调用户信息得 401，没用掉的授权码换码得 `invalid_grant`。每条另带一个不受影响的对照（别的会话、
@@ -19,6 +19,7 @@ import {beforeAll, describe, expect, it} from "bun:test";
 import {Value} from "typebox/value";
 
 import {
+    AuditListResponse,
     GrantListResponse,
     IDENTITY_PATHS,
     identityPath,
@@ -33,8 +34,9 @@ import {
 } from "@notnotype/nb-site-identity-contract";
 
 import {cookieJar, createAdmin, IDENTITY_SITE_ENV, identityRequest, login, SITE_ORIGIN, type CookieJar} from "./testing/identity";
-import {authorizationRequest, exchangeCode, fetchUserInfo, registerOAuthClient, siteFetch, step, verifyIdToken, type RegisteredClient, type Step} from "./testing/oauth-client";
-import {useSiteSandbox, type SiteProcess} from "./testing/site";
+import {authorizationRequest, exchangeCode, fetchUserInfo, registerOAuthClient, revokeToken, siteFetch, step, verifyIdToken, type RegisteredClient, type Step} from "./testing/oauth-client";
+import {holdWriteLock} from "./testing/fault";
+import {useSiteSandbox, type CommandResult, type SiteProcess} from "./testing/site";
 
 const sandbox = useSiteSandbox("nb-site-contract-tests oauth-invalidation.test.ts");
 
@@ -192,7 +194,7 @@ describe("令牌随账号失效（输出 8；验收 3、5、9、10、16、17，�
     ];
     for (const [label, action, body] of accountWide) {
         // 超出预算：注册两个账号、再登录一次，各算一次密码哈希。
-        it(`${label}：这个账号两个会话里的令牌都 401、没用掉的码换不出；别的账号照用`, async () => {
+        it(`${label}：这个账号两个会话里的令牌都 401、没用掉的码换不出，已发的 id_token 仍按公钥地址验得过；别的账号照用`, async () => {
             const target = await s.member("target");
             const bystander = await s.member("bystander");
             const otherSession = await s.signIn(target.username);
@@ -204,9 +206,24 @@ describe("令牌随账号失效（输出 8；验收 3、5、9、10、16、17，�
             const acted = await identityRequest(s.site.url, identityPath.adminUserAction(target.id, action), {method: "POST", jar: s.root, from: s.from(), ...(body === undefined ? {} : {body})});
             expect(acted.status).toBe(200);
             expect({first: await outcome(first, code), second: await s.userInfoStatus(second.accessToken)}).toEqual({first: REVOKED, second: 401});
+            // id_token 是签名过的自包含凭据，不随变更失效（输出 8 末句）：签它的钥还列在公钥地址里。
+            expect((await verifyIdToken(s.site.url, first.idToken, `${SITE_ORIGIN}${OAUTH_ENDPOINT_PATHS.jwks}`)).payload.aud).toBe(client.clientId);
             expect(await outcome(unaffected, unaffectedCode)).toEqual(LIVE);
         });
     }
+
+    // 超出预算：注册、解封后的登录各算一次密码哈希。
+    it("封禁再解封：封禁前发出的令牌仍 401、没用掉的码仍换不出；解封后重新登录，新授权照常（site.admin 输出 2 的“不恢复旧令牌”）", async () => {
+        const target = await s.member("unbanned");
+        const before = await s.issue(target.jar, client);
+        const beforeCode = await s.pending(target.jar, client);
+        for (const action of ["ban", "unban"] as const) {
+            expect((await identityRequest(s.site.url, identityPath.adminUserAction(target.id, action), {method: "POST", jar: s.root, from: s.from()})).status).toBe(200);
+        }
+        expect(await outcome(before, beforeCode)).toEqual(REVOKED);
+        const again = await s.signIn(target.username);
+        expect(await s.userInfoStatus((await s.issue(again, client)).accessToken)).toBe(200);
+    });
 
     // 超出预算：注册两个账号，各算一次密码哈希。
     it("账号 A 拿到授权码后被封禁，随后账号 B 登录：A 的那个授权码仍换不出令牌（验收 10）", async () => {
@@ -392,6 +409,38 @@ describe("已给的授权（输出 15、输出 8 的撤销授权；验收 9）",
         await setSkip(false);
         expect((await grantsOf(self.jar)).map((item) => item.id)).toEqual([grant!.id]);
     });
+
+    // 超出预算：注册算一次密码哈希。
+    it("停用的客户端的授权照常列出，id 不变（输出 15）", async () => {
+        const self = await s.member("disabled");
+        const client = await s.register({name: "停用的应用", skipConsent: false});
+        await consentAndIssue(self.jar, client);
+        const before = await grantsOf(self.jar);
+        expect(before.map((item) => item.clientName)).toEqual(["停用的应用"]);
+        expect((await identityRequest(s.site.url, identityPath.adminOAuthClient(client.clientId), {method: "PATCH", jar: s.root, from: s.from(), body: {disabled: true}})).status).toBe(200);
+        expect(await grantsOf(self.jar)).toEqual(before);
+    });
+
+    // 超出预算：注册算一次密码哈希。
+    it("撤销授权、撤销令牌都不写审计记录（副作用与数据）", async () => {
+        const self = await s.member("unaudited");
+        const client = await s.register({skipConsent: false});
+        const granted = await consentAndIssue(self.jar, client);
+        const second = await s.issue(self.jar, client);
+        // 登记客户端写的那条审计在这之前：从这里起只剩撤销。
+        const auditTotal = async () => {
+            const response = await identityRequest(s.site.url, IDENTITY_PATHS.adminAudit, {jar: s.root, from: s.from()});
+            if (response.status !== 200 || !Value.Check(AuditListResponse, response.body)) throw new Error(`listing the audit answered ${String(response.status)}`);
+            return response.body.total;
+        };
+        const before = await auditTotal();
+        expect((await revokeToken(s.site.url, client, second.accessToken)).status).toBe(200);
+        expect(await s.userInfoStatus(second.accessToken)).toBe(401);
+        const [grant] = await grantsOf(self.jar);
+        expect((await revokeGrant(self.jar, grant!.id)).status).toBe(200);
+        expect(await s.userInfoStatus(granted.accessToken)).toBe(401);
+        expect(await auditTotal()).toBe(before);
+    });
 });
 
 describe("会话到期（输出 8 的“到期”，site.accounts 的定时任务 purge）", () => {
@@ -447,4 +496,26 @@ describe("重启（输出 17，验收 19；时序一节的重启）", () => {
         const after = JSON.parse(exchanged.text) as {id_token: string};
         expect((await verifyIdToken(restarted.url, after.id_token, document.jwks_uri)).header.kid).toBe(kid);
     });
+});
+
+describe("第一次启动时建签名钥撞上写锁（输出 17）", () => {
+    // 超出预算：迁移、一次等满写锁上限后失败的启动、再一次启动，各是一个子进程。
+    it("迁移过、还没起过服务的数据目录，库被进程外占着写：serve 以 start_failed 退出；放开后启动，公钥地址列出一把钥", async () => {
+        const dataDir = await sandbox.dataDir();
+        // 迁移只建表，签名钥由第一次启动的账号模块建；迁移之后第一次 serve 要写的就是它。
+        const migrated = await sandbox.run("migrate", {dataDir});
+        expect(migrated.exitCode).toBe(0);
+        const release = holdWriteLock(dataDir, "identity");
+        let failed: CommandResult;
+        try {
+            failed = await sandbox.run("serve", {dataDir, env: IDENTITY_SITE_ENV, timeoutMs: SETUP_TIMEOUT_MS});
+        } finally {
+            release();
+        }
+        expect(failed.exitCode).not.toBe(0);
+        expect(failed.failure?.code).toBe("start_failed");
+        const site = await sandbox.start({dataDir, env: IDENTITY_SITE_ENV});
+        const keys = JSON.parse((await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.jwks)).text) as {keys: unknown[]};
+        expect(keys.keys).toHaveLength(1);
+    }, SETUP_TIMEOUT_MS * 2);
 });

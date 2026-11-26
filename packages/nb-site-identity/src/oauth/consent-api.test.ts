@@ -131,7 +131,7 @@ describe("GET oauth/authorization", () => {
 });
 
 describe("POST oauth/authorization", () => {
-    it("同意带授权码跳回、拒绝带 access_denied 跳回，都带 state 与 iss；同一个标识拒绝后再同意拿到码，再同意一次再发一个码", async () => {
+    it("同意带授权码跳回、拒绝带 access_denied 跳回，都带 state 与 iss；同一个标识拒绝后再同意拿到码，再同意一次再发一个码，前一个不作废，各自只能换一次", async () => {
         const {request} = await consentRequest();
         const denied = await redirectAfter(request, false);
         expect({to: `${denied.origin}${denied.pathname}`, error: denied.searchParams.get("error"), state: denied.searchParams.get("state"), iss: denied.searchParams.get("iss")}).toEqual({
@@ -146,7 +146,13 @@ describe("POST oauth/authorization", () => {
         expect(codes.every((code) => code !== null)).toBe(true);
         expect(codes[0]).not.toBe(codes[1]);
         expect([first.searchParams.get("state"), first.searchParams.get("iss")]).toEqual(["st", TEST_SITE_URL]);
-        expect((await exchange(codes[1]!)).status).toBe(200);
+        // 先换后发的那个，再换先发的那个：再次同意不让前一个作废（输出 14）；各自再换一次都被拒（输出 6）。
+        const results = [];
+        for (const code of [codes[1]!, codes[0]!, codes[1]!, codes[0]!]) {
+            const response = await exchange(code);
+            results.push(response.status === 200 ? "ok" : ((await response.json()) as {error?: unknown}).error);
+        }
+        expect(results).toEqual(["ok", "ok", "invalid_grant", "invalid_grant"]);
     });
 
     it("确认标识不绑定会话：别的账号提交时按提交时的会话算，换出的 id_token 是他的", async () => {

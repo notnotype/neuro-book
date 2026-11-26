@@ -12,7 +12,7 @@ import {ID_TOKEN_SECONDS, LIBRARY_ACCESS_TOKEN_SECONDS, LIBRARY_CODE_SECONDS, LI
 import {libDateMs} from "../db/library-rows";
 import {TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, type TestIdentity} from "../testing/module";
-import {authorize, CONSENTED, decodeJwt, exchange, grantTokens, libraryRequest, registerClient, type TestClient} from "../testing/oauth";
+import {addOAuthUser, authorize, CONSENTED, decodeJwt, exchange, grantTokens, libraryRequest, registerClient, type TestClient} from "../testing/oauth";
 import {clientSecretHash, generateClientSecret} from "./client-secret";
 
 let identity: TestIdentity;
@@ -56,6 +56,23 @@ describe("寿命", () => {
         const {payload} = decodeJwt(tokens.id_token);
         expect((payload.exp as number) - (payload.iat as number)).toBe(ID_TOKEN_SECONDS);
     });
+
+    it("授权码过了 10 分钟换码得 invalid_grant，差一秒满 10 分钟的照常换出（输出 6）", async () => {
+        // 库按系统时间判码过期，拨不到；拨的是模块的时钟，过期的码由清理任务按它删掉（`revoke.ts` 的 `purgeExpiredOAuthRows`），
+        // 删掉之后库查不到这个码，回 invalid_grant。模块的时钟按发码前后的系统时间设：库写下的到期时刻在这两个时刻各加 10 分钟之间。
+        const purge = identity.jobs.find((job) => job.name === "purge")!;
+        const before = Date.now();
+        const early = await authorize(identity, cookie, client);
+        const late = await authorize(identity, cookie, client);
+        const after = Date.now();
+        identity.clock.set(before + LIBRARY_CODE_SECONDS * 1000 - 1000);
+        await purge.run();
+        expect((await exchange(identity, client, early)).status).toBe(200);
+        identity.clock.set(after + LIBRARY_CODE_SECONDS * 1000 + 1000);
+        await purge.run();
+        const expired = await exchange(identity, client, late);
+        expect({status: expired.status, error: ((await expired.json()) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_grant"});
+    });
 });
 
 describe("客户端密钥", () => {
@@ -78,6 +95,19 @@ describe("客户端密钥", () => {
         const old = await exchange(identity, client, await authorize(identity, cookie, client));
         expect(old.status).toBe(401);
         expect(await old.json()).toMatchObject({error: "invalid_client"});
+    });
+});
+
+describe("访问令牌的存法", () => {
+    it("只存摘要：库文件里访问令牌那张表的每一列都不含发出去的令牌，令牌照常可用（副作用与数据）", async () => {
+        // 用户信息要读资料行，`addUser` 不写它。
+        const {cookie: bobCookie} = await identity.issue(await addOAuthUser(identity, "bob", CONSENTED));
+        const {access_token: accessToken} = await grantTokens(identity, bobCookie, client);
+        // 从库文件另开一条连接读：看的是落在盘上的样子。
+        const rows = identity.root.openOther().query<Record<string, unknown>, []>(`SELECT * FROM "oauthAccessToken"`).all();
+        expect(rows).toHaveLength(1);
+        expect(Object.entries(rows[0]!).filter(([, value]) => String(value).includes(accessToken)).map(([column]) => column)).toEqual([]);
+        expect((await libraryRequest(identity, "/oauth2/userinfo", {headers: {authorization: `Bearer ${accessToken}`}})).status).toBe(200);
     });
 });
 

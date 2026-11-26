@@ -81,6 +81,24 @@ describe("启动时备好签名钥", () => {
         expect(again.log.lines.filter((line) => line.event === "identity.signing_key_rotated")).toEqual([]);
     });
 
+    it("私钥加密存放：库文件里那一列读不出 JWK，也不含公钥的模数（副作用与数据）", async () => {
+        const identity = await start();
+        const [publicKey] = await publicKeys(identity);
+        // 从库文件另开一条连接读：看的是落在盘上的样子。
+        const stored = first!.root.openOther().query<{privateKey: string}, []>(`SELECT "privateKey" FROM "jwks"`).all();
+        expect(stored).toHaveLength(1);
+        const text = stored[0]!.privateKey;
+        // 明文的 RSA 私钥 JWK 带着与公钥相同的 n，另有私钥的 d；加密之后两样都看不到。
+        let parsed: unknown = null;
+        try {
+            parsed = JSON.parse(text);
+        } catch {
+            // 不是 JSON 也是“不是明文 JWK”。
+        }
+        const asJwk = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+        expect({hasD: "d" in asJwk, hasKty: "kty" in asJwk, containsModulus: text.includes(String(publicKey!.n))}).toEqual({hasD: false, hasKty: false, containsModulus: false});
+    });
+
     it("表里有一把别的算法的钥匙时启动失败，表不变", async () => {
         const identity = await start();
         // 照库自己建钥的路子放进一把 EdDSA 钥（库只配 EdDSA 时就是这样建的）。它比 RS256 那把新：不拒绝时库挑签名钥退回“最新的

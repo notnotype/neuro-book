@@ -265,6 +265,18 @@ describe("社交登录", () => {
         }
     });
 
+    it("回调地址带空的 error：当作没带，照常登录（输出 23）", async () => {
+        const target = await socialIdentity("social-login-empty-error");
+        const userId = await target.addUser("alice", CONSENTED);
+        await insertSocialAccount(target, userId, "google", ALICE.sub);
+        upstream.setUser("google", ALICE);
+
+        const started = await startedSocial(await startSocial(target, "google", {intent: "login"}));
+        const callback = await upstreamCallback(started);
+        const response = await openCallback(target, `${callback}&error=`, started.stateCookie);
+        expect({...landing(response), session: hasSessionCookie(response)}).toEqual({status: 302, path: "/", socialError: null, session: true});
+    });
+
     it("带不合格的续接令牌发起：照常发起，成功后落到首页（合格的那条在合同测试，oauth-provider 验收 14）", async () => {
         const target = await socialIdentity("social-login-continue-bad");
         const userId = await target.addUser("alice", CONSENTED);

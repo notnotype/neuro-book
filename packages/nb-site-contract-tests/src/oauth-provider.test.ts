@@ -244,10 +244,85 @@ describe("对外 OAuth 的端点与发现文档（输入表、输出 1、2、6�
         expect((await fetchUserInfo(site.url, accessToken)).status).toBe(200);
     });
 
-    it("令牌端点 17 KB 的表单得 400 invalid_request", async () => {
-        const form = new URLSearchParams({grant_type: "authorization_code", code: "x", code_verifier: "y", redirect_uri: client.redirectUri, padding: "a".repeat(17 * 1024)});
-        const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.token, {method: "POST", headers: {"Content-Type": FORM}, body: form.toString()});
-        expect({status: response.status, body: JSON.parse(response.text) as unknown}).toEqual({status: 400, body: {error: "invalid_request"}});
+    it("令牌端点与授权端点的 POST，17 KB 的表单都得 400 invalid_request（JSON），授权端点不跳转（输出 3、6）", async () => {
+        const token = new URLSearchParams({grant_type: "authorization_code", code: "x", code_verifier: "y", redirect_uri: client.redirectUri, padding: "a".repeat(17 * 1024)});
+        // 授权端点的表单带着合格的客户端与回调地址：超了上限读不到它们，不跳回客户端（输出 3 末句）。
+        const authorize = new URL(authorizationRequest(client, {padding: "a".repeat(17 * 1024)}).url).searchParams;
+        const results = [];
+        for (const [endpoint, form] of [[OAUTH_ENDPOINT_PATHS.token, token], [OAUTH_ENDPOINT_PATHS.authorize, authorize]] as const) {
+            const response = await siteFetch(site.url, endpoint, {method: "POST", headers: {"Content-Type": FORM}, body: form.toString(), jar: admin});
+            results.push({endpoint, status: response.status, location: response.headers.get("location"), body: JSON.parse(response.text) as unknown});
+        }
+        expect(results).toEqual([OAUTH_ENDPOINT_PATHS.token, OAUTH_ENDPOINT_PATHS.authorize].map((endpoint) => ({endpoint, status: 400, location: null, body: {error: "invalid_request"}})));
+    });
+
+    it("授权请求要带 S256 的 PKCE，机密客户端也要：不带 code_challenge、只带一半、方法是 plain，都跳回 invalid_request、不发码（输出 3）", async () => {
+        // 码按 RFC 7636 第 4.4.1 节：要求 PKCE 而请求没带或方法不支持，是 invalid_request。
+        const cases: ReadonlyArray<readonly [label: string, change: (query: URLSearchParams) => void]> = [
+            ["不带 code_challenge 与方法", (query) => {
+                query.delete("code_challenge");
+                query.delete("code_challenge_method");
+            }],
+            ["只带 code_challenge", (query) => query.delete("code_challenge_method")],
+            ["方法是 plain", (query) => query.set("code_challenge_method", "plain")],
+        ];
+        for (const [label, change] of cases) {
+            const request = authorizationRequest(client);
+            const url = new URL(request.url);
+            change(url.searchParams);
+            const answer = await step(site.url, admin, url.href, client);
+            expect({label, ...backAt(answer)}).toEqual({label, kind: "redirect-back", error: "invalid_request", state: request.state, iss: SITE_ORIGIN, code: false, fragment: ""});
+        }
+    });
+
+    it("范围在允许之内：多要 offline_access 或不认得的范围跳回 invalid_scope、不发码（输出 3）", async () => {
+        for (const scope of ["openid offline_access", "openid admin", "openid profile email phone"]) {
+            const request = authorizationRequest(client, {scope});
+            expect({scope, ...backAt(await step(site.url, admin, request.url, client))}).toEqual({scope, kind: "redirect-back", error: "invalid_scope", state: request.state, iss: SITE_ORIGIN, code: false, fragment: ""});
+        }
+    });
+
+    it("换码时 PKCE 校验值不对回 invalid_grant、不发令牌（输出 6）", async () => {
+        const {code, verifier} = await authorizedCode();
+        const wrong = await exchangeCode(site.url, client, code, `${verifier.slice(0, -1)}${verifier.endsWith("A") ? "B" : "A"}`);
+        expect({status: wrong.status, error: (JSON.parse(wrong.text) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_grant"});
+    });
+
+    it("换码不带 PKCE 校验值：不发令牌（输出 6 的“都要带”）", async () => {
+        // 错误码 Spec 只写了“PKCE 不对”的一种；不带校验值的码待定（w00037 t08 晋升前核对 T4），这里只判不发令牌。
+        const {code} = await authorizedCode();
+        const form = new URLSearchParams({grant_type: "authorization_code", code, redirect_uri: client.redirectUri});
+        const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.token, {
+            method: "POST",
+            headers: {"Content-Type": FORM, Authorization: `Basic ${Buffer.from(`${client.clientId}:${client.clientSecret ?? ""}`).toString("base64")}`},
+            body: form.toString(),
+        });
+        expect({status: response.status, accessToken: (JSON.parse(response.text) as {access_token?: unknown}).access_token}).toEqual({status: 400, accessToken: undefined});
+    });
+
+    it("grant_type 不是 authorization_code 回 unsupported_grant_type（失败与恢复）", async () => {
+        for (const grantType of ["client_credentials", "refresh_token", "password"]) {
+            const response = await siteFetch(site.url, OAUTH_ENDPOINT_PATHS.token, {
+                method: "POST",
+                headers: {"Content-Type": FORM, Authorization: `Basic ${Buffer.from(`${client.clientId}:${client.clientSecret ?? ""}`).toString("base64")}`},
+                body: new URLSearchParams({grant_type: grantType, refresh_token: "x", username: "root", password: PASSWORD}).toString(),
+            });
+            expect({grantType, status: response.status, error: (JSON.parse(response.text) as {error?: unknown}).error}).toEqual({grantType, status: 400, error: "unsupported_grant_type"});
+        }
+    });
+
+    it("授权请求不带 nonce 时 id_token 里没有 nonce（输出 11）", async () => {
+        const request = authorizationRequest(client);
+        const url = new URL(request.url);
+        url.searchParams.delete("nonce");
+        const answer = await step(site.url, admin, url.href, client);
+        const code = answer.location.searchParams.get("code");
+        if (answer.kind !== "redirect-back" || code === null) throw new Error(`authorization ended at ${answer.kind}, not back at the client with a code`);
+        const exchanged = await exchangeCode(site.url, client, code, request.verifier);
+        expect(exchanged.status).toBe(200);
+        const document = JSON.parse((await siteFetch(site.url, OIDC_DISCOVERY_PATHS[0])).text) as DiscoveryDocument;
+        const {payload} = await verifyIdToken(site.url, (JSON.parse(exchanged.text) as {id_token: string}).id_token, document.jwks_uri);
+        expect({hasNonce: "nonce" in payload, aud: payload.aud}).toEqual({hasNonce: false, aud: client.clientId});
     });
 });
 
@@ -405,7 +480,7 @@ describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、
     });
 
     // 超出预算：登录算一次密码哈希。
-    it("以表单 POST 发起：跨站 POST 不带会话 Cookie 先被带去登录，经继续地址回到确认、拿到授权码并换出令牌（验收 20 的前半）", async () => {
+    it("以表单 POST 发起：跨站 POST 不带会话 Cookie 先被带去登录，经继续地址回到确认、拿到授权码，走完验收 1 的其余步骤：换令牌、验 id_token、取用户信息，同一个码再换被拒（验收 20 的前半）", async () => {
         const client = await register();
         const authorization = authorizationRequest(client);
         const browser = cookieJar();
@@ -419,7 +494,22 @@ describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、
         const back = await decidedRedirect(browser, paramOf(toConsent, OAUTH_REQUEST_PARAM), true);
         const code = back.searchParams.get("code");
         if (code === null) throw new Error("the consent answer carries no code");
-        expect([back.searchParams.get("state"), (await exchangeCode(site.url, client, code, authorization.verifier)).status]).toEqual([authorization.state, 200]);
+        const exchanged = await exchangeCode(site.url, client, code, authorization.verifier);
+        expect([back.searchParams.get("state"), exchanged.status]).toEqual([authorization.state, 200]);
+        const tokens = JSON.parse(exchanged.text) as {access_token: string; id_token: string};
+        const document = JSON.parse((await siteFetch(site.url, OIDC_DISCOVERY_PATHS[0])).text) as DiscoveryDocument;
+        const {payload} = await verifyIdToken(site.url, tokens.id_token, document.jwks_uri);
+        const info = await fetchUserInfo(site.url, tokens.access_token);
+        expect(info.status).toBe(200);
+        const claims = JSON.parse(info.text) as {sub?: unknown; preferred_username?: unknown};
+        expect({username: claims.preferred_username, idTokenSub: payload.sub, aud: payload.aud, nonce: payload.nonce}).toEqual({
+            username: "root",
+            idTokenSub: claims.sub,
+            aud: client.clientId,
+            nonce: authorization.nonce,
+        });
+        const again = await exchangeCode(site.url, client, code, authorization.verifier);
+        expect({status: again.status, error: (JSON.parse(again.text) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_grant"});
     });
 
     it("带着会话的表单 POST 与 GET 一样到确认页（库不因它是 POST 另查来源）", async () => {
