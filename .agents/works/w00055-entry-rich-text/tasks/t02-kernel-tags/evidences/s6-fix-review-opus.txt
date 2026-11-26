@@ -1,0 +1,124 @@
+# w00055 t02 S6 修正（cc4930729..506123dd5）后端只读审查：Opus
+
+HEAD 核对：worktree 的 HEAD 是 506123dd5。范围内测试：nb-canon rendering.test.ts 105 过；应用 agent-tools.test.ts 与 agent-entry-text.test.ts 18 过。
+
+### 1. 交回文字 10 万字的闸门让一次被拒的写入先在服务端进程里解析近两分钟：实测 99,999 字 112 秒，然后才回“拆成几块”
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-entry-text.ts:55（MAX_SUBMITTED_LENGTH = MAX_BLOCK_LENGTH * 2）、109-118、122-130
+- 现象：O2 的修法是“超过 10 万字不解析，去值后超过 5 万字拒收”。去值前的闸门放了一倍余量，但解析大致按长度的平方变慢，一倍长度就是四倍时间。实测（lab/gate.ts，直接调 agentBlockText，负载约 2.5）：`"*a "` 重复到 99,999 字，agentBlockText 用 112 秒读完、去值，最后回 TOO_LONG。纯解析的数字（lab/perf2.ts）：2 万字 4.0 秒、5 万字 28.8 秒、10 万字 110.6 秒。工具在服务端进程里跑（文件头注释自己写“挡住的是整个服务端”），这两分钟是整个服务端的事件循环，不只是这部作品的项目进程。
+- 为什么是问题：O13 接受的取舍是“项目进程最坏十几分钟”。这里换成了服务端进程，影响面不同。按项算：工具参数 edits 的 maxItems 是 30（agent-tools.ts:114），每项文字没有 maxLength（同文件参数 schema 里只有 title 有）。实际上限是模型一次能输出的长度，一条 10 万字的项就是最坏情形，而这一项最后还是被拒。O2 本来要挡的正是“过了上限的照样先解析完”，按当前闸门只挡住了 10 万字以上的。
+- 如何核实：`bun /tmp/review-w00055-t02-s6fix/lab/gate.ts 99999`；`bun /tmp/review-w00055-t02-s6fix/lab/perf2.ts 100000`。
+- 建议改法：去值能缩短的只有 `<V …>值</V>` 的值和程序加的属性。可以在解析前先用一个线性的上界估计：例如用正则去掉 `<V\b[^>]*>[^<]*</V>` 的内容，或者给值留固定的余量（每个 `<V` 加若干字），按这个估计比 5 万字。或者把余量降到一个小的固定值。不改的话，把“服务端进程最坏约两分钟一次”加进交开发者知悉的取舍（与 O13 并列）。agent-tools 输出 6 的“超过 10 万字的不解析”也要一起改。
+
+### 2. 嵌套层数的数法与 Spec 字面不符：列表每级算两层，段落和行内各占一层；引用 99 层、列表 50 级就被拒收
+- 严重程度：建议；类别：正确性（合同与实现不一致）
+- 位置：packages/nb-canon/src/grammar/check.ts:12-30（MAX_NESTING_DEPTH、nestingDepth）、49；rendering.md 输出 1（第 75 行“语法单元嵌套超过 100 层的（引用套列表、强调套强调各算一层）”）；tests/rendering.test.ts 新用例“单元嵌套超过 100 层拒收……100 层照常”
+- 现象：nestingDepth 数的是单元列表的层数，顶层列表就算第 1 层。所以 n 层引用的深度是 n + 2：段落一层，段落里的行内单元又一层。列表每一级是 list → list_item → 内容，占两层。实测（lab/depth.ts）：引用 98 层深度 100，照常；99 层深度 101，拒收。嵌套列表 34 级深度 70，50 级深度 101，拒收。新用例的标题写“100 层照常”，断言的却是 98 层过、99 层拒，用例按实现的数法写成了。
+- 为什么是问题：Spec 写的是“超过 100 层”且“各算一层”，作者和 Agent 照字面会以为 100 层引用、100 级列表都行。实际的界线是引用 98、列表约 49，诊断里的 “nested more than 100 levels deep” 也对不上他们数的层数。安全余量本身没有问题，问题是合同和实现说的不是同一件事。
+- 如何核实：`bun /tmp/review-w00055-t02-s6fix/lab/depth.ts`。
+- 建议改法：二选一。要么改 Spec 和诊断，写成“单元树超过 100 层（一层引用约占一层，一级列表占两层，段落与行内各占一层）”；要么只在块级容器（blockquote、list_item）和行内容器（strong、em、del、link）上加一。用例标题跟着改成实际的界线。
+
+### 3. 换 `$代号` 的是整块文字，块里原来就有的部分也在内：作者存下的 `$` 开头的 id 会让这一块 Agent 再也改不了；碰巧同名时被改绑到新建的条目
+- 严重程度：建议；类别：正确性（与 O12 同类的改绑）
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-entry-text.ts:131-140（readBlockText 里 `source.includes("$")` 之后的 rewriteEntryIds）；agent-tools.ts:319（writeBlock 对 set 与 replace 都走 agentBlockText，出错的块 verbatim 也一样）
+- 现象：Agent 交回的是整块文字：set 是整段，replace 是 replaceInBlock 换好的整块。rewriteEntryIds 会换掉整块里所有 `$` 开头的 `V entry`、`Ref id`、`ref('…')`，不管这一处是不是 Agent 这次写的。写入检查不查 Ref 的 id 存不存在，作者可以存下 `<Ref id="$foo" />`。复现（lab/mut/nb-canon/tests/lab-dollar.test.ts；作者经 World.publish 写入，Agent 一侧用真实的 renderEntryForAgent、replaceInBlock、agentBlockText）：
+  - 作者存下 `她 <Ref id="$foo" /> 在学院。`。Agent 读到 `…<Ref id="$foo" name="已删除的条目" />…`，只做 replace “学院”→“宿舍”，结果是 `{problem: "主文字里的 $foo 不是这一批前面 create 的代号；新建的条目先 create（key 写代号），再在后面的项里用“$代号”。"}`。这一块以后的 set 和 replace 都这样被拒。
+  - 作者存下 `<If test="ref('$bar')…">`。同一批里 Agent 碰巧 create 了 key=bar，这一块交回后成了 `ref('tmp:bar')`，作者原来写的引用被改绑到新条目，回话里没有任何提示。
+- 为什么是问题：回话在引导 Agent 去 create 一个叫这个代号的条目，照做正好触发第二种改绑。处理记录里 O12 修的就是“原样留着的旧文字不因这次新建了同名的临时 id 被改绑”，这里是同一个问题换成了 `$`。来源只有作者手写（Agent 写的 `$` 进不了存下的文字），所以定为建议。
+- 如何核实：`cd /tmp/review-w00055-t02-s6fix/lab/mut/nb-canon && bun test tests/lab-dollar.test.ts -t LAB`，看 REPLACE 与 VERBATIM 两行。
+- 建议改法：只换、只查这一块当时的文字里没有的那些 `$` 引用。有 `current` 时，先数出当时的带值写法（出错的块是源文）里已有的 `$` id（按 id 计数），交回的文字里多出来的才要求在 keys 里、才换；与当时一样的原样留下。agent-tools 输出 7 补一句“块里原来就有的 `$` 开头的 id 原样留着”。
+
+### 4. 读回核对对主文字“换过”“没换”两种都放行，发现不了“该换的临时 id 没换”；而规范化与换 id 实际是在两份不同的输入上各算一次判定
+- 严重程度：建议；类别：不变量（读回核对）。从代码推断，没有造出走公开入口的失败实例
+- 位置：packages/nb-canon/src/world/entry-edits.ts:1006-1009；packages/nb-canon/src/world/world.ts:477、491、1485（writtenTextOf 的两次调用）；world.ts:1458-1482
+- 现象：
+  - checkPlan 以前只认换过的期望（replaceTextTempIds(expect.value)），现在 `sameJson(got, wanted) || got === swapped`，两种都算对上。一块新写的文字里有这一批新建的 `tmp:x`、发布时却没换（存下的仍是 `tmp:x`），读回照样通过。写入检查不查 Ref 的 id 存不存在（components.md 输出 18），所以读回是这类错误唯一的网，现在这张网对它不起作用了。
+  - 处理记录说规范化与换临时 id“共用同一个判定”。实际上 writtenTextOf 调了两次：normalizeRequestText 里用的是规范化之前的请求（world.ts:1485），replaceRequestTempIds 用的是规范化之后的 input（world.ts:477 先把 input 换成规范化的结果，491 再拿它算）。块一侧按源文比，两次结果一致：原文和旧块不同、规范化后却相同的块，第一次算新写的，第二次算原样，存下的都是旧文字，结果碰巧不受影响。补丁一侧用 unchangedPatches 按内容逐条配对，两次可能错位。例如旧变更的补丁是 [P]，请求是 [P 的非规范写法, P]：第一次配对得 {1}（第 0 条是新写的），第二次在 [P, P] 上配对得 {0}。于是新写的第 0 条不换 id，原样留着的第 1 条反而被换、被改绑。这要直接调 World.publish 并交非规范写法，editEntries 交来的已经规范化过，走不到。
+- 为什么是问题：读回核对存在的意义是防内核自己算错。这次修正正好引入了“两次判定”这种可能各算各的结构，核对却同时放宽了。
+- 如何核实：读上面几行。要造补丁错位的实例，需要一个生效的变更，里面有一条规范写法的补丁，再按上面的形状 publish。
+- 建议改法：
+  - writtenTextOf 只算一次：在 #publish 里用规范化之前的请求（`signed`）算出来，交给 normalizeRequestText 和 replaceRequestTempIds 共用。块按（条目、块 id）记结论，不带源文。
+  - 读回核对改回只认一种：planEntries 定方案时已经知道这一项的值是不是和原来那块相同。给 Expect 加一个“原样”标记，原样的比原文，其余比换过的。
+
+### 5. “原样留着的旧补丁不改绑临时 id”没有用例：去掉 replaceRequestTempIds 里补丁一侧的判定，nb-canon 全部 843 条测试照过
+- 严重程度：建议；类别：测试
+- 位置：packages/nb-canon/src/world/references.ts:301-302（`if (!written.patch(requested, index)) continue;`）；tests/rendering.test.ts 新用例“旧块里存着没新建的临时 id……”只造了初值里的块
+- 现象：O12 的处理记录写“用例覆盖发布、editEntries 与 previewEntries 三个入口”，三个入口用的都是条目初值里的块（init.text）。生效的剧情变更里的补丁（addBlock、set text[块]）原样留着、里面存着别的请求没新建的 `tmp:x`，之后某个请求新建了 `tmp:x`，又改了这条变更的别的部分（标题、加一条补丁），这种情形没有用例。变异：在仓库外的副本（lab/mut/nb-canon）里把 references.ts:302 换成注释，于是所有补丁都换 id，`bun test` 结果是 843 过、0 失败。主工作区 s6-review-mutations.txt 的 M7 “旧块也换临时 id”只覆盖块一侧。
+- 为什么是问题：补丁一侧是这次新加的判定（`written.patch`），也是第 4 条说的可能错位的那一侧，现在完全没有守护。
+- 如何核实：`cd /tmp/review-w00055-t02-s6fix/lab/mut/nb-canon && sed -i 's/                if (!written.patch(requested, index)) continue;/                \/\/ MUTATED/' src/world/references.ts && bun test`（跑完用 lab/references.orig.ts 恢复）。
+- 建议改法：在同一个用例里补一支。先发布一条生效的变更，带 addBlock 补丁，文字里有 `<Ref id="tmp:x" />`，请求里不新建 tmp:x，所以原样存下。再发一个请求，新建 tmp:x，同时改这条变更的标题或加一条别的补丁。断言旧补丁的文字仍是 `tmp:x`，新加的补丁里的 `tmp:x` 换成了正式 id。
+
+### 6. renumbered 的三支只有 `ops[N]` 路径那一支有用例：顶层的 `op`（value-conflict、field-unavailable、incomplete-field、result-mismatch）和 checkPlan 回填的 `problems[].op` 换错了也测不出
+- 严重程度：建议；类别：测试。从代码推断，应用侧没有做变异
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:397-408（renumbered）；agent-tools.test.ts “写主文字的几种组合”里的 numbered 一段
+- 现象：用例让第 2 项在 creative 意图下做 `add`。内核在 planEntries 里回 `problem(1, "op-not-in-intent")`（entry-edits.ts:584、259），失败里只有 `problems[0].path = "ops[1]"`，没有 `op`。所以这条用例只走 renumbered 的 path 替换。另外两支没有用例：
+  - 顶层 `op` 来自 value-conflict、field-unavailable、incomplete-field、result-mismatch（entry-edits.ts:562、616、631、632、943、949、1010）。
+  - `problems[].op` 来自 checkPlan 在 validation-failed 时按 targets 回填的序号（entry-edits.ts:978-992）。
+  这两支错了（例如漏换 `op`），回话会在原样交回的块排在前面时报成前一项。主工作区 s6-review-mutations.txt 的 M2 “不换项号”是整段去掉，盖不到单支。
+- 为什么是问题：value-conflict 和 result-mismatch 恰恰是 Agent 写主文字时最常遇到的两种（读后被改、读回不符），而这两支没有用例。
+- 如何核实：读 renumbered 与上面列的内核出处。变异时把 `...(typeof record.op === "number" ? {op: edit(record.op)} : {})` 删掉，再跑应用的 agent-tools.test.ts。
+- 建议改法：在同一个“几种组合”用例里补一支：第 1 项原样交回 b1，第 2 项 `set` 一个数值字段，带的 read 是旧值（或者在读后让作者改掉那个字段），拿到带 `op` 的 value-conflict，断言回话写“第 2 项”。
+- 补充（更正第 6 条的建议改法）：工具只在写 `text[块]` 的 set 上带 read（agent-tools.ts:482），字段的 set 不带，所以上面说的“set 数值字段带旧值”造不出 value-conflict。能造出来的是这样一批：第 1 项原样交回 b2，被丢掉；第 2 项对 b1 做 replace；第 3 项对 b1 做 set，值取自读到的旧文字。内核在第 2 个操作（下标 1）上回 value-conflict，因为 read 是存下的源文，而草稿里的 b1 已经被第 2 项改过。回话应写“第 3 项”。`problems[].op` 那一支可以让第 2 项写一条会被发布前校验拒收、又对得上 target 的改动，例如 addField 用一个已有的显示名。
+
+### 7. staleSince 把内核 staleRead 的判定抄了一份；取修订失败时静默回空列表；返回值靠 `as unknown as CanonFailure` 硬转
+- 严重程度：建议；类别：代码质量（隐含的耦合）
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:388-394；内核 packages/nb-canon/src/world/entry-edits.ts:1026-1030（staleRead，没有从包入口导出）
+- 现象：注释写“内核 editEntries 比读取戳的同一条规则”，做法是把 `!now.inputDigest.startsWith(wanted.input)`、`inputChanged` 的定义和失败的形状逐字抄进工具。现在两边一致：先后都是请求 id 查重在前（工具的 outcome，agent-tools.ts:778），只在带读取戳时比。但内核以后改规则（例如读取戳的前缀长度、inputChanged 的含义），工具不会跟着改。工具先比、先回话，内核那一份根本走不到，两边不一致时 Agent 看到的是工具这一份，测试也只看得到这一份。另外 `call("revisions")` 失败时 revisions 静默成空列表，回话会少了“之间的修订”，没有任何诊断。
+- 为什么是问题：仓库的禁止清单里有“不用静默的 catch 吞掉错误，至少写一条诊断”。抄一份规则正是“同一件事各写一份”的信号。
+- 如何核实：对照两处代码。
+- 建议改法：nb-canon 从入口导出 staleRead（或者一个只比戳、不带修订的 `readStampChanged(wanted, now)`），工具直接调它。修订取不到时在回话里写一句“之间的修订读不到”，或者走工具已有的诊断出口。返回值按 contracts 里 stale-read 的形状写出类型，不硬转。
+
+### 8. “存下的一侧走内核的规范化、走缓存”在服务端进程里另养了一份分析缓存：按条数封顶（1 万条），实测一块 2 千字约 69 KB，满了约 690 MB
+- 严重程度：建议；类别：性能（内存）
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:481（`sameAsStored(written.source, current.source, normalizeBlockSource)`）；agent-entry-text.ts:144-150；packages/nb-canon/src/render/syntax.ts:166-178（cache、CACHE_LIMIT = 10_000，满了整个清掉）
+- 现象：处理记录说存下的一侧“走内核的规范化（稳定的文字，走缓存）”。工具跑在服务端进程，世界服务在项目子进程，这里的 normalizeBlockSource → analyzeBlock 用的是服务端进程自己那份模块级缓存。改动之前，服务端的工具只调不带缓存的 parseEntryText。服务端进程里没有别的读者会再用这些分析，命中只发生在同一块被反复写的时候。缓存按条数封顶，不看大小：实测（lab/mem.ts）2,041 字的块每条约 69 KB，1 万条约 690 MB；5 万字的块每条要再大二十多倍。缓存满了整个清掉，内存就在 0 到上限之间来回。
+- 为什么是问题：服务端是常驻进程，Agent 每写一块新文字就多留一份解析树。“稳定的文字走缓存”这条理由只在项目进程里成立。
+- 如何核实：`bun /tmp/review-w00055-t02-s6fix/lab/mem.ts`。
+- 建议改法：服务端这一侧不进缓存。可以由世界服务按块渲染时直接给规范化后的源文（render 的 `source` 旁边加一个 `normalized`，或者把 `source` 本身给成规范化以后的）；或者让 nb-canon 导出一个不进缓存的规范化（用 analyzeDraft 那条路）给工具用。
+
+### 9. agentBlockText 的几步先后与内核不同：在没去 BOM、没统一换行的原文上解析去值；先比长度、后换代号
+- 严重程度：建议；类别：正确性（边界）
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-entry-text.ts:122-141
+- 现象：
+  - 内核是先 normalizeEntrySource（去 BOM、CRLF 与 CR 换成 LF）再解析（syntax.ts:235-239）。readBlockText 在原文上解析、去值，规范化留给内核。CR 和 CRLF 的情形实测没有差别：marked 自己会统一换行，lab/crlf.ts 里 6 种写法结果相同。BOM 有差别：`BOM + "    <V of=\"a.b\">3</V>\n\n后"` 在工具这边，BOM 让那一行不算缩进代码，V 被当成活的标签去了值；内核去掉 BOM 以后它是缩进代码块。存下的结果是代码块里的字被改成 `<V of="a.b" />`，而按内核的先后，这段代码会原样保留。
+  - 长度先比、`$代号` 后换（第 130 行，再到 131-140 行）。`$jin` 换成 `tmp:jin` 每处长 3 个字，接近 5 万字的块换完会超过上限。内核的 replaceTextTempIds 遇到超过上限的文字原样返回，不换 id，最后以 block-too-large 拒收。可是换成正式 id（`e12` 这种）以后，这块其实放得下。
+- 为什么是问题：两处都是边角，但改法都只有一行，而且修正本来就是要让工具和内核按同一种读法看文字。
+- 如何核实：`bun /tmp/review-w00055-t02-s6fix/lab/crlf.ts`，看第 3 行的 DIFF。
+- 建议改法：readBlockText 开头先 `normalizeEntrySource(submitted)`（verbatim 时也做，内核反正会做）。长度在换完代号以后再比一次，或者比的时候按“换成正式 id 以后”估计。也可以不改，在注释里写明这两个边角。
+
+## 未发现问题的方面
+- 基线改成按世界对象记在 WeakMap：World 的数据是 deepFreeze 过的，withOptions、probe、next 和发布都新建 World，唯一的原地写入（#rewriteChange 的 tables.changes.set）落在候选表上，不在旧世界上。基线只取决于 data，登记表换了（withOptions）也是新对象。同一个世界对象上的基线不会过期。
+- render/entry.ts 从 world/world.ts 导入值：world.ts 没有经别的模块回到 render/entry（导入 render/entry 的只有 index.ts、schema.ts、service/reads.ts、service/service.ts）。schema.ts 只做 `export type`，浏览器侧的 `/schema` 子路径不会因此带进 world.ts。两种导入顺序实测都能加载，nb-canon `bunx tsc --noEmit` 退出码 0。
+- 层数上限之外的递归：Bun 上 5000、1 万、2 万、24,999 层引用经 analyzeBlock 都不抛。5000 层报层数，1 万层以上报 TOO_DEEP。conditionsOf、meanings 这些在检查之后的递归，在 parse 读得出来的深度上都没有溢出。checkEntryText 的早返回只影响诊断的条数，存下的旧块照出错的块渲染，有用例。
+- 先比读取戳：先后与内核一致，都是请求 id 查重（工具的 outcome）在前，只在带读取戳时比，只写版本号时不比。判定本身也一致（重复的问题见第 7 条）。
+- renumbered 覆盖的字段：内核失败里带操作序号的只有顶层 `op`、`problems[].op`、`problems[].path` 的 `ops[N]` 前缀（entry-edits.ts 全文搜过），没有别的字段带序号（测试缺口见第 6 条）。
+- sameAsStored 的依据：去值对活的、非 malformed 的标签一律用 tagText 写成规范写法，和 canonicalEntryText 一致；值的 JSON 里 `<` 和反引号转义过，不会改变块结构。CR、CRLF 两种换行实测都相同。没有找到“交回原样却判成改了”或“改了却判成原样”的反例（BOM 那种在第 9 条）。
+- `$代号` 的范围与 resolveEntry 一致：create 先登记自己的代号再处理 parent 和 text，后面才 create 的代号这时还不在表里。块里原来就有的 `$` 见第 3 条。
+- 整篇读不会在块中间截断：一块只有整行放得下才给，否则写占位行，room 单调递减。所以完整给出的块都结束在 limit 之前，clip 只会截到占位行或者后面的 origins、history。`text[块]` 分页和 `set` 的 8000 字拒收用的是同一个长度（实际模式的带值写法）。在 set 与 replace 的路径上，没有找到能照不完整的文字整段写回的情形。
+- 同一变更在一个请求里 put 两次：发布时以 id-taken 拒收（world.ts:498），writtenTextOf 按 id 取第一份的问题不会落到存下的数据上。
+- RangeError 的兜底：agentBlockText 包住了解析、去值和换代号三步。sameAsStored 里存下一侧的 normalizeBlockSource 在 readable 里自己接住。
+
+## 各级数量
+阻断 0；重要 0；建议 9（第 1 到 9 条）。第 6 条有一处补充更正。
+
+有效发现：1、2、3、4、5、6、7、8、9
+
+## 位置更正（前面几条的行号有一部分误取自 diff 输出，以这里为准）
+- 第 1 条：agent-entry-text.ts:13（MAX_SUBMITTED_LENGTH）、64-75（agentBlockText）、77-85（readBlockText 到去值后比长度）。
+- 第 2 条：check.ts:47（MAX_NESTING_DEPTH）、50-61（nestingDepth）、168（checkEntryText 的早返回）。
+- 第 3 条：agent-entry-text.ts:86-95（换 `$代号`）；agent-tools.ts:479（writeBlock 调 agentBlockText）。
+- 第 6 条：agent-tools.ts:722-733（renumbered）。内核 result-mismatch 在 entry-edits.ts:1011，不是 1010。checkPlan 回填 `problems[].op` 在 entry-edits.ts:978-992，核对无误。补充里“addField 用已有的显示名”能不能走到 `problems[].op` 那一支，没有核实，只是举例。
+- 第 7 条：agent-tools.ts:713-719（staleSince）。
+- 第 8 条：agent-entry-text.ts:103-105（sameAsStored）；syntax.ts:174-185（cache、CACHE_LIMIT、analyzeBlock），核对无误。补充核对：在 base（cc4930729）的 packages/neuro-book/src 非测试、非 web 代码里搜了 analyzeBlock、normalizeBlockSource、blockProblem、renderEntryFor、renderBlockFor、splitBlocks、stripEntryText、parseEntryText，只有 agent-entry-text.ts 用了不带缓存的 parseEntryText 和 stripEntryText。没搜到服务端进程别处会填这份缓存，结论不变。“5 万字的块每条再大二十多倍”是按 2 千字的实测线性推算的，没有实测。
+- 第 9 条：agent-entry-text.ts:77-96；正文里的“第 130 行”是第 85 行，“131-140 行”是第 86-95 行。
+
+## 按影响排序
+3（唯一会改掉作者原意的：改绑，或者整块再也改不了）> 4（读回核对这张网对“该换没换”失效）> 1（服务端进程一次约两分钟）> 5、6（新判定没有守护）> 8 > 7 > 2 > 9。
+
+## 复核只读
+交回前 worktree `git status --short` 是空的，HEAD 仍是 506123dd5。所有实验都在 /tmp/review-w00055-t02-s6fix/lab/ 里；变异副本 lab/mut/nb-canon 已经恢复成原文件。
+
+## 各级数量（最终）
+阻断 0；重要 0；建议 9。
+
+有效发现：1、2、3、4、5、6、7、8、9

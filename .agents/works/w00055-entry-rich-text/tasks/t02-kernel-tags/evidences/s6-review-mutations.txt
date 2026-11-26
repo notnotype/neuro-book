@@ -34,3 +34,11 @@ R2 不接栈溢出 KILLED
 R3 去值后不比上限 KILLED
 R4 交回的不先比长度 KILLED
 R5 出错的块也去值 SURVIVED（公开入口写不进出错的块，工具测试造不出；只有纯函数用例，记为已知缺口）
+
+## 复审后补的（4eabd2f98）
+Q1 原有的 $ 也当代号 KILLED
+Q2 先读后去 BOM KILLED
+Q3 先比长度再换代号 KILLED
+Q4 补丁一侧也换旧的 KILLED
+Q5 读回总认没换的 KILLED
+Q6 出错块总算有改动 KILLED
