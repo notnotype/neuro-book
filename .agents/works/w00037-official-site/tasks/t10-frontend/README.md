@@ -47,3 +47,10 @@ B1（外壳）已提交（`91322650a`，39 个文件）：路由与守卫、分�
 - 只从合同包导入常量也会把 TypeBox 打进入口，约 14.5 KB（gzip）。先不改：要省就给合同包加一个只放常量的入口，入口体积成问题时再做。
 - `Retry-After` 的日期只认 IMF-fixdate，另两种过时写法按读不懂、退到 30 秒。
 - 给 B2 的：注册接口声明 `handles: ["consent_required"]`（不然统一处理会把注册时没勾同意的人带去同意页）；登录、注册、同意、登出成功后刷新或清掉当前账号；定暗色的稿纸变量；`App.vue` 重试时路由跳转失败的处理。给 B5 的：ECharts 的识别正则现在空过，装上后先补一条“看板块里有”的正向断言。dom 测试用 `data-site-page=<路由名>` 与 `data-site-unavailable`。
+
+B2（稿纸与登录页）已提交（`b1632a9ea`，35 个文件）：`PaperSheet`、`FormStatus`、登录页兼主页、密码登录、`social_error` 在登录页的显示（社交图标在 B3）；`whoami`、`me`、`meta`、`login`、`logout` 进了接口层；Playwright 配置与假接口。主会话看过截图（1440 亮暗、390、`invalid_credentials`），与定稿 `r3/login.webp` 一致，差别是状态行的固定空行（D9）、空表单时登录按钮不可用、格线略深，交前端审查一起看。主会话重跑：类型检查、bun test 53、vitest 40、浏览器场景 8、构建、`governance:check` 都过；实现者 3 条变异都被抓到，并在 Vite 开发服务上用 Playwright 把失败、限流倒计时、`social_error`、成功走了一遍，过渡没卡住。
+- 暗色的稿纸：格线同一种绿、占比 36%（对暗色纸的对比约 1.62，与亮色的 1.64 相当），印章 `#cc4236`（对纸约 3.0，白字约 4.8）；浏览器场景按合成颜色量这三个比值。
+- 与计划的出入（接受）：纸色用 `--bg-panel`（nbook 主题没有 `--bg-app`），有稿纸的页面把 `body` 底色换成纸色；手机断点 560 像素（计划写 480）；`social_error` 里像码的未知值显示通用文案加码，不像码的不回显、按 `social_failed`。
+- 字段错误没用 nb-ui `Field` 的 `error`：它在标签里追加一个读屏用的元素，让控件下面多出 6 像素，表单整体下移 6 到 12 像素，与 `Field.md` 写的“错误不改变版式”矛盾，master 上同样。登录页改用 `Input` 的 `invalid` 加 `aria-describedby` 指向状态行。上游候选：nb-ui 修 `Field`，修好后改回。
+- 假接口只答 `fetch` 请求：Vite 的根是 `src/`，`src/api/core.ts` 在开发服务上的地址是 `/api/core.ts`，原来按 `**/api/**` 拦会把它拦成 404。以后加开发代理时同样会撞，要么改名 `src/api`，要么只代理 `/api/identity/` 与 `/api/telemetry/`。
+- 时钟改成注入的 `SiteClock`；浏览器场景的端口缺省 4360，可用 `NB_SITE_WEB_E2E_PORT` 改。
