@@ -292,6 +292,68 @@ test("聚焦最底下那扇窗的移动把手：它到最上面，焦点还在�
     await expectRect(page, "notes", {x: 50, width: 420});
 });
 
+/** 焦点此刻在哪：底栏按钮 `dock:<窗>`，标题栏按钮 `<窗>/<动作>`，正文 `<窗>/text`，手柄 `chrome:<窗>/<把手>`，分隔线 `sash`；不在页面里的控件上是 `-`。 */
+async function focusedAt(page: Page): Promise<string> {
+    return page.evaluate(() => {
+        const element = document.activeElement as HTMLElement | null;
+        if (element === null || element === document.body) return "-";
+        const chrome = element.closest<HTMLElement>("[data-float-chrome]");
+        if (chrome !== null) return `chrome:${chrome.dataset.floatChrome}/${element.dataset.floatHandle ?? (element.hasAttribute("data-float-move-handle") ? "move" : element.tagName)}`;
+        if (element.dataset.window !== undefined) return `dock:${element.dataset.window}`;
+        if (element.dataset.windowText !== undefined) return `${element.dataset.windowText}/text`;
+        if (element.hasAttribute("data-sash")) return "sash";
+        const titleBar = element.closest<HTMLElement>("[data-window-title]");
+        return titleBar === null ? element.tagName : `${titleBar.dataset.windowTitle}/${element.dataset.windowAction}`;
+    });
+}
+
+/** 按 `count` 次键，记下每一次之后焦点在哪。 */
+async function walkFocus(page: Page, key: "Tab" | "Shift+Tab", count: number): Promise<string[]> {
+    const stops: string[] = [];
+    for (let step = 0; step < count; step += 1) {
+        await page.keyboard.press(key);
+        stops.push(await focusedAt(page));
+    }
+    return stops;
+}
+
+/** 浮动窗正文里的停靠点：标题栏三个按钮、正文；手柄层是缩放角与移动把手。 */
+const bodyStops = (id: string): string[] => [`${id}/minimize`, `${id}/maximize`, `${id}/close`, `${id}/text`];
+const handleStops = (id: string): string[] => [`chrome:${id}/bottom-right`, `chrome:${id}/move`];
+const WINDOWS = ["notes", "calc", "clock", "files"];
+
+test("键盘：从页面起点连按 Tab 走过底栏与每扇窗的正文，再到每扇窗的手柄；焦点进窗的抬升不改次序，Shift+Tab 反着走", async ({page}) => {
+    const forward = [...WINDOWS.map((id) => `dock:${id}`), ...WINDOWS.flatMap(bodyStops), ...WINDOWS.flatMap(handleStops)];
+    expect(await walkFocus(page, "Tab", 5)).toEqual(forward.slice(0, 5));
+    // 焦点进了最底下的 notes，它到了最上面：叠放变了，下面的次序照旧。
+    await expect.poll(async () => (await zOf(page, "notes")) - (await zOf(page, "files"))).toBeGreaterThan(0);
+    expect(await walkFocus(page, "Tab", forward.length - 5)).toEqual(forward.slice(5));
+    // 走完最后一个手柄离开页面，再 Shift+Tab 从最后一个手柄倒着走回底栏。走过页面开头之后去哪是浏览器的事（无头 Chrome 有时直接绕到页面末尾），不断言。
+    expect(await walkFocus(page, "Tab", 1)).toEqual(["-"]);
+    expect(await walkFocus(page, "Shift+Tab", forward.length)).toEqual([...forward].reverse());
+});
+
+test("键盘：先用指针抬升 calc，再从它的正文按 Tab 走到后面的窗与全部手柄；Shift+Tab 走回底栏", async ({page}) => {
+    await text(page, "calc").click();
+    await expect.poll(async () => (await zOf(page, "calc")) - (await zOf(page, "files"))).toBeGreaterThan(0);
+    await expect(text(page, "calc")).toBeFocused();
+    expect(await walkFocus(page, "Tab", 2 * 4 + WINDOWS.length * 2)).toEqual([...bodyStops("clock"), ...bodyStops("files"), ...WINDOWS.flatMap(handleStops)]);
+    await text(page, "calc").click();
+    await expect.poll(async () => (await zOf(page, "calc")) - (await zOf(page, "files"))).toBeGreaterThan(0);
+    expect(await walkFocus(page, "Shift+Tab", 3 + 4 + 4 + 1)).toEqual([...bodyStops("calc").slice(0, 3).reverse(), ...[...bodyStops("notes")].reverse(), ...[...WINDOWS].reverse().map((id) => `dock:${id}`), "-"]);
+});
+
+test("键盘：平铺之后网格接管 Tab（根上有 aria-owns），手柄照样排在所有窗的正文之后，Shift+Tab 反着走", async ({page}) => {
+    await tile(page, "notes", "left");
+    // notes 进了树、外框留在 DOM 末尾：DOM 序与树序不一致，Tab 由网格按树序走。
+    await expect(page.locator("[data-grid-scope]").first()).toHaveAttribute("aria-owns", /.+/u);
+    const floating = WINDOWS.filter((id) => id !== "notes");
+    const forward = ["notes/minimize", "notes/close", "notes/text", "sash", ...WINDOWS.map((id) => `dock:${id}`), ...floating.flatMap(bodyStops), ...floating.flatMap(handleStops)];
+    await action(page, "notes", "untile").focus();
+    expect(await walkFocus(page, "Tab", forward.length)).toEqual(forward);
+    expect(await walkFocus(page, "Shift+Tab", forward.length)).toEqual([...forward].reverse().slice(1).concat("notes/untile"));
+});
+
 test("最大化与还原中途的矩形在两端之间：窗滑过去，不是一帧就到", async ({page}) => {
     // 过渡要真的在跑：时长为 0 时采样不到中间帧，用例会空过。
     await page.emulateMedia({reducedMotion: "no-preference"});

@@ -2001,6 +2001,22 @@ describe("NestedGrid 浮动窗", () => {
         expect(chromeIds(wrapper)).toEqual(["notes", "extra", "clock", "files"]);
     });
 
+    it("抬升不改导航序（输出 101、103）：叠放换了，Tab 不接管；树换位接管时，aria-owns 里窗还按出现的次序", async () => {
+        const wrapper = mountFloats({floats: FOUR, contents: FOUR_CONTENTS});
+        const raised = [...FOUR.slice(1), FOUR[0]];
+        await wrapper.setProps({floats: raised});
+        // DOM 序没变，导航序也没变：浏览器原生的 Tab，根上没有 aria-owns。
+        expect(wrapper.element.getAttribute("aria-owns")).toBeNull();
+        const swapped = createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "b", ref: "b", size: {width: 499, height: 0}},
+            {kind: "leaf", id: "a", ref: "a", size: {width: 500, height: 0}},
+        ]}, {sashSize: SASH});
+        await wrapper.setProps({node: swapped.root(), layout: swapped.layout(CONTAINER)});
+        const idOf = (selector: string) => wrapper.get(selector).attributes("id");
+        const windows = FOUR.flatMap((float) => [idOf(`[data-leaf="${float.id}"]`), idOf(`[data-content="${float.id}"]`)]);
+        expect(wrapper.element.getAttribute("aria-owns")?.split(" ").slice(-windows.length)).toEqual(windows);
+    });
+
     describe("抬升的请求（输出 173）", () => {
         const handlesSlot = ({id, rect}: {id: string; rect: GridRect}) => h(FloatWindowHandles, {key: id, rect, min: {width: 100, height: 60}});
         const inner = createGrid<string>({kind: "leaf", id: "inner", ref: "inner"}, {sashSize: SASH});
