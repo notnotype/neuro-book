@@ -1,4 +1,4 @@
-# t02 实施计划：标签写法与共用解析器（第 3 稿）
+# t02 实施计划：标签写法与共用解析器（第 4 稿）
 
 ## Context
 
@@ -38,6 +38,8 @@
 - `MarkdownSyntax` 加可选的转义规则：写回文字时，文字里会被本模块认成原子开头的写法（条目语法：`<` 紧跟大写字母）前面加 `\`；接进 `codec/render/escape.ts` 的文字转义。这样编辑器写出的“评级 <A 级”是 `评级 \<A 级`，读回不变、内核放行（设计审查第 1 条）。
 - `createMarkdownLanguage` 加选项“不读 frontmatter”：条目语言打开它，开头的 `---…---` 照 Markdown 读（与内核相同），不拆成文件头（设计审查第 11 条）。
 - `./marked` 导出“块级 html 单元是不是只有换行”的判断，core 的读法与内核的写入检查共用（设计审查第 7 条）。
+- `./marked` 导出 `lexAtoms(lexing, source)`：分词并交回每个原子落在哪（所在的词法单元、字段与外层单元，在还原之前找）；原子多于上限时交回没遮罩与个数，内核据此报 `too-many-tags`。
+- 词法器的每个入口都遮罩（omp 设计审查第 2 条）：编解码器的读法在顶层 `lex()` 之后还会对一部分文字调 `blockTokens`、`inlineTokens`，那时原子表已清。不在遮罩的分词里时，这两个入口也先遮罩、分完还原。核心语法的表格读法与写法若按还原后的文字数 `|`、转义原子里的 `|`，一并改（omp 第 4 条），由 S3 的编解码器对照发现。
 - `src/boundary.test.ts` 加一条：`./marked` 运行时只许引 `marked`、`marked-cjk-friendly`、`entities` 与纯文件。
 - Spec：`workspace/markdown-syntaxes.md` 补 `atoms` 的合同。
 
@@ -48,10 +50,10 @@
 - **标签词法** `lexTags(source)`：从左到右扫描，候选是 `<` 或 `</` 加大写开头的名字、后面紧跟空白、`/` 或 `>`（`Map<K, V>` 的 `<K,` 不是候选）；`B`、`BR`、`EM`、`I`、`DEL`、`S`、`STRONG`（不分大小写）不是候选（core 读成 HTML 的强调与换行）。认出一个完整的标签后从它的结尾接着扫，属性值里的 `<` 不另算。属性只认 `名="值"`，值里没有 `"` 与换行，标签不跨行。不完整的候选只占 `<名` 那几个字、之后从名字后面接着扫；名字是内置或登记的标签名、后面跟着 `名="` 的算写坏的标签（`tag-malformed`，代码里与转义的除外，纯文字报 `syntax`），别的是文字。原文里 Unicode 私用区的字也作为原子（这样不用拒收它们）。词法与登记表无关：凡是大写名都认，解析结果可以按源文缓存；判“写坏的标签”时才用登记表。
 - **遮罩**：每个原子换成等长的哨兵（标签用 `<`、私用区的身份字、`>`；私用区的字用一个身份字），交给 marked；候选与私用区的字合计超过 6000 个时拒收（`too-many-tags`）。
 - **预处理**：写入前去掉开头的 BOM、把换行规范成 LF。frontmatter 由编辑器那一侧关掉（条目语言不读 frontmatter，见第 1 节），内核不拆（[编解码器对照](evidences/codec-probe.txt)里开头 `---…---` 的那一例）。
-- **两条 marked 扩展**：行内的 `entryTag`（自闭合标签；`<If>` 在同一段行内找配对的 `</If>`，`ElseIf`、`Else` 切分支，分支用 `inlineTokens` 分词）。块级的 If（各分支独占几行）这一版不做，跨段的 If 拒收。
+- **marked 扩展**：行内的 `entryTag` 把每个完整的标签（自闭合、开、闭、带内容的）认成一个叶子单元。分完以后在同一层的兄弟单元里配对 `If`、`ElseIf`、`Else` 与 `</If>`，换成一个 `entryIf` 单元（omp 设计审查第 3 条：转义的、代码里的闭标签不成单元，不会被当成配对；被强调或链接切开的分支标记落在别的层，按 `cross-block` 报）。套在 `If` 里的 `If` 拒收（`cross-block`）。块级的 If（各分支独占几行）这一版不做，跨段的 If 拒收。
 - **分类** `classify(tokens)`：每个标签一个去处：活的、代码里与转义的字面、链接地址与标题、图片说明、原样 HTML、孤立的 `Else`、没闭合的 `If`。不变量：每个标签要么恰好一次是活的，要么都是字面；不满足按结构错误报行列。
 - **还原**：哨兵逐字换回原文。
-- **表达式** `parseExpression(attributeValue)`：acorn 的 `parseExpressionAt`；用 `onComment` 收注释，有注释即 `forbidden-syntax`；去掉首尾空白后要求表达式从 0 读到末尾；`LogicalExpression` 只放 `&&`、`||`（不放 `??`），`BinaryExpression` 按运算符核对（设计审查第 15 条）。节点表在现有 `check`、`memberReference` 上加 `+ - * / %`、任意操作数的负号、7 个函数名（进保留名）。求值 `evaluate` 从 `render/render.ts` 挪过来扩写：函数与运算按三值逻辑（任一参数未知结果未知，除以 0 与 `percent` 的整体为 0 时未知，`round` 的位数只收整数字面量）。错误的列是属性值在原文里的起点加 acorn 给的位置。
+- **表达式** `parseExpression(attributeValue)`：acorn 的 `parseExpressionAt`；用 `onComment` 收注释，有注释即 `forbidden-syntax`；去掉首尾空白后要求表达式从 0 读到末尾；`LogicalExpression` 只放 `&&`、`||`（不放 `??`），`BinaryExpression` 按运算符核对（设计审查第 15 条）。节点表在现有 `check`、`memberReference` 上加 `+ - * / %`、任意操作数的负号、7 个函数名（只在调用的位置认，不进 `RESERVED_ROOTS`：同名的命名空间照旧可用，omp 第 16 条）。求值 `evaluate` 从 `render/render.ts` 挪过来扩写：函数与运算按三值逻辑（任一参数未知结果未知，除以 0、`% 0` 与 `percent` 的整体为 0 时未知，结果不是有限数时未知，`round` 的位数只收整数字面量；数的字面量要有限，omp 第 20 条）；运算结果按 15 位有效数字去掉二进制的尾差（只用于显示与比较，不存）。错误的列是属性值在原文里的起点加 acorn 给的位置。
 - **地址**：`of="att.态度[e1].称呼"` 沿用 `core/address.ts` 的 `parsePath`。
 - **编辑器侧的条目语法模块**（最小版，在 canon 插件 `web/entry-syntax.ts`）：`atoms` 用 `lexTags`，分词用上面两条扩展（经 `atomAt` 查回原文），转义规则是“`<` 紧跟大写字母”，读成 Tiptap 的原子节点、按原文写回。t03 在它上面加小块的样子与改法。它在本 Task 的用处是对照：同一份语料经 `codecFor(...).read` 读出的条目节点及其落点，与内核的分类逐个相同；`codec.write` 原样与整篇重写写出的文字都能过内核的写入检查。
 - **装饰的值**：程序生成的属性值与登记标签的描述里，`&`、`"`、`<`、`>` 写成实体、换行写成空格（名字、显示名、原因来自作者的数据；设计审查第 3 条）；`V` 的值是 JSON，`<` 写成 `\u003c`。去值整段丢掉它们，不用解码。
@@ -68,7 +70,7 @@
   - `<If test="…" value="true">…<ElseIf test="…" value="false" />…<Else />…</If>`：每个判断带结果（`true`、`false`、`null`），各支里的标签照常带装饰。
   - `<Ref id="e12" name="星瑾" />`；`<Image of="…" alt="…" path="…" />`。
   - 出错的块给原样源文与“出错”标记，带诊断（不变）。
-- **纯文字的渲染**（输出 15）：`reads` 与 `mentions` 按词法得到的全部标签静态地算，活的与字面的都算，`If` 的判断与各分支都算。代码里、转义的、以后新加的不透明容器都吞不掉依赖（t38 的保密关卡）；代价是代码里写着标签时多扣，很少见。值的写法、`problems` 的四种不变，加一种 `unknown-tag`（没登记的标签，不知道读了谁）；写坏的内置或登记标签（含代码里的）报 `syntax`（设计审查第 17 条）。If 判断未知时纯文字写“未知”（同旧三元式）。
+- **纯文字的渲染**（输出 15）：`reads` 与 `mentions` 先按词法得到的全部标签静态地算，活的与字面的都算，`If` 的判断与各分支都算；`mentions` 再并上求值时从值里得到的引用与以引用为键的行（omp 第 7 条）。块里有字面的标签时报 `syntax`（照原文写会把条目 id 给读者，omp 第 9 条）。代码里、转义的、以后新加的不透明容器都吞不掉依赖（t38 的保密关卡）；代价是代码里写着标签时多扣，很少见。值的写法、`problems` 的四种不变，加一种 `unknown-tag`（没登记的标签，不知道读了谁）；写坏的内置或登记标签（含代码里的）报 `syntax`（设计审查第 17 条）。If 判断未知时纯文字写“未知”（同旧三元式）。
 - **删掉** `writeback.ts` 的 `writeBack`、`scanAnnotations`、`annotation` 与 `render.ts` 里的注记写法，`canonWorldContract` 的 `writeBack` 与 `backend/remote.ts` 的转发（产品里没有调用方）。`world/text-blocks.ts` 里同名的文字路由保留。
 - `entry.ts` 的 `splitBlocks` 改用新词法器切顶层单元（公开函数，产品里没有调用方）。
 - Component 的 `agentView`（schema 里的文字字段，没有插件用）照新写法解释。
@@ -116,8 +118,8 @@
 3. **S2 nb-markdown 拆 `./marked`，加 `atoms`、`atomAt`、转义规则与“不读 frontmatter”。** 验证：拆出的配置与 core 语言的词法单元在 nb-markdown 全部语料上逐字相同（独立设计 E3 写成测试）；没有 `atoms` 时编解码语料测试不变；外层分词进行中对另一段文字再分词，两边的原子表互不串；`bun run test`、`typecheck`（nb-markdown）。
 4. **S3 `grammar` 与编辑器侧的条目语法模块。** 验证：独立设计 E2 的 33 个例子做成表驱动测试；E4 的随机对照与 E5 的往返用 fast-check 写成性质测试；编解码器对照写成性质测试（落点相同、写出的文字过写入检查，含编解码器对照里的 frontmatter、表格、`<br>` 几例，列表项与引用里独占一行的 `<br>`，以及“`<` 加大写字母加空白、没有 `>`”的纯文字），放在应用包，跑 `bun run --cwd packages/neuro-book test src/plugins/canon/entry-syntax.test.ts`；生成器包含属性值里的 `<大写名`、名字与显示名里的 `"`、换行、`<`、`>`；遮罩不等长即失败；acorn 的注释、首尾空白、`??` 几例进表驱动测试；“字面不当活的”“分类失败关闭”做变异检查；nb-canon `bun test`、`typecheck`。
 5. **S4 转换器。** 旧的 `parseBlock` 还在，转换器只依赖它；单测覆盖写法对照的每一行与报错的几种。验证：nb-canon `bun test`。
-6. **S5 内核换上新文法，连同数据迁移（一个提交范围）。** 写入检查、求值、三种渲染、删回写；同一范围里用转换器改写样本 JSON 与[调研摘要](evidences/survey.txt)第一节列的测试与 fixture（派 Haiku 跑脚本，转换器报错的逐条人工改）。分开提交时中间那一版的测试过不了（新内核拒收旧写法），所以合成一个范围。验证：`rendering.test.ts` 按新 Spec 重写（真实 `World`）；对 S0 快照逐块对照：`reads`、`mentions`、`problems`、值序列全部相同，三元式只比纯文字，纯文字只许出现读法变化清单里登记过的差异；样本、测试与 fixture 里没有残留的花括号写法（断言）；nb-canon 全部测试、plot 的简报测试照过。
-7. **S6 应用接入。** agent-tools、契约、阅读视图与预览、着色与“插入”、架构测试；删 micromark 链与转换器。验证：见下节。
+6. **S5 内核换上新文法，连同数据迁移（一个提交范围）。** 写入检查、求值、三种渲染、删回写；同一范围里用转换器改写样本 JSON 与[调研摘要](evidences/survey.txt)第一节列的测试与 fixture（派 Haiku 跑脚本，转换器报错的逐条人工改）。分开提交时中间那一版的测试过不了（新内核拒收旧写法），所以合成一个范围。验证：`rendering.test.ts` 按新 Spec 重写（真实 `World`）；对 S0 快照逐块对照：`reads`、`mentions`、`problems`、值序列全部相同，三元式只比纯文字，纯文字只许出现读法变化清单里登记过的差异；样本、测试与 fixture 里没有残留的花括号写法（断言）；nb-canon 全部测试、plot 的简报测试照过。另外（omp 设计审查）：BOM、换行与标签的规范化放在新源文进入候选之前，`publish`、`editInPlace`、`editEntries`、初值与补丁走同一处，候选、预览与读回核对用同一份，`read` 的旧源文不经此路径（第 14 条）；样本适配器把 `V` 的 `entry`、`Ref` 的 `id`、式子里的 `ref('…')` 一起按标签文法重绑，只动活的标签，验收覆盖首次写入就读到正式 id（第 19 条）；`rendering.test.ts` 覆盖两条线与按计划模式的读法（第 23 条）。
+7. **S6 应用接入。** agent-tools、契约、阅读视图与预览、着色与“插入”、架构测试；删 micromark 链与转换器。另外（omp 设计审查）：`render`、`renderSource` 的形状变了，升 canon 远程合同的版本（第 10 条）；交回的块去值后与当前源文相同、又没有别的改动时不发布，回话照常提示改值用 `set`（第 15 条）；预览检查没登记的标签时用条目当前的整个主文字作基线（第 22 条）。验证：见下节。
 
 ## 验收映射
 
