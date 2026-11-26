@@ -697,6 +697,33 @@ describe("输出 14：边缘滚动", () => {
         expect(order).not.toContain("scroll");
     });
 
+    it("最后一步滚到头、下一帧已挑不到容器：先按滚完的位置发布一次再停，指针不动松手照样提交", () => {
+        // 列表还有一步可滚；这一步滚完余量为 0，指针下的行也换了。
+        let room: DragScrollTarget["room"] = ROOM;
+        let zone: Drop = {name: "before", key: "before"};
+        const t = setup({
+            autoScroll: {targets: () => [{
+                rect,
+                room,
+                scrollBy: () => {
+                    room = {...ROOM, down: 0};
+                    zone = {name: "after", key: "after"};
+                    return true;
+                },
+            }]},
+            resolve: () => zone,
+        });
+        t.grab({x: 50, y: 195});
+        t.clock.frame();
+        expect(t.last()?.drop?.name).toBe("before");
+        t.clock.frame();
+        expect(t.last()?.drop?.name).toBe("after");
+        expect(t.clock.pendingFrames).toBe(0);
+        t.gesture.release(1, {x: 50, y: 195});
+        expect(t.commits).toEqual([{drop: {name: "after", key: "after"}, source: "row"}]);
+        expect(t.ends.map(({end}) => end)).toEqual([{kind: "committed"}]);
+    });
+
     it("两个轴各挑各的：里层只横向滚、外层只竖向滚时，角上两个都滚；里层这个方向没余量时交给外层；外层这个轴不让滚时不滚", () => {
         const corner = {x: 390, y: 5};
         const rowRect = {left: 0, right: 400, top: 0, bottom: 34};

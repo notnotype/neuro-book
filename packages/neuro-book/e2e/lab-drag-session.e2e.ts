@@ -252,6 +252,37 @@ test.describe("滚动", () => {
         expect(lines[1]).toBe(`commit:r1->${under}`);
     });
 
+    test("边缘滚动最后一步滚到头、换了指针下的行：停下后指针不动松手，提交滚完时指针下的行", async ({page}) => {
+        await open(page);
+        // 行改成 10px 高，滚动区离底只剩 12px：贴着下边的指针一步就滚到头，这一步把指针下的行换成下一行（14px 的步长被夹成 12px）。
+        await page.addStyleTag({content: "[data-session-scroller] > [data-row] {height: 10px !important; padding: 0 !important; border: 0 !important; font-size: 8px !important; line-height: 10px !important; box-sizing: border-box !important; overflow: hidden;}"});
+        const max = await scroller(page).evaluate((element) => {
+            element.scrollTop = element.scrollHeight - element.clientHeight - 12;
+            return element.scrollHeight - element.clientHeight;
+        });
+        expect(max).toBeGreaterThan(12);
+        const box = await scroller(page).boundingBox();
+        if (box === null) throw new Error("滚动区没有矩形");
+        const start = await center(sourceA(page));
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 4});
+        await expect(sessionRoot(page)).not.toHaveAttribute("data-session-over", "none");
+        const at = {x: box.x + box.width / 2, y: box.y + box.height - 4};
+        await page.mouse.move(at.x, at.y);
+        await expect.poll(() => scroller(page).evaluate((element) => element.scrollTop)).toBe(max);
+        // 等滚动停下：再过几帧，边缘滚动挑不到容器就不再排帧。
+        await page.evaluate(async () => {
+            for (let i = 0; i < 3; i += 1) await new Promise(requestAnimationFrame);
+        });
+        const under = await page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-row]")?.dataset.row ?? null, at);
+        expect(under).not.toBeNull();
+        await expect(sessionRoot(page)).toHaveAttribute("data-session-over", under as string);
+        await page.mouse.up();
+        await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
+        expect(await log(page)).toEqual(["end:committed", `commit:a->${under}`]);
+    });
+
     test("用户自己滚动：撤下落点，这期间放下不写；指针再动恢复（输出 12）", async ({page}) => {
         await open(page);
         await grabTo(page, row(page, "r1"), row(page, "r4"), "r4");

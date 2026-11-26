@@ -385,7 +385,11 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         // 候选每帧现取：指针不动而容器在它底下换了（内容滚动、布局变化），这一帧就换过去。
         const plan = current === null || scroller === undefined ? null : edgeScrollPlan(scroller.targets(current.point), current.point, scroller.edgePx, scroller.maxStepPx);
         if (plan === null) {
+            // 上一帧滚了（`autoScrolling` 为真只在上一帧真的滚动了之后）：那一步的滚动事件在自己滚的期间到、没有重判，
+            // 显示的还是滚之前判的。按滚完的位置发布一次再停，不然指针不动就松手，放下与显示的不同、静默不写。
+            const moved = autoScrolling;
             autoScrolling = false;
+            if (moved) publish();
             return;
         }
         // 先按上一帧滚动后渲染出的内容判，再滚这一帧：虚拟列表在滚动事件之后才补上新进视口的行，同一帧里判会落在空白上。
