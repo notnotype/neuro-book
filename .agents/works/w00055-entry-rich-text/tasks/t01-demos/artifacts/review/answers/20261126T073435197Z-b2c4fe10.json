@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t01-demos",
+    "artifactId": "review",
+    "answerId": "20261126T073435197Z-b2c4fe10",
+    "artifactVersion": 3,
+    "contentHash": "2d8cf9ea2cdea9909aa8cebd2cdcf4dcb6ce987cab11a4dd8849bc8fc102a94d",
+    "submittedAt": "2026-11-26T07:34:35.197Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "ui-route": "both"
+    },
+    "comments": {},
+    "note": "开发者在会话里答“可以”：插件的展示组件都登记成标签、设定组分页改成默认模板，进本 Work；沙箱 JSX 另开 Work"
+}
