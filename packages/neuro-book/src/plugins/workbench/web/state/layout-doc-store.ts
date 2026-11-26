@@ -236,12 +236,15 @@ function defineLayoutDocStore(bound: boolean) {
             const current = doc.value;
             const anchor = regionAnchor(current, "auxiliarybar");
             const container = anchor === null ? null : current.panels[anchor]?.activeContainer ?? null;
-            if (anchor === null || container === null) return null;
+            return anchor === null || container === null ? null : railStateFor(current, anchor, container, railPreview.value);
+        });
+        /** 右栏的 `container` 是当前容器时右轨生效的状态（`railState` 的算法）；`preview` 是轨宽手势的预览，只对当前容器有。 */
+        function railStateFor(current: LayoutDoc, anchor: string, container: string, preview: number | null): RailState {
             const sections = regionSections(current, "auxiliarybar").filter((section) => section.container === container);
             const viewId = sections.length === 1 ? sections[0]?.viewId ?? null : null;
             const bounds = soleRailBounds(current, container);
             const intent = current.panels[anchor]?.rail?.[container];
-            const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, railPreview.value ?? intent?.width ?? bounds.width));
+            const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, preview ?? intent?.width ?? bounds.width));
             const collapsed: RailState = {container, viewId, bounds, expanded: false, tooNarrow: false, width: SHELL_RAIL_WIDTH, requested};
             const wanted = intent?.expanded === true;
             if (bounds === null || (!wanted && refusedRail.value !== container)) return collapsed;
@@ -250,7 +253,7 @@ function defineLayoutDocStore(bound: boolean) {
             if (!wanted) return collapsed;
             const {budget, limit} = budgeted;
             return {...collapsed, expanded: true, width: budget.width, limit, ...(budget.regionWidth === undefined ? {} : {regionWidth: budget.regionWidth})};
-        });
+        }
         /** 浮动窗里那唯一一个标签的视图段声明；不是单标签的视图窗、视图没声明时是 null。 */
         function floatRailOf(of: LayoutDoc, panel: string): {readonly viewId: string; readonly bounds: ViewRailBounds} | null {
             const tabs = of.panels[panel]?.tabs ?? [];
@@ -735,6 +738,17 @@ function defineLayoutDocStore(bound: boolean) {
                 /** 视图段的范围从哪里读（外壳交进来，见 `railBounds`）。 */
                 acceptRailBounds: (next: (viewId: string) => ViewRailBounds | null): void => {
                     railBounds.value = next;
+                },
+                /**
+                 * 右栏切到 `container` 之后右轨生效的宽（按已提交的文档，同 `railState` 的算法，预算按切过去之后的布局算）：外壳切换容器之前比两端，
+                 * 宽度不同就不画原地滚动，整次切换走布局过渡（输出 50 的“切换容器”）。没有右栏时是收着的宽。
+                 */
+                railWidthOf: (container: string): number => {
+                    const current = doc.value;
+                    const anchor = regionAnchor(current, "auxiliarybar");
+                    if (anchor === null) return SHELL_RAIL_WIDTH;
+                    const switched = current.panels[anchor]?.activeContainer === container ? {ok: true as const, doc: current} : setActiveContainer(current, anchor, container);
+                    return switched.ok ? railStateFor(switched.doc, anchor, container, null).width : SHELL_RAIL_WIDTH;
                 },
                 /**
                  * 右栏这个容器的侧轨展开或收起（输出 50 的“展开”）：只写这一项的 `expanded`，不写回尺寸意图。展开时先按此刻的布局算一次预算，

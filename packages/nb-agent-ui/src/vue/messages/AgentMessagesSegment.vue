@@ -3,7 +3,7 @@
  * “消息”视图借给侧轨的一段（同名 .md）：收着是快切的一列，展开是完整列表；按 `expanded` 换画法，不看宽度。
  *
  * 中段与底段各一个 `Teleport`：给了 `targets` 时送进侧轨的 `main`、`foot`，不给时 `disabled`，按顺序画在组件自己的根里（浮动窗的右边缘、Lab）。
- * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），焦点与滚动位置在搬完后放回去（见下面 `moved`）。
+ * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），焦点与滚动位置在搬完后放回去（见下面 `lastFocus`）。
  */
 import {computed, nextTick, ref, watch} from "vue";
 import {useLayoutExtent} from "@notnotype/nb-layout/vue";
@@ -113,23 +113,36 @@ watch(() => props.expanded, (expanded) => {
 defineExpose({focusSearch});
 
 /**
- * 换位置（侧轨与浮动窗的右边缘之间、侧轨换了元素）时 Vue 用 `insertBefore` 把节点搬过去，浏览器里搬动的节点丢焦点、滚动回到顶（views.md 输出 21：
- * 换位置后视图自己恢复）。搬之前（`pre`，DOM 还在原处）记下焦点与滚过的元素，搬完（`post`）放回去。
+ * 换位置（侧轨与浮动窗的右边缘之间、侧轨换了元素）后视图段自己放回焦点与滚动位置（views.md 输出 21）。浏览器里搬动或拆掉祖先的节点丢焦点、滚动回到顶。
+ * 不能等换位置时再取：右轨的元素在外壳重渲染时就被拆掉，排在这个组件之前，轮到这里时焦点已经落到 body、滚动量读出来是 0。
+ * 所以平时就记：`focusin` 记下最后获得焦点的那一项，`focusout` 之后它还在文档里、焦点去了别处（用户自己挪走）才清掉，被拆掉的不清；
+ * 滚动在捕获阶段记每个滚过的元素。搬完（`post`）焦点落在 body 上时才放回去，焦点已经在别处（命令给了别的地方）时不抢。
  */
-let moved: {readonly focus: HTMLElement | null; readonly scrolls: ReadonlyArray<readonly [HTMLElement, number]>} | null = null;
+let lastFocus: HTMLElement | null = null;
+const scrolled = new Map<HTMLElement, number>();
+const insideSegment = (node: Node | null): boolean => node !== null && [mainRef.value, footRef.value].some((root) => root?.contains(node) === true);
+function onFocusIn(event: FocusEvent): void {
+    if (event.target instanceof HTMLElement) lastFocus = event.target;
+}
+function onFocusOut(event: FocusEvent): void {
+    const left = event.target;
+    queueMicrotask(() => {
+        if (left instanceof HTMLElement && lastFocus === left && left.isConnected && !insideSegment(document.activeElement)) lastFocus = null;
+    });
+}
+function onScroll(event: Event): void {
+    if (!(event.target instanceof HTMLElement)) return;
+    if (event.target.scrollTop > 0) scrolled.set(event.target, event.target.scrollTop);
+    else scrolled.delete(event.target);
+}
 watch(() => props.targets, () => {
-    const roots = [mainRef.value, footRef.value].filter((root): root is HTMLElement => root !== null);
-    const active = document.activeElement;
-    const focus = active instanceof HTMLElement && roots.some((root) => root.contains(active)) ? active : null;
-    const scrolls = roots.flatMap((root) => [root, ...root.querySelectorAll<HTMLElement>("*")]).filter((element) => element.scrollTop > 0).map((element) => [element, element.scrollTop] as const);
-    moved = {focus, scrolls};
-}, {flush: "pre"});
-watch(() => props.targets, () => {
-    const saved = moved;
-    moved = null;
-    if (saved === null) return;
-    for (const [element, top] of saved.scrolls) if (element.isConnected) element.scrollTop = top;
-    if (saved.focus?.isConnected === true && document.activeElement !== saved.focus) saved.focus.focus({preventScroll: true});
+    for (const [element, top] of scrolled) {
+        if (!element.isConnected) scrolled.delete(element);
+        else if (element.scrollTop !== top) element.scrollTop = top;
+    }
+    const focus = lastFocus;
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (focus?.isConnected === true && insideSegment(focus) && lost) focus.focus({preventScroll: true});
 }, {flush: "post"});
 
 const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
@@ -141,6 +154,9 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
             <div
                 ref="mainRef"
                 class="acv-segment__main"
+                @focusin="onFocusIn"
+                @focusout="onFocusOut"
+                @scroll.capture="onScroll"
                 :class="`acv-segment__main--${state}`"
                 data-messages-segment
                 :data-messages-segment-state="state"
@@ -214,7 +230,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
             </div>
         </Teleport>
         <Teleport :to="props.targets?.foot ?? 'body'" :disabled="props.targets === null">
-            <div ref="footRef" class="acv-segment__foot">
+            <div ref="footRef" class="acv-segment__foot" @focusin="onFocusIn" @focusout="onFocusOut">
                 <Tooltip :text="t('messages.allBots')" :side="props.tooltipSide">
                     <button
                         type="button"

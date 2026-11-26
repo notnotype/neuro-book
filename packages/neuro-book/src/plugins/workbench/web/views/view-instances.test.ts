@@ -156,6 +156,20 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         expect(viewRailOf(instances.contextOf("test.plain")!)).toBeNull();
     });
 
+    it("浮动窗的位置：宽与“窗口太窄”都相同时不换引用（视图的 watch 不重跑），任一项变了就换（workbench-layout 输出 51）", async () => {
+        const {instances} = railInstances();
+        await ready(instances, "test.rail");
+        const control = instances.railOf("test.rail")!;
+        control.setPlacement({kind: "window", width: 260, tooNarrow: false});
+        const first = control.rail.placement.value;
+        control.setPlacement({kind: "window", width: 260, tooNarrow: false});
+        expect(control.rail.placement.value).toBe(first);
+        control.setPlacement({kind: "window", width: 260, tooNarrow: true});
+        expect(control.rail.placement.value).toEqual({kind: "window", width: 260, tooNarrow: true});
+        control.setPlacement({kind: "window", width: 300, tooNarrow: true});
+        expect(control.rail.placement.value).toEqual({kind: "window", width: 300, tooNarrow: true});
+    });
+
     it("渲染出错时旧的那份立即收成 none；重试渲染换一代、换一份新的、请求一律 revoked、不再转给外壳", async () => {
         const {instances, requested} = railInstances();
         await ready(instances, "test.rail");
