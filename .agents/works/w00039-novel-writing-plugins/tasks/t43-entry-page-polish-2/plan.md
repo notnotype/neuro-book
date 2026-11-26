@@ -11,7 +11,7 @@
 ## 技术选型
 
 - 分页切换的过渡：Vue `Transition`（`mode="out-in"`）加 CSS 位移与透明度，时长与缓动取 nb-ui 的动效令牌。否决 View Transitions（`element.startViewTransition` 只有 Chrome 147 以上有，且整页快照会盖住浮层，modern-web-guidance 的 `scoped-component-transitions`）。
-- 滚动条预留：`scrollbar-gutter: stable`（nb-ui 已有 `.nb-ui-scrollbar-stable`），Baseline 2024-12，桌面壳是 Chromium。否决 `OverlayScrollbar`（要给编辑区每个页面挂一个自绘滑块，只为预留宽度不值）。
+- 滚动条：编辑区的页面宿主挂 nb-ui `OverlayScrollbar`（同工作台视图），原生滚动条不画、不占宽度。实施中改的：原定 `scrollbar-gutter: stable`，S2 的 e2e 里剧情的“谁知道什么”在 1440 宽、两侧栏都开时掉成窄版（编辑区 643 像素，预留的滚动条位置让它小于表格要的 640），预留宽度会让每个页面一直少十来像素。
 - 原始数据的显示：应用已有的 `JsonViewer`（`packages/neuro-book/src/ui/`，折叠、等宽、只读）。
 - 添加设定组的浮层：nb-ui `Popover` 加 `Input` 与列表，照“弹出列表的共同合同”；不加拼音搜索的依赖。
 
@@ -46,7 +46,8 @@
 
 ### 编辑区的滚动容器（`editor/web/components/EditorGroup.vue`）
 
-- 页面宿主（`[data-editor-page]`）加 `.nb-ui-scrollbar-stable`。所有页面标签共用这一层，宽度不再随滚动条出现与否变。`EditorGroup.md` 记一句。
+- 页面宿主（`[data-editor-page]`）外面包一层定位的容器，旁边挂 `OverlayScrollbar`（实施中由预留滚动条位置改来，见技术选型）。所有页面标签共用这一层，宽度不再随滚动条出现与否变。`EditorGroup.md` 记一句。
+- 顺带修的 nb-ui `Tooltip`：提示本身不接指针，但 reka 在外面包的定位层照样接，盖住底下能点的东西，指针停在上面还让提示一直开着（S3 的 e2e 里活动栏“设定”的提示盖住了树第一行的箭头）。`styles.css` 给包着提示的那一层也写 `pointer-events: none`。
 
 ### 面板分页（`canon/web/components/PanelView.vue`、`PanelDataView.vue`）
 
@@ -69,8 +70,8 @@
 
 - 设定组分页（`data:` 开头的）内容右上角一个 `SegmentedControl`：“卡片 | 给 AI 看 | 原始数据”，缺省卡片；换分页回到卡片。文字、经历、情节分页不出。
 - **给 AI 看**：把 `canon/backend/agent-text.ts` 里不碰世界的几个函数（`fieldsText`、`kindText`、`valueText`）挪到 `canon/shared/agent-text.ts`，`fieldsText` 加按命名空间只出一节的参数；后端 `canon_read` 改从 shared 导入（输出不变，`agent-tools.test.ts` 兜底）。前端拿条目页已读到的条目视图与声明调用它，显示成等宽的只读文字，头一行写“在看 第 3 章末尾”。这样两边是同一个函数，不会写出两种样子。
-- **原始数据**：只读，不跟“在看”走，头一行写明“存下来的初值与各章的变更”。两部分：初值（`object({kind:"entry"})` 里这个命名空间的数据与字段声明）；变更（`changes` 筛这个条目、这个命名空间，按安放从旧到新，每页 20 条，“再显示”；每条用 `object({kind:"change"})` 取原样，只留落在这个命名空间下的那几处改动）。都用 `JsonViewer` 显示。
-- 内核：`ChangeFilter` 加 `namespace`（只与 `entry` 同用）：只列在这个条目上改了这个命名空间下的路径的变更（`nb-canon/src/service/reads.ts` 的 `listChanges`，在 `changesOfEntry` 的候选上多筛一层）。没给 `entry` 时给了 `namespace` 得到参数错误。`canon/project.md` 方法表与输出 31 补一句；`project.test` 补用例。
+- **原始数据**：只读，不跟“在看”走，头一行写明“存下来的初值与各章的变更”。两部分：初值（`object({kind:"entry"})` 里这个命名空间的数据与字段声明）；变更（`changes` 筛这个条目、这个命名空间，按安放从旧到新，每页 20 条，“再显示”；每条只留落在这个命名空间下的那几处改动）。都用 `JsonViewer` 显示。实施中改的：`changes` 的每项本来就带存下来的变更原样，不再逐条用 `object` 取；头一行照开发者第 4 条写，改成与“给 AI 看”的“在看：…”对称的一行状态“存下来的原样，不随“在看”变”（先删过，与“头上写明”不符，补回）。
+- 内核：`ChangeFilter` 加 `namespace`（只与 `entry` 同用）：只列在这个条目上改了这个命名空间下的路径的变更（`nb-canon/src/service/reads.ts` 的 `listChanges`，在 `changesOfEntry` 的候选上多筛一层）。没给 `entry` 时给了 `namespace` 得到参数错误。`canon/project.md` 方法表与输出 31 补一句；`project.test` 补用例。实施中改的：失败码表里没有通用的参数错误，为这一处加一个不值得；改成不给 `entry` 时算任何条目上落在这个命名空间下的改动，没有失败的情形。用例在 `nb-canon/tests/author-reads.test.ts`。
 - Spec 新增 author-ui 输出 54“三种视图”（planned）。
 
 ## Spec 与文档改动

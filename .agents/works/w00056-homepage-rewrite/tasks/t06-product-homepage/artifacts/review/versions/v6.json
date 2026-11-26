@@ -1,0 +1,541 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "version": 6,
+    "supersedes": 5,
+    "action": "publish",
+    "kind": "design",
+    "title": "产品介绍首页：分节脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "004d2f62d69e0d0e38427c8f9aeb24a63fc3775c39dcad0fd97009f2bd52258d",
+    "files": [
+        "index.html",
+        "r3/act-one.webp",
+        "r3/hero.webp",
+        "r3/opening-assemble.webp",
+        "r3/opening-gild.webp",
+        "r3/opening-unfold.webp",
+        "r4/act-one.webp",
+        "r4/dive.webp",
+        "r4/hero.webp",
+        "r4/intro.webp",
+        "r4/narrow.webp",
+        "r5/act-one.webp",
+        "r5/dive.webp",
+        "r5/hero.webp",
+        "r5/intro.webp",
+        "r5/narrow.webp",
+        "r5/textures.webp",
+        "r6/act-one.webp",
+        "r6/buttons.webp",
+        "r6/day-narrow.webp",
+        "r6/day.webp",
+        "r6/handoff.webp",
+        "r6/recover.webp",
+        "r6/slips.webp"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "visual",
+                    "label": "照这版出视觉稿"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方向不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "visual"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "e1",
+                    "label": "e1 写长篇小说的工作区，记得住你笔下的整个世界。"
+                },
+                {
+                    "value": "e2",
+                    "label": "e2 把长篇写完：正文、设定与 AI 搭档，在同一个窗口里。"
+                },
+                {
+                    "value": "e3",
+                    "label": "e3 每一个世界，都从一行字开始。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "e1"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一节要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "script-r2",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "prototype",
+                    "label": "照这版做原型"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方向不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "prototype"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "hero-motion",
+            "type": "multi",
+            "label": "首屏动画先做哪几种原型？",
+            "options": [
+                {
+                    "value": "unfold",
+                    "label": "A 书展开成工作台"
+                },
+                {
+                    "value": "gild",
+                    "label": "B 金线勾出工作台"
+                },
+                {
+                    "value": "assemble",
+                    "label": "C 工作台自己搭起来"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "unfold"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "notes-r2",
+            "type": "text",
+            "label": "哪一幕、哪一步要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "opening-r3",
+            "type": "single",
+            "label": "首屏开场留哪一种？",
+            "options": [
+                {
+                    "value": "unfold",
+                    "label": "A 书展开成工作台"
+                },
+                {
+                    "value": "gild",
+                    "label": "B 金线勾出工作台"
+                },
+                {
+                    "value": "assemble",
+                    "label": "C 工作台自己搭起来"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "gild"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 4,
+                "by": null
+            }
+        },
+        {
+            "id": "first-line-r3",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "e3",
+                    "label": "e3 每一个世界，都从一行字开始。"
+                },
+                {
+                    "value": "m2",
+                    "label": "m2 写一部长篇，先摆好一张书桌。"
+                },
+                {
+                    "value": "d5",
+                    "label": "d5 从一行草稿，到一部成书。"
+                },
+                {
+                    "value": "d1",
+                    "label": "d1 写下第一句，世界便有了形状。"
+                },
+                {
+                    "value": "m3",
+                    "label": "m3 你的世界，一章一章长出来。"
+                },
+                {
+                    "value": "m1",
+                    "label": "m1 世界很大，从第一行写起。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "m2"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 4,
+                "by": null
+            }
+        },
+        {
+            "id": "act-one-r3",
+            "type": "single",
+            "label": "第一幕这样演，其余四幕照着做吗？",
+            "options": [
+                {
+                    "value": "continue",
+                    "label": "照这个演法做其余四幕"
+                },
+                {
+                    "value": "revise",
+                    "label": "先改第一幕再往下"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "continue"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 4,
+                "by": null
+            }
+        },
+        {
+            "id": "direction-r4",
+            "type": "single",
+            "label": "首屏照这个方向往下做吗？",
+            "options": [
+                {
+                    "value": "continue",
+                    "label": "照这个方向往下做"
+                },
+                {
+                    "value": "polish",
+                    "label": "方向对，先把首屏的材质再打磨一轮"
+                },
+                {
+                    "value": "switch",
+                    "label": "换方向（备注写想看哪个）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "polish"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "act-one-r4",
+            "type": "single",
+            "label": "第一幕这样跟着一场戏讲，其余几幕照着做吗？",
+            "options": [
+                {
+                    "value": "continue",
+                    "label": "其余几幕照这个讲法"
+                },
+                {
+                    "value": "revise",
+                    "label": "先改第一幕再往下"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "continue"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "first-line-r4",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "m2",
+                    "label": "m2 写一部长篇，先摆好一张书桌。"
+                },
+                {
+                    "value": "e3",
+                    "label": "e3 每一个世界，都从一行字开始。"
+                },
+                {
+                    "value": "d5",
+                    "label": "d5 从一行草稿，到一部成书。"
+                },
+                {
+                    "value": "d1",
+                    "label": "d1 写下第一句，世界便有了形状。"
+                },
+                {
+                    "value": "m3",
+                    "label": "m3 你的世界，一章一章长出来。"
+                },
+                {
+                    "value": "m1",
+                    "label": "m1 世界很大，从第一行写起。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "m2"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "hero-r5",
+            "type": "single",
+            "label": "首屏这样定下来吗？",
+            "options": [
+                {
+                    "value": "done",
+                    "label": "首屏定下来，往下做第二幕"
+                },
+                {
+                    "value": "polish",
+                    "label": "再打磨一轮（备注写哪里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "done"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 5,
+            "outcome": {
+                "kind": "superseded",
+                "in": 6,
+                "by": null
+            }
+        },
+        {
+            "id": "act-one-r5",
+            "type": "single",
+            "label": "第一幕这样讲清楚了吗？其余几幕照着做吗？",
+            "options": [
+                {
+                    "value": "continue",
+                    "label": "其余几幕照这个讲法"
+                },
+                {
+                    "value": "revise",
+                    "label": "先改第一幕（备注写哪里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "continue"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 5,
+            "outcome": {
+                "kind": "superseded",
+                "in": 6,
+                "by": null
+            }
+        },
+        {
+            "id": "act-one-r6",
+            "type": "single",
+            "label": "第一幕的演示这样做稳了吗？其余几幕照着做吗？",
+            "options": [
+                {
+                    "value": "continue",
+                    "label": "其余几幕照这个做法"
+                },
+                {
+                    "value": "revise",
+                    "label": "先改第一幕（备注写哪里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "continue"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "day-r6",
+            "type": "single",
+            "label": "白天这样成立吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "白天这样可以"
+                },
+                {
+                    "value": "revise",
+                    "label": "再改（备注写哪里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "hero-r6",
+            "type": "single",
+            "label": "首屏的纸这样“静中有动”可以吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "首屏这样动可以"
+                },
+                {
+                    "value": "revise",
+                    "label": "再改（备注写哪里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "buttons-r6",
+            "type": "single",
+            "label": "按钮用哪一版？",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 双线金边"
+                },
+                {
+                    "value": "b",
+                    "label": "B 皮面烫金"
+                },
+                {
+                    "value": "c",
+                    "label": "C 书脊签"
+                },
+                {
+                    "value": "d",
+                    "label": "D 封蜡"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "b"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 6,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T14:01:44.060Z"
+}

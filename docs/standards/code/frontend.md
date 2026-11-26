@@ -18,6 +18,7 @@
 - 样式由组件或语义 class 拥有，保持低特异性；动画尊重 reduced motion，文本、焦点环和状态色保持可辨识。
 - 应用的样式入口是 Tailwind v4，层序 `theme, base, components, utilities`，nb-ui 的源码由应用一起编译（写法见 [`packages/neuro-book/src/web/tailwind.css`](../../../packages/neuro-book/src/web/tailwind.css) 与 `packages/nb-ui/src/tailwind.css` 的头注释）。分层的原子类压过 components 层和 nb-ui 的语义类，却会输给不分层的样式：特异性低于一个类的全局规则（reset、`html`/`body`/`*` 上的声明）要放进 `@layer base`，否则它会压过所有原子类。
 - 固定格式控件、面板或网格使用 `min/max`、grid track、`aspect-ratio` 等稳定约束；长文本必须换行或动态收敛，不遮挡相邻内容。
+- scoped 样式里按主题或明暗切换，写 `:root[data-nb-appearance="dark"] .类名`，不写 `:global([data-nb-appearance="dark"]) .类名`：Vue 编译 scoped 样式时只留 `:global()` 括号里的部分，后面的类名被丢掉，规则静默落到根元素上（w00037 t10 B3：暗色下社交图标一直是亮色的图，深色底却画到了 `<html>` 上；只断言“图可见”的用例没抓到，要断言明暗两态各自的计算样式）。
 
 ## 受控视图
 
