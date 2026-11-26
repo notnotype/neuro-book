@@ -1,5 +1,5 @@
 /**
- * 沙箱实机（真 bwrap）：看不到家目录下的东西与用户总线，绑进来的工作目录可写，本机端口连得上，环境变量只有给的那些。
+ * 沙箱实机（真 bwrap）：看不到家目录下的东西、用户总线与调用方要藏的目录，绑进来的工作目录可写，本机端口连得上，环境变量只有给的那些。
  * 只检查路径在不在，不读任何密钥文件的内容。
  */
 
@@ -46,6 +46,18 @@ describe.skipIf(!live)("沙箱实机", () => {
         expect(code).toBe(0);
         expect(out).toContain("host-tmp-hidden");
         expect(await readFile(join(root, "note.txt"), "utf8")).toBe("hello\n");
+    }, 20_000);
+
+    test("调用方给的要藏的目录（不在缺省遮盖范围里）也盖住，旁边的照常看得见；宿主的 /var/tmp 看不到", async () => {
+        // 把家目录的遮盖挪到别处（/usr/share/doc），本目录就在缺省遮盖范围之外，才看得出 hide 有没有起作用。
+        const probe = (hide: string[]) => {
+            const script = `[ -e ${join(import.meta.dir, "sandbox.ts")} ] && echo hidden-visible || echo hidden-absent; [ -e ${join(import.meta.dir, "..", "README.md")} ] && echo sibling-visible || echo sibling-absent; ls -A /var/tmp | wc -l`;
+            const argv = sandboxArgv({command: ["/bin/bash", "-c", script], env: {PATH: "/usr/bin:/bin"}, cwd: "/", hide}, "/usr/share/doc");
+            const child = Bun.spawn(argv, {stdout: "pipe", stderr: "pipe"});
+            return new Response(child.stdout).text().then((out) => out.trim().split("\n"));
+        };
+        expect(await probe([])).toEqual(["hidden-visible", "sibling-visible", "0"]);
+        expect(await probe([import.meta.dir])).toEqual(["hidden-absent", "sibling-visible", "0"]);
     }, 20_000);
 
     test("本机端口连得上；环境变量只有给的那些", async () => {

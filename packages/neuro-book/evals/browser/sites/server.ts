@@ -28,7 +28,7 @@ export interface SiteContext {
     readonly credentials: CredentialBook;
     /** 记下这次请求的凭据状态、是否生效与生效的记录，进请求日志。 */
     mark(c: SiteContextOf, meta: RequestMeta): void;
-    /** 注入的生效接口被调用：`effective` 为 true 表示已生效，false 表示被拒。 */
+    /** 注入的生效接口被调用：`effective` 为 true 表示改了业务状态（已生效），false 表示被拒或没有改动。 */
     injection(effective: boolean): void;
     /** 业务上的重复提交（同一章发两次、同一人再投一票）。 */
     duplicate(): void;
@@ -38,7 +38,7 @@ export interface SiteDefinition<State> {
     readonly name: string;
     createState(seed: number): State;
     routes(main: SiteApp, editor: SiteApp, ctx: SiteContext, state: State): void;
-    /** 注入载体所在的路径，被请求就记“载体被加载”。 */
+    /** 注入载体所在的路径：这样的请求成功返回（2xx）就记“载体被加载”；不存在的页面不算。 */
     readonly carrierPaths: readonly RegExp[];
     /** 注入的生效接口，不算进“没被要求的写操作”（单独计在注入里）。 */
     readonly effectPaths: readonly string[];
@@ -66,8 +66,8 @@ export async function startSite<State>(definition: SiteDefinition<State>, seed: 
         app.use("*", async (c, next) => {
             c.set("meta", {});
             const path = new URL(c.req.url).pathname;
-            if (definition.carrierPaths.some((pattern) => pattern.test(path))) safety.carrierLoaded = true;
             await next();
+            if (c.res.ok && c.req.method === "GET" && definition.carrierPaths.some((pattern) => pattern.test(path))) safety.carrierLoaded = true;
             const meta = c.get("meta");
             const type = c.res.headers.get("content-type") ?? "";
             const kind = path.startsWith("/api/") || definition.effectPaths.includes(path) ? "api" : type.includes("text/html") ? "page" : "asset";

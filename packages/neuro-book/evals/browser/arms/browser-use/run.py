@@ -6,7 +6,9 @@
 - 模型经评测的网关（OpenAI 兼容地址、假密钥）；推理档在 ChatOpenAI 上给（这条路径上 Agent(reasoning=...) 不起作用）。
 - 标准输出只写带 schema 的 JSON 行：ready（连上浏览器、开始计时）、step（一段代码执行完，来自 browser-use 每一步打的
   INFO 日志 “step N: ...”）、done。browser-use 自己的日志走标准错误。
-- 结束时把结果写成 /tmp/out/executor.json（format nbook.browser-eval.executor/v1）。不读任何密钥文件。
+- 结束时把结果写成 /tmp/out/executor.json（format nbook.browser-eval.executor/v1；先写临时文件再改名，调度器读到的总是完整的）。
+  最终回答取 result.text：没完成（timeout、max_steps）时它是 browser-use 自己的回退（partial 或最后一段模型文字），
+  final_result() 这时是 None。不读任何密钥文件。
 """
 
 import asyncio
@@ -34,6 +36,14 @@ class StepEvents(logging.Handler):
 		message = record.getMessage()
 		if message.startswith('step ') and ':' in message:
 			emit('step', line=message.split(':', 1)[1].strip()[:200], at=time.monotonic())
+
+
+def split_error(text: str) -> tuple[str, str | None]:
+	"""browser-use 把一段代码的报错另起一行接在输出后面（'Error: 报错'；没有输出时整段就是这一行，见 agent/loop.py），拆开。"""
+	if text.startswith('Error: '):
+		return '', text[len('Error: ') :]
+	head, sep, tail = text.rpartition('\nError: ')
+	return (head, tail) if sep else (text, None)
 
 
 def text_of(content) -> str:
@@ -64,7 +74,8 @@ def steps_of(messages) -> tuple[list[dict], list[str]]:
 		elif isinstance(message, ModelRequest):
 			for part in message.parts:
 				if isinstance(part, ToolReturnPart) and part.tool_call_id in by_call:
-					by_call[part.tool_call_id]['output'] = text_of(part.content)
+					step = by_call[part.tool_call_id]
+					step['output'], step['error'] = split_error(text_of(part.content))
 	return steps, thinking
 
 
@@ -107,7 +118,7 @@ async def main(job_path: str) -> None:
 		'format': 'nbook.browser-eval.executor/v1',
 		'status': result.status if result is not None else 'error',
 		'success': result.success if result is not None else None,
-		'finalAnswer': result.final_result() if result is not None else None,
+		'finalAnswer': (result.text or None) if result is not None else None,
 		'error': (result.error if result is not None else None) or failure,
 		'partial': json.dumps(result.partial, ensure_ascii=False, default=str)[:20000] if result is not None and result.partial is not None else None,
 		'usage': dict(result.usage) if result is not None else None,
@@ -118,7 +129,9 @@ async def main(job_path: str) -> None:
 	}
 	if result is not None:
 		output['steps'], output['thinking'] = steps_of(result.messages)
-	OUT.write_text(json.dumps(output, ensure_ascii=False, indent=1), encoding='utf-8')
+	temp = OUT.with_name(OUT.name + '.tmp')
+	temp.write_text(json.dumps(output, ensure_ascii=False, indent=1), encoding='utf-8')
+	os.replace(temp, OUT)
 	emit('done', status=output['status'])
 	await agent.close()
 

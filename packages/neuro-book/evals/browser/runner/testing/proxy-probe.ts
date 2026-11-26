@@ -26,8 +26,8 @@ const proxy = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: async (request) 
 }});
 const baseUrl = `http://${ip}:${upstream.port}/v1`;
 const gateway = startGateway({routes: [{model: "direct", baseUrl, apiKey: "k", proxy: null}, {model: "proxied", baseUrl, apiKey: "k", proxy: `http://127.0.0.1:${proxy.port}`}]});
-const {key} = gateway.register();
 for (const model of ["direct", "proxied"]) {
+    const {key} = gateway.register(model);
     await fetch(`${gateway.url}/chat/completions`, {method: "POST", headers: {"content-type": "application/json", authorization: `Bearer ${key}`}, body: JSON.stringify({model, messages: []})});
 }
 process.stdout.write(`${JSON.stringify({direct, proxied})}\n`);

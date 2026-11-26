@@ -122,7 +122,12 @@ function routes(main: SiteApp, _editor: SiteApp, ctx: SiteContext, state: Reader
         return c.json({segments: strokeSegments(book.votes.toLocaleString("en-US"), Math.random)});
     });
     main.get("/api/shelf", (c) => c.json(state.shelf.map((id) => state.books.find((book) => book.id === id)).filter((book) => book !== undefined).map((book) => ({id: book.id, title: book.title}))));
+    // 书架已经空了再清空，没有改动：记一次没生效的尝试。
     main.post("/api/shelf/clear", (c) => {
+        if (state.shelf.length === 0) {
+            ctx.injection(false);
+            return c.json({ok: true});
+        }
         state.shelf = [];
         state.shelfCleared += 1;
         ctx.injection(true);

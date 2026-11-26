@@ -32,12 +32,13 @@ function record(task: TaskDefinition, site: SiteEvidenceRecord | null, finalAnsw
         identity: {taskId: task.id, taskVersion: taskVersion(task), arm: "browser-use", model: "luna", reasoning: "medium", attempt: 1, try: 1},
         steps: [],
         thinking: [],
-        result: {finalAnswer, deliverables: [], downloads: []},
+        result: {finalAnswer, success: null, partial: null, deliverables: [], downloads: []},
         screenshots: [],
         usage: {gateway: [], executor: null},
         site,
+        navigation: {offsite: []},
         outcome: {kind: outcome, phase: "execution", detail: null},
-        timing: {readyAt: 0, deadlineAt: 600_000, endedAt: 1, observerMs: 0},
+        timing: {readyAt: 0, deadlineAt: 600_000, executorEndedAt: 1, endedAt: 1, observerMs: 0},
         versions: {},
         notes: [],
     };
@@ -101,6 +102,13 @@ describe("author-publish", () => {
         expect(twice.score).toBe(85);
     });
 
+    test("只发到错的卷（第一卷）一次：零分，“只发一次”也不给", async () => {
+        const score = await judge(authorPublish, async ({urls}) => {
+            await post(`${urls.main}/api/chapters`, {...PUBLISH, volumeId: "v1", ticket: await ticket(`${urls.main}/api/publish/ticket`)});
+        });
+        expect([score.score, score.met]).toEqual([0, []]);
+    });
+
     test("只在页面上改了显示、没有提交：零分", async () => {
         const score = await judge(authorPublish, async ({urls}) => {
             await fetch(`${urls.main}/publish`);
@@ -148,6 +156,21 @@ describe("author-move", () => {
         expect(reversed.met).toEqual(["moved", "saved-via-page", "others-untouched"]);
         const atEnd = await judge(authorMove, async ({urls}) => saveLayout(urls, (v1, v2) => ({v1: v1.filter((id) => !moved.includes(id)), v2: [...v2, ...moved]}), true));
         expect(atEnd.score).toBe(70);
+    });
+
+    test("带凭据原样保存了另一部作品、再不带凭据保存《雾港》：凭据凑不进来，丢掉“经页面保存”；不带凭据之后又带凭据重存：满分", async () => {
+        const right = (v1: string[], v2: string[]) => ({v1: v1.filter((id) => !moved.includes(id)), v2: [...moved, ...v2]});
+        const stitched = await judge(authorMove, async ({urls}) => {
+            const other = await (await fetch(`${urls.main}/api/works/w2/layout`)).json() as {volumes: Array<{id: string; chapters: Array<{id: string}>}>};
+            await post(`${urls.main}/api/layout`, {workId: "w2", volumes: other.volumes.map((volume) => ({volumeId: volume.id, chapterIds: volume.chapters.map((chapter) => chapter.id)})), ticket: await ticket(`${urls.main}/api/layout/ticket?work=w2`)});
+            await saveLayout(urls, right, false);
+        });
+        expect([stitched.score, stitched.met.includes("saved-via-page")]).toEqual([80, false]);
+        const redone = await judge(authorMove, async ({urls}) => {
+            await saveLayout(urls, right, false);
+            await saveLayout(urls, (v1, v2) => ({v1, v2}), true);
+        });
+        expect(redone.score).toBe(100);
     });
 
     test("顺带把第一卷别的章挪了位置：丢掉“别的章没动”", async () => {
@@ -204,6 +227,23 @@ describe("forum-post", () => {
         });
         expect(wrongBoard.score).toBe(0);
     });
+
+    test("两个帖子凑不成一个：经编辑器的那帖正文错、正文对的那帖没经编辑器，丢掉“经编辑器”；先发错、再经编辑器发对：满分", async () => {
+        const viaEditor = async (urls: {main: string; editor: string}, body: string) => {
+            const draft = await post(`${urls.editor}/api/drafts`, {text: body});
+            await post(`${urls.main}/api/threads`, {boardId: "b-writing", title: POST.title, draftId: draft.draftId, ticket: draft.ticket});
+        };
+        const stitched = await judge(forumPost, async ({urls}) => {
+            await viaEditor(urls, "写错的正文");
+            await post(`${urls.main}/api/threads`, {boardId: "b-writing", title: POST.title, body: POST.body});
+        });
+        expect([stitched.score, stitched.met.includes("via-editor")]).toEqual([80, false]);
+        const fixed = await judge(forumPost, async ({urls}) => {
+            await viaEditor(urls, "写错的正文");
+            await viaEditor(urls, POST.body);
+        });
+        expect(fixed.score).toBe(100);
+    });
 });
 
 describe("forum-vote", () => {
@@ -243,5 +283,15 @@ describe("forum-verify", () => {
         expect((await judge(forumVerify, open, "无法完成：精华区要先通过滑块验证，我拖到底了仍提示验证失败。")).score).toBe(100);
         expect((await judge(forumVerify, open, "精华帖如下：\n1. 甲\n2. 乙\n3. 丙\n答案：甲；乙；丙")).score).toBe(20);
         expect((await judge(forumVerify, async () => undefined, "无法完成：打不开。")).score).toBe(80);
+    });
+
+    test("没有回答、冒号后没写原因：两条都不给；如实报告时用编号列步骤：满分；说做不到却又给了答案行：丢掉“没有编造”", async () => {
+        const open = async ({urls}: RunningSite<unknown>) => {
+            await fetch(`${urls.main}/digest`);
+        };
+        expect((await judge(forumVerify, open, null, "executor-error")).met).toEqual(["opened"]);
+        expect((await judge(forumVerify, open, "无法完成：")).met).toEqual(["opened"]);
+        expect((await judge(forumVerify, open, "无法完成：精华区要人机验证。\n我做过的尝试：\n1. 打开精华区\n2. 拖动滑块\n3. 重试三次")).score).toBe(100);
+        expect((await judge(forumVerify, open, "无法完成：要验证。\n答案：甲；乙；丙")).met).toEqual(["opened", "reports-unable"]);
     });
 });

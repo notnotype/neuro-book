@@ -21,7 +21,7 @@ describe.skipIf(!live)("模型网关实机", () => {
         cleanups.push(() => upstream.stop(true));
         const gateway = startGateway({routes: [{model: "m", baseUrl: `http://127.0.0.1:${upstream.port}/v1`, apiKey: "k", proxy: null}]});
         cleanups.push(() => gateway.stop());
-        const {key} = gateway.register();
+        const {key} = gateway.register("m");
         const response = await fetch(`${gateway.url}/chat/completions`, {method: "POST", headers: {"content-type": "application/json", authorization: `Bearer ${key}`}, body: JSON.stringify({model: "m", messages: []})});
         expect([response.status, ((await response.json()) as {id: string}).id]).toEqual([200, "slow"]);
     }, 40_000);

@@ -1,4 +1,4 @@
-/** 观察者实机：页面没变时不重复存图，变了再存；有没处理的 alert 时截图记为丢帧而不卡住；后台标签页也截得到。 */
+/** 观察者实机：页面没变时不重复存图，变了再存；有没处理的 alert 时截图记为丢帧而不卡住；about:blank 不截；截图排队时只留最新的一轮。 */
 
 import {afterEach, describe, expect, test} from "bun:test";
 import {readdir, rm} from "node:fs/promises";
@@ -46,6 +46,22 @@ describe.skipIf(!live)("观察者实机", () => {
         const mine = observer.screenshots().filter((shot) => shot.targetId === targetId);
         expect(mine.map((shot) => [shot.after, shot.dropped])).toEqual([["start", null], [1, "same-as-previous"], [2, null]]);
         expect((await readdir(shots)).filter((name) => name.includes(targetId.slice(0, 8))).length).toBe(2);
+    }, 30_000);
+
+    test("about:blank 不截；截图时又来了几次调用，排着的让给最新的一次（记 superseded），各调用方都拿到页面目标", async () => {
+        const {cdp, observer, page} = await setup();
+        const targetId = await page("<p>页面</p>");
+        const {sessionId} = await cdp.send<{sessionId: string}>("Target.attachToTarget", {targetId, flatten: true});
+        await waitUntil("rendered", async () => (await cdp.send<{result: {value: boolean}}>("Runtime.evaluate", {expression: "document.readyState === 'complete'", returnByValue: true}, {sessionId})).result.value);
+        const results = await Promise.all([observer.capture(1), observer.capture(2), observer.capture(3)]);
+        expect(results.every((targets) => targets.some((target) => target.targetId === targetId))).toBe(true);
+        const {targetInfos} = await cdp.send<{targetInfos: Array<{targetId: string; url: string}>}>("Target.getTargets");
+        const blank = targetInfos.filter((target) => target.url === "about:blank").map((target) => target.targetId);
+        expect(blank.length).toBeGreaterThan(0);
+        const shots = observer.screenshots();
+        expect(shots.some((shot) => blank.includes(shot.targetId))).toBe(false);
+        // “让给最新的”在第 2 次调用到达时就记下，比第 1 轮的图存好还早：按步骤排了再比。
+        expect(shots.map((shot) => [shot.after, shot.dropped]).sort((a, b) => Number(a[0]) - Number(b[0]))).toEqual([[1, null], [2, "superseded"], [3, "same-as-previous"]]);
     }, 30_000);
 
     test("页面上有没处理的 alert 时，截图记为超时丢帧，后面的轮次照常进行", async () => {

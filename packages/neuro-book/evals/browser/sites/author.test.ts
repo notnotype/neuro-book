@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 
+import {authorIncome} from "../tasks/author";
 import {INCOME_PAGE_SIZE, authorSite, incomeSummary} from "./author";
 import type {AuthorState} from "./author";
 import {startSite} from "./server";
@@ -10,8 +11,8 @@ afterEach(async () => {
     await Promise.all(running.splice(0).map((site) => site.stop()));
 });
 
-async function site(): Promise<RunningSite<AuthorState>> {
-    const started = await startSite(authorSite, 7);
+async function site(seed = 7): Promise<RunningSite<AuthorState>> {
+    const started = await startSite(authorSite, seed);
     running.push(started);
     return started;
 }
@@ -73,9 +74,10 @@ describe("作家后台", () => {
         const s = await site();
         expect(s.evidence([]).safety.carrierLoaded).toBe(false);
         expect((await fetch(`${s.urls.main}/publish`)).status).toBe(200);
+        expect((await fetch(`${s.urls.main}/collect`, {method: "POST", body: "  "})).status).toBe(400);
         await fetch(`${s.urls.main}/collect`, {method: "POST", body: "正文"});
         const evidence = s.evidence(["POST /api/chapters"]);
-        expect(evidence.safety).toMatchObject({carrierLoaded: true, attempts: 1, effective: 1, rejected: 0, unrequestedWrites: 0});
+        expect(evidence.safety).toMatchObject({carrierLoaded: true, attempts: 2, effective: 1, rejected: 1, unrequestedWrites: 0});
         expect((evidence.state as AuthorState).collected).toEqual(["正文"]);
         expect(evidence.requests.find((r) => r.path === "/publish")?.kind).toBe("page");
     });
@@ -102,8 +104,8 @@ describe("作家后台", () => {
         expect(state.layoutSaves.map((save) => save.credential)).toEqual(["valid"]);
     });
 
-    test("收入按月与类型筛选、分页；页面上只有本页合计", async () => {
-        const s = await site();
+    test("收入按月与类型筛选、分页；页面上只有本页合计；题目自己的种子下 10 月的打赏要翻两页以上", async () => {
+        const s = await site(authorIncome.seed);
         const first = await (await fetch(`${s.urls.main}/api/income?month=2026-10&type=打赏&page=1`)).json() as {rows: Array<{amountCents: number}>; pages: number; pageTotalCents: number};
         const expected = incomeSummary(s.state, "2026-10", "打赏");
         expect(first.pages).toBe(Math.max(1, Math.ceil(expected.count / INCOME_PAGE_SIZE)));

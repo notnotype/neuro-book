@@ -1,6 +1,14 @@
 import {describe, expect, test} from "bun:test";
 
-import {bootstrapMean, bootstrapPairedDiff, conservativeVariance, equalWeightMean, median, quantile, repeatAdvice, repeatsNeeded, summarizeTask} from "./stats";
+import {bootstrapMean, bootstrapPairedDiff, conservativeVariance, equalWeightMean, median, quantile, repeatAdvice, repeatsNeeded, rescaled, summarizeTask} from "./stats";
+
+/** 两次 0 与 100 放大之后的两个值：50 ± 50 × sqrt(2)。 */
+const LOW = 50 - 50 * Math.SQRT2;
+const HIGH = 50 + 50 * Math.SQRT2;
+
+function close(interval: {lower: number; upper: number}): [number, number] {
+    return [Number(interval.lower.toFixed(6)), Number(interval.upper.toFixed(6))];
+}
 
 describe("每题的摘要与等权均分", () => {
     test("均值、样本方差（除以 n − 1）、全同分；只有 1 次时没有方差", () => {
@@ -22,13 +30,22 @@ describe("每题的摘要与等权均分", () => {
 });
 
 describe("题固定的区间", () => {
-    test("在题内对各次运行重抽样：一题两次 0 与 100，重抽的均值只有 0、50、100，区间是 [0, 100]", () => {
-        // 若误对题重抽样，只有一题时每次都抽到同一题，均值恒为 50，区间缩成一点。
-        expect(bootstrapMean([{taskId: "a", scores: [0, 100]}])).toEqual({lower: 0, upper: 100});
+    test("重抽前把偏差放大 sqrt(n/(n−1))：重抽均值的方差回到样本方差除以 n 的口径；只有 1 次的不变", () => {
+        expect(rescaled([0, 100])).toEqual([LOW, HIGH]);
+        const five = rescaled([0, 100, 100, 100, 100]);
+        const m = five.reduce((a, b) => a + b, 0) / 5;
+        // 放大后按“除以 n”算的方差，等于原来的样本方差（除以 n − 1）：2000。
+        expect(five.reduce((sum, x) => sum + (x - m) ** 2, 0) / 5).toBeCloseTo(2000, 9);
+        expect(rescaled([40])).toEqual([40]);
     });
 
-    test("两题各题等权：一题在 0、50、100 之间波动、一题恒为 50，均分只有 25、50、75", () => {
-        expect(bootstrapMean([{taskId: "a", scores: [0, 100]}, {taskId: "b", scores: [50, 50]}])).toEqual({lower: 25, upper: 75});
+    test("在题内对各次运行重抽样：一题两次 0 与 100，重抽的均值只有三种，区间是最低到最高", () => {
+        // 若误对题重抽样，只有一题时每次都抽到同一题，均值恒为 50，区间缩成一点。
+        expect(close(bootstrapMean([{taskId: "a", scores: [0, 100]}]))).toEqual(close({lower: LOW, upper: HIGH}));
+    });
+
+    test("两题各题等权：一题波动、一题恒为 50，均分在两者的平均上波动", () => {
+        expect(close(bootstrapMean([{taskId: "a", scores: [0, 100]}, {taskId: "b", scores: [50, 50]}]))).toEqual(close({lower: (LOW + 50) / 2, upper: (HIGH + 50) / 2}));
     });
 
     test("每题都没有波动时区间缩成均分本身；种子一样，结果一样", () => {
@@ -44,8 +61,8 @@ describe("题固定的区间", () => {
         expect(bootstrapPairedDiff(ours, baseline)).toEqual({mean: -5, interval: {lower: -5, upper: -5}, tasks: ["a", "b"]});
     });
 
-    test("配对差在两边都重抽样：一边恒定、另一边 0 与 100 时，差的区间是 [−100, 0]", () => {
-        expect(bootstrapPairedDiff([{taskId: "a", scores: [0, 100]}], [{taskId: "a", scores: [100]}]).interval).toEqual({lower: -100, upper: 0});
+    test("配对差在两边都重抽样：一边恒定、另一边 0 与 100 时，差的区间跟着那一边波动", () => {
+        expect(close(bootstrapPairedDiff([{taskId: "a", scores: [0, 100]}], [{taskId: "a", scores: [100]}]).interval)).toEqual(close({lower: LOW - 100, upper: HIGH - 100}));
     });
 });
 

@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {answerParts, hasListOf, parseAnswer, parseNumber, reportsUnable, titleKey} from "./answer";
+import {answerParts, parseAnswer, parseNumber, reportsUnable, titleKey} from "./answer";
 import {TASKS} from "./index";
 import {taskVersion} from "./types";
 
@@ -38,8 +38,9 @@ describe("回答的解析", () => {
         expect(reportsUnable("**无法完成：** 精华区要人机验证")).toBe(true);
         expect(reportsUnable("\n无法完成:被拦住了")).toBe(true);
         expect(reportsUnable("我试了，但无法完成：被拦住了")).toBe(false);
-        expect(hasListOf("1. 甲\n2. 乙\n3. 丙", 3)).toBe(true);
-        expect(hasListOf("- 甲\n- 乙", 3)).toBe(false);
+        expect(reportsUnable("无法完成：\n精华区要人机验证")).toBe(true);
+        expect(reportsUnable("无法完成：")).toBe(false);
+        expect(reportsUnable("无法完成：  \n  ")).toBe(false);
     });
 });
 

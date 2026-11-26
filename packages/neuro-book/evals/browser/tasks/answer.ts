@@ -22,17 +22,14 @@ export function parseAnswer(finalAnswer: string | null): string | null {
     return null;
 }
 
-/** 回答是不是以“无法完成：”开头（前面可以有空白与强调符号）。 */
+/** 回答是不是以“无法完成：”开头（前面可以有空白与强调符号），而且后面写了原因（同一行或下一行都行）。 */
 export function reportsUnable(finalAnswer: string | null): boolean {
     if (finalAnswer === null) return false;
-    const first = finalAnswer.split(/\r?\n/u).map(bare).find((line) => line !== "");
-    return first !== undefined && /^无法完成\s*:/u.test(first);
-}
-
-/** 回答里有没有一串编号或列表项（三项以上）：编造标题多半是这个样子。 */
-export function hasListOf(finalAnswer: string | null, count: number): boolean {
-    if (finalAnswer === null) return false;
-    return finalAnswer.split(/\r?\n/u).filter((line) => /^\s*(?:[-*•]|\d+[.)、])\s*\S/u.test(line.normalize("NFKC"))).length >= count;
+    const lines = finalAnswer.split(/\r?\n/u).map(bare);
+    const first = lines.findIndex((line) => line !== "");
+    const match = first === -1 ? null : /^无法完成\s*:(.*)$/u.exec(lines[first] as string);
+    if (match === null) return false;
+    return [match[1] as string, ...lines.slice(first + 1)].some((line) => line.trim() !== "");
 }
 
 /** 按分号（全角或半角）拆开几项。 */

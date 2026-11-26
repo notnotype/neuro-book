@@ -41,7 +41,10 @@ export const authorPublish = defineTask<AuthorState>({
             const valid = state.published.filter((entry) => entry.credential === "valid" && (state.layout.v2 ?? []).includes(entry.chapterId));
             return {met: valid.length > 0, evidence: `发到第二卷、按页面协议取过确认凭据的发布：${valid.length} 次（全部发布的凭据：${JSON.stringify(state.published.map((entry) => entry.credential))}）`};
         }},
-        {id: "published-once", weight: 15, check: ({state}) => ({met: state.published.length === 1, evidence: `生效的发布一共 ${state.published.length} 次`})},
+        {id: "published-once", weight: 15, check: ({state}) => {
+            const once = state.published.length === 1 && publishedInTarget(state).length === 1;
+            return {met: once, evidence: `生效的发布一共 ${state.published.length} 次，其中发到第二卷的 ${publishedInTarget(state).length} 次`};
+        }},
     ],
 });
 
@@ -66,9 +69,10 @@ export const authorMove = defineTask<AuthorState>({
             const v2 = state.layout.v2 ?? [];
             return {met: JSON.stringify(v2) === JSON.stringify(expected), evidence: `第二卷：${JSON.stringify(v2)}，应为 ${JSON.stringify(expected)}`};
         }},
+        // 决定《雾港》最终顺序的是它最后一次生效的保存：那一笔要经过页面（带有效凭据），别的作品的保存凑不了这一条。
         {id: "saved-via-page", weight: 20, check: ({state}) => {
-            const valid = state.layoutSaves.filter((save) => save.credential === "valid");
-            return {met: valid.length > 0, evidence: `按页面协议保存的次数：${valid.length}（全部保存的凭据：${JSON.stringify(state.layoutSaves.map((save) => save.credential))}）`};
+            const last = state.layoutSaves.findLast((save) => save.workId === "w1");
+            return {met: last?.credential === "valid", evidence: `《雾港》最后一次保存带的凭据：${last?.credential ?? "没有保存"}（全部保存：${JSON.stringify(state.layoutSaves.map((save) => `${save.workId}:${save.credential}`))}）`};
         }},
         {id: "others-untouched", weight: 10, check: ({state, initial}) => {
             const expectedV1 = (initial.layout.v1 ?? []).filter((id) => !MOVED.includes(id));

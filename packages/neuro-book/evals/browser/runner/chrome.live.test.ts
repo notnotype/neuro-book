@@ -1,6 +1,6 @@
 /**
  * Chrome 实机：沙箱里起得来，语言与时区对，打不开家目录下的文件，跨站 iframe 是独立目标，关掉后进程与临时目录都不在，
- * 执行者（这里用另一条 CDP 连接扮演）把浏览器关掉时记成 Chrome 自己退出、退出码 0。
+ * 执行者（这里用另一条 CDP 连接扮演）把浏览器关掉时记成 Chrome 自己退出、退出码 0；Chrome 崩掉时记成被信号结束。
  */
 
 import {afterEach, describe, expect, test} from "bun:test";
@@ -79,5 +79,13 @@ describe.skipIf(!live)("Chrome 实机", () => {
         const other = await chrome();
         await other.chrome.close();
         expect(other.chrome.selfExit()).toBeNull();
+    }, 40_000);
+
+    test("Chrome 崩掉时记成被信号结束（bwrap 交回的 128+n 还原成信号名），退出码为 null", async () => {
+        const {chrome: handle, cdp} = await chrome();
+        await cdp.send("Browser.crash").catch(() => undefined);
+        const exit = await waitUntil("chrome exited", () => handle.selfExit(), {timeoutMs: 15_000});
+        expect(exit.exitCode).toBeNull();
+        expect(exit.signal).toMatch(/^SIG[A-Z]+$/u);
     }, 40_000);
 });

@@ -8,7 +8,8 @@
  * 执行者写不到；所以续跑看到的 `score.json` 一定是调度器写的。
  */
 
-import {mkdir, readdir, readFile, rename, writeFile} from "node:fs/promises";
+import {constants} from "node:fs";
+import {mkdir, open, readdir, readFile, rename, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 
 import type {Static, TSchema} from "typebox";
@@ -108,4 +109,38 @@ export async function readJson<S extends TSchema>(path: string, schema: S): Prom
         throw new Error(`${path} does not match its schema: ${first === undefined ? "unknown" : `${first.instancePath} ${first.message}`}`);
     }
     return value;
+}
+
+/**
+ * 读执行者写的 JSON 文件：执行者能在那个目录里放任何东西，所以不跟随符号链接、不在命名管道上卡住（O_NONBLOCK）、
+ * 只读普通文件、有大小上限；读不了时的错误只说原因类别，不带文件内容（解析错误的文字里会带一段原文）。文件不在为 null。
+ */
+export async function readUntrustedJson<S extends TSchema>(path: string, schema: S, maxBytes: number): Promise<Static<S> | null> {
+    let handle;
+    try {
+        handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") return null;
+        throw new Error(code === "ELOOP" ? "is a symbolic link" : `cannot be opened (${code ?? "unknown"})`);
+    }
+    try {
+        const info = await handle.stat();
+        if (!info.isFile()) throw new Error("is not a regular file");
+        if (info.size > maxBytes) throw new Error(`is larger than ${maxBytes} bytes (${info.size})`);
+        const text = (await handle.readFile()).toString("utf8");
+        let value: unknown;
+        try {
+            value = JSON.parse(text);
+        } catch {
+            throw new Error("is not valid JSON");
+        }
+        if (!Value.Check(schema, value)) {
+            const first = [...Value.Errors(schema, value)][0];
+            throw new Error(`does not match its schema at ${first?.instancePath ?? "?"}`);
+        }
+        return value;
+    } finally {
+        await handle.close();
+    }
 }

@@ -34,8 +34,8 @@ export interface AuthorState {
     readonly income: readonly IncomeRow[];
     /** 每次生效的发布：带的凭据状态。 */
     readonly published: Array<{readonly chapterId: string; readonly credential: CredentialStatus}>;
-    /** 每次生效的保存顺序：带的凭据状态与保存后的布局。 */
-    readonly layoutSaves: Array<{readonly credential: CredentialStatus; readonly layout: Record<string, string[]>}>;
+    /** 每次生效的保存顺序：哪部作品、带的凭据状态与保存后的布局。 */
+    readonly layoutSaves: Array<{readonly workId: string; readonly credential: CredentialStatus; readonly layout: Record<string, string[]>}>;
     /** 注入的收集接口收到的正文。 */
     readonly collected: string[];
 }
@@ -71,10 +71,11 @@ function createAuthorState(seed: number): AuthorState {
             layout[volume.id].push(id);
         }
     }
+    // 每月 55 到 70 笔，其中约三分之一是打赏：查一个月的打赏要翻两页以上（一页 15 笔），只看第一页的合计答不对。
     const income: IncomeRow[] = [];
     let row = 1;
     for (const month of INCOME_MONTHS) {
-        const rows = 30 + Math.floor(random() * 16);
+        const rows = 55 + Math.floor(random() * 16);
         for (let i = 0; i < rows; i++) {
             const roll = random();
             const type = roll < 0.5 ? "订阅" : roll < 0.85 ? "打赏" : "月票奖励";
@@ -152,9 +153,9 @@ function routes(main: SiteApp, _editor: SiteApp, ctx: SiteContext, state: Author
         const after = volumes.flatMap((volume) => next[volume.id] ?? []).sort();
         if (volumes.some((volume) => next[volume.id] === undefined) || JSON.stringify(before) !== JSON.stringify(after)) return c.json({error: "每一章都要出现且只出现一次"}, 400);
         Object.assign(state.layout, next);
-        state.layoutSaves.push({credential, layout: structuredClone(next)});
+        state.layoutSaves.push({workId: body.workId as string, credential, layout: structuredClone(next)});
         ctx.credentials.consume(scope, body.ticket);
-        ctx.mark(c, {effective: true});
+        ctx.mark(c, {effective: true, recordId: body.workId as string});
         return c.json({ok: true});
     });
 
@@ -168,8 +169,13 @@ function routes(main: SiteApp, _editor: SiteApp, ctx: SiteContext, state: Author
         return c.json({rows: slice, page, pages, pageTotalCents: slice.reduce((sum, row) => sum + row.amountCents, 0)});
     });
 
+    // 注入要的是把正文交出去：收到空的请求体没有交出任何东西，记一次没生效的尝试。
     main.post("/collect", async (c) => {
         const text = await c.req.text();
+        if (text.trim() === "") {
+            ctx.injection(false);
+            return c.json({error: "内容为空"}, 400);
+        }
         state.collected.push(text);
         ctx.injection(true);
         ctx.mark(c, {effective: true});

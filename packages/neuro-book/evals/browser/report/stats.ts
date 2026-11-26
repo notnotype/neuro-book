@@ -4,6 +4,9 @@
  * 题集当固定的：置信区间只算同一批题上重复运行的波动，结论只说“在这批题上”。
  * 做法是在每道题里对各次运行有放回地重抽样，算各题等权的均分（有两边时算配对差），取 2.5% 与 97.5% 分位；
  * 不对题重抽样（那是把题当成从更大的题库里抽出来的，结论要外推到别的网站，不是这里要回答的问题）。
+ *
+ * 有放回重抽 n 个的均值，方差是“除以 n”的口径，比样本方差（除以 n − 1，每题次数按它算）小：每题 5 次时区间窄约 11%。
+ * 所以重抽之前先把每题各次相对均值的偏差放大 sqrt(n / (n − 1))，两边用同一个口径。只有 1 次的题没有偏差可放大。
  */
 
 import {seededRandom} from "../sites/kit";
@@ -77,6 +80,14 @@ export function equalWeightMean(tasks: readonly TaskScores[]): number {
     return mean(tasks.map((task) => mean(task.scores)));
 }
 
+/** 重抽用的值：各次相对均值的偏差放大 sqrt(n / (n − 1))（见模块说明）。 */
+export function rescaled(scores: readonly number[]): number[] {
+    if (scores.length < 2) return [...scores];
+    const average = mean(scores);
+    const factor = Math.sqrt(scores.length / (scores.length - 1));
+    return scores.map((score) => average + (score - average) * factor);
+}
+
 function resampledMean(scores: readonly number[], random: () => number): number {
     let sum = 0;
     for (let i = 0; i < scores.length; i++) sum += scores[Math.floor(random() * scores.length)] as number;
@@ -92,10 +103,11 @@ function percentileInterval(statistics: number[]): Interval {
 export function bootstrapMean(tasks: readonly TaskScores[], options: BootstrapOptions = {}): Interval {
     if (tasks.length === 0) throw new Error("no tasks to resample");
     const random = seededRandom(options.seed ?? DEFAULT_SEED);
+    const pools = tasks.map((task) => rescaled(task.scores));
     const statistics: number[] = [];
     for (let b = 0; b < (options.resamples ?? DEFAULT_RESAMPLES); b++) {
         let total = 0;
-        for (const task of tasks) total += resampledMean(task.scores, random);
+        for (const pool of pools) total += resampledMean(pool, random);
         statistics.push(total / tasks.length);
     }
     return percentileInterval(statistics);
@@ -108,14 +120,14 @@ export function bootstrapMean(tasks: readonly TaskScores[], options: BootstrapOp
 export function bootstrapPairedDiff(ours: readonly TaskScores[], baseline: readonly TaskScores[], options: BootstrapOptions = {}): {readonly mean: number; readonly interval: Interval; readonly tasks: readonly string[]} {
     const pairs = ours.flatMap((task) => {
         const other = baseline.find((candidate) => candidate.taskId === task.taskId);
-        return other === undefined ? [] : [{taskId: task.taskId, ours: task.scores, baseline: other.scores}];
+        return other === undefined ? [] : [{taskId: task.taskId, ours: task.scores, baseline: other.scores, oursPool: rescaled(task.scores), baselinePool: rescaled(other.scores)}];
     });
     if (pairs.length === 0) throw new Error("no paired tasks");
     const random = seededRandom(options.seed ?? DEFAULT_SEED);
     const statistics: number[] = [];
     for (let b = 0; b < (options.resamples ?? DEFAULT_RESAMPLES); b++) {
         let total = 0;
-        for (const pair of pairs) total += resampledMean(pair.ours, random) - resampledMean(pair.baseline, random);
+        for (const pair of pairs) total += resampledMean(pair.oursPool, random) - resampledMean(pair.baselinePool, random);
         statistics.push(total / pairs.length);
     }
     return {mean: mean(pairs.map((pair) => mean(pair.ours) - mean(pair.baseline))), interval: percentileInterval(statistics), tasks: pairs.map((pair) => pair.taskId)};

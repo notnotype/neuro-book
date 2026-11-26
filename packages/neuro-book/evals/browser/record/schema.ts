@@ -9,7 +9,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-export const RUN_FORMAT = "nbook.browser-eval.run/v1";
+export const RUN_FORMAT = "nbook.browser-eval.run/v2";
 export const SCORE_FORMAT = "nbook.browser-eval.score/v1";
 
 export const ARMS = ["browser-use", "nbook"] as const;
@@ -31,27 +31,39 @@ const Identity = Type.Object({
 const PageTarget = Type.Object({targetId: Type.String(), url: Type.String()}, {additionalProperties: false});
 
 const Step = Type.Object({
-    /** 步骤事件的顺序号，1 起。不用 browser-use 日志里的“step N”：一个模型回复里有几段代码时 N 相同。 */
+    /** 第几段代码，1 起，按模型发出的先后。不用 browser-use 日志里的“step N”：一个模型回复里有几段代码时 N 相同。 */
     ordinal: Type.Integer({minimum: 1}),
+    /** 配上的步骤事件的序号（截图的 `after` 用的就是它）；没执行的段为 null。 */
+    event: Type.Union([Type.Integer({minimum: 1}), Type.Null()]),
     code: Type.String(),
     output: Type.String(),
     error: Type.Union([Type.String(), Type.Null()]),
     endedAt: Type.Number(),
     /** 这一步结束时的页面目标，由观察者记下。 */
     targets: Type.Array(PageTarget),
+    /** 这段代码真的执行了（执行者为它发过步骤事件）。模型发了调用、却没执行的（参数校验没过、时间用完被跳过）为 false，endedAt 与 targets 是前一个执行了的步骤的。 */
+    executed: Type.Boolean(),
 }, {additionalProperties: false});
 
 const Screenshot = Type.Object({
     file: Type.Union([Type.String(), Type.Null()]),
-    /** 截在哪一步之后；开始与结束两张分别是 `start`、`end`。 */
+    /** 截在第几个步骤事件之后（对应步骤的 `event`）；开始与结束两张分别是 `start`、`end`。 */
     after: Type.Union([Type.Literal("start"), Type.Literal("end"), Type.Integer({minimum: 1})]),
     at: Type.Number(),
     targetId: Type.String(),
     /** 没存图的原因；存了图为 null。 */
-    dropped: Type.Union([Type.Literal("same-as-previous"), Type.Literal("timeout"), Type.Literal("target-gone"), Type.Null()]),
+    /**
+     * 没存图的原因；存了图为 null。`hidden` 是后台标签页（不截，截了也常超时）；`superseded` 是截图排队时又来了新的步骤，
+     * 这一轮让给最新的一步；`timeout` 是截图没在时限内返回（页面上有没处理的对话框时会这样）。
+     */
+    dropped: Type.Union([Type.Literal("same-as-previous"), Type.Literal("timeout"), Type.Literal("target-gone"), Type.Literal("hidden"), Type.Literal("superseded"), Type.Null()]),
 }, {additionalProperties: false});
 
-export const UPSTREAM_FAILURES = ["connect-error", "timeout", "reset"] as const;
+/**
+ * 上游没回状态码时的原因：连不上、超时、中途断开（这三种是上游的问题）；执行者自己断开了连接（`client-abort`）；
+ * 这一回收尾时网关取消了还在途的请求（`cancelled`）。后两种不算上游失败。
+ */
+export const UPSTREAM_FAILURES = ["connect-error", "timeout", "reset", "client-abort", "cancelled"] as const;
 
 const GatewayCall = Type.Object({
     model: Type.String(),
@@ -98,6 +110,11 @@ const Safety = Type.Object({
     unrequestedWrites: Type.Integer({minimum: 0}),
 }, {additionalProperties: false});
 
+const Navigation = Type.Object({
+    /** 页面目标到过的、任务给的两个源之外的网址（去重，about:blank 与 chrome-error 不算），由调度器在收尾时按观察者记下的网址算。 */
+    offsite: Type.Array(Type.String()),
+}, {additionalProperties: false});
+
 const SiteEvidence = Type.Object({
     requests: Type.Array(RequestLog),
     /** 各站自己的业务状态（站点模块定义它的形状，判分按题读）。 */
@@ -118,6 +135,8 @@ const Timing = Type.Object({
     /** 执行者连上浏览器、发出 ready 事件的时刻；起不来时为 null。题的时限从这里算。 */
     readyAt: Type.Union([Type.Number(), Type.Null()]),
     deadlineAt: Type.Union([Type.Number(), Type.Null()]),
+    /** 执行者进程退出的时刻；用时按 ready 到它算，不含收尾。没起来时为 null。 */
+    executorEndedAt: Type.Union([Type.Number(), Type.Null()]),
     endedAt: Type.Number(),
     /** 观察者截图的累计耗时，单列，看它有没有拖慢执行者。 */
     observerMs: Type.Number({minimum: 0}),
@@ -130,7 +149,12 @@ export const RunRecordSchema = Type.Object({
     /** 模型的思考文字，按出现顺序；不送评判。 */
     thinking: Type.Array(Type.String()),
     result: Type.Object({
+        /** 最终回答。没完成（timeout、max_steps）时是执行者自己的回退文字（browser-use 1.0.6 给 partial 或最后一段模型文字）。 */
         finalAnswer: Type.Union([Type.String(), Type.Null()]),
+        /** 执行者对自己是否完成的判断；没给为 null。 */
+        success: Type.Union([Type.Boolean(), Type.Null()]),
+        /** 执行者最后存下的部分结果（JSON 文字）；没有为 null。 */
+        partial: Type.Union([Type.String(), Type.Null()]),
         /** 工作目录里 Agent 写的文件（相对工作目录）。 */
         deliverables: Type.Array(Type.String()),
         /** 浏览器下载的文件：第一阶段没有下载类的题，留空。 */
@@ -143,6 +167,7 @@ export const RunRecordSchema = Type.Object({
         executor: Type.Union([Type.Record(Type.String(), Type.Number()), Type.Null()]),
     }, {additionalProperties: false}),
     site: Type.Union([SiteEvidence, Type.Null()]),
+    navigation: Navigation,
     outcome: Outcome,
     timing: Timing,
     versions: Type.Record(Type.String(), Type.String()),
@@ -159,6 +184,7 @@ export type SiteRequestLog = Static<typeof RequestLog>;
 export type SiteSafety = Static<typeof Safety>;
 export type SiteEvidenceRecord = Static<typeof SiteEvidence>;
 export type RunOutcome = Static<typeof Outcome>;
+export type RunNavigation = Static<typeof Navigation>;
 
 const ItemFinding = Type.Object({
     id: Type.String(),

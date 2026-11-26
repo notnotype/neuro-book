@@ -4,6 +4,8 @@
 
 import {afterEach, describe, expect, test} from "bun:test";
 
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+
 import {EvalEnvError} from "../env";
 import {startGateway} from "./gateway";
 import type {Gateway, GatewayRoute} from "./gateway";
@@ -49,7 +51,7 @@ describe("模型网关", () => {
     test("非流式：换上真实密钥与上游模型名转发，原样交回；记下实际发出的参数与用量（总输入含缓存读）", async () => {
         const up = upstream(() => Response.json({id: "r1", choices: [{message: {content: "ok"}}], usage: {prompt_tokens: 120, completion_tokens: 30, prompt_tokens_details: {cached_tokens: 100}}}));
         const gw = gateway([route(up.url)]);
-        const reg = gw.register();
+        const reg = gw.register("m");
         const response = await call(gw, reg.key, REQUEST);
         expect(response.status).toBe(200);
         expect(((await response.json()) as {id: string}).id).toBe("r1");
@@ -64,7 +66,7 @@ describe("模型网关", () => {
         const sse = (chunks: string[]) => new Response(chunks.map((chunk) => `data: ${chunk}\n\n`).join("") + "data: [DONE]\n\n", {headers: {"content-type": "text/event-stream"}});
         const up = upstream((body) => sse(body.withUsage === true ? ["{\"choices\":[{\"delta\":{\"content\":\"o\"}}]}", "{\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":2}}"] : ["{\"choices\":[{\"delta\":{\"content\":\"o\"}}]}"]));
         const gw = gateway([route(up.url)]);
-        const reg = gw.register();
+        const reg = gw.register("m");
         const text = await (await call(gw, reg.key, {...REQUEST, stream: true, withUsage: true})).text();
         expect(text).toContain("\"prompt_tokens\":9");
         expect(text.endsWith("data: [DONE]\n\n")).toBe(true);
@@ -75,7 +77,7 @@ describe("模型网关", () => {
     test("上游回 5xx：原样交回执行者，记下状态码", async () => {
         const up = upstream(() => Response.json({error: {message: "bad gateway"}}, {status: 502}));
         const gw = gateway([route(up.url)]);
-        const reg = gw.register();
+        const reg = gw.register("m");
         expect((await call(gw, reg.key, REQUEST)).status).toBe(502);
         expect(reg.calls().map((c) => [c.upstream, c.usage])).toEqual([[502, null]]);
     });
@@ -92,37 +94,102 @@ describe("模型网关", () => {
         }));
         cleanups.push(() => release());
         const gw = gateway([route(closedUrl, {model: "closed"}), route(`http://127.0.0.1:${resetter.port}/v1`, {model: "reset"}), route(hanging.url, {model: "hang"})], {upstreamTimeoutMs: 100});
-        const reg = gw.register();
         const statuses = [];
-        for (const model of ["closed", "reset", "hang"]) statuses.push((await call(gw, reg.key, {...REQUEST, model})).status);
+        const recorded = [];
+        for (const model of ["closed", "reset", "hang"]) {
+            const reg = gw.register(model);
+            statuses.push((await call(gw, reg.key, {...REQUEST, model})).status);
+            recorded.push(...reg.calls().map((c) => [c.model, c.upstream]));
+        }
         expect(statuses).toEqual([502, 502, 502]);
-        expect(reg.calls().map((c) => [c.model, c.upstream])).toEqual([["closed", "connect-error"], ["reset", "reset"], ["hang", "timeout"]]);
+        expect(recorded).toEqual([["closed", "connect-error"], ["reset", "reset"], ["hang", "timeout"]]);
     });
 
     test("上游不顾要求回了 gzip：交给执行者的是解压后的正文，不带编码头，执行者读得出 JSON", async () => {
         const up = upstream(() => new Response(Bun.gzipSync(JSON.stringify({id: "gz", usage: {prompt_tokens: 1, completion_tokens: 1}})), {headers: {"content-type": "application/json", "content-encoding": "gzip"}}));
         const gw = gateway([route(up.url)]);
-        const reg = gw.register();
+        const reg = gw.register("m");
         const response = await call(gw, reg.key, REQUEST, {"accept-encoding": "gzip, deflate"});
         expect(response.headers.get("content-encoding")).toBeNull();
         expect(((await response.json()) as {id: string}).id).toBe("gz");
     });
 
-    test("没登记、已注销的假密钥回 401；不认识的模型回 400；都不转发", async () => {
+    test("没登记、已注销的假密钥回 401；假密钥绑一个模型，请求别的（哪怕网关认识）回 400 并记次数；都不转发", async () => {
         const up = upstream(() => Response.json({}));
-        const gw = gateway([route(up.url)]);
+        const gw = gateway([route(up.url), route(up.url, {model: "other"})]);
         expect((await call(gw, "made-up", REQUEST)).status).toBe(401);
-        const reg = gw.register();
+        const reg = gw.register("m");
         expect((await call(gw, reg.key, {...REQUEST, model: "other"})).status).toBe(400);
-        reg.release();
+        expect(reg.refused()).toBe(1);
+        await reg.release();
         expect((await call(gw, reg.key, REQUEST)).status).toBe(401);
         expect(up.requests.length).toBe(0);
+        expect(() => gw.register("unknown")).toThrow();
+    });
+
+    test("请求体不是对象、消息里夹着不是对象的项：回 400 或照常转发，不回带源码路径的 500", async () => {
+        const up = upstream(() => Response.json({usage: {prompt_tokens: 1, completion_tokens: 1}}));
+        const gw = gateway([route(up.url)]);
+        const reg = gw.register("m");
+        for (const body of [null, [], "text"]) {
+            const response = await call(gw, reg.key, body);
+            expect([response.status, ((await response.json()) as {error: {type: string}}).error.type]).toEqual([400, "invalid_request_error"]);
+        }
+        expect((await call(gw, reg.key, {model: "m", messages: [null, {role: "user", content: [null, {type: "image_url"}]}]})).status).toBe(200);
+        expect(reg.calls().map((c) => [c.messages, c.images])).toEqual([[1, 1]]);
+    });
+
+    test("上游的错误正文里的真实密钥与 sk- 串换掉；上游的诊断头不交给执行者，内容类型与退避时间照留", async () => {
+        const up = upstream(() => new Response(JSON.stringify({error: {message: "Incorrect API key provided: real-key; also sk-abcdefgh12345"}}), {status: 401, headers: {"content-type": "application/json", "retry-after": "3", "x-debug": "real-key"}}));
+        const gw = gateway([route(up.url)]);
+        const reg = gw.register("m");
+        const response = await call(gw, reg.key, REQUEST);
+        const text = await response.text();
+        expect(response.status).toBe(401);
+        expect(text).not.toContain("real-key");
+        expect(text).not.toContain("sk-abcdefgh");
+        expect([response.headers.get("x-debug"), response.headers.get("retry-after"), response.headers.get("content-type")]).toEqual([null, "3", "application/json"]);
+    });
+
+    test("注销时取消在途的上游请求，等它记成 cancelled 再交出记录；执行者自己断开的记成 client-abort", async () => {
+        const pending: Array<() => void> = [];
+        const up = upstream(() => new Promise<Response>((resolve) => pending.push(() => resolve(Response.json({})))));
+        cleanups.push(() => pending.forEach((wake) => wake()));
+        const gw = gateway([route(up.url)]);
+        const reg = gw.register("m");
+        const inFlight = call(gw, reg.key, REQUEST);
+        await waitUntil("upstream got the request", () => up.requests.length === 1);
+        await reg.release();
+        expect(reg.calls().map((c) => c.upstream)).toEqual(["cancelled"]);
+        expect((await inFlight).status).toBe(502);
+
+        const other = gw.register("m");
+        const controller = new AbortController();
+        const aborted = fetch(`${gw.url}/chat/completions`, {method: "POST", headers: {"content-type": "application/json", authorization: `Bearer ${other.key}`}, body: JSON.stringify(REQUEST), signal: controller.signal}).catch(() => null);
+        await waitUntil("upstream got the second request", () => up.requests.length === 2);
+        controller.abort();
+        await aborted;
+        await waitUntil("client abort recorded", () => other.calls().length === 1);
+        expect(other.calls().map((c) => c.upstream)).toEqual(["client-abort"]);
+    });
+
+    test("预算按“已记下的加在途的”算：一次请求还在途时，第二次就回 429", async () => {
+        const pending: Array<() => void> = [];
+        const up = upstream(() => new Promise<Response>((resolve) => pending.push(() => resolve(Response.json({usage: {prompt_tokens: 1, completion_tokens: 1}})))));
+        const gw = gateway([route(up.url)], {budget: {requests: 1, inputTokens: 1_000}});
+        const reg = gw.register("m");
+        const first = call(gw, reg.key, REQUEST);
+        await waitUntil("upstream got the request", () => up.requests.length === 1);
+        expect((await call(gw, reg.key, REQUEST)).status).toBe(429);
+        pending.forEach((wake) => wake());
+        expect((await first).status).toBe(200);
+        expect(up.requests.length).toBe(1);
     });
 
     test("单次运行的预算用完回 429 并记下，不再转发", async () => {
         const up = upstream(() => Response.json({usage: {prompt_tokens: 10, completion_tokens: 1}}));
         const gw = gateway([route(up.url)], {budget: {requests: 1, inputTokens: 1_000}});
-        const reg = gw.register();
+        const reg = gw.register("m");
         expect((await call(gw, reg.key, REQUEST)).status).toBe(200);
         const exceeded = await call(gw, reg.key, REQUEST);
         expect([exceeded.status, ((await exceeded.json()) as {error: {type: string}}).error.type]).toEqual([429, "budget_exceeded"]);

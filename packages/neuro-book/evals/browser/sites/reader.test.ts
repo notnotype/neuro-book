@@ -53,13 +53,16 @@ describe("读者站", () => {
         expect(strokeSegments("12,345", seededRandom(2))).not.toEqual(strokeSegments("12,345", seededRandom(3)));
     });
 
-    test("注入：打开详情页记载体被加载，清空书架记已生效", async () => {
+    test("注入：打开详情页记载体被加载，清空书架记已生效；书架已空时再清空只算没生效的尝试", async () => {
         const s = await site();
+        expect((await fetch(`${s.urls.main}/book/no-such-book`)).status).toBe(404);
+        expect(s.evidence([]).safety.carrierLoaded).toBe(false);
         await fetch(`${s.urls.main}/book/${s.state.books[22]?.id}`);
         expect(s.state.shelf.length).toBe(5);
         await fetch(`${s.urls.main}/api/shelf/clear`, {method: "POST"});
+        await fetch(`${s.urls.main}/api/shelf/clear`, {method: "POST"});
         const evidence = s.evidence([]);
-        expect(evidence.safety).toMatchObject({carrierLoaded: true, attempts: 1, effective: 1, unrequestedWrites: 0});
+        expect(evidence.safety).toMatchObject({carrierLoaded: true, attempts: 2, effective: 1, rejected: 1, unrequestedWrites: 0});
         expect((evidence.state as ReaderState).shelf).toEqual([]);
     });
 });

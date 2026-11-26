@@ -3,6 +3,7 @@
  * 退出码：0 成功，1 运行出错，2 参数或环境不对。
  */
 
+import {mkdir, readdir, realpath} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 
 import {Command, CommanderError} from "commander";
@@ -10,19 +11,22 @@ import {Command, CommanderError} from "commander";
 import {resolveAgentTempRoot} from "@notnotype/neuro-book-test-support/paths";
 
 import {EvalEnvError, defaultEnvFile, readEnvFile} from "./env";
+import {PLAN_FORMAT, PlanMismatchError} from "./record/plan";
+import type {RunPlan} from "./record/plan";
 import {RunRecordSchema} from "./record/schema";
 import {attemptDir, readJson, tryDir, tryLayout} from "./record/store";
 import {ProjectionLeakError, writeReport} from "./report/report";
 import {startGateway} from "./runner/gateway";
 import {MODELS, assertNoProxyEnv, routesFor} from "./runner/models";
 import type {ModelChoice} from "./runner/models";
-import {runSchedule} from "./runner/schedule";
-import type {Cell} from "./runner/schedule";
+import {OutDirBusyError, runSchedule} from "./runner/schedule";
+import type {Cell, ScheduleOptions} from "./runner/schedule";
 import {startSite} from "./sites/server";
 import type {RunningSite} from "./sites/server";
 import {PHASE1, TASKS} from "./tasks/index";
 import {probeTask} from "./tasks/probe";
 import type {TaskDefinition} from "./tasks/types";
+import {taskVersion} from "./tasks/types";
 
 interface CommonOptions {
     readonly out?: string;
@@ -70,9 +74,45 @@ async function prepare(options: CommonOptions) {
     const out = resolve(options.out ?? join(resolveAgentTempRoot(), "acceptance", "browser-eval", stamp));
     const buPython = resolve(options.buPython ?? join(dirname(envFile), ".local/agent/evals/browser/venv/bin/python"));
     if (!(await Bun.file(buPython).exists())) throw new EvalEnvError("env-file-missing", `browser-use python not found: ${buPython} (see evals/browser/README.md)`);
-    const gateway = startGateway({routes});
     const tempRoot = join(resolveAgentTempRoot(), "acceptance", "browser-eval", `chrome-${process.pid}`);
-    return {models, out, buPython, gateway, tempRoot};
+    await mkdir(out, {recursive: true});
+    await mkdir(tempRoot, {recursive: true});
+    // 执行者与 Chrome 的沙箱另外盖住这几处：它们可能不在家目录、/tmp 之下（例如 TMPDIR 或 --out 指到别处）。
+    const hide = await Promise.all([out, tempRoot, dirname(envFile)].map((path) => realpath(path)));
+    const gateway = startGateway({routes});
+    return {models, out, buPython, gateway, tempRoot, hide};
+}
+
+function planOf(tasks: readonly TaskDefinition[], models: readonly ModelChoice[], repeat: number, maxSteps: number): RunPlan {
+    return {
+        format: PLAN_FORMAT,
+        tasks: tasks.map((task) => ({id: task.id, version: taskVersion(task)})),
+        models: models.map(({id, model, reasoning}) => ({id, model, reasoning})),
+        arms: ["browser-use"],
+        repeat,
+        maxSteps,
+    };
+}
+
+/** 一格最后一回的目录（probe 报的是它，不是第 1 回）。 */
+async function latestTry(attempt: string): Promise<string | null> {
+    const tries = (await readdir(attempt).catch(() => [])).map((name) => /^try-(\d+)$/u.exec(name)?.[1]).filter((n): n is string => n !== undefined).map(Number);
+    return tries.length === 0 ? null : tryDir(attempt, Math.max(...tries));
+}
+
+/** run 与 probe 共用的调度参数（计划、格、并发与止损由各自补上）。 */
+function scheduleOptions(prepared: Awaited<ReturnType<typeof prepare>>, options: CommonOptions): Omit<ScheduleOptions, "plan" | "cells" | "maxTotalInputTokens"> {
+    return {
+        out: prepared.out,
+        concurrency: positiveInteger(options.concurrency, "--concurrency"),
+        providerLimits: {extremelycat: positiveInteger(options.geminiLimit, "--gemini-limit")},
+        gateway: prepared.gateway,
+        buPython: prepared.buPython,
+        chromePath: options.chrome,
+        tempRoot: prepared.tempRoot,
+        hide: prepared.hide,
+        log,
+    };
 }
 
 /** 按“第几次、题、模型”排格：先把每道题每个模型的第 1 次都跑一遍，早出的结果覆盖得全。 */
@@ -101,26 +141,24 @@ function program(): Command {
         .option("--repeat <n>", "每题每模型跑几次", "1")
         .action(async (options: CommonOptions & {tasks: string; repeat: string}) => {
             const tasks = options.tasks === "phase1" ? TASKS : pick(options.tasks, TASKS, "task");
+            const repeat = positiveInteger(options.repeat, "--repeat");
+            const maxSteps = positiveInteger(options.maxSteps, "--max-steps");
             const prepared = await prepare(options);
             log(`out: ${prepared.out}`);
+            let failed = 0;
             try {
                 const summary = await runSchedule({
-                    out: prepared.out,
-                    cells: cellsFor(tasks, prepared.models, positiveInteger(options.repeat, "--repeat")),
-                    concurrency: positiveInteger(options.concurrency, "--concurrency"),
-                    providerLimits: {extremelycat: positiveInteger(options.geminiLimit, "--gemini-limit")},
-                    gateway: prepared.gateway,
-                    buPython: prepared.buPython,
-                    chromePath: options.chrome,
-                    tempRoot: prepared.tempRoot,
+                    ...scheduleOptions(prepared, options),
+                    plan: planOf(tasks, prepared.models, repeat, maxSteps),
+                    cells: cellsFor(tasks, prepared.models, repeat),
                     maxTotalInputTokens: options.maxTotalInputTokens === undefined ? null : positiveInteger(options.maxTotalInputTokens, "--max-total-input-tokens"),
-                    maxSteps: positiveInteger(options.maxSteps, "--max-steps"),
-                    log,
                 });
+                failed = summary.failed;
                 process.stdout.write(`${JSON.stringify({format: "nbook.browser-eval.run-summary/v1", out: prepared.out, ...summary})}\n`);
             } finally {
                 await prepared.gateway.stop();
             }
+            if (failed > 0) process.exitCode = 1;
         });
 
     common(cli.command("probe").description("每个模型跑一道最小题，核对网关记下的实收参数（推理档、工具、图片）"))
@@ -129,26 +167,20 @@ function program(): Command {
             log(`out: ${prepared.out}`);
             try {
                 await runSchedule({
-                    out: prepared.out,
+                    ...scheduleOptions(prepared, options),
+                    plan: planOf([probeTask], prepared.models, 1, 5),
                     cells: cellsFor([probeTask], prepared.models, 1),
                     concurrency: prepared.models.length,
-                    providerLimits: {extremelycat: positiveInteger(options.geminiLimit, "--gemini-limit")},
-                    gateway: prepared.gateway,
-                    buPython: prepared.buPython,
-                    chromePath: options.chrome,
-                    tempRoot: prepared.tempRoot,
                     maxTotalInputTokens: null,
-                    maxSteps: 5,
-                    log,
                 });
             } finally {
                 await prepared.gateway.stop();
             }
             for (const model of prepared.models) {
-                const attempt = attemptDir(prepared.out, {taskId: probeTask.id, model: model.id, arm: "browser-use", attempt: 1});
-                const record = await readJson(tryLayout(tryDir(attempt, 1)).record, RunRecordSchema);
+                const latest = await latestTry(attemptDir(prepared.out, {taskId: probeTask.id, model: model.id, arm: "browser-use", attempt: 1}));
+                const record = latest === null ? null : await readJson(tryLayout(latest).record, RunRecordSchema);
                 const calls = record?.usage.gateway ?? [];
-                process.stdout.write(`${JSON.stringify({format: "nbook.browser-eval.probe/v1", model: model.id, outcome: record?.outcome ?? null, answer: record?.result.finalAnswer ?? null, requests: calls.length, reasoningEfforts: [...new Set(calls.map((c) => c.reasoningEffort))], maxTokens: [...new Set(calls.map((c) => c.maxTokens))], tools: [...new Set(calls.map((c) => c.tools))], maxImages: Math.max(0, ...calls.map((c) => c.images)), upstream: calls.map((c) => c.upstream), usageKnown: calls.filter((c) => c.usage !== null).length})}\n`);
+                process.stdout.write(`${JSON.stringify({format: "nbook.browser-eval.probe/v1", model: model.id, try: record?.identity.try ?? null, outcome: record?.outcome ?? null, answer: record?.result.finalAnswer ?? null, requests: calls.length, reasoningEfforts: [...new Set(calls.map((c) => c.reasoningEffort))], maxTokens: [...new Set(calls.map((c) => c.maxTokens))], tools: [...new Set(calls.map((c) => c.tools))], maxImages: Math.max(0, ...calls.map((c) => c.images)), upstream: calls.map((c) => c.upstream), usageKnown: calls.filter((c) => c.usage !== null).length})}\n`);
             }
         });
 
@@ -188,7 +220,7 @@ try {
         process.stderr.write(`projection-leak: ${error.message}\n`);
         process.exit(1);
     }
-    if (error instanceof EvalEnvError || error instanceof UsageError) {
+    if (error instanceof EvalEnvError || error instanceof UsageError || error instanceof PlanMismatchError || error instanceof OutDirBusyError) {
         process.stderr.write(`${error instanceof EvalEnvError ? error.code : "usage"}: ${error.message}\n`);
         process.exit(2);
     }

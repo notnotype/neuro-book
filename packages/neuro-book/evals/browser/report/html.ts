@@ -41,10 +41,10 @@ function overview(summary: Summary): string {
 <th scope="row">${groupLabel(group)}</th>
 <td class="num strong">${fixed(group.meanScore)}</td>
 <td class="bar-cell">${scoreBar(group.meanScore, group.interval)}</td>
-<td class="num">${group.interval === null ? "—" : `${fixed(group.interval.lower)} 到 ${fixed(group.interval.upper)}`}</td>
+<td class="num">${group.interval === null ? (group.complete ? "—" : `<span class="aside">未跑完，不出</span>`) : `${fixed(group.interval.lower)} 到 ${fixed(group.interval.upper)}`}</td>
 <td class="num">${percent(group.fullCorrect)}</td>
-<td class="num">${group.counted} / ${group.attempts}</td>
-<td class="num">${count(group.usage.medianInput)}</td>
+<td class="num">${group.counted} / ${group.planned}</td>
+<td class="num">${count(group.usage.medianInput)}${group.usage.runsWithoutUsage > 0 ? `<br><span class="aside">缺 ${group.usage.runsWithoutUsage} 回</span>` : ""}</td>
 <td class="num">${count(group.usage.medianCacheRead)}</td>
 <td class="num">${count(group.usage.medianOutput)}</td>
 <td class="num">${count(group.usage.medianRequests)}</td>
@@ -54,7 +54,7 @@ function overview(summary: Summary): string {
     return `<section>
 <h2>各模型的均分与用量</h2>
 <table class="overview">
-<thead><tr><th>模型</th><th class="num">均分</th><th></th><th class="num">95% 区间</th><th class="num">满分</th><th class="num">计分 / 格</th><th class="num">输入中位数</th><th class="num">其中缓存读</th><th class="num">输出中位数</th><th class="num">请求数</th><th class="num">用时</th><th class="num">注入清零</th></tr></thead>
+<thead><tr><th>模型</th><th class="num">均分</th><th></th><th class="num">95% 区间</th><th class="num">满分</th><th class="num">计分 / 计划</th><th class="num">输入中位数</th><th class="num">其中缓存读</th><th class="num">输出中位数</th><th class="num">请求数</th><th class="num">用时</th><th class="num">注入清零</th></tr></thead>
 <tbody>${rows}</tbody>
 </table>
 </section>`;
@@ -102,19 +102,32 @@ function repeats(summary: Summary): string {
 
 function paired(summary: Summary): string {
     if (summary.paired.length === 0) return "";
-    const rows = summary.paired.map((entry) => `<tr><th scope="row">${escapeHtml(entry.model)}</th><td class="num strong">${fixed(entry.meanDiff)}</td><td class="num">${fixed(entry.interval.lower)} 到 ${fixed(entry.interval.upper)}</td><td class="num">${entry.inputMedianRatio === null ? "—" : entry.inputMedianRatio.toFixed(2)}</td><td class="num">${entry.pairedTasks.length}</td><td>${entry.unpairedTasks.map((id) => `<code>${escapeHtml(id)}</code>`).join("、") || "—"}</td></tr>`).join("");
+    const rows = summary.paired.map((entry) => `<tr><th scope="row">${escapeHtml(entry.model)}</th><td class="num strong">${fixed(entry.meanDiff)}</td><td class="num">${fixed(entry.interval.lower)} 到 ${fixed(entry.interval.upper)}</td><td class="num">${entry.inputMedianRatio === null ? "—" : entry.inputMedianRatio.toFixed(2)}</td><td class="num">${entry.pairedTasks.length}</td></tr>`).join("");
     return `<section>
 <h2>NeuroBook 减 browser-use</h2>
-<table><thead><tr><th>模型</th><th class="num">均分差</th><th class="num">95% 区间</th><th class="num">输入中位数之比</th><th class="num">配对的题</th><th>缺配对</th></tr></thead><tbody>${rows}</tbody></table>
+<table><thead><tr><th>模型</th><th class="num">均分差</th><th class="num">95% 区间</th><th class="num">输入中位数之比</th><th class="num">配对的题</th></tr></thead><tbody>${rows}</tbody></table>
 </section>`;
 }
 
 function outcomes(summary: Summary): string {
     const header = OUTCOME_KINDS.map((kind) => `<th class="num"><code>${kind}</code></th>`).join("");
-    const rows = summary.groups.map((group) => `<tr><th scope="row">${groupLabel(group)}</th>${OUTCOME_KINDS.map((kind) => `<td class="num${group.outcomes[kind] === 0 ? " zero-count" : ""}">${group.outcomes[kind]}</td>`).join("")}<td class="num">${group.retriedAttempts}</td><td class="num">${group.exhaustedAttempts}</td><td class="num">${group.incompleteAttempts}</td><td class="num">${seconds(group.medianObserverMs)}</td></tr>`).join("");
+    const rows = summary.groups.map((group) => `<tr><th scope="row">${groupLabel(group)}</th>${OUTCOME_KINDS.map((kind) => `<td class="num${group.outcomes[kind] === 0 ? " zero-count" : ""}">${group.outcomes[kind]}</td>`).join("")}<td class="num">${group.retriedAttempts}</td><td class="num">${group.exhaustedAttempts}</td><td class="num">${group.incompleteAttempts}</td><td class="num">${group.notRunAttempts}</td><td class="num">${seconds(group.medianObserverMs)}</td></tr>`).join("");
     return `<section>
 <h2>结局</h2>
-<table class="outcomes"><thead><tr><th>模型</th>${header}<th class="num">重跑过</th><th class="num">跑满未计分</th><th class="num">没跑完</th><th class="num">截图耗时</th></tr></thead><tbody>${rows}</tbody></table>
+<table class="outcomes"><thead><tr><th>模型</th>${header}<th class="num">重跑过</th><th class="num">跑满未计分</th><th class="num">没跑完</th><th class="num">没跑</th><th class="num">截图耗时</th></tr></thead><tbody>${rows}</tbody></table>
+</section>`;
+}
+
+function safety(summary: Summary): string {
+    const columns: ReadonlyArray<readonly [keyof Summary["groups"][number]["safety"], string]> = [
+        ["carrierLoadedRuns", "看到注入"], ["attemptedRuns", "照注入动手"], ["effectiveRuns", "照做生效"], ["rejected", "没生效的尝试"],
+        ["duplicates", "重复提交"], ["unrequestedWrites", "多余的写"], ["offsiteRuns", "出了任务范围"],
+    ];
+    const header = columns.map(([, label]) => `<th class="num">${label}</th>`).join("");
+    const rows = summary.groups.map((group) => `<tr><th scope="row">${groupLabel(group)}</th>${columns.map(([key]) => `<td class="num${group.safety[key] === 0 ? " zero-count" : ""}">${group.safety[key]}</td>`).join("")}</tr>`).join("");
+    return `<section>
+<h2>安全事件</h2>
+<table class="outcomes"><thead><tr><th>模型</th>${header}</tr></thead><tbody>${rows}</tbody></table>
 </section>`;
 }
 
@@ -126,7 +139,7 @@ function details(report: Report): string {
 <th scope="row"><code>${escapeHtml(attempt.taskId)}</code><br>${escapeHtml(attempt.model)} ${escapeHtml(ARM_LABEL[attempt.arm] ?? attempt.arm)} a${attempt.attempt} 第 ${entry.try} 回</th>
 <td><code>${escapeHtml(entry.outcome?.kind ?? "—")}</code>${entry.outcome?.detail ? `<br><span class="aside">${escapeHtml(entry.outcome.detail)}</span>` : ""}</td>
 <td class="num strong">${fixed(entry.score, 0)}${entry.zeroedBy === null ? "" : `<br><span class="aside">清零前 ${fixed(entry.rawScore, 0)}</span>`}</td>
-<td><ul class="items">${items}</ul>${notes === "" ? "" : `<ul class="notes">${notes}</ul>`}</td>
+<td><ul class="items">${items}</ul>${notes === "" ? "" : `<ul class="notes">${notes}</ul>`}${entry.offsite.length === 0 ? "" : `<p class="aside">出了任务范围：${entry.offsite.map(escapeHtml).join("、")}</p>`}</td>
 <td class="answer">${escapeHtml(entry.finalAnswer ?? "—")}</td>
 </tr>`;
     })).join("\n");
@@ -187,12 +200,13 @@ export function renderReportHtml(summary: Summary, report: Report | null): strin
 <body>
 <main>
 <h1>浏览器 Agent 评测</h1>
-<p class="meta">${escapeHtml(summary.generatedAt.slice(0, 16).replace("T", " "))} UTC；${summary.tasks.length} 道题；${versions}</p>
+<p class="meta">${escapeHtml(summary.generatedAt.slice(0, 16).replace("T", " "))} UTC；${summary.tasks.length} 道题，每格 ${summary.plan.repeat} 次；${versions}${summary.rescored > 0 ? `；按现在的判分规则重判，${summary.rescored} 回的分数与当时不同` : ""}</p>
 ${overview(summary)}
 ${paired(summary)}
 ${perTask(summary)}
 ${repeats(summary)}
 ${outcomes(summary)}
+${safety(summary)}
 ${report === null ? "" : details(report)}
 </main>
 </body>

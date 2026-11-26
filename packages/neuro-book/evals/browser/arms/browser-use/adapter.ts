@@ -1,8 +1,10 @@
 /**
  * browser-use 一边的适配：读执行脚本（`run.py`）的标准输出事件与 `executor.json`，拼成运行记录的步骤、结果与自报用量。
  *
- * 步骤的对齐：`executor.json` 里的代码段按出现先后，与步骤事件按到达先后一一对应（browser-use 每执行完一段 python
- * 打一条日志，见 1.0.6 `agent/loop.py`）。被兜底结束、没写出 `executor.json` 时，步骤只有事件里那一行代码，输出为空。
+ * 步骤的对齐：`executor.json` 里是模型发出的每一段 python 调用，步骤事件只为真正执行了的那几段才有（browser-use 执行完
+ * 一段才打 “step N: <代码第一行>” 的日志；参数校验没过、时间用完回 NO_TIME 的调用不打）。所以按内容配：事件行就是代码
+ * 第一个非空行的前 120 个字符（出错时后面接 “ -> 错误”），按先后逐段找；配不上的代码段记为没执行。
+ * 被兜底结束、没写出 `executor.json` 时，步骤只有事件里那一行代码，输出为空。
  */
 
 import {Type} from "typebox";
@@ -68,20 +70,39 @@ export function clipMiddle(text: string, limit = 20_000): string {
     return `${text.slice(0, half)}\n... [${text.length - limit} characters omitted] ...\n${text.slice(-half)}`;
 }
 
+/** browser-use 的步骤日志里那一行：代码第一个非空行的前 120 个字符（1.0.6 `agent/loop.py`）。 */
+function logLine(code: string): string {
+    return (code.split(/\r?\n/u).find((line) => line.trim() !== "") ?? "").slice(0, 120).trim();
+}
+
+function sameStep(event: ObservedStep, code: string): boolean {
+    const head = logLine(code);
+    return head === "" ? event.line === "" : event.line.startsWith(head);
+}
+
 export function buildSteps(output: ExecutorOutput | null, observed: readonly ObservedStep[]): RunStep[] {
-    const count = Math.max(output?.steps.length ?? 0, observed.length);
     const steps: RunStep[] = [];
-    for (let i = 0; i < count; i++) {
-        const fromOutput = output?.steps[i];
-        const event = observed[i];
+    let next = 0;
+    let previous: ObservedStep | undefined;
+    for (const segment of output?.steps ?? []) {
+        const event = observed[next];
+        const executed = event !== undefined && sameStep(event, segment.code);
+        if (executed) {
+            next += 1;
+            previous = event;
+        }
         steps.push({
-            ordinal: i + 1,
-            code: clipMiddle(fromOutput?.code ?? event?.line ?? ""),
-            output: clipMiddle(fromOutput?.output ?? ""),
-            error: fromOutput?.error ?? null,
-            endedAt: event?.at ?? Number.NaN,
-            targets: [...(event?.targets ?? [])],
+            ordinal: steps.length + 1,
+            code: clipMiddle(segment.code),
+            output: clipMiddle(segment.output),
+            error: segment.error === null ? null : clipMiddle(segment.error),
+            event: executed ? next : null,
+            endedAt: previous?.at ?? 0,
+            targets: [...(previous?.targets ?? [])],
+            executed,
         });
     }
-    return steps.map((step) => (Number.isNaN(step.endedAt) ? {...step, endedAt: steps.findLast((other) => !Number.isNaN(other.endedAt))?.endedAt ?? 0} : step));
+    // 没写出 executor.json，或事件多出来（配不上任何代码段）：照事件补上，代码只有那一行。
+    observed.slice(next).forEach((event, i) => steps.push({ordinal: steps.length + 1, code: event.line, output: "", error: null, event: next + i + 1, endedAt: event.at, targets: [...event.targets], executed: true}));
+    return steps;
 }

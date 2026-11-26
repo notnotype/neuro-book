@@ -1,10 +1,13 @@
 /**
- * 观察者：另开一条只读的 CDP 连接，在执行开始、每一步工具调用结束后与执行结束时，给所有页面目标各截一张图，
+ * 观察者：另开一条只读的 CDP 连接，在执行开始、每个步骤事件之后与执行结束时，给页面目标各截一张图，
  * 并记下这时有哪些页面目标与网址。两边的执行者用同一个观察者，截图交给评判器时写明是“动作之后”。
  *
- * 不抢焦点（不调 `bringToFront`）、不改网络与下载设置。截图一次只做一轮：步骤事件来得比截图快时，
- * 后来的排在前一轮之后。截图超时（页面上有没处理的对话框时 `Page.captureScreenshot` 不返回）记为丢帧，
- * 不算评测部件出错，也不阻塞后面的步骤。
+ * 不抢焦点（不调 `bringToFront`）、不改网络与下载设置。一轮里各目标并行截；`about:blank` 不截，后台标签页
+ * （`document.visibilityState` 是 hidden）记为 `hidden` 不截：试飞里截图超时的几乎都是这两种。页面上有没处理的对话框时
+ * 页面里的求值与截图都不返回，记为 `timeout` 丢帧，不算评测部件出错。
+ *
+ * 一次只截一轮。截图时又来了新的步骤：排着的那一轮让给最新的一步（记 `superseded`），它的调用方拿到的是最新那一轮的
+ * 页面目标。这样截图跟得上步骤，不会越排越晚、把后来的页面贴到早先的步骤上。
  */
 
 import {createHash} from "node:crypto";
@@ -21,22 +24,51 @@ export interface PageTarget {
 }
 
 const SCREENSHOT_TIMEOUT_MS = 8_000;
+const VISIBILITY_TIMEOUT_MS = 1_000;
+
+interface Waiter {
+    resolve(targets: PageTarget[]): void;
+    reject(error: unknown): void;
+}
 
 export class Observer {
     private readonly sessions = new Map<string, string>();
     private readonly lastDigest = new Map<string, string>();
     private readonly shots: RunScreenshot[] = [];
-    private chain: Promise<unknown> = Promise.resolve();
+    private pending: {after: RunScreenshot["after"]; waiters: Waiter[]} | null = null;
+    private running = false;
     private spentMs = 0;
     private count = 0;
 
     constructor(private readonly cdp: CdpClient, private readonly dir: string) {}
 
-    /** 截一轮；交回这时的页面目标。几次调用按先后排队，一轮做完才开始下一轮。 */
+    /** 截一轮；交回这一轮看到的页面目标。截图时又来了新的调用，排着的那一轮让给最新的（见模块说明）。 */
     capture(after: RunScreenshot["after"]): Promise<PageTarget[]> {
-        const run = this.chain.then(() => this.round(after));
-        this.chain = run.catch(() => undefined);
-        return run;
+        return new Promise<PageTarget[]>((resolve, reject) => {
+            const waiter = {resolve, reject};
+            if (this.pending === null) {
+                this.pending = {after, waiters: [waiter]};
+            } else {
+                this.shots.push({file: null, after: this.pending.after, at: performance.now(), targetId: "", dropped: "superseded"});
+                this.pending = {after, waiters: [...this.pending.waiters, waiter]};
+            }
+            if (!this.running) void this.drain();
+        });
+    }
+
+    private async drain(): Promise<void> {
+        this.running = true;
+        while (this.pending !== null) {
+            const job = this.pending;
+            this.pending = null;
+            try {
+                const targets = await this.round(job.after);
+                for (const waiter of job.waiters) waiter.resolve(targets);
+            } catch (error) {
+                for (const waiter of job.waiters) waiter.reject(error);
+            }
+        }
+        this.running = false;
     }
 
     screenshots(): RunScreenshot[] {
@@ -53,7 +85,7 @@ export class Observer {
         await mkdir(this.dir, {recursive: true});
         const {targetInfos} = await this.cdp.send<{targetInfos: Array<{targetId: string; type: string; url: string}>}>("Target.getTargets");
         const pages = targetInfos.filter((target) => target.type === "page");
-        for (const page of pages) await this.shoot(page.targetId, after);
+        await Promise.all(pages.filter((page) => page.url !== "about:blank").map((page) => this.shoot(page.targetId, after)));
         this.spentMs += performance.now() - started;
         return pages.map(({targetId, url}) => ({targetId, url}));
     }
@@ -66,6 +98,11 @@ export class Observer {
             if (sessionId === undefined) {
                 sessionId = (await this.cdp.send<{sessionId: string}>("Target.attachToTarget", {targetId, flatten: true})).sessionId;
                 this.sessions.set(targetId, sessionId);
+            }
+            const visibility = await this.cdp.send<{result: {value?: unknown}}>("Runtime.evaluate", {expression: "document.visibilityState", returnByValue: true}, {sessionId, timeoutMs: VISIBILITY_TIMEOUT_MS});
+            if (visibility.result.value === "hidden") {
+                record(null, "hidden");
+                return;
             }
             const {data} = await this.cdp.send<{data: string}>("Page.captureScreenshot", {format: "png"}, {sessionId, timeoutMs: SCREENSHOT_TIMEOUT_MS});
             const digest = createHash("sha1").update(data).digest("hex");

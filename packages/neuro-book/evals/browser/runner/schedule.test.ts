@@ -72,7 +72,7 @@ describe("派格", () => {
         runner.finish(e);
         runner.finish(c);
 
-        expect(await summary).toMatchObject({settled: 5, exhausted: 0, skipped: 0, failed: 0, notStarted: 0, stoppedByBudget: false});
+        expect(await summary).toMatchObject({settled: 5, exhausted: 0, skipped: 0, failed: 0, notStarted: 0, stoppedBy: null});
         expect(runner.peaks()).toEqual({total: 3, byProvider: {extremelycat: 1, "luna-relay": 2}});
     });
 
@@ -86,9 +86,9 @@ describe("派格", () => {
         runner.finish(cells[0] as Cell, {state: "settled", inputTokens: 150});
         runner.finish(cells[1] as Cell, {state: "exhausted", inputTokens: 10});
 
-        expect(await summary).toEqual({settled: 1, exhausted: 1, skipped: 0, failed: 0, notStarted: 2, stoppedByBudget: true, totalInputTokens: 160});
+        expect(await summary).toEqual({settled: 1, exhausted: 1, skipped: 0, failed: 0, notStarted: 2, stoppedBy: "budget", totalInputTokens: 160});
         expect(runner.starts).toEqual(cells.slice(0, 2));
-        expect(options.logs.some((line) => line.startsWith("stop-loss: 150 input tokens > 100"))).toBe(true);
+        expect(options.logs.some((line) => line.startsWith("stop: 150 input tokens > 100"))).toBe(true);
     });
 
     test("一格抛错记作 failed 并写日志，不影响后面的格；续跑时早先跑完的格记作 skipped", async () => {
@@ -104,7 +104,20 @@ describe("派格", () => {
         await runner.started(3);
         runner.finish(cells[2] as Cell, {state: "settled", inputTokens: 5});
 
-        expect(await summary).toEqual({settled: 1, exhausted: 0, skipped: 1, failed: 1, notStarted: 0, stoppedByBudget: false, totalInputTokens: 5});
+        expect(await summary).toEqual({settled: 1, exhausted: 0, skipped: 1, failed: 1, notStarted: 0, stoppedBy: null, totalInputTokens: 5});
         expect(options.logs.some((line) => line.startsWith(`cell ${TASKS[0]?.id} luna a1 failed`) && line.includes("record write failed"))).toBe(true);
+    });
+    test("连着 3 格跑满还不计分（上游多半整体出了问题）就停派；中间有一格计分了就重新数", async () => {
+        const cells = [1, 2, 3, 4, 5, 6, 7].map((attempt) => cell(luna, attempt));
+        const runner = controlledRun();
+        const options = limits({concurrency: 1});
+        const summary = runPool(cells, options, runner.run);
+        const exhausted: CellResult = {state: "exhausted", inputTokens: 0};
+        for (const [i, result] of [exhausted, exhausted, {state: "settled", inputTokens: 1} as CellResult, exhausted, exhausted, exhausted].entries()) {
+            await runner.started(i + 1);
+            runner.finish(cells[i] as Cell, result);
+        }
+        expect(await summary).toEqual({settled: 1, exhausted: 5, skipped: 0, failed: 0, notStarted: 1, stoppedBy: "infra-errors", totalInputTokens: 1});
+        expect(options.logs.some((line) => line.startsWith("stop: 3 cells in a row"))).toBe(true);
     });
 });
