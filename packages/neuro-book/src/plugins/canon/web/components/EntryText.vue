@@ -50,6 +50,9 @@ const text = useCanonText();
 
 const HEADINGS = ["h2", "h3", "h4", "h5", "h5", "h5"] as const;
 
+/** HTML 形式的强调（核心语法的 `htmlMark`，标签名小写）画成的元素。 */
+const HTML_MARKS: Readonly<Record<string, string>> = {strong: "strong", b: "strong", em: "em", i: "em", del: "del", s: "del"};
+
 type VValue = Extract<EntryTextValue, {tag: "V"}>;
 
 /** 块一级的元素带着它在这一块源文字里的行号：预览跟着光标滚到对应的段落时按它找（输出 48）。 */
@@ -88,6 +91,8 @@ function inlineToken(layout: LaidOutBlock, token: EntryTextToken): VNodeChild {
         case "strong": return h("strong", inlineList(layout, token.tokens));
         case "em": return h("em", inlineList(layout, token.tokens));
         case "del": return h("del", inlineList(layout, token.tokens));
+        // HTML 形式的强调（`<strong>…</strong>` 等，编辑器写回读不回来的强调时用它）：与 Markdown 的写法画成同样的元素。
+        case "htmlMark": return h(HTML_MARKS[String(token.tag)] ?? "span", inlineList(layout, token.tokens));
         case "codespan": return h("code", token.text ?? "");
         case "br":
         case "htmlBreak":
@@ -96,7 +101,7 @@ function inlineToken(layout: LaidOutBlock, token: EntryTextToken): VNodeChild {
         // 链接只显示文字，图片写说明。
         case "link": return inlineList(layout, token.tokens);
         case "image": return decodeHTMLStrict(token.text ?? "");
-        case "entryTag": return tagNode(layout, token.tag ?? -1);
+        case "entryTag": return tagNode(layout, typeof token.tag === "number" ? token.tag : -1);
         case "entryIf": return conditionNode(layout, token);
         default: return token.tokens !== undefined ? inlineList(layout, token.tokens) : token.raw;
     }
@@ -169,10 +174,25 @@ function valueNode(node: VValue): VNodeChild {
     ];
 }
 
-/** 一块里有没有那个值（按值表，取值的 `V`）：来历画在这一块后面。 */
+/**
+ * 每块读好、对好的结果，按块对象留着：块的数据不变（换了内容的块是新对象），父组件为了别的 prop 重画、或找来历画在哪块时不重新分词。
+ */
+type SourceBlock = Extract<EntryTextBlock, {source: string}>;
+const layouts = new WeakMap<SourceBlock, ReturnType<typeof layoutBlock>>();
+function layoutOf(block: SourceBlock): ReturnType<typeof layoutBlock> {
+    let laid = layouts.get(block);
+    if (laid === undefined) {
+        laid = layoutBlock(block.source, block.values);
+        layouts.set(block, laid);
+    }
+    return laid;
+}
+
+/** 一块里有没有画成按钮的这个值（没生效的支里的、读不到的不算）：来历画在这一块后面。 */
 function contains(block: EntryTextBlock, key: string): boolean {
     if ("error" in block) return false;
-    return block.values.some((value) => value.tag === "V" && "path" in value && value.path !== undefined && addressKey({entry: (value as VValue).entry ?? props.self, path: value.path}) === key);
+    const laid = layoutOf(block);
+    return !("mismatch" in laid) && laid.pressable.some((value) => addressKey({entry: value.entry ?? props.self, path: value.path}) === key);
 }
 
 const failedBlock = (body: string, reason: string): VNodeChild => h("div", {"class": "my-2", "data-block-error": ""}, [
@@ -184,12 +204,10 @@ const Block = defineComponent({
     name: "EntryTextBlock",
     props: {block: {type: Object as PropType<EntryTextBlock>, required: true}},
     setup(blockProps) {
-        // 源文与值表不变时只读一遍（父组件为了别的 prop 重画时不重新分词）。
-        const layout = computed(() => ("error" in blockProps.block ? null : layoutBlock(blockProps.block.source, blockProps.block.values)));
         return () => {
             const block = blockProps.block;
             if ("error" in block) return failedBlock(block.text, block.error.message);
-            const laid = layout.value!;
+            const laid = layoutOf(block);
             // 值表与源文对不上（前后端的文法不是同一版这类）：整块按出错显示，不按位置猜。
             if ("mismatch" in laid) return failedBlock(block.source, laid.mismatch);
             return h("div", {"class": "nb-markdown", "data-block": block.id}, blockList(laid, laid.tokens));

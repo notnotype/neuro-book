@@ -57,6 +57,16 @@ describe("author-ui 输出 48：条目主文字的着色", () => {
         expect(colored("**加粗** 与 *强调* 与 `代码` 与 [链接](https://example.com)")).toEqual([[["**加粗**", "strong"], ["*强调*", "emphasis"], ["`代码`", "string"], ["[", "string.link"], ["](https://example.com)", "string.link"]]]);
     });
 
+    it("式子里没写完、行就断了：下一行回到正文照常着色（单引号的字符串跨行也一样）", () => {
+        expect(colored('<V of="panel.魔力\n后面 **粗**')[1]).toEqual([["**粗**", "strong"]]);
+        expect(colored("<V expr=\"a + 'x\n y **粗**")[1]).toEqual([["**粗**", "strong"]]);
+    });
+
+    it("等号两边有空格的属性（内核拒收）不照标签画；链接文字里的标签照标签画", () => {
+        expect(colored('<V of = "a.b" />')).toEqual([[]]);
+        expect(colored('[先 <V of="a.b" /> 后](http://x)')[0]!.filter(([, type]) => type === "tag")).toEqual([["<V", "tag"], ["/>", "tag"]]);
+    });
+
     it("标题里的标签照标签画；标题在行尾结束", () => {
         expect(colored('# 近况 <V of="panel.魔力" />\n下一行')).toEqual([[["# 近况 ", "keyword.heading"], ["<V", "tag"], ["of", "attribute.name"], ["=", "delimiter"], ['"', "attribute.value"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ['"', "attribute.value"], ["/>", "tag"]], []]);
     });

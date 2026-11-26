@@ -1037,7 +1037,7 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof CodeInput>({
         component: "CodeInput",
         scenes: [
-            {id: "text", label: "两段文字", input: {props: {label: "主文字"}, model: {modelValue: "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的，{entry.外貌.发色} 这样的表达式写在花括号里。"}}},
+            {id: "text", label: "两段文字", input: {props: {label: "主文字"}, model: {modelValue: "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的，<V of=\"character.发色\" /> 这样的标签写一个字段的值。"}}},
             {id: "empty", label: "空的", input: {props: {label: "主文字"}, model: {modelValue: ""}}},
             {id: "readonly", label: "只读", input: {props: {label: "主文字", readonly: true}, model: {modelValue: "提交期间不能输入，能选能复制。"}}},
             {id: "json", label: "JSON", input: {props: {label: "设置", language: "json"}, model: {modelValue: "{\n    \"name\": \"星瑕\",\n    \"age\": 22\n}"}}},
@@ -2019,7 +2019,7 @@ function canonEntryPageFixtures() {
             ["<If", {result: true, taken: 0}],
         ]),
         valued("b2", '她的另一个身份是 <Ref id="gege" />。**没人知道。**', [['<Ref id="gege"', {id: "gege", name: "哥哥", deleted: false}]]),
-        {id: "b3", error: {message: "<div> is not supported in entry text"}, text: "<div>坏掉的一块</div>"},
+        {id: "b3", error: {message: "raw HTML or an HTML comment is not supported in entry text"}, text: "<div>坏掉的一块</div>"},
     ];
     const marks = {"panel.存款": "第 3 章改过"};
     const cards = [

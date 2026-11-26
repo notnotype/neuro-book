@@ -4,7 +4,7 @@
  */
 
 import type {AuthorValue} from "@notnotype/nb-canon";
-import {parseEntryText, positionOf} from "@notnotype/nb-canon/grammar";
+import {MAX_NESTING_DEPTH, nestingDepth, parseEntryText} from "@notnotype/nb-canon/grammar";
 
 /** 值表的一项（nb-canon 的 `AuthorValue`）。 */
 export type EntryTextValue = AuthorValue;
@@ -13,7 +13,7 @@ export type EntryTextBlock =
     | {readonly id: string; readonly source: string; readonly values: readonly EntryTextValue[]}
     | {readonly id: string; readonly error: {readonly message: string; readonly line?: number; readonly column?: number}; readonly text: string};
 
-/** 词法单元里组件读的字段：marked 的单元，加条目文法的 `entryTag`（`tag` 是标签的序号）与 `entryIf`（各支）。 */
+/** 词法单元里组件读的字段：marked 的单元，加条目文法的 `entryTag`（`tag` 是标签的序号）、`entryIf`（各支）与 HTML 形式的强调 `htmlMark`（`tag` 是小写的标签名）。 */
 export interface EntryTextToken {
     readonly type: string;
     readonly raw: string;
@@ -24,16 +24,22 @@ export interface EntryTextToken {
     readonly ordered?: boolean;
     readonly header?: ReadonlyArray<{readonly tokens: readonly EntryTextToken[]}>;
     readonly rows?: ReadonlyArray<ReadonlyArray<{readonly tokens: readonly EntryTextToken[]}>>;
-    readonly tag?: number;
+    readonly tag?: number | string;
     readonly branches?: ReadonlyArray<{readonly head: number; readonly tokens: readonly EntryTextToken[]}>;
 }
 
-/** 读好、对好的一块：词法单元，每个活的标签的名字与值表的项，块一级的单元在源文里的行（从 1 起）。 */
+/** 值是按钮的取值（`V` 写地址、读得到、不是图片）：点它展开来历。 */
+export type PressableValue = Extract<EntryTextValue, {tag: "V"}> & {readonly path: string};
+
+/**
+ * 读好、对好的一块：词法单元，每个活的标签在值表里的项，块一级的单元在源文里的行（从 1 起），画出来是按钮的取值（生效的支里的；
+ * 来历画在含它的块后面）。
+ */
 export interface LaidOutBlock {
     readonly tokens: readonly EntryTextToken[];
-    readonly tagName: (tag: number) => string;
     readonly valueOf: (tag: number) => EntryTextValue | undefined;
     readonly lineOf: (token: EntryTextToken) => number | undefined;
+    readonly pressable: readonly PressableValue[];
 }
 
 /** 值表里有项的标签：`V`、`If`、`ElseIf`、`Ref`、`Image` 与没登记的；`Else`、闭标签、写坏的、字面的没有。 */
@@ -42,12 +48,30 @@ const hasItem = (name: string, kind: string): boolean => kind !== "close" && kin
 /** 块一级、带行号的单元（编辑时的预览跟着光标滚到对应的段落，canon.author-ui 输出 48）。 */
 const LINED = new Set(["paragraph", "heading", "list_item", "blockquote", "code", "hr", "table"]);
 
+const newlines = (text: string): number => {
+    let count = 0;
+    for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) count += 1;
+    return count;
+};
+
+/** 值表里的项画出来是不是按钮（与 `EntryText` 的画法一致：读不到的、算出来的、图片是文字）。 */
+const isPressable = (value: EntryTextValue | undefined): value is PressableValue =>
+    value !== undefined && value.tag === "V" && "path" in value && typeof value.path === "string" && value.unavailable === undefined && value.expr === undefined && value.image === undefined;
+
 /**
  * 读一块并把值表对回标签。值表的每一项要对上一个活的标签（名字与起点都相同），每个该有项的活标签也要有一项；有一处对不上就
- * 交回原因，调用方整块按出错显示。
+ * 交回原因，调用方整块按出错显示。嵌套过深的（内核按出错的块给，这里防前后端不是同一版）与读的时候栈溢出的也按对不上处理：
+ * 画的时候按层递归，深的树会让整个阅读视图抛错。
  */
 export function layoutBlock(source: string, values: readonly EntryTextValue[]): LaidOutBlock | {readonly mismatch: string} {
-    const parsed = parseEntryText(source);
+    let parsed: ReturnType<typeof parseEntryText>;
+    try {
+        parsed = parseEntryText(source);
+    } catch (error) {
+        if (error instanceof RangeError) return {mismatch: "nested too deeply to read"};
+        throw error;
+    }
+    if (nestingDepth(parsed.tokens) > MAX_NESTING_DEPTH) return {mismatch: `nested more than ${String(MAX_NESTING_DEPTH)} levels deep`};
     const byStart = new Map(values.map((value) => [`${value.tag}@${String(value.start)}`, value]));
     const owned = new Map<number, EntryTextValue>();
     for (const [index, tag] of parsed.tags.entries()) {
@@ -58,28 +82,62 @@ export function layoutBlock(source: string, values: readonly EntryTextValue[]): 
     }
     if (owned.size !== values.length) return {mismatch: `${String(values.length - owned.size)} values match no tag`};
     const tokens = parsed.tokens as unknown as readonly EntryTextToken[];
-    // 单元不带偏移：按它的原文在父单元的范围里往后找（与内核切块的找法相同）；找不到的不写行号。
+    return {tokens, valueOf: (tag) => owned.get(tag), lineOf: linesOf(source, tokens), pressable: pressableIn(tokens, owned)};
+}
+
+/**
+ * 块一级单元的行号。顶层的单元按原文在源文里依次找（换行先统一成 LF：marked 读之前也这样换）；里层（引用、列表项里的）不在源文里找：
+ * 它们的原文去掉了每行的 `> ` 与缩进，按父单元的行加上前面兄弟原文里的换行数算（去前缀不改行数）。顶层找不到的单元连同里层都不写行号。
+ */
+function linesOf(source: string, tokens: readonly EntryTextToken[]): (token: EntryTextToken) => number | undefined {
     const lines = new WeakMap<EntryTextToken, number>();
-    const place = (list: readonly EntryTextToken[], from: number, to: number): void => {
-        let cursor = from;
+    const nested = (list: readonly EntryTextToken[], first: number): void => {
+        let line = first;
         for (const token of list) {
-            const raw = token.raw.replace(/\s+$/u, "");
-            const at = raw === "" ? -1 : source.indexOf(raw, cursor);
-            if (at < 0 || at + raw.length > to) continue;
-            if (LINED.has(token.type)) lines.set(token, positionOf(source, at).line);
-            const end = at + token.raw.length;
-            place(token.items ?? [], at, Math.min(end, to));
-            place(token.tokens ?? [], at, Math.min(end, to));
-            cursor = at + raw.length;
+            if (LINED.has(token.type)) lines.set(token, line);
+            nested(token.items ?? [], line);
+            if (token.type !== "paragraph" && token.type !== "heading") nested(token.tokens ?? [], line);
+            line += newlines(token.raw);
         }
     };
-    place(tokens, 0, source.length);
-    return {
-        tokens,
-        tagName: (tag) => parsed.tags[tag]?.name ?? "",
-        valueOf: (tag) => owned.get(tag),
-        lineOf: (token) => lines.get(token),
+    const text = source.replace(/\r\n?/gu, "\n");
+    let cursor = 0;
+    let line = 1;
+    for (const token of tokens) {
+        const raw = token.raw.replace(/\s+$/u, "");
+        const at = raw === "" ? -1 : text.indexOf(raw, cursor);
+        if (at < 0) continue;
+        line += newlines(text.slice(cursor, at));
+        if (LINED.has(token.type)) lines.set(token, line);
+        nested(token.items ?? [], line);
+        if (token.type !== "paragraph" && token.type !== "heading") nested(token.tokens ?? [], line);
+        line += newlines(raw);
+        cursor = at + raw.length;
+    }
+    return (token) => lines.get(token);
+}
+
+/** 画出来是按钮的取值，按出现的先后：条件只进生效的那一支。 */
+function pressableIn(tokens: readonly EntryTextToken[], owned: ReadonlyMap<number, EntryTextValue>): PressableValue[] {
+    const found: PressableValue[] = [];
+    const visit = (list: readonly EntryTextToken[] | undefined): void => {
+        for (const token of list ?? []) {
+            if (token.type === "entryTag" && typeof token.tag === "number") {
+                const value = owned.get(token.tag);
+                if (isPressable(value)) found.push(value);
+            } else if (token.type === "entryIf") {
+                const head = owned.get(token.branches?.[0]?.head ?? -1) as {taken?: number | null} | undefined;
+                const taken = head?.taken ?? null;
+                if (taken !== null) visit(token.branches?.[taken]?.tokens);
+            } else {
+                visit(token.items);
+                visit(token.tokens);
+                for (const row of [token.header ?? [], ...(token.rows ?? [])]) for (const cell of row) visit(cell.tokens);
+            }
+        }
     };
+    visit(tokens);
+    return found;
 }
 
 /** 文字里一个值指向的地址。 */

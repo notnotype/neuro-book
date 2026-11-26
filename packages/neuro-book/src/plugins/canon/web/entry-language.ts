@@ -2,7 +2,9 @@
  * 条目主文字的语言（docs/specs/canon/author-ui.md 输出 48）：给源文字的输入框着色用的 Monarch 规则，经编辑器的贡献点
  * `editor.languages` 登记（docs/specs/workbench/editor.md 输出 43）。
  *
- * 只管着色，不判对错：写法合不合规由内核在写入时查（canon.rendering 输出 1）。所以认不出的字一律照正文画，不标成错误。
+ * 只管着色，不判对错：写法合不合规由内核在写入时查（canon.rendering 输出 1）。所以认不出的字一律照正文画，不标成错误。属性写成
+ * 内核认的 `名="值"`（等号两边没有空格）才照标签画，免得写错的标签看着像写对了。已知不同：四个空格开头的缩进代码块里的标签照标签画
+ * （内核按代码照原文显示），Monarch 按行分词，认不出缩进代码块的前后文。
  * 标签（`<V of="…" />`、`<If test="…">`）的名字、属性名、属性值各自着色，`of`、`expr`、`test` 的值里照式子画：字段名、字符串、
  * 数与运算符。
  */
@@ -62,14 +64,15 @@ const language: LanguageDefinition["language"] = {
         inline: [
             [/@escapes/u, "string.escape"],
             // 大写名字后面跟着属性或收尾才是标签：`评级 <A 级`、`a<b` 照正文画。
-            [/<\/?[A-Z][\w]*(?=\s+[A-Za-z_][\w-]*\s*=|\s*\/?>)/u, {token: "tag", next: "@tag"}],
+            [/<\/?[A-Z][\w]*(?=\s+[A-Za-z_][\w-]*="|\s*\/?>)/u, {token: "tag", next: "@tag"}],
             [/`[^`\n]+`/u, "string"],
             // 加粗与强调：记号里面一侧不能是空白（`2 * 3 * 4` 不是强调），里面有标签时不算（让给标签，字段名照样着色）。
             [/\*\*(?!\s)(?:[^\\*\n<]|@escapes)+?(?<!\s)\*\*/u, "strong"],
             [/\*(?![\s*])(?:[^\\*\n<]|@escapes)+?(?<!\s)\*/u, "emphasis"],
             [/~~[^~\n]+~~/u, "comment"],
-            // 链接的文字与地址各限一个长度：不限时，一行里很多个没配对的 `[` 要回溯很久。
-            [/(!?\[)((?:[^\]\\\n]|@escapes){0,300})(\]\([^)\n]{0,2000}\))/u, ["string.link", "", "string.link"]],
+            // 链接的文字与地址各限一个长度：不限时，一行里很多个没配对的 `[` 要回溯很久。文字里有标签时不当链接：让给标签着色（内核里
+            // 链接文字里的标签是活的）。
+            [/(!?\[)((?:[^\]\\\n<]|<(?![A-Z/])|@escapes){0,300})(\]\([^)\n]{0,2000}\))/u, ["string.link", "", "string.link"]],
         ],
         expression: expressionRules,
         // `<Ref id="…" />`、`<V of="…" />`：标签名、属性名、属性值；`of`、`expr`、`test` 的值照式子画。
@@ -77,7 +80,7 @@ const language: LanguageDefinition["language"] = {
             // 标签同样不能跨空行：没写完的 `<Ref` 只影响它这一段。
             [/^\s*\n/u, {token: "", next: "@popall"}],
             [/\/?>/u, {token: "tag", next: "@pop"}],
-            [/(of|expr|test)(\s*=\s*)(")/u, ["attribute.name", "delimiter", {token: "attribute.value", next: "@expression"}]],
+            [/(of|expr|test)(=)(")/u, ["attribute.name", "delimiter", {token: "attribute.value", next: "@expression"}]],
             [/[A-Za-z_][\w-]*/u, "attribute.name"],
             [/=/u, "delimiter"],
             [/"[^"\n]*"/u, "attribute.value"],

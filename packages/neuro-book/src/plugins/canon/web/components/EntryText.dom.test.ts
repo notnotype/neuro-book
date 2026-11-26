@@ -94,6 +94,38 @@ describe("EntryText", () => {
     it("输出 48：块一级的元素带着它在源文字里的行号", () => {
         const wrapper = text({blocks: [block("source", "# 标题\n\n一段\n\n- 甲\n- 乙\n\n> 引用", [])]});
         expect(wrapper.findAll("[data-source-line]").map((item) => [item.element.tagName, item.attributes("data-source-line")])).toEqual([["H2", "1"], ["P", "3"], ["LI", "5"], ["LI", "6"], ["BLOCKQUOTE", "8"], ["P", "8"]]);
+        // 引用里两段同样的文字、嵌套的列表、CRLF 的多行段落、列表最后一行带行尾空白：行号按行数算，不在源文里反找。
+        const lines = (source: string) => text({blocks: [block("lines", source, [])]}).findAll("[data-source-line]").map((item) => [item.element.tagName, item.attributes("data-source-line")]);
+        expect(lines("> 甲\n> 乙\n>\n> 乙\n\n后")).toEqual([["BLOCKQUOTE", "1"], ["P", "1"], ["P", "4"], ["P", "6"]]);
+        expect(lines("- a\n  - b\n  - b\n- b")).toEqual([["LI", "1"], ["LI", "2"], ["LI", "3"], ["LI", "4"]]);
+        expect(lines("甲\r\n乙\r\n\r\n# 题")).toEqual([["P", "1"], ["H2", "4"]]);
+        expect(lines("- 甲  \n- 乙   \n\n后")).toEqual([["LI", "1"], ["LI", "2"], ["P", "4"]]);
+    });
+
+    it("Markdown 的各种写法照章节的正文画：强调的两种写法、表格、有序列表、链接只留文字、图片写说明、换行", () => {
+        const source = "**粗** *斜* ~~删~~ <strong>粗二</strong> <b>粗三</b> <em>斜二</em> <i>斜三</i> <del>删二</del> <s>删三</s>\n\n| 甲 | 乙 |\n| - | - |\n| 一 | 二 |\n\n1. 第一\n2. 第二\n\n[链接文字](http://x) ![图的说明](a.png) 前<br>后";
+        const drawn = text({blocks: [block("md", source, [])]}).get("[data-block='md']");
+        expect(["strong", "em", "del"].map((tag) => drawn.findAll(tag).map((item) => item.text()))).toEqual([["粗", "粗二", "粗三"], ["斜", "斜二", "斜三"], ["删", "删二", "删三"]]);
+        expect(drawn.findAll("td").map((item) => item.text())).toEqual(["甲", "乙", "一", "二"]);
+        expect(drawn.findAll("ol li").map((item) => item.text())).toEqual(["第一", "第二"]);
+        expect(drawn.findAll("p").at(-1)!.text()).toBe("链接文字 图的说明 前后");
+        expect(drawn.findAll("p").at(-1)!.findAll("br")).toHaveLength(1);
+    });
+
+    it("来历画在画出了这个值的块后面：值在没生效的支里、或读不到的块不算", () => {
+        const hidden = block("hidden", '<If test="a.x">甲<Else />乙 <V of="panel.存款" /></If>', [["<If", {result: true, taken: 0}], ['<V of="panel.存款"', value("panel.存款", "900")]]);
+        const missing = block("missing", '<V of="panel.存款" />', [['<V of="panel.存款"', value("panel.存款", "未知", {raw: null, unknown: true, unavailable: "面板没启用"})]]);
+        const shown = block("shown", '丙 <V of="panel.存款" />', [['<V of="panel.存款"', value("panel.存款", "900")]]);
+        const wrapper = text({blocks: [hidden, missing, shown], open: "e1|panel.存款"});
+        expect(wrapper.findAll("section").map((section) => [section.find("[data-block]").attributes("data-block"), section.find("[data-slot]").exists()])).toEqual([["hidden", false], ["missing", false], ["shown", true]]);
+    });
+
+    it("嵌套过深的块（前后端不是同一版时内核没有拦下）整块按出错显示，不去递归画", () => {
+        // 150 层读得出来、超过层数上限；2500 层在 V8 里读的时候就栈溢出。
+        const quotes = (levels: number) => `${"> ".repeat(levels)}字`;
+        const wrapper = text({blocks: [block("deep", quotes(150), []), block("deeper", quotes(2500), []), block("after", "后面一块", [])]});
+        expect(wrapper.findAll("[data-block-error]").map((item) => item.text().split("这一块没有渲染出来：")[1])).toEqual(["nested more than 100 levels deep", "nested too deeply to read"]);
+        expect(wrapper.get("[data-block='after']").text()).toBe("后面一块");
     });
 
     it("条件只画生效的那一支；判断未知时写“未知”；都不成立又没有 Else 时什么都不画", () => {
