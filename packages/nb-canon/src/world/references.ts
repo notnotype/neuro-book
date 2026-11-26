@@ -11,6 +11,7 @@ import {markReferences, type MarkRegistry, type MarkTarget} from "../components/
 import {effectiveFields, retainedFields, type ComponentRegistry} from "../components/registry";
 import {parsePath} from "../core/address";
 import {rewriteEntryIds} from "../grammar/index";
+import {MAX_BLOCK_LENGTH} from "../render/syntax";
 import type {Check, Decision, Entry, FieldDeclaration, Mark, ObjectKind, ObjectRef, Patch, StoryChange, Telling, WriteRequest} from "../core/schema";
 
 export type RefTargetKind = "entry" | "change" | "line" | "decision" | "check";
@@ -317,10 +318,10 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
 
 /**
  * 主文字里活的标签指向的临时 id 换成正式 id（见 `replaceRequestTempIds`；`editEntries` 读回核对时用同一份换法算期望的文字）。只有写了
- * 临时 id 的文字才解析；嵌套深到读不出结构的原样交回，由写入检查拒收。
+ * 临时 id 的文字才解析；太长或嵌套深到读不出结构的原样交回，由写入检查拒收。
  */
 export function replaceTextTempIds(source: string, ids: Readonly<Record<string, string>>): string {
-    if (!source.includes("tmp:")) return source;
+    if (!source.includes("tmp:") || source.length > MAX_BLOCK_LENGTH) return source;
     try {
         return rewriteEntryIds(source, (id) => ids[id] ?? id);
     } catch (error) {

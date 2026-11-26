@@ -102,9 +102,14 @@ describe("canon.rendering 输出 1、3、18：写入时检查与规范写法", (
         ["带着装饰的 Ref", '<Ref id="e2" name="星瑾" />', "unknown-tag"],
         ["式子写错", '<V expr="panel.+" />', "forbidden-syntax"],
         ["If 没闭合", '<If test="panel.魔力 > 0">有', "cross-block"],
-        ["嵌套深到读不出结构（几万层引用）", "> ".repeat(25_000), "unsupported-markdown"],
+        ["一块超过 1 万个字符（几万层引用这类也在这里拦下）", "> ".repeat(25_000), "block-too-large"],
     ])("拒收：%s", (_name, source, code) => {
         expect(rejected(writeText(world(), [source]))).toEqual([{code, path: "init.text[b1]"}]);
+    });
+
+    test("一块正好 1 万个字符照常写入，多一个字拒收", () => {
+        expect(rejected(writeText(world(), ["字".repeat(10_000)]))).toBe("ok");
+        expect(rejected(writeText(world(), ["字".repeat(10_001)]))).toEqual([{code: "block-too-large", path: "init.text[b1]"}]);
     });
 
     test("变更里的整段替换也过检查", () => {
@@ -306,9 +311,9 @@ describe("canon.rendering 输出 16：按给的源文字渲染", () => {
         expect(analyzeDraft(BLOCK)).toBe(analyzeBlock(BLOCK));
     });
 
-    test("嵌套深到读不出结构的源文字（几万层引用）：照出错的块给，不抛", () => {
+    test("超过一块的长度上限的源文字（几万层引用这类）：照出错的块给，不抛", () => {
         const deep = "> ".repeat(25_000);
-        expect(sourceBlock(world(), deep, "ch5").blocks).toEqual([{id: "source", error: expect.objectContaining({code: "unsupported-markdown", line: 1}), text: deep}]);
+        expect(sourceBlock(world(), deep, "ch5").blocks).toEqual([{id: "source", error: expect.objectContaining({code: "block-too-large", line: 1}), text: deep}]);
     });
 });
 
@@ -680,11 +685,11 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
         expect([done.world.data.entries.get(n)!.init.text[0]!.source, done.world.data.entries.get(m)!.init.text[0]!.source]).toEqual([`见 <Ref id="${m}" />`, `见 <Ref id="${n}" />`]);
     });
 
-    test("写了临时 id 又嵌套深到读不出结构的块：照常拒收，不抛", () => {
+    test("写了临时 id 又超过长度上限的块：照常拒收，不为换 id 去解析它", () => {
         const base = world();
         const deep = `${"> ".repeat(25_000)}<Ref id="tmp:b" />`;
         const person = (tmp: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name: tmp, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
-        expect(rejected(publishPuts(base, [{ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", [deep])}, {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", [])}]))).toEqual([{code: "unsupported-markdown", path: "init.text[b1]"}]);
+        expect(rejected(publishPuts(base, [{ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", [deep])}, {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", [])}]))).toEqual([{code: "block-too-large", path: "init.text[b1]"}]);
     });
 
     test("式子里的引用按语法树认：带空格的 ref ( '…' ) 换，字符串里写着的 ref('…') 不换", () => {
