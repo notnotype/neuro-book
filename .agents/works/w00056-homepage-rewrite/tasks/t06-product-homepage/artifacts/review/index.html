@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>产品介绍首页：入殿·俯案成界（第 5 轮）</title>
+<title>产品介绍首页：入殿·俯案成界（第 6 轮）</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
@@ -17,53 +17,80 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .intro { margin: 0 0 28px; color: var(--muted); }
 .rec { margin: 0 0 16px; color: var(--rec); }
 img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
-.pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
 .cap { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
 .lab { margin: 10px 0 0; font-size: 14px; }
 .lab a { color: var(--rec); }
-ul.notes { margin: 0 0 12px; padding-left: 1.3em; color: var(--muted); font-size: 15px; }
-ol.beats { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
+ol.beats, ul.notes { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+.issue { margin: 12px 0 0; padding: 10px 14px; border-left: 3px solid #b26b00; background: #fff8ec; font-size: 15px; }
 @media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <main>
-<h1>产品介绍首页：入殿·俯案成界（第 5 轮）</h1>
-<p class="intro">照第 4 轮的答复改：首屏方向不变，材质换成生成的照片，按钮加金边往皇室奢华感走，工作台缺省用夜间配色（可以切回昼），首句用 e3 并配上 From words to world.；第一幕放慢、讲清楚，把浮窗、视图换位置、关掉再打开三步加回来，做得和首屏一样华丽。</p>
+<h1>产品介绍首页：入殿·俯案成界（第 6 轮）</h1>
+<p class="intro">照第 5 轮会话里的意见改：第一幕的演示不再跟着滚动逐帧走，改成“滚动只决定停在哪一拍”，拖动都是产品真的手势与实时布局，访客动过以后会摆回去；加了一拍介绍编辑器的高亮与批注；整页有了白天；首屏的三张纸轮流动起来；按钮出了四版。</p>
 
-<section data-nbdev-question="hero-r5" data-nbdev-type="single" data-nbdev-options="done:首屏定下来，往下做第二幕|polish:再打磨一轮（备注写哪里）" data-nbdev-recommend="done">
-  <h2>首屏这样定下来吗？</h2>
-  <p class="rec"><strong>推荐定下来，往下做第二幕：</strong>纵深、光、俯冲接真工作台在第 4 轮已经成立，这一轮补上了器物感（皮面、羊皮纸、丝绒都是照片质感）和奢华的细节；剩下的小处（比如题辞的字体）可以在做后面几幕时顺手调。</p>
-  <img src="r5/hero.webp" alt="首屏终态：题辞 From words to world.，一行标题“每一个世界，都从一行字开始。”，下面一道金色花饰、说明与两个金边按钮；两侧悬着羊皮纸手稿与人物卡，左下是地图，右下是带鎏金包角和红宝石的赤红书角，远处丝绒桌布上是夜间配色的工作台">
-  <p class="cap">首屏终态。题辞 From words to world. 用品牌字标的 Fraunces，和首句呼应；标题下一道金色花饰从中间往两边展开；按钮是双线金边、两端各一粒金菱形的牌子。</p>
-  <h3>开场（慢放，左上到右下，约 2.1 秒）</h3>
-  <img src="r5/intro.webp" alt="开场六帧：暗处起光；书角、丝带与羊皮页浮上来；题辞与标题显出、桌子亮起；花饰展开；说明与按钮随光显出；终态">
-  <h3>俯冲与落地：工作台缺省是夜间配色</h3>
-  <div class="pair">
-    <img src="r5/dive.webp" alt="俯冲：滚过 16% 时手稿从左边掠过；50% 时桌子还斜着；落地后约九成宽的夜间工作台，四周是暗红丝绒；第一幕开头，星璃回答时她那一栏亮一圈金，下面是进度菱形、拍名与字幕，右下角是昼夜切换">
-    <img src="r5/narrow.webp" alt="390 宽的窄屏：题辞、标题、花饰、说明与两个金边按钮在上，工作台平放在下面">
-  </div>
-  <p class="cap">左：滚过 16%、50%、落地，和第一幕开头。夜间配色写在页面根上（主题有一批颜色从根上派生，只改工作台那一块跟不上），强调色换成金；落地后字幕那一条右端有昼夜切换。右：窄屏。</p>
-  <h3>生成的材质</h3>
-  <img src="r5/textures.webp" alt="四张生成的图：带鎏金包角与红宝石的赤红皮面书角、陈旧的羊皮纸、深红丝绒、金色巴洛克花饰">
-  <p class="cap">书角的黑底抠成了透明，花饰的黑底拆成了透明的金。共生成 4 张，没有重发。</p>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r5-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里从首屏看（往下滚）</a></p>
+<section data-nbdev-question="act-one-r6" data-nbdev-type="single" data-nbdev-options="continue:其余几幕照这个做法|revise:先改第一幕（备注写哪里）" data-nbdev-recommend="continue">
+  <h2>第一幕的演示这样做稳了吗？其余几幕照着做吗？</h2>
+  <p class="rec"><strong>推荐照着做：</strong>滚动只决定停在哪一拍，演示只是两拍之间的装饰，滚得快、往回滚、半路被打断都落在一个记下的样子上，不会停在半截；拖动是真的实时布局，和访客自己拖一模一样。</p>
+  <h3>你问的做法：滚动只决定状态，动画只负责装饰</h3>
+  <ul class="notes">
+    <li>每一拍有一个终态（布局、标签、正文、对话），演完或摆好就记下来。滚动只给“停在第几拍”，停稳约 0.2 秒才算数，快速滚过的拍不演。</li>
+    <li>往前一拍就演；往回滚直接摆回那一拍的终态，不重演；一下跳过几拍时先快速摆好前面几拍，再演停住的那一拍。</li>
+    <li>同一时间只有一段在走：换目标先打断正在演的，撤下没松开的拖动、指针与光圈，再按新目标走。</li>
+    <li>访客动过工作台：演示让开，字幕后面出现“接着看”“摆回去”；不按也行，下一次换拍先摆回再接着演。能就地摆就走产品的布局动画，从访客摆的样子走回去；正文对不上（打过字、演到一半）时压一层薄暮，按记下的重新挂一台再揭开。</li>
+  </ul>
+  <img src="r6/act-one.webp" alt="第一幕十帧：第一章拖到右缘时实时布局排开、卡片跟着金色指针；选区菜单出现；批注卡片里打字；艾莉丝的设定浮成窗；拉窗角收到作品树下面；作品的入口拖向右栏；作品树搬到右栏、左边换成设定；双击后正文铺满；关灯；重新打开后一切都在">
+  <ol class="beats">
+    <li>两章并排：第五章打出那半句，作者问、星璃边打边答；第一章的标签沿标签条拖到右端、再落进右缘，布局一路排开，松手两章并排。</li>
+    <li>划出来，记一笔（新加）：拖选两处敲门，点编辑器选区菜单上的高亮；再选第五章那半句，点“批注”，在卡片里写“第四下不会响：门外的人不是师傅。”，保存后点批注的小符号把卡片打开。</li>
+    <li>人物浮在手边：艾莉丝的标签拖到状态栏上松手，浮出一扇窗；拉右上角的手柄，收到作品树下面。</li>
+    <li>视图换个位置：作品的入口拖到右栏，作品树整块搬过去（和星璃上下两段），左边换成设定。</li>
+    <li>专心：真的双击标签栏，正文铺满；再双击还原。</li>
+    <li>下次还是这样：关灯，存盘并重新挂一台，再开灯：分栏、浮窗、高亮与批注、打到一半的那句、对话都在。</li>
+  </ol>
+  <h3>访客动手以后</h3>
+  <img src="r6/recover.webp" alt="三帧：演到第二拍时访客点了一下正文、又把第一章拖成上下两栏，字幕后面出现接着看与摆回去；滚到下一拍时工作台走回记下的样子；接着演艾莉丝那一拍">
+  <p class="cap">左：第二拍演到一半访客点了正文、又把第一章拖成上下两栏，演示让开。中：滚到下一拍，工作台走回上一拍记下的样子。右：补上第二拍的高亮与批注，接着演第三拍。</p>
+  <img src="r6/handoff.webp" alt="交给访客：第一章的标签上一圈金环，字幕那一行是星璃的小贴纸、邀请与两个按钮">
+  <p class="issue">顺带发现一个产品本身的问题：高亮的颜色是写进 Markdown 的浅色（色板在 markdown 插件的 palette.ts），夜间配色下字跟着正文用浅色，涂上就看不清。首页先在自己这台工作台里把高亮里的字压成深墨；产品里要不要改、怎么改（字换深色，或夜里把高亮调暗）另说。</p>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r6-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕（往下滚换拍；中途按一下工作台试试让开与摆回）</a></p>
 </section>
 
-<section data-nbdev-question="act-one-r5" data-nbdev-type="single" data-nbdev-options="continue:其余几幕照这个讲法|revise:先改第一幕（备注写哪里）" data-nbdev-recommend="continue">
-  <h2>第一幕这样讲清楚了吗？其余几幕照着做吗？</h2>
-  <p class="rec"><strong>推荐照着做：</strong>每一拍先在字幕里说要做什么，一支金色指针慢慢做给你看，做完再说得到了什么；字幕上一行的五粒金菱形告诉你走到第几拍。</p>
-  <img src="r5/act-one.webp" alt="第一幕八帧：星璃边打边答；两章并排；艾莉丝的设定浮在作品树下面；作品树挪到右栏、左边换成设定；双击后正文铺满；关灯；重新打开后分栏、浮窗与打到一半的那句都在；交给访客">
-  <ol class="beats">
-    <li>两章并排：第五章打出“门外有人敲门，三下。她屏住气，等那第四下。”；作者在对话栏里问会不会太刻意，星璃读了第一章边打边答（她那一栏亮一圈金）；第一章的标签先亮一圈金，指针把它拖到右半边，两章并排，两声敲门同时描金。</li>
-    <li>人物浮在手边：艾莉丝的设定拖成浮窗，落在作品树下面，不挡正文。</li>
-    <li>视图换个位置：作品树整块拖到右栏，左边换成设定（星璃收在右栏的入口里）。</li>
-    <li>专心：双击标签栏，正文铺满桌面；再双击还原。</li>
-    <li>下次还是这样：关灯，存盘并按此刻的样子真的重新挂一台工作台，再开灯：分栏、浮窗、打到一半的那句、对话都还在。</li>
-  </ol>
-  <p class="cap">最后交给访客：第一章的标签上一圈金环，隔一会儿往右挪一下示意能拖；字幕那一行是星璃的小贴纸、邀请与两个金边按钮。一拍约一屏半的滚动，整幕约九屏；访客一按工作台，演示就让开。</p>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r5-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕（往下滚换拍）</a></p>
+<section data-nbdev-question="day-r6" data-nbdev-type="single" data-nbdev-options="ok:白天这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
+  <h2>白天这样成立吗？</h2>
+  <p class="rec"><strong>推荐可以：</strong>夜是暗夜圣殿，昼是午后的抄经室：偏暖的灰石墙（比羊皮纸暗半阶，纸不会糊在底上）、左上高窗斜进来一道日光、深墨的字；工作台跟着换产品的日间配色。缺省仍是夜。</p>
+  <img src="r6/day.webp" alt="白天：首屏是暖灰的石墙、斜进来的日光、提亮的羊皮纸与深墨的标题；第一幕的工作台是日间配色，高亮与批注卡片清楚，四周是枣红丝绒">
+  <div class="pair">
+    <p class="cap">左：白天的首屏。右：白天的第一幕（字幕在丝绒上，昼夜都用浅色的字）。昼夜开关在导航最右端，落地以后在字幕那一条的右端，是同一个开关。</p>
+    <img src="r6/day-narrow.webp" alt="390 宽的白天：导航收起了更新日志，题辞、标题、花饰、说明与按钮在上，工作台平放在下面；往下滚只换字幕">
+  </div>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r6-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看白天（从首屏起）</a></p>
+</section>
+
+<section data-nbdev-question="hero-r6" data-nbdev-type="single" data-nbdev-options="ok:首屏这样动可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
+  <h2>首屏的纸这样“静中有动”可以吗？</h2>
+  <p class="rec"><strong>推荐可以：</strong>不翻牌（@designer 说翻牌加扫光像抽卡），改成纸上的东西自己演进、叠着的纸换上来；约每 6.5 秒轮到一张，一次只动一张，镜头推走或页面在后台时不动，访客要求少动效时不动。</p>
+  <img src="r6/slips.webp" alt="首屏四帧：起初三张纸是手稿、人物卡与地图；人物卡往一边让开、下面星璃的便笺斜着抽出来；手稿上敲门那一行被红笔圈出、写着伏笔，星璃的便笺换到了上面；地图换成了剧情时间线，第一章与第五章那两声敲门连着一道红线">
+  <ul class="notes">
+    <li>手稿：敲门那一行涂上一道高亮，红笔圈出来、牵一条线写“伏笔：第五章再响”，下一轮再淡掉（和第一幕“划出来，记一笔”是同一件事）。</li>
+    <li>人物卡下面压着星璃的便笺（她的头像与一句提醒），轮到时便笺斜着抽出来换到上面。</li>
+    <li>地图下面压着剧情的时间线（四章四件事，两声敲门连着红线），换法同上。</li>
+  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r6-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看首屏（停在首屏等二十秒）</a></p>
+</section>
+
+<section data-nbdev-question="buttons-r6" data-nbdev-type="single" data-nbdev-options="a:A 双线金边|b:B 皮面烫金|c:C 书脊签|d:D 封蜡" data-nbdev-recommend="b">
+  <h2>按钮用哪一版？</h2>
+  <p class="rec"><strong>推荐 B 皮面烫金：</strong>和首屏那本书的皮面、鎏金包角是一套，主次分得最开（次按钮只留细金框与四角，白天不压人、夜里不沉底）。想最稳就选 A，它是第 5 轮那一版的精修。</p>
+  <img src="r6/buttons.webp" alt="按钮四版，每版左边在夜里、右边在白天：A 赤红底双线金边、两端金菱形；B 哑光深红皮面、烫金细框与四角角花、金字，次按钮只有细金框与四角；C 修长的赤红签条、极细单金框、字两侧各一小段金线；D 羊皮纸色签条，主按钮左端压一枚红色火漆印">
+  <ul class="notes">
+    <li>悬停不扫光，只有受光的微变：赤红微微提温、金线亮半档、内框或菱形往外展一两像素、一圈淡暖晕；按下时下沉 1px。键盘聚焦有一道金色的焦点环。</li>
+    <li>D 封蜡 @designer 建议降级当彩蛋：火漆印让重心偏左，白天的签条容易融进石墙。</li>
+  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HeroButtons&amp;s=r6-variants&amp;vp=1440x800&amp;cw=light&amp;theme=nbook">在 Lab 里看按钮（鼠标停上去看悬停）</a></p>
 </section>
 
 <section>
@@ -78,6 +105,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>首屏方向不变、先打磨材质；按钮加金边一类的装饰，往皇室奢华感走；工作台缺省夜间配色、可以切换（第 4 轮）</li>
     <li>第一幕放慢讲清楚，加回浮窗、视图换位置、关掉再打开，和首屏一样华丽（第 4 轮与会话）</li>
     <li>首句用 e3“每一个世界，都从一行字开始。”，配 From words to world.（第 4 轮与会话）</li>
+    <li>演示的拖动用实时布局；访客动过要有恢复动画；顺手介绍编辑器的标注与高亮；整个页面要有白天；首屏静中有动、纸条可以轮播；按钮出几版（第 5 轮之后的会话）</li>
   </ol>
 </section>
 </main>
