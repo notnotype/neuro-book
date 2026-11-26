@@ -62,13 +62,16 @@ const ASK = "test.eval.ask";
 const WIDE = "test.eval.wide";
 /** 声明了 `returns`、却交回不符的结构的工具（eval.md 输出 7）。 */
 const SHAPE = "test.eval.shape";
+/** 经 `waitingForUser` 自报在等用户的工具：等到测试放行才交回（eval.md 输出 14）。 */
+const WAITS = "test.eval.waits";
+let waitsFor = {started: Promise.withResolvers<void>(), answer: Promise.withResolvers<string>()};
 /** 全局对象 `front` 的方法 `ping`：只给有人在窗口前的会话（contributions.md 输出 4），装到所有 Profile。 */
 const FRONT = "test.eval.front";
 /** 声明了 `errors` 的工具：按参数交回带不同 `details` 的失败（eval.md 输出 8）。 */
 const FAILS = "test.eval.fails";
 /** 代码里调一次它，这个会话打开期间就有它的实现；会话关闭时实现被释放，记下会话 id（看会话真的关了）。 */
 const PROBE = "test.eval.probe";
-const TOOLS = ["nbook.agent.eval", "nbook.agent.read", "nbook.agent.write", "nbook.agent.shell", SHAPE, FAILS, PROBE];
+const TOOLS = ["nbook.agent.eval", "nbook.agent.read", "nbook.agent.write", "nbook.agent.shell", SHAPE, FAILS, WAITS, PROBE];
 const WIDE_TOOLS = [...TOOLS, "nbook.agent.spawn", "nbook.agent.send", "nbook.agent.answer", "nbook.agent.switch-mode"];
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -85,6 +88,12 @@ function testPlugin(): PluginDefinition {
         undeclared: {code: "other", text: "别的", details: {retryAfter: 3}},
     };
     const failsTool: AgentToolImplementation = {create: () => ({execute: async (args) => ({status: "error" as const, ...failures[(args as {kind: string}).kind]!})})};
+    const waits = agentTool(WAITS, {description: "等用户", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "waits"});
+    const waitsTool: AgentToolImplementation = {create: () => ({execute: async (_args, ctx) => {
+        const waited = ctx.waitingForUser!(waitsFor.answer.promise);
+        waitsFor.started.resolve();
+        return await waited;
+    }})};
     const front = agentTool(FRONT, {description: "前台才有", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "front", defaultForAll: true, foreground: true, global: {object: "front", method: "ping"}});
     const frontTool: AgentToolImplementation = {create: () => ({execute: async () => "在前台"})};
     const probe = agentTool(PROBE, {description: "什么也不做", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "probe"});
@@ -92,13 +101,13 @@ function testPlugin(): PluginDefinition {
     return {id: "test.eval", contributions: [evalObject(FRONT, {name: "front", summary: "前台才有"})], entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, fails.activationEvent, front.activationEvent, probe.activationEvent],
-        contributions: [...profiles.map((item) => item.contribution), shape.contribution, fails.contribution, front.contribution, probe.contribution],
+        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, fails.activationEvent, waits.activationEvent, front.activationEvent, probe.activationEvent],
+        contributions: [...profiles.map((item) => item.contribution), shape.contribution, fails.contribution, waits.contribution, front.contribution, probe.contribution],
         activate: (context) => {
             remote = context.remote;
             return {contributions: {
                 "agent.profiles": Object.fromEntries([YOLO, ASK, WIDE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: toolsOf(key)}})])),
-                "agent.tools": {[SHAPE]: shapeTool, [FAILS]: failsTool, [FRONT]: frontTool, [PROBE]: probeTool},
+                "agent.tools": {[SHAPE]: shapeTool, [FAILS]: failsTool, [WAITS]: waitsTool, [FRONT]: frontTool, [PROBE]: probeTool},
             }};
         },
     })]};
@@ -409,6 +418,18 @@ describe("eval", () => {
         expect(events.map((event) => event.type)).toEqual(["nestedToolResult", "toolResult"]);
         expect((events[1]!.data as unknown as Result).code).toBe("timeout");
     }, 30_000);
+
+    test("输出 14：嵌套工具经 waitingForUser 自报的等用户不算进时限", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        waitsFor = {started: Promise.withResolvers<void>(), answer: Promise.withResolvers<string>()};
+        const runId = await start(session, {code: "await tool.waits({})", timeout: 1});
+        await waitsFor.started.promise;
+        w.settings.clock.advance(5_000);
+        waitsFor.answer.resolve("用户答了");
+        await session.waitRun(runId);
+        expect(results(await session.path()).at(-1)).toMatchObject({status: "ok", text: "用户答了"});
+    });
 
     test("输出 15、11、12：运行被停止：结果码 aborted，已有的输出保留；下一次调用提示被停止", async () => {
         const w = await world();

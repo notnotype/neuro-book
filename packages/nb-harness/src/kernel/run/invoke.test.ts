@@ -174,6 +174,81 @@ describe("嵌套调用", () => {
         expect(dataOf<{id: string; status: string; args: unknown}>(events, "nestedToolResult")).toEqual([expect.objectContaining({id: requested.callId, status: "denied", args: {path: "正文.md"}})]);
     });
 
+    test("输出 90：嵌套调用经 waitingForUser 自报等用户：promise 结算时收回；永不结算的在调用结算时收回；被取消时收回且只报一次", async () => {
+        const log: string[] = [];
+        const answered = gate<string>();
+        const started = {settles: gate(), cancelled: gate()};
+        // 被取消的那次：工具看到取消之后还要等它才交回，用来区分“取消时收回”与“结算时收回”。
+        const release = gate();
+        program = async (ctx) => {
+            const track = (name: string) => ({onWaiting: (value: boolean) => void log.push(`${name} ${String(value)}`)});
+            const settles = ctx.invoke!("lab.wait", {mode: "settles"}, track("settles"));
+            await started.settles.promise;
+            log.push("答之前");
+            answered.open("答了");
+            const first = await settles;
+            const forgotten = await ctx.invoke!("lab.wait", {mode: "forgotten"}, track("forgotten"));
+            const stop = new AbortController();
+            const cancelled = ctx.invoke!("lab.wait", {mode: "cancelled"}, {...track("cancelled"), signal: stop.signal});
+            await started.cancelled.promise;
+            stop.abort();
+            log.push("停之后");
+            release.open();
+            const third = await cancelled;
+            return JSON.stringify([first.text, forgotten.text, summary(third)]);
+        };
+        await using session = await createTestSession({tools: [code, {id: "lab.wait", effect: "read", execute: async (args, ctx) => {
+            if (args.mode === "settles") {
+                const waited = ctx.waitingForUser!(answered.promise);
+                started.settles.open();
+                return await waited;
+            }
+            if (args.mode === "forgotten") {
+                // 提供方忘了收回：永不结算的等待。
+                void ctx.waitingForUser!(new Promise<never>(() => undefined));
+                return "交回了";
+            }
+            const never = ctx.waitingForUser!(new Promise<never>(() => undefined));
+            started.cancelled.open();
+            await Promise.race([never, new Promise((resolve) => ctx.signal.addEventListener("abort", resolve, {once: true}))]);
+            await release.promise;
+            return "停了";
+        }}]});
+        session.model.script({tools: [{tool: "lab.code"}]}, "完成");
+        const {events} = await session.say("等");
+        expect(dataOf<{text: string}>(events, "toolResult")[0]!.text).toBe(JSON.stringify(["答了", "交回了", ["ok", null]]));
+        expect(log).toEqual(["settles true", "答之前", "settles false", "forgotten true", "forgotten false", "cancelled true", "cancelled false", "停之后"]);
+    });
+
+    test("输出 98：经 waitingForUser 等用户期间仍占着并发名额：之后的 exclusive 调用等它结束", async () => {
+        const order: string[] = [];
+        const answered = gate();
+        const waiting = gate();
+        program = async (ctx) => {
+            const first = ctx.invoke!("lab.wait", {});
+            await waiting.promise;
+            const write = ctx.invoke!("lab.write", {path: "c"});
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            order.push("答");
+            answered.open();
+            await Promise.all([first, write]);
+            return order.join(" ");
+        };
+        await using session = await createTestSession({tools: [code, {id: "lab.wait", effect: "read", execute: async (_args, ctx) => {
+            const waited = ctx.waitingForUser!(answered.promise);
+            waiting.open();
+            await waited;
+            order.push("等完");
+            return "好";
+        }}, writer({execute: () => {
+            order.push("写");
+            return "c";
+        }})]});
+        session.model.script({tools: [{tool: "lab.code"}]}, "完成");
+        const {events} = await session.say("锁");
+        expect(dataOf<{text: string}>(events, "toolResult")[0]!.text).toBe("答 等完 写");
+    });
+
     test("输出 98：同一个父调用里 shared 的并发，exclusive 的等它们都结束、独占执行", async () => {
         const order: string[] = [];
         const started = {a: gate(), b: gate()};
