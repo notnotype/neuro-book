@@ -192,3 +192,81 @@
   - **键盘到不了提示**：键盘用户在 6 秒里到不了浮动提示。还原另有改动记录这条路，读屏靠常驻的 `role="status"` 念到；记为已知限制，写进 Spec 输出 18。
   - **页面标签的图标影响所有页面**（欢迎页、模型请求等）：EditorTabBar、拖影的 dom 测试与 e2e editor-area 覆盖；跑 `editor-area.e2e.ts` 前先 grep 它对页面标签的断言。
   - **`InPlaceEditor` 抽出可能改坏人物与形象分页**：先单独抽、行为不变地提交，跑完原有测试再接页头。
+
+---
+
+# S8：页头“在看”与就地改卡（评审板第 2、3 轮）
+
+## Context
+
+开发者 2026-11-26 第二次试用：看不懂“跟着章（此刻：主线）”和“第 3 章末尾”两个控件，改值的控件不好看、不好用。评审板第 2、3 轮定了（Task README 两节答复）：页头合成一个“在看”（章表可搜、滚到当前章，两边往前往后一处，两段小标题带说明）；改值用紧凑浮层、玻璃的面，二选一写“从最初起 | 从第 3 章起”，选剧情里变了时选填一句“发生了什么”；长文字在原处展开、用同一张卡；第 2 轮“直接修”那张表照做。草稿：Lab 草稿区 `drafts/w00039-t42/` 的 `ViewPointDraft`、`InPlaceEditDraft`。
+
+## 技术选型
+
+无新依赖。“在看”的菜单要放搜索框、每章一行两个按钮与开关，`DropdownMenu` 放不下，用 nb-ui `Popover` 自己排内容（键盘按下面的约定）。nb-ui `Popover` 加一个可选的碰撞边界（reka 的 `collisionBoundary`），编辑浮层用它钳在编辑区里。
+
+## 关键设计
+
+### canon/web/components/ViewPointPicker.vue（新，替代 LineSelect 与 PositionPicker）
+
+- 一个浅底按钮：“在看”（弱一档）加结论“第 3 章末尾 · 主线”；只有主线时不写线，算上计划时加“· 含计划”，固定看一条分支线时强调色浅底加分支图标。两边各一个 `IconButton` 往前、往后一处（位置表里的上一项、下一项；到头了不可用，悬停写要去哪）。标记（这时还没出场、原来选的那一章不在了、算上计划 ×）照旧在左边一格。锁着（`locked`）时整组不可用、悬停写原因。
+- 菜单（`Popover`，宽 22rem）：“故事线”一段（有两条以上线时）：按章节自动（右边小字“当前：线名”）、主线、子线按树缩进加折线图标；“剧情进度”一段：多于 12 章时顶上一个搜索框（章号、“第 N 章”、标题里的字），“最初”（小字“起始设定”）固定在上，章表一章一行、行尾“开头”“末尾”两个按钮，多于 12 章时约 8 行高、在里面滚，打开时当前章滚到中间；最下面“算上计划中的情节”开关（只在 `canPlan` 时）。两段小标题旁各一个 `InfoTip`（文字照草稿的 `LINE_TIP`、`PROGRESS_TIP`，进 locales）。
+- 键盘：打开时焦点进当前那一个按钮（多于 12 章时进搜索框）；位置是一组 `role="radio"`（`radiogroup` 的读屏名“剧情进度”），上下键换章、左右键换开头末尾，回车或空格选中并关上；搜索框里下键进章表；Escape 关上、焦点回按钮。
+- 合同：`positions`（新的 `positionRows(chapters, text)`，见下）、`position`、`planned`、`canPlan`、`locked`、`notAppeared`、`positionGone`、`lineOptions`、`line`、`resolvedLine`；发 `update:position`、`update:planned`、`update:line`。条目页的页头（`EntryPage.vue`）与剧情页面的 `PageHead.vue` 都换成它；`LineSelect`、`PositionPicker` 两个组件连同测试、`.md` 与 Lab 场景删掉。
+- `positions.ts`：加 `positionRows`，给出“最初”一项与每章一行（序号、标题、开头与末尾的值）；`positionOptions` 留给要扁平列表的地方（前后一步按它的顺序）。
+
+### 状态栏与选线命令（canon/web/plugin.ts、commands.ts、locales）
+
+- 状态栏条目 `nbook.canon.line` 改说法：“故事线：主线”“故事线：按章节自动”“故事线：线名”；快速选择第一项“按章节自动”。它是窗口一份，读不到各页自己的时间点，所以不写时间点（与评审板“直接修”里那一句的出入，交付时说明）。
+
+### 就地改卡（ConfirmBar 的 inline、FieldInput、SuggestInput、EntryPageHost、in-place-edit.ts）
+
+- 底栏一行：意图二选一用 `SegmentedControl` 的 `raised`（xs），右边取消、保存（保存是唯一主色，带回车提示；长文字写 Ctrl+回车）。去掉“这是”。
+- 二选一的写法：改设定写“从<来源>起”，来源取这个值最近一次改动的安放（字段状态的 `changedAt`：剧情变更给的是“第 2 章”“前史”，没有就是“最初”）；剧情里变了写“从第 N 章起”（所选位置那一章）。来源与所选位置是同一章时，两项写“改第 3 章那一笔”“第 3 章里又变了”，免得两项同名。看“最初”时只有改设定，不出这一行。
+- 预览：没有别的变化（`impactIsQuiet`）时不占行；有变化时一条警告色浅底的提示写变化（多于一条写“还有 N 项”，整句在悬停提示）；原因（失败、刚被别处改过）照旧写在那里。写回哪里不再单独写（落点已经在二选一里）。
+- 选着剧情里变了时，输入框下面多一行选填的“发生了什么”：它就是这一次的修订标题与那一条剧情变更的文字（内核里两者本来是同一个 `title`，见 `nb-canon` 的 `editBatch` 与 `storyChange`）；不填时写“年龄变成 18 岁”（值的显示文字不超过 20 字），否则“性格变了”；改设定的标题照旧“改年龄”。草稿记在标签状态里（同填的值）。
+- 建议值（`SuggestInput`）加一个内嵌的样子：在浮层里列在输入框下面，不再传送成第二层浮层；打开时列全部、当前值打勾，打了字才筛；键盘同现在。确认条（页顶那一种）与对话框里照旧用弹出的样子。
+- 长文字：`layout: "block"` 的编辑层不再盖在原文上（`absolute`），改成在原处展开：同一张卡（浮层的面、同一条底栏），原文按钮在编辑时藏起来，下面的内容往下让；多行输入按内容长高（`autosize`），不露拉伸角。
+- 浮层钳在编辑区里：`Popover` 的碰撞边界给条目页所在的编辑组（`EntryPage` 的根往上最近的编辑组元素），右边一栏的值浮层靠右对齐。
+
+### nb-ui
+
+- `Popover`：加可选的 `collisionBoundary`（元素或元素数组，传给 reka），缺省照旧；同名 `.md` 与组件测试。
+- `Tabs` 的 `scroll`：放不下、某一头还有内容时，那一头渐隐（`mask-image`，左右各 24px），滚到头那一头不渐隐；跟着滚动与宽度变化更新。`tabs-scroll` 验收页加一条。
+
+### 设计语言
+
+- “交互：复杂留给系统”第 4 条：“改一个值……都是同一种浮层”改成“都是同一张编辑卡（短项浮在值旁边，成段的文字在原处展开）”。
+
+## Spec 与文档改动
+
+- `canon/author-ui.md`：输出 7（时间点并进“在看”、章表的搜索与前后一步）、34（页头不再单列线的选择，状态栏说法）、16 与 51（二选一的写法、预览只在有变化时写、发生了什么、长文字原处展开、建议值内嵌）、9（横排分页两头渐隐）；验收 1、3、17 里的说法。
+- `plot/author-ui.md`：剧情页面的页头同一个“在看”。
+- 组件 `.md`：新 `ViewPointPicker.md`；改 `ConfirmBar.md`、`FieldInput.md`、`SuggestInput.md`、`EntryPage.md`、`PageHead.md`、`EntryPageHost.md`、`CharacterView.md`；nb-ui `Popover.md`、`Tabs.md`。
+
+## 切片
+
+1. S8a 页头“在看”：`ViewPointPicker` 与 `positionRows`，条目页与剧情页面换上，删 `LineSelect`、`PositionPicker`，状态栏说法；dom 测试与 Lab 场景（含英文、60 章、手机）。
+2. S8b 就地改卡：`ConfirmBar` inline、`FieldInput`、`SuggestInput` 内嵌、`in-place-edit.ts` 的标题与“发生了什么”、长文字原处展开、`Popover` 碰撞边界；dom 测试（二选一的写法与同章时的说法、预览只在有变化时、发生了什么进标题、不填时的缺省、建议值列全）。
+3. S8c nb-ui `Tabs` 两头渐隐、设计语言一句、Spec 全部写进主工作区。
+4. 收口：e2e 由 Sonnet 子代理在自己的 worktree 改（见“测试分工”），主会话合进来跑；前端实现审查（Sonnet）；开发服务上走一遍；合入。
+
+## 测试分工
+
+e2e 的定位与可观察状态（两边照这份写）：“在看”按钮 `[data-view-point]`，前后一步 `[data-view-point-prev]`、`[data-view-point-next]`，菜单 `[data-view-point-menu]`，搜索框 `[data-view-point-search]`，章行 `[data-chapter-row="<章 id>"]`，位置按钮 `role="radio"` 加 `data-position-value="<值>"`，线的项 `[data-line-option="<id 或空串>"]`，计划开关 `[data-view-point-plan]`；就地改的二选一 `[data-edit-intent]`（`SegmentedControl` 的项按名字取），“发生了什么” `[data-edit-note]`，变化提示 `[data-edit-impact]`。子代理改 canon-author、canon-character、canon-write、plot-author 里用到旧控件（`[data-position-trigger]`、菜单的 menuitemradio、“改设定”“剧情里变了”、“改最初的值”）的用例，并按 Spec 新句子补：60 章时搜到一章并选中、前后一步换了位置、剧情里变了写“发生了什么”以后情节里那一条是这句话、长文字编辑时下一节往下让而不被盖住。
+
+## 验收映射
+
+- author-ui 输出 7、34 → `ViewPointPicker.dom.test.ts`（结论文字、只有主线、含计划、固定分支线的样子、搜索、滚到当前、前后一步到头不可用、键盘）、`window-line` 的状态栏测试、e2e canon-author 验收 1。
+- 输出 16、51 → `ConfirmBar.dom.test.ts`、`entry-page.dom.test.ts`（二选一写法、同章、看最初、预览、发生了什么、缺省标题）、`SuggestInput.dom.test.ts`、e2e canon-character 验收 17。
+- 输出 9 渐隐 → nb-ui `tabs-scroll.spec.ts`。
+
+## 验证
+
+类型检查；canon、剧情、Lab、编辑器的 vitest 与 bun 测试（整个插件目录）；nb-ui 组件测试与 `tabs-scroll`；e2e canon-author、canon-character、canon-write、plot-author；Lab 场景检查（这次改的组件）；变异检查（二选一同章、预览只在有变化时、发生了什么进标题、建议值列全、前后一步到头）；开发服务真实页面走一遍（宽、1440、390）。
+
+## 不做与风险
+
+- 通用字段表（`FieldTable` 与页顶的确认条）不在这一片：它照旧是页顶确认条，二选一与预览的写法跟着同一份文字改，样子不改；要不要也换成编辑卡另问。
+- 状态栏读不到各页的时间点，只写故事线。
+- 二选一的“来源”取字段最近一次改动；值由核对点或连续几笔加减得出时，改设定实际改的是哪一笔仍以预览为准（累出来的数照旧拦下，输出 29）。
