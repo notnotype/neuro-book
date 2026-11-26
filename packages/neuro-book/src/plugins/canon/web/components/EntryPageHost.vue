@@ -53,6 +53,8 @@ import FieldDetailView from "./FieldDetail.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
 import {LOOK_PICK_KEY} from "../look-handoff";
+import {addComponentGroup} from "./add-component-picker";
+import type {AddComponentItem} from "./add-component-picker";
 import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
 import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
@@ -100,6 +102,8 @@ const props = defineProps<{
     entryKinds?: readonly EntryKind[];
     /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
     images?: CanonImages | null;
+    /** 登记这个设定组类型的插件 id：“添加一组设定”按它分组（输出 38）；不给时都算“插件”。 */
+    componentPlugin?: (type: string) => string | null;
 }>();
 
 const text = useCanonText();
@@ -214,13 +218,14 @@ const leadingTypes = computed(() => {
     const kind = entry.value?.kind?.trim();
     return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
 });
+/** 设定组类型的图标：它的视图声明里写的，没写时是通用的设定组图标。分页与“添加一组设定”共用。 */
+const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
 /**
  * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
  * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。
  */
 const tabs = computed<EntryTab[]>(() => {
     const items: EntryTab[] = [];
-    const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
     const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
@@ -486,6 +491,29 @@ const addableTypes = computed(() => {
     const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
     return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
+/**
+ * “添加一组设定”的浮层（输出 38，`AddComponentPicker`）：登记了的全部类型，标出适用于这个种类的、条目上已经有的（搜到时列出、点了
+ * 切过去）与去掉过的，按登记它的插件分组。
+ */
+const pickerItems = computed<AddComponentItem[]>(() => {
+    const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
+    const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
+    const kind = entry.value?.kind?.trim() ?? "";
+    return (componentsRead.value?.data?.items ?? []).map((type) => ({
+        value: type.id,
+        label: type.label,
+        iconClass: iconOf(type.id),
+        group: addComponentGroup(props.componentPlugin?.(type.id) ?? null),
+        fits: kind !== "" && (type.kinds ?? []).includes(kind),
+        present: present.has(type.id),
+        restore: removed.has(type.id),
+    }));
+});
+/** 搜到条目上已经有的那一组、点了它：切到它的分页。 */
+const showComponent = (type: string): void => {
+    const namespace = Object.entries(view.value?.namespaces ?? {}).find(([, item]) => item.type === type)?.[0];
+    if (namespace !== undefined) state.tab = `${DATA}${namespace}`;
+};
 /** 刚加上、等它出现在读取结果里再切过去的那一组的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
 const pendingTab = shallowRef<string | null>(null);
 watch([pendingTab, namespaces], ([pending, present]) => {
@@ -1137,8 +1165,11 @@ const setPosition = (value: string): void => {
             @aliases="changeAliases"
             @restore="restore()"
             :addable="addableTypes"
+            :picker-items="pickerItems"
+            :kind="entry?.kind?.trim() ?? ''"
             @add-open="openAddMenu()"
             @add-component="addComponent"
+            @show-component="showComponent"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"

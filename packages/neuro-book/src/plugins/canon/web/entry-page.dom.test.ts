@@ -35,6 +35,7 @@ import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
+import type {AddComponentItem} from "./components/add-component-picker";
 import {createNotices} from "./notices";
 import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";
@@ -317,6 +318,10 @@ describe("条目页", () => {
         const addable = () => (wrapper.findComponent(EntryPage).props("addable") as readonly {label: string}[]).map((item) => item.label);
         await waitUntil("能加的组", () => addable().includes("徽章"));
         expect(addable()).toEqual(["形象", "徽章"]);
+        // “添加一组设定”的浮层：登记了的全部类型，按登记它的插件分组（别的插件的徽章归“插件”），标出条目上已经有的（输出 38）。
+        const picker = () => new Map((wrapper.findComponent(EntryPage).props("pickerItems") as readonly AddComponentItem[]).map((entry) => [entry.label, `${entry.group}${entry.present ? " 已有" : ""}${entry.fits ? " 适用" : ""}`]));
+        await waitUntil("浮层的各项", () => picker().has("徽章"));
+        expect(["人物", "形象", "数值", "徽章"].map((label) => picker().get(label))).toEqual(["canon 已有 适用", "canon 适用", "canon 已有 适用", "other"]);
 
         // 种类不是人物的条目：分页照旧，文字在前。
         const item = person("魔杖", {type: "物品"});

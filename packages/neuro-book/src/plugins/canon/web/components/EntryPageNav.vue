@@ -5,29 +5,27 @@
  */
 import {computed, nextTick, ref} from "vue";
 
-import {DropdownMenu} from "@notnotype/nb-ui/components";
-import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-
 import {useCanonText} from "../text";
 import type {EntryTab} from "./entry-tabs";
 
 const props = withDefaults(defineProps<{
     items: readonly EntryTab[];
     modelValue: string;
-    /** 能加的设定组；空时不出“添加一组设定”。 */
-    addable?: readonly {readonly value: string; readonly label: string}[];
+    /** 有能加的设定组、条目可写：出“添加一组设定”。默认 false。 */
+    canAdd?: boolean;
+    /** “添加一组设定”的浮层开着（浮层归宿主 `EntryPage`）；默认 false。 */
+    addOpen?: boolean;
     /** 添加不可用的原因；默认空。 */
     addReason?: string;
     /** 分页项的 id 与内容面板的 id（`aria-controls`）。 */
     tabId: (value: string) => string;
     panelId: string;
-}>(), {addable: () => [], addReason: ""});
+}>(), {canAdd: false, addOpen: false, addReason: ""});
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string): void;
-    (event: "add-component", type: string): void;
-    /** “添加一组设定”的菜单打开了（宿主记下这时条目的版本）。 */
-    (event: "add-open"): void;
+    /** 点了“添加一组设定”：宿主把浮层锚在这个按钮上开或关。 */
+    (event: "add-toggle", button: HTMLElement): void;
     /** 在一页上右键：宿主给这一页的菜单。 */
     (event: "context", value: string, at: {readonly x: number; readonly y: number}): void;
 }>();
@@ -38,7 +36,6 @@ const segmentStart = computed(() => {
     const at = props.items.findIndex((item) => item.segment === "view");
     return at > 0 ? props.items[at]!.value : null;
 });
-const addItems = computed<DropdownMenuItemData[]>(() => props.addable.map((item) => ({id: item.value, label: item.label})));
 
 // 方向键在全部分页之间移动并选中（与横排的 Tabs 相同：自动激活、两端绕回）。
 const list = ref<HTMLElement | null>(null);
@@ -92,12 +89,20 @@ const onKey = (event: KeyboardEvent): void => {
                 </button>
             </TransitionGroup>
         </div>
-        <DropdownMenu v-if="addItems.length > 0" align="start" :items="addItems" :disabled="props.addReason !== ''" @select="(id: string) => emit('add-component', id)" @update:open="(open: boolean) => open && emit('add-open')">
-            <button type="button" class="entry-page-nav__item entry-page-nav__add" :disabled="props.addReason !== ''" :title="props.addReason !== '' ? props.addReason : undefined" data-add-component>
-                <span class="i-lucide-plus entry-page-nav__icon" aria-hidden="true" />
-                <span class="min-w-0 flex-1 truncate">{{ text("entry.addComponentShort") }}</span>
-            </button>
-        </DropdownMenu>
+        <button
+            v-if="props.canAdd"
+            type="button"
+            class="entry-page-nav__item entry-page-nav__add"
+            :disabled="props.addReason !== ''"
+            :title="props.addReason !== '' ? props.addReason : undefined"
+            aria-haspopup="listbox"
+            :aria-expanded="props.addOpen"
+            data-add-component
+            @click="(event: MouseEvent) => emit('add-toggle', event.currentTarget as HTMLElement)"
+        >
+            <span class="i-lucide-plus entry-page-nav__icon" aria-hidden="true" />
+            <span class="min-w-0 flex-1 truncate">{{ text("entry.addComponentShort") }}</span>
+        </button>
     </nav>
 </template>
 

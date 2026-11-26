@@ -25,6 +25,7 @@ import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
 import type EntryPageNav from "nbook/plugins/canon/web/components/EntryPageNav.vue";
+import type AddComponentPicker from "nbook/plugins/canon/web/components/AddComponentPicker.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -2349,15 +2350,54 @@ function canonEntryPageFixtures() {
                     {value: "extra:experience", label: "经历", iconClass: "i-lucide-footprints", segment: "view" as const},
                     {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 12},
                 ];
-                const addable = [{value: "a.test.badge", label: "徽章"}, {value: "nbook.canon.skills", label: "技能"}];
                 return [
-                    {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
-                    {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
-                    {id: "blocked", label: "写不了：添加不可用", input: {props: {items, addable, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], addable, panelId: "lab-panel"}, model: {modelValue: "text"}}},
+                    {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "blocked", label: "写不了：添加不可用", input: {props: {items, canAdd: true, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], canAdd: true, panelId: "lab-panel"}, model: {modelValue: "text"}}},
                 ];
             })(),
             load: async () => (await import("./EntryPageNavFixture.vue")).default,
+        }),
+        defineLabFixture<typeof AddComponentPicker>({
+            component: "AddComponentPicker",
+            scenes: (() => {
+                type Group = "canon" | "plot" | "other";
+                const item = (value: string, label: string, iconClass: string, group: Group, extra: {fits?: boolean; present?: boolean; restore?: boolean} = {}) => ({value, label, iconClass, group, fits: extra.fits ?? false, present: extra.present ?? false, restore: extra.restore ?? false});
+                // 人物条目：人物、形象已经有了，数值去掉过；适用于人物的排在最前。
+                const person = [
+                    item("nbook.canon.person", "人物", "i-lucide-user-round", "canon", {fits: true, present: true}),
+                    item("nbook.canon.look", "形象", "i-lucide-shirt", "canon", {fits: true, present: true}),
+                    item("nbook.canon.skills", "技能", "i-lucide-sparkles", "canon", {fits: true}),
+                    item("nbook.canon.panel", "数值", "i-lucide-gauge", "canon", {restore: true}),
+                    item("nbook.canon.inventory", "物品栏", "i-lucide-backpack", "canon"),
+                    item("nbook.canon.place", "地点", "i-lucide-map-pin", "canon"),
+                    item("nbook.plot.knowing", "知道什么", "i-lucide-key-round", "plot", {fits: true}),
+                    item("nbook.plot.attitude", "目标与态度", "i-lucide-target", "plot", {fits: true}),
+                    item("a.test.badge", "徽章", "i-lucide-award", "other"),
+                ];
+                // 三十多个类型：列表在浮层里滚，搜索框留在上面。
+                const many = [
+                    ...person,
+                    ...[["关系", "i-lucide-users"], ["组织架构", "i-lucide-network"], ["势力范围", "i-lucide-flag"], ["地理", "i-lucide-mountain"], ["气候", "i-lucide-cloud-sun"], ["历史", "i-lucide-scroll"], ["货币", "i-lucide-coins"], ["魔法体系", "i-lucide-wand-sparkles"], ["咒语", "i-lucide-book-open"], ["契约", "i-lucide-file-signature"], ["职业", "i-lucide-briefcase"], ["称号", "i-lucide-crown"], ["病症", "i-lucide-heart-pulse"], ["饮食", "i-lucide-utensils"], ["服饰规范", "i-lucide-shirt"], ["节日", "i-lucide-party-popper"], ["语言", "i-lucide-languages"]].map(([label, icon], index) => item(`nbook.canon.extra${String(index)}`, label!, icon!, "canon")),
+                    ...[["伏笔", "i-lucide-bookmark"], ["秘密", "i-lucide-lock"], ["誓言", "i-lucide-hand"]].map(([label, icon], index) => item(`nbook.plot.extra${String(index)}`, label!, icon!, "plot")),
+                    ...[["好感度", "i-lucide-heart"], ["战斗力", "i-lucide-swords"], ["日程", "i-lucide-calendar"], ["相册", "i-lucide-images"]].map(([label, icon], index) => item(`a.test.extra${String(index)}`, label!, icon!, "other")),
+                ];
+                const english = [
+                    item("nbook.canon.skills", "Skills", "i-lucide-sparkles", "canon", {fits: true}),
+                    item("nbook.canon.panel", "Stats", "i-lucide-gauge", "canon", {restore: true}),
+                    item("nbook.canon.inventory", "Inventory", "i-lucide-backpack", "canon"),
+                    item("nbook.plot.knowing", "What they know", "i-lucide-key-round", "plot", {fits: true}),
+                    item("a.test.badge", "Badges", "i-lucide-award", "other"),
+                ];
+                return [
+                    {id: "person", label: "人物条目：适用的在最前，按设定、剧情、插件分组，去掉过的写“恢复”", input: {props: {items: person, kind: "人物"}}},
+                    {id: "no-kind", label: "没有种类：没有“适用于”那一组", input: {props: {items: person, kind: ""}}},
+                    {id: "many", label: "三十多个设定组：列表在浮层里滚", input: {props: {items: many, kind: "人物"}}},
+                    {id: "person-english", label: "英文界面", input: {props: {items: english, kind: "Person"}}},
+                ];
+            })(),
+            load: async () => (await import("./AddComponentPickerFixture.vue")).default,
         }),
         defineLabFixture<typeof ViewPointPicker>({
             component: "ViewPointPicker",
