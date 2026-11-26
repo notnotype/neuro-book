@@ -522,9 +522,11 @@ describe("清理任务在服务启动后先跑一次（定时任务一节）", (
     // `job.failed`（`site.operations` 失败表的 `job_failed` 一行），而用例从头到尾不经测试控制入口触发它。
     beforeAll(async () => {
         const dataDir = await sandbox.dataDir();
-        // 先建好库（持锁要库文件已经在）；迁移都跑过了，启动只核对迁移记录、不写账号的库。
-        const migrated = await sandbox.run("migrate", {dataDir});
-        if (migrated.exitCode !== 0) throw new Error(`migrate exited ${String(migrated.exitCode)}\nstderr:\n${migrated.stderr}`);
+        // 先起一次再停（持锁要库文件已经在）：迁移都跑过、账号模块的签名钥也建好了（第一次启动要写账号的库，`site.oauth-provider`
+        // 输出 17），再启动时只核对迁移记录、读签名钥，不写账号的库。
+        const prepared = await sandbox.start({dataDir});
+        const stopped = await prepared.stop();
+        if (stopped !== 0) throw new Error(`the preparing serve exited ${String(stopped)}\nstderr:\n${prepared.stderr()}`);
         release = holdWriteLock(dataDir, "identity");
         site = await sandbox.start({dataDir});
     }, SETUP_TIMEOUT_MS);

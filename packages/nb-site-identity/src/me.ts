@@ -9,12 +9,13 @@
 
 import type {Context, Hono} from "hono";
 
-import {ConsentRequest, IDENTITY_PATHS, isWebUrl, PatchMeRequest, type MeResponse, type PublicProfile} from "@notnotype/nb-site-identity-contract";
+import {ConsentRequest, IDENTITY_PATHS, isWebUrl, PatchMeRequest, type ConsentResponse, type MeResponse, type PublicProfile} from "@notnotype/nb-site-identity-contract";
 
 import type {IdentityConnection, IdentityTx} from "./db/connection";
 import {libDate, libDateMs} from "./db/library-rows";
 import {IdentityFailure, readBody} from "./errors";
 import {requireSession} from "./middleware";
+import type {ContinueResolver} from "./oauth/continue";
 import {consentRequiredIn, isSessionLive, type Sessions} from "./session";
 
 /**
@@ -111,6 +112,8 @@ export interface MeOptions {
     readonly conn: IdentityConnection;
     readonly clock: {now(): number};
     readonly termsVersion: string;
+    /** 补交同意时解站点同意页带来的续接令牌（`oauth/continue.ts`）。 */
+    readonly resolveContinue: ContinueResolver;
 }
 
 export function registerMeRoutes(app: Hono, options: MeOptions): void {
@@ -144,6 +147,8 @@ export function registerMeRoutes(app: Hono, options: MeOptions): void {
     });
 
     // 补交同意（输出 10）：只收当前条款版本与对境外存放的同意，否则 `consent_required`。合格时追加一行，不改旧的：同意记录只追加。
+    // 请求带了续接令牌时在写入之后解，合格时响应带继续地址（`site.oauth-provider` 输出 12）：按 `consent` 解，补交同意不是重新
+    // 登录，`prompt=login` 与 `max_age` 留着。
     app.post(IDENTITY_PATHS.meConsent, async (c: Context) => {
         const session = await requireSession(c, sessions, `POST ${IDENTITY_PATHS.meConsent}`);
         const body = await readBody(c, ConsentRequest);
@@ -156,6 +161,8 @@ export function registerMeRoutes(app: Hono, options: MeOptions): void {
             return readMe(tx, session.userId, consentRequiredIn(tx, session.userId, termsVersion));
         });
         if (me === null) throw new IdentityFailure("unauthenticated");
-        return c.json(me);
+        const continueUrl = body.continue === undefined ? null : await options.resolveContinue(body.continue, "consent");
+        const response: ConsentResponse = {...me, ...(continueUrl === null ? {} : {continueUrl})};
+        return c.json(response);
     });
 }

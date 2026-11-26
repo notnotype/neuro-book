@@ -144,7 +144,8 @@ describe("POST me/consent（输出 10）", () => {
         await started.promise;
         const request = consent(identity, cookie, CONSENTED);
         await waitUntil("中间件读会话在排队", () => timers.pending === 1);
-        const end = identity.conn.write((tx) => endSession(tx, sessionId));
+        const nowMs = identity.clock.now();
+        const end = identity.conn.write((tx) => endSession(tx, sessionId, nowMs));
         await waitUntil("结束会话的写排在它后面", () => timers.pending === 2);
         finish.resolve();
         await holder;
@@ -329,7 +330,8 @@ describe("PATCH me（输出 8）", () => {
         await started.promise;
         const request = patchMe(identity, cookie, {displayName: "Changed"});
         await waitUntil("中间件读会话在排队", () => timers.pending === 1);
-        const end = identity.conn.write((tx) => endSession(tx, sessionId));
+        const nowMs = identity.clock.now();
+        const end = identity.conn.write((tx) => endSession(tx, sessionId, nowMs));
         await waitUntil("结束会话的写排在它后面", () => timers.pending === 2);
         finish.resolve();
         await holder;

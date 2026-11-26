@@ -99,9 +99,15 @@ export async function identityRequest(url: string, path: string, init: IdentityR
     return response;
 }
 
-/** 登录（`POST login`）；给了 `jar` 时存下会话 Cookie。 */
-export function login(url: string, identifier: string, password: string, init: {readonly from: string; readonly jar?: CookieJar; readonly headers?: Readonly<Record<string, string | null>>}): Promise<JsonResponse> {
-    return identityRequest(url, IDENTITY_PATHS.login, {method: "POST", body: {identifier, password}, ...init});
+/** 登录（`POST login`）；给了 `jar` 时存下会话 Cookie，给了 `continue` 时带上续接令牌（`site.accounts` 输出 4）。 */
+export function login(
+    url: string,
+    identifier: string,
+    password: string,
+    init: {readonly from: string; readonly jar?: CookieJar; readonly headers?: Readonly<Record<string, string | null>>; readonly continue?: string},
+): Promise<JsonResponse> {
+    const {continue: continueToken, ...rest} = init;
+    return identityRequest(url, IDENTITY_PATHS.login, {method: "POST", body: {identifier, password, ...(continueToken === undefined ? {} : {continue: continueToken})}, ...rest});
 }
 
 /** 失败时带上的标准输出行数：够看到 `process.fatal` 与它前面几行，不把迁移的整段日志都塞进报错。 */

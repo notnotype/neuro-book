@@ -25,6 +25,8 @@ import {isDbUnavailable, type IdentityConnection, type IdentityTx} from "./db/co
 import {libDate} from "./db/library-rows";
 import {failureAsResponse, failureFor} from "./errors";
 import type {IdentityLog} from "./index";
+import {purgeExpiredOAuthRows, revokeOAuthForExpiredSessions, revokeOAuthForSession, revokeOAuthForUser} from "./oauth/revoke";
+import {purgeExpiredFlows} from "./social/flow";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -38,6 +40,8 @@ export interface SessionIdentity {
     readonly role: Role;
     readonly expiresAtMs: number;
     readonly updatedAtMs: number;
+    /** 会话建立的时刻（模块的时钟，建会话前的钩子写进库）：授权端点按它判 `max_age`（`oauth/mount.ts`）。 */
+    readonly createdAtMs: number;
 }
 
 /** 要会话的接口读出的有效会话（`use` 的结果）：另带同意门槛要的一项。 */
@@ -56,6 +60,7 @@ interface FoundSession {
     readonly banned: boolean;
     readonly expiresAtMs: number;
     readonly updatedAtMs: number;
+    readonly createdAtMs: number;
 }
 
 /** 读会话的结果：`cookies` 是要随响应发出的 `Set-Cookie`（延长时的新 Cookie、到期时的清除）。 */
@@ -66,24 +71,32 @@ export interface SessionRead<S extends SessionIdentity = CurrentSession> {
 
 // ---- 结束会话的一组函数 ----
 // 删会话的地方（登出、结束单个会话、结束全部、改密码、封禁、改角色、重置、清理任务）都调这里，在调用方的写事务里执行，
-// 与那次操作的其余写入一起提交或回滚。t08 在这几个函数里加对外 OAuth 令牌与授权码的撤销，同一个事务（omp 设计审查第 16 条）。
-// 返回删掉的行数。
+// 与那次操作的其余写入一起提交或回滚（架构用例守着“删会话只在本文件”）。每个函数先撤掉对外 OAuth 令牌与没用掉的授权码
+// （`oauth/revoke.ts`；`site.oauth-provider` 输出 8），再删会话行，同一个事务：令牌记着发它时的会话，删了会话，外键把令牌的
+// 会话字段置空，再按会话就找不到它们了，库也不再因为会话没了而拒绝它们（第七轮探针问 2）。`nowMs` 是撤销记下的时刻。
+// 返回删掉的会话行数。
 
-/** 结束一个会话。 */
-export function endSession(tx: IdentityTx, sessionId: number): number {
+/** 结束一个会话：撤掉在它里面发出的令牌与授权码。 */
+export function endSession(tx: IdentityTx, sessionId: number, nowMs: number): number {
+    revokeOAuthForSession(tx, sessionId, nowMs);
     return tx.query(`DELETE FROM "session" WHERE "id" = ?`).run(sessionId).changes;
 }
 
-/** 结束一个账号除 `keepSessionId` 以外的全部会话（自己改密码时保留当前会话，`site.accounts` 输出 6）。 */
-export function endOtherSessions(tx: IdentityTx, userId: number, keepSessionId: number): number {
+/**
+ * 结束一个账号除 `keepSessionId` 以外的全部会话（自己改密码时保留当前会话，`site.accounts` 输出 6），并撤掉这个账号名下的
+ * 全部令牌与授权码，连当前会话里发出的也撤（开发者 2026-11-25 定 2，`site.oauth-provider` 输出 8）：按账号撤，不按结束的会话。
+ */
+export function endOtherSessionsRevokingAllOAuth(tx: IdentityTx, userId: number, keepSessionId: number, nowMs: number): number {
+    revokeOAuthForUser(tx, userId, nowMs);
     return tx.query(`DELETE FROM "session" WHERE "userId" = ? AND "id" <> ?`).run(userId, keepSessionId).changes;
 }
 
 /**
- * 结束一个账号的全部会话（封禁、改角色、管理员重置密码、结束全部会话）。已到期、清理任务还没删的行一起删；返回的行数含它们，
- * 要“结束了几个会话”的地方另用 `countLiveSessions` 在删之前数。
+ * 结束一个账号的全部会话（封禁、改角色、管理员重置密码、结束全部会话、`create-admin`），并撤掉它名下的全部令牌与授权码。
+ * 已到期、清理任务还没删的行一起删；返回的行数含它们，要“结束了几个会话”的地方另用 `countLiveSessions` 在删之前数。
  */
-export function endAllSessions(tx: IdentityTx, userId: number): number {
+export function endAllSessions(tx: IdentityTx, userId: number, nowMs: number): number {
+    revokeOAuthForUser(tx, userId, nowMs);
     return tx.query(`DELETE FROM "session" WHERE "userId" = ?`).run(userId).changes;
 }
 
@@ -97,10 +110,11 @@ export function countLiveSessions(tx: IdentityTx, userId: number, nowMs: number)
 }
 
 /**
- * 清理到期的会话：`expiresAt` 不晚于 `nowMs`（与 `readSession` 的到期判断同一个边界）。时间列是库的 ISO 文本，长度与写法固定，
- * 按文字比较就是按时间比较。
+ * 清理到期的会话：`expiresAt` 不晚于 `nowMs`（与 `readSession` 的到期判断同一个边界），先撤掉在它们里面发出的令牌与授权码。
+ * 时间列是库的 ISO 文本，长度与写法固定，按文字比较就是按时间比较。
  */
 export function purgeExpiredSessions(tx: IdentityTx, nowMs: number): number {
+    revokeOAuthForExpiredSessions(tx, nowMs);
     return tx.query(`DELETE FROM "session" WHERE "expiresAt" <= ?`).run(libDate(nowMs)).changes;
 }
 
@@ -179,6 +193,7 @@ export class Sessions {
             banned: user.banned === true,
             expiresAtMs: session.expiresAt.getTime(),
             updatedAtMs: session.updatedAt.getTime(),
+            createdAtMs: session.createdAt.getTime(),
         };
     }
 
@@ -218,7 +233,7 @@ export class Sessions {
     /** 到期的会话：删行（库不可用时留给清理任务），并清 Cookie。 */
     async #expire(found: FoundSession): Promise<string[]> {
         try {
-            await this.#conn.write((tx) => endSession(tx, found.sessionId));
+            await this.#conn.write((tx) => endSession(tx, found.sessionId, this.#clock.now()));
         } catch (error) {
             if (!isDbUnavailable(error)) throw error;
             this.#log.warn("identity.session_expire_deferred", "could not delete an expired session; the purge job will", {});
@@ -299,22 +314,32 @@ export class Sessions {
      */
     async logout(cookie: string | null): Promise<string[]> {
         const found = await this.#find(cookie);
-        if (found !== null) await this.#conn.write((tx) => endSession(tx, found.sessionId));
+        if (found !== null) await this.#conn.write((tx) => endSession(tx, found.sessionId, this.#clock.now()));
         return this.clearCookie();
     }
 
     /**
-     * 定时任务 `purge`：删到期的会话。库不可用时记一行 warn 说明这次没删，再照样抛出：这次运行以失败结束，经测试控制入口手动跑
-     * 时回 `job_failed`、不是 `done`（`site.operations` 输出 11；omp 实现审查第 9 条）。调度器照常排下一次，到时再删。
+     * 定时任务 `purge`（`site.accounts` 的定时任务一节，计划 3.11）：一个写事务里删到期的会话（连同撤掉在它们里面发出的令牌与
+     * 授权码），再删过期的授权码、库的别的一次性凭据（含社交流程的 state 行）与访问令牌，最后删发起超过 10 分钟的社交流程。库不可用时记一行 warn 说明这次没删，再照样抛出：这次运行以失败
+     * 结束，经测试控制入口手动跑时回 `job_failed`、不是 `done`（`site.operations` 输出 11；omp 实现审查第 9 条）。调度器照常排
+     * 下一次，到时再删。
      */
     async purge(): Promise<void> {
-        let removed: number;
+        let removed: {readonly sessions: number; readonly verifications: number; readonly accessTokens: number; readonly socialFlows: number};
         try {
-            removed = await this.#conn.write((tx) => purgeExpiredSessions(tx, this.#clock.now()));
+            removed = await this.#conn.write((tx) => {
+                const now = this.#clock.now();
+                const sessions = purgeExpiredSessions(tx, now);
+                return {sessions, ...purgeExpiredOAuthRows(tx, now), socialFlows: purgeExpiredFlows(tx, now)};
+            });
         } catch (error) {
             if (isDbUnavailable(error)) this.#log.warn("identity.purge_skipped", "identity database is not writable; expired sessions are left for the next run", {});
             throw error;
         }
-        if (removed > 0) this.#log.info("identity.purged", "expired sessions were deleted", {sessions: removed});
+        if (removed.sessions > 0) this.#log.info("identity.purged", "expired sessions were deleted", {sessions: removed.sessions});
+        if (removed.verifications > 0 || removed.accessTokens > 0) {
+            this.#log.info("identity.oauth_purged", "expired authorization codes, one-time values and access tokens were deleted", {verifications: removed.verifications, accessTokens: removed.accessTokens});
+        }
+        if (removed.socialFlows > 0) this.#log.info("identity.social_flows_purged", "expired social sign-in flows were deleted", {socialFlows: removed.socialFlows});
     }
 }

@@ -316,6 +316,11 @@ export interface IdentityRateLimits {
     loginNeedsDelay(username: string): boolean;
     /** 校验失败时调。 */
     recordLoginFailure(username: string): void;
+    /**
+     * 社交登录的发起：只计登录的来源键（与密码登录共用键与额度，输出 19）。发起时还没有用户名，来源加用户名、失败计数都不涉及。
+     * 不计时一个来源能以请求速率让发起往库里写行（库的 state 行与流程行各一行，到期后才被清理）。
+     */
+    socialLoginStart(address: string): RateLimitDecision;
     /** 注册：来源每小时 5 次。 */
     register(address: string): RateLimitDecision;
     /** 改密码：账号每小时 5 次。 */
@@ -347,6 +352,7 @@ export function createIdentityRateLimits(options: IdentityRateLimitsOptions): Id
         },
         loginNeedsDelay: (username) => loginFailures.overThreshold(usernameKey(username)),
         recordLoginFailure: (username) => loginFailures.add(usernameKey(username)),
+        socialLoginStart: (address) => loginSource.take(address),
         register: (address) => register.take(address),
         changePassword: (accountId) => changePassword.take(String(accountId)),
         generateInviteCode: (accountId) => generateInviteCode.take(String(accountId)),
