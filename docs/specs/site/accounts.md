@@ -122,11 +122,12 @@ owners:
 | `consent_required` | 403 | 缺当前版本的同意 | 走同意页 |
 | `registration_closed`、`provider_disabled`（planned） | 403 | 功能没开放 | 无 |
 | `registration_code_invalid`、`invite_code_invalid` | 422 | 码不可用 | 换码 |
-| `username_taken`、`email_taken`、`identity_taken`（planned）、`identity_exists`（planned） | 409 | 已被占用 | 换一个或先登录再关联 |
+| `username_taken`、`email_taken` | 409 | 已被占用 | 换一个 |
 | `last_login_method`（planned） | 409 | 解绑后没有登录方式 | 先设密码 |
 | `invite_code_limit` | 409 | 有效的邀请码已有 10 个 | 先停用一个 |
 | `social_not_registered`、`social_email_missing`、`social_state_invalid`（planned） | 跳转参数 `social_error`（输出 23） | 社交流程没完成 | 按页面提示重来或先注册 |
 | `social_cancelled`、`social_failed`（planned） | 跳转参数 `social_error`（输出 23） | 在上游取消了，或上游出错 | 重新发起 |
+| `identity_taken`、`identity_exists`（planned） | 跳转参数 `social_error`（输出 23） | 上游身份已关联别的账号，或这个账号在该上游已有身份 | 用那个身份登录，或先解绑再关联 |
 | `rate_limited` | 429 | 超限 | 等 `Retry-After` 秒 |
 | `overloaded`、`unavailable` | 503 | 过载或账号库不可用 | 稍后重试 |
 | `not_found` | 404 | 没有这个接口，或会话、邀请码不是自己的、不存在 | 无 |
@@ -161,7 +162,7 @@ owners:
 13. 浏览器 A 发起社交登录，把上游给的回调地址拿到浏览器 B（另一份 Cookie）打开：跳回带 `social_state_invalid`，B 没有会话；注册意图时不扣码，关联意图时不关联。（planned）
 14. 同一个上游身份，一个账号的关联与另一个人的社交注册并发回调：至多一边成功；注册输了的不建账号、不扣码，跳回带 `identity_taken`。（planned）
 
-Smoke：合同测试包里账号的注册、登录、问身份用例。
+Smoke：合同测试包里账号的注册、登录、问身份用例；社交注册经仿真上游走完一次（planned）。
 
 ## 实现合同
 
