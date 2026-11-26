@@ -8,11 +8,12 @@ import type {Page} from "@playwright/test";
 
 import type {Locator, PageFailure, SnapshotArgs, SnapshotResult} from "../src/api";
 import type {PageAgent, PageAgentOptions} from "../src/index";
+import type {capturePage} from "../src/capture";
 import type {LocateOptions} from "../src/locate";
 
 declare global {
     interface Window {
-        nbPageAgent: {createPageAgent(options?: PageAgentOptions): PageAgent};
+        nbPageAgent: {createPageAgent(options?: PageAgentOptions): PageAgent; capturePage: typeof capturePage};
         agent: PageAgent;
     }
 }
