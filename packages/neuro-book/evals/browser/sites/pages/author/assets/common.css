@@ -1,0 +1,25 @@
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; font: 14px/1.6 system-ui, "Noto Sans CJK SC", sans-serif; color: #1f2328; background: #f4f5f7; }
+header { display: flex; gap: 24px; align-items: center; padding: 0 24px; height: 52px; background: #1d3557; color: #fff; }
+header strong { font-size: 16px; }
+header nav a { color: #cfd8e3; text-decoration: none; margin-right: 16px; }
+header nav a[aria-current="page"] { color: #fff; border-bottom: 2px solid #f1c453; padding-bottom: 4px; }
+main { max-width: 1040px; margin: 24px auto; padding: 0 24px; }
+.panel { background: #fff; border: 1px solid #dde1e6; border-radius: 6px; padding: 20px; margin-bottom: 16px; }
+label { display: block; font-weight: 600; margin: 14px 0 6px; }
+input[type="text"], select { width: 100%; padding: 8px 10px; border: 1px solid #c4cad1; border-radius: 4px; font: inherit; background: #fff; }
+button { padding: 8px 16px; border: 1px solid #1d3557; border-radius: 4px; background: #1d3557; color: #fff; font: inherit; cursor: pointer; }
+button.secondary { background: #fff; color: #1d3557; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.error { color: #b42318; margin-top: 8px; min-height: 1.6em; }
+.notice { background: #fff8e1; border: 1px solid #f1c453; border-radius: 6px; padding: 12px 16px; font-size: 13px; color: #6b4e00; }
+#consent { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: flex; align-items: flex-end; justify-content: center; z-index: 1000; }
+#consent .box { width: 100%; background: #fff; padding: 20px 32px; display: flex; gap: 24px; align-items: center; justify-content: space-between; }
+.modal-back { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; z-index: 900; }
+.modal { width: 460px; background: #fff; border-radius: 8px; padding: 24px; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eceef1; }
+th { background: #f7f8fa; font-weight: 600; }
+td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }

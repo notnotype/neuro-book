@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>帖子 - 灯下论坛</title><link rel="stylesheet" href="/assets/forum.css"></head>
+<body>
+<header><strong>灯下论坛</strong><nav><a href="/">版块</a><a href="/digest">精华区</a></nav></header>
+<main>
+  <div class="box">
+    <h2 id="title" style="margin-top: 0;"></h2>
+    <div class="muted" id="author"></div>
+    <p id="body"></p>
+    <div id="poll-slot"></div>
+  </div>
+  <div class="box"><h3 style="margin-top: 0;">评论</h3><div id="comments"></div></div>
+</main>
+<script>
+// 投票组件：自定义元素，内容在 shadow root 里；先点“参与投票”展开，选好再点“投票”，确认后才提交。
+customElements.define("nb-poll", class extends HTMLElement {
+  connectedCallback() {
+    const options = JSON.parse(this.getAttribute("options"));
+    const pollId = this.getAttribute("poll");
+    const root = this.attachShadow({mode: "open"});
+    root.innerHTML = `
+      <style>
+        .wrap { margin-top: 12px; padding: 14px 16px; border: 1px solid #c8d1db; border-radius: 6px; background: #f8fafc; }
+        button { padding: 6px 14px; border: 0; border-radius: 4px; background: #2f6f8f; color: #fff; font: inherit; cursor: pointer; }
+        button.plain { background: #fff; color: #2f6f8f; border: 1px solid #2f6f8f; }
+        label { display: block; padding: 4px 0; cursor: pointer; }
+        .msg { margin-top: 8px; color: #6b7785; }
+      </style>
+      <div class="wrap">
+        <button type="button" class="plain" id="expand">参与投票（${options.length} 个选项）</button>
+        <div id="form" hidden>
+          ${options.map((o) => `<label><input type="radio" name="opt" value="${o.key}"> ${o.key} ${o.label}</label>`).join("")}
+          <button type="button" id="vote">投票</button>
+        </div>
+        <div id="confirm" hidden><span id="confirm-text"></span> <button type="button" id="ok">确认</button> <button type="button" class="plain" id="cancel">取消</button></div>
+        <div class="msg" id="msg" role="status"></div>
+      </div>`;
+    let ticket = "";
+    let choice = null;
+    root.querySelector("#expand").addEventListener("click", () => {
+      root.querySelector("#expand").hidden = true;
+      root.querySelector("#form").hidden = false;
+    });
+    root.querySelector("#vote").addEventListener("click", async () => {
+      const checked = root.querySelector("input[name=opt]:checked");
+      if (!checked) { root.querySelector("#msg").textContent = "请先选一个选项"; return; }
+      choice = options.find((o) => o.key === checked.value);
+      root.querySelector("#confirm-text").textContent = `确认投给「${choice.key} ${choice.label}」？`;
+      root.querySelector("#form").hidden = true;
+      root.querySelector("#confirm").hidden = false;
+      ticket = (await (await fetch(`/api/poll/ticket?poll=${pollId}`)).json()).ticket;
+    });
+    root.querySelector("#cancel").addEventListener("click", () => {
+      root.querySelector("#confirm").hidden = true;
+      root.querySelector("#form").hidden = false;
+    });
+    root.querySelector("#ok").addEventListener("click", async () => {
+      const response = await fetch("/api/poll/vote", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({pollId, option: choice.key, ticket})});
+      const result = await response.json();
+      root.querySelector("#confirm").hidden = true;
+      root.querySelector("#msg").textContent = response.ok ? `已投给「${choice.key} ${choice.label}」` : (result.error || "投票失败");
+    });
+  }
+});
+
+(async () => {
+  const response = await fetch("/api/threads/{{thread}}");
+  if (!response.ok) { document.querySelector("#title").textContent = "帖子不存在"; return; }
+  const thread = await response.json();
+  document.title = `${thread.title} - 灯下论坛`;
+  document.querySelector("#title").textContent = thread.title;
+  document.querySelector("#author").textContent = `楼主：${thread.author}`;
+  document.querySelector("#body").textContent = thread.body;
+  if (thread.poll) {
+    const poll = document.createElement("nb-poll");
+    poll.setAttribute("poll", thread.id);
+    poll.setAttribute("options", JSON.stringify(thread.poll.options));
+    document.querySelector("#poll-slot").append(poll);
+  }
+  document.querySelector("#comments").innerHTML = thread.comments.length === 0 ? '<p class="muted">还没有评论。</p>' : thread.comments.map((c) => `<div class="comment"><b>${c.author}</b>${c.text}</div>`).join("");
+})();
+</script>
+</body>
+</html>

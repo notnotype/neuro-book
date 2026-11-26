@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>灯下论坛</title><link rel="stylesheet" href="/assets/forum.css"></head>
+<body>
+<header><strong>灯下论坛</strong><nav><a href="/">版块</a><a href="/digest">精华区</a></nav></header>
+<main><div class="box"><h2 style="margin-top: 0;">版块</h2><div id="boards"></div></div></main>
+<script>
+fetch("/api/boards").then((r) => r.json()).then((boards) => {
+  document.querySelector("#boards").innerHTML = boards.map((b) => `<div class="row"><a href="/board/${b.id}">${b.name}</a><a class="muted" href="/new?board=${b.id}">发新帖</a></div>`).join("");
+});
+</script>
+</body>
+</html>

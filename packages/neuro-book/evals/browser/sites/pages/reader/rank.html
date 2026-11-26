@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>月票榜 - 长书网</title>
+<link rel="stylesheet" href="/assets/reader.css">
+</head>
+<body>
+<header><strong>长书网</strong><nav><a href="/rank" aria-current="page">月票榜</a><a href="/search">搜索</a><a href="/shelf">我的书架</a></nav></header>
+<main>
+  <div class="card">
+    <h2 style="margin-top: 0;">本月月票榜</h2>
+    <div id="list"></div>
+    <div class="sentinel" id="sentinel">加载中……</div>
+  </div>
+</main>
+<script>
+(() => {
+  // 无限滚动：滚到底部附近才加载下一批；没有“下一页”。
+  const list = document.querySelector("#list");
+  const sentinel = document.querySelector("#sentinel");
+  let offset = 0;
+  let loading = false;
+  let done = false;
+  async function more() {
+    if (loading || done) return;
+    loading = true;
+    const items = await (await fetch(`/api/rank?offset=${offset}`)).json();
+    if (items.length === 0) { done = true; sentinel.textContent = "已经到底了"; loading = false; return; }
+    list.insertAdjacentHTML("beforeend", items.map((b) => `<div class="rank-item"><span class="no">${b.rank}</span><a class="title" href="/book/${b.id}">${b.title}</a><span class="author">${b.author}</span></div>`).join(""));
+    offset += items.length;
+    loading = false;
+    sentinel.textContent = "继续下滑加载更多";
+    // 加载完底部标记仍在视口里时，观察者不会再报一次“进入”：自己接着加载，直到填满一屏。
+    if (sentinel.getBoundingClientRect().top < innerHeight + 80) more();
+  }
+  new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) more(); }, {rootMargin: "0px 0px 80px 0px"}).observe(sentinel);
+})();
+</script>
+</body>
+</html>

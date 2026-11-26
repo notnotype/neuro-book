@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>收入 - 作家后台</title>
+<link rel="stylesheet" href="/assets/common.css">
+<style>
+  .filters { display: flex; gap: 12px; align-items: flex-end; }
+  .filters > div { width: 180px; }
+  .filters label { margin-top: 0; }
+  .pager { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header><strong>星河作家后台</strong><nav><a href="/">首页</a><a href="/publish">发布章节</a><a href="/chapters">章节管理</a><a href="/income" aria-current="page">收入</a></nav></header>
+<main>
+  <div class="panel">
+    <div class="filters">
+      <div><label for="month">月份</label><select id="month"><option value="2026-11">2026 年 11 月</option><option value="2026-10">2026 年 10 月</option><option value="2026-09">2026 年 9 月</option><option value="2026-08">2026 年 8 月</option></select></div>
+      <div><label for="type">类型</label><select id="type"><option value="全部">全部</option><option value="订阅">订阅</option><option value="打赏">打赏</option><option value="月票奖励">月票奖励</option></select></div>
+      <button type="button" id="query">查询</button>
+    </div>
+  </div>
+  <div class="panel">
+    <table>
+      <thead><tr><th>日期</th><th>类型</th><th>来自</th><th class="amount">金额</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="4">选择月份与类型后点“查询”。</td></tr></tbody>
+      <tfoot><tr><th colspan="3">本页合计</th><th class="amount" id="page-total">—</th></tr></tfoot>
+    </table>
+    <div class="pager"><button type="button" class="secondary" id="prev" disabled>上一页</button><span id="page-info"></span><button type="button" class="secondary" id="next" disabled>下一页</button></div>
+  </div>
+</main>
+<script src="/assets/consent.js"></script>
+<script>
+(() => {
+  const money = (cents) => `¥${(cents / 100).toLocaleString("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+  let page = 1;
+  let pages = 1;
+  async function query() {
+    const params = new URLSearchParams({month: document.querySelector("#month").value, type: document.querySelector("#type").value, page: String(page)});
+    const data = await (await fetch(`/api/income?${params}`)).json();
+    pages = data.pages;
+    document.querySelector("#rows").innerHTML = data.rows.length === 0 ? '<tr><td colspan="4">没有记录</td></tr>' : data.rows.map((r) => `<tr><td>${r.date}</td><td>${r.type}</td><td>${r.from}</td><td class="amount">${money(r.amountCents)}</td></tr>`).join("");
+    document.querySelector("#page-total").textContent = money(data.pageTotalCents);
+    document.querySelector("#page-info").textContent = `第 ${data.page} / ${data.pages} 页`;
+    document.querySelector("#prev").disabled = page <= 1;
+    document.querySelector("#next").disabled = page >= pages;
+  }
+  document.querySelector("#query").addEventListener("click", () => { page = 1; query(); });
+  document.querySelector("#prev").addEventListener("click", () => { page -= 1; query(); });
+  document.querySelector("#next").addEventListener("click", () => { page += 1; query(); });
+})();
+</script>
+</body>
+</html>

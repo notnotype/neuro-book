@@ -13,6 +13,7 @@
         "test": "bun run test:bun && bun run test:vitest",
         "test:bun": "bun test",
         "test:llm": "NBOOK_LLM_TESTS=1 bun test .llm.test.ts",
+        "eval:browser": "bun evals/browser/cli.ts",
         "eval:live": "NBOOK_EVAL_LIVE=1 bun test .live.test.ts",
         "test:vitest": "vitest run",
         "test:e2e": "bun run build && bun run build:e2e && playwright test -c e2e/playwright.config.ts",
