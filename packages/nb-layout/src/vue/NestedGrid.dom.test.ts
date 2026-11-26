@@ -2281,7 +2281,10 @@ describe("NestedGrid 浮动窗", () => {
             {kind: "leaf", id: "f", ref: "f", size: {width: 299, height: 0}},
         ]}, {sashSize: SASH});
         const OFFSET = {x: 205, y: 40};
-        const dockedLeft = (): string => `${String(placeGrid(docked().root(), docked().layout(CONTAINER), CONTAINER, 1).items.find((item) => item.kind === "leaf" && item.node.id === "f")!.rect.x)}px`;
+        const dockedLeft = (): string => {
+            const grid = docked();
+            return `${String(placeGrid(grid.root()!, grid.layout(CONTAINER), CONTAINER, 1).items.find((item) => item.kind === "leaf" && item.node.id === "f")!.rect.x)}px`;
+        };
 
         /** 拿起 f、挪 `OFFSET`、松手（`placeFloat(f, null)`）；返回网格。宿主还没发布任何变化。 */
         async function dragAndRelease() {
