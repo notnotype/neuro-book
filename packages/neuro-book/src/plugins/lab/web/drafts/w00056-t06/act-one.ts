@@ -1,24 +1,21 @@
 /**
- * 第一幕的导演（w00056 t06 第 6 轮）：滚动只决定停在哪一拍，动画只负责从上一拍的终态走到这一拍的终态。
+ * 第一幕的导演（w00056 t06 第 7 轮）：第一幕不用滚动，落地以后自己从第一拍演到最后一拍（开发者定：访客愿意就停在这里慢慢看）；
+ * 访客点章节跳到那一拍、按暂停停下、动了工作台演示就让开。导演只管“桌上此刻是哪一拍的终态、接下来演哪一拍”，进度怎么画归页面。
  *
- * 开发者第 5 轮说演示动画跟着滚动容易出 bug：旧做法把“演到哪了”和“滚到哪了”揉在一起，换拍时要猜工作台此刻是什么样子。
- * 这里把状态收成三样，换拍只看它们：
+ * 状态三样：
  * - `at`：工作台此刻停在哪一拍的终态（-1 是首屏的样子）；
  * - `touched`、`partial`：工作台对不上 `at` 那一份（访客动过手；演或摆到一半被打断）；
  * - `ends`：每一拍的终态快照，演完或摆好一拍就记下（总是从 -1 起连续的一段）。
  *
- * 跟着滚动走（`follow`）的规则：
- * 1. 目标停稳 `settleMs` 才算数：快速滚过的拍不演，也不打断正在演的。
- * 2. 目标正好是下一拍、工作台对得上：演这一拍，演完记下终态。
- * 3. 目标在后面（往回滚）：摆回目标拍的终态，不重演。
- * 4. 目标在前面隔着几拍：先摆到目标的上一拍（记过的按快照一步摆过去，没记过的一拍一拍快速摆上、每拍记下），再演目标拍。
- * 5. 对不上时先摆回（恢复动画由舞台做）再按上面走。访客动手本身不触发摆回：等下一次换拍，或访客按“接着看”“摆回去”。
- *
- * 同一时间只有一段在走：新目标来了先打断正在走的那段，等它收拾完（`tidy`），再按最新的目标走；中间排着的目标只留最后一个。
- * 少动效时第 2、4 条的“演”换成“摆”。
+ * 指令：
+ * - `play(beat)`：从这一拍的开头演起（先摆到上一拍的终态：记过的按快照一步摆过去，没记过的一拍一拍快速摆上），
+ *   演完停 `gap` 那么久，接着演下一拍，直到最后一拍；
+ * - `pause()`：停下。正在演的那一拍断在半截，下次从这一拍的开头再演（先摆回）；
+ * - `touch()`：访客动了工作台。同 `pause()`，另外记下“对不上”，下次演之前从访客摆的样子走回去；
+ * - `resume()`：接着演。上一拍演完了就演下一拍，断在半截就从那一拍的开头再演。
+ * 同一时间只有一段在走：新指令先打断正在走的那段，等它收拾完（`tidy`），再按最新的指令走；中间排着的只留最后一个。
+ * 少动效时“演”换成“摆”（`animate`），拍与拍之间停多久由页面给（`gap`）。
  */
-
-/** 打断：演示用的等待与补间在 signal 中止时 reject 它（`motion.ts`），这里同样用它表示“这一段不走了”。 */
 import {Interrupted} from "./motion";
 
 export interface ActOneStage<S> {
@@ -32,8 +29,8 @@ export interface ActOneStage<S> {
     restore(state: S, signal: AbortSignal): Promise<void>;
     /** 一段走完或被打断后收拾演示的装饰（指针、光圈、没松开的拖动）；这一拍停住时该有的东西由 `rest` 摆。 */
     tidy(): void;
-    /** 停在第 `beat` 拍（-1 是首屏）。`how`：演完的、摆好的、往回摆的。 */
-    rest(beat: number, how: "played" | "settled" | "restored"): void;
+    /** 停在第 `beat` 拍的终态。`how`：演完的还是摆好的。 */
+    rest(beat: number, how: "played" | "settled"): void;
 }
 
 export interface ActOneTimers {
@@ -41,41 +38,51 @@ export interface ActOneTimers {
     clear(handle: unknown): void;
 }
 
+/**
+ * 导演走到哪了：`play`、`settle`（快速摆上，跳拍时路过的拍与少动效时）、`restore`（摆回记下的终态）在动手之前发，
+ * `rest` 在这一拍停住时发；`paused` 是停下了（暂停、访客动手），`interrupted` 是换了指令、正在走的那段被打断。
+ */
+export type ActOnePhase =
+    | {readonly kind: "play" | "settle" | "restore" | "rest"; readonly beat: number}
+    | {readonly kind: "paused" | "interrupted"};
+
+/** 写给探针读的一行：`play 2`、`rest 0`、`paused`。 */
+export function phaseText(phase: ActOnePhase): string {
+    return "beat" in phase ? `${phase.kind} ${String(phase.beat)}` : phase.kind;
+}
+
 export interface ActOneOptions {
-    /** 目标停稳多久才算数，缺省 220ms。 */
-    readonly settleMs?: number;
+    /** 一共几拍（含最后交给访客的那一段）：演到最后一拍就停。 */
+    readonly beats: number;
     /** 演还是只摆：少动效时只摆。 */
     readonly animate: () => boolean;
-    /** 走的过程（给探针读）：`play 2`、`restore 1`、`settle 0`、`rest 3`、`interrupted`。 */
-    readonly onPhase?: (phase: string) => void;
+    /** 第 `beat` 拍停住以后，隔多久演下一拍。 */
+    readonly gap: (beat: number, animate: boolean) => number;
+    readonly onPhase?: (phase: ActOnePhase) => void;
     readonly report?: (error: unknown) => void;
     readonly timers?: ActOneTimers;
 }
 
 export interface ActOne<S> {
-    /** 首屏的样子（-1 拍的终态）有了才开始；之前收到的目标排着。 */
+    /** 首屏的样子（-1 拍的终态）有了才开始；之前收到的指令排着。 */
     prime(initial: S): void;
-    /** 滚动给的目标拍。 */
-    follow(beat: number): void;
-    /** 访客动了工作台：正在走的那段打断，记下“对不上”；返回是否打断了什么。 */
-    touch(): boolean;
-    /** “接着看”：从这一拍的开头再演一遍。 */
-    replay(): void;
-    /** “摆回去”：摆到这一拍的终态。 */
-    settleHere(): void;
-    /** 此刻的目标拍。 */
-    target(): number;
+    /** 从第 `beat` 拍的开头演起，演完接着往下演。 */
+    play(beat: number): void;
+    /** 接着演：上一拍演完了就演下一拍，断在半截就从那一拍的开头再演。已经演完最后一拍时什么都不做。 */
+    resume(): void;
+    /** 停下：打断正在演的、取消排着的下一拍。 */
+    pause(): void;
+    /** 访客动了工作台：同 `pause`，并记下“对不上”。 */
+    touch(): void;
+    /** 桌上停在哪一拍的终态；最后一拍演完了没有（演完以后访客动过手也算演完）。 */
+    state(): {readonly at: number; readonly finished: boolean};
     dispose(): void;
 }
 
-/** 一个目标。跟着滚动的按值比（同一拍不重走）；访客按的按钮每按一次是新的（`press` 递增），再按一次“接着看”就再演一遍。 */
+/** 一个指令。每下一个都是新的对象：同一拍再按一次“从这里演”就再演一遍。 */
 interface Intent {
     readonly beat: number;
-    readonly mode: "follow" | "replay" | "rest";
-    readonly press: number;
 }
-
-const same = (a: Intent | null, b: Intent): boolean => a !== null && a.beat === b.beat && a.mode === b.mode && a.press === b.press;
 
 const browserTimers: ActOneTimers = {
     set: (run, ms) => setTimeout(run, ms),
@@ -83,9 +90,9 @@ const browserTimers: ActOneTimers = {
 };
 
 export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): ActOne<S> {
-    const settleMs = options.settleMs ?? 220;
     const timers = options.timers ?? browserTimers;
-    const phase = (text: string): void => options.onPhase?.(text);
+    const emit = (phase: ActOnePhase): void => options.onPhase?.(phase);
+    const lastBeat = options.beats - 1;
 
     const ends = new Map<number, S>();
     /** 记过终态的最后一拍；没有首屏的样子时是 -2。 */
@@ -93,13 +100,17 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
     let at = -1;
     let touched = false;
     let partial = false;
-    let wanted: Intent = {beat: -1, mode: "follow", press: 0};
-    /** 上一次开始走的目标。 */
+    let wanted: Intent | null = null;
+    /** 上一次开始走的指令。 */
     let driven: Intent | null = null;
-    let presses = 0;
+    /** 上一次走完（没被打断）的指令。 */
+    let completed: Intent | null = null;
+    /** `play`、`resume` 之后为真，`pause`、`touch` 之后为假：正在走的那段被打断时，据此分清是停下了还是换了指令。 */
+    let playing = false;
     let running: {readonly intent: Intent; readonly controller: AbortController} | null = null;
     let queue: Promise<void> = Promise.resolve();
-    let timer: unknown = null;
+    /** 拍与拍之间的停顿。 */
+    let gapTimer: unknown = null;
     let disposed = false;
 
     const outOfStep = (): boolean => touched || partial;
@@ -120,7 +131,7 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
         if (outOfStep() || at !== base) {
             const state = ends.get(base);
             if (state === undefined) throw new Error(`第 ${String(base)} 拍没有记下终态`);
-            phase(`restore ${String(base)}`);
+            emit({kind: "restore", beat: base});
             await stage.restore(state, signal);
             check(signal);
             at = base;
@@ -129,7 +140,7 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
         }
         while (at < beat) {
             const next = at + 1;
-            phase(`settle ${String(next)}`);
+            emit({kind: "settle", beat: next});
             partial = true;
             await stage.settle(next, signal);
             check(signal);
@@ -142,19 +153,10 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
     }
 
     async function drive(intent: Intent, signal: AbortSignal): Promise<void> {
-        const {beat, mode} = intent;
-        // 往回、原地、“摆回去”：摆到这一拍的终态就停。
-        if (beat < 0 || mode === "rest" || (mode === "follow" && beat <= at)) {
-            const how = beat < at || outOfStep() ? "restored" : "settled";
-            await reach(beat, signal);
-            phase(`rest ${String(beat)}`);
-            stage.rest(beat, how);
-            return;
-        }
-        // 往前（或“接着看”）：先到上一拍的终态，再演或摆这一拍。
+        const {beat} = intent;
         await reach(beat - 1, signal);
         const animate = options.animate();
-        phase(`${animate ? "play" : "settle"} ${String(beat)}`);
+        emit({kind: animate ? "play" : "settle", beat});
         partial = true;
         await (animate ? stage.play(beat, signal) : stage.settle(beat, signal));
         check(signal);
@@ -163,20 +165,28 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
         at = beat;
         partial = false;
         record(beat, state);
-        phase(`rest ${String(beat)}`);
+        completed = intent;
+        emit({kind: "rest", beat});
         stage.rest(beat, animate ? "played" : "settled");
+        // 连播：停一会儿再演下一拍。这段停顿里来了别的指令（暂停、动手、跳拍）时，`issue` 与 `stop` 先把它取消。
+        if (beat < lastBeat) {
+            gapTimer = timers.set(() => {
+                gapTimer = null;
+                issue({beat: beat + 1});
+            }, options.gap(beat, animate));
+        }
     }
 
     async function step(): Promise<void> {
         const intent = wanted;
-        if (disposed || last < -1 || same(driven, intent)) return;
+        if (disposed || last < -1 || intent === null || intent === driven) return;
         driven = intent;
         const controller = new AbortController();
         running = {intent, controller};
         try {
             await drive(intent, controller.signal);
         } catch (error) {
-            if (error instanceof Interrupted || controller.signal.aborted) phase("interrupted");
+            if (error instanceof Interrupted || controller.signal.aborted) emit({kind: playing ? "interrupted" : "paused"});
             else options.report?.(error);
         } finally {
             if (running?.controller === controller) running = null;
@@ -184,49 +194,59 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
         }
     }
 
-    function kick(): void {
-        // 正在走的不是最新的目标：打断它；排进队里的那一步会读最新的目标。
-        if (running !== null && !same(running.intent, wanted)) running.controller.abort();
+    function cancelGap(): void {
+        if (gapTimer !== null) timers.clear(gapTimer);
+        gapTimer = null;
+    }
+
+    function issue(intent: Intent): void {
+        cancelGap();
+        wanted = intent;
+        // 正在走的不是最新的指令：打断它；排进队里的那一步会读最新的指令。
+        if (running !== null && running.intent !== intent) running.controller.abort();
         queue = queue.then(step, step);
     }
 
-    function aim(intent: Intent, delay: number): void {
-        wanted = intent;
-        if (timer !== null) timers.clear(timer);
-        timer = timers.set(() => {
-            timer = null;
-            kick();
-        }, delay);
+    /** 停下。正在走的那段被打断时，由它自己在收拾完以后发 `paused`；没有在走的就在这里发。 */
+    function stop(): void {
+        playing = false;
+        cancelGap();
+        if (running === null) emit({kind: "paused"});
+        else running.controller.abort();
+    }
+
+    function nextBeat(): number {
+        if (wanted === null) return 0;
+        return completed === wanted ? wanted.beat + 1 : wanted.beat;
     }
 
     return {
         prime(initial) {
             if (last >= -1) return;
             record(-1, initial);
-            kick();
+            queue = queue.then(step, step);
         },
-        follow(beat) {
-            if (beat === wanted.beat && wanted.mode === "follow") return;
-            aim({beat, mode: "follow", press: 0}, settleMs);
+        play(beat) {
+            playing = true;
+            issue({beat: Math.max(0, Math.min(lastBeat, beat))});
         },
+        resume() {
+            const beat = nextBeat();
+            if (beat > lastBeat) return;
+            playing = true;
+            issue({beat});
+        },
+        pause: stop,
         touch() {
             touched = true;
-            if (running === null) return false;
-            running.controller.abort();
-            return true;
+            stop();
         },
-        replay() {
-            presses += 1;
-            aim({beat: wanted.beat, mode: "replay", press: presses}, 0);
-        },
-        settleHere() {
-            presses += 1;
-            aim({beat: wanted.beat, mode: "rest", press: presses}, 0);
-        },
-        target: () => wanted.beat,
+        // 演完：最后一次的指令就是最后一拍，而且走完了（之后访客动手也还算演完：交给访客那一段本来就是让访客动的）。
+        state: () => ({at, finished: completed !== null && completed === wanted && completed.beat === lastBeat}),
         dispose() {
             disposed = true;
-            if (timer !== null) timers.clear(timer);
+            playing = false;
+            cancelGap();
             running?.controller.abort();
         },
     };

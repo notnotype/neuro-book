@@ -1,37 +1,41 @@
 <script setup lang="ts">
 /**
- * NeuroBook 文档站首页的原型（同名 .md，w00056 t06 第 6 轮）：《入殿·俯案成界》的首屏与俯冲，接着是跟着一场戏走的第一幕。
+ * NeuroBook 文档站首页的原型（同名 .md，w00056 t06 第 7 轮）：《入殿·俯案成界》的首屏与俯冲，接着是跟着一场戏走、自己连播的第一幕。
  *
  * 先后：
  * 1. 挂上就画场景（`SanctumScene` 演开场）与一台透明的真工作台；工作台排好版发 `ready`，场景才把桌子亮出来。
  *    挂着时在根上换成夜间配色（缺省；访客可以切回昼），卸载时还原：主题有一批变量在根上从配色派生，只改工作台那一棵子树跟不上。
  * 2. 滚动只给场景一个目标进度（滚过一屏为 1），场景自己平滑地追、写变换；落地时它发 `landed`，这时工作台才接指针。
- * 3. 第一幕：滚动只决定停在哪一拍，动画只负责从上一拍的终态走到这一拍的终态（导演在 `act-one.ts`，规则写在那里）。
- *    舞台中线压着哪一段由 IntersectionObserver 定，交给导演；演之前先等落地（镜头还在推的时候量出来的位置是斜的）。
+ * 3. 第一幕不靠滚动：落地、舞台过半在视口里时，导演从第一拍连播到最后（`act-one.ts`，规则写在那里）；滚走一半或镜头拉回去时停下，
+ *    回来接着演（访客动过手的除外：留着访客摆的样子，等访客按“继续演示”）。章节条（`ChapterRail`）画演到哪：
+ *    每一拍按标称时长估进度，说出结论那一刻补满。
  *    演示的拖动、双击、点菜单都是合成的指针事件，走产品真的手势（`demo-pointer.ts`），拖动是实时布局；被打断时没松开的那一下撤下。
- *    往回滚、访客动过以后换拍，按记下的终态摆回去：能就地摆就走产品的布局动画，正文对不上才重新挂一台。
+ *    跳回前面、访客动过以后接着演，按记下的终态摆回去：能就地摆就走产品的布局动画，正文对不上才重新挂一台。
  */
 import {applyColorwayVars, NB_UI_COLORWAY_HOST_CLASS} from "@notnotype/nb-ui";
 import nbookTheme from "@notnotype/nb-ui/themes/nbook";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
 import {INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
-import {createActOne} from "./act-one";
+import {createActOne, phaseText} from "./act-one";
+import type {ActOnePhase} from "./act-one";
 import FILIGREE from "./assets/filigree.webp";
 import LYRA_PEEK from "./assets/lyra-toukan.webp";
+import ChapterRail from "./ChapterRail.vue";
 import {BEATS, HANDOFF, HEADLINES, KNOCK_ECHOES, KNOCK_NOTE, LEDE, SANCTUM_ACT, TAGLINE} from "./copy";
 import type {BeatCopy} from "./copy";
 import type {DemoPointer} from "./demo-pointer";
 import {centerOf} from "./desk";
 import type {DeskSnapshot, DeskTarget, Point} from "./desk";
 import HomepageDesk from "./HomepageDesk.vue";
-import {CARRY, Interrupted, prefersReducedMotion, SETTLE, tween, wait} from "./motion";
+import {CARRY, Interrupted, prefersReducedMotion, SETTLE, timeScale, tween, wait} from "./motion";
 import type {Ease} from "./motion";
 import {KNOCK_ASK, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply} from "./sample";
 import type {OpenFile} from "./sample";
 import {deskBox, SANCTUM_MIN_WIDTH} from "./sanctum";
+import type {SceneEffect} from "./sanctum";
 import SanctumScene from "./SanctumScene.vue";
 import {createTrail} from "./trail";
 import type {Trail} from "./trail";
@@ -41,7 +45,11 @@ const props = withDefaults(defineProps<{
     headline?: string;
     /** 一开始是夜还是昼（访客之后可以切换）；缺省夜（开发者第 4 轮定）。 */
     appearance?: "night" | "day";
-}>(), {start: "top", headline: "e3", appearance: "night"});
+    /** 章节条的画法（`ChapterRail` 的三版）；缺省古籍标尺（@designer 第 7 轮推荐）。 */
+    rail?: "ruler" | "diamonds" | "ribbon";
+    /** 首屏停着时的动静（`SanctumScene` 的 `effects`）；不给就是场景的缺省。 */
+    effects?: readonly SceneEffect[];
+}>(), {start: "top", headline: "e3", appearance: "night", rail: "ruler", effects: undefined});
 
 const headlineParts = computed(() => (HEADLINES[props.headline] ?? HEADLINES.e3 ?? "").split(/(?<=，)/u));
 
@@ -147,10 +155,9 @@ function onDeskReady(): void {
     for (const resolve of readyWaiters.splice(0)) resolve();
     if (!firstReady) return;
     firstReady = false;
-    // 首屏的样子（存过盘的）交给导演，它才开始；从第一幕开头起时再滚到第一拍。
+    // 首屏的样子（存过盘的）交给导演，它才开始。
     void desk.value?.snapshotSaved().then((initial) => {
         director.prime(initial);
-        if (props.start === "act-one") void nextTick(() => scrollToBeat(0));
     });
 }
 
@@ -175,11 +182,11 @@ function remount(snapshot: DeskSnapshot | null): Promise<void> {
     return new Promise((resolve) => readyWaiters.push(resolve));
 }
 
-function scrollToBeat(beat: number): void {
-    const section = page.value?.querySelector<HTMLElement>(`[data-hs-step="${beat}"]`);
+/** 直接落在第一幕：滚到俯冲走完的地方（舞台还钉着）。 */
+function scrollToAct(): void {
     const scroller = page.value;
-    if (section === null || section === undefined || scroller === null) return;
-    scroller.scrollTop = section.offsetTop - size.value.height * 0.5 + 24;
+    if (scroller === null) return;
+    scroller.scrollTop = size.value.height;
     onScroll();
 }
 
@@ -498,16 +505,21 @@ const lightsOut = ref(false);
 /** 换一台工作台时的薄暮：压上、换、揭开（恢复时正文对不上，不能就地摆回去）。 */
 const veil = ref(false);
 
-// ── 字幕：上一行是这一拍的短标题（金色）与进度，下一行是一句字幕；交给访客时整行换成邀请与按钮 ──
+// ── 字幕：上一行是章节条，下一行是一句字幕；交给访客时那一句换成邀请与按钮 ──
 
-const beatTitle = ref("");
 const caption = ref("");
 const ring = shallowRef<StageRect | null>(null);
 const handoff = ref(false);
 
 function say(copy: BeatCopy, line: "opening" | "middle" | "closing"): void {
-    beatTitle.value = copy.title;
     caption.value = copy[line] ?? copy.opening;
+}
+
+/** 这一拍说出结论：字幕换成收尾那句，章节条上这一段补满（之后还留着看一会儿，才换下一拍）。 */
+function conclude(copy: BeatCopy): void {
+    say(copy, "closing");
+    railDone.value = Math.max(railDone.value, Math.min(current.value + 1, CHAPTERS.length));
+    stopClock();
 }
 
 function markRing(name: DeskTarget): void {
@@ -519,6 +531,11 @@ function markRing(name: DeskTarget): void {
 
 interface Beat {
     readonly copy: BeatCopy | null;
+    /**
+     * 从开演到说出结论的标称时长（ms，不含之后留着看的那一会儿）：章节条按它估这一段的进度。
+     * 量自第 7 轮在开发服务上连播的一遍（负载约 6，探针记下每一拍开演与补满的时刻）；卡顿时会慢，估到九成二就停着等结论。
+     */
+    readonly nominal: number;
     /** 从上一拍的终态演到这一拍的终态。 */
     play(signal: AbortSignal): Promise<void>;
     /** 不演，直接摆上这一拍的结果（快速滚过与少动效时）。 */
@@ -575,10 +592,10 @@ async function whenReadyToPlay(signal: AbortSignal): Promise<void> {
 const BEAT_STEPS: readonly Beat[] = [
     {
         copy: BEATS.knock,
+        nominal: 19600,
         async play(signal) {
             await whenReadyToPlay(signal);
-            beatTitle.value = "第一幕";
-            caption.value = SANCTUM_ACT.replace(/^第一幕\s+/u, "");
+            caption.value = SANCTUM_ACT.replace(/\s+/u, "\u3000");
             await wait(1600, signal);
             say(BEATS.knock, "opening");
             await wait(1000, signal);
@@ -595,7 +612,7 @@ const BEAT_STEPS: readonly Beat[] = [
             await revealChapterOneEnd(signal);
             await wait(600, signal);
             markEchoes();
-            say(BEATS.knock, "closing");
+            conclude(BEATS.knock);
             await wait(2800, signal);
             marks.value = [];
         },
@@ -608,6 +625,7 @@ const BEAT_STEPS: readonly Beat[] = [
     },
     {
         copy: BEATS.mark,
+        nominal: 21900,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.mark, "opening");
@@ -621,13 +639,14 @@ const BEAT_STEPS: readonly Beat[] = [
             await annotate("chapterFive", KNOCK_NOTE.on, KNOCK_NOTE.body, signal);
             await wait(500, signal);
             hidePointer();
-            say(BEATS.mark, "closing");
+            conclude(BEATS.mark);
             await wait(2600, signal);
         },
         settle: markNow,
     },
     {
         copy: BEATS.alice,
+        nominal: 10200,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.alice, "opening");
@@ -639,13 +658,14 @@ const BEAT_STEPS: readonly Beat[] = [
             await shrinkAlice(signal);
             hidePointer();
             await wait(600, signal);
-            say(BEATS.alice, "closing");
+            conclude(BEATS.alice);
             await wait(2000, signal);
         },
         settle: async () => void desk.value?.floatAlice(),
     },
     {
         copy: BEATS.move,
+        nominal: 6000,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.move, "opening");
@@ -653,13 +673,14 @@ const BEAT_STEPS: readonly Beat[] = [
             if (!(await drag("explorer-entry", stripDrop, signal))) desk.value?.moveExplorer("auxiliarybar");
             hidePointer();
             await wait(900, signal);
-            say(BEATS.move, "closing");
+            conclude(BEATS.move);
             await wait(2000, signal);
         },
         settle: async () => void desk.value?.moveExplorer("auxiliarybar"),
     },
     {
         copy: BEATS.focus,
+        nominal: 7400,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.focus, "opening");
@@ -673,13 +694,14 @@ const BEAT_STEPS: readonly Beat[] = [
             if (desk.value?.isMaximized() === true) desk.value.setMaximized(null);
             hidePointer();
             await wait(500, signal);
-            say(BEATS.focus, "closing");
+            conclude(BEATS.focus);
             await wait(1800, signal);
         },
         settle: async () => desk.value?.setMaximized(null),
     },
     {
         copy: BEATS.memory,
+        nominal: 4000,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.memory, "opening");
@@ -692,13 +714,14 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(700, signal);
             lightsOut.value = false;
             await wait(700, signal);
-            say(BEATS.memory, "closing");
+            conclude(BEATS.memory);
             await wait(2200, signal);
         },
         settle: async () => undefined,
     },
     {
         copy: null,
+        nominal: 0,
         async play(signal) {
             await wait(300, signal);
         },
@@ -706,22 +729,85 @@ const BEAT_STEPS: readonly Beat[] = [
     },
 ];
 
-/** 六拍的进度（交给访客那一段不算一拍）：已走过的实心，当前这一拍亮着。 */
-const BEAT_COUNT = BEAT_STEPS.filter((beat) => beat.copy !== null).length;
 const LAST_STEP = BEAT_STEPS.length - 1;
+/** 章节条上的六段（交给访客那一段不算）。 */
+const CHAPTERS = BEAT_STEPS.flatMap((beat) => (beat.copy === null ? [] : [beat.copy.title]));
+/** 窄屏不演示，只换字幕：每一拍先说开头一句，隔这么久说结论。 */
+const NARROW_MS = 2600;
 
 /** 交给访客停住的样子：第一章的标签上一圈金环（隔一会儿往右挪一下，示意能拖），字幕那一行是邀请与按钮。 */
 function settleHandoff(): void {
-    markRing("chapter-one-tab");
+    if (wide.value) markRing("chapter-one-tab");
     handoff.value = true;
 }
 
-/** 字幕上显示的是哪一拍：-1 是首屏与俯冲。 */
+/** 字幕上显示的是哪一拍：-1 是还没开演。 */
 const current = ref(-1);
-const yielded = ref(false);
 const phase = ref("idle");
-/** 演不演：宽屏且访客没要求少动效。窄屏只换字幕；少动效时导演只摆不演。 */
-const demoEnabled = computed(() => wide.value && !reduced);
+
+// ── 连播：谁让它停下的；章节条画什么 ──
+
+/** 停着的原因：`user` 访客按了暂停，`touch` 访客动了工作台，`away` 舞台滚走一半或镜头拉了回去（回来自己接着演）；null 是在演或还没开演。 */
+const hold = ref<"user" | "touch" | "away" | null>(null);
+const started = ref(false);
+/** 演到了交给访客那一拍。 */
+const finished = ref(false);
+/** 章节条：正在演（或刚演完停着）的是第几段、看过了几段、正在演的那一段走了多少。 */
+const railCurrent = ref(-1);
+const railDone = ref(0);
+const railProgress = ref(0);
+const railStatus = computed(() => (finished.value ? "finished" : hold.value === "touch" ? "yielded" : hold.value === "user" ? "paused" : "playing"));
+
+/** 估进度的钟：开演时起，按标称时长走到九成二就停着等结论；停下、补满、换段时停钟。 */
+const CLOCK_CAP = 0.92;
+let clockFrame = 0;
+
+function stopClock(): void {
+    if (clockFrame !== 0) cancelAnimationFrame(clockFrame);
+    clockFrame = 0;
+}
+
+function startClock(ms: number): void {
+    stopClock();
+    railProgress.value = 0;
+    if (ms <= 0) return;
+    const from = performance.now();
+    const span = ms * timeScale();
+    const tick = (): void => {
+        railProgress.value = Math.min(CLOCK_CAP, (performance.now() - from) / span);
+        clockFrame = railProgress.value < CLOCK_CAP ? requestAnimationFrame(tick) : 0;
+    };
+    clockFrame = requestAnimationFrame(tick);
+}
+
+/** 导演每走一步，章节条跟着换。交给访客那一拍不在条上：到了那一拍，六段都算看过。 */
+function onPhase(event: ActOnePhase): void {
+    phase.value = phaseText(event);
+    if (!("beat" in event)) {
+        stopClock();
+        return;
+    }
+    const {kind, beat} = event;
+    if (kind === "rest") {
+        stopClock();
+        railCurrent.value = beat;
+        railDone.value = Math.max(railDone.value, Math.min(beat + 1, CHAPTERS.length));
+        finished.value = beat === LAST_STEP;
+        return;
+    }
+    finished.value = false;
+    if (kind === "restore") {
+        // 摆回第 `beat` 拍的终态：后面的段退回没看过，接着演的是下一段。
+        startClock(0);
+        railCurrent.value = beat + 1;
+        railDone.value = beat + 1;
+        return;
+    }
+    // 演或快速摆上这一拍：前面的都看过了，这一段从头起。
+    railCurrent.value = beat;
+    railDone.value = Math.min(beat, CHAPTERS.length);
+    startClock(kind === "play" ? (wide.value ? (BEAT_STEPS[beat]?.nominal ?? 0) : NARROW_MS) : 0);
+}
 
 /** 一段被打断或走完后收拾演示的装饰；停住时该有的（交给访客的金环）由 `rest` 摆。 */
 function tidy(): void {
@@ -735,24 +821,35 @@ function tidy(): void {
     lightsOut.value = false;
 }
 
-/** 停在某一拍：字幕换成这一拍的收尾（演完的已经是了）。 */
-function rest(beat: number, how: "played" | "settled" | "restored"): void {
+/** 停在某一拍：字幕换成这一拍的收尾（演完的已经是了）；最后一拍交给访客。 */
+function rest(beat: number, how: "played" | "settled"): void {
     current.value = beat;
-    if (beat < 0) {
-        beatTitle.value = "";
-        caption.value = "";
-        handoff.value = false;
-        ring.value = null;
-        return;
-    }
     if (beat === LAST_STEP) {
         settleHandoff();
         return;
     }
-    handoff.value = false;
-    ring.value = null;
     const copy = BEAT_STEPS[beat]?.copy ?? null;
     if (copy !== null && how !== "played") say(copy, "closing");
+}
+
+/** 每一拍开演（或快速摆上）之前：字幕回到这一拍，收起交给访客的金环。 */
+function prepare(beat: number): void {
+    current.value = beat;
+    handoff.value = false;
+    ring.value = null;
+}
+
+/** 窄屏的一拍：工作台只有一栏宽，分栏、浮窗摆上去挤成一字一行，所以不演示，只换字幕（先说开头一句，再说结论）。 */
+async function narrowPlay(beat: number, signal: AbortSignal): Promise<void> {
+    const copy = BEAT_STEPS[beat]?.copy ?? null;
+    if (copy === null) {
+        await wait(300, signal);
+        return;
+    }
+    say(copy, "opening");
+    await wait(NARROW_MS, signal);
+    conclude(copy);
+    await wait(2200, signal);
 }
 
 /**
@@ -761,7 +858,6 @@ function rest(beat: number, how: "played" | "settled" | "restored"): void {
  */
 async function restoreDesk(state: DeskSnapshot, signal: AbortSignal): Promise<void> {
     tidy();
-    yielded.value = false;
     handoff.value = false;
     ring.value = null;
     const live = desk.value;
@@ -778,67 +874,96 @@ async function restoreDesk(state: DeskSnapshot, signal: AbortSignal): Promise<vo
 
 const director = createActOne<DeskSnapshot>({
     async play(beat, signal) {
-        current.value = beat;
-        yielded.value = false;
-        handoff.value = false;
-        ring.value = null;
-        await BEAT_STEPS[beat]?.play(signal);
+        prepare(beat);
+        if (wide.value) await BEAT_STEPS[beat]?.play(signal);
+        else await narrowPlay(beat, signal);
     },
     async settle(beat, signal) {
-        await BEAT_STEPS[beat]?.settle(signal);
+        prepare(beat);
+        if (wide.value) await BEAT_STEPS[beat]?.settle(signal);
     },
     capture: async () => {
         const saved = await desk.value?.snapshotSaved();
         if (saved === undefined) throw new Error("工作台不在，记不下样子");
         return saved;
     },
-    restore: restoreDesk,
+    restore: async (state, signal) => {
+        if (wide.value) await restoreDesk(state, signal);
+    },
     tidy,
     rest,
 }, {
+    beats: BEAT_STEPS.length,
     animate: () => !reduced,
-    onPhase: (text) => {
-        phase.value = text;
-    },
+    // 演完一拍留 0.7 秒静止再换下一拍（@designer 第 7 轮：没有落点指示，视线全靠布局自己动，换拍前要停一下）；少动效时每一拍是直接摆上的，停久一些看清。
+    gap: (_beat, moving) => (moving ? 700 : 3200),
+    onPhase,
     report: (error) => console.error("[homepage] 第一幕", error),
 });
 
-/** 舞台中线压着哪一段：宽屏交给导演；窄屏只换字幕（工作台只有一栏宽，分栏、浮窗摆上去挤成一字一行）。 */
-function onBeat(beat: number): void {
-    if (wide.value) {
-        director.follow(beat);
+/** 舞台过半在视口里（滚走一半就算离开）。 */
+const inView = ref(true);
+/** 第一幕在台上：宽屏要落地；窄屏不俯冲，首屏的字退开（滚过三成屏）就算。 */
+const onStage = computed(() => inView.value && (wide.value ? landed.value : dive.value >= 0.3));
+/** 字幕那一条：开演以后，落地（窄屏是首屏的字退开）时显出来。 */
+const captionShown = computed(() => started.value && (wide.value ? landed.value : dive.value >= 0.3));
+
+/** 第一次上台就开演；离开时停下（访客按了暂停、动过手的不算），回来接着演。从不锁滚动。 */
+watch(onStage, (shown) => {
+    if (shown) {
+        if (!started.value) {
+            started.value = true;
+            director.play(0);
+        } else if (hold.value === "away") {
+            hold.value = null;
+            director.resume();
+        }
         return;
     }
-    current.value = beat;
-    if (beat < 0) {
-        beatTitle.value = "";
-        caption.value = "";
-        handoff.value = false;
-    } else if (beat === LAST_STEP) handoff.value = true;
-    else {
-        handoff.value = false;
-        const copy = BEAT_STEPS[beat]?.copy ?? null;
-        if (copy !== null) say(copy, "closing");
+    if (started.value && hold.value === null && !finished.value) {
+        hold.value = "away";
+        director.pause();
     }
+}, {immediate: true});
+
+function jumpTo(beat: number): void {
+    hold.value = null;
+    director.play(beat);
 }
 
-/** 访客自己动了工作台：演示让开，字幕后面出现“接着看”“摆回去”；交给访客那一段只熄掉金环（已经交到访客手里了）。 */
+function pauseAct(): void {
+    hold.value = "user";
+    director.pause();
+}
+
+function resumeAct(): void {
+    hold.value = null;
+    director.resume();
+}
+
+function replayAct(): void {
+    hold.value = null;
+    director.play(0);
+}
+
+/**
+ * 访客自己动了工作台：演示让开，章节条尾换成“继续演示”；访客摆的样子留着，按了才从它走回去。
+ * 已经交给访客（最后一拍）时只熄掉金环：那一段本来就是让访客动的。窄屏不演示，不用让。
+ */
 function onVisitorTouch(): void {
-    if (!wide.value) return;
-    director.touch();
-    const beat = director.target();
-    if (beat < 0) return;
-    if (beat === LAST_STEP) {
+    if (!wide.value || !started.value) return;
+    if (finished.value || current.value === LAST_STEP) {
         ring.value = null;
         return;
     }
-    yielded.value = true;
+    director.touch();
+    hold.value = "touch";
 }
 
 // ── 生命周期 ──
 
 let resize: ResizeObserver | null = null;
-let beats: IntersectionObserver | null = null;
+let visibility: IntersectionObserver | null = null;
 /** 拖动的落点与拖影画在 body 下（产品的覆盖层自己传送），继承不到页面上的变量：挂着时在根上换成金色，卸载时还原。 */
 const DROP_VARS = {
     "--drop-area-fill": "rgb(225 178 133 / 0.2)",
@@ -847,16 +972,6 @@ const DROP_VARS = {
     "--nb-layout-accent-text": "#6f4a17",
 } as const;
 const previousDropVars = new Map<string, string>();
-
-function observeBeats(): void {
-    beats?.disconnect();
-    const root = page.value;
-    if (root === null) return;
-    beats = new IntersectionObserver((entries) => {
-        for (const entry of entries) if (entry.isIntersecting) onBeat(Number((entry.target as HTMLElement).dataset.hsStep ?? "-1"));
-    }, {root, rootMargin: "-49.5% 0px -49.5% 0px", threshold: 0});
-    for (const element of root.querySelectorAll<HTMLElement>("[data-hs-step]")) beats.observe(element);
-}
 
 onMounted(() => {
     paintRoot(night.value);
@@ -868,6 +983,12 @@ onMounted(() => {
             trail?.resize(size.value.width, size.value.height);
         });
         resize.observe(root);
+        if (stage.value !== null) {
+            visibility = new IntersectionObserver(([entry]) => {
+                if (entry !== undefined) inView.value = entry.intersectionRatio >= 0.5;
+            }, {root, threshold: [0.5]});
+            visibility.observe(stage.value);
+        }
     }
     if (trailCanvas.value !== null) {
         trail = createTrail(trailCanvas.value);
@@ -878,15 +999,16 @@ onMounted(() => {
         previousDropVars.set(name, style.getPropertyValue(name));
         style.setProperty(name, value);
     }
-    void nextTick(observeBeats);
+    if (props.start === "act-one") scrollToAct();
 });
 
 onBeforeUnmount(() => {
     director.dispose();
+    stopClock();
     tidy();
     trail?.dispose();
     resize?.disconnect();
-    beats?.disconnect();
+    visibility?.disconnect();
     if (scrollFrame !== 0) cancelAnimationFrame(scrollFrame);
     const style = document.documentElement.style;
     for (const [name, value] of previousDropVars) {
@@ -901,7 +1023,7 @@ onBeforeUnmount(() => {
     <div ref="page" class="hs" :class="{'hs--narrow': !wide, 'hs--day': !night}" :style="pageStyle" :data-hs-beat="current" :data-hs-phase="phase" :data-hs-landed="landed" :data-hs-night="night" @scroll.passive="onScroll">
         <div class="hs-run">
             <div ref="stage" class="hs-stage">
-                <SanctumScene :progress="dive" :intro="start === 'top'" :desk-ready="deskReady" :night="night" @landed="onLanded">
+                <SanctumScene :progress="dive" :intro="start === 'top'" :desk-ready="deskReady" :night="night" :effects="effects" @landed="onLanded">
                     <template #desk>
                         <HomepageDesk :key="deskKey" ref="desk" setup="knock" :night="night" :restore="restore" @ready="onDeskReady" @touch="onVisitorTouch" />
                         <Transition name="hs-dusk">
@@ -913,7 +1035,7 @@ onBeforeUnmount(() => {
                             <div v-if="veil" class="hs-veil" aria-hidden="true"></div>
                         </Transition>
                     </template>
-                    <template #hero="{lit}">
+                    <template #hero="{lit, glint}">
                         <header class="hs-nav" :class="{'is-lit': lit}">
                             <a class="hs-nav__brand" href="#">
                                 <NeuroBookMark decorative class="hs-nav__mark" />
@@ -923,16 +1045,19 @@ onBeforeUnmount(() => {
                                 <a href="#">文档</a>
                                 <a href="#" class="hs-nav__extra">更新日志</a>
                                 <a href="#">GitHub</a>
-                                <!-- 昼夜切换：首屏在导航的最右端，落地以后在字幕那一条的右端（两处是同一个开关）。 -->
+                                <!-- 昼夜切换：首屏在导航的最右端，落地以后在字幕那一条的左端（两处是同一个开关）。 -->
                                 <button type="button" class="hs-nav__daynight" :aria-pressed="night" :aria-label="night ? '换成白天' : '换成夜间'" :title="night ? '换成白天' : '换成夜间'" @click="night = !night">
                                     <span :class="night ? 'i-lucide-moon' : 'i-lucide-sun'" aria-hidden="true"></span>
                                 </button>
                             </nav>
                         </header>
-                        <section class="hs-hero" :class="{'is-lit': lit}">
+                        <section class="hs-hero" :class="{'is-lit': lit, 'is-glint': glint}">
                             <p class="hs-hero__tagline" lang="en">{{ TAGLINE }}</p>
                             <h1 class="hs-hero__title"><span v-for="part in headlineParts" :key="part" class="hs-hero__phrase">{{ part }}</span></h1>
-                            <img class="hs-hero__flourish" :src="FILIGREE" alt="" />
+                            <span class="hs-hero__flourish" :style="{'--hs-filigree': `url(${FILIGREE})`}">
+                                <img :src="FILIGREE" alt="" />
+                                <span v-if="glint" class="hs-hero__gleam" aria-hidden="true"></span>
+                            </span>
                             <p class="hs-hero__lede">{{ LEDE }}</p>
                             <div class="hs-hero__actions">
                                 <a class="hs-cta hs-cta--primary" href="#">下载 NeuroBook</a>
@@ -975,16 +1100,9 @@ onBeforeUnmount(() => {
                     </svg>
                 </div>
 
-                <!-- 字幕一条：上一行是进度与这一拍的短标题，下一行是一句字幕；交给访客时下一行换成邀请与按钮。 -->
-                <div class="hs-caption" :style="captionStyle" :class="{'is-shown': current >= 0}">
-                    <div class="hs-caption__head">
-                        <span class="hs-caption__beats" aria-hidden="true">
-                            <i v-for="index in BEAT_COUNT" :key="index" :class="{'is-done': index - 1 < current, 'is-current': index - 1 === current}"></i>
-                        </span>
-                        <Transition name="hs-line" mode="out-in">
-                            <p :key="handoff ? 'handoff' : beatTitle" class="hs-caption__title">{{ handoff ? "换你来" : beatTitle }}</p>
-                        </Transition>
-                    </div>
+                <!-- 字幕一条：上一行是章节条（演到哪、条尾暂停与从头再看），下一行是一句字幕；交给访客时下一行换成邀请与按钮。 -->
+                <div class="hs-caption" :style="captionStyle" :class="{'is-shown': captionShown}" :data-hs-rail-done="railDone" :data-hs-hold="hold ?? 'none'">
+                    <ChapterRail class="hs-rail" :chapters="CHAPTERS" :variant="rail" :current="railCurrent" :done="railDone" :progress="railProgress" :status="railStatus" @jump="jumpTo" @pause="pauseAct" @resume="resumeAct" @replay="replayAct" />
                     <Transition name="hs-line" mode="out-in">
                         <div v-if="handoff" key="handoff" class="hs-caption__row">
                             <img class="hs-caption__peek" :src="LYRA_PEEK" alt="" />
@@ -994,28 +1112,26 @@ onBeforeUnmount(() => {
                         </div>
                         <div v-else :key="caption" class="hs-caption__row">
                             <p class="hs-caption__line">{{ caption }}</p>
-                            <template v-if="yielded">
-                                <button type="button" class="hs-cta hs-cta--compact" @click="director.replay()">接着看</button>
-                                <button type="button" class="hs-cta hs-cta--compact" @click="director.settleHere()">摆回去</button>
-                            </template>
                         </div>
                     </Transition>
                 </div>
 
-                <!-- 昼夜切换：落地以后出现，在字幕那一条的右端。 -->
+                <!-- 昼夜切换：落地以后出现，在字幕那一条的左端。右端是章节条的条尾，让开以后换成更宽的“继续演示”，放在右端会撞上。 -->
                 <Transition name="hs-fade">
-                    <button v-if="landed && wide" type="button" class="hs-daynight" :style="{right: px(box.left), top: px(box.top + box.height + 22)}" :aria-pressed="night" @click="night = !night">
+                    <button v-if="landed && wide" type="button" class="hs-daynight" :style="{left: px(box.left), top: px(box.top + box.height + 22)}" :aria-pressed="night" @click="night = !night">
                         <span :class="night ? 'i-lucide-moon' : 'i-lucide-sun'" class="hs-daynight__icon" aria-hidden="true"></span>
                         {{ night ? "夜" : "昼" }}
                     </button>
                 </Transition>
             </div>
 
+            <!-- 滚动轨道：俯冲一屏，落地后舞台再钉一段（滚轮的余势不至于一下滚过第一幕）；第一幕连播，不靠滚动。这里的字给读屏与搜索。 -->
             <div class="hs-track">
-                <div class="hs-track__dive" data-hs-step="-1" aria-hidden="true"></div>
-                <section v-for="(beat, index) in BEAT_STEPS" :key="index" class="hs-beat" :class="{'hs-beat--last': beat.copy === null}" :data-hs-step="index">
-                    <p v-if="beat.copy !== null" class="hs-sr">{{ beat.copy.title }}：{{ beat.copy.opening }}{{ beat.copy.closing }}</p>
-                    <p v-else class="hs-sr">{{ HANDOFF }}</p>
+                <div class="hs-track__dive" aria-hidden="true"></div>
+                <section class="hs-track__act" aria-label="第一幕">
+                    <ol class="hs-sr">
+                        <li v-for="(beat, index) in BEAT_STEPS" :key="index">{{ beat.copy === null ? HANDOFF : `${beat.copy.title}：${beat.copy.opening}${beat.copy.closing}` }}</li>
+                    </ol>
                 </section>
             </div>
         </div>
@@ -1189,8 +1305,9 @@ onBeforeUnmount(() => {
 /* 标题下一道金色花饰：从中间往两边展开。 */
 .hs-hero__flourish {
     --rise-delay: 1200ms;
+    position: relative;
+    display: block;
     width: min(360px, 70%);
-    height: auto;
     margin: 14px 0 0;
     clip-path: inset(0 50% 0 50%);
     transition:
@@ -1198,8 +1315,32 @@ onBeforeUnmount(() => {
         clip-path 1300ms var(--hs-ease) var(--rise-delay);
 }
 
+.hs-hero__flourish img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
 .hs-hero.is-lit > .hs-hero__flourish {
     clip-path: inset(0 0 0 0);
+}
+
+/*
+ * 鎏金反光（场景开着 `glint` 时，第 7 轮）：花饰与按钮金边上一团柔和的亮，跟着指针走（场景在插槽外面写 `--sx-glint-x`、`--sx-glint-y`）。
+ * 花饰的那一团用同一张图做遮罩，只亮在金线上；不扫白光（@designer：扫光像页游）。
+ */
+.hs-hero__gleam {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(26% 160% at calc(50% + var(--sx-glint-x, 0) * 48%) 50%, rgb(255 248 224 / 0.95), rgb(255 230 170 / 0.3) 45%, transparent 75%);
+    opacity: 0.6;
+    mix-blend-mode: screen;
+    pointer-events: none;
+    mask: var(--hs-filigree) center / 100% 100% no-repeat;
+}
+
+.hs-hero.is-glint .hs-cta {
+    --hs-cta-glint: radial-gradient(64px 34px at calc(50% + var(--sx-glint-x, 0) * 60%) calc(50% + var(--sx-glint-y, 0) * 110%), rgb(255 248 222 / 0.95), rgb(255 232 180 / 0.35) 45%, transparent 75%);
 }
 
 .hs-hero__lede {
@@ -1228,9 +1369,10 @@ onBeforeUnmount(() => {
 
 /*
  * 按钮：一道鎏金外边（渐变画在边框盒上），里面再一圈细金线（内阴影），两端各一粒金菱形。
- * 主按钮底是赤红丝绒的暗面，次按钮是半透明的夜色。
+ * 主按钮底是赤红丝绒的暗面，次按钮是半透明的夜色。底色、金边上的反光各是一个变量，昼夜与主次只换底色。
  */
 .hs-cta {
+    --hs-cta-face: linear-gradient(rgb(24 15 19 / 0.78), rgb(24 15 19 / 0.78));
     position: relative;
     display: inline-flex;
     align-items: center;
@@ -1240,7 +1382,8 @@ onBeforeUnmount(() => {
     border: 1.5px solid transparent;
     border-radius: 5px;
     background:
-        linear-gradient(rgb(24 15 19 / 0.78), rgb(24 15 19 / 0.78)) padding-box,
+        var(--hs-cta-face) padding-box,
+        var(--hs-cta-glint, linear-gradient(transparent, transparent)) border-box,
         var(--hs-gilt) border-box;
     box-shadow:
         inset 0 0 0 3px rgb(14 8 10 / 0.55),
@@ -1294,9 +1437,7 @@ onBeforeUnmount(() => {
 }
 
 .hs-cta--primary {
-    background:
-        linear-gradient(180deg, #a01d31, #6c0e1c) padding-box,
-        var(--hs-gilt) border-box;
+    --hs-cta-face: linear-gradient(180deg, #a01d31, #6c0e1c);
     color: #fff3dc;
 }
 
@@ -1457,58 +1598,36 @@ onBeforeUnmount(() => {
 
 /* ── 字幕 ── */
 
+/* 字幕那一条：藏起来时连同章节条的按钮一起不接指针（visibility 在淡出走完以后才切）。 */
 .hs-caption {
     position: absolute;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     text-align: center;
+    visibility: hidden;
     opacity: 0;
-    transition: opacity 500ms var(--hs-ease);
+    transition:
+        opacity 500ms var(--hs-ease),
+        visibility 0s linear 500ms;
 }
 
 .hs-caption.is-shown {
+    visibility: visible;
     opacity: 1;
-}
-
-.hs-caption__head {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-
-.hs-caption__beats {
-    display: inline-flex;
-    gap: 7px;
-}
-
-.hs-caption__beats i {
-    width: 7px;
-    height: 7px;
-    border: 1px solid rgb(240 201 135 / 0.6);
-    transform: rotate(45deg);
     transition:
-        background-color 300ms ease,
-        box-shadow 300ms ease;
+        opacity 500ms var(--hs-ease),
+        visibility 0s;
 }
 
-.hs-caption__beats i.is-done {
-    background: rgb(240 201 135 / 0.55);
-}
-
-.hs-caption__beats i.is-current {
-    background: var(--hs-gold-light);
-    box-shadow: 0 0 8px rgb(240 201 135 / 0.8);
-}
-
-.hs-caption__title {
-    margin: 0;
-    color: var(--hs-gold-light);
-    font-family: var(--hs-serif);
-    font-size: 17px;
-    font-weight: 600;
-    letter-spacing: 0.22em;
+/*
+ * 条尾挂在章节条右边、不占条的宽：两边各留出它（`--cr-tail`），字幕那一条窄时条跟着收窄；
+ * 收到 360 以下时条尾自己挪到下一行（窄屏）。不这样留，舞台 900 到 1000 上下时让开以后的“继续演示”会伸出舞台。
+ */
+.hs-rail {
+    width: max(min(660px, 100% - 2 * var(--cr-tail)), min(100%, 360px));
+    pointer-events: auto;
 }
 
 .hs-caption__row {
@@ -1596,25 +1715,23 @@ onBeforeUnmount(() => {
     color: var(--hs-gold-light);
 }
 
-/* ── 滚动轨道：俯冲一段、五拍各一段、交给访客一段（字幕在舞台上，这里的字给读屏与搜索） ── */
+/* ── 滚动轨道：俯冲一屏，落地后再钉 0.8 屏（字幕在舞台上，这里的字给读屏与搜索） ── */
 
 .hs-track__dive {
-    height: calc(var(--hs-vh) * 0.65);
+    height: var(--hs-vh);
 }
 
-.hs-beat {
+.hs-track__act {
     position: relative;
-    height: calc(var(--hs-vh) * 1.6);
-}
-
-.hs-beat--last {
-    height: calc(var(--hs-vh) * 1.3);
+    height: calc(var(--hs-vh) * 0.8);
 }
 
 .hs-sr {
     position: absolute;
     width: 1px;
     height: 1px;
+    margin: 0;
+    padding: 0;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
@@ -1754,9 +1871,7 @@ onBeforeUnmount(() => {
 }
 
 .hs--day .hs-cta {
-    background:
-        linear-gradient(rgb(250 244 232 / 0.9), rgb(250 244 232 / 0.9)) padding-box,
-        var(--hs-gilt) border-box;
+    --hs-cta-face: linear-gradient(rgb(250 244 232 / 0.9), rgb(250 244 232 / 0.9));
     box-shadow:
         inset 0 0 0 3px rgb(255 251 242 / 0.7),
         inset 0 0 0 4px rgb(168 118 47 / 0.4),
@@ -1773,9 +1888,7 @@ onBeforeUnmount(() => {
 }
 
 .hs--day .hs-cta--primary {
-    background:
-        linear-gradient(180deg, #a01d31, #6c0e1c) padding-box,
-        var(--hs-gilt) border-box;
+    --hs-cta-face: linear-gradient(180deg, #a01d31, #6c0e1c);
     color: #fff3dc;
 }
 
@@ -1816,17 +1929,12 @@ onBeforeUnmount(() => {
     --hs-gold-light: #f0c987;
 }
 
-.hs--day.hs--narrow .hs-caption__beats i {
-    border-color: rgb(138 92 28 / 0.7);
-}
-
-.hs--day.hs--narrow .hs-caption__beats i.is-done {
-    background: rgb(138 92 28 / 0.6);
-}
-
-.hs--day.hs--narrow .hs-caption__beats i.is-current {
-    background: #a8762f;
-    box-shadow: 0 0 8px rgb(168 118 47 / 0.6);
+.hs--day.hs--narrow .hs-rail {
+    --cr-gold: #8a5c1c;
+    --cr-gold-light: #6f4a17;
+    --cr-dim: rgb(138 92 28 / 0.38);
+    --cr-ink: rgb(42 29 18 / 0.5);
+    --cr-glow: rgb(168 118 47 / 0.25);
 }
 
 .hs--day.hs--narrow .hs-caption__line {

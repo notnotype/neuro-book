@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test";
 
-import {createActOne} from "./act-one";
-import type {ActOneStage, ActOneTimers} from "./act-one";
+import {createActOne, phaseText} from "./act-one";
+import type {ActOnePhase, ActOneStage, ActOneTimers} from "./act-one";
 import {Interrupted} from "./motion";
 
 /** 手动走的计时器：`advance` 之前什么都不触发。 */
@@ -32,7 +32,7 @@ const flush = async (): Promise<void> => {
 };
 
 /**
- * 记账的舞台：桌上的样子就是一个数（停在哪一拍的终态），`play` 挂起到测试放行或被打断；`touch` 后桌上的样子是 99（对不上任何一拍）。
+ * 记账的舞台：桌上的样子就是一个数（停在哪一拍的终态），`play` 挂起到测试放行或被打断；访客动过手后桌上的样子是 99（对不上任何一拍）。
  */
 function fakeStage() {
     let desk = -1;
@@ -65,139 +65,188 @@ function fakeStage() {
             log.push(`rest ${String(beat)} ${how}`);
         },
     };
-    return {stage, log, plays, dirty: () => (desk = 99), desk: () => desk};
+    return {stage, log, plays, dirty: () => (desk = 99)};
 }
 
-/** 有了首屏的样子就停在首屏（记一条 `rest -1`）；之后的记录从空的起。 */
+/** 四拍；演完一拍停 700ms（少动效时 3000ms）再演下一拍。 */
 async function setup(animate = true) {
     const timers = manualTimers();
     const fake = fakeStage();
-    const director = createActOne(fake.stage, {settleMs: 220, animate: () => animate, timers});
+    const phases: ActOnePhase[] = [];
+    const director = createActOne(fake.stage, {
+        beats: 4,
+        animate: () => animate,
+        gap: (_beat, moving) => (moving ? 700 : 3000),
+        onPhase: (phase) => phases.push(phase),
+        timers,
+    });
     director.prime(-1);
     await flush();
-    expect(fake.log).toEqual(["rest -1 settled"]);
-    fake.log.length = 0;
-    return {...fake, timers, director};
+    return {...fake, timers, director, phases: () => phases.map(phaseText)};
 }
 
+/** 放行正在演的那一拍。 */
 async function finishPlay(plays: ReturnType<typeof fakeStage>["plays"]): Promise<void> {
     plays.at(-1)?.finish();
     await flush();
 }
 
 describe("第一幕的导演", () => {
-    test("目标停稳才演：下一拍从上一拍的终态演起，演完停住", async () => {
+    test("连播：一拍演完停一会儿，从它的终态接着演下一拍，演到最后一拍就停", async () => {
         const {director, timers, log, plays} = await setup();
-        director.follow(0);
-        timers.advance(200);
-        await flush();
-        expect(log).toEqual([]);
-        timers.advance(30);
+        director.play(0);
         await flush();
         expect(log).toEqual(["play 0 from -1"]);
         await finishPlay(plays);
         expect(log.at(-1)).toBe("rest 0 played");
-    });
-
-    test("快速滚过的拍不演：一拍一拍摆上，只演停住的那一拍", async () => {
-        const {director, timers, log} = await setup();
-        director.follow(0);
-        timers.advance(100);
-        director.follow(1);
-        timers.advance(100);
-        director.follow(2);
-        timers.advance(220);
-        await flush();
-        expect(log).toEqual(["settle 0 from -1", "settle 1 from 0", "play 2 from 1"]);
-    });
-
-    test("演到一半往回滚：打断，按记下的终态摆回去，不重演", async () => {
-        const {director, timers, log, plays} = await setup();
-        director.follow(0);
-        timers.advance(220);
-        await flush();
-        await finishPlay(plays);
-        director.follow(1);
-        timers.advance(220);
-        await flush();
-        expect(log.at(-1)).toBe("play 1 from 0");
-        director.follow(0);
-        timers.advance(220);
-        await flush();
-        expect(log.slice(-2)).toEqual(["restore 0 from 0", "rest 0 restored"]);
-    });
-
-    test("往回滚隔着几拍：一步摆到记过的那一拍", async () => {
-        const {director, timers, log, plays} = await setup();
-        for (const beat of [0, 1, 2]) {
-            director.follow(beat);
-            timers.advance(220);
-            await flush();
-            await finishPlay(plays);
-        }
-        director.follow(0);
-        timers.advance(220);
-        await flush();
-        expect(log.slice(-2)).toEqual(["restore 0 from 2", "rest 0 restored"]);
-    });
-
-    test("访客动过：动手不摆回，换拍时先摆回上一拍的终态再演", async () => {
-        const {director, timers, log, plays, dirty} = await setup();
-        director.follow(0);
-        timers.advance(220);
-        await flush();
-        await finishPlay(plays);
-        dirty();
-        expect(director.touch()).toBe(false);
+        timers.advance(699);
         await flush();
         expect(log.at(-1)).toBe("rest 0 played");
-        director.follow(1);
-        timers.advance(220);
+        timers.advance(1);
+        await flush();
+        expect(log.at(-1)).toBe("play 1 from 0");
+        for (let beat = 1; beat < 4; beat += 1) {
+            await finishPlay(plays);
+            timers.advance(700);
+            await flush();
+        }
+        expect(log.slice(-2)).toEqual(["play 3 from 2", "rest 3 played"]);
+        timers.advance(5000);
+        await flush();
+        expect(log.at(-1)).toBe("rest 3 played");
+        expect(director.state()).toEqual({at: 3, finished: true});
+    });
+
+    test("指令在首屏的样子交来之前就排着，交来以后才开始", async () => {
+        const timers = manualTimers();
+        const fake = fakeStage();
+        const director = createActOne(fake.stage, {beats: 4, animate: () => true, gap: () => 700, timers});
+        director.play(0);
+        await flush();
+        expect(fake.log).toEqual([]);
+        director.prime(-1);
+        await flush();
+        expect(fake.log).toEqual(["play 0 from -1"]);
+    });
+
+    test("点后面的章节：路过的拍一拍一拍快速摆上，只演点中的那一拍", async () => {
+        const {director, log, phases} = await setup();
+        director.play(2);
+        await flush();
+        expect(log).toEqual(["settle 0 from -1", "settle 1 from 0", "play 2 from 1"]);
+        expect(phases()).toEqual(["settle 0", "settle 1", "play 2"]);
+    });
+
+    test("演到一半点前面的章节：打断，按记下的终态一步摆回去，再从那一拍的开头演", async () => {
+        const {director, timers, log, plays, phases} = await setup();
+        director.play(0);
+        await flush();
+        await finishPlay(plays);
+        timers.advance(700);
+        await flush();
+        await finishPlay(plays);
+        timers.advance(700);
+        await flush();
+        expect(log.at(-1)).toBe("play 2 from 1");
+        director.play(0);
+        await flush();
+        expect(log.slice(-2)).toEqual(["restore -1 from 1", "play 0 from -1"]);
+        expect(phases().slice(-3)).toEqual(["interrupted", "restore -1", "play 0"]);
+    });
+
+    test("暂停：演到一半停下不再往下演；接着演从这一拍的开头再演（先摆回上一拍的终态）", async () => {
+        const {director, timers, log, plays, phases} = await setup();
+        director.play(0);
+        await flush();
+        await finishPlay(plays);
+        timers.advance(700);
+        await flush();
+        director.pause();
+        await flush();
+        expect(phases().at(-1)).toBe("paused");
+        timers.advance(10_000);
+        await flush();
+        expect(log.at(-1)).toBe("play 1 from 0");
+        director.resume();
+        await flush();
+        expect(log.slice(-2)).toEqual(["restore 0 from 0", "play 1 from 0"]);
+    });
+
+    test("两拍之间暂停：不演下一拍；接着演从下一拍演起", async () => {
+        const {director, timers, log, plays, phases} = await setup();
+        director.play(0);
+        await flush();
+        await finishPlay(plays);
+        director.pause();
+        expect(phases().at(-1)).toBe("paused");
+        timers.advance(10_000);
+        await flush();
+        expect(log.at(-1)).toBe("rest 0 played");
+        director.resume();
+        await flush();
+        expect(log.at(-1)).toBe("play 1 from 0");
+    });
+
+    test("访客演到一半动了工作台：演示停下；接着演时从访客摆的样子摆回上一拍的终态，再演这一拍", async () => {
+        const {director, timers, log, plays, dirty} = await setup();
+        director.play(0);
+        await flush();
+        await finishPlay(plays);
+        timers.advance(700);
+        await flush();
+        dirty();
+        director.touch();
+        await flush();
+        timers.advance(10_000);
+        await flush();
+        expect(log.at(-1)).toBe("play 1 from 0");
+        director.resume();
         await flush();
         expect(log.slice(-2)).toEqual(["restore 0 from 99", "play 1 from 0"]);
     });
 
-    test("演的时候访客按下：打断；“接着看”从这一拍的开头再演，“摆回去”摆到这一拍的终态", async () => {
-        const {director, timers, log, plays, dirty} = await setup();
-        director.follow(0);
-        timers.advance(220);
+    test("访客在两拍之间动了工作台：接着演时先摆回刚演完那一拍的终态，再演下一拍", async () => {
+        const {director, log, plays, dirty} = await setup();
+        director.play(0);
         await flush();
-        dirty();
-        expect(director.touch()).toBe(true);
-        await flush();
-        director.replay();
-        timers.advance(0);
-        await flush();
-        expect(log.slice(-2)).toEqual(["restore -1 from 99", "play 0 from -1"]);
+        await finishPlay(plays);
         dirty();
         director.touch();
         await flush();
-        director.settleHere();
-        timers.advance(0);
+        director.resume();
         await flush();
-        expect(log.slice(-3)).toEqual(["restore -1 from 99", "settle 0 from -1", "rest 0 restored"]);
-        expect(plays.length).toBe(2);
+        expect(log.slice(-2)).toEqual(["restore 0 from 99", "play 1 from 0"]);
     });
 
-    test("少动效：该演的那一拍也只摆", async () => {
-        const {director, timers, log} = await setup(false);
-        director.follow(1);
-        timers.advance(220);
-        await flush();
-        expect(log).toEqual(["settle 0 from -1", "settle 1 from 0", "rest 1 settled"]);
-    });
-
-    test("目标没变：正在演的不打断，演完照常停住", async () => {
-        const {director, timers, log, plays} = await setup();
-        director.follow(0);
-        timers.advance(220);
-        await flush();
-        director.follow(1);
-        timers.advance(100);
-        director.follow(0);
-        timers.advance(220);
+    test("演完以后访客动手还算演完，接着演什么都不做；从头再看先摆回首屏的样子", async () => {
+        const {director, timers, log, plays, dirty} = await setup();
+        director.play(3);
         await flush();
         await finishPlay(plays);
-        expect(log).toEqual(["play 0 from -1", "rest 0 played"]);
+        dirty();
+        director.touch();
+        await flush();
+        expect(director.state().finished).toBe(true);
+        director.resume();
+        timers.advance(10_000);
+        await flush();
+        expect(log.at(-1)).toBe("rest 3 played");
+        director.play(0);
+        await flush();
+        expect(log.slice(-2)).toEqual(["restore -1 from 99", "play 0 from -1"]);
+        expect(director.state().finished).toBe(false);
+    });
+
+    test("少动效：每一拍都只摆，拍与拍之间停得久", async () => {
+        const {director, timers, log} = await setup(false);
+        director.play(0);
+        await flush();
+        expect(log).toEqual(["settle 0 from -1", "rest 0 settled"]);
+        timers.advance(2999);
+        await flush();
+        expect(log.at(-1)).toBe("rest 0 settled");
+        timers.advance(1);
+        await flush();
+        expect(log.slice(-2)).toEqual(["settle 1 from 0", "rest 1 settled"]);
     });
 });

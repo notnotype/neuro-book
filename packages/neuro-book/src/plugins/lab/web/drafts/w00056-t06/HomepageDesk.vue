@@ -337,7 +337,8 @@ onMounted(() => {
         editorTabs: () => tabDrag.value,
         titleOnly: (panel) => titleOnly.value.has(panel),
         ownHead: () => false,
-        sectors: () => true,
+        // 不画落点分区（上下左右中那一盘，第 7 轮开发者不要）：实时布局本来就不画；拖入口这类走落点指示的，也只留落点的框。
+        sectors: () => false,
         // 实时布局（产品的缺省手感）：拖着走时布局一路跟着排，松手时卡片落进空位。
         feel: () => "live",
         cardShrink: () => "strip",
@@ -631,8 +632,17 @@ function floatAlice(): boolean {
  * 让某一份文件到前面，并把光标放到它的末尾、聚焦（编辑器的“继续写作”，editor 输出 29）。控件是异步挂上的，刚换组时可能还没有句柄，
  * 这时返回 false，调用方过一会儿再试。
  */
+/**
+ * 让这份文件到前面：已经开着就在它所在的组里切过去，没开着才在活动组里开一份。
+ * 不能直接 `area.open`：它开在活动组里，文件在别的组时会在活动组再开一份（第 7 轮跳着摆两拍时，两组都成了第五章）。
+ */
+function bring(file: OpenFile): void {
+    const tabId = tabIdOf(OPEN_FILES[file]);
+    if (tabId === null || !area.activate(tabId).ok) area.open(OPEN_FILES[file], {mode: "permanent"});
+}
+
 function revealEnd(file: OpenFile): boolean {
-    area.open(OPEN_FILES[file], {mode: "permanent"});
+    bring(file);
     const handle = area.activeHandle.value;
     if (handle?.revealEnd === undefined) return false;
     handle.revealEnd();
@@ -740,10 +750,16 @@ function commentSave(): DOMRectReadOnly | null {
     return rect === null || rect.width < 2 ? null : rect;
 }
 
-/** 收起选区（光标留在末尾）：涂完高亮让人看见涂上的颜色，选区菜单跟着收起。 */
+/**
+ * 收起选区（光标留在末尾）：涂完高亮让人看见涂上的颜色，选区菜单跟着收起。和 `selectText` 一样补发 selectionchange，
+ * 让编辑器此刻就把自己的选区也收起来：不补的话，换到另一份正文以后这一份的选区还是一段，下一次指针松开（演示的拖动）
+ * 选区菜单又在它上面出来（第 7 轮跳着摆两拍时看到的）。
+ */
 function collapseSelection(): void {
     const selection = document.getSelection();
-    if (selection !== null && selection.rangeCount > 0 && host.value?.contains(selection.anchorNode) === true) selection.collapseToEnd();
+    if (selection === null || selection.rangeCount === 0 || host.value?.contains(selection.anchorNode) !== true) return;
+    selection.collapseToEnd();
+    document.dispatchEvent(new Event("selectionchange"));
 }
 
 /** 写着的批注卡片里的输入框拿到焦点（卡片打开时自己会聚焦；演示打字前再确认一次）。 */
@@ -774,12 +790,13 @@ function marked(text: string, kind: "highlight" | "comment"): boolean {
  */
 function markNow(file: OpenFile, text: string, mark: {readonly kind: "highlight"; readonly color: string} | {readonly kind: "comment"; readonly body: string}): boolean {
     if (marked(text, mark.kind)) return true;
-    area.open(OPEN_FILES[file], {mode: "permanent"});
+    bring(file);
     if (selectText(text) === null) return false;
     const editing = area.activeHandle.value?.editing;
     if (editing === undefined) return false;
     if (mark.kind === "highlight") editing.run("highlight", {color: mark.color});
     else editing.run("comment", {text: mark.body});
+    collapseSelection();
     return marked(text, mark.kind);
 }
 
