@@ -10,6 +10,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import "./panel-metrics.css";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
 import {entryCountText, entryTitle} from "../../shared/entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
@@ -178,6 +179,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             :data-region-entry="entry.id"
                             :data-tool-entry="entry.id"
                             :data-tool-view="entry.viewId ?? undefined"
+                            v-bind="nbTarget('workbench.container', entry.id)"
                             :data-tool-merge="entry.id === highlighted ? '' : undefined"
                             :data-pressed="entry.pressed ? '' : undefined"
                             @mousedown.prevent

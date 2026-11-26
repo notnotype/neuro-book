@@ -40,6 +40,14 @@ describe("WorkbenchRegionStrip", () => {
         expect(titles.find("[data-region-entry]").attributes("aria-label")).toBeUndefined();
     });
 
+    it("入口带稳定名 workbench.container 与容器 id（agent/page-agent.md 输出 6）", () => {
+        const strip = mountStrip("icons");
+        expect(strip.findAll("[data-region-entry]").map((button) => [button.attributes("data-nb-target"), button.attributes("data-nb-key")])).toEqual([
+            ["workbench.container", "view:chat"],
+            ["workbench.container", "custom:notes"],
+        ]);
+    });
+
     it("计数（views.md 输出 17）：标题入口写在标题后，图标入口画在右上角；读屏名称都是“标题 数”，超过 99 写 99+", () => {
         const counted = [{...entry("view:notes", "通知", true), count: 2}, entry("view:tasks", "后台任务"), {...entry("view:mail", "消息"), count: 120}];
         const titles = mount(WorkbenchRegionStrip, {props: {region: "panel", label: "视图容器", moreLabel: "更多", entries: counted, variant: "titles"}, attachTo: document.body});

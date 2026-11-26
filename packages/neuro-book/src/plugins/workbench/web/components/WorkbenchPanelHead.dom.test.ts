@@ -96,6 +96,15 @@ describe("WorkbenchPanelHead 的标题区", () => {
         expect(title.textContent).toBe("对话");
     });
 
+    it("视图的标题按钮带稳定名 workbench.view 与视图 id，接管标题区时也一样（agent/page-agent.md 输出 6）", async () => {
+        const {viewHead} = mountHead(null);
+        await waitUntil("画出标题按钮", () => handle() !== null);
+        expect([handle().dataset.nbTarget, handle().dataset.nbKey]).toEqual(["workbench.view", "nbook.agent.conversation"]);
+        viewHead.value = {key: "nbook.agent.conversation:1", popup: null};
+        await waitUntil("视图接管标题区", () => document.querySelector("[data-panel-head-start]") !== null);
+        expect([handle().dataset.nbTarget, handle().dataset.nbKey]).toEqual(["workbench.view", "nbook.agent.conversation"]);
+    });
+
     it("弹出状态写到按钮上；点按钮发 activate", async () => {
         const {viewHead, activated} = mountHead({key: "nbook.agent.conversation:1", popup: {expanded: false}});
         await waitUntil("写上弹出状态", () => handle().getAttribute("aria-haspopup") === "dialog");

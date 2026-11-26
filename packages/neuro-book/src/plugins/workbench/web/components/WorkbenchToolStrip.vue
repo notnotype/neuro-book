@@ -5,6 +5,7 @@
 import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
 import {layoutStrip} from "../items/item-strip";
 import {entryCountText, entryTitle} from "../../shared/entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
@@ -162,6 +163,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-tool-entry="entry.id"
                             :data-tool-view="entry.viewId ?? undefined"
+                            v-bind="nbTarget('workbench.container', entry.id)"
                             class="workbench-tool-strip__item"
                             :class="{'workbench-tool-strip__item--active': entry.pressed, 'workbench-tool-strip__item--merge': entry.id === highlighted}"
                             :data-tool-merge="entry.id === highlighted ? '' : undefined"
@@ -189,6 +191,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                         :aria-pressed="item.pressed ?? undefined"
                         :disabled="item.disabledReason !== null"
                         :data-activity-item="item.id"
+                        v-bind="nbTarget('workbench.activity', item.id)"
                         class="workbench-tool-strip__item"
                         :class="{'workbench-tool-strip__item--pressed': item.pressed === true}"
                         @click="emit('run-item', item.id)"
@@ -196,7 +199,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                 </Tooltip>
                 <!-- 没有命令：不可点的占位（不以可操作的假入口呈现），样子同书架右上角的头像位。 -->
                 <Tooltip v-else :text="item.title" side="right">
-                    <span class="workbench-tool-strip__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" data-activity-item-placeholder>
+                    <span class="workbench-tool-strip__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" v-bind="nbTarget('workbench.activity', item.id)" data-activity-item-placeholder>
                         <span class="workbench-tool-strip__placeholder-circle"><span class="workbench-tool-strip__placeholder-icon" :class="item.icon" aria-hidden="true"></span></span>
                     </span>
                 </Tooltip>

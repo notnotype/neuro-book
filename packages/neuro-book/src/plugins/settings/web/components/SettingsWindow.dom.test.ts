@@ -108,6 +108,15 @@ describe("SettingsWindow", () => {
         expect(document.body.querySelector("[data-settings-tabs]")).toBeNull();
     });
 
+    it("层切换整组、左栏的节与设置行带稳定名（agent/page-agent.md 输出 6）", async () => {
+        await scene("user");
+        expect(one("[data-settings-tabs]").dataset.nbTarget).toBe("settings.layers");
+        const nav = one("[data-settings-nav='nbook.appearance']");
+        expect([nav.dataset.nbTarget, nav.dataset.nbKey]).toEqual(["settings.section", "nbook.appearance"]);
+        const row = one(`[data-settings-row="${appearanceSetting.key}"]`);
+        expect([row.dataset.nbTarget, row.dataset.nbKey]).toEqual(["settings.row", appearanceSetting.key]);
+    });
+
     it("改值经窗口模型写当前标签那一层；本作品标签下沿用的行照常可改、改了才写本作品层；只允许用户层的项不列出，末尾说明", async () => {
         const {host} = await scene("user");
         segment(appearanceSetting.key, "深色").click();
