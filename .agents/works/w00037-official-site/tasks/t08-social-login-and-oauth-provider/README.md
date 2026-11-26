@@ -189,4 +189,4 @@ omp 那 3 条的修正已提交（`0dc6d182d`，14 个文件）：
 - Google 配 `requireIdTokenVerification`：发现文档缺 issuer 或 `jwks_uri` 时库不建这个上游，发起回 503 `unavailable`；仿真上游加了 `omitJwksUri`。
 - 解绑只数密码与所在上游开放着的其它身份，列表照旧。
 - 实现者自报：账号与站点各包的测试与类型检查都过，`governance:check` 过，合同测试连跑 3 遍各 334 条都过，4 条变异都被抓到。`--with-consumers` 带进来的别的包有 5 项失败，都与本次无关：dev-panel 的 herdr 与 nb-story 的子进程超时在 master 上也失败，nb-markdown 与 neuro-book 的几条单独重跑通过；`ProvidersPage.dom.test.ts` 在分支上失败、master 上通过，因为分支起点之后 master 改过 models 插件，合入前变基后复核。
-- 社交注册意图下被封禁时，码随时序是 `social_failed` 或 `account_banned`，两种都不建号、不扣码。不统一，写进 `site.accounts` 输出 13。
+- 社交注册意图下被封禁时，码随情形不同：已关联的旧账号被封时是 `social_failed`，不建号、不扣码；刚建的账号在库建会话之前被封时是 `account_banned`，账号与扣码已提交（账号确实建成了）。不统一，写进 `site.accounts` 输出 13。
