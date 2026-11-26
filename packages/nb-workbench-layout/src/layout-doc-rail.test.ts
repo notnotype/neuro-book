@@ -76,9 +76,12 @@ describe("读入", () => {
     });
 
     it("节点 id 或面板的键以 `rail:` 开头时按不合法拒收：呈现里的侧轨叶用这个 id", () => {
-        const doc = railed();
-        const renamed = JSON.parse(JSON.stringify(doc).replaceAll('"m1"', '"rail:auxiliarybar"').replaceAll('"panel:m1"', '"panel:rail:auxiliarybar"'));
+        // 只改叶的 id、ref 与面板的键，标签与归属不动：改别的会让文档因为别的原因不合法，这条就空过了。
+        const renamed = JSON.parse(JSON.stringify(railed()).replaceAll('"id":"m1"', '"id":"rail:auxiliarybar"').replaceAll('"ref":"panel:m1"', '"ref":"panel:rail:auxiliarybar"').replaceAll('"m1":{', '"rail:auxiliarybar":{'));
         expect(validateLayoutDoc(renamed)).toMatchObject({ok: false, code: "invalid"});
+        // 对照：同样改成一个普通的名字是合法的。
+        const plain = JSON.parse(JSON.stringify(railed()).replaceAll('"id":"m1"', '"id":"m2"').replaceAll('"ref":"panel:m1"', '"ref":"panel:m2"').replaceAll('"m1":{', '"m2":{'));
+        expect(validateLayoutDoc(plain)).toMatchObject({ok: true});
     });
 });
 
