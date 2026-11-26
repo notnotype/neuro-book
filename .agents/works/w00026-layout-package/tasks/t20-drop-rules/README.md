@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t20-drop-rules
-status: active
-updated: 2026-11-07
+status: done
+updated: 2026-11-26
 ---
 
 # 落点按缝与边重排，预览改成空位
@@ -85,3 +85,7 @@ updated: 2026-11-07
 ## 下一步
 
 开发者手试：拖动还卡不卡。划过界面的 CPU 要不要另开 Task，等开发者定。
+
+## 收尾
+
+2026-11-26 w00026 收尾时核对：各片、设计审查与实现审查都已处理并合入 master（Task 记录到 `51ad3268d`）；之后的拖动判定由 t23 按 Trellis 重做，CPU 由 t21、t22 处理。“下一步”里请开发者手试的那一项没有留下结论，随 Work 收尾关闭。
