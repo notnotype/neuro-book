@@ -159,7 +159,8 @@ describe("不带编辑器的词法", () => {
     it("同一个私用区的字用同一个占位：引用式链接的标签里有它时照样接得上定义；定义表的键也还原", () => {
         const lexing = createLexing([tagModule(), coreLexing]);
         const lexer = lexing.lexer();
-        const tokens = lexer.lex(`[看][甲${String.fromCharCode(0xe000)}]\n\n[甲${String.fromCharCode(0xe000)}]: /ok`);
+        // 前面先有一个原子，私用区的字分到的占位就不是它自己，键没还原时看得出来。
+        const tokens = lexer.lex(`<X a> [看][甲${String.fromCharCode(0xe000)}]\n\n[甲${String.fromCharCode(0xe000)}]: /ok`);
         const link = flatten(tokens).find((token) => token.type === "link") as unknown as {href: string} | undefined;
         expect(link?.href).toBe("/ok");
         expect(Object.keys(lexer.tokens.links)).toEqual([`甲${String.fromCharCode(0xe000)}`]);

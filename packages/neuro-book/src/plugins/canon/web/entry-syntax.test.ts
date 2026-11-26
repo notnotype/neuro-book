@@ -38,6 +38,8 @@ function roundTrip(source: string) {
     const kept = codec.write(read.doc, read.map);
     const rewritten = codec.write(read.doc, codec.read("").map);
     if (!kept.ok || !rewritten.ok) throw new Error(`write failed for ${JSON.stringify(source)}`);
+    // 整篇重写以后读回来的文字与原来的相同（字面的标签、转义与表格里的 `|` 都不能变）。
+    expect(codec.read(rewritten.text).doc.textContent).toBe(read.doc.textContent);
     return {nodes: nodesOf(read.doc), kept: kept.text, rewritten: rewritten.text};
 }
 

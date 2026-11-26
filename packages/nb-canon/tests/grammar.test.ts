@@ -48,6 +48,7 @@ describe("标签的落点（输出 17）", () => {
         ["带值的 V 与带描述的标签整体算一个", "<V of=\"panel.a\" label=\"魔力\">3110</V> <StatBar of=\"panel.魔力\">魔力 *3* | x</StatBar>", ["<V of=\"panel.a\" label=\"魔力\">3110</V> live", "<StatBar of=\"panel.魔力\">魔力 *3* | x</StatBar> live"]],
         // 配成一个之前不知道落点：开闭标签有一个转义了、中间有反引号时各算各的，中间的强调与代码照常读（S3 审查）。
         ["字面的开闭标签不配成一个", "`<V of=\"panel.a\">` **粗** `</V>` 与 \\<V of=\"panel.a\"> **粗** \\</V> 与 <V of=\"panel.a\">1\\</V>", ["<V of=\"panel.a\"> code", "</V> code", "<V of=\"panel.a\"> escaped", "</V> escaped", "<V of=\"panel.a\"> live", "</V> escaped"]],
+        ["只转义了开标签", "\\<V of=\"panel.a\"> **粗** </V>", ["<V of=\"panel.a\"> escaped", "</V> live"]],
         ["HTML 的强调与换行不是标签", "<STRONG>甲</STRONG> <Br> <EM>乙</EM>", []],
     ];
     for (const [name, source, expected] of cases) it(name, () => expect(placesOf(source)).toEqual([...expected]));
@@ -103,7 +104,6 @@ describe("写入检查（输出 1、19）", () => {
         ["链接标题里转义的完整标签也算标签", "[链](u \"写法 \\<V of=\"panel.a\" />\")", ["tag-not-live@<V of="]],
         ["链接与引用定义里不成标签的 `<A` 是文字；写坏的内置标签照正文的判据", "[链](u \"评级 <A 级\") [x](https://a.com/<A/b)\n\n[r]: u \"评级 <A 级\"\n\n[链](u \"<V of=\"panel.a 没写完\")", ["tag-malformed@<V of="]],
         ["表格某行的单元格比表头多", "| a |\n|---|\n| <Ref id=\"e2\" /> | 多余 |", ["unsupported-markdown@| a |\n"]],
-        ["引用里的问题不记到后文同样的块上", "> <!-- 注\n> 释 -->\n\n正文\n\n<!-- 注\n释 -->", ["unsupported-markdown@<!-- 注", "unsupported-markdown@<!-- 注"]],
         ["近似的写法：单引号、不加引号、等号两边有空格", "<V of='panel.a' /> <V of=panel.a /> <V of = \"panel.a\" /> <Ref id='e2' />", ["tag-malformed@<V of=", "tag-malformed@<V of=", "tag-malformed@<V of ", "tag-malformed@<Ref i"]],
     ];
     for (const [name, source, expected] of cases) it(name, () => expect(codesOf(source)).toEqual([...expected]));
@@ -130,6 +130,11 @@ describe("写入检查（输出 1、19）", () => {
         const [problem] = checkEntryText(parseEntryText(source));
         expect(problem?.code).toBe("forbidden-syntax");
         expect(positionOf(source, problem!.offset)).toEqual({line: 2, column: 23});
+    });
+
+    it("引用里的问题记在它自己的行列上，不记到后文同样的块上", () => {
+        const source = "> <!-- 注\n> 释 -->\n\n正文\n\n<!-- 注\n释 -->";
+        expect(checkEntryText(parseEntryText(source)).map((problem) => positionOf(source, problem.offset))).toEqual([{line: 1, column: 3}, {line: 6, column: 1}]);
     });
 
     it("一块几万个 `<` 的解析是线性的（外部的世界观可能这样写）", () => {
