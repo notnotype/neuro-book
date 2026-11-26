@@ -4,25 +4,23 @@
  * 用同一个组件；已登录的人进不来，守卫按分派送走。社交登录的两枚图标归 B3，登录续接（`continue`）归 B7。
  *
  * 失败的显示照计划 3.1“状态行与表单错误”与审定 D9：提交之后才知道的错，对应字段标红并得到焦点，原因写在卡片里固定位置的
- * 状态行（`FormStatus`），不在字段下插字；按码分支，不按文案。
+ * 状态行（`FormStatus`），不在字段下插字；按码分支，不按文案。标红经 nb-ui `Field` 的 `error`：给的是状态行上的同一句话，
+ * 读屏读字段时连原因一起读，看得见的只有状态行这一处。
  *
- * 标红不经 nb-ui `Field` 的 `error`，而是给 `Input` 的 `invalid` 加上指向状态行的 `aria-describedby`：`Field` 出错时插进来的读屏元素
- * 让控件不再是 `space-y-1.5` 的最后一个子元素，控件下多出 6px，表单整体下移（与它自己的文档“出错时排版不变”不符，
- * 浏览器场景量出来的）。nb-ui 修好之后换回 `Field` 的 `error`。读屏照样拿到原因：字段指向状态行，状态行本身也会播报。
+ * 稿纸由外壳按路由的 `meta.layout` 套上（`App.vue`），这一页只给卡片里的内容。
  */
 
-import {LOGIN_IDENTIFIER, PASSWORD, SOCIAL_ERROR_PARAM} from "@notnotype/nb-site-identity-contract";
+import {LOGIN_IDENTIFIER, PASSWORD, SOCIAL_ERROR_PARAM} from "@notnotype/nb-site-identity-contract/constants";
 import {Button, Field, Input} from "@notnotype/nb-ui/components";
 import type {TextRef} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {computed, nextTick, onBeforeUnmount, shallowRef, useId, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, shallowRef, useTemplateRef, watch} from "vue";
 import {RouterLink, useRoute, useRouter} from "vue-router";
 
-import {isHandledCode, RETRY_AFTER_FALLBACK_SECONDS} from "../api/core";
-import type {Failure} from "../api/core";
-import {codeText, failureText, socialErrorText} from "../api/failure-text";
+import {RETRY_AFTER_FALLBACK_SECONDS} from "../http/core";
+import type {Failure} from "../http/core";
+import {codeText, failureText, socialErrorText} from "../http/failure-text";
 import FormStatus from "../components/FormStatus.vue";
-import PaperSheet from "../components/PaperSheet.vue";
 import {useSite} from "../context";
 import {enterAfterSignIn} from "../session/enter";
 import {siteRef, useSiteText} from "../text";
@@ -51,7 +49,6 @@ const submitting = shallowRef(false);
 const status = shallowRef<Status>();
 const invalid = shallowRef<ReadonlySet<LoginField>>(new Set());
 const form = useTemplateRef<HTMLFormElement>("form");
-const statusId = `login-status-${useId()}`;
 
 // `rate_limited` 的倒数：到 `retryAt` 之前提交按钮不可用，状态行每秒改一次秒数（计划 3.1）。时间取注入的时钟（`host/clock.ts`）。
 const retryAt = shallowRef<number>();
@@ -68,6 +65,14 @@ const statusText = computed(() => {
     if (current.reason === "rate_limited") return port.t(codeText("identity", "rate_limited", {seconds: waitSeconds.value}));
     return port.t(current.text);
 });
+
+// 倒数时看得见的字每秒一变，读屏只听一句不带秒数的（`FormStatus` 的 `spoken`）；字段的 `error` 也给这句，读字段时不读过时的秒数。
+const statusSpoken = computed(() => (status.value?.reason === "rate_limited" ? port.t(siteRef("login.rateLimitedSpoken")) : ""));
+
+/** 标红的字段给 `Field` 的 `error`：状态行上的那句话。 */
+function fieldError(field: LoginField): string {
+    return invalid.value.has(field) ? statusSpoken.value || statusText.value : "";
+}
 
 function stopCountdown(): void {
     stopTicking?.();
@@ -107,7 +112,7 @@ watch([identifier, password], () => {
 
 function showFailure(failure: Failure): void {
     // 统一处理已经接管的码（会话没了、同意门槛）：它会把人带走，页面不再显示。
-    if (failure.kind === "code" && isHandledCode(failure.code)) return;
+    if (failure.kind === "code" && failure.handled === true) return;
     status.value = {reason: failure.kind === "code" ? failure.code : failure.kind, text: failureText("identity", failure)};
     if (failure.kind !== "code") return;
     switch (failure.code) {
@@ -167,31 +172,16 @@ watch(
 </script>
 
 <template>
-    <PaperSheet :data-site-page="String(route.name)">
+    <div :data-site-page="String(route.name)">
         <h1>{{ t("login.title") }}</h1>
         <form ref="form" class="login-form" novalidate @submit.prevent="submit">
-            <Field :label="t('login.identifier')">
-                <Input
-                    v-model="identifier"
-                    name="identifier"
-                    autocomplete="username"
-                    :maxlength="LOGIN_IDENTIFIER.maxLength"
-                    :invalid="invalid.has('identifier')"
-                    :aria-describedby="invalid.has('identifier') ? statusId : undefined"
-                />
+            <Field :label="t('login.identifier')" :error="fieldError('identifier')">
+                <Input v-model="identifier" name="identifier" autocomplete="username" :maxlength="LOGIN_IDENTIFIER.maxLength" />
             </Field>
-            <Field :label="t('login.password')">
-                <Input
-                    v-model="password"
-                    name="password"
-                    type="password"
-                    autocomplete="current-password"
-                    :maxlength="PASSWORD.maxLength"
-                    :invalid="invalid.has('password')"
-                    :aria-describedby="invalid.has('password') ? statusId : undefined"
-                />
+            <Field :label="t('login.password')" :error="fieldError('password')">
+                <Input v-model="password" name="password" type="password" autocomplete="current-password" :maxlength="PASSWORD.maxLength" />
             </Field>
-            <FormStatus :id="statusId" class="login-status" :text="statusText" :reason="status?.reason">
+            <FormStatus class="login-status" :text="statusText" :spoken="statusSpoken" :reason="status?.reason">
                 <template v-if="status?.action === 'register'" #action>
                     <RouterLink to="/register" class="login-link">{{ t("login.goRegister") }}</RouterLink>
                 </template>
@@ -201,7 +191,7 @@ watch(
         <p class="login-alt">
             {{ t("login.noAccount") }}<RouterLink to="/register" class="login-link">{{ t("login.register") }}</RouterLink>
         </p>
-    </PaperSheet>
+    </div>
 </template>
 
 <style scoped>
@@ -222,15 +212,17 @@ watch(
     text-align: center;
 }
 
+/* 行内链接静止时也带下划线：与周围文字只差颜色时，分不清颜色的人认不出它（WCAG 1.4.1）。悬停时加粗下划线。 */
 .login-link {
     flex-shrink: 0;
     color: var(--accent-text);
-    text-decoration: none;
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
     text-underline-offset: 3px;
 }
 
 .login-link:hover {
-    text-decoration-line: underline;
+    text-decoration-thickness: 2px;
 }
 
 .login-link:focus-visible {

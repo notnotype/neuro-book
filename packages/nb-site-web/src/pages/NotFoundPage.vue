@@ -19,13 +19,16 @@ const t = useSiteText();
 </template>
 
 <style scoped>
+/* 文字用 `--accent-text`（对正文底色够 4.5:1），`--accent-main` 是填充色，作字色不够。静止时也带下划线，不只靠颜色认出是链接。 */
 .site-link {
-    color: var(--accent-main);
+    color: var(--accent-text);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
     text-underline-offset: 3px;
 }
 
 .site-link:hover {
-    text-decoration-line: underline;
+    text-decoration-thickness: 2px;
 }
 
 .site-link:focus-visible {

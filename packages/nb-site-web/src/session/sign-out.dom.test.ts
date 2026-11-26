@@ -3,12 +3,12 @@
  * 按路径回答。断言当前账号、注册草稿与回给页面的结果。
  */
 
-import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
-import type {ErrorBody, MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
+import type {ErrorBody, MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {createApiCore} from "../api/core";
-import {createIdentityApi} from "../api/identity";
+import {createApiCore} from "../http/core";
+import {createIdentityApi} from "../http/identity";
 import {createSiteStorage} from "../host/storage";
 import {createCurrentAccount} from "./account";
 import {signOut} from "./sign-out";
@@ -49,9 +49,9 @@ async function signedIn(logout: () => Response) {
         },
         now: () => 0,
         handlers: {
-            onUnauthenticated: () => handled.push("unauthenticated"),
-            onConsentRequired: () => handled.push("consent_required"),
-            onForbidden: () => handled.push("forbidden"),
+            onUnauthenticated: () => handled.push("unauthenticated") > 0,
+            onConsentRequired: () => handled.push("consent_required") > 0,
+            onForbidden: () => handled.push("forbidden") > 0,
         },
     });
     const identity = createIdentityApi(core);

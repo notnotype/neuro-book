@@ -2,10 +2,10 @@
  * 登出之后的清理（t10 计划 3.9）。同意页（B3）与账号页（B4）的“退出登录”用它。
  */
 
-import type {EmptyResponse} from "@notnotype/nb-site-identity-contract";
+import type {EmptyResponse} from "@notnotype/nb-site-identity-contract/constants";
 
-import type {Result} from "../api/core";
-import type {IdentityApi} from "../api/identity";
+import type {Result} from "../http/core";
+import type {IdentityApi} from "../http/identity";
 import type {SiteStorage} from "../host/storage";
 import type {CurrentAccount} from "./account";
 

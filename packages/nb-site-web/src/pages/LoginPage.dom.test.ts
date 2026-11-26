@@ -4,8 +4,8 @@
  * 量位置的验收（状态行出现与消失时字段不动、格线与卡片对齐）要真实布局，在 `e2e/login.e2e.ts`。
  */
 
-import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
-import type {ErrorBody, LoginRequest, LoginResponse, MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
+import type {ErrorBody, LoginRequest, LoginResponse, MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
@@ -149,7 +149,19 @@ async function fillAndSubmit(started: Started, identifier = "alice", password = 
     return form;
 }
 
-const statusText = (form: Form): string => form.status.textContent?.trim() ?? "";
+/** 状态行上看得见的字：去掉只给读屏的那句。 */
+function statusText(form: Form): string {
+    const copy = form.status.cloneNode(true) as HTMLElement;
+    for (const spoken of copy.querySelectorAll("[data-site-form-status-spoken]")) spoken.remove();
+    return copy.textContent?.trim() ?? "";
+}
+
+/** 状态行（live region）里读屏读得到的字：去掉 `aria-hidden` 的部分。 */
+function spokenText(form: Form): string {
+    const copy = form.status.cloneNode(true) as HTMLElement;
+    for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+    return copy.textContent?.trim() ?? "";
+}
 const invalidFields = (form: Form): string[] => [form.identifier, form.password].filter((input) => input.getAttribute("aria-invalid") === "true").map((input) => input.name);
 
 async function onLoginPage(path = "/login", login?: Server["login"]): Promise<Started> {
@@ -183,12 +195,14 @@ describe("登录页的表单", () => {
         await vi.waitFor(() => expect(statusText(form)).toBe(zhCN.errors.identity.invalid_credentials));
         expect(started.logins).toEqual([{identifier: "alice", password: "wrong"}]);
         expect(invalidFields(form)).toEqual(["identifier", "password"]);
-        // 读屏从字段拿到原因：字段指向状态行。
-        expect([form.identifier, form.password].map((input) => document.getElementById(input.getAttribute("aria-describedby") ?? ""))).toEqual([form.status, form.status]);
+        // 读屏从字段拿到原因：字段的描述就是状态行上的那句话；状态行本身也播报同一句。
+        const descriptions = [form.identifier, form.password].map((input) => document.getElementById(input.getAttribute("aria-describedby") ?? ""));
+        expect(descriptions.map((element) => element?.textContent)).toEqual([zhCN.errors.identity.invalid_credentials, zhCN.errors.identity.invalid_credentials]);
+        expect(spokenText(form)).toBe(zhCN.errors.identity.invalid_credentials);
         await vi.waitFor(() => expect(document.activeElement).toBe(form.identifier));
-        // 原因只写在状态行里，字段旁没有多出任何东西。
+        // 看得见的原因只写在状态行里：状态行以外多出来的只有两个字段给读屏的描述（`Field` 的 `error`，不占位置，e2e 量排版不变）。
         const added = [...form.form.querySelectorAll("*")].filter((element) => !before.includes(element));
-        expect(added.filter((element) => element.closest("[data-site-form-status]") === null)).toEqual([]);
+        expect(added.filter((element) => element.closest("[data-site-form-status]") === null)).toEqual(descriptions);
         // 状态行就是原来那一行，夹在密码与提交按钮之间。
         expect(form.status).toBe(before.find((element) => element.matches("[data-site-form-status]")));
         expect(form.status.previousElementSibling?.querySelector('input[name="password"]')).not.toBeNull();
@@ -216,19 +230,23 @@ describe("登录页的表单", () => {
         await vi.waitFor(() => expect(document.activeElement).toBe(form.password));
     });
 
-    it("rate_limited：状态行按 Retry-After 每秒倒数，倒数完之前提交按钮不可用，倒数完状态行清空、按钮可用", async () => {
+    it("rate_limited：状态行按 Retry-After 每秒倒数、读屏只听到一句不带秒数的，倒数完之前提交按钮不可用，倒数完状态行清空、按钮可用", async () => {
         const started = await onLoginPage("/login", () => failure({error: {code: "rate_limited"}}, 429, {"Retry-After": "3"}));
         const form = await fillAndSubmit(started);
         const waiting = (seconds: number): string => zhCN.errors.identity.rate_limited.replace("{{seconds}}", String(seconds));
 
         await vi.waitFor(() => expect(statusText(form)).toBe(waiting(3)));
         expect(form.submit.disabled).toBe(true);
+        // live region 里每秒变的字会被每秒播报一次：读屏能读到的只有固定的那句。
+        expect(spokenText(form)).toBe(zhCN.login.rateLimitedSpoken);
         started.clock.advance(1_000);
         await vi.waitFor(() => expect(statusText(form)).toBe(waiting(2)));
         expect(form.submit.disabled).toBe(true);
+        expect(spokenText(form)).toBe(zhCN.login.rateLimitedSpoken);
         started.clock.advance(1_000);
         await vi.waitFor(() => expect(statusText(form)).toBe(waiting(1)));
         expect(form.submit.disabled).toBe(true);
+        expect(spokenText(form)).toBe(zhCN.login.rateLimitedSpoken);
         started.clock.advance(1_000);
         await vi.waitFor(() => expect(statusText(form)).toBe(""));
         expect(form.submit.disabled).toBe(false);
@@ -289,10 +307,10 @@ describe("social_error", () => {
         expect(form.status.querySelector("a")?.getAttribute("href")).toBe("/register");
     });
 
-    it("不认识的码显示通用文案加码；不像码的内容不照抄，显示第三方登录没成功", async () => {
-        const unknown = start("/login?social_error=mystery_code");
+    it("合同里没有的码一律显示第三方登录没成功：像码的不回显，一段话也不照抄", async () => {
+        const unknown = start("/login?social_error=pay_now_to_unlock");
         await settledAt(unknown, "/login", "login");
-        expect(statusText(formOf(unknown))).toBe(zhCN.errors.web.unknown.replace("{{code}}", "mystery_code"));
+        expect(statusText(formOf(unknown))).toBe(zhCN.errors.identity.social_failed);
 
         const prose = start(`/login?social_error=${encodeURIComponent("请改去 evil.example 登录")}`);
         await settledAt(prose, "/login", "login");

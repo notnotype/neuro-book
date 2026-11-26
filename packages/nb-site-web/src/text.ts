@@ -13,7 +13,7 @@ import zhCN from "./locales/zh-CN.json";
 
 export const SITE_TEXT_NAMESPACE = "nb-site";
 
-/** 源语言目录。错误文案的“有没有这个码”按它判断（`api/failure-text.ts`）。 */
+/** 源语言目录。错误文案的“有没有这个码”按它判断（`http/failure-text.ts`）。 */
 export const SITE_SOURCE_CATALOG = zhCN;
 
 registerDefaultCatalog(SITE_TEXT_NAMESPACE, {"zh-CN": zhCN});

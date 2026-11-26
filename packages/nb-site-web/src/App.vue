@@ -4,6 +4,9 @@
  * 取不到身份（`whoami` 回 `unavailable`、连不上）时不画页面，整页显示原因与重试（计划 3.1“守卫”；ui-development-spec 4.1）：
  * 这时不知道这个人是谁，画哪一页都可能是错的。
  *
+ * 版式按路由的 `meta.layout` 套在页面外面：稿纸页（`layout: "paper"`）之间切换时稿纸是同一个元素，只换卡片里的页面，格子与
+ * 产品名不重画（计划 3.6）。别的版式还没做，页面自己画。
+ *
  * 根元素的 `min-h-svh` 也是 `tests/build.test.ts` 的探针（站点源码里的原子类被 Tailwind 扫到）；改这个根时连同那里一起改。
  */
 
@@ -12,6 +15,7 @@ import {provideDefaultText} from "@notnotype/nb-ui/text-port";
 import {computed, shallowRef, watchEffect} from "vue";
 import {RouterView, useRoute, useRouter} from "vue-router";
 
+import PaperSheet from "./components/PaperSheet.vue";
 import {useSite} from "./context";
 import {locale} from "./locale";
 import {useSiteText} from "./text";
@@ -67,6 +71,9 @@ async function retry(): Promise<void> {
             <p class="text-md">{{ t(navigationFailed ? "shell.navigationFailed" : "shell.unavailable") }}</p>
             <Button variant="secondary" :loading="retrying" @click="retry">{{ t("shell.retry") }}</Button>
         </main>
+        <PaperSheet v-else-if="route.meta.layout === 'paper'">
+            <RouterView />
+        </PaperSheet>
         <RouterView v-else />
     </div>
 </template>

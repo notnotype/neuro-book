@@ -5,8 +5,8 @@
  * 各片用到哪个接口就在这里加哪个：现在是取身份的两个（当前账号用）、`meta`、登录与登出。
  */
 
-import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
-import type {EmptyResponse, LoginRequest, LoginResponse, MeResponse, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
+import type {EmptyResponse, LoginRequest, LoginResponse, MeResponse, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 
 import type {AccountSource} from "../session/account";
 import type {ApiCore, Result} from "./core";

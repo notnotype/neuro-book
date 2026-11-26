@@ -23,8 +23,15 @@ const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const DASHBOARD_GZIP_LIMIT = 200 * 1024;
 /** 看板页在清单里的键（相对 Vite 的根 `src/`）。 */
 const DASHBOARD_SOURCE = "pages/admin/DashboardPage.vue";
-/** 认 ECharts 与它的渲染库 ZRender 的代码。现在还没装 ECharts，这条只是空过；B5 装上后先确认看板块真能被它认出来，再加一条“看板块里有”的正向断言。 */
-const ECHARTS_CODE = /echarts|zrender/iu;
+/**
+ * 认一个包：块的 sourcemap 里 `sources` 有这个包目录下的文件。按来源认，不在压缩后的代码里找名字（名字会被改掉，也会
+ * 出现在别的包的字符串里）。Bun 的工作区把包装在 `node_modules/.bun/<包@版本>/node_modules/<包>/` 下，所以中间可以隔几层。
+ */
+const fromPackage = (...names: readonly string[]): RegExp => new RegExp(`(?:^|/)node_modules/(?:.+/node_modules/)?(?:${names.join("|")})/`, "u");
+/** ECharts 与它的渲染库 ZRender。现在还没装 ECharts，这条只是空过；B5 装上后加一条“看板块里有”的正向断言。 */
+const ECHARTS_SOURCE = fromPackage("echarts", "zrender");
+/** 必然在入口块里的包：先用它确认按来源认得出，免得 ECharts 那条因为读不到来源而空过。 */
+const VUE_ROUTER_SOURCE = fromPackage("vue-router");
 
 /** Vite 清单（`.vite/manifest.json`）里一个块的样子：`imports` 与 `dynamicImports` 是别的块在清单里的键。 */
 interface ManifestChunk {
@@ -44,7 +51,8 @@ beforeAll(async () => {
     outDir = join(root, "dist");
     const vite = join(dirname(createRequire(join(PACKAGE_ROOT, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
     // `--manifest`：按源文件认出块（看板块是 `DASHBOARD_SOURCE` 的块），不靠文件名里的哈希前缀。
-    const child = Bun.spawn([process.execPath, vite, "build", "--outDir", outDir, "--emptyOutDir", "--manifest", "--logLevel", "warn"], {
+    // `--sourcemap`：按 sourcemap 的 `sources` 认出块里有哪些包。只多出 `.map` 文件与每块末尾一行注释，代码本身与 `bun run build` 相同。
+    const child = Bun.spawn([process.execPath, vite, "build", "--outDir", outDir, "--emptyOutDir", "--manifest", "--sourcemap", "--logLevel", "warn"], {
         cwd: PACKAGE_ROOT,
         // `bun test` 把 `NODE_ENV` 设成 `test`，子进程继承下来时 Vite 按它打出带开发版 Vue 的产物（入口块大三成多），
         // 量到的体积与线上不符。这里要的是与 `bun run build` 相同的产物。
@@ -82,10 +90,16 @@ function closure(chunks: Readonly<Record<string, ManifestChunk>>, from: readonly
     return seen;
 }
 
+/** gzip 之后的大小。去掉 `--sourcemap` 加在末尾的那行注释，与线上的产物一样大。 */
 async function gzipBytes(files: Iterable<string>): Promise<number> {
     let total = 0;
-    for (const file of files) total += gzipSync(await readFile(join(outDir, file))).length;
+    for (const file of files) total += gzipSync((await readFile(join(outDir, file), "utf8")).replace(/\n?\/\/# sourceMappingURL=\S+\s*$/u, "")).length;
     return total;
+}
+
+/** 一个块的 sourcemap 里的来源路径。 */
+async function sourcesOf(file: string): Promise<readonly string[]> {
+    return (JSON.parse(await readFile(join(outDir, `${file}.map`), "utf8")) as {readonly sources: readonly string[]}).sources;
 }
 
 const kb = (bytes: number): string => `${(bytes / 1024).toFixed(2)} KB`;
@@ -139,15 +153,19 @@ describe("vite build", () => {
         expect(dashboardOnly).toContain(DASHBOARD_SOURCE);
         console.info(`入口块：${[...entryClosure].map((key) => chunks[key]!.file).join("、")}`);
 
+        const entryFiles = [...entryClosure].map((key) => chunks[key]!.file);
+        const entrySources = (await Promise.all(entryFiles.map(sourcesOf))).flat();
+        expect(entrySources.some((source) => VUE_ROUTER_SOURCE.test(source))).toBe(true);
+
         const dashboardFiles = new Set(dashboardOnly.map((key) => chunks[key]!.file));
         const jsFiles = (await readdir(join(outDir, "assets"))).filter((name) => name.endsWith(".js")).map((name) => `assets/${name}`);
         const withEcharts: string[] = [];
         for (const file of jsFiles) {
-            if (!dashboardFiles.has(file) && ECHARTS_CODE.test(await readFile(join(outDir, file), "utf8"))) withEcharts.push(file);
+            if (!dashboardFiles.has(file) && (await sourcesOf(file)).some((source) => ECHARTS_SOURCE.test(source))) withEcharts.push(file);
         }
         expect(withEcharts).toEqual([]);
 
-        const entryGzip = await gzipBytes([...entryClosure].map((key) => chunks[key]!.file));
+        const entryGzip = await gzipBytes(entryFiles);
         const dashboardGzip = await gzipBytes(dashboardFiles);
         // 体积记在测试输出里（计划第 8 节风险 8）：入口块是访客打开任何一页都要下载的脚本，含它静态导入的块。
         console.info(`入口块（含静态导入）gzip ${kb(entryGzip)}；看板自己的块 gzip ${kb(dashboardGzip)}（上限 ${kb(DASHBOARD_GZIP_LIMIT)}）`);

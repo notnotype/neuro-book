@@ -3,9 +3,11 @@
  * 稿纸（t10 计划 3.6；t09 第 1、5、7 条）：登录、注册、同意条款、授权确认四页共用的版面。整页是一张稿纸，产品名与一行说明
  * 一格一字写在格子里，卡片的内容由默认插槽给。画法照 t09 的静态稿 `SitePaperFrame`，换掉了它的三处问题（计划 3.6“要换掉的三处”）。
  *
- * 格子画在 `.paper-sheet` 的伪元素上，伪元素向四周伸出 2080px（格子横向周期 40、纵向周期 52 的公倍数），所以格线的原点就是
+ * 格子画在 `.paper-sheet` 的伪元素上，伪元素向四周伸出格子横向、纵向周期的公倍数，所以格线的原点就是
  * `.paper-sheet` 的左上角：标题格、卡片都按整格的偏移排在它里面，页面怎么居中、怎么滚动，卡片的边都落在格线上，不用脚本算位置。
  * 伸出去的部分由根元素的 `overflow: clip` 裁掉，不撑出滚动条。
+ *
+ * 由外壳按路由的 `meta.layout` 套在页面外面（`App.vue`），几张稿纸页之间切换时稿纸是同一个元素，只换卡片里的页面。
  */
 
 import {RouterLink} from "vue-router";
@@ -19,8 +21,10 @@ const t = useSiteText();
     <div class="paper" data-site-paper>
         <div class="paper-sheet" data-site-paper-sheet>
             <div class="paper-body">
-                <section class="paper-words" :aria-label="t('paper.label', {title: t('paper.title'), about: t('paper.about')})">
-                    <div class="paper-cells paper-cells--title" aria-hidden="true">
+                <!-- 逐格的字对读屏是一个个单字：读屏读这一句，不另造一个地标。 -->
+                <div class="paper-words">
+                    <p class="sr-only">{{ t("paper.label", {title: t("paper.title"), about: t("paper.about")}) }}</p>
+                    <div class="paper-cells paper-cells--title" aria-hidden="true" data-site-paper-title>
                         <span v-for="(letter, index) in [...t('paper.title')]" :key="index" class="paper-cell" data-site-paper-cell>{{ letter }}</span>
                     </div>
                     <div class="paper-cells paper-cells--about" aria-hidden="true">
@@ -28,7 +32,7 @@ const t = useSiteText();
                         <!-- 印章里的字暂写 NB（t09 第 6 条）。 -->
                         <span class="paper-cell" data-site-paper-cell><span class="paper-seal" data-site-paper-seal>NB</span></span>
                     </div>
-                </section>
+                </div>
                 <main class="paper-card" data-site-paper-card>
                     <slot />
                 </main>
@@ -50,10 +54,16 @@ const t = useSiteText();
 .paper {
     --paper-cell: 40px;
     --paper-row: 52px;
-    /* 伪元素伸出去的距离：要同时是 40 与 52 的整数倍，遮罩的周期才从 `.paper-sheet` 的左上角起算。 */
+    /* 伪元素伸出去的距离：要同时是格宽与行高的整数倍，遮罩的周期才从 `.paper-sheet` 的左上角起算。 */
     --paper-bleed: 2080px;
+    /* 一格的遮罩，尺寸与格子相同：按格子的实际尺寸画，不靠缩放，格线才是整像素的 1px。 */
+    --paper-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='52'%3E%3Cpath d='M0 .5H40M0 40.5H40M.5 0V41' fill='none' stroke='%23000'/%3E%3C/svg%3E");
+    --paper-title-size: 30px;
+    --paper-about-size: 24px;
+    --paper-seal-size: 32px;
     /* 伸出去的格子在这里被裁掉；`isolation` 让伪元素的 `z-index: -1` 画在纸的底色之上、内容之下。
        用 `clip` 不用 `hidden`：`hidden` 会让根元素成为滚动容器，卡片比视口高时裁掉下面的部分（计划 3.6 的第 2 处）。 */
+    container: paper / inline-size;
     isolation: isolate;
     overflow: clip;
     display: flex;
@@ -84,8 +94,8 @@ const t = useSiteText();
     z-index: -1;
     inset: calc(var(--paper-bleed) * -1);
     background: var(--site-paper-line);
-    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='52'%3E%3Cpath d='M0 .5H40M0 40.5H40M.5 0V41' fill='none' stroke='%23000'/%3E%3C/svg%3E") 0 0 / var(--paper-cell) var(--paper-row);
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='52'%3E%3Cpath d='M0 .5H40M0 40.5H40M.5 0V41' fill='none' stroke='%23000'/%3E%3C/svg%3E") 0 0 / var(--paper-cell) var(--paper-row);
+    -webkit-mask: var(--paper-mask) 0 0 / var(--paper-cell) var(--paper-row);
+    mask: var(--paper-mask) 0 0 / var(--paper-cell) var(--paper-row);
     pointer-events: none;
 }
 
@@ -119,12 +129,12 @@ const t = useSiteText();
     height: var(--paper-cell);
     margin-bottom: calc(var(--paper-row) - var(--paper-cell));
     font-family: var(--font-display);
-    font-size: 24px;
+    font-size: var(--paper-about-size);
     line-height: 1;
 }
 
 .paper-cells--title .paper-cell {
-    font-size: 30px;
+    font-size: var(--paper-title-size);
     font-weight: 600;
 }
 
@@ -132,8 +142,8 @@ const t = useSiteText();
 .paper-seal {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
+    width: var(--paper-seal-size);
+    height: var(--paper-seal-size);
     border-radius: 3px;
     background: var(--site-paper-seal);
     color: #fff;
@@ -154,7 +164,8 @@ const t = useSiteText();
     background: var(--bg-panel);
 }
 
-.paper-card :slotted(h1) {
+/* 页面在卡片里画自己的标题；页面是 `RouterView` 渲染的子组件，不是这里的插槽内容，所以用 `:deep`。 */
+.paper-card :deep(h1) {
     margin: 0 0 22px;
     font-family: var(--font-display);
     font-size: 22px;
@@ -214,7 +225,6 @@ const t = useSiteText();
 
 /*
  * 手机：9 格宽（360px），说明折成两行，卡片紧接在下一行、与字同宽。390 宽时左右各留 15px。
- * 比 372px 更窄时宽度跟着视口缩，格线与卡片右边、产品名的折行不再对齐，这是已知限制（计划 3.6）。
  * 断点比计划写的 480 宽：中等宽度的 13 格要 520px，480 到 560 之间放不下。
  */
 @media (max-width: 560px) {
@@ -236,6 +246,30 @@ const t = useSiteText();
     .paper-foot {
         align-self: center;
         margin-bottom: 20px;
+    }
+}
+
+/*
+ * 360 宽的手机（减去两侧 6px 放不下 9 个 40px 的格）：格子缩成 36px、行高 48px，仍是 9 格，产品名一行写下、卡片的边仍落在
+ * 格线上。伸出去的距离 2016px 是 36 与 48 的公倍数。宽度比 336px 更窄时（例如 320 宽）稿纸跟着缩，格线与卡片右边、
+ * 产品名的折行不再对齐，这是已知限制（`PaperSheet.md`）。
+ *
+ * 按根元素的宽度判断（容器查询），不按视口：桌面浏览器里视口宽度含着预留的滚动条槽位，按视口判时 372 到 386 宽之间
+ * 40px 的格子放不下却不缩。变量写在 `.paper-sheet` 上，容器自己不受容器查询的样式。
+ */
+@container paper (max-width: 371px) {
+    .paper-sheet {
+        --paper-cell: 36px;
+        --paper-row: 48px;
+        --paper-bleed: 2016px;
+        --paper-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='48'%3E%3Cpath d='M0 .5H36M0 36.5H36M.5 0V37' fill='none' stroke='%23000'/%3E%3C/svg%3E");
+        --paper-title-size: 27px;
+        --paper-about-size: 22px;
+        --paper-seal-size: 29px;
+    }
+
+    .paper-card {
+        padding: 20px 20px 16px;
     }
 }
 </style>

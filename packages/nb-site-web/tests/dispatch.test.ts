@@ -7,7 +7,7 @@ import {describe, expect, it} from "bun:test";
 
 import {dispatch, safeNext} from "../src/session/dispatch";
 import type {KnownAccount} from "../src/session/dispatch";
-import {afterConsentRequired, afterUnauthenticated, guard} from "../src/session/guard";
+import {afterConsentRequired, afterUnauthenticated, guard, takesConsentGate} from "../src/session/guard";
 import type {Access, GuardTarget} from "../src/session/guard";
 
 const ORIGIN = "https://neurobook.example";
@@ -48,6 +48,14 @@ describe("next 只收站内路径", () => {
         // `/\t/evil.example` 第二个字符是制表符，过了前缀检查；URL 解析会删掉它，变成 `//evil.example`。
         expect(safeNext("/\t/evil.example/", ORIGIN)).toBeUndefined();
         expect(safeNext("/\n/evil.example/", ORIGIN)).toBeUndefined();
+    });
+
+    it("经 `.`、`..` 与它们的百分号写法规范化成 `//host` 的也拒绝；规范化后仍在站内的照用", () => {
+        for (const next of ["/.//evil.example", "/a/..//evil.example", "/%2e%2e//x", "/..//evil.example", "/a/%2e%2e//evil.example"]) {
+            expect({next, safe: safeNext(next, ORIGIN)}).toEqual({next, safe: undefined});
+        }
+        expect(safeNext("/admin/../account", ORIGIN)).toBe("/account");
+        expect(safeNext("/./admin/users", ORIGIN)).toBe("/admin/users");
     });
 });
 
@@ -126,8 +134,16 @@ describe("统一处理之后的去处", () => {
         expect(afterUnauthenticated(target("/terms", "public"))).toBeUndefined();
     });
 
-    it("撞上同意门槛：带着当前地址去同意页，已在同意页时留在原地", () => {
+    it("撞上同意门槛：只在有登录态的页上统一处理；要登录的页带着当前地址去同意页，已在同意页留在原地", () => {
+        expect(["public", "guest", "consent", "user", "admin"].map((access) => [access, takesConsentGate({access: access as Access})])).toEqual([
+            ["public", false],
+            ["guest", false],
+            ["consent", true],
+            ["user", true],
+            ["admin", true],
+        ]);
         expect(afterConsentRequired(target("/account", "user"))).toBe("/consent?next=%2Faccount");
+        expect(afterConsentRequired(target("/admin/users", "admin"))).toBe("/consent?next=%2Fadmin%2Fusers");
         expect(afterConsentRequired(target("/consent", "consent"))).toBeUndefined();
     });
 });

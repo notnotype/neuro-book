@@ -20,7 +20,10 @@ declare module "vue-router" {
     interface RouteMeta {
         /** 谁能进（`session/guard.ts` 的 `Access`）。没写的按 `public`。 */
         access?: Access;
-        /** 页面套哪种版式：四张稿纸页、账号页、管理面板、普通版式（公开页与“没有这一页”）。 */
+        /**
+         * 页面套哪种版式：四张稿纸页、账号页、管理面板、普通版式（公开页与“没有这一页”）。稿纸由外壳套上（`App.vue`），
+         * 页面只画卡片里的内容；别的版式还由页面自己画。
+         */
         layout?: "paper" | "account" | "admin" | "plain";
         /** 标签页标题用的键。 */
         titleKey?: SiteTextKey;

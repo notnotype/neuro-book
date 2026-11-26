@@ -3,8 +3,8 @@
  * “没有这一页”。用 happy-dom 的窗口与 vue-router 的内存历史；账号服务的回答由注入的 `fetch` 按路径给出，测试中途可以改。
  */
 
-import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
-import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
+import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
@@ -260,7 +260,7 @@ describe("按码统一处理之后的跳转", () => {
 
         Object.assign(started.server, {...signedInServer("user"), other: () => Response.json({error: {code: "forbidden"}}, {status: 403})});
         const result = await started.site.api.request({method: "GET", path: ADMIN_USERS});
-        expect(result).toEqual({ok: false, failure: {kind: "code", status: 403, code: "forbidden"}});
+        expect(result).toEqual({ok: false, failure: {kind: "code", status: 403, code: "forbidden", handled: true}});
         await settledAt(started, "/account", "account");
         expect(started.requested).toEqual([WHOAMI, ME, ADMIN_USERS, WHOAMI, ME]);
     });
@@ -282,5 +282,18 @@ describe("按码统一处理之后的跳转", () => {
         Object.assign(started.server, {...signedInServer("user", true), other: () => Response.json({error: {code: "consent_required"}}, {status: 403})});
         await started.site.api.request({method: "GET", path: `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meSessions}`});
         await settledAt(started, "/consent?next=%2Faccount", "consent");
+    });
+
+    it("访客页上的请求回 consent_required（注册时没勾同意）：不跳转、不重取身份，失败交给页面", async () => {
+        const started = start("/register", anonymousServer());
+        await settledAt(started, "/register", "register");
+
+        started.server.other = () => Response.json({error: {code: "consent_required"}}, {status: 403});
+        // 注册接口忘了在 `handles` 里声明它：统一处理在访客页上照样不接管。
+        const result = await started.site.api.request({method: "POST", path: `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.register}`, body: {}});
+        expect(result).toEqual({ok: false, failure: {kind: "code", status: 403, code: "consent_required"}});
+        // 接管时第一步是同步发出的重取身份（`whoami`）：请求清单里没有它，就是没接管。
+        expect(started.requested).toEqual([WHOAMI, `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.register}`]);
+        expect(started.site.router.currentRoute.value.fullPath).toBe("/register");
     });
 });

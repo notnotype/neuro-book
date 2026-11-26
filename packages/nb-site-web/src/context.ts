@@ -5,8 +5,8 @@
 import {inject} from "vue";
 import type {InjectionKey} from "vue";
 
-import type {ApiCore} from "./api/core";
-import type {IdentityApi} from "./api/identity";
+import type {ApiCore} from "./http/core";
+import type {IdentityApi} from "./http/identity";
 import type {SiteClock} from "./host/clock";
 import type {SiteStorage} from "./host/storage";
 import type {SiteTheme} from "./host/theme";

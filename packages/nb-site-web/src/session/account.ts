@@ -9,9 +9,9 @@
 import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 
-import type {Failure, Result} from "../api/core";
+import type {Failure, Result} from "../http/core";
 import type {KnownAccount} from "./dispatch";
 
 /**

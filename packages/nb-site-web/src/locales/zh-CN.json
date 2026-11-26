@@ -25,7 +25,8 @@
         "register": "用注册码注册",
         "goRegister": "去注册",
         "notApplied": "登录没有生效，请再试一次",
-        "notEntered": "已经登录，但没能打开下一页，请刷新页面"
+        "notEntered": "已经登录，但没能打开下一页，请刷新页面",
+        "rateLimitedSpoken": "操作太频繁，请稍后再试"
     },
     "register": {
         "title": "注册"

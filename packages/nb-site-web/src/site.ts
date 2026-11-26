@@ -9,10 +9,10 @@ import {createApp} from "vue";
 import type {App as VueApp} from "vue";
 import type {Router, RouterHistory} from "vue-router";
 
-import {createApiCore} from "./api/core";
-import type {ApiCore} from "./api/core";
-import {createIdentityApi} from "./api/identity";
-import type {IdentityApi} from "./api/identity";
+import {createApiCore} from "./http/core";
+import type {ApiCore} from "./http/core";
+import {createIdentityApi} from "./http/identity";
+import type {IdentityApi} from "./http/identity";
 import App from "./App.vue";
 import {SITE_CONTEXT_KEY} from "./context";
 import type {SiteClock} from "./host/clock";
@@ -24,7 +24,7 @@ import {createSiteRouter, guardTarget} from "./router";
 import {createCurrentAccount, knownAccount} from "./session/account";
 import type {CurrentAccount} from "./session/account";
 import {dispatch} from "./session/dispatch";
-import {afterConsentRequired, afterUnauthenticated} from "./session/guard";
+import {afterConsentRequired, afterUnauthenticated, takesConsentGate} from "./session/guard";
 
 export interface StartSiteOptions {
     /** 挂载点。 */
@@ -70,11 +70,15 @@ export function startSite(options: StartSiteOptions): Site {
                 account.clear();
                 const to = afterUnauthenticated(current());
                 if (to !== undefined) navigateInBackground(router.replace(to), "会话失效");
+                return true;
             },
             onConsentRequired() {
+                const target = current();
+                if (!takesConsentGate(target)) return false;
                 // 先重取 `me`：缓存里“是否还缺同意”还是假的，不重取的话同意页的守卫会把人分派回来。
-                const to = afterConsentRequired(current());
+                const to = afterConsentRequired(target);
                 navigateInBackground(account.refresh().then(() => (to === undefined ? undefined : router.replace(to))), "同意门槛");
+                return true;
             },
             onForbidden() {
                 // 角色可能刚被改（`site.admin` 输出 3）：丢掉缓存的身份，重取再分派。取不到时外壳会显示连不上。
@@ -82,6 +86,7 @@ export function startSite(options: StartSiteOptions): Site {
                     const known = knownAccount(state);
                     return known === undefined ? undefined : router.replace(dispatch(known, undefined));
                 }), "管理接口拒绝");
+                return true;
             },
         },
     });

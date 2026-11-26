@@ -60,7 +60,15 @@ export function afterUnauthenticated(current: Pick<GuardTarget, "fullPath" | "ac
     return current.access === "public" || current.access === "guest" ? undefined : withNext("/login", current.fullPath);
 }
 
-/** 某个请求撞上同意门槛之后去哪：带着当前地址去同意页；已经在同意页上时回 `undefined`。 */
+/**
+ * 同意门槛的统一处理在这一页上管不管：只在有登录态的页上（同意页与要登录的页）。访客页与公开页上没有登录态，撞不上门槛，
+ * `consent_required` 只能是注册的“没勾同意”（`site.accounts` 输出 3），当普通失败交给页面。与 `afterUnauthenticated` 对访客页的处理对称。
+ */
+export function takesConsentGate(current: Pick<GuardTarget, "access">): boolean {
+    return current.access !== "public" && current.access !== "guest";
+}
+
+/** 撞上同意门槛之后去哪（`takesConsentGate` 为真时才问）：带着当前地址去同意页；已经在同意页上时回 `undefined`。 */
 export function afterConsentRequired(current: Pick<GuardTarget, "fullPath" | "access">): string | undefined {
     return current.access === "consent" ? undefined : withNext("/consent", current.fullPath);
 }

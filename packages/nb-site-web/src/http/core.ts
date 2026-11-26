@@ -6,9 +6,20 @@
  * 失败的回答只用一个手写的守卫认出 `{"error":{"code":…}}`（`site.accounts` 输出 22），认不出就是 `malformed`。
  */
 
-/** 一次调用的失败。`code` 是服务端给的稳定码；`network` 是 `fetch` 失败（没拿到回答）；`malformed` 是回答不是约定的形状。 */
+/**
+ * 一次调用的失败。`code` 是服务端给的稳定码；`network` 是 `fetch` 失败（没拿到回答）；`malformed` 是回答不是约定的形状。
+ * `handled` 是统一处理接管了这次失败（跳转、清空当前账号）：页面不再显示它。没有这个标记的失败，哪怕码是统一处理认的那几个，
+ * 也由页面自己显示（接口在 `handles` 里声明了它，或统一处理在当前页上不管它）。
+ */
 export type Failure =
-    | {readonly kind: "code"; readonly status: number; readonly code: string; readonly fields?: readonly string[]; readonly retryAfterSeconds?: number}
+    | {
+        readonly kind: "code";
+        readonly status: number;
+        readonly code: string;
+        readonly fields?: readonly string[];
+        readonly retryAfterSeconds?: number;
+        readonly handled?: true;
+    }
     | {readonly kind: "network"}
     | {readonly kind: "malformed"; readonly status: number};
 
@@ -19,15 +30,15 @@ export const RETRY_AFTER_FALLBACK_SECONDS = 30;
 
 /**
  * 全站统一处理的三个码，由应用根注入（frontend.md“上报做成回调”）。回调只管跳转与当前账号，这次调用照常返回失败；
- * 页面拿到这几个码时不再显示它们。
+ * 回调回 `true` 表示接管了（失败带上 `handled`，页面不再显示），回 `false` 表示当前页上不管它，交给页面当普通失败。
  */
 export interface FailureHandlers {
     /** 会话没了（`site.accounts` 输出 6）：清空当前账号，带着当前地址去登录。 */
-    readonly onUnauthenticated: () => void;
+    readonly onUnauthenticated: () => boolean;
     /** 同意门槛（`site.accounts` 输出 10）：去同意页，补交后回来。 */
-    readonly onConsentRequired: () => void;
+    readonly onConsentRequired: () => boolean;
     /** 管理接口拒绝（`site.admin` 输出 1）：角色可能刚被改，重取身份再分派。 */
-    readonly onForbidden: () => void;
+    readonly onForbidden: () => boolean;
 }
 
 /** 统一处理认的码。只认 `code`，不认 HTTP 状态：`invalid_credentials` 与 `unauthenticated` 同为 401，只有后者是会话没了。 */
@@ -39,11 +50,8 @@ const HANDLED_CODES = {
 
 export type HandledCode = keyof typeof HANDLED_CODES;
 
-/**
- * 统一处理接管的码。接口没在 `handles` 里声明它时，统一处理已经管了（跳转、清空当前账号），页面拿到这样的失败不再显示。
- * 用 `Object.hasOwn`：码是服务端给的任意字符串，`constructor` 这类会从原型上取到东西。
- */
-export function isHandledCode(code: string): code is HandledCode {
+/** 统一处理认的码。用 `Object.hasOwn`：码是服务端给的任意字符串，`constructor` 这类会从原型上取到东西。 */
+function isHandledCode(code: string): code is HandledCode {
     return Object.hasOwn(HANDLED_CODES, code);
 }
 
@@ -54,8 +62,9 @@ export interface ApiRequest {
     /** 有请求体时按 JSON 发；不给就不带请求体。 */
     readonly body?: unknown;
     /**
-     * 这个接口自己处理、统一处理要跳过的码。例如注册回的 `consent_required` 是“没勾同意”（`site.accounts` 输出 3），
-     * 由注册页显示，不是同意门槛；取身份的两个接口自己处理 `unauthenticated`，免得在路由守卫里再发起一次跳转。
+     * 这个接口自己处理、统一处理要跳过的码。取身份的两个接口自己处理 `unauthenticated`，免得在路由守卫里再发起一次跳转。
+     * 注册回的 `consent_required` 是“没勾同意”（`site.accounts` 输出 3），不是同意门槛：注册接口声明它；漏了也不出事，
+     * 统一处理在访客页上不管这个码（`site.ts`）。
      */
     readonly handles?: readonly HandledCode[];
 }
@@ -144,7 +153,7 @@ export function createApiCore(options: ApiCoreOptions): ApiCore {
             }
         }
 
-        if (isHandledCode(error.code) && !(request.handles ?? []).includes(error.code)) options.handlers[HANDLED_CODES[error.code]]();
+        const handled = isHandledCode(error.code) && !(request.handles ?? []).includes(error.code) && options.handlers[HANDLED_CODES[error.code]]();
 
         return failed({
             kind: "code",
@@ -152,6 +161,7 @@ export function createApiCore(options: ApiCoreOptions): ApiCore {
             code: error.code,
             ...(error.fields === undefined ? {} : {fields: error.fields}),
             ...(retryAfterSeconds === undefined ? {} : {retryAfterSeconds}),
+            ...(handled ? {handled: true as const} : {}),
         });
     }
 

@@ -7,8 +7,8 @@ import {describe, expect, it} from "bun:test";
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
 import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
 
-import {createApiCore} from "../src/api/core";
-import {createIdentityApi} from "../src/api/identity";
+import {createApiCore} from "../src/http/core";
+import {createIdentityApi} from "../src/http/identity";
 import {createCurrentAccount} from "../src/session/account";
 
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
@@ -43,9 +43,9 @@ function setup(answers: Record<string, Answer>) {
         },
         now: () => 0,
         handlers: {
-            onUnauthenticated: () => handled.push("unauthenticated"),
-            onConsentRequired: () => handled.push("consent_required"),
-            onForbidden: () => handled.push("forbidden"),
+            onUnauthenticated: () => handled.push("unauthenticated") > 0,
+            onConsentRequired: () => handled.push("consent_required") > 0,
+            onForbidden: () => handled.push("forbidden") > 0,
         },
     });
     return {account: createCurrentAccount(createIdentityApi(api)), requested, handled};

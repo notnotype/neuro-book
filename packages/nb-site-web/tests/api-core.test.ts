@@ -5,8 +5,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createApiCore, parseRetryAfter, RETRY_AFTER_FALLBACK_SECONDS} from "../src/api/core";
-import type {ApiCore, ApiRequest, Failure, FailureHandlers, Result} from "../src/api/core";
+import {createApiCore, parseRetryAfter, RETRY_AFTER_FALLBACK_SECONDS} from "../src/http/core";
+import type {ApiCore, ApiRequest, Failure, FailureHandlers, Result} from "../src/http/core";
 
 const NOW = Date.parse("2026-11-26T10:00:00Z");
 
@@ -18,13 +18,16 @@ interface Harness {
     readonly sent: {readonly path: string; readonly init: RequestInit}[];
 }
 
-function harness(respond: (path: string, init: RequestInit) => Response | Promise<Response>): Harness {
+/**
+ * `takesConsent` 是同意门槛的处理回不回“接管了”：站点在访客页上不接管它（`site.ts`），这里由用例指定。
+ */
+function harness(respond: (path: string, init: RequestInit) => Response | Promise<Response>, takesConsent = true): Harness {
     const handled: string[] = [];
     const sent: {path: string; init: RequestInit}[] = [];
     const handlers: FailureHandlers = {
-        onUnauthenticated: () => handled.push("unauthenticated"),
-        onConsentRequired: () => handled.push("consent_required"),
-        onForbidden: () => handled.push("forbidden"),
+        onUnauthenticated: () => handled.push("unauthenticated") > 0,
+        onConsentRequired: () => handled.push("consent_required") > 0 && takesConsent,
+        onForbidden: () => handled.push("forbidden") > 0,
     };
     const api = createApiCore({
         fetch: async (path, init) => {
@@ -142,9 +145,15 @@ describe("按码统一处理", () => {
         const cases: [number, string][] = [[401, "unauthenticated"], [403, "consent_required"], [403, "forbidden"]];
         for (const [status, code] of cases) {
             const {api, handled} = harness(() => errorResponse(status, {code}));
-            expect(failureOf(await api.request(GET))).toEqual({kind: "code", status, code});
+            expect(failureOf(await api.request(GET))).toEqual({kind: "code", status, code, handled: true});
             expect({code, handled}).toEqual({code, handled: [code]});
         }
+    });
+
+    it("处理回了不接管时，失败不带 handled，交给页面显示", async () => {
+        const {api, handled} = harness(() => errorResponse(403, {code: "consent_required"}), false);
+        expect(failureOf(await api.request(GET))).toEqual({kind: "code", status: 403, code: "consent_required"});
+        expect(handled).toEqual(["consent_required"]);
     });
 
     it("只认码不认状态：同为 401 的 invalid_credentials 不当作会话没了", async () => {
@@ -155,9 +164,9 @@ describe("按码统一处理", () => {
 
     it("接口声明自己处理的码，统一处理跳过；没声明的照常处理", async () => {
         const {api, handled} = harness(() => errorResponse(400, {code: "consent_required"}));
-        await api.request({method: "POST", path: "/api/identity/v1/register", handles: ["consent_required"]});
+        expect(failureOf(await api.request({method: "POST", path: "/api/identity/v1/register", handles: ["consent_required"]}))).toEqual({kind: "code", status: 400, code: "consent_required"});
         expect(handled).toEqual([]);
-        await api.request({method: "POST", path: "/api/identity/v1/register", handles: ["unauthenticated"]});
+        expect(failureOf(await api.request({method: "POST", path: "/api/identity/v1/register", handles: ["unauthenticated"]}))).toEqual({kind: "code", status: 400, code: "consent_required", handled: true});
         expect(handled).toEqual(["consent_required"]);
     });
 

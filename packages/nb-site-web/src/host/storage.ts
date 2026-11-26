@@ -8,7 +8,8 @@
  * - 不存密码，连同关联上游时输入的当前密码（社交注册本来不设密码）。注册码要存（计划第 9 节 D5 的审定）。
  */
 
-import type {SocialProvider} from "@notnotype/nb-site-identity-contract";
+import {SOCIAL_PROVIDERS} from "@notnotype/nb-site-identity-contract/constants";
+import type {SocialProvider} from "@notnotype/nb-site-identity-contract/constants";
 
 const PREFIX = "nb-site.";
 const SOCIAL_REGISTER_DRAFT_KEY = `${PREFIX}social-register-draft`;
@@ -56,7 +57,7 @@ function isDraft(value: unknown): value is StoredDraft {
     const consent = draft.consent as {termsVersion?: unknown; overseas?: unknown} | null | undefined;
     return draft.v === 1
         && typeof draft.savedAt === "number"
-        && (draft.provider === "google" || draft.provider === "github")
+        && (SOCIAL_PROVIDERS as readonly unknown[]).includes(draft.provider)
         && typeof draft.username === "string"
         && typeof draft.displayName === "string"
         && typeof draft.inviteCode === "string"

@@ -12,7 +12,11 @@ const title = computed(() => (route.meta.titleKey === undefined ? "" : t(route.m
 </script>
 
 <template>
-    <main class="mx-auto max-w-[680px] px-6 py-16" :data-site-page="String(route.name)">
+    <!-- 稿纸页的 `main` 是稿纸的卡片（`App.vue` 套上），这里只是卡片里的内容。 -->
+    <div v-if="route.meta.layout === 'paper'" :data-site-page="String(route.name)">
+        <h1>{{ title }}</h1>
+    </div>
+    <main v-else class="mx-auto max-w-[680px] px-6 py-16" :data-site-page="String(route.name)">
         <h1 class="text-xl font-semibold leading-tight">{{ title }}</h1>
     </main>
 </template>

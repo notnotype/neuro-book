@@ -64,19 +64,11 @@ function answer(fake: FakeIdentity, method: string, pathname: string, body: unkn
     return undefined;
 }
 
-/**
- * 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。
- * 只回答页面用 `fetch` 发的请求：Vite 开发服务的根是 `src/`，`src/api/*.ts` 这些模块的地址也是 `/api/…`，截下来页面就一片空白，
- * 所以别的类型的请求放行。
- */
+/** 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。 */
 export async function installFakeIdentity(page: Page, initial: Partial<Pick<FakeIdentity, "session" | "login">> = {}): Promise<FakeIdentity> {
     const fake: FakeIdentity = {session: initial.session, login: initial.login ?? loginSucceeds("user"), logins: [], unexpected: []};
     await page.route((url) => url.pathname.startsWith("/api/"), async (route: Route) => {
         const request = route.request();
-        if (request.resourceType() !== "fetch") {
-            await route.fallback();
-            return;
-        }
         const {pathname} = new URL(request.url());
         const body = request.postData() === null ? undefined : request.postDataJSON();
         const reply = answer(fake, request.method(), pathname, body);

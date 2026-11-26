@@ -11,8 +11,8 @@ import {describe, expect, it} from "bun:test";
 import {IDENTITY_FAILURE_CODES, SOCIAL_ERROR_CODES} from "@notnotype/nb-site-identity-contract";
 import {defaultTextPort} from "@notnotype/nb-ui/text-port";
 
-import {codeText, failureText} from "../src/api/failure-text";
-import type {FailureOwner} from "../src/api/failure-text";
+import {codeText, failureText} from "../src/http/failure-text";
+import type {FailureOwner} from "../src/http/failure-text";
 import {SITE_SOURCE_CATALOG, siteRef} from "../src/text";
 
 /** 每个拥有者要覆盖的码。社交登录落点的码（`?social_error=`）与接口的失败码同在 `errors.identity` 下，有几个两边共用。 */
