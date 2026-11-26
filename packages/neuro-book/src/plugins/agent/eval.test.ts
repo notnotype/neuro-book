@@ -21,7 +21,7 @@ import {userFilesContract} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
 
 import {EVAL_IDLE_MS} from "./backend/eval/tool";
-import {agentProfile, agentTool} from "./shared/points";
+import {agentProfile, agentTool, evalObject} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
@@ -62,7 +62,7 @@ const ASK = "test.eval.ask";
 const WIDE = "test.eval.wide";
 /** 声明了 `returns`、却交回不符的结构的工具（eval.md 输出 7）。 */
 const SHAPE = "test.eval.shape";
-/** 只给有人在窗口前的会话的工具（contributions.md 输出 4），装到所有 Profile。 */
+/** 全局对象 `front` 的方法 `ping`：只给有人在窗口前的会话（contributions.md 输出 4），装到所有 Profile。 */
 const FRONT = "test.eval.front";
 /** 声明了 `errors` 的工具：按参数交回带不同 `details` 的失败（eval.md 输出 8）。 */
 const FAILS = "test.eval.fails";
@@ -85,11 +85,11 @@ function testPlugin(): PluginDefinition {
         undeclared: {code: "other", text: "别的", details: {retryAfter: 3}},
     };
     const failsTool: AgentToolImplementation = {create: () => ({execute: async (args) => ({status: "error" as const, ...failures[(args as {kind: string}).kind]!})})};
-    const front = agentTool(FRONT, {description: "前台才有", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "front", defaultForAll: true, foreground: true});
+    const front = agentTool(FRONT, {description: "前台才有", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "front", defaultForAll: true, foreground: true, global: {object: "front", method: "ping"}});
     const frontTool: AgentToolImplementation = {create: () => ({execute: async () => "在前台"})};
     const probe = agentTool(PROBE, {description: "什么也不做", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "probe"});
     const probeTool: AgentToolImplementation = {create: (context) => ({execute: async () => "在", dispose: () => void closedSessions.push(context.sessionId)})};
-    return {id: "test.eval", entries: [defineEntry({
+    return {id: "test.eval", contributions: [evalObject(FRONT, {name: "front", summary: "前台才有"})], entries: [defineEntry({
         id: "server",
         location: "server",
         activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, fails.activationEvent, front.activationEvent, probe.activationEvent],
@@ -271,16 +271,16 @@ describe("eval", () => {
         expect(dropped.map((record) => (record.data as {code: string}).code)).toEqual(["busy", "busy"]);
     });
 
-    test("contributions.md 输出 4：声明 foreground 的工具，代码里也只在有人在窗口前的会话能调；后台会话里得 unknown-tool", async () => {
+    test("contributions.md 输出 4：声明 foreground 的方法只在有人在窗口前的会话里；后台会话的代码里没有这个全局对象", async () => {
         const w = await world();
         const {session} = await open(w);
-        const code = "let got; try { got = await tool.front() } catch (e) { got = e.code }\ngot";
+        const code = "typeof front === 'undefined' ? '没有 front' : await front.ping({})";
         expect((await one(session, {code})).text).toBe("在前台");
         endpoint.script({tool: "eval", args: {code}}, "好");
         const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: YOLO, input: {text: "跑代码"}, background: true});
         if (!started.ok) throw new Error(started.code);
         await started.result;
-        expect(results(await w.service.session(started.sessionId).path()).map((result) => result.text)).toEqual(["unknown-tool"]);
+        expect(results(await w.service.session(started.sessionId).path()).map((result) => result.text)).toEqual(["没有 front"]);
     });
 
     test("输出 4：代码里调的工具交回的图并进结果（带着宽高）；一个单元至多 8 张，多的写明", async () => {
