@@ -212,11 +212,6 @@ const floatOffsets = new Map<string, {readonly x: number; readonly y: number}>()
  */
 let released = new Map<string, {readonly x: number; readonly y: number}>();
 let releaseFrame: number | null = null;
-/**
- * 这一轮从松手处出发、离开了 `floats` 的窗（节点 id）：用起点的那一次渲染外框还带 `data-float`，下一次带着过渡标记摘掉，投影、底色与圆角才随过渡淡去（输出 110）。
- * 起点那一次就摘的话，摘的时候没有过渡标记，投影一下子没了。只在它的起点还在 `growing` 里时算。
- */
-const releasedLeaves = shallowRef<ReadonlySet<string>>(new Set());
 function clearReleased(): void {
     if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
     releaseFrame = null;
@@ -405,10 +400,7 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         ...(releasing.size === 0 ? {} : {released: releasing}),
     });
     lastGestures = new Set(floatGestures.value.keys());
-    if (releasing.size > 0) {
-        releasedLeaves.value = new Set([...releasing.keys()].filter((id) => !floatAt.value.has(id)));
-        clearReleased();
-    } else if (releasedLeaves.value.size > 0) releasedLeaves.value = new Set();
+    if (releasing.size > 0) clearReleased();
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
@@ -691,7 +683,7 @@ defineExpose({
                 :data-leaf="item.node.id"
                 :data-moving="structureMoving(item.key) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
-                :data-float="floatAt.has(item.node.id) || (releasedLeaves.has(item.node.id) && growing.has(item.key)) ? '' : undefined"
+                :data-float="floatAt.has(item.node.id) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
