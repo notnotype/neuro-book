@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "ackId": "20261126T064929238Z-6591e0fd",
+    "answers": [
+        "20261126T064703510Z-712803b1"
+    ],
+    "through": "20261126T064703510Z-712803b1",
+    "included": [
+        ".agents/works/w00056-homepage-rewrite/tasks/t06-product-homepage/README.md"
+    ],
+    "ackedAt": "2026-11-26T06:49:29.238Z"
+}
