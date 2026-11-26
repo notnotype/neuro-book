@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：条目主文字的标签写法</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; --chip: #e8f0fb; --chip-line: #b9cdea; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+h4 { margin: 12px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+pre, code { font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace; font-size: 12.5px; }
+pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; white-space: pre-wrap; word-break: break-all; line-height: 1.55; }
+pre .n { color: var(--muted); }
+pre .no { color: var(--mark); }
+/* 富文本里的样子：值是行内小块，条件的分支里没生效的一支弱色。 */
+.rt { padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 14px; line-height: 1.9; }
+.chip { display: inline-block; padding: 0 6px; border: 1px solid var(--chip-line); border-radius: 4px; background: var(--chip); line-height: 1.5; font-size: 13px; }
+.cond { display: inline-block; padding: 0 6px; border: 1px dashed var(--chip-line); border-radius: 4px; color: var(--rec); font-size: 12px; line-height: 1.5; }
+.off { color: #a39e94; }
+.pop { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; box-shadow: 0 2px 8px rgb(0 0 0 / .08); font-size: 13px; }
+.pop .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.pop .box { padding: 1px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.pop .box.wide { flex: 1; font-family: ui-monospace, monospace; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+td code { font-size: 12.5px; word-break: break-all; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：条目主文字的标签写法</h1>
+
+<section data-nbdev-question="cond" data-nbdev-type="single" data-nbdev-recommend="test">
+  <h2>条件怎么写：比较写成一句表达式，还是拆成属性？</h2>
+  <p class="rec"><strong>推荐 A：五个例子都写得出，同一件事只有一种写法；简单的比较由编辑器的小表单替作者写出这句表达式。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="test" data-nbdev-label="A 比较写成表达式（test）">
+      <h3>A 比较写成表达式</h3>
+<pre><span class="n">样本</span>
+&lt;If test="panel.魔力 &gt;= 1000"&gt;还能变身。&lt;Else /&gt;魔力不够变身。&lt;/If&gt;
+<span class="n">两个字段比（构造）</span>
+&lt;If test="panel.魔力 &gt;= panel.魔力上限"&gt;魔力已满。&lt;/If&gt;
+<span class="n">分档（构造）</span>
+&lt;If test="panel.好感度 &gt;= 80"&gt;亲密&lt;ElseIf test="panel.好感度 &gt;= 40" /&gt;友好&lt;Else /&gt;冷淡&lt;/If&gt;
+<span class="n">或（构造）</span>
+&lt;If test="panel.回溯 == 0 || panel.魔力 &lt; 100"&gt;撑不住了。&lt;/If&gt;
+<span class="n">别的条目（构造）</span>
+&lt;If test="ref('brother').panel.好感度 &gt;= 50"&gt;哥哥站在她这边。&lt;/If&gt;</pre>
+      <h4>富文本里</h4>
+      <div class="rt">
+        魔力 <span class="chip">1,200</span>。<span class="cond">魔力 ≥ 1000</span> 还能变身。<span class="off">魔力不够变身。</span>
+        <div class="pop">
+          <div class="row"><span class="box">魔力</span><span class="box">≥</span><span class="box">1000</span></div>
+          <div class="row"><span class="box wide">panel.魔力 &gt;= 1000</span></div>
+        </div>
+      </div>
+      <p>代价：表达式的白名单与求值照旧留着，只是收进了引号里，边界由引号定。或、两字段比这类复杂的条件，编辑器的小表单画不出，只能改那一行表达式。</p>
+    </div>
+    <div class="cand" data-nbdev-option="attrs" data-nbdev-label="B 比较拆成属性（of、atLeast…）">
+      <h3>B 比较拆成属性</h3>
+<pre><span class="n">样本</span>
+&lt;If of="panel.魔力" atLeast="1000"&gt;还能变身。&lt;Else /&gt;魔力不够变身。&lt;/If&gt;
+<span class="n">两个字段比（构造）</span>
+<span class="no">写不出（要再加 atLeastOf 一类的属性）</span>
+<span class="n">分档（构造）</span>
+&lt;If of="panel.好感度" atLeast="80"&gt;亲密&lt;ElseIf of="panel.好感度" atLeast="40" /&gt;友好&lt;Else /&gt;冷淡&lt;/If&gt;
+<span class="n">或（构造）</span>
+<span class="no">写不出（拆成两个 If，两条都成立时说两遍）</span>
+<span class="n">别的条目（构造）</span>
+&lt;If entry="brother" of="panel.好感度" atLeast="50"&gt;哥哥站在她这边。&lt;/If&gt;</pre>
+      <h4>富文本里</h4>
+      <div class="rt">
+        魔力 <span class="chip">1,200</span>。<span class="cond">魔力 ≥ 1000</span> 还能变身。<span class="off">魔力不够变身。</span>
+        <div class="pop">
+          <div class="row"><span class="box">魔力</span><span class="box">至少</span><span class="box">1000</span></div>
+        </div>
+      </div>
+      <p>代价：内核不再需要表达式的解析器。比较只有固定几种（is、not、atLeast、atMost、above、below），写不出“或”，也不能拿两个字段相比。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="agent-value" data-nbdev-type="single" data-nbdev-recommend="json">
+  <h2>给 Agent 看的值写在哪里？</h2>
+  <p class="rec"><strong>推荐 C：和现在的带值写法用同一种值的写法（JSON），一行一个值，多段文字与“未知”都写得清楚，回写时边界不会认错。</strong></p>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="content" data-nbdev-label="A 标签中间写原文">
+      <h3>A 标签中间写原文</h3>
+<pre>&lt;V of="panel.魔力"&gt;1200&lt;/V&gt;
+&lt;V of="character.外观"&gt;银发，蓝眼。
+
+左眼下有颗痣。&lt;/V&gt;
+&lt;V of="panel.存款" state="未知"&gt;&lt;/V&gt;</pre>
+      <p>读起来最像正文。值里有空行时，Markdown 在空行处把段落断开，闭标签落到下一块；值里的 <code>&lt;</code>、<code>&amp;</code> 要转义；数和文字靠字段的声明区分。</p>
+    </div>
+    <div class="cand" data-nbdev-option="attr" data-nbdev-label="B 写成 value 属性">
+      <h3>B 写成 value 属性</h3>
+<pre>&lt;V of="panel.魔力" value="1200" /&gt;
+&lt;V of="character.外观" value="银发，蓝眼。&amp;#10;&amp;#10;左眼下有颗痣。" /&gt;
+&lt;V of="panel.存款" state="未知" /&gt;</pre>
+      <p>和源文字只差一个属性。长文字挤在属性里，换行与引号要写成 HTML 实体。</p>
+    </div>
+    <div class="cand" data-nbdev-option="json" data-nbdev-label="C 标签中间写 JSON">
+      <h3>C 标签中间写 JSON</h3>
+<pre>&lt;V of="panel.魔力"&gt;1200&lt;/V&gt;
+&lt;V of="character.外观"&gt;"银发，蓝眼。\n\n左眼下有颗痣。"&lt;/V&gt;
+&lt;V of="panel.存款"&gt;null&lt;/V&gt;</pre>
+      <p>文字带引号、换行写成 <code>\n</code>，和现在的 <code>{panel.魔力 = 1200}</code> 里的值完全一样。程序先按 JSON 读出值的边界，再找闭标签。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>按推荐，现在的每种写法换成什么</h2>
+  <table>
+    <thead><tr><th>用处</th><th>现在</th><th>源文字</th><th>作者看到的</th><th>给 Agent 的</th></tr></thead>
+    <tbody>
+      <tr><td>本条目的字段</td><td><code>{panel.魔力}</code></td><td><code>&lt;V of="panel.魔力" /&gt;</code></td><td><span class="chip">1,200</span></td><td><code>&lt;V of="panel.魔力"&gt;1200&lt;/V&gt;</code></td></tr>
+      <tr><td>别的条目的字段</td><td><code>{ref("brother").identity.外观}</code></td><td><code>&lt;V entry="brother" of="identity.外观" /&gt;</code></td><td><span class="chip">黑发的少年</span></td><td><code>&lt;V entry="brother" of="identity.外观"&gt;"黑发的少年"&lt;/V&gt;</code></td></tr>
+      <tr><td>条目自己的名字</td><td><code>{entry.name}</code></td><td><code>&lt;V of="entry.name" /&gt;</code></td><td><span class="chip">星瑕</span></td><td><code>&lt;V of="entry.name"&gt;"星瑕"&lt;/V&gt;</code></td></tr>
+      <tr><td>列表里的一行</td><td><code>{att.态度["e1"].称呼}</code></td><td><code>&lt;V of="att.态度[e1].称呼" /&gt;</code></td><td><span class="chip">哥</span></td><td><code>&lt;V of="att.态度[e1].称呼"&gt;"哥"&lt;/V&gt;</code></td></tr>
+      <tr><td>条件</td><td><code>{panel.魔力 &gt;= 1000 ? "还能变身。" : "魔力不够变身。"}</code></td><td><code>&lt;If test="panel.魔力 &gt;= 1000"&gt;还能变身。&lt;Else /&gt;魔力不够变身。&lt;/If&gt;</code></td><td><span class="cond">魔力 ≥ 1000</span> 还能变身。<span class="off">魔力不够变身。</span></td><td><code>&lt;If test="panel.魔力 &gt;= 1000" is="true"&gt;还能变身。&lt;Else /&gt;魔力不够变身。&lt;/If&gt;</code></td></tr>
+      <tr><td>条目引用</td><td><code>&lt;Ref id="e12" /&gt;</code></td><td>不变</td><td><span class="chip">星瑾</span></td><td><code>&lt;Ref id="e12" name="星瑾" /&gt;</code>（不变）</td></tr>
+      <tr><td>字段里的图片</td><td><code>&lt;Image src={character.立绘[原身].图片} /&gt;</code></td><td><code>&lt;Image of="character.立绘[原身].图片" /&gt;</code></td><td>图片</td><td><code>&lt;Image of="…"&gt;{"图片": "assets/星瑕/原身.png", "说明": "原身"}&lt;/Image&gt;</code></td></tr>
+      <tr><td>作品里的图片</td><td><code>&lt;Image src="assets/地图.png" alt="地图" /&gt;</code></td><td>不变</td><td>图片</td><td>不变</td></tr>
+      <tr><td>注释</td><td><code>{/* 待补 */}</code></td><td><code>&lt;!-- 待补 --&gt;</code></td><td>不显示</td><td>原样</td></tr>
+      <tr><td>正文里的花括号</td><td><code>\{好感度+5\}</code></td><td><code>{好感度+5}</code>（不再转义）</td><td>{好感度+5}</td><td>原样</td></tr>
+      <tr><td>读不到的值、地址不完整</td><td><code>{panel.m2 = 3110 # 显示名：魔力；不完整：c7 …}</code></td><td>—</td><td>带说明的占位</td><td><code>&lt;V of="panel.m2" name="魔力" incomplete="c7 constraint-violated"&gt;3110&lt;/V&gt;</code>（程序加的属性，回写时不看）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>不管选哪种都要做的</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>要做什么</th></tr></thead>
+    <tbody>
+      <tr><td>章节方言</td><td>现在 <code>V</code>、<code>If</code> 这些标签都读成原样内容（实测：<code>## 性格</code> 下独占一行的 <code>&lt;V /&gt;</code> 成了原样块；跨段的 <code>&lt;If&gt;</code> 连同里面的 <code>&lt;V&gt;</code> 整段成了原样块，自闭合的 <code>&lt;Else /&gt;</code> 也认不出）。要给条目另加一个语法模块，把 <code>V</code>、<code>If</code>、<code>ElseIf</code>、<code>Else</code>、<code>Ref</code>、<code>Image</code> 登记成方言标签；内核与编辑器用同一个</td></tr>
+      <tr><td>保密</td><td>原样内容里出现条目标签时，照样记下读了谁、提到谁，不当作普通文字放给写手（t38 记下的“不透明容器吞掉引用”）</td></tr>
+      <tr><td>迁移</td><td>样本书与作品里的 <code>{}</code> 按上表换写法；样本里 7 种取值、1 个条件、2 处跨条目引用，各在 11 份草稿里重复</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>取值与条件换成标签，不再用 <code>{}</code>；另写 ADR 取代 0038 的决策 1 与 3（11-26）</li>
+    <li>解析器只留 marked，内核也换过去（11-23）</li>
+    <li>富文本为主，保留源文字（Monaco 加高亮），去掉分屏预览（11-26）</li>
+    <li>先出演示稿与 spike，需求稳定后再写实施计划（11-26）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
