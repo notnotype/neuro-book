@@ -80,7 +80,7 @@ owners:
 | `previewEdit` | 读 | `input`：`{kind: "edit" \| "delta" \| "note", …}`，`kind` 写明是哪一种，其余是 `editInPlace`、`recordDelta` 或 `recordNote` 那一种写入的业务字段，不带独占令牌 | [`canon.revisions`](revisions.md) 输出 22 |
 | `outcome` | 读 | 请求 id | 这次写入有没有发布、发布成了哪次修订（[`canon.revisions`](revisions.md) 输出 16） |
 | `publish` | 写 | 写入请求，可选独占令牌 | 修订 id、版本、新对象的 id 对照，或失败 |
-| `editInPlace`、`recordDelta`、`writeBack` | 写 | 见 [`canon.revisions`](revisions.md) 输出 8、9 与 [`canon.rendering`](rendering.md) 输出 12；可选独占令牌 | 同 `publish` |
+| `editInPlace`、`recordDelta`、`writeBack`（planned：删掉 `writeBack`，主文字经 `editEntries` 写） | 写 | 见 [`canon.revisions`](revisions.md) 输出 8、9 与 [`canon.rendering`](rendering.md) 输出 12；可选独占令牌 | 同 `publish` |
 | `editEntries`（planned） | 写 | `input`：一次改几处的输入（[`canon.revisions`](revisions.md) 输出 25）；可选独占令牌 | 同 `publish`，另带各项的路由 |
 | `previewEntries`（planned） | 读 | `input`：同 `editEntries` | 各项的路由、预览的修订、后面改过同一地址的记录 |
 | `recordNote`（planned） | 写 | 读取位置、语义档字段的地址、一句发生了什么、读到的值；可选独占令牌 | 同 `publish`（[`canon.revisions`](revisions.md) 输出 23） |
