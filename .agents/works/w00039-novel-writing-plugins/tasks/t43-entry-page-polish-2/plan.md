@@ -70,7 +70,7 @@
 
 - 设定组分页（`data:` 开头的）内容右上角一个 `SegmentedControl`：“卡片 | 给 AI 看 | 原始数据”，缺省卡片；换分页回到卡片。文字、经历、情节分页不出。
 - **给 AI 看**：把 `canon/backend/agent-text.ts` 里不碰世界的几个函数（`fieldsText`、`kindText`、`valueText`）挪到 `canon/shared/agent-text.ts`，`fieldsText` 加按命名空间只出一节的参数；后端 `canon_read` 改从 shared 导入（输出不变，`agent-tools.test.ts` 兜底）。前端拿条目页已读到的条目视图与声明调用它，显示成等宽的只读文字，头一行写“在看 第 3 章末尾”。这样两边是同一个函数，不会写出两种样子。
-- **原始数据**：只读，不跟“在看”走，头一行写明“存下来的初值与各章的变更”。两部分：初值（`object({kind:"entry"})` 里这个命名空间的数据与字段声明）；变更（`changes` 筛这个条目、这个命名空间，按安放从旧到新，每页 20 条，“再显示”；每条只留落在这个命名空间下的那几处改动）。都用 `JsonViewer` 显示。实施中改的：`changes` 的每项本来就带存下来的变更原样，不再逐条用 `object` 取；头一行的说明不写（界面不靠说明文字解释自己），两节的标题“初值”“剧情变更（N 条）”就讲清了。
+- **原始数据**：只读，不跟“在看”走，头一行写明“存下来的初值与各章的变更”。两部分：初值（`object({kind:"entry"})` 里这个命名空间的数据与字段声明）；变更（`changes` 筛这个条目、这个命名空间，按安放从旧到新，每页 20 条，“再显示”；每条只留落在这个命名空间下的那几处改动）。都用 `JsonViewer` 显示。实施中改的：`changes` 的每项本来就带存下来的变更原样，不再逐条用 `object` 取；头一行照开发者第 4 条写，改成与“给 AI 看”的“在看：…”对称的一行状态“存下来的原样，不随“在看”变”（先删过，与“头上写明”不符，补回）。
 - 内核：`ChangeFilter` 加 `namespace`（只与 `entry` 同用）：只列在这个条目上改了这个命名空间下的路径的变更（`nb-canon/src/service/reads.ts` 的 `listChanges`，在 `changesOfEntry` 的候选上多筛一层）。没给 `entry` 时给了 `namespace` 得到参数错误。`canon/project.md` 方法表与输出 31 补一句；`project.test` 补用例。实施中改的：失败码表里没有通用的参数错误，为这一处加一个不值得；改成不给 `entry` 时算任何条目上落在这个命名空间下的改动，没有失败的情形。用例在 `nb-canon/tests/author-reads.test.ts`。
 - Spec 新增 author-ui 输出 54“三种视图”（planned）。
 
