@@ -11,7 +11,8 @@
  * 点联系人到聊天出现之间（没有模型、正在取主对话、取不到）由这里持有一个选择，在聊天区上面盖一层（`ContactCover`）；盖层与聊天区是
  * 兄弟元素，宿主的对话不卸载，盖着时设 `inert`，焦点与读屏只到盖层。
  */
-import {computed, nextTick, onBeforeUnmount, ref} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
+import type {ShallowRef} from "vue";
 
 import {AgentMessages} from "@notnotype/nb-agent-ui/vue";
 import type {MessagesSegmentPlacement} from "@notnotype/nb-agent-ui/vue";
@@ -43,6 +44,10 @@ const props = defineProps<{
     /** 有没有可用的模型：没有为 false，还没读到为 null。 */
     hasModel: boolean | null;
     openModelSettings: () => void;
+    /** 揭示通道：把消息视图带到前面（区域显示、退出盖着它的最大化），交回成功没有（`plugin.ts` 的 `revealMessages`）。 */
+    reveal: () => Promise<boolean>;
+    /** 要展开列表的哪一页（命令“搜索会话”）：这里取走（写回 null）后展开。 */
+    listRequest: ShallowRef<"bot" | "sessions" | null>;
 }>();
 
 const t = useAgentPageText();
@@ -110,9 +115,31 @@ async function showList(page: "bot" | "sessions"): Promise<void> {
     if (result === "done") messagesRef.value?.focusSearch(page);
 }
 
+// 命令“搜索会话”：插件那边先揭示了视图，这里取走请求、展开列表（视图这时才挂上的话，挂上时取）。
+watch(() => props.listRequest.value, (page) => {
+    if (page === null) return;
+    props.listRequest.value = null;
+    void showList(page);
+}, {immediate: true});
+
+/**
+ * 视图段与列表里打开、新建之后走揭示通道（输出 57 的“打开”）：区域隐藏、拖到零或被别的面板最大化盖着时，侧轨还在、聊天区看不到。先选会话再揭示：
+ * 揭示要等，在途的那次不能在用户的新选择之后再改选择；揭示完了焦点交给聊天输入框，只有最后一次揭示给。
+ */
+let reveals = 0;
+async function revealAndFocus(): Promise<void> {
+    const seq = ++reveals;
+    if (await props.reveal() && seq === reveals) focusComposer();
+}
+
 function openSession(id: string): void {
     model.openSession(id);
-    focusComposer();
+    void revealAndFocus();
+}
+
+function openContact(key: string): void {
+    void model.openContact(key);
+    void revealAndFocus();
 }
 
 /** 新对话也要先选 Profile（同对话头里的“新建”）；取消了不建。 */
@@ -120,7 +147,7 @@ async function newSession(): Promise<void> {
     const profile = await props.conversation.pickProfile();
     if (profile === null) return;
     props.host.act(profile === undefined ? {type: "session.create"} : {type: "session.create", profileKey: profile});
-    focusComposer();
+    void revealAndFocus();
 }
 
 const focused = useWindowFocus();
@@ -147,7 +174,7 @@ onBeforeUnmount(model.watchRecent({
             :selected="selected"
             :recent-sessions="recentSessions"
             :now="props.list.now.value"
-            @open-contact="(key: string) => void model.openContact(key)"
+            @open-contact="openContact"
             @retry-contacts="model.retryContacts"
             @open-session="openSession"
             @new-session="() => void newSession()"
@@ -162,7 +189,7 @@ onBeforeUnmount(model.watchRecent({
                 <ContactCover v-if="cover !== null" :cover="cover" @add-provider="props.openModelSettings()" @retry="(key: string) => void model.openContact(key)" @show-bots="() => void showList('bot')" />
             </div>
             <template #sessions>
-                <SessionPanelHost :store="props.list" :host="props.host" :pick-profile="props.conversation.pickProfile" :labels="props.conversation.labels" @opened="() => { model.sessionOpened(); focusComposer(); }" />
+                <SessionPanelHost :store="props.list" :host="props.host" :pick-profile="props.conversation.pickProfile" :labels="props.conversation.labels" @opened="() => { model.sessionOpened(); void revealAndFocus(); }" />
             </template>
         </AgentMessages>
     </div>

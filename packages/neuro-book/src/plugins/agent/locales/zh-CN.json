@@ -493,6 +493,9 @@
         "focus-session": {
             "title": "切到 Agent 会话"
         },
+        "search-sessions": {
+            "title": "搜索会话"
+        },
         "category": "Agent",
         "open-in-editor": {
             "title": "在编辑区打开对话"

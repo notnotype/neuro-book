@@ -493,6 +493,9 @@
         "focus-session": {
             "title": "Go to Agent session"
         },
+        "search-sessions": {
+            "title": "Search sessions"
+        },
         "category": "Agent",
         "open-in-editor": {
             "title": "Open conversation in editor"

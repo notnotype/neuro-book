@@ -94,6 +94,7 @@ const DESK_CONTRIBUTION = "nbook.agent.desk";
 export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
 export const FOCUS_SESSION_COMMAND = "nbook.agent.focus-session";
+export const SEARCH_SESSIONS_COMMAND = "nbook.agent.search-sessions";
 export const OPEN_IN_EDITOR_COMMAND = "nbook.agent.open-in-editor";
 /** “模型请求”页与打开它的命令（docs/specs/agent/request-trace.md 输出 13、26）。 */
 export const REQUESTS_PAGE = "nbook.agent.requests";
@@ -123,6 +124,7 @@ const COMMANDS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_IN_EDITOR_COMMAND]: command("Open the Agent conversation as a page in the editor area."),
     [NEW_SESSION_COMMAND]: command("Start a new Agent session in the conversation."),
     [FOCUS_SESSION_COMMAND]: command("Show an Agent session in the conversation; without an id, the one that needs the user.", Type.Object({sessionId: Type.Optional(Type.String())}, {additionalProperties: false})),
+    [SEARCH_SESSIONS_COMMAND]: command("Show the session history in the messages view and focus its search box."),
     [OPEN_REQUESTS_COMMAND]: command("Open the model requests page; with a session id, only that session, and with a request number, that request selected.", Type.Object({sessionId: Type.Optional(Type.String({minLength: 1})), request: Type.Optional(Type.Integer({minimum: 1}))}, {additionalProperties: false})),
 };
 
@@ -416,6 +418,17 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }
                 return null;
             };
+            /**
+             * 消息视图的揭示通道（conversation.md 输出 57 的“打开”）：视图段与列表里打开、新建对话时把消息视图带到前面：区域隐藏或拖到零时显示，
+             * 盖着它的最大化退出（`nbook.view.open`）。只认消息视图，不经上次的对话位置。
+             */
+            async function revealMessages(): Promise<boolean> {
+                ensureStarted();
+                return (await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW})).ok;
+            }
+            /** 要消息视图展开列表的哪一页（命令“搜索会话”）：视图挂着时马上取走，没挂上的话挂上时取。 */
+            const listRequest = shallowRef<"bot" | "sessions" | null>(null);
+
             /** 对话位置（右栏的消息视图、编辑区页面、书房的面板）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
             const hostDeps = (position: ConversationPosition): SessionHostDeps => ({
                     remote,
@@ -709,7 +722,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                             const conversation = conversationProps(position, host, registry.value, services.value, renderers);
                             // 右栏是消息视图（聊天区加借给右轨的视图段）；编辑区页面照旧只有对话，会话列表在头的下拉里。
                             if (position === "page" || props.context === null) return h(ConversationHost, {...conversation, head});
-                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings});
+                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, reveal: revealMessages, listRequest});
                         };
                     },
                 });
@@ -881,6 +894,14 @@ export const agentBrowserPlugin: PluginDefinition = {
                 [OPEN_COMMAND]: {run: async () => {
                     const revealed = await reveal();
                     return revealed.ok ? done : revealed;
+                }},
+                // 等同视图段的“会话历史”：展开列表、切到会话页、聚焦搜索框（conversation.md 输出 57）。
+                [SEARCH_SESSIONS_COMMAND]: {run: async () => {
+                    ensureStarted();
+                    const shown = await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
+                    if (!shown.ok) return shown;
+                    listRequest.value = "sessions";
+                    return done;
                 }},
                 [OPEN_IN_EDITOR_COMMAND]: {run: async () => {
                     ensureStarted();
