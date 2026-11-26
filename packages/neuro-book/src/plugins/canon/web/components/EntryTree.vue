@@ -103,7 +103,12 @@ function select(node: GenericTreeNode): void {
         emit("more", parent === ROOT ? null : parent);
         return;
     }
-    if (node.id.startsWith(FOLDER) || node.id.startsWith(LOADING)) return;
+    if (node.id.startsWith(LOADING)) return;
+    // 分组行打不开：点它是展开或收起（树按 `arrow` 只认箭头切换展开，这一种行由这里补上）。
+    if (node.id.startsWith(FOLDER)) {
+        emit("update:expanded", props.expanded.includes(node.id) ? props.expanded.filter((id) => id !== node.id) : [...props.expanded, node.id]);
+        return;
+    }
     emit("open", node.id);
 }
 
@@ -155,6 +160,7 @@ const menuItems = computed(() => [{label: text("entries.createUnder"), iconClass
             :expanded="[...props.expanded]"
             :model-value="props.selected"
             surface="plain"
+            toggle-on="arrow"
             @select="select"
             @update:expanded="(value: string[]) => emit('update:expanded', value)"
         >

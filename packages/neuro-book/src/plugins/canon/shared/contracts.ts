@@ -138,6 +138,8 @@ const methods = {
             filter: Type.Optional(Type.Object({
                 chapter: Type.Optional(Type.String()),
                 entry: Type.Optional(Type.String()),
+                /** 只列有改动落在这个命名空间下的；给了 `entry` 时只算这个条目上的改动（project.md 方法表 `changes`）。 */
+                namespace: Type.Optional(Type.String()),
                 line: Type.Optional(Type.String()),
                 kind: Type.Optional(Type.Union([Type.Literal("written"), Type.Literal("plan")])),
                 status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("held"), Type.Literal("undone")])),

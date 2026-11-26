@@ -79,12 +79,12 @@ const positionSelect = (page: Page) => entryPage(page).locator("[data-view-point
 async function openEntry(page: Page, name: string): Promise<void> {
     if (!(await row(page, "人物").isVisible())) await tree(page).click();
     const folder = row(page, "人物");
-    if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.click();
+    if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.locator("[data-tree-toggle]").click();
     await row(page, name).click();
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在编辑卡里改、别的内容与保存按钮不动、看着最初时没有意图一行；成段的文字在原处展开、下一节整节往下让而不被盖住，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在编辑卡里改、别的内容与保存按钮不动、看着最初时没有意图一行；成段的文字浮在原处、盖住下一节而下一节不动，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -142,7 +142,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(gender).toHaveCount(0);
     await expect(valueOf(page, "character.性别")).toHaveText("女");
 
-    // 性格：编辑卡在原处展开，下一节（说话方式）整节往下让、没有被盖住；写一段、按 Escape 放弃，不存，下一节回到原位。
+    // 性格：编辑卡浮在原处、向下长，盖住下一节（说话方式）的标题，下一节不动；写一段、按 Escape 放弃，不存，标题露出来。
     const speech = card.locator("[data-passage='说话方式']");
     const inCard = () => speech.evaluate((element) => {
         const box = element.getBoundingClientRect();
@@ -159,12 +159,12 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await valueOf(page, "character.性格").click();
     const passage = editorOf(page, "character.性格");
     await passage.getByRole("textbox").fill("嘴硬心软，最怕被人看穿。");
-    await expect.poll(async () => (await inCard()).y).toBeGreaterThan(speechBefore.y);
-    expect((await inCard()).x).toBe(speechBefore.x);
-    expect(await headingIsHit()).toBe(true);
+    await expect.poll(headingIsHit).toBe(false);
+    expect(await inCard()).toEqual(speechBefore);
     await passage.getByRole("textbox").press("Escape");
     await expect(passage).toHaveCount(0);
-    await expect.poll(inCard).toEqual(speechBefore);
+    expect(await inCard()).toEqual(speechBefore);
+    expect(await headingIsHit()).toBe(true);
     await expect(valueOf(page, "character.性格")).toContainText("遇事怎么反应");
 
     // 最后一段（背景）贴着窗口底边时打开：编辑层向下长，打开时整个滚进可见范围，保存按钮不在窗口外（输出 51）。
@@ -180,9 +180,14 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await last.getByRole("textbox").press("Escape");
     await expect(last).toHaveCount(0);
 
-    // 年龄：短项浮在值旁边；预览中与预览回来（没有别的变化时不占行）时保存按钮在同一个位置；点编辑卡外面放弃。
+    // 年龄：短项浮在值旁边，左缘不越过值的起点（不盖住左边的标签列）；预览中与预览回来（没有别的变化时不占行）时保存按钮在
+    // 同一个位置；点编辑卡外面放弃。
     await valueOf(page, "character.年龄").click();
     const age = editorOf(page, "character.年龄");
+    await expect(age).toBeVisible();
+    // 量浮层的外框（内边距与边框外面），不量里面的编辑卡：差的十几像素正是会盖住标签列的那一段。
+    const valueLeft = (await valueOf(page, "character.年龄").boundingBox())!.x;
+    expect((await page.locator(".nb-ui-popover-surface").filter({has: age}).boundingBox())!.x).toBeGreaterThanOrEqual(valueLeft);
     await expect(age.locator("[data-edit-intent]")).toHaveCount(0);
     await expect(age).not.toContainText("改最初的值");
     await age.getByRole("textbox").fill("十七");
@@ -248,4 +253,53 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
     await expect(outfit).toContainText("穿着");
     await expect(look.locator("[data-fact='现在穿的']")).toContainText("第 3 章改过");
     await expect(page.locator("[data-notice-bar]")).toContainText("现在穿的变成 学院制服");
+});
+
+test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，换分页回到卡片；“添加一组设定”是带搜索的浮层，Escape 回到“＋”、Tab 从“＋”往下走，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
+    await open(page, "book");
+    await openEntry(page, "星瑕");
+    await tab(page, "数值").click();
+    const looks = entryPage(page).locator("[data-data-look]");
+    await looks.getByRole("radio", {name: "给 AI 看"}).click();
+    const agent = entryPage(page).locator("[data-agent-text]");
+    await expect(agent).toContainText("【数值】");
+    await expect(agent).toContainText("- 存款 = ");
+    await expect(entryPage(page).locator("[data-agent-view]")).toContainText("在看：第 3 章末尾");
+    await looks.getByRole("radio", {name: "原始数据"}).click();
+    await expect(entryPage(page).locator("[data-raw-head]")).toHaveText("存下来的原样，不随“在看”变");
+    await expect(entryPage(page).locator("[data-raw-initial]")).toContainText("存款");
+    await expect(entryPage(page).locator("[data-raw-changes]")).toContainText(/剧情变更（[1-9]\d* 条）/u);
+    await tab(page, "人物").click();
+    await expect(entryPage(page).locator("[data-character-card]")).toBeVisible();
+    await expect(looks.getByRole("radio", {name: "卡片"})).toHaveAttribute("aria-checked", "true");
+
+    const add = entryPage(page).locator("[data-add-component]").first();
+    await add.click();
+    const picker = page.getByRole("listbox", {name: "添加一组设定"});
+    const search = page.getByRole("combobox", {name: "搜索设定组"});
+    await expect(picker).toBeVisible();
+    await expect(search).toBeFocused();
+    await search.press("Escape");
+    await expect(picker).toBeHidden();
+    await expect(add).toBeFocused();
+    // Tab：浮层关上，焦点回到“＋”再往下走一个，仍在条目页里，不掉到页面末尾。
+    await add.click();
+    await expect(search).toBeFocused();
+    await search.press("Tab");
+    await expect(picker).toBeHidden();
+    expect(await page.evaluate(() => document.activeElement !== document.body && document.activeElement?.closest("[data-entry-page]") !== null)).toBe(true);
+
+    await add.click();
+    await search.fill("形象");
+    await expect(picker.getByRole("option")).toHaveText([/^形象.*已添加$/u]);
+    await search.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect(tab(page, "形象")).toHaveAttribute("aria-selected", "true");
+
+    await add.click();
+    const first = picker.getByRole("option").first();
+    const name = ((await first.textContent()) ?? "").trim().replace(/^恢复“(.*)”$/u, "$1");
+    await first.click();
+    await expect(picker).toBeHidden();
+    await expect(entryPage(page).getByRole("tab", {selected: true})).toContainText(name);
 });

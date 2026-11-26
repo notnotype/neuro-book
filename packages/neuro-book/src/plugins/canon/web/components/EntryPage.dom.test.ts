@@ -3,7 +3,7 @@
  * 不在了的标记、断开的横幅；交互发出的事件。
  */
 
-import {mount} from "@vue/test-utils";
+import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
@@ -53,6 +53,20 @@ describe("EntryPage", () => {
         expect(wrapper.find("button[aria-label='更多']").exists()).toBe(true);
     });
 
+    it("换分页时内容换成新的一页，过渡的方向跟着列表里的先后：往后切从后方进来，往前切从前方（输出 9）", async () => {
+        const tabs = [...base.tabs.slice(0, 1), {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const}, base.tabs[1]!];
+        const wrapper = page({tabs, tab: "text"});
+        const shift = () => {
+            const style = (wrapper.get("[role='tabpanel']").element as HTMLElement).style;
+            return [style.getPropertyValue("--entry-page-tab-x"), style.getPropertyValue("--entry-page-tab-y")];
+        };
+        await wrapper.setProps({tab: "plot"});
+        expect(shift()).toEqual(["12px", "0px"]);
+        await wrapper.setProps({tab: "data:look"});
+        expect(shift()).toEqual(["-12px", "0px"]);
+        expect(wrapper.get("[role='tabpanel'] [data-tab-content] [data-content]").text()).toBe("分页内容");
+    });
+
     it("没有章、没有计划又只有主线（空作品）时不出“在看”；作品里有计划、或不止一条线时出", async () => {
         const empty = page({chapters: [], position: "initial"});
         expect(empty.find("[data-view-point]").exists()).toBe(false);
@@ -97,7 +111,7 @@ describe("EntryPage", () => {
         expect(wrapper.emitted("aliases")).toEqual([[{add: ["夜王"]}], [{add: ["哥哥大人"]}]]);
     });
 
-    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的组时行尾有“＋”，选一项发 add-component、打开时发 add-open；更多里没有“添加一组设定”", async () => {
+    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的组时分页条后面有“＋”（在 tablist 外面），点了开“添加一组设定”浮层并发 add-open；更多里没有“添加一组设定”", async () => {
         const wrapper = page({
             editable: true,
             tabs: [
@@ -107,16 +121,51 @@ describe("EntryPage", () => {
             ],
             tab: "text",
             addable: [{value: "nbook.canon.look", label: "形象"}],
+            pickerItems: [
+                {value: "nbook.canon.person", label: "人物", iconClass: "i-lucide-user-round", group: "canon", fits: true, present: true, restore: false},
+                {value: "nbook.canon.look", label: "形象", iconClass: "i-lucide-shirt", group: "canon", fits: true, present: false, restore: false},
+            ],
+            kind: "人物",
         });
         const tabs = wrapper.findAll("[role='tablist'] [role='tab']").filter((tab) => tab.attributes("data-tab-value") !== undefined);
         const segments = new Map(tabs.map((tab) => [tab.attributes("data-tab-value"), tab.attributes("data-segment-start") !== undefined]));
         expect(Object.fromEntries(segments)).toEqual({"data:character": false, text: false, plot: true});
         expect(wrapper.find("[role='tablist'] .i-lucide-user-round").exists()).toBe(true);
-        const add = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "nbook.canon.look"))!;
-        add.vm.$emit("update:open", true);
-        add.vm.$emit("select", "nbook.canon.look");
+        expect(wrapper.find("[role='tablist'] [data-add-component]").exists()).toBe(false);
+        const add = wrapper.get("[data-add-component]");
+        await add.trigger("click");
+        await flushPromises();
         expect(wrapper.emitted("add-open")).toHaveLength(1);
+        expect(add.attributes("aria-expanded")).toBe("true");
+        // 选一项：发 add-component，浮层关上，焦点回到“＋”。
+        document.querySelector<HTMLElement>("[role='option']")!.click();
+        await flushPromises();
         expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
+        expect(add.attributes("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(add.element);
+        // 再开、搜到已经有的一组选它：发 show-component；再点一下“＋”关上，不再发 add-open。
+        await add.trigger("click");
+        await flushPromises();
+        const search = document.querySelector<HTMLInputElement>("[data-suggestion-menu-header] input")!;
+        search.value = "人物";
+        search.dispatchEvent(new Event("input"));
+        await flushPromises();
+        search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await flushPromises();
+        expect(wrapper.emitted("show-component")).toEqual([["nbook.canon.person"]]);
+        // Tab 离开搜索框：浮层关上，焦点先回到“＋”（Tab 的默认动作再从它往下走），不留在被卸掉的搜索框上。
+        await add.trigger("click");
+        await flushPromises();
+        const opened = document.querySelector<HTMLInputElement>("[data-suggestion-menu-header] input")!;
+        expect(document.activeElement).toBe(opened);
+        opened.dispatchEvent(new KeyboardEvent("keydown", {key: "Tab", bubbles: true}));
+        await flushPromises();
+        expect(add.attributes("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(add.element);
+        await add.trigger("click");
+        await add.trigger("click");
+        expect(wrapper.emitted("add-open")).toHaveLength(4);
+        expect(add.attributes("aria-expanded")).toBe("false");
         const more = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "delete"))!;
         expect((more.props("items") as {id: string}[]).map((item) => item.id)).not.toContain("add-component");
         // 没有能加的组时不出“＋”。

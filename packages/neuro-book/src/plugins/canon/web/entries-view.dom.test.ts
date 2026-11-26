@@ -192,8 +192,8 @@ describe("设定视图", () => {
         type(name!, "魔杖");
         await waitUntil("名字写进草稿", () => state.creating.value?.name === "魔杖");
         type(kind!, "物品");
-        await waitUntil("登记的类型", () => dialog().textContent?.includes("面板") ?? false);
-        const panel = [...dialog().querySelectorAll("label")].find((label) => label.textContent?.includes("面板"))!;
+        await waitUntil("登记的类型", () => dialog().textContent?.includes("数值") ?? false);
+        const panel = [...dialog().querySelectorAll("label")].find((label) => label.textContent?.includes("数值"))!;
         panel.click();
         await waitUntil("“新建”可用", () => !create().disabled);
         create().click();

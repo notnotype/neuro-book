@@ -31,11 +31,14 @@ function list(props: Record<string, unknown>) {
 }
 
 describe("OriginList", () => {
-    it("一行一步；估计的依据用警告色；只有变更给出的行有“改这一笔”，点了发 change", async () => {
+    it("一步一项、没有表头；变化与结果前有只给读屏的“变化”“结果”；初值一项写“最初”一次；估计的依据用警告色；只有变更给出的行有“改这一笔”，点了发 change", async () => {
         const wrapper = list({caption: "存款是怎么来的"});
         expect(wrapper.text()).toContain("存款是怎么来的");
+        expect(wrapper.text()).not.toContain("发生了什么");
         const lines = wrapper.findAll("[data-origin-row]");
         expect(lines).toHaveLength(3);
+        expect(lines[0]!.text()).toBe("第 2 章变化−300结果900 元改这一笔买了书估计：书大概三百");
+        expect(lines[2]!.text()).toBe("最初结果1,000 元");
         expect(lines[0]!.find(".text-\\[var\\(--status-warning\\)\\]").text()).toBe("估计：书大概三百");
         expect(lines.map((line) => line.findAll("button").length)).toEqual([1, 0, 0]);
         await lines[0]!.get("button").trigger("click");

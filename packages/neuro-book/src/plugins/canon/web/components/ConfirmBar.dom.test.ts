@@ -46,8 +46,10 @@ describe("ConfirmBar", () => {
         expect(wrapper.emitted("save")).toHaveLength(1);
     });
 
-    it("没有预览、预览中、保存中、锁住时保存不可用；原因不锁保存", () => {
+    it("没有预览、预览中、保存中、锁住、填的值没变（pristine）时保存不可用；原因不锁保存", () => {
         expect(button(bar(), "保存").attributes("disabled")).toBeDefined();
+        expect(button(bar({preview: {route: "改最初的值", impact: []}, pristine: true}), "保存").attributes("disabled")).toBeDefined();
+        expect(button(bar({variant: "inline", preview: {route: "改最初的值", impact: []}, pristine: true}), "保存").attributes("disabled")).toBeDefined();
         expect(button(bar({preview: {route: "改最初的值", impact: []}, previewing: true}), "保存").attributes("disabled")).toBeDefined();
         expect(button(bar({preview: {route: "改最初的值", impact: []}, locked: true, error: "这个数是几笔累出来的"}), "保存").attributes("disabled")).toBeDefined();
         const conflict = bar({preview: {route: "改最初的值", impact: []}, error: "这个值刚刚变了"});
@@ -75,14 +77,40 @@ describe("ConfirmBar", () => {
         expect(bar().get("[data-edit-intent]").findAll("button").map((item) => item.text())).toEqual(["改设定", "剧情里变了"]);
     });
 
-    it("选着剧情里变了时多一行“发生了什么”，占位写不填时的那一句，打字发 update:note；改设定时没有这一行；宿主不给（null）时也没有", async () => {
+    it("选着剧情里变了时多一行“发生了什么”，占位写不填时的那一句，打字发 update:note；编辑卡里这一行一直占位、改设定时藏起来（两种意图一样高）；页顶的确认条与宿主不给（null）时没有这一行", async () => {
         const story = bar({variant: "inline", intent: "story", note: "", noteFallback: "存款变成 800 元"});
         const note = story.get("[data-edit-note] input");
         expect(note.attributes("placeholder")).toBe("发生了什么（选填，不填就写“存款变成 800 元”）");
         await note.setValue("交了学费");
         expect(story.emitted("update:note")).toEqual([["交了学费"]]);
-        expect(bar({variant: "inline", intent: "creative", note: ""}).find("[data-edit-note]").exists()).toBe(false);
-        expect(bar({variant: "inline", intent: "story"}).find("[data-edit-note]").exists()).toBe(false);
+        // 编辑卡：改设定时这一行还在（占位），只是藏起来、不进 Tab 顺序；换回剧情里变了时露出来，不另插一行。
+        const creative = bar({variant: "inline", intent: "creative", note: ""});
+        const slot = creative.get("[data-edit-note-slot]");
+        expect(creative.find("[data-edit-note]").exists()).toBe(false);
+        expect(slot.classes()).toContain("confirm-bar__note--hidden");
+        expect((slot.element as HTMLElement).inert).toBe(true);
+        await creative.setProps({intent: "story"});
+        expect(creative.get("[data-edit-note-slot]").element).toBe(slot.element);
+        expect(slot.classes()).not.toContain("confirm-bar__note--hidden");
+        expect((slot.element as HTMLElement).inert).toBe(false);
+        expect(slot.attributes("data-edit-note")).toBe("");
+        // 只能改设定（看着最初）时没有这一行；页顶的确认条照旧按需出现；宿主不给时也没有。
+        expect(bar({variant: "inline", intents: ["creative"], intent: "creative", note: ""}).find("[data-edit-note-slot]").exists()).toBe(false);
+        expect(bar({intent: "creative", note: ""}).find("[data-edit-note-slot]").exists()).toBe(false);
+        expect(bar({variant: "inline", intent: "story"}).find("[data-edit-note-slot]").exists()).toBe(false);
+    });
+
+    it("编辑卡里用指针点意图的一项以后，焦点回到值的输入框；键盘触发的（detail 为 0）不动焦点", async () => {
+        const card = bar({variant: "inline", intentLabels: {creative: "从最初起", story: "从第 3 章起"}});
+        const segments = card.get("[data-edit-intent]").findAll("button");
+        (segments[1]!.element as HTMLElement).focus();
+        await segments[1]!.trigger("click", {detail: 1});
+        await card.vm.$nextTick();
+        expect(document.activeElement).toBe(card.get("input").element);
+        (segments[0]!.element as HTMLElement).focus();
+        await segments[0]!.trigger("click", {detail: 0});
+        await card.vm.$nextTick();
+        expect(document.activeElement).toBe(segments[0]!.element);
     });
 
     it("有别的变化才写一条提示，多于一条收成“还有 N 项”、整句在悬停提示里；有原因时只写原因；“再查一次”在按钮那一行", async () => {
@@ -116,6 +144,8 @@ describe("ConfirmBar", () => {
         await single.get("input").trigger("keydown", {key: "Enter"});
         await single.setProps({saving: false, locked: true});
         await single.get("input").trigger("keydown", {key: "Enter"});
+        await single.setProps({locked: false, previewing: false, preview: {route: "改最初的值", impact: []}, pristine: true});
+        await single.get("input").trigger("keydown", {key: "Enter"});
         expect(single.emitted("save")).toHaveLength(2);
 
         const passage = bar({variant: "inline", kind: "text", value: "嘴硬心软", preview: {route: "改最初的值", impact: []}});
@@ -124,6 +154,9 @@ describe("ConfirmBar", () => {
         // 成段的文字：Ctrl（或 ⌘）加回车保存。
         await passage.get("textarea").trigger("keydown", {key: "Enter", ctrlKey: true});
         await passage.get("textarea").trigger("keydown", {key: "Enter", metaKey: true});
+        expect(passage.emitted("save")).toHaveLength(2);
+        await passage.setProps({pristine: true});
+        await passage.get("textarea").trigger("keydown", {key: "Enter", ctrlKey: true});
         expect(passage.emitted("save")).toHaveLength(2);
     });
 });

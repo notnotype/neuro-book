@@ -6,11 +6,13 @@
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
 import {Button, ContextMenu, DropdownMenu, IconButton, Input, Tabs} from "@notnotype/nb-ui/components";
-import type {ContextMenuItem, DropdownMenuItemData, TabsItem} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem, TabsItem} from "@notnotype/nb-ui/components";
 
 import type {LineOption} from "../../shared/reads";
 import type {PositionChapter} from "../positions";
 import {useCanonText} from "../text";
+import AddComponentPicker from "./AddComponentPicker.vue";
+import type {AddComponentItem} from "./add-component-picker";
 import EntryPageNav from "./EntryPageNav.vue";
 import type {EntryTab} from "./entry-tabs";
 import ViewPointPicker from "./ViewPointPicker.vue";
@@ -42,8 +44,12 @@ const props = withDefaults(defineProps<{
     readOnly?: string;
     /** 分页：设定组与文字一段、看法一段（输出 9）。 */
     tabs?: readonly EntryTab[];
-    /** 能加的设定组（适用的在前，去掉过的写“恢复”）；空时不出“＋”。默认空。 */
+    /** 能加的设定组（适用的在前，去掉过的写“恢复”）：右键菜单的下一级；空时不出“＋”。默认空。 */
     addable?: readonly {readonly value: string; readonly label: string}[];
+    /** “添加一组设定”浮层的各项（输出 38，`AddComponentPicker`）：登记了的全部类型。默认空。 */
+    pickerItems?: readonly AddComponentItem[];
+    /** 条目的种类：浮层里“适用于”那一组的名字。默认空串。 */
+    kind?: string;
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
     deletable?: boolean;
@@ -65,7 +71,7 @@ const props = withDefaults(defineProps<{
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], pickerItems: () => [], kind: "", editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -85,8 +91,10 @@ const emit = defineEmits<{
     (event: "move"): void;
     /** 选了“＋”或右键菜单里的一组设定：宿主直接加上（输出 38）。 */
     (event: "add-component", type: string): void;
-    /** “＋”的菜单打开了：宿主记下这时条目的版本，加的时候带它（输出 43）。 */
+    /** “＋”的浮层或右键菜单打开了：宿主记下这时条目的版本，加的时候带它（输出 43）。 */
     (event: "add-open"): void;
+    /** 在“添加一组设定”里搜到条目上已经有的一组、选了它：宿主切到它的分页。 */
+    (event: "show-component", type: string): void;
     (event: "remove-component"): void;
     /** 已删除页上的“恢复”。 */
     (event: "restore"): void;
@@ -135,8 +143,25 @@ const tabItems = computed<TabsItem[]>(() => {
         ...(index === firstView && index > 0 ? {attrs: {"data-segment-start": ""}} : {}),
     }));
 });
-const addItems = computed<DropdownMenuItemData[]>(() => props.addable.map((item) => ({id: item.value, label: item.label})));
 const canAdd = computed(() => props.editable && props.addable.length > 0);
+/**
+ * “添加一组设定”的浮层锚在哪个按钮上（横排的“＋”或竖排导航里那一行）；null 时关着。浮层归这一层，两种排法共用一个。打开时发
+ * `add-open`；Escape 与选了一项以后焦点回到这个按钮。
+ */
+const pickerAnchor = shallowRef<HTMLElement | null>(null);
+const togglePicker = (button: HTMLElement): void => {
+    if (pickerAnchor.value !== null) {
+        pickerAnchor.value = null;
+        return;
+    }
+    pickerAnchor.value = button;
+    emit("add-open");
+};
+const closePicker = (refocus: boolean): void => {
+    const button = pickerAnchor.value;
+    pickerAnchor.value = null;
+    if (refocus) button?.focus();
+};
 
 // 右键一页：先选中它，菜单里是“添加一组设定”（下一级列出能加的）与这一页是设定组时的“去掉这组设定”。
 const context = shallowRef<{readonly value: string; readonly x: number; readonly y: number} | null>(null);
@@ -249,6 +274,34 @@ const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
 const PANEL_ID = `canon-entry-panel-${useId()}`;
 const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
+
+/**
+ * 换分页的过渡（输出 9）：旧内容淡出，新内容从切换方向那一边挪进来 12 像素并淡入，不补间高度。往后切（列表里靠后的一页）从后方进来，
+ * 往前切从前方；横排时沿横轴，竖排（`rail`）时沿纵轴。时长取令牌：减弱动效时令牌是 0，直接换。方向在换内容之前定（`flush: "pre"`）。
+ */
+const tabShift = shallowRef({x: 0, y: 0});
+watch(() => props.tab, (now, before) => {
+    const order = props.tabs.map((item) => item.value);
+    const distance = 12 * Math.sign(order.indexOf(now) - order.indexOf(before));
+    tabShift.value = rail.value ? {x: 0, y: distance} : {x: distance, y: 0};
+}, {flush: "pre"});
+const panelStyle = computed(() => ({"--entry-page-tab-x": `${String(tabShift.value.x)}px`, "--entry-page-tab-y": `${String(tabShift.value.y)}px`}));
+/**
+ * 新内容进来之前（旧的已经淡出、还没画新的）：滚过了分页条的，让新的一页从吸顶的页头下沿开始，不从半中间开始（输出 9）。
+ * 这里一读位置，浏览器就按空着的分页排一次版：页面变矮，滚动位置先被夹回，现在的版式（分页内容之后没有别的东西）多半已经回到
+ * 页头下沿；夹不回来的（分页后面还有内容、页面仍比视口高）由下面再滚。没滚过的不动。这时画面上没有内容，跳一下看不出来。
+ */
+const alignPanel = (): void => {
+    const panel = document.getElementById(PANEL_ID);
+    if (scroller === null || panel === null) return;
+    const gap = panel.getBoundingClientRect().top - (scroller.getBoundingClientRect().top + sticky.value.top);
+    if (gap < 0) scroller.scrollTop += gap;
+};
+
+// 换了排法、加不了了（写不了、没有能加的）：关上，不留一个锚在已经不在的按钮上的浮层。
+watch([rail, canAdd], () => {
+    pickerAnchor.value = null;
+});
 // 两种排法是两套元素：焦点在分页上时直接换会落到 body，换完把焦点放到新那套的选中项上（同一页，按 id 找）。
 watch(rail, async () => {
     const focused = document.activeElement;
@@ -351,10 +404,21 @@ watch(rail, async () => {
                 </div>
                 <!-- 一组设定一个分页，分页会比一行多：放不下时分页条自己横向滚动，每页照旧写名字（触屏上没有悬停提示，只剩图标认不出是哪一页；author-ui 输出 9）。宽时换成内容左边的竖排。 -->
                 <div v-if="!rail" class="mx-auto mt-3 flex items-end gap-1" :class="column" @contextmenu="onStripContext">
-                    <Tabs class="entry-page__tabs min-w-0 flex-[1_1_auto]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
-                    <DropdownMenu v-if="canAdd" align="end" :items="addItems" :disabled="blockedReason !== undefined" @select="(id: string) => emit('add-component', id)" @update:open="(open: boolean) => open && emit('add-open')">
-                        <IconButton class="mb-1 shrink-0" size="sm" icon-class="i-lucide-plus" :disabled="blockedReason !== undefined" :aria-label="text('entry.addComponentShort')" :title="blockedReason ?? text('entry.addComponentShort')" data-add-component />
-                    </DropdownMenu>
+                    <Tabs class="entry-page__tabs min-w-0 flex-[0_1_auto]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                    <!-- “＋”在分页条外面、紧跟着它：分页条里只能是分页（ARIA 的 tablist）。 -->
+                    <IconButton
+                        v-if="canAdd"
+                        class="mb-1 shrink-0"
+                        size="sm"
+                        icon-class="i-lucide-plus"
+                        :disabled="blockedReason !== undefined"
+                        :aria-label="text('entry.addComponentShort')"
+                        :title="blockedReason ?? text('entry.addComponentShort')"
+                        aria-haspopup="listbox"
+                        :aria-expanded="pickerAnchor !== null"
+                        data-add-component
+                        @click="(event: MouseEvent) => togglePicker(event.currentTarget as HTMLElement)"
+                    />
                 </div>
                 <div v-else class="h-4" />
             </header>
@@ -364,24 +428,36 @@ watch(rail, async () => {
                     class="entry-page__nav"
                     :items="props.tabs"
                     :model-value="props.tab"
-                    :addable="canAdd ? props.addable : []"
+                    :can-add="canAdd"
+                    :add-open="pickerAnchor !== null"
                     :add-reason="blockedReason ?? ''"
                     :tab-id="tabId"
                     :panel-id="PANEL_ID"
                     @update:model-value="(value: string) => emit('update:tab', value)"
-                    @add-component="(type: string) => emit('add-component', type)"
-                    @add-open="emit('add-open')"
+                    @add-toggle="togglePicker"
                     @context="openContext"
                 />
                 <div class="min-w-0">
                     <slot name="bar" />
-                    <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)">
-                        <slot />
+                    <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)" :style="panelStyle">
+                        <Transition name="entry-page-tab" mode="out-in" @before-enter="alignPanel">
+                            <div :key="props.tab" data-tab-content>
+                                <slot />
+                            </div>
+                        </Transition>
                     </div>
                 </div>
             </div>
         </template>
         <ContextMenu :open="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @update:open="(open: boolean) => open || (context = null)" />
+        <AddComponentPicker
+            :anchor="pickerAnchor"
+            :items="props.pickerItems"
+            :kind="props.kind"
+            @add="(type: string) => emit('add-component', type)"
+            @show="(type: string) => emit('show-component', type)"
+            @close="closePicker"
+        />
     </article>
 </template>
 
@@ -406,6 +482,25 @@ watch(rail, async () => {
     display: grid;
     grid-template-columns: 168px minmax(0, 1fr);
     column-gap: 32px;
+}
+/* 换分页（输出 9）：退场只淡出，进场从切换方向那一边挪进来并淡入；减弱动效时令牌为 0，没有过渡（Vue 的 Transition 仍隔两帧才换上，同 nb-ui-switch）。 */
+.entry-page-tab-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-dialog-leave);
+}
+.entry-page-tab-enter-active {
+    transition: opacity var(--motion-base) var(--ease-layout), transform var(--motion-base) var(--ease-layout);
+}
+.entry-page-tab-leave-to {
+    opacity: 0;
+}
+.entry-page-tab-enter-from {
+    opacity: 0;
+    transform: translate(var(--entry-page-tab-x, 0px), var(--entry-page-tab-y, 0px));
+}
+@media (prefers-reduced-motion: reduce) {
+    .entry-page-tab-enter-from {
+        transform: none;
+    }
 }
 /* 竖排的分页吸在页头下面，内容往下滚时它还在。 */
 .entry-page__nav {
