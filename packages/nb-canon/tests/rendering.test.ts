@@ -7,8 +7,9 @@ import {createHash} from "node:crypto";
 
 import {describe, expect, test} from "bun:test";
 
-import {buildRegistry, ChapterOrder, editEntries, type ComponentDeclaration, type EntryEdits, type EntryOp, type Entry, type StoryChange, type WriteRequest} from "../src/index";
+import {buildRegistry, ChapterOrder, editEntries, previewEntries, type ComponentDeclaration, type EntryEdits, type EntryOp, type Entry, type StoryChange, type WriteRequest} from "../src/index";
 import {parseExpression, stripEntryText} from "../src/grammar/index";
+import {normalizeBlockSource, blockProblem} from "../src/render/syntax";
 import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain, renderSourceForAuthor, splitBlocks, type PlainOptions} from "../src/render/entry";
 import {evaluate, renderBlockPlain, type AuthorValue, type PlainBlock, type PlainContext, type Resolve} from "../src/render/render";
 import {analyzeBlock, analyzeDraft} from "../src/render/syntax";
@@ -309,6 +310,11 @@ describe("canon.rendering 输出 16：按给的源文字渲染", () => {
         expect(analyzeDraft(draft)).not.toBe(analyzeDraft(draft));
         renderEntryForAuthor(world(), "e1", at("ch5"), "actual");
         expect(analyzeDraft(BLOCK)).toBe(analyzeBlock(BLOCK));
+    });
+
+    test("没登记的标签按写入时的基线查：条目里没有的照出错的块给（写入会拒收），已有的给“需要插件”", () => {
+        expect(sourceBlock(world(), '新写的 <Plot id="x" />', "ch5").blocks[0]).toMatchObject({error: {code: "unknown-tag", line: 1, column: 5}});
+        expect(sourceBlock(injected(world(), [["b2", '<Plot id="x" />']]), '新写的 <Plot id="x" />', "ch5").blocks[0]).toEqual({id: "source", source: '新写的 <Plot id="x" />', values: [{tag: "Plot", start: 4, needsPlugin: true}]});
     });
 
     test("嵌套深到读不出结构的源文字（几万层引用）：照出错的块给，不抛；超过一块的长度上限照常渲染（上限只管写入）", () => {
@@ -712,6 +718,56 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
         expect(splitBlocks(deep)).toEqual([{id: "b1", source: deep}]);
     });
 
+    test("单元嵌套超过 100 层拒收，存下的旧数据照出错的块给（与运行时的栈深无关）；100 层照常", () => {
+        const quotes = (levels: number) => `${"> ".repeat(levels)}字`;
+        expect(rejected(writeText(world(), [quotes(98)]))).toBe("ok");
+        expect(rejected(writeText(world(), [quotes(99)]))).toEqual([{code: "unsupported-markdown", path: "init.text[b1]"}]);
+        expect(blockProblem(quotes(99))?.message).toBe("nested more than 100 levels deep; flatten the quotes, lists or emphasis");
+        const stored = injected(world(), [["b2", quotes(99)]]);
+        expect(agentBlocks(stored, at("ch5"))[1]).toBe(quotes(99));
+        const rendered = renderEntryForAuthor(stored, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        expect(rendered.blocks[1]).toMatchObject({error: {code: "unsupported-markdown"}, text: quotes(99)});
+    });
+
+    test("原样的 HTML（块级与行内）的诊断写 raw HTML，不写内部的单元名", () => {
+        for (const source of ["<div>旧</div>", "前 <span>旧</span> 后"]) expect(blockProblem(source)?.message).toBe("raw HTML or an HTML comment is not supported in entry text");
+    });
+
+    test("旧块里存着没新建的临时 id：之后的请求新建同名的临时 id，原样留着的旧块不被改绑；新写的块照换（发布、editEntries 与它的预览）", () => {
+        const stored = ok(writeText(world(), ['提到 <Ref id="tmp:x" />。'])).world;
+        expect(textOf(stored)[0]!.source).toBe('提到 <Ref id="tmp:x" />。');
+        const newcomer = {id: "tmp:x", type: "人物", parent: null, folder: "", order: 5, init: {name: "新来的", aliases: [], summary: "", text: [], data: {}}} as Entry;
+        const renamed = {...structuredClone(stored.data.entries.get("e1")!), init: {...stored.data.entries.get("e1")!.init, name: "星瑕二"}};
+        const published = ok(publishPuts(stored, [{ref: {kind: "entry", id: "tmp:x"}, after: newcomer}, {ref: {kind: "entry", id: "e1"}, after: renamed}]));
+        expect(textOf(published.world)[0]!.source).toBe('提到 <Ref id="tmp:x" />。');
+        const edits = editsOf(stored, [
+            {op: "create", id: "tmp:x", entry: {name: "新来的", kind: "人物"}},
+            {op: "set", at: {entry: "e1", path: "entry.name"}, value: "星瑕二"},
+            {op: "set", at: {entry: "e1", path: "text[b1]"}, value: '提到 <Ref id="tmp:x" />。'},
+            {op: "addBlock", entry: "e1", source: '又提到 <Ref id="tmp:x" />。', after: "b1"},
+        ] as EntryOp[]);
+        for (const result of [editEntries(stored, edits, "t"), previewEntries(stored, edits, "t")]) {
+            const done = ok(result);
+            const x = done.ids["tmp:x"]!;
+            expect(textOf(done.world).map((block) => block.source)).toEqual(['提到 <Ref id="tmp:x" />。', `又提到 <Ref id="${x}" />。`]);
+        }
+    });
+
+    test("按块渲染（Agent 写回一块时用）：只给那一块，给 Agent 的另带存下的源文；没有那块时没有块", () => {
+        const base = injected(world(), [["b2", '魔力 <V  of="panel.魔力"/>。']]);
+        expect(renderEntryForAgent(base, "e1", at("ch5"), "actual", {block: "b2"})).toMatchObject({blocks: [{id: "b2", text: '魔力 <V of="panel.魔力">3110</V>。', source: '魔力 <V  of="panel.魔力"/>。'}]});
+        expect(renderEntryForAgent(base, "e1", at("ch5"), "actual", {block: "b9"})).toMatchObject({blocks: []});
+        expect(renderEntryForAuthor(base, "e1", at("ch5"), "actual", {block: "b2"})).toMatchObject({blocks: [{id: "b2"}]});
+    });
+
+    test("非规范写法的旧块：读到的带值写法去值，规范化以后与存下的源文规范化以后相同（Agent 原样交回算没有改动）", () => {
+        const base = injected(world(), [["b2", '魔力 <V  of="panel.魔力"/>，<Plot  id="x"/>。']]);
+        const read = agentBlocks(base, at("ch5"))[1]!;
+        expect(normalizeBlockSource(stripEntryText(read))).toBe(normalizeBlockSource('魔力 <V  of="panel.魔力"/>，<Plot  id="x"/>。'));
+        expect(normalizeBlockSource(stripEntryText(read))).toBe('魔力 <V of="panel.魔力" />，<Plot id="x" />。');
+    });
+
     test("预览的行列：CR、CRLF、LF 都算一个换行", () => {
         for (const newline of ["\r", "\r\n", "\n"]) {
             const rendered = renderSourceForAuthor(world(), "e1", `第一段${newline}${newline}魔力 <V of="panel.魔力"`, at("ch5"), "actual");
@@ -726,6 +782,15 @@ describe("canon.rendering 输出 5、6、7（审查补）：结果确定时不�
         const base = cast(["<V expr=\"false && ref('e3').entry.name\" />"]);
         expect(agentBlocks(base, at("ch1"))).toEqual(["<V expr=\"false && ref('e3').entry.name\">false</V>"]);
         expect(authorValues(base, at("ch1"))[0]).toEqual({tag: "V", start: 0, expr: "false && ref('e3').entry.name", raw: false, display: "否"});
+    });
+
+    test("判断的结果确定时作者的值表也不带读不到；条件未知时按第一个未知的判断报：读不到的报 unavailable 不写字，值为空的写“未知”", () => {
+        const base = cast(["<If test=\"false && ref('e3').entry.name == 'x'\">甲<Else />乙</If>"]);
+        expect(authorValues(base, at("ch1"))[0]).toEqual({tag: "If", start: 0, result: false, taken: 1});
+        const context: PlainContext = {resolve: (reference) => (reference.entry === "e3" ? {value: null, unavailable: "还没出场"} : {value: null}), entryName: () => null, isEntry: () => true};
+        const missingFirst = "前<If test=\"ref('e3').entry.name == '阿七'\">甲<ElseIf test=\"panel.空 > 1\" />乙</If>后";
+        const emptyFirst = "前<If test=\"panel.空 > 1\">甲<ElseIf test=\"ref('e3').entry.name == '阿七'\" />乙</If>后";
+        expect([renderBlockPlain("b1", missingFirst, context), renderBlockPlain("b1", emptyFirst, context)].map((block) => [block.text, block.problems])).toEqual([["前后", ["unavailable"]], ["前未知后", []]]);
     });
 
     test("作者看到的字符串列表写各项，用顿号连", () => {

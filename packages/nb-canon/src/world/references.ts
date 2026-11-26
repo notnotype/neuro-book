@@ -29,6 +29,14 @@ export interface Reference {
     readonly targets?: readonly string[];
 }
 
+/** 请求里哪些主文字是新写的：条目初值里的块（按请求里写的条目 id、块 id 与源文），变更的补丁（按请求里写的变更 id 与序号）。 */
+export interface WrittenText {
+    readonly block: (entry: string, block: unknown, source: string) => boolean;
+    readonly patch: (change: string, index: number) => boolean;
+}
+
+const ALL_WRITTEN: WrittenText = {block: () => true, patch: () => true};
+
 export interface ReferenceContext {
     readonly registry: ComponentRegistry;
     /** 标注种类的登记：标注载荷里哪些路径是引用由它声明（components.md 输出 17）。 */
@@ -257,8 +265,11 @@ export function newReferences(before: readonly Reference[], after: readonly Refe
  * 决策挂的诊断稳定键里的对象，以及主文字里活的标签指向的条目（`V` 的 `entry`、`Ref` 的 `id`、式子里的 `ref('…')`：同一请求里
  * 新建几个互相提到的条目时，存下的是正式 id）。不在这些位置上的 `tmp:` 文字原样存下。`context.entry` 按请求里写的 id（临时 id
  * 也行）取条目，补丁的值要按它的字段声明判断是不是引用。
+ *
+ * 主文字只换新写的（`written`，与规范化同一个判定）：原样留着的旧块里存着别的请求没新建的临时 id 时，不因这次新建了同名的临时 id
+ * 被改绑到新条目上。
  */
-export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>, context: ReferenceContext): WriteRequest {
+export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>, context: ReferenceContext, written: WrittenText = ALL_WRITTEN): WriteRequest {
     if (Object.keys(ids).length === 0) return request;
     const copy = structuredClone(request) as {puts: {ref: ObjectRef; after: unknown}[]; reads?: {at: {entry: string; path: string}}[]};
     const swap = (id: unknown) => (typeof id === "string" ? (ids[id] ?? id) : id);
@@ -270,6 +281,7 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
     const swapText = (source: string) => replaceTextTempIds(source, ids);
     const swapKeys = (record: Record<string, unknown> | undefined) => (record === undefined ? undefined : Object.fromEntries(Object.entries(record).map(([key, value]) => [replacePathSegments(key, ids), value])));
     for (const put of copy.puts) {
+        const requested = put.ref.id;
         put.ref = {...put.ref, id: swap(put.ref.id) as string};
         const after = put.after as Record<string, unknown> | null;
         if (after === null || typeof after !== "object") continue;
@@ -283,10 +295,11 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
         if (put.ref.kind === "check") swapAddress(after.at as {entry?: unknown; path?: unknown});
         if (put.ref.kind === "entry") {
             const init = after.init as {text?: unknown} | null | undefined;
-            if (init !== null && typeof init === "object") for (const [, block] of objectItems(init.text)) if (typeof block.source === "string") block.source = swapText(block.source);
+            if (init !== null && typeof init === "object") for (const [, block] of objectItems(init.text)) if (typeof block.source === "string" && written.block(requested, block.id, block.source)) block.source = swapText(block.source);
         }
         if (put.ref.kind === "change") {
-            for (const [, patch] of objectItems(after.patches)) {
+            for (const [index, patch] of objectItems(after.patches)) {
+                if (!written.patch(requested, index)) continue;
                 const value = patch.value as {source?: unknown} | string | null | undefined;
                 if (patch.op === "addBlock" && value !== null && typeof value === "object" && typeof value.source === "string") value.source = swapText(value.source);
                 const at = patch.at as {path?: unknown} | null | undefined;

@@ -62,7 +62,7 @@ import {defaultCarry, forkProblems, keptAsWritten} from "./forks";
 import {lineRuleProblems} from "./line-rules";
 import {linePending, type LinePendingItem} from "../lines/pending";
 import {blockProblem, normalizeBlockSource, unregisteredTags} from "../render/syntax";
-import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
+import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext, type WrittenText} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
 import {classifyDecisionWrite, missingFields, revertNeedsSource, type Classified} from "./decisions";
 import {countOccurrences} from "./tellings";
@@ -488,7 +488,7 @@ export class World {
         // 临时 id 只在引用位置上换（components.md 输出 18）；补丁的值是不是引用要看它指到的条目的字段声明，同一请求里
         // 新建的条目按请求里写的临时 id 找。
         const requestEntries = new Map(input.puts.filter((put) => put.ref.kind === "entry" && put.after !== null && typeof put.after === "object").map((put) => [put.ref.id, put.after as Entry]));
-        const request = replaceRequestTempIds(input, ids, {registry: this.options.registry, marks: this.options.marks ?? EMPTY_MARK_REGISTRY, entry: (id) => requestEntries.get(id) ?? this.data.entries.get(id)});
+        const request = replaceRequestTempIds(input, ids, {registry: this.options.registry, marks: this.options.marks ?? EMPTY_MARK_REGISTRY, entry: (id) => requestEntries.get(id) ?? this.data.entries.get(id)}, writtenTextOf(this, input));
 
         const problems: Problem[] = [];
         const conflicts: ConflictDetail[] = [];
@@ -1391,6 +1391,23 @@ function patchText(patch: Patch): string | undefined {
  * 出现过的规范写法放行。用到才算：补丁按条目分组只做一遍，每个条目的基线算一次。
  */
 function existingTagsOf(world: World): (entry: string) => ReadonlySet<string> {
+    let found = baselines.get(world);
+    if (found === undefined) {
+        found = baselineOf(world);
+        baselines.set(world, found);
+    }
+    return found;
+}
+
+/** 每个世界版本的基线只算一次：写入的校验与预览（rendering.md 输出 16）各自来问。 */
+const baselines = new WeakMap<World, (entry: string) => ReadonlySet<string>>();
+
+/** 一个条目在这个世界里没登记的标签的基线（`existingTagsOf`）；预览按它查没登记的标签。 */
+export function existingTagsIn(world: World, entry: string): ReadonlySet<string> {
+    return existingTagsOf(world)(entry);
+}
+
+function baselineOf(world: World): (entry: string) => ReadonlySet<string> {
     const memo = new Map<string, ReadonlySet<string>>();
     let patched: Map<string, string[]> | undefined;
     return (entry) => {
@@ -1434,17 +1451,46 @@ function unchangedPatches(old: StoryChange | undefined, patches: readonly Patch[
     return found;
 }
 
-/** 请求里新写的主文字规范化：与旧世界里同 id 的块、同一条变更同位置的补丁不同的才动。形状不对的原样留给后面的校验报。 */
+/**
+ * 请求里哪些主文字是新写的：与旧世界里同 id 的块源文不同的块，与旧变更里没有内容相同的补丁对上的补丁（`unchangedPatches`）。规范化与
+ * 临时 id 的替换按同一个判定，原样留着的旧文字两样都不动。按请求里写的 id 查旧世界（临时 id 查不到，整条都算新写的）。
+ */
+function writtenTextOf(world: World, request: WriteRequest): WrittenText {
+    const blocks = new Map<string, ReadonlyMap<unknown, string>>();
+    const patches = new Map<string, ReadonlySet<number>>();
+    return {
+        block: (entry, id, source) => {
+            let old = blocks.get(entry);
+            if (old === undefined) {
+                old = new Map(((world.object({kind: "entry", id: entry}) as Entry | undefined)?.init.text ?? []).map((block) => [block.id, block.source]));
+                blocks.set(entry, old);
+            }
+            return old.get(id) !== source;
+        },
+        patch: (change, index) => {
+            let unchanged = patches.get(change);
+            if (unchanged === undefined) {
+                const put = request.puts.find((candidate) => candidate.ref.kind === "change" && candidate.ref.id === change);
+                const written = (put?.after as StoryChange | null | undefined)?.patches;
+                unchanged = Array.isArray(written) ? unchangedPatches(world.object({kind: "change", id: change}) as StoryChange | undefined, written) : new Set();
+                patches.set(change, unchanged);
+            }
+            return !unchanged.has(index);
+        },
+    };
+}
+
+/** 请求里新写的主文字规范化（`writtenTextOf`）。形状不对的原样留给后面的校验报。 */
 function normalizeRequestText(world: World, request: WriteRequest): WriteRequest {
+    const written = writtenTextOf(world, request);
     let changed = false;
     const puts = request.puts.map((put) => {
         if (put.after === null || typeof put.after !== "object") return put;
         if (put.ref.kind === "entry") {
             const entry = put.after as Entry;
-            const old = new Map(((world.object(put.ref) as Entry | undefined)?.init.text ?? []).map((block) => [block.id, block.source]));
             if (!Array.isArray(entry.init?.text)) return put;
             const text = entry.init.text.map((block) => {
-                if (block === null || typeof block !== "object" || typeof block.source !== "string" || old.get(block.id) === block.source) return block;
+                if (block === null || typeof block !== "object" || typeof block.source !== "string" || !written.block(put.ref.id, block.id, block.source)) return block;
                 const source = normalizeBlockSource(block.source);
                 return source === block.source ? block : {...block, source};
             });
@@ -1455,10 +1501,9 @@ function normalizeRequestText(world: World, request: WriteRequest): WriteRequest
         if (put.ref.kind === "change") {
             const change = put.after as StoryChange;
             if (!Array.isArray(change.patches)) return put;
-            const unchanged = unchangedPatches(world.object(put.ref) as StoryChange | undefined, change.patches);
             const patches = change.patches.map((patch, index) => {
                 const source = patchText(patch);
-                if (source === undefined || unchanged.has(index)) return patch;
+                if (source === undefined || !written.patch(put.ref.id, index)) return patch;
                 const normalized = normalizeBlockSource(source);
                 if (normalized === source) return patch;
                 return {...patch, value: (patch.op === "addBlock" ? {...(patch.value as object), source: normalized} : normalized) as never};

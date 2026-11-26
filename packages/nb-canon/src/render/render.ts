@@ -127,7 +127,8 @@ export type AuthorValue =
     | {readonly tag: string; readonly start: number; readonly needsPlugin: true};
 
 export type AuthorBlock = {readonly id: string; readonly source: string; readonly values: readonly AuthorValue[]} | {readonly id: string; readonly error: SyntaxProblem; readonly text: string};
-export type AgentBlock = {readonly id: string; readonly text: string; readonly error?: SyntaxProblem};
+/** 给 Agent 的一块；`source` 只在按块渲染时带（`RenderOptions.block`）。 */
+export type AgentBlock = {readonly id: string; readonly text: string; readonly error?: SyntaxProblem; readonly source?: string};
 
 const truthy = (value: unknown): boolean | null => (value === null || value === undefined ? null : Boolean(value));
 

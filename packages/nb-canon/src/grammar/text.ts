@@ -61,10 +61,10 @@ export function decorateEntryText(parsed: ParsedEntryText, decorationOf: (tag: E
 
 /**
  * 去值（输出 22）：带值的 `V` 与带描述的登记标签换回自闭合，去掉程序加的属性；活的标签写成规范写法。`registered` 是登记的标签名：
- * 只有 `V` 与它们开闭之间的内容去掉，别的带内容的标签照原样留下（写入检查会拒收）。
+ * 只有 `V` 与它们开闭之间的内容去掉，别的带内容的标签照原样留下（写入检查会拒收）。已经读过的文字可以直接给读好的结果，不再读一遍。
  */
-export function stripEntryText(text: string, registered: ReadonlySet<string> = new Set()): string {
-    const parsed = parseEntryText(text);
+export function stripEntryText(text: string | ParsedEntryText, registered: ReadonlySet<string> = new Set()): string {
+    const parsed = typeof text === "string" ? parseEntryText(text) : text;
     return rewrite(parsed, (tag) => {
         if (tag.kind === "malformed") return null;
         if (tag.kind === "paired" && tag.name !== "V" && !registered.has(tag.name)) return null;

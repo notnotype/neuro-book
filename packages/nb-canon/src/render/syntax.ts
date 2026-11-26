@@ -150,9 +150,10 @@ function readable(source: string): ParsedEntryText | null {
 
 /**
  * 一块主文字最多这么多个字符（UTF-16 码元，rendering.md 输出 1；开发者 2026-11-26 定）。作者界面整篇编辑时把整篇写进一块，所以它也是
- * 作者改过的条目整篇的上限，与预览一次肯渲染的长度相同。marked 在嵌套强调、引用套列表这类写法上大致按长度的平方变慢（实测 1 万字
- * 最坏约 1 到 2 秒、2 万字约 6 秒；正常文字 2 万字约 50 毫秒），写入在单写者队列里做，长度有了上界，刻意构造的最坏输入也只占住
- * 队列几十秒。只管写入：超过的不解析、直接拒收；渲染不看它，存下来的旧数据照常渲染。嵌套深到读不出结构的由 `TOO_DEEP` 兜底。
+ * 作者改过的条目整篇的上限，与预览一次肯渲染的长度相同。marked 在嵌套强调这类写法上大致按长度的平方变慢（实测最坏 1 万字约 2 秒、
+ * 2 万字约 8 秒、5 万字约 50 秒；正常文字 2 万字约 50 毫秒）。写入在单写者队列里做，这个上限只管一块：一次请求的块数不设上限，经远程
+ * 调用时受消息预算（约 960 KiB，最坏写法约 19 块）约束，刻意构造的最坏请求能占住项目进程十几分钟（S6 审查实测，记为已知限制）。只管写入：
+ * 超过的不解析、直接拒收；渲染不看它，存下来的旧数据照常渲染。嵌套深到读不出结构的由 `TOO_DEEP` 兜底。
  */
 export const MAX_BLOCK_LENGTH = 50_000;
 
@@ -203,13 +204,20 @@ const excused = (tag: EntryTag, options: BlockCheckOptions): boolean => tag.kind
 /** 写入时检查一块（输出 1、19；源文已规范化）；合格返回 null。 */
 export function blockProblem(source: string, options: BlockCheckOptions = {}): SyntaxProblem | null {
     if (source.length > MAX_BLOCK_LENGTH) return TOO_LARGE;
-    const analysis = analyzeBlock(source);
+    return analysisProblem(analyzeBlock(source), options);
+}
+
+/**
+ * 一份分析按写入时的检查（输出 1、19）的第一个问题，不看长度：写入检查（`blockProblem`）与预览（输出 16：过不了写入检查的照出错的块给，
+ * 预览不看长度）共用。
+ */
+export function analysisProblem(analysis: BlockAnalysis, options: BlockCheckOptions = {}): SyntaxProblem | null {
     if (analysis.unread === true) return analysis.error;
     const parsed = analysis.parsed;
     const problems = options.registered === undefined ? analysis.problems : checkEntryText(parsed, {registered: options.registered});
     for (const problem of problems) {
         if (problem.excusable === true && problem.tag !== undefined && excused(parsed.tags[problem.tag] as EntryTag, options)) continue;
-        return syntaxProblem(source, problem);
+        return syntaxProblem(analysis.source, problem);
     }
     return null;
 }

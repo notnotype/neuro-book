@@ -37,6 +37,29 @@ const ALLOWED_TOKENS: ReadonlySet<string> = new Set([
     "link", "image", "def", "escape", "text", "space", "br", "htmlMark", "htmlBreak", "entryTag", "entryIf",
 ]);
 
+/** 原样的 HTML 的几种单元（marked 的 `html`，核心语法的块级与行内原样块）：诊断写给作者，不写单元名。 */
+const RAW_HTML: ReadonlySet<string> = new Set(["html", "rawHtmlBlock", "rawHtmlInline"]);
+
+/**
+ * 单元最多嵌套这么多层（rendering.md 输出 1；引用套列表、强调套强调都算一层）。写入拒收，渲染照出错的块给：分词与阅读视图都按层递归，
+ * 栈的深度随运行时变（Bun 上几千层引用照常分词，浏览器的 V8 在两三千层时渲染就栈溢出），界线不能交给栈；正常的文字不到十层。
+ */
+export const MAX_NESTING_DEPTH = 100;
+
+/** 单元树的层数，数过 `MAX_NESTING_DEPTH` 就停。用栈不递归：要量的正是递归会栈溢出的那种树。 */
+export function nestingDepth(tokens: readonly Token[]): number {
+    let deepest = 0;
+    const pending: Array<readonly [readonly Token[], number]> = [[tokens, 1]];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+        const [list, depth] = next;
+        if (list.length === 0) continue;
+        deepest = Math.max(deepest, depth);
+        if (deepest > MAX_NESTING_DEPTH) return deepest;
+        for (const token of list) for (const child of childLists(token)) pending.push([child, depth + 1]);
+    }
+    return deepest;
+}
+
 /** 表格有一行的单元格比表头多：GFM 丢掉多出的，编辑器把整张表读成原样块（不让多出的字丢掉），条目里的标签两边就读得不一样。 */
 function tableOverflows(token: Token): boolean {
     if (token.type !== "table") return false;
@@ -59,7 +82,7 @@ function unsupportedTokens(parsed: ParsedEntryText): Array<{token: Token; offset
             const firstLine = token.raw.split("\n")[0] ?? "";
             const lineAt = inside || firstLine === "" ? -1 : parsed.source.indexOf(firstLine, cursor);
             const offset = inside ? at : lineAt >= 0 && lineAt + firstLine.length <= to ? lineAt : cursor;
-            if (!ALLOWED_TOKENS.has(token.type) && !(token.type === "html" && isBreakOnlyHtml(token.raw))) found.push({token, offset, reason: `${token.type === "html" ? "raw HTML or an HTML comment" : token.type} is not supported in entry text`});
+            if (!ALLOWED_TOKENS.has(token.type) && !(token.type === "html" && isBreakOnlyHtml(token.raw))) found.push({token, offset, reason: `${RAW_HTML.has(token.type) ? "raw HTML or an HTML comment" : token.type} is not supported in entry text`});
             else if (tableOverflows(token)) found.push({token, offset, reason: "a table row has more cells than the header; Markdown drops the extra cells"});
             const end = inside ? at + token.raw.length : to;
             for (const child of childLists(token)) visit(child, offset, end, false);
@@ -141,6 +164,8 @@ function tagProblems(tag: EntryTag, registered: ReadonlySet<string>): CheckProbl
 /** 检查一块（已规范化）：全部问题按偏移排；调用方取第一个（去掉能免的 `unknown-tag` 之后）。 */
 export function checkEntryText(parsed: ParsedEntryText, options: CheckOptions = {}): CheckProblem[] {
     const registered = options.registered ?? new Set<string>();
+    // 太深的只报这一条：后面的检查也按层递归。
+    if (nestingDepth(parsed.tokens as Token[]) > MAX_NESTING_DEPTH) return [{code: "unsupported-markdown", offset: 0, message: `nested more than ${String(MAX_NESTING_DEPTH)} levels deep; flatten the quotes, lists or emphasis`}];
     const problems: CheckProblem[] = [...parsed.problems];
     if (parsed.tokens.length > 0 || parsed.problems.length === 0) {
         for (const {offset, reason} of unsupportedTokens(parsed)) problems.push({code: "unsupported-markdown", offset, message: reason});

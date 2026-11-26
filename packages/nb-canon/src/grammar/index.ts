@@ -7,7 +7,7 @@ export {lexTags, atomSpanOf, tagText, escapeDecoration, agentJson, normalizeEntr
 export type {LexedTag, TagAttribute, TagKind} from "./tags";
 export {entryLexing, parseEntryText, childLists} from "./parse";
 export type {EntryIfToken, EntryTag, EntryTagToken, GrammarCode, GrammarProblem, ParsedEntryText, TagPlace} from "./parse";
-export {checkEntryText, BUILTIN_TAGS} from "./check";
+export {checkEntryText, nestingDepth, BUILTIN_TAGS, MAX_NESTING_DEPTH} from "./check";
 export type {CheckOptions, CheckProblem} from "./check";
 export {evaluate, hasField, memberReference, parseAddress, parseExpression} from "./expression";
 export type {Evaluated, ExpressionError, ExpressionResult, FieldReference, ParsedExpression, Resolved} from "./expression";

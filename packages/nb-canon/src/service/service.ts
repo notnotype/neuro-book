@@ -868,9 +868,9 @@ export class WorldService {
                 const read = this.#entryOn(world, id, ok.position, mode);
                 return typeof read === "string" || read.view === null ? read : {...read, view: {...read.view, upcoming: []}};
             },
-            render: (entry, position, mode, audience) => {
+            render: (entry, position, mode, audience, block) => {
                 const ok = within("render", position);
-                return ok === "view-denied" ? ok : this.#renderOn(world, entry, ok.position, mode, audience, {hideUpcoming: true});
+                return ok === "view-denied" ? ok : this.#renderOn(world, entry, ok.position, mode, audience, {hideUpcoming: true, ...(block === undefined ? {} : {block})});
             },
             lookup: (names, position) => {
                 const ok = within("lookup", position);
@@ -1155,8 +1155,9 @@ export class WorldService {
         };
     }
 
-    render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent") {
-        return this.#renderOn(this.#world, entry, position, mode, audience);
+    /** 渲染条目的主文字；给了 `block` 只渲染那一块（`RenderOptions.block`）。 */
+    render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent", block?: string) {
+        return this.#renderOn(this.#world, entry, position, mode, audience, block === undefined ? {} : {block});
     }
 
     /** 把一段没提交的源文字当作条目的主文字渲染给作者（方法表 `renderSource`，rendering.md 输出 16）；只读。 */
