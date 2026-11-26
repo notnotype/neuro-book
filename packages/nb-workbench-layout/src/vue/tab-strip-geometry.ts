@@ -180,8 +180,11 @@ export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropP
     const containerRect = {...line.rect, left: Math.min(line.rect.left, x), right: Math.max(line.rect.right, x)};
     // 滚过行尾的标签不交给共享算法：它会把行尾的插入位换成“插到第一个滚出去的前面”，那只看这一行的顺序；
     // 这里的后继要在分区里按完整顺序找（见下面行尾的换算），固定区的最后一个之后是固定区的末尾，不是普通区的第一个。
-    // 这些标签与内容盒没有交集，算法本来就不拿它们定插入位，去掉它们不改别的结果（一行的第一个标签在行首，不会被全部去掉）。
+    // 这些标签与内容盒没有交集，算法本来就不拿它们定插入位，去掉它们不改别的结果。
     const reachable = line.members.filter((member) => member.rect.left < containerRect.right);
+    // 整行都在行尾之外（宿主在行首留了白，标签还没滚进来）：有成员却一个都看不见，共享算法判不出插入位；去掉之后交给它的
+    // 是空数组，会被当成空行、在行首画一条线。原行本来就空时才是空行的插入位。
+    if (reachable.length === 0 && line.members.length > 0) return null;
     const insertion = resolveListInsertion({orientation: "horizontal", point: {x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: reachable.map(({id, rect}) => ({id, rect}))});
     if (insertion === null) return null;
     const all = snapshot.members;
