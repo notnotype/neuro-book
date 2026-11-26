@@ -44,3 +44,5 @@ updated: 2026-11-26
 ## 下一步
 
 第 4 轮的三道题已答（上面第 8 到 10 条）。第 5 轮：第一幕照第 9 条改；打磨首屏：皮面、羊皮纸、鎏金换成生成的贴图，按钮等加金边装饰，工作台缺省夜间配色并可切换，首句换 e3 并配上 From words to world.；补验集显与高 DPI 下的帧率、编辑器吃滚轮的问题。草稿在 `drafts/w00056-t06/`，开发服务 `nbdev dev start --work w00056 --task t06`。
+
+- 协调（2026-11-26，w00043 t19 的会话留）：w00043 t19 片 3b 去掉了 `WorkbenchRegionStrip` 的 `variant`（右栏的入口搬到了右轨，只剩底部面板用横入口条），t19 的 Work 分支已把 `drafts/w00056-t06/HomepageDesk.vue` 里 `:variant=...` 那一行删掉；t19 合入 master 之后草稿里不要再传它，否则应用的类型检查失败。
