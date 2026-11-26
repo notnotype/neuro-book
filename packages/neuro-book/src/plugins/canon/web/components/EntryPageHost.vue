@@ -879,6 +879,19 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                 watch([active, edit.bar], ([on, bar]) => {
                     if (on && bar !== null) shown.value = bar;
                 }, {immediate: true});
+                /**
+                 * 短项浮层的宽（内容区，不含浮层的内边距）：从值的左缘量到条目页的右缘，夹在 16rem 与 22rem 之间。左缘对齐值的起点，
+                 * 放得下就不往左让、不盖住左边的标签列；连 16rem 都放不下时才由避让往左挪（输出 51）。打开时量一次。
+                 */
+                const popoverWidth = shallowRef<number | null>(null);
+                const POPOVER_PADDING = 24;
+                watch([active, () => inner.anchor], ([on, anchor]) => {
+                    if (!on || !(anchor instanceof HTMLElement)) return;
+                    const page = anchor.closest("[data-entry-page]");
+                    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+                    const room = page === null ? 22 * rem : page.getBoundingClientRect().right - anchor.getBoundingClientRect().left - POPOVER_PADDING;
+                    popoverWidth.value = Math.min(22 * rem, Math.max(16 * rem, room));
+                }, {immediate: true});
                 const content = () => {
                     // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
                     const given = shown.value!;
@@ -888,6 +901,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
                         "data-field-editor": full(),
+                        ...(inner.layout === "popover" && popoverWidth.value !== null ? {style: {width: `${String(popoverWidth.value)}px`}} : {}),
                         onCompositionstart: () => (composing.value = true),
                         onCompositionend: () => (composing.value = false),
                     }, [h(ConfirmBar, {
@@ -914,10 +928,11 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                             requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
                         };
                         // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
-                        // 成段的文字在原处展开（输出 51）：同一张编辑卡，不浮起来，把下面的内容推开；原文由卡片组件见到
-                        // `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md）。左右各伸出卡片的内边距，输入框里的字与原文对齐。
+                        // 成段的文字浮在原处（输出 51）：编辑卡相对原文那一格绝对定位，向下长、盖在后面的内容上，原文那一段的占位不变，
+                        // 别的内容不动；原文由卡片组件见到 `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md，那一格是
+                        // `position: relative`）。四边各伸出卡片的内边距，输入框里第一行的字与原文对齐。
                         // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute -inset-x-3 -top-3 z-[2] p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
@@ -928,7 +943,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                         side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,
-                        contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
+                        contentClass: "max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {
                             if (!open) dismiss();
                         },

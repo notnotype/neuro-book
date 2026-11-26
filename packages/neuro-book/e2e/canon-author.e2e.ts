@@ -401,12 +401,16 @@ test("验收 51：在第 3 章末尾改一个只在最初设过的短项，选�
     const bar = inlineEditor(page, "character.身份");
     await bar.getByRole("textbox").first().fill("在打工");
     const intent = bar.locator("[data-edit-intent]");
-    // 选“从最初起”（更正）时不问理由；选剧情里变了才多出选填的一行。
+    // 选“从最初起”（更正）时不问理由；选剧情里变了才露出选填的一行。那一行一直占着位置，切换意图时编辑卡高度不变；点了意图以后
+    // 焦点回到值的输入框（输出 16）。
     await expect(bar.locator("[data-edit-note]")).toHaveCount(0);
+    const heightBefore = (await bar.boundingBox())!.height;
     await intent.getByRole("radio", {name: "从第 3 章起"}).click();
     await expect(intent.getByRole("radio", {name: "从第 3 章起"})).toBeChecked();
+    await expect(bar.getByRole("textbox").first()).toBeFocused();
     const note = bar.locator("[data-edit-note] input");
     await expect(note).toBeVisible();
+    expect((await bar.boundingBox())!.height).toBe(heightBefore);
     await note.fill(happened);
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.身份")).toHaveText("在打工");

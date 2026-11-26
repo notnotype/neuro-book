@@ -393,8 +393,9 @@ const valueLabel = (label: string, shown: string | null): string => text("card.v
         transition: none;
     }
 }
-/* 成段的文字在原处改时（宿主的编辑卡带 `data-editing-in-place`，输出 51），原文藏起来，编辑卡占它的位置、把下面推开。 */
+/* 成段的文字在原处改时（宿主的编辑卡带 `data-editing-in-place`，输出 51），原文藏起来但占位不变：编辑卡浮在它上面、向下长，
+   盖住后面的内容，别的内容不动。 */
 .look-card__in-place:has(> [data-editing-in-place]) > button {
-    display: none;
+    visibility: hidden;
 }
 </style>

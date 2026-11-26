@@ -1409,18 +1409,22 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
     const editorOf = (path: string): Element | null => document.body.querySelector(`[data-field-editor="${path}"]`);
     const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
 
-    it("就地改：挂着编辑器时不出确认条，在浮层里改、保存；Escape 放弃；没挂编辑器时退回确认条；同一路径挂两份卸一份照旧", async () => {
+    it("就地改：挂着编辑器时不出确认条，在浮层里改、保存（值没改时保存不可用）；Escape 放弃；没挂编辑器时退回确认条；同一路径挂两份卸一份照旧", async () => {
         const {wrapper, state} = await badgePage();
         await wrapper.get("[data-edit='badge.图案']").trigger("click");
         await waitUntil("浮层里的编辑器", () => editorOf("badge.图案") !== null);
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
         expect(wrapper.get("[data-editing]").text()).toBe("图案");
+        const saveOf = (path: string) => [...editorOf(path)!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!;
+        // 打开时填的就是现在的值：预览回来了也没有可存的（输出 16）。
+        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-previewed]") != null);
+        expect(saveOf("badge.图案").disabled).toBe(true);
         // 有建议值的文字：输入框加候选，值就是输入框里的字。
         const input = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
         input.value = "凤";
         input.dispatchEvent(new Event("input", {bubbles: true}));
-        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-previewed]") != null);
-        [...editorOf("badge.图案")!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
+        await waitUntil("改了以后保存可用", () => editorOf("badge.图案")?.querySelector("[data-previewed]") != null && !saveOf("badge.图案").disabled);
+        saveOf("badge.图案").click();
         await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.图案']").text() === "凤" && editorOf("badge.图案") === null);
         expect(state.edit).toBeNull();
 
