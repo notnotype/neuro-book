@@ -67,14 +67,18 @@ function onKeydown(event: KeyboardEvent, tab: string): void {
     display: flex;
     box-sizing: border-box; /* 高度连下边框一共是标签条的高度，内容层的 insetTop 读的是同一个数。 */
     height: var(--tab-bar-height);
-    overflow: hidden;
+    /* 放不下时横向滚动。滚出去的标签库判插入位时也认：拖过最后一个看得见的标签，插到第一个滚出去的前面，和插入线一致。 */
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* 滚动条占的是标签条自己的高度（总高不变，标签矮一点），细的那种才不至于挤掉标签的文字。 */
+    scrollbar-width: thin;
     background: #eef0f4;
     border-bottom: 1px solid #d5d9e0;
 }
-/* 放不下时标签一起变窄、文字截断，不滚动：滚出去的标签库判插入位时会跳过，插入线与实际位置会对不上。 */
+/* 标签按名字的宽度排、不跟着变窄（短名字也不窄过最小宽）：放不下就滚，文字不截断。 */
 .tab {
     display: flex;
-    flex: 0 1 auto;
+    flex: none;
     min-width: 56px;
     align-items: center;
     border-right: 1px solid #d5d9e0;

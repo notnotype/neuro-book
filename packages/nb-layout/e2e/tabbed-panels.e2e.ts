@@ -113,6 +113,47 @@ test("同一条标签条里换位置；拖回原位没有落点，松手不变",
     await expectTabs(page, "group-1", ["README.md", "App.vue", "main.ts", "model.ts"]);
 });
 
+test("标签条放不下时横向滚动：滚到中间，拖过最后一个看得见的标签，放在第一个滚出去的前面，插入线也画在那里", async ({page}) => {
+    // 窗口收窄，group-1 再收下另外两个编组各一个标签：六个标签放不下，滚到中间时后面还有滚出去的。
+    await page.setViewportSize({width: 1000, height: 800});
+    await settled(page);
+    await dragTo(page, tab(page, "group-2", "notes.txt"), await bodyPoint(page, "group-1", "center"), "into:group-1");
+    await dragTo(page, tab(page, "group-3", "styles.css"), await bodyPoint(page, "group-1", "center"), "into:group-1");
+    await expectTabs(page, "group-1", ["README.md", "main.ts", "App.vue", "model.ts", "notes.txt", "styles.css"]);
+
+    // 来源取别的编组的标签，先拿起来再量：按下时焦点进它的按钮，量目标用的 `boxOf` 也会把元素滚进视野，都会挪动 group-1 的标签条。
+    await pickUp(page, tab(page, "group-3", "index.html"));
+    // 滚到中间，再按此刻的矩形找最后一个看得见的标签和紧跟它的滚出去的标签：不写死名字，换了字体也成立。
+    const layout = await strip(page, "group-1").evaluate((element) => {
+        element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2;
+        const view = element.getBoundingClientRect();
+        const tabs = [...element.querySelectorAll<HTMLElement>("[data-tab]")].map((each) => ({id: each.dataset.tab!, rect: each.getBoundingClientRect()}));
+        const lastVisible = tabs.findLastIndex((each) => each.rect.left < view.right && each.rect.right > view.left);
+        return {overflows: element.scrollWidth > element.clientWidth, scrollLeft: element.scrollLeft, view: {right: view.right}, tabs, lastVisible};
+    });
+    expect(layout.overflows).toBe(true);
+    expect(layout.scrollLeft).toBeGreaterThan(0);
+    const last = layout.tabs[layout.lastVisible]!;
+    const hidden = layout.tabs[layout.lastVisible + 1];
+    // 紧跟着的整个在标签条右缘之外：这一条测的就是它。
+    expect(hidden).toBeDefined();
+    expect(hidden!.rect.left).toBeGreaterThanOrEqual(layout.view.right);
+
+    // 指针在最后一个看得见的标签的可见部分的后半。
+    const visibleRight = Math.min(last.rect.right, layout.view.right);
+    await moveTo(page, {x: visibleRight - 3, y: (last.rect.top + last.rect.bottom) / 2}, `insert:group-1:${hidden!.id}`);
+    // 线贴最后一个看得见的标签的后缘，挨着标签条右缘时夹在右缘之内（线宽 2）。
+    const line = await page.locator("[data-drop-feedback-line]").boundingBox();
+    expect(line).not.toBeNull();
+    expect(Math.abs(line!.x - Math.min(visibleRight, layout.view.right - 2))).toBeLessThanOrEqual(1);
+    await page.mouse.up();
+    await expect(page.locator("[data-drop]")).toHaveCount(0);
+
+    const order = layout.tabs.map((each) => each.id);
+    order.splice(layout.lastVisible + 1, 0, "index.html");
+    await expectTabs(page, "group-1", order, "index.html");
+});
+
 test("拖到编组正文中央：移进那个编组、排在最后、成为选中", async ({page}) => {
     await dragTo(page, tab(page, "group-2", "notes.txt"), await bodyPoint(page, "group-3", "center"), "into:group-3");
     await expectTabs(page, "group-3", ["styles.css", "index.html", "notes.txt"], "notes.txt");
