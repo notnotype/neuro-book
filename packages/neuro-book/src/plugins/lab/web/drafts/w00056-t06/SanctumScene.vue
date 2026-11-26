@@ -8,10 +8,12 @@
  * 2. 一个帧循环追 `progress`：按时间常数平滑，再把每层此刻的变换直接写到元素上（不经 Vue 的渲染，每帧只改几个样式值）。
  *    追上了、浮尘也看不见了就停；`progress` 变了再起。
  * 3. 平滑后的进度到 1 时桌子的变换换成 `none`，发 `landed`；往回滚离开 1 时再发一次。
+ * 4. 首屏停着时三张纸轮流“演进”（第 6 轮）：每隔一会儿轮到一张，换到另一面再换回来，一次只动一张；镜头推走了、页面在后台时不动。
  */
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 
 import LEATHER_CORNER from "./assets/leather-corner.webp";
+import LYRA_AVATAR from "./assets/lyra-avatar.webp";
 import PARCHMENT from "./assets/parchment.webp";
 import VELVET from "./assets/velvet.webp";
 
@@ -23,9 +25,9 @@ const props = withDefaults(defineProps<{
     progress?: number;
     intro?: boolean;
     deskReady?: boolean;
-    /** 工作台是夜间配色：本来就暗，首屏不用再压那么多。 */
+    /** 夜：暗夜圣殿（工作台是夜间配色，首屏不用再压那么多）。昼：午后的抄经室，高窗斜进来一道日光（第 6 轮）。 */
     night?: boolean;
-}>(), {progress: 0, intro: true, deskReady: true, night: false});
+}>(), {progress: 0, intro: true, deskReady: true, night: true});
 
 const emit = defineEmits<{
     (event: "landed", landed: boolean): void;
@@ -92,7 +94,9 @@ function ragged(width: number, height: number, seed: number): string {
 const PAPER = {
     manuscript: ragged(250, 330, 7),
     character: ragged(230, 300, 19),
+    note: ragged(230, 300, 23),
     map: ragged(330, 236, 31),
+    plot: ragged(330, 236, 37),
 } as const;
 
 /** 手稿上的几行：第一章的开头与最后那段敲门（第一幕要对照的伏笔）。 */
@@ -109,6 +113,32 @@ const MANUSCRIPT_LINES = [
     "了。",
 ] as const;
 const KNOCK_LINE = MANUSCRIPT_LINES.indexOf("楼下有人敲门，三下，停一停，再一下。");
+
+/** 第二面的时间线：几章里的几件事，第一章与第五章那两声敲门用一道红线连起来。 */
+const TIMELINE = [
+    {x: 44, chapter: "一", event: "银钥匙"},
+    {x: 120, chapter: "三", event: "灰塔"},
+    {x: 196, chapter: "五", event: "第四下"},
+    {x: 282, chapter: "十", event: "第八层"},
+] as const;
+
+// ── 三张纸的轮播：静中有动（第 6 轮，开发者：纸条这种元素可以轮播；@designer：不翻牌，改成纸上的东西自己演进、叠着的纸换上来） ──
+
+/** 每张纸此刻是哪一面（手稿、人物卡、地图）；`moved` 记它动过没有（动过才放换回来的动画，挂上时不演）。 */
+const faces = ref<readonly [number, number, number]>([0, 0, 0]);
+const moved = ref<readonly [boolean, boolean, boolean]>([false, false, false]);
+/** 每隔多久轮到下一张：@designer 第 6 轮说 4 秒太急、抢标题与按钮。 */
+const SLIP_EVERY = 6500;
+let turn = -1;
+let slipTimer = 0;
+
+function advanceSlips(): void {
+    // 镜头推走了（纸已经掠过去）、页面在后台、开场还没亮：这一次不动，下一次再看。
+    if (rendered > 0.08 || document.hidden || !lit.value) return;
+    turn = (turn + 1) % 3;
+    faces.value = faces.value.map((face, index) => (index === turn ? 1 - face : face)) as unknown as readonly [number, number, number];
+    moved.value = moved.value.map((value, index) => value || index === turn) as unknown as readonly [boolean, boolean, boolean];
+}
 
 // ── 开场 ──
 
@@ -282,7 +312,9 @@ function drawDust(dt: number, speed: number, opacity: number): void {
     clock += dt;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, stage.width, stage.height);
-    context.globalCompositeOperation = "lighter";
+    // 夜里浮尘是光里的金点（叠亮）；白天底是亮的，叠亮看不见，换成极淡的暖白反光点（@designer 第 6 轮：深色的尘像污渍）。
+    context.globalCompositeOperation = props.night ? "lighter" : "source-over";
+    const tint = props.night ? 1 : 0.55;
     const center = {x: stage.width / 2, y: landingBox(stage).top + landingBox(stage).height / 2};
     // 前冲时的径向速度：进度每秒变化量乘一个系数，近的尘飞得更快。
     const rush = Math.max(0, speed) * 1.6;
@@ -303,18 +335,18 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         const spread = stage.width * (0.1 + 0.28 * (mote.y / stage.height));
         const inBeam = 1 - smooth(spread * 0.55, spread, Math.abs(mote.x - stage.width / 2));
         const twinkle = 0.65 + 0.35 * Math.sin(clock * (0.8 + mote.z) + mote.phase * 3);
-        const alpha = (0.08 + 0.5 * inBeam) * twinkle * (0.45 + 0.55 * mote.z);
+        const alpha = (0.08 + 0.5 * inBeam) * twinkle * (0.45 + 0.55 * mote.z) * tint;
         const radius = 0.5 + 1.5 * mote.z;
         const streak = Math.hypot(mote.x - fromX, mote.y - fromY);
         if (streak > 2.5) {
-            context.strokeStyle = `rgba(255, 226, 176, ${alpha.toFixed(3)})`;
+            context.strokeStyle = props.night ? `rgba(255, 226, 176, ${alpha.toFixed(3)})` : `rgba(255, 250, 236, ${alpha.toFixed(3)})`;
             context.lineWidth = radius;
             context.beginPath();
             context.moveTo(fromX, fromY);
             context.lineTo(mote.x, mote.y);
             context.stroke();
         } else {
-            context.fillStyle = `rgba(255, 228, 182, ${alpha.toFixed(3)})`;
+            context.fillStyle = props.night ? `rgba(255, 228, 182, ${alpha.toFixed(3)})` : `rgba(255, 250, 236, ${alpha.toFixed(3)})`;
             context.beginPath();
             context.arc(mote.x, mote.y, radius, 0, Math.PI * 2);
             context.fill();
@@ -363,9 +395,11 @@ onMounted(() => {
         });
     }
     wake();
+    if (!reduced) slipTimer = window.setInterval(advanceSlips, SLIP_EVERY * timeScale());
 });
 
 onBeforeUnmount(() => {
+    window.clearInterval(slipTimer);
     resize?.disconnect();
     if (loop !== 0) cancelAnimationFrame(loop);
     if (litTimer !== 0) cancelAnimationFrame(litTimer);
@@ -373,7 +407,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'sx--narrow': !wide}">
+    <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'sx--narrow': !wide, 'sx--day': !night}">
         <div class="sx-back" aria-hidden="true"></div>
 
         <!-- 顶光：一锥暖光从穹顶落下，几道细光在里面慢慢明暗。 -->
@@ -413,10 +447,14 @@ onBeforeUnmount(() => {
                         <path :d="PAPER.manuscript" :fill="url('foxing')" />
                         <text x="24" y="40" class="sx-ink sx-ink--title">第一章 霜港的钟</text>
                         <line x1="24" y1="52" x2="128" y2="52" stroke="#8a6a3c" stroke-width="0.8" />
+                        <!-- 第二面：敲门那一行涂上一道高亮，红笔圈出来、牵一条线写批注（和第一幕“划出来，记一笔”同一件事）。 -->
+                        <rect x="22" :y="66 + KNOCK_LINE * 20" width="204" height="19" rx="2" class="sx-mark" :class="{'is-on': faces[0] === 1}" />
                         <text v-for="(line, index) in MANUSCRIPT_LINES" :key="index" x="24" :y="80 + index * 20" class="sx-ink">{{ line }}</text>
-                        <ellipse cx="115" :cy="76 + KNOCK_LINE * 20" rx="17" ry="10.5" fill="none" stroke="#9b2232" stroke-width="1.3" transform="rotate(-4 115 76)" />
-                        <path :d="`M118,${88 + KNOCK_LINE * 20} q10,26 34,38`" fill="none" stroke="#9b2232" stroke-width="1" />
-                        <text x="150" :y="134 + KNOCK_LINE * 20" class="sx-ink sx-ink--red">伏笔</text>
+                        <g class="sx-note" :class="{'is-on': faces[0] === 1}">
+                            <ellipse cx="115" :cy="76 + KNOCK_LINE * 20" rx="17" ry="10.5" fill="none" stroke="#9b2232" stroke-width="1.3" pathLength="1" class="sx-note__ring" transform="rotate(-4 115 76)" />
+                            <path :d="`M118,${88 + KNOCK_LINE * 20} q10,26 34,38`" fill="none" stroke="#9b2232" stroke-width="1" pathLength="1" class="sx-note__thread" />
+                            <text x="150" :y="134 + KNOCK_LINE * 20" class="sx-ink sx-ink--red sx-note__text">伏笔：第五章再响</text>
+                        </g>
                         <path :d="PAPER.manuscript" :fill="url('toplight')" />
                     </svg>
                 </div>
@@ -425,8 +463,22 @@ onBeforeUnmount(() => {
 
         <div :ref="setLayer('character')" class="sx-layer" :style="layerSize('character')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 620ms">
-                <div class="sx-bob" style="--bob: 8.6s; --bob-y: 6px">
-                    <svg class="sx-sheet sx-sheet--mid" viewBox="0 0 230 300" width="230" height="300">
+                <div class="sx-bob sx-stack" style="--bob: 8.6s; --bob-y: 6px" :data-face="faces[1]" :data-moved="moved[1] ? '' : undefined">
+                    <!-- 第二面：星璃的便笺，压在人物卡下面露出一角；轮到它时斜着抽出来换到上面。 -->
+                    <svg class="sx-sheet sx-sheet--mid sx-card sx-card--b" viewBox="0 0 230 300" width="230" height="300">
+                        <clipPath :id="id('clip-note')"><path :d="PAPER.note" /></clipPath>
+                        <clipPath :id="id('clip-avatar')"><circle cx="115" cy="104" r="44" /></clipPath>
+                        <image :href="PARCHMENT" x="0" y="0" width="230" height="300" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-note')" />
+                        <path :d="PAPER.note" :fill="url('foxing')" />
+                        <text x="24" y="42" class="sx-ink sx-ink--name">星璃</text>
+                        <circle cx="115" cy="104" r="48" fill="none" :stroke="url('gold')" stroke-width="2.2" />
+                        <image :href="LYRA_AVATAR" x="71" y="60" width="88" height="88" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-avatar')" />
+                        <text x="24" y="200" class="sx-ink">第一章的敲门声，</text>
+                        <text x="24" y="222" class="sx-ink">第五章又响了一次。</text>
+                        <text x="24" y="252" class="sx-ink sx-ink--red">读者会和她一起等第四下。</text>
+                        <path :d="PAPER.note" :fill="url('toplight')" />
+                    </svg>
+                    <svg class="sx-sheet sx-sheet--mid sx-card sx-card--a" viewBox="0 0 230 300" width="230" height="300">
                         <clipPath :id="id('clip-character')"><path :d="PAPER.character" /></clipPath>
                         <image :href="PARCHMENT" x="0" y="0" width="230" height="300" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-character')" />
                         <path :d="PAPER.character" :fill="url('foxing')" />
@@ -451,8 +503,25 @@ onBeforeUnmount(() => {
 
         <div :ref="setLayer('map')" class="sx-layer" :style="layerSize('map')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 740ms">
-                <div class="sx-bob" style="--bob: 9.4s; --bob-y: -5px">
-                    <svg class="sx-sheet sx-sheet--near" viewBox="0 0 330 236" width="330" height="236">
+                <div class="sx-bob sx-stack" style="--bob: 9.4s; --bob-y: -5px" :data-face="faces[2]" :data-moved="moved[2] ? '' : undefined">
+                    <!-- 第二面：剧情的时间线，几章里的几件事；第一章与第五章那两声敲门连着一道红线。 -->
+                    <svg class="sx-sheet sx-sheet--near sx-card sx-card--b" viewBox="0 0 330 236" width="330" height="236">
+                        <clipPath :id="id('clip-plot')"><path :d="PAPER.plot" /></clipPath>
+                        <image :href="PARCHMENT" x="0" y="0" width="330" height="236" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-plot')" />
+                        <path :d="PAPER.plot" :fill="url('foxing')" />
+                        <text x="24" y="40" class="sx-ink sx-ink--title">剧情</text>
+                        <line x1="24" y1="52" x2="96" y2="52" stroke="#8a6a3c" stroke-width="0.8" />
+                        <path d="M24,150 H306" stroke="#4a3626" stroke-width="1.3" />
+                        <path :d="`M${TIMELINE[0].x},140 C${TIMELINE[0].x + 30},84 ${TIMELINE[2].x - 30},84 ${TIMELINE[2].x},140`" fill="none" stroke="#9b2232" stroke-width="1.2" stroke-dasharray="3 4" />
+                        <text :x="(TIMELINE[0].x + TIMELINE[2].x) / 2" y="92" text-anchor="middle" class="sx-ink sx-ink--red">同一种敲法</text>
+                        <g v-for="node in TIMELINE" :key="node.chapter">
+                            <circle :cx="node.x" cy="150" r="5" :fill="url('gold')" stroke="#6f4a17" stroke-width="0.8" />
+                            <text :x="node.x" y="176" text-anchor="middle" class="sx-ink">第{{ node.chapter }}章</text>
+                            <text :x="node.x" y="196" text-anchor="middle" class="sx-ink sx-ink--small">{{ node.event }}</text>
+                        </g>
+                        <path :d="PAPER.plot" :fill="url('toplight')" />
+                    </svg>
+                    <svg class="sx-sheet sx-sheet--near sx-card sx-card--a" viewBox="0 0 330 236" width="330" height="236">
                         <clipPath :id="id('clip-map')"><path :d="PAPER.map" /></clipPath>
                         <image :href="PARCHMENT" x="0" y="0" width="330" height="236" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-map')" />
                         <path :d="PAPER.map" :fill="url('foxing')" />
@@ -593,7 +662,8 @@ onBeforeUnmount(() => {
     --sx-serif: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", serif;
     position: absolute;
     inset: 0;
-    overflow: hidden;
+    /* clip 而不是 hidden：hidden 的盒子能被程序滚动，工作台里有东西拿焦点（批注的输入框）时浏览器会把它滚开一截。 */
+    overflow: clip;
     background: #120c10;
     contain: strict;
 }
@@ -746,7 +816,7 @@ onBeforeUnmount(() => {
 .sx-desk {
     position: absolute;
     inset: 0;
-    overflow: hidden;
+    overflow: clip;
     border-radius: 10px;
     background: var(--bg-main);
     box-shadow:
@@ -917,6 +987,228 @@ onBeforeUnmount(() => {
     height: 0;
 }
 
+.sx-ink--small {
+    font-size: 10px;
+    fill-opacity: 0.8;
+}
+
+/* ── 纸的第二面（轮播） ── */
+
+/* 手稿：高亮从左往右涂过去，红圈与牵线一笔画出来，批注的字最后淡出；换回去时一起淡掉。 */
+.sx-mark {
+    fill: #e9c47c;
+    fill-opacity: 0.55;
+    transform: scaleX(0);
+    transform-box: fill-box;
+    transform-origin: 0 50%;
+    transition: transform 900ms var(--sx-ease), fill-opacity 600ms ease;
+}
+
+.sx-mark.is-on {
+    transform: none;
+}
+
+.sx-mark:not(.is-on) {
+    fill-opacity: 0;
+    transition: transform 0s 600ms, fill-opacity 600ms ease;
+}
+
+.sx-note__ring,
+.sx-note__thread {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 700ms var(--sx-ease) 700ms;
+}
+
+.sx-note__thread {
+    transition-delay: 1250ms;
+}
+
+.sx-note__text {
+    opacity: 0;
+    transition: opacity 600ms ease 1700ms;
+}
+
+.sx-note.is-on .sx-note__ring,
+.sx-note.is-on .sx-note__thread {
+    stroke-dashoffset: 0;
+}
+
+.sx-note.is-on .sx-note__text {
+    opacity: 1;
+}
+
+.sx-note:not(.is-on) {
+    opacity: 0;
+    transition: opacity 600ms ease;
+}
+
+.sx-note:not(.is-on) * {
+    transition: none;
+}
+
+/*
+ * 叠着的两张纸（人物卡与星璃的便笺、地图与时间线）：下面那张错开一点露出一角；轮到它时斜着抽出来、换到上面，上面那张往另一边让开、落到下面。
+ * 层级在关键帧里换（整数插值，在一半处跳）：两张纸错开到最远时换，看不出谁穿过了谁。
+ */
+.sx-stack {
+    position: relative;
+}
+
+.sx-card {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.sx-card--a {
+    position: relative;
+    z-index: 1;
+}
+
+.sx-card--b {
+    z-index: 0;
+    transform: translate3d(16px, 12px, 0) rotate(4deg) scale(0.95);
+}
+
+.sx-stack[data-face="1"] .sx-card--a,
+.sx-stack[data-face="0"][data-moved] .sx-card--b {
+    animation: sx-to-back 1300ms var(--sx-ease) forwards;
+}
+
+.sx-stack[data-face="1"] .sx-card--b,
+.sx-stack[data-face="0"][data-moved] .sx-card--a {
+    animation: sx-to-front 1300ms var(--sx-ease) forwards;
+}
+
+@keyframes sx-to-back {
+    0% {
+        z-index: 1;
+        transform: none;
+    }
+    48% {
+        z-index: 1;
+        transform: translate3d(-64px, 8px, 0) rotate(-9deg);
+    }
+    52% {
+        z-index: 0;
+    }
+    100% {
+        z-index: 0;
+        transform: translate3d(16px, 12px, 0) rotate(4deg) scale(0.95);
+    }
+}
+
+@keyframes sx-to-front {
+    0% {
+        z-index: 0;
+        transform: translate3d(16px, 12px, 0) rotate(4deg) scale(0.95);
+    }
+    48% {
+        z-index: 0;
+        transform: translate3d(58px, -10px, 0) rotate(7deg) scale(0.98);
+    }
+    52% {
+        z-index: 1;
+    }
+    100% {
+        z-index: 1;
+        transform: none;
+    }
+}
+
+/*
+ * ── 昼：午后的抄经室 ──
+ * 底是偏暖的灰石墙（比羊皮纸暗半阶，纸才不糊在底上），左上高窗斜进来一道日光；纸面提亮、投影换成柔和的棕；
+ * 桌布仍是丝绒，压成枣红的暗调，不发粉；书角与丝带照旧（@designer 第 6 轮）。
+ */
+.sx--day {
+    background: #b9ab93;
+}
+
+.sx--day .sx-back {
+    background:
+        radial-gradient(62% 52% at 16% 0%, rgb(255 247 226 / 0.75), transparent 70%),
+        radial-gradient(90% 60% at 50% 100%, rgb(96 40 36 / 0.22), transparent 72%),
+        linear-gradient(#cfc3ad, #bfb197 58%, #a99a80);
+}
+
+.sx--day .sx-vignette {
+    background: radial-gradient(120% 100% at 50% 42%, transparent 55%, rgb(74 54 34 / 0.38) 100%);
+}
+
+/* 日光从左上的高窗斜着进来：光锥整个偏一个角度，颜色是白里带一点金。 */
+.sx--day .sx-light {
+    transform: rotate(-16deg) translateX(-14%);
+}
+
+.sx--day .sx-light__cone {
+    background: radial-gradient(46% 100% at 50% 0%, rgb(255 251 238 / 0.55), rgb(255 244 214 / 0.18) 55%, transparent 82%);
+}
+
+.sx--day .sx-light__cone::after {
+    background: radial-gradient(38% 100% at 50% 0%, rgb(255 252 240 / 0.5), transparent 75%);
+}
+
+.sx--day .sx-light__ray {
+    background: linear-gradient(rgb(255 253 244 / 0.55), rgb(255 246 220 / 0.14) 55%, transparent 90%);
+}
+
+.sx--day .sx-halo {
+    background: radial-gradient(50% 50% at 50% 50%, rgb(255 244 214 / 0.5), rgb(168 118 47 / 0.12) 55%, transparent 75%);
+}
+
+.sx--day .sx-cloth {
+    background:
+        radial-gradient(60% 55% at 46% 38%, rgb(255 236 210 / 0.16), transparent 78%),
+        linear-gradient(rgb(48 8 14 / 0.22), rgb(40 6 12 / 0.42)),
+        var(--sx-velvet) center / cover,
+        #4a0c16;
+}
+
+.sx--day .sx-pool {
+    background: radial-gradient(50% 50% at 50% 50%, rgb(255 250 236 / 0.3), transparent 72%);
+}
+
+.sx--day .sx-desk {
+    box-shadow:
+        0 0 0 1px rgb(168 118 47 / 0.45),
+        0 20px 48px rgb(64 38 18 / 0.38);
+}
+
+/* 首屏压一压远处的桌子：白天的桌子是亮的象牙色，压的是暖灰，不是黑。 */
+.sx--day .sx-shade {
+    background: radial-gradient(70% 62% at 46% 30%, rgb(255 246 228 / 0.18), rgb(92 70 48 / 0.62) 100%);
+}
+
+.sx--day .sx-dark {
+    background: #b9ab93;
+}
+
+.sx--day .sx-sheet {
+    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34));
+}
+
+.sx--day .sx-sheet--far {
+    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34)) brightness(0.96) blur(0.6px);
+}
+
+.sx--day .sx-sheet--mid {
+    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34));
+}
+
+.sx--day .sx-sheet--near {
+    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34)) blur(0.8px);
+}
+
+.sx--day .sx-book {
+    filter: blur(1.4px) drop-shadow(0 26px 34px rgb(64 38 18 / 0.4));
+}
+
+.sx--day .sx-ribbon {
+    filter: blur(2.2px) drop-shadow(0 16px 18px rgb(64 38 18 / 0.32));
+}
+
 /* 窄屏：不俯冲，悬着的几层不画，桌子平放。 */
 .sx--narrow .sx-carrier {
     pointer-events: auto;
@@ -930,8 +1222,9 @@ onBeforeUnmount(() => {
 
     .sx-bob,
     .sx-sway,
-    .sx-light__ray {
-        animation: none;
+    .sx-light__ray,
+    .sx-card {
+        animation: none !important;
     }
 }
 </style>

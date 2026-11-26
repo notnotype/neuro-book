@@ -2,8 +2,10 @@
  * w00056 t06（文档站首页的产品介绍）的原型；评审板在那个 Task 的 artifacts/review。
  * 第 3 轮：三种开场与第一幕（`HomepageDraft`）。第 4、5 轮：方向一《入殿·俯案成界》的首屏、俯冲与改过的第一幕（`HomepageSanctum`，
  * 第 5 轮在第 4 轮上改，场景 id 换成 `r5-`；首屏的场景单独看是 `SanctumScene` 的 `r4-scene-*`）。
+ * 第 6 轮：第一幕改成真手势与实时布局、加“划出来，记一笔”一拍、整页的昼（`r6-*`），按钮的几版样式（`HeroButtons`）。
  */
 import {defineLabFixture} from "../../fixtures/define";
+import type HeroButtons from "./HeroButtons.vue";
 import type HomepageDesk from "./HomepageDesk.vue";
 import type HomepageDraft from "./HomepageDraft.vue";
 import type HomepageOpening from "./HomepageOpening.vue";
@@ -36,14 +38,19 @@ export const fixtures = [
     }),
     defineLabFixture<typeof HomepageDesk>({
         component: "HomepageDesk",
-        scenes: [{id: "default", label: "首屏的样子：第一章在前，右栏是星璃", input: {props: {restore: null}}}],
+        scenes: [
+            {id: "default", label: "首屏的样子：第一章在前，右栏是星璃", input: {props: {restore: null}}},
+            {id: "knock", label: "第一幕的桌子：第五章在前，后面是第一章与艾莉丝", input: {props: {restore: null, setup: "knock"}}},
+        ],
         load: async () => (await import("./HomepageDeskFixture.vue")).default as never,
     }),
     defineLabFixture<typeof HomepageSanctum>({
         component: "HomepageSanctum",
         scenes: [
-            {id: "r5-sanctum", label: "第 5 轮：入殿·俯案成界（从首屏起，往下滚俯冲到工作台）", input: {props: {start: "top"}}},
-            {id: "r5-act-one", label: "第 5 轮：第一幕的五拍（直接落在第一幕开头）", input: {props: {start: "act-one"}}},
+            {id: "r6-sanctum", label: "第 6 轮：入殿·俯案成界，夜（从首屏起，往下滚俯冲到工作台）", input: {props: {start: "top"}}},
+            {id: "r6-day", label: "第 6 轮：白天（午后的抄经室）", input: {props: {start: "top", appearance: "day"}}},
+            {id: "r6-act-one", label: "第 6 轮：第一幕的六拍（直接落在第一幕开头）", input: {props: {start: "act-one"}}},
+            {id: "r6-act-one-day", label: "第 6 轮：第一幕，白天", input: {props: {start: "act-one", appearance: "day"}}},
         ],
         load: async () => (await import("./HomepageSanctumFixture.vue")).default as never,
     }),
@@ -51,6 +58,7 @@ export const fixtures = [
         component: "SanctumScene",
         scenes: [
             {id: "r4-scene-intro", label: "首屏场景：开场（桌上是占位）", input: {props: {progress: 0, intro: true, deskReady: true}}},
+            {id: "r6-scene-day", label: "首屏场景：白天", input: {props: {progress: 0, intro: true, deskReady: true, night: false}}},
             {id: "r4-scene-mid", label: "俯冲到一半", input: {props: {progress: 0.45, intro: false, deskReady: true}}},
             {id: "r4-scene-near", label: "快落地", input: {props: {progress: 0.82, intro: false, deskReady: true}}},
         ],
@@ -64,5 +72,11 @@ export const fixtures = [
             input: {props: {variant, plates: SAMPLE_PLATES, ground: "rgb(236, 232, 223)", width: 1000, height: 640}},
         })),
         load: async () => (await import("./HomepageOpeningFixture.vue")).default as never,
+    }),
+    defineLabFixture<typeof HeroButtons>({
+        component: "HeroButtons",
+        noInput: "样张没有参数：四版按钮、夜与昼两种底一起摆出来给开发者挑",
+        scenes: [{id: "r6-variants", label: "第 6 轮：按钮四版，夜与昼"}],
+        load: async () => (await import("./HeroButtonsFixture.vue")).default as never,
     }),
 ];

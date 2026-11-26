@@ -37,8 +37,11 @@ export interface DeskPlate {
     readonly paint: {readonly background: string; readonly radius: string; readonly shadow: string};
 }
 
-/** 演示指针要瞄的地方。`lyra` 是星璃那一栏（第 4 轮的气泡贴着它）。 */
-export type DeskTarget = "chapter-one-tab" | "chapter-two-tab" | "alice-tab" | "first-editor" | "first-editor-body" | "editor-head-blank" | "explorer-entry" | "auxiliarybar" | "float-landing" | "lyra";
+/**
+ * 演示指针要瞄的地方。`lyra` 是星璃那一栏；`statusbar` 是树区域外面（标签在那里松手就浮出来）；`auxiliary-strip` 是右栏的入口条
+ * （整个容器拖到这里就搬过去）；`alice-float-corner` 是艾莉丝那扇浮窗右上角的缩放手柄。
+ */
+export type DeskTarget = "chapter-one-tab" | "chapter-two-tab" | "alice-tab" | "first-editor" | "first-editor-body" | "editor-head-blank" | "explorer-entry" | "auxiliarybar" | "auxiliary-strip" | "float-landing" | "statusbar" | "alice-float-corner" | "lyra";
 
 /**
  * 首屏摆什么：`tour` 是第 3 轮（第一章在前，后面是第二章与艾莉丝）；`knock` 是第 4 轮（第五章在前，后面是第一章与艾莉丝，

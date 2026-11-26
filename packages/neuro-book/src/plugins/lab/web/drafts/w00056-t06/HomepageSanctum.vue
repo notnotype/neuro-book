@@ -1,31 +1,36 @@
 <script setup lang="ts">
 /**
- * NeuroBook 文档站首页的原型（同名 .md，w00056 t06 第 5 轮）：《入殿·俯案成界》的首屏与俯冲，接着是跟着一场戏走的第一幕。
+ * NeuroBook 文档站首页的原型（同名 .md，w00056 t06 第 6 轮）：《入殿·俯案成界》的首屏与俯冲，接着是跟着一场戏走的第一幕。
  *
  * 先后：
  * 1. 挂上就画场景（`SanctumScene` 演开场）与一台透明的真工作台；工作台排好版发 `ready`，场景才把桌子亮出来。
  *    挂着时在根上换成夜间配色（缺省；访客可以切回昼），卸载时还原：主题有一批变量在根上从配色派生，只改工作台那一棵子树跟不上。
  * 2. 滚动只给场景一个目标进度（滚过一屏为 1），场景自己平滑地追、写变换；落地时它发 `landed`，这时工作台才接指针。
- * 3. 第一幕的当前拍由 IntersectionObserver 定（舞台中线压着哪一段）。换拍就打断正在演的，按 `goTo` 的规则走到那一拍；
- *    演之前先等落地（镜头还在推的时候量出来的位置是斜的）。每走完一拍存盘并记下工作台的样子（含正文与星璃的对话），
- *    往回滚时换回那一份的布局；访客动过工作台以后状态对不上记下的，先按记下的重新挂一台再接着演。
+ * 3. 第一幕：滚动只决定停在哪一拍，动画只负责从上一拍的终态走到这一拍的终态（导演在 `act-one.ts`，规则写在那里）。
+ *    舞台中线压着哪一段由 IntersectionObserver 定，交给导演；演之前先等落地（镜头还在推的时候量出来的位置是斜的）。
+ *    演示的拖动、双击、点菜单都是合成的指针事件，走产品真的手势（`demo-pointer.ts`），拖动是实时布局；被打断时没松开的那一下撤下。
+ *    往回滚、访客动过以后换拍，按记下的终态摆回去：能就地摆就走产品的布局动画，正文对不上才重新挂一台。
  */
 import {applyColorwayVars, NB_UI_COLORWAY_HOST_CLASS} from "@notnotype/nb-ui";
 import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
-import LYRA_PEEK from "nbook/plugins/stickers/builtin/lyra/toukan.webp";
 import {INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
+import {createActOne} from "./act-one";
 import FILIGREE from "./assets/filigree.webp";
-import {BEATS, HANDOFF, HEADLINES, KNOCK_ECHOES, LEDE, SANCTUM_ACT, TAGLINE} from "./copy";
+import LYRA_PEEK from "./assets/lyra-toukan.webp";
+import {BEATS, HANDOFF, HEADLINES, KNOCK_ECHOES, KNOCK_NOTE, LEDE, SANCTUM_ACT, TAGLINE} from "./copy";
 import type {BeatCopy} from "./copy";
+import type {DemoPointer} from "./demo-pointer";
 import {centerOf} from "./desk";
 import type {DeskSnapshot, DeskTarget, Point} from "./desk";
 import HomepageDesk from "./HomepageDesk.vue";
 import {CARRY, Interrupted, prefersReducedMotion, SETTLE, tween, wait} from "./motion";
+import type {Ease} from "./motion";
 import {KNOCK_ASK, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply} from "./sample";
+import type {OpenFile} from "./sample";
 import {deskBox, SANCTUM_MIN_WIDTH} from "./sanctum";
 import SanctumScene from "./SanctumScene.vue";
 import {createTrail} from "./trail";
@@ -34,7 +39,9 @@ import type {Trail} from "./trail";
 const props = withDefaults(defineProps<{
     start?: "top" | "act-one";
     headline?: string;
-}>(), {start: "top", headline: "e3"});
+    /** 一开始是夜还是昼（访客之后可以切换）；缺省夜（开发者第 4 轮定）。 */
+    appearance?: "night" | "day";
+}>(), {start: "top", headline: "e3", appearance: "night"});
 
 const headlineParts = computed(() => (HEADLINES[props.headline] ?? HEADLINES.e3 ?? "").split(/(?<=，)/u));
 
@@ -69,7 +76,7 @@ const captionStyle = computed(() => {
 
 // ── 夜间配色：缺省夜，写在根上；卸载时把原来的值放回去 ──
 
-const night = ref(true);
+const night = ref(props.appearance === "night");
 /**
  * 配色写在哪几层：根，加上页面往上每一个带配色宿主 class 的元素（Lab 的宿主在 html 与 body 上各套了一份，
  * 只改根的话 body 上那份昼的变量会盖住）。每一层记下原来的内联值与明暗，卸载时逐个放回。
@@ -140,8 +147,11 @@ function onDeskReady(): void {
     for (const resolve of readyWaiters.splice(0)) resolve();
     if (!firstReady) return;
     firstReady = false;
-    ends[0] = desk.value?.snapshot();
-    if (props.start === "act-one") void nextTick(() => scrollToBeat(0));
+    // 首屏的样子（存过盘的）交给导演，它才开始；从第一幕开头起时再滚到第一拍。
+    void desk.value?.snapshotSaved().then((initial) => {
+        director.prime(initial);
+        if (props.start === "act-one") void nextTick(() => scrollToBeat(0));
+    });
 }
 
 function onLanded(next: boolean): void {
@@ -173,7 +183,7 @@ function scrollToBeat(beat: number): void {
     onScroll();
 }
 
-// ── 第一幕的“手”：一支金色的指针，身后金色尾迹，按下处漾开一圈 ──
+// ── 第一幕的“手”：一支金色的指针，身后金色尾迹，按下处漾开一圈。按下、拖动、松开都真的发给工作台（`demo-pointer.ts`） ──
 
 const trailCanvas = useTemplateRef<HTMLCanvasElement>("trailCanvas");
 let trail: Trail | null = null;
@@ -203,6 +213,9 @@ function arc(from: Point, to: Point): (t: number) => Point {
     return (t) => ({x: (1 - t) ** 2 * from.x + 2 * (1 - t) * t * control.x + t ** 2 * to.x, y: (1 - t) ** 2 * from.y + 2 * (1 - t) * t * control.y + t ** 2 * to.y});
 }
 
+/** 演示指针：工作台挂上以后才有。 */
+const hand = (): DemoPointer | null => desk.value?.pointer() ?? null;
+
 /** 指针从旁边滑到目标上（没显示时先在目标左下方现身）。 */
 async function reach(target: Point, signal: AbortSignal): Promise<void> {
     if (!pointerShown.value) {
@@ -214,89 +227,112 @@ async function reach(target: Point, signal: AbortSignal): Promise<void> {
     await tween(700, SETTLE, (t) => placePointer(path(t)), signal);
 }
 
-async function press(at: Point, signal: AbortSignal): Promise<void> {
-    pointerPressed.value = true;
-    trail?.ripple(toStage(at));
-    await wait(160, signal);
-}
-
-function lift(): void {
-    pointerPressed.value = false;
-}
-
 function hidePointer(): void {
     pointerShown.value = false;
     pointerPressed.value = false;
 }
 
-interface DragPlan {
-    readonly from: DeskTarget;
-    readonly ghost: {readonly label: string; readonly icon: string};
-    readonly to: () => Point | null;
-    readonly area: () => DOMRectReadOnly | null;
-    readonly commit: () => void;
+/** 按下处漾一圈（按、点、松开都有）。 */
+function ripple(point: Point): void {
+    trail?.ripple(toStage(point));
 }
 
 /**
- * 一次拖动，放慢讲清楚：指针滑到标签上、停一下；按下（漾一圈、来源变淡）；拖着走（身后金色尾迹，落点一起步就亮）；
- * 在落点上停一下再松手（再漾一圈），之后是工作台自己的布局动画。
+ * 拖着走一段：指针沿直线移过去，一路把移动发给工作台（实时布局跟着排），身后一道金色尾迹。
+ * 落点都在起拖前量好就不再改：产品判定落点用的是拿起前的布局（预览只给渲染），预览一排开，再量的位置就对不上判定了
+ * （第 6 轮第一次试时边走边量，第一组一收窄，指针跟着退回了它的中央）。
  */
-async function dragDemo(signal: AbortSignal, plan: DragPlan): Promise<void> {
-    const source = desk.value?.target(plan.from) ?? null;
-    if (source === null) {
-        plan.commit();
-        return;
-    }
-    const grab = centerOf(source);
-    await reach(grab, signal);
-    await wait(320, signal);
-    await press(grab, signal);
-    const lifted = desk.value?.sourceElement(plan.from) ?? null;
-    if (lifted !== null) {
-        lifted.style.transition = "opacity 140ms ease";
-        lifted.style.opacity = "0.4";
-    }
-    const destination = plan.to() ?? grab;
-    try {
-        desk.value?.showDrag({ghost: plan.ghost, at: grab, area: null});
-        const path = arc(grab, destination);
-        let armed = false;
-        await tween(1150, CARRY, (progressed) => {
-            const point = path(progressed);
-            placePointer(point);
-            desk.value?.moveGhost(point);
-            trail?.add(toStage(point));
-            if (!armed && progressed > 0.08) {
-                armed = true;
-                desk.value?.showDrag({ghost: plan.ghost, at: point, area: plan.area()});
-            }
-        }, signal);
-        await wait(480, signal);
-    } finally {
-        desk.value?.showDrag(null);
-        if (lifted !== null) lifted.style.opacity = "";
-    }
-    plan.commit();
-    lift();
-    trail?.ripple(toStage(destination));
-    await wait(420, signal);
-    hidePointer();
+async function carry(from: Point, to: Point, ease: Ease, signal: AbortSignal): Promise<Point> {
+    const ms = Math.min(900, Math.max(320, Math.hypot(to.x - from.x, to.y - from.y) * 1.1));
+    await tween(ms, ease, (t) => {
+        const at = {x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t};
+        placePointer(at);
+        hand()?.move(at);
+        trail?.add(toStage(at));
+    }, signal);
+    return to;
 }
 
-/** 双击某处：指针滑过去，两下，每下漾一圈。 */
+/**
+ * 一次真的拖动，放慢讲清楚：指针滑到来源上、停一下；按下；经过几个路点拖到落点（实时布局一路排）；在落点上停一下再松手，
+ * 之后是产品自己的落位动画。来源量不到时返回 false，由调用方直接摆。被打断时没松开的那一下由 `tidy` 撤下（拖动取消，布局回到按下前）。
+ *
+ * 路点（`via`）是为实时布局的预览挑的路：落点停稳约 150ms 预览才排开（nb-layout 的 `LIVE_SETTLE_MS`），指针在别的分区里停久了，
+ * 布局会先排成那一边再换过来。所以路点都选在不排布局的地方（标签条里、不收这个标签的面板上），穿过别的分区那一段走得快（先快后慢）。
+ */
+async function drag(from: DeskTarget | (() => DOMRectReadOnly | null), to: () => Point | null, signal: AbortSignal, options: {readonly hold?: number; readonly via?: () => readonly Point[]} = {}): Promise<boolean> {
+    const source = typeof from === "function" ? from() : (desk.value?.target(from) ?? null);
+    const fingers = hand();
+    if (source === null || fingers === null) return false;
+    const grab = centerOf(source);
+    await reach(grab, signal);
+    await wait(300, signal);
+    const stops = [...(options.via?.() ?? []), to() ?? grab];
+    pointerPressed.value = true;
+    ripple(grab);
+    if (fingers.down(grab) === null) {
+        pointerPressed.value = false;
+        return false;
+    }
+    await wait(150, signal);
+    let end = grab;
+    for (const [index, stop] of stops.entries()) end = await carry(end, stop, index === 0 ? CARRY : SETTLE, signal);
+    await wait(options.hold ?? 560, signal);
+    fingers.up(end);
+    pointerPressed.value = false;
+    ripple(end);
+    await wait(500, signal);
+    return true;
+}
+
+/**
+ * 点一下（菜单上的按钮、批注的小符号）：指针滑过去，停一下，按下松开。滑过去的这段时间里浮层可能换了位置（选区菜单跟着选区重新贴），
+ * 所以到了以后再量一次，按新的位置点；量不到了返回 false。
+ */
+async function tap(measure: () => DOMRectReadOnly | null, signal: AbortSignal): Promise<boolean> {
+    const first = measure();
+    if (first === null) return false;
+    await reach(centerOf(first), signal);
+    await wait(260, signal);
+    const rect = measure();
+    if (rect === null) return false;
+    const point = centerOf(rect);
+    placePointer(point);
+    pointerPressed.value = true;
+    ripple(point);
+    hand()?.click(point);
+    await wait(140, signal);
+    pointerPressed.value = false;
+    return true;
+}
+
+/** 双击某处：真的发两下与 `dblclick`，每下漾一圈。 */
 async function doubleTap(name: DeskTarget, signal: AbortSignal): Promise<void> {
     const rect = desk.value?.target(name) ?? null;
     if (rect === null) return;
     const point = centerOf(rect);
     await reach(point, signal);
     await wait(300, signal);
-    await press(point, signal);
-    lift();
+    pointerPressed.value = true;
+    ripple(point);
     await wait(110, signal);
-    await press(point, signal);
-    lift();
-    await wait(200, signal);
+    ripple(point);
+    hand()?.doubleClick(point);
+    pointerPressed.value = false;
+    await wait(220, signal);
 }
+
+/** 等某样东西出现（菜单、卡片）：每 60ms 看一次，等不到返回 null。 */
+async function until<T>(probe: () => T | null, ms: number, signal: AbortSignal): Promise<T | null> {
+    for (let spent = 0; spent <= ms; spent += 60) {
+        const found = probe();
+        if (found !== null) return found;
+        await wait(60, signal);
+    }
+    return null;
+}
+
+// ── 正文：打字、星璃、高亮与批注 ──
 
 /**
  * 把光标放到第五章末尾并确认焦点落下了。编辑器是异步挂上的：句柄出来以后，正文可能还在读，这时聚焦是空的，
@@ -311,7 +347,7 @@ async function focusChapterFive(signal: AbortSignal): Promise<boolean> {
     return false;
 }
 
-/** 第五章接着打那半句：一个字一个字，标点处停得久一些。打过了（往回滚又往下）就不重打。 */
+/** 第五章接着打那半句：一个字一个字，标点处停得久一些。 */
 async function typeKnock(signal: AbortSignal): Promise<void> {
     if (desk.value?.shows(KNOCK_TYPED) === true) return;
     if (!(await focusChapterFive(signal))) return;
@@ -322,9 +358,9 @@ async function typeKnock(signal: AbortSignal): Promise<void> {
     }
 }
 
-function typeKnockNow(): void {
+async function typeKnockNow(signal: AbortSignal): Promise<void> {
     if (desk.value?.shows(KNOCK_TYPED) === true) return;
-    if (desk.value?.revealEnd("chapterFive") === true) desk.value.type(KNOCK_TYPED);
+    if (await focusChapterFive(signal)) desk.value?.type(KNOCK_TYPED);
 }
 
 /** 第一章翻到末尾（那段同样的敲门在最后）。分组刚换过，控件可能还没挂上，等一下再试。 */
@@ -363,6 +399,81 @@ function askLyraNow(): void {
     desk.value?.lyraPost(knockReply(KNOCK_REPLY, false));
 }
 
+/** 拖选一句：指针停在句首，扫到句尾（选区跟着一帧一帧加长），松开。这句不在桌上时返回 false。 */
+async function sweepSelect(text: string, signal: AbortSignal): Promise<boolean> {
+    const first = desk.value?.textRects(text)[0];
+    if (first === undefined) return false;
+    const start = {x: first.left + 1, y: first.top + first.height / 2};
+    await reach(start, signal);
+    await wait(280, signal);
+    pointerPressed.value = true;
+    ripple(start);
+    await tween(600 + text.length * 30, SETTLE, (t) => {
+        const end = desk.value?.selectText(text, t) ?? null;
+        if (end !== null) placePointer({x: end.right, y: end.top + end.height / 2});
+    }, signal);
+    pointerPressed.value = false;
+    desk.value?.finishSelection();
+    return true;
+}
+
+/** 涂高亮：拖选、点选区菜单上的高亮（颜色用菜单记着的上一次）；菜单没出来、没点上时直接执行同一个编辑动作。 */
+async function highlight(file: OpenFile, text: string, signal: AbortSignal): Promise<void> {
+    if (!(await sweepSelect(text, signal))) return;
+    await until(() => desk.value?.menuButton("highlight") ?? null, 1400, signal);
+    await wait(300, signal);
+    await tap(() => desk.value?.menuButton("highlight") ?? null, signal);
+    await wait(200, signal);
+    if (desk.value?.marked(text, "highlight") !== true) desk.value?.markNow(file, text, {kind: "highlight", color: HIGHLIGHT_COLOR});
+    await wait(120, signal);
+    desk.value?.collapseSelection();
+}
+
+/**
+ * 加批注：拖选、点选区菜单上的“批注”，在卡片里一个字一个字打，点保存；再点批注末尾的小符号，把卡片打开给人看。
+ * 菜单或卡片没出来时直接执行同一个编辑动作（`comment`）。
+ */
+async function annotate(file: OpenFile, text: string, body: string, signal: AbortSignal): Promise<void> {
+    if (!(await sweepSelect(text, signal))) return;
+    await until(() => desk.value?.menuButton("comment") ?? null, 1400, signal);
+    await wait(300, signal);
+    if (!(await tap(() => desk.value?.menuButton("comment") ?? null, signal))) {
+        desk.value?.markNow(file, text, {kind: "comment", body});
+        return;
+    }
+    const opened = await until(() => (desk.value?.focusCommentField() === true ? true : null), 1400, signal);
+    if (opened === null) {
+        desk.value?.markNow(file, text, {kind: "comment", body});
+        return;
+    }
+    await wait(420, signal);
+    for (const char of body) {
+        if (desk.value?.type(char, "field") !== true) break;
+        await wait("，。：".includes(char) ? 320 : 75 + Math.round(Math.random() * 60), signal);
+    }
+    await wait(480, signal);
+    await tap(() => desk.value?.commentSave() ?? null, signal);
+    await wait(400, signal);
+    // 保存后焦点回正文、选区还在，选区菜单会再出来：收起选区，只留批注的小符号。
+    desk.value?.collapseSelection();
+    if (desk.value?.marked(text, "comment") !== true) desk.value?.markNow(file, text, {kind: "comment", body});
+    await wait(300, signal);
+    await tap(() => desk.value?.commentMarker() ?? null, signal);
+}
+
+/** 不演：两处高亮、一条批注直接加上（正文的控件可能刚挂上，找不到那句就等一下再试）。 */
+async function markNow(signal: AbortSignal): Promise<void> {
+    const marks = [
+        ["chapterFive", KNOCK_ECHOES[0], {kind: "highlight", color: HIGHLIGHT_COLOR}],
+        ["chapterOne", KNOCK_ECHOES[1], {kind: "highlight", color: HIGHLIGHT_COLOR}],
+        ["chapterFive", KNOCK_NOTE.on, {kind: "comment", body: KNOCK_NOTE.body}],
+    ] as const;
+    for (const [file, text, mark] of marks) {
+        for (let attempt = 0; attempt < 15 && desk.value?.markNow(file, text, mark) !== true; attempt += 1) await wait(100, signal);
+    }
+    desk.value?.collapseSelection();
+}
+
 /** 局部聚光：被点名的那一处亮一圈金，其余地方压暗一点（@designer 第 4 轮：整台放大会糊字、裁掉两栏）。 */
 const spot = shallowRef<StageRect | null>(null);
 async function spotlight(name: DeskTarget, signal: AbortSignal, hold: number): Promise<void> {
@@ -373,7 +484,7 @@ async function spotlight(name: DeskTarget, signal: AbortSignal, hold: number): P
     spot.value = null;
 }
 
-/** 两章里那两声敲门同时描一道金：给读者一个对照的落点。 */
+/** 两章里那两声敲门同时描一道金：给读者一个对照的落点（只在第一拍的收尾亮一会儿，下一拍再真的涂上高亮）。 */
 const marks = shallowRef<readonly StageRect[]>([]);
 function markEchoes(): void {
     marks.value = KNOCK_ECHOES.flatMap((text) => desk.value?.textRects(text) ?? []).map(rectToStage);
@@ -381,6 +492,8 @@ function markEchoes(): void {
 
 /** 关灯：工作台上压一层夜色，中间一枚小猫标。 */
 const lightsOut = ref(false);
+/** 换一台工作台时的薄暮：压上、换、揭开（恢复时正文对不上，不能就地摆回去）。 */
+const veil = ref(false);
 
 // ── 字幕：上一行是这一拍的短标题（金色）与进度，下一行是一句字幕；交给访客时整行换成邀请与按钮 ──
 
@@ -399,25 +512,68 @@ function markRing(name: DeskTarget): void {
     ring.value = rect === null ? null : rectToStage(rect);
 }
 
-// ── 第一幕的五拍与交给访客 ──
+// ── 第一幕的六拍与交给访客 ──
 
 interface Beat {
     readonly copy: BeatCopy | null;
+    /** 从上一拍的终态演到这一拍的终态。 */
     play(signal: AbortSignal): Promise<void>;
-    /** 不演、直接到这一拍的终态（快进与被打断时）；重复调用没有副作用。 */
-    apply(): void;
+    /** 不演，直接摆上这一拍的结果（快速滚过与少动效时）。 */
+    settle(signal: AbortSignal): Promise<void>;
 }
 
+/** 高亮的颜色：菜单没出来、直接执行时用（产品色板里的黄）。 */
+const HIGHLIGHT_COLOR = "#fef9c3";
+
+/** 第一章拖到第一组正文的右缘：实时布局在这里拆出右边一组。 */
 const chapterOneDrop = (): Point | null => {
-    const editor = desk.value?.target("first-editor") ?? null;
-    return editor === null ? null : {x: editor.left + editor.width * 0.8, y: editor.top + editor.height * 0.5};
+    const body = desk.value?.target("first-editor-body") ?? null;
+    return body === null ? null : {x: body.right - Math.min(60, body.width * 0.12), y: body.top + body.height * 0.5};
 };
-const rightHalf = (rect: DOMRectReadOnly | null): DOMRectReadOnly | null => (rect === null ? null : new DOMRectReadOnly(rect.left + rect.width / 2, rect.top, rect.width / 2, rect.height));
+/** 先沿标签条走到右端（条里只是换个次序），再从那里直着落进右缘：穿过上缘的那一小段走得快，布局不会先往上下拆。 */
+const chapterOneVia = (): readonly Point[] => {
+    const drop = chapterOneDrop();
+    const tab = desk.value?.target("chapter-one-tab") ?? null;
+    return drop === null || tab === null ? [] : [{x: drop.x, y: tab.top + tab.height / 2}];
+};
+/** 艾莉丝的标签拖到状态栏上松手：那里不在任何一块面板上，标签就浮出来，窗的左上角对着侧栏。 */
+const floatDrop = (): Point | null => {
+    const status = desk.value?.target("statusbar") ?? null;
+    const landing = desk.value?.target("float-landing") ?? null;
+    return status === null || landing === null ? null : {x: landing.left + 40, y: status.top + status.height / 2};
+};
+/** 先沿标签条往左，再越过缝进作品树（编辑器的标签放不进工具视图，那里不排布局），再落到状态栏上。 */
+const floatVia = (): readonly Point[] => {
+    const tab = desk.value?.target("alice-tab") ?? null;
+    const editor = desk.value?.target("first-editor") ?? null;
+    const landing = desk.value?.target("float-landing") ?? null;
+    if (tab === null || editor === null || landing === null) return [];
+    const strip = tab.top + tab.height / 2;
+    return [{x: editor.left + 24, y: strip}, {x: landing.left + 40, y: strip + 140}];
+};
+/** 作品的入口拖到右栏的入口条上，放在已有入口的后面。 */
+const stripDrop = (): Point | null => {
+    const strip = desk.value?.target("auxiliary-strip") ?? null;
+    return strip === null ? null : {x: strip.left + strip.width * 0.72, y: strip.top + strip.height / 2};
+};
+
+/** 艾莉丝的窗开在状态栏上方：拉右上角的手柄，收到作品树下面那一块。 */
+async function shrinkAlice(signal: AbortSignal): Promise<void> {
+    const landing = desk.value?.target("float-landing") ?? null;
+    if (landing === null) return;
+    const goal = {x: landing.right - 3, y: landing.top + 3};
+    await drag(() => desk.value?.target("alice-float-corner") ?? null, () => goal, signal, {hold: 260});
+}
+
+async function whenReadyToPlay(signal: AbortSignal): Promise<void> {
+    await whenLanded(signal);
+}
 
 const BEAT_STEPS: readonly Beat[] = [
     {
         copy: BEATS.knock,
         async play(signal) {
+            await whenReadyToPlay(signal);
             beatTitle.value = "第一幕";
             caption.value = SANCTUM_ACT.replace(/^第一幕\s+/u, "");
             await wait(1600, signal);
@@ -430,96 +586,104 @@ const BEAT_STEPS: readonly Beat[] = [
             say(BEATS.knock, "middle");
             await wait(1100, signal);
             await spotlight("chapter-one-tab", signal, 900);
-            await dragDemo(signal, {
-                from: "chapter-one-tab",
-                ghost: {label: "第一章 霜港的钟", icon: "i-lucide-file-text"},
-                to: chapterOneDrop,
-                area: () => rightHalf(desk.value?.target("first-editor-body") ?? null),
-                commit: () => void desk.value?.splitRight("chapterOne"),
-            });
-            await wait(800, signal);
+            if (!(await drag("chapter-one-tab", chapterOneDrop, signal, {via: chapterOneVia}))) desk.value?.splitRight("chapterOne");
+            hidePointer();
+            await wait(500, signal);
             await revealChapterOneEnd(signal);
             await wait(600, signal);
             markEchoes();
             say(BEATS.knock, "closing");
-            await wait(3000, signal);
+            await wait(2800, signal);
             marks.value = [];
         },
-        apply() {
-            typeKnockNow();
+        async settle(signal) {
+            await typeKnockNow(signal);
             askLyraNow();
             desk.value?.splitRight("chapterOne");
+            await revealChapterOneEnd(signal);
         },
+    },
+    {
+        copy: BEATS.mark,
+        async play(signal) {
+            await whenReadyToPlay(signal);
+            say(BEATS.mark, "opening");
+            await wait(1200, signal);
+            await highlight("chapterFive", KNOCK_ECHOES[0], signal);
+            await wait(450, signal);
+            await highlight("chapterOne", KNOCK_ECHOES[1], signal);
+            await wait(700, signal);
+            say(BEATS.mark, "middle");
+            await wait(1000, signal);
+            await annotate("chapterFive", KNOCK_NOTE.on, KNOCK_NOTE.body, signal);
+            await wait(500, signal);
+            hidePointer();
+            say(BEATS.mark, "closing");
+            await wait(2600, signal);
+        },
+        settle: markNow,
     },
     {
         copy: BEATS.alice,
         async play(signal) {
+            await whenReadyToPlay(signal);
             say(BEATS.alice, "opening");
             await wait(1300, signal);
-            await dragDemo(signal, {
-                from: "alice-tab",
-                ghost: {label: "艾莉丝", icon: "i-lucide-file-text"},
-                to: () => {
-                    const landing = desk.value?.target("float-landing") ?? null;
-                    return landing === null ? null : {x: landing.left + 80, y: landing.top + 18};
-                },
-                area: () => desk.value?.target("float-landing") ?? null,
-                commit: () => void desk.value?.floatAlice(),
-            });
-            await wait(900, signal);
+            if (!(await drag("alice-tab", floatDrop, signal, {hold: 420, via: floatVia}))) desk.value?.floatAlice();
+            await wait(500, signal);
+            say(BEATS.alice, "middle");
+            await wait(1000, signal);
+            await shrinkAlice(signal);
+            hidePointer();
+            await wait(600, signal);
             say(BEATS.alice, "closing");
             await wait(2000, signal);
         },
-        apply: () => void desk.value?.floatAlice(),
+        settle: async () => void desk.value?.floatAlice(),
     },
     {
         copy: BEATS.move,
         async play(signal) {
+            await whenReadyToPlay(signal);
             say(BEATS.move, "opening");
             await wait(1300, signal);
-            await dragDemo(signal, {
-                from: "explorer-entry",
-                ghost: {label: "作品", icon: "i-lucide-files"},
-                to: () => {
-                    const right = desk.value?.target("auxiliarybar") ?? null;
-                    return right === null ? null : {x: right.left + right.width / 2, y: right.top + right.height * 0.42};
-                },
-                area: () => desk.value?.target("auxiliarybar") ?? null,
-                commit: () => void desk.value?.moveExplorer("auxiliarybar"),
-            });
+            if (!(await drag("explorer-entry", stripDrop, signal))) desk.value?.moveExplorer("auxiliarybar");
+            hidePointer();
             await wait(900, signal);
             say(BEATS.move, "closing");
             await wait(2000, signal);
         },
-        apply: () => void desk.value?.moveExplorer("auxiliarybar"),
+        settle: async () => void desk.value?.moveExplorer("auxiliarybar"),
     },
     {
         copy: BEATS.focus,
         async play(signal) {
+            await whenReadyToPlay(signal);
             say(BEATS.focus, "opening");
             await wait(1300, signal);
             await doubleTap("editor-head-blank", signal);
-            desk.value?.setMaximized(INITIAL_EDITOR_PANEL);
+            if (desk.value?.isMaximized() !== true) desk.value?.setMaximized(INITIAL_EDITOR_PANEL);
             await wait(400, signal);
             hidePointer();
             await wait(1900, signal);
             await doubleTap("editor-head-blank", signal);
-            desk.value?.setMaximized(null);
+            if (desk.value?.isMaximized() === true) desk.value.setMaximized(null);
             hidePointer();
             await wait(500, signal);
             say(BEATS.focus, "closing");
             await wait(1800, signal);
         },
-        apply: () => desk.value?.setMaximized(null),
+        settle: async () => desk.value?.setMaximized(null),
     },
     {
         copy: BEATS.memory,
         async play(signal) {
+            await whenReadyToPlay(signal);
             say(BEATS.memory, "opening");
             await wait(1300, signal);
             lightsOut.value = true;
             await wait(900, signal);
-            // 真的关掉再打开：存盘、记下此刻的样子，按它重新挂一台工作台（布局、标签、浮窗、打到一半的那句、对话都从记下的来）。
+            // 真的关掉再打开：存盘、记下此刻的样子，按它重新挂一台工作台（布局、标签、浮窗、打到一半的那句、批注、对话都从记下的来）。
             const saved = (await desk.value?.snapshotSaved()) ?? null;
             await remount(saved);
             await wait(700, signal);
@@ -528,17 +692,20 @@ const BEAT_STEPS: readonly Beat[] = [
             say(BEATS.memory, "closing");
             await wait(2200, signal);
         },
-        apply: () => undefined,
+        settle: async () => undefined,
     },
     {
         copy: null,
         async play(signal) {
             await wait(300, signal);
-            settleHandoff();
         },
-        apply: () => settleHandoff(),
+        settle: async () => undefined,
     },
 ];
+
+/** 六拍的进度（交给访客那一段不算一拍）：已走过的实心，当前这一拍亮着。 */
+const BEAT_COUNT = BEAT_STEPS.filter((beat) => beat.copy !== null).length;
+const LAST_STEP = BEAT_STEPS.length - 1;
 
 /** 交给访客停住的样子：第一章的标签上一圈金环（隔一会儿往右挪一下，示意能拖），字幕那一行是邀请与按钮。 */
 function settleHandoff(): void {
@@ -546,144 +713,122 @@ function settleHandoff(): void {
     handoff.value = true;
 }
 
-/** 五拍的进度（交给访客那一段不算一拍）：已走过的实心，当前这一拍亮着。 */
-const BEAT_COUNT = BEAT_STEPS.filter((beat) => beat.copy !== null).length;
-
-/** 当前拍：-1 是首屏与俯冲（工作台是首屏的样子）。 */
+/** 字幕上显示的是哪一拍：-1 是首屏与俯冲。 */
 const current = ref(-1);
-/** `ends[i]`：走完前 i 拍时工作台的样子；`ends[0]` 是首屏的样子。 */
-const ends: Array<DeskSnapshot | undefined> = [];
-let completed = 0;
-let partial = false;
-let dirty = false;
-let run: AbortController | null = null;
 const yielded = ref(false);
 const phase = ref("idle");
-/** 演不演：宽屏且访客没要求少动效。窄屏在 `goTo` 开头就只换字幕；少动效时直接摆到每一拍的终态。 */
+/** 演不演：宽屏且访客没要求少动效。窄屏只换字幕；少动效时导演只摆不演。 */
 const demoEnabled = computed(() => wide.value && !reduced);
 
-function stopRun(): void {
-    run?.abort();
-    run = null;
+/** 一段被打断或走完后收拾演示的装饰；停住时该有的（交给访客的金环）由 `rest` 摆。 */
+function tidy(): void {
+    hand()?.cancel();
     trail?.clear();
-    desk.value?.showDrag(null);
     hidePointer();
     spot.value = null;
     marks.value = [];
     glow.value = null;
-    ring.value = null;
-    handoff.value = false;
+    veil.value = false;
     lightsOut.value = false;
 }
 
-function restCaption(beat: number): void {
-    const copy = BEAT_STEPS[beat]?.copy ?? null;
-    if (copy === null) {
+/** 停在某一拍：字幕换成这一拍的收尾（演完的已经是了）。 */
+function rest(beat: number, how: "played" | "settled" | "restored"): void {
+    current.value = beat;
+    if (beat < 0) {
         beatTitle.value = "";
         caption.value = "";
-        return;
-    }
-    say(copy, "closing");
-}
-
-/** 走到第 `beat` 拍；规则见文件头。`replay` 是“接着看”，`restore` 是“摆回去”。 */
-async function goTo(beat: number, mode: "scroll" | "replay" | "restore" = "scroll"): Promise<void> {
-    stopRun();
-    yielded.value = false;
-    // 窄屏只换字幕：工作台只有一栏宽，分栏、浮窗摆上去挤成一字一行，不如让它保持首屏的样子给访客自己上手。
-    if (!wide.value) {
-        if (beat < 0) {
-            beatTitle.value = "";
-            caption.value = "";
-        } else if (beat === BEAT_STEPS.length - 1) {
-            handoff.value = true;
-        } else restCaption(beat);
-        return;
-    }
-    const controller = new AbortController();
-    run = controller;
-    const {signal} = controller;
-    const initial = ends[0];
-    if (initial === undefined) return;
-    try {
-        if (dirty) {
-            dirty = false;
-            partial = false;
-            completed = Math.min(completed, mode === "restore" ? beat + 1 : Math.max(0, beat));
-            await remount(ends[completed] ?? initial);
-            if (signal.aborted) return;
-            if (mode === "restore") {
-                restCaption(beat);
-                return;
-            }
-        } else if (partial) {
-            partial = false;
-            desk.value?.applyDoc(ends[completed] ?? initial);
-        }
-        if (beat < 0) {
-            if (completed > 0) desk.value?.applyDoc(initial);
-            completed = 0;
-            beatTitle.value = "";
-            caption.value = "";
-            return;
-        }
-        if (completed > beat) {
-            if (mode !== "replay") {
-                completed = beat + 1;
-                desk.value?.applyDoc(ends[completed] ?? initial);
-                restCaption(beat);
-                if (beat === BEAT_STEPS.length - 1) settleHandoff();
-                return;
-            }
-            completed = beat;
-            desk.value?.applyDoc(ends[beat] ?? initial);
-            await wait(420, signal);
-        }
-        if (mode === "restore") return;
-        while (completed < beat) {
-            BEAT_STEPS[completed]?.apply();
-            completed += 1;
-            await wait(60, signal);
-            ends[completed] = await desk.value?.snapshotSaved();
-        }
-        const target = BEAT_STEPS[beat];
-        if (target === undefined) return;
-        if (reduced) {
-            target.apply();
-            restCaption(beat);
-            completed = beat + 1;
-            ends[completed] = await desk.value?.snapshotSaved();
-            return;
-        }
-        phase.value = `land-${beat}`;
-        await whenLanded(signal);
-        phase.value = `play-${beat}`;
-        partial = true;
-        await target.play(signal);
-        partial = false;
-        completed = beat + 1;
-        ends[completed] = await desk.value?.snapshotSaved();
-        phase.value = `done-${beat}`;
-    } catch (error) {
-        phase.value = error instanceof Interrupted ? "interrupted" : `error: ${String(error)}`;
-        if (!(error instanceof Interrupted)) throw error;
-    } finally {
-        if (run === controller) run = null;
-    }
-}
-
-watch(current, (beat) => void goTo(beat));
-
-/** 访客自己动了工作台：演示让开，字幕后面出现“接着看”“摆回去”；交给访客那一段只熄掉金环（已经交到访客手里了）。 */
-function onVisitorTouch(): void {
-    dirty = true;
-    if (current.value < 0 || !demoEnabled.value) return;
-    if (current.value === BEAT_STEPS.length - 1) {
+        handoff.value = false;
         ring.value = null;
         return;
     }
-    stopRun();
-    restCaption(current.value);
+    if (beat === LAST_STEP) {
+        settleHandoff();
+        return;
+    }
+    handoff.value = false;
+    ring.value = null;
+    const copy = BEAT_STEPS[beat]?.copy ?? null;
+    if (copy !== null && how !== "played") say(copy, "closing");
+}
+
+/**
+ * 摆回记下的样子。能就地摆就就地摆：布局走产品的布局动画，从此刻（访客摆的、演到一半的）样子走回去。
+ * 正文或标签对不上（访客打过字、演示打到一半）时压一层薄暮，按记下的重新挂一台，再揭开。
+ */
+async function restoreDesk(state: DeskSnapshot, signal: AbortSignal): Promise<void> {
+    tidy();
+    yielded.value = false;
+    handoff.value = false;
+    ring.value = null;
+    const live = desk.value;
+    if (live !== null && (await live.restoreTo(state))) {
+        await wait(480, signal);
+        return;
+    }
+    veil.value = true;
+    await wait(240, signal);
+    await remount(state);
+    veil.value = false;
+    await wait(260, signal);
+}
+
+const director = createActOne<DeskSnapshot>({
+    async play(beat, signal) {
+        current.value = beat;
+        yielded.value = false;
+        handoff.value = false;
+        ring.value = null;
+        await BEAT_STEPS[beat]?.play(signal);
+    },
+    async settle(beat, signal) {
+        await BEAT_STEPS[beat]?.settle(signal);
+    },
+    capture: async () => {
+        const saved = await desk.value?.snapshotSaved();
+        if (saved === undefined) throw new Error("工作台不在，记不下样子");
+        return saved;
+    },
+    restore: restoreDesk,
+    tidy,
+    rest,
+}, {
+    animate: () => !reduced,
+    onPhase: (text) => {
+        phase.value = text;
+    },
+    report: (error) => console.error("[homepage] 第一幕", error),
+});
+
+/** 舞台中线压着哪一段：宽屏交给导演；窄屏只换字幕（工作台只有一栏宽，分栏、浮窗摆上去挤成一字一行）。 */
+function onBeat(beat: number): void {
+    if (wide.value) {
+        director.follow(beat);
+        return;
+    }
+    current.value = beat;
+    if (beat < 0) {
+        beatTitle.value = "";
+        caption.value = "";
+        handoff.value = false;
+    } else if (beat === LAST_STEP) handoff.value = true;
+    else {
+        handoff.value = false;
+        const copy = BEAT_STEPS[beat]?.copy ?? null;
+        if (copy !== null) say(copy, "closing");
+    }
+}
+
+/** 访客自己动了工作台：演示让开，字幕后面出现“接着看”“摆回去”；交给访客那一段只熄掉金环（已经交到访客手里了）。 */
+function onVisitorTouch(): void {
+    if (!wide.value) return;
+    director.touch();
+    const beat = director.target();
+    if (beat < 0) return;
+    if (beat === LAST_STEP) {
+        ring.value = null;
+        return;
+    }
     yielded.value = true;
 }
 
@@ -705,7 +850,7 @@ function observeBeats(): void {
     const root = page.value;
     if (root === null) return;
     beats = new IntersectionObserver((entries) => {
-        for (const entry of entries) if (entry.isIntersecting) current.value = Number((entry.target as HTMLElement).dataset.hsStep ?? "-1");
+        for (const entry of entries) if (entry.isIntersecting) onBeat(Number((entry.target as HTMLElement).dataset.hsStep ?? "-1"));
     }, {root, rootMargin: "-49.5% 0px -49.5% 0px", threshold: 0});
     for (const element of root.querySelectorAll<HTMLElement>("[data-hs-step]")) beats.observe(element);
 }
@@ -734,7 +879,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    stopRun();
+    director.dispose();
+    tidy();
     trail?.dispose();
     resize?.disconnect();
     beats?.disconnect();
@@ -749,7 +895,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="page" class="hs" :class="{'hs--narrow': !wide}" :style="pageStyle" :data-hs-beat="current" :data-hs-phase="phase" :data-hs-landed="landed" :data-hs-night="night" @scroll.passive="onScroll">
+    <div ref="page" class="hs" :class="{'hs--narrow': !wide, 'hs--day': !night}" :style="pageStyle" :data-hs-beat="current" :data-hs-phase="phase" :data-hs-landed="landed" :data-hs-night="night" @scroll.passive="onScroll">
         <div class="hs-run">
             <div ref="stage" class="hs-stage">
                 <SanctumScene :progress="dive" :intro="start === 'top'" :desk-ready="deskReady" :night="night" @landed="onLanded">
@@ -760,6 +906,9 @@ onBeforeUnmount(() => {
                                 <NeuroBookMark decorative class="hs-lights-out__mark" />
                             </div>
                         </Transition>
+                        <Transition name="hs-fade">
+                            <div v-if="veil" class="hs-veil" aria-hidden="true"></div>
+                        </Transition>
                     </template>
                     <template #hero="{lit}">
                         <header class="hs-nav" :class="{'is-lit': lit}">
@@ -769,8 +918,12 @@ onBeforeUnmount(() => {
                             </a>
                             <nav class="hs-nav__links" aria-label="站点">
                                 <a href="#">文档</a>
-                                <a href="#">更新日志</a>
+                                <a href="#" class="hs-nav__extra">更新日志</a>
                                 <a href="#">GitHub</a>
+                                <!-- 昼夜切换：首屏在导航的最右端，落地以后在字幕那一条的右端（两处是同一个开关）。 -->
+                                <button type="button" class="hs-nav__daynight" :aria-pressed="night" :aria-label="night ? '换成白天' : '换成夜间'" :title="night ? '换成白天' : '换成夜间'" @click="night = !night">
+                                    <span :class="night ? 'i-lucide-moon' : 'i-lucide-sun'" aria-hidden="true"></span>
+                                </button>
                             </nav>
                         </header>
                         <section class="hs-hero" :class="{'is-lit': lit}">
@@ -839,8 +992,8 @@ onBeforeUnmount(() => {
                         <div v-else :key="caption" class="hs-caption__row">
                             <p class="hs-caption__line">{{ caption }}</p>
                             <template v-if="yielded">
-                                <button type="button" class="hs-cta hs-cta--compact" @click="goTo(current, 'replay')">接着看</button>
-                                <button type="button" class="hs-cta hs-cta--compact" @click="goTo(current, 'restore')">摆回去</button>
+                                <button type="button" class="hs-cta hs-cta--compact" @click="director.replay()">接着看</button>
+                                <button type="button" class="hs-cta hs-cta--compact" @click="director.settleHere()">摆回去</button>
                             </template>
                         </div>
                     </Transition>
@@ -909,7 +1062,8 @@ onBeforeUnmount(() => {
     top: 0;
     z-index: 1;
     height: var(--hs-vh);
-    overflow: hidden;
+    /* clip：不让拿焦点的元素把舞台滚开（见 `SanctumScene.vue` 的 `.sx`）。 */
+    overflow: clip;
     pointer-events: none;
 }
 
@@ -952,6 +1106,7 @@ onBeforeUnmount(() => {
 
 .hs-nav__links {
     display: flex;
+    align-items: center;
     gap: 28px;
 }
 
@@ -1501,6 +1656,192 @@ onBeforeUnmount(() => {
     color: rgb(247 242 236 / 0.5);
 }
 
+.hs-nav__daynight {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background:
+        linear-gradient(rgb(24 15 19 / 0.7), rgb(24 15 19 / 0.7)) padding-box,
+        var(--hs-gilt) border-box;
+    color: var(--hs-gold-light);
+    cursor: pointer;
+    transition: box-shadow 200ms ease;
+}
+
+.hs-nav__daynight:hover {
+    box-shadow: 0 0 14px rgb(240 201 135 / 0.35);
+}
+
+.hs-nav__daynight:focus-visible {
+    outline: 2px solid var(--hs-gold-light);
+    outline-offset: 3px;
+}
+
+.hs-nav__daynight span {
+    width: 15px;
+    height: 15px;
+}
+
+/* 换一台工作台时压上的薄暮（恢复时正文对不上，不能就地摆回去）。 */
+.hs-veil {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    background: rgb(18 12 16 / 0.72);
+    pointer-events: none;
+}
+
+/*
+ * ── 昼（第 6 轮）：字换成深墨，金换成更深的铜金（只给线与小字，正文守深墨），赤红照旧给主按钮。场景的日光与石墙在 `SanctumScene.vue`。
+ */
+.hs--day {
+    --hs-gold: #8a5c1c;
+    --hs-gold-light: #8a5c1c;
+    background: #b9ab93;
+    color: #2a1d12;
+    scrollbar-color: rgb(42 29 18 / 0.25) transparent;
+}
+
+.hs--day .hs-nav__brand {
+    color: #2a1d12;
+}
+
+.hs--day .hs-nav__links a {
+    color: rgb(42 29 18 / 0.66);
+}
+
+.hs--day .hs-nav__links a:hover {
+    color: #2a1d12;
+}
+
+.hs--day .hs-nav__daynight,
+.hs--day .hs-daynight {
+    background:
+        linear-gradient(rgb(250 244 232 / 0.86), rgb(250 244 232 / 0.86)) padding-box,
+        var(--hs-gilt) border-box;
+    color: #6f4a17;
+}
+
+.hs--day .hs-hero__tagline {
+    color: #7a1424;
+}
+
+.hs--day .hs-hero__title {
+    background: linear-gradient(180deg, #24170d 0%, #3b2614 58%, #6f4a17 100%);
+    background-clip: text;
+}
+
+.hs--day .hs-hero.is-lit > .hs-hero__title {
+    filter: drop-shadow(0 1px 14px rgb(255 248 230 / 0.55));
+}
+
+.hs--day .hs-hero__flourish {
+    filter: brightness(0.82) saturate(1.15);
+}
+
+.hs--day .hs-hero__lede {
+    color: rgb(36 24 14 / 0.82);
+}
+
+.hs--day .hs-hero__note {
+    color: rgb(36 24 14 / 0.58);
+}
+
+.hs--day .hs-cta {
+    background:
+        linear-gradient(rgb(250 244 232 / 0.9), rgb(250 244 232 / 0.9)) padding-box,
+        var(--hs-gilt) border-box;
+    box-shadow:
+        inset 0 0 0 3px rgb(255 251 242 / 0.7),
+        inset 0 0 0 4px rgb(168 118 47 / 0.4),
+        0 8px 20px rgb(64 38 18 / 0.18);
+    color: #3b2614;
+}
+
+.hs--day .hs-cta:hover {
+    box-shadow:
+        inset 0 0 0 3px rgb(255 251 242 / 0.7),
+        inset 0 0 0 4px rgb(168 118 47 / 0.6),
+        0 0 18px rgb(255 236 196 / 0.6),
+        0 8px 20px rgb(64 38 18 / 0.18);
+}
+
+.hs--day .hs-cta--primary {
+    background:
+        linear-gradient(180deg, #a01d31, #6c0e1c) padding-box,
+        var(--hs-gilt) border-box;
+    color: #fff3dc;
+}
+
+.hs--day .hs-pointer {
+    filter: drop-shadow(0 3px 6px rgb(64 38 18 / 0.45)) drop-shadow(0 0 6px rgb(255 240 200 / 0.6));
+}
+
+.hs--day .hs-spot {
+    box-shadow:
+        0 0 0 9999px rgb(40 28 16 / 0.16),
+        0 0 22px rgb(168 118 47 / 0.6);
+}
+
+.hs--day .hs-veil {
+    background: rgb(236 230 218 / 0.8);
+}
+
+/* 金圈与描金在象牙色的桌上要深一档才看得见。 */
+.hs--day .hs-glow,
+.hs--day .hs-ring {
+    border-color: rgb(168 118 47 / 0.95);
+    box-shadow:
+        0 0 0 4px rgb(168 118 47 / 0.16),
+        0 0 22px rgb(168 118 47 / 0.4);
+}
+
+.hs--day .hs-mark {
+    background: rgb(168 118 47 / 0.22);
+    box-shadow: 0 0 12px rgb(168 118 47 / 0.35);
+}
+
+/*
+ * 宽屏的字幕压在桌布（深色丝绒）上，昼夜都用浅色的字与亮金：把夜里的两个金色变量放回来。
+ * 窄屏的字幕在首屏文字退场后的上方，白天那里是亮的石墙，换成深墨与铜金。
+ */
+.hs--day:not(.hs--narrow) .hs-caption {
+    --hs-gold: #e1b285;
+    --hs-gold-light: #f0c987;
+}
+
+.hs--day.hs--narrow .hs-caption__beats i {
+    border-color: rgb(138 92 28 / 0.7);
+}
+
+.hs--day.hs--narrow .hs-caption__beats i.is-done {
+    background: rgb(138 92 28 / 0.6);
+}
+
+.hs--day.hs--narrow .hs-caption__beats i.is-current {
+    background: #a8762f;
+    box-shadow: 0 0 8px rgb(168 118 47 / 0.6);
+}
+
+.hs--day.hs--narrow .hs-caption__line {
+    color: #24170d;
+}
+
+.hs--day .hs-next {
+    background: #b9ab93;
+}
+
+.hs--day .hs-next__act {
+    color: #7a5420;
+}
+
+.hs--day .hs-next__note {
+    color: rgb(36 24 14 / 0.55);
+}
+
 /* ── 窄屏：首屏文字在上，工作台平放在下面；字幕在首屏文字退场后的上方 ── */
 
 .hs--narrow .hs-nav {
@@ -1510,6 +1851,11 @@ onBeforeUnmount(() => {
 
 .hs--narrow .hs-nav__links {
     gap: 16px;
+}
+
+/* 390 宽放不下品牌、三个链接与昼夜开关：更新日志先收起来。 */
+.hs--narrow .hs-nav__extra {
+    display: none;
 }
 
 .hs--narrow .hs-hero {
