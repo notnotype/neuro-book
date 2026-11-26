@@ -490,3 +490,84 @@ test("验收 37：右栏还有别的容器时浮出，右轨留着、入口还�
     await expect(page.locator("[data-messages-segment]")).toHaveCount(1);
     await expect(railEntryOfView(page, CONVERSATION)).toHaveCount(1);
 });
+
+interface WidthFrame {chat: number; win: number; railLeft: number; at: number}
+
+/**
+ * 在 `action` 做的时候逐帧（requestAnimationFrame）记聊天区宽、窗宽与视图段所在的轨的左边，直到窗宽离开 `from` 又停住 6 帧。
+ * 窗宽停住之后再多采几帧，是为了让“过渡结束”靠可观察的几何判定，不按时长等。
+ */
+async function sampleWidths(page: Page, id: string, from: number, action: () => Promise<void>): Promise<WidthFrame[]> {
+    await page.evaluate((chromeId) => {
+        const win = window as unknown as {__widths: WidthFrame[]; __stop: boolean};
+        win.__widths = [];
+        win.__stop = false;
+        const tick = (): void => {
+            win.__widths.push({
+                chat: document.querySelector("[data-messages-chat]")?.getBoundingClientRect().width ?? -1,
+                win: document.querySelector(`[data-float-chrome="${chromeId}"]`)?.getBoundingClientRect().width ?? -1,
+                railLeft: document.querySelector("[data-float-rail]")?.getBoundingClientRect().left ?? -1,
+                at: Math.round(performance.now()),
+            });
+            if (!win.__stop) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+    }, id);
+    await action();
+    // 窗宽停住：最后 6 帧一样，并且已经离开起点（点击之后过渡开始之前的头几帧也是停住的，不算）。
+    await page.waitForFunction(({from, away}) => {
+        const frames = (window as unknown as {__widths: WidthFrame[]}).__widths;
+        const last = frames.slice(-6);
+        return last.length === 6 && last.every((frame) => Math.abs(frame.win - last[0].win) < 0.01) && Math.abs(last[0].win - from) > away;
+    }, {from, away: GROWTH / 2});
+    return page.evaluate(() => {
+        const win = window as unknown as {__widths: WidthFrame[]; __stop: boolean};
+        win.__stop = true;
+        return win.__widths;
+    });
+}
+
+// 在窗里量过渡，所以这一组把动效开回来（配置缺省是减少动效，那时展开收起一帧到位，没有中间帧可采）。
+test.describe("过渡", () => {
+    test.use({contextOptions: {reducedMotion: "no-preference"}});
+
+    // 覆盖 ui/workbench-layout 输出 51“过渡”：展开、收起时窗宽过渡到位，过渡中聊天区宽度不变；视图段的轨宽手柄不在这里测（见上面几条）。
+    test("过渡：展开与收起的每一帧聊天区宽度都不变，窗宽带过渡到位（输出 51）", async ({page}) => {
+        await open(page);
+        const id = await floatConversation(page);
+        await expect(toggle(page)).toHaveAttribute("aria-expanded", "false");
+        // 先等窗落定：浮出时窗的外框还在过渡，窗宽连续 10 帧不变才算数，起点才可信。
+        await page.evaluate((chromeId) => new Promise<void>((resolve) => {
+            let last = -1;
+            let same = 0;
+            const tick = (): void => {
+                const width = document.querySelector(`[data-float-chrome="${chromeId}"]`)?.getBoundingClientRect().width ?? -1;
+                same = width === last ? same + 1 : 0;
+                last = width;
+                if (same >= 10) resolve();
+                else requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+        }), id);
+        const rest = await windowBox(page, id);
+        const chat = (await boxOf(page.locator("[data-messages-chat]"))).width;
+
+        const check = (frames: WidthFrame[], from: number, to: number, where: string): void => {
+            for (const frame of frames) expect(Math.abs(frame.chat - chat), `${where}：聊天区宽度逐帧不变，起点 ${chat}：${JSON.stringify(frames)}`).toBeLessThanOrEqual(1);
+            // 视图段按新宽停在最终位置：它的左边从第一帧起就在终点位置上，窗的右边由它露出或盖住。
+            for (const frame of frames) expect(Math.abs(frame.railLeft - frames[frames.length - 1].railLeft), `${where}：视图段左边逐帧不动：${JSON.stringify(frames)}`).toBeLessThanOrEqual(1);
+            // 采样确实盖住了过渡：窗宽出现至少 3 个不同的中间值，终点是起点 ± GROWTH。
+            const between = new Set(frames.map((frame) => Math.round(frame.win)).filter((width) => width > Math.min(from, to) + 1 && width < Math.max(from, to) - 1));
+            expect(between.size, `${where}：窗宽的中间值 ${JSON.stringify([...between])}；${frames.length} 帧 ${JSON.stringify(frames.map((frame) => [frame.at, Math.round(frame.win)]))}`).toBeGreaterThanOrEqual(3);
+            expect(Math.abs(frames[frames.length - 1].win - to), `${where}：终点窗宽`).toBeLessThanOrEqual(2);
+        };
+
+        const opening = await sampleWidths(page, id, rest.width, () => toggle(page).click());
+        check(opening, rest.width, rest.width + GROWTH, "展开");
+        await expect(toggle(page)).toHaveAttribute("aria-expanded", "true");
+
+        const closing = await sampleWidths(page, id, rest.width + GROWTH, () => toggle(page).click());
+        check(closing, rest.width + GROWTH, rest.width, "收起");
+        await expect(toggle(page)).toHaveAttribute("aria-expanded", "false");
+    });
+});
