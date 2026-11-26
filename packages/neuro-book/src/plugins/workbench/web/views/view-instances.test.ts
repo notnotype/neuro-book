@@ -156,7 +156,7 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         expect(viewRailOf(instances.contextOf("test.plain")!)).toBeNull();
     });
 
-    it("渲染出错时没有；重试渲染换一代、换一份新的，旧的那份位置收成 none、请求一律 revoked、不再转给外壳", async () => {
+    it("渲染出错时旧的那份立即收成 none；重试渲染换一代、换一份新的、请求一律 revoked、不再转给外壳", async () => {
         const {instances, requested} = railInstances();
         await ready(instances, "test.rail");
         const old = instances.railOf("test.rail")!;
@@ -166,6 +166,8 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         expect(old.rail.placement.value).toEqual({kind: "window", width: 260});
         instances.renderError("test.rail", instances.instances.get("test.rail")!.generation, "boom");
         expect(instances.railOf("test.rail")).toBeNull();
+        // 出错的这一代立即退休：外壳只给就绪的实例分发，不在这里收回的话视图还往右轨里送。
+        expect(old.rail.placement.value).toEqual({kind: "none"});
         instances.retryRender("test.rail");
         const fresh = instances.railOf("test.rail");
         expect(fresh).not.toBeNull();

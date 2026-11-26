@@ -1164,6 +1164,18 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
         });
 
+        it("展开着时交出这一刻最多能展开到多宽（`limit`）：预览请求比它宽时生效宽正好是它；轨宽手柄按它触界即停", async () => {
+            const {store} = await railed(1200);
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            const limit = store.state.rail?.limit ?? 0;
+            expect(limit).toBeGreaterThan(260);
+            expect(limit).toBeLessThan(420);
+            store.actions.previewRailWidth(420);
+            expect(store.state.rail).toMatchObject({expanded: true, width: limit});
+            store.actions.previewRailWidth(null);
+            expect(store.state.rail).toMatchObject({expanded: true, width: 260});
+        });
+
         it("当前容器没有视图段（视图没声明、交付撤回）：按收着呈现，记录不改；展开请求回报 too-narrow", async () => {
             const {store} = await railed();
             expect(store.actions.requestRailExpanded(X1, true).ok).toBe(true);

@@ -1645,6 +1645,42 @@ describe("NestedGrid 内容层", () => {
         await vi.waitFor(() => expect(wrapper.find("[data-inside='x']").exists()).toBe(false));
     });
 
+    it("宿主自己的尺寸手势（`gesturing`，输出 35 的 planned 句子）：期间的布局变化与结束的那一次不过渡；之后的程序变化照常过渡", async () => {
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const pair = (left: number): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: left, height: 0}, sizing: "fixed"},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 999 - left, height: 0}},
+        ]}, {sashSize: SASH});
+        const start = pair(500);
+        const wrapper = mount(NestedGrid, {attachTo: attachContainer(), props: {node: start.root(), layout: start.layout(CONTAINER)}});
+        wrappers.push(wrapper);
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "10s");
+        const exposed = wrapper.vm as unknown as {moving: boolean; settleMotion(): void};
+        const publish = async (left: number, gesturing: boolean) => {
+            const next = pair(left);
+            await wrapper.setProps({node: next.root(), layout: next.layout(CONTAINER), gesturing});
+            await nextTick();
+        };
+        // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局。
+        await publish(500, false);
+        await publish(460, true);
+        expect(exposed.moving).toBe(false);
+        await publish(420, true);
+        expect(exposed.moving).toBe(false);
+        await publish(420, false);
+        expect(exposed.moving).toBe(false);
+        await publish(300, false);
+        expect(exposed.moving).toBe(true);
+        exposed.settleMotion();
+    });
+
     it("拿起的内容项（输出 89、90）：placeLifted 直接写元素、不引起重渲染（插槽不重跑）；过渡在走时它也不带过渡标记，不算停放", async () => {
         // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
         const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);

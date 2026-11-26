@@ -63,6 +63,8 @@ export function useRailHandle(options: RailHandleOptions) {
         if (document.documentElement.hasAttribute("data-workbench-dragging")) return;
         const element = event.currentTarget as HTMLElement;
         event.preventDefault();
+        // 焦点给手柄：Esc 挂在手柄上，按下时 `preventDefault` 拦掉了缺省的聚焦，不给的话拖动中按 Esc 没人接。
+        element.focus({preventScroll: true});
         element.setPointerCapture(event.pointerId);
         session = {pointer: event.pointerId, startX: event.clientX, startWidth: options.width(), revision: options.revision(), element};
         dragging.value = session.startWidth;

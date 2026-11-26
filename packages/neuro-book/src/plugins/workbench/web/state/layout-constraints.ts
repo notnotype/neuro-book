@@ -212,6 +212,16 @@ export function railBudget(input: {readonly baseline: RailBaseline; readonly req
     return {result: "done", width: available, regionWidth: baseline.region - fromRegion};
 }
 
+/**
+ * 这一刻侧轨最多能展开到多宽（卡片宽）：编辑组压到最小、区域压到聊天区下限（不低于有效最小宽）之后能给的，再夹进声明的上限。
+ * 轨宽手柄按它触界即停（输出 50 的“轨宽手柄”）：拖过它的那段预算给不出，落账写进去意图就比呈现的宽，窗口变宽后侧轨会自己涨。
+ */
+export function railLimit(baseline: RailBaseline, segment: RailSegmentBounds): number {
+    const fromEditor = Math.max(0, baseline.editor - baseline.editorMinimum);
+    const fromRegion = Math.max(0, baseline.region - Math.max(segment.chatMinimum, baseline.regionMinimum));
+    return Math.min(segment.maximum, SHELL_RAIL_WIDTH + fromEditor + fromRegion);
+}
+
 /** 接受矩阵（输出 26）：工具视图只进工具面板，编辑器标签只进编辑组，哪个区域都一样。哪条边算落点归 `layoutEdgeTarget`。 */
 export function layoutAccepts(tabs: ReadonlyArray<TabRef>, target: PanelRecord): boolean {
     return tabs.every((tab) => (tab.kind === "view" ? target.role === "tool" : target.role === "editor"));
