@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t62-drag-edge-scroll-axes
-status: planned
+status: done
 updated: 2026-11-26
 ---
 
