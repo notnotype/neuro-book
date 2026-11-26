@@ -44,10 +44,12 @@ const value = ref<string>(CASES[props.case].next);
 const intent = ref<"source" | "story">("source");
 const SUGGESTIONS = ["男", "女", "不明", "无"];
 
-/** 卡片的数据：样本加一项身高，好画“多一条待处理”。看“最初”时没有“第 N 章改过”。 */
+/** 卡片的数据：样本加一项身高，好画“多一条待处理”。看“最初”时没有“第 N 章改过”（资料与现在的状态都没有）。 */
 const card = computed(() => {
     const facts = [...FILLED_CARD.facts.slice(0, 6), {id: "身高", label: "身高", text: "158 cm"}, ...FILLED_CARD.facts.slice(6)];
-    return {...FILLED_CARD, facts: atInitial.value ? facts.map(({mark: _mark, ...fact}) => fact) : facts};
+    if (!atInitial.value) return {...FILLED_CARD, facts};
+    const {mark: _mark, ...condition} = FILLED_CARD.condition;
+    return {...FILLED_CARD, facts: facts.map(({mark: _factMark, ...fact}) => fact), condition};
 });
 /** 右边一列的项（第 2、4、6……个）浮层靠右对齐，不越出卡片。 */
 const alignRight = computed(() => card.value.facts.findIndex((fact) => fact.id === spec.value.id) % 2 === 1);
