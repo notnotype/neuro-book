@@ -20,6 +20,8 @@ export interface SiteContext {
     readonly identity: IdentityApi;
     readonly storage: SiteStorage;
     readonly clock: SiteClock;
+    /** 带浏览器离开站点去这个地址（`StartSiteOptions.leave`）。 */
+    readonly leave: (url: string) => void;
 }
 
 export const SITE_CONTEXT_KEY: InjectionKey<SiteContext> = Symbol("nb-site.context");

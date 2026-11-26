@@ -34,6 +34,11 @@ export interface StartSiteOptions {
     readonly history: RouterHistory;
     /** 当前时刻与重复的计时（`host/clock.ts`）；产品里是浏览器的时钟，组件测试给手动推进的。 */
     readonly clock: SiteClock;
+    /**
+     * 带浏览器离开站点去一个地址（社交流程的上游授权地址）：整页跳转，页面随之卸载。产品里是 `location.assign`；
+     * 组件测试给一个记下地址的函数，happy-dom 的窗口不真的跳。
+     */
+    readonly leave: (url: string) => void;
 }
 
 export interface Site {
@@ -97,7 +102,7 @@ export function startSite(options: StartSiteOptions): Site {
     const storage = createSiteStorage({storage: () => win.sessionStorage, now: () => options.clock.now()});
 
     const app = createApp(App);
-    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock});
+    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock, leave: options.leave});
     app.use(router);
     app.mount(options.target);
 

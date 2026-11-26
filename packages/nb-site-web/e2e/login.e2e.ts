@@ -13,6 +13,8 @@ import type {Page} from "@playwright/test";
 import {installFakeIdentity, loginFails, loginSucceeds} from "./fake-api";
 import type {FakeIdentity} from "./fake-api";
 import {invalidCredentials, rateLimited} from "./fixtures/identity";
+import {box, boxes, onGrid} from "./geometry";
+import type {Box} from "./geometry";
 
 /** 站点的中文目录：断言里的文字从这里取，改文案时场景不跟着坏。 */
 const zhCN = JSON.parse(readFileSync(new URL("../src/locales/zh-CN.json", import.meta.url), "utf8")) as {
@@ -40,33 +42,6 @@ async function openLogin(page: Page, viewport: {readonly width: number; readonly
     await page.goto(path);
     await expect(page.locator("[data-site-paper-card] form")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", scheme);
-}
-
-interface Box {
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-}
-
-/** 元素的边框盒（相对页面的左上角，含滚动）。 */
-async function boxes(page: Page, selector: string): Promise<Box[]> {
-    return page.locator(selector).evaluateAll((elements) => elements.map((element) => {
-        const rect = element.getBoundingClientRect();
-        return {x: rect.left + window.scrollX, y: rect.top + window.scrollY, width: rect.width, height: rect.height};
-    }));
-}
-
-async function box(page: Page, selector: string): Promise<Box> {
-    const found = await boxes(page, selector);
-    expect(found, selector).toHaveLength(1);
-    return found[0]!;
-}
-
-/** 偏移是不是周期的整数倍（容许取整的误差）。 */
-function onGrid(offset: number, period: number): boolean {
-    const remainder = ((offset % period) + period) % period;
-    return remainder < 0.01 || period - remainder < 0.01;
 }
 
 for (const viewport of VIEWPORTS) {

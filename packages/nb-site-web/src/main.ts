@@ -13,4 +13,5 @@ startSite({
     fetch: globalThis.fetch.bind(globalThis),
     history: createWebHistory(),
     clock: browserClock(window),
+    leave: (url) => window.location.assign(url),
 });

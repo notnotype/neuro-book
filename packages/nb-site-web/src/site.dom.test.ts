@@ -4,7 +4,7 @@
  */
 
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
-import type {MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
+import type {MeResponse, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
@@ -17,6 +17,10 @@ import type {Site} from "./site";
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
 const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
 const ADMIN_USERS = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.adminUsers}`;
+const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
+
+/** 稿纸页进来时取 `meta`（社交图标、注册是否开放）。 */
+const META_RESPONSE: MetaResponse = {termsVersion: "2026-11-01", registrationOpen: true, providers: {google: true, github: true}};
 
 type Role = MeResponse["role"];
 
@@ -84,10 +88,14 @@ function start(path: string, server: Server): Started {
         window,
         history,
         clock: manualClock(Date.parse("2026-11-26T10:00:00Z")),
+        leave: (url) => {
+            throw new Error(`这里的用例不离开站点，却要去 ${url}`);
+        },
         fetch: async (input) => {
             requested.push(input);
             if (input === WHOAMI) return server.whoami();
             if (input === ME) return server.me();
+            if (input === META) return Response.json(META_RESPONSE);
             return server.other();
         },
     });
@@ -292,8 +300,8 @@ describe("按码统一处理之后的跳转", () => {
         // 注册接口忘了在 `handles` 里声明它：统一处理在访客页上照样不接管。
         const result = await started.site.api.request({method: "POST", path: `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.register}`, body: {}});
         expect(result).toEqual({ok: false, failure: {kind: "code", status: 403, code: "consent_required"}});
-        // 接管时第一步是同步发出的重取身份（`whoami`）：请求清单里没有它，就是没接管。
-        expect(started.requested).toEqual([WHOAMI, `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.register}`]);
+        // 接管时第一步是同步发出的重取身份（`whoami`）：请求清单里没有它，就是没接管。`meta` 是注册页进来时自己取的。
+        expect(started.requested).toEqual([WHOAMI, META, `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.register}`]);
         expect(started.site.router.currentRoute.value.fullPath).toBe("/register");
     });
 });

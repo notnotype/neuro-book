@@ -58,8 +58,8 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
         routes: [
             {path: "/", name: "home", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title"}},
             {path: "/login", name: "login", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title", signedInWithContinue: true}},
-            {path: "/register", name: "register", component: shell, meta: {access: "guest", layout: "paper", titleKey: "register.title"}},
-            {path: "/consent", name: "consent", component: shell, meta: {access: "consent", layout: "paper", titleKey: "consent.title"}},
+            {path: "/register", name: "register", component: () => import("./pages/RegisterPage.vue"), meta: {access: "guest", layout: "paper", titleKey: "register.title"}},
+            {path: "/consent", name: "consent", component: () => import("./pages/ConsentPage.vue"), meta: {access: "consent", layout: "paper", titleKey: "consent.title"}},
             {path: "/account", name: "account", component: shell, meta: {access: "user", layout: "account", titleKey: "account.title"}},
             // 路径暂定，随 `site.oauth-provider` 的改写定（计划 3.1）。
             {path: "/oauth/consent", name: "oauth-consent", component: shell, meta: {access: "user", layout: "paper", titleKey: "oauthConsent.title"}},

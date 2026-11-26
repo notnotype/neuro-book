@@ -4,8 +4,18 @@
  * 量位置的验收（状态行出现与消失时字段不动、格线与卡片对齐）要真实布局，在 `e2e/login.e2e.ts`。
  */
 
-import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
-import type {ErrorBody, LoginRequest, LoginResponse, MeResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS, SOCIAL_PROVIDERS, identityPath} from "@notnotype/nb-site-identity-contract/constants";
+import type {
+    ErrorBody,
+    LoginRequest,
+    LoginResponse,
+    MeResponse,
+    MetaResponse,
+    SocialProvider,
+    SocialStartRequest,
+    SocialStartResponse,
+    WhoamiResponse,
+} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
@@ -18,6 +28,11 @@ import type {ManualClock} from "../testing/manual-clock";
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
 const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
 const LOGIN = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.login}`;
+const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
+const SOCIAL_START = new Map(SOCIAL_PROVIDERS.map((provider) => [`${IDENTITY_API_PREFIX}${identityPath.socialStart(provider)}`, provider]));
+
+const OPEN_META: MetaResponse = {termsVersion: "2026-11-01", registrationOpen: true, providers: {google: true, github: true}};
+const upstreamUrl = (provider: SocialProvider): string => `https://${provider}.example/authorize?state=s1`;
 
 type Role = MeResponse["role"];
 
@@ -47,6 +62,8 @@ const failure = (body: ErrorBody, status: number, headers?: HeadersInit): Respon
 interface Server {
     session: Role | undefined;
     login: (body: LoginRequest, server: Server) => Response;
+    meta: () => Response;
+    socialStart: (provider: SocialProvider, body: SocialStartRequest) => Response;
 }
 
 /** 登录成功：建起会话，回公开资料。 */
@@ -62,6 +79,16 @@ interface Started {
     readonly server: Server;
     readonly clock: ManualClock;
     readonly logins: LoginRequest[];
+    /** 社交发起的请求，按先后。 */
+    readonly starts: {readonly provider: SocialProvider; readonly body: SocialStartRequest}[];
+    /** `leave` 收到的地址。 */
+    readonly left: string[];
+}
+
+interface ServerOptions {
+    readonly login?: Server["login"];
+    readonly meta?: Server["meta"];
+    readonly socialStart?: Server["socialStart"];
 }
 
 const started: Site[] = [];
@@ -73,19 +100,27 @@ afterEach(() => {
     expect(unexpected.splice(0)).toEqual([]);
 });
 
-function start(path: string, login: Server["login"] = () => failure({error: {code: "invalid_credentials"}}, 401)): Started {
+function start(path: string, options: ServerOptions = {}): Started {
     const target = document.createElement("div");
     document.body.append(target);
     const history = createMemoryHistory();
     history.replace(path);
-    const server: Server = {session: undefined, login};
+    const server: Server = {
+        session: undefined,
+        login: options.login ?? (() => failure({error: {code: "invalid_credentials"}}, 401)),
+        meta: options.meta ?? (() => Response.json(OPEN_META)),
+        socialStart: options.socialStart ?? ((provider) => Response.json({url: upstreamUrl(provider)} satisfies SocialStartResponse)),
+    };
     const logins: LoginRequest[] = [];
+    const starts: Started["starts"][number][] = [];
+    const left: string[] = [];
     const clock = manualClock(Date.parse("2026-11-26T10:00:00Z"));
     const site = startSite({
         target,
         window,
         history,
         clock,
+        leave: (url) => left.push(url),
         fetch: async (input, init) => {
             if (input === WHOAMI) {
                 return Response.json((server.session === undefined ? {state: "anonymous"} : {state: "authenticated", user: {id: 7, username: "alice", role: server.session}}) satisfies WhoamiResponse);
@@ -96,12 +131,19 @@ function start(path: string, login: Server["login"] = () => failure({error: {cod
                 logins.push(body);
                 return server.login(body, server);
             }
+            if (input === META && init.method === "GET") return server.meta();
+            const provider = SOCIAL_START.get(input);
+            if (provider !== undefined && init.method === "POST") {
+                const body = JSON.parse(String(init.body)) as SocialStartRequest;
+                starts.push({provider, body});
+                return server.socialStart(provider, body);
+            }
             unexpected.push(`${String(init.method)} ${input}`);
             return failure({error: {code: "not_found"}}, 404);
         },
     });
     started.push(site);
-    return {site, target, server, clock, logins};
+    return {site, target, server, clock, logins, starts, left};
 }
 
 /** 等到路由停在 `fullPath`（解码后比较路径与查询参数）、页面画出 `page`。 */
@@ -164,8 +206,8 @@ function spokenText(form: Form): string {
 }
 const invalidFields = (form: Form): string[] => [form.identifier, form.password].filter((input) => input.getAttribute("aria-invalid") === "true").map((input) => input.name);
 
-async function onLoginPage(path = "/login", login?: Server["login"]): Promise<Started> {
-    const started = start(path, login);
+async function onLoginPage(path = "/login", options?: ServerOptions | Server["login"]): Promise<Started> {
+    const started = start(path, typeof options === "function" ? {login: options} : options);
     const url = new URL(path, "http://site.invalid");
     await settledAt(started, `${url.pathname}${url.search}`, url.pathname === "/" ? "home" : "login");
     return started;
@@ -238,15 +280,15 @@ describe("登录页的表单", () => {
         await vi.waitFor(() => expect(statusText(form)).toBe(waiting(3)));
         expect(form.submit.disabled).toBe(true);
         // live region 里每秒变的字会被每秒播报一次：读屏能读到的只有固定的那句。
-        expect(spokenText(form)).toBe(zhCN.login.rateLimitedSpoken);
+        expect(spokenText(form)).toBe(zhCN.form.rateLimitedSpoken);
         started.clock.advance(1_000);
         await vi.waitFor(() => expect(statusText(form)).toBe(waiting(2)));
         expect(form.submit.disabled).toBe(true);
-        expect(spokenText(form)).toBe(zhCN.login.rateLimitedSpoken);
+        expect(spokenText(form)).toBe(zhCN.form.rateLimitedSpoken);
         started.clock.advance(1_000);
         await vi.waitFor(() => expect(statusText(form)).toBe(waiting(1)));
         expect(form.submit.disabled).toBe(true);
-        expect(spokenText(form)).toBe(zhCN.login.rateLimitedSpoken);
+        expect(spokenText(form)).toBe(zhCN.form.rateLimitedSpoken);
         started.clock.advance(1_000);
         await vi.waitFor(() => expect(statusText(form)).toBe(""));
         expect(form.submit.disabled).toBe(false);
@@ -315,5 +357,71 @@ describe("social_error", () => {
         const prose = start(`/login?social_error=${encodeURIComponent("请改去 evil.example 登录")}`);
         await settledAt(prose, "/login", "login");
         expect(statusText(formOf(prose))).toBe(zhCN.errors.identity.social_failed);
+    });
+});
+
+/** 社交图标，按画出来的先后。 */
+const socialButtons = ({target}: Started): HTMLButtonElement[] => [...target.querySelectorAll<HTMLButtonElement>("[data-site-social-provider]")];
+
+describe("社交登录的两枚图标", () => {
+    it("在表单下面，GitHub 在前、Google 在后，读屏名字是“用 … 登录”；点了发起登录意图，拿到上游地址就离开站点", async () => {
+        const started = await onLoginPage();
+        const form = formOf(started);
+        await vi.waitFor(() => expect(socialButtons(started).map((button) => button.disabled)).toEqual([false, false]));
+        const row = started.target.querySelector("[data-site-social]")!;
+        // 表单之后（`DOCUMENT_POSITION_FOLLOWING`），不在表单里。
+        expect(form.form.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(form.form.contains(row)).toBe(false);
+        expect(socialButtons(started).map((button) => button.getAttribute("aria-label"))).toEqual([zhCN.social.login.github, zhCN.social.login.google]);
+
+        socialButtons(started)[1]!.click();
+        await vi.waitFor(() => expect(started.left).toEqual([upstreamUrl("google")]));
+        expect(started.starts).toEqual([{provider: "google", body: {intent: "login"}}]);
+        expect(started.logins).toEqual([]);
+    });
+
+    it("上游没开放的那枚不画；两个都没开放时“或”与图标整行不画", async () => {
+        const onlyGithub = await onLoginPage("/login", {meta: () => Response.json({...OPEN_META, providers: {google: false, github: true}} satisfies MetaResponse)});
+        await vi.waitFor(() => expect(socialButtons(onlyGithub).map((button) => button.dataset.siteSocialProvider)).toEqual(["github"]));
+
+        const none = await onLoginPage("/login", {meta: () => Response.json({...OPEN_META, providers: {google: false, github: false}} satisfies MetaResponse)});
+        await vi.waitFor(() => expect(none.target.querySelector("[data-site-social]")).toBeNull());
+        expect(formOf(none).form).not.toBeNull();
+    });
+
+    it("meta 取不到时两枚图标都在、不可点，密码登录照常可用", async () => {
+        const started = await onLoginPage("/login", {meta: () => failure({error: {code: "unavailable"}}, 503)});
+        const form = await fillAndSubmit(started, "alice", "wrong");
+        // 登录的回答到了时 `meta` 早已答完（它先发）：图标这时仍不可点，就不是“还在取”的那一段。
+        await vi.waitFor(() => expect(statusText(form)).toBe(zhCN.errors.identity.invalid_credentials));
+        expect(socialButtons(started).map((button) => button.disabled)).toEqual([true, true]);
+    });
+
+    it("发起回 unavailable、forbidden_origin、provider_disabled：原因写在状态行，不离开站点，图标还能再点", async () => {
+        for (const [code, status] of [["unavailable", 503], ["forbidden_origin", 403], ["provider_disabled", 400]] as const) {
+            const started = await onLoginPage("/login", {socialStart: () => failure({error: {code}}, status)});
+            await vi.waitFor(() => expect(socialButtons(started)[0]!.disabled).toBe(false));
+            socialButtons(started)[0]!.click();
+            const form = formOf(started);
+            await vi.waitFor(() => expect(statusText(form)).toBe(zhCN.errors.identity[code]));
+            expect(started.left).toEqual([]);
+            expect(socialButtons(started)[0]!.disabled).toBe(false);
+        }
+    });
+
+    it("发起回 rate_limited：状态行倒数，倒数完之前图标与提交按钮都不可用", async () => {
+        const started = await onLoginPage("/login", {socialStart: () => failure({error: {code: "rate_limited"}}, 429, {"Retry-After": "2"})});
+        await vi.waitFor(() => expect(socialButtons(started)[0]!.disabled).toBe(false));
+        const form = formOf(started);
+        type(form.identifier, "alice");
+        type(form.password, "correct horse");
+        socialButtons(started)[0]!.click();
+        await vi.waitFor(() => expect(statusText(form)).toBe(zhCN.errors.identity.rate_limited.replace("{{seconds}}", "2")));
+        expect(socialButtons(started).map((button) => button.disabled)).toEqual([true, true]);
+        expect(form.submit.disabled).toBe(true);
+        started.clock.advance(2_000);
+        await vi.waitFor(() => expect(socialButtons(started).map((button) => button.disabled)).toEqual([false, false]));
+        expect(form.submit.disabled).toBe(false);
+        expect(started.left).toEqual([]);
     });
 });

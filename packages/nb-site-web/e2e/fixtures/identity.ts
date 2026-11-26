@@ -4,7 +4,7 @@
  * 时间的格式这类 pattern）。形状由合同保证，行为由真实冒烟（B10）保证。
  */
 
-import {ErrorBody, LoginResponse, MeResponse, MetaResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
+import {ConsentResponse, ErrorBody, LoginResponse, MeResponse, MetaResponse, RegisterResponse, SocialStartResponse, WhoamiResponse} from "@notnotype/nb-site-identity-contract";
 import type {TSchema} from "typebox";
 
 export const anonymousWhoami = {state: "anonymous"} satisfies WhoamiResponse;
@@ -43,6 +43,20 @@ export const userLogin = {
 
 export const meta = {termsVersion: "2026-11-01", registrationOpen: true, providers: {google: true, github: true}} satisfies MetaResponse;
 
+/** 缺同意的普通用户（条款换了版本之后）：守卫把他留在同意页。 */
+export const userMeNeedsConsent = {...userMe, consentRequired: true} satisfies MeResponse;
+
+/** 注册成功：新账号的公开资料。 */
+export const registerResponse = {user: {...userLogin.user, id: 8, username: "bob", displayName: "Bob", createdAt: "2026-11-26T10:00:00.000Z"}} satisfies RegisterResponse;
+
+/** 补交同意成功：自己的资料，已不缺同意。 */
+export const consentResponse = {...userMe} satisfies ConsentResponse;
+
+/** 社交发起成功：上游的授权地址（假接口场景里浏览器不真的过去，由 `page.route` 截下）。 */
+export const socialStartResponse = {url: "https://github.com/login/oauth/authorize?client_id=nb-site-test&state=s1"} satisfies SocialStartResponse;
+
+export const usernameTaken = {error: {code: "username_taken"}} satisfies ErrorBody;
+
 export const invalidCredentials = {error: {code: "invalid_credentials"}} satisfies ErrorBody;
 export const rateLimited = {error: {code: "rate_limited"}} satisfies ErrorBody;
 export const unauthenticated = {error: {code: "unauthenticated"}} satisfies ErrorBody;
@@ -55,6 +69,11 @@ export const IDENTITY_FIXTURES: readonly {readonly name: string; readonly schema
     {name: "adminMe", schema: MeResponse, value: adminMe},
     {name: "userLogin", schema: LoginResponse, value: userLogin},
     {name: "meta", schema: MetaResponse, value: meta},
+    {name: "userMeNeedsConsent", schema: MeResponse, value: userMeNeedsConsent},
+    {name: "registerResponse", schema: RegisterResponse, value: registerResponse},
+    {name: "consentResponse", schema: ConsentResponse, value: consentResponse},
+    {name: "socialStartResponse", schema: SocialStartResponse, value: socialStartResponse},
+    {name: "usernameTaken", schema: ErrorBody, value: usernameTaken},
     {name: "invalidCredentials", schema: ErrorBody, value: invalidCredentials},
     {name: "rateLimited", schema: ErrorBody, value: rateLimited},
     {name: "unauthenticated", schema: ErrorBody, value: unauthenticated},

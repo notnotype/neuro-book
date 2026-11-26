@@ -1,0 +1,44 @@
+/*
+ * 稿纸卡片里表单的共用排法（登录、注册、同意三页；B2 时写在登录页里，B3 起三页共用）。在 components 层：站点的原子类压得过它。
+ *
+ * - `.site-form`：字段、勾选框、状态行、提交按钮竖着排，间距一致。
+ * - `.site-form-status`：状态行夹在最后一项与提交按钮之间，收一点上下的间距，空着时这一块不显得像漏了东西（计划 3.1“状态行”）。
+ * - `.site-form-alt`：卡片底部“还没有账号？”“已有账号？”那一行。
+ * - `.site-link`：行内链接。静止时也带下划线：与周围文字只差颜色时，分不清颜色的人认不出它（WCAG 1.4.1）；悬停时加粗下划线。
+ */
+
+@layer components {
+    .site-form {
+        display: grid;
+        gap: 14px;
+    }
+
+    .site-form-status {
+        margin-block: -4px;
+    }
+
+    .site-form-alt {
+        margin: 20px 0 0;
+        color: var(--text-secondary);
+        font-size: var(--text-sm);
+        text-align: center;
+    }
+
+    .site-link {
+        flex-shrink: 0;
+        color: var(--accent-text);
+        text-decoration-line: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+    }
+
+    .site-link:hover {
+        text-decoration-thickness: 2px;
+    }
+
+    .site-link:focus-visible {
+        outline: 2px solid var(--accent-main);
+        outline-offset: 2px;
+        border-radius: 2px;
+    }
+}
