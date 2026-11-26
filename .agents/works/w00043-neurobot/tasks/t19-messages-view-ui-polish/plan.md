@@ -171,6 +171,7 @@
 | `data-rail-joined` | 侧轨的根 | 和区域卡片相连时有、不相连时没有（不写 `"false"`） |
 | `data-tool-band`、`data-tool-entry="<容器 id>"` + `aria-pressed`、`data-tool-indicator`、`data-tool-more`、`data-tool-merge` | 入口带（两条侧轨同名） | 入口、按下、底块、更多、并入高亮。右栏旧条的 `data-region-entry` 不再用于右栏 |
 | `data-rail-item` | 工具条里每个可聚焦项 | roving 的成员 |
+| `data-shell-join-seam="end"` / `"start"` | 和区域相连的侧轨卡片 | 接缝短线画在侧轨的哪一头：左轨在右头（`end`），右轨在左头（`start`）。片 3a 前是空串，`workbench-containers` 里按空串断言的要改 |
 | `data-rail-segment="main"` / `"foot"` + `data-drop-refuse` | 视图段的两个位置 | 工作台给视图的元素；松手是取消 |
 | `data-rail-loading` | `main` 里 | 视图加载中的骨架 |
 | `data-rail-expand` + `aria-expanded` | 展开按钮 | 窗口太窄时另有 `data-rail-too-narrow` |
@@ -184,6 +185,8 @@
 | `data-messages-open="bot"` / `"sessions"` + `aria-pressed` | 底段两个按钮 | 展开且在对应页时按下 |
 | `data-messages-summary` | “全部 bot”的汇总徽标 | 有等你处理时另有 `data-messages-summary-waiting` |
 | `data-messages-list-panel`、`data-messages-switch` | 展开后的列表与切换行（沿用现名） | |
+
+**受限的测试视图**：`test.sample-views.rail`（样例庚，右栏，`confinedTo: "auxiliarybar"`）只在页面开关 `test.sample-views/with-rail` 为 `"1"` 时贡献，插件创建时读，用 `addInitScript` 在加载前写；不开时右栏只有样例丁，别的用例不受影响。片 5 再给它加视图段。
 
 去掉的旧标记：右栏的 `[data-region-strip=auxiliarybar]` 横入口条与条里的 `data-region-entry`、`data-region-indicator`（底部面板的 `panel` 保留）、段 A 用过的 `data-rail-entries`（改用 `data-tool-band`）、消息视图的 `data-messages-toggle`、`data-messages-strip`、`data-messages-collapse`、`data-messages-tab`、`data-messages-layout` 的 `wide`/`narrow`。
 
