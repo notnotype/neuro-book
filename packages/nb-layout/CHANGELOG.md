@@ -7,6 +7,7 @@
 ### 不兼容的改动
 
 - 拖动会话的 `autoScroll` 不再收 `element`，改收 `containers({point, top})`：指针此刻所在的、要边缘滚动的容器，从里到外，没在滚时指针每次移动调一次，在滚时每帧开头调一次。原来的 `autoScroll: {element}` 改成 `autoScroll: {containers: () => [element]}`，竖向列表的行为不变（越过上下边照旧最快）。`overflow-y: hidden` 的元素以前给了就滚 `scrollTop`，现在不滚：轴看计算样式。
+- `GridSashResolver` 多了第三个参数 `{before, after}`（挨着这条线的两个直接孩子的 id）：交给 `createGrid` 的 `sashSize` 两参函数不用改；拿着类型为 `GridSashResolver` 的函数自己调用或转发给别处的代码要传第三个参数（这条线两侧真实的孩子 id），否则类型检查报 TS2554。
 
 ### 新增
 
