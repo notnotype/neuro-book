@@ -93,3 +93,16 @@ test("鼠标滚轮在标签栏上竖着滚：标签栏横着滑、外层不动�
     await page.mouse.wheel(0, 60);
     await expect.poll(() => outer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 });
+
+test("两头渐隐：放不下时还有看不见的那一头淡出，滑到头那一头不淡出；放得下时都不淡出", async ({page}) => {
+    await gotoScene(page, "first");
+    const list = tablist(page);
+    await expect(list).toHaveAttribute("data-fade-end", "");
+    await expect(list).not.toHaveAttribute("data-fade-start", "");
+    await list.evaluate((element) => element.scrollTo({left: element.scrollWidth, behavior: "instant"}));
+    await expect(list).toHaveAttribute("data-fade-start", "");
+    await expect(list).not.toHaveAttribute("data-fade-end", "");
+    await page.locator("[data-fixture-width]").click();
+    await expect(list).not.toHaveAttribute("data-fade-start", "");
+    await expect(list).not.toHaveAttribute("data-fade-end", "");
+});

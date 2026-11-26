@@ -154,12 +154,32 @@ function revealSelected(smooth: boolean): void {
 }
 // 刚挂上与标签栏的宽度变了（窗口变窄、转屏）时直接到位：没有起点可滑。只看宽度，高度变了不动。跟着标签栏元素走：`overflow`
 // 在 scroll 与 adapt 之间换时根元素换了，旧的观察撤掉。
+/**
+ * 两头渐隐：某一头还有看不见的标签时，那一头淡出 24px（不画滚动条，靠它看出还能滑）。滚动、标签栏变宽变窄、标签增减时重算。
+ */
+const fadeStart = ref(false);
+const fadeEnd = ref(false);
+function updateFade(): void {
+    const list = tablistRef.value;
+    if (adaptive.value || list === null) {
+        fadeStart.value = false;
+        fadeEnd.value = false;
+        return;
+    }
+    const room = list.scrollWidth - list.clientWidth;
+    fadeStart.value = room > 1 && list.scrollLeft > 1;
+    fadeEnd.value = room > 1 && list.scrollLeft < room - 1;
+}
+watch(() => props.items, updateFade, {flush: "post", deep: true});
+
 watch([tablistRef, adaptive], ([list, adapting], _previous, onCleanup) => {
     if (list === null || adapting) return;
     revealSelected(false);
+    updateFade();
     if (typeof ResizeObserver !== "function") return;
     let width = list.clientWidth;
     const observer = new ResizeObserver(() => {
+        updateFade();
         if (list.clientWidth === width) return;
         width = list.clientWidth;
         revealSelected(false);
@@ -251,7 +271,7 @@ function handleWheel(event: WheelEvent): void {
             <span :class="tabBoxClass" data-measure-more>{{ moreText }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
         </div>
     </div>
-    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="nb-ui-tabs-scroll flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown" @wheel="handleWheel">
+    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="nb-ui-tabs-scroll flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" :data-fade-start="fadeStart ? '' : undefined" :data-fade-end="fadeEnd ? '' : undefined" @keydown="handleKeydown" @wheel="handleWheel" @scroll="updateFade">
         <button
             v-for="item in props.items"
             :key="item.value"
@@ -294,5 +314,14 @@ function handleWheel(event: WheelEvent): void {
 }
 .nb-ui-tabs-scroll::-webkit-scrollbar {
     display: none;
+}
+.nb-ui-tabs-scroll[data-fade-end] {
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.nb-ui-tabs-scroll[data-fade-start] {
+    mask-image: linear-gradient(to right, transparent, #000 24px);
+}
+.nb-ui-tabs-scroll[data-fade-start][data-fade-end] {
+    mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
 }
 </style>
