@@ -7,7 +7,7 @@
  * 本文件测不到、在账号包里的（`nb-site-identity` 的 `social/login.test.ts`、`social/link.test.ts`、`social/register.test.ts`）：
  * 上游已返回、关联钩子复核之前会话被结束（要在库的两步之间插入动作）；两个关联并发；关联与注册按固定的先后争同一个身份（这里
  * 只能并发打开、不定先后）；库插 `account` 失败留下的孤行、注册写到一半失败时全部回滚；库表里不存上游令牌、`emailVerified`
- * 列仍为 false（读库）；发起检查的各个码与限流；清理任务删流程行。解绑在后面的片。
+ * 列仍为 false（读库）；发起检查的各个码与限流；清理任务删流程行。列表与解绑在 `accounts-identities.test.ts`。
  *
  * 时间预算：起进程、建账号放在 `beforeAll` 里。关联的用例要核对当前密码（算一次哈希），超出 200 毫秒，在旁边写明。社交注册
  * 另起一个进程，账号与注册码不与登录、关联的用例互相牵连。
@@ -353,7 +353,7 @@ describe("社交注册（输出 13、14、23，验收 4、5、8、9、13、14；
         return {id, login: `gh-${String(id)}`, name: null, email: null, emails: [{email, primary: true, verified, visibility: null}]};
     }
 
-    it("缺注册码时不跳转；带齐后回调建出账号并有会话，账号没有密码、邮箱不算验证过、码用了 1 次；同一个身份再以登录意图回来直接登录（验收 4）", async () => {
+    it("社交注册（Smoke）：缺注册码时不跳转；带齐后回调建出账号并有会话，账号没有密码、邮箱不算验证过、码用了 1 次；同一个身份再以登录意图回来直接登录（验收 4）", async () => {
         const code = await issueCode(3);
         upstream.setUser("google", googleUser("g-nina", "Nina@Gmail.test"));
         const browser = cookieJar();

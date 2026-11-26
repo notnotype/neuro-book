@@ -29,6 +29,7 @@ import {registerOAuthConsentRoutes, type OAuthConsentOptions} from "./oauth/cons
 import {registerGrantRoutes, type GrantOptions} from "./oauth/grants";
 import {registerRoute, type RegisterOptions} from "./register";
 import type {Sessions} from "./session";
+import {registerIdentityRoutes, type IdentityRoutesOptions} from "./social/identities";
 import {registerSocialStartRoute, type SocialStartOptions} from "./social/start";
 
 export interface IdentityAppOptions {
@@ -54,6 +55,7 @@ export interface IdentityAppOptions {
     readonly oauthConsent: OAuthConsentOptions;
     readonly grants: GrantOptions;
     readonly socialStart: SocialStartOptions;
+    readonly identities: IdentityRoutesOptions;
 }
 
 export function createIdentityApp(options: IdentityAppOptions): Hono {
@@ -101,6 +103,7 @@ export function createIdentityApp(options: IdentityAppOptions): Hono {
     registerOAuthConsentRoutes(app, options.oauthConsent);
     registerGrantRoutes(app, options.grants);
     registerSocialStartRoute(app, options.socialStart);
+    registerIdentityRoutes(app, options.identities);
 
     app.all("*", (c) => respondFailure(c, failureResponse("not_found")));
     app.onError((error, c) => respondFailure(c, failureFor(error, log)));

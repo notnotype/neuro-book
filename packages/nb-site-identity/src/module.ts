@@ -84,7 +84,7 @@ export interface IdentityAssembly {
 
 /**
  * 建模块。库的结构检查在库第一次被调用时才跑（表不对时 `create()` 照样成功、第一个请求才失败），所以这里主动触发一次：
- * 表少了列时以库的 `SCHEMA_MISMATCH` 失败，入口按 `start_failed` 收口（设计审查第 13 条；升级清单“库内行为”一行）。
+ * 表少了列时以库的 `SCHEMA_MISMATCH` 失败，入口按 `start_failed` 收口（设计审查第 13 条；升级清单“内部接口”的 `checkSchema` 一行）。
  */
 export async function assembleIdentity(conn: IdentityConnection, options: IdentityAssemblyOptions, overrides: IdentityOverrides = {}): Promise<IdentityAssembly> {
     const {config, clock, log} = options;
@@ -177,6 +177,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             registration: {clientAddress: options.clientAddress, termsVersion: config.termsVersion, registrationOpen: config.registrationOpen},
             log,
         },
+        identities: {sessions, conn, clock},
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。

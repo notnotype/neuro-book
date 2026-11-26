@@ -13,7 +13,7 @@
  *
  * 判“活”与“最新”的口径照库挑签名钥的口径（`getLatestKeyByAlg`）：`expiresAt` 为空或晚于此刻、`createdAt` 最新。此刻取系统
  * 时间，不取模块的时钟：库判钥匙过期用的是系统时间，两边口径不同时这里认为的“最新活钥”就不是库签发时挑的那一把。
- * 依赖的库行为对着升级清单“签名钥”一行。
+ * 依赖的库行为对着升级清单“签名钥”几行。
  */
 
 import type {GenericEndpointContext} from "@better-auth/core";

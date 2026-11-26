@@ -1,6 +1,6 @@
 /**
  * 库的对外 OAuth 装配（`auth.ts` 的 `jwt`、`oauthProvider`、`disabledPaths`）在包内的可观察结果：授权码、访问令牌与 id_token 的
- * 寿命，客户端密钥按自家的存法认，令牌 id 不重用，关掉的库端点经 `handler` 是 404。经真实的库在进程内走授权与换码
+ * 寿命，客户端密钥按自家的存法认，令牌 id 不重用，同一个授权码并发换也至多换出一次，关掉的库端点经 `handler` 是 404。经真实的库在进程内走授权与换码
  * （`testing/oauth.ts`），不经挂载层：这里看的是库本身的装配，挂载层的白名单在 `mount.test.ts`。
  *
  * 寿命不拨时钟：库按系统时间写这几行的创建与到期时刻，用例读行里两者之差（与令牌响应的 `expires_in`、id_token 的 `exp - iat`）。
@@ -93,6 +93,24 @@ describe("令牌 id", () => {
         const after = await accessTokenIds();
         expect(after.length).toBe(2);
         expect(after[1]).toBeGreaterThan(max);
+    });
+});
+
+describe("一次性检查", () => {
+    // 全库自增 id 下库的 `reserveVerificationValue` 并发都会成功（计划问 5），授权码不走它：换码经 `consumeVerificationValue`，在库的
+    // 事务里读出这个码的那一行、删掉它，读不到的拒。这条守着“同一个码至多换出一次”（`site.oauth-provider` 时序一节），库改了消费
+    // 授权码的写法时失败。
+    it("同一个授权码并发换四次：恰好一次 200，其余 400 invalid_grant，只有一个访问令牌", async () => {
+        const grant = await authorize(identity, cookie, client);
+        const responses = await Promise.all(Array.from({length: 4}, () => exchange(identity, client, grant)));
+        const outcomes = await Promise.all(responses.map(async (response) => ({status: response.status, error: ((await response.json()) as {error?: string}).error ?? null})));
+        expect(outcomes.toSorted((left, right) => left.status - right.status)).toEqual([
+            {status: 200, error: null},
+            {status: 400, error: "invalid_grant"},
+            {status: 400, error: "invalid_grant"},
+            {status: 400, error: "invalid_grant"},
+        ]);
+        expect(await accessTokenIds()).toHaveLength(1);
     });
 });
 

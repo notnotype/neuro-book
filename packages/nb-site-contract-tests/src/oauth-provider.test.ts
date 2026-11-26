@@ -362,7 +362,7 @@ describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、
     }, SETUP_TIMEOUT_MS);
 
     // 超出预算：登录算一次密码哈希。
-    it("走完整流程：授权 → 登录 → 确认 → 换令牌 → 取用户信息；同一个授权码再换一次被拒（验收 1，输出 4、5、11、14）", async () => {
+    it("走完整流程（Smoke）：授权 → 登录 → 确认 → 换令牌 → 按公钥地址验 id_token → 取用户信息；同一个授权码再换一次被拒（验收 1，输出 4、5、11、14）", async () => {
         const client = await register();
         const authorization = authorizationRequest(client);
         const browser = cookieJar();
@@ -388,9 +388,17 @@ describe("授权主流程（输出 3 到 5、11、13、14，验收 1、4、13、
         const exchanged = await exchangeCode(site.url, client, code, authorization.verifier);
         expect(exchanged.status).toBe(200);
         const tokens = JSON.parse(exchanged.text) as {access_token: string; id_token: string};
+        const document = JSON.parse((await siteFetch(site.url, OIDC_DISCOVERY_PATHS[0])).text) as DiscoveryDocument;
+        const {payload} = await verifyIdToken(site.url, tokens.id_token, document.jwks_uri);
         const info = await fetchUserInfo(site.url, tokens.access_token);
         expect(info.status).toBe(200);
-        expect((JSON.parse(info.text) as {preferred_username?: unknown}).preferred_username).toBe("root");
+        const claims = JSON.parse(info.text) as {sub?: unknown; preferred_username?: unknown};
+        expect({username: claims.preferred_username, idTokenSub: payload.sub, aud: payload.aud, nonce: payload.nonce}).toEqual({
+            username: "root",
+            idTokenSub: claims.sub,
+            aud: client.clientId,
+            nonce: authorization.nonce,
+        });
 
         const again = await exchangeCode(site.url, client, code, authorization.verifier);
         expect({status: again.status, error: (JSON.parse(again.text) as {error?: unknown}).error}).toEqual({status: 400, error: "invalid_grant"});

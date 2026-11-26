@@ -106,6 +106,20 @@ describe("社交关联", () => {
         expect(await socialAccounts(target)).toEqual([withoutTokens(alice.userId, "google", "g-alice")]);
     });
 
+    it("关联与之后的社交登录都不改账号的资料：上游给的名字、头像、邮箱不写进 user 行", async () => {
+        const target = await socialIdentity("social-link-keeps-profile");
+        const alice = await member(target, "alice");
+        const profile = () =>
+            target.conn.read((tx) => tx.query<Record<string, unknown>, [number]>(`SELECT "name", "username", "displayUsername", "email", "image" FROM "user" WHERE "id" = ?`).get(alice.userId));
+        const before = await profile();
+        upstream.setUser("google", {...googleUser("g-alice", "alice.upstream@gmail.test"), name: "Upstream Alice", picture: "https://upstream.test/alice.png"});
+
+        expect(landing(await followSocial(target, await startLink(target, alice.cookie), alice.cookie)).socialError).toBeNull();
+        expect(await profile()).toEqual(before);
+        expect(landing(await followSocial(target, await startSocial(target, "google", {intent: "login"}))).socialError).toBeNull();
+        expect(await profile()).toEqual(before);
+    });
+
     it("GitHub 的身份：上游名字是 login，按 id 认", async () => {
         const target = await socialIdentity("social-link-github");
         const alice = await member(target, "alice");
