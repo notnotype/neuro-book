@@ -465,6 +465,7 @@
             "retry": "Retry",
             "missing": "This bot isn't available.",
             "pickBot": "Pick a bot to start chatting",
+            "allBots": "All bots",
             "contactsFailed": "Couldn't load contacts ({{code}}).",
             "untitled": "Untitled conversation"
         }

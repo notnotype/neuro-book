@@ -465,6 +465,7 @@
             "retry": "重试",
             "missing": "找不到这个 bot。",
             "pickBot": "选一个 bot 开始聊天",
+            "allBots": "全部 bot",
             "contactsFailed": "读不到联系人（{{code}}）。",
             "untitled": "未命名会话"
         }

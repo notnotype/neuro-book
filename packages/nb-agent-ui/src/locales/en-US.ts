@@ -452,11 +452,12 @@ export default {
         noMatch: "No matching bots",
         list: "Messages list",
         chat: "Chat",
-        openList: "Open list",
-        collapseList: "Collapse list",
-        expandList: "Expand list",
         contactUnread: "{{name}}, {{count}} unread",
-        strip: "Contacts and recent sessions",
+        contactWaiting: "{{name}}, needs you",
+        newSession: "New conversation",
+        allBots: "All bots",
+        history: "Session history",
+        moreBots: "{{count}} more bots",
     },
     panel: {
         tree: {

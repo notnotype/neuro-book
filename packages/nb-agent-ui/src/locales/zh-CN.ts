@@ -444,11 +444,12 @@ export default {
         noMatch: "没有匹配的 bot",
         list: "消息列表",
         chat: "聊天区",
-        openList: "打开列表",
-        collapseList: "收起列表",
-        expandList: "展开列表",
         contactUnread: "{{name}}，{{count}} 条未读",
-        strip: "联系人与最近会话",
+        contactWaiting: "{{name}}，等你处理",
+        newSession: "新对话",
+        allBots: "全部 bot",
+        history: "会话历史",
+        moreBots: "还有 {{count}} 个 bot",
     },
     panel: {
         tree: {

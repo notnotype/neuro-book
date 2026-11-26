@@ -24,6 +24,8 @@ const emit = defineEmits<{
     (e: "add-provider"): void;
     (e: "retry", key: string): void;
     (e: "close"): void;
+    /** 还没选 bot 时的按钮：等同视图段的“全部 bot”（conversation.md 输出 57）。 */
+    (e: "show-bots"): void;
 }>();
 
 const t = useAgentPageText();
@@ -32,7 +34,10 @@ const t = useAgentPageText();
 <template>
     <div class="contact-cover" data-messages-cover>
         <IconButton v-if="props.closable" size="xs" icon-class="i-lucide-x" class="contact-cover__close" :title="t('conversation.desk.close')" :aria-label="t('conversation.desk.close')" data-messages-cover-close @click="emit('close')" />
-        <p v-if="props.cover.kind === 'pick-bot'" class="contact-cover__body" data-messages-pick-bot>{{ t("conversation.messages.pickBot") }}</p>
+        <template v-if="props.cover.kind === 'pick-bot'">
+            <p class="contact-cover__body" data-messages-pick-bot>{{ t("conversation.messages.pickBot") }}</p>
+            <Button size="sm" data-messages-pick-bot-open @click="emit('show-bots')">{{ t("conversation.messages.allBots") }}</Button>
+        </template>
         <p v-else-if="props.cover.kind === 'missing'" class="contact-cover__body" data-messages-missing>{{ t("conversation.messages.missing") }}</p>
         <template v-else-if="props.cover.pending.step === 'no-model'">
             <span class="i-lucide-plug-zap contact-cover__icon" aria-hidden="true" />
