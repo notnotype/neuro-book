@@ -187,10 +187,19 @@ function defineLayoutDocStore(bound: boolean) {
          * 预算的基线按它求（输出 50 的“预算”）。
          */
         const optionsOf = (of: LayoutDoc, expanded: boolean): LayoutProjectionOptions => {
-            const rail = expanded ? railState.value : null;
-            const budget = rail?.expanded === true ? {railWidth: rail.width, ...(rail.regionWidth === undefined ? {} : {regionWidth: rail.regionWidth})} : {};
+            const budget = expanded ? railBudgetOptions.value ?? {} : {};
             return layoutProjectionOptions({doc: of, catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, squeezed: collapse.value.squeezed, cardGap: cardGap.value, ...budget});
         };
+        /**
+         * 投影从 `railState` 只读这两个数。`railState` 还跟着视图实例的状态（`railBounds` 读加载、出错）重算，每次是新对象；
+         * 投影要是直接读它，视图在手势中加载（从零拉出时就会，输出 17）就让投影换一份、打断网格的手势。所以收着时是 null，数没变时交回上一份。
+         */
+        const railBudgetOptions = computed((previous?: {readonly railWidth: number; readonly regionWidth?: number} | null) => {
+            const rail = railState.value;
+            if (rail?.expanded !== true) return null;
+            if (previous != null && previous.railWidth === rail.width && previous.regionWidth === rail.regionWidth) return previous;
+            return {railWidth: rail.width, ...(rail.regionWidth === undefined ? {} : {regionWidth: rail.regionWidth})};
+        });
         /**
          * 右轨此刻生效的状态（输出 50 的“展开”“预算”）：当前容器恰有一节、那个视图声明了视图段（`railBounds`，外壳从注册表与实例状态给）、意图是展开时，
          * 按收着求一次基线再算预算。基线只读收着的投影，所以结果不随这次展开本身的呈现变化来回翻。右栏没有当前容器时是 null。

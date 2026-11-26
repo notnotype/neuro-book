@@ -1742,8 +1742,8 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
     const stripEntry = (page: Page, container: string) => page.locator(`[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry="${container}"]`);
     const barEntry = (page: Page, container: string) => page.locator(`[data-rail="sidebar"] [data-tool-band] [data-tool-entry="${container}"]`);
 
-    // 覆盖 ui/workbench-layout 输出 50（别的面板最大化时右轨不被盖住）、13：有面板最大化时右轨还在原处，入口带仍是落点。
-    test("有面板最大化时，右轨不被盖住：指针落在右轨入口之间，落点还是入口带上的新建容器（ui/workbench-layout 输出 13、50）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 50（别的面板最大化时右轨不被盖住）、13、45（有面板最大化时入口条不接收）：右轨还在原处，但入口带不是落点，松手是取消。
+    test("有面板最大化时，右轨不被盖住、入口带不接收：指针落在右轨入口之间没有落点，松手零写入、不开浮动窗（ui/workbench-layout 输出 13、45、50）", async ({page}) => {
         await open(page);
         const railBox = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
         // 最大化资源管理器那一节，再拖它自己的标题：最大化时是落点指示。
@@ -1757,10 +1757,14 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await page.mouse.move(from.x, from.y);
         await page.mouse.down();
         await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+        const writes = await writesOf(page);
         await page.mouse.move(first.x + first.width / 2, (first.y + first.height + second.y) / 2, {steps: 10});
-        await expect(page.locator("[data-drop-feedback]")).toHaveAttribute("data-drop-kind", "new-container");
-        await page.keyboard.press("Escape");
+        await expect(page.locator("html")).toHaveAttribute("data-workbench-dragging", "");
+        await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
         await page.mouse.up();
+        await expect(page.locator("html")).not.toHaveAttribute("data-workbench-dragging", "");
+        expect(await writesOf(page)).toBe(writes);
+        await expect(page.locator("[data-leaf][data-float]")).toHaveCount(0);
     });
 
     test("右轨的入口带上：拖到两个入口之间，入口让开，右栏还是原来的容器、零写入；放下右栏多一个只含它的入口并切到它（输出 45、50）", async ({page}) => {

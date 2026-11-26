@@ -619,8 +619,8 @@ test.describe("产品页：右轨的视图段", () => {
         await expect(railEntryOfView(page, D)).toBeFocused();
     });
 
-    // 覆盖 ui/workbench-layout 输出 50“展开”：视图加载失败时布局记录里的展开意图不改，也没有加载骨架留下；视图自己显示失败与“重新加载”。
-    test("视图加载失败：布局记录里的展开意图不改，没有加载骨架留着，视图区显示失败（输出 50）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 50“展开”：视图加载失败时没有视图段，右轨按收着呈现、布局记录里的展开意图不改，也没有加载骨架留下；视图自己显示失败与“重新加载”。
+    test("视图加载失败：右轨按收着呈现，布局记录里的展开意图不改，没有加载骨架留着，视图区显示失败（输出 50）", async ({page}) => {
         await open(page);
         await expand(page);
         const intent = await intentOf(page);
@@ -632,6 +632,7 @@ test.describe("产品页：右轨的视图段", () => {
         await expect(content(page, RAIL)).toContainText("视图加载失败");
         await expect(sampleRail(page)).toHaveCount(0);
         await expect(rail(page).locator("[data-rail-loading]")).toHaveCount(0);
+        await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
         expect(await intentOf(page)).toEqual(intent);
     });
 
@@ -792,9 +793,9 @@ test.describe("产品页：右轨的视图段", () => {
     // 别的视图搬进它的容器，零写入、布局记录不变。最后一条合法的命令（样例戊搬进底部面板的新容器）证明命令通道没坏，且写入只多这一条。
     test("命令直传也拒绝：把样例庚移进别的区域或别的容器、把别的视图移进它的容器，零写入、布局记录不变（views 输出 22）", async ({page}) => {
         await open(page);
-        const before = (await saved(page))!;
-        const [railSection, explorerSection] = [await sectionOf(page, RAIL), await sectionOf(page, EXPLORER)];
+        // 先等打开时的写入落定再取记录（打开时可能还没写过，是 null，也照样比）：被拒的命令之后整份记录不变。
         const writes = await settledWrites(page, database());
+        const before = await saved(page);
         const rejected: Array<Readonly<Record<string, unknown>>> = [
             {viewId: RAIL, newContainerIn: "sidebar"},
             {viewId: RAIL, newContainerIn: "panel"},
@@ -804,10 +805,7 @@ test.describe("产品页：右轨的视图段", () => {
         ];
         for (const args of rejected) await runCommand(page, "nbook.view.move-view", args);
         expect(await settledWrites(page, database()), "被拒的命令不写记录").toBe(writes);
-        const unchangedDoc = (await saved(page))!;
-        expect(unchangedDoc.panels[railSection]).toEqual(before.panels[railSection]);
-        expect(unchangedDoc.panels[explorerSection]).toEqual(before.panels[explorerSection]);
-        expect(unchangedDoc.panels.auxiliarybar).toEqual(before.panels.auxiliarybar);
+        expect(await saved(page)).toEqual(before);
 
         await runCommand(page, "nbook.view.move-view", {viewId: A, newContainerIn: "panel"});
         await expect(barEntry(page, `view:${A}`)).toHaveCount(0);
