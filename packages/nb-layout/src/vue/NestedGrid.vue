@@ -13,7 +13,7 @@
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
-import {settleFloatMoves, stableOrder} from "../grid-motion";
+import {consumedReleases, settleFloatMoves, stableOrder} from "../grid-motion";
 import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
@@ -207,7 +207,8 @@ let lastGestures: ReadonlySet<string> = new Set();
 /** 拖动中每扇窗最后一次的偏移（`placeFloat`），放开时转进 `released`。 */
 const floatOffsets = new Map<string, {readonly x: number; readonly y: number}>();
 /**
- * 刚放开的窗（id 到松手时的偏移，输出 172）：下一次判过渡时交给 `motion.update`，用完即清；没有发布变化（取消）时下一帧清掉，不留到以后误用。
+ * 刚放开的窗（id 到松手时的偏移，输出 172）：每次判过渡时交给 `motion.update`，按窗用掉（`consumedReleases`：窗离开了 `floats` 或矩形变了），
+ * 别的更新不清它：宿主可能先撤手势、`nextTick` 之后才停靠。没有用掉的（取消、只撤了手势）下一帧清掉，不留到以后误用。
  * 所以宿主在 `placeFloat(id, null)` 之后、下一帧之前发布的变化从松手处出发，更晚发布的照旧从记录矩形出发。
  */
 let released = new Map<string, {readonly x: number; readonly y: number}>();
@@ -400,7 +401,10 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         ...(releasing.size === 0 ? {} : {released: releasing}),
     });
     lastGestures = new Set(floatGestures.value.keys());
-    if (releasing.size > 0) clearReleased();
+    if (releasing.size > 0) {
+        for (const id of consumedReleases(next, previous ?? [], releasing)) released.delete(id);
+        if (released.size === 0) clearReleased();
+    }
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();

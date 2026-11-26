@@ -153,6 +153,23 @@ export function releaseStarts(items: ReadonlyArray<GridLayerItem<unknown>>, prev
     return starts;
 }
 
+/**
+ * 这一次用掉了松手偏移的窗（docs/specs/ui/nested-grid.md 输出 172，`released` 里的 id）：离开了 `floats`（回到树里、并进别的叶、关掉，起点由 `releaseStarts` 给），
+ * 或仍是浮动窗、矩形变了（宿主发布了整窗移动的结果，窗就停在拖到的位置，偏移已经在矩形里）。别的变化不算：只撤了手势、别的窗或树变了，
+ * 同一帧里稍后发布的停靠还要从松手处出发；后一种也不能留着，不然之后同一帧的停靠在已经挪过去的矩形上再加一次偏移。
+ */
+export function consumedReleases(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>, released: ReadonlyMap<string, unknown>): ReadonlySet<string> {
+    const leafOf = (list: ReadonlyArray<GridLayerItem<unknown>>, id: string) => list.find((item) => item.kind === "leaf" && item.key === `leaf:${id}`);
+    const sameRect = (left: GridRect, right: GridRect): boolean => left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
+    const consumed = new Set<string>();
+    for (const id of released.keys()) {
+        const now = leafOf(items, id);
+        const old = leafOf(previous, id);
+        if (now?.kind !== "leaf" || now.float !== true || (old?.kind === "leaf" && !sameRect(old.rect, now.rect))) consumed.add(id);
+    }
+    return consumed;
+}
+
 type LeafItem<R> = Extract<GridPlacementItem<R>, {readonly kind: "leaf"}>;
 
 /** 整棵新子树一起长时的起点：沿 `axis` 压成零，压在 `at` 这条线上，另一个方向保持终点。 */
