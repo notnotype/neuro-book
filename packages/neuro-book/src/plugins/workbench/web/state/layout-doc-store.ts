@@ -106,14 +106,16 @@ function defineLayoutDocStore(bound: boolean) {
             return checked.ok && !fitsSkeleton(checked.doc) && local.value === null;
         });
         /**
-         * 记录合法、但有值在读入时被局部修掉（侧轨意图，docs/specs/ui/workbench-layout.md 输出 50）：文档照用，外壳根写一条诊断。
-         * 下次保存写回的是归一后的文档，记录里就没有要修的了。
+         * 采用的那份文档（记录，没有记录时是模板，同 `readStored`）合法、但有值在读入时被局部修掉（侧轨意图，docs/specs/ui/workbench-layout.md 输出 50）：
+         * 文档照用，外壳根写一条诊断。下次保存写回的是归一后的文档，记录里就没有要修的了。
          */
         const recordRepairs = computed<ReadonlyArray<string>>(() => {
             const base = field.base;
-            if (base?.status !== "ok") return [];
-            const checked = validateLayoutDoc(base.value.doc);
-            return checked.ok ? checked.repairs : [];
+            const source = base?.status === "ok" ? base.value.doc : base?.status === "missing" ? template.display.doc : undefined;
+            if (source === undefined || source === null) return [];
+            const checked = validateLayoutDoc(source);
+            // 不合骨架的不采用（回落默认树，`outsideSkeleton` 另有诊断），修掉的值也就没有用上，不报。
+            return checked.ok && fitsSkeleton(checked.doc) ? checked.repairs : [];
         });
         /**
          * 有容器之前存的记录（“状态与转换”）：回落默认布局时，它开着的编辑器标签带进默认布局的编辑组。只记下那份文档、每次现算，不在打开时就定成 `local`：
@@ -309,7 +311,14 @@ function defineLayoutDocStore(bound: boolean) {
             if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
             const {container} = target;
             const region = containerRegion(current, container) ?? declaredRegion(container);
-            return region === null ? notFound(container) : placeInContainer(current, key, region, container);
+            if (region === null) return notFound(container);
+            const placed = placeInContainer(current, key, region, container);
+            // 视图从别处回到它声明的容器（菜单与命令面板的“重置位置”就是这一步）：同一次提交清掉那个容器的侧轨意图（输出 50 的“展开”）。
+            // 浮动窗归位（`dockFloat`）不走这里，意图照样带回去。
+            const resetting = viewHome(viewId, catalog.value, containers.value)?.container === container && viewSection(current, viewId)?.container !== container;
+            const anchor = placed.ok && resetting ? regionAnchor(placed.doc, region) : null;
+            if (!placed.ok || anchor === null || placed.doc.panels[anchor]?.rail?.[container] === undefined) return placed;
+            return setContainerRail(placed.doc, {anchor, container, intent: null});
         };
 
         return {

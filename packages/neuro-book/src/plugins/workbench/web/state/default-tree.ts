@@ -15,6 +15,7 @@ import type {ContainerCatalog, ViewHome} from "./containers";
 import {createLayoutPolicy} from "./layout-constraints";
 import {viewKey} from "./layout-present";
 import {settlePlacements} from "./placement";
+import type {PlacementPolicy} from "./placement";
 
 /** 第一个编辑组的面板 id。 */
 export const INITIAL_EDITOR_PANEL = "g0";
@@ -139,6 +140,9 @@ function retireReplacedViews(doc: LayoutDoc, catalog: ViewCatalog): LayoutDoc {
     return next;
 }
 
+/** 读入归整搬受限视图时新建的面板与分支：id 和补位一样由视图与区域定（`freeId`），每次重算同一个。 */
+const placementPolicy: PlacementPolicy = (doc, viewId, region) => ({...createLayoutPolicy(), newId: (kind) => freeId(doc, kind === "branch" ? regionBranchBase(region) : sectionIdBase(viewId))});
+
 /**
  * 目录里有、文档里还没有的视图放进它的容器（输出 4）：成为容器最后一个分节。容器已经有成员时加在容器此刻所在的区域；还没有成员时容器放进声明的区域，
  * 入口排在那个区域入口顺序的最后。同时出现的几个之间按 `order`。区域隐藏着就保持隐藏，当前容器也不换；区域原来没有容器时它成为当前容器（`settleContainers`）。
@@ -148,7 +152,7 @@ function retireReplacedViews(doc: LayoutDoc, catalog: ViewCatalog): LayoutDoc {
  */
 export function reconcileViews(original: LayoutDoc, catalog: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): LayoutDoc {
     // 先摘掉被取代的旧视图、把旧记录里违反位置限制的受限视图分离出来（views.md 输出 22），再补缺的：不然没有缺失视图时直接返回，这两样永远留着。
-    const doc = settlePlacements(retireReplacedViews(original, catalog), catalog, createLayoutPolicy());
+    const doc = settlePlacements(retireReplacedViews(original, catalog), catalog, placementPolicy);
     const present = new Set(Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)));
     const missing = homesOf([...catalog.keys()].filter((id) => !present.has(viewKey(id))), catalog, containers);
     if (missing.length === 0) return doc === original ? doc : settleContainers(doc);

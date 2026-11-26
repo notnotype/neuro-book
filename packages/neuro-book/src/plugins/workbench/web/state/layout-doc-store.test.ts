@@ -1082,6 +1082,41 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(second.store.state.recordRepairs).toEqual([]);
         });
 
+        it("没有记录、从模板读入时模板里的坏值同样当缺省并有说明", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            expand(first.store, 320);
+            const stored = JSON.parse(JSON.stringify(first.store.actions.document())) as {panels: Record<string, {rail?: unknown}>};
+            (stored.panels.auxiliarybar as {rail?: unknown}).rail = {[X1]: {expanded: false, width: 310}};
+            const opened = await first.storage.open(LAYOUT_TEMPLATE_RECORD);
+            if (!opened.ok) throw new Error(opened.detail);
+            const current = await opened.handle.read();
+            await opened.handle.save({doc: stored}, {expect: current.status === "ok" ? current.revision : null});
+
+            // 绑定了项目的窗口：项目分区里还没有布局记录，读模板。
+            await w.project(1, []);
+            const second = await openLayoutDoc(w, "b", "c", true, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {width: 310}});
+            expect(second.store.state.recordRepairs).toHaveLength(1);
+        });
+
+        it("视图浮出时意图带进窗、归位时带回；视图的“重置位置”（从别处回到声明的容器）同一次提交清掉它", async () => {
+            const {store} = await open();
+            expand(store, 300);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(store.actions.document().floats[0]?.rail).toEqual({expanded: true, width: 300});
+            expect((await store.actions.dockFloat(store.actions.document().floats[0]?.panel ?? "")).ok).toBe(true);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true, width: 300}});
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(store.actions.moveView("test.x1", {container: X1}).ok).toBe(true);
+            expect(containersIn(store.actions.document(), "auxiliarybar").map(([id]) => id)).toEqual([X1]);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
+        });
+
         it("“移到”带着它，“重置”回到声明的区域时清掉它", async () => {
             const {store} = await open();
             expand(store, 300);

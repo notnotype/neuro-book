@@ -22,7 +22,7 @@ const isFiniteSize = (value: unknown): boolean => isObject(value) && typeof valu
 
 function validateNode(value: unknown, seen: Set<string>, depth: number): string | null {
     if (!isObject(value)) return "The node is not an object";
-    if (typeof value.id !== "string" || value.id === "" || FORBIDDEN_IDS.has(value.id)) return `Invalid id: ${String(value.id)}`;
+    if (typeof value.id !== "string" || value.id === "" || FORBIDDEN_IDS.has(value.id)) return `Invalid id: ${describeValue(value.id)}`;
     // 宿主按叶 id 认条（画活动栏、状态栏），条的叶 id 就是条名，别的节点不能叫这个名字；呈现里生成的 id 也不能撞。
     const bar = value.kind === "leaf" && typeof value.ref === "string" ? barOfRef(value.ref) : null;
     if (bar !== null ? value.id !== bar : BAR_NAMES.has(value.id)) return `Node ${value.id} does not match the bar name`;
@@ -50,6 +50,16 @@ const isTabRef = (value: unknown): value is TabRef => isObject(value)
 const isEntryList = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry !== "") && new Set(value).size === value.length;
 
 /**
+ * 修掉的值写进说明时的样子：数、布尔、null 写原值，别的只写种类。不对对象调 `String`：JSON 里的对象可以带自有的 `toString` 键，强制转换会抛错，
+ * 一个坏值就让整份记录读不了。
+ */
+function describeValue(value: unknown): string {
+    if (value === null || typeof value === "number" || typeof value === "boolean") return String(value);
+    if (typeof value === "string") return JSON.stringify(value.length > 40 ? `${value.slice(0, 40)}…` : value);
+    return Array.isArray(value) ? "an array" : typeof value === "object" ? "an object" : typeof value;
+}
+
+/**
  * 一项侧轨意图的归一（输出 50）：`expanded` 只认 `true`，`width` 只认有限正数，别的值当没写；归一后没有字段的整项不要。
  * 返回 null 表示整项丢掉；`where` 写进修掉的说明。
  */
@@ -59,9 +69,9 @@ function normalizeRailIntent(value: unknown, where: string, repairs: string[]): 
         return null;
     }
     const expanded = value.expanded === undefined || value.expanded === true ? value.expanded : undefined;
-    if (value.expanded !== expanded) repairs.push(`${where}.expanded: ${String(value.expanded)}`);
+    if (value.expanded !== expanded) repairs.push(`${where}.expanded: ${describeValue(value.expanded)}`);
     const widthOk = value.width === undefined || (typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0);
-    if (!widthOk) repairs.push(`${where}.width: ${String(value.width)}`);
+    if (!widthOk) repairs.push(`${where}.width: ${describeValue(value.width)}`);
     const intent: RailIntent = {...(expanded === true ? {expanded: true as const} : {}), ...(widthOk && value.width !== undefined ? {width: value.width as number} : {})};
     const unknown = Object.keys(value).filter((key) => key !== "expanded" && key !== "width");
     if (unknown.length > 0) repairs.push(`${where}: unknown fields ${unknown.join(", ")}`);
@@ -96,7 +106,7 @@ function normalizeAnchorRail(id: string, panel: Record<string, unknown>, repairs
 export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     const invalid = (message: string): LayoutDocValidation => ({ok: false, code: "invalid", message});
     if (!isObject(value)) return invalid("The document is not an object");
-    if (value.version !== LAYOUT_DOC_VERSION) return {ok: false, code: "unsupported-version", message: `Version ${String(value.version)}`};
+    if (value.version !== LAYOUT_DOC_VERSION) return {ok: false, code: "unsupported-version", message: `Version ${describeValue(value.version)}`};
     if (!isObject(value.tree) || value.tree.version !== GRID_SNAPSHOT_VERSION) return invalid("The tree version is wrong");
     const seen = new Set<string>();
     const nodeProblem = validateNode(value.tree.root, seen, 1);
@@ -156,7 +166,7 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
             if (panel.activeContainer !== null && !(isEntryList(panel.entries) && panel.entries.includes(panel.activeContainer as string))) return invalid(`The active container of panel ${id} is not in its entry order`);
         }
         if (panel.name !== undefined) {
-            if ((panel.name !== "sidebar" && panel.name !== "auxiliarybar" && panel.name !== "panel") || names.has(panel.name)) return invalid(`Invalid panel name: ${String(panel.name)}`);
+            if ((panel.name !== "sidebar" && panel.name !== "auxiliarybar" && panel.name !== "panel") || names.has(panel.name)) return invalid(`Invalid panel name: ${describeValue(panel.name)}`);
             names.add(panel.name);
         }
         const keys = (panel.tabs as TabRef[]).map(tabKey);

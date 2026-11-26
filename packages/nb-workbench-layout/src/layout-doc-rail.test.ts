@@ -66,6 +66,17 @@ describe("读入", () => {
         expect(sameLayoutShape(checked.doc, {...doc, panels: {...doc.panels, sidebar: {...doc.panels.sidebar, rail: {A: {width: 280}, B: {expanded: true}}}, auxiliarybar: {...doc.panels.auxiliarybar, rail: undefined} as PanelRecord}})).toBe(true);
     });
 
+    it("坏值是带自有 toString 键的对象（JSON 里写得出来）：照样局部修掉、写说明，不抛", () => {
+        const doc = railed();
+        const stored = JSON.parse(JSON.stringify({...doc, panels: {...doc.panels, auxiliarybar: {...doc.panels.auxiliarybar, rail: {M: {expanded: {toString: 0}, width: 310}}}, sidebar: {...doc.panels.sidebar, rail: {A: {width: {toString: 0, valueOf: 0}}}}}})) as unknown;
+        const checked = validateLayoutDoc(stored);
+        if (!checked.ok) throw new Error(checked.message);
+        expect(railOf(checked.doc, "auxiliarybar")).toEqual({M: {width: 310}});
+        expect(checked.repairs).toEqual(["panels.sidebar.rail.A.width: an object", "panels.auxiliarybar.rail.M.expanded: an object"]);
+        const badName = JSON.parse(JSON.stringify({...doc, panels: {...doc.panels, auxiliarybar: {...doc.panels.auxiliarybar, name: {toString: 0}}}})) as unknown;
+        expect(validateLayoutDoc(badName)).toMatchObject({ok: false, code: "invalid"});
+    });
+
     it("浮动窗上的坏值同样局部修掉", () => {
         const floated = okDoc(floatTab(railed(), {tab: "view:m1", rect: RECT}, testPolicy()));
         const panel = floated.floats[0]?.panel as string;
@@ -95,9 +106,12 @@ describe("形状比较与写入", () => {
         expect(sameLayoutShape(doc, narrower)).toBe(false);
     });
 
-    it("写一个容器的意图：再写同一个值、或写回原状，返回原对象（零写入）", () => {
+    it("写一个容器的意图：再写同一个值、或写回原状，返回原对象（零写入）；宽度不是有限正数时拒绝（和读入同一条）", () => {
         const doc = railed();
         expect(okDoc(setContainerRail(doc, {anchor: "auxiliarybar", container: "M", intent: {width: 300, expanded: true}}))).toBe(doc);
+        for (const width of [0, -10, Number.NaN, Number.POSITIVE_INFINITY]) {
+            expect(setContainerRail(doc, {anchor: "auxiliarybar", container: "M", intent: {width}})).toMatchObject({ok: false, code: "rejected"});
+        }
         const collapsed = okDoc(setContainerRail(doc, {anchor: "auxiliarybar", container: "M", intent: {width: 300}}));
         expect(railOf(collapsed, "auxiliarybar")).toEqual({M: {width: 300}});
         const cleared = okDoc(setContainerRail(collapsed, {anchor: "auxiliarybar", container: "M", intent: null}));

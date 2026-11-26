@@ -7,7 +7,7 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
-import {moveTabToStrip} from "@notnotype/nb-workbench-layout";
+import {moveTabToEdge, moveTabToStrip} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc, PanelName} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -18,11 +18,11 @@ import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 import type {ViewDeclaration} from "../../shared/views";
 import {BUSY_LAYOUT_CATALOG, openLayoutDoc} from "../testing/layout-doc";
 import type {ViewCatalog} from "../views/registry";
-import {regionContainers, viewSection} from "./containers";
+import {regionContainers, sectionLanding, viewSection} from "./containers";
 import {INITIAL_EDITOR_PANEL} from "./default-tree";
 import {createLayoutPolicy} from "./layout-constraints";
 import type {LayoutDocStore} from "./layout-doc-store";
-import {placementViolations} from "./placement";
+import {guardPlacement, placementViolations} from "./placement";
 
 const POLICY = createLayoutPolicy();
 const RAIL = "test.rail";
@@ -202,6 +202,25 @@ describe("提交路径：违反的拒绝、零写入", () => {
     });
 });
 
+describe("关卡只放过原样留着的违反", () => {
+    it("受限视图已经违反着（归整没修好）：不相干的写入照收；再把别的视图移进它的隐式容器是新的违反，拒", async () => {
+        const {store} = await opened(UNCONFINED);
+        expect((await store.actions.floatTab("view:test.side")).ok).toBe(true);
+        const float = store.actions.document().floats[0]?.panel ?? "";
+        expect(store.actions.apply((doc) => moveTabToStrip(doc, {tab: RAIL_KEY, panel: float, index: 1}, POLICY)).ok).toBe(true);
+        const base = store.actions.document();
+        expect(placementViolations(base, CONFINED)).toEqual([RAIL]);
+        const unrelated = moveTabToEdge(base, {tab: "view:test.panel", target: {kind: "split", panel: sectionOf(store, "test.aux"), edge: "bottom"}, container: "view:test.aux"}, POLICY);
+        expect(unrelated.ok).toBe(true);
+        expect(guardPlacement(base, unrelated, CONFINED).ok).toBe(true);
+        const target = sectionLanding(base, "auxiliarybar", RAIL_CONTAINER);
+        if (target === null) throw new Error("右栏没有落点");
+        const joined = moveTabToEdge(base, {tab: "view:test.panel", target, container: RAIL_CONTAINER}, POLICY);
+        expect(joined.ok).toBe(true);
+        expect(guardPlacement(base, joined, CONFINED)).toMatchObject({ok: false, code: "rejected"});
+    });
+});
+
 describe("读入归整", () => {
     /** 用没有限制的目录造一份违反的记录：受限视图进了 `test.aux` 的容器，`test.panel` 进了受限视图的容器。存盘后在新窗口按受限的目录读。 */
     async function violatingRecord() {
@@ -222,6 +241,26 @@ describe("读入归整", () => {
         expect(placementViolations(doc, CONFINED)).toEqual([]);
         expect(containersIn(doc, "auxiliarybar")).toEqual([["view:test.aux", ["test.aux"]], [RAIL_CONTAINER, [RAIL]], [`custom:split-${RAIL}`, ["test.panel"]]]);
         expect(containersIn(doc, "sidebar")).toEqual(containersIn(stored, "sidebar"));
+        expect(again.store.state.field.queue).toBe(0);
+    });
+
+    it("受限视图和别的视图在一个浮动窗里：搬回右栏自己的容器，窗里留下别的视图；每次重算得到同一份文档（新分节的 id 不随机）", async () => {
+        const {w, store} = await opened(UNCONFINED);
+        expect((await store.actions.floatTab("view:test.side")).ok).toBe(true);
+        const float = store.actions.document().floats[0]?.panel ?? "";
+        expect(store.actions.apply((doc) => moveTabToStrip(doc, {tab: RAIL_KEY, panel: float, index: 1}, POLICY)).ok).toBe(true);
+        await store.actions.save();
+        await saved(store);
+        const again = await openLayoutDoc(w, "b", "c", false, CONFINED);
+        const first = again.store.actions.document();
+        expect(placementViolations(first, CONFINED)).toEqual([]);
+        expect(containersIn(first, "auxiliarybar")).toEqual([["view:test.aux", ["test.aux"]], [RAIL_CONTAINER, [RAIL]]]);
+        expect(first.panels[float]?.tabs).toEqual([{kind: "view", viewId: "test.side"}]);
+        // 再交一次内容相同的目录：文档重算，搬回来的那一节还是同一个 id。
+        again.store.actions.acceptViewCatalog(new Map(CONFINED));
+        const second = again.store.actions.document();
+        expect(second).not.toBe(first);
+        expect(sectionOf(again.store, RAIL)).toBe(viewSection(first, RAIL)?.panel ?? "");
         expect(again.store.state.field.queue).toBe(0);
     });
 

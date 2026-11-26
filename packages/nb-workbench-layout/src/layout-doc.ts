@@ -811,6 +811,7 @@ export function setContainerRail(doc: LayoutDoc, input: {readonly anchor: string
     const panel = doc.panels[input.anchor];
     if (panel === undefined) return failure("not-found", `Panel ${input.anchor}`);
     if (!isContainerAnchor(panel) || !(panel.entries ?? []).includes(input.container)) return failure("rejected", `Container ${input.container} is not in the entry order of ${input.anchor}`);
+    if (!validRailWidth(input.intent)) return failure("rejected", `Rail width must be a finite positive number: ${String(input.intent?.width)}`);
     const next = editable(doc);
     next.panels[input.anchor] = input.intent === null || isEmptyRail(input.intent) ? withoutRail(panel, input.container) : withRail(panel, input.container, railIntentOf(input.intent));
     return finish(doc, next);
@@ -819,6 +820,7 @@ export function setContainerRail(doc: LayoutDoc, input: {readonly anchor: string
 /** 写一个浮动窗的侧轨意图（输出 51）：`intent` 为 null 或没有字段时去掉。 */
 export function setFloatRail(doc: LayoutDoc, input: {readonly panel: string; readonly intent: RailIntent | null}): LayoutResult {
     if (!isFloating(doc, input.panel)) return failure("not-found", `Floating window ${input.panel}`);
+    if (!validRailWidth(input.intent)) return failure("rejected", `Rail width must be a finite positive number: ${String(input.intent?.width)}`);
     const next = editable(doc);
     next.floats = next.floats.map((float) => {
         if (float.panel !== input.panel) return float;
@@ -828,6 +830,8 @@ export function setFloatRail(doc: LayoutDoc, input: {readonly panel: string; rea
     return finish(doc, next);
 }
 
+/** 写入守和读入同一条（`normalizeRailIntent`）：宽度只收有限正数，不然写进去的记录下次读入就被修掉、还报一条诊断。 */
+const validRailWidth = (intent: RailIntent | null): boolean => intent?.width === undefined || (Number.isFinite(intent.width) && intent.width > 0);
 const isEmptyRail = (intent: RailIntent): boolean => intent.expanded !== true && intent.width === undefined;
 /** 只留认得的字段：调用方传进来的对象可能多带别的键。 */
 const railIntentOf = (intent: RailIntent): RailIntent => ({...(intent.expanded === true ? {expanded: true as const} : {}), ...(intent.width === undefined ? {} : {width: intent.width})});

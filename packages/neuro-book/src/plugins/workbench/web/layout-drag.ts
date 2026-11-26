@@ -149,6 +149,8 @@ interface KeyboardRegion {
     readonly candidates: ReadonlyArray<LayoutDropCandidate>;
     /** 入口条：入口上也是位置（拖视图：并入）；拖含几个视图的入口时只有入口之间（输出 31、46）。 */
     readonly entries?: boolean;
+    /** 入口条：被拖的东西。停靠点只留放下会被收下的（和指针的判定 `entryDrop` 同一道关，含位置限制），一个都不剩的入口条不进 Tab 环。 */
+    readonly source?: WorkbenchDragSource;
 }
 
 const rectOf = (element: Element | null | undefined): GridDropRect | null => {
@@ -790,7 +792,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     function stopsOf(region: KeyboardRegion): {readonly axis: "both"; readonly points: ReadonlyArray<GridDropPoint>} {
         if (regionOfEntryStrip(region.id) !== null) {
             const band = bandOfRegion(region.id);
-            return {axis: "both", points: band === undefined ? [] : barStops(band, region.entries !== false)};
+            const points = band === undefined ? [] : barStops(band, region.entries !== false);
+            const {source} = region;
+            return {axis: "both", points: band === undefined || source === undefined ? points : points.filter((point) => entryDrop(source, point, band) !== null)};
         }
         if (region.id === FLOAT_REGION) {
             const box = rectOf(surface());
@@ -952,7 +956,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 if (from.kind === "panel") return [];
                 // 含几个视图的入口只能落在入口条上（输出 46）。
                 const bars = geometry(doc).bands.map((band) => entryStripOf(band.region));
-                if (from.kind === "container") return bars.map((id) => ({id, candidates: [], entries: false})).filter((region) => stopsOf(region).points.length > 0);
+                if (from.kind === "container") return bars.map((id) => ({id, candidates: [], entries: false, source: from})).filter((region) => stopsOf(region).points.length > 0);
                 const source = from;
                 // 位置限制（views.md 输出 22）按模拟出的文档判，和指针的落点、提交同一道关；目录里没有受限视图时不必每个候选都模拟一遍。
                 const confines = hasConfinedViews(options.catalog());
@@ -973,7 +977,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const bar = barAccepts(source) ? bars : [];
                 // 无落点没有指针可以指，排在最后明确选。已经独占一个窗的标签浮出来还是原样，不列。
                 const float = canFloat(doc, source) && !isSoleWindow(doc, home) ? [FLOAT_REGION] : [];
-                const regions = [...bar, ...panels, ...float].map((id) => ({id, candidates: byRegion.get(id) ?? []}));
+                const regions = [...bar.map((id) => ({id, candidates: [], source})), ...[...panels, ...float].map((id) => ({id, candidates: byRegion.get(id) ?? []}))];
                 // 手势跳不过没有位置的区域，Tab 会卡在那里：来源隐藏着（从活动栏拿起）时它的面板量不出来，不列。
                 return regions.filter((region) => stopsOf(region).points.length > 0);
             },

@@ -127,11 +127,15 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
     };
 }
 
-/** 侧轨展开前的基线（输出 50 的“预算”）：所有侧轨都收着时求解出的编辑组宽、编辑组的最小宽与右栏宽。 */
+/**
+ * 侧轨展开前的基线（输出 50 的“预算”）：所有侧轨都收着时求解出的编辑组宽、编辑组的最小宽、右栏宽与右栏此刻的有效最小宽（求解器执行的那个：
+ * 区域那一行与当前容器里各视图声明的并，`panelConstraints`）。
+ */
 export interface RailBaseline {
     readonly editor: number;
     readonly editorMinimum: number;
     readonly region: number;
+    readonly regionMinimum: number;
 }
 
 /** 视图段声明的宽度范围与展开时聊天区的下限（docs/specs/workbench/views.md 输出 21 的 `VIEW_RAIL`）。都是卡片宽。 */
@@ -150,7 +154,7 @@ export type RailBudget =
     | {readonly result: "too-narrow"; readonly width: number};
 
 /**
- * 展开的侧轨要多少宽、从哪里来（docs/specs/ui/workbench-layout.md 输出 50 的“预算”）：先压编辑组到最小，再压区域到聊天区的下限，还不够就按能给的展开，
+ * 展开的侧轨要多少宽、从哪里来（docs/specs/ui/workbench-layout.md 输出 50 的“预算”）：先压编辑组到最小，再压区域到聊天区的下限（不低于区域的有效最小宽），还不够就按能给的展开，
  * 能给的比视图段的下限还窄就不展开。请求宽先夹进视图段声明的范围。纯函数：只看基线，所以结果不随这次展开本身的呈现变化来回翻。
  */
 export function railBudget(input: {readonly baseline: RailBaseline; readonly request: number; readonly segment: RailSegmentBounds}): RailBudget {
@@ -159,7 +163,8 @@ export function railBudget(input: {readonly baseline: RailBaseline; readonly req
     const wanted = request - SHELL_RAIL_WIDTH;
     if (wanted <= 0) return {result: "done", width: request};
     const fromEditor = Math.max(0, baseline.editor - baseline.editorMinimum);
-    const fromRegion = Math.max(0, baseline.region - segment.chatMinimum);
+    // 区域压不过求解器的最小宽：只按聊天下限算的话，预算以为右栏让出了，求解器却压别的固定节点（左侧栏）。
+    const fromRegion = Math.max(0, baseline.region - Math.max(segment.chatMinimum, baseline.regionMinimum));
     if (wanted <= fromEditor) return {result: "done", width: request};
     if (wanted <= fromEditor + fromRegion) return {result: "done", width: request, regionWidth: baseline.region - (wanted - fromEditor)};
     const available = SHELL_RAIL_WIDTH + fromEditor + fromRegion;

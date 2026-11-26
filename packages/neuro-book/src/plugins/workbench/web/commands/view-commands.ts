@@ -100,14 +100,18 @@ const isPlaced = (store: LayoutDocStore, viewId: string): boolean => findTab(sto
  * 视图不让移动、不在文档里时是 null。
  */
 export function moveTargetsFor(store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null {
-    const movable = store.state.catalog.get(viewId)?.movable !== false;
-    const targets = movable ? moveTargetsOf(store.actions.document(), viewId, store.state.catalog, store.state.containers) : null;
-    return targets?.filter((target) => store.actions.permitsMoveView(viewId, moveTargetItem(target).args)) ?? null;
+    return candidateTargets(store, viewId)?.filter((target) => store.actions.permitsMoveView(viewId, moveTargetItem(target).args)) ?? null;
 }
+
+const candidateTargets = (store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null =>
+    store.state.catalog.get(viewId)?.movable === false ? null : moveTargetsOf(store.actions.document(), viewId, store.state.catalog, store.state.containers);
+
+/** 命令面板第一步只要知道有没有一个会被收下的目标：每个目标都是一次整份文档的试算，找到一个就停（几十个视图时逐个全算要上秒）。 */
+const hasMoveTarget = (store: LayoutDocStore, viewId: string): boolean => candidateTargets(store, viewId)?.some((target) => store.actions.permitsMoveView(viewId, moveTargetItem(target).args)) === true;
 
 async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick): Promise<CommandResult<null>> {
     const {catalog} = store.state;
-    const movable = [...catalog.keys()].filter((viewId) => isPlaced(store, viewId) && (moveTargetsFor(store, viewId)?.length ?? 0) > 0);
+    const movable = [...catalog.keys()].filter((viewId) => isPlaced(store, viewId) && hasMoveTarget(store, viewId));
     const pickedView = await quickPick.pick({
         title: TEXT.pickView,
         placeholder: TEXT.pickView,
