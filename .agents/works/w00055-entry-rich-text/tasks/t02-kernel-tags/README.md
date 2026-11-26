@@ -49,8 +49,10 @@ updated: 2026-11-26
   - 写入：`#publish` 在去重之后把新写的块与补丁规范化（BOM、LF、规范写法），`editEntries` 的建条目、增块、整段替换与 `replace` 的结果也规范化；原样留着的旧块与补丁不再查；没登记的标签按条目已有的规范写法放行。删掉 `writeback.ts` 与服务的 `writeBack`。
   - 数据：样本 44 处与 nb-canon、plot、canon testing、Lab fixture、perf 脚本里的测试数据换成标签写法；样本适配器用 `rewriteEntryIds` 重绑条目 id。
   - 验证：`rendering.test.ts` 按新 Spec 在真实世界上重写（81 条，覆盖输出 1、3、5 到 9、15、16、18、19、22 与场景 1、3、5、6、7）；S0 快照逐块相同，另加样本每一块在每个位置、两种模式上“去值(带值写法) = 源文”；worldlines 的两条线渲染断言改成逐字；nb-canon 全量 835 条与 typecheck 通过，plot 简报 87 条通过。[变异检查](evidences/s5-mutations.txt) 19 个，两个活下来的处理写在里面。应用的 typecheck 在 S6 接上之前不过（`remote.ts` 还在转发 `writeBack`）。
-  - 快速审查已开：Opus 子代理与 omp `@review` 同时审 `938996b32..94307cd50`。
+  - 快速审查：Opus 子代理（11 条：重要 3、建议 8）与 omp `@review`（12 条：重要 7、建议 5）同时审 `938996b32..94307cd50`，两份去重后 18 条，按[处理记录](evidences/s5-review-resolution.txt)改了 17 条（Lab 的三个旧写法场景归 S6，几条里有部分接受取舍），修正提交 `46e03bd08`、`ff07795b6`：授权按原样请求核对、补偿修订不规范化、基线只收生效的变更与自闭合的写法、旧补丁按内容认原样、同一请求里新建的条目在主文字里的临时 id 换成正式 id、式子限 1000 个字符、纯文字里读不到值的判断报 `unavailable`、结果确定时不标读不到、BOM 全去、预览的行列认 CR、规范化与写入检查共用一次解析。Spec 跟着改：rendering 输出 1、6、15、19 与实现合同，components 输出 18。修正后 nb-canon 全量 849 条与 typecheck 通过，plot 简报 87 条通过；这一轮的变异检查 19 个全部测出（一个补了用例后）。
 
 ## 下一步
 
-1. S5 的快速审查：Opus 的结论处理完开 S6；omp 的报告回来再处理，修正单独提交。
+1. S6：应用接入（`remote.ts` 去掉 `writeBack` 转发并升合同版本、作者界面读值表、预览、着色与“插入”、agent-tools 去值与“值改了”的提示、Lab 的三个旧写法场景、三个 dom 测试、架构测试、删 micromark 链与转换器），前端部分派 Sonnet 审查。
+
+要开发者定：写入一块主文字有没有长度上限（Opus S5 审查第 6 条：marked 在嵌套强调这类输入上超线性，2.4 万字一块要解析约 10 秒，写入队列会被占住；旧实现同样没有上限，预览限 5 万字）。
