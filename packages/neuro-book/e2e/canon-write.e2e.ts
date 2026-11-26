@@ -132,7 +132,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = page.locator("[data-field-editor=\"character.性格\"]");
     await bar.getByRole("textbox").fill("银白长发");
-    await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    await expect(bar.locator("[data-confirm-preview]")).toContainText("改最初的值");
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("银白长发");
 
@@ -430,7 +430,7 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await page.keyboard.type("（第 1 章里改的）");
     await expect(entryPage(page).locator('[data-text-saved="saved"]')).toBeVisible();
 
-    // 活页夹里拿掉这一章；等世界看到（没有章了，只剩故事开始前一个位置，时间点不再出）再刷新。
+    // 活页夹里拿掉这一章；等世界看到（没有章了，只剩“最初”一个位置，时间点不再出）再刷新。
     await writeFile(join(binder, "binder.xml"), '<binder nextId="2"></binder>');
     await expect(position).toHaveCount(0);
     await open(page);

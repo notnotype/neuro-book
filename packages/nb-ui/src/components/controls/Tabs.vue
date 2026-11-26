@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {HTMLAttributes} from "vue";
-import {computed, nextTick, ref, useAttrs} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch} from "vue";
 import DropdownMenu from "../popup/DropdownMenu.vue";
 import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
 import {useUiText} from "../../text-port";
@@ -130,6 +130,47 @@ function selectHidden(value: string): void {
         select(item);
     }
 }
+
+// ── 横向滚动（overflow="scroll"，同名 .md） ─────────────────────────────────
+
+/**
+ * 选中项不在标签栏的可见范围里时，把标签栏滚到刚好露出它。只动标签栏自己的 scrollLeft：`scrollIntoView` 会连带滚动外层的页面。
+ * 点到的、方向键聚焦到的本来就在范围里，不动；用得上的是刚挂上、标签栏变窄与消费方换了选中（例如新加的一页排在后面）。
+ */
+function revealSelected(behavior: ScrollBehavior): void {
+    const list = tablistRef.value;
+    if (adaptive.value || list === null) return;
+    const tab = Array.from(list.querySelectorAll<HTMLElement>("[role='tab']")).find((element) => element.dataset.tabValue === props.modelValue);
+    if (tab === undefined) return;
+    const box = list.getBoundingClientRect();
+    const rect = tab.getBoundingClientRect();
+    const delta = rect.left < box.left ? rect.left - box.left : rect.right > box.right ? rect.right - box.right : 0;
+    if (Math.abs(delta) < 1) return;
+    // 外层有 CSS zoom 时（Component Lab 的画布）矩形是缩放后的像素，scrollLeft 是缩放前的。
+    const scale = box.width > 0 ? list.offsetWidth / box.width : 1;
+    list.scrollTo({left: list.scrollLeft + delta * scale, behavior});
+}
+// 刚挂上与标签栏的宽度变了（窗口变窄、转屏）时直接到位：没有起点可滑。只看宽度，高度变了不动。
+let stripWidth = -1;
+let stripObserver: ResizeObserver | null = null;
+onMounted(() => {
+    revealSelected("instant");
+    const list = tablistRef.value;
+    if (adaptive.value || list === null || typeof ResizeObserver !== "function") return;
+    stripWidth = list.clientWidth;
+    stripObserver = new ResizeObserver(() => {
+        if (list.clientWidth === stripWidth) return;
+        stripWidth = list.clientWidth;
+        revealSelected("instant");
+    });
+    stripObserver.observe(list);
+});
+onBeforeUnmount(() => stripObserver?.disconnect());
+// 只在选中项变了、或选中的那一项刚出现在列表里时看；别的更新（例如计数变了）不看，免得滑到别处看标签时被拽回来。
+// 缺省的滚动行为跟着样式：动效减弱时直接到位。
+watch(() => (props.items.some((item) => item.value === props.modelValue) ? props.modelValue : null), (value) => {
+    if (value !== null) revealSelected("auto");
+}, {flush: "post"});
 </script>
 
 <template>
@@ -195,7 +236,7 @@ function selectHidden(value: string): void {
             <span :class="tabBoxClass" data-measure-more>{{ moreText }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
         </div>
     </div>
-    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">
+    <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="nb-ui-tabs-scroll flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">
         <button
             v-for="item in props.items"
             :key="item.value"
@@ -231,5 +272,14 @@ function selectHidden(value: string): void {
     visibility: hidden;
     pointer-events: none;
     white-space: nowrap;
+}
+/* 程序把选中项滚进来（revealSelected）与焦点带过去时平滑滚动；用户自己的滑动不受影响。 */
+.nb-ui-tabs-scroll {
+    scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-tabs-scroll {
+        scroll-behavior: auto;
+    }
 }
 </style>

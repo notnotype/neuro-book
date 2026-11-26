@@ -32,7 +32,7 @@ export const AGENT_TOOL_IDS = {lookup: "nbook.canon.lookup", tree: "nbook.canon.
 
 /** 读取位置的参数：初值，或某一章（章 id 或从 1 数的序号）的开头、末尾；不给时是最后一章末尾。 */
 const AT = {
-    description: "读取位置。\"initial\" 是故事开始前；{chapter, edge} 是某一章的开头（start）或末尾（end，缺省），chapter 写章 id 或从 1 数的序号。不给时是最后一章末尾。",
+    description: "读取位置。\"initial\" 是最初：什么都没套，连前史也没套；{chapter, edge} 是某一章的开头（start）或末尾（end，缺省），chapter 写章 id 或从 1 数的序号。不给时是最后一章末尾。",
     anyOf: [
         {type: "string", enum: ["initial"]},
         {type: "object", properties: {chapter: {type: ["string", "integer"]}, edge: {type: "string", enum: ["start", "end"]}}, required: ["chapter"], additionalProperties: false},
@@ -392,7 +392,7 @@ function readTool(services: Services): AgentToolImplementation {
                     const origins = await call("origins", {at: {entry: resolved.id, path: field}, position: context.position, mode, limit: 15, ...(typeof args.cursor === "string" ? {cursor: args.cursor} : {})});
                     if (!origins.ok) return worldFailed(origins.failure);
                     const steps = origins.value.items.map((step) => `- ${JSON.stringify(step)}`.slice(0, 200));
-                    parts.push(`${field} 的来历（从最近一步往前，共 ${String(origins.value.total)} 步）：\n${steps.join("\n")}${origins.value.initial === null ? "" : `\n- 故事开始前：${JSON.stringify(origins.value.initial.value)}`}${origins.value.cursor === undefined ? "" : `\n更早的：cursor ${origins.value.cursor}`}`);
+                    parts.push(`${field} 的来历（从最近一步往前，共 ${String(origins.value.total)} 步）：\n${steps.join("\n")}${origins.value.initial === null ? "" : `\n- 最初：${JSON.stringify(origins.value.initial.value)}`}${origins.value.cursor === undefined ? "" : `\n更早的：cursor ${origins.value.cursor}`}`);
                 }
                 if (show.includes("history")) {
                     const revisions = await call("revisions", {filter: {entry: resolved.id}, limit: 10});

@@ -63,6 +63,13 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         controls: [],
         events: [],
     },
+    "tabs-scroll": {
+        id: "tabs-scroll",
+        label: "Tabs 横向滚动",
+        scenes: [{id: "first", label: "选中第一个"}, {id: "last", label: "挂上时选中最后一个"}],
+        controls: [],
+        events: [],
+    },
     "control-invalid": {
         id: "control-invalid",
         label: "输入框出错外观",

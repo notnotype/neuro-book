@@ -25,7 +25,7 @@ describe("PanelView", () => {
         const wrapper = mount(PanelView, {props: {
             cards: [card("panel.存款", "存款", "900 元", {mark: "第 2 章改过"}), card("panel.物品", "随身物品", "", {items: ["魔杖"]})],
             selected: "panel.存款",
-            ledger: [{key: "init", where: "", what: "故事开始前", result: "1,000 元"}],
+            ledger: [{key: "init", where: "", what: "最初", result: "1,000 元"}],
         }, global: {provide: provideText(port)}});
         mounted.push(wrapper);
         expect(wrapper.get("[data-card='panel.存款']").text()).toBe("存款第 2 章改过900 元");

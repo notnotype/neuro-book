@@ -20,9 +20,9 @@ export function parseStamp(text: string): {readonly version: number; readonly in
     return {version: Number(match[1]), input: match[2] ?? null};
 }
 
-/** 读取位置写成一句话：“故事开始前”“第 3 章（ch3）末尾”。章的序号与标题由调用方查好给。 */
+/** 读取位置写成一句话：“最初”“第 3 章（ch3）末尾”。章的序号与标题由调用方查好给。 */
 export function positionText(position: ReadPosition, chapter?: {readonly index: number; readonly title: string | null}): string {
-    if (position.kind === "initial") return "故事开始前";
+    if (position.kind === "initial") return "最初";
     // 章表的 `index` 从 1 数。
     const label = chapter === undefined ? position.chapter : `第 ${String(chapter.index)} 章${chapter.title === null ? "" : `「${chapter.title}」`}（${position.chapter}）`;
     const line = position.line === undefined || position.line === "main" ? "" : `，线 ${position.line}`;
@@ -144,7 +144,7 @@ export function failureText(failure: {readonly code: string} & Record<string, un
         case "field-unavailable":
             return `${at}field-unavailable：这个字段在这个位置不可用（设定组没启用、去掉了、只读或类型不在）。先 addComponent，或换个位置。`;
         case "intent-not-allowed":
-            return "intent-not-allowed：故事开始前不能记剧情变化。给 at 一个章，或改用 intent: \"setting\"。";
+            return "intent-not-allowed：在最初不能记剧情变化。给 at 一个章，或改用 intent: \"setting\"。";
         case "result-mismatch":
             return `${at}result-mismatch：写进去以后读到的不是你要的值（读到 ${valueText(failure.got)}）。看一下这个字段的来历再改。`;
         case "validation-failed": {

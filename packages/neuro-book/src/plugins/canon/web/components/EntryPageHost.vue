@@ -27,7 +27,7 @@ import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionOptions, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionOptions, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -321,7 +321,7 @@ const edit = useInPlaceEdit({
     blocked: () => editBlocked.value,
     text,
     resolve: (given) => port.t(given),
-    saved: (published, title) => props.notices.show({revision: published.revision, title}),
+    saved: (published, title, where) => props.notices.show({revision: published.revision, title, ...(where === undefined ? {} : {where})}),
     refocus: (path) => {
         // 确认条关掉以后再找：按钮在数据分页里，确认条关掉不会卸载它。
         void nextTick(() => document.querySelector<HTMLElement>(`[data-edit="${CSS.escape(path)}"]`)?.focus());
@@ -342,16 +342,19 @@ const edit = useInPlaceEdit({
  * 读到的值随请求带上，服务据此判断这个值是不是刚被别处改过（`value-conflict`）。
  */
 const record = async (path: string, input: {readonly text: string; readonly delta?: number}): Promise<{readonly ok: true} | {readonly ok: false; readonly reason: Text}> => {
+    // 写回的位置在发请求时定下：请求在途时作者换了位置，提示仍写这一笔落在哪。
+    const at = position.value;
     if (mode.value === "planned") return {ok: false, reason: canonText("blocked.planned")};
-    if (position.value.kind === "initial") return {ok: false, reason: canonText("blocked.initial")};
+    if (at.kind === "initial") return {ok: false, reason: canonText("blocked.initial")};
     if (blocked.value !== null) return {ok: false, reason: blocked.value};
     const field = fieldAt(path);
-    const common = {requestId: `record-${crypto.randomUUID()}`, by: {kind: "author" as const}, position: position.value, at: {entry: props.id, path}, read: {value: field.state?.value ?? null, version: version()}};
+    const common = {requestId: `record-${crypto.randomUUID()}`, by: {kind: "author" as const}, position: at, at: {entry: props.id, path}, read: {value: field.state?.value ?? null, version: version()}};
     const result = field.declaration?.precision === "semantic"
         ? await world.write("recordNote", {...common, text: input.text})
         : await world.write("recordDelta", {...common, delta: input.delta ?? 0, reason: input.text});
     if (!result.ok) return {ok: false, reason: failureText(result.failure).text};
-    props.notices.show({revision: result.value.revision, title: text("record.saved", {text: input.text})});
+    // 记一笔落在所选位置的那一章（最初时上面已经拦下）。
+    props.notices.show({revision: result.value.revision, title: text("record.saved", {text: input.text}), where: chapterLabel(at.chapter, chapters.value, text)});
     return {ok: true};
 };
 

@@ -21,7 +21,7 @@ afterEach(() => {
 const rows: OriginRow[] = [
     {key: "p2", where: "第 2 章", what: "买了书", basis: {text: "估计：书大概三百", estimate: true}, delta: "−300", result: "900 元", change: "c2"},
     {key: "k1", where: "第 1 章", what: "核对：正文写 1,200，对得上", result: "", check: "ok"},
-    {key: "init", where: "", what: "故事开始前", result: "1,000 元"},
+    {key: "init", where: "", what: "最初", result: "1,000 元"},
 ];
 
 function list(props: Record<string, unknown>) {

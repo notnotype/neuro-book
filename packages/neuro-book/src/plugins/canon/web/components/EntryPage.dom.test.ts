@@ -25,7 +25,7 @@ const base = {
     name: "哥哥",
     summary: "星瑕的另一个身份",
     sameAs: {id: "e1", name: "星瑕"},
-    positions: [{value: "initial", label: "故事开始前"}, {value: "1:end", label: "第 1 章末尾"}],
+    positions: [{value: "initial", label: "最初"}, {value: "1:end", label: "第 1 章末尾"}],
     position: "1:end",
     tabs: [{value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 2}],
     tab: "text",
@@ -54,10 +54,10 @@ describe("EntryPage", () => {
     });
 
     it("只有一个位置又没有计划（空作品）时不出时间点；作品里有计划时出", async () => {
-        const empty = page({positions: [{value: "initial", label: "故事开始前"}], position: "initial"});
+        const empty = page({positions: [{value: "initial", label: "最初"}], position: "initial"});
         expect(empty.find("[data-position-picker]").exists()).toBe(false);
-        const planned = page({positions: [{value: "initial", label: "故事开始前"}], position: "initial", canPlan: true});
-        expect(planned.get("[data-position-trigger]").text()).toContain("故事开始前");
+        const planned = page({positions: [{value: "initial", label: "最初"}], position: "initial", canPlan: true});
+        expect(planned.get("[data-position-trigger]").text()).toContain("最初");
     });
 
     it("可编辑时名字、简介本身是按钮，点了发出带锚点的 edit-name、edit-summary；没有“改”；没有简介时写“一句话简介”", async () => {

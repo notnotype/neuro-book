@@ -20,7 +20,7 @@ const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
 });
-const POSITIONS = [{value: "initial", label: "故事开始前"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}];
+const POSITIONS = [{value: "initial", label: "最初"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}];
 const picker = (props: Record<string, unknown> = {}) => {
     const wrapper = mount(PositionPicker, {props: {positions: POSITIONS, position: "1:end", ...props}, global: {provide: provideText(port)}});
     mounted.push(wrapper);
@@ -33,7 +33,7 @@ describe("PositionPicker", () => {
         const wrapper = picker();
         expect(wrapper.get("[data-position-trigger]").text()).toBe("第 1 章末尾");
         const items = itemsOf(wrapper);
-        expect(items.map((item) => [item.label, item.type, item.checked])).toEqual([["故事开始前", "radio", false], ["第 1 章开头", "radio", false], ["第 1 章末尾", "radio", true]]);
+        expect(items.map((item) => [item.label, item.type, item.checked])).toEqual([["最初", "radio", false], ["第 1 章开头", "radio", false], ["第 1 章末尾", "radio", true]]);
         expect(new Set(items.map((item) => item.group))).toEqual(new Set(["position"]));
     });
 

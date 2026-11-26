@@ -11,7 +11,7 @@ import type {DropdownMenuItemData, SelectOption} from "@notnotype/nb-ui/componen
 import {useCanonText} from "../text";
 
 const props = withDefaults(defineProps<{
-    /** 能选的位置，依次是故事开始前与各章的开头、末尾。 */
+    /** 能选的位置，依次是最初与各章的开头、末尾。 */
     positions: readonly SelectOption[];
     position: string;
     planned?: boolean;

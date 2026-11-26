@@ -114,7 +114,7 @@ onBeforeUnmount(() => observer?.disconnect());
                         <span class="i-lucide-circle-check size-4 shrink-0 text-[var(--status-success)]" aria-hidden="true" />
                         <!-- 新的一条顶掉旧的：外框不动，只换字。 -->
                         <Transition name="nb-ui-switch" mode="out-in">
-                            <span :key="props.notice.revision" class="page-notice__text">{{ props.notice.title }}</span>
+                            <span :key="props.notice.revision" class="page-notice__text">{{ props.notice.title }}<span v-if="props.notice.where !== undefined" class="page-notice__where" data-notice-where>{{ text("notice.where", {where: props.notice.where}) }}</span></span>
                         </Transition>
                         <span class="page-notice__actions">
                             <Button size="sm" variant="ghost" @click="emit('receipt', props.notice.revision)">{{ text("notice.receipt") }}</Button>
@@ -182,6 +182,11 @@ onBeforeUnmount(() => observer?.disconnect());
     text-overflow: ellipsis;
     white-space: nowrap;
     margin-right: 6px;
+}
+/* 记在哪个位置：跟在标题后面，弱一档，窄了和标题一起截断。 */
+.page-notice__where {
+    margin-left: 8px;
+    color: var(--text-muted);
 }
 .page-notice__text--wrap {
     white-space: normal;
