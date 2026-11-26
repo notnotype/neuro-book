@@ -68,7 +68,7 @@ updated: 2026-11-26
 
 ## 下一步
 
-1. 跑 e2e（`canon-write`、`canon-author`、`canon-character`、`plot-author`）确认修正没碰坏界面；之后在开发服务上把阅读视图、编辑与预览点一遍，用 t01 的场景真实跑几次 `canon_read`、`canon_write`，再逐条核对 Spec 晋升 `implemented`。
+1. 修正后 e2e `canon-write`、`canon-author`、`canon-character`、`plot-author` 共 30 条全过（`93a460ea1`）。接着在开发服务上把阅读视图、编辑与预览点一遍，用 t01 的场景真实跑几次 `canon_read`、`canon_write`，再逐条核对 Spec 晋升 `implemented`。
 2. 原 S6 的清单（已做完）：应用接入（`remote.ts` 去掉 `writeBack` 转发并升合同版本、作者界面读值表、预览、着色与“插入”、agent-tools 去值与“值改了”的提示、Lab 的三个旧写法场景、三个 dom 测试、架构测试、删 micromark 链与转换器），前端部分派 Sonnet 审查。
 
 开发者 2026-11-26：“可以设长度限制”（Opus S5 审查第 6 条：marked 在嵌套强调这类输入上超线性）。主会话先定为一块 1 万字（`97bfc88f8`），理由里说作者界面按段落一块一块提交；做 S6 时发现说错了：作者整篇编辑时整篇写进第一块，1 万字实际是“作者改过的条目整篇最多 1 万字”。改问开发者，开发者选“改成 5 万字”（与预览一次肯渲染的长度相同）。上限只管写入（超过的不解析、直接拒收，`block-too-large`），渲染不看它，存下来的旧数据照常渲染。实测最坏的写法 1 万字约 1 到 2 秒、2 万字约 6 秒，正常文字 2 万字约 50 毫秒。Spec rendering 输出 1 与失败表写明。
