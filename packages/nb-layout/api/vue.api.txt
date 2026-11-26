@@ -331,6 +331,7 @@ props:
   dragging?: boolean | undefined = false
   floats?: readonly GridFloatInput[] | undefined = []
   gesturing?: boolean | undefined = false
+  keepLeaving?: ReadonlySet<string> | undefined
   layout: GridLayoutResult
   leafShape?: ((leaf: string) => GridLeafShape | undefined) | undefined = undefined
   lifted?: { readonly key: string; } | null | undefined = null

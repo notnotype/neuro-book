@@ -69,6 +69,11 @@ const props = withDefaults(defineProps<{
      * 同网格自己的分隔线手势预览。
      */
     gesturing?: boolean;
+    /**
+     * 没有内容也要在离开时留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 45）：外框本身就是要看的东西，例如工作台的侧轨。
+     * 不在这里的空叶离开时照旧立即消失。
+     */
+    keepLeaving?: ReadonlySet<string>;
     /** 浮动窗（docs/specs/ui/nested-grid.md 输出 101）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id，孩子是分支时就是分支 id（同名 .md 的“分隔线的身份”）。 */
@@ -471,6 +476,7 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         dpr: dpr.value,
         previewing: preview.value !== null || props.gesturing,
         holding: liftedKey !== null || props.dragging,
+        ...(props.keepLeaving === undefined ? {} : {keepEmpty: props.keepLeaving}),
         swap: takeSwap(),
         ...(releasing.size === 0 ? {} : {released: releasing}),
     });

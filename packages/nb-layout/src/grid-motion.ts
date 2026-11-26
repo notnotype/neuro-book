@@ -331,10 +331,11 @@ export function floatLiftStarts(items: ReadonlyArray<GridLayerItem<unknown>>, pr
  * 这一帧它前后兄弟相接的那道缝；它在分支一头、挨着的兄弟这一帧到了那一头时，缩向那一头。
  *
  * 只留这一种，其余照旧立即消失：兄弟没有合拢的（被顶替：切换容器时旧的几节缩、新的几节长，会叠在同一块地方）；下面一个挂着的内容项
- * 都没有的（关掉的编辑组，内容已经卸了，留着只是一张空卡片）。拖动中（`holding`：拿起了内容，或宿主说拖动在进行，例如视图被活动栏吸收、内容没拿起）
+ * 都没有的（关掉的编辑组，内容已经卸了，留着只是一张空卡片），除非宿主把它列进 `keepEmpty`（没有内容、但外框本身就是要看的东西，例如侧轨：
+ * 它随区域收走时也要缩到零再摘，docs/specs/ui/nested-grid.md 输出 45）。拖动中（`holding`：拿起了内容，或宿主说拖动在进行，例如视图被活动栏吸收、内容没拿起）
  * 一个都不留：来源的叶离开是拖动的一部分，留着的外框会被命中判定撞上，放下时又从缩回去的半路飞过来。
  */
-export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>, holding: boolean): Array<LeafItem<R>> {
+export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>, holding: boolean, keepEmpty: ReadonlySet<string> = new Set()): Array<LeafItem<R>> {
     if (holding) return [];
     const present = new Set(items.map((item) => item.key));
     const sashes = items.filter((item) => item.kind === "sash");
@@ -371,7 +372,7 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
     }
     const result: Array<LeafItem<R>> = [];
     for (const {step, leaves} of groups.values()) {
-        if (!leaves.some((leaf) => mounted.has(leaf.node.id))) continue;
+        if (!leaves.some((leaf) => mounted.has(leaf.node.id) || keepEmpty.has(leaf.node.id))) continue;
         const seam = seamNow(step);
         let at: number;
         if (seam !== undefined) {

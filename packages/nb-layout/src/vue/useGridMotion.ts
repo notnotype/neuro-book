@@ -32,6 +32,8 @@ export interface GridMotionFrame {
     readonly previewing: boolean;
     /** 有拿起的内容（实时布局拖动中）：离开的叶不留。 */
     readonly holding?: boolean;
+    /** 没有内容也要留着缩回去的叶（`leavingPlacements` 的 `keepEmpty`，宿主的 `keepLeaving`）。 */
+    readonly keepEmpty?: ReadonlySet<string>;
     /** 这一次布局变化要按交换走（`token` 刚变的那一次，由 `NestedGrid` 判）。 */
     readonly swap?: GridSwap | null;
     /** 进行中的交换，与带上每组此刻的偏移（下标同 `band.groups`，`update` 从 DOM 读）。 */
@@ -132,7 +134,7 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const entering = new Map([...enteringRects(frame.items, frame.previous), ...lifts]);
     const following = new Set([...followingLeaves(frame.items, frame.previous), ...lifts.keys()]);
     const flying = flyingContents(frame.items, frame.previous);
-    const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
+    const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true, frame.keepEmpty);
     const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
     // 刚放开的窗从松手处出发（输出 172）：最后并进起点，在 `kept` 之后，不影响跟外框与保持尺寸的判定。
     const released = frame.released === undefined ? new Map<string, GridRect>() : releaseStarts(frame.items, frame.previous, frame.released);
