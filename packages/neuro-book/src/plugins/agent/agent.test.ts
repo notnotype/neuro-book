@@ -76,9 +76,9 @@ function profilesPlugin(activations: {count: number}, tools = {required: [] as s
 }
 
 /** 交出工具的插件；`execute` 缺省回显参数里的 `text`。 */
-function toolsPlugin(activations: {count: number}, options: {readonly id?: string; readonly tools?: ReadonlyArray<{readonly id: string; readonly defaultForAll?: boolean; readonly execute?: ToolImplementation["execute"]; readonly disposed?: {count: number}; readonly created?: Promise<void>}>} = {}): PluginDefinition {
+function toolsPlugin(activations: {count: number}, options: {readonly id?: string; readonly tools?: ReadonlyArray<{readonly id: string; readonly defaultForAll?: boolean; readonly foreground?: boolean; readonly execute?: ToolImplementation["execute"]; readonly disposed?: {count: number}; readonly created?: Promise<void>}>} = {}): PluginDefinition {
     const tools = options.tools ?? [{id: ECHO}];
-    const declared = tools.map((tool) => agentTool(tool.id, {description: tool.id, parameters: {type: "object", properties: {text: {type: "string"}}}, version: "1", effect: "read", ...(tool.defaultForAll === true ? {defaultForAll: true} : {})}));
+    const declared = tools.map((tool) => agentTool(tool.id, {description: tool.id, parameters: {type: "object", properties: {text: {type: "string"}}}, version: "1", effect: "read", ...(tool.defaultForAll === true ? {defaultForAll: true} : {}), ...(tool.foreground === true ? {foreground: true} : {})}));
     return {id: options.id ?? "test.tools", entries: [defineEntry({id: "server", location: "server", activationEvents: declared.map((item) => item.activationEvent), contributions: declared.map((item) => item.contribution), activate: () => {
         activations.count += 1;
         const implementations: Record<string, AgentToolImplementation> = {};
@@ -284,6 +284,38 @@ describe("贡献", () => {
         endpoint.script("好");
         await say(session, "看看工具");
         expect([...endpoint.requests[sent]!.tools].sort()).toEqual(["test__tools__everywhere", "test__tools__extra", "test__tools__must"]);
+    });
+
+    test("输出 4：声明 foreground 的工具不进后台会话与 bot 归属的会话，前台会话照常有；后台会话把它列为必需时以 tools-missing 收口", async () => {
+        const FRONT = "test.tools.front";
+        const tools = [{id: ECHO}, {id: FRONT, defaultForAll: true, foreground: true}];
+        const w = await world([profilesPlugin({count: 0}), toolsPlugin({count: 0}, {tools})]);
+        const toolsOf = async (run: () => Promise<unknown>): Promise<string[]> => {
+            const sent = endpoint.requests.length;
+            endpoint.script("好");
+            await run();
+            return [...endpoint.requests[sent]!.tools].sort();
+        };
+        expect(await toolsOf(async () => say(await createSession(w), "看看工具"))).toEqual(["test__tools__echo", "test__tools__front"]);
+        const owned = await w.service.create({profile: WRITER, owner: {id: "bot"}});
+        if (!owned.ok) throw new Error(owned.code);
+        expect(await toolsOf(() => say(owned.value, "看看工具"))).toEqual(["test__tools__echo"]);
+        expect(await toolsOf(async () => {
+            const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: WRITER, input: {text: "后台"}, background: true});
+            if (!started.ok) throw new Error(started.code);
+            await started.result;
+        })).toEqual(["test__tools__echo"]);
+
+        // 内核按 Profile 实现里的 tools.required 判缺失，这里的实现也写上。
+        const required = {required: [FRONT], optional: [ECHO]};
+        const strictProfile = agentProfile(WRITER, {name: "写手", description: "测试用", tools: required});
+        const strictPlugin: PluginDefinition = {id: "test.profiles", entries: [defineEntry({id: "server", location: "server", activationEvents: [strictProfile.activationEvent], contributions: [strictProfile.contribution], activate: () => ({contributions: {"agent.profiles": {[WRITER]: defineProfile({id: WRITER, version: "1", name: "写手", description: "测试用", system: "你是写手。", tools: required})}}})})]};
+        const strict = await world([strictPlugin, toolsPlugin({count: 0}, {tools})]);
+        const sent = endpoint.requests.length;
+        const started = await strict.service.startTask({taskId: crypto.randomUUID(), profile: WRITER, input: {text: "后台"}, background: true});
+        if (!started.ok) throw new Error(started.code);
+        expect((await started.result)?.error).toMatchObject({code: "tools-missing"});
+        expect(endpoint.requests.length).toBe(sent);
     });
 
     test("输出 4：声明 defaultTools: false 的 Profile 不加装到所有 Profile 的工具，绑定加的照样生效", async () => {

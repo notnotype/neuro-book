@@ -62,6 +62,8 @@ const ASK = "test.eval.ask";
 const WIDE = "test.eval.wide";
 /** 声明了 `returns`、却交回不符的结构的工具（eval.md 输出 7）。 */
 const SHAPE = "test.eval.shape";
+/** 只给有人在窗口前的会话的工具（contributions.md 输出 4），装到所有 Profile。 */
+const FRONT = "test.eval.front";
 /** 声明了 `errors` 的工具：按参数交回带不同 `details` 的失败（eval.md 输出 8）。 */
 const FAILS = "test.eval.fails";
 /** 代码里调一次它，这个会话打开期间就有它的实现；会话关闭时实现被释放，记下会话 id（看会话真的关了）。 */
@@ -83,18 +85,20 @@ function testPlugin(): PluginDefinition {
         undeclared: {code: "other", text: "别的", details: {retryAfter: 3}},
     };
     const failsTool: AgentToolImplementation = {create: () => ({execute: async (args) => ({status: "error" as const, ...failures[(args as {kind: string}).kind]!})})};
+    const front = agentTool(FRONT, {description: "前台才有", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "front", defaultForAll: true, foreground: true});
+    const frontTool: AgentToolImplementation = {create: () => ({execute: async () => "在前台"})};
     const probe = agentTool(PROBE, {description: "什么也不做", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "probe"});
     const probeTool: AgentToolImplementation = {create: (context) => ({execute: async () => "在", dispose: () => void closedSessions.push(context.sessionId)})};
     return {id: "test.eval", entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, fails.activationEvent, probe.activationEvent],
-        contributions: [...profiles.map((item) => item.contribution), shape.contribution, fails.contribution, probe.contribution],
+        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, fails.activationEvent, front.activationEvent, probe.activationEvent],
+        contributions: [...profiles.map((item) => item.contribution), shape.contribution, fails.contribution, front.contribution, probe.contribution],
         activate: (context) => {
             remote = context.remote;
             return {contributions: {
                 "agent.profiles": Object.fromEntries([YOLO, ASK, WIDE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: toolsOf(key)}})])),
-                "agent.tools": {[SHAPE]: shapeTool, [FAILS]: failsTool, [PROBE]: probeTool},
+                "agent.tools": {[SHAPE]: shapeTool, [FAILS]: failsTool, [FRONT]: frontTool, [PROBE]: probeTool},
             }};
         },
     })]};
@@ -265,6 +269,18 @@ describe("eval", () => {
         ]);
         const dropped = w.settings.diagnostics("hub").query({}).records.filter((record) => record.event === "agent.eval-error-details-dropped");
         expect(dropped.map((record) => (record.data as {code: string}).code)).toEqual(["busy", "busy"]);
+    });
+
+    test("contributions.md 输出 4：声明 foreground 的工具，代码里也只在有人在窗口前的会话能调；后台会话里得 unknown-tool", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const code = "let got; try { got = await tool.front() } catch (e) { got = e.code }\ngot";
+        expect((await one(session, {code})).text).toBe("在前台");
+        endpoint.script({tool: "eval", args: {code}}, "好");
+        const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: YOLO, input: {text: "跑代码"}, background: true});
+        if (!started.ok) throw new Error(started.code);
+        await started.result;
+        expect(results(await w.service.session(started.sessionId).path()).map((result) => result.text)).toEqual(["unknown-tool"]);
     });
 
     test("输出 4：代码里调的工具交回的图并进结果（带着宽高）；一个单元至多 8 张，多的写明", async () => {

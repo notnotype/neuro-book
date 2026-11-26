@@ -253,7 +253,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         models,
         retry: () => ({maxRetries: options.settings.get(agentSettings.settings.modelRetries)}),
         tools: {
-            declarations: (context) => sessionDeclarations(tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]), evalObjects),
+            declarations: (context) => sessionDeclarations(tools.forSession(profiles.requirements(context.profile), bindings()[context.profile], context), evalObjects),
             create: (id, context) => tools.create(id, context),
         },
         resources: (context) => kernelResources(sessionFilesFor(context, null)),
@@ -451,7 +451,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     return {
         host,
         tools,
-        codeTools: (context) => tools.codeToolsOf(tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile])),
+        codeTools: (context) => tools.codeToolsOf(tools.forSession(profiles.requirements(context.profile), bindings()[context.profile], context)),
         evalObjects,
         evalDocs: () => {
             const methods = tools.evalMethods();
