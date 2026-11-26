@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00039-novel-writing-plugins
 issueId: null
 status: active
-updated: 2026-11-25
+updated: 2026-11-26
 ---
 
 # 小说创作插件
@@ -89,6 +89,7 @@ updated: 2026-11-25
 | 2026-11-24 | 开发者试用整篇编辑器后（修了开发构建里点“编辑”变空白、打字弹补全、关键字颜色太浅三处，记在 [t40](tasks/t40-entry-text-preview/README.md)）：“这个编辑器，现在处于勉强能用，足够我们进行下一步了。”下一步是人物设定组（[t41](tasks/t41-character-component/README.md)）。开发者对它的方向：“我希望 NeuroBook 默认就提供一个好看的面板（用户填表单），也提供一组预设好的值”；预设四样都要（资料字段、选项的预设、数值的预设项、新建人物的整套模板）；“还要支持立绘，人物的服装，换装功能（……也可以单独做一个 Component）。我觉得人物这里放最通用的，例如魔力，万一还有技能呢？**我觉得我们可以一次性先把所有我们要做的 Component 先设计好**”；面板的版式选“角色卡”。主会话在 [t10](tasks/t10-setting-schema/README.md) 写出[内置设定组的清单](tasks/t10-setting-schema/component-catalog.md)第 1 稿，末尾六条等开发者定 |
 | 2026-11-25 | [t41](tasks/t41-character-component/README.md) 第一期做完并合入 master（`28b552086`）：内核的实例字段四个操作，人物与形象两组的分页与就地改，种类登记，图片，Agent 工具的字段操作。计划审查两轮、内核实现审查（omp 加 Opus）、收口实现审查前端 19 条与后端 13 条，处理记录在 Task 的证据里；照推荐做的记在[待确认清单](pending-confirmations.md)（t41 的行）。等开发者试用 |
 | 2026-11-25 | 开发者批准 [t41](tasks/t41-character-component/README.md) 的 Spec 晋升（只晋升 t41 的标记）。逐句核对后补了内核、Agent 工具与界面的断言（变异 23 处都拦住），合入 `4e3431abe`；字面不符的改 Spec 贴实现，没有断言的边角与外观逐句留 planned。“作者与 Agent 都能改”小节标题上的标记挪到 t37 各条上，`canon/agent-tools.md` 整份照旧 planned。 |
+| 2026-11-26 | 开发者要做条目主文字的富文本编辑器：取值与条件**换成标签**（不再用 `{}`）；富文本为主、保留源文字、去掉分屏预览；**新开一个 Work**（[w00055](../w00055-entry-rich-text/README.md)），“不用那么急着快速做。多做点演示稿，spike 让我体验后，等需求对齐了稳定了你再开始实施”。[t38](tasks/t38-kernel-shared-parser/README.md) 转到 w00055，本 Work 不再推它 |
 
 ## 调研
 
@@ -123,7 +124,7 @@ updated: 2026-11-25
 | 1 | [t39](tasks/t39-entry-text-editor/README.md) | 条目主文字的整篇编辑：不分节，点“编辑”在一个输入框里改整篇源文字，写法与内核不动（11-24 开发者定为下一步、改选源文字编辑；同日合入 master，等开发者试用，Spec 待晋升；之后是人物设定组，再是最小的记账闭环） | t28 |
 | 1 | [t40](tasks/t40-entry-text-preview/README.md) | 条目主文字的分屏预览与源文字高亮：编辑时旁边看渲染结果（内核加一条按源文字渲染的只读方法），输入框按条目的写法着色（11-24 开发者提出，同日合入 master；开发者试用后修了三处，说“勉强能用，足够我们进行下一步了”；Spec 待晋升） | t39 |
 | 1 | [t41](tasks/t41-character-component/README.md) | 人物设定组：清单的第一期（内核补在条目上加、改名、去掉、恢复字段；人物与形象两组各一个分页、就地改；种类登记的默认设定组；图片的显示、选图与上传；Agent 工具的字段操作）。11-25 合入 master，同日 Spec 晋升（逐句核对、补断言） | t10、t40 |
-| 3 | [t38](tasks/t38-kernel-shared-parser/README.md) | 内核改用与章节相同的解析器（11-23 从 t28 拆出；11-24 讨论后搁置到开发者用过整篇编辑器与人物设定组之后：到时再定要不要同时换写法（去掉 `{}` 改用标签）、标签登记表与沙箱块） | t39 |
+| — | [t38](tasks/t38-kernel-shared-parser/README.md) | 内核改用与章节相同的解析器（11-23 从 t28 拆出；11-26 开发者定换成标签写法，连同富文本编辑器转到 [w00055](../w00055-entry-rich-text/README.md)） | t39 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |
 
