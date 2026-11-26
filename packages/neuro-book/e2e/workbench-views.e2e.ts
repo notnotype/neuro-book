@@ -1071,7 +1071,9 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // nbook 画 `--divider`，沿长轴两端各缩进 10px，不碰卡片边（输出 19）。
         await expect.poll(paneSeams).toEqual([{color: nbook.divider, start: "10px", end: "10px"}]);
         // 两节拼成一张卡片、整列和活动栏相连：上面一节下面两个角、下面一节上面两个角是直的，左边都不留缝。
+        // 右栏的分节也带这个标记（它们挨着右轨）：只取左半边的侧栏那一列。
         const column = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-shell-join="end"]')]
+            .filter((card) => card.getBoundingClientRect().left < window.innerWidth / 3)
             .map((card) => ({top: card.getBoundingClientRect().top, corners: ["top-left", "top-right", "bottom-right", "bottom-left"].map((corner) => getComputedStyle(card).getPropertyValue(`border-${corner}-radius`))}))
             .sort((a, b) => a.top - b.top).map((card) => card.corners));
         expect(column).toEqual([["0px", "12px", "0px", "0px"], ["0px", "0px", "12px", "0px"]]);
@@ -1246,7 +1248,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(toolEntry(page, C)).toBeVisible();
         await expect(toolEntry(page, C)).toHaveAttribute("aria-pressed", "true");
         // 入口与“更多”都在活动栏里，不滚动。
-        const strip = await page.locator(".workbench-tool-strip__entries").evaluate((element) => ({scroll: element.scrollHeight, client: element.clientHeight}));
+        const strip = await page.locator("[data-rail=sidebar] .workbench-tool-strip__entries").evaluate((element) => ({scroll: element.scrollHeight, client: element.clientHeight}));
         expect(strip.scroll).toBeLessThanOrEqual(strip.client);
         await more.click();
         const menu = page.getByRole("menu").getByRole("menuitem");

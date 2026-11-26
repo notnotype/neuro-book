@@ -275,8 +275,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(entries.first()).toHaveAttribute("aria-pressed", "true");
         // 右轨与右栏同高同顶：右轨的卡片顶就是对话那一节的卡片顶（入口条这一行没有了）。
         const conversation = await sectionOf(page, CONVERSATION);
-        const [railBox, sectionBox] = [(await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!, await box(page, conversation)];
-        expect(Math.abs(railBox.y - sectionBox.y)).toBeLessThanOrEqual(1);
+        const [railBox, sectionCard] = [(await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!, (await page.locator(`[data-shell-card="${conversation}"]`).boundingBox())!];
+        expect(Math.abs(railBox.y - sectionCard.y)).toBeLessThanOrEqual(1);
 
         // 资源管理器移进右栏的新容器：右栏切到它，入口带多一个入口。
         await moveViaMenu(page, EXPLORER, "新容器（右栏）");
@@ -377,7 +377,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         // 右轨不动，上面一节仍在右栏卡片的顶上。
         const stillRail = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
         expect(stillRail).toEqual(railBox);
-        expect(Math.abs((await box(page, upper)).y - railBox.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs((await page.locator(`[data-shell-card="${upper}"]`).boundingBox())!.y - railBox.y)).toBeLessThanOrEqual(1);
         await expect(content(page, lowerView)).toHaveAttribute("inert", "");
         // 两节之间的分隔线拖不动（展开靠点标题）。
         const between = page.getByRole("separator", {name: new RegExp(`调整 (?:${upper} 与 ${lower}|${lower} 与 ${upper}) 的`, "u")});
@@ -1265,8 +1265,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         });
         await open(page);
         const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});
-        const indicator = page.locator("[data-tool-indicator]");
-        const indicatorAt = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector("[data-tool-indicator]")!).transform).f);
+        const indicator = page.locator("[data-rail=sidebar] [data-tool-indicator]");
+        const indicatorAt = () => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector("[data-rail=sidebar] [data-tool-indicator]")!).transform).f);
         const entryTop = async (container: string) => page.evaluate((container) => {
             const button = [...document.querySelectorAll<HTMLElement>("[data-tool-entry]")].find((element) => element.dataset.toolEntry === container)!;
             return button.offsetTop;
@@ -1749,7 +1749,9 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         // 最大化资源管理器那一节，再拖它自己的标题：最大化时是落点指示。
         await page.locator(`[data-panel-head="${await sectionOf(page, EXPLORER)}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`).click();
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        expect(await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox()).toEqual(railBox);
+        // 右栏被最大化盖住时右轨与右栏卡片不再相连，卡片窄 2 像素（少一半的相连缝）：右缘、顶与高度不动，入口带照旧。
+        const maximizedRail = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
+        expect([maximizedRail.x + maximizedRail.width, maximizedRail.y, maximizedRail.height]).toEqual([railBox.x + railBox.width, railBox.y, railBox.height]);
         const [first, second] = [(await stripEntry(page, (await stripIds(page))[0]!).boundingBox())!, (await page.locator('[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry]').nth(1).boundingBox())!];
         const from = await centerOf(tab(page, EXPLORER));
         await page.mouse.move(from.x, from.y);
@@ -1858,6 +1860,8 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await stripEntry(page, `view:${D}`).click();
         // 切换写一次：等它落盘再数，不然这次写入会算进拖动里。
         await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.activeContainer).toBe(`view:${D}`);
+        // 切换时内容竖着滚（输出 42）：滚完再拿标签，不然量到的位置在按下时已经变了。
+        await expect(page.locator("[data-workbench-surface] [data-swap]")).toHaveCount(0);
         const writes = await writesOf(page);
         const title = page.locator(`[data-panel-head="${await sectionOf(page, D)}"] [data-panel-tab="view:${D}"]`);
         await lift(page, title);

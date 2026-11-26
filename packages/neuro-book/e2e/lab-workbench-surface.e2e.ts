@@ -348,10 +348,13 @@ test.describe("卡片按邻接算", () => {
 
         const panelId = section("e");
         await frameButton(page, panelId, "maximize").click();
-        await expect.poll(async () => (await paddingOf(page, panelId)).right).toBe(4);
+        // 最大化不盖右轨（ui/workbench-layout 输出 13、50）：被最大化的面板右边挨着右轨：右缝是相邻的半缝，不是贴窗体的整缝 4，卡片与右轨之间留一条相邻缝。
+        await expect.poll(async () => (await paddingOf(page, panelId)).right).toBe(2);
         const panel = await paddingOf(page, panelId);
         expect(panel.top).toBe(4);
         expect(panel.left).toBe(2);
+        const [maximized, rail] = [await rectOf(page, `[data-shell-card='${panelId}']`), await rectOf(page, "[data-shell-card='rail:auxiliarybar']")];
+        expect(rail.x - (maximized.x + maximized.width), "相邻两张卡片之间的缝").toBe(4);
     });
 
     test("分隔线按两侧是什么分种类：卡片主题里卡片之间、编辑组之间缝就是分界，不画线；一张卡片里几节之间画开放式分割线；平铺主题里三种都画（输出 19）", async ({page}) => {

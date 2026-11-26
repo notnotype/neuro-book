@@ -290,7 +290,7 @@ test.describe("产品页", () => {
         const toggle = regionToggle(page, "auxiliarybar");
         // 消息视图只能停右栏或浮动（views 输出 22）：把右栏拖空用“浮动打开”，不能搬进侧栏。
         const containerBefore = (await saved(page))?.doc.panels[await sectionOf(page, CONVERSATION)]?.container ?? null;
-        await moveViaMenu(page, CONVERSATION, "浮动打开");
+        await moveViaMenu(page, CONVERSATION, "浮动");
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
         await shrunk(page, "auxiliarybar");
         const containerOf = async (): Promise<string | null> => (await saved(page))?.doc.panels[await sectionOf(page, CONVERSATION)]?.container ?? null;
@@ -326,7 +326,7 @@ test.describe("产品页", () => {
         await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.activeContainer).toBe(container);
 
         // 再浮出：这一次把右栏拖空了，右栏随之隐藏。
-        await moveViaMenu(page, CONVERSATION, "浮动打开");
+        await moveViaMenu(page, CONVERSATION, "浮动");
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
         await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.hidden).toBe(true);
     });
