@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t38-kernel-shared-parser
-status: planned
-updated: 2026-11-24
+status: shelved
+updated: 2026-11-26
 ---
 
 # 内核改用与章节相同的解析器
