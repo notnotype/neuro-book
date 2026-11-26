@@ -37,3 +37,5 @@ Opus
 有效且已改：omp 1–12，Opus 1–10（6 的第三点、7 的类型、8 的断言除外）；接受取舍：omp 2 的“不分线”、omp 4 的 RangeError、Opus 7 的类型、Opus 8 的断言、Opus 11；要开发者定：写入一块的长度上限。
 
 复核（交付前）：同一请求的临时 id 换法只经 World.publish 测过。editEntries 的读回核对拿请求里的文字（带临时 id）比存下的（正式 id），整批报 result-mismatch；临时 id 的替换在校验之前解析文字，嵌套太深的块会让 publish 抛 RangeError。两处都补了用例（editEntries 同批新建、整段替换、增块、新建互相引用；写了临时 id 的深层引用块照常拒收），修正 7860665c7：读回核对与发布共用 replaceTextTempIds，读不出结构的原样交回。previewEntries 走同一个 checkPlan。修正段 94307cd50..7860665c7 并进 S6 的后端审查范围。
+
+长度上限（Opus 6 的第三点，开发者 2026-11-26 同意设）：一块主文字 1 万个字符，超过的不解析，写入报 block-too-large，渲染照出错的块给（97bfc88f8）。变异检查：去掉上限、上限差一都测出；replaceTextTempIds 里“太长就不换”只影响耗时（不看长度时照样拒收，只是先白解析一遍），没写计时测试。
