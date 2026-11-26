@@ -192,3 +192,9 @@ omp 那 3 条的修正已提交（`0dc6d182d`，14 个文件）：
 - 社交注册意图下被封禁时，码随情形不同：已关联的旧账号被封时是 `social_failed`，不建号、不扣码；刚建的账号在库建会话之前被封时是 `account_banned`，账号与扣码已提交（账号确实建成了）。不统一，写进 `site.accounts` 输出 13。
 
 主会话在 `0dc6d182d` 上重跑（负载降到 2 后）：五个目标包的测试与类型检查都过，合同测试 334、账号模块 598、账号合同包 113、站点服务 156，没有失败。
+
+晋升前逐句核对（Opus，[`evidences/promotion-check-opus.txt`](evidences/promotion-check-opus.txt)）：`site.oauth-provider` 全文与另两份 Spec 带“（planned）”的句子。
+- 没实现 2 句：`site.accounts` 输出 18 的旧站码保留次数与期限（t12）、注册页预填邀请码（前端），标记留着。
+- 与字面不一致 4 处。三处改了 Spec 措辞：只有开放了的上游的回调可达；回环主机不分大小写；`identity_taken`、`identity_exists` 只作跳转参数，挪出 409 那行。另一处改实现：用户信息 401 的 `WWW-Authenticate` 带着库的 DPoP 质询，去掉。
+- 没有测试 26 句（PKCE 必须、码过期、`max_age` 补交、RFC 6750 错误码、存储副作用等），连同 DPoP 一起交给 fix5 补。
+- `site.accounts` 的 Smoke 补了社交注册。
