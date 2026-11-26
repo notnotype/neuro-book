@@ -12,7 +12,7 @@ import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 
 import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
-import {barRef, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import {barRef, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setContainerRail, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -1031,6 +1031,66 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
         expect(store.actions.document()).toBe(same);
         expect(store.actions.moveContainer("custom:nobody", "panel")).toMatchObject({ok: false, code: "not-found"});
         expect(store.actions.document()).toBe(same);
+    });
+
+    describe("侧轨意图（ui/workbench-layout 输出 50 的“展开”）", () => {
+        const X1 = "view:test.x1";
+        const expand = (store: LayoutDocStore, width: number) => {
+            const result = store.actions.apply((doc) => setContainerRail(doc, {anchor: "auxiliarybar", container: X1, intent: {expanded: true, width}}));
+            if (!result.ok) throw new Error(result.message);
+        };
+
+        it("经真实存储往返：存下的记录带着它，另一个窗口读进来还在", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            expand(first.store, 320);
+            await first.store.actions.save();
+            expect((await savedDoc(first.storage, USER)).panels.auxiliarybar?.rail).toEqual({[X1]: {expanded: true, width: 320}});
+
+            const second = await openLayoutDoc(w, "b", "c", false, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {expanded: true, width: 320}});
+            expect(second.store.state.recordRepairs).toEqual([]);
+        });
+
+        it("记录里的坏值：读不进的那一项当缺省、布局照用，有一条修掉的说明；下次保存写回归一后的值，说明就没了", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            expand(first.store, 320);
+            const stored = JSON.parse(JSON.stringify(first.store.actions.document())) as {panels: Record<string, {rail?: unknown}>};
+            (stored.panels.auxiliarybar as {rail?: unknown}).rail = {[X1]: {expanded: "yes", width: 320}};
+            const opened = await first.storage.open(USER);
+            if (!opened.ok) throw new Error(opened.detail);
+            await opened.handle.save({doc: stored}, {expect: null});
+
+            const second = await openLayoutDoc(w, "b", "c", false, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            expect(second.store.state.problems).toEqual([]);
+            expect(second.store.state.recordRepairs).toHaveLength(1);
+            expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {width: 320}});
+            second.store.actions.setPartHidden("panel", true);
+            await second.store.actions.save();
+            expect((await savedDoc(second.storage, USER)).panels.auxiliarybar?.rail).toEqual({[X1]: {width: 320}});
+            expect(second.store.state.recordRepairs).toEqual([]);
+        });
+
+        it("“移到”带着它，“重置”回到声明的区域时清掉它", async () => {
+            const {store} = await open();
+            expand(store, 300);
+            expect(store.actions.moveContainer(X1, "sidebar").ok).toBe(true);
+            expect(anchorOf(store, "sidebar")?.rail).toEqual({[X1]: {expanded: true, width: 300}});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
+            expect(store.actions.resetContainer(X1, "auxiliarybar").ok).toBe(true);
+            expect(containersIn(store.actions.document(), "auxiliarybar").map(([id]) => id)).toEqual([X1]);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
+            expect(anchorOf(store, "sidebar")?.rail).toBeUndefined();
+        });
     });
 });
 

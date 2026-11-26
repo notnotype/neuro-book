@@ -7,7 +7,7 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyGestureCommit, applyLayoutDrop, carryDynamicTabs, findTab, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseForOperation, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import {activateTab, applyGestureCommit, applyLayoutDrop, carryDynamicTabs, findTab, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseForOperation, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setContainerRail, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridFloatInput} from "@notnotype/nb-layout";
 import type {LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-workbench-layout";
 
@@ -103,6 +103,16 @@ function defineLayoutDocStore(bound: boolean) {
             if (base?.status !== "ok") return false;
             const checked = validateLayoutDoc(base.value.doc);
             return checked.ok && !fitsSkeleton(checked.doc) && local.value === null;
+        });
+        /**
+         * 记录合法、但有值在读入时被局部修掉（侧轨意图，docs/specs/ui/workbench-layout.md 输出 50）：文档照用，外壳根写一条诊断。
+         * 下次保存写回的是归一后的文档，记录里就没有要修的了。
+         */
+        const recordRepairs = computed<ReadonlyArray<string>>(() => {
+            const base = field.base;
+            if (base?.status !== "ok") return [];
+            const checked = validateLayoutDoc(base.value.doc);
+            return checked.ok ? checked.repairs : [];
         });
         /**
          * 有容器之前存的记录（“状态与转换”）：回落默认布局时，它开着的编辑器标签带进默认布局的编辑组。只记下那份文档、每次现算，不在打开时就定成 `local`：
@@ -278,7 +288,7 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         return {
-            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton},
+            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, recordRepairs},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -516,6 +526,15 @@ function defineLayoutDocStore(bound: boolean) {
                  * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”），一次提交；带着什么、目标区域怎么变见 `moveContainerTo`。容器已经在那里时零写入。
                  */
                 moveContainer: (container: string, region: PanelName): LayoutResult => apply((current) => moveContainerTo(current, container, region, policy), {flush: true}),
+                /**
+                 * 容器回到声明的区域（输出 44 的“重置”）：同 `moveContainer`，再清掉这个容器的侧轨意图（输出 50 的“展开”：重置位置清掉这一项）。
+                 */
+                resetContainer: (container: string, home: PanelName): LayoutResult => apply((current) => {
+                    const moved = moveContainerTo(current, container, home, policy);
+                    const anchor = moved.ok ? regionAnchor(moved.doc, home) : null;
+                    if (!moved.ok || anchor === null || moved.doc.panels[anchor]?.rail?.[container] === undefined) return moved;
+                    return setContainerRail(moved.doc, {anchor, container, intent: null});
+                }, {flush: true}),
                 /** 最大化（输出 13）：只在内存；再点同一块退出。 */
                 toggleMaximized: (panel: string): boolean => {
                     // 浮动窗不可最大化：它不在树里，盖不了别的面板。区域的锚也不行：区域里最大化的是一个分节（输出 13）。

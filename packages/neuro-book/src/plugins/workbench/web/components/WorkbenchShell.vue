@@ -649,7 +649,7 @@ function containerMenuItemsOf(container: string): ContextMenuItem[] {
     const moves = containerMoveItemsOf(container);
     const home = containerHomeRegion(container, catalog.value, state.value.containers);
     if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return moves;
-    return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
+    return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.resetContainer(container, home)}];
 }
 
 const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));
@@ -986,7 +986,7 @@ const sectorLabels = computed(() => ({
 /** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条；记录不合骨架回落了也写一条。 */
 const diagnostics = computed(() => {
     const {removed, squeezed} = state.value.collapse;
-    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : [], state.value.outsideSkeleton ? ["布局记录不合骨架，已用默认布局"] : []).join(" | ");
+    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : [], state.value.outsideSkeleton ? ["布局记录不合骨架，已用默认布局"] : [], state.value.recordRepairs.length > 0 ? [`布局记录有不认的值，已按缺省读：${state.value.recordRepairs.join("; ")}`] : []).join(" | ");
 });
 
 /** 布局里的面板，给外壳根写个数：e2e 和排障用。 */

@@ -6,10 +6,14 @@
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
 import type {GridFailure, GridSnapshotNode} from "@notnotype/nb-layout";
 import {barOfRef, barRef, LAYOUT_DOC_VERSION, LAYOUT_MAX_FLOATS, panelOfRef, tabKey, treeLeaves} from "./layout-doc";
-import type {LayoutBar, LayoutDoc, TabRef} from "./layout-doc";
+import type {LayoutBar, LayoutDoc, LayoutFloat, PanelRecord, RailIntent, TabRef} from "./layout-doc";
 import {collidesWithPresentedIds} from "./presented-ids";
 
-export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc} | GridFailure<"unsupported-version" | "invalid">;
+/**
+ * 通过时的 `doc` 已归一；`repairs` 是归一时局部修掉的值（英文，给诊断用），没有修就是空的。修掉的值不让整份失效：
+ * 侧轨意图（输出 50 的“展开”）是界面偏好，坏一项只把那一项当缺省，其余布局照用；下次写入时写回的就是归一后的值。
+ */
+export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc; readonly repairs: ReadonlyArray<string>} | GridFailure<"unsupported-version" | "invalid">;
 
 const FORBIDDEN_IDS = new Set(["__proto__", "constructor", "prototype"]);
 const BAR_NAMES: ReadonlySet<string> = new Set<LayoutBar>(["activitybar", "statusbar"]);
@@ -44,6 +48,49 @@ const isTabRef = (value: unknown): value is TabRef => isObject(value)
     && ((value.kind === "view" && typeof value.viewId === "string") || (value.kind === "tab" && typeof value.type === "string" && typeof value.tabId === "string"));
 
 const isEntryList = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry !== "") && new Set(value).size === value.length;
+
+/**
+ * 一项侧轨意图的归一（输出 50）：`expanded` 只认 `true`，`width` 只认有限正数，别的值当没写；归一后没有字段的整项不要。
+ * 返回 null 表示整项丢掉；`where` 写进修掉的说明。
+ */
+function normalizeRailIntent(value: unknown, where: string, repairs: string[]): RailIntent | null {
+    if (!isObject(value)) {
+        repairs.push(`${where}: not an object`);
+        return null;
+    }
+    const expanded = value.expanded === undefined || value.expanded === true ? value.expanded : undefined;
+    if (value.expanded !== expanded) repairs.push(`${where}.expanded: ${String(value.expanded)}`);
+    const widthOk = value.width === undefined || (typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0);
+    if (!widthOk) repairs.push(`${where}.width: ${String(value.width)}`);
+    const intent: RailIntent = {...(expanded === true ? {expanded: true as const} : {}), ...(widthOk && value.width !== undefined ? {width: value.width as number} : {})};
+    const unknown = Object.keys(value).filter((key) => key !== "expanded" && key !== "width");
+    if (unknown.length > 0) repairs.push(`${where}: unknown fields ${unknown.join(", ")}`);
+    return intent.expanded === undefined && intent.width === undefined ? null : intent;
+}
+
+/** 锚上的 `rail`：只在区域的锚上，键在入口顺序里；修完是空的就整个字段不写。 */
+function normalizeAnchorRail(id: string, panel: Record<string, unknown>, repairs: string[]): Record<string, RailIntent> | null {
+    const where = `panels.${id}.rail`;
+    if (!isObject(panel.rail)) {
+        repairs.push(`${where}: not an object`);
+        return null;
+    }
+    const entries = isEntryList(panel.entries) && panel.name !== undefined && (panel.tabs as unknown[]).length === 0 ? panel.entries : null;
+    if (entries === null) {
+        repairs.push(`${where}: only a region anchor has one`);
+        return null;
+    }
+    const kept: Record<string, RailIntent> = {};
+    for (const [container, value] of Object.entries(panel.rail)) {
+        if (FORBIDDEN_IDS.has(container) || !entries.includes(container)) {
+            repairs.push(`${where}.${container}: not in the entry order`);
+            continue;
+        }
+        const intent = normalizeRailIntent(value, `${where}.${container}`, repairs);
+        if (intent !== null) kept[container] = intent;
+    }
+    return Object.keys(kept).length === 0 ? null : kept;
+}
 
 /** 形状的唯一权威（读记录时调）。工作台的 TypeBox 只管外层版本与字节。 */
 export function validateLayoutDoc(value: unknown): LayoutDocValidation {
@@ -122,5 +169,34 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     if (panelIds.some((id) => !inTree.has(id) && !floating.has(id))) return invalid("A panel is neither in the tree nor floating");
     if ([...inTree].some((id) => (value.panels as Record<string, unknown>)[id] === undefined)) return invalid("The tree has an unregistered panel");
     if (editors === 0) return invalid("The tree needs at least one editor group");
-    return {ok: true, doc: value as unknown as LayoutDoc};
+    return normalizeRails(value as unknown as LayoutDoc);
+}
+
+/**
+ * 形状都对了之后归一侧轨意图（`normalizeRailIntent`）。没有要修的返回原对象；有就只重建碰到的记录，别的子对象原样沿用。
+ */
+function normalizeRails(doc: LayoutDoc): LayoutDocValidation {
+    const repairs: string[] = [];
+    let panels: Record<string, PanelRecord> | null = null;
+    for (const [id, panel] of Object.entries(doc.panels)) {
+        if (panel.rail === undefined) continue;
+        const before = repairs.length;
+        const rail = normalizeAnchorRail(id, panel as unknown as Record<string, unknown>, repairs);
+        if (repairs.length === before && rail !== null) continue;
+        const {rail: _rail, ...bare} = panel;
+        panels ??= {...doc.panels};
+        panels[id] = rail === null ? bare : {...bare, rail};
+    }
+    let floats: LayoutFloat[] | null = null;
+    for (const [index, float] of doc.floats.entries()) {
+        if (float.rail === undefined) continue;
+        const before = repairs.length;
+        const rail = normalizeRailIntent(float.rail, `floats.${float.panel}.rail`, repairs);
+        if (repairs.length === before && rail !== null) continue;
+        const {rail: _rail, ...bare} = float;
+        floats ??= [...doc.floats];
+        floats[index] = rail === null ? bare : {...bare, rail};
+    }
+    if (panels === null && floats === null) return {ok: true, doc, repairs};
+    return {ok: true, doc: {...doc, ...(panels === null ? {} : {panels}), ...(floats === null ? {} : {floats})}, repairs};
 }

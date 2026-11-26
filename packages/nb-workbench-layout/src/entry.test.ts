@@ -64,6 +64,7 @@ const VALUES: ReadonlyArray<string> = [
     "setActiveContainer",
     "setBarHidden",
     "setContainerEntries",
+    "setContainerRail",
     "setCurrentEditor",
     "setFloatRect",
     "setPanelCollapsed",
@@ -97,6 +98,7 @@ const TYPES: ReadonlyArray<string> = [
     "LayoutSource",
     "PanelName",
     "PanelRecord",
+    "RailIntent",
     "TabRef",
 ];
 
