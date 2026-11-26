@@ -247,6 +247,26 @@ describe("拆分树原语：不可满足与窄容器", () => {
         expect(extent(result.sizes, "root").width).toBe(301);
     });
 
+    it("sash 宽度的函数拿到挨着线的两个直接孩子：按不变的一侧判，结构变了也照样认得", () => {
+        const seen: string[] = [];
+        // 挨着 c 的线给 0；c 前面插进一块之后，那条线的序号从 1 变成 2，按两侧判照样是 0。
+        const sashSize = (branchId: string, index: number, sash: {readonly before: string; readonly after: string}) => {
+            seen.push(`${branchId}:${index}:${sash.before}|${sash.after}`);
+            return sash.before === "c" || sash.after === "c" ? 0 : 1;
+        };
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("a", "width", 100),
+            branch("col", "width", "vertical", 100, [leaf("t", "height", 1), leaf("u", "height", 1)]),
+            leaf("c", "width", 100),
+        ]), {sashSize});
+
+        expect(grid.layout({width: 301, height: 100}).sashSizes).toEqual({root: [1, 0], col: [1]});
+        expect(seen).toEqual(expect.arrayContaining(["root:0:a|col", "root:1:col|c", "col:0:t|u"]));
+
+        expect(grid.addLeaf("root", 2, leaf("n", "width", 100)).ok).toBe(true);
+        expect(grid.layout({width: 402, height: 100}).sashSizes.root).toEqual([1, 1, 0]);
+    });
+
     it("特殊字符串 id 安全写入所有呈现字典", () => {
         const result = createGrid(leaf("__proto__", "width", 100)).layout({width: 100, height: 50});
 

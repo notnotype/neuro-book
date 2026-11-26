@@ -17,6 +17,7 @@ import type {
     GridLayoutResult,
     GridNode,
     GridOrientation,
+    GridSashResolver,
     GridSizing,
     SashCollapseState,
 } from "./grid-types";
@@ -33,8 +34,7 @@ export const GRID_UNBOUNDED = Number.MAX_SAFE_INTEGER;
 export const ZERO_EXTENT: GridExtent = {width: 0, height: 0};
 /** @experimental */
 export const UNBOUNDED_EXTENT: GridExtent = {width: GRID_UNBOUNDED, height: GRID_UNBOUNDED};
-/** @experimental */
-export type GridSashResolver = (branchId: string, sashIndex: number) => number;
+export type {GridSashResolver} from "./grid-types";
 
 export function axisOf(orientation: GridOrientation): GridAxis {
     return orientation === "horizontal" ? "width" : "height";
@@ -419,7 +419,7 @@ function reportConstraintConflict(
 
 function sashValues<T>(branch: GridBranch<T>, sashSize: number | GridSashResolver): number[] {
     return Array.from({length: Math.max(0, branch.children.length - 1)}, (_, index) => {
-        const configured = typeof sashSize === "function" ? sashSize(branch.id, index) : sashSize;
+        const configured = typeof sashSize === "function" ? sashSize(branch.id, index, {before: branch.children[index]!.id, after: branch.children[index + 1]!.id}) : sashSize;
         return Math.max(0, finite(configured, 0));
     });
 }

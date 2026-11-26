@@ -381,9 +381,9 @@ type GridNode<T> = GridLeaf<T> | GridBranch<T>;
 type GridNodeInput<T> = GridLeafInput<T> | GridBranchInput<T>;
 
 ### experimental type GridOptions
-引用：GridRefEncoder
+引用：GridRefEncoder, GridSashResolver
 type GridOptions<T> = {
-    sashSize?: number | ((branchId: string, sashIndex: number) => number);
+    sashSize?: number | GridSashResolver;
     encodeRef?: GridRefEncoder<T>;
 };
 
@@ -454,7 +454,10 @@ type GridSashRef = {
 };
 
 ### experimental type GridSashResolver
-type GridSashResolver = (branchId: string, sashIndex: number) => number;
+type GridSashResolver = (branchId: string, sashIndex: number, sash: {
+    readonly before: string;
+    readonly after: string;
+}) => number;
 
 ### experimental type GridSetSizeResult
 引用：GridFailure, GridFailureCode, SashCollapseState

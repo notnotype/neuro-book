@@ -10,6 +10,7 @@
 
 ### 新增
 
+- `sashSize` 的函数形式多收第三个参数 `{before, after}`：挨着这条线的两个直接孩子的 id，与 `NestedGrid` 的 `sashDisabled` 同一个认法，宿主不用再按分支 id 加序号认线（序号随结构变）；只用前两个参数的函数照旧可用。类型 `GridSashResolver` 跟着改，`GridOptions.sashSize` 改用它。
 - 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
 
 ### 改动
