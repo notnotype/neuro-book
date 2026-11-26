@@ -1,0 +1,191 @@
+# w00033 t01 设计稿第三稿 第二轮审查（Claude Opus，服务端、跨进程部分）
+
+审查对象：design-review-r2/design-v3.md；代码以 .worktree/w00033-t01-review（16b45166c）为准。
+
+### 1. 窗口刷新、关闭或断开后，服务端那一次引导等待没有任何结算路径，eval 会挂到高亮自己的 timeout（缺省 300 秒，至多 3600 秒）
+**严重程度**：阻断
+**类别**：遗漏（跨进程、资源释放）；依赖的机制不存在
+**位置**：设计稿“引导”的“等待的机制”；“目标窗口”寿命表“窗口刷新（新实例）”“服务端重启”两行；packages/nb-runtime/src/remote/router.ts:364-373、node.ts:950-960
+**现象**：等待由服务端登记、靠窗口经 nbook.page-agent/host 发“已结束”来结算。寿命表对“窗口刷新”只写了“租约与高亮随页面消失”，没写服务端登记的那次等待由谁结算、以什么结局结算。结局集合里也没有“窗口没了”这一项（gone 是“目标消失”，cancelled 是“eval 停止或单元超时”）。
+**为什么是问题**：现有运行时里服务端得不到“某个客户端走了”的通知：router.ts 的成员 onClose 只从 #members 删掉并释放项目绑定，不向 hub 上的插件发任何东西；node.ts 的 handleRelease 只在收到调用方发来的 release 帧时才释放门面，刷新、关标签页、断网时这条帧不会发出；instances() 只是查询（而且服务端插件现在还调不通）。于是窗口一刷新，高亮在页面里没了，服务端还在等那条永远不会来的回报；又因为“正在等用户”标记让 eval 单元暂停计时，单元超时也兜不住，模型这一轮卡 300 秒（模型把 timeout 设成 3600 就卡一小时），用户看到的是 Agent 不动了。“断线后同一实例重连”一行写“保留”，说明作者想让断线不结算，但刷新与断线在服务端看是同一件事（链路关闭），区分只能靠重连后的实例 id，设计没有写判断窗口与宽限。
+**如何核实**：读 router.ts:364-373 的 onClose 与 node.ts:950 的 handleRelease；全仓搜 instances 的订阅或成员下线事件，在 packages/nb-runtime/src/remote 内没搜到。
+**建议改法**：二选一写进设计：(a) 服务端在等待期间向窗口订阅一个事件（例如窗口合同的 highlightEnded），用订阅本身承载结局：plugin-channel.md 输出 7 保证“任一实例失效或所经连接结束”时订阅结束，同实例重连时重建并调 onResync（onResync 里问一次窗口“这个等待还在不在”），服务端重启时以 server-restarted 结束，这三种情形各自有确定结局，不用自己发明下线检测；(b) 保留 host 回报合同，另给 nb-runtime 加“成员下线”事件并写宽限（例如 10 秒内同一实例重连视为断线）。无论哪种，结局集合补一项 window-gone（或复用失败码 window-gone 抛出），寿命表补“服务端那次等待”一列。
+
+### 2. 子会话继承父会话的窗口与租约互相矛盾：继承来的窗口被父会话的租约挡住，子会话第一次调 ui 就得 window-busy；工具也拿不到父会话 id
+**严重程度**：重要
+**类别**：接口与合同；依赖的机制不存在；漏列上游改动
+**位置**：设计稿“目标窗口”第一段（子会话继承）与“租约”段；packages/nb-harness/src/kernel/api/host.ts:425-433（ToolSessionContext）、api/events.ts:329-330（SessionHeader.caller）；agent/backend/subagents/tools.ts:355
+**现象**：设计写“子会话继承父会话选中的窗口”，又写租约“绑定 {sessionId, runId}；同一次运行续租，运行结束或 2 分钟没调用才放开；别的会话来调得 window-busy”。
+**为什么是问题**：(1) 子代理在父会话这次运行中途被派出（subagents/tools.ts 建会话时写 caller: {kind: "session", id: parent, …}），父会话的运行此刻没有结束；父会话之前调过 ui 时租约在它手上，子会话 sessionId 不同，按字面就是 window-busy，“继承”只继承到一个用不了的窗口。父会话在等同步子代理返回，运行不结束，2 分钟续租也会被下一次父调用续上。(2) 工具拿到的 ToolSessionContext 只有 sessionId、profile、project、background、owner，没有 caller；会话头有 caller，但工具处理函数读不到。“子会话继承”的实现位置因此不存在，设计说“插件后端一张以会话 id 为键的表”，但查表要先知道父会话 id。“要先补的上游”表里没有这一项。(3) 父子会话同时在跑（异步子代理）时两边都去高亮同一窗口，“同一窗口同时一个高亮，新的替换旧的”会让两条引导互相顶掉，设计没说。
+**如何核实**：读 host.ts:425-433 与 events.ts:329-330；subagents/tools.ts:355 建子会话的选项。
+**建议改法**：二选一并写明：(a) 租约按“会话树的根”持有：子会话（沿 caller 链）与父会话共用一份租约与一个高亮槽，ToolSessionContext 加 caller（或加 rootSessionId），列进“要先补的上游”的 nb-harness 一行；(b) 不继承，子会话拿不到 ui（与后台会话同一个标记），引导只由用户直接对话的会话做。考虑到子代理多半是后台活，推荐 (b)，最简单且没有租约冲突。
+
+### 3. 回报合同 nbook.page-agent/host 没写按调用方实例核对，等待身份的生成方式也没写；现有运行时能做到，设计应当写死
+**严重程度**：建议
+**类别**：接口与合同
+**位置**：设计稿“等待的机制”；packages/nb-runtime/src/remote/node.ts:60-67（provideRemote 的按调用方工厂）、router.ts:84 附近（plugin-channel.md 输出 3）
+**现象**：设计只写“服务端按身份结算”，“身份”指等待身份；没写服务端是否核对发来“已结束”的就是装上高亮的那个窗口，也没写等待身份是服务端生成的随机值还是窗口里的序号。
+**为什么是问题**：信任边界按决定 10 不防恶意，但会有误结算：两个窗口都装着同一个页面插件，旧窗口（刚被“新的替换旧的”或租约已放开）里迟到的点击若带着一个可预测的序号（例如窗口内单调号），会结算掉另一窗口上同号的等待。路由保证调用方不可伪造（plugin-channel.md 输出 3：实例 id 与运行位置由路由按成员描述覆盖），provideRemote 的工厂收到 consumer.instanceId，按实例核对零成本。
+**如何核实**：node.ts:60-67；routing.test.ts 里“调用方不可伪造”的用例。
+**建议改法**：写明：等待身份由服务端在 highlight 调用里生成（crypto.randomUUID），登记 {waitId, instanceId, sessionId, runId}；host 合同的处理函数先比 consumer.instanceId 与登记的 instanceId，不符或已结算的一律忽略并记诊断；重复回报按第一条结算、后面的忽略（幂等）。验收补“另一窗口发同一 waitId 不结算”“同一 waitId 发两次只结算一次”。
+
+### 4. 租约与停止按钮要的 runId、“运行结束即放开”要的运行结束信号，工具处理函数都拿不到；设计没写从哪里取，上游表也没列
+**严重程度**：重要
+**类别**：依赖的机制不存在；漏列上游改动
+**位置**：设计稿“目标窗口”的“租约”段与寿命表、“窗口里看得到什么”的停止按钮；packages/nb-harness/src/kernel/api/tool.ts:106-130（ToolContext）、api/host.ts:425-433（ToolSessionContext）、host.ts:141-147（RunStatus）、host.ts:558（waitRun）
+**现象**：租约“绑定 {sessionId, runId}；同一次运行续租，运行结束……才放开”；停止按钮调 abort({sessionId, runId, keepQueue: true})。设计在“现状里要用到的事实”里写“工具处理函数拿得到会话 id、作品、是否后台运行”，没提 runId。
+**为什么是问题**：ToolContext 与 ToolSessionContext 里都没有 runId（tool.ts、host.ts 搜 runId 只在会话指令的返回值里）。工具要拿 runId 只能绕路：经 agentKey.session(id) 读快照的 status.runId（running、waiting、aborting 三态才有），这在嵌套调用执行期间成立，但设计没写，而且是“读此刻状态”而不是“这次调用属于哪次运行”。“运行结束即放开”更没有现成通知：租约在窗口里，窗口不知道运行何时结束；服务端插件能用的是 SessionApi.waitRun(runId) 或订阅帧，设计没写由谁等、等不到（会话被关闭、服务端重启）怎么办。结果是租约只能靠“2 分钟没调用”放开：同一窗口里用户在另一会话里问 Agent，前 2 分钟一律 window-busy，与“运行结束即放开”的承诺不符。
+**如何核实**：读 tool.ts:106-130 与 host.ts:425-433；全文搜 runId。
+**建议改法**：(1) 上游表 nb-harness 一行加“ToolContext 带 runId”（嵌套调用与父调用同一个），比读快照可靠且便宜；(2) 租约的持有改在服务端那张按会话的表里（窗口合同 callers 只有 server，服务端本来就是唯一的发令方），服务端用 waitRun(runId) 在运行结束时放开并通知窗口清掉提示条与高亮；窗口里只留“当前持有者”的镜像用于同步核对。把这条写进寿命表的“运行结束”一行（现在表里没有这一行，只在段落里出现）。
+
+### 5. 截图的远程调用与 PUT 上传谁先谁后、各用什么时限没有写；按现在的数字，“读 3 秒”会在重画大窗口时先超时，30 秒凭证与之不配
+**严重程度**：重要
+**类别**：接口与合同；遗漏（跨进程、失败路径）
+**位置**：设计稿“截图”的“传输”、“目标窗口”的“超时”（读 3 秒、动作 10 秒）；docs/specs/runtime/server-host.md 第 64、70-72、172 行；docs/specs/workspace/files.md 第 85、106-107 行
+**现象**：设计只写“服务端签发一次性凭证（30 秒有效）……经插件的 PUT 路由上传；服务端校验……后交给模型。远程调用只交小结果；取消、断线、超限时凭证作废”。没写：(1) 窗口的 screenshot 方法在远程合同里声明 read 还是 write、用读 3 秒还是动作 10 秒还是别的时限；(2) 窗口是 PUT 得到 2xx 之后才交回远程结果，还是先交结果再上传；(3) 服务端在“结果到了、字节没到”与“字节到了、结果没到（或结果是失败）”两种情况下怎么结算；(4) 字节写到哪里、在哪个时刻释放。
+**为什么是问题**：DOM 重画（snapdom、html-to-image 都要克隆整棵 DOM、内联样式与字体、栅格化、再编码 JPEG）在 1440x900 的工作台上通常要数百毫秒到数秒，字体内联首次更慢；若按“读”套 3 秒，第一次截图大概率 window-unresponsive，而窗口那边的重画与上传还在继续，30 秒凭证仍有效，字节随后到达却没人收（或者被一个新的重试调用的凭证覆盖不了）。反过来若先交结果再上传，服务端拿到结果时字节还没到，要另设等待。两条通道（WebSocket 与 HTTP）之间没有顺序保证。另外 HTTP 端口没有窗口身份（files.md 第 107 行），“凭证绑定窗口”在路由上实际只能是持票人核对，设计应照实写。server-host.md 第 172 行：宿主把整个请求体读进内存，512 KB 上限要靠路由自己按 Content-Length 先拒、再读完后核对。
+**如何核实**：读设计稿两处数字；files.md 与 server-host.md 引用行。时长需实验 4 实测（设计已列实验 4，但没把时长列为判据）。
+**建议改法**：写成固定顺序：服务端先生成凭证并登记 {token, sessionId, invocation, instanceId, 截止}，再调窗口 screenshot({token, url})；窗口重画、编码、PUT，拿到 2xx 后才交回远程结果 {width, height, bytes, mime}；PUT 处理函数只把字节存进这张登记表的那一项；工具在远程结果成功时取出字节并核对与结果声明的一致，不在就 provider-error 类失败。screenshot 方法单列时限（例如 15 秒，实验 4 定），凭证截止取“方法时限加上传余量”，结算（成功、失败、取消）时同步删掉登记与字节。实验 4 的判据加“1440x900 工作台第一次与第二次截图的耗时”。
+
+### 6. 窗口里的高亮没有自己的寿命：装上的调用超时或断开、until 为 none 的高亮、运行结束后，高亮会留在窗口里成为没人结算的孤儿
+**严重程度**：重要
+**类别**：遗漏（资源释放、失败路径）；接口与合同
+**位置**：设计稿“引导”的 until 与“等待的机制”；“目标窗口”的“超时”与寿命表；docs/specs/runtime/plugin-channel.md 输出 4 的阶段表（第 90-91 行）
+**现象**：(1) 装高亮是一次远程调用，设计按“读 3 秒”计时，没写窗口合同里这个方法声明 read 还是 write。(2) until: "none" 的高亮“显示后立即返回”，之后什么时候撤掉只有“新的替换旧的”与 clearHighlight。(3) 寿命表“会话回退、fork、换 Profile”一行写“运行结束即放开”租约，但高亮列没写；表里也没有“运行正常结束”这一行。
+**为什么是问题**：按通道 Spec，读方法在已发出、已确认阶段断开得 unavailable 或 target-gone、“可以重试”；窗口那边其实已经装上了。服务端把它当失败交回模型（window-unresponsive），不登记等待；用户看见一个高亮、照着点了，窗口发出的“已结束”带着一个服务端不认得的身份，被丢掉，用户以为 Agent 卡住。模型照“可以重试”再装一次会替换掉它，但模型若改走别的路（或这次 eval 被停止），孤儿就一直挂着，压在页面与模态之上（“压住页面与模态”）。until: "none" 的高亮在运行结束、会话被停止、租约放开后也没有撤除路径，下一个会话来调时窗口里还亮着上一个会话的说明。
+**如何核实**：plugin-channel.md 第 90-91 行阶段表；设计稿 until 定义与寿命表。
+**建议改法**：(1) 窗口合同里“装高亮”“清高亮”都声明 write：已派发后结果未知时服务端补发一次 clear（幂等），而不是让模型重试；(2) 高亮在窗口里绑定 {sessionId, runId, waitId}，租约放开（运行结束、2 分钟没调用、会话关闭）时一并撤掉，寿命表加“高亮”列与“运行结束”一行；(3) until: "none" 的高亮也随这次运行结束撤掉，文档写明“要跨运行保留就别用 none”，或干脆规定 none 只在本次 eval 单元内有效、单元结束即撤（与 cancelled 对称）。
+
+### 7. 结局集合不互斥、缺定义：until 为 next 时点别处算不算 missed、浮层里的点击算不算“点到别处”、asked 之后高亮留不留，都没写，示例第 3 步按字面会以 missed 结束
+**严重程度**：重要
+**类别**：接口与合同；验收
+**位置**：设计稿“引导”的示例代码与“结局”“until”两条
+**现象**：missed 定义为“点到了别处……第一次点错就结束这次等待”，没限定只在 until: "click" 下才有。示例第 3 步是 {setting: "nbook.theme.current", message: "在这里选一个主题", until: "next"}：用户要点开主题下拉、在浮层里选一项、再点“下一步”。下拉的选项列表由 reka 挂在 body 下的 portal 里，不在目标元素的子树内。
+**为什么是问题**：若 missed 在 next 下也生效，用户点开下拉就是“点到了别处”，等待以 missed 结束，示例代码进入“再高亮一次并提示”，用户永远走不到“下一步”。即使只在 click 下生效，目标打开的浮层（菜单、下拉、子菜单）里的点击也会被判成点错：例如目标是一个菜单按钮、用户按下它后在弹出的菜单里点了某项。asked 之后高亮还在不在、问题答完是否要重装也没写：示例用 return r.question 结束单元，模型回答后下一个单元要“从这一步接着引导”，但示例没把 i 留下来。结局里“用户切到别的窗口或标签页”也没有归属（继续等、还是以某个结局结束），与“转后台时高亮得 window-hidden”只对新调用成立的规则衔接不上。
+**如何核实**：对照示例代码与结局定义逐步推演；reka 的 SelectContent、DropdownMenuContent 缺省经 Portal 挂到 body。
+**建议改法**：写成表：每种 until 下各结局何时出现。建议 missed 只在 until: "click" 下产生；“点到别处”排除说明框自身、目标所在层打开的子浮层（按命中检查得到的层，与快照的层同一套）、以及在目标子树内的点击；until: "next" 下页面里的任何点击都不结束等待。asked 写明“高亮保留、等待结束”，下一次 highlight 若定位相同则复用（不闪烁）。窗口转后台期间继续等，计入 timeout。示例把步骤下标存进全局变量或改成从参数接着走。
+
+### 8. 选窗口的前两档靠“窗口正显示着哪些会话”，但窗口里没有任何地方给得出这个信息，上游表漏了；后两档不看作品，会选到另一部作品的窗口
+**严重程度**：重要
+**类别**：依赖的机制不存在；漏列上游改动；遗漏（边界）
+**位置**：设计稿“目标窗口”的选窗口表与“要先补的上游”的 nbook.agent 一行；packages/neuro-book/src/plugins/agent/web/plugin.ts:164（浏览器入口只提供 stickerAllowlistUsageKey）
+**现象**：info() 要交回“正显示着哪些会话”，次序 1、2 都依赖它；次序 3、4 只看焦点、可见与最近真实输入。
+**为什么是问题**：(1) nbook.agent 的浏览器入口不提供任何服务说出“这个窗口里哪些对话视图打开着、显示哪个会话”；DOM 上也没有标记（data-session 只出现在 nb-agent-ui 的会话列表行上，不在对话视图上）。page-agent 的 web 入口拿不到，前两档实现不了，选窗口退化成只按焦点。上游表的 nbook.agent 一行只列了 data-nb-agent="skip"。还要定义“显示着”：编辑区里没被选中的标签页、收起的侧栏里的对话视图算不算。(2) 次序 3、4 不核对作品：会话属于作品 A（ToolSessionContext.project），用户此刻把焦点放在作品 B 的窗口上，Agent 就去读、截、高亮（第二批还会点击、填写）作品 B 的窗口。服务端从 instances() 能拿到每个客户端绑定的项目（plugin-channel.md 输出 8），过滤零成本。
+**如何核实**：读 agent/web/plugin.ts 的 provides；全仓搜 data-session。
+**建议改法**：上游表 nbook.agent 加一行：浏览器入口提供“本窗口显示中的会话”的读取（服务键或对话视图根元素上的 data-nb-session，由 page-agent web 读），并定义“显示着”= 对话视图可见且在其组里是活动标签。选窗口表的每一档加前置条件“窗口绑定的作品与会话的作品相同；会话没有作品时只取没绑定作品的窗口或任意窗口”，写明 project 不同的窗口一律不选，都不满足时 no-window 的 details 里列出被排除的窗口与原因。
+
+### 9. 界面目录的路径按字面走不通：齿轮是活动栏项、绑的是 nbook.settings.toggle 不是 nbook.settings.open；活动栏不在自动标记的上游清单里；设置路径缺“用户、作品”层这一步；示例里的标识都不存在
+**严重程度**：重要
+**类别**：依赖的机制；接口与合同；漏列上游改动；验收
+**位置**：设计稿“界面目录”示例与“控件的名字”自动层、“要先补的上游”的“nb-ui、工作台与设置”一行；packages/neuro-book/src/plugins/settings/web/plugin.ts:70-90、97-107、125-127；workbench/web/components/WorkbenchToolStrip.vue:191；workbench/shared/contracts.ts:156-166；settings/shared/contracts.ts:42
+**现象**：示例 path 第一步是 {command: "nbook.settings.open", via: ["标题栏齿轮", "Ctrl+,"]}，引导示例也用 {command: "nbook.settings.open", until: "click"} 高亮入口。
+**为什么是问题**：(1) 现实里齿轮是活动栏贡献点 WORKBENCH_ACTIVITYBAR_ITEMS_POINT 的一项（不在标题栏），执行的是 nbook.settings.toggle；nbook.settings.open 只有快捷键 Mod+, 与别的插件代码里调用，界面上没有任何控件绑它。按命令 id 定位得 not-found，示例第一步就失败。“这个命令出现在哪里”不能只看菜单与标题动作，还要看活动栏项，并且要能从“打开设置”这一目的找到“切换设置”这一控件，声明里没有这层关系。(2) 活动栏渲染只写 data-activity-item（WorkbenchToolStrip.vue:191），上游表只列了菜单项与 TitleActions，漏了活动栏项、状态栏项以及书架页右上角那只自己画的齿轮（settings/web/plugin.ts:98 的注释写明“书架自己画的”）。(3) 设置有用户层与作品层（nbook.settings.open 的 layer 参数），只允许作品层的设置要先切到“作品”标签，路径里没有这一步。(4) 示例里的 nbook.theme.current、appearance 都不存在，真实的是 nbook.workbench/theme、分区 nbook.appearance、小组 ui。示例若照抄进 Spec 与 e2e 会误导实现者。(5) nbook.settings.open 与 toggle 都声明 expose: {agent: "never"}；现有远程命令列表按这个过滤（commands/shared/contracts.ts:172），目录若复用那份列表会把它们丢掉。设计应写明目录不看 expose（操作的是用户）。
+**如何核实**：读所列代码行；在 Lab 或开发构建里按 data-nb-command="nbook.settings.open" 查不到元素（实验 8 应把这条列为判据）。
+**建议改法**：目录的“入口”按控件所在的贡献点建：命令表、各菜单位置、视图标题动作、活动栏项、状态栏项各给一个读取器，记录“控件 → 命令 id 与参数”；路径的入口步骤写控件本身的标识（例如 {activityItem: "nbook.settings"}，定位类型随之增加一种），而不是命令 id；“打开设置窗口”这类“目的 → 控件”的对应由设置插件声明一条（例如齿轮项声明它也满足 open），不靠搜索猜。设置条目的路径加 layer 一步（只在两层都有或只有作品层时出现）。上游表补“活动栏、状态栏项写 data-nb-command”，书架齿轮改成声明或手写稳定名。示例改成真实标识，实验 8 的四个查询各写期望路径。
+
+### 10. “对象文档与 eval 版本按会话的方法清单生成”这项上游改动，在决定 14（Profile 按对象一行开关）之后收益很小、成本不小，可以删或降级
+**严重程度**：建议
+**类别**：上游选择；别扭之处
+**位置**：设计稿“要先补的上游”的 nbook.agent 一行；packages/neuro-book/src/plugins/agent/backend/eval/objects.ts:1-6（声明在进程生命期内不变，生成一次，写成 docs://eval/<名>.md 文件）；docs/specs/agent/eval.md 输出 16
+**现象**：第一轮 G16 的改法是让对象文档按会话的方法清单生成、版本把方法清单算进去。第三稿保留了它，同时又按决定 14 让 Profile 页“按对象把这些方法归成一行开关”，后台会话整个对象拿不到。
+**为什么是问题**：eval.md 输出 16 已经让 eval 的说明随会话的生效工具集算出、对象列表变了版本跟着变；剩下会不一致的只有“同一个对象只开了一部分方法”的会话。按对象一行开关之后，界面上做不出这种会话，只有手写 Profile 列了部分方法才会出现。为它把现在“进程里生成一次、落成 docs:// 文件”的文档改成按会话生成，要么每个会话一份文件，要么改成读时现算的资源提供者，会碰 resources.md 输出 16 的地址合同与 read 工具的读取路径，第一批“工作量主要在上游”的风险因此再加一项。另外，开关按对象时，Profile 数据里是存“对象”还是“全部方法 id”也没写：存方法 id 的话，第二批新增方法时旧 Profile 不会自动带上新方法，又制造出“部分方法”的会话，正好落进这项改动要防的情形。
+**如何核实**：读 objects.ts 文件头与 eval.md 输出 16。
+**建议改法**：Profile 里按对象存（例如 evalObjects: ["ui"] 或工具绑定写成 ui.*），会话的生效工具集按对象整体展开，于是“部分方法”的会话不存在，文档保持进程内生成一次；把这项上游改动从第一批删掉，换成“Profile 按对象绑定”。若要保留按方法绑定，文档里写明“本会话没有的方法调用时得 unknown-tool”，同样不必按会话生成文档（内核现有的 unknown-tool 文字已经列出能用的名字，kernel-entry.ts:160）。
+
+### 11. 第一轮 O8/G11（处理记录第 20 条）未改到位：等待协议的时序用例没有进“测试”一节，新的回报合同也没有任何用例
+**严重程度**：重要
+**类别**：验收
+**位置**：设计稿“测试”全节；处理记录第 20 条（“注入时钟测重叠、取消早于或晚于装上”）
+**现象**：处理记录第 20 条写明要用注入时钟测等待重叠、取消早于或晚于装上。第三稿的“测试”一节里，逻辑单测、真实浏览器、应用 e2e、变异检查都没有这几条；第三稿新加的 host 回报合同、等待身份、迟到消息、结局集合也没有对应用例。变异清单里只有“只认真实点击、missed、不抢焦点、模态下停止”，都在页面内。
+**为什么是问题**：这是全稿跨进程时序最多的一块（短调用装上、窗口回报、服务端结算、eval 计时暂停、取消与宽限期、断线与刷新），也是第 1、3、6 条指出缺口的地方；没有用例，实现时这些分支最容易“看起来能用”。服务端一侧的等待登记表完全可以在 bun 里用真实 nb-runtime 的进程内链路（routing.test.ts 的做法）加手动时钟测，不必等 e2e。
+**如何核实**：对照设计稿“测试”与处理记录第 20 条。
+**建议改法**：逻辑与合同测试加一组（真实 nb-runtime 进程内链路 + ManualClock）：回报早于、晚于服务端登记；同一 waitId 回报两次；另一实例发同一 waitId；高亮被替换后旧 waitId 迟到；eval 停止早于装上、装上后、宽限期内与宽限期后（runtime.md 输出 25、100）；timeout 到点；窗口链路断开、同一实例重连、换实例（刷新）；服务端在等待中被要求停止。断言每种情况恰好一个结局、eval 单元的计时在等待期间暂停、结算后恢复（Deadline 的计数回到 0）。变异检查加“服务端不核对实例”“迟到消息结算后来的等待”“断线不结算”三条。
+
+### 12. 窗口结果的上限按“长度与条数”写不够：1 MiB 是按字节、按整帧算的，超了断开整条窗口链路、连带别的插件的在途写请求；maxTokens 与失败 details 都没有上限
+**严重程度**：重要
+**类别**：遗漏（异常输入、跨进程）；接口与合同
+**位置**：设计稿“目标窗口”末段（“输出 schema 写长度与条数上限”）、“快照”的预算与 maxTokens、“失败”的 details；packages/nb-host/src/server/rpc-listener.ts:81（maxPayloadLength: RPC_MAX_MESSAGE_BYTES）、nb-host/src/shared/socket.ts:16（1024 * 1024）；nb-runtime/src/remote/node.ts:858-861（提供方只按 schema 核对，不量字节）
+**现象**：快照的 maxTokens 只给了缺省“约 2000”，没给上限；失败的 details 带候选、遮挡者，没写条数与总长；输出 schema 的上限用 TypeBox 的 maxLength、maxItems 表达。
+**为什么是问题**：(1) 提供方发送前只按 schema 核对（node.ts:858），不量编码后的字节；服务端的 Bun WebSocket 以 maxPayloadLength 1 MiB 收消息，超了直接关闭这条链路。窗口的链路是全窗口共用的：同一时刻文件保存、设置写入等写请求在途时，按通道 Spec 输出 4 一律 unknown-outcome，命令、订阅全部断开重建；一次过大的快照把用户正在做的事一起打断。(2) maxLength 数的是 UTF-16 码元，不是字节：中文每字 3 字节；快照“名字与值按 JSON 字符串转义”之后再经帧的 JSON 编码，反斜杠与引号再翻一倍，控制字符一个变六个。只写“长度上限”算不出不超 1 MiB。(3) 模型把 maxTokens 写成 1000000、或在上千节点的大文档上把 scope 放开（设计“性能”一节自己就列了上千节点），就能产出几 MB 的结果。设计在测试里写了“截图超大视口不断线”，但快照、目录（ui.find 的 limit 也没上限）、details 没有同样的保护。
+**如何核实**：读所列代码行；在 lab 里可以用 nb-runtime 的进程内链路造一个 1.1 MiB 的输出验证提供方不拦（进程内链路不经 Bun 的 maxPayloadLength，断开这一步要在真实 WebSocket 上看，未验证）。
+**建议改法**：窗口一侧在交回前按编码后的字节量一次（JSON.stringify 后 TextEncoder），超过预算（例如 256 KB，远低于 1 MiB 留出帧开销）就按设计已有的截断优先级再截，并在结果里标 truncated；maxTokens 给上限（例如 20000），ui.find 的 limit 给上限（例如 20），details 的候选至多 10 条、每条名字截到 200 字。这些都写进业务 schema，派生到远程合同。可以考虑把“按字节量预算”做成 page-agent 窗口合同实现的一个共用包装，而不是逐方法记得。
+
+### 13. 引导等待期间用户在对话框里发的话要等到高亮结算（缺省 300 秒）才被模型看到；“正在等用户”标记也不进运行状态，对话视图显示的是“在跑工具”
+**严重程度**：重要
+**类别**：遗漏（并发与交互时序）；与现有合同的配合
+**位置**：设计稿“等待的机制”（“正在等用户”标记）；docs/specs/harness/runtime.md 输出 28（插话在边界取走）、输出 94（嵌套审批与提问进 waiting{pending}）；packages/nb-harness/src/kernel/api/host.ts:141-147（RunStatus）
+**现象**：设计只把“正在等用户”标记用于 eval 计时暂停。高亮等待期间，运行处在 running/tools 阶段，整段 eval 是一次工具调用。
+**为什么是问题**：(1) 用户被引导时最自然的反应之一是在对话框里打字（“我没看到这个按钮”“不要了”），而不是用说明框里的小“提问”框或“跳过引导”。按输出 28，插话只在边界取走；边界在这次工具调用（整段 eval）结束之后，所以这句话要等高亮结算才进模型，缺省 300 秒，模型设长就更久；期间用户看到的是 Agent 不回应。(2) 嵌套审批与同步提问会让运行进入 waiting{pending}（输出 94），对话视图与状态栏据此显示“等你操作”；高亮等待不进这个状态，界面显示的是“正在运行工具”，与用户实际要做的事不符；第二批的提示条只在“Agent 在这个窗口操作时出现”，在别的窗口里看对话的用户什么提示也没有。(3) 用户点对话视图的停止按钮会以 cancelled 结束等待，这一条有；但“发一句话”这条最常见的路径没有结局。
+**如何核实**：读 runtime.md 输出 28、94；RunStatus 的四种状态。
+**建议改法**：把“正在等用户”标记做成运行状态的一部分而不只是计时开关：nb-harness 提供 ctx.waitForUser(promise, {label}) 之类的入口，等待期间运行状态是 waiting，pending 里列出“引导：第 2 步，共 5 步”；并规定等待期间有就绪的插话到达时，这次等待以新结局 interrupted 结束（带插话已到达的事实，文字不必带，模型下一步就会在边界看到它），eval 代码里按 dismissed 一类处理。若不想改运行状态，至少由 page-agent 后端订阅这个会话的 inputQueued，到达即结算 interrupted。把这条加进结局表与第 11 条的用例。
+
+### 14. 寿命表有两行与现有合同不符：断线期间来调用会触发重选（与“保留”相反），服务端重启后窗口并不会重载
+**严重程度**：建议
+**类别**：与现有合同一致；接口与合同
+**位置**：设计稿“目标窗口”的寿命表与“选窗口”首句（“没有选中、或选中的已断开时”）；docs/specs/runtime/browser-host.md 第 173、178 行
+**现象**：(1) 表里“断线后同一实例重连”一行写选中的窗口“保留”、引用“仍有效”、租约与高亮“保留”；选窗口一段又写“选中的已断开时”重选。(2) “服务端重启”一行写“窗口都会重载”。
+**为什么是问题**：(1) 断线到重连之间（浏览器的退避重连，秒级）若会话恰好调了 ui，服务端看到的是“选中的已断开”，按选窗口规则就换了窗口；重连回来的原窗口里租约与高亮还在，于是同时有两个窗口被这个会话占着、原窗口的高亮成了第 6 条说的孤儿。表里的“保留”只在断线期间没有调用时成立，设计没写这个条件，也没写断线期间的调用得什么（window-gone 还是先等一会儿）。(2) browser-host.md 写明连回不同的服务端进程即转入 server-restarted，“不再重连、不自动刷新”，窗口停止运行实例、等用户重新加载；页面不会自己重载，高亮与第二批的提示条要靠 page-agent 浏览器入口的停止回调撤掉，不能指望“随页面消失”。
+**如何核实**：读 browser-host.md 第 173、178 行；对照寿命表。
+**建议改法**：(1) 写明：选中的窗口断开后保留 N 秒（例如 10 秒，与浏览器重连退避同量级）作为宽限，期间的调用得 window-gone（未派发），不重选；超过宽限才清掉选择并允许重选；租约与高亮在窗口一侧也按同一宽限自撤（与第 1、6 条一起定）。(2) “服务端重启”一行改为“窗口停在终态，page-agent 浏览器入口停止时撤掉高亮、光标与提示条”，并把这一条加进浏览器入口的 onStop 清单与测试。
+
+### 15. 截图的判定对象 {kind: "screen", value: of ?? "window"} 类型不合：of 是定位对象，判定对象的 value 只能是字符串；按引用写规则也没有意义
+**严重程度**：建议
+**类别**：接口与合同
+**位置**：设计稿“截图”的“审批”；packages/nb-harness/src/kit/shapes.ts:30-33（ToolSubject 的通用形状 {kind: string, value: string}）；docs/specs/agent/permissions.md 第 140 行（判定对象的形状是公开合同）
+**现象**：of 在接口表里是“截当前窗口或某个控件”的定位（ref、target、command……一个扁平对象），判定对象写成 value: of ?? "window"。
+**为什么是问题**：ToolSubject 的 value 是 string，直接放定位对象过不了类型，序列化成 JSON 字符串又会让规则匹配依赖键序；ref 形如 a3.12，每次页面加载都变，用户就算写了规则也匹配不上下一次。判定对象是对规则作者的公开合同，第一版定下后再改要迁移用户规则。
+**如何核实**：读 shapes.ts:30-33。
+**建议改法**：value 只取 "window" 或 "element" 两个值（控件截图是窗口截图的子集，审批上没有更细的意义）；若确实要让用户按区域写规则，再另加 {kind: "screen-target", value: <稳定名或命令 id>}，不放引用与文字定位。
+
+### 16. ui 方法的 concurrency（shared 或 exclusive）没有定；按输出 98 的排队规则，选错会让 clearHighlight 排在一个等 300 秒的高亮后面
+**严重程度**：重要
+**类别**：接口与合同；遗漏（并发）
+**位置**：设计稿“给模型的接口”表与“等待的机制”（“等待期间并发跑的别的代码也不计时”）；packages/nb-harness/src/kernel/api/tool.ts:26（concurrency 必填）；docs/specs/harness/runtime.md 输出 98、95
+**现象**：接口表给了审批档，没给并发声明；等待机制一段的取舍预设了“等待期间还有别的代码在并发跑”。
+**为什么是问题**：输出 98：同一父调用的嵌套调用里，exclusive 的要等这个父调用在途的嵌套调用都结束才开始，执行期间不开始别的。若 highlight 声明 exclusive，它等用户的整段时间（缺省 300 秒）里同一单元的其它工具调用全部排队，包括 clearHighlight 与 snapshot：模型写 const p = ui.highlight({…, until: "click"}); … await ui.clearHighlight({}) 就会自锁到超时。若声明 shared，两个并发的 highlight 互相“新的替换旧的”，前一个立刻以 replaced 结束，这可以接受但要写明。第二批的 click、fill 显然不能与别的动作并发（两次合成点击交错会点乱），但应该能与正在等的 highlight 并存（用户点“下一步”前 Agent 要先帮他填好某个值）；只靠 shared/exclusive 两档表达不了“动作之间互斥、与高亮等待不互斥”，需要窗口里自己排队。输出 95 还规定改派后 concurrency 不同得 invoke-not-allowed，所以第一版定下后改档位会影响拦截层。
+**如何核实**：读 runtime.md 输出 98、95 与 tool.ts:26。
+**建议改法**：接口表加一列并发：snapshot、find、screenshot、highlight、clearHighlight、scroll、hover、waitFor 都是 shared；click、fill、press、selectOption、check 也是 shared，由窗口里的动作队列串行执行（同一窗口同时只跑一个动作，按到达顺序），这样与等待中的高亮不互锁。把“highlight 不能是 exclusive”写成一条规矩并加用例（高亮等待中调 clearHighlight 立即生效、等待以 replaced 或 cancelled 结束，选一个写死）。
+
+### 17. （第二批）“审批卡写目标的名字”没有取名字的通路：subjects 与 effect 都是按参数同步求的，参数里只有定位
+**严重程度**：建议
+**类别**：依赖的机制；接口与合同
+**位置**：设计稿“动作（第二批）”最后两条（needs-confirmation、confirm: true 按 exec 审批，审批卡写目标名字，决定 12）；packages/neuro-book/src/plugins/agent/shared/points.ts:137-142（effect?(args)、subjects?(args) 都同步、只收参数）
+**现象**：模型带 confirm: true 重发时，参数是 {ref: "a3.41", confirm: true} 之类的定位；审批钩子在执行前跑，拿不到窗口。
+**为什么是问题**：审批卡要显示“删除第三章.md”这种名字，名字只在窗口里；subjects(args) 同步、不能发远程调用。模型也可以第一次就带 confirm: true（跳过 needs-confirmation 那一步），这时连服务端都没见过这个目标的名字。若退而在卡上只写定位，用户看到 a3.41 无从判断，决定 12 的意图落空。
+**如何核实**：读 points.ts:137-142 的签名。
+**建议改法**：needs-confirmation 的失败经服务端时，后端在按会话的表里记下 {确认令牌 → 目标名字、窗口、引用、截止}，details 只给模型令牌与名字；重发写 confirm: "<令牌>" 而不是 true；subjects 同步查这张表交出 {kind: "ui-confirm", value: 名字}，审批卡因此能写名字；令牌一次有效、换窗口或引用 stale 即作废；没有令牌（模型直接带 confirm）一律先得 needs-confirmation。第二批开工前把这条写进设计。
+
+### 18. 回报合同写成 callers: client，按现有实现会把所有窗口拒掉：callers 比的是运行位置（browser、tui、server、project），client 是提供方位置
+**严重程度**：建议
+**类别**：与现有合同一致
+**位置**：设计稿“结构”的 shared/ 一行（“回报合同 nbook.page-agent/host（callers: client）”）；packages/nb-runtime/src/remote/node.ts:810、899（contract.callers.includes(frame.$nbConsumer.location)）；docs/specs/runtime/plugin-channel.md 第 83 行
+**现象**：设计用 client 指“窗口”。
+**为什么是问题**：RemoteProviderLocation 里的 client 是“提供方位置”；callers 是“允许调用的实例种类（运行位置）”，节点按 $nbConsumer.location 精确比对，浏览器窗口的位置是 browser。照字面写 callers: ["client"]，每条“已结束”都以 denied 失败，等待只能靠超时结束。仓库里现有合同全都写 browser、tui、server、project。
+**如何核实**：node.ts:810；全仓 callers: [ 的取值只有这四种。
+**建议改法**：写成 callers: ["browser"]（TUI 没有 DOM，不提供窗口合同，也不会回报）；窗口合同保持 provider: "client"、callers: ["server"]。
+
+### 19. 第 4 条的补充：寿命表里“会话关闭”“运行结束”两类事件，page-agent 后端都没有订阅入口；同一会话的下一次运行也会被自己上一次的租约挡住
+**严重程度**：建议（与第 4 条一起改）
+**类别**：依赖的机制不存在
+**位置**：设计稿寿命表“会话关闭”一行与“租约”段；packages/neuro-book/src/plugins/agent/shared/contracts.ts:153-173（AgentService 只有 create、session、hold、header、list、profiles、running、startTask，没有会话关闭或运行结束的通知）
+**现象**：表里“会话关闭：删除（重复清理无害）”“运行结束：放开”。
+**为什么是问题**：AgentService 没有会话关闭事件；running() 只是此刻的快照。按会话的表只能靠“2 分钟没调 ui”过期，“会话关闭即删除”没有触发点。租约绑定 {sessionId, runId}，用户在同一个会话里发下一句话开出新的运行，runId 变了，若运行结束放不开（第 4 条），同一会话自己就得 window-busy 直到上一次运行的 2 分钟到期。
+**如何核实**：读 contracts.ts:153-173。
+**建议改法**：同第 4 条：租约以服务端表为准，按 SessionApi.waitRun(runId) 放开；同一会话的新运行直接接管旧运行的租约（只有“别的会话”才 window-busy）；会话关闭不单独处理，写明靠 2 分钟过期回收，并把“会话关闭”一行改成照实的说法。
+
+## 未发现问题的方面
+
+- 服务端按窗口实例调浏览器端远程服务（provider: "client" 加 .at({client})）的做法与 nbook.commands/remote 一致，现有运行时支持（commands/shared/contracts.ts:193-206）。
+- 调用方实例不可伪造：路由按链路登记的成员覆盖调用方的实例 id 与运行位置（router.ts:439-442 与 plugin-channel.md 输出 3），回报合同能据此核对（见第 3 条，只是设计没写）。
+- eval 的计时按计数暂停（eval/tool.ts:452-477 的 Deadline，几个嵌套调用并发等用户时按计数），新加的“正在等用户”标记接到 invoke 的 onWaiting 上不会与审批、提问的暂停互相打架；嵌套调用的停止与宽限期（runtime.md 输出 25、100）能给出 cancelled 的时机。
+- 嵌套调用交回的图片并进 eval 单元的结果（eval.md 输出 4，至多 8 张），截图“附在结果里、作为工具结果存进会话日志”有现成通路。
+- 界面目录的数据来源存在：任何入口都能经 context.declarations.list(贡献点) 读到别的插件的已接受声明（nb-runtime/src/plugins/contracts.ts:40-45、101-102，runtime.plugins 输出 23），命令表、菜单位置、设置分区（SETTINGS_SECTIONS_POINT）与设置的 section、group 声明都在；缺的是第 9 条说的控件与命令的对应和活动栏的标记。
+- HTTP 端口对所有写请求统一核对 Host 与 Origin（server-host.md 第 70-72 行），插件的 PUT 路由不必自己再做来源检查；一次性凭证在此之上已足够。
+- 停止按钮调 abort({sessionId, runId, keepQueue}) 的远程方法对浏览器开放（agent/shared/remote.ts:112、384）。
+- 第一轮处理记录第二到四组里与服务端相关的条目（7、8、9、10 的次序、11、12、13、16、17 的大小与格式、18、21、22、23、24、37）在第三稿里都已写到；没有改到位的只有第 20 条的用例（本报告第 11 条），第 14、19 条的寿命与等待见第 1、2、4、6 条。
+
+## 各级数量
+
+阻断 1；重要 11；建议 7；共 19 条。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19

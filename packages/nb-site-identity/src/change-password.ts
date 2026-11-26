@@ -6,7 +6,8 @@
  *
  * 写事务里先复核会话还在（中间件读会话在排队之前，期间它可能被别的会话结束了；设计审查第 5 条、omp 设计审查第 9 条），再按“密码
  * 仍是刚校验的那一份”条件更新：期间被别处改了或重置了，这次回 `invalid_credentials`，不盖掉别人的改动。没有密码时插入那一行，
- * 这时已经有了（别处刚设了密码）同样回 `invalid_credentials`。最后结束这个账号除当前会话以外的全部会话（输出 6）。
+ * 这时已经有了（别处刚设了密码）同样回 `invalid_credentials`。最后结束这个账号除当前会话以外的全部会话（输出 6），并撤掉这个
+ * 账号名下的全部对外 OAuth 令牌与授权码，当前会话里发出的也撤（`site.oauth-provider` 输出 8）。
  */
 
 import type {Context, Hono} from "hono";
@@ -21,7 +22,7 @@ import type {IdentityLog} from "./index";
 import {requireSession} from "./middleware";
 import type {PasswordFunctions} from "./password";
 import type {IdentityRateLimits} from "./rate-limit";
-import {endOtherSessions, isSessionLive, type Sessions} from "./session";
+import {endOtherSessionsRevokingAllOAuth, isSessionLive, type Sessions} from "./session";
 
 export interface ChangePasswordOptions {
     readonly sessions: Sessions;
@@ -33,13 +34,13 @@ export interface ChangePasswordOptions {
     readonly passwords: PasswordFunctions;
 }
 
-/** 账号的密码登录方式：`rowId` 为 null 是没有那一行；`password` 为 null 是没有密码。 */
-interface Credential {
+/** 账号的密码登录方式：`rowId` 为 null 是没有那一行；`password` 为 null 是没有密码。社交关联的发起（`social/start.ts`）也用它。 */
+export interface Credential {
     readonly rowId: number | null;
     readonly password: string | null;
 }
 
-function readCredential(tx: IdentityTx, userId: number): Credential {
+export function readCredential(tx: IdentityTx, userId: number): Credential {
     const row = tx.query<{id: number; password: string | null}, [number]>(`SELECT "id", "password" FROM "account" WHERE "userId" = ? AND "providerId" = 'credential'`).get(userId);
     return row === null ? {rowId: null, password: null} : {rowId: row.id, password: row.password};
 }
@@ -84,7 +85,7 @@ export function registerChangePasswordRoute(app: Hono, options: ChangePasswordOp
                 if (readCredential(tx, session.userId).rowId !== null) throw new IdentityFailure("invalid_credentials");
                 insertCredentialRow(tx, {userId: session.userId, passwordHash: fresh, now});
             }
-            endOtherSessions(tx, session.userId, session.sessionId);
+            endOtherSessionsRevokingAllOAuth(tx, session.userId, session.sessionId, now);
         });
         const response: EmptyResponse = {};
         return c.json(response);

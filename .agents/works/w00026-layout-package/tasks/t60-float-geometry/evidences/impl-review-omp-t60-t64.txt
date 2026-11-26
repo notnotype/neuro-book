@@ -1,0 +1,128 @@
+
+# w00026 t60–t64 只读实现审查｜开始：2026-11-26 07:57:00 GMT
+
+### 重要｜时序合同｜t60：同帧分两次发布时，浮动窗先跳回按下处再停靠
+
+- 位置：`packages/nb-layout/src/vue/NestedGrid.vue:388–403`、`:610–621`，`packages/nb-layout/src/grid-motion.ts:131–142`。对应 `ui/nested-grid` 输出 172。
+- 现象：`placeFloat(id, null)` 后，宿主先清 `gesture`，等 Vue `nextTick()`，仍在下一帧之前发布停靠。外框和活动内容都从拖动前的位置开始过渡，不从松手处开始。
+- 原因：清 `gesture` 触发 `layers` 的侦听；窗还在 `floats` 里，`releaseStarts` 不生成这个窗的起点，但 `clearReleased()` 仍把本帧所有偏移和清理帧一并清掉。真正停靠的更新读不到偏移。
+- 复现与实际结果：在 Chromium 里挂载 Vue `NestedGrid`，通过公开的 `placeFloat` 把窗从 `x=100` 挪到 `x=305`，用上述两次刷新完成停靠。探针确认第二次发布早于下一次 rAF；读取实际 CSS 关键帧，HEAD 外框与内容 `left` 都是 `100px → 535px`，基线也是 `100px → 535px`。HEAD 同步发布停靠时是 `305px → 535px`，超过下一帧才发布时是 `100px → 535px`，两个对照符合合同。这不是基线已有合同的回归，是 t60 新增合同只覆盖了同步发布的情况。工作台当前同步落账的路径不受此复现影响。
+- 建议：把偏移按窗保留到帧边界，只清这次已消费的窗；仅撤手势或与这扇窗无关的刷新不能消费偏移。若宿主已发布整窗移动的最终矩形，也要按窗消费，防止后来同帧停靠再加一次偏移。用公开组件补上分两次发布的验收。
+
+### 重要｜行为回归｜t62：边缘滚到尽头后，不再移动指针就松手会丢掉落点
+
+- 位置：`packages/nb-layout/src/drag-gesture.ts:381–399`、`:505–528`、`:535–538`。对应 `ui/layout-drag` 输出 14。
+- 现象：边缘滚动最后一步改变了指针下的目标。滚到尽头后等滚动停止再松手，反馈仍指向上一步的位置，拖动以 `no-action` 结束。短列表或剩余滚动距离短时不用刻意等很久就会遇到。
+- 原因：最后一次 `scrollBy` 产生的滚动事件到达时 `autoScrolling` 仍为真，`scrolled()` 不刷新；下一帧因方向没余量，`edgeScrollPlan` 返回 `null`，`autoScrollTick` 在 `publish()` 前退出。松手时 `autoScrolling` 已为假，走普通提交，对这次真正命中的动作与陈旧反馈做等值比较，拒绝提交。基线在尝试滚而读不到位移之前，会先发布最终位置的反馈。
+- 复现与实际结果：Chromium 中经公开 `createDragSession` 绑定真实 `overflow-y: auto` 列表，高 200px、内容高 264px，真实鼠标停在距下沿 4px，待 `scrollTop=64` 且滚动帧结束后松手。两版浏览器滚动位置同为 `14,28,42,56,64`；HEAD 最后发布为 `12`，松手为 `no-action`，没有提交；基线最后发布为 `13`，提交 `13`。没有手工派发 `scroll` 或 `pointerup`，没有替换时钟。
+- 建议：此前有实际位移时，即使下一轮已挑不到容器，也先用最终滚动位置发布一次，再把 `autoScrolling` 置假；不要为修复此处放宽普通松手的匹配规则。补一条从实际滚动到停止、指针不再动就松手的验收。
+
+### 建议｜示例行为回归｜t60：横向缩放会临时撑高浮动窗，盖住底栏
+
+- 位置：`packages/nb-layout/src/grid-rects.ts:219–225`、`packages/nb-layout/src/vue/FloatWindowHandles.vue:71–75`、`packages/nb-layout/examples/desktop/src/App.vue:138–141`、`:280–287`。对应 `ui/nested-grid` 输出 176、177。
+- 现象：桌面高度不足最小窗高时，拖右边手柄只该改宽度，预览却把窗撑高并盖住底栏，松手又缩回。最小尺寸优先只应约束本次调整的轴；不动的轴应保留已夹取的呈现尺寸。
+- 原因：`resizeFloatRect` 无论方向是否为 0 都夹到最小尺寸。基线纯函数也这样，但桌面基线用 `withinDesk` 裁掉越界预览；这次删除该裁剪，直接呈现手柄返回的矩形。
+- 复现与实际结果：Chromium 加载仓库的桌面示例入口，1250×220 视口，用真实鼠标横拖 `Files` 窗右边手柄。两版开始都是 480×133，底边 `y=170`；HEAD 预览 507×160，底边 `y=197`，底栏内 `y=186` 命中 `Files` 内容，松手恢复 507×133。基线预览与松手都为 507×133，底栏同一点一直命中底栏。HEAD 存档保留未动轴的原高 300，未见存档回归。
+- 建议：方向分量为 0 时直接沿用 `start` 在该轴的位置与尺寸，只对动轴应用 `min`、`max`、`area`；不要为修预览把夹取后的尺寸写回记录。补一条桌面小于最小尺寸、拖动正交边的组件或示例验收。
+
+### 重要｜过渡隔离｜t60：另一扇窗的动画让刚松手的窗回弹重播
+
+- 位置：`packages/nb-layout/src/vue/NestedGrid.vue:354–364`、`:389–401`、`:725`、`:848–856`，`packages/nb-layout/src/grid-motion.ts:53–65`。对应 `ui/nested-grid` 输出 105、172。
+- 现象：同一次发布里 A 提交整窗拖动、B 用 `animate: true` 改宽，B 应过渡，A 应停在松手处。实际 A 的外框、正文和手柄一起跳回按下处，再动画回到松手处。
+- 原因：`settleFloatMoves` 把 A 的矩形压回旧值只影响是否开过渡的判定。B 开启全网格的 `moving` 后，A 已撤掉 `gesture`，三个层仍收到过渡标记，写进 DOM 的新 `left`/`top` 都会走 CSS 过渡。按窗排除出判定并没有将该窗排除出渲染层过渡。
+- 复现与实际结果：Chromium 中挂载实际 `NestedGrid`、`FloatWindowHandles`。公开 `placeFloat` 把 A 从 `x=100` 挪到 `x=305`，同一同步段调用 `placeFloat(A, null)`、撤手势、发布 A 的最终矩形与 B 的宽 280（原 200）。HEAD 中 A 的外框、正文、手柄各有 `left: 100px → 305px`、第一帧读到 `x=100`；B 的外框、手柄有 `width: 200px → 280px`。基线忽略 `animate`，A 无过渡、第一帧就为 `x=305`。没有在两个发布之间等待帧或修改 CSS 计算结果。
+- 建议：把“仍是浮动窗、这次矩形变化不该过渡”的决定传到三层过渡标记，而不是只用它筛选是否启动整轮。单独的窗可以跳过本次矩形过渡，别的窗及树上的过渡照走；不要全局停掉过渡。补一条 A 松手与 B 程序改尺寸同轮发布的浏览器断言。
+
+### 建议｜公开合同遗漏｜t62：横向边缘滚动不支持 RTL，接入说明没有写
+
+- 位置：`packages/nb-layout/src/vue/drag-session.ts:107–133`、`packages/nb-layout/src/vue/drag-session.md:41`、`packages/nb-layout/CHANGELOG.md:14`。`ui/layout-drag` 输出 14 也未限定横向排版方向。
+- 现象：RTL 容器在 `scrollLeft=0` 时仍可向物理左端滚，边缘拖动却不滚。这里不是工作台未接入的问题。t62 计划和源码注释已指出风险，但面向调用方的合同只列了计算溢出样式、方向余量和指针位置，没告诉宿主 RTL 不满足承诺。
+- 原因：横向的 `room` 以 LTR 的 `[0, scrollWidth - clientWidth]` 为范围。Chromium 的 RTL 范围是负值到 0，初始真正可向左滚，代码却判 `left=0`；在右端也可能误判还有余量，遮住外层候选。
+- 复现与实际结果：Chromium 中给公开 `createDragSession` 一条 `direction: rtl; overflow-x: auto` 的 200px 宽容器，内容 264px 宽，真实鼠标拖到左端内侧 4px；HEAD 不排后续滚动帧，`scrollLeft` 一直为 `0`。同一个元素的原生 `scrollBy({left: -14, behavior: "instant"})` 到 `-14`。基线没有横向边缘滚动，不算基线回归。
+- 建议：若保留当前范围，在公开选项说明、包文档及变更记录明写横向只支持 LTR；若要兑现通用合同，按 CSS 方向折算物理左右余量，并加 RTL 两端及嵌套回退测试。
+
+### 建议｜正确性｜t61：过滤掉整行成员后，把非空标签条当作空行接收拖放
+
+- 位置：`packages/nb-workbench-layout/src/vue/tab-strip-geometry.ts:180–186`、`:197–204`；`packages/nb-layout/src/grid-drop.ts:135–140`、`:187–190`。t61 要求工作台过滤不改变原行为。
+- 现象：所选行有成员，但所有成员都在行尾之外时，基线拒绝落点；HEAD 在行首画线，交回 `{before: null, after: null}`，调用方会把这条线当成可插入位置。
+- 原因：传给 `resolveListInsertion` 的 `reachable` 可能从非空变成空数组。共享算法有意区分“行本来为空”和“有成员但没有可见矩形”，过滤后这个区别消失了。
+- 复现与实际结果：在 Chromium 挂载真实 `TabStrip`，宿主给横向滚动行 200px 宽、210px 的前导留白，滚在起点；标签尚未进入视口。量真实 DOM 后调用 `resolveTabStripInsertion`，同一点 HEAD 交回行首 2px 的线和两个空锚点，基线交回 `null`。使用公开的 `measureTabStrip`、`tabStripInsertionIn` 也一致。普通单行、折行、固定/普通分区（含先摘掉来源、快照平移及变窄）各对照 108 次，均未见差异。未在工作台默认样式里复现该全裁边界。
+- 建议：过滤得到空数组时，原行有成员就返回 `null`，原行本来为空才保留空行插入位。用可见范围裁掉整行的宿主样式守住原合同。
+
+### 建议｜不变量｜t64：自定义输出目录可被声明临时目录清理掉
+
+- 位置：`packages/neuro-book/plugin-sdk/pack.ts:25–26`、`:104–120`、`:405–419`、`:468–505`、`:582–585`。
+- 现象（从代码确定，未跑完整构建）：CLI 接受 `dist/.sdk-types` 或其子目录作为自定义输出；只要目标原先不存在或为空就通过 `clearPreviousSdk`。本次新增的声明步骤会先删掉刚写好的 JS、清单，再删掉刚打包的声明。默认的 `dist/plugin-sdk` 是兄弟目录，不受影响；串行构建也能触发，和已知的并发取舍不同。基线没有这块固定临时目录及其清理。
+- 核实：从应用根解析三个输出，Node 的 `path.relative(临时目录, 输出)` 分别给 `../plugin-sdk`、空串、`author-output`。后两种在同一棵将被 `rm({recursive: true})` 删除的目录内。第一次删除在 Vite 打完 JS 之后，第二次在 Rolldown 写声明之后；若声明环节已成功，紧接着读 `${outDir}/components.d.ts` 必然找不到。依审查规则未运行 `build:sdk`；完整构建可由主会话在隔离检出里补验。
+- 建议：在写、删任何产物之前拒绝输出与临时目录相同或位于其下，考虑实际路径别名；或者将临时目录放进由构建独占且保证不与用户输出相交的位置。失败时同样要清自己的临时声明，不能删调用方的输出。
+
+### 建议｜文档｜t63：变更记录没有写明调用 `GridSashResolver` 的两参代码不再通过类型检查
+
+- 位置：`packages/nb-layout/src/grid-types.ts:408–419`、`packages/nb-layout/src/index.ts:81`、`packages/nb-layout/CHANGELOG.md:7–13`。
+- 现象：交给 `createGrid` 的旧两参函数仍有效；但接收公开类型 `GridSashResolver` 再调用或转发它的代码，现在必须传第三个参数。这种调用方不兼容只在“新增”里写了签名变化，没有写出迁移要求。
+- 核实：用本仓库 TypeScript 对同一个临时消费端分别解析基线、HEAD 的公开根入口。`createGrid(null, {sashSize: (_branchId, index) => index === 1 ? 0 : 4})` 两边都通过；`function useConfiguredResolver(resolver: GridSashResolver) { return resolver("root", 0); }` 基线无诊断，HEAD 报 `TS2554: Expected 3 arguments, but got 2.`。
+- 建议：在 `[Unreleased]` 的“不兼容的改动”列明：传两参实现不需改；直接调用或转发已定型的 `GridSashResolver` 时须传真实的相邻孩子 ID。不为此把参数做成可选，库内可以保证它存在。
+
+### 建议｜正确性｜t62：`column-reverse` 的纵向列表失去原有上缘滚动
+
+- 位置：`packages/nb-layout/src/vue/drag-session.ts:114–133`、`packages/nb-layout/src/drag-gesture.ts:221–229`；`packages/nb-layout/CHANGELOG.md:9` 承诺竖向列表行为不变。
+- 现象：`flex-direction: column-reverse; overflow-y: auto` 的列表从 `scrollTop=0` 开始可以向上滚，但拖到上缘不再滚。这是基线回归，和上面新增横向能力不支持 RTL 的限制不同；两者共享「滚动位置总为非负」的假设。
+- 复现与实际结果：同一 Chromium、公开 `createDragSession`、200px 视口与 264px 内容，真实鼠标停在距上沿 4px。基线 `scrollTop` 依次 `-14,-28,-42,-56,-64`；HEAD 不滚、一直为 `0`。同一个 HEAD 元素原生 `scrollBy({top: -14, behavior: "instant"})` 可到 `-14`。HEAD 用 `Math.max(0, scrollTop)` 算向上余量，初始的 `0` 使选轴直接跳过该容器。
+- 建议：计算余量时按物理方向处理负值滚动范围，保住原有竖向行为。至少应在变更记录明确排除反向滚动容器，不能继续承诺全部竖向列表不变。
+
+### 建议｜不变量｜t64：声明生成失败时保留临时配置和半成品
+
+- 位置：`packages/neuro-book/plugin-sdk/pack.ts:417–445`、`:451–472`。基线 `pack.ts:427–435` 没有 `.sdk-types` 这棵目录；nb-layout 自己的 `scripts/pack.ts:85–112` 有同样的失败清理缺口。
+- 现象与核实（由控制流确定，未跑 `build:sdk`）：第 427 行先写临时 tsconfig；若 vue-tsc 非零退出、Rolldown 抛错或收到了导致失败的日志，会在第 472 行清理前退出。`dist/.sdk-types` 因此保留含检出绝对路径的临时配置和已经生成的声明，直到下一次串行构建开始才删。不是残留会被下次误用，默认 SDK 输出的半成品如何识别重建也还是基线策略。
+- 建议：把临时声明的生命周期包在 `try/finally` 中，成功和失败都清理；保留原始失败诊断。先确保临时目录与调用者的输出不相交，避免收尾删掉输出。
+
+### 重要｜正确性｜t60：桌面示例连续按 Tab 到不了浮动窗手柄
+
+- 位置：`packages/nb-layout/src/vue/NestedGrid.vue:248–254,325–328,724–730`、`packages/nb-layout/src/vue/useGridFocus.ts:24–39,92–95,97–109`、`packages/nb-layout/examples/desktop/src/App.vue:182–185,319`。对应 `ui/nested-grid` 输出 103、121–127、173；不能只验直接聚焦手柄不掉焦点。
+- 现象：从页面起点一路按 Tab，基线走过底栏与四扇窗的标题按钮、正文后可以进移动和缩放手柄；HEAD 从 `Notes` 正文按 Tab 先跨到浏览器界面，再次进入页面又从底栏开始。轮到每扇窗时重复。手柄留在 DOM、直接 `.focus()` 能用，但不等于键盘能走到。
+- 原因：t60 为桌面接入焦点抬升，窗一得焦点就移到 `floats` 末尾，DOM 序和布局序分离。网格接管 Tab 时只枚举外框、内容与分隔线，不含手柄层；当前窗一抬升就是末站，正文最后一项的 Tab 被送到手柄之后的退出哨兵。焦点重入又按树序从底栏开始。旧的焦点接管遗漏在基线代码中已存在；本批把真实桌面示例从原生顺序变成正常键盘使用即触发的路径。
+- 复现与实际结果：Chromium 打开真实桌面示例、默认四窗、1250×950，不用指针，`page.keyboard.press("Tab")` 从页面起点连按 24 次。基线第 21 次到 `Notes` 缩放手柄，第 22 次到移动手柄；HEAD 第 5 次进入 `Notes` 后出现 `aria-owns`，第 9 次就回到底栏首项，进入 `Calculator` 后第 17 次又回到底栏首项，24 次没有一个手柄获得焦点。报告的独立直接聚焦或点击手柄探针没有覆盖这条路径。
+- 建议：焦点移动使用不因抬升改写的导航顺序，把手柄纳入 Tab 停靠点（可以独立保持现有稳定手柄顺序），不要用叠放顺序决定下一站；补从页面起点 `Tab` 与 `Shift+Tab` 能越过各窗正文并到达手柄的浏览器用例。
+
+## 未发现问题的方面
+
+- **t60 同步停靠和帧边界之后的停靠**：仔细检查后没有发现问题。Chromium 挂载实际 `NestedGrid`，同步停靠的外框和内容从松手的 `x=305` 出发；到下一帧才发布则从记录的 `x=100` 出发。 `flushGrowingStart` 在再写终点前实际让起点进了 CSS 布局。取消且不发布结果时由 rAF 清理，卸载时 `onBeforeUnmount` 取消该 rAF；这两条是代码核对，未另跑触摸和笔的手势。
+- **t60 手柄节点身份、按下的抬升及存档**：对节点稳定性与此处职责，仔细检查后没有发现问题。真实桌面专门直接聚焦最底下的 `Notes` 移动手柄时，原节点仍连接、焦点还在、层级升高；手柄 DOM 仍为 `notes,calc,clock,files`。Chromium CDP 计数显示按非置顶的 `Calculator` 右下手柄后，两个版本各存档 1 次；再按置顶窗均不存档。只记请求、不更新顺序的宿主可收到按下和焦点两次通知；工作台 store 同步按当前顺序短路置顶请求，桌面探针没有重复结算。对照 `stableOrder`，删掉的 ID 不保留，完全换一批会按新数组插入；沿实际 DOM 父链能越过内容中的内嵌网格、命中当前网格直接子的标记。Teleport 进窗层按落地后的 DOM 归属；到 `body` 的覆盖层不冒入；`aria-owns` 不改事件路径。这些归属、全换 ID 是代码与既有合同测试核对，不是工作台全流程浏览器验证；Tab 导航与节点是否稳定是两件事，前者见重要条目。
+- **t60 夹取与工作台调用**：除已报未动轴缩放外，仔细检查后没有发现问题。`clampFloatRect` 两轴分别把非有限原点回落到 0，超出窗口尺寸的 `keep` 先收小；工作台 `wholeInTree` 的输入在 `floatRectAt` 已受树区域限制，条件满足时其原来的整窗 `keep` 与缺省值等价，`keepVisible` 仍是留窗头。四方向和区域外起点的缩放、手柄取消及 `preview(null)` 后同段提交有定向合同测试。工作台手柄不传 `area` 是已确认取舍，不计缺陷。
+- **t61 共享列表插入位与常规标签条**：仔细检查后没有发现其他问题。横、竖主轴的末个可见项之后只认紧跟的有效成员；不跨下一行再找，线留在最后可见项边上。Chromium 量真实 `TabStrip`，普通单行、折行、固定/普通分区各 108 次（共 324 次；含滚动位置、摘来源、平移与裁窄）与基线一致。另有前导留白导致整行裁出的 108 次，45 次结果不同，见建议条目。
+- **t62 正常选轴、滚动中松手与示例接线**：除已报空计划最后一帧与负滚动范围外，仔细检查后没有发现问题。核心合同测试覆盖从里到外选轴、候选换了下一帧换容器、同容器一次同时滚两轴、没实际位移停止，以及仍在滚时的延后一帧结算。真实标签编组示例在 1000×800 视口，拖 `index.html` 到 `group-1` 右端：HEAD `scrollLeft=331`（最大值），显示 `insert:group-1:end`，松手后确实追加；t62 前的 `18b7f44bc` 为 `scrollLeft=0`，插在 `model.ts` 前。该示例场景没有触发停滚后落点变旧，不反证短列表复现。工作台标签条本批未接入，不计缺陷。
+- **t62 DOM 开销实测**：`chromium-scroll-cost.mjs` 用 CDP 精确调用计数：单候选、5 次中段指针移动，`topElementAt`（每次一次 `elementsFromPoint`）基线 5、HEAD 10；HEAD 另有 5 次 `scrollTargetOf`，各读一次 `getComputedStyle`、一次外框矩形（基线现量矩形也是 5 次）。一次边缘移动滚到停，命中读取 7 → 13，HEAD 量候选与计算样式各 7 次；实际调用滚动 6 → 5（基线第 6 次无位移）。`chromium-scroll-layout-metrics.mjs` 的 30 次中段移动，两版都是 30 次布局和 30 次样式重算；只反映该静态宿主，不能推为应用性能，也不把两次采样的耗时差判为回归。
+- **t63 分隔线运行时与 SDK 快照**：仔细检查后没有发现邻居 ID、线宽或 SDK 快照的不一致。`sashValues` 在计算实际线宽与约束时给当前分支的两个直接孩子；`NestedGrid` 的手势重投影有意沿用已发布的实际 `sashSizes`，两参回调可继续赋值。`grid.test.ts` 核了分支作为邻居、插入后按 ID 认同一条边，IDE 样例的线宽断言通过。SDK 没直接转出 `GridSashResolver`，公开包 API 报告记录了变化，SDK 的 nb-layout 快照合同测试通过；对回调的两参调用另见建议条目。
+- **t64 当前入口覆盖与路径映射**：对所核入口仔细检查后没有发现漏掉根输入。用 SDK 实际子路径表和 `typePaths()` 构造临时只读配置，`vue-tsc --listFilesOnly` 枚举 939 个输入，两个 `agent` 入口及 `settings/browser` 转出的 4 个 `.vue` 都纳入。实装 `rolldown-plugin-dts` 的小声明探针验证临时 `nbook/*` 能解析 `Foo.vue.d.ts`、无扩展名 `bar.d.ts`，显式跨包映射也进同一份声明且无源码路径导入。反例是临时声明缺失时，插件可能把裸别名当外部导入且不报日志；这是解析器探针，未发现当前 SDK 有这样泄露，不能把无日志当闭包证明。SDK 的临时配置要承载多个工作区源码，故不同于 nb-layout 单包的 `tsconfig.package.json`；两边的失败清理缺口见建议条目。并发冲临时目录、主会话已有的 `pack.test.ts` 超时不重复计入。
+
+## 基线边界补证
+
+- **手柄的 Tab 可达性**：在真实示例先用指针抬升 `Calculator`，把焦点放在底栏首项，再按 48 次 Tab，两版都到不了手柄。这确认 `useGridFocus` 漏列手柄并非 t60 新写的代码。基线此时仍能连续走完四窗，底栏首项出现在第 0、20、40 次；HEAD 每走完一扇窗就回底栏，第 0、8、16、24、32、40、48 次都在该处。t60 的退化是无需先做指针抬升就触发旧缺口，另加上每扇窗聚焦后都打断顺序。探针记录的是页面内 `activeElement`，没有单独观测焦点经过哪个浏览器界面控件。
+
+## 本次验证与边界
+
+| 目录 | 实际命令 | 结果 |
+|---|---|---|
+| `packages/nb-layout` | `bun test src/grid-motion.test.ts src/grid-rects.test.ts src/examples-desktop.test.ts src/grid-drop.test.ts src/drag-gesture.test.ts src/grid.test.ts` | 437 通过、0 失败 |
+| `packages/nb-layout` | `bunx --no-install vitest run src/vue/NestedGrid.dom.test.ts src/vue/useGridMotion.dom.test.ts src/vue/FloatWindowHandles.dom.test.ts src/vue/drag-session.dom.test.ts` | 4 文件、185 通过 |
+| `packages/nb-layout` | `bun test src/examples-ide.test.ts` | 47 通过、0 失败 |
+| `packages/nb-layout` | `bun test src/readme.test.ts src/examples.test.ts src/exports.test.ts` | 20 通过、0 失败 |
+| `packages/nb-layout` | `node ../../node_modules/vue-tsc/bin/vue-tsc.js --noEmit -p tsconfig.vue.json` | 退出 0，无诊断 |
+| `packages/nb-workbench-layout` | `bunx --no-install vitest run src/vue/tab-strip-geometry.dom.test.ts` | 50 通过 |
+| `packages/neuro-book` | `bun test src/sdk/sdk.test.ts src/plugins/workbench/web/drag-geometry.test.ts plugin-sdk/layout-tags.test.ts` | 27 通过、0 失败 |
+| `packages/neuro-book` | `node ../../node_modules/vue-tsc/bin/vue-tsc.js --noEmit -p tsconfig.web.json` | 100 秒超时，无类型检查结论 |
+
+Chromium 对照由说明指定的临时目录中的本地静态页完成；没有启动仓库开发服务、跑仓库 e2e、运行 `build:sdk` 或重做 SDK 产物逐字节比较。SDK 两条清理发现来自代码控制流与路径检查，不是完整构建复现。其余边界如触摸/笔、应用内的 Tab 完整路径和真实应用的边缘滚动开销没有验证。未做源码变异，`/usr/bin/git rev-parse --short HEAD` 为 `4f2cf08df`，`/usr/bin/git status --short --untracked-files=all` 无输出。
+
+## 各级数量
+
+**阻断 0、重要 4、建议 7，共 11 条。**
+
+- **重要**：t62 边缘滚停后松手丢落点；t60 键盘到不了手柄、同帧分两次发布用错停靠起点、另一窗的动画带动刚松手的窗回弹。
+- **建议**：t60 未动轴预览越界；t61 全裁行误判空行；t62 RTL 未写公开限制、反向纵列回归；t63 两参调用迁移说明；t64 声明临时目录与输出重叠、失败不清临时文件。
+
+## 补证更正：t60 的 Tab 回跳，不是默认状态下永远到不了手柄
+
+默认四窗、不先用指针抬升的 HEAD 探针延长到 48 次 Tab。底栏首项在第 1、9、17、25 次获得焦点，四次分别扫过对应浮动窗；第 29 次进入 `Files` 后，置顶顺序恰好恢复初始 DOM 顺序，原生 Tab 路径重新可用。第 33 次到 `Notes` 缩放手柄，第 34 次到移动手柄，第 33–40 次走完全部 8 个手柄；基线默认状态第 21 次即到首个手柄。因此以本段替换上面「桌面示例连续按 Tab 到不了浮动窗手柄」的结论：**焦点抬升打断 Tab 顺序，每过一窗重走底栏；默认四窗多按 12 次才到首个手柄。** 预先用指针抬升 `Calculator` 后，两版在 48 次内均到不了手柄，属上节基线边界；HEAD 额外的逐窗回跳仍可复现。仅记录到页面内焦点，不认定焦点经过了浏览器界面。
+
+这是原 t60 重要条目的更正，不另计一条。最终数量：**阻断 0、重要 4、建议 7，共 11 条。**

@@ -6,14 +6,14 @@
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
 import {Button, ContextMenu, DropdownMenu, IconButton, Input, Tabs} from "@notnotype/nb-ui/components";
-import type {ContextMenuItem, DropdownMenuItemData, SelectOption, TabsItem} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem, DropdownMenuItemData, TabsItem} from "@notnotype/nb-ui/components";
 
 import type {LineOption} from "../../shared/reads";
+import type {PositionChapter} from "../positions";
 import {useCanonText} from "../text";
-import LineSelect from "./LineSelect.vue";
-import PositionPicker from "./PositionPicker.vue";
 import EntryPageNav from "./EntryPageNav.vue";
 import type {EntryTab} from "./entry-tabs";
+import ViewPointPicker from "./ViewPointPicker.vue";
 import WorldBanners from "./WorldBanners.vue";
 
 export type EntryPageStatus = "loading" | "failed" | "missing" | "deleted" | "normal";
@@ -24,7 +24,8 @@ const props = withDefaults(defineProps<{
     summary?: string;
     /** 马甲条目的本体（输出 6 的“是谁：某某”）。 */
     sameAs?: {readonly id: string; readonly name: string} | null;
-    positions?: readonly SelectOption[];
+    /** “在看”菜单里的章（`positions.ts` 的 `positionChapters`）；没有章时剧情进度只有“最初”。 */
+    chapters?: readonly PositionChapter[];
     /** 位置选择的值（`positions.ts` 的 `positionValue`）。 */
     position?: string;
     planned?: boolean;
@@ -46,9 +47,9 @@ const props = withDefaults(defineProps<{
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
     deletable?: boolean;
-    /** 可选的线（输出 34）；只有主线时不画线选择。 */
+    /** 可选的线（输出 34）；只有主线时“在看”不提线。 */
     lineOptions?: readonly LineOption[];
-    /** 窗口在看的线；空串是跟着章。 */
+    /** 窗口在看的线；空串是按章节自动。 */
     line?: string;
     /** 这一页按自己的位置实际读的线。 */
     resolvedLine?: string;
@@ -60,11 +61,11 @@ const props = withDefaults(defineProps<{
     aliases?: readonly string[];
     /** 当前是一个数据分页时，这组设定的名字：“更多”里多一项“去掉这组设定”。默认空。 */
     removableGroup?: string;
-    /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：这三个控件不可用、悬停提示是它。默认空（能换）。 */
+    /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：“在看”不可用、悬停提示是它。默认空（能换）。 */
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -101,6 +102,8 @@ defineSlots<{
 }>();
 
 const blockedReason = computed(() => (props.editReason === "" ? undefined : props.editReason));
+/** “在看”有得选才出：有章（不止“最初”一个位置）、作品里有计划，或不止一条线（设计语言“此刻没用的，就不出现”）。 */
+const showViewPoint = computed(() => props.chapters.length > 0 || props.canPlan || props.lineOptions.length > 1);
 const menuItems = computed(() => [
     ...(props.editable
         ? [
@@ -308,33 +311,39 @@ watch(rail, async () => {
                             <span class="min-w-0">{{ props.summary === "" ? text("entry.addSummary") : props.summary }}</span><span class="entry-editable__pencil i-lucide-pencil size-3 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
                         </button>
                         <p v-else-if="props.summary !== ''" class="mt-1 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ props.summary }}</p>
-                        <ul v-if="props.aliases.length > 0 || props.editable" class="mt-2 flex flex-wrap items-center gap-1.5" :aria-label="text('entry.aliases')" data-entry-aliases>
-                            <li v-for="alias in props.aliases" :key="alias" class="flex h-6 items-center gap-0.5 rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] pl-2.5 pr-1 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
-                                {{ alias }}
-                                <IconButton v-if="props.editable" size="xs" icon-class="i-lucide-x" :disabled="blockedReason !== undefined || props.busy" :aria-label="text('entry.removeAlias', {alias})" :title="blockedReason ?? text('entry.removeAlias', {alias})" @click="emit('aliases', {remove: [alias]})" />
-                            </li>
-                            <li v-if="props.editable" ref="aliasBox">
-                                <Input v-if="adding" v-model="aliasDraft" size="sm" class="w-32" :aria-label="text('entry.newAlias')" :placeholder="text('entry.newAlias')" @keydown.enter.prevent="commitAlias()" @keydown.escape.prevent="cancelAlias()" @blur="commitAlias()" />
-                                <Button v-else size="sm" variant="ghost" :disabled="blockedReason !== undefined || props.busy" :title="blockedReason" @click="startAlias()"><span class="i-lucide-plus size-3.5" aria-hidden="true" />{{ text("entry.addAlias") }}</Button>
-                            </li>
-                        </ul>
+                        <!-- 别名与“在看”一行：“在看”贴在内容上面，管的是下面这些值是哪一刻的（输出 7）。没得选时不出（只有“最初”、没有计划、只有主线）。 -->
+                        <div v-if="props.aliases.length > 0 || props.editable || showViewPoint" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+                            <ul v-if="props.aliases.length > 0 || props.editable" class="flex min-w-0 flex-wrap items-center gap-1.5" :aria-label="text('entry.aliases')" data-entry-aliases>
+                                <li v-for="alias in props.aliases" :key="alias" class="flex h-6 items-center gap-0.5 rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] pl-2.5 pr-1 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
+                                    {{ alias }}
+                                    <IconButton v-if="props.editable" size="xs" icon-class="i-lucide-x" :disabled="blockedReason !== undefined || props.busy" :aria-label="text('entry.removeAlias', {alias})" :title="blockedReason ?? text('entry.removeAlias', {alias})" @click="emit('aliases', {remove: [alias]})" />
+                                </li>
+                                <li v-if="props.editable" ref="aliasBox">
+                                    <Input v-if="adding" v-model="aliasDraft" size="sm" class="w-32" :aria-label="text('entry.newAlias')" :placeholder="text('entry.newAlias')" @keydown.enter.prevent="commitAlias()" @keydown.escape.prevent="cancelAlias()" @blur="commitAlias()" />
+                                    <Button v-else size="sm" variant="ghost" :disabled="blockedReason !== undefined || props.busy" :title="blockedReason" @click="startAlias()"><span class="i-lucide-plus size-3.5" aria-hidden="true" />{{ text("entry.addAlias") }}</Button>
+                                </li>
+                            </ul>
+                            <ViewPointPicker
+                                v-if="showViewPoint"
+                                class="ml-auto max-[480px]:ml-0 max-[480px]:w-full"
+                                :chapters="props.chapters"
+                                :position="props.position"
+                                :planned="props.planned"
+                                :can-plan="props.canPlan"
+                                :locked="props.positionLocked"
+                                :not-appeared="props.notAppeared"
+                                :position-gone="props.positionGone"
+                                :line-options="props.lineOptions"
+                                :line="props.line"
+                                :resolved-line="props.resolvedLine"
+                                @update:position="(value: string) => emit('update:position', value)"
+                                @update:planned="(value: boolean) => emit('update:planned', value)"
+                                @update:line="(value: string) => emit('update:line', value)"
+                            />
+                        </div>
                     </div>
-                    <!-- 宽时靠右与名字同一行；窄到换行时（480 以下）靠左，不在标题下面右飘、左边空一大片。 -->
-                    <div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 max-[480px]:justify-start">
-                        <LineSelect :options="props.lineOptions" :line="props.line" :resolved="props.resolvedLine" :disabled="props.positionLocked !== ''" @update:line="(value: string) => emit('update:line', value)" />
-                        <!-- 只有一个位置（空作品）又没有计划时，时间点没得选，不出（设计语言“此刻没用的，就不出现”）。 -->
-                        <PositionPicker
-                            v-if="props.positions.length > 1 || props.canPlan"
-                            :positions="props.positions"
-                            :position="props.position"
-                            :planned="props.planned"
-                            :can-plan="props.canPlan"
-                            :locked="props.positionLocked"
-                            :not-appeared="props.notAppeared"
-                            :position-gone="props.positionGone"
-                            @update:position="(value: string) => emit('update:position', value)"
-                            @update:planned="(value: boolean) => emit('update:planned', value)"
-                        />
+                    <!-- 条目自己的“更多”，与名字同一行靠右。 -->
+                    <div class="shrink-0">
                         <DropdownMenu align="end" :items="menuItems" @select="onMenu">
                             <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('entry.more')" :title="text('entry.more')" />
                         </DropdownMenu>

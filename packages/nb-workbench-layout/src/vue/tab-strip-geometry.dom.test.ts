@@ -87,6 +87,12 @@ describe("摘掉来源之后的插入位", () => {
         expect(tabStripInsertionIn(snapshot, {x: 400, y: HEIGHT + 10})).toMatchObject({before: null, after: null, partition: "normal"});
     });
 
+    it("行里有标签但都在行尾之外（行首留白比行还宽）：没有插入位，不当成空行", () => {
+        // 行宽 200，宿主在行首留了 210 的白，两个标签都还没滚进来。
+        const strip = stripOfBoxes([[0, 0, 200, HEIGHT]], [{id: "a", row: 0, box: [210, 0, WIDTH, HEIGHT]}, {id: "b", row: 0, box: [310, 0, WIDTH, HEIGHT]}], 200);
+        expect(resolveTabStripInsertion(strip, {x: 100, y: 10})).toBeNull();
+    });
+
     it("整条只有来源：还有一个插入位，放回去是原来的分区", () => {
         const snapshot = measureTabStrip(stripOf([{tabs: [normal("s")]}]), "s");
         expect(tabStripInsertionIn(snapshot, {x: 400, y: 10})).toMatchObject({before: null, after: null, partition: "normal"});
@@ -101,9 +107,9 @@ interface BoxSpec {
 }
 
 /** 按每个标签自己的外框摆：标签高矮不一时同一视觉行里 `top` 各不相同，DOM 顺序也就不是按 `top` 排的顺序。 */
-function stripOfBoxes(rowBoxes: ReadonlyArray<readonly [left: number, top: number, width: number, height: number]>, tabs: ReadonlyArray<BoxSpec>): HTMLElement {
+function stripOfBoxes(rowBoxes: ReadonlyArray<readonly [left: number, top: number, width: number, height: number]>, tabs: ReadonlyArray<BoxSpec>, stripWidth = 1000): HTMLElement {
     const strip = document.createElement("div");
-    place(strip, 0, 0, 1000, 100);
+    place(strip, 0, 0, stripWidth, 100);
     const rows = rowBoxes.map(([left, top, width, height], at) => {
         const row = document.createElement("div");
         row.dataset.tabRow = String(at);

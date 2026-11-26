@@ -13,7 +13,7 @@
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCancellation, type GridGestureCommit, type GridGesturePreview, type GridGestureStart} from "../grid-gesture";
 import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect} from "../grid-rects";
-import {settleFloatMoves, stableOrder} from "../grid-motion";
+import {consumedReleases, floatRectJumps, settleFloatMoves, stableOrder} from "../grid-motion";
 import type {GridSwap} from "../grid-swap";
 import SashHandle from "./SashHandle.vue";
 import {FrozenSlot} from "./frozen-slot";
@@ -169,7 +169,7 @@ const snapHost = useSashSnap(rootEl);
 const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule(), onSwapSkipped: (issue) => emit("issues", [issue])});
-const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
+const {moving, growing, docking, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 输出 48）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.flatMap((item) => (item.kind === "leaf" ? [item.node.id] : []))));
 /** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
@@ -207,7 +207,8 @@ let lastGestures: ReadonlySet<string> = new Set();
 /** 拖动中每扇窗最后一次的偏移（`placeFloat`），放开时转进 `released`。 */
 const floatOffsets = new Map<string, {readonly x: number; readonly y: number}>();
 /**
- * 刚放开的窗（id 到松手时的偏移，输出 172）：下一次判过渡时交给 `motion.update`，用完即清；没有发布变化（取消）时下一帧清掉，不留到以后误用。
+ * 刚放开的窗（id 到松手时的偏移，输出 172）：每次判过渡时交给 `motion.update`，按窗用掉（`consumedReleases`：窗离开了 `floats` 或矩形变了），
+ * 别的更新不清它：宿主可能先撤手势、`nextTick` 之后才停靠。没有用掉的（取消、只撤了手势）下一帧清掉，不留到以后误用。
  * 所以宿主在 `placeFloat(id, null)` 之后、下一帧之前发布的变化从松手处出发，更晚发布的照旧从记录矩形出发。
  */
 let released = new Map<string, {readonly x: number; readonly y: number}>();
@@ -216,6 +217,22 @@ function clearReleased(): void {
     if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
     releaseFrame = null;
     released = new Map();
+}
+/**
+ * 这一轮改了矩形、不过渡的浮动窗（节点 id，`floatRectJumps`，输出 105、172）：别的窗或树正在过渡（`moving`）时，它的外框、内容与手柄在写新矩形的那一次渲染不带过渡标记，
+ * 直接画在新矩形上；别的窗与树上的过渡照走。渲染之后（`nextTick`）清掉：那时新矩形已经画上，再带回标记也不会从旧矩形滑过去。
+ * 不按每次判定现算：同一轮刷新里侦听会重入（起点经内容层改了 `layers`），重入时上一次的项已经是新矩形，现算是空的，渲染就带上了标记。
+ */
+const floatJumps = shallowRef<ReadonlySet<string>>(new Set());
+let floatJumpsClearing = false;
+function holdFloatJumps(jumps: ReadonlySet<string>): void {
+    floatJumps.value = new Set([...floatJumps.value, ...jumps]);
+    if (floatJumpsClearing) return;
+    floatJumpsClearing = true;
+    void nextTick(() => {
+        floatJumpsClearing = false;
+        floatJumps.value = new Set();
+    });
 }
 function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
@@ -352,7 +369,7 @@ const {sashKindOf, sashBoxStyle, sashProps} = useSashPresentation({
  * 起点立即生效，下一次写终点时再带上，过渡才从起点开始。新出现的元素没有上一帧的样式，带不带都一样。
  */
 function contentMoving(item: GridContentPlacement): boolean {
-    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item));
+    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item)) && !floatJumps.value.has(item.leaf);
 }
 
 /**
@@ -361,6 +378,11 @@ function contentMoving(item: GridContentPlacement): boolean {
  */
 function structureMoving(key: string): boolean {
     return moving.value && !growing.value.has(key);
+}
+
+/** 叶外框带不带过渡标记：同 `structureMoving`，这一轮改了矩形、不过渡的浮动窗（`floatJumps`）不带。 */
+function frameMoving(item: GridLeafPlacement<unknown>): boolean {
+    return structureMoving(item.key) && !floatJumps.value.has(item.node.id);
 }
 
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
@@ -388,6 +410,7 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     const releasing = released;
     // 标了 `animate`、这一次与上一次都不在手势里、不是刚放开的窗：矩形变化照常过渡（输出 105）。
     const animated = new Set(props.floats.flatMap((float) => (float.animate === true && float.gesture === undefined && !lastGestures.has(float.id) && !releasing.has(float.id) ? [float.id] : [])));
+    const jumps = previous === undefined ? new Set<string>() : floatRectJumps(next, previous, animated);
     motion.update({
         items: previous === undefined ? next : settleFloatMoves(next, previous, animated),
         previous: previous ?? null,
@@ -400,7 +423,12 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         ...(releasing.size === 0 ? {} : {released: releasing}),
     });
     lastGestures = new Set(floatGestures.value.keys());
-    if (releasing.size > 0) clearReleased();
+    // 没有过渡时本来就不带标记，不用记（拖着缩放时每一帧都改矩形）。
+    if (jumps.size > 0 && moving.value) holdFloatJumps(jumps);
+    if (releasing.size > 0) {
+        for (const id of consumedReleases(next, previous ?? [], releasing)) released.delete(id);
+        if (released.size === 0) clearReleased();
+    }
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
@@ -681,9 +709,9 @@ defineExpose({
                 :id="domIdOf(item.key)"
                 class="nb-grid-frame"
                 :data-leaf="item.node.id"
-                :data-moving="structureMoving(item.key) ? '' : undefined"
+                :data-moving="frameMoving(item) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
-                :data-float="floatAt.has(item.node.id) ? '' : undefined"
+                :data-float="floatAt.has(item.node.id) || docking.has(item.key) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
@@ -722,7 +750,7 @@ defineExpose({
             </div>
         </template>
         <template v-if="$slots['float-chrome'] !== undefined">
-            <div v-for="float in chromeFloats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
+            <div v-for="float in chromeFloats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving && !floatJumps.has(float.id) ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
                 <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
@@ -859,7 +887,7 @@ defineExpose({
 }
 
 /*
- * 浮动窗回到树里（叶不换）：这一次渲染摘掉 `data-float`，窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
+ * 浮动窗回到树里（叶不换）：带着过渡标记的那一次渲染摘掉 `data-float`（从起点出发时晚一次，见 `useGridMotion` 的 `docking`），窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
  * 一下子摘掉的话飞回去的只是一块没有边的底色，像没有动画。三样都用加速的曲线，到快落地才没：圆角跟着位置先变直，底色还没淡，半路就是一张方角的卡片。
  * 别的叶这几样不变，过渡不到它们。
  */

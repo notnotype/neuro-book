@@ -3,7 +3,8 @@
  *
  * 读的是库的 `session` 表：建立时间是 `createdAt`，最后使用时间是 `updatedAt`（要会话的接口每小时至多更新一次，所以精确到一小时以内，
  * `Sessions.maintain`），浏览器标识的概要是 `userAgent` 列里的 JSON（建会话前的钩子写的，`user-agent.ts`）。结束会话经
- * `session.ts` 的 `endSession`：删会话只在那一组函数里（架构用例守着）。
+ * `session.ts` 的 `endSession`：删会话只在那一组函数里（架构用例守着），它同时撤掉在那次会话里发出的对外 OAuth 令牌与
+ * 授权码（`site.oauth-provider` 输出 8）。
  */
 
 import type {Context, Hono} from "hono";
@@ -71,10 +72,11 @@ export function registerMySessionRoutes(app: Hono, options: MySessionsOptions): 
         await readEmptyBody(c);
         await conn.write((tx) => {
             // 中间件读会话在这个事务之前，排队期间当前会话可能已被结束（设计审查第 5 条）。
-            if (!isSessionLive(tx, session, clock.now())) throw new IdentityFailure("unauthenticated");
+            const now = clock.now();
+            if (!isSessionLive(tx, session, now)) throw new IdentityFailure("unauthenticated");
             const owned = tx.query<{id: number}, [number, number]>(`SELECT "id" AS id FROM "session" WHERE "id" = ? AND "userId" = ?`).get(id, session.userId);
             if (owned === null) throw new IdentityFailure("not_found");
-            endSession(tx, id);
+            endSession(tx, id, now);
         });
         if (id === session.sessionId) appendCookies(c, await sessions.clearCookie());
         const response: EmptyResponse = {};

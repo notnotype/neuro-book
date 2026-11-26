@@ -196,7 +196,7 @@ export interface LayoutFloatResize {
 }
 
 /**
- * 缩放之后的矩形。到了尺寸的上下限时对边不动；最小尺寸优先。
+ * 缩放之后的矩形。到了尺寸的上下限时对边不动；最小尺寸优先。`min`、`max`、`area` 只作用于方向不为 0 的轴，另一轴的位置与尺寸照搬 `start`。
  *
  * - `max` 是尺寸上限，不给时不限。
  * - `area` 是边界（相对网格根的矩形）：跟着指针的边不越过它。起点就在区域外的边不再往外拉，也不往里跳；不动的边不变。
@@ -214,8 +214,9 @@ export function resizeFloatRect(start: GridRect, direction: LayoutFloatResize, d
         if (direction.height === 1) maxHeight = Math.min(maxHeight, Math.max(area.y + area.height, start.y + start.height) - start.y);
         if (direction.height === -1) maxHeight = Math.min(maxHeight, start.y + start.height - Math.min(area.y, start.y));
     }
-    const width = clamp(start.width + direction.width * delta.x, bounds.min.width, maxWidth);
-    const height = clamp(start.height + direction.height * delta.y, bounds.min.height, maxHeight);
+    // 方向为 0 的轴原样沿用起点：起点可能是宿主夹进小区域之后比最小尺寸还小的呈现矩形，横拖右边时不该把高度撑回最小尺寸。
+    const width = direction.width === 0 ? start.width : clamp(start.width + direction.width * delta.x, bounds.min.width, maxWidth);
+    const height = direction.height === 0 ? start.height : clamp(start.height + direction.height * delta.y, bounds.min.height, maxHeight);
     return {
         x: direction.width === -1 ? start.x + start.width - width : start.x,
         y: direction.height === -1 ? start.y + start.height - height : start.y,

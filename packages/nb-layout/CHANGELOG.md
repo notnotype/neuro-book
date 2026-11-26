@@ -7,11 +7,12 @@
 ### 不兼容的改动
 
 - 拖动会话的 `autoScroll` 不再收 `element`，改收 `containers({point, top})`：指针此刻所在的、要边缘滚动的容器，从里到外，没在滚时指针每次移动调一次，在滚时每帧开头调一次。原来的 `autoScroll: {element}` 改成 `autoScroll: {containers: () => [element]}`，竖向列表的行为不变（越过上下边照旧最快）。`overflow-y: hidden` 的元素以前给了就滚 `scrollTop`，现在不滚：轴看计算样式。
+- `GridSashResolver` 多了第三个参数 `{before, after}`（挨着这条线的两个直接孩子的 id）：交给 `createGrid` 的 `sashSize` 两参函数不用改；拿着类型为 `GridSashResolver` 的函数自己调用或转发给别处的代码要传第三个参数（这条线两侧真实的孩子 id），否则类型检查报 TS2554。
 
 ### 新增
 
 - `sashSize` 的函数形式多收第三个参数 `{before, after}`：挨着这条线的两个直接孩子的 id，与 `NestedGrid` 的 `sashDisabled` 同一个认法，宿主不用再按分支 id 加序号认线（序号随结构变）；只用前两个参数的函数照旧可用。类型 `GridSashResolver` 跟着改，`GridOptions.sashSize` 改用它。
-- 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
+- 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。从右到左排版、`*-reverse` 的 flex 与竖排的容器按物理方向滚（拖到左端往左、拖到上端往上）。
 - `resizeFloatRect` 的 `bounds` 可以给 `area`（相对网格根的矩形）：跟着指针的边不越过它，起点就在区域外的边不再往外，也不往里跳，最小尺寸优先。`FloatWindowHandles` 多了同义的 `area` 属性，指针与键盘缩放都按它。
 - `FloatWindowHandles` 的 `commit` 多了第二个参数 `direction`（`LayoutFloatResize`）：这次动的边，键盘缩放是右下角。`rect` 里没动的那一轴是夹过的值，要保住记录的宿主只取 `direction` 不为 0 的轴。只接第一个参数的监听不用改。
 - `NestedGrid` 的 expose 加 `leafRect(id)`：树里这块叶此刻的矩形（相对网格根），手势预览中跟着预览、最大化时是盖住的外接矩形，浮动窗、离开中的叶与不存在的 id 是 `null`；在计算属性里读会跟着摆放重算。它不看 `floats`，可以拿来算 `floats`。
@@ -27,6 +28,11 @@
 - `placeFloat(id, null)` 之后、下一帧之前把窗放回树里（或把它的内容并进别的叶）时，过渡从松手时画着的位置出发，不再先跳回按下之前的位置：宿主不用再等下一帧才改树。下一帧之后才发布的照旧从记录矩形出发。
 - `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
 - README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
+
+### 修复
+
+- 拖动中用 `placeFloat` 挪过的浮动窗，松手后回到树里时投影、底色与圆角随过渡淡去，不再第一帧就没了、只剩位置在飞；不经拖动的停靠（宿主直接把窗放回树里）本来就淡去。
+- `resizeFloatRect` 的方向为 0 的轴原样沿用 `start` 的位置与尺寸，`min`、`max`、`area` 只作用于动的那一轴：窗被夹进比最小尺寸还小的区域时，横拖右边不再把高度撑回最小尺寸、盖住区域外的东西。
 
 ## [0.3.0] - 2026-11-26
 

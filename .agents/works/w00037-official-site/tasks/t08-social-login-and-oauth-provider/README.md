@@ -183,3 +183,28 @@ Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、
 - 晋升时要补的：两份 Spec 的证据一节要指向 Smoke 标在的 `oauth-provider.test.ts`、`accounts-social.test.ts` 与新的 `accounts-identities.test.ts`（代码合入 master 之后再写，免得链接不存在）。
 
 第 8 到 10 片的实现审查（处理见计划文末“实现审查（第 8 到 10 片）的处理”）：Opus 那 5 条的修正已提交（`be09202c9`，10 个文件）：发起时库没有这个上游（`PROVIDER_NOT_FOUND`，按码判）回 503 `unavailable`；登录意图的社交发起在调库之前计入登录的来源地址计数，与密码登录共用额度；社交注册的邮箱不合本站规则时同没验证过；`identities.ts` 与 `0003` 注明导入要写名字行；包内补三个回调并发到认领。实现者自报：五个目标包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过，4 条变异都被抓到；`test:affected --with-consumers` 选中 28 个包，被它自己的 50 分钟上限截停在最后 5 个，dev-panel、nb-host、nb-story 有几条 5 秒超时（负载 12 到 27，与本次改动无关）。发起被 `provider_disabled` 或 `validation_failed` 拒掉的不计入限流，同密码登录“字段不合格的请求不计入”。omp 那 3 条要改的接着修（fix4），两次修正合在一起由主会话重跑验证。
+
+omp 那 3 条的修正已提交（`0dc6d182d`，14 个文件）：
+- 封禁与建会话交错：新加迁移 `0004`，`session` 表插入前的触发器拒绝被封禁账号的会话（只看 `banned = 1`；`banExpires` 恒为空，触发器拿不到模块时钟，将来加封禁到期要重写它）。社交回调按 `SQLITE_CONSTRAINT_TRIGGER` 认出、落到 `account_banned`；`session` 表上只能有这一个触发器，`schema.test.ts` 核对。密码登录与注册本来在自己的写事务里复核，触发器对它们是第二道。实现者列了“建会话的路 × 封禁落在哪一步”的表，只有社交登录、社交注册在“查与插之间”那格改前会留下会话；社交注册那格没有单独用例，与社交登录同一个触发器、同一个 catch。
+- Google 配 `requireIdTokenVerification`：发现文档缺 issuer 或 `jwks_uri` 时库不建这个上游，发起回 503 `unavailable`；仿真上游加了 `omitJwksUri`。
+- 解绑只数密码与所在上游开放着的其它身份，列表照旧。
+- 实现者自报：账号与站点各包的测试与类型检查都过，`governance:check` 过，合同测试连跑 3 遍各 334 条都过，4 条变异都被抓到。`--with-consumers` 带进来的别的包有 5 项失败，都与本次无关：dev-panel 的 herdr 与 nb-story 的子进程超时在 master 上也失败，nb-markdown 与 neuro-book 的几条单独重跑通过；`ProvidersPage.dom.test.ts` 在分支上失败、master 上通过，因为分支起点之后 master 改过 models 插件，合入前变基后复核。
+- 社交注册意图下被封禁时，码随情形不同：已关联的旧账号被封时是 `social_failed`，不建号、不扣码；刚建的账号在库建会话之前被封时是 `account_banned`，账号与扣码已提交（账号确实建成了）。不统一，写进 `site.accounts` 输出 13。
+
+主会话在 `0dc6d182d` 上重跑（负载降到 2 后）：五个目标包的测试与类型检查都过，合同测试 334、账号模块 598、账号合同包 113、站点服务 156，没有失败。
+
+晋升前逐句核对（Opus，[`evidences/promotion-check-opus.txt`](evidences/promotion-check-opus.txt)）：`site.oauth-provider` 全文与另两份 Spec 带“（planned）”的句子。
+- 没实现 2 句：`site.accounts` 输出 18 的旧站码保留次数与期限（t12）、注册页预填邀请码（前端），标记留着。
+- 与字面不一致 4 处。三处改了 Spec 措辞：只有开放了的上游的回调可达；回环主机不分大小写；`identity_taken`、`identity_exists` 只作跳转参数，挪出 409 那行。另一处改实现：用户信息 401 的 `WWW-Authenticate` 带着库的 DPoP 质询，去掉。
+- 没有测试 26 句（PKCE 必须、码过期、`max_age` 补交、RFC 6750 错误码、存储副作用等），连同 DPoP 一起交给 fix5 补。
+- `site.accounts` 的 Smoke 补了社交注册。
+
+fix5 已提交（`a2a759944`，13 个文件），主会话收尾一个（`1a8cb8004`）：
+- 用户信息端点回 401 时 `WWW-Authenticate` 只留 `Bearer` 质询：按 RFC 7235 的结构拆头，保留 RFC 6750 的 `error`，拆不出时只回 `Bearer` 并记 warn。
+- 26 句缺测试的都补了用例。T11（建签名钥撞写锁）只确认了 `start_failed`，撞在哪一步是读代码推断的；T12 靠把会话行的到期改到系统时间之前，因为库按系统时间判。
+- 补出来与 Spec 字面不一致的三处，按实测改了 Spec：
+  - 不带 PKCE 校验值回 `invalid_request`，校验值不对或不带时码都不被用掉（主会话把两条用例补到断言之后照常换出）；
+  - 不带令牌时 401 的质询里不带错误码，只在响应体（RFC 6750 第 3.1 节）；
+  - 注册意图下已关联的账号在库查过封禁之后被封，落点仍是 `identity_taken`，因为注册意图在建会话之前就拒了旧账号（主会话把实现者留在仓库外的交错用例改成这个断言放回）。
+- 变异 5 条都被抓到。T8 的变异造不出来（`max_age` 是库在跳转前去掉的），用 T10 代替。
+- 主会话在 `1a8cb8004` 上重跑：五个目标包的测试与类型检查都过（合同测试 344、账号模块 608、合同包 113、站点服务 156），`governance:check` 过。

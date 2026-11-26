@@ -90,7 +90,6 @@
         "notAppeared": "这时还没出场",
         "positionGone": "原来选的那一章已经不在了",
         "sameAs": "是谁：",
-        "position": "看哪个时间点",
         "planned": "算上计划中的情节",
         "tabs": {
             "label": "条目的分页",
@@ -128,8 +127,6 @@
         "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
         "fieldRestored": "恢复了{{name}}的“{{label}}”",
-        "plannedMark": "算上计划",
-        "leavePlans": "不算计划",
         "addComponentShort": "添加一组设定",
         "groupAlreadyAdded": "这组设定已经加上了",
         "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次"
@@ -223,9 +220,16 @@
         "button": "改",
         "label": "改{{label}}",
         "heading": "改{{label}}",
-        "intent": "这是",
+        "intent": "这次改的是",
         "creative": "改设定",
         "story": "剧情里变了",
+        "since": "从{{place}}起",
+        "patchHere": "改{{place}}那一笔",
+        "storyAgain": "{{place}}里又变了",
+        "note": "发生了什么",
+        "notePlaceholder": "发生了什么（选填，不填就写“{{fallback}}”）",
+        "storyTitle": "{{label}}变成 {{value}}",
+        "storyTitleLong": "{{label}}变了",
         "save": "保存",
         "cancel": "取消",
         "changedElsewhere": "这个条目在对话框打开以后被别处改过。关掉再打开能看到改过的内容；再保存一次就以这里填的为准。",
@@ -425,10 +429,10 @@
             "text": "待处理 {{count}}"
         },
         "line": {
-            "title": "在看的线",
-            "main": "在看：主线",
-            "follow": "在看：跟着章",
-            "named": "在看：{{name}}"
+            "title": "故事线",
+            "main": "故事线：主线",
+            "follow": "故事线：按章节自动",
+            "named": "故事线：{{name}}"
         }
     },
     "state": {
@@ -557,13 +561,34 @@
         }
     },
     "line": {
-        "pickTitle": "看哪条线",
+        "pickTitle": "看哪条故事线",
         "lostTitle": "原来看的那条线已经不在了",
         "placeholder": "选一条线",
-        "follow": "跟着章",
-        "main": "主线",
-        "followNow": "跟着章（此刻：{{line}}）",
-        "label": "看哪条线"
+        "follow": "按章节自动",
+        "main": "主线"
+    },
+    "viewPoint": {
+        "label": "在看",
+        "aria": "在看：{{summary}}",
+        "withPlans": "含计划",
+        "lines": "故事线",
+        "linesTip": "作品里平行发展的几条剧情：主线，以及从主线某一处分出去的另一种发展。同一个人在不同的线上可以不一样。“按章节自动”是哪一章讲哪条线，就看哪条线。",
+        "progress": "剧情进度",
+        "progressTip": "设定会随剧情变。这里选看故事进行到哪一刻的样子：“最初”是一切发生之前的起始设定，也可以看某一章的开头或末尾。",
+        "follow": "按章节自动",
+        "followNow": "当前：{{line}}",
+        "initialHint": "起始设定",
+        "start": "开头",
+        "end": "末尾",
+        "search": "章号或标题",
+        "searchLabel": "找一章",
+        "noMatch": "没有对得上的章",
+        "prevLabel": "往前一处",
+        "nextLabel": "往后一处",
+        "prev": "往前一处：{{position}}",
+        "next": "往后一处：{{position}}",
+        "atStart": "已经是最初",
+        "atEnd": "已经是最后"
     },
     "entryPicker": {
         "placeholder": "找一个条目",

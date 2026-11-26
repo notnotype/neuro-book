@@ -94,6 +94,44 @@ export interface DragScrollTarget {
     scrollBy(x: number, y: number): boolean;
 }
 
+/** 计算样式里决定滚动原点的几项，取值同 `getComputedStyle`。 */
+export interface ScrollOriginStyle {
+    readonly display: string;
+    readonly direction: string;
+    readonly writingMode: string;
+    readonly flexDirection: string;
+    readonly flexWrap: string;
+}
+
+/**
+ * 滚动容器在哪个物理轴上滚动位置是负值范围。浏览器把滚动原点放在内容开始的那一端：开始的一端在右（横向）或在下（纵向）时，
+ * 这个轴的滚动位置从 0 往负数走，0 是起点，`-(scrollWidth - clientWidth)` 是另一头。
+ *
+ * 开始的一端先由书写模式定行内、块两个方向，flex 容器再按主轴的 `*-reverse` 与交叉轴的 `wrap-reverse` 各翻一次；两次翻转互相
+ * 抵消（`row-reverse` 加 `rtl` 横向仍从左开始），所以不能只看有没有其中一项。对照表是 Chrome 实测的（见单测）。
+ */
+export function scrollOriginReversed(style: ScrollOriginStyle): {readonly x: boolean; readonly y: boolean} {
+    const mode = style.writingMode;
+    const vertical = mode.startsWith("vertical") || mode.startsWith("sideways");
+    const rtl = style.direction === "rtl";
+    // 行内方向：横排从左到右、竖排从上到下，`rtl` 反过来；`sideways-lr` 竖排本来就从下往上。
+    let inline = mode === "sideways-lr" ? !rtl : rtl;
+    // 块方向：横排从上到下，`vertical-lr`、`sideways-lr` 从左到右，`vertical-rl`、`sideways-rl` 从右到左。
+    let block = mode === "vertical-rl" || mode === "sideways-rl";
+    if (style.display === "flex" || style.display === "inline-flex") {
+        const mainReversed = style.flexDirection.endsWith("-reverse");
+        const crossReversed = style.flexWrap === "wrap-reverse";
+        if (style.flexDirection.startsWith("column")) {
+            block = block !== mainReversed;
+            inline = inline !== crossReversed;
+        } else {
+            inline = inline !== mainReversed;
+            block = block !== crossReversed;
+        }
+    }
+    return vertical ? {x: block, y: inline} : {x: inline, y: block};
+}
+
 export interface DragGestureAutoScroll {
     /** 指针在 `point` 时的候选容器，从里到外。没在滚时指针每次移动调一次，在滚时每帧开头调一次（`armAutoScroll` 在已排着滚动帧时不调）。 */
     targets(point: GridDropPoint): ReadonlyArray<DragScrollTarget>;
@@ -385,7 +423,11 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         // 候选每帧现取：指针不动而容器在它底下换了（内容滚动、布局变化），这一帧就换过去。
         const plan = current === null || scroller === undefined ? null : edgeScrollPlan(scroller.targets(current.point), current.point, scroller.edgePx, scroller.maxStepPx);
         if (plan === null) {
+            // 上一帧滚了（`autoScrolling` 为真只在上一帧真的滚动了之后）：那一步的滚动事件在自己滚的期间到、没有重判，
+            // 显示的还是滚之前判的。按滚完的位置发布一次再停，不然指针不动就松手，放下与显示的不同、静默不写。
+            const moved = autoScrolling;
             autoScrolling = false;
+            if (moved) publish();
             return;
         }
         // 先按上一帧滚动后渲染出的内容判，再滚这一帧：虚拟列表在滚动事件之后才补上新进视口的行，同一帧里判会落在空白上。

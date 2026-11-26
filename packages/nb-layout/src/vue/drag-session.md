@@ -38,7 +38,7 @@ const {state} = useDragSession(rootEl, (root) => ({
 
 **起拖门槛**：鼠标与笔按下后移动 6px 才起拖；触摸要按住 200ms、期间移动不超过 6px。缺省值是 `DRAG_GESTURE_DEFAULTS`，经 `config` 改。e2e 里按下之后要先移过门槛，`activate` 与 `resolve` 才会被调。
 
-**边缘滚动**：没在滚时指针每次移动、在滚时每帧开头，会话调一次 `containers`，按交回的先后（从里到外）给横竖两个轴各挑一个容器：这个轴让滚（计算样式的 `overflow-x`、`overflow-y` 是 `auto` 或 `scroll`）、这个方向还没到头、指针离这一端不到 `edgePx`（缺省 24）或已越过它。两个轴都挑中时一起滚。越过一端也算，所以几条并排的标签条只交指针下的那条：`containers: ({top}) => { const strip = top?.closest<HTMLElement>("[data-tab-strip]"); return strip == null ? [] : [strip]; }`；固定的列表交 `() => [list]`，指针拖出列表上下边时照样滚，而且最快。每帧先按上一帧滚动后的内容判定、再滚，滚动中松手等下一帧再放下。
+**边缘滚动**：没在滚时指针每次移动、在滚时每帧开头，会话调一次 `containers`，按交回的先后（从里到外）给横竖两个轴各挑一个容器：这个轴让滚（计算样式的 `overflow-x`、`overflow-y` 是 `auto` 或 `scroll`）、这个方向还没到头（按物理方向算：从右到左排版、反向的 flex、竖排的容器，滚动位置从 0 往负数走，也照样认）、指针离这一端不到 `edgePx`（缺省 24）或已越过它。两个轴都挑中时一起滚。越过一端也算，所以几条并排的标签条只交指针下的那条：`containers: ({top}) => { const strip = top?.closest<HTMLElement>("[data-tab-strip]"); return strip == null ? [] : [strip]; }`；固定的列表交 `() => [list]`，指针拖出列表上下边时照样滚，而且最快。每帧先按上一帧滚动后的内容判定、再滚，滚动中松手等下一帧再放下。
 
 **起拖时网格还在过渡**：会话的判定量的是此刻的矩形。网格的布局过渡还在走时起拖，量到的是过渡中间的位置，宿主要在 `activate` 里调网格的 `settleMotion()`，让过渡直接到终点。`createLiveDragSession` 自己会调。开发检查（`setLayoutDevChecks`）只在宿主把 `dragging` 交给 `NestedGrid` 时查得到漏调。
 

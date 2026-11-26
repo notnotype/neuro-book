@@ -72,9 +72,9 @@ export const PENDING_VIEW_ID = PENDING_VIEW;
 export const REVISIONS_VIEW_ID = REVISIONS_VIEW;
 /** 状态栏的“待处理 N”（输出 25）。 */
 export const PENDING_COUNT_ITEM = "nbook.canon.pending-count";
-/** 状态栏的“在看：……”（输出 34）。 */
+/** 状态栏的“故事线：……”（输出 34）。 */
 export const LINE_ITEM = "nbook.canon.line";
-/** 选线时“跟着章”那一项的 id；线的项是 `line:<线 id>`，不会与它撞。 */
+/** 选线时“按章节自动”那一项的 id；线的项是 `line:<线 id>`，不会与它撞。 */
 const FOLLOW_ITEM = "follow";
 /** 挂还原对话框的页面浮层。 */
 const REVERT_OVERLAY = "nbook.canon.revert";
@@ -93,7 +93,7 @@ const REVISIONS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-hist
 /** 公开状态 `nbook.canon/hasPending`：状态栏条目的 `when`（输出 25）。 */
 export const canonState = definePublicState("nbook.canon", {
     hasPending: {type: "boolean", unready: false, reason: canonText("state.hasPending.reason")},
-    /** 窗口在看的线（输出 34）：空串是跟着章。 */
+    /** 窗口在看的线（输出 34）：空串是按章节自动。 */
     line: {type: "string", unready: ""},
     lineReady: {type: "boolean", unready: false, reason: canonText("state.lineReady.reason")},
 });
@@ -102,7 +102,7 @@ const PENDING_COUNT_DECLARATION: Written<ItemDeclaration, "title"> = {alignment:
 /** 状态栏右侧；标题由约定键补（`statusItems.line.title`）。线表读到以后才显示。 */
 const LINE_DECLARATION: Written<ItemDeclaration, "title"> = {alignment: "right", order: 50, priority: 30, command: {id: PICK_LINE_COMMAND}, when: {requires: [canonState.key("lineReady")]}};
 
-/** 状态栏上的“在看：……”（输出 34）：只有主线时说主线；有几条线时跟着章说跟着章，选了线说线名。 */
+/** 状态栏上的“故事线：……”（输出 34）：只有主线时说主线；有几条线时按章节自动就说按章节自动，选了线说线名。 */
 function lineItemText(line: WindowLine) {
     const options = line.options.value;
     const chosen = options.find((option) => option.id === line.line.value);

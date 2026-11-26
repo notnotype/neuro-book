@@ -1,0 +1,105 @@
+# w00039 t42 S8 实现审查（范围 1176db388..HEAD）
+说明：只读审查。跑过 ViewPointPicker/ConfirmBar/SuggestInput 三个 dom 测试（18 条通过）；没跑 e2e 与开发服务，标“从代码推断”的没有实测。
+
+[F1] 重要 / 对照需求与不变量 / ConfirmBar.vue:123-139、ChangePageHost.vue（bar 的 preview.route）、in-place-edit.ts:218-232
+现象：ConfirmBar 重写后不再画 preview.route，也不再画“正在预览…”。bar 变体（页顶确认条）与 inline 一样只剩“有别的变化才写一条警告”。
+为什么是问题：
+ 1) 变更详情页（ChangePageHost）的确认条只有一个意图，传进去的 route 是“会写回这条情节”，这是它唯一说明“改的是这条情节本身、不是新记一笔”的地方；现在整句丢了，change-page.dom.test.ts 里对应断言（“会写回这条情节”）被一并删掉，没有替代。
+ 2) 通用字段表（页顶确认条）开发者 2026-11-26 认了“这次不换样子”，计划“不做与风险”也写“样子不改”，但 bar 变体的“这是”标签、route 行、previewing 行都变了。看“最初”时只有一个意图、二选一不出，bar 上没有任何地方说写回哪里。
+ 3) 计划里“写回哪里不再单独写”只针对编辑卡（落点已经在二选一里），不适用于单意图的 bar 与变更详情页。
+ 4) in-place-edit.ts 的 describe() 仍为 route 多读一次 object（patch 路由）、拼 routeText，现在 inline 与 bar 都不显示它，成了死计算；ConfirmBarModel.preview.route 同理只剩类型。
+如何核实：grep ConfirmBar.vue 里 props.preview 只读 .impact；change-page.dom.test.ts diff 看删掉的断言；ChangePageHost.vue 约 108 行仍传 route: text("change.route")。
+建议改法：bar 变体恢复原来的 route 行与“正在预览…”行（只在 variant==='bar' 时画），inline 保持现在的样子；或明确向开发者说明 bar 变了并改 Spec/计划。同时清掉 inline 不用的 routeText 计算（where 仍要读 change.at，保留）。
+
+[F2] 重要 / 无障碍、焦点 / ViewPointPicker.vue:130-137（choose、chooseLine）、Popover.vue:65-76
+现象：选了位置或线以后只做 open=false。Popover 的 onCloseAutoFocus 一律 preventDefault，只有 Escape 关闭才把焦点还给锚点。键盘用户在菜单里回车/空格选中后，焦点所在的 radio 随菜单卸载，焦点落到 body。
+为什么是问题：选一章后立刻想用“往后一处”或 Tab 继续，得从文档开头重新找；计划写的是“回车或空格选中并关上；Escape 关上、焦点回按钮”，读屏用户听不到当前位置变了的落点。标准菜单（DropdownMenu）选中后焦点回触发器。e2e 只断言了 Escape 后 toBeFocused（canon-author 验收 7），没有“选中后”的断言，dom 测试也没有。
+如何核实：从代码推断。dom 里可在 openMenu 后对 radio 按 Enter/click 关闭，断言 document.activeElement 是 [data-view-point]；预期现在是 body。
+建议改法：choose/chooseLine 里 open=false 之后 nextTick 把焦点给 trigger（鼠标点选时也一样回到触发器，没有副作用）。顺手补一条 dom 与 e2e 断言。
+
+[F3] 重要 / UI 专属（小视口）/ ViewPointPicker.vue:202-203、277 起的样式（.view-point__chapters--scroll 只限章表）
+现象：菜单整体没有高度上限。只有章多于 12 时章表自己限高 16.5rem 并滚动；故事线一段（每条线一行 28px）、不超过 12 章的章表（一章 32px）和计划开关都是自然高度，外层 Popover 内容没有 max-height / overflow。nb-ui 里别的菜单（DropdownMenu、Select、Menubar）都用了 reka 的 available-height 限高，这个没有。
+为什么是问题：从代码估算：12 章、3 条线时约 630px（12px 内边距 + 两段小标题约 52 + 线 3×28 + 最初 32 + 12×32 + 两条分隔 26 + 计划开关 36），每多一条线 +28px。在矮窗口（笔记本半屏、手机横屏、390×844 里锚点在页头偏下的位置）里底部的章和“算上计划中的情节”会落在视口外且没法滚到；线多（分叉线是作品里长出来的，没有上限）时更糟。floating-ui 的 shift 只挪位置，不压高度。这是估算，没实测。
+如何核实：Lab 里 ViewPointPicker 场景把窗口高度压到 500 或造 8 条线，量菜单 bottom 是否大于 innerHeight。
+建议改法：内容容器加 max-h-[var(--reka-popover-content-available-height)] overflow-y-auto（Popover 的 contentClass 传；或把整个菜单做成上下两个固定区加中间可滚），章表自己的滚动保留。
+
+[F4] 重要 / 键盘与无障碍 / SuggestInput.vue（inline 的 ul，约 98-115 行与样式 .suggest-input__list）
+现象：inline 档的建议值列表限高 13rem（约 6 行），上下方向键只改 activeId，没有把高亮项滚进可见范围。全文件没有 scrollIntoView（弹出档 SuggestionMenu 同样没有，但它没有限高，列全部）。
+为什么是问题：衣柜之类的建议值多于 6 项时，键盘用户按 ArrowDown 到第 7 项以后高亮在滚动区之外，回车选中的东西看不见；鼠标无影响。限高是这次新加的，所以是新引入的缺陷。aria-activedescendant 指向的元素不可见，读屏也读到但视觉用户（键盘为主的作者）看不到。
+如何核实：从代码推断。dom 里 inline 挂 10 项、连按 8 次 ArrowDown，没有地方断言 scrollTop 变化；真实页面里看高亮是否出了列表。
+建议改法：activeId 变化后（watch，flush post）对当前 li 调 scrollIntoView({block:"nearest"})；补一条 dom 测试（happy-dom 的 scrollIntoView 可 spy）。
+
+[F5] 建议 / 正确性（搜索）/ ViewPointPicker.vue:97-101
+现象：shown 的过滤是 String(chapter.index)===words || text("place.chapter").includes(words) || (title ?? "").includes(words)。
+ 1) 全是区分大小写的 includes：en-US 下章名 "Chapter 3"，用户输入小写 "chapter 3" 或 "chapter" 一章都搜不到；英文标题 "The Storm" 搜 "storm" 搜不到。
+ 2) 第一个条件是死的：字面“第 N 章”里已经含数字，"3" 会命中第 3、13、23、30 到 39、43、53 章共 15 章（60 章时），不是计划写的“章号”精确匹配。dom 测试只试了 "12"（碰巧只有一章），没试 "1" 或 "3"。
+ 3) 中文用户写“第3章”（无空格）搜不到，因为文案里有空格。
+为什么是问题：搜索框的用途是快速定位一章，章号输入多一页不相干的结果；英文界面基本不能搜。
+建议改法：toLocaleLowerCase 后比较；纯数字时只按章号精确匹配（再并上标题包含）；比较前去掉空白。补 "3"、大小写、“第3章”三条用例。
+
+[F6] 建议 / 无障碍 / ViewPointPicker.vue:206-217
+现象：“故事线”一段声明了 role="radiogroup"，里面的项是 role="radio"，但没有方向键处理、也没有 roving tabindex：每一项都是普通 Tab 停靠点。进度那一组（225 行起）却实现了完整的方向键与 roving。
+为什么是问题：读屏对 radiogroup 会提示“用方向键切换”，在这里按方向键没有反应，同一个菜单里两组 radiogroup 行为不一致；多条线时 Tab 要停每一项。
+如何核实：读模板：data-line-option 的按钮只有 @click。
+建议改法：要么给线一组同样的 roving + 上下键（可复用 onRadioKey 的思路，行只有一列），要么去掉 radiogroup/radio 语义改用 menuitemradio 并走同一套键盘；至少打开时（不可搜的菜单）焦点已经在当前位置，线这一组的 Tab 次数要少。
+
+[F7] 建议 / 隐含假设 / ViewPointPicker.vue:82-85、130-137
+现象：step() 检查了 locked，choose()/chooseLine() 与开关的 update:planned 没有。locked 只靠触发器 disabled 挡住“打开”，菜单已经打开时 locked 变成非空（例如另一个窗格触发了未提交的主文字）菜单不会关，仍能选位置与线。
+为什么是问题：输出 46 要的是“有没提交的主文字时位置、线与按计划都不能换”；这条路径几乎碰不到，但组件合同写了 locked 是“都不能换”，step 与 choose 的处理不一致。
+建议改法：watch(locked) 变真时 open=false，或 choose 系列里加 locked 判断。优先级低，窄边角，简单的一行 watch 即可，不必加机制。
+
+[F8] 建议 / 隐含状态 / SuggestInput.vue:26-35、97（focusin）
+现象：新加的 typed 只在 choose() 里复位。弹出档（页顶确认条、对话框）里：打一个字（typed=true）、失焦、再聚焦，列表仍按输入框里的值筛，只剩当前值自己，恰好是注释里说要避免的“刚打开只剩它自己”。
+为什么是问题：测试“输入框里是当前值时也列出全部”只覆盖第一次聚焦。inline 档不受影响（一直列着）。
+建议改法：@focusin 时 typed=false（只对非 inline）；补一条“打字、失焦、再聚焦仍列全部”的用例。
+
+[F9] 建议 / 对照合同（二选一写法）/ in-place-edit.ts:164-188
+现象：intentLabelsOf 的“同一章”只比 changed.at.chapter 与 position.chapter，没比线，也没分 changedAt.by 是 change 还是 check。
+ - 子线上带过去的值：service.#changedAt 把出处换成原线上的那一步，章号可能恰好等于所选章。标签写“改第 3 章那一笔”，但 routeSet 对 carried 返回 carried-value 失败（要在这条线上记剧情变化），点保存才报错。
+ - changedAt.by==="check"（语义档起点的核对点）：标签写“从第 2 章起”或同章时“改第 3 章那一笔”，那一笔其实是核对点。
+ - 换了位置后条目要重读，读回来之前 creative 标签按旧位置的 changedAt、story 标签按新位置写（e2e/dom 测试里自己写了“等它读回来”）。
+为什么是问题：标签现在承诺具体落点，承诺错了比原来的“改设定”更误导。几条都是窄边角（分支线上改带过去的值、语义档），按“窄场景选简单改法”的偏好，不必加机制。
+建议改法：同一章判断加上 changed.at.line 与 position.line 的比较（不同线就当不同来源，退回“从第 N 章起”），by==="check" 时 creative 标签退回 text("edit.creative")；carried 的失败原样出现即可，不另加预检。
+
+[F10] 建议 / 无障碍、文案 / ConfirmBar.vue:81-83、147-148、173-178
+现象：保存键的快捷键提示用 ::after content:attr(data-shortcut) 画，注释写“按钮的文字与读屏名照旧只是‘保存’”。Chrome 的无障碍名称计算会把 ::before/::after 的生成内容算进去，名字会变成“保存 ↵”或“保存 Ctrl ↵”（从规范推断，没实测）。Playwright 的 getByRole 默认子串匹配所以 e2e 照过，exact 匹配会失败。另外处理函数接受 metaKey，提示固定写“Ctrl ↵”，Mac 上不对。
+建议改法：确认名字后改注释或把提示放进 aria-hidden 的真实 span；Mac 按 navigator.platform 换成 ⌘。低优先级。
+
+[F11] 建议 / 其余小问题
+ a) “发生了什么”没有长度限制（Input 无 maxlength，内核 title 是无上限的 Text）：它成为修订标题与提示条文字，长句会撑开修订列表与浮动提示。可限一个合理长度（例如 60）并在保存时截断，或只在列表里截断显示。
+ b) 死文案与死参数：zh-CN/en-US 的 entry.plannedMark、entry.leavePlans、line.label、entry.position 已无引用（grep canon 的 web/shared/backend 为 0）；ConfirmBarModel.preview.route 与 ChangePageHost 的 route 只剩类型。随 F1 一起处理。
+ c) ViewPointPicker.vue labelOf 对不在表里的值回退成原始值（例如 "c3:end" 或空串）：章表还没读到而位置已有值时按钮会写出内部 id；EntryPage 传空串位置时 summary 以“ · 主线”开头。窄边角、瞬时，可回退为 text("position.initial") 之外的占位或不画。
+ d) 弹出档 Popover 的 collisionBoundary 取的是条目页 article（[data-entry-page]），计划写的是“条目页所在的编辑组”：条目页若有最大宽度居中，边界比编辑区窄，右侧留白处浮层也不会用。差别是否要紧请对着实际页面看一眼（未验证）。
+
+[F12] 建议 / 测试 / 多处
+ a) 空过的“不写”断言：canon-write.e2e.ts 的 expect(bar).not.toContainText("改最初的值")、canon-author.e2e.ts 验收 3 的同一句、ConfirmBar.dom.test.ts 的 expect(wrapper.text()).not.toContain("改最初的值")、more.text() 不含“改第 2 章那一笔”：ConfirmBar 现在根本不画 route，这几句对“预览只在有变化时写”没有区分力（把 impact: quiet ? [] : impact 改回 impact 它们照过）。有区分力的是 find("[data-edit-impact]").exists()===false 那几句；建议把前者删掉或换成对 impact 的断言，并按 F1 决定后补回 route 的断言。
+ b) 变异面：in-place-edit 里“预览只在有别的变化时写”的那一行（impact: quiet ? [] : impact）在 entry-page.dom.test.ts 里靠 data-edit-impact 不存在来守，是有效的；但“看最初只有改设定、二选一不出”“changedAt 为 unscheduled 退回‘改设定’”“前史写‘从前史起’”没有用例（只覆盖了最初/第 N 章/同章三种），intentLabelsOf 的 unscheduled 与 prehistory 分支没有被任何测试走到。
+ c) ViewPointPicker.dom.test.ts：没有“滚到当前章”（happy-dom 无布局，offsetTop 全是 0，所以 list.scrollTop 那一行测不到）、没有“选中后焦点去哪”（F2）、没有“当前位置被搜索筛掉时第一项可聚焦（roving）”、没有“Space/Enter 选中”、没有“只有线时没有章表的菜单”。滚到当前章这一条计划里写了要测，e2e 里也没有（canon-author 的 60 章用例我只看到了搜索，没找到对 scrollTop 的断言），建议 e2e 里补一条：60 章、位置在 c45，打开后 c45 行在列表可视范围内（量 getBoundingClientRect）。
+ d) e2e 用例会改共享作品数据再靠 revertNewest 还原（canon-author 验收 51 两条），中途失败会把脏数据留给后面的用例（文件是串行的），失败信息会被后面一串连锁失败淹没。建议用 try/finally 或 afterEach 还原。验收 3 里 before === "十七" ? "十八" : "十七"、before === "填写" ? "（没有）" : before 是用例里的条件分支，数据一变就换了断言，建议固定样本值。
+ e) 新增的 dom 用例里 Tabs 的 updateFade 只有 e2e（tabs-scroll.spec.ts）测，没有 nb-ui 的组件单测；e2e 只测了滚到头与点宽，没测“标签增减时重算”（watch props.items 那一条）与“窗口变窄”（ResizeObserver 里的 updateFade）。
+
+[F13] 建议 / UI（Tabs 两头渐隐）/ Tabs.vue:314-324
+现象：渐隐用的是容器自己的 mask-image，baseline 为真时底部那条分隔线与选中指示线也一起被 24px 淡掉；RTL 下 scrollLeft 为负，updateFade 的 scrollLeft>1 判断会错（项目现在没有 RTL，只记一笔）；ResizeObserver 只观察标签栏自身，标签文字因 i18n 或徽标变宽而容器没变时只靠 props.items 的深度 watch 触发。
+为什么是问题：底线端头变淡是否是想要的外观没有在 Spec 或设计语言里写；若不是，应该只淡标签区域。
+如何核实：Lab 里 tabs-scroll 场景截图看底线两端；窄屏 390 看一次。
+建议改法：先让开发者看一眼截图再定；要保底线不淡，把 mask 放到内层滚动区或用伪元素渐变盖在标签上。
+
+[F12 补] 计划“测试分工”里写给 e2e 的“60 章时搜到一章并选中”没有写进任何 e2e（canon-author 里只在 3 章的作品上断言了 [data-view-point-search] 不存在，grep 搜索/scrollTop/60 章无结果）；搜索与滚到当前章只有 dom 测试（后者在 happy-dom 里量不到）。样本作品只有 3 章，要么造一个多章的样本、要么在 Lab 的 60 章场景上走 e2e，否则 offsetTop 的参照与 12 章门槛都没有真实浏览器里的证据。
+
+## 未发现问题的方面（逐项看过）
+- ViewPointPicker 焦点进入：Popover 内容在打开那一拍才渲染，watch(open) 里 nextTick + 一帧后再聚焦，搜索框/当前位置；Escape 回按钮由 Popover 的 anchor 路径负责，e2e 有断言；点锚点本身不算点外面，不会关了又开。
+- 滚到当前章的算术：row.offsetTop 与 list.offsetTop 参照同一个 offsetParent（Popover 内容是 relative，章表自己没有定位），差值是行在列表内容里的位置；菜单关闭即卸载，每次打开 scrollTop 从 0 起，不会叠加旧值。
+- 前后一步：顺序是“最初、每章开头、末尾”，到头不可用、位置不在表里（-1）两边都不可用；locked 时按钮与前后一步都不可用且悬停写原因；标记“那一章不在了”优先于“还没出场”。
+- 与旧 LineSelect/PositionPicker 比：“原来看的那条线已经不在了”原本就只在状态栏的选线 QuickPick（plugin.ts:204 的 lost）里，旧 LineSelect 没有，没丢；读屏名在按钮（aria-label“在看：…”）、两组 radiogroup（“故事线”“剧情进度”）、章内按钮（“第 3 章开头”）上都有。丢掉的只有“算上计划 ×”一键退出，README 已记录，退出改到菜单开关。
+- in-place-edit：note 不进预览重取的键，但 submit 时现取 titleOf，预览结果（落点、变化）与 title 无关，所以不会预览与保存不一致；note 随草稿存在标签状态里，切走再回来还在。requestId 在 recheck（结局不明）路径上保持不变，与意图、值的既有行为一致，没有新增类别。title 为空白时回退 storyFallback；值长于 20 字、含换行、引用/图片/开关都落到“X 变了”。
+- impact: quiet ? [] : impact 只影响 describe 的返回，saveWhenPreviewed 仍用 quiet 判断，回车保存的路径不变。
+- ConfirmBar：Escape 与组字、Ctrl/⌘+回车只对多行文字、回车只在单行 INPUT 且建议值列表没接走时保存；原因优先于变化；data-previewed = preview 非空且不在预览，schedulePreview 同步置 previewing，没有“旧预览还亮着”的空档。
+- 不淡出的收起：onLeave 的第二个参数使 Vue 视为显式回调，立即 done，原文按钮在同一次 patch 里恢复，refocus 的 nextTick 能找到它；:has(> [data-editing-in-place]) > button 的 scoped 选择器只给 button 加了 data-v，编辑卡在宿主组件里不受影响；Transition 直接渲染子节点，卡片确是 .character-card__in-place / .look-card__in-place 的直接子元素。
+- Popover.collisionBoundary：computed 里处理数组复制，null 回到视口；EntryPageHost 渲染函数每次取 anchor.closest，锚点换了就跟着换。
+- 界面文字：新增文案里没有解释内部处理的句子；两个 InfoTip 与“不填就写……”占位是开发者在评审板上选定的。en-US 与 zh-CN 键对齐。
+- 已跑：ViewPointPicker.dom、ConfirmBar.dom、SuggestInput.dom 共 18 条通过。
+
+## 数量
+阻断 0；重要 4（F1 F2 F3 F4）；建议 9（F5 F6 F7 F8 F9 F10 F11 F12 F13，F12 含 a 到 e 五小点）。
+最严重的几条：F1（bar 与变更详情页丢了写回哪里与“正在预览”，与开发者“通用字段表不换样子”冲突）、F2（选中后焦点丢到 body）、F3（菜单无高度上限，线多或矮窗口里选不到）、F4（inline 建议值键盘高亮不滚动）。
+有效发现编号：F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13

@@ -136,8 +136,9 @@ describe("变更详情页", () => {
         await waitUntil("确认条", () => opened.wrapper.find("[data-confirm-bar]").exists());
         expect(opened.wrapper.get("[data-confirm-bar] h3").text()).toBe("改星瑕的存款");
         await opened.wrapper.get("[data-confirm-bar] input").setValue("500");
-        await waitUntil("预览", () => opened.wrapper.get("[data-confirm-preview]").text().includes("会写回这条情节"));
-        expect(opened.wrapper.get("[data-confirm-preview]").text()).toContain("星瑕的存款：1,200 → 1,500");
+        await waitUntil("预览", () => opened.wrapper.find("[data-confirm-bar][data-previewed]").exists());
+        expect(opened.wrapper.get("[data-confirm-preview]").text()).toContain("会写回这条情节");
+        expect(opened.wrapper.get("[data-edit-impact]").text()).toContain("星瑕的存款：1,200 → 1,500");
 
         opened.wrapper.unmount();
         const again = opened.remount();

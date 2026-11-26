@@ -5,9 +5,11 @@
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
+import {betterAuth} from "better-auth";
 
+import {identityAuthOptions} from "../auth";
 import {createTestDbRoot, type TestDbRoot} from "../testing/db";
-import {createTestAuth, recordingLog} from "../testing/library";
+import {createTestAuth, recordingLog, TEST_SECRET, TEST_SITE_URL, TEST_TERMS_VERSION} from "../testing/library";
 import {IdentityConnection} from "./connection";
 import {insertCredentialRow, insertUserRow, libDate, libDateMs} from "./library-rows";
 
@@ -27,9 +29,16 @@ afterEach(async () => {
     await viaModule.cleanup();
 });
 
+/**
+ * 产品装配的库，只去掉建用户、建账号前的社交钩子：它们只许库在社交回调里建 `user`、`account` 行（`social/hooks.ts`），这里是
+ * 直接调库的内部接口量存法。别的钩子照旧，建账号前钩子也不改密码登录方式的行（它只把令牌列置空，这一行本来就是空的）。
+ */
 async function libraryOn(root: TestDbRoot) {
     const conn = new IdentityConnection(root.open(), {log: recordingLog()});
-    return (await createTestAuth(conn.libDatabase()).$context).internalAdapter;
+    const options = identityAuthOptions({conn, siteUrl: TEST_SITE_URL, secret: TEST_SECRET, sessionDays: 30, termsVersion: TEST_TERMS_VERSION, clock: {now: () => Date.now()}, log: recordingLog()});
+    const {create: _socialAccountOnly, ...accountHooks} = options.databaseHooks.account;
+    const {create: _socialUserOnly, ...userHooks} = options.databaseHooks.user;
+    return (await betterAuth({...options, databaseHooks: {...options.databaseHooks, user: userHooks, account: accountHooks}}).$context).internalAdapter;
 }
 
 function rawRows(root: TestDbRoot, table: "user" | "account"): unknown[] {
@@ -58,7 +67,7 @@ describe("模块的 SQL 与库写出同样的行", () => {
         expect(rawRows(viaModule, "user")).toEqual(rawRows(viaLibrary, "user"));
         expect(rawRows(viaModule, "account")).toEqual(rawRows(viaLibrary, "account"));
 
-        const readBack = await createTestAuth(moduleConn.libDatabase()).$context;
+        const readBack = await createTestAuth(moduleConn).$context;
         expect(await readBack.internalAdapter.findUserById(String(userId))).toEqual(await library.findUserById(user.id));
         expect(await readBack.internalAdapter.findAccounts(String(userId))).toEqual(await library.findAccounts(user.id));
     });

@@ -6,15 +6,22 @@
 import type {Context, Hono} from "hono";
 
 import {createIdentityApp} from "./app";
-import {createIdentityAuth, type IdentityAuth} from "./auth";
+import {createIdentityAuth, identityJwtOptions, type IdentityAuth} from "./auth";
 import type {IdentityConfig} from "./config";
 import type {IdentityConnection, IdentityTimers} from "./db/connection";
 import {HashLimiter, type FailureFloorTiming} from "./hash-limiter";
 import type {IdentityLog} from "./index";
 import {dummyPasswordHash} from "./login";
+import {type ConsentDecision} from "./oauth/consent-api";
+import {resolveContinue, type ContinueResolver} from "./oauth/continue";
+import {buildDiscoveryDocument, createWellKnownApp} from "./oauth/discovery";
+import {createOAuthApp} from "./oauth/mount";
+import {prepareSigningKey} from "./oauth/signing-key";
 import {REAL_PASSWORD_FUNCTIONS, type PasswordFunctions} from "./password";
 import {createIdentityRateLimits} from "./rate-limit";
 import {Sessions} from "./session";
+import {createSocialCallback} from "./social/callback";
+import {openProviders} from "./social/providers";
 
 /** 停止时等队列里当前持锁者的上限（`site.operations` 输出 9 的“每个模块至多 2 秒收尾”）。 */
 const CLOSE_WAIT_MS = 2_000;
@@ -59,28 +66,50 @@ export interface IdentityOverrides {
     readonly hashTimers?: IdentityTimers;
     /** 包一层发会话：用来在库的事务开着时插入动作。 */
     readonly wrapIssueSession?: (issue: Sessions["issue"]) => Sessions["issue"];
+    /** 包一层确认页接口交库的那一步：用来在接口判完客户端、库还没判之间改客户端（`oauth/consent-api.ts`）。 */
+    readonly wrapOAuthConsent?: (decide: ConsentDecision) => ConsentDecision;
 }
 
 export interface IdentityAssembly {
     readonly auth: IdentityAuth;
     readonly sessions: Sessions;
+    /** 站点 API 前缀下的自家路由（`app.ts`）。 */
     readonly site: Hono;
+    /** 库的对外端点（`oauth/mount.ts`），挂在 `LIB_BASE_PATH` 下。 */
+    readonly oauth: Hono;
+    /** 两份发现文档（`oauth/discovery.ts`），挂在 `WELL_KNOWN_PREFIX` 下。 */
+    readonly wellKnown: Hono;
     close(): Promise<void>;
 }
 
 /**
  * 建模块。库的结构检查在库第一次被调用时才跑（表不对时 `create()` 照样成功、第一个请求才失败），所以这里主动触发一次：
- * 表少了列时以库的 `SCHEMA_MISMATCH` 失败，入口按 `start_failed` 收口（设计审查第 13 条；升级清单“库内行为”一行）。
+ * 表少了列时以库的 `SCHEMA_MISMATCH` 失败，入口按 `start_failed` 收口（设计审查第 13 条；升级清单“内部接口”的 `checkSchema` 一行）。
  */
 export async function assembleIdentity(conn: IdentityConnection, options: IdentityAssemblyOptions, overrides: IdentityOverrides = {}): Promise<IdentityAssembly> {
     const {config, clock, log} = options;
-    const auth = createIdentityAuth({database: conn.libDatabase(), siteUrl: options.siteUrl, secret: config.sessionSecret, sessionDays: config.sessionDays, clock, log});
+    const auth = createIdentityAuth({conn, siteUrl: options.siteUrl, secret: config.sessionSecret, sessionDays: config.sessionDays, termsVersion: config.termsVersion, clock, log, social: config.social});
     const context = await auth.$context;
     // 1.7.27 对自定义的 Kysely 方言也登记了结构检查；没有它时不能确认表能收下库写的东西，不启动。
     if (context.checkSchema === undefined) throw new Error("the library registered no schema check for the identity database");
     await context.checkSchema();
+    // 签名钥在表结构确认之后备好：表里有别的算法的钥匙时启动失败；最新的活钥解不开时换一把（`oauth/signing-key.ts`）。
+    await prepareSigningKey({context, conn, jwtOptions: identityJwtOptions(options.siteUrl), log});
+    // 发现文档里的签名算法以上一步的检查为前提，所以在它之后生成。
+    const wellKnown = createWellKnownApp(await buildDiscoveryDocument(auth), log);
+    const siteOrigin = new URL(options.siteUrl).origin;
+    // 续接令牌与确认标识是库签名的参数，验签用库上下文的 `secret`（`oauth/continue.ts`）；10 分钟按模块时钟。
+    const {secret} = context;
+    const continueResolver: ContinueResolver = (token, consumer) => resolveContinue(token, clock.now(), consumer, secret);
+    const decide: ConsentDecision = async (accept, signedQuery, cookie) => {
+        const headers = new Headers(cookie === null ? {} : {cookie});
+        return (await auth.api.oauth2Consent({body: {accept, oauth_query: signedQuery}, headers})).url;
+    };
 
     const sessions = new Sessions({auth, conn, clock, sessionDays: config.sessionDays, termsVersion: config.termsVersion, log});
+    // 社交上游的开关由配置给（计划 3.12）：没开放的上游，发起回 `provider_disabled`、回调地址 404。
+    const socialProviders = openProviders(config.social);
+    const oauth = createOAuthApp({auth, conn, sessions, clock, siteOrigin, log, social: {providers: socialProviders, callback: createSocialCallback({auth, conn, clock, siteOrigin, log})}});
     const passwords = overrides.passwords ?? REAL_PASSWORD_FUNCTIONS;
     const hashLimiter = new HashLimiter({concurrency: config.hashConcurrency, queue: config.hashQueue, log, ...(overrides.hashTimers === undefined ? {} : {timers: overrides.hashTimers})});
     const rateLimits = createIdentityRateLimits({now: () => clock.now(), log});
@@ -90,9 +119,10 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     const issueSession = overrides.wrapIssueSession?.(issue) ?? issue;
     const site = createIdentityApp({
         sessions,
-        siteOrigin: new URL(options.siteUrl).origin,
+        siteOrigin,
         termsVersion: config.termsVersion,
         registrationOpen: config.registrationOpen,
+        socialProviders,
         log,
         login: {
             conn,
@@ -107,6 +137,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             dummyHash,
             delay: overrides.loginDelay ?? ((ms) => Bun.sleep(ms)),
             failureFloor: overrides.failureFloor ?? {},
+            resolveContinue: continueResolver,
         },
         register: {
             conn,
@@ -119,15 +150,35 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             passwords,
             termsVersion: config.termsVersion,
             registrationOpen: config.registrationOpen,
+            resolveContinue: continueResolver,
         },
         changePassword: {sessions, conn, hashLimiter, rateLimits, clock, log, passwords},
-        me: {sessions, conn, clock, termsVersion: config.termsVersion},
+        me: {sessions, conn, clock, termsVersion: config.termsVersion, resolveContinue: continueResolver},
         mySessions: {sessions, conn, clock, log},
         inviteCodes: {sessions, conn, clock, rateLimits},
         registrationCodes: {sessions, conn, clock},
         adminUsers: {sessions, conn, clock, hashLimiter, passwords},
         adminInviteCodes: {sessions, conn, clock},
         audit: {sessions, conn},
+        adminOAuthClients: {sessions, conn, clock, log, auth, adapter: context.adapter},
+        oauthConsent: {sessions, conn, clock, log, siteOrigin, secret, decide: overrides.wrapOAuthConsent?.(decide) ?? decide},
+        grants: {sessions, conn, clock},
+        socialStart: {
+            auth,
+            conn,
+            sessions,
+            clock,
+            providers: socialProviders,
+            siteOrigin,
+            hashLimiter,
+            rateLimits,
+            passwords,
+            resolveContinue: continueResolver,
+            clientAddress: options.clientAddress,
+            registration: {termsVersion: config.termsVersion, registrationOpen: config.registrationOpen},
+            log,
+        },
+        identities: {sessions, conn, clock, openProviders: socialProviders},
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。
@@ -144,5 +195,5 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
     });
     // 哈希限额与连接的队列一起收：都拒收新的、等在算的与持锁的做完，各自至多 2 秒，同时等（`site.operations` 输出 9 的“每个模块至多
     // 2 秒收尾”）。
-    return {auth, sessions, site, close: async () => void (await Promise.all([hashLimiter.close(CLOSE_WAIT_MS), conn.close(CLOSE_WAIT_MS)]))};
+    return {auth, sessions, site, oauth, wellKnown, close: async () => void (await Promise.all([hashLimiter.close(CLOSE_WAIT_MS), conn.close(CLOSE_WAIT_MS)]))};
 }

@@ -1,0 +1,282 @@
+# w00037 t08 晋升前逐句核对报告
+核对范围：master 上 docs/specs/site/oauth-provider.md 全文（status planned）；docs/specs/site/accounts.md 与 docs/specs/site/admin.md 中带“（planned）”的条目、句子与失败码行。
+实现：worktree .worktree/w00037-t08-social-oauth，HEAD 0dc6d182d，范围 f8480b04e..0dc6d182d。
+记法：C=合同测试包 packages/nb-site-contract-tests/src/，I=包内 packages/nb-site-identity/src/。每条“条目｜代码｜测试｜结论”。结论：对上 / 没实现 / 与字面不一致 / 没有测试。
+
+## site.oauth-provider：输入一节
+- 端点表六行与地址｜I auth.ts:98-107 LIBRARY_PUBLIC_ENDPOINTS、oauth/mount.ts:314-352、oauth/discovery.ts:58-68｜C oauth-provider.test.ts “发现文档列出的每个端点地址都可达”“两个前缀下不在清单里的地址与方法都是 404”｜对上
+- 发现文档与公钥收 HEAD、状态与头同 GET、无正文；别的端点不收 HEAD｜mount.ts:340-346、discovery.ts:63-66｜C “公钥地址与两份发现文档收 HEAD”；HEAD 授权、HEAD 用户信息在 404 用例里（令牌、撤销的 HEAD 没逐个列，靠同一段分派代码）｜对上
+- 自家接口表四行（oauth/authorization 的 GET/POST、me/grants、admin/oauth-clients 四个）｜I oauth/consent-api.ts、oauth/grants.ts、admin/oauth-clients.ts:131-｜C 输出 14、15、16 的用例（见下）｜对上
+- 名字 1 到 100 码点｜合同包 OAUTH_CLIENT_NAME｜nb-site-identity-contract contract.test.ts:859 “登记：名字 1 到 100 个码点”（schema 级，合同测试包里没有经 HTTP 的超长名字用例）｜对上（只有 schema 级测试）
+- 回调一到五个｜合同包字段｜C oauth-admin.test.ts “个数与长度”｜对上。附：代码与该用例另有“每个至多 500 个码点”的规则，Spec 输入一节没写（Spec 缺句，晋升时可补）
+- 种类登记后不能改｜admin/oauth-clients.ts PATCH｜C “改名字、免确认、停用与再启用…种类不能改”（patch type 得 validation_failed）｜对上
+- 机密 client_secret_basic、公开 none｜auth.ts 装配；discovery 常量｜C 换码用例（机密 Basic、公开 client_id）｜对上
+- 回调规则：片段、用户信息、空白、控制字符；机密只许 https 非回环；公开另许 http 恰为三主机、端口任意；不许 https 回环与自定义协议｜oauth/clients.ts:20-66｜I oauth/clients.test.ts TABLE（逐行）；C oauth-admin.test.ts RULES 登记与改动两组｜对上
+- 协议名不分大小写、localhost. 与 [::ffff:127.0.0.1] 算回环、app.localhost 不算、公开 http 的 127.1 不算｜clients.ts:23(i 标志)、38-41、32｜I clients.test.ts:23、31、33、24、47-48（只在包内，合同 RULES 没有这几行）｜对上。附：clients.test.ts:45 `http://LOCALHOST:8/cb` 作公开客户端被接受（主机先转小写），与“http 主机按原样比”的字面略有出入：Spec 的“按原样”本意是不做 127.1 这类归一化，建议晋升时写明“主机不分大小写”
+- 不合规则登记不进 redirect_uri_invalid｜admin/oauth-clients.ts｜C RULES、“一个不合格的混在合格的里面”｜对上
+- 范围只有三个、必须带 openid｜合同包 OAUTH_SCOPES；授权端点交库判｜C “不带 openid 是 invalid_scope”（输出 3）｜对上
+- 自家接口满足同意门槛、来源头、错误形状；标准端点不受来源头约束｜自家路由走 accounts 的中间件；mount.ts 文件头 6-7 行不查来源｜C 条款版本提高之后 “确认页 GET 与同意都得 consent_required”；标准端点的各用例不带 Origin 照常可用｜对上（来源头一句没有专门针对 OAuth 自家接口的“缺 Origin 被拒”用例，属于沿用 accounts 中间件，判为对上）
+
+## site.oauth-provider：输出 1、2
+- 1 /api/identity/auth/ 下只有表内端点（按方法）与社交回调可达，/.well-known/ 下只有两份发现文档，其余 404；授权端点不收 HEAD｜mount.ts:319-350（路径写法、白名单、兜底 404）、auth.ts:116-（disabledPaths 第二道）、discovery.ts:63-65｜C oauth-provider.test.ts “两个前缀下不在清单里的地址与方法都是 404”（含 HEAD/PUT/DELETE 授权、内省、登出、自助登记、库端点）；I mount.test.ts “库的全部端点乘六种方法”“百分号编码的写法”、provider.test.ts “关掉的库端点”｜对上
+- 1 附带：Google、GitHub 回调“可达”｜mount.ts:305-311 只放开放了的上游，没开放的回 404｜C 同一用例里没开放的两个回调是 404；accounts-social.test.ts 里开放的可达｜与字面轻微不一致：Spec 写“与 Google、GitHub 回调可达”，实际是“开放了的上游的回调可达”。建议晋升时改成“开放了的上游的回调”
+- 2 两份相同、issuer=签发者、各能力字段的值、claims_supported、iss 参数、request 两项 false｜discovery.ts:27-56｜C “两份发现文档内容相同，逐字段是输出 2 的值”（整份 toEqual，多出字段也会失败，所以“不出现内省、注册、登出、DPoP、claims_parameter_supported”也被判了）；I mount.test.ts “发现文档”｜对上
+- 2 列出的每个端点地址都可达｜同上｜C “发现文档列出的每个端点地址都可达”（只判不是 404、公钥是 200）｜对上
+
+## 输出 3 授权请求
+- 已登记且未停用的客户端、回调逐字相等；否则不跳回，带到 /oauth/consent?error=client_not_found|redirect_uri_invalid（GET 与 POST）｜mount.ts:135-137、clients.ts:107-128、library-location.ts errorPageLocation｜C “客户端不对、回调地址不对：GET 与 POST 都不跳回客户端”“登录之后改掉继续地址里的回调地址”；I mount.test.ts:271｜对上
+- 公开客户端 http 回环不比端口，主机与路径仍逐字比，localhost≠127.0.0.1｜clients.ts:81-113｜C “公开客户端的 http 回环回调地址换了端口”（端口、localhost 两半）；I mount.test.ts:344（路径一半只在包内）｜对上
+- response_type=code｜库判｜C “交库前要拒的参数”里 response_type=token→unsupported_response_type｜对上
+- S256 的 PKCE（机密客户端也要）｜admin/oauth-clients.ts:180 require_pkce: true；库 authorize 8850-8859 行缺 PKCE 或非 S256 回 invalid_request｜没有找到任何用例发起不带 code_challenge、或带 plain 的授权请求（计划第 6 节写的“机密客户端不带 PKCE 被拒”没有落成用例）｜**没有测试**
+- 含 openid 且在允许之内的范围｜库判｜C “不带 openid 是 invalid_scope”；“在允许之内”（如 openid offline_access 或 openid admin）没有用例｜**没有测试**（后半句）
+- 可带 state、nonce、prompt、max_age、response_mode=query｜authorize-request.ts libraryAuthorizeParams｜C 多处；I authorize-request.test.ts:169（response_mode=query 拿到码）｜对上
+- claims、resource 与没列的参数被忽略、结果相同；resource 不改访问令牌｜mount.ts:150-153、authorize-request.ts｜C “claims 与 resource 被忽略”“带 essential acr 的 claims 与不带时结果相同”；I authorize-request.test.ts:197（几百个不认得的参数名）、mount.test.ts:314、324｜对上
+- POST 表单发起，规则同 GET；跨站 POST 不带 Cookie 按没有会话｜mount.ts:123-127、148｜C “以表单 POST 发起”“带着会话的表单 POST 与 GET 一样”、“交库前要拒的参数…GET 与表单 POST 相同”｜对上
+- 不带 openid→invalid_scope；request→request_not_supported；request_uri→request_uri_not_supported；response_mode 不是 query→invalid_request｜authorize-request.ts rejectedAuthorizeParameter｜C “回调地址可信时别的错误跳回客户端”“交库前要拒的参数”（fragment、form_post）｜对上
+- 查询串（POST 为体）超过 4096→invalid_request，原样与重编码各算一次｜authorize-request.ts、mount.ts:126、131｜C “查询串正好 4096 个字符”（GET 与 POST 的 4097）；I authorize-request.test.ts:181、188（重编码一半只在包内）｜对上
+- POST 体超过 16 KiB→400 invalid_request（JSON），不跳转｜mount.ts:325 bodyLimit 对整个子应用｜C 与 I 的 17 KB 用例都打在令牌端点（oauth-provider.test.ts:247、mount.test.ts:400），没有打授权端点 POST 的｜**没有测试**（授权端点这一句；同一个中间件，风险低）
+
+## 输出 4 先登录
+- 没有会话（或输出 13 要求重登）→ /login?continue=<令牌>｜mount.ts:146-148、library-location.ts 改写｜C 完整流程（Smoke）、“prompt=login 有会话也先去登录”；I mount.test.ts:306、authorize-request.test.ts:246、271｜对上
+- 登录带合格令牌→继续地址，回到这次授权请求、参数不变；prompt=login 与 max_age 已满足｜oauth/continue.ts、login.ts｜C Smoke 用例、“prompt=login…继续地址不再要求登录”；I continue.test.ts:81（参数与发起时相同）、118｜对上
+- 参数再长，令牌也不因长度不合格｜continue.ts｜C “查询串正好 4096 个字符：经匿名登录”；I authorize-request.test.ts:197｜对上
+- 令牌被篡改或超过 10 分钟：照常登录、不带继续地址｜continue.ts resolveContinue｜C “篡改的续接令牌”、“续接令牌与确认标识过了 10 分钟”；I continue.test.ts:100、110、132｜对上
+- 改走注册或社交登录续接不丢｜register.ts、social/start.ts｜C “从 /login?continue= 改走注册”；accounts-social.test.ts:262、498｜对上
+
+## 输出 5 确认
+- 不免确认且没有覆盖本次范围的授权（或 prompt=consent）→ /oauth/consent?request=；免确认的客户端带 prompt=consent 也显示｜库 + library-location.ts｜C “同意过的范围再来不再确认，多要了范围时重新确认；prompt=consent 总显示确认页，免确认的客户端也是”｜对上
+- 同意带码跳回、拒绝带 access_denied 跳回，带 state 原样与 iss｜consent-api.ts｜C Smoke（同意的 state、iss）、“确认标识：拒绝带 access_denied”（拒绝的 state；iss 没判）；I consent-api.test.ts:134（两种都判 state 与 iss）｜对上
+
+## 输出 6 换令牌
+- 机密 client_secret_basic、公开带 client_id 不带密钥｜testing/oauth-client.ts:142-147 照此发｜C 所有换码用例；“公开客户端的 http 回环…以 client_id 换出令牌”｜对上
+- 都要带 PKCE 校验值；PKCE 不对回 invalid_grant｜库 authorize-DXnMh0ha.mjs:2340-2366（缺 verifier 回 invalid_request，不对回 invalid_grant）｜没有找到换码时带错 code_verifier 或不带 code_verifier 的用例｜**没有测试**。附：库对“不带 verifier”回 invalid_request，Spec 只说“PKCE 不对回 invalid_grant”，不冲突，但晋升时可写明缺校验值是 invalid_request
+- 成功：不透明访问令牌、Bearer、有效期 1 小时、id_token｜库｜C “按发现文档的 jwks_uri 取公钥验 id_token”（token_type、expires_in=3600）、“换码时带 resource 被忽略”（不透明）；I provider.test.ts “寿命”｜对上
+- 授权码 10 分钟有效｜库缺省 600 秒｜I provider.test.ts “寿命”只断言库写下的到期时刻为 600 秒；没有“过了 10 分钟换码得 invalid_grant”的用例（revoke.test.ts:230 只断言清理任务删了行，没换码）｜**没有测试**（“过期回 invalid_grant”这半句；库按系统时间判，合同拨不到，计划第 6 节写了“授权码拨钟加清理后换不出”，实际用例只数行数）
+- 只能换一次，重复使用回 invalid_grant｜库 consumeVerificationValue｜C Smoke 末尾；I provider.test.ts “同一个授权码并发换四次”｜对上
+- 带 DPoP 头回 invalid_request、不发令牌｜mount.ts:183｜C “带 DPoP 头换令牌回 invalid_request”（同一码随后照常换出）；I mount.test.ts:423｜对上
+- 请求里的 resource 被忽略｜mount.ts:185｜C “换码时带 resource 被忽略”；I mount.test.ts:365｜对上
+
+## 输出 7 用户信息
+- 有效令牌 GET 或 POST 回 sub（数字 id 的字符串）｜mount.ts:223-239、auth.ts:370-（userInfoClaims）｜C “用户信息：设了头像也没有 picture…GET 与 POST 相同”（UserInfoResponse 的 sub 是十进制 pattern）；I mount.test.ts:442（sub = String(aliceId)）｜对上
+- profile → preferred_username 与 name；email → email_pending，false 时另有 email 与 email_verified（恒 false），true 时没有这两项｜mount.ts:208-217｜C 同一用例四种范围组合；I mount.test.ts:450、457（email_pending: true）、438（库的邮箱已验证列为真时仍 false）；accounts-social.test.ts:262（社交登录后仍 false）｜对上
+- 不出现别的字段（设了头像也没有 picture）｜mount.ts:210｜C 同一用例整体 toEqual｜对上
+
+## 输出 8 令牌随账号失效
+- 封禁、改角色、重置密码、结束全部会话：账号名下全部｜session.ts、oauth/revoke.ts、admin/users.ts｜C oauth-invalidation.test.ts 四条 “…这个账号两个会话里的令牌都 401、没用掉的码换不出；别的账号照用”；I revoke.test.ts “账号名下的全部失效”｜对上
+- 自己改密码：全部，含当前会话里的；当前会话保留｜change-password.ts｜C “自己改密码：当前会话仍可用…”；I revoke.test.ts:131｜对上
+- 一次会话结束（登出、结束单个、到期）：这次会话里的｜revoke.ts、my-sessions.ts、purge｜C “登出”“在会话列表里结束一个会话”“到期的会话里发出的令牌…在下一次 purge 后失效”；I revoke.test.ts:87、93、100｜对上
+- 撤销授权：这个账号在这个客户端名下的全部｜grants.ts、revoke.ts revokeOAuthForGrant｜C “列出自己的授权…撤销一项后它的令牌 401、码换不出”；I revoke.test.ts:264｜对上
+- 客户端停用：名下全部，换码 invalid_client；再启用不恢复｜admin/oauth-clients.ts、revokeOAuthForClient｜C oauth-invalidation.test.ts:276、292；oauth-provider.test.ts:585；I admin/oauth-clients.test.ts:119｜对上
+- id_token 不随这些变更失效｜库（JWT 无状态）｜没有用例在变更之后再验一次 id_token｜没有测试（只是“不会变”的陈述，风险低，可接受或补一句断言）
+
+## 输出 9 登记客户端
+- 只有管理员能登记、改、换｜admin/oauth-clients.ts:131-｜C oauth-admin.test.ts “普通用户调四个接口都是 forbidden”；I provider.test.ts:127（经 HTTP 登记不了）｜对上
+- 响应给客户端 id，机密另给一次密钥，之后读不出｜同上｜C “登记机密客户端”“登记公开客户端：没有密钥”“列表…不含密钥”｜对上
+- 换密钥后旧密钥立即不能用｜同上｜C oauth-provider.test.ts “换密钥后旧密钥换码得 invalid_client”；I admin/oauth-clients.test.ts:166｜对上
+
+## 输出 10 撤销端点
+- 机密 Basic、公开带 client_id；撤销后 401｜mount.ts:269-280｜C 撤销用例（公开客户端）；I mount.test.ts:489（机密）｜对上
+- 不存在、已撤销、别的客户端的令牌都 200，后者不起作用｜mount.ts:275-277｜C 同一用例；I mount.test.ts:489、498｜对上
+- 不带 token、token 为空或多次 → invalid_request｜同上｜C 不带 token；I mount.test.ts:505（空、两个）｜对上
+- 认证参数写法不合（参数多次、头与体并存）→ invalid_request，不当成功｜mount.ts:249-256、272｜I mount.test.ts:515｜对上（只在包内）
+
+## 输出 11 id_token
+- RS256、kid 在公钥地址里；iss、sub、aud、iat、exp（1 小时）、auth_time、at_hash、acr="0"、nonce；不带资料字段｜auth.ts 装配、signing-key.ts｜C “id_token 的字段”（整组键名 toEqual、at_hash 自算比对）、“按发现文档的 jwks_uri 取公钥验 id_token”、“claims 与 resource 被忽略…acr 仍是 0”｜对上
+- auth_time 是授权时那次会话建立的时间｜库 resolveSessionAuthTime｜C “id_token 的 auth_time：是续接的那次登录的时间”；I authorize-request.test.ts:246｜对上
+- 不带 nonce 时不出现 nonce｜库｜没有不带 nonce 的用例（测试客户端总带 nonce）｜没有测试（Spec 只写“带了时原样带回”，可不补）
+
+## 输出 12 站点同意先于授权
+- 缺同意时不发码、不显示确认页，带到 /consent?continue=｜auth.ts:353-358 postLogin.shouldRedirect + library-location.ts｜C “站点同意门槛”“条款版本提高之后”（旧确认页 GET 与同意都 consent_required，发起被带到 /consent?continue=）；I authorize-request.test.ts:218（免确认 + prompt=consent 也先去站点同意）｜对上
+- 补交同意带合格令牌→继续地址，规则同输出 4｜me.ts、continue.ts｜C 同两条；I authorize-request.test.ts:230｜对上
+- 不把补交当成重新登录；发起时已满足的 max_age 不因补交花的时间再要求登录｜continue.ts:89-94（consent 消费者不去 prompt/max_age）；实际起作用的是库带人去 /consent 时签名参数里已没有 max_age｜I authorize-request.test.ts:239 只在 max_age 之内补交、没拨过剩余时间；continue.test.ts:158 判的是手造令牌里 max_age 被留着。我另跑了探针（/tmp/w00037-t08-plan/lab-promotion/probe/maxage-consent.test.ts：会话 50 秒、max_age=100，去站点同意页后拨 60 秒再补交）：继续地址里没有 max_age，回到授权端点直接拿到码，行为合 Spec｜**没有测试**（后半句没有用例判；探针显示行为对，但所依赖的是库去掉 max_age 这一库行为，升级清单里没见到这一行，建议补用例或登记）
+- prompt=none 时跳回 interaction_required｜同上｜C “缺同意时 prompt=none 跳回 interaction_required”｜对上
+
+## 输出 13 prompt 与 max_age
+- consent 总显示；login 或超过 max_age 要求重登；none：无会话 login_required、要确认 consent_required、缺站点同意 interaction_required｜mount.ts:146-148、authorize-request.ts｜C “prompt 的合格值…”“缺同意时 prompt=none…”；I authorize-request.test.ts:246、271｜对上
+- 其它值，或 none 与别的值并存 → invalid_request｜authorize-request.ts rejectedAuthorizeParameter｜C “交库前要拒的参数”（none consent、none login、create、select_account、bogus）｜对上
+
+## 输出 14 确认页接口
+- GET 回客户端名字、回调主机名（非缺省端口连端口）、范围数组｜consent-api.ts:84-｜C Smoke 用例（名字、主机、范围）；I consent-api.test.ts:117、125（端口）｜对上
+- POST 同意回带码地址、拒绝回带 access_denied 地址｜consent-api.ts:93-｜C “确认标识：拒绝带 access_denied”；I consent-api.test.ts:134｜对上
+- request 被篡改或超过 10 分钟 → 两者都 authorization_expired（410）｜consent-api.ts、continue.ts verifySignedQuery｜C “续接令牌与确认标识过了 10 分钟”（GET、同意、拒绝）；I consent-api.test.ts:164（篡改）、172｜对上
+- 期间停用 → client_not_found；回调改得不匹配 → redirect_uri_invalid；同意与拒绝都这样、不给跳回地址｜consent-api.ts｜C “确认页打开之后客户端被停用…回调地址被改得不再匹配”；I consent-api.test.ts:180、186、192｜对上
+- 不绑定会话，按提交时的会话算｜consent-api.ts｜C “别的账号提交时按他的会话算”；I consent-api.test.ts:152｜对上
+- 有效期内可再次提交，再同意时再发一个码，前一个不作废，各自只能换一次｜库｜I consent-api.test.ts:134 判了两个码不同、只换了第二个；没有判第一个码仍换得出｜**没有测试**（“前一个不作废”半句）
+
+## 输出 15 已给的授权
+- 列表每项 id、客户端名字、范围、给出时间；免确认的不在；按给出先后倒序｜grants.ts:39-98｜C oauth-invalidation.test.ts:329（倒序、字段、GrantListResponse 形状）、377｜对上
+- DELETE 撤销一项，效果见输出 8，之后下一次授权重新显示确认页｜grants.ts:80-｜C 同 329｜对上
+- 不是自己的或不存在的 id → not_found｜同上｜C :358｜对上
+- 登记后改成免确认：不再列出、撤销 not_found，改回后重新出现｜grants.ts:40 LISTED｜C :377｜对上
+- 停用的客户端的授权照常列出｜grants.ts:40（不按 disabled 过滤）｜没有用例停用客户端后再列授权｜**没有测试**
+
+## 输出 16 客户端列表与改动
+- 用 site.admin 的分页参数、形状与稳定规则；每项数字 id、客户端 id、名字、回调、种类、免确认、停用、登记时间；不含密钥｜admin/oauth-clients.ts:89-108、列表路由｜C oauth-admin.test.ts “列表：每项的字段合 schema、不含密钥；多于一页时带第 1 页的 anchor…”（anchor 不合格 validation_failed）；“三种审计”判了审计对象 id = 列表项的数字 id｜对上
+- 改动与换密钥用客户端 id，没有回 not_found｜同上｜C “换密钥：…没有这个客户端 not_found”（rotate 与 patch 各一）｜对上
+- PATCH 可改名字、回调（按种类）、免确认、停用｜同上｜C “改名字、免确认、停用与再启用”、RULES 的改动一组｜对上
+- 公开客户端换密钥 → client_public｜同上｜C 同上用例｜对上
+
+## 输出 17 公钥
+- 重启后签名钥不变，之前的 id_token 仍验得过｜signing-key.ts｜C oauth-invalidation.test.ts “重启…签名用的钥不变”（kid 相同、验得过）；I signing-key.test.ts:63｜对上
+- 换 NB_SITE_SESSION_SECRET 后新钥签名、旧公钥列 30 天、旧 id_token 照样验过｜signing-key.ts、auth.ts:86 gracePeriod｜I signing-key.test.ts:109、140（只在包内）｜对上
+- 第一次启动时库被进程外占着写超过等锁上限 → start_failed，放开后重启即可｜signing-key.ts 文件头 3 行、module.ts｜在 nb-site-identity 与合同测试包里没搜到建签名钥时撞锁的用例（grep start_failed 只命中产品代码与 nb-site-server 的通用启动用例）｜**没有测试**
+
+## 状态与转换、时序
+- 续接令牌、确认标识 10 分钟；回到授权端点重新起算｜continue.ts、库签名｜I continue.test.ts:132、consent-api.test.ts:172；C 10 分钟用例｜对上（“重新起算”没有单独用例，每次带去页面都签新令牌，判为对上）
+- 授权码 10 分钟，访问令牌、id_token 各 1 小时｜库缺省、auth.ts ID_TOKEN_SECONDS｜I provider.test.ts “寿命”｜对上（码过期后换不出见输出 6 一条）
+- 同一码并发换多次至多一次成功｜库｜I provider.test.ts:103｜对上
+- 输出 8 的变更在响应返回时已生效｜revoke.ts 与删会话同事务｜C oauth-invalidation 各条在响应后立即判；I revoke.test.ts:146（删会话失败时整体不生效）｜对上
+- 与变更并发、已认领码的换码可能仍发令牌，窗口不超过 10 秒｜库两步不在事务里；10 秒是 connection.ts:66 等锁上限（计划 345 行的取舍）｜I mount.test.ts:389 判了“删会话落在中间回 invalid_grant”；“窗口不超过 10 秒”没有也难有用例｜对上（窗口上限是设计推断，非测试判定；晋升时证据里写明是取舍）
+- 会话到期没有响应，令牌与码至迟在下一次 purge 后失效；这之前换它名下的码回 invalid_request｜revoke.ts、purge｜C “会话到期…在下一次 purge 后失效”；I revoke.test.ts:100。“这之前换码回 invalid_request”没有用例｜**没有测试**（后半句）
+- 结束之后才建立的会话不让之前的码重新可用｜会话 id 不复用（provider.test.ts “令牌 id”同类）｜C 验收 10 用例｜对上
+- 换回上一个版本期间结束的会话：本版本第一次 purge 后它名下令牌失效｜revoke.ts（sessionId 为空的令牌在清理时删）｜I revoke.test.ts:245｜对上（只在包内）。“那个版本里自己改密码时当前会话名下的令牌不被撤”描述的是旧版本，不可测
+- 重启不影响已发令牌、待用码、签名钥｜—｜C 重启用例｜对上
+
+## 副作用与数据
+- 客户端、授权、码、令牌、签名钥落在账号模块的库里｜migrations/0002_oauth.sql｜I db/schema.test.ts（表结构）｜对上
+- 客户端密钥只存摘要｜auth.ts:348 storeClientSecret: {hash}、oauth/client-secret.ts｜I provider.test.ts:66（存的是 clientSecretHash）｜对上
+- 访问令牌只存摘要｜库缺省 storeTokens: "hashed"（auth.ts 没覆盖）｜没有用例读 oauthAccessToken.token 列判它不是原文｜**没有测试**
+- 签 id_token 的私钥加密存放｜库 jwt 插件缺省加密（auth.ts:86 没设 disablePrivateKeyEncryption）｜没有用例判 jwks.privateKey 不是明文 JWK｜**没有测试**
+- 三种审计（动作名、对象种类 oauth_client、参数不含密钥）｜admin/oauth-clients.ts:220-221 等｜C oauth-admin.test.ts “三种审计各一条”；I admin/oauth-clients.test.ts:141、155、166（审计失败时操作不生效）｜对上
+- 撤销授权、撤销令牌不写审计｜grants.ts、mount.ts 撤销端点都不调 appendAudit｜没有用例在撤销之后数审计条数｜**没有测试**（低风险）
+
+## 失败与恢复
+- 标准错误码逐个：invalid_request、invalid_client、invalid_grant、access_denied、unsupported_response_type、invalid_scope、login_required、consent_required、interaction_required、request_not_supported、request_uri_not_supported 都有用例（见上）｜—｜—｜对上
+- unsupported_grant_type｜库｜计划第 6 节写“unsupported_grant_type 各一条”，两个包里都没搜到；我跑探针（/tmp/w00037-t08-plan/lab-promotion/probe/userinfo-challenge.test.ts）grant_type=client_credentials 得 400 unsupported_grant_type，行为对｜**没有测试**
+- 用户信息 401 带 WWW-Authenticate：不带令牌 invalid_request、令牌无效 invalid_token｜库 + mount.ts:236｜I mount.test.ts:465 只判头以 Bearer 开头，没判错误码｜**没有测试**（错误码一半）。探针结果：不带令牌时体是 {"error":"invalid_request"}，头是 `Bearer, DPoP algs="EdDSA ES256 ES512 PS256 RS256"`；令牌不对时头是 `Bearer error="invalid_token", …`
+- 上一条附带 **与字面不一致**：不带令牌时 WWW-Authenticate 里多了一个 DPoP 质询（`DPoP algs=…`），对外宣告了 DPoP，而 Spec 目标与非目标写“不支持 DPoP 绑定的令牌”，发现文档也不列 DPoP。mount.ts:236 只在没有该头时补 Bearer，不清理库给的 DPoP 质询。建议改实现（重写成只有 Bearer）或在 Spec 写明
+- 自家码表四行：authorization_expired 410、client_not_found 404/查询参数、redirect_uri_invalid 400/查询参数、client_public 409｜errors（合同包 errors.ts）｜C 输出 3、14、16 的用例都判了状态与码｜对上
+
+## 边界与兼容
+- 地址一经公布不变、按 RFC 列表、email_pending 只追加、续接令牌对浏览器不透明、参数当不可信输入｜—｜属于兼容承诺，不需逐句用例；不透明与不可信由“篡改的续接令牌”、continue.test.ts:139（超长、非 base64url、换密钥、截断）判过｜对上
+
+## site.oauth-provider：验收与 Smoke
+- 验收 1｜C oauth-provider.test.ts “走完整流程（Smoke）”｜对上
+- 验收 2｜C oauth-admin.test.ts “普通用户调四个接口都是 forbidden”；oauth-provider.test.ts “两个前缀下不在清单里的地址与方法都是 404”（含 HEAD、PUT 授权，introspect，end-session，register，create-client）｜对上
+- 验收 3、5、16、17｜C oauth-invalidation.test.ts 封禁、重置、自己改密码、结束一个会话各条｜对上
+- 验收 4｜C “客户端不对、回调地址不对…”“登录之后改掉继续地址里的回调地址”｜对上
+- 验收 6｜C “按发现文档的 jwks_uri 取公钥验 id_token”｜对上
+- 验收 7｜C “回调地址可信时别的错误跳回客户端：不带 openid 是 invalid_scope”｜对上
+- 验收 8｜C “prompt 的合格值…”｜对上
+- 验收 9｜C oauth-invalidation.test.ts:329｜对上
+- 验收 10｜C oauth-invalidation.test.ts:212｜对上
+- 验收 11｜C 撤销用例｜对上
+- 验收 12｜C “带 DPoP 头换令牌”｜对上
+- 验收 13｜C Smoke（续接）、“id_token 的 auth_time”、“篡改的续接令牌”、“续接令牌与确认标识过了 10 分钟”｜对上
+- 验收 14｜C accounts-social.test.ts:262｜对上
+- 验收 15｜C “条款版本提高之后”｜对上
+- 验收 18｜C oauth-admin.test.ts 列表用例｜对上
+- 验收 19｜C oauth-invalidation.test.ts 重启用例｜对上
+- 验收 20｜C “以表单 POST 发起”｜前半“走完验收 1 的流程”只走到换出令牌（判 state 与 200），没有取用户信息、验 id_token、再换一次被拒；后半“跨站 POST 不带 Cookie 先去登录、经继续地址拿码”对上｜**没有测试**（前半不完整，轻）
+- 验收 21｜C “查询串正好 4096 个字符…”（匿名登录 GET 与 POST、确认、4097）与“站点同意门槛”（补交同意）｜对上
+- 验收 22｜C oauth-invalidation.test.ts:222（resource 同形、改密码后 401、id_token 照发）；“交库前要拒的参数”里 response_mode=fragment 得 invalid_request 且片段为空｜对上
+- Smoke：“合同测试包里的完整授权流程用例（含 id_token 的验证）”｜oauth-provider.test.ts:365 用例名带“（Smoke）”，并按公钥地址验 id_token｜对上
+
+## site.accounts（只核带“（planned）”的）
+- 第 23 行已知限制：Google 发现文档启动时取、库不设超时、约 6 分钟后照常起来按 unavailable｜social/providers.ts:9-14、48 discoveryUrl；start.ts:9、99-122｜I login.test.ts:290（上游拒绝连接时照常起来、发起 503）；“约 6 分钟”是实测描述，没有用例｜对上（已知限制，按代码与记录）
+- 第 24 行已知限制：注册开关与条款版本只在发起时判｜start.ts:173-176（registrationOpen 只在发起时判）｜没有用例（限制本身是“不做”的陈述）｜对上（从代码推断）
+- 接口表 register/login/me/consent 带 continue、me/identities、social/:provider/start｜register.ts、login.ts、me.ts、social/identities.ts、social/start.ts｜C oauth-provider.test.ts:712（注册）、Smoke（登录）、:810（补交同意）；accounts-identities.test.ts；accounts-social.test.ts｜对上
+- 配置：两个上游的 id 与密钥，两项都给才开放，只给一项启动失败；地址可换，必须 https、只有回环可 http｜config.ts｜I config.test.ts:94、115、125、149-152；C accounts-social.test.ts:564（只给 id → config_invalid，报在密钥上、不泄取值）、:573（只开 GitHub）｜对上
+- 定时任务 purge 另清会话里发出的令牌与码、过期的社交流程、过期的码与令牌｜revoke.ts、social/flow.ts｜I revoke.test.ts:100、230；login.test.ts:350；C oauth-invalidation.test.ts:409｜对上
+- 输出 4 的两个 planned 句（登录带 continue；注册与补交同意同样）｜login.ts、register.ts、me.ts、oauth/continue.ts｜C Smoke、:527、:925、:712、:810｜对上
+- 输出 6 的 planned 句（变更让令牌失效，登出与结束单个让那次会话的失效）｜同 oauth 输出 8｜同 oauth 输出 8｜对上
+- 输出 11 三种意图、登录注册可带 continue、关联不带｜start.ts:80-201；合同包 social.ts:25-34（关联分支 strictObject 不收 continue）｜C accounts-social.test.ts 各发起；合同包 contract.test.ts:688（“关联带续接令牌”被拒）｜对上
+- 输出 11 没开放 provider_disabled｜start.ts｜C :573；I login.test.ts:278｜对上
+- 输出 11 拿不到可用发现文档 → 503 unavailable，下一次再取；缺 issuer 或公钥地址也算｜providers.ts:13-14、start.ts:99-122｜I login.test.ts:290、register.test.ts:219（缺公钥地址、补上后照常）；缺 issuer 没有用例｜对上（缺 issuer 一半没有测试，轻）
+- 输出 11 带不合格 continue 照常发起、成功后不回授权请求｜start.ts:189、200｜I login.test.ts:268｜对上（只在包内）
+- 输出 12 已关联 → 建会话跳回；没关联 → 不建号、social_not_registered；只按上游身份不按邮箱；没给邮箱时 social_failed｜social/hooks.ts、callback.ts｜C :132、:142、:179；I login.test.ts:68、82、93、103（邮箱相同仍 not_registered）、link.test.ts:311｜对上
+- 输出 13 发起要带齐注册内容、跳转前按输出 3 校验，不合格不跳｜start.ts:153-176｜C Smoke（缺注册码 validation_failed）；I register.test.ts:193（各码与先后、不写流程行）｜对上
+- 输出 13 邮箱取上游标明已验证的（Google email_verified、GitHub 已验证主邮箱）；没给、没验证、不合输出 3 → social_email_missing，不建号不扣码｜hooks.ts:110、providers.ts｜C :381；I register.test.ts:175、271（含非 ASCII、.invalid、非主邮箱）｜对上
+- 输出 13 原子性同输出 2；回调时码失效、用户名或邮箱被占 → 各自的码，不建号不扣码｜hooks.ts（库事务内扣码写资料）、db/connection.ts 加入库的事务｜C :426、:446；I register.test.ts:294、340、366｜对上
+- 输出 13 身份已关联某账号 → identity_taken，不建号、不建会话、不扣码｜hooks.ts:65｜C :396；I register.test.ts:322｜对上
+- 输出 13 “这一判断在库的邮箱与封禁检查之后：上游这次没给邮箱时是 social_email_missing”｜库先后｜没有用例（注册意图 + 已关联身份 + 这次没给邮箱）｜**没有测试**
+- 输出 13 “那个账号被封禁时是 social_failed（封禁恰好落在库查过封禁、还没建会话时是 account_banned）”｜callback.ts:176、0004_session_ban_guard.sql｜注册意图碰上被封账号的已关联身份 → social_failed：没有用例；括号里的 account_banned 只有登录意图的交错用例（I login.test.ts:168）｜**没有测试**（注册意图这两种）
+- 输出 13 “同一个新的上游身份的两次注册同时回调时输的一边是 email_taken”｜库按邮箱找号｜没有用例（并发用例都是不同身份争码、或关联与注册争身份）｜**没有测试**
+- 输出 13 建成的账号没有密码、邮箱不算已验证、之后登录也不变｜hooks.ts:120、130-133｜C Smoke（hasPassword false）；I register.test.ts:133、link.test.ts:299；C accounts-social.test.ts:262（email_verified 仍 false）｜对上
+- 输出 14 上游邮箱已被占 → email_taken，不建不关联｜callback.ts:64（account_not_linked → email_taken）｜C :415；I register.test.ts:294｜对上
+- 输出 14 “这个邮箱同时没验证过时也是 email_taken（先于 social_email_missing）”｜库按邮箱找号在建用户钩子之前（hooks.ts:7、110）｜没有用例（已占邮箱且未验证）｜**没有测试**
+- 输出 15 关联要会话与当前密码（无密码免）｜start.ts:137-｜I link.test.ts:133、143；C 关联用例｜对上
+- 输出 15 identity_taken；identity_exists（含再关联同一身份）｜upstream-name.ts:44-、hooks.ts:173｜C :159；I link.test.ts:151、162｜对上
+- 输出 15 并发：同账号同上游至多一个、同身份至多一个账号；没完成的关联至多挡 1 分钟｜upstream-name.ts（UNIQUE 兜底）｜I link.test.ts:233、251、274｜对上（只在包内）
+- 输出 15 上游邮箱不必相同、账号邮箱不变｜hooks.ts｜C :142（邮箱不同关联成功）；I link.test.ts:109｜对上
+- 输出 15 发起之后会话失效（含回调已到、写入之前被结束）→ social_state_invalid｜callback.ts:162、hooks 复核｜C :230；I link.test.ts:177、189｜对上
+- 输出 16 解绑后至少剩一种登录方式（密码或另一个开放的上游身份），否则 last_login_method｜social/identities.ts｜C accounts-identities.test.ts:136、154、172；I identities.test.ts:71（只算开放的上游）、101（并发）｜对上
+- 输出 18 “从旧站导入的码保留原来的可用次数与过期时间（planned）”｜t08 范围里没有导入代码（Work README 第 43、69 行：导入是 t12，未开工）｜—｜**没实现**（不在 t08 范围，标记应留着，不随 t08 晋升）
+- 输出 18 “注册页接受 /register?invite=<码> 预填邀请码（planned）”｜nb-site-web/src 只有 App.vue、main.ts，没有注册页；t08 没改前端｜—｜**没实现**（前端页面不在 t08 范围，标记应留着）
+- 输出 19 社交注册计入注册的来源计数，登录意图计入登录的来源计数｜start.ts、rate-limit.ts｜I register.test.ts:254、login.test.ts:307（与密码登录共用额度、Retry-After）；C :127 只判了取不到来源地址时 forbidden_origin｜对上
+- 输出 23 落点：登录或注册成功到 /，关联到 /account；带合格 continue 到继续地址；失败按意图回 /login、/register、/account 带 social_error｜callback.ts failed/land｜C :132、:142、:262、:498 及注册各用例｜对上
+- 输出 23 码集合：五个跳转码与 registration_code_invalid、invite_code_invalid、username_taken、email_taken、identity_taken、identity_exists、account_banned｜callback.ts mapSocialError｜C 与 I 用例覆盖了除 invite_code_invalid、username_taken（只在 I register.test.ts:294）以外的全部；account_banned 在 I login.test.ts:156、168｜对上
+- 输出 23 “站点只显示它自己判出的码：回调地址里写进去的错误码一律 social_failed”｜callback.ts:192-194｜C :216（username_taken、库的码 → social_failed，access_denied → social_cancelled）；I login.test.ts:253｜对上。附：“显示”是落点页的事，t08 没有落点页，服务端只保证跳转参数是本站判出的码
+- 输出 23 “error 为空值时当作没带”｜callback.ts:193 reported !== ""｜没有用例｜**没有测试**
+- 输出 24 列表每项 id、上游名、上游账号名字、关联时间；按关联先后；解绑别人的或不存在的 → not_found｜social/identities.ts、upstream-name.ts｜C accounts-identities.test.ts:120、194｜对上
+- 输出 24 “上游账号的名字在注册或关联时记下，之后不随上游更新，只给本人看”｜upstream-name.ts（只在 claim 时写）｜C :120 只判了记下的是当时的原样；没有“上游改名后再登录，列表不变”的用例；“只给本人看”只判了列表只列自己的｜**没有测试**（“不随上游更新”半句）
+- 时序第 102 行四句：10 分钟、只能用一次、并发至多一个、过期/重放/换浏览器 → social_state_invalid；state Cookie 认浏览器；查询串超过 8192 → social_state_invalid；与结束会话同时到达的关联可能仍关联上（已知窗口）｜callback.ts:155-166、flow.ts claimFlow｜C :202、:241、:458、:514、:536；I login.test.ts:130（三个并发）、209、223、237、335（Cookie 活 10 分钟）、register.test.ts:454｜对上（最后一句是已知窗口的陈述，I link.test.ts:189 判的是另一侧）
+- 副作用第 109 行：上游身份连同名字落库；不存上游 access/refresh/id_token｜0003_social.sql、hooks.ts｜I link.test.ts:92（account 行不含上游令牌）；计划写的“注册、关联、再登录之后三列为空”只在关联一条判了｜对上（注册与再登录两种没单独判，轻）
+- 失败表 provider_disabled 403｜errors.ts:65｜C :573｜对上
+- 失败表 identity_taken、identity_exists 409（planned）｜合同包 errors.ts:70-71 配了 409｜两个码只作为跳转参数出现（social/hooks.ts、upstream-name.ts 经 callback 落到 social_error），没有哪个接口以 HTTP 409 回它们｜与字面不一致（轻）：表里的“409”对调用方不可观察，建议这一行改写为“跳转参数（输出 23）”或注明 HTTP 状态不出现
+- 失败表 last_login_method 409｜identities.ts｜C accounts-identities.test.ts:136｜对上
+- 失败表跳转参数五个码｜callback.ts｜C 各用例（social_not_registered、email_missing、state_invalid、cancelled、failed 都有）｜对上
+- 验收 4｜C accounts-social.test.ts “社交注册（Smoke）”｜对上
+- 验收 5｜C :415（被拒、原账号只有密码）｜对上
+- 验收 8｜C :426（恰好一个，另一个 /register 带 registration_code_invalid）；“没有留下没有资料的账号”C 只判了用户名列表，I register.test.ts:366 判了资料行｜对上
+- 验收 9｜C :446｜对上
+- 验收 10｜C :202（第二次到达）、:536（拨 10 分钟）｜对上
+- 验收 11｜C :216｜对上
+- 验收 12｜C :230｜对上
+- 验收 13｜C :241（登录与关联意图）、:458（注册意图不扣码）｜对上
+- 验收 14｜C :477（不定先后）；I register.test.ts:393（两种固定先后）｜对上
+- Smoke 一节：“合同测试包里账号的注册、登录、问身份用例”｜计划第 6 节末写“社交注册的一条标 Smoke”，accounts-social.test.ts:361 也已标“（Smoke）”，但 master 上 accounts.md 的 Smoke 句没有提社交注册，证据一节的 Smoke 链接也没有 accounts-social.test.ts｜不一致：用例标了 Smoke、Spec 的 Smoke 句没点名。晋升时在 Smoke 句加上社交注册，并把文件加进证据的 Smoke 链接
+
+## site.admin（只核带“（planned）”的）
+- 第 37 行 revoke-sessions 连同 OAuth 令牌｜admin/users.ts、revoke.ts｜C oauth-invalidation.test.ts “管理员结束全部会话”；I revoke.test.ts:122｜对上
+- 第 45 行 OAuth 客户端列表用同一套分页｜admin/oauth-clients.ts｜C oauth-admin.test.ts 列表用例｜对上
+- 第 60 行 封禁让名下令牌与码失效｜同上｜C “封禁（验收 3，site.admin 输出 2）”；I revoke.test.ts｜对上。附：同段下一句“解封后…不恢复旧会话与旧令牌”没标 planned，但“旧令牌”是 t08 新增的意思；没有解封后再用旧令牌的用例（revoke 删行，从代码推断不会恢复）｜没有测试（轻）
+- 第 61 行 改角色｜同上｜C “改角色（site.admin 输出 3）”｜对上
+- 第 62 行 重置密码｜同上｜C “管理员重置密码（验收 5，site.admin 输出 4）”｜对上
+- 第 66 行 审计：三个 oauth_client 动作，参数（登记记种类与是否免确认、改动记 properties 逗号分隔），不记密钥｜admin/oauth-clients.ts:220-221 等、audit.ts｜C oauth-admin.test.ts “三种审计各一条”（properties = "name,redirectUris,disabled"，不含密钥、回调与客户端 id，失败的不写）；I admin/oauth-clients.test.ts:141、155、166（与操作同时生效）｜对上
+
+## 更正（追加）
+- 输出 12 那条里我写“升级清单里没见到这一行”，不对：nb-site-identity/AGENTS.md 第 63 行“站点同意的先后”已写“库判 max_age 满足之后签名前去掉它，补交同意后的继续地址里没有 max_age”。但它列的用例（authorize-request.test.ts:218、239 与两条合同用例）都没有在去站点同意页之后把时钟拨过 max_age 的剩余时间，库不再去掉 max_age 时这些用例照过。结论仍是“没有测试”，建议在 authorize-request.test.ts:239 里补一步拨钟（做法同探针）。
+- 失败与恢复里 DPoP 质询那条：升级清单第 66 行已记“未授权时回 401 带 WWW-Authenticate: Bearer（另列 DPoP 的算法）”，即实施者知道这件事；它与 Spec“不支持 DPoP 绑定的令牌”的冲突没有在 Spec 或 Task 记录里写成取舍，仍判“与字面不一致”。
+
+## “实现合同”一节的素材（供主会话起草，oauth-provider.md 现在没有这一节）
+- 公开入口：`@notnotype/nb-site-identity` 的 `createIdentityModule` 现在另回 `oauth`（库的对外端点子应用：标准端点与社交回调，白名单在里面）与 `wellKnown`（两份发现文档）（index.ts 的 diff）；包入口另 `export * from "./oauth"`、`"./social"` 在合同包 `@notnotype/nb-site-identity-contract`（src/oauth.ts：OAUTH_ENDPOINT_PATHS、OIDC_DISCOVERY_PATHS、DiscoveryDocument、UserInfoResponse、USERINFO_CLAIMS、ID_TOKEN_CLAIMS、OAuthAuthorizationResponse、OAuthDecisionResponse、授权与客户端的请求响应；src/social.ts：SocialStartRequest、SOCIAL_CALLBACK_PATHS 等；errors.ts 新码；paths.ts 新路径）。
+- 装配：nb-site-server/src/modules.ts 把账号模块挂三个前缀：IDENTITY_API_PREFIX（自家接口）、IDENTITY_AUTH_PREFIX（module.oauth）、/.well-known（module.wellKnown）。
+- owner：nb-site-identity；新依赖 `@better-auth/oauth-provider` 1.7.27（package.json），与 better-auth、@better-auth/core 同钉 1.7.27。
+- 注意：accounts.md 现有实现合同写“依赖 Better Auth（只发会话、认 Cookie，不挂它的路由，ADR 0063）”，t08 之后挂了库的标准端点与社交回调（经白名单），这句需要随晋升改；accounts.md 的“账号库读写经 read、write、withLibTransaction”一句也该补 t08 新增的 `joinLibTransaction`（db/connection.ts:27、403，社交注册的钩子加入库自己开的事务）。
+- 新迁移：migrations/0002_oauth.sql（OAuth 表）、0003_social.sql（社交流程与上游名字表）、0004_session_ban_guard.sql（封禁账号不能插会话的触发器）；schema/better-auth-baseline.sql 同步更新。
+- 库的升级清单位置：packages/nb-site-identity/AGENTS.md 的“Better Auth 的升级清单”（第 14 行起的表）。
+- 测试支撑：`@notnotype/neuro-book-test-support/oauth-upstream`（仿真 Google 与 GitHub，package.json 新子路径）；合同测试的测试客户端在 nb-site-contract-tests/src/testing/oauth-client.ts。
+- 合同测试文件（供证据一节）：oauth-provider.test.ts、oauth-admin.test.ts、oauth-invalidation.test.ts、accounts-social.test.ts、accounts-identities.test.ts；Smoke 是 oauth-provider.test.ts:365 与 accounts-social.test.ts:361。
+
+## 汇总
+没实现：2 条
+- A18a accounts 输出 18“从旧站导入的码保留可用次数与过期时间”（属 t12）
+- A18b accounts 输出 18“注册页接受 /register?invite= 预填”（前端，t08 没做）
+两句的（planned）标记都应留着，不随 t08 晋升。
+
+与字面不一致：4 条
+- D1 oauth 输出 1“Google、GitHub 回调可达”：实际只有开放了的上游的回调可达（改 Spec 措辞）
+- D2 oauth 失败与恢复：不带令牌调用户信息时 WWW-Authenticate 带 `DPoP algs=…` 质询，与“不支持 DPoP 绑定的令牌”冲突（改实现或写明取舍）
+- D3 accounts 失败表 identity_taken、identity_exists 标 409：两个码只以跳转参数出现，HTTP 409 不可观察（改表）
+- D4 oauth 输入一节“公开客户端的 http 主机按原样比”：主机实际不分大小写（http://LOCALHOST:8/cb 被接受），措辞要写明（轻）
+
+没有测试（或测试没断言这句）：26 条
+- oauth：T1 输出 3 授权必须带 S256 的 PKCE（含机密客户端、不收 plain）；T2 输出 3 范围“在允许之内”；T3 输出 3 授权端点 POST 体超过 16 KiB 回 400 JSON；T4 输出 6 PKCE 不对回 invalid_grant（缺校验值库回 invalid_request）；T5 输出 6 授权码过期回 invalid_grant；T6 输出 8 id_token 不随变更失效；T7 输出 11 不带 nonce 时不出现（可不补）；T8 输出 12“发起时满足的 max_age 不因补交花的时间再要求登录”（探针显示行为对）；T9 输出 14“再次同意时前一个码不作废”；T10 输出 15“停用的客户端的授权照常列出”；T11 输出 17 建签名钥撞锁 start_failed；T12 时序“会话到期、purge 之前换码回 invalid_request”；T13 副作用 访问令牌只存摘要；T14 副作用 私钥加密存放；T15 副作用 撤销授权与令牌不写审计；T16 失败 unsupported_grant_type（探针显示行为对）；T17 失败 用户信息 401 的 WWW-Authenticate 错误码（invalid_request、invalid_token）；T18 验收 20 前半没走完验收 1 的流程
+- accounts：T19 输出 11 发现文档缺 issuer（只测了缺公钥地址）；T20 输出 13 注册意图 + 已关联身份 + 这次没给邮箱 → social_email_missing；T21 输出 13 注册意图 + 已关联身份的账号被封禁 → social_failed（与括号里的 account_banned）；T22 输出 13 同一个新身份两次注册同时回调，输的是 email_taken；T23 输出 14 已占且未验证的邮箱是 email_taken（先于 social_email_missing）；T24 输出 23 error 为空值当作没带；T25 输出 24 上游账号名字之后不随上游更新
+- admin：T26 输出 2“解封后不恢复旧令牌”（句子本身没标 planned，但“旧令牌”是 t08 的意思）
+
+整条带（planned）只有一句对不上、主会话要挪标记的：
+- accounts 输出 13：其余句子都对上，只有 T20、T21、T22 三句没有测试（都在“这一判断在所用库的邮箱与封禁检查之后……输的一边是 email_taken”这一长句里）
+- accounts 输出 14：只有“这个邮箱同时没验证过时也是 email_taken”一句（T23）
+- accounts 输出 18：planned 标在两句上，两句都没实现（A18a、A18b）
+- accounts 输出 23：只有“error 为空值时当作没带”（T24）
+- accounts 输出 24：只有“之后不随上游更新”（T25）
+- accounts 输出 11：只有“缺少验 ID token 所需的 issuer”半句（T19）
+- accounts 失败表第 125 行：identity_taken、identity_exists 的 409（D3）
+
+Smoke 标注：
+- oauth-provider.md 的 Smoke（完整授权流程，含 id_token 验证）：oauth-provider.test.ts:365 已标“（Smoke）”并验 id_token，对上
+- accounts.md：社交注册用例 accounts-social.test.ts:361 已标“（Smoke）”（计划第 6 节要求），但 master 上 accounts.md 的 Smoke 句与证据的 Smoke 链接都没提它，晋升时要补
+
+最严重的几条（建议先处理）：D2（对外宣告了不支持的 DPoP）、T1 与 T4（PKCE 是授权码流程的安全前提，没有一条用例守着）、T5（授权码过期只断言了存的到期时刻）、T17（RFC 6750 的错误码没有断言）。

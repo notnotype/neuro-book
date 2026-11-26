@@ -23,12 +23,12 @@
  * `release:smoke` 从生成的目录另打、验过的那份（`scripts/release/`）。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`，最后一行打印 tarball 的路径。输出目录只在不存在、
- * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝。
+ * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝；是声明的临时目录 `dist/.sdk-types/` 或在它里面时也拒绝。
  */
 
 import {execFile} from "node:child_process";
 import {existsSync} from "node:fs";
-import {chmod, cp, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, cp, mkdir, readdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
 import {createRequire} from "node:module";
 import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -406,6 +406,23 @@ const packagesRoot = resolve(packageRoot, "..");
 /** 库声明的临时目录，用完删掉；每次构建先清空，同一个检出里不能同时跑两次 SDK 构建。 */
 const LIBRARY_TYPES = join(packageRoot, "dist/.sdk-types");
 
+/** 路径的真实位置：不存在的部分接在最近一个存在的上级的真实路径后面（输出目录与临时目录在构建前多半都还不存在）。 */
+async function realLocation(path: string): Promise<string> {
+    const absolute = resolve(path);
+    if (existsSync(absolute)) return realpath(absolute);
+    const parent = dirname(absolute);
+    return parent === absolute ? absolute : join(await realLocation(parent), basename(absolute));
+}
+
+/**
+ * 输出目录不能是声明的临时目录或在它里面：生成声明前后都要整个删掉临时目录，会连带删掉已经写好的产物。按真实路径比，
+ * 经符号链接给的别名也拦下。在写、删任何东西之前调。`scratch` 只在测试里换。
+ */
+export async function assertOutsideLibraryTypes(outDir: string, scratch = LIBRARY_TYPES): Promise<void> {
+    const [out, types] = await Promise.all([realLocation(outDir), realLocation(scratch)]);
+    if (isInside(out, types)) throw new Error(`输出目录 ${outDir} 在声明的临时目录 ${scratch} 里面，构建会把它删掉；换一个输出目录`);
+}
+
 /**
  * 库入口的声明：先用 vue-tsc 一次出全部声明（一个程序、固定顺序），再只打包这些 `.d.ts`，同 nb-layout 的
  * `scripts/pack.ts`。不用 `rolldown-plugin-dts` 的 `vue: true` 直接出：它按文件被处理的先后给字面量类型编号，组件属性在
@@ -417,6 +434,18 @@ const LIBRARY_TYPES = join(packageRoot, "dist/.sdk-types");
 async function buildLibraryDeclarations(outDir: string): Promise<void> {
     await rm(LIBRARY_TYPES, {recursive: true, force: true});
     await mkdir(LIBRARY_TYPES, {recursive: true});
+    // 成功、失败都删临时目录：失败时留下的配置带着检出的绝对路径。清理本身失败不盖掉构建的错误，只打一条诊断。
+    try {
+        await emitLibraryDeclarations(outDir);
+    } finally {
+        await rm(LIBRARY_TYPES, {recursive: true, force: true}).catch((error: unknown) => {
+            console.warn(`删不掉 SDK 声明的临时目录 ${LIBRARY_TYPES}（下次构建开始时会先清空它）`, error);
+        });
+    }
+}
+
+/** `buildLibraryDeclarations` 的主体：在已清空的临时目录里出声明、打包到 `outDir`。 */
+async function emitLibraryDeclarations(outDir: string): Promise<void> {
     const sourcePaths = Object.entries(typePaths()).map(([key, [target]]) => [key, resolve(packageRoot, target!)] as const);
     // vue-tsc 只认 tsconfig 文件，路径映射是算出来的，所以在临时目录里写一份继承 `tsconfig.web.json` 的配置。入口用 `files`
     // 列出：web 配置的 `exclude` 排除了 `agent.ts` 这两个只在服务端的入口。`rootDir` 写死成各包所在的目录，声明在临时
@@ -469,10 +498,10 @@ async function buildLibraryDeclarations(outDir: string): Promise<void> {
         checks: {pluginTimings: false},
     });
     if (logs.length > 0) throw new Error(`打包 SDK 的声明时有警告：\n${logs.join("\n")}`);
-    await rm(LIBRARY_TYPES, {recursive: true, force: true});
 }
 
 export async function buildSdk(outDir: string): Promise<BuiltSdk> {
+    await assertOutsideLibraryTypes(outDir);
     await clearPreviousSdk(outDir);
     // 先写下带包名的清单：中途失败留下的半成品下次照样被认作上次生成的 SDK、能清掉重建。最后会被完整的清单覆盖。
     await mkdir(outDir, {recursive: true});

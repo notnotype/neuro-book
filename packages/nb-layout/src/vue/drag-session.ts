@@ -8,7 +8,7 @@
 import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
-import {createDragGesture} from "../drag-gesture";
+import {createDragGesture, scrollOriginReversed} from "../drag-gesture";
 import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragScrollTarget, DragState, DragStops} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 
@@ -106,24 +106,32 @@ function topElementAt(document: Document, point: GridDropPoint): Element | null 
 
 const SCROLLABLE_OVERFLOW: ReadonlySet<string> = new Set(["auto", "scroll"]);
 
+/** 一个轴上往两头还能滚多少：`back` 是往左、往上，`forward` 是往右、往下。`max` 是滚动范围的长度。 */
+function roomAlong(position: number, max: number, reversed: boolean): {readonly back: number; readonly forward: number} {
+    // 负值范围 [-max, 0] 的 0 在右端或下端：往左、往上是往负数走。
+    return reversed ? {back: Math.max(0, max + position), forward: Math.max(0, -position)} : {back: Math.max(0, position), forward: Math.max(0, max - position)};
+}
+
 /**
  * 边缘滚动的一个候选容器此刻的样子。一个轴让不让滚只看计算样式的 `overflow-x`、`overflow-y`，不看内容有没有溢出：
  * `overflow: hidden` 的元素内容照样可以比它宽，程序赋 `scrollLeft` 也照样滚得动（资源树就是横向 hidden、竖向 auto）。
- * 横向余量按从左到右排版算：从右到左排版时 `scrollLeft` 为负，算出的余量不对，现在没有这样的使用方。
+ * 余量按物理方向算：从右到左排版、反向的 flex、竖排这些容器的滚动位置是负值范围（`scrollOriginReversed`），起点在右端或下端。
  */
 function scrollTargetOf(view: Window, element: HTMLElement): DragScrollTarget {
     const style = view.getComputedStyle(element);
     const scrollsX = SCROLLABLE_OVERFLOW.has(style.overflowX);
     const scrollsY = SCROLLABLE_OVERFLOW.has(style.overflowY);
+    const reversed = scrollOriginReversed(style);
     const {left, top, right, bottom} = element.getBoundingClientRect();
-    const {scrollLeft, scrollTop} = element;
+    const x = roomAlong(element.scrollLeft, element.scrollWidth - element.clientWidth, reversed.x);
+    const y = roomAlong(element.scrollTop, element.scrollHeight - element.clientHeight, reversed.y);
     return {
         rect: {left, top, right, bottom},
         room: {
-            left: scrollsX ? Math.max(0, scrollLeft) : 0,
-            right: scrollsX ? Math.max(0, element.scrollWidth - element.clientWidth - scrollLeft) : 0,
-            up: scrollsY ? Math.max(0, scrollTop) : 0,
-            down: scrollsY ? Math.max(0, element.scrollHeight - element.clientHeight - scrollTop) : 0,
+            left: scrollsX ? x.back : 0,
+            right: scrollsX ? x.forward : 0,
+            up: scrollsY ? y.back : 0,
+            down: scrollsY ? y.forward : 0,
         },
         scrollBy: (x, y) => {
             const beforeLeft = element.scrollLeft;

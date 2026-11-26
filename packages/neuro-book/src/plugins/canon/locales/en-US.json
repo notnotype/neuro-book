@@ -90,7 +90,6 @@
         "notAppeared": "Not on stage yet",
         "positionGone": "The chapter you picked is gone",
         "sameAs": "Really: ",
-        "position": "Point in the story",
         "planned": "Include planned events",
         "tabs": {
             "label": "Entry tabs",
@@ -128,8 +127,6 @@
         "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
         "fieldRestored": "Restored “{{label}}” on {{name}}",
-        "plannedMark": "Planned events included",
-        "leavePlans": "Leave out planned events",
         "addComponentShort": "Add a settings group",
         "groupAlreadyAdded": "This settings group is already on the entry",
         "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
@@ -223,9 +220,16 @@
         "button": "Edit",
         "label": "Edit {{label}}",
         "heading": "Edit {{label}}",
-        "intent": "This is",
+        "intent": "This edit is",
         "creative": "a lore fix",
         "story": "a story change",
+        "since": "From {{place}}",
+        "patchHere": "Fix the step in {{place}}",
+        "storyAgain": "Changed again in {{place}}",
+        "note": "What happened",
+        "notePlaceholder": "What happened (optional; defaults to “{{fallback}}”)",
+        "storyTitle": "{{label}} becomes {{value}}",
+        "storyTitleLong": "{{label}} changed",
         "save": "Save",
         "cancel": "Cancel",
         "changedElsewhere": "This entry was changed elsewhere after the dialog opened. Close and reopen it to see the change, or save again to keep what you entered here.",
@@ -425,10 +429,10 @@
             "text": "Pending {{count}}"
         },
         "line": {
-            "title": "World line in view",
-            "main": "Viewing: main line",
-            "follow": "Viewing: each chapter's line",
-            "named": "Viewing: {{name}}"
+            "title": "Story line",
+            "main": "Story line: main",
+            "follow": "Story line: by chapter",
+            "named": "Story line: {{name}}"
         }
     },
     "state": {
@@ -557,13 +561,34 @@
         }
     },
     "line": {
-        "pickTitle": "Which line to read",
+        "pickTitle": "Which story line to read",
         "lostTitle": "The line you were viewing no longer exists",
         "placeholder": "Pick a line",
-        "follow": "Follow each chapter",
-        "main": "Main line",
-        "followNow": "Follow each chapter (now: {{line}})",
-        "label": "World line"
+        "follow": "By chapter",
+        "main": "Main line"
+    },
+    "viewPoint": {
+        "label": "Viewing",
+        "aria": "Viewing: {{summary}}",
+        "withPlans": "with plans",
+        "lines": "Story lines",
+        "linesTip": "Parallel threads of the story: the main line, and other developments that branch off it at some point. A character can differ between lines. \"By chapter\" reads whichever line each chapter tells.",
+        "progress": "Story progress",
+        "progressTip": "Settings change as the story goes on. Pick which moment to look at: \"Initial state\" is the setting before anything happens, or the start or end of a chapter.",
+        "follow": "By chapter",
+        "followNow": "Now: {{line}}",
+        "initialHint": "Starting setting",
+        "start": "Start",
+        "end": "End",
+        "search": "Chapter number or title",
+        "searchLabel": "Find a chapter",
+        "noMatch": "No matching chapter",
+        "prevLabel": "Step back",
+        "nextLabel": "Step forward",
+        "prev": "Step back: {{position}}",
+        "next": "Step forward: {{position}}",
+        "atStart": "Already at the start",
+        "atEnd": "Already at the end"
     },
     "entryPicker": {
         "placeholder": "Find an entry",

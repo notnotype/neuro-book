@@ -342,6 +342,16 @@ describe("浮动窗的矩形", () => {
             expect(resizeFloatRect(leftOut, {width: -1, height: 0}, {x: 30, y: 0}, {min, area})).toEqual({...leftOut, x: 80, width: 270});
         });
 
+        it("方向为 0 的轴照搬起点：比最小尺寸还小、超出区域都不改", () => {
+            // 起点是夹进矮桌面之后的呈现矩形，高 40 比最小高 60 还小：横拖右边时高度不撑回 60。
+            const squeezed = {x: 150, y: 20, width: 300, height: 40};
+            expect(resizeFloatRect(squeezed, {width: 1, height: 0}, {x: 30, y: 25}, {min, area})).toEqual({...squeezed, width: 330});
+            expect(resizeFloatRect({...squeezed, width: 80}, {width: 0, height: 1}, {x: 25, y: 30}, {min, area})).toEqual({...squeezed, width: 80, height: 70});
+            // 起点的下边已在区域外：竖向不动时也不往里收。
+            const tall = {x: 150, y: 300, width: 300, height: 200};
+            expect(resizeFloatRect(tall, {width: -1, height: 0}, {x: -20, y: 0}, {min, max: {width: 600, height: 150}, area})).toEqual({...tall, x: 130, width: 320});
+        });
+
         it("最小尺寸优先；max 与 area 取小；不给 max 时不限", () => {
             const narrow = {x: 140, y: 0, width: 320, height: 400};
             expect(resizeFloatRect(start, {width: 1, height: 0}, {x: 0, y: 0}, {min: {width: 400, height: 60}, area: narrow})).toEqual({...start, width: 400});

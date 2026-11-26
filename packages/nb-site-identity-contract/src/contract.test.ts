@@ -1,6 +1,6 @@
 /**
- * 合同包对着 docs/specs/site/accounts.md 与 admin.md 的核对。码表、筛选项、动作名与字段的上下限是照 Spec 的表手写的，
- * 不从包里算：Spec 改了，先改这里的期望值，再改合同。
+ * 合同包对着 docs/specs/site/accounts.md、admin.md 与 oauth-provider.md 的核对。码表、筛选项、动作名、地址与字段的上下限
+ * 是照 Spec 的表手写的，不从包里算：Spec 改了，先改这里的期望值，再改合同。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -19,20 +19,30 @@ import {
     AuditListResponse,
     Bio,
     ChangePasswordRequest,
+    ClientIdParams,
     codePointLength,
+    CONTINUE_PARAM,
     ConsentRequest,
+    ConsentResponse,
+    CreateOAuthClientRequest,
+    CreateOAuthClientResponse,
     CreateRegistrationCodeRequest,
+    DiscoveryDocument,
     DisplayName,
     Email,
     EmptyResponse,
     ErrorBody,
     ExistingPassword,
+    GrantItem,
+    GrantListResponse,
     IDENTITY_API_PREFIX,
+    IDENTITY_AUTH_PREFIX,
     IDENTITY_FAILURE_CODES,
     IDENTITY_FAILURE_STATUS,
     IDENTITY_PATHS,
     type IdentityFailureCode,
     IdentityItem,
+    IdentityListResponse,
     identityPath,
     IdParams,
     INVITE_CODE_ACTIVE_LIMIT,
@@ -47,12 +57,34 @@ import {
     MeResponse,
     MetaResponse,
     NewPassword,
+    OAUTH_CLIENT_NAME,
+    OAUTH_CLIENT_TYPES,
+    OAUTH_ENDPOINT_PATHS,
+    OAUTH_ERROR_PAGE_CODES,
+    OAUTH_ERROR_PARAM,
+    OAUTH_PAGES,
+    OAUTH_REQUEST_PARAM,
+    OAUTH_SCOPES,
+    OAuthAuthorizationQuery,
+    OAuthAuthorizationResponse,
+    OAuthClientItem,
+    OAuthClientListQuery,
+    OAuthClientListResponse,
+    type OAuthClientType,
+    OAuthClientTypeSchema,
+    OAuthDecisionRequest,
+    OAuthDecisionResponse,
+    type OAuthScope,
+    OAuthScopeSchema,
+    OIDC_DISCOVERY_PATHS,
     PAGE,
     parseUsernameInput,
     PatchInviteCodeRequest,
     PatchMeRequest,
+    PatchOAuthClientRequest,
     PatchRegistrationCodeRequest,
     PublicProfile,
+    REDIRECT_URI,
     REGISTRATION_CODE_FILTERS,
     RegistrationCodeItem,
     RegistrationCodeListQuery,
@@ -64,15 +96,21 @@ import {
     type Role,
     RoleRequest,
     RoleSchema,
+    RotateSecretResponse,
     SessionItem,
     SessionListResponse,
+    SOCIAL_CALLBACK_PATHS,
     SOCIAL_ERROR_CODES,
+    type SocialIntent,
     type SocialProvider,
     SocialProviderSchema,
+    SocialStartRequest,
+    SocialStartResponse,
     TermsVersion,
     USER_FILTERS,
     UserListQuery,
     UserListResponse,
+    UserInfoResponse,
     Username,
     UsernameInput,
     WebUrl,
@@ -112,8 +150,16 @@ const ADMIN_FAILURES: Readonly<Record<string, number>> = {
     validation_failed: 400,
 };
 
-/** `site.accounts` 失败表里只作跳转参数的三个码。 */
-const REDIRECT_ONLY_CODES = ["social_not_registered", "social_email_missing", "social_state_invalid"];
+/** `site.oauth-provider` 的“自家接口与站点错误页的码”，逐行照抄（“其余码同 site.accounts”）。 */
+const OAUTH_FAILURES: Readonly<Record<string, number>> = {
+    authorization_expired: 410,
+    client_not_found: 404,
+    redirect_uri_invalid: 400,
+    client_public: 409,
+};
+
+/** `site.accounts` 失败表里只作跳转参数的五个码。 */
+const REDIRECT_ONLY_CODES = ["social_not_registered", "social_email_missing", "social_state_invalid", "social_cancelled", "social_failed"];
 
 const check = (schema: TSchema, value: unknown): boolean => Value.Check(schema, value);
 
@@ -172,11 +218,64 @@ const registerRequest = {
     overseasStorage: true,
 };
 
-describe("失败码（site.accounts 与 site.admin 的失败表）", () => {
-    it("码表正好是两张失败表里有 HTTP 状态的码，状态逐个对得上", () => {
-        const expected = {...ACCOUNTS_FAILURES, ...ADMIN_FAILURES};
-        // 两张表里都有的码，状态必须相同，否则合起来会悄悄盖掉一个。
-        for (const [code, status] of Object.entries(ADMIN_FAILURES)) if (code in ACCOUNTS_FAILURES) expect(ACCOUNTS_FAILURES[code]).toBe(status);
+/** 社交注册的发起：密码注册的内容去掉邮箱与密码（`site.accounts` 输出 13）。 */
+const socialRegister = {
+    intent: "register",
+    username: "Alice_01",
+    displayName: "Alice",
+    registrationCode: " Q3F8ZP2M6W9KX7TA ",
+    inviteCode: "7K2Q9XWZ4M8RTB1C",
+    termsVersion: "2026-11-20",
+    overseasStorage: true,
+    continue: "opaque",
+};
+
+/** 库生成的客户端 id 的样子：32 个大小写字母。 */
+const CLIENT_ID = "qWeRtYuIoPaSdFgHjKlZxCvBnMqWeRtY";
+
+const oauthClient = {
+    id: 3,
+    clientId: CLIENT_ID,
+    name: "书架",
+    redirectUris: ["https://shelf.example/callback"],
+    type: "confidential",
+    skipConsent: false,
+    disabled: false,
+    createdAt: NOW,
+};
+
+const createClient = {name: "书架", redirectUris: ["https://shelf.example/callback"], type: "confidential", skipConsent: false};
+
+/** 照 `site.oauth-provider` 输出 2 写的一份合格的发现文档。 */
+const discovery = {
+    issuer: "https://nbook.example",
+    authorization_endpoint: "https://nbook.example/api/identity/auth/oauth2/authorize",
+    token_endpoint: "https://nbook.example/api/identity/auth/oauth2/token",
+    userinfo_endpoint: "https://nbook.example/api/identity/auth/oauth2/userinfo",
+    jwks_uri: "https://nbook.example/api/identity/auth/jwks",
+    revocation_endpoint: "https://nbook.example/api/identity/auth/oauth2/revoke",
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+    revocation_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+    scopes_supported: ["openid", "profile", "email"],
+    subject_types_supported: ["public"],
+    id_token_signing_alg_values_supported: ["RS256"],
+    prompt_values_supported: ["none", "login", "consent"],
+    response_modes_supported: ["query"],
+    // 输出 7 的用户信息字段与输出 11 的 id_token 字段（含 acr 与带了才有的 nonce）。
+    claims_supported: ["sub", "preferred_username", "name", "email_pending", "email", "email_verified", "iss", "aud", "iat", "exp", "auth_time", "at_hash", "acr", "nonce"],
+    authorization_response_iss_parameter_supported: true,
+    request_parameter_supported: false,
+    request_uri_parameter_supported: false,
+};
+
+describe("失败码（site.accounts、site.admin 与 site.oauth-provider 的失败表）", () => {
+    it("码表正好是三张失败表里有 HTTP 状态的码，状态逐个对得上", () => {
+        const expected = {...ACCOUNTS_FAILURES, ...ADMIN_FAILURES, ...OAUTH_FAILURES};
+        // 几张表里都有的码，状态必须相同，否则合起来会悄悄盖掉一个。
+        for (const table of [ADMIN_FAILURES, OAUTH_FAILURES]) for (const [code, status] of Object.entries(table)) if (code in ACCOUNTS_FAILURES) expect(ACCOUNTS_FAILURES[code]).toBe(status);
         const actual: Record<string, number> = Object.fromEntries(IDENTITY_FAILURE_CODES.map((code) => [code, IDENTITY_FAILURE_STATUS[code]]));
         expect(actual).toEqual(expected);
         expect(new Set(IDENTITY_FAILURE_CODES).size).toBe(IDENTITY_FAILURE_CODES.length);
@@ -190,9 +289,11 @@ describe("失败码（site.accounts 与 site.admin 的失败表）", () => {
         for (const code of [...REDIRECT_ONLY_CODES, "last_admin"]) expect(IDENTITY_FAILURE_CODES as readonly string[]).not.toContain(code);
     });
 
-    it("社交流程的落点码是七个：三个跳转参数码加 email_taken、identity_taken、identity_exists、account_banned（输出 23）", () => {
+    it("社交流程的落点码是十二个：五个跳转参数码加输出 23 列的七个 HTTP 码", () => {
         const social: string[] = [...SOCIAL_ERROR_CODES].sort();
-        expect(social).toEqual([...REDIRECT_ONLY_CODES, "email_taken", "identity_taken", "identity_exists", "account_banned"].sort());
+        const httpCodes = ["registration_code_invalid", "invite_code_invalid", "username_taken", "email_taken", "identity_taken", "identity_exists", "account_banned"];
+        expect(social).toEqual([...REDIRECT_ONLY_CODES, ...httpCodes].sort());
+        expect(new Set(SOCIAL_ERROR_CODES).size).toBe(SOCIAL_ERROR_CODES.length);
         for (const code of SOCIAL_ERROR_CODES) if (!REDIRECT_ONLY_CODES.includes(code)) expect(IDENTITY_FAILURE_CODES as readonly string[]).toContain(code);
     });
 });
@@ -234,6 +335,15 @@ describe("请求拒收多余的键", () => {
         ["InviteCodeListQuery", InviteCodeListQuery, {pageSize: "50"}],
         ["AuditListQuery", AuditListQuery, {actorId: "cli", action: "admin.cli_upsert"}],
         ["IdParams", IdParams, {id: "12"}],
+        ["SocialStartRequest 登录", SocialStartRequest, {intent: "login"}],
+        ["SocialStartRequest 注册", SocialStartRequest, socialRegister],
+        ["SocialStartRequest 关联", SocialStartRequest, {intent: "link", currentPassword: "old"}],
+        ["OAuthAuthorizationQuery", OAuthAuthorizationQuery, {request: "opaque"}],
+        ["OAuthDecisionRequest", OAuthDecisionRequest, {request: "opaque", accept: true}],
+        ["OAuthClientListQuery", OAuthClientListQuery, {page: "2", anchor: "oc5"}],
+        ["CreateOAuthClientRequest", CreateOAuthClientRequest, createClient],
+        ["PatchOAuthClientRequest", PatchOAuthClientRequest, {disabled: true}],
+        ["ClientIdParams", ClientIdParams, {id: CLIENT_ID}],
     ];
     for (const [name, schema, sample] of requests) {
         it(`${name}：样例合格，多一个键就不合格`, () => {
@@ -524,7 +634,261 @@ describe("响应的样例", () => {
     });
 });
 
-describe("路径（两份 Spec 输入与前置条件的接口表）", () => {
+describe("续接（site.accounts 输出 4，site.oauth-provider 输出 4、12）", () => {
+    it("登录、注册、补交同意都可带 continue；它只要求是字符串，篡改、过期、太长都交给服务端判为不合格，不是字段错误", () => {
+        const long = "x".repeat(20_000);
+        for (const token of ["opaque", "", long]) {
+            expect(check(LoginRequest, {identifier: "alice", password: "pw", continue: token})).toBe(true);
+            expect(check(RegisterRequest, {...registerRequest, continue: token})).toBe(true);
+            expect(check(ConsentRequest, {termsVersion: "2026-11-20", overseasStorage: true, continue: token})).toBe(true);
+        }
+        for (const token of [1, null, ["opaque"]]) expect(check(LoginRequest, {identifier: "alice", password: "pw", continue: token})).toBe(false);
+    });
+
+    it("继续地址是站内地址：以单个 / 开头，不收协议相对与带协议的写法", () => {
+        const continueUrl = "/api/identity/auth/oauth2/authorize?client_id=x&state=y";
+        expect(check(LoginResponse, {user: profile, continueUrl})).toBe(true);
+        expect(check(RegisterResponse, {user: profile, continueUrl: "/"})).toBe(true);
+        for (const url of ["//evil.example/x", "/\\evil.example", "https://evil.example/", "api/identity", ""]) {
+            expect({url, login: check(LoginResponse, {user: profile, continueUrl: url}), register: check(RegisterResponse, {user: profile, continueUrl: url})}).toEqual({url, login: false, register: false});
+        }
+    });
+
+    it("补交同意的响应是自己的资料，可带继续地址", () => {
+        const me = {...profile, email: null, emailPending: true, hasPassword: false, consentRequired: false};
+        expect(check(ConsentResponse, me)).toBe(true);
+        expect(check(ConsentResponse, {...me, continueUrl: "/api/identity/auth/oauth2/authorize?a=b"})).toBe(true);
+        expect(check(ConsentResponse, {...me, continueUrl: "//evil.example"})).toBe(false);
+        expect(check(ConsentResponse, {...me, extra: 1})).toBe(false);
+        expect(check(MeResponse, {...me, continueUrl: "/x"})).toBe(false);
+    });
+
+    it("页面地址与查询参数名（输出 3、4、5、12、14）", () => {
+        expect(OAUTH_PAGES).toEqual({login: "/login", siteConsent: "/consent", consent: "/oauth/consent"});
+        expect([CONTINUE_PARAM, OAUTH_REQUEST_PARAM, OAUTH_ERROR_PARAM]).toEqual(["continue", "request", "error"]);
+    });
+});
+
+describe("社交发起（site.accounts 输出 11、13、15）", () => {
+    it("意图只有登录、注册、关联；缺意图或别的意图不合格", () => {
+        for (const intent of ["signup", "LOGIN", ""]) expect(check(SocialStartRequest, {intent})).toBe(false);
+        expect(check(SocialStartRequest, {})).toBe(false);
+        expect(check(SocialStartRequest, {intent: "login", continue: "opaque"})).toBe(true);
+        expect(check(SocialStartRequest, {intent: "link"})).toBe(true);
+    });
+
+    it("每种意图拒收别的意图的字段", () => {
+        const {intent: _, continue: __, ...registerFields} = socialRegister;
+        const cases: ReadonlyArray<readonly [name: string, body: Record<string, unknown>]> = [
+            ["登录带用户名", {intent: "login", username: "alice"}],
+            ["登录带注册码", {intent: "login", registrationCode: "Q3F8ZP2M6W9KX7TA"}],
+            ["登录带当前密码", {intent: "login", currentPassword: "old"}],
+            ["关联带用户名", {intent: "link", username: "alice"}],
+            ["关联带注册的全部内容", {intent: "link", ...registerFields}],
+            ["关联带续接令牌", {intent: "link", continue: "opaque"}],
+            ["注册带当前密码", {...socialRegister, currentPassword: "old"}],
+        ];
+        for (const [name, body] of cases) expect({name, ok: check(SocialStartRequest, body)}).toEqual({name, ok: false});
+    });
+
+    it("注册：字段规则同密码注册，没有邮箱与密码，必填项缺一个都不合格", () => {
+        expect(check(SocialStartRequest, {...socialRegister, displayName: undefined, inviteCode: undefined, continue: undefined})).toBe(true);
+        expect(check(SocialStartRequest, {...socialRegister, email: "alice@example.com"})).toBe(false);
+        expect(check(SocialStartRequest, {...socialRegister, password: "correct horse"})).toBe(false);
+        expect(check(SocialStartRequest, {...socialRegister, username: "\u212Aelvin"})).toBe(false); // 开尔文符号小写后才落进 ASCII
+        expect(check(SocialStartRequest, {...socialRegister, displayName: ""})).toBe(false);
+        expect(check(SocialStartRequest, {...socialRegister, termsVersion: "v1"})).toBe(false);
+        // 不同意境外存放合 schema，由服务端回 consent_required（同密码注册）。
+        expect(check(SocialStartRequest, {...socialRegister, overseasStorage: false})).toBe(true);
+        for (const key of ["username", "registrationCode", "termsVersion", "overseasStorage"] as const) {
+            const {[key]: _, ...missing} = socialRegister;
+            expect({key, ok: check(SocialStartRequest, missing)}).toEqual({key, ok: false});
+        }
+    });
+
+    it("关联的当前密码只查上限", () => {
+        expect(check(SocialStartRequest, {intent: "link", currentPassword: ""})).toBe(true);
+        expect(check(SocialStartRequest, {intent: "link", currentPassword: codePoints(129)})).toBe(false);
+    });
+
+    it("发起的响应是上游地址；上游身份列表", () => {
+        expect(check(SocialStartResponse, {url: "https://accounts.google.com/o/oauth2/v2/auth?state=s"})).toBe(true);
+        for (const url of ["javascript:alert(1)", "/login"]) expect(check(SocialStartResponse, {url})).toBe(false);
+        expect(check(IdentityListResponse, {items: [{id: 2, provider: "github", accountName: "alice-gh", linkedAt: NOW}]})).toBe(true);
+        expect(check(IdentityListResponse, {items: [{id: 2, provider: "github", accountName: "alice-gh", linkedAt: NOW, email: "a@b.c"}]})).toBe(false);
+    });
+
+    it("两个上游的回调地址（site.oauth-provider 输出 1）", () => {
+        expect(SOCIAL_CALLBACK_PATHS).toEqual({google: "/api/identity/auth/callback/google", github: "/api/identity/auth/callback/github"});
+    });
+});
+
+describe("对外 OAuth（site.oauth-provider）", () => {
+    it("标准端点与发现文档的地址（输入与前置条件的端点表）", () => {
+        expect(IDENTITY_AUTH_PREFIX).toBe("/api/identity/auth");
+        expect(OAUTH_ENDPOINT_PATHS).toEqual({
+            authorize: "/api/identity/auth/oauth2/authorize",
+            token: "/api/identity/auth/oauth2/token",
+            userinfo: "/api/identity/auth/oauth2/userinfo",
+            revoke: "/api/identity/auth/oauth2/revoke",
+            jwks: "/api/identity/auth/jwks",
+        });
+        expect([...OIDC_DISCOVERY_PATHS]).toEqual(["/.well-known/openid-configuration", "/.well-known/oauth-authorization-server"]);
+    });
+
+    it("范围、客户端种类与错误页的码", () => {
+        expect([...OAUTH_SCOPES]).toEqual(["openid", "profile", "email"]);
+        expect([...OAUTH_CLIENT_TYPES]).toEqual(["confidential", "public"]);
+        expect([...OAUTH_ERROR_PAGE_CODES]).toEqual(["client_not_found", "redirect_uri_invalid"]);
+        for (const code of OAUTH_ERROR_PAGE_CODES) expect(IDENTITY_FAILURE_CODES as readonly string[]).toContain(code);
+    });
+
+    it("四个 OAuth 失败码都能以错误体出现，不带 fields", () => {
+        for (const code of Object.keys(OAUTH_FAILURES)) {
+            expect({code, ok: check(ErrorBody, {error: {code}})}).toEqual({code, ok: true});
+            expect({code, ok: check(ErrorBody, {error: {code, fields: []}})}).toEqual({code, ok: false});
+        }
+    });
+
+    it("用户信息：只有 sub 是必有的；不出现别的字段，email_verified 只能是 false（输出 7）", () => {
+        const full = {sub: "7", preferred_username: "alice", name: "Alice", email_pending: false, email: "alice@example.com", email_verified: false};
+        expect(check(UserInfoResponse, {sub: "7"})).toBe(true);
+        expect(check(UserInfoResponse, full)).toBe(true);
+        expect(check(UserInfoResponse, {sub: "7", email_pending: true})).toBe(true);
+        const invalid: ReadonlyArray<readonly [name: string, body: unknown]> = [
+            ["带头像", {...full, picture: "https://e.example/a.png"}],
+            ["带名与姓", {...full, given_name: "A", family_name: "B"}],
+            ["邮箱说是验证过的", {...full, email_verified: true}],
+            ["缺 sub", {preferred_username: "alice"}],
+            ["sub 是数字", {sub: 7}],
+            ["sub 不是十进制 id", {sub: "user-7"}],
+            ["用户名不是小写的登录名", {sub: "7", preferred_username: "Alice"}],
+        ];
+        for (const [name, body] of invalid) expect({name, ok: check(UserInfoResponse, body)}).toEqual({name, ok: false});
+    });
+
+    it("发现文档：照输出 2 的值合格；多出内省、注册、登出、DPoP、claims 参数的字段不合格", () => {
+        expect(check(DiscoveryDocument, discovery)).toBe(true);
+        // 能力字段是集合：先后不限。
+        expect(check(DiscoveryDocument, {...discovery, token_endpoint_auth_methods_supported: ["none", "client_secret_basic"], claims_supported: [...discovery.claims_supported].reverse()})).toBe(true);
+        const extras: Record<string, unknown> = {
+            introspection_endpoint: "https://nbook.example/api/identity/auth/oauth2/introspect",
+            registration_endpoint: "https://nbook.example/api/identity/auth/oauth2/register",
+            end_session_endpoint: "https://nbook.example/api/identity/auth/oauth2/endsession",
+            dpop_signing_alg_values_supported: ["ES256"],
+            claims_parameter_supported: false,
+        };
+        for (const [key, value] of Object.entries(extras)) expect({key, ok: check(DiscoveryDocument, {...discovery, [key]: value})}).toEqual({key, ok: false});
+    });
+
+    it("发现文档：能力字段多一个、少一个、重复或换成别的值都不合格", () => {
+        const invalid: ReadonlyArray<readonly [name: string, body: unknown]> = [
+            ["多了隐式流程", {...discovery, response_types_supported: ["code", "token"]}],
+            ["多了刷新令牌", {...discovery, grant_types_supported: ["authorization_code", "refresh_token"]}],
+            ["多了 plain", {...discovery, code_challenge_methods_supported: ["S256", "plain"]}],
+            ["多了 client_secret_post", {...discovery, token_endpoint_auth_methods_supported: ["client_secret_basic", "none", "client_secret_post"]}],
+            ["撤销少了 none", {...discovery, revocation_endpoint_auth_methods_supported: ["client_secret_basic"]}],
+            ["范围重复", {...discovery, scopes_supported: ["openid", "openid", "email"]}],
+            ["签名算法是 EdDSA", {...discovery, id_token_signing_alg_values_supported: ["EdDSA"]}],
+            ["prompt 多了 create", {...discovery, prompt_values_supported: ["none", "login", "consent", "create"]}],
+            ["跳回方式多了 fragment", {...discovery, response_modes_supported: ["query", "fragment"]}],
+            ["字段里多了 picture", {...discovery, claims_supported: [...discovery.claims_supported, "picture"]}],
+            ["字段里少了 acr", {...discovery, claims_supported: discovery.claims_supported.filter((claim) => claim !== "acr")}],
+            ["说支持 request 参数", {...discovery, request_parameter_supported: true}],
+            ["不说跳回带 iss", {...discovery, authorization_response_iss_parameter_supported: false}],
+        ];
+        for (const [name, body] of invalid) expect({name, ok: check(DiscoveryDocument, body)}).toEqual({name, ok: false});
+        const {jwks_uri: _, ...missing} = discovery;
+        expect(check(DiscoveryDocument, missing)).toBe(false);
+    });
+
+    it("确认页的接口（输出 14）", () => {
+        expect(check(OAuthAuthorizationResponse, {clientName: "书架", redirectHost: "shelf.example", scopes: ["openid", "profile"]})).toBe(true);
+        expect(check(OAuthAuthorizationResponse, {clientName: "书架", redirectHost: "127.0.0.1:8123", scopes: ["openid", "profile", "email"]})).toBe(true);
+        expect(check(OAuthAuthorizationResponse, {clientName: "书架", redirectHost: "shelf.example", scopes: ["openid", "offline_access"]})).toBe(false);
+        expect(check(OAuthAuthorizationResponse, {clientName: "书架", redirectHost: "shelf.example", scopes: ["openid"], redirectUri: "https://shelf.example/cb"})).toBe(false);
+        expect(check(OAuthAuthorizationQuery, {})).toBe(false);
+        expect(check(OAuthDecisionRequest, {request: "opaque", accept: "yes"})).toBe(false);
+        expect(check(OAuthDecisionRequest, {request: "opaque"})).toBe(false);
+        expect(check(OAuthDecisionResponse, {redirectUrl: "https://shelf.example/cb?code=c&state=s&iss=https%3A%2F%2Fnbook.example"})).toBe(true);
+        expect(check(OAuthDecisionResponse, {redirectUrl: "http://127.0.0.1:5555/cb?error=access_denied"})).toBe(true);
+        for (const redirectUrl of ["javascript:alert(1)", "/oauth/consent?error=client_not_found"]) expect(check(OAuthDecisionResponse, {redirectUrl})).toBe(false);
+    });
+
+    it("已给的授权（输出 15）", () => {
+        const grant = {id: 3, clientName: "书架", scopes: ["openid", "email"], createdAt: NOW};
+        expect(check(GrantListResponse, {items: [grant]})).toBe(true);
+        expect(check(GrantItem, {...grant, clientId: CLIENT_ID})).toBe(false);
+        expect(check(GrantItem, {...grant, scopes: ["openid", "admin"]})).toBe(false);
+        expect(check(GrantItem, {...grant, createdAt: "2026-11-25T08:30:00Z"})).toBe(false);
+    });
+
+    it("客户端列表的一项不含密钥；用 site.admin 的分页（输出 16）", () => {
+        expect(check(OAuthClientItem, oauthClient)).toBe(true);
+        expect(check(OAuthClientItem, {...oauthClient, type: "public", redirectUris: ["http://127.0.0.1/cb", "http://[::1]/cb"], skipConsent: true, disabled: true})).toBe(true);
+        expect(check(OAuthClientItem, {...oauthClient, clientSecret: "s3cret"})).toBe(false);
+        expect(check(OAuthClientItem, {...oauthClient, type: "native"})).toBe(false);
+        // 审计记录的对象 id 是这个数字 id（`site.admin` 的审计按对象筛），列表要给出它。
+        expect(check(OAuthClientItem, {...oauthClient, id: undefined})).toBe(false);
+        expect(check(OAuthClientListResponse, {items: [oauthClient], total: 1, page: 1, pageSize: 20, anchor: "oc1"})).toBe(true);
+        expect(check(OAuthClientListResponse, {items: [oauthClient], total: 1, page: 1, pageSize: 20, anchor: "oc1", counts: {}})).toBe(false);
+        expect(check(OAuthClientListQuery, {filter: "all"})).toBe(false);
+        expect(check(OAuthClientListQuery, {pageSize: "101"})).toBe(false);
+    });
+
+    it("登记：回调地址一到五个、每个至多 500 个码点；按种类的规则由服务端判", () => {
+        expect(REDIRECT_URI).toEqual({maxLength: 500, minCount: 1, maxCount: 5});
+        const at500 = `https://shelf.example/${"x".repeat(500 - "https://shelf.example/".length)}`;
+        const uris = (count: number) => Array.from({length: count}, (_, index) => `https://shelf.example/cb${index}`);
+        for (const [name, redirectUris, ok] of [
+            ["一个", uris(1), true],
+            ["五个", uris(5), true],
+            ["500 个码点", [at500], true],
+            // schema 不判种类的规则：这些合 schema，由服务端回 redirect_uri_invalid。
+            ["机密客户端的回环地址", ["http://127.0.0.1/cb"], true],
+            ["自定义协议", ["com.example.app:/cb"], true],
+            ["没有", [], false],
+            ["六个", uris(6), false],
+            ["501 个码点", [`${at500}x`], false],
+            ["空串", [""], false],
+        ] as const) {
+            expect({name, ok: check(CreateOAuthClientRequest, {...createClient, redirectUris})}).toEqual({name, ok});
+        }
+    });
+
+    it("登记：名字 1 到 100 个码点；种类只有两种；是否免确认必填", () => {
+        expect(OAUTH_CLIENT_NAME).toMatchObject({minLength: 1, maxLength: 100});
+        for (const [length, ok] of [[0, false], [1, true], [100, true], [101, false]] as const) expect({length, ok: check(CreateOAuthClientRequest, {...createClient, name: codePoints(length)})}).toEqual({length, ok});
+        expect(check(CreateOAuthClientRequest, {...createClient, type: "public"})).toBe(true);
+        expect(check(CreateOAuthClientRequest, {...createClient, type: "native"})).toBe(false);
+        const {skipConsent: _, ...noSkip} = createClient;
+        expect(check(CreateOAuthClientRequest, noSkip)).toBe(false);
+        expect(check(CreateOAuthClientRequest, {...createClient, tokenEndpointAuthMethod: "client_secret_post"})).toBe(false);
+    });
+
+    it("登记的响应：机密客户端带一次密钥，公开客户端为 null；换密钥的响应只有新密钥", () => {
+        expect(check(CreateOAuthClientResponse, {client: oauthClient, clientSecret: "s3cret"})).toBe(true);
+        expect(check(CreateOAuthClientResponse, {client: {...oauthClient, type: "public"}, clientSecret: null})).toBe(true);
+        expect(check(CreateOAuthClientResponse, {client: oauthClient})).toBe(false);
+        expect(check(CreateOAuthClientResponse, {client: oauthClient, clientSecret: ""})).toBe(false);
+        expect(check(RotateSecretResponse, {clientSecret: "n3w"})).toBe(true);
+        expect(check(RotateSecretResponse, {clientSecret: "n3w", client: oauthClient})).toBe(false);
+    });
+
+    it("改动：四个属性都可选、至少一项，种类不能改，停用可以撤回", () => {
+        expect(check(PatchOAuthClientRequest, {})).toBe(false);
+        for (const body of [{name: "新名字"}, {redirectUris: ["https://shelf.example/new"]}, {skipConsent: true}, {disabled: false}]) expect(check(PatchOAuthClientRequest, body)).toBe(true);
+        expect(check(PatchOAuthClientRequest, {type: "public"})).toBe(false);
+        expect(check(PatchOAuthClientRequest, {redirectUris: []})).toBe(false);
+    });
+
+    it("路径里的客户端 id：1 到 64 个 URL 安全的字符", () => {
+        for (const id of [CLIENT_ID, "a", "A-b_9", "x".repeat(64)]) expect(check(ClientIdParams, {id})).toBe(true);
+        for (const id of ["", "x".repeat(65), "a/b", "a b", "a.b", "a%2Fb"]) expect(check(ClientIdParams, {id})).toBe(false);
+    });
+});
+
+describe("路径（三份 Spec 输入与前置条件的接口表）", () => {
     it("都在前缀之下，与接口表一致", () => {
         expect(IDENTITY_API_PREFIX).toBe("/api/identity/v1");
         expect(IDENTITY_PATHS).toEqual({
@@ -538,10 +902,14 @@ describe("路径（两份 Spec 输入与前置条件的接口表）", () => {
             meConsent: "/me/consent",
             meSessions: "/me/sessions",
             meInviteCodes: "/me/invite-codes",
+            meIdentities: "/me/identities",
+            meGrants: "/me/grants",
+            oauthAuthorization: "/oauth/authorization",
             adminUsers: "/admin/users",
             adminRegistrationCodes: "/admin/registration-codes",
             adminInviteCodes: "/admin/invite-codes",
             adminAudit: "/admin/audit",
+            adminOAuthClients: "/admin/oauth-clients",
         });
         expect(identityPath.meSession(3)).toBe("/me/sessions/3");
         expect(identityPath.meInviteCode(4)).toBe("/me/invite-codes/4");
@@ -554,6 +922,15 @@ describe("路径（两份 Spec 输入与前置条件的接口表）", () => {
             "/admin/users/7/reset-password",
         ]);
         expect(identityPath.adminRegistrationCode(4)).toBe("/admin/registration-codes/4");
+        expect(identityPath.meIdentity(2)).toBe("/me/identities/2");
+        expect(identityPath.meGrant(3)).toBe("/me/grants/3");
+        expect([identityPath.socialStart("google"), identityPath.socialStart("github")]).toEqual(["/social/google/start", "/social/github/start"]);
+        expect(identityPath.adminOAuthClient(CLIENT_ID)).toBe(`/admin/oauth-clients/${CLIENT_ID}`);
+        expect(identityPath.adminOAuthClientRotate(CLIENT_ID)).toBe(`/admin/oauth-clients/${CLIENT_ID}/rotate-secret`);
+    });
+
+    it("客户端 id 只落在路径的一段里：坏写法被编码，不会拼出别的路径", () => {
+        expect(identityPath.adminOAuthClient("a/../b")).toBe("/admin/oauth-clients/a%2F..%2Fb");
     });
 
     it("路径里的 id 是十进制正整数", () => {
@@ -582,6 +959,24 @@ export function staticTypeChecks(): void {
         true satisfies Equal<NonNullable<AuditListQuery["action"]>, (typeof AUDIT_ACTIONS)[number]>,
         true satisfies Equal<AuditItem["action"], (typeof AUDIT_ACTIONS)[number]>,
         true satisfies Equal<AuditItem["target"]["type"], (typeof AUDIT_TARGET_TYPES)[number]>,
+        true satisfies Equal<Static<typeof OAuthScopeSchema>, OAuthScope>,
+        true satisfies Equal<Static<typeof OAuthClientTypeSchema>, OAuthClientType>,
+        true satisfies Equal<SocialIntent, "login" | "register" | "link">,
+        // 按意图分开的联合：关联一支没有用户名，注册一支没有当前密码。
+        true satisfies Equal<"username" extends keyof Extract<SocialStartRequest, {intent: "link"}> ? true : false, false>,
+        true satisfies Equal<"currentPassword" extends keyof Extract<SocialStartRequest, {intent: "register"}> ? true : false, false>,
+        true satisfies Equal<UserInfoResponse["email_verified"], false | undefined>,
+        true satisfies Equal<CreateOAuthClientResponse["clientSecret"], string | null>,
+        true satisfies Equal<LoginRequest["continue"], string | undefined>,
+        true satisfies Equal<ConsentResponse["continueUrl"], string | undefined>,
     ];
     void checks;
+
+    // 经公开入口给 OAuthClientItem 赋值：同名的类型与 schema 推出的是同一个形状，前端按它写字面量。
+    const item: OAuthClientItem = {id: 3, clientId: "abc", name: "书架", redirectUris: ["https://shelf.example/cb"], type: "public", skipConsent: false, disabled: false, createdAt: NOW};
+    // @ts-expect-error 列表项没有密钥。
+    const leaked: OAuthClientItem = {...item, clientSecret: "s3cret"};
+    // @ts-expect-error 种类只有两种。
+    const native: OAuthClientItem = {...item, type: "native"};
+    void [item, leaked, native];
 }
