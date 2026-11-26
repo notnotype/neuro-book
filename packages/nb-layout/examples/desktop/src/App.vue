@@ -7,23 +7,21 @@
  * - 浮动窗：不在树里，矩形由模型记着，经 `floats` 交给网格；窗在树与浮动之间来回时叶的 id 不变，库据此做飞进飞出的过渡。
  * - 正文：每扇窗的正文放在内容层，按窗的 id 认实例，窗换了样子打的字还在。
  * - 移动：useDragSession 驱动整窗移动，网格只管把窗跟着挪（placeFloat）；在桌面左右缘松手就平铺。
- * - 缩放与键盘移动：FloatWindowHandles 只算矩形，这里负责夹进桌面再写回。
+ * - 缩放与键盘移动：FloatWindowHandles 按桌面夹好矩形，这里取整、只写回动了的那一轴。
  * - 存档：每次布局变了就存；读档在启动时一次。
  */
 import {computed, nextTick, shallowRef, triggerRef, useTemplateRef} from "vue";
 
 import {DropFeedbackOverlay, FloatWindowHandles, NestedGrid, useDragSession, useGridHost} from "@notnotype/nb-layout/vue";
 import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
-import type {GridContentInput, GridDropPoint, GridFloatInput, GridRect} from "@notnotype/nb-layout";
+import {clampFloatRect} from "@notnotype/nb-layout";
+import type {GridContentInput, GridDropPoint, GridFloatInput, GridRect, LayoutFloatResize} from "@notnotype/nb-layout";
 
 import {actionKey, dropKey, moveTarget, tileSide, type Drop} from "./drop";
 import {
-    deskClamp,
     DESKTOP,
     DOCK,
-    intersectRect,
     isWindowId,
-    leafRect,
     loadLayout,
     roundRect,
     saveLayout,
@@ -89,6 +87,12 @@ const gridView = useTemplateRef<InstanceType<typeof NestedGrid>>("gridView");
 const box = useTemplateRef<HTMLElement>("box");
 
 /**
+ * 刚最大化或还原的那扇窗：只有它的矩形变化走布局过渡（`floats` 的 `animate`）。别的操作成功时清掉：
+ * 标着的窗每次矩形变化都要滑完一整段（缺省 470ms），一直标着的话键盘移动每按一下都要滑。
+ */
+const toggled = shallowRef<WindowId | null>(null);
+
+/**
  * 操作成功：通知网格重算（树变了才需要），模板跟着重算，存档。失败：说出原因，模型没动。
  * `tree` 为假的操作（移动、缩放、抬升）没碰树：不调 `invalidate`，它会让版本加一，取消正在进行的手势。
  */
@@ -99,6 +103,7 @@ function settle(result: Result, tree = true): boolean {
     }
     // 一次性的状态说的是上一件事（读档、上次保存、上次被拒）；这次成功了就清掉，保存再失败会重新写上。常驻的不清。
     notice.value = "";
+    toggled.value = null;
     if (tree) host.invalidate();
     triggerRef(layout);
     persist();
@@ -106,21 +111,10 @@ function settle(result: Result, tree = true): boolean {
 }
 
 /**
- * 设备像素比：库按它取整，这里量桌面叶的矩形也要用同一个。
- * 已知限制：这里在计算属性里直接读 `window.devicePixelRatio`，不是响应式的。浏览器缩放通常会改视口的 CSS 宽度、
- * 让网格重算，这里跟着重算；但窗口拖到比例不同的另一块屏幕上而视口宽度没变时，这里还是旧的比例，
- * 取整可能与库差一个设备像素。库内部有响应式的版本，但没有导出，示例只能这样读。
+ * 桌面叶此刻相对网格根的矩形，网格交出来的（`leafRect`）：左右有平铺窗时它不从 0 开始、也不是整个网格那么宽；
+ * 拖平铺窗与桌面之间的分隔线时它跟着预览变，浮动窗跟着让位。网格还没量到容器时是 null，这时不画浮动窗。
  */
-const dpr = (): number => window.devicePixelRatio || 1;
-
-/**
- * 桌面叶此刻相对网格根的矩形：库不交出摆放结果，只能按同一份树与布局自己摆一遍（`leafRect`）。
- * 左右有平铺窗时它不从 0 开始、也不是整个网格那么宽。
- */
-const desk = computed<GridRect | null>(() => {
-    const extent = host.extent.value;
-    return extent === null ? null : leafRect(host.node.value, host.layout.value, extent, dpr(), DESKTOP);
-});
+const desk = computed<GridRect | null>(() => (host.extent.value === null ? null : (gridView.value?.leafRect(DESKTOP) ?? null)));
 
 /** 浮动窗此刻画着的矩形：夹进桌面（视口变小、平铺占了地方之后窗都在桌面里，记录不改，视口变回来窗回原处）；最大化的取桌面。 */
 const floatRects = computed(() => {
@@ -129,7 +123,7 @@ const floatRects = computed(() => {
     if (area === null) return rects;
     for (const id of layout.value.floating()) {
         const state = layout.value.windows.get(id)!;
-        rects.set(id, state.mode === "maximized" ? area : roundRect(deskClamp(state.floatRect, area)));
+        rects.set(id, state.mode === "maximized" ? area : roundRect(clampFloatRect(state.floatRect, area)));
     }
     return rects;
 });
@@ -140,11 +134,11 @@ const moving = shallowRef<Moving | null>(null);
 /** 缩放进行中的预览矩形：画它，不写模型；松手才写。 */
 const resizing = shallowRef<{readonly id: WindowId; readonly rect: GridRect} | null>(null);
 
-/** 交给网格的浮动窗，次序就是层叠次序（后面的在上面）。进行中的手势写在 `gesture` 上：跟手、不过渡。 */
+/** 交给网格的浮动窗，次序就是层叠次序（后面的在上面）。进行中的手势写在 `gesture` 上：跟手、不过渡。刚最大化或还原的那扇标 `animate`：滑过去。 */
 const floats = computed<GridFloatInput[]>(() => [...floatRects.value].map(([id, rect]) => {
     if (moving.value?.id === id) return {id, rect, gesture: "move" as const};
     if (resizing.value?.id === id) return {id, rect: resizing.value.rect, gesture: "resize" as const};
-    return {id, rect};
+    return {id, rect, animate: toggled.value === id};
 }));
 
 const modes = computed(() => Object.fromEntries(WINDOW_IDS.map((id) => [id, layout.value.mode(id)])) as Record<WindowId, Mode>);
@@ -167,7 +161,10 @@ const titleOf = (id: string): string => (isWindowId(id) ? TITLES[id] : id);
 function onAction(id: string, action: WindowAction): void {
     if (!isWindowId(id)) return;
     const model = layout.value;
-    if (action === "maximize") settle(model.toggleMaximize(id), false);
+    // `settle` 成功时会清掉 `toggled`，所以在它之后再标。
+    if (action === "maximize") {
+        if (settle(model.toggleMaximize(id), false)) toggled.value = id;
+    }
     else if (action === "minimize" || action === "close") {
         if (settle(action === "minimize" ? model.minimize(id) : model.close(id))) void nextTick(() => box.value?.querySelector<HTMLElement>(`[data-window="${CSS.escape(id)}"]`)?.focus());
     } else settle(model.untile(id));
@@ -182,17 +179,9 @@ function onDockClick(id: WindowId): void {
     void nextTick(() => box.value?.querySelector<HTMLElement>(`[data-window-text="${CSS.escape(id)}"]`)?.focus());
 }
 
-/**
- * 按下浮动窗的任何地方把它挪到最上面，含它的缩放手柄。监听挂在承载盒的捕获阶段：手柄是网格根的直接子元素、
- * 不在窗的内容里，而且它在 `pointerdown` 里阻止冒泡，挂在窗上收不到。窗的三层都带自己的标记：
- * 叶的外框（标题栏在里面）`data-leaf`、正文 `data-content-leaf`、手柄 `data-float-chrome`。
- */
-function raiseOnPress(event: PointerEvent): void {
-    if (!(event.target instanceof Element)) return;
-    const part = event.target.closest<HTMLElement>("[data-leaf], [data-content-leaf], [data-float-chrome]");
-    const id = part?.dataset.leaf ?? part?.dataset.contentLeaf ?? part?.dataset.floatChrome;
-    if (!isWindowId(id) || layout.value.floating().at(-1) === id) return;
-    if (layout.value.floating().includes(id)) settle(layout.value.raise(id), false);
+/** 按下浮动窗的任何地方（含它的缩放手柄）或焦点进入它，网格请求抬升（`float-raise`）：挪到最上面。网格只对不在最上面的窗发。 */
+function onFloatRaise(id: string): void {
+    if (isWindowId(id)) settle(layout.value.raise(id), false);
 }
 
 /** 一场移动里试平铺的结果，按侧缓存：拖动中树不变（变了 structure 会取消整场），同一侧只试一次。 */
@@ -210,20 +199,6 @@ function releaseMove(): void {
     if (current === null) return;
     gridView.value?.placeFloat(current.id, null);
     moving.value = null;
-}
-
-/**
- * 松手后下一帧再改树：先把拖到的矩形发布出去（`commit` 里已写进模型），等浏览器把它算成当前样式，再平铺。
- * 同一拍里改树的话，库从按下之前的矩形开始飞，窗会先跳回去再飞进那一侧：e2e 把它改成同一拍时会失败。
- * 下面读一次 `getBoundingClientRect` 是保险，让浏览器此刻就算好样式。实测在 Chromium 里鼠标松手的事件之后浏览器自己
- * 已经算过一遍样式（命中测试），删掉这一行用例也不失败，所以没有证据说它必不可少；触摸与笔没有试过，留着它不花什么。
- */
-function tileOnNextFrame(id: WindowId, side: Side): void {
-    requestAnimationFrame(() => {
-        void box.value?.getBoundingClientRect();
-        const extent = host.extent.value;
-        if (extent !== null) settle(layout.value.tile(id, side, extent));
-    });
 }
 
 const drag = useDragSession<WindowId, Drop>(box, () => ({
@@ -261,7 +236,8 @@ const drag = useDragSession<WindowId, Drop>(box, () => ({
         else {
             let trial = tileTrials.get(side);
             if (trial === undefined) {
-                trial = layout.value.previewTile(source, side, extent, dpr());
+                // 设备像素比现读：试做的副本不在网格上画，只有这里要它；窗口换到比例不同的屏幕时最多差一个设备像素，只是反馈。
+                trial = layout.value.previewTile(source, side, extent, window.devicePixelRatio || 1);
                 tileTrials.set(side, trial);
             }
             const area = trial.area === null ? null : inViewport(trial.area);
@@ -273,12 +249,14 @@ const drag = useDragSession<WindowId, Drop>(box, () => ({
     },
     actionKey,
     // 顺序：会话先收场（`onEnd`），再调 `commit`。提交的是 `move` 或平铺；平铺放不下时按 `move` 处理，窗停在松手处。
+    // 平铺在同一拍里改树：网格记着 `placeFloat` 最后的偏移，`null` 之后、下一帧之前发布的变化里，窗从松手处飞进那一侧。
     commit: (drop, id) => {
         gridView.value?.placeFloat(id, null);
         moving.value = null;
         // 只写 x、y：窗比桌面大时夹过的宽高是缩小的，写回去视口变大后也回不来。
         if (!settle(layout.value.move(id, drop.rect.x, drop.rect.y), false)) return;
-        if (drop.kind === "tile" && drop.blocked === null) tileOnNextFrame(id, drop.side);
+        const extent = host.extent.value;
+        if (drop.kind === "tile" && drop.blocked === null && extent !== null) settle(layout.value.tile(id, drop.side, extent));
     },
     onEnd: (end) => {
         if (end.kind !== "committed") releaseMove();
@@ -299,25 +277,20 @@ const previewLabel = computed(() => {
     return drop?.kind === "tile" ? (drop.blocked ?? `Tile ${drop.side}`) : "";
 });
 
-/** 缩放预览与提交都先与桌面求交：库的 `max` 是尺寸不是边界，不求交时预览能伸出桌面，松手后又被夹，窗会跳。 */
-function withinDesk(rect: GridRect): GridRect {
-    return desk.value === null ? rect : roundRect(intersectRect(rect, desk.value));
-}
+/** 缩放的预览与提交：手柄按桌面（`area`）夹过，跟着指针的边不出桌面，这里只取整；提交只写这次动了的那一轴（`direction`）。 */
 function onResizePreview(id: WindowId, rect: GridRect | null): void {
-    resizing.value = rect === null ? null : {id, rect: withinDesk(rect)};
+    resizing.value = rect === null ? null : {id, rect: roundRect(rect)};
 }
-function onResizeCommit(id: WindowId, rect: GridRect): void {
-    settle(layout.value.resize(id, withinDesk(rect)), false);
+function onResizeCommit(id: WindowId, rect: GridRect, direction: LayoutFloatResize): void {
+    settle(layout.value.resize(id, roundRect(rect), direction), false);
 }
-/** 键盘移动：位置过 `deskClamp` 后只写回 `x`、`y`；窗被夹着时画着的矩形是夹过的，宽高不能写回。 */
+/** 键盘移动：位置夹进桌面后只写回 `x`、`y`；窗被夹着时画着的矩形是夹过的，宽高不能写回。 */
 function onKeyboardMove(id: WindowId, position: {readonly x: number; readonly y: number}): void {
     const drawn = floatRects.value.get(id);
     if (drawn === undefined || desk.value === null) return;
-    const clamped = roundRect(deskClamp({...drawn, ...position}, desk.value));
+    const clamped = roundRect(clampFloatRect({...drawn, ...position}, desk.value));
     settle(layout.value.move(id, clamped.x, clamped.y), false);
 }
-
-const deskExtent = computed(() => ({width: desk.value?.width ?? 0, height: desk.value?.height ?? 0}));
 
 /** 分隔线的读屏名称念面板的名字，不念生成的 id；挨着分支时库也会问分支的 id，那时交回 undefined 用 id。 */
 const paneLabel = (id: string): string | undefined => (id === DESKTOP ? "Desktop" : id === DOCK ? "Dock" : isWindowId(id) ? TITLES[id] : undefined);
@@ -334,7 +307,7 @@ const sashDisabled = (sash: {readonly after: string}): boolean => sash.after ===
             <p class="status" role="status" data-status>{{ status }}</p>
         </header>
         <!-- 承载盒要有确定的高度：NestedGrid 铺满它、自己量它。data-drop 是此刻的落点，拖动时才有。 -->
-        <div ref="box" class="grid-box" :data-drop="dragging ? (currentDrop === null ? 'none' : dropKey(currentDrop)) : undefined" @pointerdown.capture="raiseOnPress">
+        <div ref="box" class="grid-box" :data-drop="dragging ? (currentDrop === null ? 'none' : dropKey(currentDrop)) : undefined">
             <NestedGrid
                 ref="gridView"
                 v-bind="host.bindings.value"
@@ -343,6 +316,7 @@ const sashDisabled = (sash: {readonly after: string}): boolean => sash.after ===
                 :dragging="dragging"
                 :pane-label="paneLabel"
                 :sash-disabled="sashDisabled"
+                @float-raise="onFloatRaise"
             >
                 <template #leaf="{node}">
                     <div v-if="node.id === DESKTOP" class="desktop" data-desktop></div>
@@ -358,9 +332,9 @@ const sashDisabled = (sash: {readonly after: string}): boolean => sash.after ===
                         v-if="isWindowId(id) && modes[id] === 'floating'"
                         :rect="rect"
                         :min="WINDOW_MIN"
-                        :max="deskExtent"
+                        :area="desk ?? undefined"
                         @preview="onResizePreview(id, $event)"
-                        @commit="onResizeCommit(id, $event)"
+                        @commit="(rect, direction) => onResizeCommit(id, rect, direction)"
                         @move="onKeyboardMove(id, $event)"
                     />
                 </template>

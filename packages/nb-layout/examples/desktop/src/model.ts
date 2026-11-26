@@ -11,8 +11,8 @@
  * 这个文件不依赖 Vue，也不碰 DOM：操作都是同步的，界面在操作成功之后自己通知网格（`host.invalidate()`）并保存。
  * 几何函数把设备像素比当参数收：Bun 里没有 `window`。
  */
-import {clampFloatRect, createGrid, placeGrid, restoreGrid} from "@notnotype/nb-layout";
-import type {Grid, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRect, GridRefResolution, GridSnapshot} from "@notnotype/nb-layout";
+import {createGrid, placeGrid, restoreGrid} from "@notnotype/nb-layout";
+import type {Grid, GridExtent, GridLayoutResult, GridLeafInput, GridNode, GridRect, GridRefResolution, GridSnapshot, LayoutFloatResize} from "@notnotype/nb-layout";
 
 /** 分隔线的宽度（CSS px）。建树与读档都要给：它不在快照里，缺省是 0，0 的分隔线拖不动。 */
 export const SASH_SIZE = 4;
@@ -81,31 +81,14 @@ function parentOf(root: GridNode<string> | null, id: string): Extract<GridNode<s
     return null;
 }
 
-/** 某块叶此刻相对网格根的矩形：没有网格给的“摆放结果”可取，只能自己按布局摆一遍。`dpr` 要与 NestedGrid 用的一致，取整才相同。 */
+/**
+ * 某块叶相对网格根的矩形，按给的树与布局摆一遍。只给试平铺的副本用：副本不在网格上画，没有 `NestedGrid` 的 `leafRect` 可读，只能自己摆。
+ * `dpr` 要与 NestedGrid 用的一致，取整才相同。
+ */
 export function leafRect(root: GridNode<string> | null, layout: GridLayoutResult, extent: GridExtent, dpr: number, id: string): GridRect | null {
     if (root === null) return null;
     for (const item of placeGrid(root, layout, extent, dpr).items) if (item.kind === "leaf" && item.node.id === id) return item.rect;
     return null;
-}
-
-/**
- * 把窗夹在桌面叶里。`desk` 不从 0 开始（左边有平铺窗时），而 `clampFloatRect` 只收宽高、夹在从 0 开始的区域里：
- * 先减掉 `desk` 的原点，夹完再加回来。`keep` 取窗自己的大小和桌面大小中较小的那个：窗比桌面大时，
- * 库按窗自己的大小留“抓得住的一块”，会把窗推出桌面的左缘。
- */
-export function deskClamp(rect: GridRect, desk: GridRect): GridRect {
-    const keep = {width: Math.min(rect.width, desk.width), height: Math.min(rect.height, desk.height)};
-    const local = clampFloatRect({...rect, x: rect.x - desk.x, y: rect.y - desk.y}, {width: desk.width, height: desk.height}, keep);
-    return {x: local.x + desk.x, y: local.y + desk.y, width: local.width, height: local.height};
-}
-
-/** 两个矩形的交：向固定的那几条边收，不平移。 */
-export function intersectRect(a: GridRect, b: GridRect): GridRect {
-    const left = Math.max(a.x, b.x);
-    const top = Math.max(a.y, b.y);
-    const right = Math.min(a.x + a.width, b.x + b.width);
-    const bottom = Math.min(a.y + a.height, b.y + b.height);
-    return {x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top)};
 }
 
 /** 按边取整，不是 x 与宽度各取各的：后者会让右缘差一个像素。 */
@@ -167,11 +150,7 @@ export class DesktopLayout {
         return [...this.order];
     }
 
-    desktopRect(extent: GridExtent, dpr: number): GridRect | null {
-        return leafRect(this.grid.root(), this.grid.layout(extent), extent, dpr, DESKTOP);
-    }
-
-    /** 拖动标题栏移动：只有浮动的（没最大化的）窗能动。只写 `x`、`y`，宽高不动：见 `deskClamp` 与界面里的夹取。 */
+    /** 拖动标题栏移动：只有浮动的（没最大化的）窗能动。只写 `x`、`y`，宽高不动：画着的宽高可能是夹过的（窗比桌面大），写回去视口变大后也回不来。 */
     move(id: WindowId, x: number, y: number): Result {
         if (this.mode(id) !== "floating") return this.wrongMode(id, "be moved");
         const state = this.windows.get(id)!;
@@ -180,12 +159,16 @@ export class DesktopLayout {
     }
 
     /**
-     * 缩放的结果：调用方先与桌面求交、取整。宽高在这里夹到最小尺寸以上再写：桌面叶比最小尺寸还小时（视口很矮），
-     * 求交的结果会小于它，而读档拒收小于最小尺寸的矩形，写进去就是下次载入读不了的存档。画的时候仍会被夹进桌面。
+     * 缩放的结果（手柄已按桌面夹过、调用方取了整）。只写这次动了的那一轴（`direction` 不为 0）：手柄从画着的矩形算起，
+     * 窗被夹着时没动的那一轴是夹过的值，写回去视口变大后也回不来。宽高再夹到最小尺寸以上：桌面叶比最小尺寸还小时（视口很矮），
+     * 手柄给的会小于它，而读档拒收小于最小尺寸的矩形，写进去就是下次载入读不了的存档。画的时候仍会被夹进桌面。
      */
-    resize(id: WindowId, rect: GridRect): Result {
+    resize(id: WindowId, rect: GridRect, direction: LayoutFloatResize): Result {
         if (this.mode(id) !== "floating") return this.wrongMode(id, "be resized");
-        const floatRect = {...rect, width: Math.max(rect.width, WINDOW_MIN.width), height: Math.max(rect.height, WINDOW_MIN.height)};
+        const record = this.windows.get(id)!.floatRect;
+        const [x, width] = direction.width === 0 ? [record.x, record.width] : [rect.x, rect.width];
+        const [y, height] = direction.height === 0 ? [record.y, record.height] : [rect.y, rect.height];
+        const floatRect = {x, y, width: Math.max(width, WINDOW_MIN.width), height: Math.max(height, WINDOW_MIN.height)};
         this.windows.set(id, {...this.windows.get(id)!, floatRect});
         return OK;
     }
