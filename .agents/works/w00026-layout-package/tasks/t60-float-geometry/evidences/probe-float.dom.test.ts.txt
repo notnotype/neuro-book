@@ -1,0 +1,107 @@
+/**
+ * t60 探针（happy-dom）：手柄层的 DOM 次序、手柄松手时的事件先后、松手放回树里时过渡的起点。
+ */
+import {mount} from "@vue/test-utils";
+import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
+import {h, nextTick} from "vue";
+
+import NestedGrid from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/vue/NestedGrid.vue";
+import FloatWindowHandles from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/vue/FloatWindowHandles.vue";
+import {createGrid} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/grid";
+
+const CONTAINER = {width: 1000, height: 600};
+const wrappers: Array<ReturnType<typeof mount>> = [];
+afterEach(() => {
+    for (const w of wrappers.splice(0)) w.unmount();
+});
+
+const tree = (ids: readonly string[]) => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: ids.map((id) => ({kind: "leaf" as const, id, ref: id, size: {width: 1, height: 0}}))}, {sashSize: 1});
+const FLOATS = ["notes", "calc", "clock", "files"].map((id, i) => ({id, rect: {x: 40 + i * 100, y: 40, width: 300, height: 200}}));
+
+function mountGrid(props: Record<string, unknown>) {
+    const g = tree(["desk"]);
+    const w = mount(NestedGrid, {
+        attachTo: document.body,
+        props: {node: g.root(), layout: g.layout(CONTAINER), floats: FLOATS, contents: FLOATS.map((f) => ({key: f.id, leaf: f.id, insetTop: 32, active: true})), ...props},
+        slots: {
+            leaf: ({node}: {node: {id: string}}) => h("div", {class: "leaf-body"}, node.id),
+            content: ({contentKey}: {contentKey: string}) => h("div", {class: "content-body"}, contentKey),
+            "float-chrome": ({id}: {id: string}) => h("button", {class: "chrome-body", "data-chrome-button": id}, id),
+        },
+    });
+    wrappers.push(w);
+    return w;
+}
+
+const chromeOrder = (root: Element) => [...root.children].flatMap((c) => ((c as HTMLElement).dataset.floatChrome === undefined ? [] : [(c as HTMLElement).dataset.floatChrome]));
+const frameOrder = (root: Element) => [...root.children].flatMap((c) => ((c as HTMLElement).dataset.leaf === undefined ? [] : [(c as HTMLElement).dataset.leaf]));
+
+describe("39 手柄层的 DOM 次序", () => {
+    for (const raised of ["notes", "clock"]) {
+        it(`抬升 ${raised}：外框不搬，手柄层搬不搬`, async () => {
+            const w = mountGrid({});
+            const root = w.element as HTMLElement;
+            const moved: string[] = [];
+            const original = root.insertBefore.bind(root);
+            // test-lint-allow spy: 只记下 Vue 搬了哪个节点
+            root.insertBefore = ((node: Node, ref: Node | null) => {
+                const el = node as HTMLElement;
+                if (el.isConnected && el.parentElement === root) moved.push(el.dataset.floatChrome !== undefined ? `chrome:${el.dataset.floatChrome}` : el.dataset.leaf !== undefined ? `frame:${el.dataset.leaf}` : el.dataset.contentLeaf !== undefined ? `content:${el.dataset.contentLeaf}` : el.tagName);
+                return original(node, ref);
+            }) as typeof root.insertBefore;
+            const button = root.querySelector<HTMLElement>(`[data-chrome-button="${raised}"]`)!;
+            button.focus();
+            const beforeChrome = chromeOrder(root);
+            const beforeFrames = frameOrder(root);
+            await w.setProps({floats: [...FLOATS.filter((f) => f.id !== raised), FLOATS.find((f) => f.id === raised)!]});
+            await nextTick();
+            console.log(`39 抬升 ${raised}: 手柄层 ${beforeChrome.join(",")} → ${chromeOrder(root).join(",")}；外框 ${beforeFrames.join(",")} → ${frameOrder(root).join(",")}；被搬的节点 ${moved.join(",") || "无"}；焦点还在那个按钮上：${document.activeElement === button}`);
+        });
+    }
+});
+
+describe("51 FloatWindowHandles 松手时的事件先后", () => {
+    it("pointerup：preview(null) 在 commit 之前，同一个同步段", () => {
+        const order: string[] = [];
+        const w = mount(FloatWindowHandles, {
+            attachTo: document.body,
+            props: {rect: {x: 100, y: 80, width: 400, height: 300}, min: {width: 100, height: 100}, max: {width: 900, height: 900}, onPreview: (r: unknown) => order.push(r === null ? "preview(null)" : "preview"), onCommit: () => order.push("commit")},
+        });
+        wrappers.push(w);
+        const corner = w.get("[data-float-handle=\"bottom-right\"]").element as HTMLElement;
+        corner.setPointerCapture = () => undefined;
+        const pointer = (type: string, x: number, y: number) => new PointerEvent(type, {bubbles: true, pointerId: 1, button: 0, clientX: x, clientY: y});
+        corner.dispatchEvent(pointer("pointerdown", 500, 380));
+        corner.dispatchEvent(pointer("pointermove", 540, 400));
+        corner.dispatchEvent(pointer("pointerup", 540, 400));
+        console.log("51 松手的事件顺序", order.join(" → "));
+        expect(order.slice(-2)).toEqual(["preview(null)", "commit"]);
+    });
+});
+
+describe("13 松手放回树里：过渡从哪里出发", () => {
+    it("拖到 x+300 后同一拍 placeFloat(null) 并把窗放进树：外框第一帧的位置", async () => {
+        // test-lint-allow spy: 桩布局盒给出容器尺寸
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const only = [{id: "f", rect: {x: 100, y: 50, width: 300, height: 200}}];
+        const w = mountGrid({floats: only, contents: [{key: "f", leaf: "f", insetTop: 32, active: true}]});
+        (w.element as HTMLElement).style.setProperty("--nb-layout-motion-layout", "300ms");
+        await w.setProps({revision: 1});
+        const grid = w.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        const frame = () => w.get("[data-leaf=\"f\"]").element as HTMLElement;
+        grid.placeFloat("f", {x: 300, y: 0});
+        console.log("13 拖动中：left", frame().style.left, "translate", frame().style.translate);
+        // 同一拍：撤偏移、把 f 平铺进树（桌面左边）。
+        grid.placeFloat("f", null);
+        const tiled = tree(["f", "desk"]);
+        await w.setProps({node: tiled.root(), layout: tiled.layout(CONTAINER), floats: [], revision: 2});
+        const f = frame();
+        console.log("13 同一拍改树后第一次渲染：left", f.style.left, "top", f.style.top, "width", f.style.width, "transition", f.style.transition || "(行内无)", "data-moving", f.hasAttribute("data-moving"), "data-flying", f.hasAttribute("data-flying"));
+    });
+});

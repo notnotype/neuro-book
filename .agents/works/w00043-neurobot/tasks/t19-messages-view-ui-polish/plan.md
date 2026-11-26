@@ -95,10 +95,10 @@
 | 3a | 外壳的相连与角：双侧相连、角接过去的镜像、最大化避让；右轨是空壳 | `adjacency.test`、Lab 的 `WorkbenchSurface` dom 与 `lab-workbench-surface` e2e（主会话跑，只这一个文件） |
 | 3b | 侧轨组件（内部版式、roving、右轨用它）、右栏横入口条去掉、接管标题区改按面板头宽、拖放按轴、F6 | dom 测试；类型检查覆盖 e2e |
 | 4 | 位置限制：声明、关卡函数与所有提交路径、默认建树与补位、读入归整、落点拒绝区、测试视图的声明 | 单测：对真实 store 的普通拖放、入口相邻并入、入口跨区搬移、`moveView` 两种目标、`moveContainerTo`、多视图浮窗逐项归位、单标签浮出、重置，逐个断言拒绝零写入；含审查用 Bun 复现的相邻入口并入 |
-| 5 | 视图段接口与借用、`railOf`、加载骨架、展开按钮、轨宽手柄、揭示通道、焦点交接、测试视图的视图段 | 单测与 dom（真实 `Teleport` 的借用与撤回、`request` 的三种结果与先后） |
+| 5 | 视图段接口与借用、`railOf`、加载骨架、展开按钮、轨宽手柄、揭示通道、焦点交接、测试视图的视图段；把预算接进 store（快速审查留下的两条：手势回写跳过被预算覆盖的区域宽度、`presentationCollapse` 用收着的基线选项） | 单测与 dom（真实 `Teleport` 的借用与撤回、`request` 的三种结果与先后）；真实手势往返（拖编辑区与右栏的分隔线，意图不写覆盖）；窄窗下拒绝展开不换成收走右栏 |
 | 6 | 浮动：顶格归位、矩形与夹取、浮动窗轨宽手势、程序宽度过渡、空叶离场保留、公开入口 | nb-layout 单测与 `NestedGrid.dom.test.ts`；`bun run --cwd packages/nb-layout api:check` |
-| 7 | 消息视图：组件重写、列表的搜索词与 Esc、Lab、宿主接线、最近会话查询与刷新、去掉旧物、命令 | nb-agent-ui dom；宿主的 dom 或集成用例（新建后最近会话立即出现、归档后消失、筛选不影响） |
-| 8 | 过渡与性能：`layout-frames.ts` 加场景、与 0b 的基线对比；真实页面逐帧看首中末帧 | 见“验证” |
+| 7 | 消息视图：组件重写、列表的搜索词与 Esc、Lab、宿主接线、最近会话查询与刷新、去掉旧物、命令；揭示通道（片 5 挪来，使用者是消息视图的打开与新建） | nb-agent-ui dom；宿主的 dom 或集成用例（新建后最近会话立即出现、归档后消失、筛选不影响） |
+| 8 | 两端轨宽不同时切换容器走整次布局过渡（片 5 挪来）；过渡与性能：`layout-frames.ts` 加场景、与 0b 的基线对比；真实页面逐帧看首中末帧 | 见“验证” |
 
 片 3b 到片 7 之间，`agent-conversation` 里按旧宽窄版式写的用例会失败（旧 `AgentMessages` 还在、入口条已去），归为预期，片 7 后由子代理改写。
 
@@ -171,6 +171,7 @@
 | `data-rail-joined` | 侧轨的根 | 和区域卡片相连时有、不相连时没有（不写 `"false"`） |
 | `data-tool-band`、`data-tool-entry="<容器 id>"` + `aria-pressed`、`data-tool-indicator`、`data-tool-more`、`data-tool-merge` | 入口带（两条侧轨同名） | 入口、按下、底块、更多、并入高亮。右栏旧条的 `data-region-entry` 不再用于右栏 |
 | `data-rail-item` | 工具条里每个可聚焦项 | roving 的成员 |
+| `data-shell-join-seam="end"` / `"start"` | 和区域相连的侧轨卡片 | 接缝短线画在侧轨的哪一头：左轨在右头（`end`），右轨在左头（`start`）。片 3a 前是空串，`workbench-containers` 里按空串断言的要改 |
 | `data-rail-segment="main"` / `"foot"` + `data-drop-refuse` | 视图段的两个位置 | 工作台给视图的元素；松手是取消 |
 | `data-rail-loading` | `main` 里 | 视图加载中的骨架 |
 | `data-rail-expand` + `aria-expanded` | 展开按钮 | 窗口太窄时另有 `data-rail-too-narrow` |
@@ -184,6 +185,8 @@
 | `data-messages-open="bot"` / `"sessions"` + `aria-pressed` | 底段两个按钮 | 展开且在对应页时按下 |
 | `data-messages-summary` | “全部 bot”的汇总徽标 | 有等你处理时另有 `data-messages-summary-waiting` |
 | `data-messages-list-panel`、`data-messages-switch` | 展开后的列表与切换行（沿用现名） | |
+
+**受限的测试视图**：`test.sample-views.rail`（样例庚，右栏，`confinedTo: "auxiliarybar"`）只在页面开关 `test.sample-views/with-rail` 为 `"1"` 时贡献，插件创建时读，用 `addInitScript` 在加载前写；不开时右栏只有样例丁，别的用例不受影响。片 5 再给它加视图段。
 
 去掉的旧标记：右栏的 `[data-region-strip=auxiliarybar]` 横入口条与条里的 `data-region-entry`、`data-region-indicator`（底部面板的 `panel` 保留）、段 A 用过的 `data-rail-entries`（改用 `data-tool-band`）、消息视图的 `data-messages-toggle`、`data-messages-strip`、`data-messages-collapse`、`data-messages-tab`、`data-messages-layout` 的 `wide`/`narrow`。
 

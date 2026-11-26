@@ -169,3 +169,15 @@ Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、
 - 重放：登录意图第一次回调成功时库删掉自己的 state 行，第二次在库那里就落到 `social_state_invalid`；本站的认领是第二道，只有“另一个浏览器先用掉”那条用例分得出两道。
 - 没做的：回调查询串的长度上限（计划 3.6：超过时落点页带 `social_state_invalid`），交给第 9 片。
 - 给第 9 片的：注册要接 `start.ts` 的 `register` 分支、`FlowPayload` 的注册内容、`callback.ts` 的 `succeed` 对 `newUser` 的落点、`hooks.ts` 里 `inLibraryTransaction()` 为真的分支（改成 `joinLibTransaction`，加 `user.create.before`、`session.create.before` 的注册检查）；`providers.ts` 记进帧里的 `upstream.emailVerified` 给注册钩子拒未验证的邮箱；`link.test` 的“会话晚结束”与两条并发用例按库的两步排队卡时序，注册路径若改变库的步数要回头核。
+
+第 9 片（社交注册）的第一个子代理读完材料后因 Opus 周额度用完中断，没留下改动；额度重置后重派。已提交，两个提交：`be054a682`（9a：`joinLibTransaction`；`register.ts` 拆出扣码、复核占用、写资料几个函数，密码注册与社交注册共用；建用户前钩子扣码、建账号前钩子写资料并经 `claimUpstreamName` 认上游名字、建会话前钩子拒已关联的身份；发起与回调的注册分支；回调查询串上限，13 个文件）、`0529d318e`（9b：合同的社交注册一组、验收 14 的两种先后、查询串上限的用例，5 个文件）。本片五个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，5 条变异都被抓到；主会话重跑本片五个包通过。实现者跑 `--with-consumers` 时 neuro-book 包有两条在负载 12 以上超时，单独重跑都过，本片没碰那个包。
+
+- 实现者定、主会话接受的：社交注册建出的账号不存上游头像（与密码注册一致）；“扣码改用普通 `write`”那条变异由队列的误用检查先挡住（库的事务里不带帧直接 `write` 被拒），回滚用例跟着失败。
+- 实测出、Spec 跟着改的：上游的邮箱没验证过、又等于已有账号的邮箱时，库按邮箱找人那一步早于钩子，结果是 `email_taken`（`site.accounts` 输出 14 写明先于 `social_email_missing`）；回调查询串的 8192 上限写进时序一节。
+- 给第 10 片的：社交注册的账号没有密码，解绑的 `last_login_method` 要算进去；`me/identities` 读到的上游名字是注册时的原样写法；`account.create.before` 按 `inLibraryTransaction()` 分注册与关联；关联与注册的排队用例依赖库在事务之前查两次库（升级清单“社交注册的先后”）。
+
+第 10 片（上游身份的列表与解绑、没有密码的账号的合同用例、Smoke 标注、升级清单核齐）已提交（`ae385153d`，12 个文件）：四个包的测试与类型检查、`governance:check`、`docs:check` 都过，合同测试连跑 3 遍都过、没有留下进程，2 条变异都被抓到；另做的“数剩下的登录方式挪到写事务之前”只有包内并发用例抓得到。主会话重跑时负载 23，`operations.test.ts` 的创建管理员 10 秒没跑完（算密码哈希）并连带收口失败，负载降到 7 后单独重跑该文件，54 条全过，归为负载。
+
+- 升级清单核对：实现者用脚本逐行查“用例”一列点名的文件与用例名，前后都没有缺的（只核名字，没核条数）；对着计划 3.15 补了四行（`updateUserInfoOnLink` 与 `overrideUserInfo` 缺省关、一次性检查、同一上游可关联多个身份由约束限成一个、上游身份的存法），改了三行，修了三处引用不存在行名的注释。计划验收映射里的“同一个码并发换四次”原来没有用例，本片补在 `provider.test.ts`。
+- Spec 跟着补的：`site.accounts` 输出 24（列表按关联的先后；解绑不是自己的上游身份的 id 回 `not_found`，含密码那一行的 id）。
+- 晋升时要补的：两份 Spec 的证据一节要指向 Smoke 标在的 `oauth-provider.test.ts`、`accounts-social.test.ts` 与新的 `accounts-identities.test.ts`（代码合入 master 之后再写，免得链接不存在）。

@@ -4,7 +4,7 @@
 
 ## 建树
 
-`createGrid(root, {sashSize})`：`sashSize` 是每条分隔线的主轴占用（CSS px），可以是数，或 `(branchId, sashIndex) => number` 的函数。**缺省是 0**：分隔线没有宽度、不可交互（`data-disabled`），也没有诊断；要可拖的分隔线必须传一个正数。接了提交处理又没停用的 `NestedGrid` 遇到全是 0 的分隔线时，开发模式下会警告（`setLayoutDevChecks`）。
+`createGrid(root, {sashSize})`：`sashSize` 是每条分隔线的主轴占用（CSS px），可以是数，或 `(branchId, sashIndex, {before, after}) => number` 的函数：`before`、`after` 是挨着这条线的两个直接孩子的 id（叶或分支，同 `NestedGrid` 的 `sashDisabled`），`branchId` 与序号随结构变，要认“挨着某块叶的线”时按不变的那一侧判。**缺省是 0**：分隔线没有宽度、不可交互（`data-disabled`），也没有诊断；要可拖的分隔线必须传一个正数。接了提交处理又没停用的 `NestedGrid` 遇到全是 0 的分隔线时，开发模式下会警告（`setLayoutDevChecks`）。
 
 ## 几何与手势
 

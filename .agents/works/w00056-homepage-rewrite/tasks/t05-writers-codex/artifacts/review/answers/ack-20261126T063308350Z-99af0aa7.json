@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t05-writers-codex",
+    "artifactId": "review",
+    "ackId": "20261126T063308350Z-99af0aa7",
+    "answers": [
+        "20261126T063241472Z-3af9d4fd"
+    ],
+    "through": "20261126T063241472Z-3af9d4fd",
+    "included": [
+        ".agents/works/w00056-homepage-rewrite/tasks/t05-writers-codex/README.md"
+    ],
+    "ackedAt": "2026-11-26T06:33:08.350Z"
+}

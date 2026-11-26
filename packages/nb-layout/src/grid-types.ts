@@ -405,10 +405,18 @@ export type GridLayoutResult = {
     issues: GridIssue<GridIssueCode>[];
 };
 
+/**
+ * 一条分隔线的主轴占用（CSS px）。`branchId` 与 `sashIndex` 是它在树里的位置（分支的第几条），结构一变就跟着变；
+ * `sash.before`、`sash.after` 是挨着它的两个直接孩子的 id（叶或分支），和 `NestedGrid` 的 `sashDisabled` 认分隔线的办法一样：
+ * 要“挨着某块叶的线”时按不变的那一侧判，不按序号。
+ * @experimental
+ */
+export type GridSashResolver = (branchId: string, sashIndex: number, sash: {readonly before: string; readonly after: string}) => number;
+
 /** @experimental */
 export type GridOptions<T> = {
     /** 兄弟之间的 sash 占用；函数形式可表达宿主明确隐藏的特定 sash。 */
-    sashSize?: number | ((branchId: string, sashIndex: number) => number);
+    sashSize?: number | GridSashResolver;
     /** 非字符串 ref 的稳定快照编码器；字符串 ref 缺省按自身编码。 */
     encodeRef?: GridRefEncoder<T>;
 };

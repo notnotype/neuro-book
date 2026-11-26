@@ -48,7 +48,7 @@ type DragSessionHandle<S, D> = {
 };
 
 ### experimental interface DragSessionOptions
-引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState
+引用：DragEnd, DragGestureConfig, DragKeyboardOptions, DragQuery, DragState, GridDropPoint
 引用（没导出）：DragActivation
 interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
@@ -64,7 +64,10 @@ interface DragSessionOptions<S, D, R> {
     sampled?(): void;
     readonly scroll?: "reevaluate" | "withdraw";
     readonly autoScroll?: {
-        readonly element: HTMLElement;
+        containers(query: {
+            readonly point: GridDropPoint;
+            readonly top: Element | null;
+        }): ReadonlyArray<HTMLElement>;
         readonly edgePx?: number;
         readonly maxStepPx?: number;
     };

@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t01-demos",
+    "artifactId": "review",
+    "answerId": "20261126T045851935Z-229a4d25",
+    "artifactVersion": 2,
+    "contentHash": "2728092b77668bf8df8dffa4664f7411b88f45afac28df0e6e3d177bd64412c2",
+    "submittedAt": "2026-11-26T04:58:51.935Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "agent-text": "inline-view"
+    },
+    "comments": {},
+    "note": null
+}

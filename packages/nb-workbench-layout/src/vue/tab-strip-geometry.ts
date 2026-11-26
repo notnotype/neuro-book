@@ -178,7 +178,11 @@ export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropP
     const line = lines.reduce((best, candidate) => (distance(candidate) < distance(best) ? candidate : best));
     const x = held === null ? point.x : heldEdge(point.x, held, line.rect);
     const containerRect = {...line.rect, left: Math.min(line.rect.left, x), right: Math.max(line.rect.right, x)};
-    const insertion = resolveListInsertion({orientation: "horizontal", point: {x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: line.members.map(({id, rect}) => ({id, rect}))});
+    // 滚过行尾的标签不交给共享算法：它会把行尾的插入位换成“插到第一个滚出去的前面”，那只看这一行的顺序；
+    // 这里的后继要在分区里按完整顺序找（见下面行尾的换算），固定区的最后一个之后是固定区的末尾，不是普通区的第一个。
+    // 这些标签与内容盒没有交集，算法本来就不拿它们定插入位，去掉它们不改别的结果（一行的第一个标签在行首，不会被全部去掉）。
+    const reachable = line.members.filter((member) => member.rect.left < containerRect.right);
+    const insertion = resolveListInsertion({orientation: "horizontal", point: {x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: reachable.map(({id, rect}) => ({id, rect}))});
     if (insertion === null) return null;
     const all = snapshot.members;
     const samePartition = (partition: string | null): ReadonlyArray<Member> => all.filter((member) => member.partition === partition);

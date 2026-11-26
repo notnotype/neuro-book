@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 A 书房《一部长篇的一生》：分场脚本（第 1 轮）</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; --ivory: #f7f2ec; --night: #1c1418; --now: #1f7a4d; --todo: #a15c07; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+h3 { margin: 20px 0 8px; font-size: 16px; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; width: 6.5em; }
+.scene { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); }
+.no { grid-column: 1 / -1; margin: 0 0 -8px; font-size: 13px; color: var(--muted); letter-spacing: .03em; }
+.copy { align-self: start; padding: 20px 18px; border-radius: 8px; background: var(--ivory); }
+.copy .head { margin: 0; font-family: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif; font-size: 22px; line-height: 1.5; font-weight: 600; }
+.copy .sub { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+dl { margin: 0; display: grid; align-content: start; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px 10px; font-size: 14.5px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 20px; }
+.tag.now { background: #e3f1e8; color: var(--now); }
+.tag.todo { background: #fbeedb; color: var(--todo); }
+.thumb { display: block; width: 100%; margin-top: 10px; border-radius: 6px; border: 1px solid var(--line); }
+ul.plain { margin: 0; padding-left: 1.2em; }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+.cand .copy { padding: 16px 14px; }
+.cand .copy .head { font-size: 19px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+@media (max-width: 720px) { .scene, .cands { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+<h1>方案 A 书房《一部长篇的一生》：分场脚本（第 1 轮）</h1>
+
+<section data-nbdev-question="script" data-nbdev-type="single" data-nbdev-options="storyboard:照这版出分镜|revise:改过再看一轮|drop:这个方案不往下做" data-nbdev-recommend="storyboard">
+  <h2>这版脚本往下做吗？</h2>
+  <p class="rec"><strong>推荐照这版出分镜：全页一根红线，做工不重，讲的是作者自己写一本书的路，最贴产品。</strong></p>
+
+  <table>
+    <tbody>
+      <tr><th>梗概</th><td>跟着一本书，从第一行字走到最后一章。每一场是写长篇路上的一站：这一站 NeuroBook 替你做什么，就摆在这一站的书桌上。</td></tr>
+      <tr><th>美术</th><td>白天的书房。象牙纸、墨色正文；赤红只给印章与主按钮，金色只做细线；标题用 Fraunces 与宋体；产品真截图像书里的插页一样摆。</td></tr>
+      <tr><th>招牌动作</th><td>一根红线：从首屏的光标里拉出来，穿起设定卡片，在第 3 章打一个结、一路拉到第 200 章，最后收成夹进那本书的书签丝带。全页只有它一路跟着滚动走。</td></tr>
+      <tr><th>星璃</th><td>只在第 4 场出现一次：对话里那位搭档的头像与口吻。</td></tr>
+      <tr><th>小猫</th><td>在页边，每一场换一种心情：专注、思考、有主意、写作、完成，最后睡着。</td></tr>
+      <tr><th>现状与愿景</th><td>现在能用的写成现在时；第 3 场的伏笔还在做，场内标“在做”；页尾一行列出其余在做的。</td></tr>
+      <tr><th>篇幅</th><td>约 10 屏。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>分场</h3>
+
+  <div class="scene">
+    <p class="no">第 1 场 · 第一行 · 1 屏</p>
+    <div class="copy"><p class="head">你心里那部长篇，从这一行开始。</p><p class="sub">本地的长篇写作工作区：AI 替你记账，笔在你手里。</p></div>
+    <dl>
+      <dt>得到</dt><dd>这是写长篇的地方；它替你记，笔在你手里。</dd>
+      <dt>画面</dt><dd>一张象牙色稿纸占满首屏，正中一行正文正在逐字打出（产品编辑器的字形与光标）；页边书后的小猫专注地看；主按钮“下载桌面版”。</dd>
+      <dt>动</dt><dd>载入时那行字逐字出现；一往下滚，光标拉出一根红线，垂向下一场。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>本地 Markdown 与编辑器。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 2 场 · 设定越写越多 · 2 屏 · 钉住</p>
+    <div class="copy"><p class="head">第 12 章断的手臂，第 88 章不会自己长回来。</p><p class="sub">设定条目记着每个人在每一章的样子；点一个值，看得到它是哪一章定下的。</p></div>
+    <dl>
+      <dt>得到</dt><dd>人物和设定会随章节变，这里记得每一章的样子。</dd>
+      <dt>画面</dt><dd>桌上散着几张纸卡（人物陈砚、门派青云门、一柄照夜剑），被红线一一穿起、排成一列。陈砚那张卡的“左臂”一栏，随底部的章节刻度推进：第 1 章“健全”，第 12 章“断”，第 74 章“寒铁义肢”。</dd>
+      <dt>动</dt><dd>画面钉住，章节刻度跟着滚动走，卡上的值像翻页一样更替；往回滚就翻回去。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>世界引擎的条目、按章节的状态、来历。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 3 场 · 第 3 章挂上一把枪 · 2 屏</p>
+    <div class="copy"><p class="head">第 3 章挂上的枪，第 200 章要响。</p><p class="sub">伏笔记在账上：埋下、推进、兑现，还欠着哪一笔，一眼看得见。</p></div>
+    <dl>
+      <dt>得到</dt><dd>埋下的伏笔不会被忘掉。</dd>
+      <dt>画面</dt><dd>一页第 3 章：“墙上挂着一把枪，枪托上刻着半个名字。”红线在“枪”字上打一个结；一叠书页飞快翻过，3、41、120、200；到第 200 章那一页，结松开，金色一闪。</dd>
+      <dt>动</dt><dd>跟手翻页（纸张的 2.5D 翻动），红线随之拉长、绷紧。</dd>
+      <dt>依据</dt><dd><span class="tag todo">在做</span>剧情插件的伏笔已有内核，作者界面在做；页面上这一场标“在做”。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 4 场 · 卡住的晚上 · 2 屏</p>
+    <div class="copy"><p class="head">卡住的时候，有人陪你理一理。</p><p class="sub">讨论时只出主意；要改稿，先交计划，你点头才动。</p></div>
+    <dl>
+      <dt>得到</dt><dd>AI 是搭档：帮你查、陪你理，改稿前先交计划。</dd>
+      <dt>画面</dt><dd>产品的对话视图（真截图，亮色）摆在稿纸上。作者问“第七章那块怀表给了谁？”，星璃（头像）答：“是那枚缺了一角的银怀表哦，在第一卷第七章的雨夜里交给了酒馆老板娘。”作者接着说“帮我把这一章改紧一点”，回复变成一张计划卡，一枚赤红印章盖上去。</dd>
+      <dt>动</dt><dd>气泡随滚动一条条出现；印章落下时，墨色在纸上晕开一下。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Agent 对话、讨论与计划模式、星璃作为常驻的搭档（书房里点案头的看板娘就能和她说话）、表情包。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 5 场 · 稿子是你的 · 1 屏 · 喘口气</p>
+    <div class="copy"><p class="head">稿子是你自己的文件。</p><p class="sub">一个文件夹，Markdown 写成；拷走就能搬家，换个编辑器也打得开。</p></div>
+    <dl>
+      <dt>得到</dt><dd>作品不被平台锁住；软件开源。</dd>
+      <dt>画面</dt><dd>大片留白，中间是资源管理器的一角：“青云志 / 正文 / 第一章.md”；红线在这里松松地垂下。</dd>
+      <dt>动</dt><dd>几乎不动。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>本地文件、AGPL 开源。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 6 场 · 写完 · 1 到 2 屏</p>
+    <div class="copy"><p class="head">然后，把它写完。</p></div>
+    <dl>
+      <dt>得到</dt><dd>前面这些，都是为了把书写完。</dd>
+      <dt>画面</dt><dd>红线收拢成一条书签丝带，夹进一本合上的书（赤红封面、金色的星）；书立上书架，落在产品书架的真截图里，“共写了”的字数从 1,252 跑到 312,480。</dd>
+      <dt>动</dt><dd>跟手：书合上；数字滚动。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>书架与字数统计。<img class="thumb" src="r1/bookshelf.webp" alt="产品书架的真截图"></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 7 场 · 开始 · 1 屏</p>
+    <div class="copy"><p class="head">从第一行开始。</p><p class="sub">0.17 预览版 · Windows · macOS（Apple 芯片）</p></div>
+    <dl>
+      <dt>得到</dt><dd>现在就能装；它还是预览版，还在做的写在这里。</dd>
+      <dt>画面</dt><dd>书房的桌角，一盏灯，书后的小猫睡着了；鼠标移到下载按钮上，它醒过来。按钮下一行：“还在做的：伏笔账本、谁知道什么、让搭档直接整理设定、写完以后的检查。”再下面是 GitHub、Discord、QQ 群。</dd>
+      <dt>动</dt><dd>只有小猫醒来这一下。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Windows 安装版与便携版、macOS 预览版、npm 安装。</dd>
+    </dl>
+  </div>
+
+  <h3>长处、风险与素材</h3>
+  <table>
+    <tbody>
+      <tr><th>长处</th><td>讲的是作者自己写一本书的路，每一站都落在产品上；全页一根线贯穿，做工集中在 SVG 描线与少量翻页，手机上也跑得动。</td></tr>
+      <tr><th>风险</th><td>画面安静，高级感全靠做工：红线的粗细、走法与速度要调很久；高潮落在第 3 场，偏偏是还在做的伏笔。</td></tr>
+      <tr><th>素材</th><td>红线与纸卡（矢量，自己画）、翻页（CSS 3D 或 canvas）、产品真截图（书架、对话、资源管理器）、小猫的心情（现成的 <code>&lt;neurobook-mood&gt;</code> 组件）。</td></tr>
+    </tbody>
+  </table>
+
+</section>
+
+<section data-nbdev-question="first-line" data-nbdev-type="single" data-nbdev-recommend="a1">
+  <h2>首屏第一句用哪一句？</h2>
+  <p class="rec"><strong>推荐 a1：说给心里有故事的人，也接上整页“从第一行写到最后一章”的走向。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="a1" data-nbdev-label="a1 你心里那部长篇，从这一行开始。">
+      <h3>a1</h3>
+      <div class="copy"><p class="head">你心里那部长篇，从这一行开始。</p></div>
+    </div>
+    <div class="cand" data-nbdev-option="a2" data-nbdev-label="a2 写完你心里那部长篇。">
+      <h3>a2</h3>
+      <div class="copy"><p class="head">写完你心里那部长篇。</p></div>
+      <p>落在结果上，和第 6 场“然后，把它写完”撞了。</p>
+    </div>
+    <div class="cand" data-nbdev-option="a3" data-nbdev-label="a3 用工程的方法，写完你的长篇。">
+      <h3>a3</h3>
+      <div class="copy"><p class="head">用工程的方法，写完你的长篇。</p></div>
+      <p>README 现在的说法；对没写过长篇的人偏硬。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="notes" data-nbdev-type="text">
+  <h2>哪一场要改，怎么改？</h2>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>重写的是文档站首页 blog.notnotype.com/neuro-book/official/（t01 第 1 条）</li>
+    <li>书房与星海书庭分开各试一版，连起来的“从文字到世界”也试一版（2026-11-26）</li>
+    <li>要高级感；整页讲一个故事，用滚动叙事（t01 第 3 条）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

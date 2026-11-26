@@ -15,9 +15,10 @@ import type {Grid, GridLeafInput, GridNodeInput} from "@notnotype/nb-layout";
 export const SASH_SIZE = 4;
 /**
  * 条旁的分隔线给 0：条是刚性的，这些线本来拖不动；给了宽度，收起到 0 的区两侧会留两条线的缝。
- * 树的形状固定，按分支与序号认：main 的第 0、3 条挨着左右条，根的第 0 条挨着下条。
+ * 按挨着线的两侧认，不按分支与第几条：树里加一块、挪一块，“挨着按钮条”这件事不变，序号会变。
  */
-const sashSize = (branch: string, index: number): number => ((branch === "main" && (index === 0 || index === 3)) || branch === "root" ? 0 : SASH_SIZE);
+const sashSize = (_branch: string, _index: number, sash: {readonly before: string; readonly after: string}): number =>
+    STRIPE_IDS.includes(sash.before) || STRIPE_IDS.includes(sash.after) ? 0 : SASH_SIZE;
 export const EDITOR = "editor";
 
 export const ZONES = ["left", "right", "bottom"] as const;

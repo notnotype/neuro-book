@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 轮：给 Agent 的主文字与富文本 spike</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.three { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cand img, .shots img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 760px) { .shots { grid-template-columns: minmax(0, 1fr); } }
+.shots figure { margin: 0; }
+.shots img.phone { max-width: 240px; }
+.shots figcaption { margin-top: 4px; font-size: 14px; color: var(--muted); }
+pre, code { font-family: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace; font-size: 12.5px; }
+pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; white-space: pre-wrap; word-break: break-all; line-height: 1.55; }
+a.lab { font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 0 0 16px; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; }
+td.bad { color: var(--mark); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 2 轮：给 Agent 的主文字与富文本 spike</h1>
+
+<section data-nbdev-question="agent-text" data-nbdev-type="single" data-nbdev-recommend="source">
+  <h2>Agent 读主文字时，值写不写在文字里？</h2>
+  <p class="rec"><strong>推荐乙：成功率三组一样，只有“带值、可以就地改”出了和格式有关的错；乙读到的、交回的都是源文字，内核可以去掉整套带值写法与回写协议。</strong></p>
+  <table>
+    <thead><tr><th>模型</th><th>组</th><th>成功</th><th>和带值写法有关的报错</th><th>平均调用</th><th>每次费用（元）</th></tr></thead>
+    <tbody>
+      <tr><td>luna</td><td>甲 带值，可以就地改</td><td class="num">32/33</td><td class="num bad">6 次（3 次运行），1 次弄丢了一个取值</td><td class="num">3.5</td><td class="num">0.0092</td></tr>
+      <tr><td>luna</td><td>乙 不带值</td><td class="num">32/33</td><td class="num">0</td><td class="num">3.2</td><td class="num">0.0102</td></tr>
+      <tr><td>luna</td><td>丙 带值，只给看</td><td class="num">33/33</td><td class="num">0</td><td class="num">3.2</td><td class="num">0.0079</td></tr>
+      <tr><td>flash</td><td>甲 带值，可以就地改</td><td class="num">33/33</td><td class="num">0</td><td class="num">3.5</td><td class="num">0.0047</td></tr>
+      <tr><td>flash</td><td>乙 不带值</td><td class="num">33/33</td><td class="num">0</td><td class="num">3.4</td><td class="num">0.0041</td></tr>
+      <tr><td>flash</td><td>丙 带值，只给看</td><td class="num">33/33</td><td class="num">0</td><td class="num">3.4</td><td class="num">0.0044</td></tr>
+    </tbody>
+  </table>
+  <div class="cands three">
+    <div class="cand" data-nbdev-option="source" data-nbdev-label="乙 不带值（只用工具改值）">
+      <h3>乙 不带值</h3>
+<pre>魔力 &lt;V of="panel.魔力" /&gt;/&lt;V of="panel.魔力上限" /&gt;
+&lt;If test="panel.魔力 &gt;= 1000"&gt;还能变身。&lt;Else /&gt;…&lt;/If&gt;</pre>
+      <p>值在 canon_read 的字段一节里，改值只用 set。乙组 luna 的一次失败是把那句另起了一块，和格式无关。</p>
+    </div>
+    <div class="cand" data-nbdev-option="inline-view" data-nbdev-label="丙 带值，只给看">
+      <h3>丙 带值，只给看</h3>
+<pre>魔力 &lt;V of="panel.魔力"&gt;1200&lt;/V&gt;/&lt;V of="panel.魔力上限"&gt;3000&lt;/V&gt;
+&lt;If test="panel.魔力 &gt;= 1000" is="true"&gt;…&lt;/If&gt;</pre>
+      <p>一眼看到值；交回时程序去掉值。读到的和交回的是两种格式，要留带值写法的生成与去除。</p>
+    </div>
+    <div class="cand" data-nbdev-option="inline-edit" data-nbdev-label="甲 带值，可以就地改">
+      <h3>甲 带值，可以就地改</h3>
+<pre>魔力 &lt;V of="panel.魔力"&gt;1200&lt;/V&gt; …
+改成 &lt;V of="panel.魔力"&gt;800&lt;/V&gt; 交回就改了字段</pre>
+      <p>luna 照带值文字查找替换对不上 4 次、把带值写法原样交回被拒 1 次，有一次自己去值时弄丢了“魔力上限”。要留整套回写协议。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="if-display" data-nbdev-type="single" data-nbdev-recommend="active">
+  <h2>富文本里的条件，默认只画生效的一支，还是各支都画？</h2>
+  <p class="rec"><strong>推荐 A：平时读起来就是一句正文；审校时打开“显示全部分支”看到全部，不用一个个点开。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="active" data-nbdev-label="A 只画生效的一支（可打开全部）">
+      <h3>A 只画生效的一支</h3>
+      <img src="r2/rich.webp" alt="条件只画生效的一支，下面一条虚线">
+      <p><a class="lab" data-nbdev-skip href="http://127.0.0.1:4617/lab?c=EntryRichDraft&amp;s=rich">在 Lab 里试</a></p>
+    </div>
+    <div class="cand" data-nbdev-option="both" data-nbdev-label="B 各支都画">
+      <h3>B 各支都画</h3>
+      <img src="r2/rich-branches.webp" alt="条件画出条件与各支，没生效的划掉">
+      <p><a class="lab" data-nbdev-skip href="http://127.0.0.1:4617/lab?c=EntryRichDraft&amp;s=rich-branches">在 Lab 里试</a></p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>spike 里能试的</h2>
+  <div class="shots">
+    <figure><img src="r2/pop-value.webp" alt="点值的小块"><figcaption>点值：是哪个字段、去设定组里改（spike 里直接改样本世界的值，条件跟着翻）、换一个、删掉</figcaption></figure>
+    <figure><img src="r2/pop-if.webp" alt="点条件"><figcaption>点条件：改条件与各支的文字，加一支</figcaption></figure>
+    <figure><img src="r2/empty-branch.webp" alt="条件不成立、字段没了"><figcaption>没有一支生效时的占位；字段没了</figcaption></figure>
+    <figure><img class="phone" src="r2/phone.webp" alt="390 宽"><figcaption>390 宽</figcaption></figure>
+  </div>
+  <table>
+    <thead><tr><th>试什么</th><th>怎么试</th></tr></thead>
+    <tbody>
+      <tr><td>插入值、提到条目</td><td>在正文里输入 <code>{</code> 或 <code>@</code>，打字筛选，回车插入；Esc 退回成普通的字。工具栏也有</td></tr>
+      <tr><td>值变了</td><td>点“魔力”，去设定组里改成 800，看条件变成“魔力不够变身”</td></tr>
+      <tr><td>源文字</td><td>右上角切到源文字，改完切回来；<a class="lab" data-nbdev-skip href="http://127.0.0.1:4617/lab?c=EntryRichDraft&amp;s=source-broken">写坏了的标签</a>切不回来</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>顾问意见里先不做的</h2>
+  <table>
+    <thead><tr><th>意见</th><th>为什么先不做</th></tr></thead>
+    <tbody>
+      <tr><td>点条件后在正文里原地展开、各支用完整的富文本编辑</td><td>spike 先用浮层；各支里要能插值、加粗时再做原地展开，开发者试过浮层再定</td></tr>
+      <tr><td>手机上浮层与字段列表改成底部抽屉</td><td>条目页整体的窄屏做法另定</td></tr>
+      <tr><td>“源文字”改叫“源码”</td><td>t39、t40 的界面已经叫源文字</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>条件写成 <code>test</code> 表达式（第 1 轮）</li>
+    <li>给 Agent 的值写在标签中间、用 JSON（第 1 轮；本轮选乙的话不再需要）</li>
+    <li>取值与条件换成标签，另写 ADR 取代 0038 的决策 1 与 3（11-26）</li>
+    <li>解析器只留 marked，内核也换过去（11-23）</li>
+    <li>富文本为主，保留源文字，去掉分屏预览（11-26）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

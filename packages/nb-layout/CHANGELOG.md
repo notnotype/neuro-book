@@ -6,6 +6,23 @@
 
 ### 不兼容的改动
 
+- 拖动会话的 `autoScroll` 不再收 `element`，改收 `containers({point, top})`：指针此刻所在的、要边缘滚动的容器，从里到外，没在滚时指针每次移动调一次，在滚时每帧开头调一次。原来的 `autoScroll: {element}` 改成 `autoScroll: {containers: () => [element]}`，竖向列表的行为不变（越过上下边照旧最快）。`overflow-y: hidden` 的元素以前给了就滚 `scrollTop`，现在不滚：轴看计算样式。
+
+### 新增
+
+- `sashSize` 的函数形式多收第三个参数 `{before, after}`：挨着这条线的两个直接孩子的 id，与 `NestedGrid` 的 `sashDisabled` 同一个认法，宿主不用再按分支 id 加序号认线（序号随结构变）；只用前两个参数的函数照旧可用。类型 `GridSashResolver` 跟着改，`GridOptions.sashSize` 改用它。
+- 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
+
+### 改动
+
+- 边缘滚动改用 `scrollBy({behavior: "instant"})`，设了 `scroll-behavior: smooth` 的容器也一帧一步地滚。以前第一步之后读回来的位置没变，被当成滚到头停了。
+- `resolveListInsertion` 越过最后一个看得见的成员、紧跟着的成员沿主轴滚出了内容盒时，`beforeId` 是这个滚出去的成员，不再是 `null`（追加到所有滚出去的之后）：会滚动的列表上放下的位置与插入线一致，线照旧贴最后一个看得见的后缘。紧跟着的只在交叉轴上被裁掉（换行到下一行）时照旧是 `null`。
+- README 的“安装”一节写明 TypeScript 6 下 tsconfig 写 `types: []` 时导入 `style.css` 报 TS2882，要写 `types: ["vite/client"]`。
+
+## [0.3.0] - 2026-11-26
+
+### 不兼容的改动
+
 - `splitLeaf` 的方向与目标叶的父分支相同时，新叶并进这个父分支、挨着目标，不再新建一层分支：树不再越拆越深，呈现与以前一样把目标那份分开（只差分隔线的分摊，不到 2px）。`branchId` 照样必填、查重，但这时树里没有这个分支：同向拆分之后按 `branchId` 找新分支的宿主要改成按叶找；父分支的孩子多了一个，之后按序号调 `addLeaf`、`moveLeaf` 要按新的孩子数算，分隔线 `data-sash` 的序号随之后移（元素身份按两侧节点认，过渡不受影响）。
 - 拆分保留像素（`sizing: "fixed"`）的叶返回 `wrong-sizing`（`expected: "weight"`），树不变；以前会把像素当份额拆，画出来不对。
 - 快照恢复的层数改成根算第 1 层，与结构操作相同：17 层的快照以前能恢复，现在 `limit-exceeded`。

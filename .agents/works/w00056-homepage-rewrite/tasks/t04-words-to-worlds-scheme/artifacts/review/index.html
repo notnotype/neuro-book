@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>方案 A+B《从文字到世界》：分场脚本（第 1 轮）</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; --ivory: #f7f2ec; --night: #1c1418; --gold: #e1b285; --now: #1f7a4d; --todo: #a15c07; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+h3 { margin: 20px 0 8px; font-size: 16px; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; width: 6.5em; }
+.scene { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); }
+.no { grid-column: 1 / -1; margin: 0 0 -8px; font-size: 13px; color: var(--muted); letter-spacing: .03em; }
+.copies { display: grid; gap: 10px; align-content: start; }
+.copy { padding: 20px 18px; border-radius: 8px; background: var(--ivory); }
+.copy.night { background: var(--night); color: var(--ivory); }
+.copy .head { margin: 0; font-family: "Fraunces", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif; font-size: 22px; line-height: 1.5; font-weight: 600; }
+.copy .sub { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+.copy.night .sub { color: #cdbfae; }
+.copy .step { margin: 0 0 6px; font-size: 12px; color: var(--gold); }
+dl { margin: 0; display: grid; align-content: start; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px 10px; font-size: 14.5px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: 12px; line-height: 20px; }
+.tag.now { background: #e3f1e8; color: var(--now); }
+.tag.todo { background: #fbeedb; color: var(--todo); }
+.thumbs { display: grid; grid-template-columns: 3fr 2fr; gap: 8px; margin-top: 10px; }
+.thumbs img { display: block; width: 100%; border-radius: 6px; }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+.cand .copy { padding: 16px 14px; }
+.cand .copy .head { font-size: 19px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+@media (max-width: 720px) { .scene, .cands { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+<h1>方案 A+B《从文字到世界》：分场脚本（第 1 轮）</h1>
+
+<section data-nbdev-question="script" data-nbdev-type="single" data-nbdev-options="storyboard:照这版出分镜|revise:改过再看一轮|drop:这个方案不往下做" data-nbdev-recommend="storyboard">
+  <h2>这版脚本往下做吗？</h2>
+  <p class="rec"><strong>推荐照这版出分镜，并先拿第 3 场“字化成星”做原型：全页的成败系在这一个转场上。</strong></p>
+
+  <table>
+    <tbody>
+      <tr><th>梗概</th><td>白天，你在稿纸上写下一行字；黄昏，字里的人和地方浮起来，变成星；夜里，星连成一个世界，有人替你守着；天亮，世界落回书架，成了一本书。白天讲现在就能用的书房，夜里讲正在长成的世界。</td></tr>
+      <tr><th>美术</th><td>前半是书房（象牙纸、墨、赤红、金线），后半是星海（夜色、金色星光）；底色跟着滚动从白天走到夜里，再走回早晨。</td></tr>
+      <tr><th>招牌动作</th><td>字化成星：一行正文里的人名、地名浮起来，碎成光点，升上夜空。结尾倒过来：星光落下，聚成一本书。</td></tr>
+      <tr><th>星璃</th><td>只在夜里出现一次（第 5 场），在书庭的一扇圆窗里。</td></tr>
+      <tr><th>小猫</th><td>白天在页边，夜里在导航里，天亮时在书后睡着。</td></tr>
+      <tr><th>现状与愿景</th><td>白天全是现在能用的；夜里先讲已经能用的世界（条目、按章节的状态、来历），再讲在做的伏笔，在做的标出来。</td></tr>
+      <tr><th>篇幅</th><td>约 11 屏。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>分场</h3>
+
+  <div class="scene">
+    <p class="no">第 1 场 · 白天，一行字 · 1 屏</p>
+    <div class="copies"><div class="copy"><p class="head">从文字，到世界。</p><p class="sub">本地的长篇写作工作区，替你记住笔下的世界。</p></div></div>
+    <dl>
+      <dt>得到</dt><dd>产品是什么，整页要讲什么。</dd>
+      <dt>画面</dt><dd>象牙稿纸；编辑器里一行正文正在打出：“雪落进山门的时候，陈砚还是个双臂健全的散修。”页边书后的小猫专注地看；主按钮“下载桌面版”。</dd>
+      <dt>动</dt><dd>载入时逐字打出；往下滚时，“陈砚”“山门”两个词由墨色转成金色。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>本地 Markdown 与编辑器。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 2 场 · 一张够大的书桌 · 2 屏 · 钉住</p>
+    <div class="copies"><div class="copy"><p class="head">一张够大的书桌。</p><p class="sub">章节、设定、批注和对话都在一个窗口里；作品是你电脑里的一个文件夹。</p></div></div>
+    <dl>
+      <dt>得到</dt><dd>今天就能用的工作区里有什么。</dd>
+      <dt>画面</dt><dd>产品工作台的真截图（亮色）平放在桌面上；一圈暖光像台灯一样，依次照亮资源管理器、正文与页边批注、右栏的对话。</dd>
+      <dt>动</dt><dd>画面钉住，暖光随滚动挪到下一处，每处配一行小字。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>工作台、资源管理器、Markdown 编辑器与批注、Agent 对话、插件。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 3 场 · 黄昏，字浮起来 · 2 屏 · 招牌一幕</p>
+    <div class="copies"><div class="copy night"><p class="head">字里的人，开始有了自己的样子。</p><p class="sub">人物、地方、物件，各有一页条目。</p></div></div>
+    <dl>
+      <dt>得到</dt><dd>你写下的名字不只是字，它们会成为一个世界。</dd>
+      <dt>画面</dt><dd>底色从象牙暗成夜色；金色的“陈砚”“山门”“照夜剑”从纸面浮起，碎成光点，升上夜空。</dd>
+      <dt>动</dt><dd>跟手：字形碎成光点、上升；往回滚，光点落回纸面拼成字。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>世界引擎的条目。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 4 场 · 夜里，星座 · 3 屏 · 钉住，分两步</p>
+    <div class="copies">
+      <div class="copy night"><p class="step">第一步</p><p class="head">第 12 章断的手臂，第 88 章不会自己长回来。</p><p class="sub">每个人在每一章的样子都记在条目里，点一下就看得到出处。</p></div>
+      <div class="copy night"><p class="step">第二步 · 在做</p><p class="head">第 3 章挂上的枪，第 200 章要响。</p><p class="sub">伏笔连成星座：埋下、推进、兑现；还欠着的那一段，是虚线。</p></div>
+    </div>
+    <dl>
+      <dt>得到</dt><dd>这个世界记得每一章；伏笔从埋下一路连到兑现。</dd>
+      <dt>画面</dt><dd>光点连成星座，底部一条章节刻度。第一步：陈砚的星座里，“左臂”那颗星到第 12 章暗下去，到第 74 章换成一颗冷蓝的星（寒铁义肢）。第二步：一条金线从第 3 章的星伸向第 200 章的星，还没写到的那一段是虚线。</dd>
+      <dt>动</dt><dd>画面钉住，章节刻度跟着滚动推进，星座随之变化；往回滚倒放。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>条目、按章节的状态、来历。<span class="tag todo">在做</span>伏笔（剧情插件已有内核，作者界面在做）。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 5 场 · 守夜的人 · 2 屏</p>
+    <div class="copies"><div class="copy night"><p class="head">替你守着这个世界的，是星璃。</p><p class="sub">问她第七章的怀表给了谁，她翻得到；要改稿，她先交计划，你点头才动。</p></div></div>
+    <dl>
+      <dt>得到</dt><dd>有一位搭档替你守着这个世界：查、记、陪你想，不替你写。</dd>
+      <dt>画面</dt><dd>星海深处一扇圆窗，窗里是书庭；星璃的半身，歪着头；窗边一段对话气泡（暗色）。</dd>
+      <dt>动</dt><dd>圆窗随滚动从远处靠近；星璃从低头看书到抬眼。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>星璃是常驻的搭档；Agent 的讨论与计划模式。<span class="thumbs"><img src="r1/S01.webp" alt="忆星书庭"><img src="r1/P03.webp" alt="星璃歪头半身"></span></dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 6 场 · 天亮，一本书 · 2 屏</p>
+    <div class="copies"><div class="copy"><p class="head">天亮时，它是一本书。</p><p class="sub">稿子一直是你电脑里的 Markdown 文件，拷走就能带走。</p></div></div>
+    <dl>
+      <dt>得到</dt><dd>世界最后落成一本书；作品是你自己的文件。</dd>
+      <dt>画面</dt><dd>夜空的星光汇成一道，落下来聚成一本赤红封面的书，立上书架（产品书架的真截图）；底色回到象牙。</dd>
+      <dt>动</dt><dd>第 3 场的倒放：光点聚成书；颜色从夜走回早晨。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>书架、本地文件。</dd>
+    </dl>
+  </div>
+
+  <div class="scene">
+    <p class="no">第 7 场 · 开始 · 1 屏</p>
+    <div class="copies"><div class="copy"><p class="head">从第一行开始。</p><p class="sub">0.17 预览版 · Windows · macOS（Apple 芯片）</p></div></div>
+    <dl>
+      <dt>得到</dt><dd>现在就能装；还在做的写在这里。</dd>
+      <dt>画面</dt><dd>白天的书桌，书后的小猫睡着了。下载按钮下一行：“还在做的：伏笔账本、谁知道什么、让搭档直接整理设定、写完以后的检查。”再下面是 GitHub、Discord、QQ 群。</dd>
+      <dt>动</dt><dd>鼠标移到下载按钮上，小猫醒过来。</dd>
+      <dt>依据</dt><dd><span class="tag now">现在能用</span>Windows 安装版与便携版、macOS 预览版、npm 安装。</dd>
+    </dl>
+  </div>
+
+  <h3>长处、风险与素材</h3>
+  <table>
+    <tbody>
+      <tr><th>长处</th><td>把品牌那句 From words, worlds. 直接演出来；书房与星海各有分工，现状和愿景的界线跟着昼夜走，自然清楚；全页只有一个高潮。</td></tr>
+      <tr><th>风险</th><td>成败系在“字化成星”和“星化成书”两次转场上，光点做粗了就廉价，要着色器或 canvas 的功夫；两种美术要在黄昏那一段接上；页面比方案 A 重，手机要降级。</td></tr>
+      <tr><th>素材</th><td>光点（从字形采样）、星座与章节刻度（代码画）、书庭裁图与星璃半身、亮暗两种配色的产品截图、小猫的心情。</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section data-nbdev-question="first-line" data-nbdev-type="single" data-nbdev-recommend="c1">
+  <h2>首屏第一句用哪一句？</h2>
+  <p class="rec"><strong>推荐 c1：就是品牌那句 From words, worlds.，一句说完整页的走向。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="c1" data-nbdev-label="c1 从文字，到世界。">
+      <h3>c1</h3>
+      <div class="copy"><p class="head">从文字，到世界。</p></div>
+    </div>
+    <div class="cand" data-nbdev-option="c2" data-nbdev-label="c2 写下一行字，长出一个世界。">
+      <h3>c2</h3>
+      <div class="copy"><p class="head">写下一行字，长出一个世界。</p></div>
+      <p>更像一句话，也更口语。</p>
+    </div>
+    <div class="cand" data-nbdev-option="c3" data-nbdev-label="c3 你写下的名字，会成为一个世界。">
+      <h3>c3</h3>
+      <div class="copy"><p class="head">你写下的名字，会成为一个世界。</p></div>
+      <p>落在“你”身上，但和第 3 场的意思重了。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="notes" data-nbdev-type="text">
+  <h2>哪一场要改，怎么改？</h2>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>重写的是文档站首页 blog.notnotype.com/neuro-book/official/（t01 第 1 条）</li>
+    <li>书房与星海书庭分开各试一版，连起来的“从文字到世界”也试一版（2026-11-26）</li>
+    <li>要高级感；整页讲一个故事，用滚动叙事（t01 第 3 条）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

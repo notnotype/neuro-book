@@ -1,0 +1,89 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "产品介绍首页：分节脚本（第 1 轮）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "be0422685e57ec0bc9c6a18041f3f6015ba317d3261e794bfb683d748efe301d",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "script",
+            "type": "single",
+            "label": "这版脚本往下做吗？",
+            "options": [
+                {
+                    "value": "visual",
+                    "label": "照这版出视觉稿"
+                },
+                {
+                    "value": "revise",
+                    "label": "改过再看一轮"
+                },
+                {
+                    "value": "drop",
+                    "label": "这个方向不往下做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "visual"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-line",
+            "type": "single",
+            "label": "首屏第一句用哪一句？",
+            "options": [
+                {
+                    "value": "e1",
+                    "label": "e1 写长篇小说的工作区，记得住你笔下的整个世界。"
+                },
+                {
+                    "value": "e2",
+                    "label": "e2 把长篇写完：正文、设定与 AI 搭档，在同一个窗口里。"
+                },
+                {
+                    "value": "e3",
+                    "label": "e3 每一个世界，都从一行字开始。"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "e1"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "哪一节要改，怎么改？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T06:36:32.124Z"
+}

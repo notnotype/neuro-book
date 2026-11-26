@@ -1,0 +1,39 @@
+/**
+ * t62 探针：推荐接口的纯函数原型（不进仓库）。每个轴各自从“里到外”的候选里挑第一个指针在它这条边缘带里、并且这个方向还能滚的容器。
+ */
+export interface Rect { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number }
+export interface Point { readonly x: number; readonly y: number }
+export interface Room { readonly left: number; readonly right: number; readonly up: number; readonly down: number }
+export interface Target { readonly id: string; readonly rect: Rect; readonly room: Room }
+export type Axis = "x" | "y";
+
+/** 一个轴上的步进（负数向左、向上）：指针在另一个轴的范围内、离这个轴的两端不到 edgePx 或已越过时滚，越靠边越快；这个轴上短到两条边缘带相接时不滚。 */
+export function edgeScrollStep(rect: Rect, point: Point, axis: Axis, edgePx = 24, maxStepPx = 16): number {
+    const start = axis === "y" ? rect.top : rect.left;
+    const end = axis === "y" ? rect.bottom : rect.right;
+    const at = axis === "y" ? point.y : point.x;
+    const across = axis === "y" ? point.x : point.y;
+    const acrossStart = axis === "y" ? rect.left : rect.top;
+    const acrossEnd = axis === "y" ? rect.right : rect.bottom;
+    if (across < acrossStart || across > acrossEnd || end - start <= edgePx * 2) return 0;
+    const fromStart = at - start;
+    const fromEnd = end - at;
+    if (fromStart < edgePx) return -Math.ceil(Math.min(1, (edgePx - fromStart) / edgePx) * maxStepPx);
+    if (fromEnd < edgePx) return Math.ceil(Math.min(1, (edgePx - fromEnd) / edgePx) * maxStepPx);
+    return 0;
+}
+
+export interface Pick { readonly id: string; readonly step: number }
+
+export function edgeScrollPlan(targets: ReadonlyArray<Target>, point: Point, edgePx = 24, maxStepPx = 16): {readonly x: Pick | null; readonly y: Pick | null} {
+    const pick = (axis: Axis): Pick | null => {
+        for (const target of targets) {
+            const step = edgeScrollStep(target.rect, point, axis, edgePx, maxStepPx);
+            if (step === 0) continue;
+            const room = axis === "x" ? (step < 0 ? target.room.left : target.room.right) : (step < 0 ? target.room.up : target.room.down);
+            if (room > 0) return {id: target.id, step};
+        }
+        return null;
+    };
+    return {x: pick("x"), y: pick("y")};
+}

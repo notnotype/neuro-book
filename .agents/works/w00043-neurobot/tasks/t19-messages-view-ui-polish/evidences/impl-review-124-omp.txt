@@ -1,0 +1,96 @@
+### 1. 坏侧轨值可以使布局读入抛出异常
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/nb-workbench-layout/src/layout-doc-validate.ts:60-62`，`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:94-98,131-137`。
+- 现象：布局其余字段有效，仅某容器的 `rail.expanded` 是 JSON 对象 `{"toString":0}`、`width` 是合法的 `310` 时，读入抛 `TypeError: No default value`（Bun 1.4.4），而不是保留布局与 `width:310`、仅把 `expanded` 当缺省。`rail.width` 同样调用 `String(坏值)`，存在同一问题。
+- 原因：发现坏值后直接做字符串强制转换；普通 JSON 对象也能用自有属性覆盖 `toString`，回退的默认 `valueOf()` 仍返回对象，诊断构造本身抛错。违反布局 Spec 输出 50 的非致命修复合同。
+- 核实：在实现检出 `13364cb00` 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/rail-records.ts exception`（临时根见报告末尾）。真实 SQLite 存下后新开窗口，异常由实际 storage 响应经 Vue effect 抛出。
+- 建议：字段路径与有限的值类别足够诊断，不对未知对象强制转换；在现有存储往返用例补合法宽度和带自有 `toString` 键的坏值，断言新窗口照常打开并保留宽度。
+### 2. “重置位置”把展开意图从浮动窗带回，而不是清掉
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts:86-89,169-178`，`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:529-537,556-561`，`packages/nb-workbench-layout/src/layout-doc.ts:551-565`。
+- 现象：右栏视图写入 `expanded:true,width:300` 后浮出，经实际“移动到”目标表的 `reset` 项执行“重置位置”，命令成功，锚上恢复同一份 `expanded:true,width:300`；SQLite 新窗口重读也一样。
+- 原因：“重置位置”和普通“移进容器”被编码成同一个 `{container}`。`settleRails` 按普通归位保留意图；只有独立的容器菜单 `resetContainer` 有清除步骤，而受限视图只能停右栏或单独浮动，浮动后的视图菜单不会走那条容器重置路径。布局 Spec 输出 50 区分“归位（带回）”和“重置位置（清掉）”。
+- 核实：在实现检出 `13364cb00` 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/rail-records.ts reset`。以真实 store 浮出，取产品目标表，调用其实际命令，再读新窗口。
+- 建议：让菜单和命令面板把重置作为单独的操作意图传到 store，同一次提交中归位并清除其项；普通停靠继续保留。
+### 3. 从模板读入时修了坏值，但没有报诊断
+- 严重程度：建议；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:53-56,94-98,112-117`，`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:1006-1008`。
+- 现象：没有 `workbench.layout` 时，从真实 `workbench.layout-template` 读到 `expanded:false,width:310`，布局照用且只保留 `width:310`，但 `recordRepairs=[]`，外壳不会显示修复诊断。主记录同样坏时会显示。
+- 原因：读入可使用模板，`recordRepairs` 只复验主记录；模板的修复说明在 `usableDoc` 里被丢弃。输出 50 对读入的坏侧轨值没有模板例外。
+- 核实：在实现检出 `13364cb00` 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/rail-records.ts template`，由真实 SQLite 给没有布局记录的新窗口提供模板；输出 `ready:true,problems:[],repairs:[],rail:{"view:test.aux":{"width":310}}`。
+- 建议：一次解码实际选中的布局来源，让文档、错误与修复诊断共用该结果；不要为 `recordProblem`、`outsideSkeleton`、`recordRepairs` 和初读分别遍历同一记录。
+### 4. 拖右栏分隔线会把预算压缩量一起记成宽度意图
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/nb-workbench-layout/src/layout-project.ts:244-247`，`packages/nb-workbench-layout/src/intent-writeback.ts:39-40,56`，`packages/neuro-book/src/plugins/workbench/web/state/rail-budget.test.ts:67-96`。
+- 现象：窗口 1180 px，右栏记录 400 px；请求右轨 260 px，预算给右轨 250 px、右栏 320 px。沿编辑区／右栏的分隔线向右拖 10 px，网格预览为右栏 310 px，落账把意图从 400 直接写成 310；重新按收轨基线算预算，右轨从 250 变成 260。布局验收 35 要求展开时拖这条线不改右栏宽度意图。
+- 原因：结构操作前不写保留像素的节点，确实挡住了计划审查 L3 的容器搬移反例；手势回写只跳过没动的保留像素节点。这条分隔线恰好动了受覆盖的节点，而投影没有把宽度覆盖身份交给手势回写。现有往返测试只走 `rebaseForOperation`，不走手势。
+- 核实：实现检出 `13364cb00` 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/rail-projection.ts gesture`。真实缺省布局、预算、投影、`createGridGestureSession`/`resizeBranches` 与 `applyGestureCommit`；该检出还未接入展开 UI，未将实验当作页面复现。
+- 建议：投影明确标记预算覆盖，手势写回按轴排除覆盖的右栏宽度，保留同一手势应写的其它尺寸和收起状态；补真实手势往返用例。若验收 35 指的是只排除预算那一段、还允许持久化用户位移，应先统一合同，不能直接把 310 写成意图。
+### 5. 预算会把右栏让不出的宽度算进去，实际挤窄左栏
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:82-93,130-167`，`packages/nb-workbench-layout/src/layout-project.ts:244-247`。
+- 现象：窗口 1180 px，右栏 400 px，当前视图声明的最小宽是 390 px，视图段的聊天下限为 320 px。请求 260 px 时，预算报 `done`、轨 250 px、右栏 320 px；实际投影求解是轨 250 px、右栏 390 px、左栏从 340 缩到 270 px，并报 `fixed-overflow`。实际只有编辑组能让 122 px、右栏能让 10 px，最多给轨 180 px，不到声明的展开下限 200 px。
+- 原因：预算把 `chatMinimum` 当成区域唯一的下限，没计入投影仍在执行的有效最小宽。`regionWidth` 只覆盖意图；它不能越过视图最小宽，网格只好压别的固定节点。输出 50 只允许编辑组和右栏承担这段差值。
+- 核实：实现检出 `13364cb00` 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/rail-projection.ts budget-min`；真实声明目录、工作台投影选项和网格求解。是展开接线前的投影反例，不是页面复现。
+- 建议：预算接收与求解器相同的区域可缩下限（取实际约束与聊天下限的较大值），再算部分展开与拒绝；用该组合断言左栏几何不变。
+### 6. 键盘拖动仍能停到位置限制已经拒绝的入口和空位
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:536-544,789-794,953-976`。
+- 现象：从右轨拿起受限视图的入口，向上可以选中右轨的合法换序位置；Tab 却还停到底部面板入口带，绕一圈还停到左轨。左轨的前方空位、视图入口、后方空位都消费一次方向键，但没有落点、没有提交动作。键盘用户要经过不可能成功的站和停靠点。
+- 原因：面板候选用 `guardPlacement` 过滤，入口条却只按“量得到矩形”收进去，`barStops` 原样给出所有几何停靠点；走到那里才由 `entryDrop` 临时拒掉。views 输出 22 与布局输出 31 要求候选、预览与提交使用同一接受规则。
+- 核实：实现检出 `13364cb00` 运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/placement-keyboard.ts`。真实 store、网格投影和键盘拖动会话；happy-dom 只提供元素、真实投影盒及入口测量，没有跑浏览器。Tab 到底部 `(398,694)` 和左轨 `(24,9)`，均 `handled:true,action:null`；左轨往下两次仍无动作。
+- 建议：键盘入口候选对每个入口/空位复用 `entryDropAt` 和提交侧的接受检查，过滤后没有停靠点的入口条不进 Tab 环；放下仍按最新文档复验。
+### 7. 节点已满且旧位置归整失败时，关卡仍能把普通视图搬进受限容器
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/placement.ts:36-56,67-91`；`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:229-238,529-541`。
+- 现象：一份通过文档和骨架校验的 256 节点旧记录（右栏原为空、受限视图还在侧栏）读入后，受限视图未归整成功。把排在它后面的普通视图移进它的隐式容器，`permitsMoveView` 返回 `true`，`moveView` 返回 `ok:true`，结果里两个视图同在受限容器。保存后重开，归整又把普通视图改到 `custom:split-test.rail`，受限视图还留在左边。
+- 原因：换到空右栏需要新分支，节点达到上限时归整被库拒绝而静默保留旧布局。提交关卡只比较违规的视图 ID，不比较违规事实；加入陌生视图前后，违规列表都只有 `test.rail`。这把“保留无法归整的旧记录”放宽成了“可继续新增违反”。
+- 核实：从 `git archive 13364cb00` 取固定源码配已装依赖，执行 `bun --tsconfig-override /tmp/review-t19-impl-124/pinned/packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/pinned/probes/placement-cases.ts limit`。真实 SQLite、store 的试算、提交、保存和重开；返回容器成员从 `["test.rail"]` 变为 `["test.rail","test.extra-0"]`，重开另有新容器。
+- 建议：单独判新增的容器成员、违规停靠或浮窗组合，允许不相干的编辑和修复操作，不允许沿用同一个违规 ID 掩盖新增事实。若归整受树上限阻止，应给出诊断，且不写入一个重读时会再改归属的结果。
+### 8. 重读同一旧布局时，视图归整反复生成新的面板 ID
+- 严重程度：重要；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/default-tree.ts:148-151`；`packages/neuro-book/src/plugins/workbench/web/state/placement.ts:86-90`；`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:127,422-424`。
+- 现象：旧记录里右栏为空、受限视图和普通视图在同一个浮窗。第一次读入把受限视图分到右栏；只更新普通视图的标题，归整又给右栏的分支和该视图分节各换了一个 ID。没有布局操作、没有落盘队列项，布局结构身份仍变了。这会让以面板 ID／结构键识别当前面板、手势和渲染项的调用方看到一次换结构。
+- 原因：`reconcileViews` 在文档的 `computed` 中执行旧记录归整，传了普通交互用的 `createLayoutPolicy()`；布局还未保存，重算每次从同一份旧记录出发，`newId` 每次生成 UUID。补位路径已经用确定性的 `freeId`，归整没复用。
+- 核实：固定源码 `13364cb00` 执行 `bun --tsconfig-override /tmp/review-t19-impl-124/pinned/packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/pinned/probes/placement-cases.ts stable-id`。真实 SQLite 先保存两标签浮窗；重开分别得到分支 `b-2f99db28…`、分节 `p-d9cd6f2d…`；只换普通视图标题后变为 `b-48cb752d…`、`p-3f93d989…`，`pending:0`。未做 DOM 重挂实测。
+- 建议：归整按视图、容器和区域确定空闲 ID，跟默认建树、目录补位用同一策略；测同一旧记录在目录更新或重开后，位置不变时分支与分节身份也不变。
+### 9. “移动视图”第一步逐一试算所有视图的所有目标，同步阻塞首屏
+- 严重程度：重要；类别：安全与性能。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts:102-116`；`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:229-238,303-312,541`。
+- 现象：初始布局中 38 个视图各有自己的容器，执行不带参数的“移动视图”，第一次把 37 项交给 `QuickPick` 前同步用了 3645、3517、3761 ms（Bun 1.4.4，一次冷调用、两次热调用；不是浏览器帧耗时）。这些调用发生在选择框出现之前，此时甚至还没选要移动的视图。
+- 原因：第一步只问“是否有至少一个合法目标”，却由 `moveTargetsFor` 为每个视图构造整张列表并试算每项，后续第二步还会为所选视图重算。38 个视图各有 37 个其它容器和 3 个新容器目标，就是 1520 次整布局试算；每次执行结构操作并检查骨架、归整容器与位置限制。
+- 核实：固定源码 `13364cb00` 运行 `bun --tsconfig-override /tmp/review-t19-impl-124/pinned/packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/pinned/probes/placement-cases.ts command-cost 35`；真实 SQLite store 和命令，`QuickPick` 接口仅记录第一次请求并取消。机器采样负载约 18（8 个逻辑 CPU），计时仅代表本次环境；试算次数不受负载影响。
+- 建议：第一步发现一个合法目标即停，不构造全量合法目标，第二步才列所选视图的完整表。保留提交时全量校验；可用无时间阈值的调用计数限制第一步的工作量。
+### 10. 位置限制字段实际对第三方插件生效，与计划的内置边界不符
+- 严重程度：建议；类别：正确性。
+- 位置：`packages/neuro-book/src/plugins/workbench/shared/views.ts:87-94,128-130`；`packages/neuro-book/src/sdk/workbench.ts:19-20`、`packages/neuro-book/src/sdk/workbench-helpers.ts:50-60`。
+- 现象：计划第 2 稿写明位置限制声明形状只给内置视图；实际第三方清单可直接用 `confinedTo: "auxiliarybar"`，视图正常交付且出现在右栏，用户不能把它移往侧栏。它的隐式容器也按受限容器处理。这不是冒充内置插件，而是同一个字段有两个边界。
+- 原因：`view()` 只在参数类型上省略该字段，公开 `ViewDeclaration` 仍含它；贡献校验只查区域匹配及没有 `container`，源码注释明确选择不按发布者拒绝。只删辅助函数的参数不是登记边界。
+- 核实：固定源码 `13364cb00` 运行 `bun --tsconfig-override /tmp/review-t19-impl-124/pinned/packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/pinned/probes/third-party.ts`。清单经实际平台解析、应用内核、`viewsPoint`、注册表和布局 store；`builtin:false`、交付 `available`，移到侧栏返回 `rejected`。
+- 建议：若按已批准的内置范围交付，在贡献边界按发布者拒绝该字段，并将内置声明类型与 SDK 公开类型分开；若有意开放第三方，应先把取舍写入 Task 与 Spec、明确插件升级与布局兼容承诺。
+### 11. 侧轨写入口接受零宽度，自己写出的记录重开又被修掉
+- 严重程度：建议；类别：正确性。
+- 位置：`packages/nb-workbench-layout/src/layout-doc.ts:810-832`、`packages/nb-workbench-layout/src/layout-doc-validate.ts:59-63`。
+- 现象：通过 `setContainerRail` 按类型正确地设置 `{expanded:true,width:0}`，store 返回成功，原窗口继续读到 `width:0`；真实保存后，新窗口判同一值不合格，去掉宽度、记一条修复诊断。`setFloatRail` 也用同一个不校验宽度的 `railIntentOf`。
+- 原因：写入口只判容器或浮窗身份，直接保存任意 `number`；读入明确只收有限正数。解码后的合法文档不是写操作维持的不变量。
+- 核实：固定源码 `13364cb00` 运行 `bun --tsconfig-override /tmp/review-t19-impl-124/pinned/packages/neuro-book/tsconfig.json /tmp/review-t19-impl-124/pinned/probes/rail-width-record.ts`。真实布局 store 和 SQLite；成功值为 `{"expanded":true,"width":0}`，重开值为 `{"expanded":true}`，修复项为 `panels.auxiliarybar.rail.view:test.rail.width: 0`。这是写入口反例，不是现有页面的拖动复现。
+- 建议：两条写入口用与解码端相同的有限正数判据；拒绝非法宽度并零写入，不夹成另一个意图。测试给零、负数和非有限数，合法宽度仍原样往返。
+### 12. 降级求解未先收侧轨，展开厚度会触发本可避免的右栏收走
+- 严重程度：建议；类别：正确性。
+- 位置：`packages/nb-workbench-layout/src/layout-project.ts:46-50,253-256,319-326`；`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:150-157`。
+- 现象：计划第 2 稿明确要求 `presentationCollapse` 降级前先按收轨算。用工作台实际默认布局及约束，750 × 900、主题缝 4 px，按收轨求解不收任何分节，轨叶厚 52 px，预算返回 `too-narrow`。把展开轨叶厚 264 px 传给同一个公开求解入口，却收走 `section:test.aux`，之后投影保留 264 px 的轨叶。
+- 原因：`rail` 只传当次生效厚度，降级直接拿传入的投影选项反复求最小尺寸，既没有收着厚度，也没有在返回值中表达应撤去展开覆盖。本版 store 只传收着选项，因此是片 2 的纯求解合同缺口，不是当前页面已经能触发的问题。
+- 核实：在加载 `git archive 13364cb00` 的固定源码后运行 `/tmp/review-t19-impl-124/pinned/probes/rail-projection.ts degrade`，不带主题缝时同样得到 `baseRemoved:[]`、`expandedRemoved:["section:test.aux"]`，错误展开轨叶厚 260 px；另用 `cardGap:4` 核实上述 52／264 px 对照和 `too-narrow` 结果。两次均为真实网格投影，未跑页面。
+- 建议：让降级入口只能接收收着的基线选项（或显式区分基线与覆盖）；宿主先从基线算收走集合和预算，再投影生效宽度。补窄窗用例保证“拒绝展开”不会被换成收走右栏，且仅高度不足时仍可按宽度预算展开。
+
+第 8 条补证（不另计）：同一探针现走实际 `discard`，不再需要构造目录更新。选中归整后的分节，只改底部面板显隐，在合并保存之前放弃。底部面板恢复；右栏分节由 `p-56d24841…` 变为 `p-84877bba…`，但 `state.currentPanel` 仍是 `p-56d24841…`，已查不到该面板。旧记录同时在另一个窗口打开，分支与分节也有另一组 UUID。核实命令仍是第 8 条的 `stable-id`。
+
+核实范围：片 1 `5815d0a08`、`a88d156c4`，片 2 `53f747f69`，片 4 `e31150442`，片 3 只看交界。实际被审版本 `13364cb00`。基线执行时所查包相对 HEAD 无已跟踪差异；随后实现工作区出现并行未提交改动，虽 HEAD 未变，也不将这些源码算进被审提交。后续探针从 `git archive 13364cb00` 加载工作区源码，第三方依赖复用已安装版本；第 6 条亦在固定副本重放，结果相同。未更改任何 worktree。
+
+验证（Bun 1.4.4）：
+- 实现检出的 `packages/nb-workbench-layout`：`bun test src/layout-doc-rail.test.ts src/layout-project-rail.test.ts`，17 通过，0 失败，51 断言。
+- 实现检出的 `packages/neuro-book`：`bun test src/plugins/workbench/web/state/placement.test.ts src/plugins/workbench/web/state/rail-budget.test.ts src/plugins/workbench/web/state/layout-doc-store.test.ts src/plugins/workbench/shared/views.test.ts`，72 通过，0 失败，595 断言。
+- 同一 HEAD 的实现工作区在有并行未提交改动时追加 `bun test src/plugins/workbench/web/drag-keyboard.test.ts src/plugins/workbench/web/entry-drop.test.ts`，23 通过，0 失败，102 断言；不以这批结果替代固定提交的探针。
+- 临时根：`TMPDIR`、`NBOOK_HOST_SYSTEM_TEMP_ROOT` 都设为 `/tmp/review-t19-impl-124/system`，`NBOOK_AGENT_TEMP_ROOT` 设为 `/tmp/review-t19-impl-124/system/agent`。未运行 e2e、类型检查、变异检查或开发服务；未做真实浏览器复现。
+
+统计：阻断 0；重要 8（1、2、4、5、6、7、8、9）；建议 4（3、10、11、12）。有效编号：1–12。

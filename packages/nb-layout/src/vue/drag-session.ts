@@ -9,7 +9,7 @@ import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
 import {createDragGesture} from "../drag-gesture";
-import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragState, DragStops} from "../drag-gesture";
+import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragScrollTarget, DragState, DragStops} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 
 /** @experimental */
@@ -65,8 +65,17 @@ export interface DragSessionOptions<S, D, R> {
     sampled?(): void;
     /** 滚动时重新判定（缺省），或撤下落点直到指针再动。 */
     readonly scroll?: "reevaluate" | "withdraw";
-    /** 边缘滚动的元素；缺省不滚。 */
-    readonly autoScroll?: {readonly element: HTMLElement; readonly edgePx?: number; readonly maxStepPx?: number};
+    /**
+     * 边缘滚动（docs/specs/ui/layout-drag.md 输出 14）；缺省不滚。
+     * `containers`：指针此刻所在的、要边缘滚动的容器，从里到外；空数组不滚。没在滚时指针每次移动调一次，在滚时每帧开头调一次，可以现读状态。
+     * 指针越过容器的一端也算在那一端的边缘带里：并排的几个容器只交指针所在的那个，不然指针在后一个里时前一个也在滚。
+     * `top` 同 `resolve` 的（反馈元素不算，视口外为 null）；固定的列表不用看它，交 `() => [element]`。
+     */
+    readonly autoScroll?: {
+        containers(query: {readonly point: GridDropPoint; readonly top: Element | null}): ReadonlyArray<HTMLElement>;
+        readonly edgePx?: number;
+        readonly maxStepPx?: number;
+    };
     /** 键盘拖动；缺省只有指针。 */
     readonly keyboard?: DragKeyboardOptions<S, R>;
     /** 起拖门槛。 */
@@ -93,6 +102,37 @@ function topElementAt(document: Document, point: GridDropPoint): Element | null 
         if (element.closest(FEEDBACK_SELECTOR) === null) return element;
     }
     return null;
+}
+
+const SCROLLABLE_OVERFLOW: ReadonlySet<string> = new Set(["auto", "scroll"]);
+
+/**
+ * 边缘滚动的一个候选容器此刻的样子。一个轴让不让滚只看计算样式的 `overflow-x`、`overflow-y`，不看内容有没有溢出：
+ * `overflow: hidden` 的元素内容照样可以比它宽，程序赋 `scrollLeft` 也照样滚得动（资源树就是横向 hidden、竖向 auto）。
+ * 横向余量按从左到右排版算：从右到左排版时 `scrollLeft` 为负，算出的余量不对，现在没有这样的使用方。
+ */
+function scrollTargetOf(view: Window, element: HTMLElement): DragScrollTarget {
+    const style = view.getComputedStyle(element);
+    const scrollsX = SCROLLABLE_OVERFLOW.has(style.overflowX);
+    const scrollsY = SCROLLABLE_OVERFLOW.has(style.overflowY);
+    const {left, top, right, bottom} = element.getBoundingClientRect();
+    const {scrollLeft, scrollTop} = element;
+    return {
+        rect: {left, top, right, bottom},
+        room: {
+            left: scrollsX ? Math.max(0, scrollLeft) : 0,
+            right: scrollsX ? Math.max(0, element.scrollWidth - element.clientWidth - scrollLeft) : 0,
+            up: scrollsY ? Math.max(0, scrollTop) : 0,
+            down: scrollsY ? Math.max(0, element.scrollHeight - element.clientHeight - scrollTop) : 0,
+        },
+        scrollBy: (x, y) => {
+            const beforeLeft = element.scrollLeft;
+            const beforeTop = element.scrollTop;
+            // `instant`：容器设了 `scroll-behavior: smooth` 时，直接赋值后马上读回来还是旧值，会在第一步就被当成到头。
+            element.scrollBy({left: x, top: y, behavior: "instant"});
+            return element.scrollLeft !== beforeLeft || element.scrollTop !== beforeTop;
+        },
+    };
 }
 
 /** @experimental */
@@ -234,12 +274,8 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
         autoScroll: autoScroll === undefined ? undefined : {
             edgePx: autoScroll.edgePx,
             maxStepPx: autoScroll.maxStepPx,
-            rect: () => autoScroll.element.getBoundingClientRect(),
-            scrollBy: (step) => {
-                const before = autoScroll.element.scrollTop;
-                autoScroll.element.scrollTop = before + step;
-                return autoScroll.element.scrollTop !== before;
-            },
+            // `top` 每次现算：在 `pointermove` 里调时这一下还没判定，没有现成的。
+            targets: (point) => autoScroll.containers({point, top: topElementAt(document, point)}).map((element) => scrollTargetOf(view, element)),
         },
         keyboard: keyboard === undefined ? undefined : {
             regions: (source) => keyboard.regions(source),

@@ -1,0 +1,363 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "version": 5,
+    "supersedes": 4,
+    "action": "publish",
+    "kind": "design",
+    "title": "条目页的页头、分页与保存提示",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "04fa72543bb8f92220e0697e4a3fc522a82141987385baa08064edcdb3e0bbb1",
+    "files": [
+        "index.html",
+        "r1/charactercard-phone.webp",
+        "r1/current.webp",
+        "r1/rail-filled-640.webp",
+        "r1/rail-filled.webp",
+        "r1/tabs-filled-640.webp",
+        "r1/tabs-filled.webp",
+        "r1/tabs-name-hover.webp",
+        "r1/tabs-new.webp",
+        "r1/tabs-notice.webp",
+        "r1/tabs-plan.webp",
+        "r1/tabs-position.webp",
+        "r2/ed-compact-age.webp",
+        "r2/ed-compact-height.webp",
+        "r2/ed-compact-personality.webp",
+        "r2/ed-compact-where.webp",
+        "r2/ed-glass.webp",
+        "r2/ed-inline-age.webp",
+        "r2/ed-inline-height.webp",
+        "r2/ed-inline-personality.webp",
+        "r2/ed-inline-where.webp",
+        "r2/ed-outcome-age.webp",
+        "r2/ed-outcome-height.webp",
+        "r2/ed-outcome-where.webp",
+        "r2/ed-solid.webp",
+        "r2/now-age.webp",
+        "r2/now-gender.webp",
+        "r2/now-line.webp",
+        "r2/now-position.webp",
+        "r2/vp-labeled-line-menu.webp",
+        "r2/vp-labeled-menu.webp",
+        "r2/vp-labeled-phone.webp",
+        "r2/vp-labeled.webp",
+        "r2/vp-merged-menu.webp",
+        "r2/vp-merged-phone.webp",
+        "r2/vp-merged-pinned.webp",
+        "r2/vp-merged.webp",
+        "r2/vp-timeline-phone.webp",
+        "r2/vp-timeline-pinned.webp",
+        "r2/vp-timeline-plan.webp",
+        "r2/vp-timeline.webp",
+        "r3/long-card-note.webp",
+        "r3/long-card.webp",
+        "r3/many-search.webp",
+        "r3/many.webp",
+        "r3/note-age.webp",
+        "r3/note-height.webp",
+        "r3/since-age.webp",
+        "r3/since-where.webp",
+        "r3/steppers-phone.webp",
+        "r3/steppers.webp",
+        "r3/tip.webp",
+        "r3/where-age.webp",
+        "r3/where-where.webp",
+        "r3/why-age.webp",
+        "r3/why-where.webp"
+    ],
+    "questions": [
+        {
+            "id": "tab-layout",
+            "type": "single",
+            "label": "分页横排还是竖排？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 横排，设定组与文字在前、经历与情节在后"
+                },
+                {
+                    "value": "rail",
+                    "label": "B 宽时在内容左边竖排，窄了换回横排"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "row"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notice",
+            "type": "single",
+            "label": "保存后的提示要不要自己收起？",
+            "options": [
+                {
+                    "value": "auto",
+                    "label": "A 6 秒后自己收起，指着或焦点在里面时不收"
+                },
+                {
+                    "value": "stay",
+                    "label": "B 留到关掉或有新的一条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "auto"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "initial-word",
+            "type": "single",
+            "label": "“初值”改叫什么？",
+            "options": [
+                {
+                    "value": "story-start",
+                    "label": "A 故事开始前"
+                },
+                {
+                    "value": "before-story",
+                    "label": "B 开篇前"
+                },
+                {
+                    "value": "first-setting",
+                    "label": "C 初始设定"
+                },
+                {
+                    "value": "keep",
+                    "label": "D 不改，仍叫初值"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "story-start"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "view-point",
+            "type": "single",
+            "label": "页头“看的是哪条线、哪个时间点”用哪种做法？",
+            "options": [
+                {
+                    "value": "merged",
+                    "label": "A 合成一个“在看”"
+                },
+                {
+                    "value": "labeled",
+                    "label": "B 两个控件，同一种样子、各带名字"
+                },
+                {
+                    "value": "timeline",
+                    "label": "C 时间条"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "merged"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "edit-style",
+            "type": "single",
+            "label": "改一个值用哪种编辑控件？",
+            "options": [
+                {
+                    "value": "compact",
+                    "label": "A 紧凑浮层，意图写成落点"
+                },
+                {
+                    "value": "outcome",
+                    "label": "B 浮层里两项写成结果"
+                },
+                {
+                    "value": "inline",
+                    "label": "C 原地展开，不弹浮层"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "outcome"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "long-text",
+            "type": "single",
+            "label": "长文字（性格、背景这类）改的时候盖在上面，还是在原处展开？",
+            "options": [
+                {
+                    "value": "overlay",
+                    "label": "A 浮层盖在这一段上"
+                },
+                {
+                    "value": "in-flow",
+                    "label": "B 在原处展开，下面让开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "in-flow"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "edit-surface",
+            "type": "single",
+            "label": "编辑浮层用不透明的面，还是和菜单一样的玻璃？",
+            "options": [
+                {
+                    "value": "solid",
+                    "label": "A 不透明"
+                },
+                {
+                    "value": "glass",
+                    "label": "B 玻璃（现在的样子）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "solid"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "chapter-finding",
+            "type": "single",
+            "label": "章多了，“在看”怎么找到一章？",
+            "options": [
+                {
+                    "value": "search",
+                    "label": "A 菜单里能搜，打开时滚到当前章"
+                },
+                {
+                    "value": "search-steps",
+                    "label": "B A 加上两边往前、往后一处"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "search-steps"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "intent-words",
+            "type": "single",
+            "label": "改值时那个二选一怎么写？",
+            "options": [
+                {
+                    "value": "since",
+                    "label": "A 从什么时候起：从最初起 | 从第 3 章起"
+                },
+                {
+                    "value": "why",
+                    "label": "B 为什么改：更正设定 | 剧情里变了"
+                },
+                {
+                    "value": "where",
+                    "label": "C 落点（上一轮）：改最初 | 第 3 章变了"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "since"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "story-note",
+            "type": "single",
+            "label": "选“从第 3 章起”（剧情里变了）时，要不要写一句发生了什么？",
+            "options": [
+                {
+                    "value": "optional",
+                    "label": "A 选填一行，不填自动写“年龄变成 18 岁”"
+                },
+                {
+                    "value": "none",
+                    "label": "B 不加，情节里写“年龄变成 18 岁”"
+                },
+                {
+                    "value": "required",
+                    "label": "C 必填，不写不能保存"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "optional"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "long-card",
+            "type": "single",
+            "label": "长文字原处展开，用不用和短项同一张卡？",
+            "options": [
+                {
+                    "value": "same-card",
+                    "label": "A 同一张卡，放在原处"
+                },
+                {
+                    "value": "bare",
+                    "label": "B 上一轮的样子：输入框加底栏，没有卡"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "same-card"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T05:19:50.891Z"
+}
