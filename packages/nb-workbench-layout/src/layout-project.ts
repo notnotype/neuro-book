@@ -16,7 +16,8 @@
  * 侧轨（宿主给 `rail`，docs/specs/ui/workbench-layout.md 输出 50）：右栏在文档里有分节时，`body` 横向分支里右栏那一列的外侧多一片侧轨叶 `rail:<区域>`，
  * 和别的孩子一起过滤、塌陷、算缝（两侧缝 0，同条）；区域隐藏、拖到零、放不下收走时它照样在。左轨就是活动栏，不在这里加。侧轨叶只在呈现里，不进文档与意图回写。
  * 展开的侧轨要的宽度由宿主先算好预算（`regionWidth`）：区域节点这一次按给的宽度呈现。覆盖只加在区域节点上，它和编辑区并排、保留像素（`isFixedChild`），
- * 意图回写本来就不写保留像素的节点（`intent-writeback.ts`），所以预算的结果不会变成意图；覆盖挪到区域里按比例分的节点上，结构操作就会把它写进意图。
+ * 结构操作前的回写本来就不写保留像素的节点（`intent-writeback.ts`），所以预算的结果不会变成意图；覆盖挪到区域里按比例分的节点上，结构操作就会把它写进意图。
+ * 手势动了这个节点时（拖右栏与编辑区的分隔线），落账只把拖动的那一段加到原来的意图上（`widthOverrides`）。
  */
 
 import {GRID_UNBOUNDED, UNBOUNDED_EXTENT} from "@notnotype/nb-layout";
@@ -90,6 +91,11 @@ export interface LayoutProjection {
     readonly fillers: ReadonlySet<string>;
     /** 这一次呈现出来的侧轨（`rail`）。 */
     readonly rails: ReadonlyArray<LayoutRailPlacement>;
+    /**
+     * 这一次按预算宽度呈现的节点（`regionWidth`）→ 文档里它的宽度意图。手势落账按它只写拖动的那一段（`applyGestureCommit`）：呈现宽是预算压出来的，
+     * 直接写回就把压掉的那段变成了意图。
+     */
+    readonly widthOverrides: ReadonlyMap<string, number>;
 }
 
 const REGION_NAMES: ReadonlySet<string> = new Set<PanelName>(["sidebar", "auxiliarybar", "panel"]);
@@ -183,6 +189,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
     const regionAnchors = new Map<string, string>();
     const strips: LayoutStripPlacement[] = [];
     const rails: LayoutRailPlacement[] = [];
+    const widthOverrides = new Map<string, number>();
     // 右栏的侧轨（见模块说明）：区域在文档里有分节才有，插在 `body` 横向分支里右栏那一列的后面。
     const auxiliary = regionNodeOf(doc, "auxiliarybar");
     const railThickness = auxiliary !== null && regionHasSections(doc, "auxiliarybar") ? options.rail?.("auxiliarybar") ?? null : null;
@@ -244,6 +251,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
         let result = withStrip(node, anchor, presented);
         if (auxiliaryWidth !== undefined && node.id === auxiliary?.node.id) {
             result = {...result, size: {width: auxiliaryWidth, height: result.size?.height ?? node.size.height}};
+            widthOverrides.set(result.id, node.size.width);
         }
         regionAnchors.set(result.id, anchor);
         return result;
@@ -292,7 +300,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
     if (input === null) throw new Error("布局文档的树里没有可呈现的节点：校验应该已经拒绝");
     const fillers = new Set<string>();
     assignByParent(doc, input, options, regionAnchors, fillers);
-    return {input, collapsedTo, regionAnchors, strips, fillers, rails, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
+    return {input, collapsedTo, regionAnchors, strips, fillers, rails, widthOverrides, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {

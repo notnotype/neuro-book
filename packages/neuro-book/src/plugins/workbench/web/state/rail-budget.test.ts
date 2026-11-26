@@ -4,8 +4,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createGrid} from "@notnotype/nb-layout";
-import {projectLayoutDoc, rebaseForOperation} from "@notnotype/nb-workbench-layout";
+import {createGrid, createGridGestureSession} from "@notnotype/nb-layout";
+import {applyGestureCommit, projectLayoutDoc, rebaseForOperation, regionNodeOf} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc, LayoutProjectionOptions} from "@notnotype/nb-workbench-layout";
 
 import {BUSY_LAYOUT_CATALOG} from "../testing/layout-doc";
@@ -86,6 +86,28 @@ describe("按预算呈现时意图不漂移（验收 35）", () => {
         }
         return current;
     }
+
+    it("右栏按预算压着时拖它和编辑区之间的分隔线：意图只加上拖动的那一段，压掉的那段不写", () => {
+        const doc = defaultLayoutDoc(BUSY_LAYOUT_CATALOG);
+        const intent = regionNodeOf(doc, "auxiliarybar")?.node.size.width ?? 0;
+        const options = {...layoutProjectionOptions({doc, catalog: BUSY_LAYOUT_CATALOG, viewportWidth: extent.width}), regionWidth: {auxiliarybar: intent - 80}};
+        const projection = projectLayoutDoc(doc, options);
+        const grid = createGrid<string>(projection.input, {sashSize: projection.sashSize});
+        const before = grid.layout(extent);
+        const regionNode = [...projection.regionAnchors].find(([, anchor]) => anchor === "auxiliarybar")?.[0] ?? "";
+        expect(before.sizes[regionNode]?.width).toBe(intent - 80);
+        // body 的孩子：活动栏、侧栏、编辑区、右栏、右轨；编辑区与右栏之间是第 2 条分隔线。往右拖 10，右栏窄 10。
+        const session = createGridGestureSession<string>({root: grid.root(), extent, layout: before, sashSize: projection.sashSize, contextKey: "k", revision: 1, sessionId: "g", source: "pointer", sashes: [{branchId: "body", index: 2, axis: "width"}]});
+        session.update({x: 10, y: 0});
+        const commit = session.finish();
+        if (commit === null) throw new Error("手势没有提交");
+        const applied = grid.resizeBranches(commit.changes);
+        if (!applied.ok) throw new Error(applied.message);
+        const after = grid.layout(extent);
+        expect(after.sizes[regionNode]?.width).toBe(intent - 90);
+        const written = applyGestureCommit(doc, projection, {before: before.sizes, after: after.sizes, collapsed: applied.collapsed});
+        expect(regionNodeOf(written.doc, "auxiliarybar")?.node.size.width).toBe(intent - 10);
+    });
 
     it("右栏按预算压着时做结构操作，压的那段不写进意图：解除之后编辑区与右栏回到压之前", () => {
         const doc = defaultLayoutDoc(BUSY_LAYOUT_CATALOG);
