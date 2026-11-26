@@ -49,7 +49,7 @@ export function createViewRail(context: ViewContext, handle: (expanded: boolean)
             if (retired) return;
             // 同一对元素再写一次不换引用：视图里按它 `Teleport` 的位置不重挂。
             const current = placement.value;
-            if (current.kind === next.kind && (next.kind === "none" || (next.kind === "rail" && current.kind === "rail" && current.main === next.main && current.foot === next.foot) || (next.kind === "window" && current.kind === "window" && current.width === next.width))) return;
+            if (current.kind === next.kind && (next.kind === "none" || (next.kind === "rail" && current.kind === "rail" && current.main === next.main && current.foot === next.foot) || (next.kind === "window" && current.kind === "window" && current.width === next.width && current.tooNarrow === next.tooNarrow))) return;
             placement.value = next;
         },
         setExpanded: (next) => {
