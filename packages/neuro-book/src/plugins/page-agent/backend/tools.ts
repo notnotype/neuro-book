@@ -4,7 +4,7 @@
  */
 
 import type {JsonValue, ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
-import {locatorKind, SNAPSHOT_DEFAULT_TOKENS, SnapshotResultSchema} from "@notnotype/nb-page-agent/api";
+import {CandidateSchema, locatorKind, SNAPSHOT_DEFAULT_TOKENS, SnapshotResultSchema} from "@notnotype/nb-page-agent/api";
 import type {Locator} from "@notnotype/nb-page-agent/api";
 import type {RemoteAccess, RemoteFailure} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
@@ -42,7 +42,18 @@ const ScreenshotReturnsSchema = Type.Object({
     height: Type.Integer(),
 }, {additionalProperties: false});
 
-const toolBase = {version: "1", concurrency: "shared" as const, defaultForAll: true};
+/**
+ * 失败时交给代码的 `details`（Spec 输出 12、14），按码声明（contributions.md 输出 24 的 `errors`）：定位类的带当前候选，
+ * 窗口类的带通道的原码。没有可带的时候结果里不放 `details`。
+ */
+// 展开成普通对象：声明的类型是 JSON Schema 的记录，TypeBox 的对象类型没有索引签名（同 `returns`）。
+const CandidatesDetailSchema = {...Type.Object({candidates: Type.Array(CandidateSchema, {maxItems: 10})}, {additionalProperties: false})};
+const CauseDetailSchema = {...Type.Object({cause: Type.String()}, {additionalProperties: false})};
+const WINDOW_ERRORS = {"no-window": CauseDetailSchema, "window-gone": CauseDetailSchema, "window-unresponsive": CauseDetailSchema};
+const LOCATOR_ERRORS = {"stale-ref": CandidatesDetailSchema, ambiguous: CandidatesDetailSchema, "not-found": CandidatesDetailSchema};
+
+/** `foreground`：`ui` 看的是用户眼前的窗口，没有人在窗口前的会话（后台任务、bot）用不上（contributions.md 输出 4）。 */
+const toolBase = {version: "1", concurrency: "shared" as const, defaultForAll: true, foreground: true as const};
 
 export const snapshotTool = agentTool(SNAPSHOT_TOOL, {
     ...toolBase,
@@ -51,6 +62,7 @@ export const snapshotTool = agentTool(SNAPSHOT_TOOL, {
     effect: "read",
     global: {object: UI_OBJECT, method: "snapshot"},
     returns: {...SnapshotReturnsSchema},
+    errors: {...WINDOW_ERRORS, ...LOCATOR_ERRORS},
 });
 
 export const findTool = agentTool(FIND_TOOL, {
@@ -60,6 +72,7 @@ export const findTool = agentTool(FIND_TOOL, {
     effect: "read",
     global: {object: UI_OBJECT, method: "find"},
     returns: {...FindReturnsSchema},
+    errors: WINDOW_ERRORS,
 });
 
 export const screenshotTool = agentTool(SCREENSHOT_TOOL, {
@@ -69,6 +82,7 @@ export const screenshotTool = agentTool(SCREENSHOT_TOOL, {
     effect: "exec",
     global: {object: UI_OBJECT, method: "screenshot"},
     returns: {...ScreenshotReturnsSchema},
+    errors: {...WINDOW_ERRORS, ...LOCATOR_ERRORS, "window-hidden": CandidatesDetailSchema},
 });
 
 export interface UiToolDeps {

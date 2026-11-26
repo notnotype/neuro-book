@@ -5,6 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {Value} from "typebox/value";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -21,7 +22,7 @@ import {JPEG_64X40} from "../testing/images";
 import {hubCaller, testWindow, testWindowState} from "../testing/window-side";
 import type {TestWindowState} from "../testing/window-side";
 import {createCaptureStore} from "./captures";
-import {screenshotImplementation} from "./tools";
+import {screenshotImplementation, screenshotTool} from "./tools";
 import {createWindowSelector} from "./windows";
 
 let tmp = "";
@@ -57,6 +58,11 @@ async function setup(info: Partial<WindowInfo> = {}) {
     const run = async (args: Readonly<Record<string, unknown>>, signal: AbortSignal = new AbortController().signal): Promise<ToolResult> => {
         const result = await tool.execute(args, toolContext(signal));
         if (typeof result === "string") throw new Error(`截图工具交回了纯文字：${result}`);
+        // 失败详情要合声明的 errors，代码里才拿得到（agent/eval.md 输出 8）；不合的会被 eval 丢掉。
+        if (result.status === "error" && result.details !== undefined) {
+            const declared = screenshotTool.contribution.declaration.errors?.[result.code!];
+            expect(declared === undefined ? `${result.code!} 没有声明 errors` : Value.Check(declared as never, result.details)).toBe(true);
+        }
         return result;
     };
     /** 像窗口那样上传：凭证在请求头里。 */
