@@ -143,15 +143,18 @@ interface ViewContainerDeclaration {
 20. **取代的旧视图**（planned）：视图声明 `replaces` 写自己插件的旧视图 id。目录里这些 id 此刻没有声明时，布局里它们的标签不留占位，直接拿掉（不论在容器的分节里、别的面板里、浮动窗里还是用户拖出的容器里），空了的面板照常收起，旧视图的隐式容器 `view:<旧 id>` 从入口顺序里删掉；还有声明时不动。拿掉发生在每次算布局文档时、不写回，下次保存才落盘，降级回旧版本时旧视图会再出现。这是输出 7 与 [ui.workbench-layout](../ui/workbench-layout.md) 输出 4 “声明消失留占位”的例外：被取代的视图不会回来，占位只会让用户多关一次。
 21. **视图段**（planned，[侧栏的侧轨](../../proposals/workbench-side-rails.md)）：内置视图的实现可以声明 `VIEW_RAIL`（展开宽度的缺省、下限、上限与展开时聊天区的下限），把自己的一段借给所在区域的侧轨（[ui.workbench-layout](../ui/workbench-layout.md) 输出 50）；标记不经插件 SDK 公开。
     - **借用**：宿主按已提交的位置、容器、实例代际发放，换代、换位置、撤回时收回；旧代际与旧归属的请求一律拒绝。条件：视图停在区域里、区域显示的分节恰是它、实例已就绪。区域隐藏或拖到零时已就绪的实例照样借出；冷开就隐藏、还没加载的实例不为视图段提前加载。
-    - **接口**：`ViewRail.placement` 是 `{kind: "rail", main, foot}`（借住在侧轨里，`main`、`foot` 是工作台渲染的元素）、`{kind: "window", width}`（单标签浮动窗：视图画在窗的右边缘，`width` 是此刻生效的轨宽；最上面与自绘头同高的一格留空，宿主在那里画“回到停靠”）或 `{kind: "none"}`（此刻没有地方）；`expanded` 是此刻生效的展开状态；`request(expanded)` 回报 `done`、`too-narrow` 或 `revoked`，视图据此切页与聚焦，请求失效后不再聚焦。
+    - **接口**：`ViewRail.placement` 是 `{kind: "rail", main, foot}`（借住在侧轨里，`main`、`foot` 是工作台渲染的元素）、`{kind: "window", width, tooNarrow}`（单标签浮动窗：视图画在窗的右边缘，`width` 是此刻生效的轨宽，`tooNarrow` 为真时展开请求被窗口宽度拒绝过、按钮标“窗口太窄”；最上面与自绘头同高的一格留空，宿主在那里画“回到停靠”）或 `{kind: "none"}`（此刻没有地方）；`expanded` 是此刻生效的展开状态，位置是 `none` 时宿主不改它（留着上一处的值，换到新位置时一并给新的）；`request(expanded)` 回报 `done`、`too-narrow` 或 `revoked`，视图据此切页与聚焦，请求失效后不再聚焦。
     - **画法**：视图段由视图用 `Teleport` 送进位置，收着与展开是同一个组件，按已提交的 `expanded` 换画法，不看过渡中的宽度。
-    - **焦点**：宿主负责跨位置与消失的交接（换容器、浮出、归位、撤回、窗口变窄收起），交给仍可达的触发器、入口或窗的标题；焦点已去别处时不抢回。视图负责列表内控件的身份、滚动与选中，换位置后自己恢复。
+    - **焦点**：宿主负责跨位置与消失的交接（换容器、浮出、归位、撤回、窗口变窄收起），交给仍可达的触发器、入口或窗的标题；用户自己把焦点挪到了别处时不抢回。视图负责列表内控件的身份、滚动与选中，换位置后自己恢复：焦点是随搬动丢的（宿主按交接规则交给了标签或外壳根，不是用户的选择）时放回视图段里原来那一项。
 22. **位置限制**（planned）：内置视图的声明可以带工作台侧的位置限制（`confinedTo`），建树、补位、读入时就能判，不靠视图实例。插件 SDK 的 `view()` 不收这个字段；登记时不按发布者拒绝，第三方插件直接写进声明也只限制它自己的视图（同 `replaces`，开发者 2026-11-26 定）。限制是：只停右栏；只用自己的隐式容器（不进声明的容器，别的视图也进不来）；浮动时只能是唯一的标签。所有改归属的操作（标签拖放、相邻容器入口并入、“移动到”、`move-view` 等命令、整容器移动、整窗停靠、归位）在提交出口按当下文档判，候选、预览与提交共用一份规则，违反的拒绝、零写入。读入时旧记录里违反的，只把受限视图分离到右栏自己的容器（或单独浮出），其余布局原样保留；声明目录还没就绪时不按未知限制写回。
     - 标题按钮仍由工作台渲染：拖动、空格拿起、右键菜单与可访问描述不变，可访问名称是视图写进去的文字。左右两列里可交互的东西不起拖。
     - 按标题（点击、回车）：面板收成标题行时只展开；展开着时通知视图（对话视图开会话列表）。视图可以声明按钮弹出列表，按钮带 `aria-haspopup`，`aria-expanded` 跟着列表的开合。
     - 内容区的名称仍是声明标题，不随按钮的文字变。
     - 实例换代时标题区跟着换；头在面板头与内容之间换位置（标签数变了）时，视图的状态（开着的列表、菜单）不丢。
     - 视图的头渲染出错时与内容出错相同（输出 5），实例进入渲染出错，面板头退回写声明标题。
+23. **界面目录读取**（planned）：工作台给出一个只读服务（服务键在 `shared/contracts.ts`），按当前布局交回视图（id、标题、所在容器 id、是否可见、标题栏动作的命令 id）、容器（id、标题、入口所在区域）与活动栏项（id、标题、命令 id）。命令面板的匹配与打分由同一处导出，命令面板与别的插件用同一份。
+24. **稳定名**（planned）：视图与编辑区标题栏上画成按钮的命令写 `command` 加命令 id；活动栏项写 `workbench.activity` 加项 id；容器入口（活动栏上段、右栏与底部面板的入口条）写 `workbench.container` 加容器 id；面板头里视图的标题按钮写 `workbench.view` 加视图 id（[`agent/page-agent.md`](../agent/page-agent.md) 输出 6）。
+25. **悬停动作的显示**（planned）：悬停动作区（`[data-hover-actions]`）带 `data-nb-agent-reveal` 时照样显示，不论有没有悬停或聚焦。
 
 ### 约定键
 
@@ -229,6 +232,7 @@ Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test
 
 ## 证据
 
+- 批准依据：界面目录读取、稳定名与悬停动作的显示（输出 23 到 25，planned）依据 [w00033 t03 计划](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/plan.md)（开发者 2026-11-26 确认）
 - 实现入口：[`web/views/registry.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.ts)、[`web/views/view-instances.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-instances.ts)、[`web/components/WorkbenchViewFrame.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue)、[`web/host/window-plugins.ts`](../../../packages/neuro-book/src/web/host/window-plugins.ts)；视图的标题区（输出 19）：[`web/views/view-head.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-head.ts)（工作台一端）、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/workbench/shared/contracts.ts) 的“视图的标题区”（视图取的一端，跨插件只引共用合同）、[`WorkbenchPanelHead.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue)
 - 合同测试：标题动作（输出 10、11：placement 与“⋯”、别的插件贡献的项、按钮上限、按 key 执行）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数、实例还没建立）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）；打开视图（输出 14）为 [`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)（真实布局 store 与真实命令注册表：侧栏与面板被隐藏、面板收起时显示并选中容器，多视图容器里收起的视图展开，未知视图与没有布局，选择与取消，Agent 调用得 `not-exposed`）；标题区（输出 19）：[`view-instances.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-instances.test.ts)（就绪才有、换代换一份、旧的位置清空且收不到按下）、[`registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（申请标记）、[`WorkbenchPanelHead.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.dom.test.ts)（三列、拖动源不变、隐藏标题命名、弹出状态）
 - Smoke：打开视图（验收 10）为 `workbench-views.e2e.ts` 的“命令面板的打开视图……”一例；别的插件贡献的标题动作（验收 8）为 `workbench-views.e2e.ts` 的“视图自己的按钮在前、贡献的在后……”一例（测试插件 `test.menus`）；标题动作与滚动条随鼠标显示（验收 9）为同一文件的“标题动作与滚动条随鼠标显示……”一例；标题动作为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（经标题动作新建、全部收起、切换清单文件）；[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）；标题区（输出 19）：`lab-workbench-surface.e2e.ts` 的“视图的标题区”与 `agent-conversation.e2e.ts` 的“对话写在面板头上”。已知缺口：“面板收着时按标题只展开、不通知视图”（`WorkbenchShell.vue` 的 `activateTab`）没有自动化测试，只有代码审读

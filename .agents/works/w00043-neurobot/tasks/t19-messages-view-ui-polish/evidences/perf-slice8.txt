@@ -1,0 +1,52 @@
+w00043 t19 片 8 第 2 段：layout-frames 基线对比
+
+脚本：packages/neuro-book/scripts/perf/layout-frames.ts（场景提交 24de59aa8）
+基线：.worktree/w00043-t19-base（Work 分支开 t19 之前的提交）；分支：feat/w00043-neurobot
+口径：每个检出各自构建 dist；5 轮取中位数；判据为已有场景不超过基线的 110%，新场景只报数。
+完整 JSON：主仓库 .local/agent/works/w00043-neurobot/tasks/t19-messages-view-ui-polish/perf/slice8.json（不入库）
+
+== 第 1 轮正式对比（修正前，开始时负载约 11.5）==
+场景           recalc 基线/分支   mutations 基线/分支
+still          0.32 / 0.31        0 / 0
+tree-scroll    10.30 / 10.30      19.63 / 19.63
+sidebar-sash   2.56 / 2.59        12.41 / 14.30   （115%，超）
+resize         10.05 / 11.00      62.6 / 78.0     （125%，超）
+live-path      1.70 / 1.21        4.19 / 3.93
+float-dock     6.15 / 3.50        18.78 / 18.64
+新场景（只有分支）：rail-expand 3.34/15.27，rail-drag 1.84/8.14，rail-switch 4.61/22.95
+
+== 拆分 DOM 写入来源 ==
+临时探针按 记录类型:属性:目标标签.类 计数（探针已撤，未提交）。
+- 拖分隔线多出的 +360 条全是右轨各项的 tabindex：120 帧 × 3 项。WorkbenchToolStrip 的 syncTabStops 在条内每次增删子节点时重排一次，
+  拖分隔线、改窗口大小时条里每帧都有增删（基线的入口条同样每帧增删）；它对没变的值也 setAttribute，同值写入照样产生 MutationRecord。
+- 改窗口大小多出的也有 +120 条 tabindex。
+修正：1474d48ac perf(workbench): 右轨排焦点时值没变不写 tabindex。WorkbenchToolStrip.dom.test.ts 9/9 通过。
+
+== 第 2 轮正式对比（修正后，开始时负载 5.87，结束时 10.46）==
+场景           recalc 基线/分支   mutations 基线/分支
+still          0.31 / 0.32        0 / 0
+tree-scroll    10.30 / 10.33      19.63 / 19.63
+sidebar-sash   2.68 / 2.69        12.94 / 12.98   （100%）
+resize         10.00 / 11.00      62.5 / 72.0     （recalc 110%，mutations 115%）
+live-path      1.82 / 1.09        4.33 / 2.87
+float-dock     6.71 / 3.38        15.98 / 16.67   （104%）
+新场景：rail-expand 3.56/14.19，rail-drag 2.09/7.50，rail-switch 4.60/21.28
+
+== resize 剩下的差额：版面宽度造成，不是多做的工作 ==
+1. 只跑 still 与 resize（3 轮，负载约 10）：基线 recalc 10.00、mutations 51.0；分支 10.00、48.0。分支自己的写入更少。
+2. 按全量顺序跑 tree-scroll、sidebar-sash、resize（3 轮）：基线 62.6，分支 72.0，每轮数字完全一样，不随负载。
+   来源对比（20 次改宽的合计）：
+     childList BODY                     140 → 280
+     childList SPAN.markdown-color-button 30 → 60
+     childList 工具条列表                  0 → 40（右轨）
+     childList 入口条列表                 120 → 80
+     其余各项相同或分支更少
+   BODY 下增删的是文本与注释节点（Vue 片段的锚点），来自编辑器 Markdown 工具条按宽度收放按钮。
+3. 量宽度：分支的右栏一列宽 373（基线 316，多出右轨 48 与缝），第二个编辑组的工具条在 1300 与 1440 两档分别是 329/469（基线 381/521）。
+   工具条更窄，两档之间跨过的按钮收放门槛更多，每次改宽多重画几颗按钮。右轨这一列是计划“关键设计”里定的版式（右栏外侧插右轨叶）。
+结论：resize 超出的 9.5 条与 1 次样式重算来自编辑区变窄后工具条的收放，不是右轨或布局层多做的工作；判为通过，不再改。
+其余已有场景都在 110% 以内（sidebar-sash 100%，float-dock 104%，其余持平或更少）。
+
+== 记下的事 ==
+- MutationObserver 计数会把同值的 setAttribute 也算进去；排焦点、同步属性这类每帧都跑的写入要先比较再写。
+- resize 的写入数随前面场景留下的状态变（开着的编辑器工具条），对比时要按全量顺序跑、并拆来源，单看总数会误判为回归。

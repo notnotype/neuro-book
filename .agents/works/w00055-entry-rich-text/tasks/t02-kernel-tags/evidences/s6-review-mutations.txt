@@ -1,0 +1,29 @@
+w00055 t02 S6 审查修正的变异检查（2026-11-26，提交 93a460ea1 上，脚本逐个改一处、跑对应用例、git show HEAD 恢复）
+
+## 后端（nb-canon 与 Agent 工具）
+M1 原样块照样进 ops KILLED
+M2 不换项号 KILLED
+M3 不先比读取戳 KILLED
+M4 长块照样整段写 KILLED
+M5 不换 $代号 KILLED
+M6 没改动按原文比 KILLED
+M7 旧块也换临时 id KILLED
+M8 读回只认换过的 KILLED
+M9 不查嵌套层数 KILLED
+M10 rawHtml 写单元名 KILLED
+M11 预览不按基线 KILLED
+M12 If 确定时照带读不到 KILLED
+M13 取最后一个未知的判断 KILLED
+M14 按块渲染不带源文 KILLED
+
+## 前端（EntryText 与着色）
+F1 不画 htmlMark KILLED
+F2 里层不加换行数 KILLED
+F3 顶层换行不统一 KILLED
+F4 没生效的支也算 KILLED
+F5 读不到的也算按钮 KILLED
+F6 前端不量层数 KILLED
+F7 不接栈溢出 KILLED
+F8 式子遇换行不退出 KILLED
+F9 等号两边可有空格 KILLED
+F10 链接吞掉标签 KILLED

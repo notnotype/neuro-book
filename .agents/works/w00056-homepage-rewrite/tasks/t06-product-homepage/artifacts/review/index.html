@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>产品介绍首页：入殿·俯案成界（第 4 轮）</title>
+<title>产品介绍首页：入殿·俯案成界（第 7 轮）</title>
 <style>
-:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; --stage: #1c1418; }
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
 main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
@@ -17,72 +17,88 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .intro { margin: 0 0 28px; color: var(--muted); }
 .rec { margin: 0 0 16px; color: var(--rec); }
 img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
-.pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.cand p { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
-.cap { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+.cap { margin: 8px 0 18px; font-size: 14px; color: var(--muted); }
 .lab { margin: 10px 0 0; font-size: 14px; }
 .lab a { color: var(--rec); }
-ul.notes { margin: 0 0 12px; padding-left: 1.3em; color: var(--muted); font-size: 15px; }
-.line { display: flex; flex-direction: column; justify-content: center; min-height: 112px; padding: 18px 16px; border-radius: 6px; background: radial-gradient(120% 90% at 50% 0%, #2c1d24 0%, var(--stage) 72%); color: #f7f2ec; font-family: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif; font-size: 21px; font-weight: 600; line-height: 1.35; letter-spacing: .06em; text-align: center; }
-.line span { display: block; }
+ul.notes, ol.steps { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
-@media (max-width: 760px) { .cands, .pair { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <main>
-<h1>产品介绍首页：入殿·俯案成界（第 4 轮）</h1>
-<p class="intro">照 @designer 上一轮建议的方向一做了一屏半：首屏是暗夜圣案前的一幕，往下滚一屏，镜头俯冲、书页从身边掠过，远处那张桌子放平落成可以上手的真工作台；接着是改过的第一幕。做完后又请 @designer 看了一遍关键帧，下面是按它的意见改过的样子。</p>
+<h1>产品介绍首页：入殿·俯案成界（第 7 轮）</h1>
+<p class="intro">照第 6 轮会话里的三条意见改：第一幕不靠滚动，落地以后自己连播，字幕上面一条章节条看得出演到哪、这一段看完没有；拖动不再画上下左右中的落点分区；首屏的动静换成一条单线接力的叙事，加上跟着指针的视差与鎏金反光。</p>
 
-<section data-nbdev-question="direction-r4" data-nbdev-type="single" data-nbdev-options="continue:照这个方向往下做|polish:方向对，先把首屏的材质再打磨一轮|switch:换方向（备注写想看哪个）" data-nbdev-recommend="polish">
-  <h2>首屏照这个方向往下做吗？</h2>
-  <p class="rec"><strong>推荐方向不变，先把首屏的材质再打磨一轮：</strong>纵深、光和俯冲接真工作台这几件事已经成立；差的是器物感，皮面、羊皮纸、鎏金现在是程序画的，下一轮换成生成的贴图（只借契约仪式的气氛），同时把第二幕的脚本写出来。</p>
-  <img src="r4/hero.webp" alt="首屏终态：暗夜里一束顶光，居中两行标题、说明与下载按钮，两侧悬着手稿与人物卡，左下是地图，右下是赤红书角，远处桌布上压暗的工作台">
-  <p class="cap">首屏终态。远处的工作台压到四成亮，首屏的主角是标题；首句用 m2，说明那一行讲清楚它是什么。</p>
-  <h3>开场（慢放，左上到右下，约 2.1 秒）</h3>
-  <img src="r4/intro.webp" alt="开场六帧：暗处起光；书角、丝带与羊皮页浮上来；桌子被点亮、首句显出；说明与按钮随光显出；终态">
-  <p class="cap">暗处先起顶光，书角、丝带与三张羊皮页浮上来，远处桌布上的桌子被光点亮，最后首句、说明、按钮依次随光显出来。</p>
-  <h3>往下滚一屏：俯冲落到工作台</h3>
+<section data-nbdev-question="act-one-r7" data-nbdev-type="single" data-nbdev-options="ok:第一幕这样连播可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
+  <h2>第一幕改成自己连播，看得出演到哪、看完没有吗？</h2>
+  <p class="rec"><strong>推荐可以：</strong>访客什么都不用做，落地就从第一拍演到最后；章节条上看过的段是实金，正在演的那一段一道光丝往右推，说出这一拍的结论那一刻补满，停 0.7 秒再换下一拍，所以“看完没有”看条就知道。</p>
+  <img src="r7/act-one.webp" alt="第一幕连播的四个时刻，每张下面是章节条与字幕：左上在演第二段“高亮批注”，第一段已是实金，第二段的光丝推到一半，字幕“两处敲门，各划一道高亮。”；右上是访客按了一下工作台，演示让开，光丝定格压暗，条尾换成“继续演示”；左下是点了第四段“视图换位”，前面几段一下摆好，从第四段的开头演；右下是演完，六段都是实金，条尾只留从头再看，字幕换成星璃说“换你来：拖一个标签，摆到顺手的地方。”和两个按钮，第一章的标签上一圈金环">
+  <p class="cap">左上：在演。右上：访客按了一下工作台，演示让开。左下：点了第四段。右下：演完，交给访客，第一章的标签上一圈金环，隔一会儿往右挪一下，示意能拖。</p>
+  <ul class="notes">
+    <li>点哪一段就从那一段的开头演；条尾是暂停与从头再看。点后面的段，路过的拍快速摆上；点前面的段，按记下的样子一步摆回去再演。</li>
+    <li>访客一按工作台，演示让开：光丝定格、压暗，条尾换成“继续演示”；访客摆的样子留着，按了才从它走回去接着演。</li>
+    <li>滚走一半、或往回滚到首屏，演示自己停下，回来接着演；从不锁滚动，落地以后舞台再钉 0.8 屏，再往下滚就是下一幕。</li>
+    <li>拖动不画上下左右中的落点分区：实时布局本来就不画，拖作品入口这类走落点指示的，也只留落点的框。</li>
+  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕连播（中途按一下工作台试试让开与“继续演示”）</a></p>
+</section>
+
+<section data-nbdev-question="rail-r7" data-nbdev-type="single" data-nbdev-options="ruler:A 古籍标尺|diamonds:B 菱形与进度环|ribbon:C 赤红书签" data-nbdev-recommend="ruler">
+  <h2>章节条用哪一版？</h2>
+  <p class="rec"><strong>推荐 A 古籍标尺：</strong>一条极细的暗金线分六格，光丝推到哪一眼就看见，最像书上的界尺，也最安静（@designer 第 7 轮推荐）。B 的进度只画在一粒菱形上，离远了看不清走了多少；C 的书签好看，但整幕一条通长的线，看不出这一段还剩多少。</p>
+  <img src="r7/rails.webp" alt="三版章节条压在暗绒上，都停在第三段“人物浮窗”演到一半：A 一条细金线分六格，前两格实金，第三格的光丝推到一半，后面是暗金虚线；B 每个标题下一粒菱形，前两粒实心，第三粒外面一圈金环画了一半；C 一条通长的金线填到三分之一，一枚赤红书签挂在“人物浮窗”下面">
+  <p class="cap">从上到下：A 古籍标尺、B 菱形与进度环、C 赤红书签，都停在第三段演到一半。</p>
+  <img src="r7/rail-states.webp" alt="A 的另外两种样子：上面是访客动了工作台，光丝定格压暗，条尾换成“继续演示”；下面是演完了，六格都是实金，条尾只留从头再看">
+  <p class="cap">A 让开以后（上）与演完以后（下）。</p>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">A 在第一幕里</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one-diamonds&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">B 在第一幕里</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one-ribbon&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">C 在第一幕里</a>　<a href="http://127.0.0.1:4717/lab?c=ChapterRail&amp;s=r7-ruler&amp;vp=1000x260&amp;cw=light&amp;theme=nbook">章节条单独看</a></p>
+</section>
+
+<section data-nbdev-question="hero-r7" data-nbdev-type="single" data-nbdev-options="all:从字到世界加指针响应|relay:只要从字到世界|pointer:只要指针响应|revise:再改（备注写哪里）" data-nbdev-recommend="all">
+  <h2>首屏的动静这样够了吗？</h2>
+  <p class="rec"><strong>推荐两样都要：</strong>停着时有一条叙事自己往前走（约五秒一步，进屏一秒内起笔），鼠标一动，悬着的纸、书角与丝带跟着轻轻转向你；一个讲“从字到世界”，一个让人想伸手，都不抢标题与按钮。</p>
+  <img src="r7/relay-wide.webp" alt="首屏停着时的一刻：一粒金尘拖着光尾从左边手稿上的批注拱过标题，正要落到右边的人物卡上">
+  <p class="cap">第四步的那一下：金尘从手稿上的批注拱过标题，快落到人物卡上（花饰右边那一粒光点，后面拖着一串渐暗的金星）。</p>
+  <img src="r7/relay.webp" alt="从字到世界六步的特写，每格左上是步数：1 手稿上敲门那一行写到一半，笔尖停在“门”后面；2 地图上海岸线、灰塔与霜港到灰塔的红色航线都显出来了；3 敲门那一行涂了高亮，“三下”被红笔圈住，牵一条线写“伏笔：第五章再响”；4 人物卡下面抽出星璃的便笺，写着“第一章的敲门声，第五章又响了一次。读者会和她一起等第四下。”，右下角是她的小头像；5 剧情时间线换到地图上面，一道红色虚线连起第一章与第五章，标着“同一种敲法”；6 敲门那一行连同高亮、红圈与批注褪成纸色，正在隐去">
+  <p class="cap">六步的特写，步数同下面的列表。</p>
+  <img src="r7/pointer.webp" alt="指针响应：左边两张是人物卡，指针停上去以后那张卡微微前倾、压在下面的那张多探出一点；右边两张是书角，金色包角上的反光随指针换了位置">
+  <p class="cap">左两张：指针不在、指针停在人物卡上。右两张：指针在左与在右时，书角包金上的反光。</p>
+  <ol class="steps">
+    <li>落墨：手稿上敲门那一行从左往右写出来，笔尖前一团湿墨，刚写的墨更黑，慢慢干。</li>
+    <li>一粒金尘从那一行飞到地图上：海岸线描出来、陆地染上、灰塔升起，红色航线从霜港流向灰塔。</li>
+    <li>高亮涂过那一行，红笔圈出“三下”，牵一条线写“伏笔：第五章再响”。</li>
+    <li>金尘从批注飞到人物卡，压在下面的星璃便笺斜着抽出一截，露出她的话与小头像。</li>
+    <li>金尘沿航线走到灰塔，剧情时间线换到地图上面，红线连起第一章与第五章那两声敲门。</li>
+    <li>墨沉回纸里（字与线先褪成纸色再隐掉），便笺收回，时间线换回下面，再来一圈（一圈约 30 秒）。</li>
+  </ol>
+  <ul class="notes">
+    <li>指针响应：纸、书角与丝带按远近挪几个像素，纸倾不过两度，带惯性；书角、花饰与按钮的金边上一团柔和的反光跟着走；停在哪张纸上，那张稳住、微微前倾，下面那张多探出一点；丝带的末端比书角慢半拍摆过去。顶光不动。</li>
+    <li>没做的（@designer 第 7 轮建议砍掉）：更快的 3D 翻牌与弹落，像抽卡；标题掠光与顶光扫动，像页游与探照灯。</li>
+  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">两样都有</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-hero-relay&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">只有从字到世界</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-hero-pointer&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">只有指针响应</a></p>
+</section>
+
+<section data-nbdev-question="day-r6" data-nbdev-type="single" data-nbdev-options="ok:白天这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
+  <h2>白天这样成立吗？（第 6 轮的题，还没答）</h2>
+  <p class="rec"><strong>推荐可以：</strong>夜是暗夜圣殿，昼是午后的抄经室：偏暖的灰石墙（比羊皮纸暗半阶，纸不会糊在底上）、左上高窗斜进来一道日光、深墨的字；工作台跟着换产品的日间配色。缺省仍是夜。</p>
+  <img src="r6/day.webp" alt="白天：首屏是暖灰的石墙、斜进来的日光、提亮的羊皮纸与深墨的标题；第一幕的工作台是日间配色，高亮与批注卡片清楚，四周是枣红丝绒">
   <div class="pair">
-    <img src="r4/dive.webp" alt="俯冲四帧：滚过 16% 时手稿页从左边掠过镜头、首屏文字淡出；50% 时桌子还斜着；80% 时快放平；落地后工作台约九成宽，四周是暗红桌布">
-    <img src="r4/narrow.webp" alt="390 宽的窄屏：首屏文字在上，工作台平放在下面">
+    <p class="cap">左：白天的首屏。右：白天的第一幕（字幕在丝绒上，昼夜都用浅色的字）。昼夜开关在导航最右端，落地以后在字幕那一条的一端，是同一个开关（图里是第 6 轮的右端；第 7 轮挪到左端，右端让给章节条的条尾）。</p>
+    <img src="r6/day-narrow.webp" alt="390 宽的白天：导航收起了更新日志，题辞、标题、花饰、说明与按钮在上，工作台平放在下面；往下滚只换字幕">
   </div>
-  <p class="cap">左：滚过 16%、50%、80% 与落地。镜头跟着滚动走，滚轮一格一格跳时也是连贯地推近；落地后工作台 1:1，可以直接拖。右：窄屏不俯冲，工作台平放在首屏文字下面。</p>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r4-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里从首屏看（往下滚）</a></p>
-  <h3>@designer 看过关键帧后改的</h3>
-  <ul class="notes">
-    <li>首屏把远处的工作台压暗，标题成为主角；工作台四周的细红框与小金角换成铺到画外、淡进暗里的暗红桌布，落地后工作台向桌布投一道压桌阴影。</li>
-    <li>顶光去掉硬边，改成柔的光锥加暖光芯，桌面上落一滩光；羊皮纸调暖，离光轴远的压暗；开场从 1.6 秒放慢到 2.1 秒；往下滚时标题只淡出，不再模糊。</li>
-    <li>没取：把纸纹、皮纹预先烘焙成位图（现在是 SVG 滤镜，只在挂上时算一次）；下一轮换贴图时一起解决。</li>
-  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看白天（从首屏起）</a>　<a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r7-act-one-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天的第一幕（带章节条）</a></p>
 </section>
 
-<section data-nbdev-question="act-one-r4" data-nbdev-type="single" data-nbdev-options="continue:其余几幕照这个讲法|revise:先改第一幕再往下" data-nbdev-recommend="continue">
-  <h2>第一幕这样跟着一场戏讲，其余几幕照着做吗？</h2>
-  <p class="rec"><strong>推荐照着做：</strong>每一幕跟着书里的一段戏走，产品的动作都是为这段戏服务的；字幕只有两行，星璃在她自己的对话栏里说话，不另外浮气泡。</p>
-  <img src="r4/act-one.webp" alt="第一幕六帧：第五章末尾打出敲门；星璃在对话栏里答、第一章的标签亮一圈金；两章并排；两声敲门同时描金；双击后正文铺满；最后一行邀请访客上手">
+<section data-nbdev-question="buttons-r6" data-nbdev-type="single" data-nbdev-options="a:A 双线金边|b:B 皮面烫金|c:C 书脊签|d:D 封蜡" data-nbdev-recommend="b">
+  <h2>按钮用哪一版？（第 6 轮的题，还没答）</h2>
+  <p class="rec"><strong>推荐 B 皮面烫金：</strong>和首屏那本书的皮面、鎏金包角是一套，主次分得最开（次按钮只留细金框与四角，白天不压人、夜里不沉底）。想最稳就选 A，它是第 5 轮那一版的精修。</p>
+  <img src="r6/buttons.webp" alt="按钮四版，每版左边在夜里、右边在白天：A 赤红底双线金边、两端金菱形；B 哑光深红皮面、烫金细框与四角角花、金字，次按钮只有细金框与四角；C 修长的赤红签条、极细单金框、字两侧各一小段金线；D 羊皮纸色签条，主按钮左端压一枚红色火漆印">
   <ul class="notes">
-    <li>第一拍：第五章停在“她正要吹灯，”，接着一个字一个字打出“门外有人敲门，三下。她屏住气，等那第四下。”；作者在对话栏里问会不会太刻意，星璃读了第一章再边打边答；第一章的标签先亮一圈金，再拖着金色尾迹落到右半边，两章并排，两声敲门同时描一道金。</li>
-    <li>第二拍：双击标签栏，正文铺满桌面；再双击还原。</li>
-    <li>第三拍：交给访客。第一章的标签上一圈金环，隔一会儿往右挪一下示意能拖；字幕那一行换成星璃的小贴纸、“换你来：拖一个标签，摆到顺手的地方。”和下载、接着看世界引擎。</li>
-    <li>按 @designer 的意见删掉了：人物浮窗这一步（拍子太密）、“关掉再打开，桌面原样”这句（没有画面撑着）、整台推近的镜头（放大会糊字、裁掉两栏，换成局部聚光）。</li>
+    <li>悬停不扫光，只有受光的微变：赤红微微提温、金线亮半档、内框或菱形往外展一两像素、一圈淡暖晕；按下时下沉 1px。键盘聚焦有一道金色的焦点环。</li>
+    <li>D 封蜡 @designer 建议降级当彩蛋：火漆印让重心偏左，白天的签条容易融进石墙。</li>
   </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HomepageSanctum&amp;s=r4-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕（往下滚换拍；按一下工作台，演示就让开）</a></p>
-</section>
-
-<section data-nbdev-question="first-line-r4" data-nbdev-type="single" data-nbdev-recommend="m2">
-  <h2>首屏第一句用哪一句？</h2>
-  <p class="rec"><strong>推荐“写一部长篇，先摆好一张书桌。”：这一版的画面就是俯身看一张书桌，往下滚正好落到桌上。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="m2" data-nbdev-label="m2 写一部长篇，先摆好一张书桌。"><div class="line"><span>写一部长篇，</span><span>先摆好一张书桌。</span></div></div>
-    <div class="cand" data-nbdev-option="e3" data-nbdev-label="e3 每一个世界，都从一行字开始。"><div class="line"><span>每一个世界，</span><span>都从一行字开始。</span></div></div>
-    <div class="cand" data-nbdev-option="d5" data-nbdev-label="d5 从一行草稿，到一部成书。"><div class="line"><span>从一行草稿，</span><span>到一部成书。</span></div></div>
-    <div class="cand" data-nbdev-option="d1" data-nbdev-label="d1 写下第一句，世界便有了形状。"><div class="line"><span>写下第一句，</span><span>世界便有了形状。</span></div></div>
-    <div class="cand" data-nbdev-option="m3" data-nbdev-label="m3 你的世界，一章一章长出来。"><div class="line"><span>你的世界，</span><span>一章一章长出来。</span></div></div>
-    <div class="cand" data-nbdev-option="m1" data-nbdev-label="m1 世界很大，从第一行写起。"><div class="line"><span>世界很大，</span><span>从第一行写起。</span></div></div>
-  </div>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4717/lab?c=HeroButtons&amp;s=r6-variants&amp;vp=1440x800&amp;cw=light&amp;theme=nbook">在 Lab 里看按钮（鼠标停上去看悬停）</a></p>
 </section>
 
 <section>
@@ -93,7 +109,12 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>第一屏把介绍说明白，同时要有高级精美的动画，让人想往下滚；往下滚进入滚动动画（第 1 轮）</li>
     <li>基调取 w00050 t06 契约仪式页的史诗、神圣、西幻气氛，不复制；现有的 NovelAI 场景图不直接用（2026-11-26）</li>
     <li>要讲的功能：写作与编辑器、世界引擎、剧情（在做）、星璃与 Agent、本地与开源、插件与 SDK、桌面版、模型自选；llmlint 不列（2026-11-26）</li>
-    <li>第 3 轮的三种开场与第一幕都不够好，请 @designer 诊断；先做它的方向一《入殿·俯案成界》一屏半，第一幕改成跟着一场戏走；材质可以用生成的贴图，首页可以用星璃的立绘与贴纸（2026-11-26）</li>
+    <li>先做方向一《入殿·俯案成界》；材质可以用生成的贴图，首页可以用星璃的立绘与贴纸（2026-11-26）</li>
+    <li>首屏方向不变、先打磨材质；按钮加金边一类的装饰，往皇室奢华感走；工作台缺省夜间配色、可以切换（第 4 轮）</li>
+    <li>第一幕放慢讲清楚，加回浮窗、视图换位置、关掉再打开，和首屏一样华丽（第 4 轮与会话）</li>
+    <li>首句用 e3“每一个世界，都从一行字开始。”，配 From words to world.（第 4 轮与会话）</li>
+    <li>演示的拖动用实时布局；访客动过要有恢复动画；顺手介绍编辑器的标注与高亮；整个页面要有白天；首屏静中有动、纸条可以轮播；按钮出几版（第 5 轮之后的会话）</li>
+    <li>第一幕不用访客滚动：落地以后自动连播，访客愿意就停着看；拖动不要上下左右中的落点分区；首屏的动静要快一些、大一些、更高级（第 6 轮之后的会话）</li>
   </ol>
 </section>
 </main>

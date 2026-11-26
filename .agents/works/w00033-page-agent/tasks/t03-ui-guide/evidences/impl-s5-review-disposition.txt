@@ -1,0 +1,29 @@
+w00033 t03 第 5 片（页面引擎核心）实现审查的处理（2026-11-26）
+
+审查者：Claude Sonnet（前端包的纯 TS，普通审查），报告 impl-s5-review-sonnet.txt，20 条（重要 13、建议 7）。
+审查对象：29d63a1ab、277d73075。修正提交：07e2cf58c（Work 分支）。Spec 输出 3 与“不承诺”同步改了几句（master）。
+
+归类：A 成立要改；B 成立但接受取舍；C 不成立。
+
+- 1 行内元素的 overflow 建零面积框：A。overflow 不起作用的 display（inline、contents、表格内部）不建框；夹具“行内裁剪里”“行内滚动里”。
+- 2 absolute 被包含块之外的祖先裁掉：A。上下文分别带普通、absolute、fixed 三份裁剪，定位的元素与带 transform 的元素是包含块（filter、contain 第一版不认，写在注释）；夹具“逃出裁剪”“固定的”“包含块里裁掉”。
+- 3 不是展平树：A。composedParent 认 assignedSlot，遍历与可见文字按 slot 走，宿主的轻 DOM 子元素不直接走；夹具“slot 里的内容”。
+- 4 祖先在最上面就算没被盖住：A。只有元素自己 pointer-events: none 时才算；夹具“加载中”的 ::after 蒙层、“不接收指针”。
+- 5 按文字定位平方级：A。改成一遍剪枝的先序遍历（子树 textContent 不含就不往下走），250 处命中从约 1.8 秒降到 24 到 51 毫秒（perf.e2e.ts 的 text 一项）。
+- 6 层的判定：A。menu、listbox 成层改为：被展开的触发器经 aria-controls、aria-owns 指着；自己 fixed、absolute 或打开的 popover；或经过挂在 body 下、比视口 80% 小的 fixed、absolute 外壳。应用里贴边的 fixed 侧栏不再成层；夹具两条。
+- 7 details 没有 8 KB 上限：A。候选的 target、key 截到 256 字，failure() 按 JSON 字节从后往前去掉候选并写明省略了几个；夹具一条。
+- 8 没有 key 的旧引用重找到带 key 的：A。重找时 key 也要相同（含都没有）；夹具一条。
+- 9 身份强持有层根：A。Identity.layer 改成 WeakRef；memory.e2e.ts 用 gc() 断言关掉的 20 个对话框可回收。记录的定期清理（每次发号都扫）没做：B，记录本身很小、上限 20000。
+- 10 截断提示不看元素上限：A。推荐的区域还要后代少于 500 个，都不满足时提示写明一次至多 500 个。HINT_TOKENS 的固定预留：B，预算本来是估算。
+- 11 scope 在弹层里时表头写标签名：A。层的标签按元素现查角色与名字；夹具一条。
+- 12 列表摘要的 can scroll：A。行都列出、页面没写明更多时不写摘要；总数只在 aria-setsize、aria-rowcount 写明时给。Spec 输出 3 同步。
+- 13 scope 绕过跳过区域：A。scope 在跳过区域里时起点改成区域本身，只写占位。Spec 输出 3 同步。
+- 14 长段落后半段按文字找不到：A。匹配用的可见文字不截断（第 5 条的剪枝保证只在少数元素上算）；夹具一条。
+- 15 测试约束不住判据：A。补了 14 条夹具（上面各条的用例，加不透明度累乘、嵌套滚动、label 点到的隐藏复选框、500 个上限、焦点区域优先、aria-modal、alertdialog、popover 成层）；修正后对 20 处变异重做检查，结果见 README。refs 的淘汰一支没有单独的用例：B（要造两万条记录）。
+- 16 左上方滚不到的标 offscreen：A。按滚动内容坐标判断，滚不到的不列；夹具“跳到正文”。Spec 输出 3 同步。
+- 17 role 里的换行伪造快照行：A。显式 role 只认 /^[a-z][a-z-]*$/；夹具一条。
+- 18 宽高为 0 的原生控件不列：B。第一版不做，写进 Spec 的“不承诺”（按文字能定位到标签）。NeuroBook 自己的复选框是 reka-ui 的 role=checkbox 按钮，碰不到。
+- 19 没用到的代码：A。删掉 isOwnNode、enterAt、LAYER_ROLES 与字节上限的重排循环（预算本身保证文字远在 64 KB 以内，注释写明；整个回复的上限由插件在回复前再量）；skipRegionOf、DETAILS_BYTE_LIMIT 接上。
+- 20 性能口径：A（如实记录）。修正后负载 8 到 9 时：3758 个节点、500 个可交互元素的页面，快照稳态中位 43 到 89 毫秒，第一次 88 到 180 毫秒；50 毫秒的预算只在稳态、负载低时成立。没有再优化：热点仍是每个元素的计算样式读取，换做法前先在真实工作台上量（第 6 片贯通后）。
+
+说明没写清：无。不成立：无。

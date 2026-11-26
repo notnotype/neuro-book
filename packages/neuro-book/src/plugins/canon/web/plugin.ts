@@ -40,7 +40,7 @@ import {createCanonImages} from "./images";
 import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
-import {componentsPoint, LOOK_COMPONENT, PERSON_COMPONENT} from "../shared/components";
+import {CANON_COMPONENTS_POINT, componentsPoint, LOOK_COMPONENT, PERSON_COMPONENT} from "../shared/components";
 import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {canonText} from "../shared/text";
@@ -274,6 +274,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 },
                 entryKinds,
                 images,
+                componentPlugin: (type) => context.declarations.get(CANON_COMPONENTS_POINT, type)?.plugin ?? null,
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
             // “打开这一章”：章节文件名里带标题，按编号在活页夹目录里找（与项目实例读正文认同一个文件）。

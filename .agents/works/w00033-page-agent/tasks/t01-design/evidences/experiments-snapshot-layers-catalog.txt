@@ -1,0 +1,99 @@
+=== 实验 4：真实工作台的快照有多大、多快（实测）===
+做法：原型快照函数 ui-a/snapshot.js（页面里执行，返回文本树与统计）。运行：
+  cd .worktree/w00033-experiments && node <实验目录>/run4.mjs   （工作台各状态，输出 snap-<状态>.txt 与 rows4.json）
+  node <实验目录>/run4b.mjs                                    （资源管理器虚拟树，Lab 的 ExplorerTree“五百行”场景）
+工具：Playwright + 系统 Chrome，视口 1440x900，亮色，不减弱动效；每个状态先等 700ms，再连跑 15 次取中位数；token 估算：CJK 字符一字一 token，其余四字符一 token。
+简化（相对设计稿，会让数字偏小或偏大的）：
+  - 名字：aria-labelledby > aria-label > label > alt > 可见文字 > title > placeholder，没有 dom-accessibility-api 的完整算法；名字截 60 字再转义。
+  - 只列带角色的可交互元素与带名容器（tablist/toolbar/navigation/group/tree/dialog 等）；不输出正文文字（includeText 没做）。
+  - 看得见 = 沿祖先链乘不透明度、display:none、aria-hidden/inert、零面积；命中检查取中心，被挡时退到四角，全被挡的元素不列（统计为 covered）；视口外的不列（offscreen）；不透明度 <0.3 标 faint 且仍列。
+  - 没有预算截断、字节上限、稳定名映射（data-title-action 等直接写成 attr=值）。
+  - 耗时只含页面内的函数本身（DOM 遍历、getComputedStyle、elementFromPoint），不含序列化与窗口合同往返；机器负载 8 到 11，波动大。
+结果（样例作品 sample，真实工作台；agent 栏为空会话）：
+状态                       字符  token  行   列出元素  faint  耗时中位数(最小-最大 ms)
+1 打开样例作品             2605   922   63    61       11     11.6 (8.1-25)
+2 资源管理器展开           2889  1025   67    65        4     16.3 (7.8-38)
+3 编辑器打开一章           3872  1342   93    91        5     18.1 (13-92)
+4 拆一个编辑器分组         4146  1437  101    99        9     26.3 (14.6-62)
+5 设置窗口打开             5940  1999  137   135       12     22.7 (20-42)
+6 命令面板打开             1113   339   15    12        0      5.7 (4.1-7.2)
+  （第 4 步“拆组”：点 data-title-action="nbook.editor.split-right"，这个按钮不透明度 0，需要 hover 后 force 点击；拆组与打开的章节不跨浏览器上下文保留，重新加载后回到只有“欢迎”页，没有残留需要恢复。）
+要点：
+  1. 工作台常见状态 1000 到 2000 token，耗时 10 到 30ms（页面内），远低于设计稿缺省预算 2000 token；设置窗口那一档贴着 2000，再多一点内容（例如 Profile 或模型设置节里的行）就会超过缺省预算。
+  2. 状态 5 的 5940 字符里，设置窗口本身（- dialog 这一棵子树）只有 1862 字符、约 587 token、40 行；其余是被模态盖住却仍通过命中检查的底层元素，原因见实验 5：设置窗口没有挡住指针的遮罩。如果按设计稿“被挡层只写名字”，这一档可以降到 600 token 左右。
+  3. 命令面板：只有 12 个元素（输入框 + 9 个选项 + 对话框和列表容器），底层 18 个元素都被 fixed inset-0 遮罩挡住，命中检查把它们排除了；另有 69 个选项在窗口外（列表共 81 项，快照只列看得见的 9 个，后面写一行折叠）。选项名带了“描述”（英文长句）：名字截 60 字仍占不少字符；设计稿“内容命名角色另算主名”在这里有用（命令标题是主名，分类与描述不该进名字）。
+  4. 可聚焦的文字内容（章节正文）是 contenteditable textbox，快照只列“textbox 第一章 雾港.md”，不含正文，本实验不计。
+Agent 对话视图（section.agent-conversation-view）：空会话时占 537 字符 / 约 265 token / 12 行，占快照的 21%（状态 1）、13%（状态 4）、9%（状态 5）；设置窗口打开时它在底层仍被列出。真实有对话的会话没法测（没有可用模型，无法产生消息），但消息气泡里的链接、按钮、输入框都会进可交互列表，行数随会话增长；设计稿的 data-nb-agent="skip" 是必要的。
+资源管理器虚拟树（OVERSCAN=10，代码 plugins/explorer/web/tree/window.ts:7；样例作品只有 9 行，没有视口外的行，所以用 Lab 场景 ExplorerTree“五百行”，把画布设成 520x700，实际树视口 698px，行高 28px）：
+  - 滚动位置 0：DOM 里渲染 35 行，视口内 25 行，视口外 10 行（只有下方余量）；滚动位置 5000：渲染 46 行，视口内 26，视口外 20（上下各 10）。
+  - 原型的命中检查已经把这些行排除了（它们被树的 overflow 裁掉，elementFromPoint 命中的是别的元素；或在窗口外），所以快照里只列视口内的 25 到 26 行。如果不做命中检查、只看 DOM，则每行约 111 到 115 字符（含 explorer-row=project://… 这种标记），多出的 10 到 20 行约 1100 到 2300 字符，占快照 21% 到 42%（原型快照 5268、5495 字符，其中树行占 55%）。
+  - 因此“视口外多渲染的行折叠成一行”靠命中检查（被裁切的元素 elementFromPoint 命不中）就能做到，不用专门认虚拟列表；但被裁切而命中不到时，要写进摘要里“还有 N 行”，原型只写了全局的 folded 行（折叠 398 行 = Lab 里别的树）。
+  - 带来的风险：命中检查把“被滚动容器裁切”与“被别的元素遮挡”混为一谈，目录摘要里要能区分“滚出去了”（可滚动）和“被盖住了”（要关层）。
+
+=== 实验 5：层（实测）===
+做法：run5.mjs（依次打开 设置窗口、设置里的主题下拉、资源管理器“大纲.md”行右键菜单、删除确认框（用取消关掉，没有确认）、命令面板；每个状态量 DOM 信号并截图 s5-<状态>.png），run5b.mjs（弹层打开时真实点击弹层外的底层行）。输出 run5-console.txt、run5-probes.json、run5b-output.txt。
+  运行：cd .worktree/w00033-experiments && node <实验目录>/run5.mjs > run5-console.txt ; node <实验目录>/run5b.mjs
+  命中检查的参照：Playwright 的 locator.click({trial:true})（真实点击前的“命中目标”检查，不触发点击）；原型：中心 elementFromPoint，被挡退四角。
+DOM 信号：
+  状态               弹层角色/名字              aria-modal  其余部分 aria-hidden/inert      body pointer-events       挂载位置
+  设置窗口           dialog "设置"(section)     无          无（#app、兄弟都没有）           auto                       body 直接子元素 section.nb-dialog
+  设置里的下拉打开   listbox（外包 div 无角色）无          有：body 的其它直接子元素（含设置窗口 section）都标 aria-hidden=true 与 data-aria-hidden，工作台内部的 titlebar-slot、nb-grid-frame 等大块也被标（reka 的 hideOthers）  auto    body 直接子元素 div > div[role=listbox]
+  右键菜单           menu                       无          无                               auto                       body > div.pointer-events-none.fixed > menu
+  删除确认框         alertdialog "删除 1 项？"  无          有（同上，含遮罩 div.nb-ui-overlay aria-hidden） none（内联 style；#app 计算值 none） body 直接子元素；遮罩是兄弟
+  命令面板           dialog "命令面板" + listbox 无         有（兄弟 aria-hidden；遮罩 div.fixed） none（内联）               body 直接子元素；遮罩 div.fixed
+  - 没有任何一个弹层写 aria-modal；确认框与命令面板靠 reka 的 hideOthers（兄弟 aria-hidden）+ body pointer-events:none + 全屏遮罩，设置窗口和右键菜单什么都没有。
+  - 真实点击验证（run5b，在“设定”文件夹行右侧空白处点）：
+      下拉打开：事件落在底层行，行被选中，下拉关闭，设置窗口仍在（点击穿过去，同时关了下拉）；
+      右键菜单打开：同上，点击穿过去并关菜单；
+      命令面板：pointerdown 的目标是遮罩 div.fixed，底层行没响应，面板关闭；
+      确认框：pointerdown 和 click 的目标都是遮罩 div.nb-ui-overlay，底层没响应，确认框仍在（要点取消或 Esc）。
+      设置窗口（run5 第 1 节）：点弹层外的“大纲.md”行，事件落在行上，行被选中，设置窗口仍在，大纲.md 被作为预览打开了。
+    结论：设置窗口不是模态的（设计稿“settings 窗口（模态）”与实验说明里的假设都不成立）：它是不挡指针、不夺焦点锁的浮动窗口；“blocked”不能靠角色或 aria-modal 判，只能靠命中检查或遮罩。
+命中检查与参照的一致性（每个状态各 5 到 10 个元素，共 50 项，其中 6 项“元素不存在”不计：点开大纲.md 把欢迎页顶掉了，“第一章行”所在文件夹没展开，我给下拉状态写的搜索框选择器 [role=searchbox] 没匹配到原生 input；可比 44 项，一致 41，不一致 3）：
+  - 一致 41 项：底层元素在确认框与命令面板下被遮罩挡住（元素报“被挡”，blocker 是 div.nb-ui-overlay 或 div.fixed）、弹层自己的按钮与选项可点、设置窗口下的“欢迎页新建章节”被窗口几何盖住（blocker 是窗口内的 span.highlighted-text，不是 section）、窗口外的底层元素在设置窗口、右键菜单、下拉打开时仍可点。
+  - 不一致 2 项（同一类，设置窗口与下拉两个状态各一）：“右栏 添加服务商”按钮被设置窗口的边缘盖住一半：中心在窗口内（Playwright 报被拦截），原型退到角点（右上角）报可点。原型的“被挡退四角”会把部分被盖的元素标成可点；之后真正点击必须点同一个角点，不能点中心，否则点到弹层上。建议：快照给每个元素的“可点点”或标 partial；点击动作用命中检查给出的点。
+  - 不一致 1 项（命令面板第 20 项，列表里滚出视口的选项）：原型认为被挡（命中的是遮罩 div.fixed，因为被列表的 overflow 裁掉，点下去什么都没有），Playwright 先滚动再点所以可点。blocker 写成“遮罩”是误导：真实原因是被滚动容器裁切。命中到的元素不是最上层弹层而是“弹层后面的遮罩”时，应判为“滚出了容器”而不是“被盖住”。
+  - 命令面板的 listbox 自身高 2880px（81 项全渲染，没有虚拟化），外层 popover 裁切；快照只该列看得见的 9 项。
+  - 同时看到：被 aria-hidden 标掉的底层（下拉打开时）在这个应用里仍然能被真实点击并响应。“aria-hidden=不列”与“命中检查可点”在下拉与确认框之间不是一回事：确认框下 aria-hidden 且被遮罩挡；下拉下 aria-hidden 但没被挡。
+对设计稿的含义：
+  1. “层由命中检查反推、层根按 dialog、alertdialog、menu、listbox 认”可行：每个弹层都有可识别的角色（设置窗口 role=dialog 在 section 上；确认框 alertdialog；命令面板 dialog；菜单 menu；下拉 listbox）。但 aria-modal 一律没有，不能当判据。
+  2. 底层“被挡(blocked)”要按命中检查判：遮罩类（确认框、命令面板）底层全部命中遮罩；非模态弹层（设置窗口、右键菜单）底层不被挡，快照要如实列出底层元素，而不是“层只写名字”。若按设计稿“被上层挡住的层只写名字”，对设置窗口会漏掉 90 多个仍可点的底层元素（实验 4 的状态 5 里 5940 字符中底层占大头）。
+  3. 下拉打开时底层 aria-hidden 但可点；设计稿“aria-hidden 的不列”会使这时的快照只有下拉的 6 个选项（289 字符），和实际“点底层会穿过去并关下拉”一致地“看起来像被挡”，可接受，但文字里要说明下拉会被点击关闭。
+  4. body 的 pointer-events:none 出现在确认框与命令面板（计算值被所有后代继承），命中检查会命中遮罩而不是 html/body；设计稿“命中到 html 或 body 且页面禁了指针时点名说明”在这两个弹层没触发过，只在遮罩缺失时才可能发生。
+
+=== 实验 6：界面目录要的事实 ===
+做法：代码确认（文件:行，路径相对 .worktree/w00033-experiments/packages/neuro-book/src）；运行时的步骤用 run6.mjs、run6b.mjs（Playwright 真实点击，只看不改值，最后关掉设置窗口）；条数用 count6.ts、catalog6.ts（bun 读窗口装配的内置插件定义 browserPluginDefinitions 与 manifest 里各入口的 contributions，不含只在开发模式加载的 Lab）。
+  运行：cd .worktree/w00033-experiments/packages/neuro-book && bun run <实验目录>/count6.ts ; bun run <实验目录>/catalog6.ts ; 再 cd 到检出根 node <实验目录>/run6.mjs ; node <实验目录>/run6b.mjs
+一、窗口里有没有运行时能列出的读取入口（代码确认）：
+  1. 命令：有。服务 commandServiceKey（"nbook.commands/service"，plugins/commands/shared/contracts.ts:158），同步 list()（:147，全部 canonical 命令，含 id、source、title、category、description、args、effect、when、keybinding、expose.human，声明形状 :76-99）、get、isEnabled(id)（:150；实现 plugins/commands/shared/registry.ts:274，不可用给 unavailable 与原因）。命令面板正是这样取候选：plugins/workbench/web/components/WorkbenchCommandPalette.vue:62（expose.human !== false 且 runsWithoutArgs(args)（contracts.ts:61，Value.Check(args, {})）且 isEnabled 为 ok）。
+     另有窗口合同 nbook.commands/remote（contracts.ts:193）给服务端调：list 的元素带 available 与 reason（plugins/commands/shared/plugin.ts:137-165），但不带 keybinding、expose.human，且过滤掉 agent 暴露为 never 的命令。窗口里的页面引擎（plugins/page-agent/web，在窗口里）依赖 commandServiceKey 就能拿全。
+  2. 视图：声明有，位置没有对外的读取入口。声明：贡献点 workbench.views（plugins/workbench/shared/views.ts:57 ViewDeclarationSchema、:139 viewsPoint），含 title、location（sidebar/auxiliarybar/panel）、container、actions（标题动作，命令 id）。目录在工作台的视图注册表 ViewRegistry（plugins/workbench/web/views/registry.ts:80）与布局 store 的 state.catalog 里；当前实际位置由布局文档算：viewSection(doc, viewId)（plugins/workbench/web/state/containers.ts:97，给分节、区域与容器；浮动或不在文档里为 null），命令里用的 isPlaced（web/commands/view-commands.ts:96）。工作台对外只提供四个服务 workbenchRootKey、quickPickKey、notificationsKey、editorPanelsKey（web/plugin.ts:132），公开状态 workbenchState（web/state/public-state.ts:15-27）只有 sidebarVisible 等布尔键，没有视图位置：别的插件读不到。这就是设计稿“要先补的上游”里“视图的当前位置、视图标题栏动作的声明”。
+  3. 设置声明与分节：声明有、窗口里的读取入口有但不公开。配置项声明 SettingDeclaration（shared/settings.ts:84-103，带 section、group、order、layers、title）；分节 settings.sections / settings.pages（plugins/settings/shared/sections.ts:44-46）。窗口数据源 settingsWindowSourceKey（"nbook.settings/window-source"，plugins/settings/web/window-source.ts:62，sections() 与 settings() 在 :43-47）正好是要的全量，但文件头注释写明“不是公开接口”：门面只发给 nbook.settings 自己（:7-9），别的插件解析它会让解析失败；公开的 SettingsService（shared/settings.ts:431）只能按拿到的定义读 declaration(setting)，没有列全部。设置窗口的左栏模型 SettingsWindow.nav（plugins/settings/web/settings-window.ts:199）在 createSettingsWindow（plugins/settings/web/plugin.ts:140）的闭包里，没有服务出口；窗口开关的公开状态只有布尔键 nbook.settings/windowOpen（plugins/settings/shared/contracts.ts:40）。打开到某节某层：命令 nbook.settings.open 参数 {section?, layer?, focus?}（settings-window.ts:171）。
+  4. 层的入口：没有统一的“层目录”。能列出的只有两类静态入口：贡献点 workbench.overlays（plugins/workbench/shared/overlays.ts:13，页面浮层，工作台在页面根上挂，窗口里 4 个：nbook.settings.window、nbook.workbench.theme-editor-window、nbook.canon.revert、nbook.desktop.first-run；挂载器 plugins/workbench/web/overlays.ts:31 OverlaySlot）；以及打开它们的命令（nbook.settings.toggle、命令面板的 nbook.quick-open.open-commands）。确认框、菜单、下拉是各处临时用 nb-ui 的弹层打开，没有登记表，运行时只能从 DOM 看（实验 5）。
+  5. 活动栏项：贡献点 workbench.activitybar-items（shared/items.ts:21，窗口里 2 项：nbook.settings 带 command 与 toggled 键、nbook.workbench.profile）；视图容器入口（项目、设定、剧情三项）来自 workbench.viewContainers 与隐式容器，DOM 标记是 data-tool-entry / data-tool-view（下面实测），不是 data-activity-item。
+二、实测：走“改主题”路径（run6.mjs，每一步真实点击；表中“唯一”指该选择器在整页恰好 1 个）：
+  步骤                                   选择器                                                   数量 可见 唯一  说明
+  0 活动栏设置项                         [data-activity-item="nbook.settings"]                    1    是   是    button，名“设置”，位置 (9,830) 38x38；点它之前设置窗口 [data-settings-window] 数量 0
+  1 点击后窗口出现                       [data-settings-window]                                    1    是   是    div，窗口 (257,151) 926x602；开着时再点同一活动栏项会关掉（toggle）
+  2 层切换                               [data-settings-tabs] 是 radiogroup，名“设置的范围”         1    是   是    里面两个 button[role=radio]：用户 data-value=user（aria-checked=true）、本作品 data-value=project；这两个按钮上没有 data-settings-layer
+     data-settings-layer                 [data-settings-layer]                                     1    是   是    设计稿说它是层切换的标记，实测不是：它在 div.settings-list-section（data-settings-list=nbook.appearance）上，值是“当前层”（user 或 project），不是可点的元素；切到“本作品”后值变 project，切回变 user（点击推进验证）
+     点 用户（getByRole radio 按名字）     —                                                         —    —    —    可点，checked=true；切本作品再切回都成功，切到本作品时当前节只剩 2 行
+  3 外观节                               [data-settings-nav="nbook.appearance"]                    1    是   是    button，(261,260) 160x28，带 data-settings-nav-current；先点“编辑器”（nav-current 变 nbook.editor，主题行数量 0），再点回外观（nav-current=nbook.appearance，data-settings-section=nbook.appearance）：点击真的推进
+  4 主题行                               [data-settings-row="nbook.workbench/theme"]               1    是   是    div（(450,236) 688x56），另带 data-settings-row-state=edit；行内控件 [role=combobox] 数量 1（button，当前值 NeuroBook）
+     外观节所有行（共 8）：nbook.workbench/theme、/appearance、/dropSectors、/dragFeel、/dragCardShrink、/dragCardRefresh、/dropSplit、nbook.settings/locale
+  结论：“改主题”这一条路径除“层切换”一步外，设计稿里的标记都存在、可见、各自唯一，真实点击逐步推进成功；层切换要改成 [data-settings-tabs] 里 role=radio 的 data-value（user/project），映射表里 settings.layer 不能照“data-settings-layer 是切换按钮”写。
+三、自动保存：设置键 nbook.editor/autoSave（编辑器节 nbook.editor，小组 saving），旁边还有 nbook.editor/autoSaveDelay；行 [data-settings-row="nbook.editor/autoSave"] 数量 1 可见 唯一；点左栏 nbook.editor 节后出现（编辑器节共 20 行）；窗口内搜索框（[data-settings-search] 是外层 div，输入框是它里面的 input）输入“自动保存”得到这两行。声明见 count6 输出（设置 72 条，70 条有 section）。
+四、视图入口（run6b.mjs）：
+  - 资源管理器：视图 id nbook.explorer，标题“资源管理器”；入口是活动栏的“项目”按钮：[data-tool-view="nbook.explorer"]（同时 data-tool-entry="nbook.workbench.project"，aria-label“项目”）。注意活动栏上的名字是容器名“项目”，用户说“资源管理器”时按视图标题找才找得到，按活动栏文字找不到。
+  - 剧情：活动栏按钮 [data-tool-view="nbook.plot.sidebar"]，名“剧情”（data-tool-entry="view:nbook.plot.sidebar"）。点击后 data-view-frame="nbook.plot.sidebar" 出现，按钮 aria-pressed=true；再点“项目”按钮切回后，剧情的 data-view-frame 仍留在 DOM 里（视图保活，所以“DOM 里有这个视图框架”不等于“可见”）。
+  - “剧情图谱”：在 packages/neuro-book/src 范围内没有名为“剧情图谱”的视图或入口（只在 Lab 的 agent 场景夹具文字里出现）；最接近的是视图“剧情”（nbook.plot.sidebar）。用户说“剧情图谱”时 find 要靠“剧情”的子序列命中。
+  - 视图在布局里的位置：data-view-frame 的祖先里有 data-panel-id / data-content=view:<id>，可从 DOM 判当前位置；没有区域名属性，区域要从面板祖先推（实验没做）。
+  - 菜单栏“视图”菜单（run6b）只列命令（命令面板、侧栏、右栏…重新载入），不列视图。
+五、资源管理器标题栏动作：data-title-action 值 nbook.files.new-file、nbook.files.new-folder、nbook.view.refresh-files、nbook.files.collapse-all、nbook.files.toggle-manifests（与视图声明 actions 一致），按钮本身 opacity=1，但它的祖先 [data-hover-actions]（plugins/workbench/web/components/hover-actions.css:11-17）在指针不在所在范围时 opacity:0（过渡 var(--motion-reveal-in) linear；不能悬停的设备一直显示）。实测指针在编辑区时五个按钮的宿主 opacity=0，指针在资源管理器标题行时 opacity=1。有效不透明度必须沿祖先链乘，只看按钮自己会误判为不透明。opacity 0 时 pointer-events 仍是 auto，Playwright 的 isVisible 为真、click({trial:true}) 可点：它们“看不见但真能点”，这正是设计稿的 faint 标记要表达的。
+六、条数与目录大小（count6.ts、catalog6.ts，开发服务同一份代码）：
+  - 命令 132 条（人类可见 126，其中不带必填参数、能进命令面板的 114；此刻命令面板实际显示 81 条（实验 4），因为 isEnabled 过滤）；有默认键位的只有 4 个：nbook.quick-open.open-commands Mod+Shift+P、nbook.view.focus-next-pane F6、nbook.view.focus-previous-pane Shift+F6、nbook.settings.open Mod+,（菜单里显示的快捷键另有来源，没查）。设计稿的第三类“出现在活动栏、视图标题栏、设置窗口里的命令”只有 9 条：nbook.notifications.clear、nbook.settings.toggle、nbook.files.new-file、nbook.files.new-folder、nbook.files.collapse-all、nbook.files.toggle-manifests、nbook.canon.new-entry、nbook.tasks.clear-finished、nbook.tasks.toggle-all-projects（没有算编辑器标题栏的 nbook.editor.split-right 等，它们不在视图标题栏里）。
+  - 视图 8 个：nbook.workbench.notifications（panel）、nbook.explorer（sidebar）、nbook.canon.entries（sidebar）、nbook.canon.pending（panel）、nbook.canon.revisions（panel）、nbook.plot.sidebar（sidebar）、nbook.tasks.list（panel）、nbook.agent.conversation（auxiliarybar）；视图标题动作共 9 个；视图容器声明 1 个（nbook.workbench.project）。
+  - 设置：声明 72 条（70 条挂在分节上，2 条没有 section 进“其它”）；分节 18 个：list 分区 6 个（settings.sections）加 page 分区 12 个（settings.pages，如模型、权限规则、Profile、Skill、主题、插件）。浏览器里设置窗口实际列 16 个节（实测左栏 16 项；桌面壳专属的 nbook.desktop.window 不列是从分区声明的 host 字段推断，没单独验证；插件页 nbook.plugins.installed 在这个窗口的左栏没出现，原因没查）。page 分区里的设置行是页面自己的内容，不在这 72 条里，目录第一版收不到它们。
+  - 重名：“主题”既是外观节里的设置行（nbook.workbench/theme），也是左栏的一个 page 分区（nbook.workbench.themes，页面“主题”），find “主题”要同时命中并能区分种类。
+  - 目录大小（标题按 zh-CN 目录解析，只要 72+8+9 条）：设置 72 条按设计稿完整 JSON（含四步 path）共 30480 字符、约 9500 token，平均 423 字符/条；紧凑一行（种类 标题 键 | 路径文字）5580 字符、约 2340 token，平均 78 字符/条；视图 8 条 JSON 2035 字符、约 610 token；设计稿范围的 9 条命令 874 字符、约 250 token；全部 126 条人类命令紧凑一行 6681 字符、约 1860 token。设置+视图+全部人类命令紧凑目录合计 12612 字符、约 4350 token（catalog6-compact.txt）。
+  - 结论：整份目录不能放进上下文（完整形状约 1 万 token 以上），find 按需返回至多 5 条、每条 400 字符左右（约 130 到 280 token）是对的；全量文本搜索只有 200 多条、几万字符，窗口里现拼和打分没有性能顾虑（本实验没单独测耗时）。

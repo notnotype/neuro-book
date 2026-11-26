@@ -25,6 +25,8 @@ type FieldInputProps = {
     rows?: number;
     /** 放在就地改的编辑卡里：建议值嵌在输入框下面、成段的文字按内容长高；缺省 false。 */
     inline?: boolean;
+    /** 成段的文字在原处改：字号、行高同人物与形象卡片上的原文，长到 8 行封顶、再多在框里滚；缺省 false。 */
+    prose?: boolean;
 };
 
 type FieldInputEmits = {

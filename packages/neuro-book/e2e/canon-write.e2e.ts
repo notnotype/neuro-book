@@ -383,7 +383,8 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await showTree(page, row(page, "组织"));
     await row(page, "组织").click();
     await expect(row(page, "第三魔法学院")).toBeVisible();
-    await row(page, "第三魔法学院").click();
+    // 有子条目的条目点行是打开它，展开只认点箭头（author-ui 输出 5）。
+    await row(page, "第三魔法学院").locator("[data-tree-toggle]").click();
     await expect(row(page, "雾崎")).toBeVisible();
     await row(page, "雾崎").click();
     await expect(activeTabLabel(page)).toHaveText("雾崎");

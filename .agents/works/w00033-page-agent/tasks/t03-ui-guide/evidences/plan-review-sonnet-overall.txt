@@ -1,0 +1,131 @@
+# w00033 t03 计划审查（整体视角，Sonnet）
+审查对象：plan-v1.md、spec-v1.md；依据 design.md 第四稿、t01 决定 1 到 19。检出 cf89b6a38 只读。
+按影响排序；严重程度：阻断 / 重要 / 建议。
+
+### 1. 界面目录要复用的几样东西，计划把它们放在会被架构测试拦下的位置
+严重程度：重要
+位置：plan-v1.md“技术选型”的“目录搜索：复用工作台命令面板现有的跨语言子序列打分（抽成可调用的函数）”，以及“page-agent/web/”一节里“命令面板的打分函数”“工作台视图位置服务”。
+现象：打分函数现在在 `packages/neuro-book/src/plugins/workbench/web/commands/command-query.ts`，是 workbench 的 `web/` 内部文件；计划只说“抽成可调用的函数”，没说抽到哪里。page-agent 的 `web/` 要在运行时调它。
+为什么是问题：`packages/neuro-book/src/architecture.test.ts:126` 规定跨插件的运行时导入只能指向对方的 `shared/contracts.ts`；`packages/neuro-book/AGENTS.md` 第 15 行还专门写了“计划里要给别的插件在运行时用的接口（符号、函数、服务键）一开始就放进提供方的 shared/contracts.ts，别先放在 web/ 下接线时才被 architecture.test.ts 拦下返工；共用合同不带 DOM 类型”（w00032 t36 的教训）。计划里四处跨插件读取（命令服务、设置目录服务键、视图位置服务、打分函数）只有设置那一条写了放 `shared/contracts.ts`，其余没写；打分函数最容易被直接 import。第 8 片才接线，到那时才被拦。
+建议：计划里逐项写明“谁拥有、放在哪个 shared/contracts.ts、是服务键还是函数”。打分函数是纯函数（`command-query.ts` 只 import 类型），最简单的做法是命令面板的拥有者（workbench 或 commands）把它作为服务方法或 `shared/` 里的纯函数公开，面板自己也改用同一处，这样“与命令面板一致”由同一份代码保证而不是靠约定。第 5 片的验证里加一条 `bun test src/architecture.test.ts`。
+
+### 2. 核心包 nb-page-agent 里有几处已经绑在 NeuroBook 上，w00034 复用时要改
+严重程度：重要
+位置：plan-v1.md“`packages/nb-page-agent/`”一节；Work README“已定的事”（核心包以后给浏览器插件注入外部网页）。
+现象与依据（都是计划写进核心包的东西）：
+1. `src/api/` 放“四个方法”的 schema，其中 `find` 的 `kind` 是 `setting/view/command`，失败码里有 `no-window`、`window-hidden`、`window-unresponsive`（Spec 失败表）：这些是“NeuroBook 窗口 + 界面目录”的概念，外部网页没有。`./api` 同时是插件派生工具参数的唯一来源，w00034 若复用就把这些带进去。
+2. 定位对象里有 `command`（命令 id）：外部页面没有命令；它其实只是“稳定名”的一种别名，由映射表翻出来。
+3. 悬停显示：计划写“属性由页面引擎在高亮期间加”，设计稿写“加到目标所在的 `[data-hover-actions]` 上”。`data-hover-actions`、`data-hover-actions-scope` 是 workbench 的私有标记（`hover-actions.css`），引擎要认识它。
+4. `src/capture.ts` 直接写死 snapdom 并“第一次截图时动态加载”。设计稿自己说“以后桌面外壳给真实截图时换实现”；w00034 在严格 CSP 的外部页里注入（设计稿的实验：`<script>` 被拦），动态分块加载很可能不可用，要内联。
+5. 说明框里的“下一步”“跳过引导”“第 N 步，共 M 步”、提问框的占位字：核心包没有文字注入点（nb-layout 有 `./text`），颜色、圆角、阴影怎样取主题也没写；设计稿还承认暗色主题没验证。
+建议：核心只管“一个页面里的事”：`./api` 只放快照、定位、截图、高亮、页内失败码（`stale-ref`、`ambiguous`、`not-found`、结局）；`find`、窗口类失败码、`command` 别名放插件。引擎给宿主留四个注入点：稳定名映射、截图实现（默认 snapdom，作单独入口）、文字表、悬停显示的钩子（引擎只在高亮目标的祖先链上设一个通用属性，如 `data-nb-agent-reveal`，由宿主 CSS 决定哪些祖先要显示）；样式只用 CSS 变量加缺省值。这些改动现在做几乎没有成本，等 w00034 动手再拆就要改已写好的 schema 与测试。
+
+### 3. Spec 输出 4 的 `rebound` 把设计稿里“只读的方法才重找”丢了，第二批的写动作会撞上
+严重程度：重要
+位置：spec-v1.md 输出 4；design.md“引用”一节（“只读的方法可在同一层内、稳定名与 key 都相同时重找，结果标 rebound”）。
+现象：设计稿限定“只读的方法”可以重找；Spec 输出 4 写成“用引用时…同一层里稳定名与 key 都相同的元素只有一个时改用它并在 warnings 标 rebound”，没有区分读写。
+为什么是问题：这是写进 Spec 的可观察行为。第一批只有读方法所以看不出，t02 的点击、填写、选择是写动作：用 index 当 key 的列表反序后，旧引用“重找”到另一行再点下去，会作用在错的对象上（设计稿的实验正是这个场景）。到时只能给已发布的行为加例外，等于改合同。
+建议：Spec 现在就写成“只读方法（snapshot、highlight、screenshot 的 `of`）可重找；会改页面的方法一律 `stale-ref`”，并写进失败与恢复。顺手在 Spec 声明：引用是不透明字符串，调用方不得解析 `a3.12` 的结构（w00034 可能要给它换成 backendNodeId 一类的编号，见 w00034 README 的“编号用 backendNodeId”）。
+
+### 4. 定位是“主定位字段加选项字段”摊平在同一个对象里，第二批新增动作时字段会撞名
+严重程度：重要
+位置：spec-v1.md“输入与前置条件”（定位）与方法表；design.md“定位”。
+现象：`highlight({ref | target+key | command | role+name | text, exact, nth, within, message, title, side, until, step, total, timeout})` 全部在一层。定位字段里有 `text`、`target`、`name`、`role`；t02 的 `fill`、`type`、`select` 天然要 `text` 或 `value`、`name`。Playwright 的 `type(text)`、`getByText` 同样叫 `text`。
+为什么是问题：一旦发布，`ui.type({role: "textbox", name: "标题", text: "…"})` 里的 `text` 是“要输入的字”还是“按可见文字定位”就分不清；要么给 t02 的动作取别扭的字段名（`value`、`typed`），要么引入嵌套，两种都是对已发布形状的改动或让两批接口风格不一致。另外“恰好一种主定位”靠运行时校验，JSON Schema 里表达不了，生成的 eval 文档（输出 13 要求签名带字段说明）也只能靠文字解释。
+建议：现在改成 `ui.highlight({at: <定位>, message, …})`。`find` 的结果里 `path[].at` 已经是一个定位对象，用 `at` 嵌套反而让“把路径一步直接交给 highlight”更顺（`{at: step.at, …}` 取代 `{...step.at, …}`）。若坚持摊平，至少在 Spec 里写明“定位字段名保留，动作的参数不得与它们重名”，并为 t02 预先定好 `value` 一类的名字。
+同类的两点一并在 Spec 里声明：结局（`outcome`）集合以后会增加，调用方必须当作开放集合处理；`until` 同理（t02 很可能要 `change`、`input`）。
+
+### 5. 标识映射表由使用方维护私有标记，改界面的人没有任何提示（质疑已定决定 14 的“自动层”）
+严重程度：重要
+位置：plan-v1.md“page-agent/web/：标识映射表”“风险：界面目录依赖现有标记”；spec-v1.md 输出 6 的表；design.md“控件的名字”“风险”。
+现象：六个标记 `data-title-action`（`src/ui/menus/TitleActions.vue`）、`data-activity-item`（`WorkbenchToolStrip.vue`）、`data-tool-view`（还被 `layout-drag.ts` 当拖动标记用）、`data-settings-tabs`、`data-settings-nav`（`SettingsWindow.vue`）、`data-settings-row`（`src/ui/settings/SettingsRow.vue`）属于 workbench、settings 和共用 UI；我查了 `docs/specs` 全部文件，这六个名字只出现在新 Spec `agent/page-agent.md` 里，拥有者的 Spec 和组件注释都不知道有人依赖它们。计划里唯一的保护是 e2e（风险一节）。设计稿承诺过的两样（“开发构建里由引擎扫描 DOM 检查重复与不合规名字”“被引用的手写稳定名列进 Spec 的名字表，治理测试防悄悄改名”）在计划里没有对应的片或验证。
+为什么是问题：这就是“读接口由使用方自己拼”：标记改名或拆组件时，只有 e2e 红了才知道，而且 e2e 是最后收口才跑的；Spec 输出 6 又把稳定名当公开面（`被官方引导或 Skill 引用的稳定名不改名`），稳定名对模型发布了，实现却依赖三个拥有者的内部属性。同时第一批里 `./attrs`、`data-nb-target` 没有任何使用者（全靠映射表），公开面先发布了一个没人用的入口。
+建议（二选一，推荐前者）：(a) 六处拥有者直接在自己的控件上写 `data-nb-target`（用 `nbTarget()`，约六处一行改动），映射表删掉或只留作一次性兜底；这样 `./attrs` 有了使用者，拥有者改控件时稳定名就在眼前，Spec 里的名字表归各拥有者。(b) 保留映射表，但补一个 bun 测试读取六个拥有者源文件、断言标记仍在（同 `architecture.test.ts` 的做法），并在拥有者的 Spec 或组件注释里写一句“被 page-agent 依赖”。改决定 14 的代价：自动层要在六个组件里各加一行属性，视图在列表里重复（每行都有）时 key 的写法要定，但换来改名风险从“收口才发现”变成“写代码时看得见”。
+
+### 6. 选窗口没有按项目过滤，会话可能操作另一个项目的窗口
+严重程度：重要
+位置：spec-v1.md 输出 1；plan-v1.md“backend/：选窗口（`instances()` 加 `info()`）”。
+现象：`InstanceDescriptor`（`packages/nb-runtime/src/remote/protocol.ts:166`）带 `role`、`kind`、`project`（该实例绑定的项目代次）。计划和 Spec 的候选是“提供了窗口合同的客户端实例”，次序只按“上次用的、有焦点、最近有真实输入”，没提项目。工具上下文里有 `ToolSessionContext.project`（`nb-harness/src/kernel/api/host.ts:428`）。
+为什么是问题：同时开着两个项目的窗口时，项目 A 的会话里 `ui.snapshot` 可能选中项目 B 里有焦点的窗口：快照、截图（含 B 的正文）会被写进 A 的会话日志。Spec 输出 1 的三个次序都满足时“有焦点的窗口”并不等于“该会话所属项目的窗口”。设计稿说信任边界是“一个使用主体”，但会话与项目的归属是产品语义，不是安全边界。
+建议：Spec 输出 1 加一条前提“候选只含绑定到该会话所在项目的窗口；会话没有项目时的规则写明”，`info()` 或 `instances()` 的结果按 `project` 过滤，验收场景 2 加“两个项目各一个窗口”。`kind` 也要定：桌面外壳与浏览器标签同为客户端时是否都算。
+
+### 7. 切片：多项上游被并进一片、第 8 片过大且它的验证依赖尚不存在的 e2e、首条贯通路径太晚（质疑 2026-11-26 已确认的切片顺序）
+严重程度：重要
+位置：plan-v1.md“切片”“风险”“测试分工”。
+现象：
+- 风险一节写“每项单独提交、单独测”，切片表里第 4 片却把五项互不相关的改动合在一个提交：`ToolCallError.details`、`tsType` 改动、工具绑定按对象开关（改持久化的设置形状加 Profile 页）、对话视图 `skip`。第 5 片把设置目录服务、工作台视图位置、悬停属性合在一起。出问题时 `git revert` 要整片退，Profile 页那一项又是回退风险最高的（用户设置数据）。
+- 第 8 片一次做插件合同、窗口实现、界面目录、选窗口、四个工具、订阅等待、截图上传、进 Profile。它的自跑验证写“三份构建后跑 `page-agent.e2e.ts`”，而这份 e2e 按测试分工要等第 8 片完成后才派子代理写：验证对象在验证时还不存在。
+- 第 2、3、4 片（内核、harness、agent）的价值要到第 8 片才被使用，第 6、7 片的核心要到第 8 片才进真实应用。最大的不确定项（token 预算、窗口选择、Vite 开发模式下引擎的动态加载、真实 Chrome 里订阅）都在最后一片才第一次出现；计划自己把“实验后没验证的三项”推到 7、8 片补。
+建议：拆分提交，至少 4 拆成 4a（details + tsType）、4b（对象开关 + Profile 页，单独验证持久化与迁移）、4c（skip 属性）；5 同理。把第 8 片拆成 8a（合同、窗口实现、选窗口、`snapshot`/`find`/`screenshot` 工具与上传路由，不含高亮）和 8b（高亮订阅、`waitingForUser`、`foreground`、进 Profile）；这样 2、3 只被 8b 依赖，可以放在 8a 之后做。8a 之后就派第二段 e2e（场景 2、3、4、5）并且先在那里跑通。第 8 片自跑验证里去掉尚不存在的 e2e，改成插件测试加一份主会话手写的最小贯通脚本。
+
+### 8. 新界面没有静态稿与设计顾问环节，文案与主题的取法也没写
+严重程度：重要
+位置：plan-v1.md 全文（没有对应片）；design.md“引导”末句（“说明框的外观先出静态稿”）；AGENTS.md“动手前读什么”的前端一行；`~/.claude/CLAUDE.md` 的子代理调度表（界面的方案、文案与交互顾问，出静态稿前、改界面前）。
+现象：说明框（标题、进度、下一步、跳过、提问框、描边框）、Profile 页的“一行开关”都是新界面。设计稿明确写了“外观先出静态稿”，计划里没有任何一片做这件事，也没有 `design-review` 的评审板或设计顾问环节；片 7 直接实现，第 9 片才跑冒烟。风险一节把说明框列为“依赖弹层 DOM 结构”但没写外观验收。
+为什么是问题：说明框要同时适配亮色、暗色、小弹层里、减弱动效，外观决定了核心包的样式变量与文字注入点（见发现 2），晚定要重写 `guide/` 与它的 Playwright 夹具；而且这是开发者会直接看到的东西，开发者在以往的界面任务里要求先看稿。
+建议：在第 6 片前加一片“说明框与进度的静态稿”（Lab 草稿区，出稿前请 designer 顾问看文案与交互），开发者确认后再写 `guide/`；片 7 的验收里加暗色主题的截图对照；Profile 页一行开关随第 4b 片出稿。
+
+### 9. harness 的 `foreground` 工具声明可能不需要：会话上下文里已有后台标记，Spec 对后台的两处说法还不一致
+严重程度：建议
+位置：plan-v1.md“nb-harness：工具声明 `foreground?: true`，后台会话的工具表与 eval 对象里没有它”；spec-v1.md“输入与前置条件”（后台会话里没有 `ui`）与失败码表（`no-window`：“没有可用的窗口，或会话在后台”）。
+现象：`ToolSessionContext.background`（`nb-harness/src/kernel/api/host.ts:430`，“没有人在看，工具不要等用户回答”）已经交给 `tools.create(id, context)`（`agent/backend/tools.ts` 的 `create`），`modes.ts:99` 已经靠它判断“没有人能回答”。计划要新增一个内核级工具声明字段，让后台会话的工具表里直接没有这个工具。
+为什么是问题：给 nb-harness（NeuroBook 与 NeuroBot 共用的内核）加一个声明字段，换来的只是“后台会话里调 `ui` 得 `unknown-tool` 而不是 `no-window`”。而 Spec 自己两处说法不一致：失败表写后台会话得 `no-window`，前置条件写后台会话里没有 `ui`。两个说法对模型的影响不同：前者模型看得到文档并得到明确失败原因，后者调用得 `unknown-tool`，模型只会困惑。
+建议：先用已有机制：工具实现里读 `context.background`，直接抛 `no-window`（带“会话在后台”）。若坚持表里要没有，也应在 agent 插件装配工具集时按 `background` 过滤，而不是新增 harness 声明字段。无论哪种，Spec 的两处说法要统一。这一项能省掉第 3 片里一半的内核改动与它的变异检查。
+
+### 10. 主创与临时帮手的可选工具表要写 page-agent 的工具 id，与别的插件走的路相反
+严重程度：建议
+位置：plan-v1.md“进主创与临时帮手的可选工具（`builtin/profiles/main.ts`、`adhoc.ts`）”；spec-v1.md“输入与前置条件”。
+现象：现有惯例是别的插件的工具用 `defaultForAll: true` 声明自己（`canon/backend/agent-tools.ts:50`、`web-tools/backend/tools.ts:98`），Profile 页再按绑定开关；`MAIN_PROFILE_TOOLS`（`agent/shared/contracts.ts:40`）里只有 `nbook.agent.*`。计划让 agent 插件的 Profile 列出 `nbook.page-agent.ui.*` 的 id，agent 插件因此要认识一个可有可无的兄弟插件（卸载 page-agent 时 Profile 声明里留着悬空 id；`profileToolIds` 对不存在的 id 是忽略的，所以不报错但目录与测试要同步）。`adhoc` 的 `defaultTools: false` 也使 `defaultForAll` 对它无效，这大概是计划选这条路的原因，但没写。
+为什么是问题：依赖方向反了；以后每个有 eval 对象的插件都要改 agent 的 Profile。
+建议：写清楚为什么不用 `defaultForAll`。若是为了排除 bot 与 adhoc，更简单的是 page-agent 用 `defaultForAll: true`，bot 的 Profile 本就只会得到前台窗口不存在的 `no-window`（见发现 9），adhoc 想要时由用户在绑定里加。若仍要写进 Profile，则这一步在计划里列成“agent 的合同里出现了另一个插件的 id”并让开发者确认。
+
+### 11. 内核第二处改动的范围要写窄，另有两处与现状不符的描述
+严重程度：建议
+位置：plan-v1.md“`packages/nb-runtime/src/remote/`”“agent 插件”两小节；design.md“要先补的上游”。
+1. 订阅在成员断开时结束：根因我核对过，在 `packages/nb-runtime/src/remote/node.ts:1041-1045`——订阅方节点对非本地目标收到 `disconnected` 时直接 `return`（“链路断开时等待重连重建（同一项目代次）”），不通知上层；经路由转发那条路径在 `router.ts:490` 已把 `disconnected` 映射成 `target-gone`，而路由给自己节点的 `upstream.subscribe`（`router.ts:150`）把 handlers 原样交给 peer，没有这层映射。所以计划把修法放在 router 的 upstream 里是对的，也不是打补丁。但计划写的是“服务端节点向成员发起的订阅”，项目成员（`{project}` 目标）依赖“断开等重连重建”的语义（同一代次重连后订阅重建），不能一起改。建议写成“只对 `{client}` 目标映射 `target-gone`”，并补一个项目目标订阅在断线重连后仍重建的用例，同样的“不变量”别只放在注释里。同理 `instances()`：`node.ts:1140` 把请求交给上游，路由的 upstream 在 `router.ts:145` 对目标 `server` 得到 `hub` 然后 refusal；在 `upstream.request` 里对 `INSTANCES_CONTRACT` 本地回答与路由已有的 `router.ts:449-453` 同构，方向对。
+2. 计划写“`tsType`：打印字段说明、可选、缺省”，但 `objects.ts:113` 已经按 `required` 打印 `?`，要补的只有字段说明（description）与缺省值，别再改一遍可选。
+3. “`global: {object: "ui"}`”：`agent.tools` 的声明（`agent/shared/points.ts:69`）要求 `global` 同时给 `object` 与 `method`；计划里这句要改成每个方法各自的 `{object, method}`，不然第 8 片装载时被声明校验拒绝。
+建议：把这三处按上面改写进计划，第 2 片的验证加“项目订阅重建”回归用例。
+
+### 12. 新包与新插件的配套登记在计划里不全
+严重程度：建议
+位置：plan-v1.md“`nb-page-agent`（新包）”“`nbook.page-agent`（新内置插件）”。
+现象：计划只列了结构图、`packages/AGENTS.md`、`monorepo-boundaries.md` 三处登记。按仓库规则还有：
+- 新内置插件要进 `src/manifest.ts` 的 `productPlugins`、`src/server/plugins.ts`、`src/web/plugins.ts` 的定义表；`packages/neuro-book/AGENTS.md` 第 35 行写明服务端新增入口时要同步 `src/server/server.test.ts`（发布与关闭断言里逐个列出插件，现在有四处列表）；`builtin-manifest.test.ts`、`contribution-prefixes.test.ts` 也会检查。
+- `packages/neuro-book/AGENTS.md` 第 47 行：页面直接或经 nb-ui 用到新的第三方包时要加进 `vite.config.ts` 的 `optimizeDeps.include`，漏列的模块在开发模式加载失败、e2e 间歇失败。三个新依赖（`dom-accessibility-api`、`@floating-ui/dom`、`@zumer/snapdom`，其中 snapdom 还是动态加载）都要查。
+- `packages/AGENTS.md`：“许可证、公开包名、版本、exports 和发布合同变化必须先记录为跨 Module 决策”。计划没说新包是 `private` 还是发布、什么许可证、`exports` 指 src 的写法照 nb-flock（它随 nb-story 发布）还是 nb-layout（`private`，ADR 0054）；nb-layout、nb-flock 都有 ADR 或明确记录。w00034 要在外部页注入时，包是否可被发布也会被问到。
+- 界面文字（说明框、Profile 页一行开关、`find` 返回的路径标题）的 `locales` 登记。
+建议：第 1 片的文档清单里补上“包元数据决定（private、许可证、入口写法）”，并在第 8 片清单里列出上面的接线文件。
+
+### 13. 第一批里可以推迟的东西
+严重程度：建议
+位置：spec-v1.md 方法表与输出 8；plan-v1.md“关键设计”。
+没有证据说明第一批就需要、又不是开发者已定决定要求的：
+- `ui.screenshot` 的 `annotate`（图上叠引用编号）：Spec 输出 8 一句话带过，决定 1 到 19 里没有；要做就要在 snapdom 重画后再叠一层，还要和快照的引用对上、测试。截图本来是给模型“看”的，快照已经给了引用。推迟到 t02 动作需要“点图上的编号”时再做。
+- `highlight` 的 `side`：`@floating-ui/dom` 自带翻转与避让，缺省已够；第一版不开放，需要时再加。
+- `./attrs` 的 `nbTarget` 与 `data-nb-target` 公开面：若采纳发现 5 的 (b)（保留映射表），第一批没人用，应当推迟发布；若采纳 (a)，则它有使用者，保留。
+- 另开一份“不减弱动效”的 Playwright 配置：只为跟随与动画，可以限定为说明框跟随的两三条用例，不必整份配置。
+以下我看过、判断不是提前优化：截图走上传路由（`runtime/plugin-channel.md` 第 21 行规定不经远程服务传二进制），一次性凭证与提交点（窗口断开时不让半张图进会话日志）；选窗口的 2 分钟记忆（决定 3）；token 预算截断（快照 900 到 2000 token 的实测范围内，预算是安全阀）。
+
+### 14. 测试分工里几类行为没有明确的负责人
+严重程度：建议
+位置：plan-v1.md“测试分工”“验证”“验收映射”。
+现象：
+- 第一段 e2e 在“第 6 片之后派”，但它要写的 Spec 输出 9、10（高亮、说明框、`missed`、挂进弹层）属于第 7 片；子代理“不读实现”按 Spec 先写用例会先失败，计划写了“用例先于实现”但没写第 7 片完成后谁来跑、修、归类。
+- “实验之后没验证的三项（暗色主题、悬停显示属性、真实 Chrome 刷新时的订阅）在第 7、8 片各补一条用例”没写谁补；暗色主题的截图对照需要看图，属于主会话。
+- 窗口侧“最近一次真实输入时刻、焦点、可见性”的追踪（选窗口的依据，Spec 输出 1）：验收映射把它归给“插件测试（选窗口…）”与 e2e 场景 2，但追踪发生在窗口里的事件监听（`isTrusted`），bun 测试看不到；只有 e2e 能测，而 e2e 只有一个场景覆盖。
+- 开发模式（Vite dev）下引擎与 snapdom 的动态加载：e2e 是生产构建，计划里没有任何一步在开发服务上点一遍（本仓库已有“交付界面前在开发服务上点一遍”的教训）。
+- 谁维护界面目录与映射表：第 9 片写“文档收尾”，但没有一条规则让以后改标题栏、活动栏、设置窗口的人知道要同步；只有 e2e（见发现 5）。
+建议：在计划里给每一项写负责人与所在片；第一段 e2e 改“第 7 片之后派”，并让它与第 7 片的 Playwright 夹具共用同一批夹具页；第 8 片自跑验证里加一次开发服务上的真实点击；映射或稳定名的改名防护按发现 5 做成 bun 测试。
+
+## 五个问题的结论摘要
+1. 包边界：核心包与插件的大分工合理（引擎在包里、目录与映射在插件里），依赖方向（核心只依赖 TypeBox 与三个库、不依赖应用与 Vue）符合 `packages/AGENTS.md`。问题在三处：跨插件复用的函数没放进 `shared/contracts.ts`（发现 1），核心里残留 NeuroBook 概念（发现 2），登记与配套不全（发现 12）。
+2. 公开接口：发现 3、4（`rebound` 的读写、定位摊平撞名、开放的结局集合）与发现 5（稳定名依赖私有标记）；失败码集合、`ui` 方法名与 `ref` 不透明性在其余方面没有发现锁死。
+3. 上游改动：nb-runtime 两处与 `waitingForUser` 是在拥有机制的地方、以通用方式补的，没有更简单的做法（发现 11 补充范围）；`foreground` 不必要（发现 9）；设置目录、视图位置的只读服务方向对，只差放置位置（发现 1）。
+4. 可推迟：见发现 13；上传路由与提交点等有规范依据，不算提前优化。
+5. 切片与维护：发现 7、14、5、8。
+
+## 汇总（共 14 条）
+重要：1 跨插件复用放置；2 核心包绑定 NeuroBook；3 rebound 读写；4 定位摊平撞名；5 映射表归属（质疑已定决定 14）；6 选窗口不按项目；7 切片（质疑 11-26 已确认顺序）；8 界面无静态稿
+建议：9 foreground 可免；10 Profile 引用 page-agent id；11 内核改法范围与现状不符；12 登记配套；13 可推迟项；14 测试分工盲区
+阻断：无。

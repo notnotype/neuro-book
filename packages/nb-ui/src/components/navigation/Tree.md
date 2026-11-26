@@ -10,7 +10,7 @@
 
 根节点是 `role="tree"` 的纵向列表，默认带面板表面；`surface="plain"` 去掉卡片色面和描边但保留内边距。行按层级缩进，标题截断；`muted` 的节点标题用次级色；调用方给了 `suffix` 插槽时，标题后面跟一小段次级色的小字说明，行太窄时标题先截断、说明保留；只有存在 `children` 的节点显示展开箭头，无子项时保留同宽空位。只有调用方提供 `iconClass` 才显示节点图标。选中行以整行淡强调底、强调文字和中等字重表达，不使用左侧边框或竖线指示条；层级只由缩进与展开箭头表达。焦点环另行显示。
 
-方向键、Home / End、Enter / 空格与 typeahead 的焦点导航由上游树原语处理。右/左方向键展开或收起有子节点的行，并在可行时移动到子项或父项。点击行会选择节点；若其有 children，同一次点击也会切换展开态。选中行为随 `multiple` 切换：单选再次选择当前节点可清除选中，多选则切换该 id 是否在集合中。禁用整个树时所有节点不可操作。
+方向键、Home / End、Enter / 空格与 typeahead 的焦点导航由上游树原语处理。右/左方向键展开或收起有子节点的行，并在可行时移动到子项或父项。点击行会选择节点；`toggleOn` 为缺省的 `"row"` 时，若其有 children，同一次点击也会切换展开态。`toggleOn: "arrow"` 时点行只选择、不切换展开，点箭头只切换展开、不选择（不发 `select`），键盘的左右键照常展开收起：给“节点本身能打开、下面又有子节点”的树用。这时箭头是 20 像素见方、悬停有底色的点击目标（带 `data-tree-toggle`），在行里仍只占 12 像素。选中行为随 `multiple` 切换：单选再次选择当前节点可清除选中，多选则切换该 id 是否在集合中。禁用整个树时所有节点不可操作。
 
 ## 数据
 
@@ -27,6 +27,7 @@ interface GenericTreeNode {
 }
 
 type TreeSurface = "card" | "plain";
+type TreeToggleOn = "row" | "arrow";
 
 type TreeProps = {
     /** 递归节点数据；默认空数组。节点 id 应保持稳定且唯一。 */
@@ -41,6 +42,8 @@ type TreeProps = {
     disabled?: boolean;
     /** 根列表表面；默认 "card"。 */
     surface?: TreeSurface;
+    /** 点行时切不切换展开；默认 "row"（切换），"arrow" 时只认点箭头与左右键。 */
+    toggleOn?: TreeToggleOn;
 };
 
 type TreeEmits = {

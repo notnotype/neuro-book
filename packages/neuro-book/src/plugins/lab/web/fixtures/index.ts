@@ -25,6 +25,9 @@ import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
 import type EntryPageNav from "nbook/plugins/canon/web/components/EntryPageNav.vue";
+import type AddComponentPicker from "nbook/plugins/canon/web/components/AddComponentPicker.vue";
+import type ComponentAgentView from "nbook/plugins/canon/web/components/ComponentAgentView.vue";
+import type ComponentRawView from "nbook/plugins/canon/web/components/ComponentRawView.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
@@ -2033,7 +2036,7 @@ function canonEntryPageFixtures() {
     const tabs = [
         {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
         {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
-        {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
+        {value: "data:panel", label: "数值", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
         {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 4},
     ];
     const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, chapters, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
@@ -2271,6 +2274,9 @@ function canonEntryPageFixtures() {
                 {id: "loading", label: "流水读取中", input: {props: {cards, selected: "panel.魔力", ledger: [], ledgerLoading: true}}},
                 {id: "empty", label: "面板还没有内容", input: {props: {cards: []}}},
                 {id: "sample-english", label: "英文界面", input: {props: {cards, selected: "panel.存款", ledger: origins}}},
+                // 能改：可改的卡右边有“改”，随身物品不能改、那一格空着；英文的 Edit 比“改”宽，看那一格是否放得下、各卡是否仍等宽。
+                {id: "editing", label: "能改：可改的卡右边有“改”", input: {props: {cards: cards.map((card, index) => ({...card, editable: index !== 2})), selected: "panel.存款", ledger: origins, editing: true}}},
+                {id: "editing-english", label: "能改（英文界面）", input: {props: {cards: cards.map((card, index) => ({...card, editable: index !== 2})), selected: "panel.存款", ledger: origins, editing: true}}},
             ],
             load: async () => (await import("./PanelViewFixture.vue")).default,
         }),
@@ -2352,21 +2358,89 @@ function canonEntryPageFixtures() {
                     {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true},
                     {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const, removable: true},
                     {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const},
-                    {value: "data:panel", label: "面板", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
+                    {value: "data:panel", label: "数值", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
                     {value: "data:knowing", label: "知道什么", iconClass: "i-lucide-key-round", segment: "own" as const, removable: true},
                     {value: "data:attitude", label: "目标与态度", iconClass: "i-lucide-target", segment: "own" as const, removable: true},
                     {value: "extra:experience", label: "经历", iconClass: "i-lucide-footprints", segment: "view" as const},
                     {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 12},
                 ];
-                const addable = [{value: "a.test.badge", label: "徽章"}, {value: "nbook.canon.skills", label: "技能"}];
                 return [
-                    {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
-                    {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), addable, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
-                    {id: "blocked", label: "写不了：添加不可用", input: {props: {items, addable, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], addable, panelId: "lab-panel"}, model: {modelValue: "text"}}},
+                    {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                    {id: "blocked", label: "写不了：添加不可用", input: {props: {items, canAdd: true, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], canAdd: true, panelId: "lab-panel"}, model: {modelValue: "text"}}},
                 ];
             })(),
             load: async () => (await import("./EntryPageNavFixture.vue")).default,
+        }),
+        defineLabFixture<typeof AddComponentPicker>({
+            component: "AddComponentPicker",
+            scenes: (() => {
+                type Group = "canon" | "plot" | "other";
+                const item = (value: string, label: string, iconClass: string, group: Group, extra: {fits?: boolean; present?: boolean; restore?: boolean} = {}) => ({value, label, iconClass, group, fits: extra.fits ?? false, present: extra.present ?? false, restore: extra.restore ?? false});
+                // 人物条目：人物、形象已经有了，数值去掉过；适用于人物的排在最前。
+                const person = [
+                    item("nbook.canon.person", "人物", "i-lucide-user-round", "canon", {fits: true, present: true}),
+                    item("nbook.canon.look", "形象", "i-lucide-shirt", "canon", {fits: true, present: true}),
+                    item("nbook.canon.skills", "技能", "i-lucide-sparkles", "canon", {fits: true}),
+                    item("nbook.canon.panel", "数值", "i-lucide-gauge", "canon", {restore: true}),
+                    item("nbook.canon.inventory", "物品栏", "i-lucide-backpack", "canon"),
+                    item("nbook.canon.place", "地点", "i-lucide-map-pin", "canon"),
+                    item("nbook.plot.knowing", "知道什么", "i-lucide-key-round", "plot", {fits: true}),
+                    item("nbook.plot.attitude", "目标与态度", "i-lucide-target", "plot", {fits: true}),
+                    item("a.test.badge", "徽章", "i-lucide-award", "other"),
+                ];
+                // 三十多个类型：列表在浮层里滚，搜索框留在上面。
+                const many = [
+                    ...person,
+                    ...[["关系", "i-lucide-users"], ["组织架构", "i-lucide-network"], ["势力范围", "i-lucide-flag"], ["地理", "i-lucide-mountain"], ["气候", "i-lucide-cloud-sun"], ["历史", "i-lucide-scroll"], ["货币", "i-lucide-coins"], ["魔法体系", "i-lucide-wand-sparkles"], ["咒语", "i-lucide-book-open"], ["契约", "i-lucide-file-signature"], ["职业", "i-lucide-briefcase"], ["称号", "i-lucide-crown"], ["病症", "i-lucide-heart-pulse"], ["饮食", "i-lucide-utensils"], ["服饰规范", "i-lucide-shirt"], ["节日", "i-lucide-party-popper"], ["语言", "i-lucide-languages"]].map(([label, icon], index) => item(`nbook.canon.extra${String(index)}`, label!, icon!, "canon")),
+                    ...[["伏笔", "i-lucide-bookmark"], ["秘密", "i-lucide-lock"], ["誓言", "i-lucide-hand"]].map(([label, icon], index) => item(`nbook.plot.extra${String(index)}`, label!, icon!, "plot")),
+                    ...[["好感度", "i-lucide-heart"], ["战斗力", "i-lucide-swords"], ["日程", "i-lucide-calendar"], ["相册", "i-lucide-images"]].map(([label, icon], index) => item(`a.test.extra${String(index)}`, label!, icon!, "other")),
+                ];
+                const english = [
+                    item("nbook.canon.skills", "Skills", "i-lucide-sparkles", "canon", {fits: true}),
+                    item("nbook.canon.panel", "Stats", "i-lucide-gauge", "canon", {restore: true}),
+                    item("nbook.canon.inventory", "Inventory", "i-lucide-backpack", "canon"),
+                    item("nbook.plot.knowing", "What they know", "i-lucide-key-round", "plot", {fits: true}),
+                    item("a.test.badge", "Badges", "i-lucide-award", "other"),
+                ];
+                return [
+                    {id: "person", label: "人物条目：适用的在最前，按设定、剧情、插件分组，去掉过的写“恢复”", input: {props: {items: person, kind: "人物"}}},
+                    {id: "no-kind", label: "没有种类：没有“适用于”那一组", input: {props: {items: person, kind: ""}}},
+                    {id: "many", label: "三十多个设定组：列表在浮层里滚", input: {props: {items: many, kind: "人物"}}},
+                    {id: "person-english", label: "英文界面", input: {props: {items: english, kind: "Person"}}},
+                ];
+            })(),
+            load: async () => (await import("./AddComponentPickerFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ComponentAgentView>({
+            component: "ComponentAgentView",
+            scenes: [
+                {id: "panel", label: "数值：给模型的那一节", input: {props: {position: "第 2 章末尾", text: "【数值】（设定组 panel，可以加字段）\n- 存款 = 900｜数｜单位 元\n- 魔力上限 = 3000｜数\n- 魔力 = 未知｜数（语义档：改起点或记一句）\n- 物品｜列表｜2 项\n  - [wand] 魔杖｜数量=1\n  - [cape] 斗篷｜数量=1"}}},
+                {id: "long-line", label: "很长的一行折行", input: {props: {position: "最初", text: "【人物】（设定组 character）\n- 性格 = 黑发，左眼下有颗痣，平时话少，遇到和妹妹有关的事会突然变得很固执，打工的地方没人知道她是魔法少女，也没人知道她其实是男生变的｜文字"}}},
+                {id: "loading", label: "设定组类型还在读", input: {props: {position: "第 2 章末尾", text: "", loading: true}}},
+                {id: "failed", label: "设定组类型读失败", input: {props: {position: "第 2 章末尾", text: "", failed: "世界已断开"}}},
+                {id: "panel-english", label: "英文界面", input: {props: {position: "End of chapter 2", text: "【数值】（设定组 panel）\n- 存款 = 900｜数｜单位 元"}}},
+            ],
+            load: async () => (await import("./ComponentAgentViewFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ComponentRawView>({
+            component: "ComponentRawView",
+            scenes: (() => {
+                const initial = {type: "nbook.canon.panel", version: 1, enabled: true, fields: {存款: 1000}, declared: [{id: "存款", label: "存款", kind: "number", unit: "元"}]};
+                const step = (id: string, chapter: string, text: string, value: number) => ({id, kind: "written", text, at: {kind: "chapter", chapter, key: 10}, status: "active", patches: [{op: "add", at: {entry: "xingxia", path: "panel.存款"}, value}]});
+                const changes = [step("c1", "1", "领了工资", 200), step("c2", "2", "买了书", -300)];
+                return [
+                    {id: "panel", label: "数值：初值与两条变更", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "more", label: "变更多于一页：再显示", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "added-by-change", label: "初值里没有、也没有变更", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "loading", label: "读取中", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, initialLoading: true, changesLoading: true, failed: null}}},
+                    {id: "changes-first", label: "变更先读回来、初值还在读", input: {props: {initial: undefined, changes, total: 2, remaining: 0, initialLoading: true, changesLoading: false, failed: null}}},
+                    {id: "failed", label: "读失败", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: "世界已断开"}}},
+                    {id: "panel-english", label: "英文界面", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
+                ];
+            })(),
+            load: async () => (await import("./ComponentRawViewFixture.vue")).default,
         }),
         defineLabFixture<typeof ViewPointPicker>({
             component: "ViewPointPicker",
@@ -2414,7 +2488,7 @@ function canonEntryPageFixtures() {
             scenes: (() => {
                 const draft = {name: "", kind: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], typesTouched: false, sameAs: null as string | null, appears: null as string | null};
                 // 种类的候选：登记的人物、组织、地点、物品在前，用过的“魔法”接在后面；点“人物”勾上人物与形象。
-                const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], types: [{id: "nbook.canon.person", label: "人物"}, {id: "nbook.canon.look", label: "形象"}, {id: "nbook.canon.panel", label: "面板"}], chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
+                const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], types: [{id: "nbook.canon.person", label: "人物"}, {id: "nbook.canon.look", label: "形象"}, {id: "nbook.canon.panel", label: "数值"}], chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
                 return [
                     {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
                     {id: "filled", label: "在星瑕下面建一个物品，启用面板", input: {props: options, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品", parent: "xingxia", types: ["nbook.canon.panel"]}}}},

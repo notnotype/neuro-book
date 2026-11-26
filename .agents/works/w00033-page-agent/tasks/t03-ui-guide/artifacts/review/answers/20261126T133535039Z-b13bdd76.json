@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00033-page-agent",
+    "taskId": "t03-ui-guide",
+    "artifactId": "review",
+    "answerId": "20261126T133535039Z-b13bdd76",
+    "artifactVersion": 1,
+    "contentHash": "968994d2f7446c4818ba5a0d1ffc19fbedf791a852d9786509d222ced08941a7",
+    "submittedAt": "2026-11-26T13:35:33.475Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "ask-layout": "folded",
+        "approve-look": true
+    },
+    "comments": {
+        "ask-layout": "注意 ui 规范，状态改变尽量少造成布局的不同。布局的不同要加动画。同时我觉得应该做一个可以选遮罩才行（你觉得要不要做一个遮罩？）。\n这个引导能回退吗？回退好不好做？"
+    },
+    "note": null
+}

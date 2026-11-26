@@ -1,0 +1,57 @@
+w00043 t19 第 C 段第 2 部分报告（worktree w00043-t19-e2e，分支 w00043-t19/e2e）
+
+一、合并结果
+feat/w00043-neurobot（含 b40104617、bd7c9db5a、7e660d554）并入，无冲突，已重建 server、web、e2e 三份产物。
+
+二、改写清单
+1. agent-conversation.e2e.ts：“浮动窗里自绘头”那条（原带“待改写”标注）
+   - 保留并只改定位：第一行顶到窗口顶、按空白与标题拖窗、按钮上不起拖、右键“移动到”、成了标签条时面板头回来、回到停靠。
+   - 新增：聊天头整个在“回到停靠”左边、回到停靠不在 [data-float-rail] 内、视图段内的“新对话”按钮上不起拖窗、键盘从“更多操作”起走（Shift+Tab 在输入框里会切模式）。
+   - 删除：宽窄两版、头像列、抽屉相关（片 6 后头像列与抽屉在窗里不存在，改由视图段承担，视图段另有新用例覆盖）；标签并入资源管理器与拆出的片段（消息视图受 confinedTo 限制，只能是窗里唯一的标签，拖别的标签进来不再成标签，Spec 39/48：整窗拖不并入）。
+2. workbench-shell.e2e.ts：“右栏拖空后还能打开”（原 322 行附近，浮动窗里自绘头盖住标签）
+   - 标签用键盘露出后改成整窗拖，断言窗动了、没有 [data-drop-feedback-label] 与 [data-drop-kind]（不并入）；回到停靠改走键盘（按钮拖后在屏外），回右栏后 activeContainer 断言为拖前读到的容器，没写过时是隐式容器 view:nbook.agent.conversation。
+
+三、新用例（agent-messages-float.e2e.ts，共 11 条，每条前一行注释写 Spec 条目）
+- 顶格 -> workbench-layout 输出 51 顶格、views 19；[data-panel-action="nbook.view.dock"]、[data-float-rail]、[data-agent-head]、elementFromPoint
+- 展开与收起（不漂移，含停靠再浮出） -> 输出 51 矩形；[data-messages-segment-toggle] aria-expanded、[data-float-chrome]
+- 靠右夹取 -> 输出 51 矩形（夹取）
+- 窗口太窄 -> 输出 51 与输出 50；data-rail-too-narrow、aria-description“窗口太窄”、[data-float-handle=left]
+- 轨宽手柄（拖、触界 420、Esc 零写入、刷新保留）-> 输出 51 与 WorkbenchFloatRailHandle.md；[data-float-rail-handle] aria-valuenow、data-dragging
+- 轨宽键盘（左右 10 像素、Home、双击）-> 同上
+- 搬动后状态：bot 页、会话页、归位（共 3 条）-> views 输出 21；搜索词、当前页、焦点
+- 验收 37：只有消息（每帧取样一份 [data-messages-segment]）、还有别的容器（右轨留着）-> workbench-layout 验收 37
+说明：任务说明写拖动中根上有 data-workbench-dragging，实测轨宽手势不写它，只在手柄上写 data-dragging，用例按后者断言。
+
+四、否定断言的变异检查（改产品后重建 e2e 外壳，跑完已全部撤回）
+- 顶格没被盖住：给框架按钮加 pointer-events:none -> 顶格用例失败（hitIn 判断 false）；用例内另有对照，视图段按钮中心点上最上面的不是 dock。
+- 窗口太窄不展开：删去请求被拒条件 -> 窄窗用例失败（记录里出现 expanded:true）。
+- 靠右夹取/不漂移：去掉夹取 -> 夹取用例失败（右边不齐）；展开时给左边加 5 像素偏移 -> 展开收起用例在“左边不动”处失败（差 5）。
+- Esc 零写入：Esc 改成提交 -> 轨宽用例在 Esc 后 aria-valuenow 为 360（应 420）处失败。
+- 不并入、无落点反馈（shell 用例）与验收 37 的“只有一份”：没有做产品变异；前者靠移动后位置断言加无 drop 标记，后者每帧取样计数，未单独变异。
+注意：第一轮同时改了五处，展开收起一条被 dock 的点击超时抢先失败，才补做了单独的偏移变异。
+
+五、最后一次运行（agent-messages-float、agent-conversation、workbench-shell、agent-messages-rail 四个文件，68 通过，4 失败，负载 8 左右）
+失败逐条（归类都是产品缺陷，用例不改）：
+1. agent-messages-float.e2e.ts:242 窄窗：点展开被拒后按钮没有 data-rail-too-narrow。依据：只把 view-rail.ts 里 window 位置的相等判断加上 current.tooNarrow === next.tooNarrow 的临时补丁，该条通过；补丁已撤回。原因：setPlacement 判“同一位置不换引用”只比较 width，tooNarrow 变化被吞掉。
+2. :373、3. :386、4. :406 搬动后焦点：搜索框在停靠与浮动之间搬完不再聚焦（toBeFocused 为 inactive），搜索词与页都在。探针：焦点落到 body 或剩下的入口按钮上。views 输出 21 要求搬完焦点仍在列表里。
+环境因素：未见（无超时、负载未超 12）。
+
+六、产品缺陷与需要的标记
+- 缺陷 a：上述 view-rail.ts 相等判断漏 tooNarrow（一行修法已验证）。
+- 缺陷 b：视图段在 Teleport 搬动后丢焦点，需在搬动前后保存并恢复焦点元素。
+- 不需要新增标记。
+
+七、提交
+461a9b21b 新增浮动用例；7325fc85f 两条旧用例改写。工作区干净（临时补丁与变异均已撤回，e2e 外壳已按干净源码重建）。
+完整日志：/tmp/review-t19-e2e/c2-final-run.log
+
+八、主会话的处理（2026-11-26）
+- 缺陷 a（窄窗不标 data-rail-too-narrow）：成立。94793b9d2，浮动窗位置的相等判断加上 tooNarrow，补单测并变异（去掉比较后单测失败）。
+- 缺陷 b（搬动后焦点丢，3 条）：成立，原因比报告写的多两层，三个提交：
+  1. 9e5bf637a：右轨的元素在外壳重渲染时先被拆掉，视图段的 pre 监听轮到时焦点已在 body、滚动量是 0。改成平时就记（focusin、focusout 之后仍看得见才清；滚动在捕获阶段记），搬完放回。浮出方向两条由此通过。
+  2. 25388f245：归位那条仍失败，工作台的焦点规则把焦点交给了别处（不是 body），去掉“焦点在 body 才放回”的条件。
+  3. 仍失败，trace 里临时探针（未提交）显示记下的搜索框已不在文档里：归位中途位置是 none，外壳把展开写成 false，展开的列表卸掉重建；AgentMessages 在 none 时也用 v-if 卸掉视图段。改为 none 时视图段藏起来不卸载（AgentMessages 契约同改，dom 测试改成“藏起来、换回来同一份”），外壳在 none 时不改展开状态（e42d450ea，共用合同的注释同改）。修之前的那几轮失败就是这几处的反向对照。
+- 验收 37 的“编辑区有中间帧”在负载 9 左右失败一次，单独重跑通过，归负载。
+- 运行：agent-messages-float、agent-messages-rail 28 条全过；agent-conversation、workbench-shell、lab-agent-ui、workbench-side-rail-segment 130 条，129 过，lab-agent-ui:572（角色模型选择器）是 master 上就有的失败。
+- 另补 workbench-side-rail-segment:498 异宽切换“整个过程没有 data-swap”的断言（1c5ccbc20），变异（去掉 railWidthOf 比较）后 352 帧带 data-swap、失败。
+- e2e 分支快进并入 feat/w00043-neurobot（1c5ccbc20）。

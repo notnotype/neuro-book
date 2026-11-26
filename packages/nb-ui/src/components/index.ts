@@ -98,7 +98,7 @@ export type {CollapsibleCardStatus} from "./layout/CollapsibleCard.vue";
 export type {CollapsibleRowStatus} from "./layout/CollapsibleRow.vue";
 export type {ScrollAreaOrientation, ScrollAreaType} from "./layout/ScrollArea.vue";
 export type {BreadcrumbItemData} from "./navigation/Breadcrumb.vue";
-export type {GenericTreeNode} from "./navigation/Tree.vue";
+export type {GenericTreeNode, TreeSurface, TreeToggleOn} from "./navigation/Tree.vue";
 export type {CheckboxOption} from "./form/CheckboxGroup.vue";
 export type {DateInputSize, DateInputVariant} from "./form/DateInput.vue";
 export type {InputType} from "./form/Input.vue";

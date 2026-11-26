@@ -1,0 +1,105 @@
+# 实验 7：服务端插件向窗口提供的远程服务订阅，各情形两端看到什么（2026-11-26）
+
+## 做法（全部情形共用）
+- 脚本：本目录 harness.ts（拓扑与插件）、run.ts（情形）。运行：
+  cd /home/notnotype/CodeRepository/neuro-book/.worktree/w00033-experiments && bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00033-page-agent/tasks/t01-design/experiments/e7-subscription/run.ts [情形编号…]
+  完整输出：run-output.txt（每个情形的逐条记录，编号即先后顺序）。
+- 用检出里真实的 nb-runtime：createApplication（插件宿主、按需激活、入口停止）、createRemoteNode、createRemoteRouter、createLinkPair。脚本按绝对路径导入；import.meta.resolve 与 Bun.resolveSync 核对过：remote.ts、application.ts、in-process.ts、typebox（含 nb-runtime 源码自己解析到的 typebox）都在检出里（run-output.txt 开头）。检出 git status 干净。
+- 链路：run.ts 一律是进程内链路，没有经过真实 WebSocket。进程内链路与 WebSocket 一样做 JSON 编解码、放到微任务投递；cut() 模拟断网（在途帧丢弃，两端收到关闭），close() 模拟一端主动关闭（在途帧先送达）。真实 WebSocket 另做一份对照（见后面“真实 WebSocket”一项）。
+- 插件：窗口里的 exp.window 提供合同 exp.window/window（provider "client"，事件 highlight，filter {step}，payload {outcome, n}），每次 subscribe 被调用、signal 触发都记一条；服务端的 exp.guide 用 context.remote 订阅。对照用：服务端 exp.feed 提供 feed（provider server），窗口里的 exp.listener 订阅它。
+- 记录里 [S] 是服务端订阅方，[P win-1] 是窗口提供方，[W-listener] 是窗口作订阅方的对照，[X] 是脚本动作。
+
+## 问题 1：服务端插件能不能向某个窗口提供的合同订阅（实测）
+- 能。情形 1a：use(合同).at({client: "win-1"}).events.highlight.subscribe(...) 得 {ok:true, 句柄}；窗口里提供入口按需激活，门面工厂看到的调用方是 hub/server/exp.guide#1，subscribe 收到 filter；窗口推的事件到达服务端监听。同一合同的 info() 与 lookup({client}) 也通（lookup 得 provided/available）。
+- 合同字段：provider: "client"；callers 写调用方的运行位置 "server"（服务端插件的调用方身份 location 是 "server"）。情形 1b：callers 只写 ["browser"] 时得 denied（“合同 exp.window/window 不允许 server 订阅”）。提供方入口 location "browser"、remoteProvides 列出合同、激活产出 provideRemote(合同, 工厂)。
+- 目标：情形 1c：provider client 的合同 use(合同) 只有 at（keys=["at"]），不能省略；at("server") 得 invalid-input（目标与提供方位置不符）；at({client: "win-404"}) 得 target-gone（实例不在线）。
+- 提供方的 RemoteSink 只有 next()：窗口不能自己结束订阅，只能推事件，由订阅方 release()。这与设计稿“窗口推结局、服务端收到即取消”一致。
+
+## 问题 2-1：订阅方主动取消；提供方推一条后订阅方取消（实测，进程内链路）
+- 情形 2a（订阅方 release，对应 eval 停止、单元超时）：顺序为 [S] release() → [P] subscribe#1 的 signal 触发（signal.reason 是通用的 AbortError）。订阅方自己 release 不调 onEnd（合同注释也写明 onEnd 不包括自己 release）。signal 触发后窗口再推 n=2：静默丢弃，两端都没有记录。
+- 情形 2b（窗口同一同步段连推 n=1、n=2；服务端在 n=1 的监听里同步 release）：[S] onEvent n=1 → [S] release → [P] signal 触发；n=2 没有送达。帧顺序上 n=2 已在 n=1 之后发出，到达服务端时订阅已从链路的订阅表删掉，被丢弃。
+- 情形 2c（服务端 release 后，unsubscribe 帧还没到窗口时窗口推 n=3）：窗口此刻 signal.aborted=false，n=3 照常发出，随后 [P] signal 触发；服务端没有收到 n=3（同样在服务端被丢弃）。
+- 结论：取消之后推的事件一律丢弃，不排队、不报错；与取消交错的事件也在订阅方一侧丢弃。窗口在 signal 触发前推过的结局可能被服务端丢掉（2c），所以“结局”只能算服务端收到的那一条；窗口推完结局不应自己当作已结算，以 signal 为准撤高亮。
+
+## 问题 2-2：客户端链路断开且不再回来（实测，进程内链路）
+- 情形 3a（cut()，窗口应用没有收口，模拟断网或页面被直接杀掉）：[P] signal 立即触发（AbortError）。[S] 什么都没收到：没有 onEnd、没有 onResync；注入时钟前进 1 小时后仍然没有。此时服务端调同一窗口的 info() 得 target-gone（“实例 win-1 不在线”），router.instances() 只剩 hub。服务端的订阅句柄一直悬空，直到插件自己 release() 或入口停止。
+- 情形 3b（窗口应用先有序停止 app.stop()，再关链路；pagehide 触发的停止能在关链路前跑完的情形）：[P] 提供入口开始停止 → 门面释放 → signal 触发 → [S] onEnd(provider-stopped)。
+- 真实页面关闭时属于 3a 还是 3b：从代码推断，两者都可能。nb-host 的 browser-host 在 pagehide 里只发出停止请求、不等待（注释写明浏览器卸载时不保证异步回调执行），provider-stopped 帧能不能在套接字关闭前发出去取决于停止在同步段里走到哪一步；本实验没有在真实浏览器里核对。设计上应按 3a（什么都收不到）兜底。
+- 原因（读代码）：服务端节点的订阅经路由的 upstream.subscribe 直接挂到成员链路的 Peer 上，链路关闭时 Peer 调 onEnd("disconnected")；node.ts 的 #startSubscription 里 onEnd 对 "disconnected" 且目标不在本实例的情形直接 return，留待“重连后重建”——但重建只在节点自己调 connect() 时发生，服务端节点从不 connect()，所以这条订阅既不结束也不重建。对照：路由转发给别的客户端的订阅（#routeSubscribe）会把 disconnected 改报 target-gone，情形 10 里另一个窗口作订阅方时就收到 onEnd(target-gone)。
+- 结论：设计稿“连接结束时订阅按通道合同结束、结局 window-gone”在现有内核上不成立：服务端订阅方收不到任何结束通知。这与通道 Spec 输出 7（“所经连接结束”取消订阅）和 RemoteSubscribeOptions.onEnd 的注释（“连接结束等原因结束”）不符，属于内核缺陷，要列进“要先补的上游”。
+
+## 问题 2-3：同一实例断线后重连（实测，进程内链路）
+- 情形 4a（cut() 后同一节点经新链路 connect()：同 id、同客户端身份、同 boot，路由当作同一实例重连）：[P] signal 在断线时触发；重连成功后 [S] 没有 onResync、没有 onEnd，[P] 的 subscribe 没有再被调用（次数仍为 1）。窗口对旧 sink 推 n=6 被丢弃。服务端订阅没有重建，也不会再收到任何事件。
+- 情形 4b（不切旧链路直接重连，路由接管半开连接、关闭旧链路）：结果相同：[P] signal 触发，[S] 无事件，subscribe 次数 1。
+- 对照（同一情形里窗口作订阅方订阅服务端 feed）：重连后服务端 feed 的 subscribe 再次被调用，[W-listener] 收到 onResync，之后推的 60 送达。即“重建并调用 onResync”只对挂在客户端节点上的订阅成立（客户端节点在 connect() 里 #resubscribeAll）。
+- 情形 4a 末尾：服务端插件在重连后自己再订阅一次，[P] subscribe#2 被调用（复用同一个门面，没有再调门面工厂），事件 n=8 送达。插件层补救可行，但服务端插件没有途径得知“这个窗口重连了”：断线不通知（见 2-2），instances() 也用不了（见问题 4），只能轮询 info() 之类的调用（断线期间 target-gone、重连后 ok）。
+- 结论：设计稿“同一实例短暂断线重连时订阅重建，窗口重装高亮，onResync 时问一次窗口”不成立：服务端订阅既不重建也不调 onResync。窗口一侧在断线瞬间就收到 signal，按 signal 撤高亮的话断线即撤，之后没有人重装。
+
+## 问题 2-4：窗口刷新（新实例重新连接）（实测，进程内链路）
+- 模拟：旧实例 win-1 的链路断开，另起新节点与新应用 win-1b（新实例 id、同一客户端身份 profile-1）连到同一路由。没有经过真实页面的 reload。
+- 情形 5a（旧实例未收口，cut()）：[P win-1] signal 触发；[S] 什么都没收到；win-1b 连上后 router.instances() 为 hub、win-1b；新实例的提供方没有被订阅（subscribe 次数 1）。服务端订阅仍悬空。
+- 情形 5b（旧实例先 app.stop() 再关链路）：[P win-1] 提供入口停止 → 门面释放 → signal 触发 → [S] onEnd(provider-stopped)；新实例照样不会被订阅。
+- 结论：刷新时服务端能否收到结束取决于旧页面的停止能否在套接字关闭前发出 provider-stopped（从代码推断不保证）；收不到时与 2-2 相同。订阅绑定在旧实例 id 上，不会转到新实例，这一点与设计稿一致。
+
+## 问题 2-5：提供方撤回提供项（实测，进程内链路）
+- 情形 7：窗口运行中在子作用域登记 exp.window，服务端订阅后关闭该作用域（停用插件）：[P] 提供入口开始停止 → 门面释放 → signal 触发 → [S] onEnd(provider-stopped)。之后服务端再订阅得 not-provided（“本实例没有提供 exp.window/window”）。
+- 结论：提供项撤回时服务端得到 provider-stopped，链路还在，所以这条路径可靠。窗口整个应用停止（3b、5b）走的也是这条路径。
+
+## 问题 2-6：服务端停止与重启（实测，进程内链路）
+- 情形 6a（有序停止，按 nb-host src/server/start.ts 的顺序：router.stopAdmission() → router.drain() → hub.app.stop() → router.close()；再起 boot 不同的新服务端，win-1 经新链路 connect()）：
+  hub.app.stop() 期间：[W-listener] onEnd(provider-stopped)（服务端 feed 提供入口先停）→ [P] signal 触发 → [P] 门面释放（exp.guide 入口停止，release 帧经仍在的链路送到窗口）。[S] 没有 onEnd（入口停止时句柄随作用域释放，属于“自己 release”）。router.close() 之后再无记录。win-1 连新服务端得 {ok:false, reason:"server-restarted"}；新服务端里没有任何订阅；之后窗口的 feed.ping 得 unavailable。
+- 情形 6b（崩溃：直接 router.close()，服务端插件没有收口；真实崩溃时旧服务端的插件代码已不存在）：[P] signal 在链路断开时触发；[S] 无记录；win-1 重连新服务端被拒为 server-restarted，[W-listener] 此时才收到 onEnd(server-restarted)。
+- 结论：服务端重启时，窗口一侧（提供方）只看到 signal 触发，看不到 server-restarted——server-restarted 只发给挂在客户端节点上的订阅（窗口作订阅方时），而且有序停止时那些订阅已先以 provider-stopped 结束。服务端一侧的订阅方随进程消失，“结局 window-gone”无人可收，也无须收。窗口按 signal 撤高亮即可。设计稿表里“订阅以 server-restarted 结束”对服务端订阅窗口这个方向不适用，宜改写成“窗口的 signal 触发、撤掉高亮；服务端的 eval 随进程结束”。
+
+## 问题 2-7：订阅建立期间断开；对照：客户端作订阅方（实测，进程内链路）
+- 情形 8b（窗口的 subscribe 被调用的同步段里 cut()，接受的结果还在路上）：[P] subscribe#1 被调用（窗口已装上高亮）→ [P] signal 触发 → [S] subscribe 结果 {ok:false, code:"unavailable", cause:"disconnected"}。建立失败的订阅不进重建集合。设计上：subscribe 交回 unavailable 时窗口可能已装过又撤掉高亮，服务端按 window-gone 或 window-unresponsive 处理即可。
+- 情形 10（对照：另一个窗口 win-2 订阅 win-1，经路由转发；合同 callers ["server","browser"]）：cut() win-1 → [P] signal 触发 → [W2] onEnd(target-gone)；win-1 同实例重连后 win-2 的订阅不重建（已以 target-gone 结束）。这说明内核对“提供方所在的客户端断开”给出的结束原因是 target-gone，只是服务端节点自己作订阅方时没有走这条路。
+
+## 问题 3：断线期间、取消之后提供方推的事件（实测）
+- 断线期间（情形 3a、4a）：窗口的 signal 在断线时已触发，之后 sink.next() 在提供方节点里直接返回（handleSubscribe 的 sink 先查 ended.aborted），不排队、重连后也不补发。
+- 事件在路上时断网（情形 8a，推 n=4 后同一同步段里 cut()）：帧被丢弃，服务端没收到；进程内链路的 cut() 丢弃在途帧，真实 WebSocket 断网时同理（未送达的不重发）。
+- 取消之后（情形 2a、2b、2c）：signal 触发后推的被提供方丢弃；signal 触发前、取消帧在路上时推的，在服务端被丢弃。全程没有排队，也没有任何一端得到“被丢弃”的通知。
+- 结论：结局事件可能丢失的三种情形：断线、事件在路上时断网、与取消交错。服务端拿不到结局时只能等订阅结束（目前断线时连结束都等不到，见 2-2）或自己的 timeout。
+
+## 问题 4：服务端插件调 context.remote.instances()（实测）
+- 最小复现：本目录 instances-repro.ts（只起服务端实例与路由，一个 onStartup 插件拿 context.remote）。运行：
+  cd /home/notnotype/CodeRepository/neuro-book/.worktree/w00033-experiments && bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00033-page-agent/tasks/t01-design/experiments/e7-subscription/instances-repro.ts
+  输出（instances-repro-output.txt）：服务端插件 instances() 得 {"ok":false,"code":"target-gone","cause":"target-gone","detail":"服务端自己的目标不经路由转发"}；宿主层 router.instances() 正常列出 hub。
+- run.ts 情形 9（连着一个窗口）：服务端插件同样 target-gone；窗口里的插件调 instances() 得 ["hub/server","win-1/browser"]；router.instances() 也是这两个。
+- 原因（读代码）：node.ts 的 #instances 总是经 #upstream.request 发往 target "server"、合同 runtime/instances；服务端节点的上游是路由，路由 upstream.request 对 "server" 目标解析为 {kind: "hub"}，走 #refusal 的 hub 分支得 target-gone。路由只在 #routeRequest（成员发来的请求）里本地回答 runtime/instances。
+- 结论：设计稿说的现状属实，要先补：服务端节点的 instances() 由路由本地回答（router.instances()），补用例。补 instances() 也解决不了 2-2、2-3：它只是此刻的快照，不通知上线下线。
+
+## 真实 WebSocket 对照（实测，非浏览器）
+- 脚本：本目录 ws.ts；输出 ws-output.txt。运行：cd 检出 && bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00033-page-agent/tasks/t01-design/experiments/e7-subscription/ws.ts
+- 做法：链路换成 nb-host 的 startRpcListener（Bun.serve WebSocket，127.0.0.1 随机端口，不碰 4817 的开发服务）与窗口一侧的 openRpcSocket（Bun 自带 WebSocket 客户端）；内核、插件、路由同 run.ts。窗口实例跑在同一 Bun 进程里，不是浏览器。真实 I/O 按条件轮询（10ms 一次，至多 3 秒），“没收到”另等 500ms。核对过 nb-host 解析的 @notnotype/nb-runtime/remote 是检出里同一个 remote.ts。
+- W1（窗口一侧关闭 WebSocket，不再回来）：[P] signal 触发；500ms 后服务端订阅方只有之前那条事件，没有 onEnd；router 已移除 win-1，info() 得 target-gone。与进程内 3a 相同。
+- W2（同一实例经新 WebSocket 重连）：重连 ok；窗口作订阅方的对照收到 onResync、feed 重新订阅；服务端订阅方没有 onResync、没有 onEnd，提供方 subscribe 次数仍为 1。与进程内 4a 相同。
+- W3（listener.stop(true) 强关全部连接，再起 boot-B 的新服务端）：[P] signal 触发；窗口重连被拒为 server-restarted，对照订阅 onEnd(server-restarted)；提供方没有再被订阅。与进程内 6b 相同。
+- 没有覆盖：服务端靠 WebSocket ping 发现半开连接（idleTimeout 120 秒）的时延；真实 Chrome 里 reload、关闭标签页时 pagehide 停止能否发出 provider-stopped。
+
+## 总表：服务端插件订阅窗口时两端看到什么（实测）
+| 情形 | 服务端订阅方 | 窗口提供方 |
+|---|---|---|
+| 订阅方 release | 无回调（自己 release 不调 onEnd） | signal 触发 |
+| 窗口推结局、订阅方在监听里 release | onEvent 一次，之后的事件丢弃 | signal 触发 |
+| 链路断开不回来（未收口） | 什么都没有，句柄悬空 | signal 触发 |
+| 链路断开前窗口有序停止 | onEnd(provider-stopped) | 入口停止、门面释放、signal 触发 |
+| 同实例断线重连 | 什么都没有；不重建、不调 onResync | 断线时 signal 触发；之后不再被订阅 |
+| 刷新（新实例） | 未收口：什么都没有；有序停止：onEnd(provider-stopped) | 旧实例 signal 触发；新实例不被订阅 |
+| 服务端有序停止并重启 | 入口停止时句柄随之释放，无回调 | 门面释放、signal 触发；重连得 server-restarted |
+| 服务端崩溃后重启 | （进程已不在） | signal 触发；重连得 server-restarted |
+| 提供方撤回 | onEnd(provider-stopped)；再订阅 not-provided | 入口停止、门面释放、signal 触发 |
+| 建立期间断开 | subscribe 得 unavailable(disconnected) | subscribe 被调用后 signal 触发 |
+
+## 其它观察（实测）
+- 窗口一侧 signal.reason 在所有情形都是通用的 AbortError，窗口分不出“服务端取消”“断线”“服务端停止”。要区分只能看窗口自己的连接状态（nb-host remote-session 的 onState），本实验没有接它。
+- 断线、刷新未收口时窗口为服务端调用方生成的门面不释放（只在 release 帧或提供入口停止时释放）；同实例重连后服务端再订阅复用同一个门面（4a 的 subscribe#2 没有再调门面工厂）。
+
+## 结论：对设计稿“等待的机制”的影响
+1. 成立的部分（实测）：服务端插件能用 use(合同).at({client}) 订阅窗口；合同写 provider "client"、callers ["server"]；订阅开始时窗口的 subscribe 被调用（装高亮），窗口推结局、服务端收到即 release，窗口的 signal 触发（撤高亮）；eval 停止或超时时服务端 release，窗口同样经 signal 撤高亮；提供项撤回或窗口有序停止时服务端得 provider-stopped；服务端重启时窗口经 signal 撤高亮，之后窗口重连得 server-restarted。
+2. 不成立的部分（实测，进程内与真实 WebSocket 一致）：
+   - 连接结束（断网、页面被直接关掉、刷新而旧页面没来得及收口）时，服务端订阅方收不到任何结束，eval 会一直等到高亮自己的 timeout（缺省 300 秒）。
+   - 同一实例短暂断线重连时，服务端订阅既不重建也不调 onResync，窗口断线时已撤高亮，之后没人重装。
+   - 设计稿表里服务端重启“订阅以 server-restarted 结束”：这个方向上 server-restarted 只有窗口作订阅方时才看得到；服务端订阅方随进程消失，窗口只看到 signal。
+3. 根因（读代码）：node.ts #startSubscription 的 onEnd 把目标不在本实例时的 "disconnected" 留给“重连后重建”，但重建只在节点自己 connect() 时发生，服务端节点从不 connect()。另一个窗口经路由订阅时，路由把 disconnected 改报 target-gone（情形 10），所以内核已有的结束语义是 target-gone、不重建。
+4. 要先补的上游（建议，交主会话定）：nb-runtime 服务端节点作订阅方、目标是成员实例时，成员链路关闭以 onEnd(target-gone) 结束订阅，与路由转发的订阅一致，并补用例（输出 7、验收 8 现有用例都是客户端作订阅方）。这一条与 instances() 本地回答（问题 4）同属服务端节点“上游是路由”时漏掉的路径。补上之后同实例短暂断线在服务端看来也是 target-gone：设计稿要么接受“断线即 window-gone”，要么让服务端插件自己在 target-gone 后限时重订阅（4a 证明重订阅可行）；“断线后重建并调 onResync”需要另改内核合同，不是补缺陷。

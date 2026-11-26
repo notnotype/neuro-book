@@ -7,8 +7,6 @@ import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DropdownMenu} from "@notnotype/nb-ui/components";
-
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {canonCatalogs} from "../text";
@@ -58,16 +56,21 @@ describe("EntryPageNav", () => {
         expect(wrapper.emitted("update:modelValue")).toEqual([["extra:experience"], ["plot"], ["plot"], ["text"]]);
     });
 
-    it("右键一页发 context；有能加的组时最后是“添加一组设定”，选一项发 add-component，打开时发 add-open；没有能加的就不出", async () => {
-        const wrapper = nav({addable: [{value: "nbook.canon.look", label: "形象"}]});
+    it("右键一页发 context；可以加时最后是“添加一组设定”，点了发 add-toggle（带这个按钮），浮层开着时 aria-expanded；有原因时不可用、悬停写原因；不能加就不出", async () => {
+        const wrapper = nav({canAdd: true});
         await wrapper.findAll("[role='tab']")[1]!.trigger("contextmenu", {clientX: 10, clientY: 20});
         expect(wrapper.emitted("context")).toEqual([["text", {x: 10, y: 20}]]);
-        const menu = wrapper.findComponent(DropdownMenu);
-        expect(menu.props("items")).toEqual([{id: "nbook.canon.look", label: "形象"}]);
-        menu.vm.$emit("update:open", true);
-        menu.vm.$emit("select", "nbook.canon.look");
-        expect(wrapper.emitted("add-open")).toHaveLength(1);
-        expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
+        const add = wrapper.get("[data-add-component]");
+        // 在 tablist 外面：分页列表里只有分页。
+        expect(wrapper.get("[role='tablist']").find("[data-add-component]").exists()).toBe(false);
+        expect(add.attributes("aria-expanded")).toBe("false");
+        await add.trigger("click");
+        expect(wrapper.emitted("add-toggle")).toEqual([[add.element]]);
+        await wrapper.setProps({addOpen: true});
+        expect(add.attributes("aria-expanded")).toBe("true");
+        await wrapper.setProps({addReason: "先不算计划"});
+        expect(add.attributes("disabled")).toBeDefined();
+        expect(add.attributes("title")).toBe("先不算计划");
         expect(nav().find("[data-add-component]").exists()).toBe(false);
     });
 });

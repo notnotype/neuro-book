@@ -13,6 +13,7 @@ import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
+import {fieldsText} from "../../shared/agent-fields";
 import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
@@ -27,7 +28,7 @@ import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionLabel, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -50,9 +51,13 @@ import type {EntryTextBlock, TextAddress} from "./entry-text";
 import type {InsertItem} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
+import ComponentAgentView from "./ComponentAgentView.vue";
+import ComponentRawView from "./ComponentRawView.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
 import {LOOK_PICK_KEY} from "../look-handoff";
+import {addComponentGroup} from "./add-component-picker";
+import type {AddComponentItem} from "./add-component-picker";
 import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
 import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
@@ -100,6 +105,8 @@ const props = defineProps<{
     entryKinds?: readonly EntryKind[];
     /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
     images?: CanonImages | null;
+    /** 登记这个设定组类型的插件 id：“添加一组设定”按它分组（输出 38）；不给时都算“插件”。 */
+    componentPlugin?: (type: string) => string | null;
 }>();
 
 const text = useCanonText();
@@ -214,13 +221,14 @@ const leadingTypes = computed(() => {
     const kind = entry.value?.kind?.trim();
     return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
 });
+/** 设定组类型的图标：它的视图声明里写的，没写时是通用的设定组图标。分页与“添加一组设定”共用。 */
+const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
 /**
  * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
  * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。
  */
 const tabs = computed<EntryTab[]>(() => {
     const items: EntryTab[] = [];
-    const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
     const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
@@ -486,6 +494,29 @@ const addableTypes = computed(() => {
     const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
     return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
+/**
+ * “添加一组设定”的浮层（输出 38，`AddComponentPicker`）：登记了的全部类型，标出适用于这个种类的、条目上已经有的（搜到时列出、点了
+ * 切过去）与去掉过的，按登记它的插件分组。
+ */
+const pickerItems = computed<AddComponentItem[]>(() => {
+    const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
+    const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
+    const kind = entry.value?.kind?.trim() ?? "";
+    return (componentsRead.value?.data?.items ?? []).map((type) => ({
+        value: type.id,
+        label: type.label,
+        iconClass: iconOf(type.id),
+        group: addComponentGroup(props.componentPlugin?.(type.id) ?? null),
+        fits: kind !== "" && (type.kinds ?? []).includes(kind),
+        present: present.has(type.id),
+        restore: removed.has(type.id),
+    }));
+});
+/** 搜到条目上已经有的那一组、点了它：切到它的分页。 */
+const showComponent = (type: string): void => {
+    const namespace = Object.entries(view.value?.namespaces ?? {}).find(([, item]) => item.type === type)?.[0];
+    if (namespace !== undefined) state.tab = `${DATA}${namespace}`;
+};
 /** 刚加上、等它出现在读取结果里再切过去的那一组的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
 const pendingTab = shallowRef<string | null>(null);
 watch([pendingTab, namespaces], ([pending, present]) => {
@@ -879,6 +910,20 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                 watch([active, edit.bar], ([on, bar]) => {
                     if (on && bar !== null) shown.value = bar;
                 }, {immediate: true});
+                /**
+                 * 短项浮层的宽（内容区，不含浮层的内边距）：从值的左缘量到条目页的右缘，夹在 16rem 与 22rem 之间。左缘对齐值的起点，
+                 * 放得下就不往左让、不盖住左边的标签列；连 16rem 都放不下时才由避让往左挪（输出 51）。打开时量一次。
+                 */
+                const popoverWidth = shallowRef<number | null>(null);
+                /** 浮层表面两侧的内边距（各 12）与边框（各 1）。 */
+                const POPOVER_PADDING = 26;
+                watch([active, () => inner.anchor], ([on, anchor]) => {
+                    if (!on || !(anchor instanceof HTMLElement)) return;
+                    const page = anchor.closest("[data-entry-page]");
+                    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+                    const room = page === null ? 22 * rem : page.getBoundingClientRect().right - anchor.getBoundingClientRect().left - POPOVER_PADDING;
+                    popoverWidth.value = Math.min(22 * rem, Math.max(16 * rem, room));
+                }, {immediate: true});
                 const content = () => {
                     // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
                     const given = shown.value!;
@@ -888,6 +933,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
                         "data-field-editor": full(),
+                        ...(inner.layout === "popover" && popoverWidth.value !== null ? {style: {width: `${String(popoverWidth.value)}px`}} : {}),
                         onCompositionstart: () => (composing.value = true),
                         onCompositionend: () => (composing.value = false),
                     }, [h(ConfirmBar, {
@@ -914,10 +960,11 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                             requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
                         };
                         // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
-                        // 成段的文字在原处展开（输出 51）：同一张编辑卡，不浮起来，把下面的内容推开；原文由卡片组件见到
-                        // `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md）。左右各伸出卡片的内边距，输入框里的字与原文对齐。
+                        // 成段的文字浮在原处（输出 51）：编辑卡相对原文那一格绝对定位，向下长、盖在后面的内容上，原文那一段的占位不变，
+                        // 别的内容不动；原文由卡片组件见到 `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md，那一格是
+                        // `position: relative`）。四边各伸出卡片的内边距，输入框里第一行的字与原文对齐。
                         // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute -inset-x-3 -top-3 z-[2] p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
@@ -928,7 +975,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                         side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,
-                        contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
+                        contentClass: "max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {
                             if (!open) dismiss();
                         },
@@ -1071,6 +1118,50 @@ const extraView = computed<{readonly component: Component | null; readonly loadi
     return {component: null, loading: slot.status === "loading", failed: slot.status === "failed" ? slot.reason : null};
 });
 
+/* ---------- 设定组的三种看法（输出 54） ---------- */
+
+type DataLook = "card" | "agent" | "raw";
+/** 设定组分页看哪一种；换分页回到卡片（不记进标签状态：重开页面也是卡片）。 */
+const dataLook = shallowRef<DataLook>("card");
+watch(tab, () => {
+    dataLook.value = "card";
+});
+const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: text(`entry.views.${value}`), testId: `data-look-${value}`})));
+/**
+ * “给 AI 看”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
+ * “可以加字段”来自设定组类型列表：还没读到或读失败时写读取中、失败，不拿空列表写出一段与模型所见不同的字。
+ */
+const agentView = computed(() => {
+    const namespace = dataNamespace.value;
+    const types = componentsRead.value?.data?.items;
+    if (dataLook.value !== "agent" || namespace === null || view.value === null) return {text: "", loading: false, failed: null};
+    if (types === undefined) {
+        const failure = componentsRead.value?.error ?? null;
+        return {text: "", loading: failure === null, failed: failure === null ? null : port.t(failureText(failure).text)};
+    }
+    return {text: fieldsText(view.value, entry.value?.declarations ?? {}, types, {namespace}), loading: false, failed: null};
+});
+/** “原始数据”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
+const rawEntry = useWorldRead(world, "object", () => (dataLook.value === "raw" ? {ref: {kind: "entry" as const, id: props.id}} : null));
+const rawChanges = useWorldList(world, "changes", () => (dataLook.value === "raw" && dataNamespace.value !== null ? {filter: {entry: props.id, namespace: dataNamespace.value}} : null), 20);
+const rawView = computed(() => {
+    const namespace = dataNamespace.value ?? "";
+    const stored = rawEntry.value?.data?.object as Entry | null | undefined;
+    const list = rawChanges.state.value;
+    const failure = rawEntry.value?.error ?? list?.error ?? null;
+    const total = list?.data?.total ?? 0;
+    return {
+        initial: stored?.init.data[namespace],
+        // 每条只留落在这个条目这一组下的改动：同一条变更里别的条目、别的组的改动与这一页无关。
+        changes: (list?.items ?? []).map(({change}) => ({...change, patches: change.patches.filter((patch) => patch.at.entry === props.id && patch.at.path.startsWith(`${namespace}.`))})),
+        total,
+        remaining: Math.max(0, total - (list?.items.length ?? 0)),
+        initialLoading: rawEntry.value?.loading ?? true,
+        changesLoading: list?.loading ?? true,
+        failed: failure === null ? null : port.t(failureText(failure).text),
+    };
+});
+
 /** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
 const dataView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
     const namespace = dataNamespace.value;
@@ -1122,8 +1213,11 @@ const setPosition = (value: string): void => {
             @aliases="changeAliases"
             @restore="restore()"
             :addable="addableTypes"
+            :picker-items="pickerItems"
+            :kind="entry?.kind?.trim() ?? ''"
             @add-open="openAddMenu()"
             @add-component="addComponent"
+            @show-component="showComponent"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
@@ -1209,10 +1303,19 @@ const setPosition = (value: string): void => {
                 @more="plot.more()"
             />
             <template v-else-if="dataNamespace !== null">
-                <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
-                <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
-                <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
-                <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                <div class="mb-3 flex justify-end">
+                    <SegmentedControl size="xs" :aria-label="text('entry.views.label')" :options="dataLooks" :model-value="dataLook" data-data-look @update:model-value="(value) => (dataLook = value as DataLook)" />
+                </div>
+                <Transition name="nb-ui-switch" mode="out-in">
+                    <ComponentAgentView v-if="dataLook === 'agent'" v-bind="agentView" :position="positionLabel(position, chapters, text)" @retry="world.retry()" />
+                    <ComponentRawView v-else-if="dataLook === 'raw'" v-bind="rawView" @more="rawChanges.more()" @retry="world.retry()" />
+                    <div v-else>
+                        <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
+                        <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+                        <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                        <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                    </div>
+                </Transition>
             </template>
             <template v-else-if="extraTab !== null">
                 <p v-if="extraView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: extraView.failed}) }}</p>

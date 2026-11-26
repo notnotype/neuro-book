@@ -26,6 +26,18 @@ export const CAPTION_BAND = 116;
 /** 宽屏才演镜头；更窄时工作台平放在首屏文字下面，不俯冲。 */
 export const SANCTUM_MIN_WIDTH = 900;
 
+/**
+ * 首屏停着时的几样动静（第 7 轮，开发者：首屏换得慢、动静小；@designer：一条单线接力的叙事，加克制的指针响应）：
+ * - `relay` 从字到世界：手稿上落墨写出敲门那一行，金尘飞到地图上显出海岸与灰塔，红笔圈出伏笔，金尘飞到人物卡、抽出星璃的便笺，
+ *   金尘沿航线走进剧情时间线，最后墨沉回纸里，再来一圈；约五秒一步，演一半停一半，同一时刻只有一处在动。
+ * - `parallax` 指针视差：几张纸、书角与丝带按远近跟着指针挪几个像素、纸倾不过两度，带阻尼的惯性；顶光不动。
+ * - `glint` 鎏金反光：书角的鎏金、标题下的花饰与按钮的金边上一团柔和的反光，跟着指针走（不扫白光）。
+ * - `peek` 悬停细看：指针停在哪张纸上，那张稳住、微微前倾，压在下面的那张多探出一点。
+ * - `ribbon` 丝带尾巴：指针一动，前景丝带的末端比书角慢半拍摆过去。
+ */
+export type SceneEffect = "relay" | "parallax" | "glint" | "peek" | "ribbon";
+export const SCENE_EFFECTS: readonly SceneEffect[] = ["relay", "parallax", "glint", "peek", "ribbon"];
+
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 /** 在 `from` 到 `to` 之间平滑地从 0 走到 1（两头不突变）。 */
 export const smooth = (from: number, to: number, value: number): number => {

@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261126T170343318Z-00fe9e26",
+    "artifactVersion": 6,
+    "contentHash": "004d2f62d69e0d0e38427c8f9aeb24a63fc3775c39dcad0fd97009f2bd52258d",
+    "submittedAt": "2026-11-26T17:03:43.318Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "act-one-r6": "revise",
+        "hero-r6": "revise"
+    },
+    "comments": {
+        "act-one-r6": "会话里答：滚动决定演到哪，bug 没有了，但访客看不出自己看完没有；这一幕不用访客滚动，落地以后自动连播，访客愿意就停着慢慢看；拖动时不要上下左右中的落点指示；几种做法都在 nbdev 做一个建议的 demo 示意。",
+        "hero-r6": "会话里答：首屏静中有动，切换速度有点慢、动静有点小，看看还能加些什么高级的东西；做成 demo 在 nbdev 上看。"
+    },
+    "note": null
+}

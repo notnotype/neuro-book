@@ -232,13 +232,14 @@ function hideNib(): void {
 
 interface DragPlan {
     readonly from: DeskTarget;
-    readonly ghost: {readonly label: string; readonly icon: string};
     readonly to: () => Point | null;
-    readonly area: () => DOMRectReadOnly | null;
     readonly commit: () => void;
 }
 
-/** 四拍：瞄准（停 180ms）、按下、拖着走（近落点放慢，落点亮着停一会儿）、松手。落下后的变化是工作台自己的布局动画。 */
+/**
+ * 四拍：瞄准（停 180ms）、按下、拖着走（近落点放慢）、松手。落下后的变化是工作台自己的布局动画。
+ * 第 6 轮起工作台不再画演示用的拖影（第 6 轮的演示走真的手势，见 `HomepageSanctum.vue`）；这一版第 3 轮的稿只留笔尖，松手时直接落账。
+ */
 async function dragDemo(signal: AbortSignal, plan: DragPlan): Promise<void> {
     const source = desk.value?.target(plan.from) ?? null;
     if (source === null) {
@@ -250,36 +251,13 @@ async function dragDemo(signal: AbortSignal, plan: DragPlan): Promise<void> {
     await glide(grab, 620, SETTLE, signal);
     await wait(180, signal);
     await press(signal);
-    // 拿起来的那个变淡（同产品拖动中的来源），放下或被打断时还原。
-    const lifted = desk.value?.sourceElement(plan.from) ?? null;
-    if (lifted !== null) {
-        lifted.style.transition = "opacity 120ms ease";
-        lifted.style.opacity = "0.4";
-    }
-    try {
-        desk.value?.showDrag({ghost: plan.ghost, at: grab, area: null});
-        const destination = plan.to() ?? grab;
-        let armed = false;
-        await glide(destination, 940, CARRY, signal, (point, progressed) => {
-            desk.value?.moveGhost(point);
-            if (!armed && progressed > 0.5) {
-                armed = true;
-                desk.value?.showDrag({ghost: plan.ghost, at: point, area: plan.area()});
-            }
-        });
-        await wait(360, signal);
-    } finally {
-        desk.value?.showDrag(null);
-        if (lifted !== null) lifted.style.opacity = "";
-    }
+    await glide(plan.to() ?? grab, 940, CARRY, signal);
+    await wait(360, signal);
     plan.commit();
     await release(signal);
     await leave(signal);
 }
 
-function rightHalf(rect: DOMRectReadOnly | null): DOMRectReadOnly | null {
-    return rect === null ? null : new DOMRectReadOnly(rect.left + rect.width / 2, rect.top, rect.width / 2, rect.height);
-}
 
 async function maximizeDemo(signal: AbortSignal): Promise<void> {
     const doubleTap = async (): Promise<void> => {
@@ -327,12 +305,10 @@ const STEPS: readonly Step[] = [
     {
         play: (signal) => dragDemo(signal, {
             from: "chapter-two-tab",
-            ghost: {label: "第二章 银钥匙", icon: "i-lucide-file-text"},
             to: () => {
                 const editor = desk.value?.target("first-editor") ?? null;
                 return editor === null ? null : {x: editor.left + editor.width * 0.82, y: editor.top + editor.height * 0.52};
             },
-            area: () => rightHalf(desk.value?.target("first-editor-body") ?? null),
             commit: () => void desk.value?.splitRight(),
         }),
         apply: () => void desk.value?.splitRight(),
@@ -340,12 +316,10 @@ const STEPS: readonly Step[] = [
     {
         play: (signal) => dragDemo(signal, {
             from: "explorer-entry",
-            ghost: {label: "作品", icon: "i-lucide-files"},
             to: () => {
                 const right = desk.value?.target("auxiliarybar") ?? null;
                 return right === null ? null : {x: right.left + right.width / 2, y: right.top + right.height * 0.42};
             },
-            area: () => desk.value?.target("auxiliarybar") ?? null,
             commit: () => void desk.value?.moveExplorer("auxiliarybar"),
         }),
         apply: () => void desk.value?.moveExplorer("auxiliarybar"),
@@ -354,12 +328,10 @@ const STEPS: readonly Step[] = [
     {
         play: (signal) => dragDemo(signal, {
             from: "alice-tab",
-            ghost: {label: "艾莉丝", icon: "i-lucide-file-text"},
             to: () => {
                 const landing = desk.value?.target("float-landing") ?? null;
                 return landing === null ? null : {x: landing.left + 72, y: landing.top + 18};
             },
-            area: () => desk.value?.target("float-landing") ?? null,
             commit: () => void desk.value?.floatAlice(),
         }),
         apply: () => void desk.value?.floatAlice(),
@@ -387,7 +359,6 @@ function stopRun(): void {
     run?.abort();
     run = null;
     hideNib();
-    desk.value?.showDrag(null);
     dimmed.value = false;
 }
 
