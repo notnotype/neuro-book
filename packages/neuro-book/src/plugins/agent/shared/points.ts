@@ -69,6 +69,8 @@ const ToolDeclarationSchema = Type.Object({
     global: Type.Optional(Type.Object({object: Type.String({pattern: "^[A-Za-z_$][A-Za-z0-9_$]*$"}), method: Type.String({pattern: "^[A-Za-z_$][A-Za-z0-9_$]*$"})}, {additionalProperties: false})),
     /** 代码调用时交回的结构化值的形状（JSON Schema，同 MCP 的 `outputSchema`，eval.md 输出 7）。 */
     returns: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    /** 失败时交给代码的 `details` 的形状，按失败码（JSON Schema，eval.md 输出 8）：只有这里列出的码才把 `details` 交给代码。 */
+    errors: Type.Optional(Type.Record(Type.String({minLength: 1}), Type.Record(Type.String(), Type.Unknown()))),
 }, {additionalProperties: false});
 
 const ProfileDeclarationSchema = Type.Object({

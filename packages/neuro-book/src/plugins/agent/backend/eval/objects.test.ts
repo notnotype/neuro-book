@@ -65,6 +65,16 @@ describe("文档（resources.md 输出 16）", () => {
         // 方法按名字排：click 在 snapshot 前面。
         expect(doc.indexOf("### page.click")).toBeLessThan(doc.indexOf("### page.snapshot"));
     });
+
+    test("输出 17：声明了 errors 的方法，文档按码列出 details 的形状；没声明的不写这一段", () => {
+        const doc = objectDoc({name: "page", plugin: "acme.a", summary: "看页面"}, [
+            {object: "page", method: "click", description: "点一个元素。", parameters: {type: "object", properties: {}}, errors: {"stale-ref": {type: "object", properties: {ref: {type: "string"}}, required: ["ref"]}, ambiguous: {type: "object", properties: {candidates: {type: "array", items: {type: "string"}}}, required: ["candidates"]}}},
+            {object: "page", method: "snapshot", description: "取页面的快照。", parameters: {type: "object", properties: {}}},
+        ]);
+        const click = doc.slice(doc.indexOf("### page.click"), doc.indexOf("### page.snapshot"));
+        expect(click).toContain("```ts\n\"ambiguous\": {candidates: string[]}\n\"stale-ref\": {ref: string}\n```");
+        expect(doc.slice(doc.indexOf("### page.snapshot"))).not.toContain("details");
+    });
 });
 
 describe("eval 按会话的说明（eval.md 输出 16）", () => {

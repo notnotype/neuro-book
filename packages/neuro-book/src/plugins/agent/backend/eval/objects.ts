@@ -28,6 +28,8 @@ export interface EvalMethod {
     readonly description: string;
     readonly parameters: unknown;
     readonly returns?: unknown;
+    /** 失败码到 `details` 的形状（eval.md 输出 8、17）。 */
+    readonly errors?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -64,6 +66,8 @@ export function objectDoc(object: EvalObject, methods: readonly EvalMethod[]): s
     for (const method of [...methods].sort((a, b) => a.method.localeCompare(b.method))) {
         lines.push(`### ${object.name}.${method.method}`, "", "```ts", `${method.method}(args: ${tsType(method.parameters)}): Promise<${method.returns === undefined ? "string" : tsType(method.returns)}>`, "```", "");
         if (method.description.trim() !== "") lines.push(method.description.trim(), "");
+        const errors = Object.entries(method.errors ?? {}).sort(([a], [b]) => a.localeCompare(b));
+        if (errors.length > 0) lines.push("失败时 `ToolCallError.details` 的形状，按 `code`：", "", "```ts", ...errors.map(([code, schema]) => `${JSON.stringify(code)}: ${tsType(schema)}`), "```", "");
     }
     return `${lines.join("\n").trimEnd()}\n`;
 }

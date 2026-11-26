@@ -77,11 +77,12 @@ export function evalDeclarationFor(declaration: ToolDeclaration, objects: readon
     return section === null ? declaration : {...declaration, description: `${declaration.description}\n\n${section.text}`, version: `${declaration.version}+${section.hash}`};
 }
 
-/** 会话里能经代码调的工具在 eval 看来的样子：名字是交给服务商的名字，`returns` 来自 `agent.tools` 的声明。 */
+/** 会话里能经代码调的工具在 eval 看来的样子：名字是交给服务商的名字，`returns` 与 `errors` 来自 `agent.tools` 的声明。 */
 export interface CodeTool {
     readonly id: string;
     readonly name: string;
     readonly returns?: Readonly<Record<string, unknown>>;
+    readonly errors?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
     readonly global?: {readonly object: string; readonly method: string};
 }
 
@@ -96,6 +97,8 @@ export interface EvalToolDeps {
     readonly handshakeMs?: number;
     /** 当场知道的重置给会话发提醒、新内核起来时撤回（eval.md）；不给时只写在下一次结果里。 */
     readonly notices?: EvalNotices;
+    /** 记一条诊断：工具交回的失败详情不合它声明的 `errors`、或太长没交给代码时。 */
+    readonly report?: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
 /** 内核入口：打包产物里是与本模块的包同目录的 `eval-kernel.js`（`build:server` 与应用包一起产出），源码里是 `kernel-entry.ts`。 */
@@ -313,7 +316,7 @@ class SessionKernel implements KernelHolder {
             if (ctx.invoke === undefined) return {ok: false, tool: label, status: "error", code: "invoke-not-allowed", message: "这次运行不能从代码里调工具。"};
             const outcome = await ctx.invoke(tool.id, (args ?? {}) as Record<string, unknown>, {signal: scope.signal, onWaiting: (waiting) => (waiting ? deadline.pause() : deadline.resume())});
             for (const image of outcome.images ?? []) addImage(image);
-            return replyOf(label, tool, outcome);
+            return replyOf(label, tool, outcome, this.deps.report);
         };
         // 代码一跑起来，超时或停止都要能打断它：两路信号都结束内核，结果由内核的退出交回。
         const killer = (): void => void kernel.kill();
@@ -411,15 +414,44 @@ interface CellOutcome {
     readonly timeoutSeconds: number;
 }
 
-/** 嵌套调用的结局交给代码（eval.md 输出 7、8）：声明了 `returns` 的成功时交回校验过的 `details`。 */
-function replyOf(label: string, tool: CodeTool, outcome: NestedOutcome): CallReply {
+/** 失败详情交给代码的上限：按 JSON 序列化后的 UTF-8 字节（eval.md 输出 8）。 */
+export const ERROR_DETAILS_MAX_BYTES = 8 * 1024;
+
+/**
+ * 嵌套调用的结局交给代码（eval.md 输出 7、8）：声明了 `returns` 的成功时交回校验过的 `details`；声明了 `errors` 且码在其中的，
+ * 失败时交回校验过、不超过上限的 `details`。交给代码的是 JSON 往返后的副本：内核经 IPC 收到的本来就是副本，这里先量出它的大小。
+ */
+function replyOf(label: string, tool: CodeTool, outcome: NestedOutcome, report?: EvalToolDeps["report"]): CallReply {
     if (outcome.status !== "ok") {
-        const message = outcome.status === "unknown" ? `${outcome.text}（不知道有没有执行完，先核对再重做）` : outcome.text;
-        return {ok: false, tool: label, status: outcome.status, ...(outcome.code === undefined ? {} : {code: outcome.code}), message};
+        let message = outcome.status === "unknown" ? `${outcome.text}（不知道有没有执行完，先核对再重做）` : outcome.text;
+        const schema = outcome.code === undefined ? undefined : tool.errors?.[outcome.code];
+        let details: unknown;
+        if (schema !== undefined && outcome.details !== undefined) {
+            const checked = errorDetails(schema, outcome.details);
+            if (checked.ok) details = checked.value;
+            else {
+                message = `${message}（${checked.note}）`;
+                report?.("eval-error-details-dropped", `${label} failed with ${outcome.code!}; its details were not passed to the code: ${checked.reason}`, {tool: tool.id, code: outcome.code!});
+            }
+        }
+        return {ok: false, tool: label, status: outcome.status, ...(outcome.code === undefined ? {} : {code: outcome.code}), message, ...(details === undefined ? {} : {details})};
     }
     if (tool.returns === undefined) return {ok: true, value: outcome.text};
     if (!Value.Check(tool.returns as never, outcome.details)) return {ok: false, tool: label, status: "error", code: "returns-mismatch", message: `${label} 交回的结构不符合它声明的 returns。`};
     return {ok: true, value: outcome.details};
+}
+
+function errorDetails(schema: Readonly<Record<string, unknown>>, details: unknown): {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly note: string; readonly reason: string} {
+    if (!Value.Check(schema as never, details)) return {ok: false, note: "失败详情不符合声明的形状，没有附上", reason: "does not match the declared shape"};
+    let text: string;
+    try {
+        text = JSON.stringify(details);
+    } catch (error) {
+        return {ok: false, note: "失败详情不能序列化，没有附上", reason: `cannot be serialized: ${error instanceof Error ? error.message : String(error)}`};
+    }
+    const bytes = Buffer.byteLength(text, "utf8");
+    if (bytes > ERROR_DETAILS_MAX_BYTES) return {ok: false, note: `失败详情超过 ${String(ERROR_DETAILS_MAX_BYTES / 1024)} KB，没有附上`, reason: `${String(bytes)} bytes, over ${String(ERROR_DETAILS_MAX_BYTES)}`};
+    return {ok: true, value: JSON.parse(text) as unknown};
 }
 
 /** 这个会话里的全局对象：至少有一个方法在生效工具集里的才算（eval.md 输出 16）。 */

@@ -12,7 +12,7 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
-import type {LogEvent, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import type {JsonValue, LogEvent, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {IDLE_CLOSE_MS} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -62,9 +62,11 @@ const ASK = "test.eval.ask";
 const WIDE = "test.eval.wide";
 /** 声明了 `returns`、却交回不符的结构的工具（eval.md 输出 7）。 */
 const SHAPE = "test.eval.shape";
+/** 声明了 `errors` 的工具：按参数交回带不同 `details` 的失败（eval.md 输出 8）。 */
+const FAILS = "test.eval.fails";
 /** 代码里调一次它，这个会话打开期间就有它的实现；会话关闭时实现被释放，记下会话 id（看会话真的关了）。 */
 const PROBE = "test.eval.probe";
-const TOOLS = ["nbook.agent.eval", "nbook.agent.read", "nbook.agent.write", "nbook.agent.shell", SHAPE, PROBE];
+const TOOLS = ["nbook.agent.eval", "nbook.agent.read", "nbook.agent.write", "nbook.agent.shell", SHAPE, FAILS, PROBE];
 const WIDE_TOOLS = [...TOOLS, "nbook.agent.spawn", "nbook.agent.send", "nbook.agent.answer", "nbook.agent.switch-mode"];
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -73,18 +75,26 @@ function testPlugin(): PluginDefinition {
     const profiles = [YOLO, ASK, WIDE].map((key) => agentProfile(key, {name: key, description: "测试用", tools: {required: toolsOf(key), optional: []}}));
     const shape = agentTool(SHAPE, {description: "交回一个数", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "shape", returns: {type: "object", properties: {n: {type: "number"}}, required: ["n"]}});
     const shapeTool: AgentToolImplementation = {create: () => ({execute: async () => ({text: "数好了", details: {n: "不是数"}})})};
+    const fails = agentTool(FAILS, {description: "按 kind 失败", parameters: {type: "object", properties: {kind: {type: "string"}}, required: ["kind"]}, version: "1", effect: "read", providerName: "fails", errors: {busy: {type: "object", properties: {retryAfter: {type: "number"}}, required: ["retryAfter"]}}});
+    const failures: Readonly<Record<string, {readonly code: string; readonly text: string; readonly details: JsonValue}>> = {
+        ok: {code: "busy", text: "忙", details: {retryAfter: 3}},
+        bad: {code: "busy", text: "忙", details: {retryAfter: "三秒"}},
+        big: {code: "busy", text: "忙", details: {retryAfter: 3, log: "字".repeat(3000)}},
+        undeclared: {code: "other", text: "别的", details: {retryAfter: 3}},
+    };
+    const failsTool: AgentToolImplementation = {create: () => ({execute: async (args) => ({status: "error" as const, ...failures[(args as {kind: string}).kind]!})})};
     const probe = agentTool(PROBE, {description: "什么也不做", parameters: {type: "object", properties: {}}, version: "1", effect: "read", providerName: "probe"});
     const probeTool: AgentToolImplementation = {create: (context) => ({execute: async () => "在", dispose: () => void closedSessions.push(context.sessionId)})};
     return {id: "test.eval", entries: [defineEntry({
         id: "server",
         location: "server",
-        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, probe.activationEvent],
-        contributions: [...profiles.map((item) => item.contribution), shape.contribution, probe.contribution],
+        activationEvents: ["onStartup", ...profiles.map((item) => item.activationEvent), shape.activationEvent, fails.activationEvent, probe.activationEvent],
+        contributions: [...profiles.map((item) => item.contribution), shape.contribution, fails.contribution, probe.contribution],
         activate: (context) => {
             remote = context.remote;
             return {contributions: {
                 "agent.profiles": Object.fromEntries([YOLO, ASK, WIDE].map((key) => [key, defineProfile({id: key, version: "1", name: key, description: "测试用", system: "测试。", tools: {required: toolsOf(key)}})])),
-                "agent.tools": {[SHAPE]: shapeTool, [PROBE]: probeTool},
+                "agent.tools": {[SHAPE]: shapeTool, [FAILS]: failsTool, [PROBE]: probeTool},
             }};
         },
     })]};
@@ -237,6 +247,24 @@ describe("eval", () => {
         expect(thrown!.text).not.toContain("kernel-entry");
         expect([exported!.code, shadowed!.code]).toEqual(["code-error", "code-error"]);
         expect(after!.text).toBe("undefined");
+    });
+
+    test("输出 8：声明了 errors 的码，ToolCallError 带照声明校验过的 details；不合格、超过 8 KB 的不带并在说明末尾写明、记诊断；没声明的码不带", async () => {
+        const w = await world();
+        const {session} = await open(w);
+        const code = [
+            "const seen = [];",
+            "for (const kind of ['ok', 'bad', 'big', 'undeclared']) { try { await tool.fails({kind}) } catch (e) { seen.push({kind, code: e.code, has: 'details' in e, details: e.details, message: e.message}) } }",
+            "JSON.stringify(seen)",
+        ].join("\n");
+        expect(JSON.parse((await one(session, {code})).text)).toEqual([
+            {kind: "ok", code: "busy", has: true, details: {retryAfter: 3}, message: "忙"},
+            {kind: "bad", code: "busy", has: false, message: "忙（失败详情不符合声明的形状，没有附上）"},
+            {kind: "big", code: "busy", has: false, message: "忙（失败详情超过 8 KB，没有附上）"},
+            {kind: "undeclared", code: "other", has: false, message: "别的"},
+        ]);
+        const dropped = w.settings.diagnostics("hub").query({}).records.filter((record) => record.event === "agent.eval-error-details-dropped");
+        expect(dropped.map((record) => (record.data as {code: string}).code)).toEqual(["busy", "busy"]);
     });
 
     test("输出 4：代码里调的工具交回的图并进结果（带着宽高）；一个单元至多 8 张，多的写明", async () => {

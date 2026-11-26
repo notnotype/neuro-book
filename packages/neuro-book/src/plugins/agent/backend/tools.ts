@@ -154,19 +154,24 @@ export class AgentTools {
         return this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).flatMap((descriptor) => {
             const global = descriptor.declaration.global;
             if (global === undefined || !valid.has(descriptor.id)) return [];
-            return [{object: global.object, method: global.method, description: descriptor.declaration.description, parameters: descriptor.declaration.parameters, ...(descriptor.declaration.returns === undefined ? {} : {returns: descriptor.declaration.returns})}];
+            const {description, parameters, returns, errors} = descriptor.declaration;
+            return [{object: global.object, method: global.method, description, parameters, ...(returns === undefined ? {} : {returns}), ...(errors === undefined ? {} : {errors})}];
         });
     }
 
-    /** 会话工具集在代码里的样子（eval.md 输出 6、7）：名字是交给服务商的名字；`returns` 只在 `agent.tools` 的声明里，内核的声明没有。 */
+    /** 会话工具集在代码里的样子（eval.md 输出 6 到 8）：名字是交给服务商的名字；`returns` 与 `errors` 只在 `agent.tools` 的声明里，内核的声明没有。 */
     codeToolsOf(declarations: readonly ToolDeclaration[]): CodeTool[] {
-        const returns = new Map(this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).flatMap((descriptor) => (descriptor.declaration.returns === undefined ? [] : [[descriptor.id, descriptor.declaration.returns] as const])));
-        return declarations.map((declaration) => ({
-            id: declaration.id,
-            name: providerToolName(declaration),
-            ...(returns.has(declaration.id) ? {returns: returns.get(declaration.id)!} : {}),
-            ...(declaration.global === undefined ? {} : {global: declaration.global}),
-        }));
+        const declared = new Map(this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).map((descriptor) => [descriptor.id, descriptor.declaration] as const));
+        return declarations.map((declaration) => {
+            const {returns, errors} = declared.get(declaration.id) ?? {};
+            return {
+                id: declaration.id,
+                name: providerToolName(declaration),
+                ...(returns === undefined ? {} : {returns}),
+                ...(errors === undefined ? {} : {errors}),
+                ...(declaration.global === undefined ? {} : {global: declaration.global}),
+            };
+        });
     }
 
     forget(id: string, wrapper: ToolWrapper): void {
@@ -206,7 +211,7 @@ export class AgentTools {
             strict: declaration.strict ?? false,
             ...(declaration.customFormat === undefined ? {} : {customFormat: declaration.customFormat}),
             effect,
-            // 代码调用的三个字段原样交给内核（harness/runtime.md 输出 90 到 93）；`returns` 只有 eval 用，不进内核。
+            // 代码调用的三个字段原样交给内核（harness/runtime.md 输出 90 到 93）；`returns` 与 `errors` 只有 eval 用，不进内核。
             ...(declaration.invokes === true ? {invokes: true as const} : {}),
             ...(declaration.codeCallable === false ? {codeCallable: false as const} : {}),
             ...(declaration.global === undefined ? {} : {global: declaration.global}),
