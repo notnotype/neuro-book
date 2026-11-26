@@ -41,7 +41,7 @@ updated: 2026-11-26
 
 富文本 spike 并进 master（Lab 的 `EntryRichDraft`，草稿区 `drafts/w00055-t01/`，分支 `w00055-t01/drafts`）：取值小块、条件（只画生效的一支，可打开全部分支）、条目引用、`{` 与 `@` 插入、点开小块的浮层、源文字切换与写坏标签的拦截。Gemini 顾问的意见（[说明](evidences/designer-r1-brief.txt)、[意见](evidences/designer-r1.txt)）多数已采纳，没采纳的列在评审板上。
 
-第 2 轮[评审板](artifacts/review/index.html)问两题：Agent 读主文字时带不带值（推荐不带）；条件默认的画法（推荐只画生效的一支）。
+第 2 轮[评审板](artifacts/review/index.html)问两题：Agent 读主文字时带不带值（推荐不带）；条件默认的画法（推荐只画生效的一支）。开发者在会话里答第一题：带值、只给看（`agent-text = inline-view`，代录）；第二题没答，按推荐继续。试用反馈与问题见 Work 的决定表，spike 照改。
 
 ## 下一步
 
