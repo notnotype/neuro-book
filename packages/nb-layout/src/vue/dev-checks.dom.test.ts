@@ -147,7 +147,7 @@ describe("开发模式的配置检查（Spec 输出 151）", () => {
         // 收成标题行的面板（主轴上刚性）夹在中间：同上。
         const titled = createGrid<string>({kind: "branch", id: "root", orientation: "vertical", children: [
             {kind: "leaf", id: "a", ref: "a", size: {width: 0, height: 300}},
-            {kind: "leaf", id: "t", ref: "t", size: {width: 0, height: 200}, minimumSize: {width: 0, height: 100}, collapse: {collapsed: true, collapsedSize: 28, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24}},
+            {kind: "leaf", id: "t", ref: "t", size: {width: 0, height: 200}, minimumSize: {width: 0, height: 100}, collapse: {collapsed: true, collapsedSize: 28, collapseThreshold: 24, expandThreshold: 24}},
             {kind: "leaf", id: "b", ref: "b", size: {width: 0, height: 300}},
         ]});
         mountBare({node: titled.root(), layout: titled.layout(box), onGestureCommit: ACCEPT});

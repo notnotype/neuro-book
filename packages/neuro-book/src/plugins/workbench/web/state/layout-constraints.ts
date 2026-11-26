@@ -3,9 +3,9 @@
  */
 
 import {clampFloatRect, GRID_UNBOUNDED} from "@notnotype/nb-layout";
-import {findTreeNode, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-workbench-layout";
-import type {GridExtent, GridOrientation} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
+import {findTreeNode, railLeafId, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-workbench-layout";
+import type {GridExtent, GridLayoutResult, GridNodeInput, GridOrientation} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjection, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 
 import {
     SASH_PX,
@@ -17,6 +17,7 @@ import {
     SHELL_PANEL_COLLAPSED_HEIGHT,
     SHELL_PANEL_MIN_HEIGHT,
     SHELL_PANEL_MIN_WIDTH,
+    SHELL_RAIL_WIDTH,
     SHELL_SIDEBAR_MAX_WIDTH,
     SHELL_SIDEBAR_MIN_WIDTH,
     SHELL_STATUSBAR_HEIGHT,
@@ -94,17 +95,28 @@ export function panelConstraints(panel: PanelRecord, region: PanelName | null, c
 
 /**
  * 入口条叶顶上被卡片缩掉的那一截（输出 47）：卡片在叶里按主题的缝往里缩，入口条叶只有这一行，缩掉的要加回叶上，卡片里才是完整的一行头高
- * （分节的叶比头高，缩掉的是正文那段，不用加）。右栏顶上贴着窗体，缩一整条缝；底部面板顶上挨着编辑区、隔一条分隔线，缩半条缝减半条线。
- * 和别的卡片同一套规则（`shell/adjacency.ts` 的 `cardInsetPx`）：右栏顶上是外边，底部面板顶上是隔着分隔线的内边。
+ * （分节的叶比头高，缩掉的是正文那段，不用加）。只有底部面板有入口条：它顶上挨着编辑区、隔一条分隔线，缩半条缝减半条线，
+ * 和别的卡片同一套规则（`shell/adjacency.ts` 的 `cardInsetPx`，隔着分隔线的内边）。
  */
-function stripTopInset(region: PanelName, gap: number): number {
-    return cardInsetPx(region === "auxiliarybar" ? {kind: "outer", occupied: 0} : {kind: "inner", occupied: SASH_PX}, gap);
+function stripTopInset(gap: number): number {
+    return cardInsetPx({kind: "inner", occupied: SASH_PX}, gap);
 }
 
 /**
  * `doc` 是要投影的那份文档：约束按面板所在的区域取，区域要从树里问。拿它去投影别的文档（拖动的预览）时，在这份文档里没有的面板按“不在区域里”算。
  */
-export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number; readonly squeezed?: boolean}): LayoutProjectionOptions {
+export function layoutProjectionOptions(input: {
+    readonly doc: LayoutDoc;
+    readonly catalog: ViewCatalog;
+    readonly viewportWidth: number;
+    readonly removed?: ReadonlySet<string>;
+    readonly cardGap?: number;
+    readonly squeezed?: boolean;
+    /** 右轨这一次生效的卡片宽（预算的结果，`railBudget`）；不给是收着的。放不下收走（`presentationCollapse`）与基线都按收着算，不给它。 */
+    readonly railWidth?: number;
+    /** 右栏这一次按预算呈现的宽（`railBudget` 的 `regionWidth`）。 */
+    readonly regionWidth?: number;
+}): LayoutProjectionOptions {
     // 一次投影里每块面板都问一遍，`regionOf` 要从根找祖先：同一份文档只算一次。
     const regions = new Map<string, PanelName | null>();
     const regionFor = (id: string): PanelName | null => {
@@ -118,10 +130,86 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
         headHeight: PANEL_HEAD_HEIGHT,
         collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
         sashSize: SASH_PX,
-        // 右栏、底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏的入口在活动栏上。
-        regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT + stripTopInset(region, input.cardGap ?? 0), mergeSole: true}),
+        // 底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏、右栏的入口在各自的侧轨上（输出 22、50）。
+        regionStrip: (region) => (region === "panel" ? {height: PANEL_HEAD_HEIGHT + stripTopInset(input.cardGap ?? 0), mergeSole: true} : null),
+        // 右栏外侧的右轨（输出 50）：叶厚同活动栏，卡片宽加上它和窗体、右栏之间的缝。展开的宽度由预算给。
+        rail: (region) => (region === "auxiliarybar" ? (input.railWidth ?? SHELL_RAIL_WIDTH) + Math.max(0, input.cardGap ?? 0) : null),
+        ...(input.regionWidth === undefined ? {} : {regionWidth: {auxiliarybar: input.regionWidth}}),
         ...(input.removed === undefined ? {} : {removed: input.removed}),
     };
+}
+
+/**
+ * 侧轨展开前的基线（输出 50 的“预算”）：所有侧轨都收着时求解出的编辑组宽、编辑组的最小宽、右栏宽与右栏此刻的有效最小宽（求解器执行的那个：
+ * 区域那一行与当前容器里各视图声明的并，`panelConstraints`）。
+ */
+export interface RailBaseline {
+    readonly editor: number;
+    readonly editorMinimum: number;
+    readonly region: number;
+    readonly regionMinimum: number;
+}
+
+/** 视图段声明的宽度范围与展开时聊天区的下限（docs/specs/workbench/views.md 输出 21 的 `VIEW_RAIL`）。都是卡片宽。 */
+export interface RailSegmentBounds {
+    readonly minimum: number;
+    readonly maximum: number;
+    readonly chatMinimum: number;
+}
+
+/**
+ * 预算的结果：`width` 是这一次生效的卡片宽（被拒时是收着的宽）；`regionWidth` 是区域这一次要按它呈现的宽（只在要压区域时有，不写意图）。
+ * 被拒（`too-narrow`）时用户意图不改，窗口变化时重算。
+ */
+export type RailBudget =
+    | {readonly result: "done"; readonly width: number; readonly regionWidth?: number}
+    | {readonly result: "too-narrow"; readonly width: number};
+
+/**
+ * 从按收着求解的一次布局里取预算的基线（输出 50 的“预算”）：右栏是代表它的那个呈现节点，编辑组是和右栏同在一个横向分支里、装着编辑组的那个孩子；
+ * 宽与有效最小宽都取求解器的（`layout.constraints`），和展开时求解器执行的同一套。右栏不在呈现里（放不下收走）时它的宽与最小都是 0。
+ * 找不到编辑组（没有装着编辑组的并排孩子）时是 null：没有可让的编辑组，调用方按不能展开处理。
+ */
+export function railBaseline(doc: LayoutDoc, projection: LayoutProjection, layout: GridLayoutResult): RailBaseline | null {
+    const regionNode = [...projection.regionAnchors].find(([, anchor]) => anchor === "auxiliarybar")?.[0] ?? null;
+    const holdsEditor = (node: GridNodeInput<string>): boolean => (node.kind === "leaf" ? doc.panels[node.id]?.role === "editor" : node.children.some(holdsEditor));
+    // 和右栏（或右轨）并排的那个横向分支：右轨总在它里面，右栏被收走时也找得到。
+    const anchorLeaf = regionNode ?? railLeafId("auxiliarybar");
+    const parent = parentOf(projection.input, anchorLeaf);
+    const editor = parent?.kind === "branch" && parent.orientation === "horizontal" ? parent.children.find(holdsEditor) : undefined;
+    if (editor === undefined) return null;
+    const width = (id: string | null): number => (id === null ? 0 : layout.sizes[id]?.width ?? 0);
+    const minimum = (id: string | null): number => (id === null ? 0 : layout.constraints[id]?.minimumSize.width ?? 0);
+    return {editor: width(editor.id), editorMinimum: minimum(editor.id), region: width(regionNode), regionMinimum: minimum(regionNode)};
+}
+
+function parentOf(node: GridNodeInput<string>, id: string): GridNodeInput<string> | null {
+    if (node.kind === "leaf") return null;
+    for (const child of node.children) {
+        if (child.id === id) return node;
+        const found = parentOf(child, id);
+        if (found !== null) return found;
+    }
+    return null;
+}
+
+/**
+ * 展开的侧轨要多少宽、从哪里来（docs/specs/ui/workbench-layout.md 输出 50 的“预算”）：先压编辑组到最小，再压区域到聊天区的下限（不低于区域的有效最小宽），还不够就按能给的展开，
+ * 能给的比视图段的下限还窄就不展开。请求宽先夹进视图段声明的范围。纯函数：只看基线，所以结果不随这次展开本身的呈现变化来回翻。
+ */
+export function railBudget(input: {readonly baseline: RailBaseline; readonly request: number; readonly segment: RailSegmentBounds}): RailBudget {
+    const {baseline, segment} = input;
+    const request = Math.min(segment.maximum, Math.max(segment.minimum, input.request));
+    const wanted = request - SHELL_RAIL_WIDTH;
+    if (wanted <= 0) return {result: "done", width: request};
+    const fromEditor = Math.max(0, baseline.editor - baseline.editorMinimum);
+    // 区域压不过求解器的最小宽：只按聊天下限算的话，预算以为右栏让出了，求解器却压别的固定节点（左侧栏）。
+    const fromRegion = Math.max(0, baseline.region - Math.max(segment.chatMinimum, baseline.regionMinimum));
+    if (wanted <= fromEditor) return {result: "done", width: request};
+    if (wanted <= fromEditor + fromRegion) return {result: "done", width: request, regionWidth: baseline.region - (wanted - fromEditor)};
+    const available = SHELL_RAIL_WIDTH + fromEditor + fromRegion;
+    if (available < segment.minimum) return {result: "too-narrow", width: SHELL_RAIL_WIDTH};
+    return {result: "done", width: available, regionWidth: baseline.region - fromRegion};
 }
 
 /** 接受矩阵（输出 26）：工具视图只进工具面板，编辑器标签只进编辑组，哪个区域都一样。哪条边算落点归 `layoutEdgeTarget`。 */

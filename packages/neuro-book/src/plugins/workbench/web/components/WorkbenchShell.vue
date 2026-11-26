@@ -21,17 +21,17 @@ import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {WORKBENCH_FILE_DROP} from "../../shared/contracts";
-import type {WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
+import type {ViewRailRequestResult, WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
-import {MOVE_VIEW_COMMAND, moveTargetItem} from "../commands/view-commands";
+import {MOVE_VIEW_COMMAND, moveTargetItem, moveTargetsFor} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {focusLandings, isSoleWindow, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import {entriesOnRail, focusLandings, isSoleWindow, layoutStructureKey, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {ContainerEntry, FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -57,7 +57,7 @@ import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 import WorkbenchToolStrip from "./WorkbenchToolStrip.vue";
-import type {ToolStripEntry, ToolStripItem} from "./WorkbenchToolStrip.vue";
+import type {ToolStripEntry, ToolStripItem, ToolStripSegment} from "./WorkbenchToolStrip.vue";
 import WorkbenchViewFrame from "./WorkbenchViewFrame.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
 import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
@@ -154,7 +154,75 @@ const instances = useViewInstances({
         const panel = panelOfView(viewId);
         return panel === null ? null : regionOf(doc.value, panel);
     },
+    requestRail: (viewId, expanded) => requestViewRail(viewId, expanded),
 });
+
+// ── 视图段（docs/specs/workbench/views.md 输出 21，docs/specs/ui/workbench-layout.md 输出 50）─────────────────
+
+/** store 按它判当前容器有没有视图段：声明了、交付着、实例没有渲染出错。 */
+props.layout.actions.acceptRailBounds((viewId) => (instances.instances.get(viewId)?.status === "render-failed" ? null : props.views.railOf?.(viewId) ?? null));
+
+/** 视图段此刻借给谁：右栏当前容器恰有一节、是这个视图（`state.rail`）。 */
+const railOwner = computed(() => state.value.rail?.viewId ?? null);
+
+/** 视图的 `request`：只有此刻借着视图段的那个视图能请求，别的（换了容器、换了位置）是 `revoked`。 */
+function requestViewRail(viewId: string, expanded: boolean): ViewRailRequestResult {
+    const rail = state.value.rail;
+    if (rail === null || rail.viewId !== viewId) return "revoked";
+    const result = props.layout.actions.requestRailExpanded(rail.container, expanded);
+    return result.ok ? result.result : "revoked";
+}
+
+/** 右轨交来的视图段位置。 */
+const railElements = shallowRef<{readonly main: HTMLElement; readonly foot: HTMLElement} | null>(null);
+function setRailElements(main: HTMLElement | null, foot: HTMLElement | null): void {
+    railElements.value = main === null || foot === null ? null : {main, foot};
+}
+
+/**
+ * 分发借用（views.md 输出 21 的“借用”）：同面板头的做法，按已提交的文档汇总、在同一次 flush 里分给每个声明了视图段的实例：借着的那个拿到右轨的位置与生效的展开状态，
+ * 别的都是 `none`。右轨拆掉时先在这里把位置收回（元素交 null），视图的 `Teleport` 不会往已拆掉的元素里送。
+ */
+watchEffect(() => {
+    const owner = railOwner.value;
+    const elements = railElements.value;
+    const expanded = state.value.rail?.expanded === true;
+    for (const viewId of instances.instances.keys()) {
+        const control = instances.railOf(viewId);
+        if (control === null) continue;
+        const borrowing = viewId === owner && elements !== null && railSegment.value !== null;
+        control.setPlacement(borrowing ? {kind: "rail", main: elements.main, foot: elements.foot} : {kind: "none"});
+        control.setExpanded(borrowing && expanded);
+    }
+});
+
+/** 右轨的视图段（侧轨组件的 `segment`）：当前容器有视图段时才有。 */
+const railSegment = computed((): ToolStripSegment | null => {
+    const rail = state.value.rail;
+    if (rail === null || rail.bounds === null || rail.viewId === null) return null;
+    const status = instances.instances.get(rail.viewId)?.status;
+    return {
+        expanded: rail.expanded,
+        tooNarrow: rail.tooNarrow,
+        loading: status === "loading",
+        width: rail.expanded ? rail.width : rail.requested,
+        bounds: rail.bounds,
+        revision: layoutStructureKey(doc.value),
+        handleDisabled: state.value.maximized !== null,
+        labels: {expand: message("shell.rail.expand"), collapse: message("shell.rail.collapse"), tooNarrow: message("shell.rail.tooNarrow"), handle: message("shell.rail.handle")},
+    };
+});
+
+function toggleRailSegment(): void {
+    const rail = state.value.rail;
+    if (rail === null) return;
+    props.layout.actions.requestRailExpanded(rail.container, !rail.expanded);
+}
+
+function commitRailWidth(width: number): void {
+    const rail = state.value.rail;
+    if (rail !== null) props.layout.actions.commitRailWidth(rail.container, width);
+}
 
 function layoutOfView(viewId: string): "scroll" | "fill" {
     return catalog.value.get(viewId)?.layout ?? "scroll";
@@ -257,8 +325,8 @@ function stripWidthOf(region: PanelName): number | null {
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
 function viewActionsOf(viewId: string, panelId: string): TitleActionsModel {
-    // 浮动窗不在呈现尺寸里：按它记录里的矩形算。不读画出来的那份：缩放时它每帧变，所有面板头都要跟着重算。
-    const width = doc.value.floats.find((float) => float.panel === panelId)?.rect.width ?? state.value.presented[panelId]?.width ?? null;
+    // 和头接管标题区按同一个宽（`headWidthOf`）：区域收起的那段过渡里两边都按显示着的时候算，动作不先收进“⋯”。
+    const width = headWidthOf(panelId);
     return props.chrome?.viewActions(viewId, catalog.value.get(viewId)?.actions ?? [], resolver, instanceOf(viewId), buttonBudget(width, headReserved(panelId), Number.POSITIVE_INFINITY)) ?? NO_TITLE_ACTIONS;
 }
 
@@ -338,16 +406,35 @@ function headOfPanel(panelId: string) {
 }
 
 /**
- * 并进入口条时视图接管标题区的最小宽度（views.md 输出 19）：头那一段（入口条叶的宽减去入口与框架按钮）窄于它时不接管，头回到普通画法、视图在自己的内容里画头。
+ * 视图接管标题区的最小宽度（views.md 输出 19）：头里留给视图的那一段（头的宽减去框架按钮；并进入口条时再减去入口）窄于它时不接管，头回到普通画法、视图在自己的内容里画头。
  * 只看布局给的宽度，不看视图送进来的内容，所以不会自己来回翻。按对话视图两侧列的实际宽度定；有第二个接管标题区的视图时改成视图声明。
  */
 const VIEW_HEAD_MIN_PX = 220;
+/**
+ * 面板最近一次不为零的布局宽：区域隐藏、拖到零的那段过渡里它的宽是 0，接管与否照显示着的时候判，头不在收起过程中换画法（同 `stripWidthOf`）。
+ * 浮动窗不在呈现尺寸里，按记录的矩形：不读画出来的那份，缩放时它每帧变，所有面板头都要跟着重算。只是缓存，读它的地方同时读了 `presented`；
+ * 文档里没有了的面板（编辑组每次拆分都是新 id）跟着删掉。
+ */
+const panelWidths = new Map<string, number>();
+watch(() => doc.value.panels, (panels) => {
+    for (const id of panelWidths.keys()) if (panels[id] === undefined) panelWidths.delete(id);
+});
+function headWidthOf(panelId: string): number | null {
+    const float = doc.value.floats.find((candidate) => candidate.panel === panelId);
+    if (float !== undefined) return float.rect.width;
+    const width = state.value.presented[panelId]?.width ?? null;
+    if (width !== null && width > 0) {
+        panelWidths.set(panelId, width);
+        return width;
+    }
+    return panelWidths.get(panelId) ?? width;
+}
 function panelViewHead(panelId: string): PanelViewHead | null {
     const found = headOfPanel(panelId);
     if (found === null) return null;
     const region = mergedRegionOf(panelId);
-    const stripWidth = region === null ? null : stripWidthOf(region);
-    if (region !== null && stripWidth !== null && stripWidth - stripEntriesReserve(region) - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
+    const room = region === null ? headWidthOf(panelId) : stripWidthOf(region) === null ? null : (stripWidthOf(region) as number) - stripEntriesReserve(region);
+    if (room !== null && room - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
     return {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
 }
 
@@ -511,7 +598,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const opened = moveMenu.value;
     if (opened === null) return [];
     // 和命令面板第二步同一份目标表与同一套名字（`moveTargetItem`），都经 `move-view` 执行。
-    const targets = moveTargetsOf(doc.value, opened.viewId, catalog.value, state.value.containers) ?? [];
+    const targets = moveTargetsFor(props.layout, opened.viewId) ?? [];
     const itemsOf = (kind: (typeof targets)[number]["kind"]): ContextMenuItem[] => targets.filter((target) => target.kind === kind).map((target) => {
         const item = moveTargetItem(target);
         return {label: text(item.label), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, ...item.args})};
@@ -576,7 +663,7 @@ const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntrie
 const hostEl = ref<HTMLElement | null>(null);
 
 /**
- * 切换容器时卡片不动、里面的内容滚过去（输出 42）：侧栏竖着滚，右栏、底部面板在入口条下面横着滚（入口横着排，方向跟着入口）。网格同时只有一个交换，
+ * 切换容器时卡片不动、里面的内容滚过去（输出 42）：方向跟着入口排的方向，侧栏、右栏的入口竖排在侧轨上，竖着滚；底部面板在入口条下面横着滚。网格同时只有一个交换，
  * `token` 在三个区域之间递增；`WorkbenchSurface` 补上缝宽与裁切窗交给网格。`slides` 记每个区域滚过几次：入口的选中标记只在自己的区域滚的那一次滑过去。
  */
 const regionSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
@@ -600,7 +687,7 @@ function prepareRegionSwap(region: PanelName, next: string): void {
         token: (regionSwap.value?.token ?? 0) + 1,
         leaving: sectionsOf(current),
         entering: sectionsOf(next),
-        axis: region === "sidebar" ? "height" : "width",
+        axis: entriesOnRail(region) ? "height" : "width",
         direction: order.indexOf(next) > order.indexOf(current) ? 1 : -1,
     };
     slides.value = {...slides.value, [region]: slides.value[region] + 1};
@@ -627,7 +714,7 @@ const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", Regi
     const entriesOf = (region: "auxiliarybar" | "panel"): RegionStripEntry[] => {
         const showing = regionShowing(region);
         // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里；几个视图的容器各节头
-        // 已经各写各的数，入口不再写合计。右栏的入口是图标，没有节头，写容器的合计。
+        // 已经各写各的数，入口不再写合计。右栏的入口是右轨上的图标，没有节头，写容器的合计。
         return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => entryOf(entry, entry.current && showing, (viewId) => (region === "panel" ? (viewId !== null ? props.views.badge?.(viewId) ?? null : null) : containerCount(entry.views))));
     };
     return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
@@ -639,7 +726,7 @@ const stripEntriesOf = (region: PanelName): RegionStripEntry[] => (region === "s
 const containerMenu = shallowRef<{readonly container: string; readonly x: number; readonly y: number} | null>(null);
 
 /** 容器的“移到”另外两个区域（输出 44）：整个容器搬过去（`moveContainer`）。 */
-const containerMoveItemsOf = (container: string): ContextMenuItem[] => containerMoveTargets(doc.value, container).map((region): ContextMenuItem => ({
+const containerMoveItemsOf = (container: string): ContextMenuItem[] => containerMoveTargets(doc.value, container).filter((region) => props.layout.actions.permitsMoveContainer(container, region)).map((region): ContextMenuItem => ({
     label: message(`viewContainers.moveTo.${region}`),
     action: () => props.layout.actions.moveContainer(container, region),
 }));
@@ -648,8 +735,8 @@ const containerMoveItemsOf = (container: string): ContextMenuItem[] => container
 function containerMenuItemsOf(container: string): ContextMenuItem[] {
     const moves = containerMoveItemsOf(container);
     const home = containerHomeRegion(container, catalog.value, state.value.containers);
-    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return moves;
-    return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
+    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers) || !props.layout.actions.permitsMoveContainer(container, home)) return moves;
+    return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.resetContainer(container, home)}];
 }
 
 const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));
@@ -734,7 +821,7 @@ function titleIn(head: HTMLElement | null): HTMLElement | null {
 
 /** 落点在界面上对应的元素；不保证看得见，调用方用 `reachable` 筛。 */
 function landingElement(root: HTMLElement, landing: FocusLanding): HTMLElement | null {
-    // 侧栏的入口在活动栏（`data-tool-entry`），右栏、底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
+    // 侧栏、右栏的入口在侧轨（`data-tool-entry`），底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
     if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"], [data-region-entry="${CSS.escape(landing.container)}"]`);
     const tab = titleIn(root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"]`));
     if (landing.kind === "tab") return tab;
@@ -789,7 +876,7 @@ function onHeadMounted(panelId: string): void {
     });
 }
 
-/** 工具面板的落点按 `focusLandings`：同一面板看得见的标签，切走容器后新容器的第一个分节，活动栏里它那个容器的入口。 */
+/** 工具面板的落点按 `focusLandings`：同一面板看得见的标签，切走容器后新容器的第一个分节，侧轨（活动栏、右轨）或底部面板入口条里它那个容器的入口。 */
 const panelLandings = (panel: string) => (root: HTMLElement): ReadonlyArray<HTMLElement | null> => focusLandings(doc.value, panel).map((landing) => landingElement(root, landing));
 
 /** 内容被停放时焦点在里面（表面报上来的）。编辑器的内容没有所属的活动栏入口，去活动编辑组的活动标签。 */
@@ -986,7 +1073,7 @@ const sectorLabels = computed(() => ({
 /** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条；记录不合骨架回落了也写一条。 */
 const diagnostics = computed(() => {
     const {removed, squeezed} = state.value.collapse;
-    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : [], state.value.outsideSkeleton ? ["布局记录不合骨架，已用默认布局"] : []).join(" | ");
+    return [...removed].map((panel) => `放不下，收走 ${panel}`).concat(squeezed ? ["放不下，压缩编辑组"] : [], state.value.outsideSkeleton ? ["布局记录不合骨架，已用默认布局"] : [], state.value.recordRepairs.length > 0 ? [`布局记录有不认的值，已按缺省读：${state.value.recordRepairs.join("; ")}`] : []).join(" | ");
 });
 
 /** 布局里的面板，给外壳根写个数：e2e 和排障用。 */
@@ -1044,8 +1131,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 @content-parked="onContentParked"
                 @issues="(issues) => reportGridIssues(issues)"
             >
-                <template #activitybar>
+                <template #activitybar="{joined}">
                     <WorkbenchToolStrip
+                        :joined="joined"
                         :label="message('shell.activityBar')"
                         :more-label="message('common.more')"
                         :entries="toolEntries"
@@ -1057,6 +1145,27 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @select="(id) => selectRegionEntry('sidebar', id)"
                         @run-item="(id) => chrome?.runItem(id)"
                         @context-menu="openContainerMenu"
+                    />
+                </template>
+                <!-- 右轨（输出 50）：右栏的容器入口，和活动栏同一个组件；点、拖、右键同活动栏的上段。 -->
+                <template #rail="{joined}">
+                    <WorkbenchToolStrip
+                        region="auxiliarybar"
+                        :joined="joined"
+                        :label="message('shell.auxiliaryRail')"
+                        :more-label="message('common.more')"
+                        :entries="stripEntries.auxiliarybar"
+                        :placeholder="entryPlaceholderIn(stripEntries.auxiliarybar)"
+                        :highlighted="mergeEntry"
+                        :slide-token="slides.auxiliarybar"
+                        :drag-hint="message('shell.drag.hint')"
+                        :segment="railSegment"
+                        @select="(id) => selectRegionEntry('auxiliarybar', id)"
+                        @context-menu="openContainerMenu"
+                        @segment-elements="setRailElements"
+                        @toggle-segment="toggleRailSegment"
+                        @segment-width-preview="(width) => layout.actions.previewRailWidth(width)"
+                        @segment-width-commit="commitRailWidth"
                     />
                 </template>
                 <template #statusbar>
@@ -1090,10 +1199,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 <template #strip="{region, merged, idPrefix}">
                     <WorkbenchRegionStrip
                         :region="region"
-                        :label="message(region === 'panel' ? 'shell.regionStrip.panel' : 'shell.regionStrip.auxiliarybar')"
+                        :label="message('shell.regionStrip.panel')"
                         :more-label="message('common.more')"
                         :entries="stripEntriesOf(region)"
-                        :variant="region === 'panel' ? 'titles' : 'icons'"
                         :head-min-width="merged === null ? 0 : headOwnReserve(merged)"
                         :slide-token="slides[region]"
                         :drag-hint="message('shell.drag.hint')"

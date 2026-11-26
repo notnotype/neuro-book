@@ -1,0 +1,20 @@
+# w00026 t56–t59 实现审查
+
+开始时间：2026-11-25T16:19:36+00:00
+
+## 最终复核结论
+
+- 范围内未确认其他问题：折叠/展开、锁与刚性、结构操作与快照、宿主提交通知与诊断、API 类型声明及工作台公开调用路径。`NestedGrid.dom.test.ts` 中“记忆尺寸”的旧用词未反映当前行为；测试已断言恢复到意图，不另报。
+- 最终分级数量：阻断 0，重要 1，建议 0。唯一有效发现见下方 `clone()` 问题。
+
+### 1. `clone()` 从可变的原始选项重新读取配置
+- **严重程度**：重要；**类别**：正确性；**Task**：w00026 t58。
+- **位置**：`packages/nb-layout/src/grid.ts:168-173,755-756`。
+- **现象**：`buildGrid` 为原网格捕获了归一后的 `sashSize` 与 `encodeRef`，但 `clone()` 把外部传入的 `options` 对象原样留存并再次传给 `buildGrid`。调用方创建网格后改写 `options.sashSize`，副本会使用新值；改写 `options.encodeRef`，副本序列化出的 ref 也会变化。原网格仍用创建时捕获的值，故副本不再保留原网格配置。
+- **如何核实与结果**：第一条定向 smoke test 创建时设 `sashSize: 4`、之后改为 `12`，输出 `{"original":[4],"clone":[12]}`。第二条定向 smoke test 创建时用 `ref => "old:" + ref.id`，再把选项改为 `ref => "new:" + ref.id`；原网格序列化得到 `"old:x"`，clone 得到 `"new:x"`。
+- **建议改法**：让 `clone()` 复用建网格时已捕获的规范化选项（数值 `sashSize`、原 `encodeRef`；函数型 `sashSize` 沿用同一函数），不要重新读取调用方可变的 options 对象。
+## 验证与限制
+
+- 定向 smoke tests 已复现两类选项漂移：创建后修改 `sashSize` 时，原网格与 clone 的 sash 分别为 `4`、`12`；修改 `encodeRef` 时，原网格与 clone 序列化的 ref 分别为 `"old:x"`、`"new:x"`。
+- 未运行测试套件或 e2e，未启动开发服务；审查结论来自静态阅读与上述 smoke test。
+- 审查期间未修改仓库文件；最后一次只读状态检查 `git status --short` 无输出。

@@ -35,8 +35,8 @@ export type GridExtent = {width: number; height: number};
 export type GridSizing = "weight" | "fixed";
 
 /**
- * 收起策略（运行时）：拖动越过 `collapseThreshold` 时吸附到 `collapsedSize`，
- * 反向越过后恢复到记忆的 `restoreSize`。`collapsed` 是当前状态。
+ * 收起策略（运行时）：拖动越过 `collapseThreshold` 时吸附到 `collapsedSize`，反向越过后恢复。网格的节点展开回到意图
+ * （Spec `ui/nested-grid` 输出 166），策略里没有恢复尺寸；独立 `Splitter` 没有意图，恢复尺寸见 `SplitterCollapseState`。
  *
  * 不写快照：它是宿主按领域记录给出的运行期约束，恢复时以当前记录为准。
  * @experimental
@@ -44,11 +44,6 @@ export type GridSizing = "weight" | "fixed";
 export type SashCollapsePolicy = {
     /** 收起后的主轴占用（CSS px，允许 0）；必须小于展开最小尺寸。 */
     collapsedSize: number;
-    /**
-     * 记忆的展开主轴尺寸（CSS px）；显式恢复时以它为目标，再按当前容量夹取。宿主给初值，之后由网格在收起的那一刻记下
-     * （Spec `ui/nested-grid` 输出 148：保留像素的面板记意图，按比例分的面板在 `resizeBranches` 里记收起前呈现的像素）。
-     */
-    restoreSize: number;
     /** 从展开最小尺寸继续向内的收起阈值（CSS px）。 */
     collapseThreshold: number;
     /** 从收起锚点向外的恢复阈值（CSS px）。 */
@@ -60,16 +55,31 @@ export type SashCollapsePolicy = {
      */
     toggleable?: boolean;
     /**
-     * true：显式恢复（按钮、Enter）不读 `restoreSize`，回到这块面板按 `size` 权重此刻该得的那一份，也就是把它翻成展开后重新分配给它的尺寸（缺省 false）。
-     * 给手里没有像素记忆的 `weight` 面板用：宿主的权重只记兄弟之间的比例时，`restoreSize` 给不出展开后的像素（工作台里一列工具面板就是这样）。
-     * 宿主要自己保证收起期间这块面板的份额不被兄弟的落账冲掉；`Grid.resizeBranches` 反解权重时不保，所以只用 grid 自己落账的宿主不要打开。
-     * 拖动展开不受影响，照旧跟随指针。
+     * true：锁住收起状态（Spec `ui/nested-grid` 输出 168，缺省 false）。拖动不越过阈值收起它，也拉不开收着的它；分隔条上的
+     * Enter 跳过它（同 `toggleable: false`）；`Grid.resizeBranches` 要翻它的标记时整批失败（`collapse-locked`）。只有宿主能翻：
+     * `setCollapsed` 照常翻它，锁经 `setCollapsed` 的 `options.locked` 改，或建树、恢复时在策略里给。
      */
-    restoreToShare?: boolean;
+    locked?: boolean;
 };
 
 /** @experimental */
 export type SashCollapseState = SashCollapsePolicy & {collapsed: boolean};
+
+/**
+ * `Grid.setCollapsed` 的选项。
+ * @experimental
+ */
+export type GridCollapseOptions = {
+    /** 同时改锁（Spec `ui/nested-grid` 输出 168）；不给时锁不变。 */
+    readonly locked?: boolean;
+};
+
+/**
+ * 独立 `Splitter` 面板的收起策略与状态：`Splitter` 的面板没有意图，尺寸就是宿主给的呈现像素，所以显式恢复（Enter、命令）
+ * 要一个 `restoreSize`（CSS px）做目标，再按当前容量夹取。网格的节点不用它，展开回到意图。
+ * @experimental
+ */
+export type SplitterCollapseState = SashCollapseState & {restoreSize: number};
 
 /** @experimental */
 export type GridLeaf<T> = {
@@ -82,6 +92,11 @@ export type GridLeaf<T> = {
     maximumSize: GridExtent;
     /** 主轴分配策略；缺省 `weight`。 */
     sizing: GridSizing;
+    /**
+     * 刚性：沿父分支主轴的最小与最大尺寸都是它的意图（先夹进声明的最小与最大），拖动的级联补偿不改它，最小尺寸之和放不下时它最后才让。
+     * 只有保留像素（`sizing: "fixed"`）的节点会带；交叉轴不受影响。和 `sizing` 一样是运行期约束，不进快照。
+     */
+    rigid?: true;
     /** 收起策略与状态；缺省不可收起。 */
     collapse?: SashCollapseState;
 };
@@ -98,6 +113,11 @@ export type GridBranch<T> = {
     maximumSize: GridExtent;
     /** 主轴分配策略；缺省 `weight`。 */
     sizing: GridSizing;
+    /**
+     * 刚性：沿父分支主轴的最小与最大尺寸都是它的意图（先夹进声明的最小与最大），拖动的级联补偿不改它，最小尺寸之和放不下时它最后才让。
+     * 只有保留像素（`sizing: "fixed"`）的节点会带；交叉轴不受影响。和 `sizing` 一样是运行期约束，不进快照。
+     */
+    rigid?: true;
     /** 收起策略与状态；缺省不可收起。 */
     collapse?: SashCollapseState;
     children: GridNode<T>[];
@@ -118,6 +138,8 @@ export type GridLeafInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    /** 刚性（见 `GridLeaf.rigid`）；只对 `sizing: "fixed"` 起作用，按比例分的节点标了不起作用。 */
+    rigid?: boolean;
     collapse?: SashCollapseState;
 };
 
@@ -133,6 +155,8 @@ export type GridBranchInput<T> = {
     minimumSize?: GridExtent;
     maximumSize?: GridExtent;
     sizing?: GridSizing;
+    /** 刚性（见 `GridLeaf.rigid`）；只对 `sizing: "fixed"` 起作用，按比例分的节点标了不起作用。 */
+    rigid?: boolean;
     collapse?: SashCollapseState;
     children: GridNodeInput<T>[];
 };
@@ -204,6 +228,8 @@ export type GridRefResolution<T> = {
     maximumSize?: GridExtent;
     /** 主轴分配策略（运行期）；缺省沿用当前树或 `weight`。 */
     sizing?: GridSizing;
+    /** 刚性（运行期，见 `GridLeaf.rigid`）；缺省沿用当前树或不刚性。只对最后得到的 `sizing` 是 `fixed` 的叶起作用。 */
+    rigid?: boolean;
     /** 收起策略与状态（运行期）；缺省沿用当前树或不可收起。 */
     collapse?: SashCollapseState;
 };
@@ -277,6 +303,7 @@ export type GridFailureCode =
     | "not-conserved"
     | "stale-baseline"
     | "not-collapsible"
+    | "collapse-locked"
     | "wrong-sizing";
 
 /**
@@ -330,8 +357,8 @@ export type GridBranchesResizeResult =
     | GridFailure<GridFailureCode>;
 
 /**
- * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、148）：`changed` 是收起标记有没有变；`collapse` 是调用之后这个节点的
- * 收起策略（含记下的 `restoreSize`），宿主要跨会话保存时从这里取，策略本身不写快照。
+ * `Grid.setCollapsed` 的结果（Spec `ui/nested-grid` 输出 147、166、168）：`changed` 是收起标记或锁有没有变；`collapse` 是调用之后这个节点的
+ * 收起策略，宿主要跨会话保存收起状态时从这里取 `collapsed`，策略本身不写快照。
  * @experimental
  */
 export type GridCollapseResult =
@@ -340,7 +367,7 @@ export type GridCollapseResult =
 
 /**
  * `Grid.setSize` 的结果（Spec `ui/nested-grid` 输出 154）：`size` 是存下的意图（夹进节点自己的约束之后），宿主拿它存偏好；
- * `changed` 是意图或记忆的恢复尺寸有没有变；节点有收起策略时另带调用之后的 `collapse`，同 `GridCollapseResult`。
+ * `changed` 是意图有没有变；节点有收起策略时另带调用之后的 `collapse`，同 `GridCollapseResult`。
  * @experimental
  */
 export type GridSetSizeResult =

@@ -11,8 +11,8 @@ import {effect} from "@vue/reactivity";
 import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
-import {barRef, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
+import {createGrid, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
+import {barRef, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setContainerRail, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-workbench-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -80,6 +80,8 @@ async function savedDoc(storage: StorageService, record: RecordDefinition<{doc: 
 }
 
 const settled = (store: LayoutDocStore) => waitUntil("保存完成", () => store.state.field.queue === 0);
+/** 区域在呈现树里的节点：区域只显示一节、顶上又没有入口条时那一列塌成那一节的叶，id 不是文档里区域节点的 id，按锚找。 */
+const presentedRegion = (store: LayoutDocStore, region: PanelName): string => [...store.actions.presentation().regionAnchors].find(([, anchor]) => anchor === region)?.[0] ?? "";
 const hideAux = (store: LayoutDocStore) => store.actions.setPartHidden("auxiliarybar", true);
 /** 视图所在的分节（面板 id）。 */
 function sectionOf(store: LayoutDocStore, viewId: string): string {
@@ -705,7 +707,7 @@ describe("呈现事实", () => {
         expect(sizeIn(store.state.doc, "g0").width).toBe(611);
         // 侧栏只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域；右栏顶上有入口条（输出 47），代表区域的是包装分支（id 是区域节点的）。
         // 拖到零都记在锚上，分节自己不变成标题行（输出 11）。
-        const auxRegion = regionNodeOf(store.state.doc as LayoutDoc, "auxiliarybar")!.node.id;
+        const auxRegion = presentedRegion(store, "auxiliarybar");
         store.actions.commitGesture(store.state.presented, {[side]: {width: 222, height: 878}}, {[auxRegion]: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
@@ -804,7 +806,7 @@ describe("呈现事实", () => {
         // “这次动没动”看手势开始时的尺寸（`before`），不看 store 记的 `presented`：实时预览期间 `presented` 不更新，可能和手势开始时的不同（输出 49）。
         // 这里 `presented` 与落账后的右栏都是 160，`before` 里是 150：右栏这次动了，要写。右栏顶上有入口条，代表区域的是包装分支（输出 47）。
         expect(before[1]).not.toBe(160);
-        const auxRegion = regionNodeOf(store.actions.document(), "auxiliarybar")!.node.id;
+        const auxRegion = presentedRegion(store, "auxiliarybar");
         const shown = {...squeezed, [auxRegion]: {width: 160, height: 700}};
         store.actions.acceptPresented(shown);
         store.actions.commitGesture({...shown, [auxRegion]: {width: 150, height: 700}}, {...shown, [side]: {width: 200, height: 700}}, {});
@@ -1031,6 +1033,178 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
         expect(store.actions.document()).toBe(same);
         expect(store.actions.moveContainer("custom:nobody", "panel")).toMatchObject({ok: false, code: "not-found"});
         expect(store.actions.document()).toBe(same);
+    });
+
+    describe("侧轨意图（ui/workbench-layout 输出 50 的“展开”）", () => {
+        const X1 = "view:test.x1";
+        const expand = (store: LayoutDocStore, width: number) => {
+            const result = store.actions.apply((doc) => setContainerRail(doc, {anchor: "auxiliarybar", container: X1, intent: {expanded: true, width}}));
+            if (!result.ok) throw new Error(result.message);
+        };
+
+        it("经真实存储往返：存下的记录带着它，另一个窗口读进来还在", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            expand(first.store, 320);
+            await first.store.actions.save();
+            expect((await savedDoc(first.storage, USER)).panels.auxiliarybar?.rail).toEqual({[X1]: {expanded: true, width: 320}});
+
+            const second = await openLayoutDoc(w, "b", "c", false, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {expanded: true, width: 320}});
+            expect(second.store.state.recordRepairs).toEqual([]);
+        });
+
+        it("记录里的坏值：读不进的那一项当缺省、布局照用，有一条修掉的说明；下次保存写回归一后的值，说明就没了", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            expand(first.store, 320);
+            const stored = JSON.parse(JSON.stringify(first.store.actions.document())) as {panels: Record<string, {rail?: unknown}>};
+            (stored.panels.auxiliarybar as {rail?: unknown}).rail = {[X1]: {expanded: "yes", width: 320}};
+            const opened = await first.storage.open(USER);
+            if (!opened.ok) throw new Error(opened.detail);
+            await opened.handle.save({doc: stored}, {expect: null});
+
+            const second = await openLayoutDoc(w, "b", "c", false, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            expect(second.store.state.problems).toEqual([]);
+            expect(second.store.state.recordRepairs).toHaveLength(1);
+            expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {width: 320}});
+            second.store.actions.setPartHidden("panel", true);
+            await second.store.actions.save();
+            expect((await savedDoc(second.storage, USER)).panels.auxiliarybar?.rail).toEqual({[X1]: {width: 320}});
+            expect(second.store.state.recordRepairs).toEqual([]);
+        });
+
+        it("没有记录、从模板读入时模板里的坏值同样当缺省并有说明", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            expand(first.store, 320);
+            const stored = JSON.parse(JSON.stringify(first.store.actions.document())) as {panels: Record<string, {rail?: unknown}>};
+            (stored.panels.auxiliarybar as {rail?: unknown}).rail = {[X1]: {expanded: false, width: 310}};
+            const opened = await first.storage.open(LAYOUT_TEMPLATE_RECORD);
+            if (!opened.ok) throw new Error(opened.detail);
+            const current = await opened.handle.read();
+            await opened.handle.save({doc: stored}, {expect: current.status === "ok" ? current.revision : null});
+
+            // 绑定了项目的窗口：项目分区里还没有布局记录，读模板。
+            await w.project(1, []);
+            const second = await openLayoutDoc(w, "b", "c", true, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            expect(second.store.actions.document().panels.auxiliarybar?.rail).toEqual({[X1]: {width: 310}});
+            expect(second.store.state.recordRepairs).toHaveLength(1);
+        });
+
+        /** 消息视图的范围（conversation 输出 57）：缺省 260，200–420，展开时聊天区至少 320。 */
+        const BOUNDS = {width: 260, minimum: 200, maximum: 420, chatMinimum: 320};
+        const railed = async (width = 1440) => {
+            const opened = await open();
+            opened.store.actions.acceptRailBounds((viewId) => (viewId === "test.x1" ? BOUNDS : null));
+            opened.store.actions.acceptExtent({width, height: 900});
+            return opened;
+        };
+        /** 呈现里右轨叶与右栏节点按这一刻的投影求出来的宽。 */
+        const solved = (store: LayoutDocStore) => {
+            const projection = store.actions.presentation();
+            const sizes = createGrid<string>(projection.input, {sashSize: projection.sashSize}).layout(store.state.extent ?? {width: 0, height: 0}).sizes;
+            return {rail: sizes["rail:auxiliarybar"]?.width, region: sizes[presentedRegion(store, "auxiliarybar")]?.width};
+        };
+
+        it("展开：意图只写 expanded，右轨按声明的缺省宽呈现，编辑组让出；收起写回原状、零写入地回到收着（输出 50 的“展开”“预算”）", async () => {
+            const {store} = await railed();
+            expect(store.state.rail).toMatchObject({container: X1, viewId: "test.x1", expanded: false, width: 48});
+            const before = solved(store);
+            expect(before.rail).toBe(48);
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+            expect(store.state.rail).toMatchObject({expanded: true, tooNarrow: false, width: 260});
+            expect(solved(store)).toEqual({rail: 260, region: before.region});
+            expect(store.actions.requestRailExpanded(X1, false)).toEqual({ok: true, result: "done"});
+            expect(anchorOf(store, "auxiliarybar")).not.toHaveProperty("rail");
+            expect(solved(store)).toEqual(before);
+        });
+
+        it("窗口太窄：展开请求回报 too-narrow，意图不改、零写入；已展开的在窗口变窄时按收着呈现、意图留着，变宽后恢复（验收 36）", async () => {
+            const {store} = await railed(1000);
+            await settled(store);
+            const before = store.actions.document();
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "too-narrow"});
+            expect(store.actions.document()).toBe(before);
+            expect(store.state.field.queue).toBe(0);
+
+            store.actions.acceptExtent({width: 1440, height: 900});
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            store.actions.acceptExtent({width: 1000, height: 900});
+            expect(store.state.rail).toMatchObject({expanded: false, tooNarrow: true, width: 48});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+            expect(solved(store).rail).toBe(48);
+            store.actions.acceptExtent({width: 1440, height: 900});
+            expect(store.state.rail).toMatchObject({expanded: true, width: 260});
+        });
+
+        it("轨宽：取整、夹进声明的范围，等于缺省时不写；收着时写的宽照样留着，展开时按它", async () => {
+            const {store} = await railed();
+            expect(store.actions.commitRailWidth(X1, 300.4).ok).toBe(true);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {width: 300}});
+            expect(store.state.rail).toMatchObject({expanded: false, requested: 300, width: 48});
+            store.actions.requestRailExpanded(X1, true);
+            expect(store.state.rail).toMatchObject({expanded: true, width: 300});
+            store.actions.commitRailWidth(X1, 900);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true, width: 420}});
+            store.actions.commitRailWidth(X1, 260);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+        });
+
+        it("当前容器没有视图段（视图没声明、交付撤回）：按收着呈现，记录不改；展开请求回报 too-narrow", async () => {
+            const {store} = await railed();
+            expect(store.actions.requestRailExpanded(X1, true).ok).toBe(true);
+            store.actions.acceptRailBounds(() => null);
+            expect(store.state.rail).toMatchObject({bounds: null, expanded: false, width: 48});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true}});
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "too-narrow"});
+        });
+
+        it("别的面板最大化时展开：先退出最大化（输出 50 的“预算”）", async () => {
+            const {store} = await railed();
+            expect(store.actions.toggleMaximized(INITIAL_EDITOR_PANEL)).toBe(true);
+            expect(store.state.maximized).toBe(INITIAL_EDITOR_PANEL);
+            expect(store.actions.requestRailExpanded(X1, true)).toEqual({ok: true, result: "done"});
+            expect(store.state.maximized).toBeNull();
+        });
+
+        it("视图浮出时意图带进窗、归位时带回；视图的“重置位置”（从别处回到声明的容器）同一次提交清掉它", async () => {
+            const {store} = await open();
+            expand(store, 300);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(store.actions.document().floats[0]?.rail).toEqual({expanded: true, width: 300});
+            expect((await store.actions.dockFloat(store.actions.document().floats[0]?.panel ?? "")).ok).toBe(true);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toEqual({[X1]: {expanded: true, width: 300}});
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(store.actions.moveView("test.x1", {container: X1}).ok).toBe(true);
+            expect(containersIn(store.actions.document(), "auxiliarybar").map(([id]) => id)).toEqual([X1]);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
+        });
+
+        it("“移到”带着它，“重置”回到声明的区域时清掉它", async () => {
+            const {store} = await open();
+            expand(store, 300);
+            expect(store.actions.moveContainer(X1, "sidebar").ok).toBe(true);
+            expect(anchorOf(store, "sidebar")?.rail).toEqual({[X1]: {expanded: true, width: 300}});
+            expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
+            expect(store.actions.resetContainer(X1, "auxiliarybar").ok).toBe(true);
+            expect(containersIn(store.actions.document(), "auxiliarybar").map(([id]) => id)).toEqual([X1]);
+            expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
+            expect(anchorOf(store, "sidebar")?.rail).toBeUndefined();
+        });
     });
 });
 

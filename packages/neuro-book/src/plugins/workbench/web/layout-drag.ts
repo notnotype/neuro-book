@@ -4,7 +4,8 @@
  * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，分节的标题也是）、活动栏的入口（`data-tool-entry`；只含一个视图的另有 `data-tool-view`，拖的是那个视图；含几个视图的拖的是容器，只能在入口条里换序，输出 46）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）、视图自绘头的浮动窗里视图标出的拖动区（`data-window-drag`，中间隔着可交互元素的不算，`windowDragRegion`；整窗移动，docs/specs/workbench/views.md 输出 19 的“自绘头”）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
  * `data-no-drag-start` 只是不起拖（标签上的关闭按钮：拖动经过时它还在标签条里），被菜单、对话框挡住的不接收。编辑组的标签条写 `data-panel-strip`，它的多行、固定分区由编辑器量（`editorTabs`）。
  *
- * 入口条（输出 45、47）：活动栏上段（`data-tool-band`）是侧栏的，右栏、底部面板的在各自卡片顶上（`data-region-strip`）。入口之间新建容器、换序或整个容器搬过来，入口上并入；
+ * 入口条（输出 45、47、50）：侧轨的入口带（`[data-rail] [data-tool-band]`，左轨是侧栏的、右轨是右栏的）竖着排，底部面板的在卡片顶上（`data-region-strip`）横着排。
+ * 怎么量按入口带的方向分，不按区域名。入口之间新建容器、换序或整个容器搬过来，入口上并入；
  * 判定与放下的结果在 `entry-drop`，这里量入口给它。入口条不走库的落点规则：条不是面板。入口条里并进来的那一节的头不算入口条，是那一节的标题行（输出 25 第 7 行）。
  *
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
@@ -31,6 +32,7 @@ import {EDITOR_TAB_TYPE, editorTabIdOf} from "../shared/editor-panels";
 import {CUSTOM_CONTAINER_PREFIX} from "../shared/views";
 import type {EditorTabDrag} from "./contracts";
 import {defaultFloatRect, EDITOR_GROUP_MINIMUM, floatRectAt, wholeInTree} from "./state/layout-constraints";
+import {guardPlacement, hasConfinedViews} from "./state/placement";
 import {isSoleWindow, layoutStructureKey, viewIdOf, viewKey} from "./state/layout-present";
 import type {ViewCatalog} from "./views/registry";
 
@@ -147,6 +149,8 @@ interface KeyboardRegion {
     readonly candidates: ReadonlyArray<LayoutDropCandidate>;
     /** 入口条：入口上也是位置（拖视图：并入）；拖含几个视图的入口时只有入口之间（输出 31、46）。 */
     readonly entries?: boolean;
+    /** 入口条：被拖的东西。停靠点只留放下会被收下的（和指针的判定 `entryDrop` 同一道关，含位置限制），一个都不剩的入口条不进 Tab 环。 */
+    readonly source?: WorkbenchDragSource;
 }
 
 const rectOf = (element: Element | null | undefined): GridDropRect | null => {
@@ -311,7 +315,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const {action} = drop;
         // 活动栏的入口之间：入口滑开，来源在空位上显示成入口，侧栏不切（输出 38、45）。入口上不吸收，同中央。
         if (isEntryAction(action) && action.kind !== "join-container") {
-            const result = applyEntryDrop(doc, source, action, options.policy(), {commit: false});
+            const result = guardPlacement(doc, applyEntryDrop(doc, source, action, options.policy(), {commit: false}), options.catalog());
             return result.ok ? result.doc : null;
         }
         // 入口上的并入，来源是这个区域里一个容器唯一的视图：这条入口条是它自己的，来源不收起（`homeStripOf`），预览也不拿掉它，入口都不动，只高亮目标。
@@ -319,7 +323,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (action.kind === "join-container" && !collapsed && soleRegionContainer(doc, source, action.region) !== null) return doc;
         // 预览不摆真实结果的落点（输出 38）。浮动：窗此刻就是跟手的卡片。中央：目标不动，只盖一层；放下才换标签。这两种都是来源收起，内容靠拿起留着。
         if (action.kind === "float" || action.kind === "center" || action.kind === "join-container") return sourceRemovedDoc(source);
-        const result = applyLayoutDrop(doc, source, action, options.policy());
+        const result = guardPlacement(doc, applyLayoutDrop(doc, source, action, options.policy()), options.catalog());
         return result.ok ? result.doc : null;
     }
     // 一个区域里一个容器唯一的视图：那个区域的入口条就是它自己的，在里面换位、停在别的入口上都不收起来源（输出 45）。
@@ -492,8 +496,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return strip === null ? null : measureTabStrip(strip);
     }
 
-    /** 一个区域的入口条元素：侧栏是活动栏上段，右栏、底部面板是卡片顶上那一行。 */
-    const bandElement = (region: PanelName): Element | null => root.querySelector(region === "sidebar" ? "[data-tool-band]" : `[data-region-strip="${region}"]`);
+    /** 一个区域的入口条元素：侧栏、右栏是各自侧轨的入口带，底部面板是卡片顶上那一行。 */
+    const bandElement = (region: PanelName): Element | null => root.querySelector(`[data-rail="${region}"] [data-tool-band]`) ?? root.querySelector(`[data-region-strip="${region}"]`);
 
     /** 看得见的入口，沿入口条的方向：收进“更多”的不在 DOM 里。 */
     function entriesIn(band: Element, axis: "x" | "y"): ReadonlyArray<BarEntryRect> {
@@ -509,7 +513,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const row = rectOf(element);
             // 被最大化的面板盖住的（叶 `inert`）、正在离开的入口条不是落点：指针下是盖在上面的那块面板，不是它。
             if (element === null || row === null || element.closest("[inert], [data-leaving]") !== null) return [];
-            if (region === "sidebar") return [{region, axis: "y", row, groupEnd: row.bottom, merged: null, rect: row, entries: entriesIn(element, "y")}];
+            // 侧轨的入口带竖着排，整条是落点，没有并进来的头。
+            if (element.hasAttribute("data-tool-band")) return [{region, axis: "y", row, groupEnd: row.bottom, merged: null, rect: row, entries: entriesIn(element, "y")}];
             const groupEnd = rectOf(element.querySelector("[data-region-entries]"))?.right ?? row.left;
             const merged = element.querySelector<HTMLElement>("[data-panel-head]")?.dataset.panelHead ?? null;
             return [{region, axis: "x", row, groupEnd, merged, rect: merged === null ? row : {...row, right: groupEnd}, entries: entriesIn(element, "x")}];
@@ -537,7 +542,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const spot = barSpotAt(entries, axis === "y" ? point.y : point.x, {entries: source.kind !== "container"});
         const action = entryDropAt(doc, source, spot, run.newContainer, band.region);
         if (action === null) return null;
-        const result = applyEntryDrop(doc, source, action, options.policy(), {commit: true});
+        const result = guardPlacement(doc, applyEntryDrop(doc, source, action, options.policy(), {commit: true}), options.catalog());
         if (!result.ok) return null;
         // 横跨入口条的那一段：活动栏两边各缩 6px，入口条上下各缩 4px。
         const across = (start: number, end: number): GridDropRect => (axis === "y" ? {left: rect.left + 6, right: rect.right - 6, top: start, bottom: end} : {left: start, right: end, top: rect.top + 4, bottom: rect.bottom - 4});
@@ -595,7 +600,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const ownPartition = snapshot.excludedPartition ?? snapshot.members.find((member) => member.id === source.tab)?.partition ?? null;
             return {action, ...(part === undefined ? {} : {part}), inPlace: own >= 0 && ownPartition === measured.partition && (index === own || index === own + 1), preview};
         }
-        const result = applyLayoutDrop(doc, source, action, options.policy());
+        const result = guardPlacement(doc, applyLayoutDrop(doc, source, action, options.policy()), options.catalog());
         if (!result.ok) return null;
         // 工具面板放回原处：预览画来源自己所在的位置（输出 28）。带标签条的工具面板只剩浮动窗（输出 25 第 0 行），量的块要含窗，不然原位没有可画的矩形。
         const inPlace = result.doc === doc;
@@ -658,7 +663,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const key = source.kind === "new" ? null : JSON.stringify([source, action, options.extent()]);
         const cached = key === null ? undefined : run.previews.get(key);
         if (cached !== undefined) return cached;
-        const result = applyLayoutDrop(doc, source, action, options.policy());
+        const result = guardPlacement(doc, applyLayoutDrop(doc, source, action, options.policy()), options.catalog());
         if (!result.ok) return null;
         // 放回它自己那块的中央、那块摘掉它还在：和别的面板的中央一样是添加为标签（输出 25 第 6 行），松手回到原来的位置、成为活动标签。
         const rejoins = source.kind === "tab" && action.kind === "center" && findTab(doc, source.tab)?.panel === action.panel && homeStays(doc, source.tab);
@@ -787,7 +792,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     function stopsOf(region: KeyboardRegion): {readonly axis: "both"; readonly points: ReadonlyArray<GridDropPoint>} {
         if (regionOfEntryStrip(region.id) !== null) {
             const band = bandOfRegion(region.id);
-            return {axis: "both", points: band === undefined ? [] : barStops(band, region.entries !== false)};
+            const points = band === undefined ? [] : barStops(band, region.entries !== false);
+            const {source} = region;
+            return {axis: "both", points: band === undefined || source === undefined ? points : points.filter((point) => entryDrop(source, point, band) !== null)};
         }
         if (region.id === FLOAT_REGION) {
             const box = rectOf(surface());
@@ -845,6 +852,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 来源收起、展开那一刻屏幕上的判定，指针没动之前一直是它（被拒绝、编辑器的拒绝跟着留下）。排在遮挡之前：预览重排可能让按钮区滑到静止的指针下，那一次判定不能把它盖掉。
         if (region === null && live.unmoved(point)) return run.judged;
         const onButtons = region === null && top?.closest("[data-no-drag]") != null;
+        // 侧轨的视图段与底段（输出 50 的“落点”）：拒收区，松手是取消、不开新窗，和停在面板上被拒绝同一种结果。入口带不在里面，照常是落点。
+        if (region === null && !covered && top?.closest("[data-drop-refuse]") != null) {
+            run.transient = null;
+            return {drop: null, rejected: true, refusal: null};
+        }
         try {
             return covered || onButtons ? NOT_JUDGED : dropAt(source, point, region);
         } finally {
@@ -949,8 +961,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 if (from.kind === "panel") return [];
                 // 含几个视图的入口只能落在入口条上（输出 46）。
                 const bars = geometry(doc).bands.map((band) => entryStripOf(band.region));
-                if (from.kind === "container") return bars.map((id) => ({id, candidates: [], entries: false})).filter((region) => stopsOf(region).points.length > 0);
+                if (from.kind === "container") return bars.map((id) => ({id, candidates: [], entries: false, source: from})).filter((region) => stopsOf(region).points.length > 0);
                 const source = from;
+                // 位置限制（views.md 输出 22）按模拟出的文档判，和指针的落点、提交同一道关；目录里没有受限视图时不必每个候选都模拟一遍。
+                const confines = hasConfinedViews(options.catalog());
                 const candidates = enumerateDropCandidates({
                     doc,
                     source,
@@ -958,7 +972,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                     stripIndexes: (panel) => stripStopsOf(doc, panel).map((stop) => stop.index),
                     seams: layoutSeamsOf(doc, geometry(doc).panels),
                     newContainer: emptyRegionContainer(doc, source),
-                });
+                }).filter((candidate) => !confines || guardPlacement(doc, applyLayoutDrop(doc, source, candidate.action, options.policy()), options.catalog()).ok);
                 const byRegion = new Map<string, LayoutDropCandidate[]>();
                 for (const candidate of candidates) byRegion.set(candidate.region, [...(byRegion.get(candidate.region) ?? []), candidate]);
                 // 按树序。来源所在的面板就算没有候选也要有一个区域：拿起时停在原位。
@@ -968,7 +982,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const bar = barAccepts(source) ? bars : [];
                 // 无落点没有指针可以指，排在最后明确选。已经独占一个窗的标签浮出来还是原样，不列。
                 const float = canFloat(doc, source) && !isSoleWindow(doc, home) ? [FLOAT_REGION] : [];
-                const regions = [...bar, ...panels, ...float].map((id) => ({id, candidates: byRegion.get(id) ?? []}));
+                const regions = [...bar.map((id) => ({id, candidates: [], source})), ...[...panels, ...float].map((id) => ({id, candidates: byRegion.get(id) ?? []}))];
                 // 手势跳不过没有位置的区域，Tab 会卡在那里：来源隐藏着（从活动栏拿起）时它的面板量不出来，不列。
                 return regions.filter((region) => stopsOf(region).points.length > 0);
             },
@@ -978,7 +992,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 // 从标签拿起：原位是它自己。从入口条拿起：区域就是那条入口条，起点是条目，放回去也是原位（它在面板里的标签可能看不见：面板隐藏、头只写别的视图的标题）。
                 const fromBar = origin.closest("[data-tool-entry]") !== null;
                 const tab = source.kind === "tab" ? source.tab : "";
-                const stripRegion = origin.closest<HTMLElement>("[data-region-strip]")?.dataset.regionStrip;
+                const stripRegion = origin.closest<HTMLElement>("[data-rail]")?.dataset.rail ?? origin.closest<HTMLElement>("[data-region-strip]")?.dataset.regionStrip;
                 const home = fromBar ? entryStripOf(stripRegion === "auxiliarybar" || stripRegion === "panel" ? stripRegion : "sidebar") : findTab(options.doc(), tab)?.panel;
                 const region = Math.max(0, regions.findIndex((candidate) => candidate.id === home));
                 const own = fromBar ? null : root.querySelector(`[data-panel-tab="${escape(tab)}"]`);

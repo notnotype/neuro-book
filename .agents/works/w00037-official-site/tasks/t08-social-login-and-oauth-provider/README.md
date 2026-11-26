@@ -91,7 +91,7 @@ Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），
 
 ## 实施进度
 
-实现在 worktree `.worktree/w00037-t08-social-oauth`（分支 `feat/w00037-t08-social-oauth`，从 Work 分支 `f8480b04e` 开）。计划与设计审查的处理见 [`plan.md`](plan.md)；omp 的设计审查在后台（`.worktree/w00037-t08-review`），回来后另行处理。
+实现在 worktree `.worktree/w00037-t08-social-oauth`（分支 `feat/w00037-t08-social-oauth`，从 Work 分支 `f8480b04e` 开）。计划与设计审查的处理见 [`plan.md`](plan.md)；omp 的设计审查已回（有效 14 条），处理见计划文末“设计审查（omp）的处理”：多数落在第 5 到 9 片，`purge` 删 `sessionId` 为空的令牌一条与第 2、3 片 omp 实现审查的修正同一个提交。
 
 第 1 片（合同包）已提交（`bf3d6f5aa`，10 个文件，新建 `oauth.ts`、`social.ts`）：合同包与它的使用方类型检查与测试都过，`governance:check` 过，3 条变异都被抓到。
 
@@ -112,3 +112,60 @@ Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），
 - 给后面几片的：停用客户端调 `revokeOAuthForClient`，撤销授权调 `revokeOAuthForGrant`，都在自己的写事务里；清理会删按模块时钟到期的 `verification` 行（含库的社交 state 行），拨模块时钟的用例要留意。
 
 第 2、3 片的实现审查已开（2026-11-25，范围 `bf3d6f5aa..3bb82cf7d`）：Opus 先审；omp 等设计审查那一份跑完再开。
+
+Opus 那轮的修正已提交（`d4ae39ae5`，7 个文件）：处理表第 1、3、4、5 条落地（[`plan.md`](plan.md) 文末“实现审查（第 2、3 片）的处理”）。账号与使用方的测试与类型检查、`governance:check` 都过，主会话重跑通过；4 条变异里 3 条被抓到，“去掉 `gracePeriod`”照过（库的缺省也是 30 天，行为不变；改成 7 天、60 天时用例失败）。审查者的实验对当前代码重跑：经 `handler` 到得了的“方法加路径”从 56 个降到 10 个，9 个是对外的，`/sign-out`、`/revoke-sessions` 等都是 404。
+
+- `disabledPaths` 由库导出的 `getEndpoints` 按同一份选项算出端点表，减去对外要的（`auth.ts` 的 `LIBRARY_PUBLIC_ENDPOINTS`）、只供服务端调用的与带参数的。带参数的关不掉（库逐字比路径），现在只有 `GET /reset-password/:token` 经 `handler` 到得了，只靠挂载白名单挡；主会话接受：它读一次性凭据后跳转、不写库，用例钉着这份名单，库新加这类端点时失败。实现者提的“改用 `onRequest` 钩子按方法加路径判 404”不做（多一套机制，收益只有这一条）。
+- 实现者另改的：锁下抛错的子进程原来经 `handler` 调 `/update-user`，现在那条关成 404，改调授权端点（它写授权码，写锁下照样抛出、被认成库不可用）。
+- 给第 5 片的（实现者对库的 `handler` 实测）：库对 HEAD 一律回 404，挂载层要把 HEAD 当 GET 转给库；库也接受 `POST /callback/<id>` 与 `POST /oauth2/authorize`，挂载层按方法挡；`/callback/<任意 id>` 库都接，挂载层只放开放了的上游。可以直接用 `LIBRARY_PUBLIC_ENDPOINTS` 登记白名单。`//token`、`/TOKEN`、`/%74oken`、`/token;x` 等写法库都回 404，`/./token`、`/x/../token` 被规范成 `/token`。
+- 给第 8 片的：`revoke.test.ts` 照库 1.7.27 的写法造了一行社交 state，库改了 state 的形状时那三条用例要跟着改。
+
+第 4 片（管理员登记与管理 OAuth 客户端）已提交（`01f288d33`，8 个文件）：新建 `oauth/clients.ts`（`checkRedirectUri`，两套按种类的规则）、`admin/oauth-clients.ts`（登记经库的 `adminCreateOAuthClient`、开在 `withLibTransaction` 里与操作者复核和审计一起提交；列表、改动、换密钥用自家 SQL，经 `adminWrite`；停用时同一事务撤令牌与码）。账号、合同包与使用方的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，6 条变异都被抓到；主会话重跑通过。主会话另补一个提交（`568e98972`）：客户端列表项带数字 `id`，审计记录的对象 id 能对上列表里的客户端（实现者提出两者对不上）；`site.oauth-provider` 输出 16 跟着改。
+
+- 实现者定、主会话接受的：库的请求体 schema 拒收（`VALIDATION_ERROR`）也映射成 `redirect_uri_invalid` 并记 `identity.oauth_client_rule_drift`（交给库的属性里只有回调地址是外来的，名字已由合同包先判）；路由选项上有一个可选的 `checkRedirectUri`，缺省是真规则，只有包内测试换它来造“库拒收”（自家规则比库严，真实输入造不出）；改动的审计参数是 `{properties: "name,redirectUris,disabled"}`（审计参数只能是标量），写进 `site.admin` 输出 8；改或换密钥一个不存在的客户端回 `not_found`；停用只在由启用变停用时撤；回调地址规则比 Spec 字面多出的几处（协议名不分大小写、`localhost.` 与 `[::ffff:127.x]` 算回环、`app.localhost` 不算、`127.1` 不算回环）都与库一致，写进 `site.oauth-provider` 输入一节。
+- 没有单独用例的：登记时“认过身份之后、库的事务之前操作者被降级”（写法与 `adminWrite` 相同，在库的事务里先调 `requireLiveAdmin`）。`client_secret_post` 这条变异合同现在抓不到，换码端点第 5 片才挂。
+- 给第 5 片的：`checkRedirectUri` 只判写法，按登记值匹配（回环不比端口）另写，可复用 `clients.ts` 里取原始主机的写法；种类按 `tokenEndpointAuthMethod === "none"` 判；库的 `adminCreateOAuthClient` 按系统时间判会话过期，合同测试把模块时钟拨到会话过期之后再登记会落成 500。
+
+第 5 片按计划拆成两段。5a（挂载层、发现文档、公钥、令牌端点、入口挂载、合同的测试客户端）已提交（`51c7f962e`，19 个文件）：账号、合同包、入口与合同测试的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程；主会话重跑通过。5 条变异 4 条被抓到，“公钥的 HEAD 带了正文”写不出能看到的改坏（Hono 与 `Bun.serve` 都丢掉 HEAD 的正文），断言留着；另做的两条替代变异（HEAD 原样交库、去掉显式的 `Content-Length`）都被抓到。
+
+- 实现者定、主会话接受的：POST 授权端点不是表单类型回 404；令牌端点不是表单类型回 400 `invalid_request`（库自己回 415 且不是 RFC 6749 的形状，也免得换个编码绕过去掉 `resource` 那一步），去掉 `resource` 后重新编码表单（值不变，字面编码可能变）；请求体上限在白名单之前，白名单外的超大请求回 400；发现文档的签名算法用常量（启动检查保证表里只有这一种）；`LIB_BASE_PATH` 取合同包的 `IDENTITY_AUTH_PREFIX`；合同包 `claims_supported` 的静态类型原来推成 `never[]`，改成两组字面量的并集；发现文档缺用户信息、公钥、撤销地址时启动失败；HEAD 与 GET 比头时不算 `Date`、`X-Request-Id`；验收 2 合同只断言 404，“是本模块的 404”放包内。
+- 给 5b 的：授权端点的改写替掉 `mount.ts` 里 `authorizeEndpoint` 的那一行交库。库对带会话 Cookie 的授权 POST 做来源检查（没有 Origin 回 403），主会话定：POST 读成 `URLSearchParams` 后改成同样参数的 GET 请求交库（授权端点的 GET 本来就允许跨站，POST 不该多一道）。
+
+5b（授权端点的第 1 步与改写、续接与登录、确认页接口）已提交（`8d3e14d08`，19 个文件）：四个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，6 条变异都被抓到（续接留 `ba_param`、确认接口回库的原始地址两条只有包内抓得到：库照样收下、合同造不出那个时机）；主会话重跑通过。
+
+- 实现者定、主会话接受的：授权端点的逻辑在 `mount.ts` 的 `authorizeEndpoint`，没另建 `authorize.ts`；`resolveContinue` 是 async、多收一个 `secret`（库的验签是 async、用库上下文的密钥）；浏览器 `fetch` 发起授权时库回 200 加 JSON，一律改成 302 加改写后的 `Location`；POST 只读表单体、忽略查询串（与库一致）；确认接口遇到库的登录页或站点同意页时写成站点的绝对地址（schema 要 `^https?://`）；`IdentityOverrides` 加了 `wrapOAuthConsent`，产品不传，只给包内测试在“接口判完、库还没判”之间插入停用或改回调地址，交库的仍是真的库（不换判断，与 t07 用队列交错造时序同一类）；库错误页上码表之外的码归 `client_not_found` 并记 `identity.oauth_library_error_page`。
+- Spec 跟着补的：输出 14“再次同意时再发一个授权码，前一个不作废”（实测）。`prompt=consent` 对免确认的客户端也显示确认页，与输出 13 的“总显示”一致。
+- 给第 6 片的：`response_type=token` 时库把错误放在回调地址的片段里跳回（`#error=unsupported_response_type`），第 2 步要先挡；`prompt=select_account` 现在落到错误页兜底，第 2 步的 `prompt` 校验之后应碰不到。
+
+设计审查与第 2、3 片 omp 实现审查要的 `purge` 删 `sessionId` 为空的访问令牌，主会话单独提交（`121d6a8e5`）：包内用例在另一条连接上删会话行（外键置空令牌的 `sessionId`），跑 `purge` 后那个令牌 401、别的照用；变异（去掉这个条件）被抓到。账号包与使用方的测试与类型检查通过。
+
+第 6 片（授权的其余规则、站点同意门槛、用户信息过滤、撤销改写、DPoP、注册与补交同意的续接）已提交（`681afe946`，12 个文件）：四个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，7 条变异都被抓到（`email_verified` 取库的列、撤销不看 `token` 非空两条只在包内：合同里造不出那种数据，前一条的合同抓手在第 8 片）；主会话重跑通过。
+
+- 实现者实测出、偏离计划、主会话接受的：
+  - 只把输出 3 列的 11 个参数交库（`authorize-request.ts` 的 `AUTHORIZE_PARAMS`），别的照 RFC 6749 忽略。计划算的“4096 编码后约 5462”只在参数名少时成立：库签名时每个参数名加一项 `ba_param`，几百个短参数名能把续接令牌撑到约 2 万字符，登录后续接悄悄丢掉（omp 设计审查第 5 条的同一类）。改后最长 5942。以后要让库看到新参数，同时加进这张表并重算长度（`continue.ts` 的注释写了算法）。
+  - 入口长度按原样与按标准编码重写后各判一次（库签名的是重写后的写法，原样没编码的 `/` 重写后是 3 个字符）。
+  - `request` 与 `request_uri` 都带时回 `request_not_supported`。
+- Spec 跟着改的：输出 3（没列的参数被忽略；长度两种都算）、输出 10（`token` 为空或出现多次回 `invalid_request`）、输出 12（补交同意不因花的时间再按 `max_age` 要求登录，库在签名前已去掉满足了的 `max_age`）。
+- 没改、记下的：撤销不存在的令牌回空体，别的客户端的令牌库回 `null`，都是 200；JSON 格式的撤销请求库回 415，原样透出；401 的 `WWW-Authenticate` 库另列 DPoP 的算法，没动。
+- 只有包内用例的：邮箱待补的账号的用户信息（合同造不出，等第 8 片）、`max_age` 与会话按模块时钟到期。
+- 给第 7 片的：测试辅助的 `authorize`、`grantTokens` 多了可选的 `scope`；合同的 `FlowSite` 多了 `dataDir`，重启进程用。
+
+第 7 片（已给的授权的列表与撤销，失效与重启的合同用例）已提交（`40a02a627`，6 个文件）：四个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程，4 条变异都被合同用例抓到（撤销授权只删同意记录、列表不排除免确认的、结束全部会话不撤、停用不撤）；主会话重跑通过。
+
+- 实现者定、主会话接受的：撤销一项授权删这个账号对这个客户端的全部同意记录（库先查后插，并发同意能留两行，只删一行时下一次授权不再显示确认页）；登记后被改成免确认的客户端，授权不列、按 id 撤销回 `not_found`；停用的客户端的授权照常列出；列表按 id 倒序。这几句写进了 `site.oauth-provider` 输出 15。
+- 会话到期一条合同只证明得了“到期后失效”：拨钟要拨过会话时长（至少 2 天），库按系统时间写的令牌与码的到期时刻都早于模块时钟，`purge` 把它们一起当过期删掉；“只撤到期那次会话的”在包内 `revoke.test.ts`。合同里客户端要在拨钟前登记、用免确认的客户端，都是为了绕开库按系统时间判。
+
+第 4 到 7 片（`d4ae39ae5..40a02a627`）的实现审查已开（2026-11-25）：Opus 先审，omp 同时在后台审同一份说明。
+
+Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、2、5 条落地（[`plan.md`](plan.md) 文末“实现审查（第 4 到 7 片）的处理”）。账号、入口与合同测试的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过，3 条变异都被抓到；主会话重跑通过。审查者的实验对当前代码重跑：编码路径都是本模块的 404，重复 `client_id` 的撤销从 200 变成 400。
+
+- 实现者判得比处理表宽、主会话接受的：撤销端点照库 1.7.27 的 `normalizeClientAuthenticationParameters` 整套判法先判（另含 `client_assertion` 重复、任何认证头加表单凭据、密钥与断言并存），只判 Basic 时 `Bearer` 加表单密钥会留下同一类问题；多出来的几种没有单独的用例。Spec 输出 10 补了这句。
+- 没改、接受的：发现文档的编码写法（`/.well-known/%6Fpenid-configuration`）照样回发现文档。回的是模块自己的文档、不经库，没有绕过什么。
+
+第 8 片（社交登录与关联）已提交，两个提交：`16ab11785`（最小链路：上游配置、`0003`、仿真上游、登录意图的发起与回调，23 个文件）、`bda38f0e9`（关联与其余用例：`social/hooks.ts`、`social/upstream-name.ts`、关联钩子复核会话、上游令牌不落库，14 个文件）。五个包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过、没有留下进程；主会话重跑通过。7 条变异 6 条被抓到；“`mapSocialError` 信地址里的自家码”是等价变异：按 omp 第 9b 条，地址里带 `error` 时在 `callback.ts` 就判完、走不到 `mapSocialError`，自家码也不在它的表里（`OWN_CODES` 那一行留着，防库以后出同名的码）。
+
+- 实现者定、主会话接受的：`genericOAuth` 插件总是装上，只给开放的上游加配置；仿真上游用 `node:http`，扣住令牌请求是每个上游一个先进先出队列；关联复用改密码的限流计数；`:provider` 不是两个上游之一回 `not_found`；地址里带 `error` 时仍交库（让库认出另一个浏览器的回调、删掉 state 行与 Cookie），结论只看地址；注册意图在第 9 片接上之前发起时是程序错误（500）。
+- 实测出、Spec 跟着改的：库插 `account` 失败留下的孤行会在 1 分钟内挡住同一账号或同一身份的关联（计划 3.10 的设计），`site.accounts` 输出 15 改成“至多挡住之后 1 分钟”。
+- 重放：登录意图第一次回调成功时库删掉自己的 state 行，第二次在库那里就落到 `social_state_invalid`；本站的认领是第二道，只有“另一个浏览器先用掉”那条用例分得出两道。
+- 没做的：回调查询串的长度上限（计划 3.6：超过时落点页带 `social_state_invalid`），交给第 9 片。
+- 给第 9 片的：注册要接 `start.ts` 的 `register` 分支、`FlowPayload` 的注册内容、`callback.ts` 的 `succeed` 对 `newUser` 的落点、`hooks.ts` 里 `inLibraryTransaction()` 为真的分支（改成 `joinLibTransaction`，加 `user.create.before`、`session.create.before` 的注册检查）；`providers.ts` 记进帧里的 `upstream.emailVerified` 给注册钩子拒未验证的邮箱；`link.test` 的“会话晚结束”与两条并发用例按库的两步排队卡时序，注册路径若改变库的步数要回头核。

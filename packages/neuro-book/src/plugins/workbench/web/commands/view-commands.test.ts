@@ -28,7 +28,7 @@ import type {LayoutDocStore} from "../state/layout-doc-store";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayoutDoc} from "../testing/layout-doc";
 import type {ViewCatalog} from "../views/registry";
-import {MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
+import {MOVE_VIEW_COMMAND, moveTargetsFor, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
 import {completedCommand} from "../../testing/declarations";
 import {failureText, workbenchTestText} from "../../testing/text";
 
@@ -85,6 +85,20 @@ function placeOf(store: LayoutDocStore, viewId: string): {readonly region: ViewL
 const activeContainer = (store: LayoutDocStore, region: ViewLocation): string | null | undefined => store.state.doc.panels[region]?.activeContainer;
 
 describe("移动视图", () => {
+    it("位置限制（views.md 输出 22）：受限视图没有一个会被收下的目标，不进第一步；别的视图的目标表里没有它的容器，菜单读同一份", async () => {
+        counter += 1;
+        const w = await storageWorld(join(tmp, `case-${String(counter)}`), []);
+        worlds.push(w);
+        const confined: ViewCatalog = new Map([...CATALOG, ["test.rail", view("R", "auxiliarybar", {confinedTo: "auxiliarybar"})]]);
+        const store = (await openLayoutDoc(w, "w", "c", false, confined)).store;
+        const cancelFirst = picker(() => ({kind: "cancelled"}));
+        expect(await run(store, cancelFirst, {})).toEqual({ok: true, value: null});
+        expect(labels(cancelFirst.requests[0])).toEqual(["test.a:A", "test.b:B", "test.c:C"]);
+        expect(moveTargetsFor(store, "test.rail")).toEqual([]);
+        expect((moveTargetsFor(store, "test.a") ?? []).map((target) => (target.kind === "container" ? target.container : target.kind))).not.toContain("view:test.rail");
+        expect(await run(store, picker(() => ({kind: "cancelled"})), {viewId: "test.a", container: "view:test.rail"})).toMatchObject({ok: false, code: "invalid-args"});
+    });
+
     it("移动、打开视图经真实命令注册表登记：布局没打开时不可用，打开后可用；Agent 不能打开视图（not-exposed）", async () => {
         const store = await layout();
         const current = shallowRef<LayoutDocStore | null>(null);

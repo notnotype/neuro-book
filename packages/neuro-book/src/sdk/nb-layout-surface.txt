@@ -65,6 +65,7 @@ type GridBranch<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
     children: GridNode<T>[];
 };
@@ -129,7 +130,7 @@ interface GridFailure<C extends string = string> extends GridIssue<C> {
 }
 
 ### experimental type GridFailureCode
-type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "wrong-sizing";
+type GridFailureCode = "not-found" | "wrong-node-kind" | "wrong-axis" | "not-finite" | "invalid-argument" | "limit-exceeded" | "duplicate-id" | "into-own-subtree" | "not-conserved" | "stale-baseline" | "not-collapsible" | "collapse-locked" | "wrong-sizing";
 
 ### experimental interface GridFloatInput
 引用：GridRect
@@ -215,6 +216,7 @@ type GridLeaf<T> = {
     minimumSize: GridExtent;
     maximumSize: GridExtent;
     sizing: GridSizing;
+    rigid?: true;
     collapse?: SashCollapseState;
 };
 
@@ -344,11 +346,10 @@ exposed:
 ### experimental type SashCollapsePolicy
 type SashCollapsePolicy = {
     collapsedSize: number;
-    restoreSize: number;
     collapseThreshold: number;
     expandThreshold: number;
     toggleable?: boolean;
-    restoreToShare?: boolean;
+    locked?: boolean;
 };
 
 ### experimental type SashCollapseState
@@ -410,6 +411,12 @@ events:
 slots:
   Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
 
+### experimental type SplitterCollapseState
+引用：SashCollapseState
+type SplitterCollapseState = SashCollapseState & {
+    restoreSize: number;
+};
+
 ### experimental interface SplitterGestureCancellation
 引用：SashGestureCancelReason, SashGestureSource
 interface SplitterGestureCancellation {
@@ -430,14 +437,14 @@ interface SplitterGestureState {
 }
 
 ### experimental interface SplitterPanelConfig
-引用：SashCollapseState
+引用：SplitterCollapseState
 interface SplitterPanelConfig {
     id?: string;
     defaultSizePx?: number;
     minSizePx?: number;
     maxSizePx?: number;
     sizing?: "fixed" | "weight";
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     label?: string;
     overflow?: "hidden" | "visible";
 }

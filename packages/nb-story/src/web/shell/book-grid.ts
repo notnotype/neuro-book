@@ -76,7 +76,7 @@ export function createBookGrid(input: BookGridInput): Grid<BookPane> {
                 sizing: "fixed",
                 minimumSize: {width: 150, height: 0},
                 maximumSize: {width: 300, height: UNBOUNDED},
-                collapse: {collapsed: input.navCollapsed, collapsedSize: NAV_COLLAPSED_WIDTH, restoreSize: NAV_WIDTH, collapseThreshold: 60, expandThreshold: 40},
+                collapse: {collapsed: input.navCollapsed, collapsedSize: NAV_COLLAPSED_WIDTH, collapseThreshold: 60, expandThreshold: 40},
             },
             {kind: "leaf", id: "main", ref: "main", size: {width: 600, height: 0}, minimumSize: {width: 360, height: 0}},
             {
@@ -85,12 +85,12 @@ export function createBookGrid(input: BookGridInput): Grid<BookPane> {
                 orientation: "horizontal",
                 size: {width, height: 0},
                 sizing: "fixed",
-                collapse: {collapsed: input.drawerCollapsed, collapsedSize: 0, restoreSize: width, collapseThreshold: 80, expandThreshold: 40},
+                collapse: {collapsed: input.drawerCollapsed, collapsedSize: 0, collapseThreshold: 80, expandThreshold: 40},
                 children: [
                     card("drawer"),
-                    // 第二张：一张卡时收起到 0。收起阈值取一个拖不到的数、Enter 也不翻它（`toggleable: false`）：中间那条线拖到底停在 280，
-                    // 不会把第二张拖没；收起与展开只由宿主随张数改。
-                    {...card("drawer2"), collapse: {collapsed: cards < 2, collapsedSize: 0, restoreSize: input.drawerWidth, collapseThreshold: 100_000, expandThreshold: 40, toggleable: false}},
+                    // 第二张：一张卡时收起到 0。锁住收起状态：中间那条线拖到底停在 280，不会把第二张拖没，Enter 也不翻它；
+                    // 收起与展开只由宿主随张数改（`setCardCount` 经 `grid.setCollapsed`）。
+                    {...card("drawer2"), collapse: {collapsed: cards < 2, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 40, locked: true}},
                 ],
             },
         ],

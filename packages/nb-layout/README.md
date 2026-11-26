@@ -51,7 +51,7 @@ const grid = shallowRef(createGrid<string>({
             size: {width: 240, height: 0},
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
         {kind: "leaf", id: "editor", ref: "editor", size: {width: 600, height: 0}},
     ],
@@ -107,15 +107,15 @@ function toggleFiles(): void {
 </template>
 ```
 
-左栏的 `collapse` 是它的收起策略：拖过最小尺寸后再往里 `collapseThreshold` 像素就收起到 `collapsedSize`（这里是 0）；从收起处往外拉过 `expandThreshold` 就展开；分隔条上按 Enter 或调 `setCollapsed` 也能收起、展开，Enter 恢复到 `restoreSize`（网格在收起的那一刻记下）。`collapsed` 是当前状态。
+左栏的 `collapse` 是它的收起策略：拖过最小尺寸后再往里 `collapseThreshold` 像素就收起到 `collapsedSize`（这里是 0）；从收起处往外拉过 `expandThreshold` 就展开；分隔条上按 Enter 或调 `setCollapsed` 也能收起、展开，展开回到意图。`collapsed` 是当前状态。
 
 它做了五件事，每件对应一处：
 
 1. **建树**：`createGrid(根, {sashSize})`。节点的 `size` 是分配意图，不是呈现尺寸；`sizing: "fixed"` 的保留像素，其余按比例分余量。
 2. **量容器**：`NestedGrid` 自己量根盒，经 `useGridHost` 交给宿主；宿主不另量。承载盒（包着 `NestedGrid` 的那个元素）要有确定的高度，组件的根铺满它；例子直接给外层写了 480px，放进页面时也可以让 `html`、`body`、`#app` 一路是 `height: 100%`。
 3. **算布局**：`useGridHost` 按网格与尺寸算布局，整包 `bindings` 绑到组件上。没量到可用尺寸时布局为空、手势停用。
-4. **接纳手势提交**：拖完一次，`bindings` 里的提交处理核对并落账，然后调 `onApplied`；要存盘就在这里，结构操作之后也要存（例子的 `save`）。
-5. **结构变了通知**：原地改了树（拆分、关闭、移动）之后调 `host.invalidate()`；收起与展开用 `host.setCollapsed`，它自己重发布局。
+4. **接纳手势提交**：拖完一次，`bindings` 里的提交处理核对并落账，然后调 `onApplied`。经 `host.setCollapsed` 收起、展开与经 `host.setSize` 设尺寸之后也调它，存盘就在这里；结构操作之后要自己存（例子的 `save`）。
+5. **结构变了通知**：原地改了树（拆分、关闭、移动）之后调 `host.invalidate()`，它不调 `onApplied`；收起与展开用 `host.setCollapsed`，它自己重发布局。
 
 接线的细节（`contextKey` 只经选项给、诊断一个出口、提交前的布局）见 [`useGridHost`](src/vue/useGridHost.md)；组件的属性、插槽与事件见 [`NestedGrid`](src/vue/NestedGrid.md)；树的结构操作与快照见 [`grid`](src/grid.md)。
 
@@ -137,7 +137,7 @@ function toggleFiles(): void {
 | 把网格画出来、接手势 | `NestedGrid` 加 `useGridHost` | `./vue` |
 | 关掉一块，内容跟着缩回去再卸载 | `NestedGrid` 的内容层，内容项标 `leave: "retain"`（[说明](src/vue/NestedGrid.md)；只用 leaf 插槽时删叶没有缩回去的过渡；留着的这段时间宿主的数据已经删了，面板头与正文都别按 key 查数据，写法见说明的“过渡”） | `./vue` |
 | 收起与展开一块面板 | `host.setCollapsed`（直接调 `grid.setCollapsed` 的，之后要调 `host.invalidate()`；示例见 ide） | `./vue`、根 |
-| 把一块保留像素的设成已知宽度（偏好、菜单） | `grid.setSize`，之后调 `host.invalidate()` | 根 |
+| 把一块保留像素的设成已知宽度（偏好、菜单） | `host.setSize`（直接调 `grid.setSize` 的，之后要调 `host.invalidate()`） | `./vue`、根 |
 | 保存与恢复 | `grid.serialize()`、`restoreGrid(快照, 解析引用, 选项)` | 根 |
 | 先试一遍再决定做不做（这次拆分放不放得下） | `grid.clone()`，在副本上照做、读结果与副本的 `grid.layout().issues` | 根 |
 | 键盘在叶之间走（F6） | `moveGridFocus`，键位由宿主登记 | `./vue` |
@@ -165,7 +165,7 @@ function toggleFiles(): void {
   ```ts
   // 宿主按引用记着的运行期策略；没列在这里的（例如拆分出来的 preview）按比例分、没有收起策略。
   const policies: Record<string, Omit<GridRefResolution<string>, "ref">> = {
-      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24}},
+      files: {sizing: "fixed", minimumSize: {width: 160, height: 0}, collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24}},
   };
   const known = new Set(["files", "editor", "preview"]); // 宿主此刻还有的内容
   // 宿主已经没有的内容返回 null；恢复也要给 sashSize：它不在快照里
@@ -173,7 +173,7 @@ function toggleFiles(): void {
   const grid = result.ok ? result.grid : null; // 失败时结果里没有 grid；存档原件要留着，见下面“读失败时保留原件”
   ```
 
-  `restoreGrid`、`GridRefResolution` 从根入口导出。收起状态要跨会话保存的，宿主自己另存（`setCollapsed` 的结果、`grid.find(id).collapse`），恢复时放进 `policies` 里对应的 `collapse`。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
+  `restoreGrid`、`GridRefResolution` 从根入口导出。收起状态要跨会话保存的，宿主另存 `collapsed`（`setCollapsed` 的结果、`grid.find(id).collapse`），恢复时放进 `policies` 里对应的 `collapse`；展开回到意图，意图已经在快照里。引用不是字符串时，建网格要给 `encodeRef`（见 [`grid`](src/grid.md)）。
 - **意图的单位**：节点的 `size` 是意图。保留像素（`sizing: "fixed"`）的意图是像素；按比例分的意图是同一分支里按比例分的兄弟之间的相对份额，单位由兄弟决定。增删与移动不改兄弟的意图：保留像素的栏宽度不变，按比例分的按份额重分；新加的按比例分的叶不给意图就平分一份，要等分就别给（细则见 [`grid`](src/grid.md) 的“结构操作”）。
 - **`maximumSize` 的 0 就是上限 0**，不是不限：只给主轴约束的叶，交叉轴的上限写 `Infinity`，或者整个 `maximumSize` 不写。写成 0 时 `layout()` 报出的那根轴的尺寸是 0（`NestedGrid` 按父分支的盒子画，画面上看不出来，读布局结果的代码会读到 0）：
 

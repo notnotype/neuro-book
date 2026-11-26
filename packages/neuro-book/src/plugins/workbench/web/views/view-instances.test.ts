@@ -12,7 +12,7 @@ import type {EffectScope} from "vue";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {ViewSource} from "./registry";
-import {viewHeadOf} from "../../shared/contracts";
+import {viewHeadOf, viewRailOf} from "../../shared/contracts";
 import {useViewInstances} from "./view-instances";
 import type {ViewInstances} from "./view-instances";
 
@@ -114,5 +114,67 @@ describe("视图实例的标题区", () => {
         await ready(instances, "test.plain");
         expect(instances.headOf("test.plain")).toBeNull();
         expect(viewHeadOf(instances.contextOf("test.plain")!)).toBeNull();
+    });
+});
+
+describe("视图实例的视图段（views.md 输出 21）", () => {
+    const BOUNDS = {width: 260, minimum: 200, maximum: 420, chatMinimum: 320};
+    /** `requested` 记下转给外壳的请求；外壳按 `answer` 回。 */
+    function railInstances(answer: (expanded: boolean) => "done" | "too-narrow" = () => "done") {
+        const requested: boolean[] = [];
+        const source: ViewSource = {
+            delivery: () => ({kind: "available"}),
+            load: async (viewId) => ({status: "loaded", component: Sample, ...(viewId === "test.rail" ? {rail: BOUNDS} : {})}),
+            retry: async () => ({status: "not-failed"}),
+        };
+        const scope = effectScope();
+        scopes.push(scope);
+        const ids = new Set(["test.rail", "test.plain"]);
+        const instances = scope.run(() => useViewInstances({source, visible: () => ids, placed: () => ids, location: () => "auxiliarybar", requestRail: (_viewId, expanded) => {
+            requested.push(expanded);
+            return answer(expanded);
+        }}))!;
+        return {instances, requested};
+    }
+
+    it("声明了的实例就绪后有视图段，视图经 context 拿到同一份；请求转给外壳、按调用顺序各自完成；没声明的没有", async () => {
+        let narrow = false;
+        const {instances, requested} = railInstances(() => (narrow ? "too-narrow" : "done"));
+        await ready(instances, "test.rail");
+        await ready(instances, "test.plain");
+        const control = instances.railOf("test.rail");
+        expect(control).not.toBeNull();
+        const rail = viewRailOf(instances.contextOf("test.rail")!);
+        expect(rail).toBe(control!.rail);
+        expect(rail!.placement.value).toEqual({kind: "none"});
+        const first = rail!.request(true);
+        narrow = true;
+        const second = rail!.request(false);
+        expect(await Promise.all([first, second])).toEqual(["done", "too-narrow"]);
+        expect(requested).toEqual([true, false]);
+        expect(instances.railOf("test.plain")).toBeNull();
+        expect(viewRailOf(instances.contextOf("test.plain")!)).toBeNull();
+    });
+
+    it("渲染出错时没有；重试渲染换一代、换一份新的，旧的那份位置收成 none、请求一律 revoked、不再转给外壳", async () => {
+        const {instances, requested} = railInstances();
+        await ready(instances, "test.rail");
+        const old = instances.railOf("test.rail")!;
+        // bun 的测试里没有 DOM：用浮动窗那一种位置，同样只比引用。
+        old.setPlacement({kind: "window", width: 260});
+        old.setExpanded(true);
+        expect(old.rail.placement.value).toEqual({kind: "window", width: 260});
+        instances.renderError("test.rail", instances.instances.get("test.rail")!.generation, "boom");
+        expect(instances.railOf("test.rail")).toBeNull();
+        instances.retryRender("test.rail");
+        const fresh = instances.railOf("test.rail");
+        expect(fresh).not.toBeNull();
+        expect(fresh).not.toBe(old);
+        expect(old.rail.placement.value).toEqual({kind: "none"});
+        expect(old.rail.expanded.value).toBe(false);
+        expect(await old.rail.request(true)).toBe("revoked");
+        old.setPlacement({kind: "window", width: 300});
+        expect(old.rail.placement.value).toEqual({kind: "none"});
+        expect(requested).toEqual([]);
     });
 });

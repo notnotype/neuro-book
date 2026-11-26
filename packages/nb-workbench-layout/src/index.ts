@@ -41,6 +41,7 @@ export {
     setActiveContainer,
     setBarHidden,
     setContainerEntries,
+    setContainerRail,
     setCurrentEditor,
     setFloatRect,
     setPanelCollapsed,
@@ -62,11 +63,14 @@ export type {
     LayoutSource,
     PanelName,
     PanelRecord,
+    RailIntent,
     TabRef,
 } from "./layout-doc";
 export {
     presentationCollapse,
     projectLayoutDoc,
+    railLeafId,
+    regionOfRailLeaf,
     regionOfStripLeaf,
     regionStripLeafId,
 } from "./layout-project";

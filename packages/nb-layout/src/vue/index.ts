@@ -30,6 +30,7 @@ export {
 export type {
     GridHost,
     GridHostBindings,
+    GridHostChange,
     GridHostIssue,
     GridHostOptions,
 } from "./useGridHost";

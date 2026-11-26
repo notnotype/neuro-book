@@ -1,24 +1,24 @@
 import {describe, expect, it} from "bun:test";
 import {createGrid} from "./grid";
 import {branchSashPanels, finite, type SashPanel} from "./grid-geometry";
-import {solveSashCollapse, solveSashDrag, type SashDragResult, type SashDragSnapState} from "./sash-drag";
+import {reflowSashCollapse, solveSashCollapse, solveSashDrag, type SashDragResult, type SashDragSnapState} from "./sash-drag";
 import type {GridBranchInput, GridLeafInput} from "./grid-types";
 
 const UNBOUNDED = Number.MAX_SAFE_INTEGER;
 /** 默认收起阈值：吸附与恢复各 24px。 */
 const SASH_COLLAPSE_THRESHOLD = 24;
 
-/** 便捷构造：给出展开尺寸与记忆尺寸，得到一份完整的收起策略。 */
+/** 便捷构造：得到一份完整的收起策略；`restoreSize` 只有独立 `Splitter` 的显式恢复读，网格那条路不给。 */
 function sashCollapsePolicy(input: {
     collapsedSize: number;
-    restoreSize: number;
+    restoreSize?: number;
     collapsed?: boolean;
     collapseThreshold?: number;
     expandThreshold?: number;
 }): SashPanel["collapse"] {
     return {
         collapsedSize: Math.max(0, finite(input.collapsedSize, 0)),
-        restoreSize: Math.max(0, finite(input.restoreSize, 0)),
+        ...(input.restoreSize === undefined ? {} : {restoreSize: Math.max(0, finite(input.restoreSize, 0))}),
         collapseThreshold: Math.max(0, finite(input.collapseThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
         expandThreshold: Math.max(0, finite(input.expandThreshold ?? SASH_COLLAPSE_THRESHOLD, SASH_COLLAPSE_THRESHOLD)),
         collapsed: input.collapsed === true,
@@ -343,7 +343,6 @@ function projectedSidePanels(
             ? {
                 collapse: {
                     collapsedSize: 0,
-                    restoreSize: size,
                     collapseThreshold: 24,
                     expandThreshold: 24,
                     collapsed: id === collapsedSide,
@@ -378,6 +377,41 @@ function sideShape(side: "left" | "right"): {sashIndex: number; index: number; m
         ? {sashIndex: 0, index: 0, memory: LEFT_MEMORY, outward: 1}
         : {sashIndex: 1, index: 2, memory: RIGHT_MEMORY, outward: -1};
 }
+
+describe("拖动求解：锁住收起状态（Spec ui/nested-grid 输出 168）", () => {
+    const locked = (collapsed: boolean): SashPanel["collapse"] => ({...sashCollapsePolicy({collapsedSize: 0, collapsed})!, locked: true});
+
+    it("锁住、展开着的：拖过阈值也停在最小尺寸，不收起、不报诊断；不锁的同一段会收起", () => {
+        const panels = (policy: SashPanel["collapse"]): SashPanel[] => [{...fixed("a", 100), size: 300, collapse: policy}, weight("b", 100)];
+        const held = drag(panels(locked(false)), [300, 700], 0, [-100, -250, -290]);
+        expect(held.sizesPx).toEqual([100, 900]);
+        expect(held.collapsed).toEqual({});
+        expect(held.issues).toEqual([]);
+        const free = drag(panels(sashCollapsePolicy({collapsedSize: 0})), [300, 700], 0, [-100, -250, -290]);
+        expect(free.collapsed).toEqual({a: true});
+    });
+
+    it("锁住、收着的：照旧是收起尺寸、拉不开，位移传给同侧的兄弟；不报诊断", () => {
+        const result = drag([weight("x", 100), {...fixed("a", 100), size: 300, collapse: locked(true)}, weight("b", 100)], [400, 0, 600], 1, [50, 200]);
+        expect(result.sizesPx).toEqual([600, 0, 400]);
+        expect(result.collapsed).toEqual({});
+        expect(result.issues).toEqual([]);
+    });
+});
+
+describe("拖动求解：级联遇到刚性的面板（Spec ui/nested-grid 输出 169）", () => {
+    it("近端是刚性的：它不让也不吃，位移传给更远的兄弟；去掉刚性时它先被压到最小", () => {
+        const bar: SashPanel = {...fixed("bar", 40), size: 200, rigid: true};
+        const panels = [weight("x", 100), bar, weight("b", 100)];
+        const result = drag(panels, [300, 200, 500], 0, [250]);
+        expect(result.sizesPx).toEqual([550, 200, 250]);
+        expect(result.active).not.toContain("bar");
+        expect(result.compensated).not.toContain("bar");
+
+        const plain = drag([weight("x", 100), {...bar, rigid: undefined}, weight("b", 100)], [300, 200, 500], 0, [250]);
+        expect(plain.sizesPx).toEqual([550, 40, 410]);
+    });
+});
 
 describe("拖动求解：两侧外栏的收起与恢复", () => {
     it("右侧外栏拖到零再拉回：展开到指针位置，余量兄弟吸收差额", () => {
@@ -445,10 +479,15 @@ describe("拖动求解：两侧外栏的收起与恢复", () => {
         expect(outcomes[1]!.split(",").reverse().join(",")).toBe(outcomes[0]);
     });
 
-    it("显式恢复（Enter / Section 按钮）用记忆尺寸，与拖动的指针位置分工不同", () => {
+    /** 独立 `Splitter` 那条路：宿主给的 `restoreSize` 就是记忆尺寸，这里取面板的展开意图。网格的面板没有它。 */
+    const withRestoreSize = (panels: readonly SashPanel[]): SashPanel[] =>
+        panels.map((panel) => (panel.collapse === undefined ? panel : {...panel, collapse: {...panel.collapse, restoreSize: panel.size}}));
+
+    it("独立 `Splitter` 的显式恢复（Enter、命令）用宿主给的 `restoreSize`，与拖动的指针位置分工不同", () => {
         const outcomes = (["left", "right"] as const).map((side) => {
             const {sashIndex, index, memory} = sideShape(side);
-            const {panels, baseline} = projectedSidePanels(side);
+            const {panels: projected, baseline} = projectedSidePanels(side);
+            const panels = withRestoreSize(projected);
             const result = solveSashCollapse({panels, sizesPx: baseline, sashIndex, index, collapsed: false});
             expect(result?.collapsed, side).toEqual({[side]: false});
             expect(result?.sizesPx[index], side).toBe(memory);
@@ -459,29 +498,91 @@ describe("拖动求解：两侧外栏的收起与恢复", () => {
         expect(outcomes[0]).toBe(outcomes[1]);
     });
 
-    it("策略带 `restoreToShare` 时显式恢复回到按权重该得的那一份：等于把它翻成展开后重新分配给它的尺寸", () => {
-        // 一列三块按比例分的面板，权重只记比例（合计不是像素）；first 收成 32 高的标题行。
-        const stack = (restoreToShare: boolean): SashPanel[] => [
-            {...weight("first", 80), size: 2, collapse: {...sashCollapsePolicy({collapsedSize: 32, restoreSize: 2, collapsed: true})!, ...(restoreToShare ? {restoreToShare: true} : {})}},
-            {...weight("second", 80), size: 1},
-            {...weight("third", 80), size: 1},
-        ];
-        const sizes = [32, 484, 284];
-        const share = solveSashCollapse({panels: stack(true), sizesPx: sizes, sashIndex: 0, index: 0, collapsed: false});
-        expect(share?.collapsed).toEqual({first: false});
-        // 总量 800 按 2:1:1 分，first 得 400；挨着边界的 second 让出 368，third 不动。
-        expect(share?.sizesPx).toEqual([400, 116, 284]);
-
-        // 缺省读 restoreSize：这里的 2 不是像素，被夹到最小尺寸。
-        const remembered = solveSashCollapse({panels: stack(false), sizesPx: sizes, sashIndex: 0, index: 0, collapsed: false});
-        expect(remembered?.sizesPx).toEqual([80, 436, 284]);
-    });
-
-    it("显式恢复的记忆尺寸超过自身上限时按上限恢复，不吃掉兄弟", () => {
-        const {panels, baseline} = projectedSidePanels("right", {right: SIDE_MAX + 55});
+    it("独立 `Splitter` 的 `restoreSize` 超过自身上限时按上限恢复，不吃掉兄弟", () => {
+        const {panels: projected, baseline} = projectedSidePanels("right", {right: SIDE_MAX + 55});
+        const panels = withRestoreSize(projected);
         const result = solveSashCollapse({panels, sizesPx: baseline, sashIndex: 1, index: 2, collapsed: false});
         expect(result?.sizesPx[2]).toBe(SIDE_MAX);
         expect(result?.sizesPx[0]).toBe(LEFT_MEMORY);
         expect(result?.sizesPx[1]).toBeGreaterThan(0);
+    });
+});
+
+describe("显式收起与展开：网格的翻标记重排（Spec ui/nested-grid 输出 20、166）", () => {
+    const policy = (collapsed: boolean): SashPanel["collapse"] => sashCollapsePolicy({collapsedSize: 0, collapsed});
+
+    it("翻了标记后按意图重新分配这一支此刻的总量：按比例分的兄弟按份额吸收与让出，保留像素的不变", () => {
+        // 意图 300、300、300，c 收起：总量 900 按 300:300 分给 a、b；展开时 c 拿回自己的份额。
+        const panels = (collapsed: boolean): SashPanel[] => [
+            {...weight("a", 80), size: 300},
+            {...weight("b", 80), size: 300},
+            {...weight("c", 120), size: 300, collapse: policy(collapsed)},
+        ];
+        const folded = reflowSashCollapse({panels: panels(false), sizesPx: [300, 300, 300], index: 2, collapsed: true});
+        expect(folded).toEqual({sizesPx: [450, 450, 0], collapsed: {c: true}, issues: []});
+        const opened = reflowSashCollapse({panels: panels(true), sizesPx: [450, 450, 0], index: 2, collapsed: false});
+        expect(opened).toEqual({sizesPx: [300, 300, 300], collapsed: {c: false}, issues: []});
+
+        // 保留像素的兄弟不变：只有按比例分的 b 吸收。
+        const pinned = reflowSashCollapse({
+            panels: [{...fixed("a", 100), size: 200, collapse: policy(false)}, {...weight("b", 100), size: 1}, {...fixed("c", 100), size: 300}],
+            sizesPx: [200, 300, 300],
+            index: 0,
+            collapsed: true,
+        });
+        expect(pinned?.sizesPx).toEqual([0, 500, 300]);
+    });
+
+    it("翻了之后最小尺寸之和放不下这一支的总量：不展开，给 `no-room-to-restore`；只压保留像素的兄弟（`fixed-overflow`）照常展开", () => {
+        const tight = reflowSashCollapse({
+            panels: [{...weight("a", 200), size: 250, collapse: policy(true)}, {...weight("b", 150), size: 300}],
+            sizesPx: [0, 300],
+            index: 0,
+            collapsed: false,
+        });
+        expect(tight?.sizesPx).toEqual([0, 300]);
+        expect(tight?.collapsed).toEqual({});
+        expect(tight?.issues.map((issue): Record<string, unknown> => ({code: issue.code, ...issue.params}))).toEqual([{code: "no-room-to-restore", id: "a", available: 150, required: 200}]);
+
+        // a、c 保留 300、最小 100，总量 500：展开 a 后放得下最小值，只是保留像素的被压到 200。
+        const squeezed = reflowSashCollapse({
+            panels: [{...fixed("a", 100), size: 300, collapse: policy(true)}, {...weight("b", 100), size: 100}, {...fixed("c", 100), size: 300}],
+            sizesPx: [0, 200, 300],
+            index: 0,
+            collapsed: false,
+        });
+        expect(squeezed).toEqual({sizesPx: [200, 100, 200], collapsed: {a: false}, issues: []});
+    });
+
+    it("翻了之后让出的空间没有兄弟吸收（兄弟都到上限或都保留像素）：不收起，给 `no-room-to-collapse`", () => {
+        const capped = reflowSashCollapse({
+            panels: [{...weight("a", 100, 300), size: 300, collapse: policy(false)}, {...weight("b", 100, 200), size: 200}],
+            sizesPx: [300, 200],
+            index: 0,
+            collapsed: true,
+        });
+        expect(capped?.sizesPx).toEqual([300, 200]);
+        expect(capped?.collapsed).toEqual({});
+        expect(capped?.issues.map((issue) => issue.code)).toEqual(["no-room-to-collapse"]);
+
+        const pinned = reflowSashCollapse({
+            panels: [{...weight("a", 100), size: 300, collapse: policy(false)}, {...fixed("b", 100), size: 200}],
+            sizesPx: [300, 200],
+            index: 0,
+            collapsed: true,
+        });
+        expect(pinned?.collapsed).toEqual({});
+        expect(pinned?.issues.map((issue) => issue.code)).toEqual(["no-room-to-collapse"]);
+    });
+
+    it("没有收起策略、已经是目标状态、输入非法", () => {
+        const plain = reflowSashCollapse({panels: [fixed("plain", 64, 320), weight("tail", 0)], sizesPx: [200, 400], index: 0, collapsed: true});
+        expect(plain?.sizesPx).toEqual([200, 400]);
+        expect(plain?.issues.map((issue): Record<string, unknown> => ({code: issue.code, ...issue.params}))).toEqual([{code: "no-collapse-policy", id: "plain"}]);
+        const same = reflowSashCollapse({panels: [{...weight("a"), size: 1, collapse: policy(true)}, weight("b")], sizesPx: [0, 400], index: 0, collapsed: true});
+        expect(same).toEqual({sizesPx: [0, 400], collapsed: {}, issues: []});
+        expect(reflowSashCollapse({panels: [weight("a"), weight("b")], sizesPx: [100], index: 0, collapsed: true})).toBeNull();
+        expect(reflowSashCollapse({panels: [weight("a"), weight("b")], sizesPx: [100, Number.NaN], index: 0, collapsed: true})).toBeNull();
+        expect(reflowSashCollapse({panels: [weight("a"), weight("b")], sizesPx: [100, 100], index: 2, collapsed: true})).toBeNull();
     });
 });

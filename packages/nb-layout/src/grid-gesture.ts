@@ -9,7 +9,7 @@
  * - **一次手势只提交一次**：交汇处的两根轴收齐后才产出 changes，期间任何一轴结束都不重建另一轴的基线。
  */
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
-import {sashEdgeDelta, sashLineOffset, solveSashCollapse, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
+import {reflowSashCollapse, sashEdgeDelta, sashLineOffset, solveSashDrag, withCollapseOverrides, type SashDragSnapState} from "./sash-drag";
 import {cloneNode, findInTree} from "./grid-tree";
 import {issueKey} from "./issue-gate";
 import type {GridSashRef, SashGestureCancelReason, SashGestureSessionCore, SashGestureSource} from "./sash-gesture";
@@ -263,18 +263,18 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
     }
 
     /**
-     * 键盘/命令式折叠：在指定轴的两个相邻面板里找一个可折叠的。有真实变化才改会话状态并返回 `applied: true`；
-     * 没有变化时会话状态不动（前面的位移照常提交），只交回折叠的诊断。
+     * 键盘/命令式折叠：翻目标面板的标记、按意图重排这一支（`reflowSashCollapse`，结果同 `setCollapsed`）。
+     * 有真实变化才改会话状态并返回 `applied: true`；没有变化时会话状态不动（前面的位移照常提交），只交回折叠的诊断。
+     * 重排从意图出发，不接着本场前面拖出来的尺寸：前面的位移被这次切换整个替换。
      */
     function applyCollapse(owner: Owner, current: readonly number[], action: {index: number; collapsed: boolean}): {applied: boolean; issues: readonly GridIssue<GridIssueCode>[]} {
         if (action.index < 0 || action.index >= owner.panels.length) {
             return {applied: false, issues: []};
         }
-        const result = solveSashCollapse({
-            // 兄弟范围必须看到本场已改动的收起状态，否则已收起的兄弟会带着展开范围参与容量计算。
+        const result = reflowSashCollapse({
+            // 兄弟范围必须看到本场已改动的收起状态，否则已收起的兄弟会带着展开范围参与重排。
             panels: withCollapseOverrides(owner.panels, owner.snapState?.collapsed),
             sizesPx: current,
-            sashIndex: owner.sash.index,
             index: action.index,
             collapsed: action.collapsed,
         });
@@ -294,11 +294,11 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
         return {applied: true, issues: result.issues};
     }
 
-    /** 该轴上下一个可显式折叠的面板：优先分隔条前侧，其次后侧；`toggleable: false` 的只经拖动收起。 */
+    /** 该轴上下一个可显式折叠的面板：优先分隔条前侧，其次后侧；`toggleable: false` 的只经拖动收起，锁住的（输出 168）只由宿主翻。 */
     function collapsibleIndex(owner: Owner): number | null {
         for (const index of [owner.sash.index, owner.sash.index + 1]) {
             const panel = owner.panels[index];
-            if (panel?.collapse && panel.collapse.toggleable !== false) {
+            if (panel?.collapse && panel.collapse.toggleable !== false && panel.collapse.locked !== true) {
                 return index;
             }
         }

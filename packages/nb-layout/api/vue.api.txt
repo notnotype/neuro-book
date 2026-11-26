@@ -134,14 +134,15 @@ events:
   preview(rect: GridRect | null)
 
 ### experimental type GridHost
-引用：GridCollapseResult, GridExtent, GridFailure, GridHostBindings, GridLayoutResult, GridNode
+引用：GridCollapseOptions, GridCollapseResult, GridExtent, GridFailure, GridHostBindings, GridLayoutResult, GridNode, GridSetSizeResult
 type GridHost<T> = {
     readonly node: ComputedRef<GridNode<T> | null>;
     readonly layout: Readonly<Ref<GridLayoutResult>>;
     readonly revision: Readonly<Ref<number>>;
     readonly extent: Readonly<Ref<GridExtent | null>>;
     invalidate(): void;
-    setCollapsed(id: string, collapsed: boolean): GridCollapseResult | GridFailure<"not-ready">;
+    setCollapsed(id: string, collapsed: boolean, options?: GridCollapseOptions): GridCollapseResult | GridFailure<"not-ready">;
+    setSize(id: string, px: number): GridSetSizeResult | GridFailure<"not-ready">;
     readonly bindings: ComputedRef<GridHostBindings<T>>;
 };
 
@@ -159,19 +160,42 @@ type GridHostBindings<T> = {
     readonly onGestureStart: (start: GridGestureStart) => void;
 };
 
+### experimental type GridHostChange
+引用：GridBranchesResizeResult, GridCollapseResult, GridGestureCommit, GridSetSizeResult
+type GridHostChange = {
+    readonly kind: "gesture";
+    readonly commit: GridGestureCommit;
+    readonly result: Extract<GridBranchesResizeResult, {
+        ok: true;
+    }>;
+    readonly collapsed: Readonly<Record<string, boolean>>;
+} | {
+    readonly kind: "collapse";
+    readonly id: string;
+    readonly result: Extract<GridCollapseResult, {
+        ok: true;
+    }>;
+    readonly collapsed: Readonly<Record<string, boolean>>;
+} | {
+    readonly kind: "size";
+    readonly id: string;
+    readonly result: Extract<GridSetSizeResult, {
+        ok: true;
+    }>;
+    readonly collapsed: Readonly<Record<string, boolean>>;
+};
+
 ### experimental type GridHostIssue
 引用：GridFailure, GridHostIssueCode, GridIssue, GridIssueCode
 type GridHostIssue = GridIssue<GridIssueCode | GridHostIssueCode> | GridFailure;
 
 ### experimental type GridHostOptions
-引用：Grid, GridBranchesResizeResult, GridGestureCommit, GridHostIssue, GridLayoutResult
+引用：Grid, GridHostChange, GridHostIssue, GridLayoutResult
 type GridHostOptions<T> = {
     readonly grid: MaybeRefOrGetter<Grid<T> | null>;
     readonly contextKey?: MaybeRefOrGetter<string>;
     readonly disabled?: MaybeRefOrGetter<boolean>;
-    readonly onApplied?: (commit: GridGestureCommit, result: Extract<GridBranchesResizeResult, {
-        ok: true;
-    }>, before: GridLayoutResult) => void;
+    readonly onApplied?: (change: GridHostChange, before: GridLayoutResult) => void;
     readonly onIssues?: (issues: readonly GridHostIssue[]) => void;
 };
 
@@ -393,14 +417,14 @@ slots:
   Record<`panel-${string}`, (props: { panel: SplitterPanelConfig; index: number; }) => unknown> & { default(): unknown; }
 
 ### experimental interface SplitterPanelConfig
-引用：SashCollapseState
+引用：SplitterCollapseState
 interface SplitterPanelConfig {
     id?: string;
     defaultSizePx?: number;
     minSizePx?: number;
     maxSizePx?: number;
     sizing?: "fixed" | "weight";
-    collapse?: SashCollapseState;
+    collapse?: SplitterCollapseState;
     label?: string;
     overflow?: "hidden" | "visible";
 }

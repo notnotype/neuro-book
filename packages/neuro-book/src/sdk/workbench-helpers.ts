@@ -47,7 +47,7 @@ export interface ViewHelper<Id extends string, Load extends ComponentLoad> exten
  * 入口激活才交出，入口通常写 `activationEvents: ["onStartup"]`。`title` 与标题动作的 `title` 省略时宿主登记时补成约定键
  * （docs/specs/workbench/views.md 的“约定键”）。
  */
-export function view<const Id extends string, const Name extends string, const Load extends ComponentLoad>(plugin: PluginBuilder<Id>, options: Omit<WrittenViewDeclaration, "title" | "location" | "layout" | "replaces"> & {
+export function view<const Id extends string, const Name extends string, const Load extends ComponentLoad>(plugin: PluginBuilder<Id>, options: Omit<WrittenViewDeclaration, "title" | "location" | "layout" | "replaces" | "confinedTo"> & {
     readonly name: Name;
     readonly title?: Text;
     readonly location?: ViewDeclaration["location"];

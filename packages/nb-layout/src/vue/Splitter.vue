@@ -243,6 +243,7 @@ const panelConstraintsKey = computed(() => JSON.stringify(props.panels.map((pane
     panel.collapse?.restoreSize ?? null,
     panel.collapse?.collapseThreshold ?? null,
     panel.collapse?.expandThreshold ?? null,
+    panel.collapse?.locked === true,
 ])));
 
 watch(() => [props.direction, panelIdsKey.value, panelConstraintsKey.value, isControlled.value ? null : sashSizesKey.value].join("|"), () => {

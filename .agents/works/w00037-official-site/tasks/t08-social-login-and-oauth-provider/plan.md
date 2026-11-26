@@ -518,3 +518,52 @@ resolveContinue(token: string, nowMs: number, consumer: "login" | "consent"): st
 | 3 | `revoke.ts` 清理函数的注释说“测试里模块的时钟只会更快”，实际不拨时比墙钟慢 | 改注释：写明清理按模块时钟删、库按系统时间判寿命，两者在测试里可能差任意方向；拨时钟的用例照此写 |
 | 4 | “旧公钥列 30 天”靠库缺省的 `jwks.gracePeriod`，代码没写、没有用例 | 改。`identityJwtOptions` 显式写 30 天，补用例（读出的配置或钥匙行的过期时刻），升级清单加一行 |
 | 5 | 撤销“不多删别的 `verification` 行”与 `json_valid` 守护没有用例；“库自带的 `session.delete` 钩子”没进升级清单 | 改。补用例：表里有社交 state 行与一行非 JSON 时登出、封禁、清理都成功，且只删该删的；升级清单补那一行 |
+
+修正提交 `d4ae39ae5`。第 1 条与表里写法的差别：带参数的端点 `disabledPaths` 关不掉，`GET /reset-password/:token` 只靠挂载白名单挡，接受（理由见 Task 记录“实施进度”）。
+
+## 设计审查（omp）的处理（2026-11-25）
+
+审的是固定稿 `7f85fa2df`，在 Opus 那轮处理之后。omp（`@review`）到 150 分钟上限被截停，用原会话续跑一次只做收尾；报告 [`evidences/design-review-omp.txt`](evidences/design-review-omp.txt)。有效 14 条（重要 11、建议 3），编号 1 到 9、11 到 15：第 10 条并入第 2 条，第 16 条更正第 4 条的改法；报告里第 16 条之后重复出现的第 5 到 9 条，审查者说以前一份为准，但后一份第 9 条是不同的问题，这里记成 9b。它对第 10 节六项的判断都是“已有决定”，没有要开发者再定的。
+
+Spec 随本节改了 `site.oauth-provider`（输入表与 HEAD 一句、输出 1 到 4、6、14、时序、验收 2 与 20 到 22）与 `site.accounts`（输出 12、15、时序、验收 11 到 14）。本节与前文冲突时以本节为准。
+
+| 条 | 发现 | 处理 | 落到 |
+|---|---|---|---|
+| 1 | 关联的写入不在生效时复核发起会话：库与 `callback.ts` 复核之后还有对上游的网络往返，结束会话可以夹在中间 | 改。`account.create.before` 关联分支的那个写事务里先复核 `identity_social_flow.session_id` 的会话仍在、没到期、账号没被封，不成立就抛（映射成 `social_state_invalid`），再 `claimUpstreamName`。钩子提交到库插 `account` 之间仍有一次库写的空档，接受，写进 `site.accounts` 时序 | 第 8 片；变异“关联不复核会话”改成去掉钩子里的复核 |
+| 2（含 10、14） | 换回上一个版本时，那个版本删会话不撤令牌，外键把令牌的 `sessionId` 置空，换回本版本后库不再查会话，令牌仍可用 | 改，用一条失败即关的规则：`purge` 的同一事务里删 `sessionId IS NULL` 的访问令牌（本版本只发授权码流程的令牌，都带会话；自家撤销先删令牌再删会话，不会留下这种行）。`purge` 启动后先跑一次，换回后很快收口。那个版本里改密码时当前会话的令牌不撤、至多活 1 小时，接受，写进 `site.oauth-provider` 时序。相邻版本的身份合同仍按 `site.operations` 验收 2 的 planned 处理，不在本 Task 补 | 与第 2、3 片 omp 实现审查的修正同一个提交 |
+| 3 | 授权端点拒绝 POST，与 OIDC Core 3.1.2.1“授权服务器必须同时支持 GET 与 POST”不符 | 改。白名单放行 `POST /oauth2/authorize`，只收 `application/x-www-form-urlencoded`；3.8 的判断对 GET 的查询串与 POST 的表单体用同一套（先把参数读成同一个 `URLSearchParams`）。跨站 POST 不带 `SameSite=Lax` 的会话 Cookie，按没有会话走登录，写进 Spec 输出 3。`LIBRARY_PUBLIC_ENDPOINTS` 改成授权 GET、POST | 第 5 片 |
+| 4（含 16） | 发现文档没写 `response_modes_supported`，按 RFC 8414 缺省就是 query 与 fragment；库对 `response_mode=fragment` 仍把结果写进查询串 | 改。两份发现文档写 `response_modes_supported: ["query"]`；授权请求带 `response_mode` 且不是 `query` 时，在回调地址核对之后跳回 `invalid_request`（第 16 条：授权端点的错误走跳回，不是令牌端点的 400） | 第 5 片（发现文档）、第 6 片（3.8 第 2 步） |
+| 5 | 入口收 8192 个字符的查询串，续接令牌是它加签名字段再 base64url 编码，也以 8192 为界，长请求在登录之后悄悄丢掉 | 改。入口上限降到 4096 个字符（GET 的查询串与 POST 的表单体），续接令牌的 8192 不变：4096 编码后约 5462，加签名字段仍在 8192 之内。验收 21 在 4096 那一侧走匿名登录、补交同意、确认三条路径；实现时实测最长的令牌长度写进 `continue.ts` 的注释 | 第 6 片（入口上限）；验收 21 在第 6 片 |
+| 6 | 已关联的身份这次上游没给邮箱时，库在按上游身份找账号之前就以 `email_not_found` 拒绝 | 接受，记为已知限制，写进 `site.accounts` 输出 12：Google 的 `email` 范围总给邮箱，GitHub 的 `getUserInfo` 已取主邮箱（不论验证与否），只有 GitHub 账号没有主邮箱时出现。登录意图下这个码落到 `social_failed` | Spec 已改；第 8 片按 `mapSocialError` 现有的“其余”处理 |
+| 7 | 带 `resource` 时库发 JWT 访问令牌、不写 `oauthAccessToken` 行，自家撤销够不到，改密码保留当前会话时它仍可用 | 改。挂载层在交库之前从授权请求（查询串或表单体）与换码的表单体里去掉 `resource`（RFC 6749：不认识的参数忽略）。升级清单加一行“允许的访问令牌都有 `oauthAccessToken` 行”。验收 22 | 第 5 片（去参数）、第 7 片（验收 22 的改密码那半） |
+| 8 | 确认标识不绑定会话、不是一次性的 | 不改，写清语义：确认标识与授权请求本身等价（谁都能重新发起同一个授权请求拿到新的标识），绑定会话挡不住什么；按提交时的会话算、可再次提交写进 Spec 输出 14。“页面显示的是 A、提交时已换成 B”只是显示过时，提交结果仍是 B 本人的决定 | Spec 已改；第 5 片的确认接口用例按新句子写 |
+| 9 | 社交注册与关联同一个上游身份并发时，注册判断“没关联”在注册事务之外 | 不成立，说明没写清：注册分支在 `joinLibTransaction` 里写上游名字也经 `claimUpstreamName`，与关联争同一张表的唯一约束，输的一边整个事务回滚（注册不扣码、不建号）。3.10 的“写资料、同意、邀请归属、上游名字”这里写明“上游名字经 `claimUpstreamName`，抛 `identity_taken` 时整个注册回滚”。补验收 14（并发） | 第 9 片 |
+| 9b | 库把上游回调里的 `error` 原样转进失败地址，`mapSocialError` 再把其中的库码译成本站结论（例如 `identity_taken`） | 改。`callback.ts` 先看进来的回调地址：带 `error` 的是上游报的，`access_denied` 记 `social_cancelled`，别的一律 `social_failed`，不看库的跳转；只有回调地址不带 `error` 时才按 `mapSocialError` 译库的码。验收 11 补库码那一句 | 第 8 片 |
+| 11 | Spec 说 GET 地址都收 HEAD，计划白名单把授权与公钥列成“GET（含 HEAD）”；库对 HEAD 一律 404（实现审查修正时也实测到），授权端点收 HEAD 还会有发码的副作用 | 改。只有发现文档与公钥地址收 HEAD：挂载层把 HEAD 当 GET 交库或自家路由，回同样的状态与头、去掉正文；授权与用户信息不收 HEAD（404）。白名单表与 `LIBRARY_PUBLIC_ENDPOINTS` 跟着改 | 第 5 片 |
+| 12 | 库经 `redirectOnError` 抛出的跳转怎样进 `rewriteLibraryLocation` 没写 | 说明没写清。`onAPIError.throw` 只让非 `APIError` 从 `handler` 抛出，库以 `APIError` 做的跳转由 `handler` 变成普通的 302 响应，同样交 `rewriteLibraryLocation`；第 5 片补用例：可信回调上的错误跳回客户端，坏客户端、坏回调落到 `/oauth/consent?error=`，库的 `/error` 地址不外露（GET 导航与 `fetch` 各一次） | 第 5 片 |
+| 13 | 社交流程没写明怎样认发起的浏览器 | 改，写清：认浏览器靠库的 state Cookie，写进 `site.accounts` 时序；补验收 13（两份 Cookie） | 第 8 片 |
+| 15 | 计划说去掉 `claims` 再交库，但 P6 写成“先探库会不会按它放资料再定”，执行者可能把它当有效输入 | 改。去掉 `claims` 是定死的要求；P6 收窄为“去掉之后库看不到这个参数”。合同：带 essential `acr` 的 `claims` 与不带时结果相同 | 第 6 片（3.8 第 2 步） |
+
+## 实现审查（第 2、3 片，omp）的处理（2026-11-25）
+
+范围 `bf3d6f5aa..d4ae39ae5`（含 Opus 那轮的修正），omp（`@review`）在自己的 worktree 里审，跑完没被截停；报告 [`evidences/impl1-review-omp.txt`](evidences/impl1-review-omp.txt)。3 条，都是建议。
+
+| 条 | 发现 | 处理 |
+|---|---|---|
+| OMP-1 | 换回上一个版本期间删掉的会话，令牌的 `sessionId` 被置空，`purge` 不清这种行，换回后令牌仍可用到过期 | 成立，就是设计审查（omp）第 2 条，按那里的处理做：`purge` 同一事务删 `sessionId IS NULL` 的访问令牌；包内用例照审查者的做法（真实外键删会话、重启、跑 `purge`、用户信息 401）。5b 在同一个 worktree 里跑，等它交回后单独一个提交 |
+| OMP-2 | `LIBRARY_PUBLIC_ENDPOINTS` 的授权端点是 GET、HEAD，与合同的 GET、POST 不符 | 已在第 5a 片（`51c7f962e`）改成 GET、POST，HEAD 不再给授权端点 |
+| OMP-3 | 活钥的密文能解开、明文却不是 JWK 时启动不报错，换码时才失败 | 不改：私钥用库的 `symmetricEncrypt`（XChaCha20-Poly1305，带认证），能解开的密文只能由持有会话密钥的人写出，库表被这样改过不在要防的范围 |
+
+## 实现审查（第 4 到 7 片）的处理（2026-11-25）
+
+范围 `d4ae39ae5..40a02a627`，在审查用的 worktree 里审。Opus 子代理先审：5 条，都是建议；报告 [`evidences/impl2-review-opus.txt`](evidences/impl2-review-opus.txt)。它核过重复参数时模块与库取值一致、第 1 步的回调地址匹配与库逐行一致、续接令牌的签名覆盖与长度上界、补交同意期间的 `max_age`、`wrapOAuthConsent` 产品路径碰不到、`purge` 不误删本版本的令牌（库换码时恒写会话 id）、停用与撤销授权同事务、`VALIDATION_ERROR` 的映射不误报名字、用户信息严格是输出 7 的字段，没有发现问题。omp 同时在后台审，回来后另行处理。一个修正提交：
+
+| 条 | 发现 | 处理 |
+|---|---|---|
+| 1 | 百分号编码的路径绕过白名单：Hono 按 `decodeURI` 之后的路径匹配，交库的是原样的编码路径（`/oauth2/%61uthorize` 进了授权端点、`/oauth2/%74oken` 进了令牌端点） | 改。子应用最前面：原样的 pathname 与 Hono 解码后的路径不相等时回本模块的 404，不交库。`mount.test.ts` 的“路径的写法不同”加编码写法（各对外端点一条，加前缀里编码一段） |
+| 2 | 撤销端点的 400 改 200 吞掉客户端认证阶段的 `invalid_request`（重复的 `client_id`、`client_secret`，或 Basic 与表单密钥并存时，没认证的请求也得 200） | 改。交库之前自己判：`client_id`、`client_secret` 出现多次，或带 Basic 又在表单里带 `client_secret`，回 400 `invalid_request`、不交库、不改写；改写只对通过这一步的请求。补用例三种各一条 |
+| 3 | 会话到期后、`purge` 之前换它名下的码回 `invalid_request`（库在用掉码之前判会话），不是 `invalid_grant` | 不改，写进 `site.oauth-provider` 时序：只有会话到期前 10 分钟内发出的码碰得上，结果同样是换不出令牌、码不被用掉；`purge` 跑过之后是 `invalid_grant` |
+| 4 | 授权端点的表单 POST 超过 16 KiB 回 400 JSON，不跳回、不去错误页 | 不改，写进 Spec 输出 3：请求体超过上限时读不到客户端与回调地址，跳不回去；正常客户端碰不到（入口上限 4096） |
+| 5 | 输出 15 的“列表按给出的先后倒序”没有用例 | 改。合同补一条：两个客户端先后同意，列表顺序是后给的在前 |
+
+omp 那份（同一份说明，在同一个审查 worktree 里，跑完没被截停；[`evidences/impl2-review-omp.txt`](evidences/impl2-review-omp.txt)）：3 条，都是建议，与 Opus 第 1、2、5 条重合（编码路径、撤销改写吞掉认证错误、授权列表顺序没有用例），都已由 `0f942f893` 修掉。它另给了一个例子：已登记的机密客户端用有效 Basic、同时在表单里带 `client_secret` 撤有效令牌，回 200 而令牌仍可用；修正后这种写法回 400 `invalid_request`，在 `mount.test.ts` 的三种不合格写法里。没有新的处理项。

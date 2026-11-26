@@ -27,7 +27,7 @@ import {GRID_LEGACY_SNAPSHOT_VERSION, GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPS
 import {UNBOUNDED_EXTENT, ZERO_EXTENT, axisOf, normCollapse, normExtent, readExtent} from "./grid-geometry";
 import {restoreFailure} from "./grid-failure";
 
-type RuntimeRecord = {minimumSize: GridExtent; maximumSize: GridExtent; sizing?: GridSizing; collapse?: SashCollapseState};
+type RuntimeRecord = {minimumSize: GridExtent; maximumSize: GridExtent; sizing?: GridSizing; rigid?: true; collapse?: SashCollapseState};
 
 type ConstraintIndex = Map<string, RuntimeRecord>;
 
@@ -51,7 +51,7 @@ export function serializeTree<T>(root: GridNode<T> | null, encodeRef?: GridRefEn
 }
 
 /**
- * 当前树里各节点的运行期信息：快照不带约束、`sizing` 与收起策略，恢复必须回落到**当前宿主**
+ * 当前树里各节点的运行期信息：快照不带约束、`sizing`、刚性与收起策略，恢复必须回落到**当前宿主**
  * （分支按 id、叶按 id；叶优先用解析器给出的当前值）。意图不在这里回填——来自快照，夹取只发生在呈现层。
  */
 function currentConstraints<T>(current: GridNode<T> | null): {branches: ConstraintIndex; leaves: ConstraintIndex} {
@@ -65,6 +65,7 @@ function currentConstraints<T>(current: GridNode<T> | null): {branches: Constrai
             minimumSize: {...node.minimumSize},
             maximumSize: {...node.maximumSize},
             sizing: node.sizing,
+            ...(node.rigid === true ? {rigid: true} : {}),
             ...(node.collapse === undefined ? {} : {collapse: {...node.collapse}}),
         };
         if (node.kind === "leaf") {
@@ -156,6 +157,8 @@ export function parseSnapshot<T>(
             const minimumSize = normExtent(resolved.minimumSize, constraints.leaves.get(candidate.id)?.minimumSize ?? ZERO_EXTENT);
             const maximumSize = normExtent(resolved.maximumSize, constraints.leaves.get(candidate.id)?.maximumSize ?? UNBOUNDED_EXTENT);
             const sizing = resolved.sizing ?? constraints.leaves.get(candidate.id)?.sizing ?? "weight";
+            // 刚性的来源和 `sizing` 一样：解析结果优先（`false` 也算给了），其次当前树；只有保留像素的叶记它。
+            const rigid = sizing === "fixed" && (resolved.rigid ?? constraints.leaves.get(candidate.id)?.rigid) === true;
             const collapse = normCollapse(resolved.collapse ?? constraints.leaves.get(candidate.id)?.collapse);
             if (parentAxis && (size[parentAxis] < minimumSize[parentAxis] || size[parentAxis] > maximumSize[parentAxis])) {
                 clamped.push(candidate.id);
@@ -168,6 +171,7 @@ export function parseSnapshot<T>(
                 minimumSize,
                 maximumSize,
                 sizing,
+                ...(rigid ? {rigid: true} : {}),
                 ...(collapse === undefined ? {} : {collapse}),
             };
         }
@@ -205,6 +209,7 @@ export function parseSnapshot<T>(
                 minimumSize: declared?.minimumSize ?? {...ZERO_EXTENT},
                 maximumSize: declared?.maximumSize ?? {...UNBOUNDED_EXTENT},
                 sizing: declared?.sizing ?? "weight",
+                ...(declared?.rigid === true ? {rigid: true} : {}),
                 ...(declared?.collapse === undefined ? {} : {collapse: {...declared.collapse}}),
                 children,
             };

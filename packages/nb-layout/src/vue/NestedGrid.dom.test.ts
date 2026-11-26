@@ -550,7 +550,7 @@ describe("命中结果映射到分界线的状态", () => {
                     orientation: "vertical",
                     size: {width: 300, height: 0},
                     sizing: "fixed",
-                    collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed},
+                    collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed},
                     children: ["s1", "s2", "s3"].map((id) => ({kind: "leaf" as const, id, ref: id, size: {width: 0, height: 100}, minimumSize: {width: 160, height: 80}})),
                 },
                 {kind: "leaf", id: "editor", ref: "editor", size: {width: 699, height: 0}},
@@ -1089,7 +1089,7 @@ describe("键盘的诊断（Spec 输出 139）", () => {
             id: "root",
             orientation: "horizontal",
             children: [
-                {kind: "leaf", id: "a", ref: "a", size: {width: 950, height: 0}, minimumSize: {width: 900, height: 0}, collapse: {collapsed: true, collapsedSize: 0, restoreSize: 950, collapseThreshold: 24, expandThreshold: 24}},
+                {kind: "leaf", id: "a", ref: "a", size: {width: 950, height: 0}, minimumSize: {width: 900, height: 0}, collapse: {collapsed: true, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24}},
                 {kind: "leaf", id: "b", ref: "b", size: {width: 500, height: 0}, minimumSize: {width: 150, height: 0}},
             ],
         }, {sashSize: SASH});
@@ -1233,7 +1233,7 @@ describe("Grid 手势会话的收起与显式恢复", () => {
                     size: {width: 200, height: 0},
                     minimumSize: {width: 150, height: 0},
                     sizing: "fixed",
-                    collapse: {collapsedSize: 32, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: false},
+                    collapse: {collapsedSize: 32, collapseThreshold: 24, expandThreshold: 24, collapsed: false},
                 },
                 {kind: "leaf", id: "editor", ref: "editor", size: {width: 499, height: 0}},
             ],
@@ -1304,7 +1304,7 @@ describe("余量叶的收起", () => {
                     ref: "editor",
                     size: {width: 700, height: editorCollapsed ? 0 : 600},
                     minimumSize: {width: 0, height: 120},
-                    collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: editorCollapsed},
+                    collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: editorCollapsed},
                 },
                 {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: editorCollapsed ? 800 : 200}, minimumSize: {width: 0, height: 80}, sizing: "fixed"},
             ],
@@ -1351,7 +1351,7 @@ describe("余量叶的收起", () => {
                     ref: "editor",
                     size: {width: 700, height: 800},
                     minimumSize: {width: 0, height: 120},
-                    collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false},
+                    collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false},
                 },
                 {
                     kind: "leaf",
@@ -1360,7 +1360,7 @@ describe("余量叶的收起", () => {
                     size: {width: 700, height: 200},
                     minimumSize: {width: 0, height: 80},
                     sizing: "fixed",
-                    collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
+                    collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: true},
                 },
             ],
         }, {sashSize: SASH});
@@ -1375,8 +1375,8 @@ describe("余量叶的收起", () => {
             id: "column",
             orientation: "vertical",
             children: [
-                {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 800}, minimumSize: {width: 0, height: 120}, collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false}},
-                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: 200}, minimumSize: {width: 0, height: 80}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: true}},
+                {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 800}, minimumSize: {width: 0, height: 120}, collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: false, toggleable: false}},
+                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: 200}, minimumSize: {width: 0, height: 80}, sizing: "fixed", collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: true}},
             ],
         }, {sashSize: SASH});
         const up = open(fromZero());
@@ -1390,8 +1390,8 @@ describe("余量叶的收起", () => {
             id: "column",
             orientation: "vertical",
             children: [
-                {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 0}, minimumSize: {width: 0, height: 120}, collapse: {collapsedSize: 0, restoreSize: 600, collapseThreshold: 24, expandThreshold: 24, collapsed: true, toggleable: false}},
-                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: 800}, minimumSize: {width: 0, height: 80}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: false}},
+                {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 0}, minimumSize: {width: 0, height: 120}, collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: true, toggleable: false}},
+                {kind: "leaf", id: "panel", ref: "panel", size: {width: 700, height: 800}, minimumSize: {width: 0, height: 80}, sizing: "fixed", collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed: false}},
             ],
         }, {sashSize: SASH});
         const down = open(maximized());
@@ -1438,7 +1438,7 @@ describe("键盘会话：Enter 与方向键互不混用", () => {
                     size: {width: 200, height: 0},
                     minimumSize: {width: 150, height: 0},
                     sizing: "fixed",
-                    collapse: {collapsedSize: 32, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, collapsed: false},
+                    collapse: {collapsedSize: 32, collapseThreshold: 24, expandThreshold: 24, collapsed: false},
                 },
                 {kind: "leaf", id: "editor", ref: "editor", size: {width: 499, height: 0}},
             ],
@@ -1722,7 +1722,7 @@ describe("NestedGrid 内容层", () => {
             height.mockRestore();
         });
         const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
-            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed}},
             {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
         ]}, {sashSize: SASH});
         const open = side(false);
@@ -1766,7 +1766,7 @@ describe("NestedGrid 内容层", () => {
                 height.mockRestore();
             });
             const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
-                {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+                {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed}},
                 {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
             ]}, {sashSize: SASH});
             const open = side(false);
@@ -1827,7 +1827,7 @@ describe("NestedGrid 内容层", () => {
                 height.mockRestore();
             });
             const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
-                {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+                {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24, collapsed}},
                 {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
             ]}, {sashSize: SASH});
             const seen: string[] = [];

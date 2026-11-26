@@ -7,7 +7,7 @@
  * 预览不过 `settleContainers`，所以入口顺序在这里自己排好，不靠归整往后补。
  */
 
-import {findTab, layoutDropKey, moveTabToEdge, regionOfStripLeaf, regionStripLeafId, sameLayoutShape, setActiveContainer, setContainerEntries, setPanelHidden} from "@notnotype/nb-workbench-layout";
+import {findTab, layoutDropKey, moveTabToEdge, railLeafId, regionOfRailLeaf, regionOfStripLeaf, regionStripLeafId, sameLayoutShape, setActiveContainer, setContainerEntries, setPanelHidden} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc, LayoutDropAction, LayoutPolicy, LayoutResult, LayoutSource, PanelName} from "@notnotype/nb-workbench-layout";
 
 import {VIEW_LOCATIONS} from "../shared/views";
@@ -16,11 +16,16 @@ import {containerRegion, moveContainerTo, regionAnchor, regionContainers, region
 /** 活动栏这条入口条的 id：键盘区域、实时布局的“吸收它的标签条”都用它。面板 id 是随机串或名字，撞不上。 */
 const BAR_STRIP = "activitybar";
 
-/** 一个区域的入口条的 id：侧栏是活动栏，右栏、底部面板是它们的入口条叶（只在呈现里，不是面板，撞不上面板 id）。 */
-export const entryStripOf = (region: PanelName): string => (region === "sidebar" ? BAR_STRIP : regionStripLeafId(region));
+/**
+ * 一个区域的入口条的 id：侧栏是活动栏，右栏是右轨的叶（docs/specs/ui/workbench-layout.md 输出 50），底部面板是它的入口条叶（都只在呈现里，不是面板，撞不上面板 id）。
+ */
+export function entryStripOf(region: PanelName): string {
+    if (region === "sidebar") return BAR_STRIP;
+    return region === "auxiliarybar" ? railLeafId(region) : regionStripLeafId(region);
+}
 
 /** 入口条的 id → 区域；不是入口条是 null。 */
-export const regionOfEntryStrip = (strip: string): PanelName | null => (strip === BAR_STRIP ? "sidebar" : regionOfStripLeaf(strip));
+export const regionOfEntryStrip = (strip: string): PanelName | null => (strip === BAR_STRIP ? "sidebar" : regionOfRailLeaf(strip) ?? regionOfStripLeaf(strip));
 
 /** 拖的是一个含几个视图的入口（输出 46）：只能在入口条上换序，或整个搬到另一个区域。 */
 export interface ContainerSource {

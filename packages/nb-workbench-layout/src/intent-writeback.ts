@@ -1,7 +1,7 @@
 /**
  * 意图回写（docs/specs/ui/workbench-layout.md 输出 8、49）：把呈现尺寸写回布局文档的尺寸意图，只有两个时机，各一个入口。
  *
- * - 手势落账后：`applyGestureCommit`。收起状态记到区域的锚上、拉开隐藏的区域时清掉隐藏、这次没动的保留像素节点不写，再写回意图。
+ * - 手势落账后：`applyGestureCommit`。收起状态记到区域的锚上、拉开隐藏的区域时清掉隐藏、这次没动的保留像素节点不写、按预算宽度呈现的节点只写拖动的那段，再写回意图。
  * - 结构操作之前：`rebaseForOperation`。保留像素的节点不写。
  *
  * 入口只导出这两个（`index.ts`）。底下的 `rebaseIntents` 要宿主自己备齐 `collapsedTo` 与“哪些节点不写”，漏一个不报错，只是过一会儿布局不对
@@ -23,7 +23,7 @@ const UNTOUCHED_TOLERANCE_PX = 0.5;
 export type IntentWritebackRejection = {readonly id: string; readonly failure: GridFailure<LayoutFailureCode>};
 
 /**
- * 手势落账后写回文档（输出 49）。`before` 是手势开始时呈现的布局（`useGridHost` 的 `onApplied` 第三个参数），`after` 是落账之后的。
+ * 手势落账后写回文档（输出 49）。`before` 是手势开始时呈现的布局（`useGridHost` 的 `onApplied` 第二个参数），`after` 是落账之后的。
  *
  * 先改收起状态再写回意图：这次收起的面板，呈现尺寸是标题行或零，不是意图（`rebaseIntents` 跳过收起的面板）。
  * 网格报的是呈现树的节点 id；区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11），对那个 id 记的话，只显示一节时会把这一节标成收成标题行。
@@ -52,7 +52,14 @@ export function applyGestureCommit(doc: LayoutDoc, projection: LayoutProjection,
         if (shown.ok) next = shown.doc;
         else rejected.push({id: anchor, failure: shown});
     }
-    return {doc: rebaseIntents(next, gesture.after, projection.collapsedTo, untouched), rejected};
+    // 按预算宽度呈现的节点（输出 50 的“预算”）：呈现宽里有一段是预算压的，只把这次拖动的那一段加到原来的意图上。
+    const after: Record<string, GridExtent> = {...gesture.after};
+    for (const [id, intent] of projection.widthOverrides) {
+        const [start, end] = [gesture.before[id], gesture.after[id]];
+        if (start === undefined || end === undefined || untouched.has(id)) continue;
+        after[id] = {...end, width: Math.max(0, intent + end.width - start.width)};
+    }
+    return {doc: rebaseIntents(next, after, projection.collapsedTo, untouched), rejected};
 }
 
 /** 结构操作之前把此刻呈现的尺寸写回意图（输出 8、49）；保留像素的节点不写：不在手势里，它们的呈现只可能是被压缩了，窗口变大要回到原样。 */

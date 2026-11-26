@@ -23,8 +23,8 @@ export type Side = "left" | "right" | "top" | "bottom";
 export type Failure = {readonly ok: false; readonly code: string; readonly message: string};
 export type Result = {readonly ok: true} | Failure;
 
-/** 侧栏收起的记录：收起状态与收起前的宽度都不在网格快照里，要宿主另存。 */
-type ExplorerState = {readonly collapsed: boolean; readonly restoreSize: number};
+/** 侧栏收起的记录：收起状态不在网格快照里，要宿主另存。展开回到快照里的宽度意图，所以不用另存收起前的宽度。 */
+type ExplorerState = {readonly collapsed: boolean};
 
 /**
  * 每个 ref 的运行期策略只有这一个出处。快照只存结构与尺寸意图，保留像素、最小尺寸、收起策略都不在里面：
@@ -36,14 +36,14 @@ function policyFor(ref: string, explorer: ExplorerState): Omit<GridRefResolution
         return {
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: explorer.collapsed, collapsedSize: 0, restoreSize: explorer.restoreSize, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: explorer.collapsed, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         };
     }
     return {minimumSize: GROUP_MINIMUM};
 }
 
 function groupLeaf(id: string): GridLeafInput<string> {
-    return {kind: "leaf", id, ref: id, ...policyFor(id, {collapsed: false, restoreSize: 240})};
+    return {kind: "leaf", id, ref: id, ...policyFor(id, {collapsed: false})};
 }
 
 /** 树序的全部节点。 */
@@ -85,7 +85,7 @@ export class TabbedLayout {
             orientation: "horizontal",
             children: [
                 // 保留像素的叶的 size 是像素；按比例分的叶的 size 是兄弟之间的份额，三个都给 1 就是等分。
-                {kind: "leaf", id: EXPLORER, ref: EXPLORER, size: {width: 240, height: 0}, ...policyFor(EXPLORER, {collapsed: false, restoreSize: 240})},
+                {kind: "leaf", id: EXPLORER, ref: EXPLORER, size: {width: 240, height: 0}, ...policyFor(EXPLORER, {collapsed: false})},
                 ...[...groups.keys()].map((id) => ({...groupLeaf(id), size: {width: 1, height: 0}})),
             ],
         }, {sashSize: SASH_SIZE});
@@ -104,7 +104,7 @@ export class TabbedLayout {
 
     explorerState(): ExplorerState {
         const collapse = this.grid.find(EXPLORER)?.collapse;
-        return {collapsed: collapse?.collapsed === true, restoreSize: collapse?.restoreSize ?? 240};
+        return {collapsed: collapse?.collapsed === true};
     }
 
     activate(tab: string): Result {
@@ -258,7 +258,8 @@ function isSavedShape(value: unknown): value is SavedLayout {
     const saved = value as Record<string, unknown>;
     if (saved.version !== 1 || typeof saved.groups !== "object" || saved.groups === null) return false;
     const explorer = saved.explorer as Record<string, unknown> | null | undefined;
-    if (typeof explorer?.collapsed !== "boolean" || typeof explorer.restoreSize !== "number" || !Number.isFinite(explorer.restoreSize) || explorer.restoreSize < 160 || explorer.restoreSize > 4096) return false;
+    // 以前的存档在这里还带着收起前的宽度 `restoreSize`；现在展开回到快照里的宽度意图，读档时不看它，也不因为它拒绝。
+    if (typeof explorer?.collapsed !== "boolean") return false;
     return Object.values(saved.groups).every((group: unknown) => {
         const each = group as Record<string, unknown> | null;
         return Array.isArray(each?.tabs) && each.tabs.every((tab) => typeof tab === "string") && typeof each.active === "string";

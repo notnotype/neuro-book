@@ -46,6 +46,17 @@ export interface PanelRecord {
     readonly entries?: ReadonlyArray<string>;
     /** 区域此刻显示的容器（输出 42），在 `entries` 里，或 null。只在具名面板上。不叫 `active`：那是活动标签，每块面板都有。 */
     readonly activeContainer?: string | null;
+    /** 各容器的侧轨展开意图（输出 50），键是容器 id、都在 `entries` 里。只在区域的锚上；跟着容器的分节走（`settleRails`）。 */
+    readonly rail?: Readonly<Record<string, RailIntent>>;
+}
+
+/**
+ * 侧轨的展开意图（docs/specs/ui/workbench-layout.md 输出 50、51）：只写偏离缺省的部分，收着、缺省宽度时整项不写。
+ * `width` 是卡片宽，读入只认有限正数；呈现时按视图段声明的范围夹取，夹取不写回。
+ */
+export interface RailIntent {
+    readonly expanded?: true;
+    readonly width?: number;
 }
 
 /** 浮动窗的矩形：卡片本身，相对树区域的 CSS 像素。写入时取整，所以比较不用容差，也不落在半个像素上。拉边与夹取在 nb-layout 的 `grid-rects.ts`（`clampFloatRect`、`resizeFloatRect`）。 */
@@ -54,8 +65,10 @@ export type LayoutFloatRect = GridRect;
 /** 浮动窗：一块不在树里的面板。 */
 export interface LayoutFloat {
     readonly panel: string;
-    /** 呈现时夹取（`clampFloatRect`），夹取不写回：窗口变小再变大，窗还在原处。 */
+    /** 呈现时夹取（`clampFloatRect`），夹取不写回：窗口变小再变大，窗还在原处。侧轨展开时这是收着的矩形，呈现加上展开的差值（输出 51）。 */
     readonly rect: LayoutFloatRect;
+    /** 窗里视图段的展开意图（输出 51）：浮出时从锚上那个容器的项带过来，回到树里时带回去（`settleRails`）。 */
+    readonly rail?: RailIntent;
 }
 
 /** 浮动窗的上限：每次松手没有落点都开一个窗，不封顶的话记录与 DOM 跟着涨。 */
@@ -432,16 +445,21 @@ export function sameTreeShape(left: LayoutDoc, right: LayoutDoc): boolean {
     return JSON.stringify(shape(left.tree.root)) === JSON.stringify(shape(right.tree.root));
 }
 
+/** 侧轨意图的比较形：键序与没写的字段不影响结果。 */
+const railIntentKey = (intent: RailIntent | undefined): unknown => (intent === undefined ? null : [intent.expanded === true, intent.width ?? null]);
+const railKey = (rail: Readonly<Record<string, RailIntent>> | undefined): unknown => (rail === undefined ? [] : Object.keys(rail).sort().map((container) => [container, railIntentKey(rail[container])]));
+const floatKey = (float: LayoutFloat): unknown => [float.panel, float.rect.x, float.rect.y, float.rect.width, float.rect.height, railIntentKey(float.rail)];
+
 /**
- * 结果和现状一样吗：结构、方向、叶序、标签、活动标签、显隐与收起，分节的归属、区域的入口顺序与当前容器（输出 28），浮动窗的次序与矩形。
- * 不比意图：摘出再放回，比例舍入后不会相等；也不比分支 id。当前容器没写和 null 是一回事；入口顺序没写和空的不是一回事（`isContainerAnchor`）。
+ * 结果和现状一样吗：结构、方向、叶序、标签、活动标签、显隐与收起，分节的归属、区域的入口顺序与当前容器（输出 28），浮动窗的次序与矩形，
+ * 锚与浮动窗上的侧轨意图（输出 50）。不比尺寸意图：摘出再放回，比例舍入后不会相等；也不比分支 id。当前容器没写和 null 是一回事；入口顺序没写和空的不是一回事（`isContainerAnchor`）。
  */
 export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
-    if (!sameTreeShape(left, right) || JSON.stringify(left.floats) !== JSON.stringify(right.floats)) return false;
+    if (!sameTreeShape(left, right) || JSON.stringify(left.floats.map(floatKey)) !== JSON.stringify(right.floats.map(floatKey))) return false;
     const leftIds = Object.keys(left.panels).sort();
     const rightIds = Object.keys(right.panels).sort();
     if (JSON.stringify(leftIds) !== JSON.stringify(rightIds)) return false;
-    const record = (panel: PanelRecord): unknown => [panel.name ?? null, panel.tabs.map(tabKey), panel.active, panel.hidden === true, panel.collapsed === true, panel.container ?? null, panel.entries ?? null, panel.activeContainer ?? null];
+    const record = (panel: PanelRecord): unknown => [panel.name ?? null, panel.tabs.map(tabKey), panel.active, panel.hidden === true, panel.collapsed === true, panel.container ?? null, panel.entries ?? null, panel.activeContainer ?? null, railKey(panel.rail)];
     return leftIds.every((id) => JSON.stringify(record(left.panels[id] as PanelRecord)) === JSON.stringify(record(right.panels[id] as PanelRecord)))
         && JSON.stringify([...left.hiddenBars].sort()) === JSON.stringify([...right.hiddenBars].sort())
         && left.currentEditor === right.currentEditor;
@@ -476,6 +494,81 @@ function hideEmptiedRegions(original: LayoutDoc, next: MutableDoc): void {
     }
 }
 
+/** 去掉锚上一个容器的侧轨意图；去完是空的就整个字段不写。 */
+function withoutRail(panel: PanelRecord, container: string): PanelRecord {
+    if (panel.rail?.[container] === undefined) return panel;
+    const {[container]: _removed, ...rest} = panel.rail;
+    const {rail: _rail, ...bare} = panel;
+    return Object.keys(rest).length === 0 ? bare : {...bare, rail: rest};
+}
+
+const withRail = (panel: PanelRecord, container: string, intent: RailIntent): PanelRecord => ({...panel, rail: {...panel.rail, [container]: intent}});
+
+/**
+ * 意图该在哪片锚上：容器还有分节在 `current` 那个区域里就是它（整容器搬家的中间几步，分节分在两个区域里，意图等最后一节走了再搬）；
+ * 否则是有它的分节的那片锚；一个分节也不在树里时是 null。
+ */
+function railHolderOf(doc: LayoutDoc, container: string, current: string | null): string | null {
+    let found: string | null = null;
+    for (const id in doc.panels) {
+        const panel = doc.panels[id] as PanelRecord;
+        if (panel.container !== container || isFloating(doc, id)) continue;
+        const region = regionOf(doc, id);
+        const anchor = region === null ? null : anchorOf(doc, region);
+        if (anchor === null || !isContainerAnchor(anchor.panel)) continue;
+        if (anchor.id === current) return current;
+        found ??= anchor.id;
+    }
+    return found;
+}
+
+/**
+ * 侧轨意图跟着它的东西走（输出 50 的“展开”、输出 51）。放在每个结构操作的出口，所以浮出、归位、整容器换区域、拖放、模板与放弃恢复走的都是这一条规则，
+ * 不在各个操作里各写一份：
+ *
+ * - 锚上容器 C 的项：C 的分节去了别的区域，项搬到那里的锚；C 一个分节也不在树里了、它原来的视图成了一个新浮动窗的唯一标签（浮出），项搬到那个窗上。
+ *   别的情况（C 只是暂时没有成员）留在原处：声明的与隐式的容器 id 一直在入口顺序里，成员回来时意图还在。用户容器被删时由 `setContainerEntries` 清掉。
+ * - 浮动窗上的项：窗没了、它的标签回到树里某个容器的分节（归位、拖回），项写到那个容器的锚上；并进别的浮动窗而那个窗没有项时给它。
+ *
+ * 操作自己写过或删过的项不动：只看 `original` 有、`next` 里还原样在原处的。
+ */
+function settleRails(original: LayoutDoc, next: MutableDoc): void {
+    const doc = asDoc(next);
+    for (const [anchorId, anchor] of Object.entries(original.panels)) {
+        if (anchor.rail === undefined) continue;
+        for (const [container, intent] of Object.entries(anchor.rail)) {
+            const here = next.panels[anchorId];
+            if (here?.rail?.[container] === undefined) continue;
+            const holder = railHolderOf(doc, container, anchorId);
+            if (holder === anchorId) continue;
+            if (holder !== null) {
+                next.panels[anchorId] = withoutRail(here, container);
+                next.panels[holder] = withRail(next.panels[holder] as PanelRecord, container, intent);
+                continue;
+            }
+            const views = new Set(Object.entries(original.panels).flatMap(([id, panel]) => (panel.container === container && !isFloating(original, id) ? panel.tabs.map(tabKey) : [])));
+            const floated = next.floats.findIndex((float) => !isFloating(original, float.panel) && float.rail === undefined && (next.panels[float.panel]?.tabs ?? []).length === 1 && views.has(tabKey(next.panels[float.panel]?.tabs[0] as TabRef)));
+            if (floated === -1) continue;
+            next.panels[anchorId] = withoutRail(here, container);
+            next.floats[floated] = {...(next.floats[floated] as LayoutFloat), rail: intent};
+        }
+    }
+    for (const float of original.floats) {
+        if (float.rail === undefined || isFloating(doc, float.panel)) continue;
+        const tabs = original.panels[float.panel]?.tabs ?? [];
+        const landed = tabs.map((tab) => findTab(doc, tabKey(tab))).find((found) => found !== null);
+        if (landed === undefined || landed === null) continue;
+        const panel = next.panels[landed.panel] as PanelRecord;
+        if (isFloating(doc, landed.panel)) {
+            const at = next.floats.findIndex((candidate) => candidate.panel === landed.panel);
+            if (at !== -1 && next.floats[at]?.rail === undefined) next.floats[at] = {...(next.floats[at] as LayoutFloat), rail: float.rail};
+            continue;
+        }
+        const holder = panel.container === undefined ? null : railHolderOf(doc, panel.container, null);
+        if (holder !== null && panel.container !== undefined) next.panels[holder] = withRail(next.panels[holder] as PanelRecord, panel.container, float.rail);
+    }
+}
+
 /** 改到一半的文档过规范形：占不占份额按这份文档当前的显隐与收起判。 */
 const normalizeDoc = (next: MutableDoc): void => {
     next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
@@ -486,6 +579,7 @@ function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
     normalizeDoc(next);
     hideEmptiedRegions(original, next);
     expandWhereAxisChanged(original, next);
+    settleRails(original, next);
     const scale = countScale(next.tree.root);
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `${String(scale.nodes)} nodes, ${String(scale.depth)} levels deep`);
     const doc = asDoc(next);
@@ -703,9 +797,44 @@ export function setContainerEntries(doc: LayoutDoc, anchor: string, entries: Rea
     const active = panel.activeContainer ?? null;
     if (active !== null && !entries.includes(active)) return failure("rejected", `The active container ${active} is not in the new entry order`);
     const next = editable(doc);
-    next.panels[anchor] = {...panel, entries: [...entries], activeContainer: active};
+    // 侧轨意图只给入口顺序里的容器：用户容器没有成员、从入口里删掉时，它的意图一起去掉。
+    const kept = Object.keys(panel.rail ?? {}).filter((container) => !entries.includes(container)).reduce(withoutRail, panel);
+    next.panels[anchor] = {...kept, entries: [...entries], activeContainer: active};
     return finish(doc, next);
 }
+
+/**
+ * 写一个容器的侧轨意图（输出 50 的“展开”“轨宽手柄”）：`intent` 为 null 或没有字段时去掉这一项。容器要在这片锚的入口顺序里。
+ * 只改这一项、不碰树，结果和现状一样时返回原对象（回到原状零写入）。
+ */
+export function setContainerRail(doc: LayoutDoc, input: {readonly anchor: string; readonly container: string; readonly intent: RailIntent | null}): LayoutResult {
+    const panel = doc.panels[input.anchor];
+    if (panel === undefined) return failure("not-found", `Panel ${input.anchor}`);
+    if (!isContainerAnchor(panel) || !(panel.entries ?? []).includes(input.container)) return failure("rejected", `Container ${input.container} is not in the entry order of ${input.anchor}`);
+    if (!validRailWidth(input.intent)) return failure("rejected", `Rail width must be a finite positive number: ${String(input.intent?.width)}`);
+    const next = editable(doc);
+    next.panels[input.anchor] = input.intent === null || isEmptyRail(input.intent) ? withoutRail(panel, input.container) : withRail(panel, input.container, railIntentOf(input.intent));
+    return finish(doc, next);
+}
+
+/** 写一个浮动窗的侧轨意图（输出 51）：`intent` 为 null 或没有字段时去掉。 */
+export function setFloatRail(doc: LayoutDoc, input: {readonly panel: string; readonly intent: RailIntent | null}): LayoutResult {
+    if (!isFloating(doc, input.panel)) return failure("not-found", `Floating window ${input.panel}`);
+    if (!validRailWidth(input.intent)) return failure("rejected", `Rail width must be a finite positive number: ${String(input.intent?.width)}`);
+    const next = editable(doc);
+    next.floats = next.floats.map((float) => {
+        if (float.panel !== input.panel) return float;
+        const {rail: _rail, ...bare} = float;
+        return input.intent === null || isEmptyRail(input.intent) ? bare : {...bare, rail: railIntentOf(input.intent)};
+    });
+    return finish(doc, next);
+}
+
+/** 写入守和读入同一条（`normalizeRailIntent`）：宽度只收有限正数，不然写进去的记录下次读入就被修掉、还报一条诊断。 */
+const validRailWidth = (intent: RailIntent | null): boolean => intent?.width === undefined || (Number.isFinite(intent.width) && intent.width > 0);
+const isEmptyRail = (intent: RailIntent): boolean => intent.expanded !== true && intent.width === undefined;
+/** 只留认得的字段：调用方传进来的对象可能多带别的键。 */
+const railIntentOf = (intent: RailIntent): RailIntent => ({...(intent.expanded === true ? {expanded: true as const} : {}), ...(intent.width === undefined ? {} : {width: intent.width})});
 
 export function insertTab(doc: LayoutDoc, input: {readonly panel: string; readonly tab: TabRef; readonly index?: number; readonly activate?: boolean}): LayoutResult {
     const panel = doc.panels[input.panel];

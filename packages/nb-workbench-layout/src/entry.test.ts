@@ -47,6 +47,8 @@ const VALUES: ReadonlyArray<string> = [
     "previewEdgeDrop",
     "previewPanelRects",
     "projectLayoutDoc",
+    "railLeafId",
+    "regionOfRailLeaf",
     "raiseFloat",
     "rebaseForOperation",
     "rectContains",
@@ -64,6 +66,7 @@ const VALUES: ReadonlyArray<string> = [
     "setActiveContainer",
     "setBarHidden",
     "setContainerEntries",
+    "setContainerRail",
     "setCurrentEditor",
     "setFloatRect",
     "setPanelCollapsed",
@@ -97,6 +100,7 @@ const TYPES: ReadonlyArray<string> = [
     "LayoutSource",
     "PanelName",
     "PanelRecord",
+    "RailIntent",
     "TabRef",
 ];
 

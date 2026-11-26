@@ -12,12 +12,18 @@
  * `[入口条叶, 内层]`，id 仍是文档里区域节点的 id（拖到零、隐藏都配在它上面，入口条跟着整个区域缩到零）；内层是原来呈现出来的节点（一节时是那一节的叶，
  * 几节时是原来的分支，id 加 `:sections`）。入口条叶只在呈现里，不进文档。当前容器在文档里恰有一节、它呈现着时，它的头并进入口条这一行（`strips` 的
  * `merged`）：按被投影的那份文档判，所以拖动的预览、隐藏与拖到零的过渡、放不下收走都和放下的结果一致，不在两片叶之间来回搬。
+ *
+ * 侧轨（宿主给 `rail`，docs/specs/ui/workbench-layout.md 输出 50）：右栏在文档里有分节时，`body` 横向分支里右栏那一列的外侧多一片侧轨叶 `rail:<区域>`，
+ * 和别的孩子一起过滤、塌陷、算缝（两侧缝 0，同条）；区域隐藏、拖到零、放不下收走时它照样在。左轨就是活动栏，不在这里加。侧轨叶只在呈现里，不进文档与意图回写。
+ * 展开的侧轨要的宽度由宿主先算好预算（`regionWidth`）：区域节点这一次按给的宽度呈现。覆盖只加在区域节点上，它和编辑区并排、保留像素（`isFixedChild`），
+ * 结构操作前的回写本来就不写保留像素的节点（`intent-writeback.ts`），所以预算的结果不会变成意图；覆盖挪到区域里按比例分的节点上，结构操作就会把它写进意图。
+ * 手势动了这个节点时（拖右栏与编辑区的分隔线），落账只把拖动的那一段加到原来的意图上（`widthOverrides`）。
  */
 
 import {GRID_UNBOUNDED, UNBOUNDED_EXTENT} from "@notnotype/nb-layout";
-import {axisOf, barOfRef, hiddenRegionsAtZero, isBarLeaf, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
+import {axisOf, barOfRef, hiddenRegionsAtZero, isBarLeaf, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionHasSections, regionNodeOf, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "./layout-doc";
-import {INNER_SECTIONS_SUFFIX, STRIP_LEAF_PREFIX} from "./presented-ids";
+import {INNER_SECTIONS_SUFFIX, RAIL_LEAF_PREFIX, STRIP_LEAF_PREFIX} from "./presented-ids";
 import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "@notnotype/nb-layout";
 
 export interface PanelConstraints {
@@ -39,6 +45,10 @@ export interface LayoutProjectionOptions {
     readonly removed?: ReadonlySet<string>;
     /** 带容器的区域顶上一行入口条：高度与只有一节时并不并进来；null 或不给是没有（见模块说明）。 */
     regionStrip?(region: PanelName): LayoutRegionStrip | null;
+    /** 区域外侧的侧轨：这一刻的叶厚（px，收着或展开后的，已含缝）；null 或不给是没有。现在只问右栏。 */
+    rail?(region: PanelName): number | null;
+    /** 区域这一次的呈现宽度（侧轨展开的预算结果，输出 50 的“预算”）：不写意图。只对右栏起作用。 */
+    readonly regionWidth?: Readonly<Partial<Record<PanelName, number>>>;
 }
 
 export interface LayoutRegionStrip {
@@ -46,6 +56,12 @@ export interface LayoutRegionStrip {
     readonly height: number;
     /** 当前容器只有一节时，那一节的头并进入口条这一行：它的叶里没有头，最小、最大高度都减去入口条的高度，区域合计和只有一节时一样。 */
     readonly mergeSole: boolean;
+}
+
+/** 呈现里的一条侧轨：哪个区域、侧轨叶的 id。 */
+export interface LayoutRailPlacement {
+    readonly region: PanelName;
+    readonly leaf: string;
 }
 
 /** 呈现里的一条入口条：哪个区域、入口条叶的 id、并进来的那一节（没有是 null）。 */
@@ -73,12 +89,32 @@ export interface LayoutProjection {
      * 文档里它仍是收起的（内容停放、意图不写回），宿主按“收起”画它、只是外框更长。
      */
     readonly fillers: ReadonlySet<string>;
+    /** 这一次呈现出来的侧轨（`rail`）。 */
+    readonly rails: ReadonlyArray<LayoutRailPlacement>;
+    /**
+     * 这一次按预算宽度呈现的节点（`regionWidth`）→ 文档里它的宽度意图。手势落账按它只写拖动的那一段（`applyGestureCommit`）：呈现宽是预算压出来的，
+     * 直接写回就把压掉的那段变成了意图。
+     */
+    readonly widthOverrides: ReadonlyMap<string, number>;
 }
 
 const REGION_NAMES: ReadonlySet<string> = new Set<PanelName>(["sidebar", "auxiliarybar", "panel"]);
 
 /** 区域的入口条叶的 id（也是它的 `ref`）。 */
 export const regionStripLeafId = (region: PanelName): string => `${STRIP_LEAF_PREFIX}${region}`;
+
+/** 区域的侧轨叶的 id（也是它的 `ref`）。 */
+export const railLeafId = (region: PanelName): string => `${RAIL_LEAF_PREFIX}${region}`;
+
+/** 侧轨叶的 id → 区域；不是侧轨叶是 null。 */
+export function regionOfRailLeaf(id: string): PanelName | null {
+    if (!id.startsWith(RAIL_LEAF_PREFIX)) return null;
+    const region = id.slice(RAIL_LEAF_PREFIX.length);
+    return REGION_NAMES.has(region) ? (region as PanelName) : null;
+}
+
+/** 两侧不留缝的叶：条与侧轨。 */
+const isSeamless = (node: GridNodeInput<string>): boolean => isBarLeaf(node) || (node.kind === "leaf" && regionOfRailLeaf(node.id) !== null);
 
 /** 入口条叶的 id（或 `ref`）→ 区域；不是入口条叶是 null。 */
 export function regionOfStripLeaf(id: string): PanelName | null {
@@ -98,16 +134,12 @@ export function regionOfStripLeaf(id: string): PanelName | null {
  */
 function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions, regionAnchors: ReadonlyMap<string, string>, fillers: Set<string>, region: PanelName | null = null): void {
     if (node.kind === "leaf") return;
-    const main = axisOf(node.orientation);
-    // 按比例分的子节点，意图只记兄弟之间的比例（`rebaseIntents`：有收起、隐藏的兄弟或区域的锚时不写像素），当不了 `restoreSize`：
-    // 让 Enter 回到它按比例该得的那一份，和改了收起记录再呈现（按钮、命令）一样（输出 12）。保留像素的节点意图就是像素，照旧。
-    const collapseOf = (child: GridNodeInput<string>, collapsed: boolean, collapsedSize: number): SashCollapseState => ({
+    // 收起策略里没有恢复尺寸：Enter 与改了收起记录再呈现（按钮、命令）一样，都回到意图（输出 12；`ui/nested-grid` 输出 166）。
+    const collapseOf = (collapsed: boolean, collapsedSize: number): SashCollapseState => ({
         collapsed,
         collapsedSize,
-        restoreSize: Math.max(child.size?.[main] ?? 0, child.minimumSize?.[main] ?? 0),
         collapseThreshold: options.collapseThreshold,
         expandThreshold: options.collapseThreshold,
-        ...(child.sizing === "weight" ? {restoreToShare: true} : {}),
     });
     // 包装分支（见模块说明）：入口条叶固定高度，内层吸收余量；内层是一节的叶时它是区域唯一的分节，不收成标题行（输出 11）。
     if (regionOfStripLeaf(node.children[0]?.id ?? "") !== null) {
@@ -128,7 +160,7 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
         child.sizing = sizing;
         const anchor = doc.panels[regionAnchors.get(child.id) ?? ""];
         if (anchor?.name !== undefined) {
-            child.collapse = collapseOf(child, anchor.collapsed === true, 0);
+            child.collapse = collapseOf(anchor.collapsed === true, 0);
             if (child.kind === "branch") assignByParent(doc, child, options, regionAnchors, fillers, anchor.name);
             continue;
         }
@@ -146,7 +178,7 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
             fillers.add(child.id);
             continue;
         }
-        child.collapse = collapseOf(child, isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
+        child.collapse = collapseOf(isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
     }
 }
 
@@ -156,6 +188,12 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
     const sashes = new Map<string, number[]>();
     const regionAnchors = new Map<string, string>();
     const strips: LayoutStripPlacement[] = [];
+    const rails: LayoutRailPlacement[] = [];
+    const widthOverrides = new Map<string, number>();
+    // 右栏的侧轨（见模块说明）：区域在文档里有分节才有，插在 `body` 横向分支里右栏那一列的后面。
+    const auxiliary = regionNodeOf(doc, "auxiliarybar");
+    const railThickness = auxiliary !== null && regionHasSections(doc, "auxiliarybar") ? options.rail?.("auxiliarybar") ?? null : null;
+    const auxiliaryWidth = options.regionWidth?.auxiliarybar;
     // 带容器的区域在文档树里的节点 → 锚。
     const regionRoots = new Map<string, string>();
     for (const panel of Object.values(doc.panels)) {
@@ -210,21 +248,37 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
     const presentedAs = (node: GridSnapshotNode, presented: GridNodeInput<string>): GridNodeInput<string> => {
         const anchor = regionRoots.get(node.id);
         if (anchor === undefined) return presented;
-        const result = withStrip(node, anchor, presented);
+        let result = withStrip(node, anchor, presented);
+        if (auxiliaryWidth !== undefined && node.id === auxiliary?.node.id) {
+            result = {...result, size: {width: auxiliaryWidth, height: result.size?.height ?? node.size.height}};
+            widthOverrides.set(result.id, node.size.width);
+        }
         regionAnchors.set(result.id, anchor);
         return result;
+    };
+    const railLeaf = (thickness: number): GridNodeInput<string> => {
+        const leaf = railLeafId("auxiliarybar");
+        rails.push({region: "auxiliarybar", leaf});
+        const fixed: GridExtent = {width: thickness, height: 0};
+        return {kind: "leaf", id: leaf, ref: leaf, size: fixed, minimumSize: fixed, maximumSize: {...UNBOUNDED_EXTENT, width: thickness}, sizing: "fixed"};
     };
 
     const project = (node: GridSnapshotNode, parentOrientation: GridOrientation | null): GridNodeInput<string> | null => {
         if (node.kind === "branch") {
-            const children = node.children.map((child) => project(child, node.orientation)).filter((child): child is GridNodeInput<string> => child !== null);
+            const children: GridNodeInput<string>[] = [];
+            for (const child of node.children) {
+                const presented = project(child, node.orientation);
+                if (presented !== null) children.push(presented);
+                // 右栏被放不下收走时这一列没有了，侧轨照样在原来的位置。
+                if (railThickness !== null && node.orientation === "horizontal" && child.id === auxiliary?.node.id) children.push(railLeaf(railThickness));
+            }
             if (children.length === 0) return null;
             if (children.length === 1) {
                 const survivor = children[0] as GridNodeInput<string>;
                 collapsedTo.set(node.id, survivor.id);
                 return presentedAs(node, {...survivor, size: {...node.size}});
             }
-            sashes.set(node.id, children.slice(0, -1).map((child, index) => (isBarLeaf(child) || isBarLeaf(children[index + 1] as GridNodeInput<string>) ? 0 : options.sashSize)));
+            sashes.set(node.id, children.slice(0, -1).map((child, index) => (isSeamless(child) || isSeamless(children[index + 1] as GridNodeInput<string>) ? 0 : options.sashSize)));
             return presentedAs(node, {kind: "branch", id: node.id, orientation: node.orientation, size: {...node.size}, children});
         }
         const bar = barOfRef(node.ref);
@@ -246,7 +300,7 @@ export function projectLayoutDoc(recorded: LayoutDoc, options: LayoutProjectionO
     if (input === null) throw new Error("布局文档的树里没有可呈现的节点：校验应该已经拒绝");
     const fillers = new Set<string>();
     assignByParent(doc, input, options, regionAnchors, fillers);
-    return {input, collapsedTo, regionAnchors, strips, fillers, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
+    return {input, collapsedTo, regionAnchors, strips, fillers, rails, widthOverrides, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {

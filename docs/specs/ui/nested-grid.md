@@ -19,14 +19,13 @@ owners:
 
 - 交换进行中别的布局变化来了时，带照旧走完，裁切窗与静止的底停在开始时的位置，滚完才对上（输出 74）。
 - 两根轴交汇处按 Enter：一根轴另一侧吸收不了时，会改去收另一根轴上的面板，前一根的 `no-room-to-collapse` 不再报（恢复方向本来也这样改道）（输出 20）。
-- 落账时，被压缩、这次没动的保留像素节点的意图会被写成压缩后的值，窄窗口里收起一块面板后放宽，旁边那块保留像素的面板回不到原宽。修它要改显式收起的求解（输出 20），待开发者定。（planned：显式收起与展开落账不再改意图，只剩拖动落账这一种，见输出 167。）
+- 窄窗口里拖分隔线落账时，被压缩、这次没动的保留像素节点的意图会被写成压缩后的值，放宽后回不到原宽。显式收起与展开不受影响，它们落账不改意图（输出 167）。
+- 一个分支里只有保留像素的孩子、还有没人吸收的留白时，分隔条上 Enter 展开的预览按这个分支此刻呈现的总量重排（手势提交要守恒，用不到留白），比松手之后的布局小；落账不改意图，松手后回到意图。
 
 不承诺：
 
 - 别的布局过渡还没走完时开浮动窗，起点是布局里那块叶的矩形，不是它此刻画着的位置，外框与内容一路错开、随过渡收拢（输出 107）。
-- 按比例分的面板，经 `setCollapsed` 与经分隔条 Enter 收起再展开，结果不同；一个分支的子节点经 `setCollapsed` 全部收起时整行留白、没有诊断（输出 147）。（planned：前半句随输出 20、166、170 删去）
-- 按比例分的面板经 `setCollapsed` 收起时不记恢复尺寸；要“恢复到合适的那一份”用 `restoreToShare`（输出 148）。（planned：随输出 166、170 删去）
-- `setCollapsed` 与 `host.setCollapsed` 不触发 `onApplied`（输出 149）。（planned：随输出 166、170 删去）
+- 一个分支的子节点经 `setCollapsed` 全部收起时整行留白、没有诊断（输出 147）。
 
 ## 术语与参与者
 
@@ -72,7 +71,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 17. **拖动：绝对边界**：pointer 按原始基线边界加累计位移求绝对边界；收起、展开只改约束，不以记忆尺寸重锚；边界位置与收起状态只看原始基线与累计位移。
 18. **拖动：收起与展开的阈值**：低于最小尺寸再往里一个阈值（缺省值见 [Splitter](../../../packages/nb-layout/src/vue/Splitter.md)）时收起，回到 `max(最小尺寸, collapsedSize + 恢复阈值)` 且容量允许时展开。
 19. **拖动：展开后的线与指针**：在可行的展开区里，线与指针（减去按下时抓取的偏移）的误差不超过 1 CSS px。
-20. **拖动：显式恢复**：按钮、Enter 的显式恢复才用记忆的恢复尺寸（谁记见输出 148）；策略带 `restoreToShare` 时显式恢复不用记忆的尺寸，回到它按权重此刻该得的那一份（宿主的权重只记兄弟之间的比例、没有像素记忆时用）。显式收起时另一侧吸收不了（兄弟都到上限或都已收起），保持展开，给 `no-room-to-collapse`，这场手势没有提交。（planned，将改为“拖动：显式收起与展开”：按钮、分隔条上 Enter 的显式收起与展开，能翻时结果和 `setCollapsed` 翻这块面板的标记相同（输出 147）：按比例分的兄弟按份额吸收或让出，保留像素的兄弟不变，展开回到意图（输出 166）。翻了之后最小尺寸之和放不下时保持收起，给 `no-room-to-restore`；翻了之后让出的空间没有兄弟能吸收（兄弟都到上限、都已收起或都保留像素）时保持展开，给 `no-room-to-collapse`；这两种这场手势都没有提交。锁住的面板（输出 168）不参与显式切换。这两种拒绝与锁住的跳过是和 `setCollapsed` 仅有的不同：`setCollapsed` 照样翻，放不下时报 `over-constrained`，没人吸收时留白。 原来的恢复尺寸与 `restoreToShare` 两句随之删去。）
+20. **拖动：显式收起与展开**：按钮、分隔条上 Enter 的显式收起与展开，能翻时结果和 `setCollapsed` 翻这块面板的标记相同（输出 147）：按比例分的兄弟按份额吸收或让出，保留像素的兄弟不变，展开回到意图（输出 166）。翻了之后最小尺寸之和放不下时保持收起，给 `no-room-to-restore`；翻了之后让出的空间没有兄弟能吸收（兄弟都到上限、都已收起或都保留像素）时保持展开，给 `no-room-to-collapse`；这两种这场手势都没有提交。锁住的面板（输出 168）不参与显式切换。这两种拒绝与锁住的跳过是和 `setCollapsed` 仅有的不同：`setCollapsed` 照样翻，放不下时报 `over-constrained`，没人吸收时留白。
 21. **拖动：兄弟的分配**：上一帧解出的尺寸（首帧是原始基线）在当前边界内逐兄弟夹取，再按两侧目标总量由近到远补偿，整体守恒：掉头往回拖时先动挨着 sash 的叶，已被推开的兄弟留在被推到的地方，和拖一段松手再拖一样。
 22. **拖动：显式折叠**：显式折叠只改目标兄弟的 `collapsed`，其他保持原状态。
 23. **拖动：收起不写成意图**：收起结束不把收起尺寸（0 或 32 一类）写成展开意图，主动合法展开的尺寸可更新意图。
@@ -157,7 +156,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 102. **浮动窗：内容项**：内容项照常归属它，所以进出浮动窗内容不换父元素、不重建。
 103. **浮动窗：层叠次序**：后面的压在前面的上面，换次序只改层级，不搬节点。
 104. **浮动窗：与别的层**：浮动窗都在分隔线、飞行内容之上，在盖层与拿起的内容之下。
-105. **浮动窗：矩形变化**：只有矩形变了不算布局变化，不过渡（移动、缩放是手势）。
+105. **浮动窗：矩形变化**：只有矩形变了不算布局变化，不过渡（移动、缩放是手势）。（planned：宿主用程序改一个浮动窗的宽度时，例如窗里的视图段展开、收起（[workbench-layout.md](workbench-layout.md) 输出 51），这次算布局变化、走布局过渡；同一时刻的移动、缩放手势照旧跟手、不过渡。）
 106. **浮动窗：出现与消失**：出现、消失，内容进出照常过渡。
 107. **浮动窗：新开的窗**：新开的窗（上一帧没有这块窗，它的活动内容上一帧活动着、有尺寸，在另一块叶里）从那块叶上一帧的矩形出发：外框、手柄与内容同一个起点、同一个终点，整张卡片从原处拿起来飞到窗的位置，面板头随外框逐帧重排，投影与圆角第一帧就有；不按新叶从零长，否则窗第一帧就在终点、内容单独飞过去。
 108. **浮动窗：新开的窗的例外**：实时布局拖动落下开的窗不按输出 107，从拿起的卡片出发（落地，见 [工作台布局](workbench-layout.md) 输出 38、39）。
@@ -203,7 +202,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     | | `range-overflow` | 拖动时这根轴的有效范围装不下分支总量，这次不改几何 | `total`、`min`；所有面板都有上限时还有 `max` |
     | `unabsorbed-space` | `no-weight`、`capped` | 分支的空间有剩余没被子节点吸收：没有按比例分的面板，或它们都到了上限 | `rest` |
     | `conflicting-bounds` | | 节点的下限高于上限，以下限优先 | `min`、`max` |
-    | `no-room-to-collapse` | | 拖到阈值以下但收起后没有边界吸收这块空间，保持展开；显式收起时让出的空间没有兄弟吸收同样（planned，输出 20） | |
+    | `no-room-to-collapse` | | 收起后让出的空间没有兄弟吸收（拖到阈值以下或显式收起，输出 20），保持展开 | |
     | `no-room-to-restore` | | 恢复空间不够，保持收起 | `available`、`required` |
     | `no-collapse-policy` | | 要折叠的面板没有收起策略；只出现在直接求解收起的结果里，手势不会发 | |
     | `swap-skipped` | `no-leaving`、`no-entering`、`busy` | 交换不成立（输出 68） | |
@@ -223,10 +222,10 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 144. **承载盒的尺寸**：`NestedGrid` 量自己的根盒的布局尺寸（`clientWidth`、`clientHeight`，不随祖先的变换缩放），挂载后量到就发 `extent` 事件，两轴变了才再发；同步发，监听在同一个调用栈里拿到。卸载前发 `null`，`NestedGrid` 被条件渲染摘掉时父组件的监听收得到；宿主自己整个卸载时，宿主作用域里的侦听已经停了，收不到。
 145. **宿主接线**：`useGridHost` 交回一包 `bindings`（树、布局、版本、上下文键、停用、提交处理、接 `extent`、`issues` 与 `gesture-start` 的处理），整包绑到 `NestedGrid` 上就能接手势；尺寸取自 `NestedGrid` 发的 `extent`，没量到可用尺寸（null，或宽、高为 0）时布局为空、`disabled` 为真。布局重算的诊断与 `NestedGrid` 的 `issues` 事件都交给 `useGridHost` 的 `onIssues` 一个出口。
 146. **承载盒为零**：量到的宽或高为 0 时布局为空、分隔条停用（`aria-disabled`，不在 Tab 序里）；叶照常挂着，只是没有尺寸。
-147. **收起与展开的入口**：`grid.setCollapsed(id, collapsed)` 只翻这个节点的收起标记，尺寸意图不动；之后的 `layout()` 与把同一棵树的标记翻了再建相同：按比例分的兄弟吸收差额，保留像素的兄弟不变，展开回到它的意图。不读布局，不要容器尺寸。`toggleable: false` 不影响它。和分隔条上的 Enter（输出 20：隔着那条分隔条的邻居让位，恢复到记忆的尺寸）是两种结果。返回 `{ok: true, changed, collapse}`：`changed` 是标记有没有变，已经是那个状态时为 false、树不变；`collapse` 是调用之后这个节点的收起策略。失败：`id` 不存在 `not-found`；`id` 是根 `invalid-argument`（`field: "root"`）；没有收起策略 `not-collapsible`。（planned：签名改为 `grid.setCollapsed(id, collapsed, options?)`；分隔条上的 Enter 能翻时结果相同，放不下或没人吸收时 Enter 拒绝、锁住的 Enter 跳过，`setCollapsed` 照样翻（输出 20、168）；`options.locked` 同时改锁，不给时锁不变；`changed` 是收起标记或锁有没有变。）
-148. **恢复尺寸谁收起谁记**：子节点的收起标记从展开翻成收起时，记下 `restoreSize`：保留像素的面板记它在父分支主轴上的意图（被压缩时也是意图）；按比例分的面板在 `resizeBranches`（拖动收起、Enter）里记这次变化的基线，经 `setCollapsed` 时不改。之后的显式恢复回到记下的值（输出 20）。收起策略不写快照：`restore()` 的解析结果没给 `collapse` 时沿用当前树的，记下的值保留；宿主要跨会话保存，从 `setCollapsed` 的结果或 `find(id)` 读。（planned：整条删除，网格的节点没有恢复尺寸，展开回到意图，见输出 166。）
-149. **宿主的收起入口**：`useGridHost` 的 `setCollapsed(id, collapsed)` 调 `grid.setCollapsed`，标记变了时版本递增、布局重发（诊断照常经 `onIssues`），没变时版本不变；没有网格时返回 `not-ready`（`missing: "grid"`）、版本不变。（planned：第三个参数同输出 147；标记或锁变了时通知 `onApplied`，见输出 170。）
-150. **提交前的布局**：`onApplied(commit, result, before)` 的 `before` 是这次提交之前发布的布局，也就是手势开始时呈现的那份；`onApplied` 被调时宿主的 `layout` 已经是提交之后的。（planned，将改为：`onApplied(change, before)` 的 `before` 是这次落账之前发布的布局：手势是手势开始时呈现的那份，`host.setCollapsed`、`host.setSize` 是调用之前的那份；`onApplied` 被调时宿主的 `layout` 已经是落账之后的。）
+147. **收起与展开的入口**：`grid.setCollapsed(id, collapsed, options?)` 只翻这个节点的收起标记，尺寸意图不动；之后的 `layout()` 与把同一棵树的标记翻了再建相同：按比例分的兄弟吸收差额，保留像素的兄弟不变，展开回到它的意图（输出 166）。不读布局，不要容器尺寸。`toggleable: false` 不影响它。分隔条上的 Enter 能翻时结果相同；放不下或没人吸收时 Enter 拒绝、锁住的 Enter 跳过，`setCollapsed` 照样翻（输出 20、168）。`options.locked` 同时改锁（输出 168），不给时锁不变。返回 `{ok: true, changed, collapse}`：`changed` 是收起标记或锁有没有变，都没变时为 false、树不变；`collapse` 是调用之后这个节点的收起策略。失败：`id` 不存在 `not-found`；`id` 是根 `invalid-argument`（`field: "root"`）；没有收起策略 `not-collapsible`。
+148. （已删除：网格的节点没有恢复尺寸，展开回到意图，见输出 166。）
+149. **宿主的收起入口**：`useGridHost` 的 `setCollapsed(id, collapsed, options?)` 调 `grid.setCollapsed`（第三个参数同输出 147），标记或锁变了时版本递增、布局重发（诊断照常经 `onIssues`）并通知 `onApplied`（输出 170），没变时版本不变；没有网格时返回 `not-ready`（`missing: "grid"`）、版本不变。
+150. **落账前的布局**：`onApplied(change, before)` 的 `before` 是这次落账之前发布的布局：手势是手势开始时呈现的那份，`host.setCollapsed`、`host.setSize` 是调用之前的那份；`onApplied` 被调时宿主的 `layout` 已经是落账之后的。
 151. **开发模式的配置检查**：`setLayoutDevChecks(true)` 打开之后（缺省关），下面几种接线错误在浏览器控制台警告；同一个 `NestedGrid`（或同一个 `useGridHost` 宿主）的同一种只警告一次，警告里带 `contextKey`（没给时写明没有）。开关关着时都不警告。警告不改变失败与 `issues` 事件。
     - `NestedGrid` 接了提交处理、没有停用，有两侧都能调（主轴上最小与最大尺寸不同）的边界，而这些边界的分隔条全是 0 宽（`createGrid` 的 `sashSize` 缺省 0）；挨着固定尺寸节点的缝不算；
     - 要提交时没有提交处理；提交处理不是函数（例如整包绑定之后又写了 `@gesture-commit`，两者合成数组）；提交处理的返回值不是 `{ok: …}` 的形状（例如返回 `undefined`、Promise、布尔值）。三种是三条警告；
@@ -235,7 +234,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 153. **结构操作不改兄弟的意图**：`addLeaf`、`removeLeaf`、`moveLeaf` 不改兄弟的尺寸意图（保留像素的、按比例分的、收起中的都不改）。布局时按比例分的份额按比例重分，保留像素的兄弟呈现不变（约束与容器放不下时照常压缩）；空出或多出的空间由按比例分且没收起的兄弟吸收，没有这样的兄弟就留白并给 `unabsorbed-space`。
     - 按比例分的新叶没给主轴意图（省略或为 0）时，取这一支里不是保留像素的兄弟（收起中的也算）的正意图的平均；这些兄弟的意图全是 0 时取 0；没有这样的兄弟时取 1。
     - 按比例分的节点移到别的分支时，同样按新叶重取目标分支的平均；保留像素的节点移到同向的分支时意图不变，移到方向不同的分支返回 `invalid-argument`（`field: "fixed-cross-axis"`），树不变。
-154. **设一块保留像素的尺寸**：`grid.setSize(id, px)` 把保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`，夹进它自己在这根轴上的最小与最大（收起中也按展开时的约束夹）；兄弟不动，不读布局。收起中的节点同时把记忆的恢复尺寸改成 `max(collapsedSize, 夹过的值)`，`setCollapsed(false)` 与分隔条上的 Enter 回到同一个尺寸。返回 `{ok: true, changed, size}`：`size` 是存下的意图；`changed` 是意图或恢复尺寸有没有变，都没变时树不变；有收起策略时另带 `collapse`（同输出 147）。失败依次判：`id` 不存在 `not-found`；`id` 是根 `invalid-argument`（`field: "root"`）；按比例分的节点 `wrong-sizing`；`px` 不是有限数 `not-finite`（`field: "px"`）；`px` 为负 `invalid-argument`（`field: "px-negative"`）。（planned：收起中不再改恢复尺寸，`changed` 只看意图；刚性的节点同样可设，夹进声明的主轴最小与最大，见输出 169。）
+154. **设一块保留像素的尺寸**：`grid.setSize(id, px)` 把保留像素的节点（叶或分支）沿父分支主轴的意图设成 `px`，夹进它自己在这根轴上的最小与最大（收起中也按展开时的约束夹）；兄弟不动，不读布局。收起中的节点也只改意图，展开时回到它（输出 166）；刚性的节点同样可设，夹进声明的主轴最小与最大（输出 169）。返回 `{ok: true, changed, size}`：`size` 是存下的意图；`changed` 是意图有没有变，没变时树不变；有收起策略时另带 `collapse`（同输出 147）。失败依次判：`id` 不存在 `not-found`；`id` 是根 `invalid-argument`（`field: "root"`）；按比例分的节点 `wrong-sizing`；`px` 不是有限数 `not-finite`（`field: "px"`）；`px` 为负 `invalid-argument`（`field: "px-negative"`）。
 155. **关掉的内容留到过渡结束**：内容项的 `leave` 缺省 `"unmount"`，宿主把它从 `contents` 去掉就卸载（同以前）。标了 `"retain"` 的活动内容项被去掉、而它的叶这一轮在缩回去（按输出 45 留着缩回的离开的叶，或这一轮降到零的叶）时，库用它最后一次的渲染留到过渡结束：不再调宿主的 `content` 插槽，带 `data-content-leaving`、`inert`、看得见、跟着叶缩回去，不进 F6 与 Tab 的站点、不进 `aria-owns`，过渡结束（含容器尺寸变化把过渡送到终点）才卸载。
     - 不留的情形：叶不动、只是内容被换掉或去掉；不活动的；拖动中；它的叶在交换里滑出去；减少动态效果。过渡中又来一次布局变化时，叶还在缩回去的接着留，叶回到了树里的摘掉。
     - 过渡中宿主又给了同一个 key：以宿主的为准，沿用同一个元素，回到照常渲染。
@@ -250,13 +249,13 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
 162. **拆分：保留像素的目标**：目标叶保留像素时 `splitLeaf` 返回 `wrong-sizing`（`expected: "weight"`），树不变：它的意图是像素，新叶与目标都分不到有意义的份额。
 163. **根不展平成保留像素或可收起的节点**：增删或移动之后根分支只剩一个孩子、它保留像素或带收起策略时，根分支留着；布局照常（保留像素的照旧呈现，余下留白并给 `unabsorbed-space`）。其余只剩一个孩子的分支照旧换成这个孩子。
 164. **复制网格**：`grid.clone()` 交回一份独立的网格：树、意图、约束、`sizing`、收起策略与状态，连同建网格时的选项（`sashSize`、`encodeRef`）。之后改其中一份，另一份的树、快照与布局都不变；叶的 `ref` 是同一个宿主对象。
-165. **从快照建网格**：`restoreGrid(snapshot, resolveRef, options)` 按失败 7 校验快照，成功时交回 `{ok: true, grid, dropped, clamped}`，失败时是失败 7 的形状、没有 `grid`。约束、`sizing` 与收起策略只来自 `resolveRef`；原地的 `grid.restore` 照旧回落到当前树（输出 148）。
-166. **展开回到意图**：网格的节点只有一份展开尺寸，就是它的意图（`size` 在父分支主轴上的分量）：保留像素的回到意图的像素，按比例分的回到它的份额。收起不改意图；`setCollapsed(false)`、按钮与分隔条上的 Enter 都回到它，拖动展开跟随指针、松手时按呈现写回（输出 23）。网格的收起策略里没有恢复尺寸（独立 `Splitter` 没有意图，它的 `restoreSize` 照旧）。宿主要跨会话保存收起状态，存意图（快照或自己的记录）与 `collapsed` 就够了。（planned）
-167. **落账保住意图**：`resizeBranches` 里一个分支应用了本场的收起变化之后，用现有意图布局就得出目标时，这个分支的意图一个也不改：显式收起与展开都这样落账，窄窗口里被压缩的保留像素兄弟不会被写成压缩值。否则照输出 2 反解；反解之后这个分支里还有收起着的按比例分的孩子时，展开着的按比例分的孩子的新意图按同一个倍数缩放，使它们的和等于落账前的和。呈现不变，收起着的那块展开时拿回收起前的份额。例：两块按比例分各 500、拖到把 b 收起，a 呈现 1000、意图仍是 500，展开 b 回到 500。三块意图各 300、呈现各 400，拖 b｜c 把 c 收起（呈现 `[400,800,0]`）：a、b 的意图写成 200、400，和仍是 600；展开 c 得 `[266.67,533.33,400]`，c 回到收起前的 400。（planned）
-168. **锁住收起状态**：收起策略带 `locked: true` 时，拖动不越过阈值收起它，也拉不开收着的它；分隔条上的 Enter 跳过它（同 `toggleable: false`，作用于另一侧）；`resizeBranches` 要翻它的标记时整批失败，给 `collapse-locked`（失败 5）。宿主的 `setCollapsed` 照常翻它；锁经 `setCollapsed` 的 `options.locked` 改，或建树、恢复时在策略里给。独立 `Splitter` 同样遵守。（planned）
-169. **刚性的节点**：保留像素的节点标 `rigid: true` 时，它在父分支主轴上的最小与最大尺寸都是它的意图（先夹进声明的主轴最小与最大），拖动的级联补偿不改它。最小尺寸之和放不下时先按比例压别的节点，刚性的最后才让：刚性的之和也放不下时只在刚性的之间按比例压，别的为 0；诊断照旧是 `over-constrained`（`min-total`）。交叉轴不受影响；按比例分的节点标了不起作用。`rigid` 和 `sizing` 一样是运行期约束，不写快照。（planned）
-170. **宿主的落账通知**：`useGridHost` 的 `onApplied(change, before)` 在三种落账之后各调一次：手势提交（`kind: "gesture"`，带 `commit`、`result`），`host.setCollapsed`（`kind: "collapse"`，带 `id`、`result`），`host.setSize`（`kind: "size"`，带 `id`、`result`）；后两种只在 `changed` 时调。三种都带 `collapsed`：这次翻了收起标记的节点（id → 是否收起）。宿主直接调 `grid.*` 再 `invalidate()` 的不通知。`onApplied` 抛出时同手势：库接住、报 `notify-failed`，落账照样算数（输出 140）。（planned）
-171. **宿主的设尺寸入口**：`useGridHost` 的 `setSize(id, px)` 调 `grid.setSize`，`changed` 时版本递增、布局重发并通知 `onApplied`（输出 170），没变时版本不变；没有网格时返回 `not-ready`（`missing: "grid"`）、版本不变。（planned）
+165. **从快照建网格**：`restoreGrid(snapshot, resolveRef, options)` 按失败 7 校验快照，成功时交回 `{ok: true, grid, dropped, clamped}`，失败时是失败 7 的形状、没有 `grid`。约束、`sizing`、刚性与收起策略只来自 `resolveRef`。原地的 `grid.restore` 照旧：解析结果没给的约束、`sizing`、刚性与收起策略回落到当前树里同 id 的节点。这些都是运行期策略，不写快照。
+166. **展开回到意图**：网格的节点只有一份展开尺寸，就是它的意图（`size` 在父分支主轴上的分量）：保留像素的回到意图的像素，按比例分的回到它的份额。收起不改意图；`setCollapsed(false)`、按钮与分隔条上的 Enter 都回到它，拖动展开跟随指针、松手时按呈现写回（输出 23）。网格的收起策略里没有恢复尺寸（独立 `Splitter` 没有意图，它的 `restoreSize` 照旧）。宿主要跨会话保存收起状态，存意图（快照或自己的记录）与 `collapsed` 就够了。
+167. **落账保住意图**：`resizeBranches` 里一个分支应用了本场的收起变化之后，用现有意图布局就得出目标时，这个分支的意图一个也不改：显式收起与展开都这样落账，窄窗口里被压缩的保留像素兄弟不会被写成压缩值。否则照输出 2 反解；反解之后这个分支里还有收起着的按比例分的孩子时，展开着的按比例分的孩子的新意图按同一个倍数缩放，使它们的和等于落账前的和。呈现不变，收起着的那块展开时拿回收起前的份额。例：两块按比例分各 500、拖到把 b 收起，a 呈现 1000、意图仍是 500，展开 b 回到 500。三块意图各 300、呈现各 400，拖 b｜c 把 c 收起（呈现 `[400,800,0]`）：a、b 的意图写成 200、400，和仍是 600；展开 c 得 `[266.67,533.33,400]`，c 回到收起前的 400。
+168. **锁住收起状态**：收起策略带 `locked: true` 时，拖动不越过阈值收起它，也拉不开收着的它；分隔条上的 Enter 跳过它（同 `toggleable: false`，作用于另一侧）；`resizeBranches` 要翻它的标记时整批失败，给 `collapse-locked`（失败 5）。宿主的 `setCollapsed` 照常翻它；锁经 `setCollapsed` 的 `options.locked` 改，或建树、恢复时在策略里给。独立 `Splitter` 同样遵守。
+169. **刚性的节点**：保留像素的节点标 `rigid: true` 时，它在父分支主轴上的最小与最大尺寸都是它的意图（先夹进声明的主轴最小与最大），拖动的级联补偿不改它。最小尺寸之和放不下时先按比例压别的节点，刚性的最后才让：刚性的之和也放不下时只在刚性的之间按比例压，别的为 0；诊断照旧是 `over-constrained`（`min-total`）。交叉轴不受影响；按比例分的节点标了不起作用。`rigid` 和 `sizing` 一样是运行期约束，不写快照。
+170. **宿主的落账通知**：`useGridHost` 的 `onApplied(change, before)` 在三种落账之后各调一次：手势提交（`kind: "gesture"`，带 `commit`、`result`），`host.setCollapsed`（`kind: "collapse"`，带 `id`、`result`），`host.setSize`（`kind: "size"`，带 `id`、`result`）；后两种只在 `changed` 时调。三种都带 `collapsed`：这次翻了收起标记的节点（id → 是否收起）。宿主直接调 `grid.*` 再 `invalidate()` 的不通知。`onApplied` 抛出时同手势：库接住、报 `notify-failed`，落账照样算数（输出 140）。
+171. **宿主的设尺寸入口**：`useGridHost` 的 `setSize(id, px)` 调 `grid.setSize`，`changed` 时版本递增、布局重发并通知 `onApplied`（输出 170），没变时版本不变；没有网格时返回 `not-ready`（`missing: "grid"`）、版本不变。
 
 ## 状态与转换
 
@@ -313,7 +312,7 @@ Grid 的承载盒没有 padding 与 border：测量按它的内容盒算，宿�
     | `stale-baseline` | 手势的基线已经失效 | `id` |
     | `not-collapsible` | 要收起的面板没有收起策略 | `id`、`branch` |
     | `wrong-sizing` | 要保留像素的节点给了按比例分的；拆分的目标叶保留像素 | `id`、`expected`（`fixed` 或 `weight`） |
-    | `collapse-locked` | 按分支调整要翻一块锁住的面板的收起标记（planned，输出 168） | `id`、`branch` |
+    | `collapse-locked` | 按分支调整要翻一块锁住的面板的收起标记（输出 168） | `id`、`branch` |
 
     同一个子节点基线与目标都不合法时报基线那一侧。传进来的非法值在 `value` 里写成字符串（`NaN` 写作 `"NaN"`）。
 6. **提交的返回**：`onGestureCommit` 返回 `{ok: true}` 或失败 5 的形状；拒绝时回滚预览并给诊断（“状态与转换”）。宿主自己写这个回调时可以用自己的码拒绝（写法见“边界与兼容”）。`useGridHost` 接提交时，落账时结构操作的失败原样转交失败 5 的码，提交自己的码是：
@@ -370,7 +369,7 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 ## 实现合同
 
-- 公开入口：`@notnotype/nb-layout`、`./vue`、`./text`、`./locales` 四个入口里写出的名字（一行一个名字的显式清单，[`exports.test.ts`](../../../packages/nb-layout/src/exports.test.ts) 守着）。网格这一面常用的是 `createGrid` 与结构操作（含 `splitLeaf`）、`grid.clone()`、快照（含从快照建网格的 `restoreGrid`）、`resizeBranches` 与 `setCollapsed`，`./vue` 的 `NestedGrid`、`useGridHost`、`useLayoutExtent`、`moveGridFocus`（`useGridLayout` 是 `useGridHost` 用的内部模块，不从入口导出）。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)；接入的起步例子与“我要做 X 用哪个导出”见包的 [README](../../../packages/nb-layout/README.md)，宿主接线见 [useGridHost](../../../packages/nb-layout/src/vue/useGridHost.md)。
+- 公开入口：`@notnotype/nb-layout`、`./vue`、`./text`、`./locales` 四个入口里写出的名字（一行一个名字的显式清单，[`exports.test.ts`](../../../packages/nb-layout/src/exports.test.ts) 守着）。网格这一面常用的是 `createGrid` 与结构操作（含 `splitLeaf`）、`grid.clone()`、快照（含从快照建网格的 `restoreGrid`）、`resizeBranches`、`setCollapsed` 与 `setSize`，`./vue` 的 `NestedGrid`、`useGridHost`、`useLayoutExtent`、`moveGridFocus`（`useGridLayout` 是 `useGridHost` 用的内部模块，不从入口导出）。签名见 [NestedGrid](../../../packages/nb-layout/src/vue/NestedGrid.md) 与 [grid API](../../../packages/nb-layout/src/grid.md)；接入的起步例子与“我要做 X 用哪个导出”见包的 [README](../../../packages/nb-layout/README.md)，宿主接线见 [useGridHost](../../../packages/nb-layout/src/vue/useGridHost.md)。
 - owner 与依赖方向：owner 是 `ui`；`nb-layout` 的核心入口（含落点几何）不依赖 Vue、DOM 与 dnd-kit，Vue 层只依赖核心入口、`vue` 与 `tabbable`，不依赖 nb-ui（主题经 `--nb-layout-*` 变量、由 nb-ui 的 `tokens.css` 桥接，文字经 `./text` 的注入点；ADR 0054 第 3 条）；工作台与插件只经包入口消费，不跨包深导入；工作台的布局文档、落点规则与标签条在 `nb-workbench-layout`，它同样只经这两个入口用本包，本包不依赖它（[ADR 0054](../../adr/0054-nb-layout-general-library.md)）。
 - 失败与诊断的构造：每层一张“码 → `params` 形状”的映射（[`grid-failure.ts`](../../../packages/nb-layout/src/grid-failure.ts)、[`grid-issue.ts`](../../../packages/nb-layout/src/grid-issue.ts)，不从入口导出），构造时按映射检查参数，导出的类型只有通用的 `GridFailure`、`GridIssue`（失败 5 到 7、输出 139）。
 - 只发新增：键与闸门在 [`issue-gate.ts`](../../../packages/nb-layout/src/issue-gate.ts)（不从入口导出），布局重算（`useGridHost` 内部的 `useGridLayout`）与手势（`useSashGesture`）各用一个（输出 140）。
@@ -385,5 +384,5 @@ Smoke 入口：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/l
 
 - 批准依据：2026-09-16 开发者同意纳入最小嵌套验证及必要原语修复；2026-09-20 开发者批准共享测量、宿主与落点几何、scope 仲裁与无重锚 pointer 路径；2026-11-10 开发者接受[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（分支的收起）；2026-11-15 开发者决定拖动中兄弟之间的分配接着上一帧（输出 21）；2026-11-16 开发者选定过渡里形状伸出外框（输出 53）与交换（输出 61 到 77）的做法；2026-11-17 开发者定静止的底（输出 77）与分隔线的宿主样式（输出 78）。[ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - 实现入口：[`nb-layout/src/grid.ts`](../../../packages/nb-layout/src/grid.ts)、[`nb-layout/src/grid-rects.ts`](../../../packages/nb-layout/src/grid-rects.ts)、[`nb-layout/src/grid-motion.ts`](../../../packages/nb-layout/src/grid-motion.ts)、[`nb-layout/src/grid-swap.ts`](../../../packages/nb-layout/src/grid-swap.ts)、[`nb-layout/src/vue/NestedGrid.vue`](../../../packages/nb-layout/src/vue/NestedGrid.vue)、[`nb-layout/src/vue/useGridHost.ts`](../../../packages/nb-layout/src/vue/useGridHost.ts)
-- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)（失败 5、7 与码的写法逐码，诊断的码与参数、会话的诊断，输出 20 的没人能吸收、147、148、153、154、160 到 165）、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts) 与 [`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)（输出 45 的改写、155 的留与摘）、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts) 的“离开的内容”（输出 155、156）、[`issue-gate.test.ts`](../../../packages/nb-layout/src/issue-gate.test.ts)（输出 140 的闸门）、[`vue/useGridLayout.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridLayout.dom.test.ts)（失败 6 的提交码、输出 150）、[`vue/dev-checks.dom.test.ts`](../../../packages/nb-layout/src/vue/dev-checks.dom.test.ts)（输出 151、158、159）、[`vue/useGridHost.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridHost.dom.test.ts)（输出 144 到 146 的宿主一侧：尺寸、整包绑定、诊断一个出口、选项收 getter；输出 149）、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)（输出 144 的同步发与两轴不变不发）、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/splitter.dom.test.ts`](../../../packages/nb-layout/src/vue/splitter.dom.test.ts)（分隔线的悬停、停留计时、失焦与禁用的清理、抓取偏移）、[`vue/FloatWindowHandles.dom.test.ts`](../../../packages/nb-layout/src/vue/FloatWindowHandles.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)、[`theme-vars.test.ts`](../../../packages/nb-layout/src/theme-vars.test.ts)（输出 141 的变量名与回退）、[`vue/layout-vars.dom.test.ts`](../../../packages/nb-layout/src/vue/layout-vars.dom.test.ts)（输出 142 的 JS 计时）、[`vue/SortableList.dom.test.ts`](../../../packages/nb-layout/src/vue/SortableList.dom.test.ts)（输出 143 的注入）、应用的 [`web/theme-bridge.test.ts`](../../../packages/neuro-book/src/web/theme-bridge.test.ts) 与 [`web/host/host-text.test.ts`](../../../packages/neuro-book/src/web/host/host-text.test.ts)（输出 141、143 的宿主一侧）
+- 合同测试：[`grid.test.ts`](../../../packages/nb-layout/src/grid.test.ts)（失败 5、7 与码的写法逐码，诊断的码与参数、会话的诊断，输出 20、147、153、154、160 到 169）、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts) 与 [`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)（输出 45 的改写、155 的留与摘）、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts) 的“离开的内容”（输出 155、156）、[`issue-gate.test.ts`](../../../packages/nb-layout/src/issue-gate.test.ts)（输出 140 的闸门）、[`vue/useGridLayout.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridLayout.dom.test.ts)（失败 6 的提交码、输出 150）、[`vue/dev-checks.dom.test.ts`](../../../packages/nb-layout/src/vue/dev-checks.dom.test.ts)（输出 151、158、159）、[`vue/useGridHost.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridHost.dom.test.ts)（输出 144 到 146 的宿主一侧：尺寸、整包绑定、诊断一个出口、选项收 getter；输出 149、150、170、171）、[`sash-drag.test.ts`](../../../packages/nb-layout/src/sash-drag.test.ts)、[`grid-rects.test.ts`](../../../packages/nb-layout/src/grid-rects.test.ts)、[`grid-motion.test.ts`](../../../packages/nb-layout/src/grid-motion.test.ts)、[`grid-swap.test.ts`](../../../packages/nb-layout/src/grid-swap.test.ts)、[`vue/NestedGrid.dom.test.ts`](../../../packages/nb-layout/src/vue/NestedGrid.dom.test.ts)（输出 144 的同步发与两轴不变不发）、[`vue/useGridMotion.dom.test.ts`](../../../packages/nb-layout/src/vue/useGridMotion.dom.test.ts)、[`vue/splitter.dom.test.ts`](../../../packages/nb-layout/src/vue/splitter.dom.test.ts)（分隔线的悬停、停留计时、失焦与禁用的清理、抓取偏移）、[`vue/FloatWindowHandles.dom.test.ts`](../../../packages/nb-layout/src/vue/FloatWindowHandles.dom.test.ts)、[`vue/useLeafParking.dom.test.ts`](../../../packages/nb-layout/src/vue/useLeafParking.dom.test.ts)、[`vue/useRenderOrder.dom.test.ts`](../../../packages/nb-layout/src/vue/useRenderOrder.dom.test.ts)、[`vue/grid-focus.dom.test.ts`](../../../packages/nb-layout/src/vue/grid-focus.dom.test.ts)、[`theme-vars.test.ts`](../../../packages/nb-layout/src/theme-vars.test.ts)（输出 141 的变量名与回退）、[`vue/layout-vars.dom.test.ts`](../../../packages/nb-layout/src/vue/layout-vars.dom.test.ts)（输出 142 的 JS 计时）、[`vue/SortableList.dom.test.ts`](../../../packages/nb-layout/src/vue/SortableList.dom.test.ts)（输出 143 的注入）、应用的 [`web/theme-bridge.test.ts`](../../../packages/neuro-book/src/web/theme-bridge.test.ts) 与 [`web/host/host-text.test.ts`](../../../packages/neuro-book/src/web/host/host-text.test.ts)（输出 141、143 的宿主一侧）
 - Smoke：[`e2e/lab-nested-grid.e2e.ts`](../../../packages/neuro-book/e2e/lab-nested-grid.e2e.ts)、[`e2e/lab-layout-theme-bridge.e2e.ts`](../../../packages/neuro-book/e2e/lab-layout-theme-bridge.e2e.ts)（输出 141、142：桥接在真实浏览器里的层叠与减少动效）、[`e2e/lab-grid-structure.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-structure.e2e.ts)、[`e2e/lab-grid-panels.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-panels.e2e.ts)、[`e2e/lab-grid-swap.e2e.ts`](../../../packages/neuro-book/e2e/lab-grid-swap.e2e.ts)、[`e2e/workbench-float.e2e.ts`](../../../packages/neuro-book/e2e/workbench-float.e2e.ts)（浮动窗的投影、圆角与手柄）

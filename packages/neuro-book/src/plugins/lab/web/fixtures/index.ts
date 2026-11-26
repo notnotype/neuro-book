@@ -460,11 +460,11 @@ export const labFixtures: LabFixture[] = [
             const base = {
                 contextKey: "lab:surface",
                 doc: {version: 1 as const, tree: {version: 2 as const, root: {...leaf, size: {width: 0, height: 0}}}, panels: {g0: {role: "editor" as const, tabs: [], active: null}}, floats: [], hiddenBars: [], currentEditor: "g0"},
-                projection: {input: leaf, strips: []},
+                projection: {input: leaf, strips: [], rails: []},
             };
             return [
                 {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},
-                {id: "cards", label: "卡片：缝、圆角、相连按邻接算", input: {props: base}},
+                {id: "cards", label: "卡片：缝、圆角、相连按邻接算；右栏与右轨相连，隐藏、显示时角接过去", input: {props: base}},
                 {id: "view-head", label: "标题区：右栏的视图接管面板头（左、中、右三列）", input: {props: base}},
             ];
         })(),
@@ -529,6 +529,8 @@ export const labFixtures: LabFixture[] = [
                 {id: "default", label: "一个容器一个入口：当前容器按下，声明不在的画占位图标，底段全局项", input: {props: {...base, entries, items}}},
                 {id: "many", label: "容器多：放不下时后面的收进“更多”，当前容器的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的当前容器", "i-lucide-star", true)], items}}},
                 {id: "empty", label: "侧栏里没有容器", input: {props: {...base, entries: [], items}}},
+                {id: "right", label: "右轨：右栏的容器，没有全局项，提示朝左开", input: {props: {...base, label: "右栏", region: "auxiliarybar" as const, joined: true, entries: entries.slice(0, 2)}}},
+                {id: "right-english", label: "Right rail, English tooltips", input: {props: {label: "Secondary side bar", moreLabel: "More", region: "auxiliarybar" as const, entries: [{id: "view:messages", label: "Messages", icon: "i-lucide-message-square", tooltip: "Messages: conversations with bots and agents", viewId: "messages", current: true, pressed: true}, {id: "view:outline", label: "Outline", icon: "i-lucide-list-tree", tooltip: "Outline", viewId: "outline", current: false, pressed: false}]}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
@@ -539,15 +541,13 @@ export const labFixtures: LabFixture[] = [
         class: "h-[32px] w-full",
         scenes: (() => {
             const entry = (id: string, label: string, icon: string, current = false) => ({id: `view:${id}`, label, icon, tooltip: label, viewId: id, current, pressed: current});
-            const right = [entry("chat", "对话", "i-lucide-message-square", true), entry("outline", "大纲", "i-lucide-list-tree"), {id: "view:gone", label: "gone", icon: null, tooltip: "gone", viewId: "gone", current: false, pressed: false}];
             const bottom = [entry("tasks", "后台任务", "i-lucide-list-checks", true), entry("notifications", "通知", "i-lucide-bell"), entry("output", "输出", "i-lucide-terminal")];
             const base = {moreLabel: "更多", dragHint: "按空格拿起，方向键移动，回车放下"};
             return [
-                {id: "icons", label: "右栏：图标入口，当前容器按下，声明不在的画占位图标", input: {props: {...base, region: "auxiliarybar", label: "右栏的视图容器", entries: right, variant: "icons"}}},
-                {id: "titles", label: "底部面板：标题入口，当前容器带下划线", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, variant: "titles"}}},
-                {id: "narrow", label: "放不下：给并进来的头留 160px，后面的入口收进“更多”，当前容器的总在外面（拖窄画布看）", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: [...bottom, entry("problems", "问题", "i-lucide-circle-alert"), entry("terminal", "终端", "i-lucide-square-terminal")], variant: "titles", headMinWidth: 160}}},
-                {id: "hidden", label: "区域隐藏着：没有按下的入口", input: {props: {...base, region: "auxiliarybar", label: "右栏的视图容器", entries: right.map((item) => ({...item, pressed: false})), variant: "icons"}}},
-                {id: "dragging", label: "拖动中：被拖的入口留着位置、看不见，拖着的视图放下会并进的入口高亮", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, variant: "titles", placeholder: "view:output", highlighted: "view:notifications"}}},
+                {id: "titles", label: "底部面板：标题入口，当前容器带下划线", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom}}},
+                {id: "narrow", label: "放不下：给并进来的头留 160px，后面的入口收进“更多”，当前容器的总在外面（拖窄画布看）", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: [...bottom, entry("problems", "问题", "i-lucide-circle-alert"), entry("terminal", "终端", "i-lucide-square-terminal")], headMinWidth: 160}}},
+                {id: "hidden", label: "区域隐藏着：没有按下的入口", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom.map((item) => ({...item, pressed: false}))}}},
+                {id: "dragging", label: "拖动中：被拖的入口留着位置、看不见，拖着的视图放下会并进的入口高亮", input: {props: {...base, region: "panel", label: "底部面板的视图容器", entries: bottom, placeholder: "view:output", highlighted: "view:notifications"}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue"),

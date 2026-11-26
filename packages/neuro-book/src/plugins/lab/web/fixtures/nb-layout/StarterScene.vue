@@ -16,7 +16,7 @@ const grid = shallowRef(createGrid<string>({
             size: {width: 240, height: 0},
             sizing: "fixed",
             minimumSize: {width: 160, height: 0},
-            collapse: {collapsed: false, collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+            collapse: {collapsed: false, collapsedSize: 0, collapseThreshold: 24, expandThreshold: 24},
         },
         {kind: "leaf", id: "editor", ref: "editor", size: {width: 600, height: 0}},
     ],
