@@ -666,6 +666,27 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
         expect(agentBlocks(created.world, at("ch1"), "actual", a)[0]).toBe(`见 <Ref id="${b}" name="乙" />，<V entry="${b}" of="entry.name">"乙"</V>，<V expr="ref('${b}').entry.name">"乙"</V>`);
     });
 
+    test("editEntries 同一批里新建的条目：别的条目整段替换、增块、新建的主文字里用它的临时 id，存下的是正式 id", () => {
+        const base = world(["甲"]);
+        const result = editEntries(base, editsOf(base, [
+            {op: "create", id: "tmp:n", entry: {name: "新人", kind: "人物", text: ['见 <Ref id="tmp:m" />']}},
+            {op: "create", id: "tmp:m", entry: {name: "另一人", kind: "人物", text: ['见 <Ref id="tmp:n" />']}},
+            {op: "set", at: {entry: "e1", path: "text[b1]"}, value: '同行 <Ref id="tmp:n" />'},
+            {op: "addBlock", entry: "e1", source: '<V entry="tmp:n" of="entry.name" />', after: "b1"},
+        ] as EntryOp[]), "t");
+        const done = ok(result);
+        const [n, m] = [done.ids["tmp:n"]!, done.ids["tmp:m"]!];
+        expect(textOf(done.world).map((block) => block.source)).toEqual([`同行 <Ref id="${n}" />`, `<V entry="${n}" of="entry.name" />`]);
+        expect([done.world.data.entries.get(n)!.init.text[0]!.source, done.world.data.entries.get(m)!.init.text[0]!.source]).toEqual([`见 <Ref id="${m}" />`, `见 <Ref id="${n}" />`]);
+    });
+
+    test("写了临时 id 又嵌套深到读不出结构的块：照常拒收，不抛", () => {
+        const base = world();
+        const deep = `${"> ".repeat(25_000)}<Ref id="tmp:b" />`;
+        const person = (tmp: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name: tmp, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+        expect(rejected(publishPuts(base, [{ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", [deep])}, {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", [])}]))).toEqual([{code: "unsupported-markdown", path: "init.text[b1]"}]);
+    });
+
     test("式子里的引用按语法树认：带空格的 ref ( '…' ) 换，字符串里写着的 ref('…') 不换", () => {
         const base = world();
         const person = (tmp: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name: tmp, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});

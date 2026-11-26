@@ -25,6 +25,7 @@ import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
 import {MAIN_LINE} from "../lines/table";
 import {normalizeBlockSource} from "../render/syntax";
+import {replaceTextTempIds} from "./references";
 import {textTouches, writeBack} from "./text-blocks";
 import type {Problem, World, WriteFailure, WriteResult} from "./world";
 
@@ -1000,8 +1001,10 @@ export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult
             const after = currentAt(result.world, plan.position, expect.at);
             got = after === "chapter-not-found" || after === "line-not-found" ? undefined : after.value;
         }
+        // 写进主文字的临时 id 发布时换成了正式 id（components.md 输出 18）：期望的文字照同一份换法算。
+        const wanted = !("value" in expect) ? undefined : typeof expect.value === "string" && expect.at.path.startsWith("text[") ? replaceTextTempIds(expect.value, result.ids) : expect.value;
         const matches = "value" in expect
-            ? sameJson(got ?? null, expect.value ?? null) || (expect.value === undefined && got === undefined)
+            ? sameJson(got ?? null, wanted ?? null) || (wanted === undefined && got === undefined)
             : Array.isArray(got) && (got as unknown[]).some((item) => (typeof item === "string" ? item : (item as {id?: unknown} | null)?.id) === expect.has) === expect.present;
         if (!matches) return {ok: false, failure: {code: "result-mismatch", got, op: expect.op}};
     }

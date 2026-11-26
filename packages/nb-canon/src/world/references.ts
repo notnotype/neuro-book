@@ -266,8 +266,7 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
         at.entry = swap(at.entry);
         if (typeof at.path === "string") at.path = replacePathSegments(at.path, ids);
     };
-    // 只有写了临时 id 的文字才解析一遍。
-    const swapText = (source: string) => (source.includes("tmp:") ? rewriteEntryIds(source, (id) => ids[id] ?? id) : source);
+    const swapText = (source: string) => replaceTextTempIds(source, ids);
     const swapKeys = (record: Record<string, unknown> | undefined) => (record === undefined ? undefined : Object.fromEntries(Object.entries(record).map(([key, value]) => [replacePathSegments(key, ids), value])));
     for (const put of copy.puts) {
         put.ref = {...put.ref, id: swap(put.ref.id) as string};
@@ -314,6 +313,20 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
     }
     for (const read of copy.reads ?? []) swapAddress(read.at);
     return copy as unknown as WriteRequest;
+}
+
+/**
+ * 主文字里活的标签指向的临时 id 换成正式 id（见 `replaceRequestTempIds`；`editEntries` 读回核对时用同一份换法算期望的文字）。只有写了
+ * 临时 id 的文字才解析；嵌套深到读不出结构的原样交回，由写入检查拒收。
+ */
+export function replaceTextTempIds(source: string, ids: Readonly<Record<string, string>>): string {
+    if (!source.includes("tmp:")) return source;
+    try {
+        return rewriteEntryIds(source, (id) => ids[id] ?? id);
+    } catch (error) {
+        if (error instanceof RangeError) return source;
+        throw error;
+    }
 }
 
 function replacePathSegments(path: string, ids: Readonly<Record<string, string>>): string {
