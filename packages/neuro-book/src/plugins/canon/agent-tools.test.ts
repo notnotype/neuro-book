@@ -423,8 +423,28 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         const part = await run(AGENT_TOOL_IDS.write, {title: "改结尾", version: versionIn(second), edits: [{op: "replace", entry: xia, field: "text[b3]", find: "结尾", with: "完"}]});
         expect(part.status).not.toBe("error");
         expect((await sources())?.[2]).toBe(`${"长".repeat(9000)}完`);
-        // 整篇读时被截断，提示写的是真能用的读法。
-        expect((await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]})).text).toContain('主文字用 field: "text[块 id]" 一块一块读');
+        // 整篇读时一块要么整块给、要么只写多长与怎么读，不在块中间截断：长块写的是真能用的读法。
+        const wholeRead = (await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]})).text;
+        expect(wholeRead).toContain('[b3] 这一块共 9001 字，这里放不下：用 field: "text[b3]" 读');
+        expect(wholeRead).not.toContain("长长");
+
+        // 不到一页、却放不下整篇读的块（审查里的 5088 字，与两块各 3000 字）：同样整块不给，Agent 照读到的整段写回不会丢掉后半块。
+        const {run: run2, close: close2} = await scene();
+        const made = await run2(AGENT_TOOL_IDS.write, {title: "两块", edits: [{op: "create", key: "s", name: "书", kind: "组织", text: `${"甲".repeat(5087)}尾`}]});
+        const book = (made.details as {ids: Record<string, string>}).ids["tmp:s"]!;
+        let read = await run2(AGENT_TOOL_IDS.read, {entry: book, show: ["text"]});
+        expect(read.text).toContain('[b1] 这一块共 5088 字，这里放不下：用 field: "text[b1]" 读');
+        expect((await run2(AGENT_TOOL_IDS.write, {title: "加一块", version: versionIn(read), edits: [{op: "removeBlock", entry: book, block: "b1"}, {op: "addBlock", entry: book, text: `${"乙".repeat(2999)}尾`}, {op: "addBlock", entry: book, text: `${"丙".repeat(2999)}尾`}]})).status).not.toBe("error");
+        read = await run2(AGENT_TOOL_IDS.read, {entry: book, show: ["text"]});
+        expect([read.text.includes(`${"乙".repeat(2999)}尾`), read.text.includes("丙丙"), read.text.includes('[b3] 这一块共 3000 字，这里放不下：用 field: "text[b3]" 读')]).toEqual([true, false, true]);
+        await close2();
+
+        // 交回的一块太长：去值后超过 5 万字、或交回的超过 10 万字（不去读它），都回“拆成几块”。
+        version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia}));
+        for (const text of ["字".repeat(50_001), `<V of="character.性格">${"字".repeat(100_001)}</V>`]) {
+            const big = await run(AGENT_TOOL_IDS.write, {title: "太长", version, edits: [{op: "addBlock", entry: xia, text}]});
+            expect([big.status, big.text]).toEqual(["error", "第 1 项（addBlock）：一块主文字最多 50000 字，拆成几块（addBlock）。"]);
+        }
         await close();
     }, 60_000);
 

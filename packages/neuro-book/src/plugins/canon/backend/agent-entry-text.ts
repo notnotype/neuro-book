@@ -4,7 +4,7 @@
  */
 
 import {MAX_BLOCK_LENGTH} from "@notnotype/nb-canon";
-import {parseEntryText, rewriteEntryIds, stripEntryText, type ParsedEntryText} from "@notnotype/nb-canon/grammar";
+import {normalizeEntrySource, parseEntryText, rewriteEntryIds, stripEntryText, type ParsedEntryText} from "@notnotype/nb-canon/grammar";
 
 /**
  * 交回的文字最多这么长才去读：去值前的带值写法比存下的源文长（值与程序加的属性），给一倍的余量；读完去值后再按内核的一块上限比。
@@ -63,6 +63,18 @@ export type AgentBlockText = {readonly source: string; readonly notes: readonly 
  */
 export function agentBlockText(submitted: string, keys: ReadonlyMap<string, string>, options: {readonly current?: string; readonly verbatim?: boolean} = {}): AgentBlockText {
     if (submitted.length > MAX_SUBMITTED_LENGTH) return {problem: TOO_LONG};
+    try {
+        return readBlockText(submitted, keys, options);
+    } catch (error) {
+        // 嵌套深到读的时候栈溢出（几万层引用）：不让它从服务端的工具里抛出去。
+        if (error instanceof RangeError) return {problem: TOO_DEEP};
+        throw error;
+    }
+}
+
+const TOO_DEEP = "这一块嵌套太深，读不出结构：把引用、列表、强调展开一些再写。";
+
+function readBlockText(submitted: string, keys: ReadonlyMap<string, string>, options: {readonly current?: string; readonly verbatim?: boolean}): AgentBlockText {
     let source = submitted;
     let notes: string[] = [];
     if (options.verbatim !== true) {
@@ -82,6 +94,14 @@ export function agentBlockText(submitted: string, keys: ReadonlyMap<string, stri
         if (missing.size > 0) return {problem: `主文字里的 ${[...missing].join("、")} 不是这一批前面 create 的代号；新建的条目先 create（key 写代号），再在后面的项里用“$代号”。`};
     }
     return {source, notes};
+}
+
+/**
+ * 去值以后的一块与存下的源文比有没有改动（agent-tools 输出 6：规范化以后相同算没有改动）。去值时活的标签已经写成规范写法，交回的
+ * 一侧只差 BOM 与换行，不再解析（也不进分析的缓存：这段文字只用一次）；存下的一侧按内核的规范化比（存下的源文稳定，走缓存）。
+ */
+export function sameAsStored(source: string, stored: string, normalizeStored: (text: string) => string): boolean {
+    return normalizeEntrySource(source) === normalizeStored(stored);
 }
 
 /** 程序加的装饰的写法（canon.rendering 输出 9）：`find` 里有这些多半是从按计划模式读到的文字抄的。 */

@@ -765,7 +765,8 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
         const base = injected(world(), [["b2", '魔力 <V  of="panel.魔力"/>，<Plot  id="x"/>。']]);
         const read = agentBlocks(base, at("ch5"))[1]!;
         expect(normalizeBlockSource(stripEntryText(read))).toBe(normalizeBlockSource('魔力 <V  of="panel.魔力"/>，<Plot  id="x"/>。'));
-        expect(normalizeBlockSource(stripEntryText(read))).toBe('魔力 <V of="panel.魔力" />，<Plot id="x" />。');
+        // 去值时活的标签已写成规范写法：Agent 工具比“有没有改动”时交回的一侧不再规范化（只差 BOM 与换行）。
+        expect(stripEntryText(read)).toBe('魔力 <V of="panel.魔力" />，<Plot id="x" />。');
     });
 
     test("预览的行列：CR、CRLF、LF 都算一个换行", () => {

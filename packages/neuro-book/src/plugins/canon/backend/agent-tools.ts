@@ -25,7 +25,7 @@ import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
 import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
 import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
-import {agentBlockText, replaceInBlock} from "./agent-entry-text";
+import {agentBlockText, replaceInBlock, sameAsStored} from "./agent-entry-text";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
 import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
@@ -409,11 +409,20 @@ function readTool(services: Services): AgentToolImplementation {
                     return {text: parts.join("\n\n"), details: {version: read.value.version, entry: resolved.id}};
                 }
                 if (show.includes("fields")) parts.push(fieldsText(view, declarations, context.components, field));
+                const limit = show.includes("text") && show.length === 1 ? 4000 : 6000;
                 if (show.includes("text")) {
                     const rendered = await call("render", {entry: resolved.id, position: context.position, mode, audience: "agent"});
                     if (!rendered.ok) return worldFailed(rendered.failure);
                     const blocks = (rendered.value?.blocks ?? []) as AgentBlockView[];
-                    parts.push(`主文字：\n${blocks.map(blockLine).join("\n") || "（没有主文字）"}`);
+                    // 一块要么整块给，要么只写它多长、怎么单独读：不在块中间截断。照截断的文字整段写回（set text[块]）会丢掉没读到的字。
+                    let room = limit - parts.join("\n\n").length - "\n\n主文字：\n".length;
+                    const lines = blocks.map((block) => {
+                        const whole = blockLine(block);
+                        const line = whole.length < room ? whole : `[${block.id}] 这一块共 ${String(block.text.length)} 字，这里放不下：用 field: "text[${block.id}]" 读`;
+                        room -= line.length + 1;
+                        return line;
+                    });
+                    parts.push(`主文字：\n${lines.join("\n") || "（没有主文字）"}`);
                 }
                 if (show.includes("origins")) {
                     if (field === undefined) return failed("unknown-field", "show 含 origins 时要给 field。");
@@ -427,7 +436,7 @@ function readTool(services: Services): AgentToolImplementation {
                     if (!revisions.ok) return worldFailed(revisions.failure);
                     parts.push(`最近的修订：\n${revisions.value.items.map((revision) => `- ${revision.id} 版本 ${String(revision.version)}｜${revision.by.kind === "author" ? "作者" : revision.by.kind === "agent" ? "Agent" : revision.by.kind}｜${revision.title}`).join("\n") || "（没有）"}`);
                 }
-                return {text: clip(parts.join("\n\n"), show.includes("text") && show.length === 1 ? 4000 : 6000, show.includes("text") ? "主文字用 field: \"text[块 id]\" 一块一块读" : "用 field 只读一个字段"), details: {version: read.value.version, entry: resolved.id}};
+                return {text: clip(parts.join("\n\n"), limit, show.includes("text") ? "主文字用 field: \"text[块 id]\" 一块一块读" : "用 field 只读一个字段"), details: {version: read.value.version, entry: resolved.id}};
             }),
         }),
     };
@@ -469,7 +478,7 @@ async function writeBlock(context: Context, entry: string, path: string, submitt
     if (!replaced && current.text.length > BLOCK_PAGE) return {problem: `这一块有 ${String(current.text.length)} 字，canon_read 一页读不全；整段写回会丢掉没读到的部分。改局部用 replace（find 写要换掉的那几句）。`};
     const written = agentBlockText(submitted, keys, current.broken ? {verbatim: true} : {current: current.text});
     if ("problem" in written) return written;
-    const unchanged = current.broken ? written.source === current.source : normalizeBlockSource(written.source) === normalizeBlockSource(current.source);
+    const unchanged = current.broken ? written.source === current.source : sameAsStored(written.source, current.source, normalizeBlockSource);
     return {op: {op: "set", at: {entry, path}, value: written.source, read: current.source}, ...(written.notes.length === 0 ? {} : {notes: written.notes}), ...(unchanged ? {unchanged: true as const} : {})};
 }
 
