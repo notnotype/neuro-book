@@ -2,7 +2,7 @@
 /**
  * “消息”视图的外框（同名 .md）：聊天区加借给侧轨的视图段（`AgentMessagesSegment`）。视图段在哪由宿主给的 `placement` 定：
  * 送进侧轨（`rail`）、画在自己的右边缘（`edge`，浮动窗）、没有（`none`）。`rail` 与 `edge` 之间换的是同一个视图段实例，
- * 只换 `Teleport` 的去处，搜索词与当前页都在（滚动与焦点见 `AgentMessagesSegment` 的说明）；聊天区一直是同一份 DOM。
+ * 只换 `Teleport` 的去处，搜索词、当前页、焦点与滚动位置都在（搬完由视图段放回去）；聊天区一直是同一份 DOM。
  */
 import {computed, ref} from "vue";
 
@@ -30,6 +30,7 @@ const emit = defineEmits<{
     "show-list": [tab: "bot" | "sessions"];
     "retry-contacts": [sectionKey: string];
     "escape-search": [];
+    "toggle-expanded": [];
 }>();
 
 defineSlots<{default(): unknown; sessions(): unknown}>();
@@ -79,6 +80,7 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
                 @show-list="emit('show-list', $event)"
                 @retry-contacts="emit('retry-contacts', $event)"
                 @escape-search="emit('escape-search')"
+                @toggle-expanded="emit('toggle-expanded')"
             >
                 <template #sessions><slot name="sessions" /></template>
             </AgentMessagesSegment>

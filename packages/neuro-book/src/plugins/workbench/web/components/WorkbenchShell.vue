@@ -29,7 +29,7 @@ import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
-import type {LayoutDocStore} from "../state/layout-doc-store";
+import type {FloatRailState, LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
 import {entriesOnRail, focusLandings, isSoleWindow, layoutStructureKey, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {ContainerEntry, FocusLanding} from "../state/layout-present";
@@ -168,8 +168,19 @@ props.layout.actions.acceptRailBounds((viewId) => {
 /** 视图段此刻借给谁：右栏当前容器恰有一节、是这个视图（`state.rail`）。 */
 const railOwner = computed(() => state.value.rail?.viewId ?? null);
 
-/** 视图的 `request`：只有此刻借着视图段的那个视图能请求，别的（换了容器、换了位置）是 `revoked`。 */
+/** 这个视图此刻在哪扇单标签浮动窗里画视图段（输出 51）；不在为 null。 */
+function floatRailOfView(viewId: string): FloatRailState | null {
+    for (const float of state.value.floatRails.values()) if (float.viewId === viewId) return float;
+    return null;
+}
+
+/** 视图的 `request`：只有此刻借着视图段的那个视图能请求（右轨的，或它单独所在的浮动窗的），别的（换了容器、换了位置）是 `revoked`。 */
 function requestViewRail(viewId: string, expanded: boolean): ViewRailRequestResult {
+    const floating = floatRailOfView(viewId);
+    if (floating !== null) {
+        const result = props.layout.actions.requestFloatRailExpanded(floating.panel, expanded);
+        return result.ok ? result.result : "revoked";
+    }
     const rail = state.value.rail;
     if (rail === null || rail.viewId !== viewId) return "revoked";
     const result = props.layout.actions.requestRailExpanded(rail.container, expanded);
@@ -183,8 +194,9 @@ function setRailElements(main: HTMLElement | null, foot: HTMLElement | null): vo
 }
 
 /**
- * 分发借用（views.md 输出 21 的“借用”）：同面板头的做法，按已提交的文档汇总、在同一次 flush 里分给每个声明了视图段的实例：借着的那个拿到右轨的位置与生效的展开状态，
- * 别的都是 `none`。右轨拆掉时先在这里把位置收回（元素交 null），视图的 `Teleport` 不会往已拆掉的元素里送。
+ * 分发借用（views.md 输出 21 的“借用”）：同面板头的做法，按已提交的文档汇总、在同一次 flush 里分给每个声明了视图段的实例：借着右轨的那个拿到右轨的位置，
+ * 单独在一扇浮动窗里的拿到 `window`（视图画在窗的右边缘，宽是此刻生效的视图段宽，输出 51），各带生效的展开状态；别的都是 `none`。
+ * 右轨拆掉时先在这里把位置收回（元素交 null），视图的 `Teleport` 不会往已拆掉的元素里送。
  */
 watchEffect(() => {
     const owner = railOwner.value;
@@ -193,6 +205,12 @@ watchEffect(() => {
     for (const viewId of instances.instances.keys()) {
         const control = instances.railOf(viewId);
         if (control === null) continue;
+        const floating = floatRailOfView(viewId);
+        if (floating !== null) {
+            control.setPlacement({kind: "window", width: floating.width});
+            control.setExpanded(floating.expanded);
+            continue;
+        }
         const borrowing = viewId === owner && elements !== null && railSegment.value !== null;
         control.setPlacement(borrowing ? {kind: "rail", main: elements.main, foot: elements.foot} : {kind: "none"});
         control.setExpanded(borrowing && expanded);
@@ -1250,7 +1268,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :max="layout.actions.floatBounds(id).max"
                         move-icon-class="i-lucide-grip-horizontal"
                         @preview="(next) => layout.actions.previewFloat(next === null ? null : id, next)"
-                        @commit="(next) => layout.actions.setFloatRect(id, next)"
+                        @commit="(next, direction) => layout.actions.resizeFloat(id, next, direction)"
                         @move="(position) => layout.actions.moveFloat(id, position)"
                     />
                 </template>

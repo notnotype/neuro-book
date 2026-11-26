@@ -458,6 +458,8 @@ export default {
         allBots: "All bots",
         history: "Session history",
         moreBots: "{{count}} more bots",
+        expand: "Expand",
+        collapse: "Collapse",
     },
     panel: {
         tree: {

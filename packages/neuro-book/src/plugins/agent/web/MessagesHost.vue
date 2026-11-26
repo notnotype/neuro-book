@@ -62,7 +62,12 @@ const ownHead = computed(() => head?.ownHead.value === true);
  * 自绘头时给 nb-agent-ui 的头高与右端让位（工作台把盖在右端的按钮宽度写在内容上）；视图段画在窗的右边缘时顶上让出头那一格，给“回到停靠”
  * （ui/workbench-layout.md 输出 51）。
  */
-const ownHeadStyle = computed(() => (ownHead.value ? {"--acv-head-height": `${MESSAGES_HEAD_BAND}px`, "--acv-head-inset-end": "var(--workbench-own-head-inset-end, 0px)", "--acv-segment-inset-top": `${MESSAGES_HEAD_BAND}px`} : undefined));
+const ownHeadStyle = computed(() => {
+    if (!ownHead.value) return undefined;
+    // 视图段画在窗的右边缘时“回到停靠”在它的顶格里（输出 51），聊天头右端不用再给框架按钮让位。
+    const insetEnd = placement.value.kind === "edge" ? "0px" : "var(--workbench-own-head-inset-end, 0px)";
+    return {"--acv-head-height": `${MESSAGES_HEAD_BAND}px`, "--acv-head-inset-end": insetEnd, "--acv-segment-inset-top": `${MESSAGES_HEAD_BAND}px`};
+});
 // 停靠时总是接管面板头（输出 44、57）；浮成窗时工作台不看它。在 setup 里同步写，首帧不翻。
 if (head !== null) {
     head.claim.value = true;
@@ -115,16 +120,18 @@ const focusComposer = (): void => {
 /** “全部 bot”“会话历史”“+N”：切页、请求展开，展开好了聚焦这一页的搜索框（输出 57 的“展开”）。窗口太窄时工作台不展开、按钮上给“窗口太窄”。 */
 async function showList(page: "bot" | "sessions"): Promise<void> {
     tab.value = page;
-    if (rail === null) return;
-    let result: Awaited<ReturnType<typeof rail.request>>;
+    if (await requestRail(true) === "done") messagesRef.value?.focusSearch(page);
+}
+
+/** 向工作台要展开或收起；工作台的处理抛了错（`ViewRail.request` 交回失败的 Promise）时当作没要到，留一条诊断。 */
+async function requestRail(expanded: boolean): Promise<"done" | "too-narrow" | "revoked"> {
+    if (rail === null) return "revoked";
     try {
-        result = await rail.request(true);
+        return await rail.request(expanded);
     } catch (error) {
-        // 工作台的处理抛了错（`ViewRail.request` 交回失败的 Promise）：不展开，留一条诊断。
         props.report("rail-request-failed", "消息视图段的展开请求失败", {error: error instanceof Error ? error.message : String(error)});
-        return;
+        return "revoked";
     }
-    if (result === "done") messagesRef.value?.focusSearch(page);
 }
 
 // 命令“搜索会话”：插件那边先揭示了视图，这里取走请求、展开列表（视图这时才挂上的话，挂上时取）。
@@ -207,6 +214,7 @@ onBeforeUnmount(model.watchRecent({
             @new-session="() => void newSession()"
             @show-list="(page: 'bot' | 'sessions') => void showList(page)"
             @escape-search="focusComposer"
+            @toggle-expanded="() => void requestRail(!expanded)"
         >
             <div class="relative flex h-full min-h-0 w-full flex-col">
                 <!-- 盖着时下面的对话不可用：焦点与读屏只到盖层（ConversationHost 有两个根，`inert` 透传不下去，包一层）。 -->

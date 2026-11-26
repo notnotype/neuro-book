@@ -80,6 +80,7 @@ function mountFrame(initial: {placement?: MessagesSegmentPlacement; expanded?: b
         onNewSession: record("new-session"),
         onShowList: record("show-list"),
         onEscapeSearch: record("escape-search"),
+        onToggleExpanded: record("toggle-expanded"),
     }, {default: () => h(Chat), sessions: () => h("div", {"data-probe-sessions": ""}, [h("input", {"data-probe-session-search": ""})])})});
     const wrapper = mount(Host, {attachTo: document.body});
     const frame = () => frameRef.value!;
@@ -185,8 +186,9 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         wrapper.unmount();
     });
 
-    it("从侧轨换到右边缘：同一个列表搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；none 时不画视图段", async () => {
-        const {wrapper, placement, expanded} = mountFrame({expanded: true});
+    it("从侧轨换到右边缘：同一个列表搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；右边缘有自己的展开按钮，侧轨里没有；none 时不画视图段", async () => {
+        const {wrapper, placement, expanded, events} = mountFrame({expanded: true});
+        expect($("[data-messages-segment-toggle]")).toBeNull();
         const list = $("[data-messages-list-panel]")!;
         const input = $<HTMLInputElement>("[data-messages-page='bot'] input")!;
         input.value = "织";
@@ -201,9 +203,13 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
 
         expanded.value = false;
         await nextTick();
-        // 右边缘没有侧轨来管 Tab：各项照常可聚焦，底段画在中段下面。
+        // 右边缘没有侧轨来管 Tab：各项照常可聚焦，底段画在中段下面；底段最下面是视图自己的展开按钮（侧轨上那个是侧轨的）。
         expect(edge.element.querySelector("[data-messages-segment]")).not.toBeNull();
         expect(edge.element.querySelector("[data-messages-open='bot']")).not.toBeNull();
+        const toggle = edge.element.querySelector<HTMLElement>("[data-messages-segment-toggle]")!;
+        expect([toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded")]).toEqual(["展开", "false"]);
+        toggle.click();
+        expect(events.at(-1)).toEqual(["toggle-expanded"]);
 
         placement.value = {kind: "none"};
         await nextTick();

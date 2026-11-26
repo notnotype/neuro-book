@@ -3,8 +3,7 @@
  * “消息”视图借给侧轨的一段（同名 .md）：收着是快切的一列，展开是完整列表；按 `expanded` 换画法，不看宽度。
  *
  * 中段与底段各一个 `Teleport`：给了 `targets` 时送进侧轨的 `main`、`foot`，不给时 `disabled`，按顺序画在组件自己的根里（浮动窗的右边缘、Lab）。
- * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），浏览器里搬动会丢焦点与滚动位置，换位置后恢复
- * 是视图的事（views.md 输出 21），这里还没做：目前只有停靠与浮动互换会搬它。
+ * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），焦点与滚动位置在搬完后放回去（见下面 `moved`）。
  */
 import {computed, nextTick, ref, watch} from "vue";
 import {useLayoutExtent} from "@notnotype/nb-layout/vue";
@@ -36,6 +35,8 @@ const emit = defineEmits<{
     "show-list": [tab: "bot" | "sessions"];
     "retry-contacts": [sectionKey: string];
     "escape-search": [];
+    /** 画在自己的位置上时（浮动窗）底下的展开、收起按钮：右轨上这个按钮是侧轨自己的，浮动窗里由视图画。 */
+    "toggle-expanded": [];
 }>();
 
 defineSlots<{sessions(): unknown}>();
@@ -48,6 +49,7 @@ const {t} = provideAgentText(() => props.locale);
 // ─── 收着：放几项 ─────────────────────────────────────────────────────────
 
 const mainRef = ref<HTMLElement | null>(null);
+const footRef = ref<HTMLElement | null>(null);
 const extent = useLayoutExtent(mainRef);
 const contacts = computed(() => props.sections.flatMap((section) => section.contacts));
 const currentBot = computed(() => (props.selected?.kind === "contact" ? props.selected.key : null));
@@ -107,6 +109,26 @@ watch(() => props.expanded, (expanded) => {
 });
 
 defineExpose({focusSearch});
+
+/**
+ * 换位置（侧轨与浮动窗的右边缘之间、侧轨换了元素）时 Vue 用 `insertBefore` 把节点搬过去，浏览器里搬动的节点丢焦点、滚动回到顶（views.md 输出 21：
+ * 换位置后视图自己恢复）。搬之前（`pre`，DOM 还在原处）记下焦点与滚过的元素，搬完（`post`）放回去。
+ */
+let moved: {readonly focus: HTMLElement | null; readonly scrolls: ReadonlyArray<readonly [HTMLElement, number]>} | null = null;
+watch(() => props.targets, () => {
+    const roots = [mainRef.value, footRef.value].filter((root): root is HTMLElement => root !== null);
+    const active = document.activeElement;
+    const focus = active instanceof HTMLElement && roots.some((root) => root.contains(active)) ? active : null;
+    const scrolls = roots.flatMap((root) => [root, ...root.querySelectorAll<HTMLElement>("*")]).filter((element) => element.scrollTop > 0).map((element) => [element, element.scrollTop] as const);
+    moved = {focus, scrolls};
+}, {flush: "pre"});
+watch(() => props.targets, () => {
+    const saved = moved;
+    moved = null;
+    if (saved === null) return;
+    for (const [element, top] of saved.scrolls) if (element.isConnected) element.scrollTop = top;
+    if (saved.focus?.isConnected === true && document.activeElement !== saved.focus) saved.focus.focus({preventScroll: true});
+}, {flush: "post"});
 
 const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
 </script>
@@ -190,7 +212,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
             </div>
         </Teleport>
         <Teleport :to="props.targets?.foot ?? 'body'" :disabled="props.targets === null">
-            <div class="acv-segment__foot">
+            <div ref="footRef" class="acv-segment__foot">
                 <Tooltip :text="t('messages.allBots')" :side="props.tooltipSide">
                     <button
                         type="button"
@@ -223,6 +245,19 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
                         @click="openPage('sessions')"
                     >
                         <span class="i-lucide-history acv-segment__icon" aria-hidden="true" />
+                    </button>
+                </Tooltip>
+                <Tooltip v-if="props.targets === null" :text="props.expanded ? t('messages.collapse') : t('messages.expand')" :side="props.tooltipSide">
+                    <button
+                        type="button"
+                        class="acv-segment__item acv-segment__toggle nb-ui-focus-ring"
+                        :aria-label="t('messages.expand')"
+                        :aria-expanded="props.expanded"
+                        data-messages-segment-toggle
+                        data-rail-item
+                        @click="emit('toggle-expanded')"
+                    >
+                        <span :class="props.expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="acv-segment__icon" aria-hidden="true" />
                     </button>
                 </Tooltip>
             </div>
@@ -427,6 +462,11 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     gap: 4px;
     width: 100%;
     padding-top: 4px;
+}
+
+/* 浮动窗里的展开按钮：同侧轨上的那个，贴底、上下留出余地。 */
+.acv-segment__toggle {
+    margin-block: 4px 8px;
 }
 
 /* 展开后的列表晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。减少动效时两个时长令牌都是 0，直接显示。 */

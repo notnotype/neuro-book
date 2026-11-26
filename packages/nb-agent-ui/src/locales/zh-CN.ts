@@ -450,6 +450,8 @@ export default {
         allBots: "全部 bot",
         history: "会话历史",
         moreBots: "还有 {{count}} 个 bot",
+        expand: "展开",
+        collapse: "收起",
     },
     panel: {
         tree: {

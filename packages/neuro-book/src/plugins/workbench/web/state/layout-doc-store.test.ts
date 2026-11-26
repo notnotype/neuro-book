@@ -1209,6 +1209,36 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
         });
 
+        it("浮动窗里的视图段（输出 51）：单标签视图窗有状态；展开写窗上的意图，画出来的窗加宽、只有这一次带 animate；缩放落账只取动的边、减回展开的宽；窗口放不下时被拒、标窗口太窄", async () => {
+            const {store} = await railed(1440);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const panel = store.actions.document().floats[0]!.panel;
+            const record = store.actions.document().floats[0]!.rect;
+            expect(store.state.floatRails.get(panel)).toMatchObject({viewId: "test.x1", expanded: false, tooNarrow: false, width: 48});
+            const before = store.actions.floats()[0]!;
+
+            expect(store.actions.requestFloatRailExpanded(panel, true)).toEqual({ok: true, result: "done"});
+            expect(store.actions.document().floats[0]?.rail).toEqual({expanded: true});
+            expect(store.state.floatRails.get(panel)).toMatchObject({expanded: true, width: 260});
+            const grown = store.actions.floats()[0]!;
+            expect([grown.rect.width, grown.rect.x + grown.rect.width <= 1440, grown.animate]).toEqual([before.rect.width + 212, true, true]);
+            await Promise.resolve();
+            expect(store.actions.floats()[0]!.animate).toBeUndefined();
+            expect(store.actions.document().floats[0]!.rect).toEqual(record);
+
+            // 拖右边加宽 30：记录只加 30，位置不动（画出来的可能往左挪过）。
+            expect(store.actions.resizeFloat(panel, {...grown.rect, width: grown.rect.width + 30}, {width: 1, height: 0}).ok).toBe(true);
+            expect(store.actions.document().floats[0]!.rect).toEqual({...record, width: record.width + 30});
+
+            expect(store.actions.requestFloatRailExpanded(panel, false)).toEqual({ok: true, result: "done"});
+            expect(store.actions.floats()[0]!.rect.width).toBe(record.width + 30);
+            store.actions.acceptExtent({width: record.width + 30 + 100, height: 900});
+            const narrow = store.actions.document();
+            expect(store.actions.requestFloatRailExpanded(panel, true)).toEqual({ok: true, result: "too-narrow"});
+            expect(store.actions.document()).toBe(narrow);
+            expect(store.state.floatRails.get(panel)).toMatchObject({expanded: false, tooNarrow: true, width: 48});
+        });
+
         it("“移到”带着它，“重置”回到声明的区域时清掉它", async () => {
             const {store} = await open();
             expand(store, 300);

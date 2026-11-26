@@ -14,7 +14,7 @@
   - `rail`：送进侧轨给的 `main`、`foot` 两个元素（工作台的右轨）。视图里不占位置。
   - `edge`：画在视图自己的右边缘，一栏宽 `width`，左边一条描边，这一栏写 `data-float-rail`；顶上让出 `--acv-segment-inset-top`（缺省 0，浮动窗把右上角留给“回到停靠”）。
   - `none`：不画（视图段这一刻没借到地方）。
-  - `rail` 与 `edge` 之间换的是同一个视图段实例，只换去处：搜索词与当前页都在；滚动与焦点的恢复见 `AgentMessagesSegment`。
+  - `rail` 与 `edge` 之间换的是同一个视图段实例，只换去处：搜索词、当前页、焦点与滚动位置都在（搬完由视图段放回去）。
 - 收着与展开、底段的两个按钮、“+N”、搜索框里的 `Esc` 见 `AgentMessagesSegment`；要不要展开由宿主向工作台请求，外框只转发事件。
 
 ## 数据
@@ -48,6 +48,8 @@ type AgentMessagesEmits = {
     (e: "retry-contacts", sectionKey: string): void;
     /** 搜索框已空时按了 `Esc`：宿主把焦点交回聊天输入框。 */
     (e: "escape-search"): void;
+    /** 画在右边缘时视图段底下的展开、收起按钮：宿主向工作台请求。 */
+    (e: "toggle-expanded"): void;
 };
 
 type AgentMessagesSlots = {

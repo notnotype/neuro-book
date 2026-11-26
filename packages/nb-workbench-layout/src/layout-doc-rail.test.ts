@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V} from "./layout-doc-fixtures";
-import {carryDynamicTabs, edgeTargetOf, floatTab, insertTab, movePanelToEdge, sameLayoutShape, setContainerEntries, setContainerRail, stripDynamicTabs} from "./layout-doc";
+import {carryDynamicTabs, edgeTargetOf, floatTab, insertTab, movePanelToEdge, sameLayoutShape, setContainerEntries, setContainerRail, setFloatRail, stripDynamicTabs} from "./layout-doc";
 import {validateLayoutDoc} from "./layout-doc-validate";
 import type {LayoutDoc, LayoutEdge, LayoutResult, PanelRecord} from "./layout-doc";
 
@@ -124,6 +124,22 @@ describe("形状比较与写入", () => {
         expect(setContainerRail(doc, {anchor: "auxiliarybar", container: "A", intent: {expanded: true}})).toMatchObject({ok: false, code: "rejected"});
         expect(setContainerRail(doc, {anchor: "m1", container: "M", intent: {expanded: true}})).toMatchObject({ok: false, code: "rejected"});
         expect(setContainerRail(doc, {anchor: "nope", container: "M", intent: {expanded: true}})).toMatchObject({ok: false, code: "not-found"});
+    });
+});
+
+describe("浮动窗的意图（输出 51）", () => {
+    it("写一扇窗的意图：同值或写回原状返回原对象；宽度不是有限正数时拒绝；不是浮动窗时 not-found", () => {
+        const floated = okDoc(floatTab(railed(), {tab: "view:m1", rect: RECT}, testPolicy()));
+        const panel = floated.floats[0]?.panel as string;
+        expect(okDoc(setFloatRail(floated, {panel, intent: {expanded: true, width: 300}}))).toBe(floated);
+        expect(setFloatRail(floated, {panel, intent: {width: 0}})).toMatchObject({ok: false, code: "rejected"});
+        const collapsed = okDoc(setFloatRail(floated, {panel, intent: {width: 300}}));
+        expect(collapsed.floats[0]).toEqual({panel, rect: RECT, rail: {width: 300}});
+        const cleared = okDoc(setFloatRail(collapsed, {panel, intent: null}));
+        expect(cleared.floats[0]).toEqual({panel, rect: RECT});
+        expect(okDoc(setFloatRail(cleared, {panel, intent: {}}))).toBe(cleared);
+        expect(setFloatRail(floated, {panel: "m2", intent: {expanded: true}})).toMatchObject({ok: false, code: "not-found"});
+        expect(reread(collapsed)).toMatchObject({ok: true, repairs: []});
     });
 });
 
