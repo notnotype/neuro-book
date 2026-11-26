@@ -28,7 +28,7 @@ import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
-import type {SettingsSectionCategory} from "../shared/contracts";
+import type {SettingsCatalogView, SettingsSectionCategory} from "../shared/contracts";
 import type {LayerTextPosition} from "../shared/layers";
 import {settingsText} from "../shared/text";
 import type {SettingsTextKey} from "../shared/text";
@@ -244,6 +244,8 @@ export interface SettingsWindow {
     retryPageEntry(sectionId: string): Promise<void>;
     pageRenderFailed(sectionId: string, generation: number, message: string): void;
     retryPageRender(sectionId: string): void;
+    /** 落位后的目录，给别的插件读（输出 24，`settingsCatalogKey`）。 */
+    catalogView(): SettingsCatalogView;
     /** 停止响应式计算并关闭窗口；入口这一代释放时调用。 */
     dispose(): void;
 }
@@ -860,6 +862,23 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             if (instance.status !== "render-failed" || instance.component === null) return;
             instance.generation += 1;
             Object.assign(instance, {status: "ready", error: null});
+        },
+        catalogView: () => {
+            const sections = catalog();
+            return {
+                bound: options.bound,
+                sections: sections.map((section) => ({
+                    id: section.id,
+                    title: options.text.t(section.title),
+                    kind: section.kind,
+                    layers: section.layers,
+                    keywords: section.keywords.map((keyword) => options.text.t(keyword)),
+                })),
+                settings: sections.flatMap((section) => section.groups.flatMap((group) => group.settings.map((setting) => {
+                    const {key, declaration} = setting.definition;
+                    return {key, title: options.text.t(declaration.title), description: declaration.description === undefined ? null : options.text.t(declaration.description), section: section.id, layers: declaration.layers};
+                }))),
+            };
         },
         dispose: () => {
             open.value = false;

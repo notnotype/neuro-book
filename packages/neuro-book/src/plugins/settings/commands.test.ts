@@ -32,7 +32,8 @@ import {definitionAt} from "nbook/manifest";
 import {textOf} from "nbook/shared/localized-text";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
-import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "./shared/contracts";
+import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_WINDOW_OPEN_KEY, settingsCatalogKey, settingsKey} from "./shared/contracts";
+import type {SettingsCatalog} from "./shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 import {settingsTestText} from "./testing/text";
 import {settingsWorld} from "./testing/world";
@@ -190,12 +191,23 @@ async function themeWorld(files: {readonly user?: string; readonly project?: str
     return created;
 }
 
-async function workbenchWindow(created: SettingsWorld, id: string, bound: boolean, settingsEntries: ReadonlyArray<PluginEntryDefinition> = []): Promise<Reader> {
+async function workbenchWindow(created: SettingsWorld, id: string, bound: boolean, settingsEntries: ReadonlyArray<PluginEntryDefinition> = [], extra: ReadonlyArray<PluginDefinition> = []): Promise<Reader> {
     const target: Reader = {commands: null, settings: null, state: null};
     // 产品窗口里工作台是必需插件、启动即激活；这里由一个依赖选择服务的插件把它拉起来。
     const activator: PluginDefinition = {id: "x.activator", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: quickPickKey}], activate: () => ({})})]};
-    await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", storageDescriptor, storageBrowserPlugin), definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target)], {bound, settingsEntries});
+    await created.window(id, [statePlugin, commandsPlugin, definitionAt("browser", storageDescriptor, storageBrowserPlugin), definitionAt("browser", workbenchDescriptor, workbenchBrowserPlugin), activator, reader(target), ...extra], {bound, settingsEntries});
     return target;
+}
+
+/** 别的插件经 `settingsCatalogKey` 读设置窗口的落位（settings-window.md 输出 24）。 */
+function catalogReader(target: {catalog: SettingsCatalog | null}): PluginDefinition {
+    return {
+        id: "x.catalog-reader",
+        entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: settingsCatalogKey}], activate: (context) => {
+            target.catalog = context.services.require(settingsCatalogKey);
+            return {};
+        }})],
+    };
 }
 
 describe("切换主题与明暗（工作台贡献）", () => {
@@ -245,6 +257,16 @@ describe("打开设置窗口（settings-window.md 输出 15）", () => {
         expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {}, {source: "agent", callerId: "x.agent"})).toMatchObject({ok: false, code: "not-exposed"});
         expect(await window.commands!.execute(OPEN_SETTINGS_COMMAND, {section: "nbook.appearance"}, {source: "user"})).toEqual({ok: true, value: null});
         expect(window.state!.read(SETTINGS_WINDOW_OPEN_KEY)).toEqual({status: "ready", value: true});
+    });
+
+    it("设置窗口的入口给别的插件提供只读目录：外观节里有主题一行，绑定作品的窗口 bound 为真（输出 24）", async () => {
+        const created = await themeWorld({});
+        const holder: {catalog: SettingsCatalog | null} = {catalog: null};
+        await workbenchWindow(created, "w-catalog", true, [settingsWindowEntry], [catalogReader(holder)]);
+        const view = holder.catalog!.read();
+        expect(view.bound).toBe(true);
+        expect(view.sections.find((section) => section.id === "nbook.appearance")).toMatchObject({kind: "list"});
+        expect(view.settings.find((setting) => setting.key === "nbook.workbench/theme")).toMatchObject({section: "nbook.appearance"});
     });
 
     it("绑定作品的窗口可以直接打开本作品标签", async () => {
