@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t19-messages-view-ui-polish
-status: active
-updated: 2026-11-25
+status: done
+updated: 2026-11-26
 ---
 
 # 消息视图界面优化：头像列位置、列表入口、会话图标、消息样式与头
@@ -93,10 +93,8 @@ updated: 2026-11-25
 - 已派（后台）：e2e 补“浮动窗展开收起的过渡中聊天区宽度不变”并变异（Sonnet 编码子代理，说明 `/tmp/t19-e2e-d/brief.md`，e2e worktree 已快进到 `0dd44a503`）；收口实现审查（Sonnet，说明 `/tmp/review-t19-close/brief.md`，审片 6、片 8 与第 C 段修正共 17 个提交，外加整个 Task 与 Spec 的一致性）。验收映射逐条对过，都有用例。
 - 收口实现审查（Sonnet）8 条：重要 2、建议 6，处理见 [`evidences/impl-review-close-sonnet.txt`](evidences/impl-review-close-sonnet.txt) 末尾，修正 `27b572dd2`。重要的两条：轨宽不是缺省时键盘移动与整窗拖动让浮动窗漂（画出来的位置没换回记录，三处改成共用一个换算，用例与变异）；减少动态效果时固定聊天区量到的是新窗宽（改成平时由 ResizeObserver 记下，真实页面对照待做）。Spec views 输出 21 跟上实现（`window` 带 `tooNarrow`、`none` 时不改展开状态、“不抢回”限定为用户自己挪走的）。交开发者知悉：浮动窗展开放不下时整个按收着呈现，右轨则给能给的宽，两者不一致（Spec 原文如此，要对齐另开 Task）。
 - e2e 补段（Sonnet）交回 `928679c39`：不减弱动效、逐帧断言展开收起时聊天区宽不变、视图段左边不动、窗宽有中间值；变异（去掉固定）时聊天区掉到 200、失败。报告 [`evidences/e2e-segment-d-report.txt`](evidences/e2e-segment-d-report.txt)。它整份跑时原有两条（展开收起、靠右夹取）稳定失败，正是收口审查第 5 条：减少动态效果时固定的宽量错、走 30 帧兜底，`27b572dd2` 已改。并回 Work 分支（`ad4299a97`）重建后整份 12 条全过；新用例重复 10 遍在负载 13–15 时 5 遍失败，都在“窗宽至少 3 个中间值”的防空过上（主线程忙时过渡只剩一两帧），改成至少 1 个（`767b9c596`），负载 12 时 10 遍全过。开发服务上对照：减少动态效果时一帧到位、聊天区 412 不变；不减弱时逐帧 412，最后一帧差 1 像素来自放开容差，改回半像素（`9649ad865`）后逐帧都是 412。
-- 进行中：类型检查（neuro-book、nb-agent-ui）与计划“验证”里合入前的 e2e 清单（16 个文件，`NB_E2E_WIDE`）。
-- 下一步：归类清单的失败；晋升核对；清理草稿与基线 worktree；反思回写。
-- 写底层提案（右栏入口条竖排成侧轨、视图段、展开、位置限制、浮动），要点先给开发者看，再交 omp `@review` 审一轮（开发者要求改底层要 gpt 审）；之后写 Spec（planned）与 `plan.md`，在 Work worktree 实现。左右整列对调另开 Task。
-- 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者；开发者 2026-11-25 同意按归纳的方向出稿。
-- 评审板第 3 轮（取代第 2 轮两题）：`rail-kind` 甲 工作台的侧轨（推荐）对 乙 头像列留在视图里贴右边、无竖线、底色深一档；`list-switcher` A 锚在按钮旁的浮层（推荐）对 B 顶部居中的 QuickPick；附左右对调整窗稿（对调另开 Task）。稿面修了：接缝按相连画、聊天区铺满、当前会话改描边只突出一层、底部图标换成机器人与搜索列表。原图在本地 `shots/r3/`。
-- 第 2 轮答复后：侧轨涉及工作台骨架（ADR 0044、`ui/workbench-layout.md` 输出 1、22、47），先写提案；窄版列表交互出稿比较；消息样式随后一轮。
-- 协调（2026-11-26，w00026 的会话留）：[w00026 t60 浮动窗的几何接口](../../../w00026-layout-package/tasks/t60-float-geometry/README.md) 会先改 `nb-layout` 的 `grid-rects.ts`（`clampFloatRect` 的 `area` 可带原点、`resizeFloatRect` 的 `bounds.area`）、`FloatWindowHandles`（`area` 属性、`commit` 的第二个参数 `direction`：这次动的边）、`NestedGrid`（手柄层不随抬升搬节点、`float-raise` 事件、expose `leafRect`、`GridFloatInput.animate`：落实 nested-grid 输出 105 的 planned 指引）与 `grid-motion.ts`（松手的起点）。本 Task 第 6 片的“窗的手柄只结算动的边”“程序宽度过渡”请变基后直接用 `direction` 与 `animate`，不另做一套；有冲突或形状不合用，在 t60 的 README 里留话。
+- 合入前的 e2e 清单（16 个文件、378 条，负载 10 上下）：366 过、12 败。原有 7 条（`themes` 241、397、601 四条，`lab-agent-ui:572`）；负载 4 条（`lab-agent-ui` 140、1110、1121 场景冷启动超时，`agent-messages-float:438` 过渡没采到中间帧），负载 3 时单独重跑全过；产品缺陷 1 条 `workbench-containers:1770`：右轨收着有视图段时，入口带按自己此刻的高算能摆几项，拖进来的预览入口永远放不下、被收进“更多”（`0dd44a503` 上同样失败，片 7 起就有、第 C 段没跑这个文件）。改成按能长到的高算（收着时加上视图段 `main` 让得出的，展开时条目区跨到空着的那一行），`0accb9875`；1770 与 `workbench-side-rail`、`workbench-side-rail-segment`、`agent-messages-rail` 55 条全过，变异（不加让出的）时 1770 失败。展开状态那半没有用例。
+- 类型检查（neuro-book、nb-agent-ui）过。并 master 两次后工作台 bun 606 条、工作台与 agent、Lab 的 vitest 231/232、nb-agent-ui vitest 229 条过；失败的一条是 Lab 场景分层输入契约里 `ComponentRawView` 三个场景（canon 的，master `a0a2a073c` 上同样失败，不属本 Task）。
+- **已合入 master（`1efeea066`）**。删了基线 worktree `.worktree/w00043-t19-base` 与 e2e worktree、分支 `w00043-t19/e2e`。草稿 worktree `.worktree/w00043-t19-drafts` 还有 4 个未提交的草稿文件（原型，按规矩不提交），留着，开发者说删再删。
+- 反思回写：nb-ui `design-language.md` 踩过的坑 85（按自己此刻的高算放得下几项）、86（外框过渡改宽时旁边那栏被挤窄再撑回，以及减少动态效果下量错的时机）；Agent 记忆一条（layout-frames 写入数先按来源拆）。
+- 待开发者：Spec 晋升（workbench-layout 输出 50、51，views 输出 21、22，nested-grid 输出 105，conversation 输出 57 仍是 planned），批准后先逐句核对再改成 implemented；浮动窗展开放不下时整个按收着、右轨给能给的宽，两者不一致（Spec 原文如此），要对齐另开 Task。
