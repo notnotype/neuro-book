@@ -202,6 +202,26 @@ const obscuredLeaves = computed<ReadonlySet<string>>(() => {
 const FLOAT_Z_BASE = 10;
 const floatAt = computed(() => new Map(props.floats.map((float, index) => [float.id, index])));
 const floatGestures = computed(() => new Map(props.floats.flatMap((float) => (float.gesture === undefined ? [] : [[float.id, float.gesture] as const]))));
+/** 上一次判过渡时带着手势的窗：手势撤掉与矩形变化在同一次渲染里（缩放、整窗拖动的提交）时，它的 `animate` 不算（输出 105）。 */
+let lastGestures: ReadonlySet<string> = new Set();
+/** 拖动中每扇窗最后一次的偏移（`placeFloat`），放开时转进 `released`。 */
+const floatOffsets = new Map<string, {readonly x: number; readonly y: number}>();
+/**
+ * 刚放开的窗（id 到松手时的偏移，输出 172）：下一次判过渡时交给 `motion.update`，用完即清；没有发布变化（取消）时下一帧清掉，不留到以后误用。
+ * 所以宿主在 `placeFloat(id, null)` 之后、下一帧之前发布的变化从松手处出发，更晚发布的照旧从记录矩形出发。
+ */
+let released = new Map<string, {readonly x: number; readonly y: number}>();
+let releaseFrame: number | null = null;
+/**
+ * 这一轮从松手处出发、离开了 `floats` 的窗（节点 id）：用起点的那一次渲染外框还带 `data-float`，下一次带着过渡标记摘掉，投影、底色与圆角才随过渡淡去（输出 110）。
+ * 起点那一次就摘的话，摘的时候没有过渡标记，投影一下子没了。只在它的起点还在 `growing` 里时算。
+ */
+const releasedLeaves = shallowRef<ReadonlySet<string>>(new Set());
+function clearReleased(): void {
+    if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
+    releaseFrame = null;
+    released = new Map();
+}
 function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
@@ -370,8 +390,11 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     }
     // 先判过渡，再停放：这一次有叶离开、要留着缩回去时，停放与内容层要把它当作还在（降到零），否则先丢了它最后的尺寸。
     const root = renderTree.value;
+    const releasing = released;
+    // 标了 `animate`、这一次与上一次都不在手势里、不是刚放开的窗：矩形变化照常过渡（输出 105）。
+    const animated = new Set(props.floats.flatMap((float) => (float.animate === true && float.gesture === undefined && !lastGestures.has(float.id) && !releasing.has(float.id) ? [float.id] : [])));
     motion.update({
-        items: previous === undefined ? next : settleFloatMoves(next, previous),
+        items: previous === undefined ? next : settleFloatMoves(next, previous, animated),
         previous: previous ?? null,
         rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null),
         extent: placementExtent.value,
@@ -379,7 +402,13 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         previewing: preview.value !== null,
         holding: liftedKey !== null || props.dragging,
         swap: takeSwap(),
+        ...(releasing.size === 0 ? {} : {released: releasing}),
     });
+    lastGestures = new Set(floatGestures.value.keys());
+    if (releasing.size > 0) {
+        releasedLeaves.value = new Set([...releasing.keys()].filter((id) => !floatAt.value.has(id)));
+        clearReleased();
+    } else if (releasedLeaves.value.size > 0) releasedLeaves.value = new Set();
     const items = placement.value?.items ?? [];
     parking.update(items, preview.value !== null);
     contentLayer.update();
@@ -564,6 +593,7 @@ watch(() => props.dragging, (now, before) => {
 }, {flush: "sync"});
 
 onBeforeUnmount(() => {
+    clearReleased();
     // 手势在 `useSashGesture` 自己的卸载钩子里先收尾（它在这条之前注册）：宿主的 `extent` 监听抛出时（开发构建里 emit 会把异常抛回来），手势也已经结束、窗口上的监听已经摘掉。
     // 卸载时侦听先停、模板 ref 后置空，`useLayoutExtent` 来不及发 null：这里显式告诉宿主尺寸没了（Spec 输出 144）。
     emit("extent", null);
@@ -586,6 +616,19 @@ function placeLifted(rect: GridRect): void {
  * 窗的外框、每个标签的内容、手柄都是网格根的直接子元素，一起挪。
  */
 function placeFloat(id: string, offset: {readonly x: number; readonly y: number} | null): void {
+    // 记下松手时的偏移（输出 172）：下一帧之前发布的变化从这里出发。下一帧清掉。
+    if (offset !== null) floatOffsets.set(id, offset);
+    else {
+        const last = floatOffsets.get(id);
+        floatOffsets.delete(id);
+        if (last !== undefined && (last.x !== 0 || last.y !== 0)) {
+            released.set(id, last);
+            releaseFrame ??= requestAnimationFrame(() => {
+                releaseFrame = null;
+                released = new Map();
+            });
+        }
+    }
     const translate = offset === null ? "" : `${String(offset.x)}px ${String(offset.y)}px`;
     for (const child of rootEl.value?.children ?? []) {
         const {dataset, style} = child as HTMLElement;
@@ -648,7 +691,7 @@ defineExpose({
                 :data-leaf="item.node.id"
                 :data-moving="structureMoving(item.key) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.node.id ? '' : undefined"
-                :data-float="floatAt.has(item.node.id) ? '' : undefined"
+                :data-float="floatAt.has(item.node.id) || (releasedLeaves.has(item.node.id) && growing.has(item.key)) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"

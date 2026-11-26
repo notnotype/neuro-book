@@ -233,6 +233,12 @@ export interface GridFloatInput {
     readonly rect: GridRect;
     /** 手势进行中：跟手，不过渡。`move` 还不接指针，判定才看得到底下。 */
     readonly gesture?: "move" | "resize";
+    /**
+     * 这扇窗的矩形变化走布局过渡（例如最大化与还原、窗里的视图段展开与收起）。不标时只有矩形变了不过渡。这一次或上一次渲染里它带着 `gesture`，
+     * 或这次变化是松手放开（`placeFloat(id, null)` 之后），照旧不过渡。标了的窗每次矩形变化都走完整的布局时长，只标在要动的那一次上。
+     * @experimental
+     */
+    readonly animate?: boolean;
 }
 
 /** 浮动窗的摆放，排在树的后面（Tab 与读屏也是）。不在树里，约束与收起都没有意义。 */

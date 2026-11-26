@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingContents, leavingPlacements, placementMoved, releaseStarts, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
 import type {GridContentPlacement, GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import {planSwap, swapTouchesBand} from "../grid-swap";
 import type {GridSwap, GridSwapBand} from "../grid-swap";
@@ -39,6 +39,8 @@ export interface GridMotionFrame {
     readonly bandNow?: ReadonlyArray<number>;
     /** 正在别的过渡里的叶（节点 id）：长出来、缩回去的。 */
     readonly busy?: ReadonlySet<string>;
+    /** 刚放开的浮动窗（id 到松手时的偏移，`releaseStarts`）：由 `NestedGrid` 的 `placeFloat(id, null)` 记下，下一帧之前的一次判定用，用完即清。 */
+    readonly released?: ReadonlyMap<string, {readonly x: number; readonly y: number}>;
 }
 
 /** 上一次判定时记下的事实：判容器尺寸、缩放与手势收尾要比它。 */
@@ -130,6 +132,8 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const flying = flyingContents(frame.items, frame.previous);
     const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
     const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
+    // 刚放开的窗从松手处出发（输出 172）：最后并进起点，在 `kept` 之后，不影响跟外框与保持尺寸的判定。
+    const released = frame.released === undefined ? new Map<string, GridRect>() : releaseStarts(frame.items, frame.previous, frame.released);
     // 上一轮还在缩回去的叶（`input.items` 里带 `leaving` 的）：这一轮又有别的变化时接着留着缩完，不然它缩到一半就没了。回到树里的、这一轮重新判成离开的不算。
     const present = new Set([...frame.items, ...leaving].map((item) => item.key));
     const still = input.items.filter((item): item is GridLeavingItem => item.kind !== "content" && item.leaving === true && !present.has(item.key));
@@ -142,7 +146,7 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const stillContents = input.items.filter((item): item is GridContentPlacement => item.kind === "content" && item.leaving === true && !present.has(item.key) && !freshKeys.has(item.key));
     const move: GridMotionMove = {
         kind: "move",
-        entering: new Map([...entering, ...kept]),
+        entering: new Map([...entering, ...kept, ...released]),
         following,
         flying,
         leaving: [...still, ...leaving],

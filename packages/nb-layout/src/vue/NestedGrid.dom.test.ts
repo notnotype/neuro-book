@@ -2185,6 +2185,48 @@ describe("NestedGrid 浮动窗", () => {
         expect(wrapper.get("[data-leaf=\"f\"]").attributes("data-float-gesture")).toBe("move");
         expect(wrapper.get("[data-content=\"x\"]").attributes("data-float-gesture")).toBe("move");
     });
+
+    /** 外框、内容、手柄里带过渡标记的（选择器）。 */
+    const movingParts = (wrapper: VueWrapper): string[] => ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"].filter((selector) => wrapper.get(selector).attributes("data-moving") !== undefined);
+    const ALL_PARTS = ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"];
+
+    it("宿主标了 animate 的窗只改矩形：外框、内容与手柄走布局过渡；不标的照旧不过渡（输出 105）", async () => {
+        const plain = mountFloats({});
+        plain.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await plain.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, width: 500}}]});
+        expect(movingParts(plain)).toEqual([]);
+
+        const marked = mountFloats({floats: [{...FLOAT, animate: true}]});
+        marked.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        // 挂载后量到的盒晚一拍到，那一次算容器变了（不过渡）：先让它过去。
+        await marked.setProps({floats: [{...FLOAT, animate: true}]});
+        await marked.setProps({floats: [{...FLOAT, rect: {...FLOAT.rect, width: 500}, animate: true}]});
+        expect(movingParts(marked)).toEqual(ALL_PARTS);
+        expect((marked.get("[data-leaf=\"f\"]").element as HTMLElement).style.width).toBe("500px");
+    });
+
+    it("标了 animate 也不过渡：带着 gesture；手势撤掉与矩形变化在同一次渲染里（缩放、拖动的提交）；刚放开的窗", async () => {
+        const marked = {...FLOAT, animate: true};
+        const wrapper = mountFloats({floats: [marked]});
+        wrapper.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await wrapper.setProps({floats: [marked]});
+        await wrapper.setProps({floats: [{...marked, rect: {...FLOAT.rect, width: 400}, gesture: "resize"}]});
+        expect(movingParts(wrapper)).toEqual([]);
+        await wrapper.setProps({floats: [{...marked, rect: {...FLOAT.rect, width: 420}}]});
+        expect(movingParts(wrapper)).toEqual([]);
+
+        const released = mountFloats({floats: [marked]});
+        released.element.style.setProperty("--nb-layout-motion-layout", "470ms");
+        await released.setProps({floats: [marked]});
+        const grid = released.vm as unknown as {placeFloat(id: string, offset: {x: number; y: number} | null): void};
+        grid.placeFloat("f", {x: 30, y: 20});
+        grid.placeFloat("f", null);
+        await released.setProps({floats: [{...marked, rect: {...FLOAT.rect, x: 130, y: 70}}]});
+        expect(movingParts(released)).toEqual([]);
+        // 对照：放开的那一次用掉之后，再改矩形照常过渡。
+        await released.setProps({floats: [{...marked, rect: {...FLOAT.rect, x: 130, y: 70, width: 500}}]});
+        expect(movingParts(released)).toEqual(ALL_PARTS);
+    });
 });
 
 describe("NestedGrid 交换", () => {
