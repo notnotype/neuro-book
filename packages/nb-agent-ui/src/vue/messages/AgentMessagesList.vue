@@ -15,9 +15,7 @@ const props = withDefaults(defineProps<{
     selectedContact: string | null;
     now: number;
     locale?: AgentLocale;
-    /** 切换这一行是宿主窗口的拖动区（宿主自绘窗口头时）：写 `data-window-drag`，空白处按住拖的是窗口，标签与按钮照旧。 */
-    windowDrag?: boolean;
-}>(), {locale: undefined, windowDrag: false});
+}>(), {locale: undefined});
 
 const emit = defineEmits<{
     "update:tab": [tab: "bot" | "sessions"];
@@ -105,7 +103,7 @@ function markBroken(src: string): void {
 
 <template>
     <div ref="rootRef" class="acv-messages-list" data-messages-list @keydown="onSearchKeydown">
-        <div class="acv-messages-list__switch" :data-window-drag="props.windowDrag ? '' : undefined" data-messages-switch>
+        <div class="acv-messages-list__switch" data-messages-switch>
             <div ref="tablistRef" class="acv-messages-list__tabs" role="tablist" :aria-label="t('messages.list')" @keydown="onTabKeydown">
                 <button
                     v-for="item in tabs"
@@ -190,14 +188,9 @@ function markBroken(src: string): void {
     flex-shrink: 0;
     align-items: center;
     gap: 4px;
-    /* 宿主自绘窗口头时与对话头同高（`--acv-head-height`），缺省 40。 */
-    height: var(--acv-head-height, 40px);
+    height: 40px;
     padding: 0 8px 0 14px;
     user-select: none;
-}
-
-.acv-messages-list__switch[data-window-drag] {
-    touch-action: none;
 }
 
 .acv-messages-list__tabs {
