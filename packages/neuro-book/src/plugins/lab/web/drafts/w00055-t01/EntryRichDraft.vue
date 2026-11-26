@@ -14,7 +14,7 @@ import {defaultChipEnv} from "@notnotype/nb-markdown/chip";
 import {createMarkdownEditorExtensions} from "@notnotype/nb-markdown/editor";
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, SourceMap} from "@notnotype/nb-markdown/language";
-import {AnchoredPopover, Button, Input, SegmentedControl, SuggestionMenu, Switch, Textarea} from "@notnotype/nb-ui/components";
+import {AnchoredPopover, Button, IconButton, Input, SegmentedControl, SuggestionMenu, Switch, Textarea} from "@notnotype/nb-ui/components";
 import {suggestionMenuOptions} from "@notnotype/nb-ui/components";
 import type {SuggestionMenuGroup} from "@notnotype/nb-ui/components";
 
@@ -133,6 +133,9 @@ onMounted(() => {
         },
     });
     codec = codecFor(editor.schema, language);
+    editor.on("transaction", () => {
+        docVersion.value += 1;
+    });
     if (mode.value === "rich") load(sourceText.value);
 });
 
@@ -144,29 +147,50 @@ onBeforeUnmount(() => {
 /* ---------- 插入与换值：字段与条目的列表 ---------- */
 
 const IF_ITEM = "#if";
+const CALC_ITEM = "#calc";
+/** 在条件或计算的式子里插一个字段（浮层里“插入字段”按钮）：`target` 是条件的第几支或计算值。 */
+const pathPick = shallowRef<{target: number | "calc"; dom: HTMLElement; at: readonly [number, number] | null} | null>(null);
+/** 点“插入字段”时记下同一行输入框里的光标（浮层里按下按钮不抢焦点，光标还在），选了字段就插在那里。 */
+function startPathPick(target: number | "calc", event: MouseEvent): void {
+    const dom = event.currentTarget as HTMLElement;
+    const input = dom.parentElement?.querySelector("input");
+    const at = input !== null && input !== undefined && input.selectionStart !== null ? [input.selectionStart, input.selectionEnd ?? input.selectionStart] as const : null;
+    pathPick.value = {target, dom, at};
+}
 const query = ref("");
 const activeId = ref<string | null>(null);
 const pickGroups = computed<SuggestionMenuGroup[]>(() => {
     const current = open.value;
-    if (current?.kind !== "pick") return [];
+    if (current?.kind !== "pick" && pathPick.value === null) return [];
     const words = query.value.trim();
+    if (current?.kind !== "pick") return fieldGroups(words);
     if (current.what === "ref") return [{id: "entries", items: ENTRIES.filter((entry) => entry.name.includes(words)).map((entry) => ({id: entry.id, label: entry.name, iconClass: "i-lucide-bookmark"}))}];
-    // 插值的列表最前面是“条件”：选了以后再选它看哪个字段（打“如果”“条件”也能筛到它）。
-    const structures: SuggestionMenuGroup[] = current.what === "value" && (words === "" || "条件如果否则".includes(words))
-        ? [{id: "structures", items: [{id: IF_ITEM, label: "条件（如果……否则……）", hint: "再选看哪个字段", iconClass: "i-lucide-split"}]}]
-        : [];
-    // 本条目的字段排前面（最常用），再是别的条目。
-    return [...structures, ...ENTRIES.map((entry) => ({
+    // 插值的列表最前面是“条件”与“计算”：打“如果”“条件”“计算”“式子”也能筛到它们。
+    const structures = current.what !== "value" ? [] : [
+        {id: IF_ITEM, label: "条件（如果……否则……）", hint: "再选看哪个字段", iconClass: "i-lucide-split", words: "条件如果否则"},
+        {id: CALC_ITEM, label: "计算（写一个式子）", hint: "加减乘除、取整、最大最小、百分比", iconClass: "i-lucide-calculator", words: "计算式子公式"},
+    ].filter((item) => words === "" || item.words.includes(words)).map(({words: _words, ...item}) => item);
+    return [...(structures.length === 0 ? [] : [{id: "structures", items: structures}]), ...fieldGroups(words)];
+});
+
+/** 字段的列表：本条目的字段排前面（最常用），再是别的条目。 */
+function fieldGroups(words: string): SuggestionMenuGroup[] {
+    return ENTRIES.map((entry) => ({
         id: entry.id,
         label: entry.id === HOME ? "这个条目" : entry.name,
         items: fields.value
             .filter((field) => field.entry === entry.id && `${entry.name}${field.group}${field.label}`.includes(words))
             .map((field) => ({id: `${field.entry}|${field.namespace}.${field.id}`, label: `${field.group} · ${field.label}`, hint: display(field.value), iconClass: field.kind === "number" ? "i-lucide-hash" : "i-lucide-text"})),
-    })).filter((group) => group.items.length > 0)];
-});
+    })).filter((group) => group.items.length > 0);
+}
 const pickOptions = computed(() => suggestionMenuOptions(pickGroups.value));
 watch(pickOptions, (options) => {
     activeId.value = options[0]?.id ?? null;
+});
+watch(pathPick, (pick) => {
+    if (pick === null) return;
+    query.value = "";
+    void nextTick(() => requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".entry-pick__search input")?.focus()));
 });
 watch(() => (open.value?.kind === "pick" ? `pick:${open.value.what}` : open.value?.kind), (kind, before) => {
     if (kind?.startsWith("pick") === true) {
@@ -178,8 +202,32 @@ watch(() => (open.value?.kind === "pick" ? `pick:${open.value.what}` : open.valu
 });
 
 function choose(id: string): void {
+    if (pathPick.value !== null) {
+        const [entry = "", of = ""] = id.split("|");
+        const path = entry === HOME ? of : `ref('${entry}').${of}`;
+        const target = pathPick.value.target;
+        const before = target === "calc" ? calcExpression.value : (branches.value[target]?.test ?? "");
+        const [from, to] = pathPick.value.at ?? [before.length, before.length];
+        const head = before.slice(0, from);
+        const tail = before.slice(to);
+        const next = `${head}${head === "" || head.endsWith(" ") ? "" : " "}${path}${tail === "" || tail.startsWith(" ") ? "" : " "}${tail}`;
+        if (target === "calc") updateCalc(next);
+        else updateBranch(target, {test: next});
+        pathPick.value = null;
+        return;
+    }
     const current = open.value;
     if (current?.kind !== "pick") return;
+    if (id === CALC_ITEM) {
+        open.value = null;
+        editor?.chain().focus().insertContentAt(current.pos, {type: VALUE_NODE, attrs: {of: "", entry: null, expr: ""}}).run();
+        void nextTick(() => {
+            const dom = editor?.view.nodeDOM(current.pos);
+            if (dom instanceof HTMLElement) open.value = {kind: "value", pos: current.pos, dom, editing: false};
+            requestAnimationFrame(() => document.querySelector<HTMLInputElement>("[data-pop=calc] input")?.focus());
+        });
+        return;
+    }
     if (id === IF_ITEM) {
         open.value = {...current, what: "if-field"};
         return;
@@ -206,6 +254,9 @@ function pickKey(event: KeyboardEvent): void {
     } else if (event.key === "Enter" && activeId.value !== null) {
         event.preventDefault();
         choose(activeId.value);
+    } else if (event.key === "Escape" && pathPick.value !== null) {
+        event.preventDefault();
+        pathPick.value = null;
     } else if (event.key === "Escape" || (event.key === " " && query.value === "")) {
         // 不想插值：退回成普通的字（触发它的那个符号），焦点回到编辑器。
         event.preventDefault();
@@ -228,7 +279,7 @@ function insertIf(pos: number, id: string): void {
     const [entry = "", of = ""] = id.split("|");
     const field = fieldAt(fields.value, entry === HOME ? null : entry, of);
     const path = entry === HOME ? of : `ref('${entry}').${of}`;
-    const test = field?.kind === "number" ? `${path} >= ${String(field.value ?? 0)}` : `${path} == "${String(field?.value ?? "")}"`;
+    const test = field?.kind === "number" ? `${path} >= ${String(field.value ?? 0)}` : `${path} == '${String(field?.value ?? "")}'`;
     const branches: Branch[] = [{test, text: ""}, {test: null, text: ""}];
     open.value = null;
     editor.chain().focus().insertContentAt(pos, {type: IF_NODE, attrs: {branches}}).run();
@@ -241,14 +292,33 @@ function insertIf(pos: number, id: string): void {
 
 /* ---------- 点开的小块 ---------- */
 
+/** 编辑器的文档不是响应式的：每次变更加一，读节点的计算属性靠它重算（否则浮层改过一次以后读到的还是旧属性）。 */
+const docVersion = ref(0);
 const node = computed(() => {
+    void docVersion.value;
     const current = open.value;
     if (current === null || current.kind === "pick" || editor === null) return null;
     return editor.state.doc.nodeAt(current.pos);
 });
+const calcExpression = computed(() => (node.value?.type.name === VALUE_NODE && node.value.attrs.expr !== null ? String(node.value.attrs.expr) : ""));
+const isCalc = computed(() => node.value?.type.name === VALUE_NODE && node.value.attrs.expr !== null);
+function updateCalc(expression: string): void {
+    const current = open.value;
+    if (current?.kind !== "value" || editor === null || node.value === null) return;
+    editor.view.dispatch(editor.state.tr.setNodeMarkup(current.pos, undefined, {...node.value.attrs, expr: expression}));
+    refreshAtoms();
+}
+const calcState = computed(() => {
+    try {
+        const value = evaluate(calcExpression.value, fields.value);
+        return {problem: "", readable: readableTest(calcExpression.value, fields.value), result: value === undefined ? "算不出（有值是未知）" : typeof value === "boolean" ? (value ? "是" : "否") : display(value)};
+    } catch (error) {
+        return {problem: (error as Error).message, readable: "", result: ""};
+    }
+});
 const openedField = computed(() => {
     const current = node.value;
-    if (current?.type.name !== VALUE_NODE) return null;
+    if (current?.type.name !== VALUE_NODE || current.attrs.expr !== null) return null;
     return fieldAt(fields.value, current.attrs.entry === null ? null : String(current.attrs.entry), String(current.attrs.of)) ?? null;
 });
 const valueDraft = ref("");
@@ -308,7 +378,10 @@ const activeIndex = computed(() => activeBranch(branches.value, fields.value));
 
 function closeOnOutside(event: PointerEvent): void {
     const target = event.target as HTMLElement | null;
-    if (target?.closest("[data-entry-atom], .nb-ui-popover-surface") === null) open.value = null;
+    if (target?.closest("[data-entry-atom], .nb-ui-popover-surface") === null) {
+        open.value = null;
+        pathPick.value = null;
+    }
 }
 onMounted(() => document.addEventListener("pointerdown", closeOnOutside, true));
 onBeforeUnmount(() => document.removeEventListener("pointerdown", closeOnOutside, true));
@@ -339,7 +412,19 @@ const anchor = computed(() => open.value?.dom ?? null);
         <Textarea v-if="mode === 'source'" v-model="sourceText" class="entry-rich__source" variant="bare" autosize :max-rows="40" aria-label="源文字" />
 
         <AnchoredPopover :open="open !== null && open.kind !== 'pick'" :anchor="anchor" side="bottom" align="start">
-            <div v-if="open?.kind === 'value'" class="entry-pop" data-pop="value">
+            <div v-if="open?.kind === 'value' && isCalc" class="entry-pop entry-pop--wide" data-pop="calc">
+                <div class="entry-pop__head"><span class="entry-pop__title">计算</span></div>
+                <div class="entry-pop__expr">
+                    <Input :model-value="calcExpression" size="sm" class="entry-pop__test" placeholder="例如 panel.魔力上限 - panel.魔力" aria-label="式子" @update:model-value="(value: string) => updateCalc(value)" />
+                    <IconButton size="sm" icon-class="i-lucide-braces" title="插入字段" @click="(event: MouseEvent) => startPathPick('calc', event)" />
+                </div>
+                <p class="entry-pop__readable" :class="{'entry-pop__readable--bad': calcState.problem !== ''}">{{ calcState.problem || calcState.readable }}</p>
+                <p v-if="calcState.result !== ''" class="entry-pop__value">＝ {{ calcState.result }}</p>
+                <div class="entry-pop__actions">
+                    <Button size="sm" variant="ghost" @click="removeOpened">删掉</Button>
+                </div>
+            </div>
+            <div v-else-if="open?.kind === 'value'" class="entry-pop" data-pop="value">
                 <template v-if="openedField !== null">
                     <div class="entry-pop__head">
                         <span class="entry-pop__title">{{ openedField.group }} · {{ openedField.label }}</span>
@@ -377,7 +462,8 @@ const anchor = computed(() => open.value?.dom ?? null);
                 <div v-for="(branch, index) in branches" :key="index" class="entry-pop__branch" :data-on="index === activeIndex ? '' : undefined">
                     <div class="entry-pop__branch-head">
                         <span class="entry-pop__branch-name">{{ branch.test === null ? "否则" : index === 0 ? "如果" : "否则如果" }}</span>
-                        <Input v-if="branch.test !== null" :model-value="branch.test" size="sm" class="entry-pop__test" :aria-label="`第 ${index + 1} 支的条件`" @update:model-value="(value: string) => updateBranch(index, {test: value})" />
+                        <Input v-if="branch.test !== null" :model-value="branch.test" size="sm" class="entry-pop__test" placeholder="例如 panel.魔力 >= 1000 && panel.回溯 > 0" :aria-label="`第 ${index + 1} 支的条件`" @update:model-value="(value: string) => updateBranch(index, {test: value})" />
+                        <IconButton v-if="branch.test !== null" size="sm" icon-class="i-lucide-braces" title="插入字段" @click="(event: MouseEvent) => startPathPick(index, event)" />
                         <span v-if="index === activeIndex" class="entry-pop__now">现在是这一支</span>
                     </div>
                     <p v-if="branch.test !== null" class="entry-pop__readable">{{ testProblem(branch.test) || readableTest(branch.test, fields) }}</p>
@@ -391,10 +477,10 @@ const anchor = computed(() => open.value?.dom ?? null);
             </div>
         </AnchoredPopover>
 
-        <SuggestionMenu :groups="pickGroups" :active-id="activeId" :anchor="open?.kind === 'pick' ? open.dom : null" label="插入" @select="(id: string) => choose(id)" @highlight="(id: string) => (activeId = id)">
+        <SuggestionMenu :groups="pickGroups" :active-id="activeId" :anchor="open?.kind === 'pick' ? open.dom : (pathPick?.dom ?? null)" label="插入" @select="(id: string) => choose(id)" @highlight="(id: string) => (activeId = id)">
             <template #header>
                 <div class="entry-pick__search">
-                    <Input v-model="query" size="sm" autofocus :placeholder="open?.kind === 'pick' && open.what === 'ref' ? '找条目' : open?.kind === 'pick' && open.what === 'if-field' ? '条件看哪个字段' : '找字段，或“条件”'" aria-label="搜索" @keydown="pickKey" />
+                    <Input v-model="query" size="sm" autofocus :placeholder="open?.kind === 'pick' && open.what === 'ref' ? '找条目' : open?.kind === 'pick' && open.what === 'if-field' ? '条件看哪个字段' : pathPick !== null ? '插入哪个字段' : '找字段，或“条件”“计算”'" aria-label="搜索" @keydown="pickKey" />
                 </div>
             </template>
         </SuggestionMenu>
@@ -618,6 +704,17 @@ const anchor = computed(() => open.value?.dom ?? null);
     flex: none;
     color: var(--text-secondary);
     font-size: var(--text-sm);
+}
+.entry-pop__expr {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.entry-pop__readable--bad {
+    color: var(--status-warning);
+}
+.entry-rich__mount :deep(.entry-chip--calc .entry-chip__from) {
+    color: var(--status-info);
 }
 .entry-pop__test {
     flex: 1;
