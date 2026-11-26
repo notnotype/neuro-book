@@ -114,7 +114,7 @@ function finalTry(attempt: AttemptResult): TryResult {
     return attempt.tries.at(-1) as TryResult;
 }
 
-/** 计分的一回：判分与记录都在。 */
+/** 计分的一回：各格最后一回的判分与记录都在（不计分的结局判分是 null，跑满或没跑完的格因此不进来）。 */
 interface CountedRun {
     readonly attempt: AttemptResult;
     readonly record: RunRecord;
@@ -124,7 +124,7 @@ interface CountedRun {
 function countedRuns(attempts: readonly AttemptResult[]): CountedRun[] {
     return attempts.flatMap((attempt) => {
         const last = finalTry(attempt);
-        if (attempt.state !== "settled" || last.record === null || last.score === null || last.score.score === null) return [];
+        if (last.record === null || last.score === null || last.score.score === null) return [];
         return [{attempt, record: last.record, score: last.score as CountedRun["score"]}];
     });
 }
