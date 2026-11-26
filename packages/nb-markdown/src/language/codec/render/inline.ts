@@ -214,7 +214,7 @@ export function renderInline(parent: PMNode, context: WriteContext, place: Inlin
         }
         const lineEnd = next === null || next.type.name === "hardBreak";
         const after = next === null ? "" : next.isText ? ((next.text as string)[0] as string) : next.type.name === "hardBreak" ? "\n" : (writeNode(index + 1)[0] ?? "￼");
-        out.push(escapeText(content, {lineStart: last() === "" || last() === "\n", lineEnd, before: last(), after, place, full: context.options.escape === "full", definitions: context.definitions}));
+        out.push(escapeText(content, {lineStart: last() === "" || last() === "\n", lineEnd, before: last(), after, place, full: context.options.escape === "full", definitions: context.definitions, atomEscape: context.atomEscape}));
     });
     for (const run of plan.tail) out.push(cell(writerOf(run.mark).close(run.mark, context, run)));
     return out.join("");

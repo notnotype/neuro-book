@@ -73,6 +73,8 @@ export interface EscapeAround {
     readonly place: InlinePlace;
     readonly full: boolean;
     readonly definitions: ReadonlyMap<string, string>;
+    /** 语言的原子转义规则：文字里会被认成原子开头的写法前面加反斜杠（条目的标签）。 */
+    readonly atomEscape?: ((text: string, index: number) => boolean) | null;
 }
 
 /** 行首会被读成块语法的写法：返回要在第几个字符前加反斜杠（相对去掉前导空白后的位置），不需要为 -1。 */
@@ -161,7 +163,7 @@ export function escapeText(text: string, around: EscapeAround): string {
             out.push(escape(char));
             continue;
         }
-        out.push(needsEscape(text, index, previous, next, around, escapes, lastGreater) ? escape(char) : char);
+        out.push(needsEscape(text, index, previous, next, around, escapes, lastGreater) || around.atomEscape?.(text, index) === true ? escape(char) : char);
     }
     return out.join("");
 }

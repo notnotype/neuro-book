@@ -233,6 +233,8 @@ function build(schema: Schema, json: ReadonlyArray<JSONContent>): PMNode[] {
  */
 export function readMarkdown(language: MarkdownLanguage, schema: Schema, source: string): ReadResult {
     const {bom, frontmatter, body} = splitFrontmatter(source);
+    // 不读 frontmatter 的语言（条目的主文字）：开头的 `---…---` 留在正文里照 Markdown 读。
+    if (!language.frontmatter) return readBody(language, schema, {bom, frontmatter: null}, (frontmatter ?? "") + body, null);
     return readBody(language, schema, {bom, frontmatter}, body, null);
 }
 
