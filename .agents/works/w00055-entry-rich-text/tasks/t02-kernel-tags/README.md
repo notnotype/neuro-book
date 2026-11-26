@@ -28,7 +28,11 @@ updated: 2026-11-26
 5. 给 Agent 的条件每个判断带 `value="true|false|null"`。
 6. 登记标签的描述用条目文字模板，做 t04 时出演示对齐。
 
+执行位置：worktree `.worktree/w00055-entry-rich-text`，分支 `feat/w00055-entry-rich-text`（从 master `236fd578c` 开）。
+
+- S0（分支 `451d94623`）：`packages/nb-canon/tests/legacy-render.test.ts` 与 `fixtures/legacy-render.json`：星瑕样本在每个读取位置、两种模式上 84 块的三种渲染（纯文字与三样、给作者的显示文字、给 Agent 的值），只记与写法无关的部分，S5 拿来逐块对照。样本里没有 `<Ref>`、`<Image>`、出问题的块，这几类由 `rendering.test.ts` 的场景 5 覆盖。
+- S1（master `13a8ff591`）：`canon/rendering.md` 改写成标签写法（条目级 planned；回写的输出 12、13 与相关失败码标“planned：删除”；新加输出 17 到 21），新 ADR 0064 部分取代 0038 的决策 1 与 3，`agent-tools`、`author-ui`、`components`、`model`、`revisions`、`project`、`workspace/markdown-syntaxes` 跟改；`docs:check` 通过。2026-11-26 交快速审查：Opus 子代理与 omp `@review`（后台，上限 120 分钟），说明在本机 `/tmp/review-w00055-t02-design/`，报告写到本机 `reports/`。
+
 ## 下一步
 
-1. 开 Work 分支，先做 S0（旧实现的快照）与 S1（Spec 与 ADR），S1 交快速审查（Opus 先审，omp `@review` 在后台）。
-2. 之后按计划的切片往下做。
+1. 处理 Opus 的设计审查，之后开始 S2（nb-markdown 拆 `./marked` 与 `atoms`）；omp 的报告回来后照同样的办法处理，修正单独提交。
