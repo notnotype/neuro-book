@@ -275,7 +275,8 @@ test.describe("滚动", () => {
         await page.evaluate(async () => {
             for (let i = 0; i < 3; i += 1) await new Promise(requestAnimationFrame);
         });
-        const under = await page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-row]")?.dataset.row ?? null, at);
+        // 拖影压在指针下（场景特意让它接指针），跳过反馈元素取下面的行。
+        const under = await page.evaluate(({x, y}) => document.elementsFromPoint(x, y).find((element) => element.closest("[data-drag-feedback]") === null)?.closest<HTMLElement>("[data-row]")?.dataset.row ?? null, at);
         expect(under).not.toBeNull();
         await expect(sessionRoot(page)).toHaveAttribute("data-session-over", under as string);
         await page.mouse.up();
@@ -284,9 +285,10 @@ test.describe("滚动", () => {
     });
 
     // 反向排版的滚动区：滚动位置从 0（起点在右端或下端）往负数走。边缘滚动按物理方向算余量，往起点的反方向能滚，滚回去也能到 0。
+    // 滚动区定成整数宽：宽度带小数时 Chrome 的从右到左滚动范围可能偏出 1px（滚回右端停在 1 不是 0），这里要的是两端的确切位置。
     for (const {name, css, axis} of [
         {name: "flex-direction: column-reverse 的竖向列表", css: "[data-session-scroller] {display: flex !important; flex-direction: column-reverse !important;} [data-session-scroller] > [data-row] {flex: none;}", axis: "y"},
-        {name: "direction: rtl 的横向滚动", css: "[data-session-scroller] {direction: rtl;} [data-session-scroller] > [data-row] {width: 900px;}", axis: "x"},
+        {name: "direction: rtl 的横向滚动", css: "[data-session-scroller] {direction: rtl; flex: none !important; width: 300px;} [data-session-scroller] > [data-row] {width: 900px;}", axis: "x"},
     ] as const) {
         test(`${name}：拖到起点反方向的一端往负数滚，再拖到另一端滚回 0`, async ({page}) => {
             await open(page);
