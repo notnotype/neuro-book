@@ -695,7 +695,8 @@ const hostEl = ref<HTMLElement | null>(null);
 
 /**
  * 切换容器时卡片不动、里面的内容滚过去（输出 42）：方向跟着入口排的方向，侧栏、右栏的入口竖排在侧轨上，竖着滚；底部面板在入口条下面横着滚。网格同时只有一个交换，
- * `token` 在三个区域之间递增；`WorkbenchSurface` 补上缝宽与裁切窗交给网格。`slides` 记每个区域滚过几次：入口的选中标记只在自己的区域滚的那一次滑过去。
+ * `token` 在三个区域之间递增；`WorkbenchSurface` 补上缝宽与裁切窗交给网格。`slides` 记每个区域原地切换过几次：入口的选中标记只在自己的区域切换的那一次滑过去
+ * （右轨两端宽度不同、不滚的那次也滑）。
  */
 const regionSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
 const slides = shallowRef<Readonly<Record<PanelName, number>>>({sidebar: 0, auxiliarybar: 0, panel: 0});
@@ -703,7 +704,7 @@ const slides = shallowRef<Readonly<Record<PanelName, number>>>({sidebar: 0, auxi
 /**
  * 点入口切换容器之前（同一个同步段里接着提交）：区域显示着、里面没有最大化的分节时，给网格一次交换，离开的是当前容器的分节、换上来的是新容器的，
  * 方向按入口顺序。隐藏着、拖到零时按显示长出来（不滚）；有最大化的分节时切换会退出最大化，上一帧是整窗的矩形，照常过渡。列的是文档里的分节，
- * 没呈现出来的（放不下收走的）由网格忽略；入口条叶前后都在，不在交换里，所以它和卡片顶上那一行不动。
+ * 没呈现出来的（放不下收走的）由网格忽略；入口条叶前后都在，不在交换里，所以它和卡片顶上那一行不动。右栏两个容器的右轨宽度不同时不给交换。
  */
 function prepareRegionSwap(region: PanelName, next: string): void {
     // 读已提交的文档，不读入口（入口是拖动预览的）：交换比的是网格上一帧与这一次提交，两头都是已提交的。
@@ -711,6 +712,9 @@ function prepareRegionSwap(region: PanelName, next: string): void {
     const current = entries.find((entry) => entry.current)?.id;
     const maximized = state.value.maximized;
     if (current === undefined || current === next || !regionShowing(region) || (maximized !== null && regionOf(doc.value, maximized) === region)) return;
+    slides.value = {...slides.value, [region]: slides.value[region] + 1};
+    // 右轨两端的宽不同（一个展开着视图段、一个收着）时卡片要跟着变宽变窄，原地滚动画不出来：不给交换，整次切换走布局过渡，入口的按下底块照常滑（输出 50 的“切换容器”）。
+    if (region === "auxiliarybar" && props.layout.actions.railWidthOf(current) !== props.layout.actions.railWidthOf(next)) return;
     const containers = regionContainers(doc.value, region);
     const sectionsOf = (id: string): string[] => [...(containers.find((container) => container.id === id)?.sections ?? [])];
     const order = entries.map((entry) => entry.id);
@@ -721,7 +725,6 @@ function prepareRegionSwap(region: PanelName, next: string): void {
         axis: entriesOnRail(region) ? "height" : "width",
         direction: order.indexOf(next) > order.indexOf(current) ? 1 : -1,
     };
-    slides.value = {...slides.value, [region]: slides.value[region] + 1};
 }
 
 /**
