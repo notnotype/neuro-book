@@ -3,7 +3,7 @@
 import {OverlayScrollbar} from "@notnotype/nb-ui/components";
 import {useDragSession, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
-import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, shallowRef, useId, watch} from "vue";
 
 import {dropKey} from "../actions/drop";
 import type {WorkbenchFileDropHost} from "nbook/plugins/workbench/shared/contracts";
@@ -325,33 +325,115 @@ watch(gestureState, (next) => {
 function motionMs(name: "--motion-base" | "--motion-fast" | "--motion-move"): number {
     const element = root.value;
     if (element === null) return 0;
-    const value = Number.parseFloat(getComputedStyle(element).getPropertyValue(name));
-    return value > 0 ? value : 0;
+    const token = getComputedStyle(element).getPropertyValue(name).trim();
+    const value = Number.parseFloat(token);
+    return value > 0 ? value * (token.endsWith("s") && !token.endsWith("ms") ? 1000 : 1) : 0;
 }
 
 /**
- * 过渡窗口（docs/specs/workbench/files-explorer.md 的“动画”）：树是虚拟列表，滚动时窗口两端也有行进出，不能一律做进出
- * 动画。只在展开的目录变了、或认出了宿主预告的结构变化之后的一个 `--motion-move` 里打 `data-motion`，样式只在这时让新出现
- * 的行从上方滑下并淡入、离开的行反向、其余行的位置跟着过渡。watch 在渲染之前跑，标记与新行同一次渲染出现，进场的过渡才有
- * 起点。系统减少动态效果时时长是 0，不打。
+ * 过渡窗口（docs/specs/workbench/files-explorer.md 的“动画”）。滚动时窗口两端也有行进出，只有目录切换或认出宿主预告时才过渡。
  */
 const moving = ref(false);
 let movingTimer: ReturnType<typeof setTimeout> | null = null;
 /** 动画结束后多留这么久再撤标记：离开的行可能晚一帧开始过渡，撤早了会被截断。 */
 const MOTION_SLACK_MS = 100;
-const pulseMotion = (): void => {
+function pulseMotion(folder = false): void {
     // 按行里最长的过渡算（位移是 `--motion-move`）：标记撤早了，离开的行会跳回原位闪一下。
     const duration = motionMs("--motion-move");
     if (duration <= 0) return;
     if (movingTimer !== null) clearTimeout(movingTimer);
-    moving.value = true;
+    moving.value = !folder;
     movingTimer = setTimeout(() => {
+        finishFolderMotion();
         moving.value = false;
         movingTimer = null;
     }, duration + MOTION_SLACK_MS);
-};
-const expandedIds = computed(() => props.rows.flatMap((row) => ((row.kind === "root" || row.kind === "entry") && row.expanded ? [row.id] : [])).join("\n"));
-watch(expandedIds, pulseMotion);
+}
+
+interface FolderMotion {
+    readonly children: ReadonlyMap<string, number>;
+    readonly following: ReadonlySet<string>;
+    readonly opening: boolean;
+    readonly duration: number;
+    readonly leaving: HTMLElement[];
+    readonly animations: Animation[];
+}
+const folderMotion = shallowRef<FolderMotion | null>(null);
+
+function finishFolderMotion(): void {
+    const motion = folderMotion.value;
+    if (motion === null) return;
+    for (const element of motion.leaving) element.style.visibility = "hidden";
+    for (const animation of motion.animations) animation.cancel();
+    folderMotion.value = null;
+}
+
+watch(() => props.rows, (rows, previous) => {
+    const change = rows.length - previous.length;
+    const opening = change > 0;
+    const longer = opening ? rows : previous;
+    const shorter = opening ? previous : rows;
+    const start = shorter.findIndex((row, index) => row.id !== longer[index]?.id);
+    if (change === 0 && start < 0) return;
+    finishFolderMotion();
+    if (change === 0) return;
+    const duration = motionMs("--motion-move");
+    const element = root.value;
+    if (duration <= 0 || element === null || typeof element.animate !== "function") return;
+
+    const index = start < 0 ? shorter.length : start;
+    const parent = rows[index - 1];
+    const oldParent = previous[index - 1];
+    if (
+        parent === undefined || (parent.kind !== "root" && parent.kind !== "entry") ||
+        oldParent === undefined || (oldParent.kind !== "root" && oldParent.kind !== "entry") ||
+        parent.expanded !== opening
+    ) return;
+    // 首次展开时，子行要等目录列出成功后才加入。
+    const loaded = oldParent.problem?.kind === "loading" && parent.problem?.kind !== "loading";
+    if (parent.expanded === oldParent.expanded && !(opening && loaded)) return;
+    // 只有一段连续的子树增减时才有一对可以同步的边界。
+    const size = Math.abs(change);
+    const children = longer.slice(index, index + size);
+    const following = shorter.slice(index);
+    if (children.some((row) => row.depth <= parent.depth) ||
+        following.some((row, offset) => row.id !== longer[index + size + offset]?.id)) return;
+
+    const motion: FolderMotion = {
+        children: new Map(children.map((row, offset) => [row.id, offset])),
+        following: new Set(following.map((row) => row.id)),
+        opening,
+        duration,
+        leaving: [],
+        animations: [],
+    };
+    folderMotion.value = motion;
+    const easing = getComputedStyle(element).getPropertyValue("--ease-layout").trim() || "ease";
+    pulseMotion(true);
+    void nextTick(() => {
+        if (folderMotion.value !== motion) return;
+        const height = rowHeight.value;
+        const distance = size * height;
+        const timing: KeyframeAnimationOptions = {duration, easing, fill: "both"};
+        const live = element.querySelectorAll<HTMLElement>(".explorer-tree__row");
+        const leaving = new Set(motion.leaving);
+        for (const rowElement of live) {
+            const id = rowElement.dataset.explorerRow ?? rowElement.dataset.explorerEdit;
+            if (id === undefined) continue;
+            const child = motion.children.get(id);
+            if (child !== undefined && (opening || leaving.has(rowElement))) {
+                const offset = child * height;
+                // 裁剪边界和后续行共用时长、曲线及起点。子项滑动时，裁剪坐标抵消它自己的位移。
+                const folded = {transform: `translateY(-${String(height)}px)`, opacity: 0, clipPath: `inset(${String(height - offset)}px 0 ${String(offset)}px 0)`};
+                const unfolded = {transform: "translateY(0)", opacity: getComputedStyle(rowElement).opacity, clipPath: `inset(${String(-offset)}px 0 ${String(offset + height - distance)}px 0)`};
+                motion.animations.push(rowElement.animate(opening ? [folded, unfolded] : [unfolded, folded], timing));
+            } else if (motion.following.has(id) && !leaving.has(rowElement)) {
+                motion.animations.push(rowElement.animate([{transform: `translateY(${String(-change * height)}px)`}, {transform: "translateY(0)"}], timing));
+            }
+        }
+    });
+});
+watch(rowHeight, finishFolderMotion);
 
 /**
  * 认预告：预告到达时记下移动源此刻的位置；之后每次刷新对一遍，认出的项放动画并划掉，`NOTE_TTL_MS` 内没认完的丢掉。
@@ -468,14 +550,22 @@ function nearestShown(address: string, indexOf: ReadonlyMap<string, number>): st
 }
 /** 移动的原地址的行离开时直接隐去，免得与滑过来的新行同时出现。 */
 const onRowLeave = (element: Element): void => {
-    const id = (element as HTMLElement).dataset.explorerRow;
-    if (id !== undefined && vanishing.has(id)) (element as HTMLElement).style.visibility = "hidden";
+    const rowElement = element as HTMLElement;
+    const id = rowElement.dataset.explorerRow ?? rowElement.dataset.explorerEdit;
+    const motion = folderMotion.value;
+    if (id !== undefined && motion !== null && !motion.opening && motion.children.has(id)) {
+        rowElement.inert = true;
+        motion.leaving.push(rowElement);
+    } else if (motion !== null || (id !== undefined && vanishing.has(id))) {
+        rowElement.style.visibility = "hidden";
+    }
 };
 const rowMotionStyle = (id: string): Record<string, string> => {
     const offset = flips.value.get(id);
     return offset === undefined ? {} : {transform: `translateY(${String(offset)}px)`, transition: "none"};
 };
 onBeforeUnmount(() => {
+    finishFolderMotion();
     for (const timer of [movingTimer, pendingTimer, glowTimer, returnTimer]) if (timer !== null) clearTimeout(timer);
 });
 
@@ -609,7 +699,8 @@ defineExpose({focus: focusTree});
             class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-hidden"
             :style="{'--explorer-row-height': `${String(rowHeight)}px`, '--explorer-expand-delay': `${String(EXPAND_HOVER_MS)}ms`}"
             data-explorer-tree
-            :data-motion="moving ? '' : undefined"
+            :data-motion="moving || folderMotion !== null ? '' : undefined"
+            :data-folder-motion="folderMotion !== null ? '' : undefined"
             :data-guides="indentGuides ?? 'hover'"
             @scroll="onScroll"
             @keydown="onKeydown"
@@ -617,7 +708,7 @@ defineExpose({focus: focusTree});
             @blur="onBlur"
         >
             <div ref="probe" class="nb-ui-control-h-sm pointer-events-none invisible absolute left-0 top-0 w-px" aria-hidden="true"></div>
-            <TransitionGroup name="explorer-row" tag="div" class="explorer-tree__rows relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" data-explorer-rows @before-leave="onRowLeave">
+            <TransitionGroup name="explorer-row" tag="div" class="explorer-tree__rows relative w-full" :style="{height: `${String(rows.length * rowHeight)}px`}" :duration="folderMotion === null ? undefined : {enter: 0, leave: folderMotion.duration}" data-explorer-rows @before-leave="onRowLeave">
                 <!-- 行左右留出视图外框给的内边距（nbook 是 6px）：悬停与选中的底色是圆角块，不贴着侧栏的边，块边与别的视图的内容边对齐。 -->
                 <ExplorerRow
                     v-for="item in rendered"
@@ -807,13 +898,13 @@ defineExpose({focus: focusTree});
     transition: left var(--motion-move) var(--ease-layout), top var(--motion-move) var(--ease-layout), opacity var(--motion-fast) var(--ease-layout) var(--motion-base);
 }
 
-.explorer-tree[data-motion] .explorer-tree__row {
+.explorer-tree[data-motion]:not([data-folder-motion]) .explorer-tree__row {
     transition: top var(--motion-move) var(--ease-layout), opacity var(--motion-base) var(--ease-layout), transform var(--motion-move) var(--ease-layout), background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 /* 从原位置滑过来的行不放进场动画：它的起点是原位置，不是上方一行。 */
-.explorer-tree[data-motion] .explorer-row-enter-from:not([data-motion-moved]),
-.explorer-tree[data-motion] .explorer-row-leave-to {
+.explorer-tree[data-motion]:not([data-folder-motion]) .explorer-row-enter-from:not([data-motion-moved]),
+.explorer-tree[data-motion]:not([data-folder-motion]) .explorer-row-leave-to {
     opacity: 0;
     transform: translateY(calc(-1 * var(--explorer-row-height)));
 }

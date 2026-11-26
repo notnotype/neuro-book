@@ -23,6 +23,10 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 - `web_search` 没给条数时每条查询回 5 条（原先一条查询 8 条），在“搜索规则”里改。
 - 网页工具的插件 id 改为 `nbook.web`（0.15.0 到 0.17.0 里是 `nbook.web-tools`），工具 id 随之改为 `nbook.web.search`、`nbook.web.fetch`，旧 id 不再认。写着旧 id 的设置不再生效：权限规则里按 `nbook.web-tools.fetch` 拒绝或询问的主机会照常放行，Profile 工具绑定里去掉的这两个工具会回来，自己写的 Profile 把旧 id 列为必需工具时用它的会话发一次就报缺工具、之后只读（改 Profile 后重开恢复），改过的 DeepSeek 地址回到缺省。权限规则请改用给模型的名字 `web_fetch`、`web_search` 来写（以后改 id 也不受影响）；`web_search` 的参数 `query` 换成了 `queries`，按参数 `query` 写的规则要改。已填的密钥照常可用。
 
+### 修复
+
+- 修复资源管理器展开和收起目录时子项短暂盖住相邻行的问题，保留滑动和淡入淡出动画。
+
 ## [0.17.0] - 2026-11-24
 
 ### 新增
