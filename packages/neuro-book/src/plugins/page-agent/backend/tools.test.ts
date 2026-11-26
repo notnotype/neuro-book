@@ -125,6 +125,17 @@ describe("截图（输出 8）", () => {
         expect(lateStatus).toBe(410);
     });
 
+    it("调用以失败结束后凭证随之作废：窗口这时才传的图得 410", async () => {
+        const {state, run, upload} = await setup();
+        let token = "";
+        state.capture = async (input) => {
+            token = input.token;
+            return {ok: false, code: "capture-failed", detail: {message: "画到一半出错"}};
+        };
+        expect(await run({})).toMatchObject({status: "error", code: "window-unresponsive"});
+        expect(await upload(token, JPEG_64X40)).toBe(410);
+    });
+
     it("选中的窗口看不见：window-hidden，不调窗口截图", async () => {
         const {state, run} = await setup({visible: false});
         expect(await run({})).toMatchObject({status: "error", code: "window-hidden"});

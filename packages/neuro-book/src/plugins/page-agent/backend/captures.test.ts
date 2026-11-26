@@ -76,6 +76,14 @@ describe("上传凭证（截图状态）", () => {
         expect(slot.take()).toBeNull();
     });
 
+    it("同一凭证的两笔同时到：先到的占住凭证，另一笔得 410，收下的是先到那笔", async () => {
+        const {store, put} = setup();
+        const slot = store.issue(live());
+        const responses = await Promise.all([put(slot.token, JPEG_64X40), put(slot.token, JPEG_1281X8)]);
+        expect(responses.map((response) => response.status)).toEqual([204, 410]);
+        expect(slot.take()).toEqual({bytes: JPEG_64X40, width: 64, height: 40});
+    });
+
     it("没带凭证、不认识的凭证得 410；别的网页来的得 403 且不占用凭证；没有正文得 400 并作废凭证", async () => {
         const {store, put} = setup();
         const slot = store.issue(live());

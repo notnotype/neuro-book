@@ -191,7 +191,7 @@ export function screenshotImplementation(deps: UiToolDeps): AgentToolImplementat
                     );
                     if (!result.ok) return windowCallFailure(result);
                     const image = slot.take();
-                    if (image === null || context.signal.aborted) return failureResult("window-unresponsive", "窗口说截好了，服务端没有收到合格的图：稍后重试", {cause: "capture-missing"});
+                    if (image === null) return failureResult("window-unresponsive", "窗口说截好了，服务端没有收到合格的图：稍后重试", {cause: "capture-missing"});
                     const {window, target} = result.value;
                     const what = target === "window" ? "窗口" : "控件";
                     return {
