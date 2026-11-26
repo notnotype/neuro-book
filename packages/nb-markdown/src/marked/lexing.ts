@@ -62,9 +62,9 @@ export interface Lexing {
 const IDENTITY_BASE = 0xe000;
 /** 一次分词最多这么多个原子（私用区共 6400 个字，身份字用 U+E000 到 U+F76F，填充字是 U+F8FE）。超出时不遮罩、照原文分词。 */
 export const ATOM_CAPACITY = 6000;
-const FILLER = "";
-const PRIVATE_USE = /[-]/gu;
-const PLACEHOLDER = /[-]*/gu;
+const FILLER = "\uf8fe";
+const PRIVATE_USE = /[\ue000-\uf8ff]/gu;
+const PLACEHOLDER = /[\ue000-\uf76f]\uf8fe*/gu;
 
 const tables = new WeakMap<object, ReadonlyMap<string, Atom>>();
 
@@ -74,7 +74,7 @@ export function atomAt(lexer: object, identity: string): Atom | undefined {
 }
 
 /** 原文里 `index` 处是不是占位的身份字。 */
-export const isAtomIdentity = (char: string | undefined): boolean => char !== undefined && char >= "" && char <= "";
+export const isAtomIdentity = (char: string | undefined): boolean => char !== undefined && char >= "\ue000" && char <= "\uf76f";
 
 interface Masked {
     readonly text: string;

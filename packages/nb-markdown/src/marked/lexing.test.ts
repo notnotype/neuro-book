@@ -25,11 +25,11 @@ function tagModule(onAtom?: (lexer: object, identity: string) => void): Markdown
                 name: "tagAtom",
                 level: "inline",
                 start: (src: string) => {
-                    const at = src.search(/<[-]/u);
+                    const at = src.search(/<[\ue000-\uf76f]/u);
                     return at < 0 ? undefined : at;
                 },
                 tokenizer(src: string) {
-                    const matched = /^<([-])*>/u.exec(src);
+                    const matched = /^<([\ue000-\uf76f])\uf8fe*>/u.exec(src);
                     if (matched === null) return undefined;
                     const identity = matched[1] as string;
                     onAtom?.(this.lexer, identity);
@@ -95,7 +95,7 @@ describe("不带编辑器的词法", () => {
 
     it("原文里的私用区字照常是文字，不与占位相混", () => {
         const lexing = createLexing([tagModule(), coreLexing]);
-        const source = "甲乙丙 <V of=\"a\">";
+        const source = "甲\ue000乙\uf8fe丙 <V of=\"a\">";
         const tokens = lexing.lexer().lex(source);
         expect(tokens[0]!.raw).toBe(source);
         expect(atomsOf(tokens)).toEqual(["V of=\"a\""]);
