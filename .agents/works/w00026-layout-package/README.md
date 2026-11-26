@@ -2,7 +2,7 @@
 schema: nbook.work/v1
 workId: w00026-layout-package
 issueId: null
-status: done
+status: active
 updated: 2026-11-26
 ---
 
