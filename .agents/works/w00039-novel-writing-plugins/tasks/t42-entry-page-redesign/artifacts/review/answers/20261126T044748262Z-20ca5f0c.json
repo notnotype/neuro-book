@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "answerId": "20261126T044748262Z-20ca5f0c",
+    "artifactVersion": 4,
+    "contentHash": "f92cf8392e212143e6305211767846c540f369660766ef635790d1ca5ef5489d",
+    "submittedAt": "2026-11-26T04:47:46.242Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "view-point": "merged",
+        "edit-style": "compact",
+        "long-text": "in-flow",
+        "edit-surface": "glass"
+    },
+    "comments": {
+        "view-point": "这个剧情多了，用户看起来是不是找起来比较麻烦？同时给我解释一下：故事线和剧情进度这两个概念，我感觉可以放一个 tooltip 在界面上解释",
+        "edit-style": "改第几章，第几章变了这个文案感觉不太合适。改动的时候用户不用填回执（为什么要改）的吗？",
+        "long-text": "这里会不会和：改一个值用哪种编辑控件？不够统一？"
+    },
+    "note": null
+}
