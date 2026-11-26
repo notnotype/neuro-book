@@ -54,6 +54,34 @@ describe("文档（resources.md 输出 16）", () => {
         expect(tsType({not: {}})).toBe("unknown");
     });
 
+    test("eval.md 输出 17：字段带说明或缺省时对象分行写、字段前写说明（注释结束符转义、换行折成空格）；更深一层带说明时外层也分行；都没有的仍是一行", () => {
+        const schema = {type: "object", required: ["query"], properties: {
+            query: {type: "string", description: "要找的词"},
+            limit: {type: "integer", default: 5},
+            scope: {type: "object", properties: {kind: {type: "string", description: "哪一类\n设置或命令 */ 都行", default: "all"}}},
+            tags: {type: "array", items: {type: "object", properties: {name: {type: "string", description: "标签名"}}}},
+            flag: {type: "boolean"},
+        }};
+        expect(tsType(schema)).toBe([
+            "{",
+            "    /** 要找的词 */",
+            "    query: string;",
+            "    /** 缺省 5 */",
+            "    limit?: number;",
+            "    scope?: {",
+            "        /** 哪一类 设置或命令 *\\/ 都行（缺省 \"all\"） */",
+            "        kind?: string;",
+            "    };",
+            "    tags?: Array<{",
+            "        /** 标签名 */",
+            "        name?: string;",
+            "    }>;",
+            "    flag?: boolean;",
+            "}",
+        ].join("\n"));
+        expect(tsType({type: "object", properties: {items: {type: "array", items: {type: "object", properties: {b: {type: "string"}}}}}})).toBe("{items?: Array<{b?: string}>}");
+    });
+
     test("文档写一行摘要、插件写的说明、每个方法的签名与说明；没声明 returns 的交回文字", () => {
         const doc = objectDoc({name: "page", plugin: "acme.a", summary: "看页面", docs: "先 snapshot 再操作。"}, [
             {object: "page", method: "snapshot", description: "取页面的快照。", parameters: {type: "object", properties: {}}, returns: {type: "object", properties: {nodes: {type: "array", items: {type: "string"}}}, required: ["nodes"]}},

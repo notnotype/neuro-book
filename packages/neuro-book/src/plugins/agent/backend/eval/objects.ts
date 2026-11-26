@@ -88,15 +88,16 @@ export async function writeEvalDocs(directory: string, docs: ReadonlyMap<string,
 
 /**
  * JSON Schema 到 TypeScript 类型的打印（技术选型：工具参数是 TypeBox 生成的 JSON Schema，只用到下面这几种）。认不出的写 `unknown`，
- * 宁可宽也不写错。
+ * 宁可宽也不写错。对象里有字段带 `description` 或 `default`（含更深一层的）时分行写、字段前写 JSDoc（eval.md 输出 17）；
+ * 都没有的仍是一行，现有方法的签名不变。`indent` 是这个类型所在那一行的缩进。
  */
-export function tsType(schema: unknown): string {
+export function tsType(schema: unknown, indent = ""): string {
     if (typeof schema !== "object" || schema === null) return "unknown";
     const node = schema as Record<string, unknown>;
     if ("const" in node) return JSON.stringify(node.const);
     if (Array.isArray(node.enum)) return node.enum.map((value) => JSON.stringify(value)).join(" | ");
-    for (const key of ["anyOf", "oneOf"] as const) if (Array.isArray(node[key])) return (node[key] as unknown[]).map(tsType).join(" | ");
-    if (Array.isArray(node.type)) return (node.type as unknown[]).map((type) => tsType({...node, type})).join(" | ");
+    for (const key of ["anyOf", "oneOf"] as const) if (Array.isArray(node[key])) return (node[key] as unknown[]).map((item) => tsType(item, indent)).join(" | ");
+    if (Array.isArray(node.type)) return (node.type as unknown[]).map((type) => tsType({...node, type}, indent)).join(" | ");
     switch (node.type) {
         case "string":
             return "string";
@@ -108,20 +109,55 @@ export function tsType(schema: unknown): string {
         case "null":
             return "null";
         case "array": {
-            const items = tsType(node.items);
+            const items = tsType(node.items, indent);
             return items.includes(" ") ? `Array<${items}>` : `${items}[]`;
         }
         case "object": {
-            const properties = (node.properties ?? {}) as Record<string, unknown>;
+            const properties = Object.entries((node.properties ?? {}) as Record<string, unknown>);
             const required = new Set(Array.isArray(node.required) ? (node.required as string[]) : []);
-            const fields = Object.entries(properties).map(([key, value]) => `${/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(key) ? key : JSON.stringify(key)}${required.has(key) ? "" : "?"}: ${tsType(value)}`);
-            const extra = node.additionalProperties;
-            if (typeof extra === "object" && extra !== null) fields.push(`[key: string]: ${tsType(extra)}`);
-            return fields.length === 0 ? "{}" : `{${fields.join("; ")}}`;
+            const extra = typeof node.additionalProperties === "object" && node.additionalProperties !== null ? node.additionalProperties : undefined;
+            const key = (name: string): string => `${/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name) ? name : JSON.stringify(name)}${required.has(name) ? "" : "?"}`;
+            if (!properties.some(([, value]) => documented(value)) && (extra === undefined || !documented(extra))) {
+                const fields = properties.map(([name, value]) => `${key(name)}: ${tsType(value)}`);
+                if (extra !== undefined) fields.push(`[key: string]: ${tsType(extra)}`);
+                return fields.length === 0 ? "{}" : `{${fields.join("; ")}}`;
+            }
+            const inner = `${indent}    `;
+            const lines = properties.flatMap(([name, value]) => {
+                const doc = fieldDoc(value);
+                return [...(doc === null ? [] : [`${inner}/** ${doc} */`]), `${inner}${key(name)}: ${tsType(value, inner)};`];
+            });
+            if (extra !== undefined) lines.push(`${inner}[key: string]: ${tsType(extra, inner)};`);
+            return `{\n${lines.join("\n")}\n${indent}}`;
         }
         default:
             return "unknown";
     }
+}
+
+/** 字段前的 JSDoc：说明加缺省值。说明里的星号加斜杠会提前结束注释，在斜杠前加反斜杠；换行折成空格。 */
+function fieldDoc(schema: unknown): string | null {
+    if (typeof schema !== "object" || schema === null) return null;
+    const node = schema as Record<string, unknown>;
+    const description = typeof node.description === "string" ? node.description.replace(/\s*\r?\n\s*/gu, " ").trim() : "";
+    const fallback = "default" in node ? `缺省 ${JSON.stringify(node.default)}` : "";
+    const text = description === "" ? fallback : fallback === "" ? description : `${description}（${fallback}）`;
+    return text === "" ? null : text.replaceAll("*/", "*\\/");
+}
+
+/** 这个 schema 或它里面的字段有没有要写进 JSDoc 的东西。 */
+function documented(schema: unknown): boolean {
+    if (typeof schema !== "object" || schema === null) return false;
+    if (fieldDoc(schema) !== null) return true;
+    const node = schema as Record<string, unknown>;
+    const children = [
+        ...Object.values((node.properties ?? {}) as Record<string, unknown>),
+        node.items,
+        node.additionalProperties,
+        ...(Array.isArray(node.anyOf) ? node.anyOf : []),
+        ...(Array.isArray(node.oneOf) ? node.oneOf : []),
+    ];
+    return children.some(documented);
 }
 
 // ─── eval 的说明 ─────────────────────────────────────────────
