@@ -341,10 +341,12 @@ const shapedLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.shapedLea
 /** 这一刻在交换里的叶（切换容器滚过去的两张卡片）：它们不算“角接过去”，侧轨前后都相连，不换画法。 */
 const swappingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.swappingLeaves ?? new Set());
 /**
- * 侧轨刚从断开变成相连时连上的那一列（`capLeaves`）：区域显示（从零宽长出来）。一直相连、只是换了一列（切换容器）时不算，
- * 别的变化与这一轮过渡结束都清掉。每条侧轨各按 id 的列表比，同一列重算出来的卡片不算变化。
+ * 侧轨刚从断开变成相连时连上的那一列（`capLeaves`）：区域显示（从零宽长出来）。一直相连、只是换了一列（切换容器）时不算。
+ * 每条侧轨各记各的（键是侧轨的叶）：自己的列表别的变化、自己那一列的过渡结束才清，另一条侧轨这时连上、断开都不碰它，两边同时过渡不互相冲掉。
+ * 按 id 的列表比，同一列重算出来的卡片不算变化。
  */
-const freshlyJoined = shallowRef<ReadonlySet<string>>(new Set());
+const freshByBar = shallowRef<ReadonlyMap<string, ReadonlySet<string>>>(new Map());
+const freshlyJoined = computed<ReadonlySet<string>>(() => new Set([...freshByBar.value.values()].flatMap((leaves) => [...leaves])));
 const barJoinedKeys = (all: Readonly<Record<string, CardEdges>>): Record<string, string> => Object.fromEntries(shellBars.value.map((bar) => [
     bar.leaf,
     Object.keys(all).filter((id) => joinedBarOf(id, all[id])?.leaf === bar.leaf).sort().join("\n"),
@@ -352,10 +354,20 @@ const barJoinedKeys = (all: Readonly<Record<string, CardEdges>>): Record<string,
 watch(() => JSON.stringify(barJoinedKeys(cards.value)), (now, before) => {
     const next = JSON.parse(now) as Record<string, string>;
     const previous = before === undefined ? {} : JSON.parse(before) as Record<string, string>;
-    freshlyJoined.value = new Set(Object.entries(next).flatMap(([leaf, leaves]) => ((previous[leaf] ?? "") === "" && leaves !== "" ? leaves.split("\n") : [])));
+    const fresh = new Map(freshByBar.value);
+    for (const [leaf, leaves] of Object.entries(next)) {
+        const was = previous[leaf] ?? "";
+        if (was === leaves) continue;
+        if (was === "" && leaves !== "") fresh.set(leaf, new Set(leaves.split("\n")));
+        else fresh.delete(leaf);
+    }
+    freshByBar.value = fresh;
 }, {flush: "sync"});
-watch(shapedLeaves, (shaped) => {
-    if (shaped.size === 0) freshlyJoined.value = new Set();
+watch(shapedLeaves, (shaped, before) => {
+    // 这条侧轨那一列的过渡结束（上一刻还有叶按卡片裁，这一刻一块都没有）才清它的记录；整个网格都没有过渡时全清。
+    const ended = (leaves: ReadonlySet<string>): boolean => shaped.size === 0 || ([...leaves].some((id) => before?.has(id) === true) && ![...leaves].some((id) => shaped.has(id)));
+    const kept = new Map([...freshByBar.value].filter(([, leaves]) => !ended(leaves)));
+    if (kept.size !== freshByBar.value.size) freshByBar.value = kept;
 });
 const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>(), strips: new Map<string, string | null>(), headless: new Set<string>()};
 /** 每条侧轨最近一次没和区域相连时朝着区域那一边的样子：区域长出来的这段侧轨照这个画（`cardOf`）。 */
@@ -829,15 +841,16 @@ defineExpose({
     pointer-events: none;
 }
 
-/*
- * 面板的角接过去的这段（`capOf`）：活动栏不画投影，伸过来的那一截压在它下面，投影会在上面描出它的右边与圆角（面板的投影这期间也裁掉了，结束时一起出现）；
- * 短线隐藏时淡出、显示时淡入，和网格的过渡同一个时长与曲线，减少动效时时长为 0、直接到位。
- */
+/* 右轨的短线在它左边（`barSeamOf` 给 `start`）。 */
 .workbench-surface__card[data-shell-join-seam="start"]::after {
     inset-inline-start: 0;
     inset-inline-end: auto;
 }
 
+/*
+ * 面板的角接过去的这段（`capOf`）：侧轨不画投影，伸过来的那一截压在它下面，投影会在上面描出它朝着区域那一边与圆角（面板的投影这期间也裁掉了，结束时一起出现）；
+ * 短线隐藏时淡出、显示时淡入，和网格的过渡同一个时长与曲线，减少动效时时长为 0、直接到位。
+ */
 .workbench-surface__card[data-shell-cap] {
     box-shadow: none;
 }

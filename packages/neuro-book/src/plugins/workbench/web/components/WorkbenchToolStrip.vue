@@ -182,7 +182,8 @@ const STEPS: Readonly<Record<string, (index: number, count: number) => number>> 
 function onKeydown(event: KeyboardEvent): void {
     const step = STEPS[event.key];
     const item = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-rail-item]") : null;
-    if (step === undefined || item === null || event.altKey || event.ctrlKey || event.metaKey) return;
+    // 项自己已经处理过的键不再走：“更多”的触发器在 ArrowDown 上打开菜单并 `preventDefault`，这里再挪焦点就和菜单抢。
+    if (step === undefined || item === null || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const items = railItems();
     const index = items.indexOf(item);
     if (index === -1) return;

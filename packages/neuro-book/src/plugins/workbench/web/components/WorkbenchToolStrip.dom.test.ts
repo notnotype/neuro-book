@@ -62,6 +62,17 @@ describe("WorkbenchToolStrip", () => {
         expect(tabStops(nav)).toEqual(["a"]);
     });
 
+    it("项自己处理过的方向键（“更多”的触发器打开菜单）不再挪焦点", async () => {
+        const wrapper = mount(WorkbenchToolStrip, {props: {label: "活动栏", moreLabel: "更多", entries: pressedAt(0, ["a", "b"]), items}, attachTo: document.body});
+        await nextTick();
+        const first = wrapper.get('[data-tool-entry="a"]').element as HTMLElement;
+        first.addEventListener("keydown", (event) => event.preventDefault());
+        first.focus();
+        first.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        await nextTick();
+        expect(document.activeElement).toBe(first);
+    });
+
     it("条里多出来的项（视图借来的那一段）照 DOM 顺序进同一条；走过的那项没了，Tab 停靠回到按下的入口", async () => {
         const wrapper = mount(WorkbenchToolStrip, {props: {label: "右栏", moreLabel: "更多", entries: pressedAt(0, ["a", "b"]), region: "auxiliarybar"}, attachTo: document.body});
         await nextTick();

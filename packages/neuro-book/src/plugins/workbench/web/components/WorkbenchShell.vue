@@ -31,7 +31,7 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {focusLandings, isSoleWindow, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import {entriesOnRail, focusLandings, isSoleWindow, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {ContainerEntry, FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -257,8 +257,8 @@ function stripWidthOf(region: PanelName): number | null {
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
 function viewActionsOf(viewId: string, panelId: string): TitleActionsModel {
-    // 浮动窗不在呈现尺寸里：按它记录里的矩形算。不读画出来的那份：缩放时它每帧变，所有面板头都要跟着重算。
-    const width = doc.value.floats.find((float) => float.panel === panelId)?.rect.width ?? state.value.presented[panelId]?.width ?? null;
+    // 和头接管标题区按同一个宽（`headWidthOf`）：区域收起的那段过渡里两边都按显示着的时候算，动作不先收进“⋯”。
+    const width = headWidthOf(panelId);
     return props.chrome?.viewActions(viewId, catalog.value.get(viewId)?.actions ?? [], resolver, instanceOf(viewId), buttonBudget(width, headReserved(panelId), Number.POSITIVE_INFINITY)) ?? NO_TITLE_ACTIONS;
 }
 
@@ -344,9 +344,13 @@ function headOfPanel(panelId: string) {
 const VIEW_HEAD_MIN_PX = 220;
 /**
  * 面板最近一次不为零的布局宽：区域隐藏、拖到零的那段过渡里它的宽是 0，接管与否照显示着的时候判，头不在收起过程中换画法（同 `stripWidthOf`）。
- * 浮动窗不在呈现尺寸里，按记录的矩形。只是缓存，读它的地方同时读了 `presented`。
+ * 浮动窗不在呈现尺寸里，按记录的矩形：不读画出来的那份，缩放时它每帧变，所有面板头都要跟着重算。只是缓存，读它的地方同时读了 `presented`；
+ * 文档里没有了的面板（编辑组每次拆分都是新 id）跟着删掉。
  */
 const panelWidths = new Map<string, number>();
+watch(() => doc.value.panels, (panels) => {
+    for (const id of panelWidths.keys()) if (panels[id] === undefined) panelWidths.delete(id);
+});
 function headWidthOf(panelId: string): number | null {
     const float = doc.value.floats.find((candidate) => candidate.panel === panelId);
     if (float !== undefined) return float.rect.width;
@@ -591,7 +595,7 @@ const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntrie
 const hostEl = ref<HTMLElement | null>(null);
 
 /**
- * 切换容器时卡片不动、里面的内容滚过去（输出 42）：侧栏竖着滚，右栏、底部面板在入口条下面横着滚（入口横着排，方向跟着入口）。网格同时只有一个交换，
+ * 切换容器时卡片不动、里面的内容滚过去（输出 42）：方向跟着入口排的方向，侧栏、右栏的入口竖排在侧轨上，竖着滚；底部面板在入口条下面横着滚。网格同时只有一个交换，
  * `token` 在三个区域之间递增；`WorkbenchSurface` 补上缝宽与裁切窗交给网格。`slides` 记每个区域滚过几次：入口的选中标记只在自己的区域滚的那一次滑过去。
  */
 const regionSwap = shallowRef<Omit<GridSwap, "gap" | "window"> | null>(null);
@@ -615,7 +619,7 @@ function prepareRegionSwap(region: PanelName, next: string): void {
         token: (regionSwap.value?.token ?? 0) + 1,
         leaving: sectionsOf(current),
         entering: sectionsOf(next),
-        axis: region === "sidebar" ? "height" : "width",
+        axis: entriesOnRail(region) ? "height" : "width",
         direction: order.indexOf(next) > order.indexOf(current) ? 1 : -1,
     };
     slides.value = {...slides.value, [region]: slides.value[region] + 1};
@@ -642,7 +646,7 @@ const stripEntries = computed((): Readonly<Record<"auxiliarybar" | "panel", Regi
     const entriesOf = (region: "auxiliarybar" | "panel"): RegionStripEntry[] => {
         const showing = regionShowing(region);
         // 底部面板的入口是容器的标题，只含一个视图的写那个视图的计数（views.md 输出 17）：并成一行时头不写标题，计数只在这里；几个视图的容器各节头
-        // 已经各写各的数，入口不再写合计。右栏的入口是图标，没有节头，写容器的合计。
+        // 已经各写各的数，入口不再写合计。右栏的入口是右轨上的图标，没有节头，写容器的合计。
         return regionEntries(renderedDoc.value, region, catalog.value, state.value.containers).map((entry) => entryOf(entry, entry.current && showing, (viewId) => (region === "panel" ? (viewId !== null ? props.views.badge?.(viewId) ?? null : null) : containerCount(entry.views))));
     };
     return {auxiliarybar: entriesOf("auxiliarybar"), panel: entriesOf("panel")};
@@ -749,7 +753,7 @@ function titleIn(head: HTMLElement | null): HTMLElement | null {
 
 /** 落点在界面上对应的元素；不保证看得见，调用方用 `reachable` 筛。 */
 function landingElement(root: HTMLElement, landing: FocusLanding): HTMLElement | null {
-    // 侧栏的入口在活动栏（`data-tool-entry`），右栏、底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
+    // 侧栏、右栏的入口在侧轨（`data-tool-entry`），底部面板的在入口条（`data-region-entry`）；容器 id 在三个区域里不重。
     if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"], [data-region-entry="${CSS.escape(landing.container)}"]`);
     const tab = titleIn(root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"]`));
     if (landing.kind === "tab") return tab;
@@ -804,7 +808,7 @@ function onHeadMounted(panelId: string): void {
     });
 }
 
-/** 工具面板的落点按 `focusLandings`：同一面板看得见的标签，切走容器后新容器的第一个分节，活动栏里它那个容器的入口。 */
+/** 工具面板的落点按 `focusLandings`：同一面板看得见的标签，切走容器后新容器的第一个分节，侧轨（活动栏、右轨）或底部面板入口条里它那个容器的入口。 */
 const panelLandings = (panel: string) => (root: HTMLElement): ReadonlyArray<HTMLElement | null> => focusLandings(doc.value, panel).map((landing) => landingElement(root, landing));
 
 /** 内容被停放时焦点在里面（表面报上来的）。编辑器的内容没有所属的活动栏入口，去活动编辑组的活动标签。 */

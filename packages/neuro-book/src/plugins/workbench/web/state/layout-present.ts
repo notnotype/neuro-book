@@ -157,8 +157,12 @@ export function titleOnlyPanels(doc: LayoutDoc): ReadonlySet<string> {
  *
  * - `tab`：面板还显示着，只是内容被停放（收成标题行、被最大化盖住），去它头上的标签。
  * - `section`：面板不显示了，区域还显示着、只是切走了容器，去新容器的第一个分节（输出 42）。
- * - `entry`：去它那个容器的入口：侧栏的在活动栏上，一直看得见；右栏、底部面板的在区域卡片顶上的入口条里（输出 47），区域隐藏或拖到零时入口条跟着缩没了，不算落点。
+ * - `entry`：去它那个容器的入口：侧栏、右栏的在侧轨上（活动栏、右轨，输出 50），区域隐藏、拖到零、放不下被收走时侧轨都在，一直看得见；
+ *   底部面板的在区域卡片顶上的入口条里（输出 47），区域隐藏或拖到零时入口条跟着缩没了，不算落点。
  */
+/** 这个区域的容器入口在侧轨上（侧栏在活动栏、右栏在右轨，输出 50），不在区域卡片顶上的入口条里：区域看不见时入口也还在。 */
+export const entriesOnRail = (region: PanelName): boolean => region !== "panel";
+
 export type FocusLanding =
     | {readonly kind: "tab" | "section"; readonly panel: string}
     | {readonly kind: "entry"; readonly container: string};
@@ -175,7 +179,7 @@ export function focusLandings(doc: LayoutDoc, panelId: string): ReadonlyArray<Fo
     const first = shown || anchor.hidden === true || current === null || current === panel.container ? undefined : regionContainers(doc, region).find((container) => container.id === current)?.sections[0];
     if (first !== undefined) landings.push({kind: "section", panel: first});
     // 缩没了的入口条里的按钮还在 DOM 里、也不 inert，调用方按“画出来了”筛不掉它，所以在这里按文档排除。
-    if (region === "sidebar" || (anchor.hidden !== true && anchor.collapsed !== true)) landings.push({kind: "entry", container: panel.container});
+    if (entriesOnRail(region) || (anchor.hidden !== true && anchor.collapsed !== true)) landings.push({kind: "entry", container: panel.container});
     return landings;
 }
 

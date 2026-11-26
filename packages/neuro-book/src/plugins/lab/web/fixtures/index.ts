@@ -530,7 +530,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "many", label: "容器多：放不下时后面的收进“更多”，当前容器的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的当前容器", "i-lucide-star", true)], items}}},
                 {id: "empty", label: "侧栏里没有容器", input: {props: {...base, entries: [], items}}},
                 {id: "right", label: "右轨：右栏的容器，没有全局项，提示朝左开", input: {props: {...base, label: "右栏", region: "auxiliarybar" as const, joined: true, entries: entries.slice(0, 2)}}},
-                {id: "right-english", label: "Right rail, English tooltips (390 wide)", input: {props: {label: "Secondary side bar", moreLabel: "More", region: "auxiliarybar" as const, entries: [{id: "view:messages", label: "Messages", icon: "i-lucide-message-square", tooltip: "Messages: conversations with bots and agents", viewId: "messages", current: true, pressed: true}, {id: "view:outline", label: "Outline", icon: "i-lucide-list-tree", tooltip: "Outline", viewId: "outline", current: false, pressed: false}]}}},
+                {id: "right-english", label: "Right rail, English tooltips", input: {props: {label: "Secondary side bar", moreLabel: "More", region: "auxiliarybar" as const, entries: [{id: "view:messages", label: "Messages", icon: "i-lucide-message-square", tooltip: "Messages: conversations with bots and agents", viewId: "messages", current: true, pressed: true}, {id: "view:outline", label: "Outline", icon: "i-lucide-list-tree", tooltip: "Outline", viewId: "outline", current: false, pressed: false}]}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
