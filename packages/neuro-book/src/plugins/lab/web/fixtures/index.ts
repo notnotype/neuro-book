@@ -2198,8 +2198,8 @@ function canonEntryPageFixtures() {
             component: "EntryTextEditor",
             scenes: (() => {
                 const base = {problem: "", dirty: false, saved: "none" as const, phase: "idle" as const, submitBlocked: "", message: ""};
-                const plain = "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的。\n\n存款 {panel.存款} 联邦币。";
-                const inserts = [{label: "面板 · 存款", snippet: "{panel.存款}"}, {label: "面板 · 魔力", snippet: "{panel.魔力}"}, {label: "人物 · 外观", snippet: "{character.外观}"}];
+                const plain = "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的。\n\n存款 <V of=\"panel.存款\" /> 联邦币。";
+                const inserts = [{label: "面板 · 存款", snippet: "<V of=\"panel.存款\" />"}, {label: "面板 · 魔力", snippet: "<V of=\"panel.魔力\" />"}, {label: "人物 · 外观", snippet: "<V of=\"character.外观\" />"}];
                 return [
                     {id: "clean", label: "刚进编辑：没有改动，右边是“取消”", input: {props: {...base, text: plain, inserts}, model: {preview: false}}},
                     {id: "empty", label: "没有主文字：一个空的输入框", input: {props: {...base, text: "", inserts}, model: {preview: false}}},
@@ -2219,9 +2219,9 @@ function canonEntryPageFixtures() {
                     {id: "preview", label: "预览开着：够宽时左右各半，窄处预览排在下面", input: {props: {...base, dirty: true, saved: "saved", text: `## 近况\n\n${plain}`, inserts}, model: {preview: true}}},
                     {id: "preview-problem", label: "预览开着、写得不对：栏顶上写行与原因，栏里是上一次的样子", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n魔力 {panel.魔力`, previewNote: "第 7 行第 4 列写得不对：Unexpected end of file in expression, expected a corresponding closing brace for `{`", inserts}, model: {preview: true}}},
                     {id: "preview-long", label: "预览开着、四十段：预览栏自己滚", input: {props: {...base, text: Array.from({length: 40}, (_, index) => `第 ${String(index + 1)} 段的文字，写得长一点好看出两栏各自折行以后的高度差多少。`).join("\n\n"), inserts}, model: {preview: true}}},
-                    {id: "preview-english", label: "英文界面：预览开着", input: {props: {...base, dirty: true, saved: "saved", text: "## Lately\n\nXingxia rarely leaves her flat; she lives on contract work for small studios.\n\nSavings: {panel.存款} credits.", previewNote: "Line 5, column 10 is not valid: Unexpected end of file in expression", inserts: [{label: "Panel · Savings", snippet: "{panel.存款}"}]}, model: {preview: true}}},
-                    {id: "dirty-english", label: "英文界面", input: {props: {...base, dirty: true, saved: "saved", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.\n\nHer silver hair is natural.", inserts: [{label: "Panel · Savings", snippet: "{panel.存款}"}]}, model: {preview: false}}},
-                    {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, dirty: true, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.", inserts: [{label: "Panel · Savings", snippet: "{panel.存款}"}]}, model: {preview: false}}},
+                    {id: "preview-english", label: "英文界面：预览开着", input: {props: {...base, dirty: true, saved: "saved", text: "## Lately\n\nXingxia rarely leaves her flat; she lives on contract work for small studios.\n\nSavings: <V of=\"panel.存款\" /> credits.", previewNote: "Line 5, column 10 is not valid: Unexpected end of file in expression", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: true}}},
+                    {id: "dirty-english", label: "英文界面", input: {props: {...base, dirty: true, saved: "saved", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.\n\nHer silver hair is natural.", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: false}}},
+                    {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, dirty: true, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: false}}},
                 ];
             })(),
             load: async () => (await import("./EntryTextEditorFixture.vue")).default,
@@ -2248,7 +2248,7 @@ function canonEntryPageFixtures() {
         defineLabFixture<typeof PlainSourceInput>({
             component: "PlainSourceInput",
             scenes: [
-                {id: "text", label: "两段文字", input: {props: {label: "第 1 块的源文字"}, model: {modelValue: "第一段。\n\n第二段，{panel.存款} 这样的表达式照写。"}}},
+                {id: "text", label: "两段文字", input: {props: {label: "第 1 块的源文字"}, model: {modelValue: "第一段。\n\n第二段，<V of=\"panel.存款\" /> 这样的表达式照写。"}}},
                 {id: "empty", label: "空的", input: {props: {label: "第 1 块的源文字"}, model: {modelValue: ""}}},
                 {id: "readonly", label: "只读", input: {props: {label: "第 1 块的源文字", readonly: true}, model: {modelValue: "提交期间不能输入。"}}},
                 {id: "text-english", label: "英文", input: {props: {label: "Source of block 1"}, model: {modelValue: "A long English line that keeps going so that it has to wrap inside a narrow container without overflowing."}}},

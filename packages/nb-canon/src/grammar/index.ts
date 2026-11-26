@@ -11,5 +11,5 @@ export {checkEntryText, BUILTIN_TAGS} from "./check";
 export type {CheckOptions, CheckProblem} from "./check";
 export {evaluate, hasField, memberReference, parseAddress, parseExpression} from "./expression";
 export type {Evaluated, ExpressionError, ExpressionResult, FieldReference, ParsedExpression, Resolved} from "./expression";
-export {canonicalEntryText, decorateEntryText, stripEntryText} from "./text";
+export {canonicalEntryText, decorateEntryText, rewriteEntryIds, stripEntryText} from "./text";
 export type {Decoration} from "./text";

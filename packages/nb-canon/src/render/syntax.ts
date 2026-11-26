@@ -1,26 +1,32 @@
 /**
- * 主 MDX 一块的解析与白名单（docs/specs/canon/rendering.md 输入与前置条件、输出 1、2、4）。
+ * 主文字一块的解析、写入检查与渲染前的分析（docs/specs/canon/rendering.md 输入与前置条件、输出 1、4、17、18、19）。读法与检查本身在
+ * `../grammar`（编辑器用同一份）；这里按源文缓存解析结果，并把每个标签的意思（地址、式子、条件的各支）先算好，三种渲染共用。
  *
- * 只解析成语法树、不编译、不执行：表达式由 micromark 的 mdxjs 扩展交给 acorn 解析成 ESTree，这里按节点表逐个查。
- * 必须带 ESM 扩展，否则 `import` 会被当成普通文字放行（t29 依赖试验）。解析结果按源文缓存：同一块渲染很多次，
- * 源文不变时只解析一次。
+ * 只有存下来的块进缓存：同一块渲染很多次，源文不变时只解析一次。预览的源文字每次都不一样，用 `analyzeDraft`，不留结果。
  */
 
-import type {Expression, Node as EsNode} from "estree";
-import type {Root} from "mdast";
-import {fromMarkdown} from "mdast-util-from-markdown";
-import {gfmStrikethroughFromMarkdown} from "mdast-util-gfm-strikethrough";
-import {gfmTableFromMarkdown} from "mdast-util-gfm-table";
-import {mdxFromMarkdown} from "mdast-util-mdx";
-import {cjkFriendlyExtension} from "micromark-extension-cjk-friendly";
-import {gfmStrikethrough} from "micromark-extension-gfm-strikethrough";
-import {gfmTable} from "micromark-extension-gfm-table";
-import {mdxjs} from "micromark-extension-mdxjs";
+import {
+    BUILTIN_TAGS,
+    canonicalEntryText,
+    checkEntryText,
+    normalizeEntrySource,
+    parseAddress,
+    parseEntryText,
+    parseExpression,
+    positionOf,
+    tagText,
+    type CheckProblem,
+    type EntryIfToken,
+    type EntryTag,
+    type FieldReference,
+    type GrammarCode,
+    type ParsedEntryText,
+    type ParsedExpression,
+} from "../grammar/index";
+import {childLists} from "../grammar/parse";
 
-import {formatPath, parsePath} from "../core/address";
-import {RESERVED_ROOTS} from "../core/identifiers";
-
-export type SyntaxCode = "mdx-invalid" | "forbidden-syntax" | "unknown-tag" | "no-field-expression" | "cross-block";
+export type {FieldReference};
+export type SyntaxCode = GrammarCode;
 
 export interface SyntaxProblem {
     readonly code: SyntaxCode;
@@ -29,279 +35,174 @@ export interface SyntaxProblem {
     readonly message: string;
 }
 
-/** 表达式里的一个字段引用：`entry` 为 null 表示本条目，否则是 `ref("…")` 给的条目 id。 */
-export interface FieldReference {
-    readonly entry: string | null;
-    readonly path: string;
+/** 一个标签的意思：取值、计算值、条件的头、条目引用、图片，或没登记的标签。字面的标签也算（纯文字的静态收集要看它们）。 */
+export type TagMeaning =
+    | {readonly kind: "value"; readonly of: FieldReference}
+    | {readonly kind: "computed"; readonly expr: ParsedExpression; readonly source: string}
+    | {readonly kind: "test"; readonly test: ParsedExpression}
+    | {readonly kind: "ref"; readonly id: string}
+    | {readonly kind: "image"; readonly src: string | null; readonly of: FieldReference | null; readonly alt: string}
+    | {readonly kind: "unregistered"}
+    | {readonly kind: "other"};
+
+/** 一个条件：开标签、各支起头的标签（`If`、`ElseIf`、`Else`）与闭标签的序号，各支内容在原文里的起止。 */
+export interface Condition {
+    readonly open: number;
+    readonly close: number;
+    readonly branches: ReadonlyArray<{readonly head: number; readonly from: number; readonly to: number}>;
 }
 
-/** 块里的一处表达式（正文里的 `{…}` 或标签属性里的表达式），带源文里的起止偏移（含花括号）。 */
-export interface ExpressionSite {
-    readonly start: number;
-    readonly end: number;
-    /** 花括号里面的原文。 */
+export interface BlockAnalysis {
     readonly source: string;
-    /** 只含注释的表达式没有树。 */
-    readonly expression: Expression | null;
-    /** 只有一个字段引用、没有别的运算（带值写法写成 `=` 形式）。 */
-    readonly reference: FieldReference | null;
-    readonly references: readonly FieldReference[];
+    readonly parsed: ParsedEntryText;
+    /** 渲染时让整块出错的问题（不可免的第一个）；没登记的标签不算，渲染时照“需要插件”给。 */
+    readonly error: SyntaxProblem | null;
+    /** 与 `parsed.tags` 一一对应。 */
+    readonly meanings: readonly TagMeaning[];
+    readonly conditions: readonly Condition[];
+    /** 读不出结构（嵌套太深）：`parsed` 是空的，`error` 是不可免的问题。 */
+    readonly unreadable?: true;
 }
 
-export interface RefTag {
-    readonly start: number;
-    readonly end: number;
-    readonly id: string;
+function syntaxProblem(source: string, problem: CheckProblem): SyntaxProblem {
+    const {line, column} = positionOf(source, problem.offset);
+    return {code: problem.code, line, column, message: problem.message};
 }
 
-/** 一个 `<Image>` 标签的起止与说明：纯文字的渲染整个换成说明（rendering.md 输出 15）。`alt` 写成表达式时 `alt` 为 null、`altExpression` 为真。 */
-export interface ImageTag {
-    readonly start: number;
-    readonly end: number;
-    readonly alt: string | null;
-    readonly altExpression: boolean;
+/** 规范写法的一个标签（输出 18、19：没登记的标签按它与条目里已有的比）。 */
+export const canonicalTag = (tag: EntryTag): string => tagText(tag.name, tag.attributes.map((attribute) => [attribute.name, attribute.value] as const), tag.kind === "close" ? "close" : tag.kind === "open" ? "open" : "self");
+
+const attribute = (tag: EntryTag, name: string): string | undefined => tag.attributes.find((candidate) => candidate.name === name)?.value;
+
+function meaningOf(tag: EntryTag): TagMeaning {
+    if (tag.kind === "malformed" || tag.kind === "close") return {kind: "other"};
+    switch (tag.name) {
+        case "V": {
+            const of = attribute(tag, "of");
+            if (of !== undefined) {
+                const address = parseAddress(of);
+                const entry = attribute(tag, "entry");
+                return address.ok ? {kind: "value", of: {entry: entry ?? null, path: address.path}} : {kind: "other"};
+            }
+            const expr = attribute(tag, "expr");
+            const parsed = expr === undefined ? null : parseExpression(expr);
+            return parsed !== null && parsed.ok ? {kind: "computed", expr: parsed.expression, source: (expr as string).trim()} : {kind: "other"};
+        }
+        case "If":
+        case "ElseIf": {
+            const test = attribute(tag, "test");
+            const parsed = test === undefined ? null : parseExpression(test);
+            return parsed !== null && parsed.ok ? {kind: "test", test: parsed.expression} : {kind: "other"};
+        }
+        case "Ref": {
+            const id = attribute(tag, "id");
+            return id === undefined ? {kind: "other"} : {kind: "ref", id};
+        }
+        case "Image": {
+            const of = attribute(tag, "of");
+            const address = of === undefined ? null : parseAddress(of);
+            return {kind: "image", src: attribute(tag, "src") ?? null, of: address !== null && address.ok ? {entry: null, path: address.path} : null, alt: attribute(tag, "alt") ?? ""};
+        }
+        default:
+            return BUILTIN_TAGS.has(tag.name) ? {kind: "other"} : {kind: "unregistered"};
+    }
 }
 
-export interface ParsedBlock {
-    readonly tree: Root;
-    readonly expressions: readonly ExpressionSite[];
-    readonly refs: readonly RefTag[];
-    readonly images: readonly ImageTag[];
+function conditionsOf(parsed: ParsedEntryText): Condition[] {
+    const found: Condition[] = [];
+    const visit = (tokens: readonly unknown[]): void => {
+        for (const token of tokens as Array<{type: string}>) {
+            if (token.type === "entryIf") {
+                const entryIf = token as unknown as EntryIfToken;
+                const heads = entryIf.branches.map((branch) => branch.head);
+                const tags = parsed.tags;
+                found.push({
+                    open: entryIf.open,
+                    close: entryIf.close,
+                    branches: heads.map((head, index) => ({head, from: (tags[head] as EntryTag).end, to: (tags[heads[index + 1] ?? entryIf.close] as EntryTag).start})),
+                });
+                for (const branch of entryIf.branches) visit(branch.tokens);
+                continue;
+            }
+            for (const child of childLists(token as never)) visit(child);
+        }
+    };
+    visit(parsed.tokens);
+    return found.sort((left, right) => (parsed.tags[left.open] as EntryTag).start - (parsed.tags[right.open] as EntryTag).start);
 }
 
-export type ParseResult = {readonly ok: true; readonly block: ParsedBlock} | {readonly ok: false; readonly problem: SyntaxProblem};
+/**
+ * 嵌套深到分词时栈溢出的源文（几万层引用这类，只会来自粘贴）：读不出结构，整块按出错给，写入时拒收。不让 `RangeError` 从写入与渲染里
+ * 抛出去：调用方会收到一个说不清原因的内部错误。
+ */
+const TOO_DEEP = {code: "unsupported-markdown", line: 1, column: 1, message: "Nested too deeply to read; split it or flatten the quotes and lists"} as const satisfies SyntaxProblem;
 
-const BINARY = new Set(["==", "!=", "===", "!==", "<", "<=", ">", ">="]);
-const LOGICAL = new Set(["&&", "||"]);
-const TAGS: Readonly<Record<string, ReadonlySet<string>>> = {Ref: new Set(["id"]), Image: new Set(["src", "alt"])};
+function readable(source: string): ParsedEntryText | null {
+    try {
+        return parseEntryText(source);
+    } catch (error) {
+        if (error instanceof RangeError) return null;
+        throw error;
+    }
+}
 
-const cache = new Map<string, ParseResult>();
+function analyzeUncached(source: string): BlockAnalysis {
+    const parsed = readable(source);
+    if (parsed === null) return {source, parsed: parseEntryText(""), error: TOO_DEEP, unreadable: true, meanings: [], conditions: []};
+    const problems = checkEntryText(parsed);
+    const first = problems.find((problem) => problem.excusable !== true);
+    return {source, parsed, error: first === undefined ? null : syntaxProblem(source, first), meanings: parsed.tags.map(meaningOf), conditions: conditionsOf(parsed)};
+}
+
+const cache = new Map<string, BlockAnalysis>();
 const CACHE_LIMIT = 10_000;
 
-/** 解析一块；`namespaces` 为空时任何命名空间名都当作合法的根（本条目的命名空间在渲染时才知道，写入时由引擎校验字段）。 */
-export function parseBlock(source: string): ParseResult {
+/** 分析一块存下来的源文（带缓存）。 */
+export function analyzeBlock(source: string): BlockAnalysis {
     const cached = cache.get(source);
     if (cached !== undefined) return cached;
-    const result = parseUncached(source);
+    const result = analyzeUncached(source);
     if (cache.size >= CACHE_LIMIT) cache.clear();
     cache.set(source, result);
     return result;
 }
 
 /**
- * 解析一段没存下来的源文字（按给的源文字渲染，rendering.md 输出 16）：结果不进缓存。缓存是给存下来的块用的，它们的原文稳定；
- * 预览的源文字作者每停顿一次就换一份，留下来的全是再也用不到的整篇与语法树。缓存里正好有（与某个存下来的块相同）就用。
+ * 分析一段没存下来的源文字（按给的源文字渲染，输出 16）：结果不进缓存。缓存是给存下来的块用的，它们的原文稳定；预览的源文字作者每停顿
+ * 一次就换一份。缓存里正好有（与某个存下来的块相同）就用。
  */
-export function parseDraft(source: string): ParseResult {
-    return cache.get(source) ?? parseUncached(source);
+export function analyzeDraft(source: string): BlockAnalysis {
+    return cache.get(source) ?? analyzeUncached(source);
 }
 
-function parseUncached(source: string): ParseResult {
-    let tree: Root;
-    try {
-        tree = fromMarkdown(source, {
-            extensions: [mdxjs(), gfmTable(), gfmStrikethrough(), cjkFriendlyExtension()],
-            mdastExtensions: [mdxFromMarkdown(), gfmTableFromMarkdown(), gfmStrikethroughFromMarkdown()],
-        });
-    } catch (error) {
-        const place = (error as {place?: {line?: number; column?: number; start?: {line: number; column: number}}}).place;
-        const line = place?.line ?? place?.start?.line ?? 1;
-        const column = place?.column ?? place?.start?.column ?? 1;
-        const message = error instanceof Error ? error.message : String(error);
-        // 标签或表达式到块末尾还没闭合：块不是闭合的语法单元。
-        const code: SyntaxCode = /end of file|closing tag/iu.test(message) ? "cross-block" : "mdx-invalid";
-        return {ok: false, problem: {code, line, column, message}};
-    }
-    const expressions: ExpressionSite[] = [];
-    const refs: RefTag[] = [];
-    const images: ImageTag[] = [];
-    let problem: SyntaxProblem | null = null;
-    const fail = (code: SyntaxCode, node: {position?: {start: {line: number; column: number}}}, message: string) => {
-        problem ??= {code, line: node.position?.start.line ?? 1, column: node.position?.start.column ?? 1, message};
-    };
-
-    const visit = (node: Record<string, unknown> & {type: string; position?: {start: {line: number; column: number; offset?: number}; end: {offset?: number}}}) => {
-        if (problem !== null) return;
-        switch (node.type) {
-            case "mdxjsEsm":
-                fail("forbidden-syntax", node, "import and export are not allowed");
-                return;
-            case "mdxFlowExpression":
-            case "mdxTextExpression": {
-                const site = expressionSite(source, node, fail);
-                if (site !== null) expressions.push(site);
-                return;
-            }
-            case "mdxJsxFlowElement":
-            case "mdxJsxTextElement": {
-                const name = node.name as string | null;
-                const allowed = name === null ? undefined : TAGS[name];
-                if (allowed === undefined) {
-                    fail("unknown-tag", node, `tag <${String(name)}> is not allowed`);
-                    return;
-                }
-                if (Array.isArray(node.children) && node.children.length > 0) {
-                    fail("unknown-tag", node, `<${name!}> takes no children`);
-                    return;
-                }
-                for (const attribute of node.attributes as Array<Record<string, unknown> & {type: string; name?: string; value?: unknown}>) {
-                    if (attribute.type !== "mdxJsxAttribute" || attribute.name === undefined || !allowed.has(attribute.name)) {
-                        fail("unknown-tag", node, `attribute ${String(attribute.name)} is not allowed on <${name!}>`);
-                        return;
-                    }
-                    const value = attribute.value as (Record<string, unknown> & {type: string; position?: never}) | string | null | undefined;
-                    if (value !== null && typeof value === "object") {
-                        if (name === "Ref") {
-                            fail("unknown-tag", node, "Ref id must be a literal");
-                            return;
-                        }
-                        const site = attributeSite(source, value, fail, node);
-                        if (site !== null) expressions.push(site);
-                    } else if (name === "Ref" && attribute.name === "id") {
-                        const start = node.position?.start.offset ?? 0;
-                        const end = node.position?.end.offset ?? start;
-                        refs.push({start, end, id: String(value ?? "")});
-                    }
-                }
-                if (name === "Image") {
-                    const start = node.position?.start.offset ?? 0;
-                    const alt = (node.attributes as Array<{name?: string; value?: unknown}>).find((attribute) => attribute.name === "alt")?.value;
-                    images.push({start, end: node.position?.end.offset ?? start, alt: typeof alt === "string" ? alt : null, altExpression: alt !== null && typeof alt === "object"});
-                }
-                return;
-            }
-            default:
-                for (const child of (node.children as typeof node[] | undefined) ?? []) visit(child);
-        }
-    };
-    visit(tree as unknown as Parameters<typeof visit>[0]);
-    if (problem !== null) return {ok: false, problem};
-    expressions.sort((a, b) => a.start - b.start);
-    return {ok: true, block: {tree, expressions, refs, images}};
+/** 写入检查的选项。`existing` 判断一个没登记的标签（规范写法）是否已在这个条目当前的主文字里：在的放行（输出 19）。 */
+export interface BlockCheckOptions {
+    readonly registered?: ReadonlySet<string>;
+    readonly existing?: (canonical: string) => boolean;
 }
 
-type Fail = (code: SyntaxCode, node: {position?: {start: {line: number; column: number}}}, message: string) => void;
-
-function expressionSite(source: string, node: Record<string, unknown> & {position?: {start: {offset?: number}; end: {offset?: number}}}, fail: Fail): ExpressionSite | null {
-    const start = node.position?.start.offset ?? 0;
-    const end = node.position?.end.offset ?? start;
-    return siteFrom(source, start, end, node.data as {estree?: {body: Array<{type: string; expression?: Expression}>}} | undefined, node as never, fail);
+/** 写入时检查一块（输出 1、19；源文已规范化）；合格返回 null。 */
+export function blockProblem(source: string, options: BlockCheckOptions = {}): SyntaxProblem | null {
+    const analysis = analyzeBlock(source);
+    if (analysis.unreadable === true) return analysis.error;
+    const parsed = analysis.parsed;
+    for (const problem of checkEntryText(parsed, {registered: options.registered})) {
+        if (problem.excusable === true && problem.tag !== undefined && options.existing?.(canonicalTag(parsed.tags[problem.tag] as EntryTag)) === true) continue;
+        return syntaxProblem(source, problem);
+    }
+    return null;
 }
 
-function attributeSite(source: string, value: Record<string, unknown>, fail: Fail, owner: {position?: {start: {line: number; column: number}}}): ExpressionSite | null {
-    // 属性值表达式的节点没有自己的位置：在属性的原文里找到花括号的起止。
-    const text = value.value as string;
-    const estree = (value.data as {estree?: {body: Array<{type: string; expression?: Expression; start?: number}>}} | undefined)?.estree;
-    const first = estree?.body[0] as {expression?: {start?: number}} | undefined;
-    const inner = first?.expression?.start;
-    let start = inner === undefined ? source.indexOf(`{${text}}`) : source.lastIndexOf("{", inner);
-    if (start < 0) start = source.indexOf(`{${text}}`);
-    return siteFrom(source, start, start + text.length + 2, value.data as never, owner as never, fail);
+/** 一块源文里活的、没登记的标签的规范写法（给 `existing` 的基线）。 */
+export function unregisteredTags(source: string): string[] {
+    const analysis = analyzeBlock(source);
+    return analysis.parsed.tags.filter((tag, index) => tag.place === "live" && analysis.meanings[index]?.kind === "unregistered").map(canonicalTag);
 }
 
-function siteFrom(source: string, start: number, end: number, data: {estree?: {body: Array<{type: string; expression?: Expression}>; comments?: readonly unknown[]}} | undefined, node: {position?: {start: {line: number; column: number}}}, fail: Fail): ExpressionSite | null {
-    const inner = source.slice(start + 1, end - 1);
-    const body = data?.estree?.body ?? [];
-    if (body.length === 0) {
-        // 只含注释的表达式放行（rendering.md 白名单）；空的 `{}` 与只有空白的不引用任何字段，按 no-field-expression 拒收。
-        if ((data?.estree?.comments?.length ?? 0) > 0) return {start, end, source: inner, expression: null, reference: null, references: []};
-        fail("no-field-expression", node, "expression references no field; escape braces in prose as \\{");
-        return null;
-    }
-    const statement = body[0]!;
-    if (body.length !== 1 || statement.type !== "ExpressionStatement" || statement.expression === undefined) {
-        fail("forbidden-syntax", node, "only a single expression is allowed");
-        return null;
-    }
-    // 先看有没有字段引用：一个都没有的多半是正文里的花括号，提示转义比报“语法不允许”有用（输出 1）。
-    if (!mentionsField(statement.expression)) {
-        fail("no-field-expression", node, "expression references no field; escape braces in prose as \\{");
-        return null;
-    }
-    const references: FieldReference[] = [];
-    const problem = check(statement.expression, references);
-    if (problem !== null) {
-        fail("forbidden-syntax", node, problem);
-        return null;
-    }
-    const reference = statement.expression.type === "MemberExpression" ? references[0]! : null;
-    return {start, end, source: inner, expression: statement.expression, reference, references};
-}
-
-/** 按节点表查一个表达式（rendering.md 输入与前置条件的表），收集字段引用；不合规则返回说明。 */
-function check(node: EsNode, references: FieldReference[]): string | null {
-    switch (node.type) {
-        case "MemberExpression": {
-            const reference = memberReference(node);
-            if (reference === null) return "not a field address";
-            references.push(reference);
-            return null;
-        }
-        case "Literal":
-            return typeof node.value === "string" || typeof node.value === "number" || typeof node.value === "boolean" || node.value === null ? null : "literal kind not allowed";
-        case "BinaryExpression":
-            if (!BINARY.has(node.operator)) return `operator ${node.operator} not allowed`;
-            return check(node.left as EsNode, references) ?? check(node.right, references);
-        case "LogicalExpression":
-            if (!LOGICAL.has(node.operator)) return `operator ${node.operator} not allowed`;
-            return check(node.left, references) ?? check(node.right, references);
-        case "UnaryExpression":
-            if (node.operator === "!") return check(node.argument, references);
-            if (node.operator === "-" && node.argument.type === "Literal" && typeof node.argument.value === "number") return null;
-            return `operator ${node.operator} not allowed`;
-        case "ConditionalExpression":
-            return check(node.test, references) ?? check(node.consequent, references) ?? check(node.alternate, references);
-        default:
-            return `${node.type} not allowed`;
-    }
-}
-
-/** 表达式里任何地方有没有一条成员访问链是字段引用（不管周围的语法合不合规则）。 */
-function mentionsField(node: unknown): boolean {
-    if (node === null || typeof node !== "object") return false;
-    const record = node as {type?: string};
-    if (record.type === "MemberExpression" && memberReference(node as EsNode) !== null) return true;
-    for (const [key, value] of Object.entries(node)) {
-        if (key === "loc" || key === "range") continue;
-        if (Array.isArray(value) ? value.some(mentionsField) : mentionsField(value)) return true;
-    }
-    return false;
-}
-
-/** 成员访问链 → 字段引用；根是 `entry`、`text`、命名空间，或 `ref("条目 id")`。 */
-export function memberReference(node: EsNode): FieldReference | null {
-    const segments: Array<{kind: "key" | "id"; value: string}> = [];
-    let current: EsNode = node;
-    while (current.type === "MemberExpression") {
-        const property = current.property;
-        if (!current.computed && property.type === "Identifier") segments.unshift({kind: "key", value: property.name});
-        else if (current.computed && property.type === "Literal" && typeof property.value === "string") segments.unshift({kind: "id", value: property.value});
-        else if (current.computed && property.type === "Identifier") segments.unshift({kind: "id", value: property.name});
-        else return null;
-        current = current.object as EsNode;
-    }
-    let entry: string | null = null;
-    let root: string;
-    if (current.type === "CallExpression") {
-        if (current.callee.type !== "Identifier" || current.callee.name !== "ref" || current.arguments.length !== 1) return null;
-        const argument = current.arguments[0]!;
-        if (argument.type !== "Literal" || typeof argument.value !== "string") return null;
-        entry = argument.value;
-        const first = segments.shift();
-        if (first === undefined || first.kind !== "key") return null;
-        root = first.value;
-    } else if (current.type === "Identifier") {
-        root = current.name;
-        if (root === "ref" || (RESERVED_ROOTS.has(root) && root !== "entry" && root !== "text")) return null;
-    } else return null;
-    let path = root;
-    for (const segment of segments) path += segment.kind === "key" ? `.${segment.value}` : `[${segment.value}]`;
-    const parsed = parsePath(path);
-    return parsed === null ? null : {entry, path: formatPath(parsed)};
-}
-
-/** 写入时检查一块（rendering.md 输出 1）；合格返回 null。 */
-export function blockProblem(source: string): SyntaxProblem | null {
-    const result = parseBlock(source);
-    return result.ok ? null : result.problem;
+/** 写入之前的规范化（输出 1、18）：去 BOM、换行规范成 LF、活的标签写成规范写法。对规范的源文不变，可以重复做。 */
+export function normalizeBlockSource(text: string): string {
+    const normalized = normalizeEntrySource(text);
+    const parsed = readable(normalized);
+    // 读不出结构的原样交给写入检查拒收。
+    return parsed === null ? normalized : canonicalEntryText(parsed);
 }

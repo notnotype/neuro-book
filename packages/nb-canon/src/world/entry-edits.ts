@@ -24,6 +24,7 @@ import {LOCAL_ID_PREFIX} from "../core/ids";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
 import {MAIN_LINE} from "../lines/table";
+import {normalizeBlockSource} from "../render/syntax";
 import {textTouches, writeBack} from "./text-blocks";
 import type {Problem, World, WriteFailure, WriteResult} from "./world";
 
@@ -93,6 +94,17 @@ export interface EntryPlan {
 }
 
 export type EntryPlanned = EntryPlan | {readonly ok: false; readonly failure: EntryEditFailure};
+
+/** 批量编辑里新写的主文字规范化：新建条目的各段、加的块、整段替换一块的新原文。 */
+function normalizedEdits(input: EntryEdits): EntryEdits {
+    const ops = input.ops.map((op): EntryOp => {
+        if (op.op === "create" && op.entry.text !== undefined) return {...op, entry: {...op.entry, text: op.entry.text.map(normalizeBlockSource)}};
+        if (op.op === "addBlock") return {...op, source: normalizeBlockSource(op.source)};
+        if (op.op === "set" && op.at.path.startsWith("text[") && typeof op.value === "string") return {...op, value: normalizeBlockSource(op.value)};
+        return op;
+    });
+    return ops.every((op, index) => op === input.ops[index]) ? input : {...input, ops};
+}
 
 /** 读取位置换成明确写线的位置（worldlines 输出 12）：之后读、来历、排序键与核对都用同一条线。 */
 export function resolveLine(world: World, position: ReadPosition): ReadPosition {
@@ -511,7 +523,9 @@ function buildEntry(world: World, draft: Draft, id: string, input: NewEntry): En
 /**
  * 定方案（输出 25）：按原世界给每项定路由，在工作副本上合成写入请求。不发布、不核对；`checkPlan` 在候选世界上核对。
  */
-export function planEntries(world: World, input: EntryEdits): EntryPlanned {
+export function planEntries(world: World, raw: EntryEdits): EntryPlanned {
+    // 新写的主文字先规范化（rendering.md 输出 1、18），读回核对的预期值与存下的是同一份；读到的旧值（`read`）不动。
+    const input = normalizedEdits(raw);
     if (input.ops.length === 0 || input.ops.length > ENTRY_EDITS_MAX) return {ok: false, failure: {code: "validation-failed", problems: [{code: "type-mismatch", path: "ops", message: `a batch has 1 to ${String(ENTRY_EDITS_MAX)} operations`}]}};
     const intent = input.intent ?? "creative";
     const position = resolveLine(world, input.position ?? defaultPosition(world));
@@ -596,6 +610,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                     if (op.find === "" || first < 0) return problem(index, "replace-not-found", "the text to replace is not in the current value");
                     if (value.value.indexOf(op.find, first + 1) >= 0) return problem(index, "replace-not-unique", "the text to replace appears more than once");
                     next = value.value.slice(0, first) + op.with + value.value.slice(first + op.find.length);
+                    if (op.at.path.startsWith("text[")) next = normalizeBlockSource(next as string);
                 } else {
                     if (op.read !== undefined && !sameJson(value.value, op.read)) return {ok: false, failure: {code: "value-conflict", current: value.value, op: index}};
                     next = op.value;

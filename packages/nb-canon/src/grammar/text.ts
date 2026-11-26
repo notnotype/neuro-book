@@ -68,3 +68,25 @@ export function stripEntryText(text: string, registered: ReadonlySet<string> = n
         return tagText(tag.name, attributes, tag.kind === "paired" ? "self" : formOf(tag));
     });
 }
+
+/**
+ * 换掉主文字里指向条目的 id：`V` 的 `entry`、`Ref` 的 `id`，与 `expr`、`test` 里的 `ref('…')`。只动活的标签：代码里、转义的照原文
+ * （样本的迁移把原型 id 换成世界 id 时用，不碰别的字符串）。
+ */
+export function rewriteEntryIds(text: string, map: (id: string) => string): string {
+    const parsed = parseEntryText(text);
+    return rewrite(parsed, (tag) => {
+        if (tag.kind === "malformed" || tag.kind === "close") return null;
+        let changed = false;
+        const attributes = tag.attributes.map((attribute): readonly [string, string] => {
+            let value = attribute.value;
+            if ((tag.name === "V" && attribute.name === "entry") || (tag.name === "Ref" && attribute.name === "id")) value = map(value);
+            else if (attribute.name === "expr" || attribute.name === "test") value = value.replace(/ref\('([^']*)'\)/gu, (_whole, id: string) => `ref('${map(id)}')`);
+            changed ||= value !== attribute.value;
+            return [attribute.name, value];
+        });
+        if (!changed) return null;
+        const written = tagText(tag.name, attributes, tag.kind === "open" ? "open" : "self");
+        return tag.kind === "paired" && tag.content !== null ? `${written.slice(0, -3)}>${parsed.source.slice(tag.content.start, tag.content.end)}</${tag.name}>` : written;
+    });
+}

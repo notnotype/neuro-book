@@ -26,7 +26,6 @@ import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor, renderSourceForAuthor, type RenderOptions} from "../render/entry";
-import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
 import {editEntries, previewEntries, type EntryEditResult, type EntryEdits} from "../world/entry-edits";
 import {marksIn} from "../world/references";
@@ -1273,10 +1272,6 @@ export class WorldService {
      */
     previewEdit(input: EditPreviewInput): EditPreview {
         return previewEdit(this.#world, input, this.#ports.now());
-    }
-
-    writeBack(input: WriteBackInput, token?: string): Promise<WriteBackResult | {readonly ok: false; readonly failure: ServiceFailure}> {
-        return this.#write(token, (world) => writeBack(world, input, this.#ports.now()));
     }
 
     revert(target: string, withDependents: boolean, meta: RevertMeta, token?: string) {

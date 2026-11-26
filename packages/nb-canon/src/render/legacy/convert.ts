@@ -10,7 +10,7 @@ import type {Node as EsNode} from "estree";
 
 import {displayText} from "../../core/display";
 import {checkEntryText, parseEntryText} from "../../grammar/index";
-import {memberReference, parseBlock, type ExpressionSite} from "../syntax";
+import {memberReference, parseBlock, type ExpressionSite} from "./syntax";
 
 export type ConvertResult = {readonly ok: true; readonly source: string; readonly comments: number} | {readonly ok: false; readonly problem: string};
 

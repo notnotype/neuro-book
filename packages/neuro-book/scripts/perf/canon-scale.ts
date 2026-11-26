@@ -83,7 +83,7 @@ function person(temp: string, index: number, appears?: string): Entry {
         initBasis: {"panel.存款": {kind: "estimate", note: "规模测量"}, "panel.魔力": {kind: "estimate", note: "规模测量"}},
         init: {
             name: `人物${String(index)}`, aliases: ["别名"], summary: "一句话描述",
-            text: [{id: "b1", source: "平时戴着滤镜，存款还剩 {panel.存款}。"}],
+            text: [{id: "b1", source: "平时戴着滤镜，存款还剩 <V of=\"panel.存款\" />。"}],
             data: {
                 panel: {type: PANEL, version: 1, enabled: true, fields: {存款: 1_000_000, 魔力: 3200}, declared: [{id: "存款", label: "存款", kind: "number", min: 0}, {id: "魔力", label: "魔力", kind: "number"}]},
                 character: {type: PERSON, version: 1, enabled: true, fields: {性格: null, 身份: null, 现在的状态: "冷淡"}},

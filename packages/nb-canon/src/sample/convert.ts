@@ -4,8 +4,8 @@
  * - Component 类型：原型按命名空间 `ns` 登记，缺省给每个类型一个 id `sample.<ns>`；`max: {field}` 写成字段 id。调用方可以
  *   给 `SampleTypes` 换成别的类型（应用的样本项目换成内置类型），换不过去的命名空间整块不带。
  * - 条目的数据块要带类型与版本；`initTold` 改名 `retold`；未决问题挂在字段上时 `about.kind` 是 `address`。
- * - 新建对象用 `tmp:<原型 id>`，发布后按 id 对照记下原型 id 对应的世界 id；之后的写入、对象里的 id 字段与主 MDX 里的
- *   `ref("…")`、`<Ref id>` 都换成世界 id。正文建议的 `cause` 是修订 id，按原型修订的先后换成世界的修订 id。
+ * - 新建对象用 `tmp:<原型 id>`，发布后按 id 对照记下原型 id 对应的世界 id；之后的写入、对象里的 id 字段与主文字里的
+ *   `V` 的 `entry`、`Ref` 的 `id` 与式子里的 `ref('…')` 都换成世界 id。正文建议的 `cause` 是修订 id，按原型修订的先后换成世界的修订 id。
  * - `splitFrom` 要带 `by`（兑现原计划的那条已写变更），原型没有，按“哪条已写变更兑现了原计划”补上。
  * - 原型的还原是一次普通写入（把对象改回去）；这里交给世界服务的 `revert`，由 `reverts` 认出。
  * 不含断言。
@@ -13,6 +13,7 @@
 
 import type {ComponentDeclaration} from "../components/registry";
 import type {FieldDeclaration, WriteRequest} from "../core/schema";
+import {rewriteEntryIds} from "../grammar/index";
 
 export interface PrototypeSample {
     readonly componentTypes: ReadonlyArray<{readonly ns: string; readonly label: string; readonly version: number; readonly fields: ReadonlyArray<Record<string, unknown>>}>;
@@ -110,10 +111,10 @@ export class IdMap {
 /** 值是对象 id 的键（条目、计划、兑现变更、核对点）；`id` 不在其中：列表元素与块的 id 是局部的，不换。 */
 const ENTRY_KEYS = ["parent", "sameAs", "entry", "plan", "by", "check"] as const;
 
-/** 换掉一个对象里所有指向别的对象的 id，与主 MDX 里的条目引用。 */
+/** 换掉一个对象里所有指向别的对象的 id，与主文字里的条目引用（只动活的标签，见 `rewriteEntryIds`）。 */
 function remap(value: unknown, map: (id: string) => string, key?: string): unknown {
     if (typeof value === "string") {
-        if (key === "source") return value.replace(/ref\("([^"]+)"\)/gu, (_whole, id: string) => `ref("${map(id)}")`).replace(/<Ref id="([^"]+)"/gu, (_whole, id: string) => `<Ref id="${map(id)}"`);
+        if (key === "source") return rewriteEntryIds(value, map);
         if (key !== undefined && (ENTRY_KEYS as readonly string[]).includes(key)) return map(value);
         return value;
     }
