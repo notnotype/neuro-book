@@ -167,9 +167,11 @@ test.describe("内容跟着视图走", () => {
         expect(moved.x).toBeGreaterThanOrEqual(editor.x + editor.width - 1);
         const content = await rectOf(page, "[data-content='view:a']");
         expect(content.x).toBe(moved.x);
-        // A 的容器在右栏只有这一节：它的头并在右栏顶上的入口条里（输出 47），叶里没有头，内容从叶的上边开始。
-        await expect(page.locator(`[data-region-strip='auxiliarybar'] [data-panel-head='${section("a")}']`)).toHaveCount(1);
-        expect(content.y).toBe(moved.y);
+        // 右栏的入口在右轨上（输出 50），没有顶上的入口条：A 的头画在它自己的叶里，内容在头的下面；右轨的入口带里 A 的容器按下着。
+        await expect(page.locator("[data-region-strip='auxiliarybar']")).toHaveCount(0);
+        await expect(page.locator(`[data-leaf='${section("a")}'] [data-panel-head='${section("a")}']`)).toHaveCount(1);
+        expect(content.y).toBeGreaterThan(moved.y);
+        await expect(page.locator("[data-rail=auxiliarybar] [data-tool-band] [data-tool-entry='view:a']")).toHaveAttribute("aria-pressed", "true");
         await expect.poll(() => visibleTabs(page)).toEqual(expect.arrayContaining(["view:a", "view:b"]));
         expect(await visibleTabs(page)).not.toContain("view:c");
     });
@@ -243,7 +245,7 @@ test.describe("有效可见", () => {
 test.describe("活动栏", () => {
     test("一个容器一个入口，只列侧栏里的容器，按入口顺序；只有当前容器按下（输出 22、41、44）", async ({page}) => {
         await open(page);
-        const ids = () => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
+        const ids = () => page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
         // 右栏的 C、D 与底部面板的 E 不在活动栏里。
         expect(await ids()).toEqual(["view:a", "view:b"]);
         await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "true");
@@ -263,7 +265,7 @@ test.describe("活动栏", () => {
 
     test("放到活动栏：入口最后新建一个只含它的用户容器，入口上并进那个容器；都切过去，空了的用户容器入口消失（输出 41、45）", async ({page}) => {
         await open(page);
-        const ids = () => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
+        const ids = () => page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
         expect(await ids()).toEqual(["view:a", "view:b"]);
         // 右栏的 D 放到入口最后：多一个入口，侧栏切到它。
         await act(page, "d-new-entry");

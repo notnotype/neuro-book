@@ -742,7 +742,7 @@ test.describe("实时布局", () => {
     test("活动栏也是标签条：别处的视图放到两个入口之间被吸收，入口让位，零写入；Esc 回原样；它是右栏一个容器唯一的视图，放下整个容器搬到侧栏、id 不变（输出 22、38、45、46）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const entries = page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]");
         // 入口列的是容器（输出 22）：样例丁是右栏里它那个容器唯一的视图，落在入口之间是整个容器搬过来，入口是它原来的容器（输出 45）。
         const order = (): Promise<string[]> => entries.evaluateAll((elements) => elements.map((element) => {
             const id = (element as HTMLElement).dataset.toolEntry ?? "";
@@ -754,7 +754,7 @@ test.describe("实时布局", () => {
         await lift(page, tab(page, AUXILIARY_VIEW));
         // 第一个入口的上沿：入口之间（第一个之前），不是入口上（输出 45）。
         await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
-        const placed = page.locator(`[data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`);
+        const placed = page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`);
         await expect(placed).toHaveCount(1);
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await expect(ghost(page)).toHaveCount(0);
@@ -781,15 +781,15 @@ test.describe("实时布局", () => {
         await open(page);
         // 分节没有隐藏按钮（输出 20）：点当前容器按下着的入口，侧栏隐藏（输出 22）。
         const alpha = await sectionOf(page, "test.sample-views.alpha");
-        await page.locator("[data-tool-band] [data-tool-entry][aria-pressed=\"true\"]").click();
+        await page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry][aria-pressed=\"true\"]").click();
         await shrunk(page, alpha);
         await settled(page);
         const writes = await writesOf(page);
-        const first = await page.locator("[data-tool-band] [data-tool-entry]").first().boundingBox();
+        const first = await page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]").first().boundingBox();
         if (first === null) throw new Error("活动栏没有条目");
         await lift(page, tab(page, AUXILIARY_VIEW));
         await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
-        await expect(page.locator(`[data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`)).toHaveCount(1);
+        await expect(page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`)).toHaveCount(1);
         await settled(page);
         await shrunk(page, alpha);
         expect(await writesOf(page)).toBe(writes);
@@ -802,7 +802,7 @@ test.describe("实时布局", () => {
 
     test("活动栏里换序：别的图标滑开（真的播了过渡），被拖的图标自己竖着跟手，没有拖影；按下的块在它占着的那一格", async ({page}) => {
         await open(page);
-        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const entries = page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]");
         expect(await entries.count()).toBeGreaterThan(1);
         const second = await entries.nth(1).boundingBox();
         if (second === null) throw new Error("没有第二个条目");
@@ -811,17 +811,17 @@ test.describe("实时布局", () => {
             host.__toolMoved = false;
             new MutationObserver((records) => {
                 if (records.some((record) => (record.target as Element).classList.contains("workbench-tool-strip__frame--moving"))) host.__toolMoved = true;
-            }).observe(document.querySelector("[data-tool-band]") as Element, {subtree: true, attributes: true, attributeFilter: ["class"]});
+            }).observe(document.querySelector("[data-rail=sidebar] [data-tool-band]") as Element, {subtree: true, attributes: true, attributeFilter: ["class"]});
         });
         const firstId = await entries.first().getAttribute("data-tool-entry");
         await expect(entries.first()).toHaveAttribute("aria-pressed", "true");
-        const bandTop = (await page.locator("[data-tool-band]").boundingBox())!.y;
+        const bandTop = (await page.locator("[data-rail=sidebar] [data-tool-band]").boundingBox())!.y;
         await lift(page, entries.first());
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await page.mouse.move(second.x + second.width / 2, second.y + second.height - 2, {steps: 6});
         await expect.poll(() => page.evaluate(() => (window as unknown as {__toolMoved: boolean}).__toolMoved)).toBe(true);
         await expect(ghost(page)).toHaveCount(0);
-        const dragged = page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`);
+        const dragged = page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${firstId}"]`);
         await expect.poll(async () => {
             const box = await dragged.boundingBox();
             const y = second.y + second.height - 2;
@@ -840,7 +840,7 @@ test.describe("实时布局", () => {
 
     test("活动栏里慢慢经过邻居入口：停在它上面它高亮、就在指针下，入口不动、来源不收起；松手并进那个容器（输出 38、45）", async ({page}) => {
         await open(page);
-        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const entries = page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]");
         expect(await entries.count()).toBeGreaterThan(2);
         const firstId = (await entries.nth(0).getAttribute("data-tool-entry")) ?? "";
         const secondId = (await entries.nth(1).getAttribute("data-tool-entry")) ?? "";
@@ -852,7 +852,7 @@ test.describe("实时布局", () => {
         await lift(page, entries.first());
         const over = {x: second.x + second.width / 2, y: second.y + second.height / 2};
         await page.mouse.move(over.x, over.y, {steps: 8});
-        const merged = page.locator(`[data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
+        const merged = page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
         await expect(merged).toHaveCount(1);
         // 来源没收起：它的入口还在，入口都没挪，高亮的就是指针下面那个。
         await expect(entries).toHaveCount(before.length);
@@ -863,13 +863,13 @@ test.describe("实时布局", () => {
         await page.mouse.up();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
         // 并进第二个容器：第一个入口跟着它唯一的视图走了，侧栏切到第二个容器。
-        await expect(page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
-        await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
+        await expect(page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
     });
 
     test("来源收起之后再回到活动栏、停在别的入口上：来源不画回来，高亮的就是指针下那个；松手并进它（输出 38、45）", async ({page}) => {
         await open(page);
-        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const entries = page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]");
         const count = await entries.count();
         expect(count).toBeGreaterThan(2);
         const firstId = (await entries.nth(0).getAttribute("data-tool-entry")) ?? "";
@@ -883,11 +883,11 @@ test.describe("实时布局", () => {
         await page.mouse.move(away.x, away.y, {steps: 8});
         await expect(entries).toHaveCount(count - 1);
         // 收起之后再量第二个入口，停到它中间。
-        const second = await page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`).boundingBox();
+        const second = await page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${secondId}"]`).boundingBox();
         if (second === null) throw new Error("没有第二个入口");
         const over = {x: second.x + second.width / 2, y: second.y + second.height / 2};
         await page.mouse.move(over.x, over.y, {steps: 8});
-        const merged = page.locator(`[data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
+        const merged = page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
         await expect(merged).toHaveCount(1);
         await expect(entries).toHaveCount(count - 1);
         await expect(leaf(page, source)).toHaveCount(0);
@@ -896,8 +896,8 @@ test.describe("实时布局", () => {
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
-        await expect(page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
-        await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
+        await expect(page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
     });
 
     test("中途窗口变了：整场取消", async ({page}) => {

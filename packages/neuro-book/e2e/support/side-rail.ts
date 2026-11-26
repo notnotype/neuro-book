@@ -29,10 +29,10 @@ export const rail = (page: Page, region: RailRegion = "auxiliarybar"): Locator =
 /** 侧轨自己那张卡片：叶 id 是 `rail:<区域>`（输出 50），卡片按叶 id 标记，同现有的 `strip:auxiliarybar`。 */
 export const railCard = (page: Page, region: RailRegion = "auxiliarybar"): Locator => page.locator(`[data-shell-card="rail:${region}"]`);
 /** 入口带里的入口（唯一的落点带）。 */
-export const railEntries = (page: Page, region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator("[data-rail-entries] [data-tool-entry]");
-export const railEntry = (page: Page, container: string, region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator(`[data-rail-entries] [data-tool-entry="${container}"]`);
+export const railEntries = (page: Page, region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator("[data-tool-band] [data-tool-entry]");
+export const railEntry = (page: Page, container: string, region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator(`[data-tool-band] [data-tool-entry="${container}"]`);
 /** 只含这个视图的容器的入口（入口带上写着它那个视图的 id）。 */
-export const railEntryOfView = (page: Page, viewId: string, region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator(`[data-rail-entries] [data-tool-view="${viewId}"]`);
+export const railEntryOfView = (page: Page, viewId: string, region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator(`[data-tool-band] [data-tool-view="${viewId}"]`);
 export const railSegment = (page: Page, segment: "main" | "foot", region: RailRegion = "auxiliarybar"): Locator => rail(page, region).locator(`[data-rail-segment="${segment}"]`);
 
 /** 入口带上的入口，从上到下；用户容器的 id 是随机的，写成 `custom`。 */
@@ -42,7 +42,7 @@ export const railEntryIds = (page: Page, region: RailRegion = "auxiliarybar"): P
 }));
 
 /** 活动栏上段的入口：左轨的入口带（输出 22）。 */
-export const barEntry = (page: Page, container: string): Locator => page.locator(`[data-tool-band] [data-tool-entry="${container}"]`);
+export const barEntry = (page: Page, container: string): Locator => page.locator(`[data-rail="sidebar"] [data-tool-band] [data-tool-entry="${container}"]`);
 
 export async function boxOf(locator: Locator): Promise<{x: number; y: number; width: number; height: number}> {
     const found = await locator.boundingBox();

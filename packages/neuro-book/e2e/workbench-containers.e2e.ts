@@ -65,9 +65,9 @@ async function sectionOf(page: Page, view: string): Promise<string> {
 const tab = (page: Page, view: string) => page.locator(`[data-panel-tab="view:${view}"]`);
 /** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
 const collapseButton = (page: Page, view: string) => page.locator(`[data-panel-head] [data-panel-tab="view:${view}"][aria-expanded]`);
-/** 活动栏里一个容器的入口（输出 22）；样例视图的容器是 `view:<视图 id>`。 */
-const entry = (page: Page, container: string) => page.locator(`[data-tool-entry="${container}"]`);
-const pressedEntries = (page: Page) => page.locator('[data-tool-band] [data-tool-entry][aria-pressed="true"]');
+/** 活动栏里一个容器的入口（输出 22）；样例视图的容器是 `view:<视图 id>`。右栏的右轨也有入口带，所以限定到左轨。 */
+const entry = (page: Page, container: string) => page.locator(`[data-rail="sidebar"] [data-tool-band] [data-tool-entry="${container}"]`);
+const pressedEntries = (page: Page) => page.locator('[data-rail="sidebar"] [data-tool-band] [data-tool-entry][aria-pressed="true"]');
 
 /** 侧栏挨着编辑区的那条边界：侧栏这一侧显示一个分节时是那个分节，显示几个时是区域的分支，所以只认编辑区那一侧。 */
 const sidebarSash = (page: Page) => page.getByRole("separator", {name: /^调整 \S+ 与 (?:center|g0) 的宽度$/u});
@@ -175,10 +175,10 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
     const clickOn = (page: Page, selector: string) => page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), selector);
 
     /**
-     * 右栏、底部面板的卡片：入口条叶的卡片在上，分节的卡片在下，拼成一张（输出 47）。`stripBottom` 是入口条的底，也就是滚动的裁切窗的顶。
+     * 底部面板的卡片：入口条叶的卡片在上，分节的卡片在下，拼成一张（输出 47；右栏的入口条改成了右轨，输出 50）。`stripBottom` 是入口条的底，也就是滚动的裁切窗的顶。
      * `gap` 是主题的缝宽，滚动中滑走的与换上来的之间隔它。
      */
-    const regionCard = (page: Page, region: "auxiliarybar" | "panel", sections: ReadonlyArray<string>) => page.evaluate(({region, sections}) => {
+    const regionCard = (page: Page, region: "panel", sections: ReadonlyArray<string>) => page.evaluate(({region, sections}) => {
         const strip = document.querySelector(`[data-shell-card="strip:${region}"]`)!.getBoundingClientRect();
         const rects = sections.map((id) => document.querySelector(`[data-shell-card="${id}"]`)!.getBoundingClientRect());
         const gap = Number.parseFloat(getComputedStyle(document.querySelector("[data-workbench-surface]")!).getPropertyValue("--shell-gap"));
@@ -189,7 +189,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
      * 把页面上的动画停在过渡的某一刻，读这一刻滚动里的几样：两组外框的左缘、各外框里有没有头、入口条里并进来的是哪一节的头、静止的底、按下的块的左缘。
      * `track` 是要单独跟的外框（滚到一半点回来时看它从此刻接着走）。
      */
-    const sliceAt = (page: Page, region: "auxiliarybar" | "panel", fraction: number, duration: number, track: string) => page.evaluate(({region, fraction, duration, track}) => {
+    const sliceAt = (page: Page, region: "panel", fraction: number, duration: number, track: string) => page.evaluate(({region, fraction, duration, track}) => {
         for (const animation of document.getAnimations()) {
             animation.pause();
             animation.currentTime = fraction * duration;
@@ -222,99 +222,76 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
     const regionIndicatorLeft = (page: Page, region: string) => leftOf(page, `[data-region-strip="${region}"] [data-region-indicator]`);
     const regionEntryLeft = (page: Page, region: string, container: string) => leftOf(page, `[data-region-strip="${region}"] [data-region-entry="${container}"]`);
 
-    test("右栏的入口条：卡片顶上一行，当前容器只有一节时它的头并在这一行里、没有展开标记；入口图标对齐分节头的展开标记；指针在正文上时条里的按钮出现；在条里切容器后当前面板是新并进来的那一节（ui/workbench-layout 输出 20、36、47）", async ({page}) => {
+    /**
+     * 右栏切换容器的某一刻（输出 42、50）：把页面上的动画停在 `fraction` 处，读右栏这一组外框的上缘、右轨的卡片与按下的块。
+     * 右轨的入口竖排，内容竖着滚：新容器从下面（排在后面时）进来。`track` 是单独跟的外框。
+     */
+    const railSliceAt = (page: Page, fraction: number, duration: number, track: string) => page.evaluate(({fraction, duration, track}) => {
+        for (const animation of document.getAnimations()) {
+            animation.pause();
+            animation.currentTime = fraction * duration;
+        }
+        const frames = [...document.querySelectorAll<HTMLElement>("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-swap]")];
+        const side = (name: string) => frames.filter((frame) => frame.dataset.swap === name);
+        const rectOf = (element: Element | null) => {
+            const rect = element?.getBoundingClientRect();
+            return rect === undefined ? null : {top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right};
+        };
+        const railCard = document.querySelector<HTMLElement>('[data-shell-card="rail:auxiliarybar"]')!;
+        const indicator = document.querySelector('[data-rail="auxiliarybar"] [data-tool-indicator]')!;
+        return {
+            in: Math.min(...side("in").map((frame) => frame.getBoundingClientRect().top)),
+            out: Math.min(...side("out").map((frame) => frame.getBoundingClientRect().top)),
+            inLeaves: side("in").map((frame) => frame.dataset.leaf!),
+            outLeaves: side("out").map((frame) => frame.dataset.leaf!),
+            outInert: side("out").every((frame) => frame.inert),
+            railCard: rectOf(railCard),
+            joined: document.querySelector('[data-rail="auxiliarybar"]')!.hasAttribute("data-rail-joined"),
+            seam: railCard.dataset.shellJoinSeam ?? null,
+            tracked: rectOf(document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${track}"]`)),
+            backdrop: rectOf(document.querySelector("[data-shell-swap-card]")),
+            indicator: new DOMMatrix(getComputedStyle(indicator).transform).f,
+            sliding: indicator.hasAttribute("data-sliding"),
+        };
+    }, {fraction, duration, track});
+
+    /** 右轨入口带里按下的块的位移（纵向）；静止时块就在按下的入口上。 */
+    const railIndicatorAt = (page: Page) => page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector('[data-rail="auxiliarybar"] [data-tool-indicator]')!).transform).f);
+    /** 右轨入口相对入口带的纵向位置。 */
+    const railEntryTop = (page: Page, container: string) => page.evaluate((container) => {
+        const button = [...document.querySelectorAll<HTMLElement>('[data-rail="auxiliarybar"] [data-tool-entry]')].find((element) => element.dataset.toolEntry === container)!;
+        return button.offsetTop;
+    }, container);
+
+    // 覆盖 ui/workbench-layout 输出 50（右栏的入口条改为右轨）：右栏卡片顶上不再有横向入口条，入口竖排在右轨的入口带里，对话的分节从卡片顶起、自己的叶里画头。
+    test("右栏顶上没有横向入口条：入口在右轨的入口带里，一个容器一个入口、按下的恰一项，对话那一节顶到右栏卡片的顶（ui/workbench-layout 输出 50）", async ({page}) => {
         await open(page);
-        const strip = page.locator('[data-region-strip="auxiliarybar"]');
-        await expect(strip).toBeVisible();
-        // 默认右栏只有对话一个容器、一节：它的头在入口条里，它自己的叶里没有头，条里没有展开标记（区域唯一的分节收不成标题行）。
+        await expect(page.locator('[data-region-strip="auxiliarybar"]')).toHaveCount(0);
+        await expect(page.locator('[data-shell-card="strip:auxiliarybar"]')).toHaveCount(0);
+        const entries = page.locator('[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry]');
+        const count = await entries.count();
+        expect(count).toBeGreaterThanOrEqual(2);
+        await expect(page.locator('[data-rail="auxiliarybar"] [data-tool-entry][aria-pressed="true"]')).toHaveCount(1);
+        await expect(entries.first()).toHaveAttribute("aria-pressed", "true");
+        // 右轨与右栏同高同顶：右轨的卡片顶就是对话那一节的卡片顶（入口条这一行没有了）。
         const conversation = await sectionOf(page, CONVERSATION);
-        await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
-        await expect(leaf(page, conversation).locator("[data-panel-head]")).toHaveCount(0);
-        await expect(strip.locator("[data-panel-fold]")).toHaveCount(0);
-        // 一个容器一个入口（样例插件在右栏另有容器），对话那个按下着、排在最前。
-        const entries = await strip.locator("[data-region-entry]").count();
-        await expect(strip.locator('[data-region-entry][aria-pressed="true"]')).toHaveCount(1);
-        await expect(strip.locator("[data-region-entry]").first()).toHaveAttribute("aria-pressed", "true");
-        // 入口条和那一节拼成一张卡片：条的底就是那一节的顶。
-        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
-        const sectionBox = await box(page, conversation);
-        expect(Math.abs(stripBox.y + stripBox.height - sectionBox.y)).toBeLessThanOrEqual(1);
+        const [railBox, sectionBox] = [(await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!, await box(page, conversation)];
+        expect(Math.abs(railBox.y - sectionBox.y)).toBeLessThanOrEqual(1);
 
-        // 对齐：入口图标离卡片左缘，等于侧栏分节头的展开标记离卡片左缘（都对资源管理器树第一层的箭头）。
-        const explorer = await sectionOf(page, EXPLORER);
-        const iconInset = await leftOf(page, '[data-region-strip="auxiliarybar"] [data-region-entry] .workbench-region-strip__icon') - await leftOf(page, '[data-shell-card="strip:auxiliarybar"]');
-        const foldInset = await leftOf(page, `[data-panel-head="${explorer}"] span[data-panel-fold]`) - await leftOf(page, `[data-shell-card="${explorer}"]`);
-        expect(Math.abs(iconInset - foldInset), `入口图标 ${String(iconInset)}，展开标记 ${String(foldInset)}`).toBeLessThanOrEqual(1);
-
-        // 悬停范围是这块面板，跨入口条叶与分节的叶：指针在对话的正文上，条里的框架按钮出现。
-        const frameActions = strip.locator('[data-hover-actions="frame"]');
-        await page.mouse.move(700, 450);
-        await expect.poll(opacityOf(frameActions)).toBe("0");
-        await page.mouse.move(sectionBox.x + sectionBox.width / 2, sectionBox.y + sectionBox.height / 2);
-        await expect.poll(opacityOf(frameActions)).toBe("1");
-
-        // 资源管理器移进右栏的新容器：右栏切到它，它的头并进入口条，两个入口。
+        // 资源管理器移进右栏的新容器：右栏切到它，入口带多一个入口。
         await moveViaMenu(page, EXPLORER, "新容器（右栏）");
-        await expect(strip.locator(`[data-panel-head="${explorer}"]`)).toHaveCount(1);
-        await expect(strip.locator("[data-region-entry]")).toHaveCount(entries + 1);
-        // 键盘在入口条里切回对话：焦点留在入口上没动，并进来的那一节换成对话，当前面板跟着换；不带面板的命令落在对话上。
-        await strip.locator("[data-region-entry]").first().focus();
-        await page.keyboard.press("Enter");
-        await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
-        await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
-        // 入口条里每个入口一个 Tab 停靠（输出 47）。
-        await page.keyboard.press("Tab");
-        await expect(strip.locator("[data-region-entry]").nth(1)).toBeFocused();
-        await page.keyboard.press("Shift+Tab");
-        await expect(strip.locator("[data-region-entry]").first()).toBeFocused();
-        await runCommand(page, "最大化/还原面板");
-        await expect(page.locator(`[data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`)).toHaveAttribute("aria-pressed", "true");
+        await expect(entries).toHaveCount(count + 1);
+        await expect(page.locator('[data-rail="auxiliarybar"] [data-tool-entry][aria-pressed="true"]')).toHaveCount(1);
+        await expect(content(page, EXPLORER)).not.toHaveAttribute("inert", "");
     });
 
-    test("右栏隐藏的那段过渡里，并进入口条、视图接管了标题区的头不换画法：入口条缩到零的每一帧都还是视图的三列（views.md 输出 19；ui/workbench-layout 输出 47）", async ({page}) => {
-        await page.emulateMedia({reducedMotion: "no-preference"});
+    // 覆盖 ui/workbench-layout 输出 13、50：右栏拖到最窄时（区域至少 160，视图声明的更大最小值也算）右轨的入口都在卡片里、点得到，当前容器的入口总在外面。
+    test("右栏拖到最窄时右轨：当前容器的入口在外面，右轨里每个按钮都在卡片里、点得到（ui/workbench-layout 输出 13、50）", async ({page}) => {
         await open(page);
         const conversation = await sectionOf(page, CONVERSATION);
-        const head = page.locator(`[data-region-strip="auxiliarybar"] [data-panel-head="${conversation}"]`);
-        await expect(head.locator("[data-panel-head-start]")).toHaveCount(1);
-        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        await page.addStyleTag({content: ":root { --motion-layout: 1500ms !important; }"});
-        // 点按下的入口隐藏右栏；逐帧看入口条里的头，直到过渡结束。
-        const frames = await page.evaluate(async (panel) => {
-            const rows: boolean[] = [];
-            document.querySelector<HTMLElement>('[data-region-strip="auxiliarybar"] [data-region-entry][aria-pressed="true"]')!.click();
-            for (let index = 0; index < 150; index += 1) {
-                await new Promise((resolve) => requestAnimationFrame(resolve));
-                const own = document.querySelector(`[data-region-strip="auxiliarybar"] [data-panel-head="${CSS.escape(panel)}"]`);
-                if (own !== null && own.getBoundingClientRect().width > 0) rows.push(own.querySelector("[data-panel-head-start]") !== null);
-                if (index > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
-            }
-            return rows;
-        }, conversation);
-        expect(frames.length).toBeGreaterThan(3);
-        expect(frames.every(Boolean), `逐帧：${frames.join(",")}`).toBe(true);
-    });
-
-    test("入口条里最大化、还原时焦点跟着头走；右栏拖到最窄时当前容器的入口与“更多”在外面，条里每个按钮都在条里、点得到（ui/workbench-layout 输出 13、47）", async ({page}) => {
-        await open(page);
-        const conversation = await sectionOf(page, CONVERSATION);
-        const maximizeIn = (scope: string) => page.locator(`${scope} [data-panel-head="${conversation}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`);
-        const inStrip = maximizeIn('[data-region-strip="auxiliarybar"]');
-        const inLeaf = maximizeIn(`${LEAF}[data-leaf="${conversation}"]`);
-        // 键盘在入口条里按最大化：头搬进那一节自己的叶，焦点在叶里的还原按钮上；再按还原，过渡结束头回到入口条，焦点回到条里的同一个按钮。
-        await inStrip.focus();
-        await page.keyboard.press("Enter");
-        await expect(inLeaf).toHaveAttribute("aria-pressed", "true");
-        await expect(inLeaf).toBeFocused();
-        await page.keyboard.press("Enter");
-        await expect(inStrip).toBeVisible();
-        await expect(inStrip).toBeFocused();
-        await expect(inStrip).toHaveAttribute("aria-pressed", "false");
-
-        // 右栏拖到最窄（区域至少 160，视图声明的更大最小值也算）：右栏左边那条线往右拖到比 160 再窄 10px，停在最小宽度上；
-        // 拖得更远会过了收起的门槛、整块拖到零（输出 12），那就不是这里要看的。
-        const stripFrame = leaf(page, "strip:auxiliarybar");
-        const before = (await stripFrame.boundingBox())!;
+        // 右栏拖到最窄：右栏左边那条线往右拖到比 160 再窄 10px，停在最小宽度上；拖得更远会过了收起的门槛、整块拖到零（输出 12），那就不是这里要看的。
+        const frame = leaf(page, conversation);
+        const before = (await frame.boundingBox())!;
         const handle = await page.evaluate((edge) => {
             const lines = [...document.querySelectorAll('[data-workbench-surface] [role="separator"]')].filter((element) => (element.getAttribute("aria-label") ?? "").endsWith("的宽度")).map((element) => element.getBoundingClientRect());
             const best = lines.sort((a, b) => Math.abs(a.right - edge) - Math.abs(b.right - edge))[0]!;
@@ -325,13 +302,13 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await page.mouse.move(handle.x + before.width - 150, handle.y, {steps: 8});
         await page.mouse.up();
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        const narrowest = Math.round((await stripFrame.boundingBox())!.width);
+        const narrowest = Math.round((await frame.boundingBox())!.width);
         expect(narrowest).toBeGreaterThanOrEqual(160);
         expect(narrowest).toBeLessThanOrEqual(185);
         expect((await saved(page))?.panels.auxiliarybar?.collapsed).not.toBe(true);
-        const strip = page.locator('[data-region-strip="auxiliarybar"]');
-        await expect(strip.locator('[data-region-entry][aria-pressed="true"]')).toBeVisible();
-        const offenders = await strip.evaluate((root) => {
+        const rail = page.locator('[data-rail="auxiliarybar"]');
+        await expect(rail.locator('[data-tool-entry][aria-pressed="true"]')).toBeVisible();
+        const offenders = await rail.evaluate((root) => {
             const card = root.closest("[data-shell-card]")!.getBoundingClientRect();
             return [...root.querySelectorAll<HTMLElement>("button")].filter((button) => button.offsetParent !== null && button.closest("[aria-hidden='true']") === null).flatMap((button) => {
                 const rect = button.getBoundingClientRect();
@@ -376,17 +353,16 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(page.getByRole("menu")).toHaveCount(0);
     });
 
-    test("右栏当前容器有几节：入口条只有入口，各节在自己的叶里画头、能收起；全部收起时入口条在上，最后一节垫底到卡片的底，这一列的分隔线拖不动（ui/workbench-layout 输出 11、47）", async ({page}) => {
+    test("右栏当前容器有几节：各节在自己的叶里画头、能收起；全部收起时最后一节垫底到卡片的底，右轨不动，这一列的分隔线拖不动（ui/workbench-layout 输出 11、50）", async ({page}) => {
         await open(page);
         // 资源管理器移进右栏的新容器，测试视图再移进它那个容器：右栏这个容器两节（都不接管标题区，标题按钮就是开关）。
         await moveViaMenu(page, EXPLORER, "新容器（右栏）");
         await moveViaMenu(page, SESSIONS, "资源管理器");
         const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
-        const strip = page.locator('[data-region-strip="auxiliarybar"]');
-        await expect(strip.locator("[data-panel-head]")).toHaveCount(0);
+        await expect(page.locator('[data-region-strip="auxiliarybar"]')).toHaveCount(0);
         await expect(leaf(page, explorer).locator("[data-panel-head]")).toHaveCount(1);
         await expect(leaf(page, sessions).locator("[data-panel-head]")).toHaveCount(1);
-        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
+        const railBox = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
         const [first, second] = [await box(page, explorer), await box(page, sessions)];
         const [upperView, lowerView] = first.y < second.y ? [EXPLORER, SESSIONS] : [SESSIONS, EXPLORER];
         const [upper, lower] = first.y < second.y ? [explorer, sessions] : [sessions, explorer];
@@ -398,10 +374,10 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             const rect = await box(page, lower);
             return Math.round(rect.y + rect.height);
         }).toBe(Math.round(columnBottom));
-        // 入口条还在最上面，不动。
-        const stillStrip = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
-        expect(stillStrip).toEqual(stripBox);
-        expect((await box(page, upper)).y).toBeGreaterThanOrEqual(stripBox.y + stripBox.height - 1);
+        // 右轨不动，上面一节仍在右栏卡片的顶上。
+        const stillRail = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
+        expect(stillRail).toEqual(railBox);
+        expect(Math.abs((await box(page, upper)).y - railBox.y)).toBeLessThanOrEqual(1);
         await expect(content(page, lowerView)).toHaveAttribute("inert", "");
         // 两节之间的分隔线拖不动（展开靠点标题）。
         const between = page.getByRole("separator", {name: new RegExp(`调整 (?:${upper} 与 ${lower}|${lower} 与 ${upper}) 的`, "u")});
@@ -819,7 +795,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(showing.map((row) => row.cap)).toEqual(showing.map(() => "enter"));
         await expect(moving).toHaveCount(0);
         await expect(bar).toHaveAttribute("data-shell-join", "start");
-        await expect(bar).toHaveAttribute("data-shell-join-seam", "");
+        await expect(bar).toHaveAttribute("data-shell-join-seam", "end");
         expect(await bar.getAttribute("data-shell-cap")).toBeNull();
         const shown = await bar.boundingBox();
         const [shownCorner] = await colorsAt([[shown!.x + shown!.width - 1.5, top + 1.5]]);
@@ -1062,7 +1038,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             expect(at.backdrop).not.toBeNull();
             for (const key of ["top", "bottom", "left", "right"] as const) expect(at.backdrop![key]).toBeCloseTo(card[key], 0);
             expect(at.in - at.out).toBeCloseTo(step, 0);
-            expect({outInert: at.outInert, join: at.join, cap: at.cap, seam: at.seam}).toEqual({outInert: true, join: "start", cap: null, seam: ""});
+            expect({outInert: at.outInert, join: at.join, cap: at.cap, seam: at.seam}).toEqual({outInert: true, join: "start", cap: null, seam: "end"});
             if (fraction > 0) expect(at.indicator).toBeGreaterThan(fromEntry);
             expect(at.indicator).toBeLessThan(toEntry);
             const colors = await colorsAt(page, still);
@@ -1090,82 +1066,84 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(bar).toHaveAttribute("data-shell-join", "start");
     });
 
-    test("右栏切换容器：卡片与入口条不动，入口条以下的内容在卡片里横着滚过去，卡片外不画；并进来的头在点的那一刻换成新容器的，离开的那一节滑出时没有头、内容不下移；按下的底色和内容同时走；滚到一半点回来从这一刻往回滚（ui/workbench-layout 输出 42、47）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 42、50（右栏切换的样子同侧栏，入口竖排在右轨上）：卡片与右轨不动，内容在卡片里竖着滚过去，卡片外不画；右轨与右栏一直相连；
+    // 按下的块和内容同时走；滚到一半点回来从这一刻往回滚。
+    test("右栏切换容器：卡片与右轨不动，内容在卡片里竖着滚过去，卡片外不画，右轨一直相连；按下的块和内容同时走；滚到一半点回来从这一刻往回滚（ui/workbench-layout 输出 42、50）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
-        const strip = page.locator('[data-region-strip="auxiliarybar"]');
-        // 默认右栏有对话与样例丁两个容器、各一节，对话在前、按下着，它的头并在入口条里。
-        const entryIds = await strip.locator("[data-region-entry]").evaluateAll((buttons) => buttons.map((button) => (button as HTMLElement).dataset.regionEntry!));
+        const rail = page.locator('[data-rail="auxiliarybar"]');
+        // 默认右栏有对话与样例丁两个容器、各一节，对话在前、按下着。
+        const entryIds = await rail.locator("[data-tool-band] [data-tool-entry]").evaluateAll((buttons) => buttons.map((button) => (button as HTMLElement).dataset.toolEntry!));
         expect(entryIds.length).toBeGreaterThanOrEqual(2);
         const [from, to] = [entryIds[0]!, entryIds[1]!];
-        await expect(strip.locator(`[data-region-entry="${from}"]`)).toHaveAttribute("aria-pressed", "true");
+        await expect(rail.locator(`[data-tool-entry="${from}"]`)).toHaveAttribute("aria-pressed", "true");
         const conversation = await sectionOf(page, CONVERSATION);
-        await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
         const home = await box(page, conversation);
-        const contentTop = (await content(page, CONVERSATION).boundingBox())!.y;
-        const card = await regionCard(page, "auxiliarybar", [conversation]);
+        const card = await page.evaluate((id) => {
+            const rect = document.querySelector(`[data-shell-card="${id}"]`)!.getBoundingClientRect();
+            const gap = Number.parseFloat(getComputedStyle(document.querySelector("[data-workbench-surface]")!).getPropertyValue("--shell-gap"));
+            return {top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, gap};
+        }, conversation);
         expect(card.gap).toBeGreaterThan(0);
-        const [fromLeft, toLeft] = [await regionEntryLeft(page, "auxiliarybar", from), await regionEntryLeft(page, "auxiliarybar", to)];
-        expect(toLeft).toBeGreaterThan(fromLeft);
-        await expect.poll(() => regionIndicatorLeft(page, "auxiliarybar")).toBeCloseTo(fromLeft, 0);
-        // 卡片左右的缝、下面的缝、两个下角圆角外面那一点：静止时是窗体底，滚动中也不变（内容裁在卡片里，离开的那组往左出去正好经过左边的缝）。
-        const middle = (card.stripBottom + card.bottom) / 2;
+        const railBefore = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
+        const [fromTop, toTop] = [await railEntryTop(page, from), await railEntryTop(page, to)];
+        expect(toTop).toBeGreaterThan(fromTop);
+        await expect.poll(() => railIndicatorAt(page)).toBe(fromTop);
+        // 卡片上下的缝、左上与左下圆角外面那一点：静止时是窗体底，滚动中也不变（内容裁在卡片里，不画到卡片外）。
+        const center = (card.left + card.right) / 2;
         const still = [
-            [card.left - card.gap / 2, middle], [card.right + card.gap / 2, middle], [(card.left + card.right) / 2, card.bottom + card.gap / 2],
-            [card.left + 1.5, card.bottom - 1.5], [card.right - 1.5, card.bottom - 1.5],
+            [center, card.top - card.gap / 2], [center, card.bottom + card.gap / 2],
+            [card.left + 1.5, card.top + 1.5], [card.left + 1.5, card.bottom - 1.5],
         ] as const;
         const stillColors = await colorsAt(page, still);
 
         await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
         const duration = 6000;
-        // 切到样例丁（入口在后面）：它从右边进来，对话往左出去，两组相距卡片的宽加一条缝。
-        await clickOn(page, `[data-region-strip="auxiliarybar"] [data-region-entry="${to}"]`);
+        // 切到样例丁（入口在后面）：它从下面进来，对话往上出去，两组相距卡片的高加一条缝。
+        await clickOn(page, `[data-rail="auxiliarybar"] [data-tool-entry="${to}"]`);
         await nextFrames(page);
         let step = 0;
         for (const fraction of [0, 0.1, 0.3]) {
-            const at = await sliceAt(page, "auxiliarybar", fraction, duration, conversation);
+            const at = await railSliceAt(page, fraction, duration, conversation);
             expect(at.outLeaves).toEqual([conversation]);
             expect(at.inLeaves).toHaveLength(1);
             if (fraction === 0) {
-                expect(at.out).toBeCloseTo(home.x, 0);
+                expect(at.out).toBeCloseTo(home.y, 0);
                 step = at.in - at.out;
-                expect(step).toBeCloseTo(card.right - card.left + card.gap, 0);
+                expect(step).toBeCloseTo(card.bottom - card.top + card.gap, 0);
             }
             expect(at.in - at.out).toBeCloseTo(step, 0);
-            // 头那一段在点的那一刻就换成样例丁的；对话滑出去时自己的叶里没有头，内容的上边不动。
-            expect(at.stripHead).toBe(at.inLeaves[0]);
-            expect({headsIn: at.headsIn, headsOut: at.headsOut, outInert: at.outInert}).toEqual({headsIn: [], headsOut: [], outInert: true});
-            expect((await content(page, CONVERSATION).boundingBox())!.y).toBeCloseTo(contentTop, 0);
-            // 入口条与卡片不动：静止的底就是入口条以下那块卡片。
-            expect(at.stripCard).toEqual({top: card.top, bottom: card.stripBottom, left: card.left, right: card.right});
+            expect({outInert: at.outInert, joined: at.joined, seam: at.seam}).toEqual({outInert: true, joined: true, seam: "start"});
+            // 对话滑出去时内容不跳。
+            expect((await content(page, CONVERSATION).boundingBox())!.x).toBeCloseTo(home.x, 0);
+            expect(at.railCard).toEqual({top: railBefore.y, bottom: railBefore.y + railBefore.height, left: railBefore.x, right: railBefore.x + railBefore.width});
             expect(at.backdrop).not.toBeNull();
-            for (const [key, value] of [["top", card.stripBottom], ["bottom", card.bottom], ["left", card.left], ["right", card.right]] as const) expect(at.backdrop![key]).toBeCloseTo(value, 0);
+            for (const key of ["top", "bottom", "left", "right"] as const) expect(at.backdrop![key]).toBeCloseTo(card[key], 0);
             expect(at.sliding).toBe(true);
-            if (fraction > 0) expect(at.indicator).toBeGreaterThan(fromLeft + 0.5);
-            expect(at.indicator).toBeLessThan(toLeft);
+            if (fraction > 0) expect(at.indicator).toBeGreaterThan(fromTop + 0.5);
+            expect(at.indicator).toBeLessThan(toTop);
             const colors = await colorsAt(page, still);
             for (const [index, point] of still.entries()) {
                 expect(near(colors[index], stillColors[index]), `滚到 ${String(fraction)} 时 (${point.join(", ")}) 是 ${String(colors[index])}，静止时 ${String(stillColors[index])}`).toBe(true);
             }
         }
-        // 滑到四成点回对话：它从此刻的位置往回走，头在点的那一刻回到入口条。
-        const before = await sliceAt(page, "auxiliarybar", 0.4, duration, conversation);
-        await clickOn(page, `[data-region-strip="auxiliarybar"] [data-region-entry="${from}"]`);
+        // 滑到四成点回对话：它从此刻的位置往回走。
+        const before = await railSliceAt(page, 0.4, duration, conversation);
+        await clickOn(page, `[data-rail="auxiliarybar"] [data-tool-entry="${from}"]`);
         await nextFrames(page);
-        const restarted = await sliceAt(page, "auxiliarybar", 0, duration, conversation);
-        expect(restarted.tracked!.left).toBeCloseTo(before.tracked!.left, 0);
-        expect(restarted.stripHead).toBe(conversation);
+        const restarted = await railSliceAt(page, 0, duration, conversation);
+        expect(restarted.tracked!.top).toBeCloseTo(before.tracked!.top, 0);
         for (const fraction of [0.3, 0.7]) {
-            const at = await sliceAt(page, "auxiliarybar", fraction, duration, conversation);
-            expect(at.tracked!.left).toBeGreaterThan(before.tracked!.left);
+            const at = await railSliceAt(page, fraction, duration, conversation);
+            expect(at.tracked!.top).toBeGreaterThan(before.tracked!.top);
             expect(at.out - at.in).toBeCloseTo(step, 0);
         }
         await finishAnimations(page);
         await expect(page.locator("[data-workbench-surface] [data-swap]")).toHaveCount(0);
         expect(await box(page, conversation)).toEqual(home);
-        await expect(strip.locator(`[data-panel-head="${conversation}"]`)).toHaveCount(1);
-        await expect.poll(() => regionIndicatorLeft(page, "auxiliarybar")).toBeCloseTo(fromLeft, 0);
-        await expect(strip.locator("[data-region-indicator]")).not.toHaveAttribute("data-sliding");
+        await expect.poll(() => railIndicatorAt(page)).toBe(fromTop);
+        await expect(rail.locator("[data-tool-indicator]")).not.toHaveAttribute("data-sliding");
+        await expect(rail).toHaveAttribute("data-rail-joined", "");
     });
 
     test("底部面板切换容器：从几节的容器切到一节的，头在点的那一刻并进入口条、离开的几节带着自己的头滑出去；切回来时入口条那一段空出来、新的头随内容滑进来，离开的那一节没有头；下划线和内容同时走，卡片外不画（ui/workbench-layout 输出 42、47）", async ({page}) => {
@@ -1254,8 +1232,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
     test("侧栏还在滚时点右栏的入口：侧栏这一刻直接到终点，右栏照常滚（ui/workbench-layout 输出 42；ui/nested-grid 输出 73）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
-        const strip = page.locator('[data-region-strip="auxiliarybar"]');
-        const to = (await strip.locator("[data-region-entry]").nth(1).getAttribute("data-region-entry"))!;
+        const rail = page.locator('[data-rail="auxiliarybar"]');
+        const to = (await rail.locator("[data-tool-band] [data-tool-entry]").nth(1).getAttribute("data-tool-entry"))!;
         const sidebar = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
         await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
         await clickOn(page, `[data-tool-entry="view:${B}"]`);
@@ -1264,10 +1242,10 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const beta = (await content(page, B).getAttribute("data-content-leaf"))!;
         const swapping = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-swap]")].map((frame) => frame.dataset.leaf!).sort());
         expect(await swapping()).toEqual([...sidebar, beta].sort());
-        await clickOn(page, `[data-region-strip="auxiliarybar"] [data-region-entry="${to}"]`);
+        await clickOn(page, `[data-rail="auxiliarybar"] [data-tool-entry="${to}"]`);
         await nextFrames(page);
         // 右栏开始滚的这一刻，侧栏已经不在交换里，样例乙那一节就在它的终点上。
-        const at = await sliceAt(page, "auxiliarybar", 0.2, 6000, beta);
+        const at = await railSliceAt(page, 0.2, 6000, beta);
         expect(at.inLeaves).toHaveLength(1);
         expect((await swapping()).filter((id) => [...sidebar, beta].includes(id))).toEqual([]);
         await finishAnimations(page);
@@ -1596,7 +1574,7 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
     const sample = (page: Page, view: string) => page.locator(`[data-sample-view="${view}"]`);
     const surface = (page: Page) => page.locator("[data-workbench-surface]");
     /** 活动栏上段的入口，从上到下；用户容器的 id 是随机的，写成 `custom`。 */
-    const entryIds = (page: Page): Promise<string[]> => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => {
+    const entryIds = (page: Page): Promise<string[]> => page.locator('[data-rail="sidebar"] [data-tool-band] [data-tool-entry]').evaluateAll((elements) => elements.map((element) => {
         const id = element.getAttribute("data-tool-entry") ?? "";
         return id.startsWith("custom:") ? "custom" : id;
     }));
@@ -1655,7 +1633,7 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await lift(page, tab(page, EXPLORER));
         await page.mouse.move(gap.x, gap.y, {steps: 8});
         // 预览：被拖的视图在空位上显示成一个入口，别的入口让开；侧栏显示的还是“项目”。
-        const placed = page.locator(`[data-tool-band] [data-tool-view="${EXPLORER}"]`);
+        const placed = page.locator(`[data-rail="sidebar"] [data-tool-band] [data-tool-view="${EXPLORER}"]`);
         await expect(placed).toHaveCount(1);
         await expect.poll(() => entryIds(page)).toEqual([PROJECT_CONTAINER, `view:${A}`, "custom", ...before.slice(2)]);
         await expect.poll(() => placed.evaluate((element) => getComputedStyle(element.closest(".workbench-tool-strip__frame") as Element).visibility)).toBe("visible");
@@ -1756,42 +1734,44 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         expect((await saved(page))?.panels[lower]?.container).toBe(`view:${A}`);
     });
 
-    /** 右栏入口条上的入口，从左到右；用户容器的 id 是随机的，写成 `custom`。 */
-    const stripIds = (page: Page): Promise<string[]> => page.locator('[data-region-strip="auxiliarybar"] [data-tool-entry]').evaluateAll((elements) => elements.map((element) => {
+    /** 右轨入口带上的入口，从上到下；用户容器的 id 是随机的，写成 `custom`。 */
+    const stripIds = (page: Page): Promise<string[]> => page.locator('[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry]').evaluateAll((elements) => elements.map((element) => {
         const id = element.getAttribute("data-tool-entry") ?? "";
         return id.startsWith("custom:") ? "custom" : id;
     }));
-    const stripEntry = (page: Page, container: string) => page.locator(`[data-region-strip="auxiliarybar"] [data-tool-entry="${container}"]`);
-    const barEntry = (page: Page, container: string) => page.locator(`[data-tool-band] [data-tool-entry="${container}"]`);
+    const stripEntry = (page: Page, container: string) => page.locator(`[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry="${container}"]`);
+    const barEntry = (page: Page, container: string) => page.locator(`[data-rail="sidebar"] [data-tool-band] [data-tool-entry="${container}"]`);
 
-    test("有面板最大化时，被盖住的右栏入口条不是落点：指针经过它原来的位置，落点还是盖在上面的那块面板（ui/workbench-layout 输出 13、47）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 50（别的面板最大化时右轨不被盖住）、13：有面板最大化时右轨还在原处，入口带仍是落点。
+    test("有面板最大化时，右轨不被盖住：指针落在右轨入口之间，落点还是入口带上的新建容器（ui/workbench-layout 输出 13、50）", async ({page}) => {
         await open(page);
-        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
-        // 最大化资源管理器那一节，拖它自己的标题：最大化时是落点指示。
+        const railBox = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!;
+        // 最大化资源管理器那一节，再拖它自己的标题：最大化时是落点指示。
         await page.locator(`[data-panel-head="${await sectionOf(page, EXPLORER)}"] [data-panel-action="nbook.view.toggle-panel-maximized"]`).click();
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        expect(await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox()).toEqual(railBox);
+        const [first, second] = [(await stripEntry(page, (await stripIds(page))[0]!).boundingBox())!, (await page.locator('[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry]').nth(1).boundingBox())!];
         const from = await centerOf(tab(page, EXPLORER));
         await page.mouse.move(from.x, from.y);
         await page.mouse.down();
         await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
-        await page.mouse.move(stripBox.x + 12, stripBox.y + stripBox.height / 2, {steps: 10});
-        await expect(page.locator("[data-drop-feedback]")).toHaveAttribute("data-drop-kind", /.+/u);
-        await expect(page.locator("[data-drop-feedback]")).not.toHaveAttribute("data-drop-kind", /container|entry/u);
+        await page.mouse.move(first.x + first.width / 2, (first.y + first.height + second.y) / 2, {steps: 10});
+        await expect(page.locator("[data-drop-feedback]")).toHaveAttribute("data-drop-kind", "new-container");
         await page.keyboard.press("Escape");
         await page.mouse.up();
     });
 
-    test("右栏的入口条上：拖到两个入口之间，入口横着让开，右栏还是原来的容器、零写入；放下右栏多一个只含它的入口并切到它（输出 45、47）", async ({page}) => {
+    test("右轨的入口带上：拖到两个入口之间，入口让开，右栏还是原来的容器、零写入；放下右栏多一个只含它的入口并切到它（输出 45、50）", async ({page}) => {
         await open(page);
         const before = await stripIds(page);
         expect(before).toHaveLength(2);
         const writes = await writesOf(page);
         const [first, second] = [(await stripEntry(page, before[0]!).boundingBox())!, (await stripEntry(page, before[1]!).boundingBox())!];
-        const gap = {x: (first.x + first.width + second.x) / 2, y: first.y + first.height / 2};
+        const gap = {x: first.x + first.width / 2, y: (first.y + first.height + second.y) / 2};
         await lift(page, tab(page, EXPLORER));
         await page.mouse.move(gap.x, gap.y, {steps: 8});
         // 预览：被拖的视图在空位上显示成一个入口，别的入口让开；右栏显示的还是原来的容器。
-        const placed = page.locator(`[data-region-strip="auxiliarybar"] [data-tool-view="${EXPLORER}"]`);
+        const placed = page.locator(`[data-rail="auxiliarybar"] [data-tool-band] [data-tool-view="${EXPLORER}"]`);
         await expect(placed).toHaveCount(1);
         await expect.poll(() => stripIds(page)).toEqual([before[0], "custom", before[1]]);
         await expect(stripEntry(page, before[0]!)).toHaveAttribute("aria-pressed", "true");
@@ -1805,7 +1785,7 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         expect((await saved(page))?.panels.auxiliarybar?.activeContainer).toMatch(/^custom:/u);
     });
 
-    test("右栏入口条上只含一个视图的入口拖到活动栏两个入口之间：它的容器整个搬到侧栏、id 不变；预览里入口让开、侧栏不切，放下侧栏切到它（输出 46）", async ({page}) => {
+    test("右轨入口带上只含一个视图的入口拖到活动栏两个入口之间：它的容器整个搬到侧栏、id 不变；预览里入口让开、侧栏不切，放下侧栏切到它（输出 46）", async ({page}) => {
         await open(page);
         const delta = `view:${D}`;
         await expect(stripEntry(page, delta)).toHaveCount(1);
@@ -1828,11 +1808,11 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         expect(record.panels[await sectionOf(page, D)]?.container).toBe(delta);
     });
 
-    test("拖含几个视图的入口到右栏的入口条上：整个容器搬过去（落点指示），右栏切到它、两节都带着，活动栏少一个入口（输出 46）", async ({page}) => {
+    test("拖含几个视图的入口到右轨的入口带上：整个容器搬过去（落点指示），右栏切到它、两节都带着，活动栏少一个入口（输出 46）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        const last = (await page.locator('[data-region-strip="auxiliarybar"] [data-tool-entry]').last().boundingBox())!;
-        const target = {x: last.x + last.width * 0.8, y: last.y + last.height / 2};
+        const last = (await page.locator('[data-rail="auxiliarybar"] [data-tool-band] [data-tool-entry]').last().boundingBox())!;
+        const target = {x: last.x + last.width / 2, y: last.y + last.height * 0.8};
         // 含几个视图的入口不走实时布局（输出 46）：按下、过门槛就是落点指示。
         const from = await centerOf(barEntry(page, PROJECT_CONTAINER));
         await page.mouse.move(from.x, from.y);
@@ -1845,13 +1825,16 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
         await expect(stripEntry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
         await expect(barEntry(page, PROJECT_CONTAINER)).toHaveCount(0);
-        // 两节都在右栏这一列：过渡走完，外框的左缘就是入口条叶外框的左缘。
+        // 两节都在右栏这一列：过渡走完，外框的右缘就是右轨卡片的左缘（相连，不留缝）。
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        const stripLeft = (await box(page, "strip:auxiliarybar")).x;
-        for (const view of [EXPLORER, SESSIONS]) expect(Math.abs((await box(page, await sectionOf(page, view))).x - stripLeft)).toBeLessThanOrEqual(1);
+        const railLeft = (await page.locator('[data-shell-card="rail:auxiliarybar"]').boundingBox())!.x;
+        for (const view of [EXPLORER, SESSIONS]) {
+            const section = await box(page, await sectionOf(page, view));
+            expect(Math.abs(section.x + section.width - railLeft)).toBeLessThanOrEqual(1);
+        }
     });
 
-    test("右栏入口条里换序：拖样例丁的入口到第一个入口前面，只改入口顺序，右栏的显隐与当前容器不变（输出 45、47）", async ({page}) => {
+    test("右轨入口带里换序：拖样例丁的入口到第一个入口前面，只改入口顺序，右栏的显隐与当前容器不变（输出 45、50）", async ({page}) => {
         await open(page);
         const before = await stripIds(page);
         const delta = `view:${D}`;
@@ -1859,8 +1842,8 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         const writes = await writesOf(page);
         const first = (await stripEntry(page, before[0]!).boundingBox())!;
         await lift(page, stripEntry(page, delta));
-        await page.mouse.move(first.x + 2, first.y + first.height / 2, {steps: 10});
-        // 来源是右栏里一个容器唯一的视图：这条入口条是它自己的，在里面跟手、不收起来源。
+        await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 10});
+        // 来源是右栏里一个容器唯一的视图：这条入口带是它自己的，在里面跟手、不收起来源。
         await expect.poll(() => stripIds(page)).toEqual([delta, before[0]]);
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
@@ -1869,46 +1852,25 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await expect(stripEntry(page, before[0]!)).toHaveAttribute("aria-pressed", "true");
     });
 
-    test("头并在入口条里的那一节：拖一个视图到它的头上是它的标题行，放下在它前面插一个分节，入口条里不再有头（输出 25 第 7 行、47）", async ({page}) => {
-        await open(page);
-        // 先切到样例丁：它的头是普通的头，标题就在入口条里。
-        await stripEntry(page, `view:${D}`).click();
-        const delta = await sectionOf(page, D);
-        const title = page.locator(`[data-region-strip="auxiliarybar"] [data-panel-head="${delta}"] [data-panel-tab="view:${D}"]`);
-        await expect(title).toBeVisible();
-        const target = await centerOf(title);
-        await lift(page, tab(page, EXPLORER));
-        await page.mouse.move(target.x, target.y, {steps: 10});
-        await expect(surface(page)).toHaveAttribute("data-live-preview", /edge/u);
-        await page.mouse.up();
-        await expect(page.locator('[data-region-strip="auxiliarybar"] [data-panel-head]')).toHaveCount(0);
-        // 过渡走完再量两节的外框。
-        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        const [upper, lower] = [await box(page, await sectionOf(page, EXPLORER)), await box(page, delta)];
-        expect(upper.y).toBeLessThan(lower.y);
-        expect(Math.abs(upper.x - lower.x)).toBeLessThanOrEqual(1);
-        expect((await saved(page))?.panels[await sectionOf(page, EXPLORER)]?.container).toBe(`view:${D}`);
-    });
-
-    test("右栏当前容器唯一的那一节拖走、来源收起之后：右栏的入口条跟着不在了，指针经过它原来的位置不是入口条上的落点；Escape 原样（输出 38、47）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 38、50：右栏当前容器唯一的那一节拖走、来源收起之后，右栏还有别的成员容器，右轨一直在；Escape 原样、零写入。
+    test("右栏当前容器唯一的那一节拖走、来源收起之后：右栏还有别的容器，右轨一直在；Escape 原样（输出 38、50）", async ({page}) => {
         await open(page);
         await stripEntry(page, `view:${D}`).click();
         // 切换写一次：等它落盘再数，不然这次写入会算进拖动里。
         await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.activeContainer).toBe(`view:${D}`);
         const writes = await writesOf(page);
-        const stripBox = (await page.locator('[data-shell-card="strip:auxiliarybar"]').boundingBox())!;
-        const title = page.locator(`[data-region-strip="auxiliarybar"] [data-panel-tab="view:${D}"]`);
+        const title = page.locator(`[data-panel-head="${await sectionOf(page, D)}"] [data-panel-tab="view:${D}"]`);
         await lift(page, title);
-        // 放到资源管理器的下半：来源收起，右栏当前的容器在预览里空了，入口条叶不在了。
+        // 放到资源管理器的下半：来源收起，右栏当前的容器在预览里空了。
         const explorer = await box(page, await sectionOf(page, EXPLORER));
         await page.mouse.move(explorer.x + explorer.width / 2, explorer.y + explorer.height * 0.8, {steps: 10});
         await expect(surface(page)).toHaveAttribute("data-live-preview", /edge/u);
-        await expect(page.locator('[data-region-strip="auxiliarybar"]')).toHaveCount(0);
-        await page.mouse.move(stripBox.x + 12, stripBox.y + stripBox.height / 2, {steps: 10});
-        await page.mouse.move(stripBox.x + 14, stripBox.y + stripBox.height / 2, {steps: 2});
-        await expect.poll(() => surface(page).getAttribute("data-live-preview")).not.toMatch(/new-container|move-entry|move-container|join-container/u);
+        await expect(page.locator('[data-rail="auxiliarybar"]')).toHaveCount(1);
         await page.keyboard.press("Escape");
-        await expect(page.locator('[data-region-strip="auxiliarybar"]')).toHaveCount(1);
+        await page.mouse.up();
+        await expect(page.locator('[data-rail="auxiliarybar"]')).toHaveCount(1);
+        await expect.poll(() => stripIds(page)).toHaveLength(2);
+        await expect(stripEntry(page, `view:${D}`)).toHaveAttribute("aria-pressed", "true");
         expect(await writesOf(page)).toBe(writes);
     });
 
@@ -1919,22 +1881,26 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         // 切换时整张卡片滚进来（输出 42）：滚完再拿标签，不然量到的位置在按下时已经变了。
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         await expect.poll(async () => (await saved(page))?.panels.sidebar?.activeContainer).toBe(`view:${A}`);
+        // 右栏落点：消息的容器不收别的视图（views 输出 22），落到样例丁那一节。先切到它，等切换的滚动走完、写入落盘再数写入。
+        await pressEntry(page, stripEntry(page, `view:${D}`));
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.activeContainer).toBe(`view:${D}`);
         const writes = await writesOf(page);
-        const right = await box(page, await sectionOf(page, CONVERSATION));
+        const right = await box(page, await sectionOf(page, D));
         const below = {x: right.x + right.width / 2, y: right.y + right.height * 0.8};
 
         await lift(page, tab(page, A));
         await page.mouse.move(below.x, below.y, {steps: 8});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         // 侧栏空着：样例甲拿走了，也没有换成“项目”或样例乙。
-        await expect(page.locator("[data-tool-band] [data-tool-entry][aria-pressed=\"true\"]")).toHaveCount(0);
+        await expect(page.locator('[data-rail="sidebar"] [data-tool-band] [data-tool-entry][aria-pressed="true"]')).toHaveCount(0);
         await expect(tab(page, SESSIONS)).toHaveCount(0);
         await expect(tab(page, B)).toHaveCount(0);
         // 来源收起之后活动栏照样是落点（输出 38：判定按收起后的布局）：回到两个入口之间，空位里出现它的入口。
         // 这是它自己原来的空位，放回原处（输出 28、45）：预览是已提交的样子，入口按下、侧栏又是它。
         const gap = await between(page, PROJECT_CONTAINER, `view:${B}`);
         await page.mouse.move(gap.x, gap.y, {steps: 6});
-        await expect(page.locator(`[data-tool-band] [data-tool-view="${A}"]`)).toHaveCount(1);
+        await expect(page.locator(`[data-rail="sidebar"] [data-tool-band] [data-tool-view="${A}"]`)).toHaveCount(1);
         await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
         await expect(page.locator("[data-drag-live-status]")).toHaveText("原位");
         expect(await writesOf(page)).toBe(writes);
@@ -1961,8 +1927,12 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
     test("拖动中用命令打开另一个容器里的视图：这一场取消、拖动本身零写入，侧栏切到命令指定的容器（验收 32）", async ({page}) => {
         await open(page);
         const home = await sectionOf(page, EXPLORER);
+        // 右栏落点：消息的容器不收别的视图（views 输出 22），落到样例丁那一节。先切到它，等切换的滚动走完、写入落盘再数写入。
+        await pressEntry(page, stripEntry(page, `view:${D}`));
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        await expect.poll(async () => (await saved(page))?.panels.auxiliarybar?.activeContainer).toBe(`view:${D}`);
         const writes = await writesOf(page);
-        const right = await box(page, await sectionOf(page, CONVERSATION));
+        const right = await box(page, await sectionOf(page, D));
         await lift(page, tab(page, EXPLORER));
         await page.mouse.move(right.x + right.width / 2, right.y + right.height * 0.8, {steps: 8});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");

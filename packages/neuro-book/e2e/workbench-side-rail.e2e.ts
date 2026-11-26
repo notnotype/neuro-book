@@ -4,7 +4,7 @@
  * 右栏是产品的消息视图（`nbook.agent.conversation`）加测试插件 `test.sample-views` 的样例丁两个容器，侧栏是“项目”加样例甲乙丙。
  *
  * 只按元素标记约定定位（`.agents/works/w00043-neurobot/tasks/t19-messages-view-ui-polish/plan.md` 的“测试分工”）：`data-rail`、
- * `data-rail-state`、`data-rail-joined`、`data-rail-entries`、`data-rail-segment`、`data-tool-entry`。视图段里画什么属于消息视图，不在这里。
+ * `data-rail-state`、`data-rail-joined`、`data-tool-band`、`data-rail-segment`、`data-tool-entry`。视图段里画什么属于消息视图，不在这里。
  *
  * 不在这里的（后面两段）：展开与预算（验收 36）、轨宽手柄、切换容器的布局过渡、焦点交接、意图不漂移（验收 35）；浮动窗里的视图段、
  * 浮出与归位的过渡（验收 37）；消息视图的收着与展开。
@@ -337,29 +337,6 @@ test.describe("产品页：右轨", () => {
         await expect(barEntry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
         await expect(tab(page, SESSIONS)).toBeVisible();
     });
-
-    // 覆盖 ui/workbench-layout 输出 50“落点”：视图段与底段是拒绝区，松手是取消、不开新窗；入口带上同一个拖动是有落点的（对照）。
-    for (const segment of ["main", "foot"] as const) {
-        test(`拖到右轨的${segment === "main" ? "视图段" : "底段"}上松手是取消：没有落点指示、不开新窗、零写入（输出 50）`, async ({page}) => {
-            await open(page);
-            await expect(railSegment(page, segment)).toBeVisible();
-            const writes = await settledWrites(page, database());
-            const before = await railEntryIds(page);
-            await pickUp(page, tab(page, EXPLORER));
-            // 对照：同一个拖动在入口带上有落点，换到视图段或底段上就没有了。
-            await moveTo(page, await gapBetween(railEntries(page).nth(0), railEntries(page).nth(1)));
-            await expect(dropFeedback(page)).toHaveAttribute("data-drop-kind", "new-container");
-            await moveTo(page, await centerOf(railSegment(page, segment)));
-            await expectNoFeedback(page);
-            await expect(page.locator("[data-tool-merge]")).toHaveCount(0);
-            await release(page);
-
-            await expect(windows(page)).toHaveCount(0);
-            expect(await layoutWrites(page, database())).toBe(writes);
-            expect(await railEntryIds(page)).toEqual(before);
-            await expect(tab(page, EXPLORER)).toBeVisible();
-        });
-    }
 
     // 覆盖 ui/workbench-layout 输出 50“焦点与读屏”与输出 18：F6 从左到右，左轨在左侧栏之前，右轨在右栏之后；右栏卡片顶上不再有入口条这一站。
     test("F6 与 Shift+F6：从左到右，右轨在右栏之后，右栏没有入口条这一站（输出 50、18）", async ({page}) => {

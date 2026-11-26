@@ -937,7 +937,7 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await expect(windows).toHaveCount(1);
 
     // 活动栏上段的空白（不是条目按钮）：放不进，不开窗。
-    const band = (await page.locator("[data-tool-band]").boundingBox())!;
+    const band = (await page.locator("[data-rail=sidebar] [data-tool-band]").boundingBox())!;
     await dragRow(page, "project://plain/a.md", {x: band.x + band.width / 2, y: band.y + band.height - 6});
     await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
     await page.mouse.up();
