@@ -183,3 +183,10 @@ Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、
 - 晋升时要补的：两份 Spec 的证据一节要指向 Smoke 标在的 `oauth-provider.test.ts`、`accounts-social.test.ts` 与新的 `accounts-identities.test.ts`（代码合入 master 之后再写，免得链接不存在）。
 
 第 8 到 10 片的实现审查（处理见计划文末“实现审查（第 8 到 10 片）的处理”）：Opus 那 5 条的修正已提交（`be09202c9`，10 个文件）：发起时库没有这个上游（`PROVIDER_NOT_FOUND`，按码判）回 503 `unavailable`；登录意图的社交发起在调库之前计入登录的来源地址计数，与密码登录共用额度；社交注册的邮箱不合本站规则时同没验证过；`identities.ts` 与 `0003` 注明导入要写名字行；包内补三个回调并发到认领。实现者自报：五个目标包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过，4 条变异都被抓到；`test:affected --with-consumers` 选中 28 个包，被它自己的 50 分钟上限截停在最后 5 个，dev-panel、nb-host、nb-story 有几条 5 秒超时（负载 12 到 27，与本次改动无关）。发起被 `provider_disabled` 或 `validation_failed` 拒掉的不计入限流，同密码登录“字段不合格的请求不计入”。omp 那 3 条要改的接着修（fix4），两次修正合在一起由主会话重跑验证。
+
+omp 那 3 条的修正已提交（`0dc6d182d`，14 个文件）：
+- 封禁与建会话交错：新加迁移 `0004`，`session` 表插入前的触发器拒绝被封禁账号的会话（只看 `banned = 1`；`banExpires` 恒为空，触发器拿不到模块时钟，将来加封禁到期要重写它）。社交回调按 `SQLITE_CONSTRAINT_TRIGGER` 认出、落到 `account_banned`；`session` 表上只能有这一个触发器，`schema.test.ts` 核对。密码登录与注册本来在自己的写事务里复核，触发器对它们是第二道。实现者列了“建会话的路 × 封禁落在哪一步”的表，只有社交登录、社交注册在“查与插之间”那格改前会留下会话；社交注册那格没有单独用例，与社交登录同一个触发器、同一个 catch。
+- Google 配 `requireIdTokenVerification`：发现文档缺 issuer 或 `jwks_uri` 时库不建这个上游，发起回 503 `unavailable`；仿真上游加了 `omitJwksUri`。
+- 解绑只数密码与所在上游开放着的其它身份，列表照旧。
+- 实现者自报：账号与站点各包的测试与类型检查都过，`governance:check` 过，合同测试连跑 3 遍各 334 条都过，4 条变异都被抓到。`--with-consumers` 带进来的别的包有 5 项失败，都与本次无关：dev-panel 的 herdr 与 nb-story 的子进程超时在 master 上也失败，nb-markdown 与 neuro-book 的几条单独重跑通过；`ProvidersPage.dom.test.ts` 在分支上失败、master 上通过，因为分支起点之后 master 改过 models 插件，合入前变基后复核。
+- 社交注册意图下被封禁时，码随时序是 `social_failed` 或 `account_banned`，两种都不建号、不扣码。不统一，写进 `site.accounts` 输出 13。
