@@ -164,16 +164,17 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     /**
      * 二选一的写法（输出 16）：改设定写“从<来源>起”，来源是这个值最近一次定下的地方（某一章、前史，没有就是最初）；剧情里变了写
      * “从<所选位置那一章>起”。来源就是所选的那一章时两项会同名，改写成“改第 3 章那一笔”“第 3 章里又变了”。来源只在计划里（未安放）
-     * 时说不出从哪起，退回“改设定”。看最初时只有改设定，这一行不出，写法无所谓。
+     * 时说不出从哪起，退回“改设定”。来源是核对点时同样退回“改设定”：核对点定下的值按改设定写不回去（内核报 accumulated-value），
+     * 写“从第 2 章起”会许诺一个做不到的落点。看最初时只有改设定，这一行不出，写法无所谓。
      */
     const intentLabelsOf = (path: string): {creative: string; story: string} => {
         const position = options.position();
         const changed = options.field(path).state?.changedAt;
         const here = position.kind === "chapter" ? options.chapter(position.chapter) : null;
-        if (changed !== undefined && changed.at.kind === "chapter" && position.kind === "chapter" && changed.at.chapter === position.chapter) {
+        if (changed?.by === "change" && changed.at.kind === "chapter" && position.kind === "chapter" && changed.at.chapter === position.chapter) {
             return {creative: text("edit.patchHere", {place: here!}), story: text("edit.storyAgain", {place: here!})};
         }
-        const creative = changed === undefined ? text("edit.since", {place: text("position.initial")}) : changed.at.kind === "unscheduled" ? text("edit.creative") : text("edit.since", {place: options.place(changed.at)});
+        const creative = changed === undefined ? text("edit.since", {place: text("position.initial")}) : changed.by === "check" || changed.at.kind === "unscheduled" ? text("edit.creative") : text("edit.since", {place: options.place(changed.at)});
         return {creative, story: here === null ? text("edit.story") : text("edit.since", {place: here})};
     };
     /** 不写“发生了什么”时剧情里变了的标题：值短就写“年龄变成 18 岁”，长的、引用、图片、是否写“性格变了”。 */

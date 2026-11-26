@@ -94,10 +94,13 @@ const mark = computed<"gone" | "absent" | null>(() => (props.positionGone ? "gon
 const SEARCH_FROM = 12;
 const searchable = computed(() => props.chapters.length > SEARCH_FROM);
 const query = ref("");
+/** 搜索：纯数字只认章号（“3”就是第 3 章，不把 13、23 带出来）；别的不分大小写、不管空格，比“第 N 章”与标题。 */
+const squeeze = (value: string): string => value.replace(/\s+/gu, "").toLowerCase();
 const shown = computed(() => {
-    const words = query.value.trim();
+    const words = squeeze(query.value);
     if (words === "") return props.chapters;
-    return props.chapters.filter((chapter) => String(chapter.index) === words || text("place.chapter", {index: chapter.index}).includes(words) || (chapter.title ?? "").includes(words));
+    if (/^\d+$/u.test(words)) return props.chapters.filter((chapter) => chapter.index === Number(words));
+    return props.chapters.filter((chapter) => squeeze(text("place.chapter", {index: chapter.index})).includes(words) || squeeze(chapter.title ?? "").includes(words));
 });
 /** 键盘在位置按钮之间走：一行是最初或一章，行里是开头、末尾（最初只有一个）。 */
 const rows = computed(() => [[INITIAL_POSITION], ...shown.value.map((chapter) => [chapter.start, chapter.end])]);
@@ -127,14 +130,34 @@ const onSearchKey = (event: KeyboardEvent): void => {
 /** 当前位置这一列可聚焦（tabindex 0），别的 -1；当前位置被搜索筛掉时，第一项可聚焦。 */
 const focusable = computed(() => (rows.value.some((row) => row.includes(props.position)) ? props.position : rows.value[0]![0]!));
 const edgesOf = (chapter: PositionChapter): ReadonlyArray<readonly ["start" | "end", string]> => [["start", chapter.start], ["end", chapter.end]];
-const choose = (value: string): void => {
-    emit("update:position", value);
+/** 选了以后关上，焦点回到按钮（Popover 只在 Escape 关上时还焦点；选中的那一项随菜单卸载，焦点会掉到页面上）。 */
+const close = (): void => {
     open.value = false;
+    void nextTick(() => trigger.value?.focus({preventScroll: true}));
+};
+const choose = (value: string): void => {
+    if (locked.value) return;
+    emit("update:position", value);
+    close();
 };
 const chooseLine = (value: string): void => {
+    if (locked.value) return;
     emit("update:line", value);
-    open.value = false;
+    close();
 };
+/** 故事线一组：上下键在各项之间走（两头绕回），只有选着的那一项可用 Tab 进来。 */
+const lineValues = computed(() => ["", ...props.lineOptions.map((option) => option.id)]);
+const onLineKey = (event: KeyboardEvent, value: string): void => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const at = lineValues.value.indexOf(value);
+    const next = lineValues.value[(at + (event.key === "ArrowDown" ? 1 : -1) + lineValues.value.length) % lineValues.value.length]!;
+    menu.value?.querySelector<HTMLElement>(`[data-line-option="${CSS.escape(next)}"]`)?.focus();
+};
+// 菜单开着时锁上了（开始编辑主文字）：关上，不再能换。
+watch(locked, (now) => {
+    if (now) open.value = false;
+});
 
 /**
  * 打开时：清掉上一次的搜索，章表把当前章滚到中间，焦点进搜索框（章多时）或当前位置。等挂上以后再做：Popover 的内容在打开的这一拍
@@ -200,16 +223,17 @@ watch(open, async (now) => {
             />
         </div>
         <Popover :open="open" :anchor="trigger" side="bottom" align="end" content-class="w-[22rem] !p-1.5" @update:open="(value: boolean) => (open = value)">
-            <div ref="menu" class="flex flex-col" data-view-point-menu>
+            <!-- 菜单不高过视口里剩下的地方（线多、矮窗口时在菜单里滚）；章多时章表另有自己的高度。 -->
+            <div ref="menu" class="view-point__menu flex flex-col" data-view-point-menu>
                 <template v-if="hasLines">
                     <p class="view-point__head">{{ text("viewPoint.lines") }}<InfoTip :text="text('viewPoint.linesTip')" side="left" /></p>
                     <div role="radiogroup" :aria-label="text('viewPoint.lines')">
-                        <button type="button" role="radio" class="nb-ui-menu-item w-full" :aria-checked="props.line === ''" data-line-option="" @click="chooseLine('')">
+                        <button type="button" role="radio" class="nb-ui-menu-item w-full" :aria-checked="props.line === ''" :tabindex="props.line === '' ? 0 : -1" data-line-option="" @click="chooseLine('')" @keydown="(event: KeyboardEvent) => onLineKey(event, '')">
                             <span class="size-3.5 shrink-0" :class="props.line === '' ? 'i-lucide-check' : ''" aria-hidden="true" />
                             <span class="min-w-0 flex-1 truncate text-left">{{ text("viewPoint.follow") }}</span>
                             <span class="view-point__aside">{{ text("viewPoint.followNow", {line: lineName(props.resolvedLine)}) }}</span>
                         </button>
-                        <button v-for="option in props.lineOptions" :key="option.id" type="button" role="radio" class="nb-ui-menu-item w-full" :aria-checked="props.line === option.id" :data-line-option="option.id" @click="chooseLine(option.id)">
+                        <button v-for="option in props.lineOptions" :key="option.id" type="button" role="radio" class="nb-ui-menu-item w-full" :aria-checked="props.line === option.id" :tabindex="props.line === option.id ? 0 : -1" :data-line-option="option.id" @click="chooseLine(option.id)" @keydown="(event: KeyboardEvent) => onLineKey(event, option.id)">
                             <span class="size-3.5 shrink-0" :class="props.line === option.id ? 'i-lucide-check' : ''" aria-hidden="true" />
                             <span v-if="option.depth > 0" class="i-lucide-corner-down-right size-3.5 shrink-0 text-[var(--text-muted)]" :style="{marginLeft: `${String((option.depth - 1) * 14)}px`}" aria-hidden="true" />
                             <span class="min-w-0 flex-1 truncate text-left">{{ lineName(option.id) }}</span>
@@ -266,7 +290,7 @@ watch(open, async (now) => {
                     <div class="view-point__sep" />
                     <label class="view-point__plan" data-view-point-plan>
                         <span class="flex-1">{{ text("entry.planned") }}</span>
-                        <Switch size="sm" :aria-label="text('entry.planned')" :model-value="props.planned" @update:model-value="(value: boolean) => emit('update:planned', value)" />
+                        <Switch size="sm" :aria-label="text('entry.planned')" :model-value="props.planned" :disabled="locked" @update:model-value="(value: boolean) => emit('update:planned', value)" />
                     </label>
                 </template>
             </div>
@@ -350,6 +374,11 @@ watch(open, async (now) => {
     opacity: 0;
 }
 /* 菜单。 */
+.view-point__menu {
+    max-height: calc(var(--reka-popover-content-available-height, 80vh) - 12px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
 .view-point__head {
     display: flex;
     align-items: center;

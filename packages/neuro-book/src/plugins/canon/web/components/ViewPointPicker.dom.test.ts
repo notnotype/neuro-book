@@ -68,7 +68,7 @@ describe("ViewPointPicker", () => {
         expect(wrapper.find("[data-view-point-prev]").exists()).toBe(false);
     });
 
-    it("菜单：故事线一段写按章节自动与当前读的线，选一条发 update:line 并关上；剧情进度是最初与每章的开头、末尾，选一个发 update:position", async () => {
+    it("菜单：故事线一段写按章节自动与当前读的线，选一条发 update:line 并关上；剧情进度是最初与每章的开头、末尾，选一个发 update:position；选了以后焦点回到按钮", async () => {
         const wrapper = picker({lineOptions: LINES, resolvedLine: "main"});
         let menu = await openMenu(wrapper);
         expect(menu.textContent).toContain("故事线");
@@ -82,11 +82,13 @@ describe("ViewPointPicker", () => {
         await nextTick();
         expect(wrapper.emitted("update:line")).toEqual([["l1"]]);
         expect(wrapper.get("[data-view-point]").attributes("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(wrapper.get("[data-view-point]").element);
 
         menu = await openMenu(wrapper);
         menu.querySelector<HTMLElement>("[data-position-value='c2:end']")!.click();
         await nextTick();
         expect(wrapper.emitted("update:position")).toEqual([["c2:end"]]);
+        expect(document.activeElement).toBe(wrapper.get("[data-view-point]").element);
     });
 
     it("作品里有计划时最下面是开关，拨了发 update:planned、菜单不关；只有主线时没有故事线一段", async () => {
@@ -118,7 +120,7 @@ describe("ViewPointPicker", () => {
         expect(menu.querySelector("[data-view-point-search]")).toBeNull();
     });
 
-    it("多于 12 章：有搜索框，焦点在它上面；按章号、“第 N 章”、标题里的字筛；搜不到写一句；按下键进章表", async () => {
+    it("多于 12 章：有搜索框，焦点在它上面；按章号（纯数字只认章号）、“第 N 章”（空格可有可无）、标题里的字筛；当前章被筛掉时最初可聚焦；搜不到写一句；按下键进章表", async () => {
         const titles = ["雨夜的来客", "旧校舍的钟", "夏日祭"];
         const chapters = Array.from({length: 30}, (_, index) => chapterOf(index + 1, titles[index % titles.length]!));
         const wrapper = picker({chapters, position: "c20:end"});
@@ -134,8 +136,13 @@ describe("ViewPointPicker", () => {
         expect([...menu.querySelectorAll("[data-chapter-row]")].map((row) => row.getAttribute("data-chapter-row"))).toEqual(["c2", "c5", "c8", "c11", "c14", "c17", "c20", "c23", "c26", "c29"]);
         await typeIn("第 7 章");
         expect([...menu.querySelectorAll("[data-chapter-row]")].map((row) => row.getAttribute("data-chapter-row"))).toEqual(["c7"]);
+        await typeIn("第7章");
+        expect([...menu.querySelectorAll("[data-chapter-row]")].map((row) => row.getAttribute("data-chapter-row"))).toEqual(["c7"]);
+        await typeIn("3");
+        expect([...menu.querySelectorAll("[data-chapter-row]")].map((row) => row.getAttribute("data-chapter-row"))).toEqual(["c3"]);
         await typeIn("12");
         expect([...menu.querySelectorAll("[data-chapter-row]")].map((row) => row.getAttribute("data-chapter-row"))).toEqual(["c12"]);
+        expect(radios(menu).filter((radio) => radio.getAttribute("tabindex") === "0").map((radio) => radio.getAttribute("data-position-value"))).toEqual(["initial"]);
         search.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
         await nextTick();
         expect(document.activeElement?.getAttribute("data-position-value")).toBe("c12:start");

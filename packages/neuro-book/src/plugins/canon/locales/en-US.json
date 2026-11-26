@@ -90,7 +90,6 @@
         "notAppeared": "Not on stage yet",
         "positionGone": "The chapter you picked is gone",
         "sameAs": "Really: ",
-        "position": "Point in the story",
         "planned": "Include planned events",
         "tabs": {
             "label": "Entry tabs",
@@ -128,8 +127,6 @@
         "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
         "fieldRestored": "Restored “{{label}}” on {{name}}",
-        "plannedMark": "Planned events included",
-        "leavePlans": "Leave out planned events",
         "addComponentShort": "Add a settings group",
         "groupAlreadyAdded": "This settings group is already on the entry",
         "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
@@ -568,8 +565,7 @@
         "lostTitle": "The line you were viewing no longer exists",
         "placeholder": "Pick a line",
         "follow": "By chapter",
-        "main": "Main line",
-        "label": "World line"
+        "main": "Main line"
     },
     "viewPoint": {
         "label": "Viewing",

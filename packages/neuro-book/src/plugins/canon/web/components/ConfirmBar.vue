@@ -80,7 +80,9 @@ const impact = computed(() => props.preview?.impact ?? []);
 const impactText = computed(() => (impact.value.length === 1 ? impact.value[0]! : text("edit.moreImpact", {first: impact.value[0] ?? "", count: impact.value.length - 1})));
 /** 保存键上写快捷键：单行的回车，成段文字的 Ctrl+回车。 */
 const multiline = computed(() => props.kind === "text" && props.rows > 1);
-const saveHint = computed(() => (multiline.value ? "Ctrl ↵" : props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) ? "↵" : ""));
+/** Mac 上写 ⌘，别处写 Ctrl（两个都认）。 */
+const MODIFIER = typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform) ? "⌘" : "Ctrl";
+const saveHint = computed(() => (multiline.value ? `${MODIFIER} ↵` : props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) ? "↵" : ""));
 
 onMounted(() => {
     void nextTick(() => root.value?.querySelector<HTMLElement>("input, textarea, [role='combobox'], [role='switch']")?.focus());
@@ -122,31 +124,55 @@ const onKeydown = (event: KeyboardEvent): void => {
     >
         <h3 v-if="props.variant === 'bar'" class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
         <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" :rows="props.rows" :inline="props.variant === 'inline'" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
+        <!-- 页顶的确认条（通用字段表、变更详情页）照旧的排法：意图一行、预览写回哪里与带来的变化、原因，按钮靠右。 -->
+        <div v-if="props.variant === 'bar' && intentOptions.length > 1" class="mt-2 flex items-center gap-2" data-edit-intent>
+            <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
+            <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
+        </div>
         <Transition name="nb-ui-switch">
             <div v-if="noteShown" class="mt-2" data-edit-note>
                 <Input size="sm" :model-value="props.note ?? ''" :aria-label="text('edit.note')" :placeholder="text('edit.notePlaceholder', {fallback: props.noteFallback})" @update:model-value="(value: string) => emit('update:note', value)" />
             </div>
         </Transition>
-        <!-- 原因优先（它是这时最要紧的）；没有原因时，有别的变化才写一条。没有别的变化时这一行不占地方。 -->
-        <Transition name="nb-ui-switch" mode="out-in">
-            <p v-if="props.error !== ''" key="error" class="confirm-bar__notice confirm-bar__notice--danger" role="alert" :title="props.error">{{ props.error }}</p>
-            <p v-else-if="!props.previewing && impact.length > 0" key="impact" class="confirm-bar__notice confirm-bar__notice--warning" :title="impact.join('\n')" data-edit-impact>
-                <span class="i-lucide-triangle-alert mt-0.5 size-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
-                <!-- 页顶的确认条地方够，逐条列出；编辑卡里收成一行，整句在悬停提示里。 -->
-                <span v-if="props.variant === 'bar'" class="flex min-w-0 flex-col"><span v-for="(line, index) in impact" :key="index">{{ line }}</span></span>
-                <span v-else class="min-w-0">{{ impactText }}</span>
-            </p>
-        </Transition>
-        <div class="mt-2 flex flex-wrap items-center gap-1">
-            <div v-if="intentOptions.length > 1" class="min-w-0" data-edit-intent>
-                <SegmentedControl variant="raised" size="xs" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
+        <template v-if="props.variant === 'bar'">
+            <div class="mt-2 min-h-[1.5rem] text-[var(--text-secondary)]" data-confirm-preview>
+                <p v-if="props.previewing">{{ text("edit.previewing") }}</p>
+                <template v-else-if="props.preview !== null">
+                    <p class="text-[var(--text-main)]">{{ props.preview.route }}</p>
+                    <ul v-if="impact.length > 0" class="m-0 list-none p-0 text-[length:var(--text-xs)]" data-edit-impact>
+                        <li v-for="(line, index) in impact" :key="index">{{ line }}</li>
+                    </ul>
+                </template>
             </div>
-            <Button v-if="props.error !== '' && props.recheck" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
-            <span class="flex-1" />
-            <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
-            <!-- 快捷键提示画在伪元素里：按钮的文字与读屏名照旧只是“保存”。 -->
-            <Button class="confirm-bar__save" size="sm" :disabled="!canSave" :data-shortcut="saveHint === '' ? undefined : saveHint" @click="emit('save')">{{ text("edit.save") }}</Button>
-        </div>
+            <p v-if="props.error !== ''" role="alert" class="mt-1 flex flex-wrap items-center gap-2 text-[var(--status-danger)]">
+                {{ props.error }}
+                <Button v-if="props.recheck" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
+            </p>
+            <div class="mt-3 flex justify-end gap-2">
+                <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
+                <Button size="sm" :disabled="!canSave" @click="emit('save')">{{ text("edit.save") }}</Button>
+            </div>
+        </template>
+        <template v-else>
+            <!-- 编辑卡：原因优先（它是这时最要紧的）；没有原因时，有别的变化才写一条。没有别的变化时这一行不占地方。 -->
+            <Transition name="nb-ui-switch" mode="out-in">
+                <p v-if="props.error !== ''" key="error" class="confirm-bar__notice confirm-bar__notice--danger" role="alert" :title="props.error">{{ props.error }}</p>
+                <p v-else-if="!props.previewing && impact.length > 0" key="impact" class="confirm-bar__notice confirm-bar__notice--warning" :title="impact.join('\n')" data-edit-impact>
+                    <span class="i-lucide-triangle-alert mt-0.5 size-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
+                    <span class="min-w-0">{{ impactText }}</span>
+                </p>
+            </Transition>
+            <div class="mt-2 flex flex-wrap items-center gap-1">
+                <div v-if="intentOptions.length > 1" class="min-w-0" data-edit-intent>
+                    <SegmentedControl variant="raised" size="xs" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
+                </div>
+                <Button v-if="props.error !== '' && props.recheck" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
+                <span class="flex-1" />
+                <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
+                <!-- 快捷键提示画在伪元素里；伪元素的字会算进读屏名，所以读屏名另写成“保存”。 -->
+                <Button class="confirm-bar__save" size="sm" :disabled="!canSave" :aria-label="text('edit.save')" :data-shortcut="saveHint === '' ? undefined : saveHint" @click="emit('save')">{{ text("edit.save") }}</Button>
+            </div>
+        </template>
     </section>
 </template>
 

@@ -593,6 +593,25 @@ describe("写入", () => {
         state.tab = "plot";
         await waitUntil("情节", () => wrapper.findAll("[data-change]").length === 2);
         expect(wrapper.findAll("[data-change]").map((row) => row.text().replace(/\s+/gu, ""))).toEqual([expect.stringContaining("性格变成温柔"), expect.stringContaining("开始照顾妹妹")]);
+
+    });
+
+    it("值来自核对点（语义档的起点）：改设定写不回核对点，二选一退回“改设定”，同一章也不写“那一笔”", async () => {
+        const {other, open} = await setup();
+        const moon = person("月影");
+        const panel = moon.init.data.panel as {fields: Record<string, unknown>; declared: unknown[]};
+        panel.fields.好感 = 10;
+        panel.declared.push({id: "好感", label: "好感", kind: "number", precision: "semantic"});
+        const id = (await publish(other.canon, [moon]))[moon.id]!;
+        const checkId = `tmp:${nextId()}`;
+        await publish(other.canon, [{ref: {kind: "check", id: checkId}, after: {id: checkId, at: {entry: id, path: "panel.好感"}, value: 50, told: {source: "note", quote: "好感 50"}, place: {kind: "chapter", chapter: "1", key: Number(nextId())}}}]);
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:panel";
+        state.position = "1:end";
+        const segments = () => wrapper.get("[data-edit-intent]").findAll("button").map((button) => button.text());
+        await startEdit(wrapper, "panel.好感");
+        await waitUntil("核对点来的值", () => JSON.stringify(segments()) === JSON.stringify(["改设定", "从第 1 章起"]));
     });
 
     it("页头改名、改简介：点名字本身在原处出浮层（与短项同一种），不出确认条；保存后页头换了名字、有提示，焦点回到名字", async () => {

@@ -27,7 +27,7 @@ function bar(props: Record<string, unknown> = {}) {
 const button = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((item) => item.text() === label)!;
 
 describe("ConfirmBar", () => {
-    it("数用数字输入、带单位，挂上时焦点进去；改值发 update:value；没有别的变化时不写预览；预览回来以后保存可用", async () => {
+    it("数用数字输入、带单位，挂上时焦点进去；改值发 update:value；页顶的确认条写回哪里、没有别的变化时不列变化，编辑卡里都不写；预览回来以后保存可用", async () => {
         const wrapper = bar({preview: {route: "改最初的值", impact: []}});
         await wrapper.vm.$nextTick();
         expect(document.activeElement).toBe(wrapper.get("input").element);
@@ -35,8 +35,12 @@ describe("ConfirmBar", () => {
         await wrapper.get("input").setValue("800");
         expect(wrapper.emitted("update:value")?.at(-1)).toEqual(["800"]);
         expect(wrapper.find("[data-edit-impact]").exists()).toBe(false);
-        expect(wrapper.text()).not.toContain("改最初的值");
+        expect(wrapper.get("[data-confirm-preview]").text()).toBe("改最初的值");
         expect(wrapper.attributes("data-previewed")).toBe("");
+        const card = bar({variant: "inline", preview: {route: "改最初的值", impact: []}});
+        expect(card.text()).not.toContain("改最初的值");
+        expect(card.find("[data-edit-impact]").exists()).toBe(false);
+        expect(button(card, "保存").attributes("aria-label")).toBe("保存");
         expect(button(wrapper, "保存").attributes("disabled")).toBeUndefined();
         await button(wrapper, "保存").trigger("click");
         expect(wrapper.emitted("save")).toHaveLength(1);

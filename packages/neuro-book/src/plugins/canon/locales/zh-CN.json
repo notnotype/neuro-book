@@ -90,7 +90,6 @@
         "notAppeared": "这时还没出场",
         "positionGone": "原来选的那一章已经不在了",
         "sameAs": "是谁：",
-        "position": "看哪个时间点",
         "planned": "算上计划中的情节",
         "tabs": {
             "label": "条目的分页",
@@ -128,8 +127,6 @@
         "fieldRenamed": "{{name}}的“{{from}}”改名为“{{label}}”",
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
         "fieldRestored": "恢复了{{name}}的“{{label}}”",
-        "plannedMark": "算上计划",
-        "leavePlans": "不算计划",
         "addComponentShort": "添加一组设定",
         "groupAlreadyAdded": "这组设定已经加上了",
         "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次"
@@ -568,8 +565,7 @@
         "lostTitle": "原来看的那条线已经不在了",
         "placeholder": "选一条线",
         "follow": "按章节自动",
-        "main": "主线",
-        "label": "看哪条线"
+        "main": "主线"
     },
     "viewPoint": {
         "label": "在看",

@@ -24,7 +24,7 @@ function input(value = "", inline = false) {
 const options = (): string[] => [...document.body.querySelectorAll("[role='option']")].map((option) => option.textContent?.trim() ?? "");
 
 describe("SuggestInput", () => {
-    it("输入框里是当前值时也列出全部、当前值打勾；打了字才筛", async () => {
+    it("输入框里是当前值时也列出全部、当前值打勾；打了字才筛；失焦再回来又列出全部", async () => {
         const wrapper = input("女");
         const field = wrapper.get("input");
         await field.trigger("focusin");
@@ -32,6 +32,9 @@ describe("SuggestInput", () => {
         expect([...document.body.querySelectorAll("[role='option']")].map((option) => option.querySelector("[data-suggestion-menu-checked]") !== null)).toEqual([false, true, false]);
         await field.setValue("不");
         await waitUntil("打了字才筛", () => options().join("|") === "不明");
+        await field.trigger("focusout");
+        await field.trigger("focusin");
+        await waitUntil("再回来列出全部", () => options().join("|") === "男|女|不明");
     });
 
     it("inline：列表嵌在输入框下面（不另弹一层）、不用聚焦就在；点一条填进去、列表回到全部；Escape 不拦（交给外面的编辑卡）", async () => {
