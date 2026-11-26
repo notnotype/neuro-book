@@ -139,6 +139,7 @@ interface GridFloatInput {
     readonly id: string;
     readonly rect: GridRect;
     readonly gesture?: "move" | "resize";
+    readonly animate?: boolean;
 }
 
 ### experimental type GridGestureCancellation

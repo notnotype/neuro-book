@@ -80,7 +80,7 @@ type Emits = {
     (event: "content-parked", key: string): void;
     /** 焦点现在在哪块面板；离开所有面板时是 null。 */
     (event: "focus-panel", panel: string | null): void;
-    /** 指针按在浮动窗上、焦点进了它：宿主把它提到最前（改叠放次序）。 */
+    /** 指针按在浮动窗上、焦点进了它：宿主把它提到最前（改叠放次序）。已在最前不发。 */
     (event: "raise-float", panel: string): void;
 };
 
