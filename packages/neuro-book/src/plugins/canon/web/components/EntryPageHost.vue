@@ -27,7 +27,7 @@ import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionExists, positionFromValue, positionOptions, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -75,7 +75,7 @@ const props = defineProps<{
      * 推成了 Promise。
      */
     client: Pick<CanonClient, "call">;
-    /** 窗口在看的线（输出 34）：空串是跟着章，读取位置不写线。 */
+    /** 窗口在看的线（输出 34）：空串是按章节自动，读取位置不写线。 */
     windowLine: PageLine;
     views: ComponentViewRegistry;
     /** 附加分页（输出 36）。 */
@@ -163,7 +163,7 @@ const status = computed<EntryPageStatus>(() => {
     return view.value.deleted ? "deleted" : "normal";
 });
 
-// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：跟着章时就是这一页正在读的那份，只有读的
+// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），不带窗口的线（输出 34）：按章节自动时就是这一页正在读的那份，只有读的
 // 正是那里时才报；窗口选了线时另读一份缺省位置的。
 const headElsewhere = computed(() => windowLine.value !== "" || lockedAt.value !== null);
 const headRead = useWorldRead(world, "entry", () => (headElsewhere.value && chaptersKnown.value ? {id: props.id, position: defaultPosition(chapters.value), mode: "actual" as const} : null));
@@ -318,6 +318,7 @@ const edit = useInPlaceEdit({
     version,
     field: fieldAt,
     place,
+    chapter: (id) => chapterLabel(id, chapters.value, text),
     blocked: () => editBlocked.value,
     text,
     resolve: (given) => port.t(given),
@@ -898,6 +899,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                         onSearchRef: refFind.search,
                         "onUpdate:value": edit.update,
                         "onUpdate:intent": edit.setIntent,
+                        "onUpdate:note": edit.setNote,
                         onSave: () => edit.save(),
                         onRecheck: () => edit.recheck(),
                         onCancel: dismiss,
@@ -912,14 +914,20 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                             requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
                         };
                         // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute inset-x-0 top-0 z-[2] p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]"}, [content()]) : null));
+                        // 成段的文字在原处展开（输出 51）：同一张编辑卡，不浮起来，把下面的内容推开；原文由卡片组件见到
+                        // `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md）。左右各伸出卡片的内边距，输入框里的字与原文对齐。
+                        // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
+                    // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
+                    const anchor = inner.anchor as HTMLElement | null;
                     return h(Popover, {
-                        open: active.value && inner.anchor !== null,
-                        anchor: inner.anchor as HTMLElement | null,
+                        open: active.value && anchor !== null,
+                        anchor,
                         side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
+                        collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,
                         contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {
                             if (!open) dismiss();
@@ -1074,7 +1082,7 @@ const dataView = computed<{readonly component: Component | null; readonly loadin
 
 /* ---------- 页头 ---------- */
 
-const options = computed(() => positionOptions(chapters.value, text));
+const rows = computed(() => positionChapters(chapters.value));
 const notAppeared = computed(() => view.value !== null && !view.value.appeared);
 const setPosition = (value: string): void => {
     state.position = positionFromValue(value) === null ? null : value;
@@ -1088,7 +1096,7 @@ const setPosition = (value: string): void => {
             :name="view?.name ?? ''"
             :summary="view?.summary ?? ''"
             :same-as="entry?.sameAs ?? null"
-            :positions="options"
+            :chapters="rows"
             :position="positionValue(position)"
             :planned="mode === 'planned'"
             :not-appeared="notAppeared"
@@ -1135,6 +1143,7 @@ const setPosition = (value: string): void => {
                     @search-ref="refFind.search"
                     @update:value="edit.update"
                     @update:intent="edit.setIntent"
+                    @update:note="edit.setNote"
                     @save="edit.save()"
                     @recheck="edit.recheck()"
                     @cancel="edit.cancel()"

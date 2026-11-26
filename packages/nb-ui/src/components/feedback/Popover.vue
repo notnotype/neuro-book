@@ -7,6 +7,7 @@ import {
     PopoverRoot,
     PopoverTrigger,
 } from "reka-ui";
+import {computed} from "vue";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 
 const {zIndex: popoverZIndex} = usePopoverLayer();
@@ -27,6 +28,10 @@ const props = withDefaults(defineProps<{
      * 在它上面按下不算点外面。默认不给。
      */
     anchor?: HTMLElement | null;
+    /**
+     * 避让时以哪块区域为界（缺省是视口）：浮层不越出这块元素，例如编辑区里的浮层不盖到侧栏上。只在 `avoidCollisions` 时起作用。
+     */
+    collisionBoundary?: Element | readonly Element[] | null;
 }>(), {
     open: undefined,
     defaultOpen: false,
@@ -38,7 +43,11 @@ const props = withDefaults(defineProps<{
     contentClass: "",
     arrow: false,
     anchor: undefined,
+    collisionBoundary: null,
 });
+
+/** reka 要的是可变的数组；这里给它一份。 */
+const boundary = computed(() => (props.collisionBoundary === null ? undefined : props.collisionBoundary instanceof Element ? props.collisionBoundary : [...props.collisionBoundary]));
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
@@ -84,6 +93,7 @@ function onCloseAutoFocus(event: Event): void {
                 :side-offset="props.sideOffset"
                 :align="props.align"
                 :avoid-collisions="props.avoidCollisions"
+                :collision-boundary="boundary"
                 :reference="props.anchor ?? undefined"
                 :style="{
                     zIndex: popoverZIndex,

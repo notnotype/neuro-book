@@ -35,6 +35,8 @@ export interface EditDraft {
     requestId: string;
     /** 在专门界面里就地改（输出 51）：挂着这条路径的 `FieldEditor` 时由它画，没有时照旧出确认条。 */
     inline?: boolean;
+    /** 选着剧情里变了时作者写的“发生了什么”（选填，输出 16）：这次的修订标题与那一条剧情变更的文字。 */
+    note?: string;
 }
 
 /** 确认条要画的东西（`ConfirmBar` 的 props）。 */
@@ -48,6 +50,12 @@ export interface ConfirmBarModel {
     readonly targets: readonly string[];
     readonly intents: readonly EditIntent[];
     readonly intent: EditIntent;
+    /** 两项意图的写法：“从最初起”“从第 3 章起”这一类（输出 16）。 */
+    readonly intentLabels: {readonly creative: string; readonly story: string};
+    /** “发生了什么”；不填时用 `noteFallback`。 */
+    readonly note: string;
+    readonly noteFallback: string;
+    /** 没有别的变化时 `impact` 是空的（编辑卡不写预览，输出 16）。 */
     readonly preview: {readonly route: string; readonly impact: readonly string[]} | null;
     readonly previewing: boolean;
     readonly error: string;
@@ -67,6 +75,8 @@ export interface InPlaceEditOptions {
     readonly version: () => number;
     readonly field: (path: string) => {readonly state: FieldState | undefined; readonly declaration: FieldDeclaration | undefined};
     readonly place: (at: Placement) => string;
+    /** 一章写在界面上（“第 3 章”）：二选一里“从第 3 章起”的那一章。 */
+    readonly chapter: (id: string) => string;
     /** 写入不可用的原因（`writable.ts`）；可以写时为 null。 */
     readonly blocked: () => Text | null;
     readonly text: CanonBoundText;
@@ -91,6 +101,7 @@ export interface InPlaceEdit {
     open(path: string, options?: EditOpenOptions): void;
     update(value: unknown): void;
     setIntent(intent: EditIntent): void;
+    setNote(note: string): void;
     save(): void;
     recheck(): void;
     cancel(): void;
@@ -150,6 +161,32 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         return options.position().kind === "initial" ? ["creative"] : ["creative", "story"];
     };
 
+    /**
+     * 二选一的写法（输出 16）：改设定写“从<来源>起”，来源是这个值最近一次定下的地方（某一章、前史，没有就是最初）；剧情里变了写
+     * “从<所选位置那一章>起”。来源就是所选的那一章时两项会同名，改写成“改第 3 章那一笔”“第 3 章里又变了”。来源只在计划里（未安放）
+     * 时说不出从哪起，退回“改设定”。来源是核对点时同样退回“改设定”：核对点定下的值按改设定写不回去（内核报 accumulated-value），
+     * 写“从第 2 章起”会许诺一个做不到的落点。看最初时只有改设定，这一行不出，写法无所谓。
+     */
+    const intentLabelsOf = (path: string): {creative: string; story: string} => {
+        const position = options.position();
+        const changed = options.field(path).state?.changedAt;
+        const here = position.kind === "chapter" ? options.chapter(position.chapter) : null;
+        if (changed?.by === "change" && changed.at.kind === "chapter" && position.kind === "chapter" && changed.at.chapter === position.chapter) {
+            return {creative: text("edit.patchHere", {place: here!}), story: text("edit.storyAgain", {place: here!})};
+        }
+        const creative = changed === undefined ? text("edit.since", {place: text("position.initial")}) : changed.by === "check" || changed.at.kind === "unscheduled" ? text("edit.creative") : text("edit.since", {place: options.place(changed.at)});
+        return {creative, story: here === null ? text("edit.story") : text("edit.since", {place: here})};
+    };
+    /** 不写“发生了什么”时剧情里变了的标题：值短就写“年龄变成 18 岁”，长的、引用、图片、是否写“性格变了”。 */
+    const storyFallback = (draft: EditDraft): string => {
+        const label = labelOf(draft.path);
+        const declaration = options.field(draft.path).declaration;
+        const kind = kindOf(declaration);
+        const shown = kind === "ref" || kind === "image" || kind === "boolean" ? "" : `${String(draft.value ?? "").trim()}${kind === "number" && declaration?.unit !== undefined && declaration.unit !== "" ? ` ${declaration.unit}` : ""}`;
+        return shown === "" || shown.length > 20 || shown.includes("\n") ? text("edit.storyTitleLong", {label}) : text("edit.storyTitle", {label, value: shown});
+    };
+    const titleOf = (draft: EditDraft): string => (draft.intent === "story" ? (draft.note?.trim() || storyFallback(draft)) : text("edit.heading", {label: labelOf(draft.path)}));
+
     const labelOf = (path: string): string => {
         const field = options.field(path);
         return field.declaration?.label ?? field.state?.label ?? path.slice(path.indexOf(".") + 1);
@@ -191,13 +228,15 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             skip,
             address: (at) => (at.entry === options.entry ? labelOf(at.path) : namespaceField(at.path).field),
         }, text);
-        return {route: routeText, where, impact, quiet: impactIsQuiet(result.revision.impact, skip)};
+        const quiet = impactIsQuiet(result.revision.impact, skip);
+        // 没有别的变化时不写（编辑卡里那一行不占地方，输出 16）；写回哪里已经在二选一的写法里。
+        return {route: routeText, where, impact: quiet ? [] : impact, quiet};
     };
 
     const inputOf = (draft: EditDraft): Record<string, unknown> | null => {
         const value = parsed(draft.value, kindOf(options.field(draft.path).declaration));
         if (value === undefined) return null;
-        return {requestId: draft.requestId, by: {kind: "author"}, position: options.position(), at: {entry: options.entry, path: draft.path}, value, read: draft.read, intent: draft.intent, title: text("edit.heading", {label: labelOf(draft.path)})};
+        return {requestId: draft.requestId, by: {kind: "author"}, position: options.position(), at: {entry: options.entry, path: draft.path}, value, read: draft.read, intent: draft.intent, title: titleOf(draft)};
     };
 
     const runPreview = async (): Promise<void> => {
@@ -323,6 +362,9 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
                 targets: declaration?.kind === "ref" ? declaration.targets ?? [] : [],
                 intents: intentsOf(draft.path),
                 intent: draft.intent,
+                intentLabels: intentLabelsOf(draft.path),
+                note: draft.note ?? "",
+                noteFallback: storyFallback(draft),
                 preview: preview.value,
                 previewing: previewing.value,
                 error: blocked !== null ? options.resolve(blocked) : error.value,
@@ -354,6 +396,10 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         setIntent: (intent) => {
             const draft = options.draft();
             if (draft !== null) options.setDraft({...draft, intent});
+        },
+        setNote: (note) => {
+            const draft = options.draft();
+            if (draft !== null) options.setDraft({...draft, note});
         },
         save: () => {
             if (!previewing.value) {

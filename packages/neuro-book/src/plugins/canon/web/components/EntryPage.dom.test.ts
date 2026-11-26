@@ -25,7 +25,7 @@ const base = {
     name: "哥哥",
     summary: "星瑕的另一个身份",
     sameAs: {id: "e1", name: "星瑕"},
-    positions: [{value: "initial", label: "最初"}, {value: "1:end", label: "第 1 章末尾"}],
+    chapters: [{chapter: "1", index: 1, title: null, start: "1:start", end: "1:end"}],
     position: "1:end",
     tabs: [{value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 2}],
     tab: "text",
@@ -43,7 +43,7 @@ describe("EntryPage", () => {
         expect(wrapper.get("h1").text()).toBe("哥哥");
         expect(wrapper.text()).toContain("是谁：星瑕");
         expect(wrapper.text()).toContain("星瑕的另一个身份");
-        expect(wrapper.get("[data-position-trigger]").text()).toContain("第 1 章末尾");
+        expect(wrapper.get("[data-view-point]").text()).toContain("第 1 章末尾");
         expect(wrapper.findAll("[role='tab']").map((tab) => tab.text().replace(/\s+/gu, ""))).toEqual(["文字", "情节2"]);
         expect(wrapper.get("[role='tabpanel'] [data-content]").text()).toBe("分页内容");
         await wrapper.findAll("header button").find((button) => button.text() === "星瑕")!.trigger("click");
@@ -53,11 +53,13 @@ describe("EntryPage", () => {
         expect(wrapper.find("button[aria-label='更多']").exists()).toBe(true);
     });
 
-    it("只有一个位置又没有计划（空作品）时不出时间点；作品里有计划时出", async () => {
-        const empty = page({positions: [{value: "initial", label: "最初"}], position: "initial"});
-        expect(empty.find("[data-position-picker]").exists()).toBe(false);
-        const planned = page({positions: [{value: "initial", label: "最初"}], position: "initial", canPlan: true});
-        expect(planned.get("[data-position-trigger]").text()).toContain("最初");
+    it("没有章、没有计划又只有主线（空作品）时不出“在看”；作品里有计划、或不止一条线时出", async () => {
+        const empty = page({chapters: [], position: "initial"});
+        expect(empty.find("[data-view-point]").exists()).toBe(false);
+        const planned = page({chapters: [], position: "initial", canPlan: true});
+        expect(planned.get("[data-view-point]").text()).toContain("最初");
+        const lines = page({chapters: [], position: "initial", lineOptions: [{id: "main", name: null, depth: 0}, {id: "l1", name: "回溯以后", depth: 1}], resolvedLine: "main"});
+        expect(lines.get("[data-view-point]").text()).toContain("最初 · 主线");
     });
 
     it("可编辑时名字、简介本身是按钮，点了发出带锚点的 edit-name、edit-summary；没有“改”；没有简介时写“一句话简介”", async () => {
@@ -159,8 +161,8 @@ describe("EntryPage", () => {
     });
 
     it("未出场、选过的章不在了写在时间点旁的标记里，不另起一行；断开的“重试”发 retry", async () => {
-        expect(page({notAppeared: true}).get("[data-position-picker]").text()).toContain("这时还没出场");
-        expect(page({positionGone: true}).get("[data-position-picker]").text()).toContain("原来选的那一章已经不在了");
+        expect(page({notAppeared: true}).get("[data-not-appeared]").text()).toBe("这时还没出场");
+        expect(page({positionGone: true}).get("header [role='status']").text()).toBe("原来选的那一章已经不在了");
         const wrapper = page({disconnected: true});
         expect(wrapper.get("[role='status']").text()).toContain("世界已断开");
         await wrapper.findAll("button").find((button) => button.text() === "重试")!.trigger("click");

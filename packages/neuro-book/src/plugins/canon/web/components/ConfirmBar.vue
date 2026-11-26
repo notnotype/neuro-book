@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
- * 就地改的确认条（docs/specs/canon/author-ui.md 输出 16、29、30）：在改哪个字段、按字段的声明给的输入控件、意图、预览（写回
- * 哪里与带来的变化）、原因、保存与取消。受控：填的值、意图、预览与原因都由宿主给，交互时发出新值。挂上时焦点进输入控件；
- * Escape 等同取消（输入法组字里的不算）。`inline` 时是专门界面里就地改的内容（输出 51）：没有标题与吸顶的外框，外框由宿主给。
+ * 就地改的编辑卡（docs/specs/canon/author-ui.md 输出 16、29、30、51）：输入控件、选着剧情里变了时的“发生了什么”、有别的变化时
+ * 一条提示（或原因）、最下面一行是意图二选一与取消、保存。意图写成落点（“从最初起 | 从第 3 章起”），由宿主按值的来源算好给。
+ * 受控：填的值、意图、发生了什么、预览与原因都由宿主给，交互时发出新值。挂上时焦点进输入控件；Escape 等同取消（输入法组字里的不算）。
+ * `bar` 是页面顶上的确认条（通用字段表），`inline` 是放进宿主给的浮层或原处的编辑卡（输出 51）。
  */
 import {computed, nextTick, onMounted, ref} from "vue";
 
-import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, Input, SegmentedControl} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
 import type {ConfirmBarKind, EditIntent} from "./confirm-bar";
@@ -27,7 +28,13 @@ const props = withDefaults(defineProps<{
     /** 可选的意图；只有一项时不显示选择。 */
     intents: readonly EditIntent[];
     intent: EditIntent;
-    /** 预览：写回哪里与带来的变化；没有预览（还没填、正在预览、预览失败）时为 null。 */
+    /** 两项意图的写法（“从最初起”“从第 3 章起”，宿主按值的来源与所选位置算）；缺省是“改设定”“剧情里变了”。 */
+    intentLabels?: {readonly creative: string; readonly story: string} | null;
+    /** 选着剧情里变了时的“发生了什么”（选填）；null 时这一处不给写。 */
+    note?: string | null;
+    /** 不填“发生了什么”时用的那一句（写在占位里）。 */
+    noteFallback?: string;
+    /** 预览：写回哪里与带来的变化（没有别的变化时宿主给空的 `impact`）；没有预览（还没填、正在预览、预览失败）时为 null。 */
     preview?: {readonly route: string; readonly impact: readonly string[]} | null;
     previewing?: boolean;
     /** 失败或说明（`role="alert"`）；没有时为空。 */
@@ -42,13 +49,14 @@ const props = withDefaults(defineProps<{
     variant?: "bar" | "inline";
     /** 文字输入的行数（成段的文字从原文的行数起步）；缺省 2。 */
     rows?: number;
-}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false, variant: "bar", rows: 2});
+}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, intentLabels: null, note: null, noteFallback: "", preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false, variant: "bar", rows: 2});
 
 const emit = defineEmits<{
     (event: "update:value", value: unknown): void;
     /** 引用的条目选择器打开或打字：宿主按字段的 `targets` 查。 */
     (event: "search-ref", query: string): void;
     (event: "update:intent", value: EditIntent): void;
+    (event: "update:note", value: string): void;
     (event: "save"): void;
     (event: "cancel"): void;
     (event: "recheck"): void;
@@ -58,29 +66,28 @@ const text = useCanonText();
 const root = ref<HTMLElement | null>(null);
 const canSave = computed(() => props.preview !== null && !props.previewing && !props.saving && !props.locked);
 
-/**
- * `inline` 时预览与原因共用一块固定两行高的位置（输出 51）：预览回来、原因出现时保存与取消不移动，浮层不变高。有原因时只写原因、
- * 可以折成两行（它是这时最要紧的，预览让位）；没有时写哪里、再第一条变化，放不下的变化收进“还有 N 项”（整句在悬停提示里）。
- */
-const inlineLines = computed(() => {
-    if (props.error !== "") return [{key: "error", text: props.error, tone: "danger" as const, title: props.error}];
-    const lines: {key: string; text: string; tone: "danger" | "main" | "secondary"; title: string}[] = [];
-    if (props.previewing) lines.push({key: "previewing", text: text("edit.previewing"), tone: "secondary", title: ""});
-    else if (props.preview !== null) {
-        const {route, impact} = props.preview;
-        lines.push({key: "route", text: route, tone: "main", title: route});
-        if (impact.length > 0) lines.push({key: "impact", text: impact.length === 1 ? impact[0]! : text("edit.moreImpact", {first: impact[0]!, count: impact.length - 1}), tone: "secondary", title: impact.join("\n")});
-    }
-    return lines;
-});
-const TONE = {danger: "text-[var(--status-danger)]", main: "text-[var(--text-main)]", secondary: "text-[var(--text-secondary)]"} as const;
+/** 回车就是保存的几种：`inline` 时它们是单行的输入框（短文字、有建议值的文字、数）。 */
+const ENTER_SAVES: ReadonlySet<ConfirmBarKind> = new Set(["text", "suggest", "number"]);
+
+const intentOptions = computed(() => props.intents.map((intent) => ({
+    value: intent,
+    label: intent === "creative" ? (props.intentLabels?.creative ?? text("edit.creative")) : (props.intentLabels?.story ?? text("edit.story")),
+})));
+/** “发生了什么”只在选着剧情里变了时出：它是这一条剧情变更的文字（输出 16）。 */
+const noteShown = computed(() => props.note !== null && props.intent === "story" && props.intents.includes("story"));
+/** 有别的变化才写（宿主在没有别的变化时给空的 `impact`）；多于一条时写第一条与“还有 N 项”，整句在悬停提示里。 */
+const impact = computed(() => props.preview?.impact ?? []);
+const impactText = computed(() => (impact.value.length === 1 ? impact.value[0]! : text("edit.moreImpact", {first: impact.value[0] ?? "", count: impact.value.length - 1})));
+/** 保存键上写快捷键：单行的回车，成段文字的 Ctrl+回车。 */
+const multiline = computed(() => props.kind === "text" && props.rows > 1);
+/** Mac 上写 ⌘，别处写 Ctrl（两个都认）。 */
+const MODIFIER = typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform) ? "⌘" : "Ctrl";
+const saveHint = computed(() => (multiline.value ? `${MODIFIER} ↵` : props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) ? "↵" : ""));
 
 onMounted(() => {
     void nextTick(() => root.value?.querySelector<HTMLElement>("input, textarea, [role='combobox'], [role='switch']")?.focus());
 });
 
-/** 回车就是保存的几种：`inline` 时它们是单行的输入框（短文字、有建议值的文字、数）。 */
-const ENTER_SAVES: ReadonlySet<ConfirmBarKind> = new Set(["text", "suggest", "number"]);
 
 const onKeydown = (event: KeyboardEvent): void => {
     if (event.isComposing) return;
@@ -91,6 +98,12 @@ const onKeydown = (event: KeyboardEvent): void => {
     }
     // 只认单行的输入框（成段的文字回车照常换行）；建议值的列表接走了这一下（选中高亮的那条）时不保存。
     // 预览还在等（刚填完就按回车）也发出：宿主先等预览回来，没有别的变化才保存（输出 51），不把这一下吞掉。
+    // 成段的文字：Ctrl（或 ⌘）加回车保存，回车照常换行。
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && multiline.value && (canSave.value || (props.previewing && !props.saving && !props.locked))) {
+        event.preventDefault();
+        emit("save");
+        return;
+    }
     if (event.key === "Enter" && props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) && !event.defaultPrevented && (event.target as Element | null)?.tagName === "INPUT" && (canSave.value || (props.previewing && !props.saving && !props.locked))) {
         event.preventDefault();
         emit("save");
@@ -106,35 +119,28 @@ const onKeydown = (event: KeyboardEvent): void => {
         :aria-label="text('edit.heading', {label: props.label})"
         :data-confirm-bar="props.variant === 'bar' ? '' : undefined"
         :data-inline-editor="props.variant === 'inline' ? '' : undefined"
+        :data-previewed="props.preview !== null && !props.previewing ? '' : undefined"
         @keydown="onKeydown"
     >
         <h3 v-if="props.variant === 'bar'" class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
-        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" :rows="props.rows" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
-        <div v-if="props.intents.length > 1" class="mt-2 flex items-center gap-2">
+        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" :rows="props.rows" :inline="props.variant === 'inline'" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
+        <!-- 页顶的确认条（通用字段表、变更详情页）照旧的排法：意图一行、预览写回哪里与带来的变化、原因，按钮靠右。 -->
+        <div v-if="props.variant === 'bar' && intentOptions.length > 1" class="mt-2 flex items-center gap-2" data-edit-intent>
             <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
-            <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="props.intents.map((intent) => ({value: intent, label: text(intent === 'creative' ? 'edit.creative' : 'edit.story')}))" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
+            <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
         </div>
-        <div v-if="props.variant === 'inline'" class="mt-2 h-10 overflow-hidden text-[length:var(--text-xs)] leading-5" data-confirm-preview>
-            <Transition name="nb-ui-switch" mode="out-in">
-                <div :key="inlineLines.map((line) => line.key).join()">
-                    <p
-                        v-for="line in inlineLines"
-                        :key="line.key"
-                        class="m-0"
-                        :class="[TONE[line.tone], inlineLines.length === 1 ? 'line-clamp-2' : 'truncate']"
-                        :role="line.tone === 'danger' ? 'alert' : undefined"
-                        :title="line.title || undefined"
-                    >{{ line.text }}</p>
-                </div>
-            </Transition>
-        </div>
-        <template v-else>
+        <Transition name="nb-ui-switch">
+            <div v-if="noteShown" class="mt-2" data-edit-note>
+                <Input size="sm" :model-value="props.note ?? ''" :aria-label="text('edit.note')" :placeholder="text('edit.notePlaceholder', {fallback: props.noteFallback})" @update:model-value="(value: string) => emit('update:note', value)" />
+            </div>
+        </Transition>
+        <template v-if="props.variant === 'bar'">
             <div class="mt-2 min-h-[1.5rem] text-[var(--text-secondary)]" data-confirm-preview>
                 <p v-if="props.previewing">{{ text("edit.previewing") }}</p>
                 <template v-else-if="props.preview !== null">
                     <p class="text-[var(--text-main)]">{{ props.preview.route }}</p>
-                    <ul class="m-0 list-none p-0 text-[length:var(--text-xs)]">
-                        <li v-for="(line, index) in props.preview.impact" :key="index">{{ line }}</li>
+                    <ul v-if="impact.length > 0" class="m-0 list-none p-0 text-[length:var(--text-xs)]" data-edit-impact>
+                        <li v-for="(line, index) in impact" :key="index">{{ line }}</li>
                     </ul>
                 </template>
             </div>
@@ -142,12 +148,58 @@ const onKeydown = (event: KeyboardEvent): void => {
                 {{ props.error }}
                 <Button v-if="props.recheck" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
             </p>
+            <div class="mt-3 flex justify-end gap-2">
+                <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
+                <Button size="sm" :disabled="!canSave" @click="emit('save')">{{ text("edit.save") }}</Button>
+            </div>
         </template>
-        <div class="mt-3 flex justify-end gap-2">
-            <!-- inline 时“再查一次”放在这一行的左边，不占预览那两行。 -->
-            <Button v-if="props.variant === 'inline' && props.error !== '' && props.recheck" class="mr-auto" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
-            <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
-            <Button size="sm" :disabled="!canSave" @click="emit('save')">{{ text("edit.save") }}</Button>
-        </div>
+        <template v-else>
+            <!-- 编辑卡：原因优先（它是这时最要紧的）；没有原因时，有别的变化才写一条。没有别的变化时这一行不占地方。 -->
+            <Transition name="nb-ui-switch" mode="out-in">
+                <p v-if="props.error !== ''" key="error" class="confirm-bar__notice confirm-bar__notice--danger" role="alert" :title="props.error">{{ props.error }}</p>
+                <p v-else-if="!props.previewing && impact.length > 0" key="impact" class="confirm-bar__notice confirm-bar__notice--warning" :title="impact.join('\n')" data-edit-impact>
+                    <span class="i-lucide-triangle-alert mt-0.5 size-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
+                    <span class="min-w-0">{{ impactText }}</span>
+                </p>
+            </Transition>
+            <div class="mt-2 flex flex-wrap items-center gap-1">
+                <div v-if="intentOptions.length > 1" class="min-w-0" data-edit-intent>
+                    <SegmentedControl variant="raised" size="xs" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
+                </div>
+                <Button v-if="props.error !== '' && props.recheck" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
+                <span class="flex-1" />
+                <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
+                <!-- 快捷键提示画在伪元素里；伪元素的字会算进读屏名，所以读屏名另写成“保存”。 -->
+                <Button class="confirm-bar__save" size="sm" :disabled="!canSave" :aria-label="text('edit.save')" :data-shortcut="saveHint === '' ? undefined : saveHint" @click="emit('save')">{{ text("edit.save") }}</Button>
+            </div>
+        </template>
     </section>
 </template>
+
+<style scoped>
+/* 原因与变化：一条浅底的提示，变化用警告色、原因用危险色的字。 */
+.confirm-bar__notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 8px 0 0;
+    padding: 6px 8px;
+    border-radius: var(--radius-control);
+    font-size: var(--text-xs);
+    line-height: 1.5;
+}
+.confirm-bar__notice--warning {
+    background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+    color: var(--text-main);
+}
+.confirm-bar__notice--danger {
+    background: color-mix(in srgb, var(--status-danger) 10%, transparent);
+    color: var(--status-danger);
+}
+.confirm-bar__save[data-shortcut]::after {
+    content: attr(data-shortcut);
+    margin-left: 6px;
+    font-size: var(--text-xs);
+    opacity: 0.7;
+}
+</style>

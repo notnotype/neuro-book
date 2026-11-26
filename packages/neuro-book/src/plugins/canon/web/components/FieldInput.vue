@@ -21,7 +21,9 @@ const props = withDefaults(defineProps<{
     refName?: string;
     /** 文字的行数；1 是单行输入框（就地改的浮层里的短文字）。 */
     rows?: number;
-}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, rows: 2});
+    /** 放在就地改的编辑卡里：建议值嵌在输入框下面，成段的文字按内容长高。默认 false。 */
+    inline?: boolean;
+}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, rows: 2, inline: false});
 
 const emit = defineEmits<{
     (event: "update:value", value: unknown): void;
@@ -32,13 +34,13 @@ const emit = defineEmits<{
 <template>
     <div class="flex min-w-0 flex-wrap items-center gap-2" data-field-input>
         <NumberInput v-if="props.kind === 'number'" class="w-40" size="sm" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
-        <SuggestInput v-else-if="props.kind === 'suggest'" class="w-64 max-w-full" :label="props.label" :suggestions="props.options" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
+        <SuggestInput v-else-if="props.kind === 'suggest'" :class="props.inline ? 'w-full' : 'w-64 max-w-full'" :label="props.label" :suggestions="props.options" :inline="props.inline" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
         <Select v-else-if="props.kind === 'enum'" class="w-48" size="sm" :aria-label="props.label" :options="props.options.map((option) => ({value: option, label: option}))" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
         <Switch v-else-if="props.kind === 'boolean'" size="sm" :aria-label="props.label" :model-value="props.value === true" @update:model-value="(value: boolean) => emit('update:value', value)" />
         <EntryPicker v-else-if="props.kind === 'ref'" class="w-72 max-w-full" :aria-label="props.label" :model-value="typeof props.value === 'string' ? props.value : null" :selected-name="props.refName" :results="props.refResults" @search="(query: string) => emit('search-ref', query)" @update:model-value="(value: string | null) => emit('update:value', value)" />
         <ImageInput v-else-if="props.kind === 'image'" class="w-full" :model-value="(props.value as ImageValue | null) ?? null" @update:model-value="(value: ImageValue | null) => emit('update:value', value)" />
         <Input v-else-if="props.rows === 1" class="w-full" size="sm" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
-        <Textarea v-else class="w-full" :rows="props.rows" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
+        <Textarea v-else class="w-full" :rows="props.rows" :autosize="props.inline" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
         <span v-if="props.unit !== '' && props.kind === 'number'" class="text-[var(--text-muted)]">{{ props.unit }}</span>
     </div>
 </template>

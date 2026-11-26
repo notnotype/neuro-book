@@ -91,7 +91,7 @@ const valueLabel = (label: string, shown: string | null): string => text("card.v
                         <h3>{{ props.appearance.label }}</h3>
                         <button v-if="props.appearance.mark !== undefined && props.appearance.text !== null" type="button" class="look-card__mark look-card__mark--button nb-ui-focus-ring" :data-origins="props.appearance.id" @click="emit('origins', props.appearance.id, $event.currentTarget as HTMLElement)">{{ props.appearance.mark }}</button>
                     </header>
-                    <div class="relative">
+                    <div class="look-card__in-place relative">
                         <button type="button" class="look-card__passage nb-ui-focus-ring" :class="{'look-card__passage--empty': props.appearance.text === null}" :disabled="blocked()" :title="props.editReason || undefined" :aria-label="valueLabel(props.appearance.label, props.appearance.text)" :data-edit="editKey(props.appearance.id)" @click="pick($event, props.appearance.id)">
                             <Transition name="nb-ui-switch" mode="out-in"><span :key="props.appearance.text ?? ''">{{ props.appearance.text ?? props.appearance.hint }}</span></Transition>
                         </button>
@@ -392,5 +392,9 @@ const valueLabel = (label: string, shown: string | null): string => text("card.v
     .look-card-outfit-move {
         transition: none;
     }
+}
+/* 成段的文字在原处改时（宿主的编辑卡带 `data-editing-in-place`，输出 51），原文藏起来，编辑卡占它的位置、把下面推开。 */
+.look-card__in-place:has(> [data-editing-in-place]) > button {
+    display: none;
 }
 </style>
