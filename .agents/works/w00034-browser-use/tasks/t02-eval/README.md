@@ -25,6 +25,8 @@ updated: 2026-11-26
 | 2 | 2026-11-26 | 比较用的模型：gpt-6-luna（medium 档），再加 omp 配置好的 gemini-4-hydrogen 与 gemini-4-neon（开发者原话：“再加上 omp 这边配置好的 gemini-hydrogen 和 neon 这两个模型”） |
 | 3 | 2026-11-26 | “接近 browser-use”的判据照推荐：两边逐题配对的差的 95% 置信区间下界不低于 -5 分，输入 token 中位数不超过 browser-use 的 1.5 倍；模型加到三个后按每个模型分别算（主会话补的） |
 | 4 | 2026-11-26 | 设计稿其余各项同意（“都同意”），让 GPT 查漏（“可以让 gpt 线查漏一下”） |
+| 5 | 2026-11-26 | “接近”的统计口径取推荐的做法：把这批题当固定的，置信区间只算同一批题上重复运行的波动，每题重复的次数等第一阶段量出 browser-use 的波动再定；结论只说“在这批题上”；BU 子集只作描述、不设门槛。开发者答“都同意” |
+| 6 | 2026-11-26 | 第二稿确认。先只跑第一阶段的小范围题（本地假站 8 题、browser-use 一边），开发者看过结果再跑其余的（开发者原话：“先测我们小范围的这些题，等我先看结果后再跑剩下的”） |
 
 ## 已知情况
 
@@ -33,4 +35,4 @@ updated: 2026-11-26
 
 ## 下一步
 
-开发者定第 6 条的统计口径、确认第二稿；再按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写计划，从第一阶段（browser-use 一边的基线）开始。
+第二稿已确认（决定 5、6）。按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写计划，从第一阶段（browser-use 一边的基线）开始。
