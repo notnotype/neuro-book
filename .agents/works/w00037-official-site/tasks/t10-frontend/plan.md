@@ -109,7 +109,7 @@ Spec 与 Task 记录的改动（第 4 节）由主会话在主工作区 master �
 
 **页面级的加载。** 进页时要取数的页（账号页、列表页、授权确认页），取数超过 200 毫秒才在内容区中央显示加载（`aria-busy`），失败时同一位置显示原因与重试（`role=alert`），照 ui-development-spec 4.1 与 frontend.md 第 7 条。稿纸页的 `meta` 不挡页面：表单先画出来，社交图标的位置先占着。
 
-### 3.2 接口层：`src/api/`
+### 3.2 接口层：`src/http/`（原写 `src/api/`，B1、B2 审查第 6 条改名）
 
 **形状。** `createApi({fetch, onUnauthenticated, onConsentRequired})` 返回一组按接口分好的函数（`api.identity.login(body)`、`api.admin.listUsers(query)` 等）。
 
