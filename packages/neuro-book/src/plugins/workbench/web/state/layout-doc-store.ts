@@ -114,6 +114,8 @@ function defineLayoutDocStore(bound: boolean) {
          * 程序改了宽度的窗（展开、收起）：这一次渲染标 `animate`，矩形变化走布局过渡（nested-grid 输出 105 的指引）；渲染之后清掉，别的矩形变化（移动、缩放）照旧不过渡。
          */
         const animatingFloats = shallowRef<ReadonlySet<string>>(new Set());
+        /** 浮动窗的轨宽手柄拖动中的宽（输出 51 的“矩形”）：只给呈现，不写文档；松手由 `commitFloatRailWidth` 提交。 */
+        const floatRailPreview = shallowRef<{readonly panel: string; readonly width: number} | null>(null);
         const containers = shallowRef<ContainerCatalog>(NO_CONTAINERS);
         /** 这个窗口的文档。打开时读到记录才有；没有记录时是 null，默认树跟着视图目录（目录是陆续交进来的），第一次改动才定下来。 */
         const local = shallowRef<LayoutDoc | null>(null);
@@ -265,7 +267,8 @@ function defineLayoutDocStore(bound: boolean) {
             const found = floatRailOf(doc.value, panel);
             if (found === null) return [];
             const {viewId, bounds} = found;
-            const requested = Math.min(bounds.maximum, Math.max(bounds.minimum, rail?.width ?? bounds.width));
+            const previewed = floatRailPreview.value?.panel === panel ? floatRailPreview.value.width : null;
+            const requested = Math.min(bounds.maximum, Math.max(bounds.minimum, previewed ?? rail?.width ?? bounds.width));
             const collapsed: FloatRailState = {panel, viewId, bounds, expanded: false, tooNarrow: false, width: SHELL_RAIL_WIDTH, requested};
             const wanted = rail?.expanded === true;
             if (!wanted && refusedFloatRail.value !== panel) return [[panel, collapsed]];
@@ -274,10 +277,14 @@ function defineLayoutDocStore(bound: boolean) {
             if (!fits) return [[panel, {...collapsed, tooNarrow: true}]];
             return [[panel, wanted ? {...collapsed, expanded: true, width: requested} : collapsed]];
         })));
-        /** 展开多出来的宽：画出来的窗比记录宽这么多。 */
-        const floatGrowth = (panel: string): number => {
+        /**
+         * 展开的视图段让画出来的窗比记录多出多少（输出 51 的“矩形”）：宽多 `width − 48`；其中按声明的缺省宽展开的那段往右长，轨宽比缺省多（少）的那段往左长（缩），
+         * 所以窗的右边缘只看记录与缺省宽，拖内侧的轨宽手柄时右边不动、手柄跟着指针（开发者 2026-11-26 定）。
+         */
+        const floatGrowth = (panel: string): {readonly width: number; readonly left: number} => {
             const state = floatRails.value.get(panel);
-            return state === undefined ? 0 : state.width - SHELL_RAIL_WIDTH;
+            if (state === undefined || !state.expanded) return {width: 0, left: 0};
+            return {width: state.width - SHELL_RAIL_WIDTH, left: state.width - state.bounds.width};
         };
         /** 按收着的投影求一次布局，取基线、算预算；窗口尺寸还不知道、找不到编辑组时是 null（不能展开）。 */
         function budgetFor(of: LayoutDoc, request: number, bounds: ViewRailBounds) {
@@ -314,14 +321,16 @@ function defineLayoutDocStore(bound: boolean) {
         const renderedFloats = computed<ReadonlyArray<GridFloatInput>>(() => renderedDoc.value.floats.map(({panel, rect}) => {
             const preview = floatPreview.value?.panel === panel ? floatPreview.value : null;
             const growth = floatGrowth(panel);
-            let wanted: LayoutFloatRect = preview?.rect ?? {...rect, width: rect.width + growth};
+            let wanted: LayoutFloatRect = preview?.rect ?? {...rect, x: rect.x - growth.left, width: rect.width + growth.width};
             const area = extent.value;
-            if (growth > 0 && area !== null) wanted = {...wanted, x: Math.max(0, Math.min(wanted.x, area.width - wanted.width))};
+            if (growth.width > 0 && area !== null) wanted = {...wanted, x: Math.max(0, Math.min(wanted.x, area.width - wanted.width))};
+            // 拖轨宽手柄是手势：跟手、不过渡（同窗的缩放）。
+            const gesture = preview?.gesture ?? (floatRailPreview.value?.panel === panel ? "resize" : null);
             return {
                 id: panel,
                 rect: keepVisible(wanted, extent.value),
-                ...(preview === null ? {} : {gesture: preview.gesture}),
-                ...(preview === null && animatingFloats.value.has(panel) ? {animate: true} : {}),
+                ...(gesture === null ? {} : {gesture}),
+                ...(gesture === null && animatingFloats.value.has(panel) ? {animate: true} : {}),
             };
         }));
         /** 编辑器标签的拖动（区级组件交出来）：动它们要走编辑器区，先结算输入、合并同一文件。 */
@@ -498,7 +507,7 @@ function defineLayoutDocStore(bound: boolean) {
                     const fallback = {width: 0, height: 0};
                     if (record === undefined) return {min: fallback, max: {width: extent.value?.width ?? 0, height: extent.value?.height ?? 0}};
                     const {minimumSize, maximumSize} = panelConstraints(record, null, catalog.value, extent.value?.width ?? 0);
-                    const growth = floatGrowth(panel);
+                    const growth = floatGrowth(panel).width;
                     return {min: {...minimumSize, width: minimumSize.width + growth}, max: {width: Math.min(maximumSize.width + growth, extent.value?.width ?? maximumSize.width), height: Math.min(maximumSize.height, extent.value?.height ?? maximumSize.height)}};
                 },
                 setFloatRect: (panel: string, rect: LayoutFloatRect): LayoutResult => apply((current) => setFloatRect(current, {panel, rect}), {flush: true}),
@@ -797,6 +806,31 @@ function defineLayoutDocStore(bound: boolean) {
                     return {ok: true, result: "done"};
                 },
                 /**
+                 * 浮动窗的轨宽手柄能拖到多宽（输出 51）：声明的范围里，窗放得进树区域、左边不出界（右边不动，多的往左长）。没展开、不是视图段的窗为 null。
+                 */
+                floatRailHandle: (panel: string): {readonly minimum: number; readonly maximum: number; readonly width: number} | null => {
+                    const state = floatRails.value.get(panel);
+                    const rect = doc.value.floats.find((float) => float.panel === panel)?.rect;
+                    if (state === undefined || !state.expanded || rect === undefined) return null;
+                    const area = extent.value?.width ?? Number.POSITIVE_INFINITY;
+                    const maximum = Math.min(state.bounds.maximum, area - rect.width + SHELL_RAIL_WIDTH, rect.x + state.bounds.width);
+                    return {minimum: state.bounds.minimum, maximum: Math.max(state.bounds.minimum, maximum), width: state.bounds.width};
+                },
+                /** 浮动窗的轨宽手柄拖动中的宽；null 撤回。 */
+                previewFloatRailWidth: (panel: string, width: number | null): void => {
+                    floatRailPreview.value = width === null ? null : {panel, width};
+                },
+                /** 浮动窗的轨宽手柄落账：同右轨（`commitRailWidth`），取整、夹进声明的范围，等于缺省时不写；只改窗上的 `width`。 */
+                commitFloatRailWidth: (panel: string, width: number): LayoutResult => apply((current) => {
+                    const float = current.floats.find((candidate) => candidate.panel === panel);
+                    const found = float === undefined ? null : floatRailOf(current, panel);
+                    if (float === undefined || found === null) return notFound(panel);
+                    const {bounds} = found;
+                    const clamped = Math.round(Math.min(bounds.maximum, Math.max(bounds.minimum, width)));
+                    const expandedIntent = float.rail?.expanded === true ? {expanded: true as const} : {};
+                    return setFloatRail(current, {panel, intent: {...expandedIntent, ...(clamped === bounds.width ? {} : {width: clamped})}});
+                }, {flush: true, rebase: false}),
+                /**
                  * 浮动窗缩放落账（输出 51 的“矩形”）：手柄给的是画出来的矩形，只取动了的边（`direction`），宽度减回展开多出来的那段，记录矩形保持收着的。
                  * 位置只在动的是左边、上边时取画出来的：画出来的窗靠右时被往左挪过，拖右边时不能把挪过的位置写进记录。
                  */
@@ -805,8 +839,8 @@ function defineLayoutDocStore(bound: boolean) {
                     if (rect === undefined) return notFound(panel);
                     const growth = floatGrowth(panel);
                     const next = {
-                        x: direction.width === -1 ? presented.x : rect.x,
-                        width: direction.width === 0 ? rect.width : Math.max(1, presented.width - growth),
+                        x: direction.width === -1 ? presented.x + growth.left : rect.x,
+                        width: direction.width === 0 ? rect.width : Math.max(1, presented.width - growth.width),
                         y: direction.height === -1 ? presented.y : rect.y,
                         height: direction.height === 0 ? rect.height : presented.height,
                     };

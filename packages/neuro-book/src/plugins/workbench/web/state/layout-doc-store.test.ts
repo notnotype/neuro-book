@@ -1239,6 +1239,37 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(store.state.floatRails.get(panel)).toMatchObject({expanded: false, tooNarrow: true, width: 48});
         });
 
+        it("浮动窗的轨宽手柄（输出 51，开发者 2026-11-26 定窗的右边不动）：拖动中右边不动、左边跟着长、跟手不过渡；松手只写窗上的宽；能拖到的宽受窗口与左边界限制", async () => {
+            const {store} = await railed(1440);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const panel = store.actions.document().floats[0]!.panel;
+            const record = store.actions.document().floats[0]!.rect;
+            expect(store.actions.floatRailHandle(panel)).toBeNull();
+            store.actions.requestFloatRailExpanded(panel, true);
+            await Promise.resolve();
+            const open = store.actions.floats()[0]!.rect;
+            const right = open.x + open.width;
+            expect(store.actions.floatRailHandle(panel)).toEqual({minimum: 200, maximum: Math.min(420, 1440 - record.width + 48, record.x + 260), width: 260});
+
+            store.actions.previewFloatRailWidth(panel, 300);
+            const dragging = store.actions.floats()[0]!;
+            expect([dragging.rect.x, dragging.rect.x + dragging.rect.width, dragging.gesture, dragging.animate]).toEqual([open.x - 40, right, "resize", undefined]);
+            const unchanged = store.actions.document();
+            store.actions.previewFloatRailWidth(panel, null);
+            expect(store.actions.document()).toBe(unchanged);
+            expect(store.actions.floats()[0]!.rect).toEqual(open);
+
+            expect(store.actions.commitFloatRailWidth(panel, 300.4).ok).toBe(true);
+            expect(store.actions.document().floats[0]).toMatchObject({rect: record, rail: {expanded: true, width: 300}});
+            const wider = store.actions.floats()[0]!.rect;
+            expect([wider.x, wider.x + wider.width]).toEqual([open.x - 40, right]);
+            // 拖窗的左边：记录的位置要加回往左长的那段。
+            expect(store.actions.resizeFloat(panel, {...wider, x: wider.x - 10, width: wider.width + 10}, {width: -1, height: 0}).ok).toBe(true);
+            expect(store.actions.document().floats[0]!.rect).toEqual({...record, x: record.x - 10, width: record.width + 10});
+            expect(store.actions.commitFloatRailWidth(panel, 260).ok).toBe(true);
+            expect(store.actions.document().floats[0]?.rail).toEqual({expanded: true});
+        });
+
         it("“移到”带着它，“重置”回到声明的区域时清掉它", async () => {
             const {store} = await open();
             expand(store, 300);

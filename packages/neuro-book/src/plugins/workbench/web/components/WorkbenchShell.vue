@@ -57,6 +57,7 @@ import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 import WorkbenchToolStrip from "./WorkbenchToolStrip.vue";
+import WorkbenchFloatRailHandle from "./WorkbenchFloatRailHandle.vue";
 import type {ToolStripEntry, ToolStripItem, ToolStripSegment} from "./WorkbenchToolStrip.vue";
 import WorkbenchViewFrame from "./WorkbenchViewFrame.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
@@ -234,6 +235,14 @@ const railSegment = computed((): ToolStripSegment | null => {
         labels: {expand: message("shell.rail.expand"), collapse: message("shell.rail.collapse"), tooNarrow: message("shell.rail.tooNarrow"), handle: message("shell.rail.handle")},
     };
 });
+
+/** 浮动窗里展开的视图段的轨宽手柄（输出 51）：窗是单标签视图窗、视图段展开着时才有。 */
+function floatRailHandleOf(panel: string): {readonly width: number; readonly bounds: {readonly minimum: number; readonly maximum: number; readonly width: number}; readonly revision: string; readonly label: string} | null {
+    const bounds = props.layout.actions.floatRailHandle(panel);
+    const rail = state.value.floatRails.get(panel);
+    if (bounds === null || rail === undefined) return null;
+    return {width: rail.width, bounds, revision: layoutStructureKey(doc.value), label: message("shell.rail.handle")};
+}
 
 function toggleRailSegment(): void {
     const rail = state.value.rail;
@@ -1270,6 +1279,12 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @preview="(next) => layout.actions.previewFloat(next === null ? null : id, next)"
                         @commit="(next, direction) => layout.actions.resizeFloat(id, next, direction)"
                         @move="(position) => layout.actions.moveFloat(id, position)"
+                    />
+                    <WorkbenchFloatRailHandle
+                        v-if="floatRailHandleOf(id) !== null"
+                        v-bind="floatRailHandleOf(id)!"
+                        @preview="(width) => layout.actions.previewFloatRailWidth(id, width)"
+                        @commit="(width) => layout.actions.commitFloatRailWidth(id, width)"
                     />
                 </template>
                 <template #own-head="{panelId: id, idPrefix, actionsShown}">

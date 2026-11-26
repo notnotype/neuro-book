@@ -146,6 +146,7 @@ import type WorkbenchSurface from "nbook/plugins/workbench/web/components/Workbe
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
 import type WorkbenchRegionStrip from "nbook/plugins/workbench/web/components/WorkbenchRegionStrip.vue";
 import type WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
+import type WorkbenchFloatRailHandle from "nbook/plugins/workbench/web/components/WorkbenchFloatRailHandle.vue";
 import type WorkbenchItemStrip from "nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue";
 import type WorkbenchTitleBar from "nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue";
 import type WorkbenchStatusBar from "nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue";
@@ -533,6 +534,14 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
+    }),
+    defineLabFixture<typeof WorkbenchFloatRailHandle>({
+        component: "WorkbenchFloatRailHandle",
+        scenes: [
+            {id: "default", label: "浮动窗里展开的视图段（260），手柄在它内侧；往左拖变宽、键盘左右每次 10", input: {props: {width: 260, bounds: {minimum: 200, maximum: 420, width: 260}, revision: "lab", label: "调整视图段的宽度"}}},
+            {id: "narrowest", label: "拖到最窄 200", input: {props: {width: 200, bounds: {minimum: 200, maximum: 420, width: 260}, revision: "lab", label: "调整视图段的宽度"}}},
+        ],
+        load: async () => (await import("./WorkbenchFloatRailHandleFixture.vue")).default,
     }),
     defineSubjectFixture<typeof WorkbenchRegionStrip>({
         component: "WorkbenchRegionStrip",
