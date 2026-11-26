@@ -435,6 +435,14 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/nb-page-agent": {
+      "name": "@notnotype/nb-page-agent",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/nb-profile": {
       "name": "@notnotype/nb-profile",
       "version": "0.1.0",
@@ -727,6 +735,7 @@
         "@notnotype/nb-host": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-models": "workspace:*",
+        "@notnotype/nb-page-agent": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
         "@notnotype/owned-process": "workspace:*",
@@ -1560,6 +1569,8 @@
     "@notnotype/nb-memory": ["@notnotype/nb-memory@workspace:packages/nb-memory"],
 
     "@notnotype/nb-models": ["@notnotype/nb-models@workspace:packages/nb-models"],
+
+    "@notnotype/nb-page-agent": ["@notnotype/nb-page-agent@workspace:packages/nb-page-agent"],
 
     "@notnotype/nb-profile": ["@notnotype/nb-profile@workspace:packages/nb-profile"],
 
@@ -4572,6 +4583,10 @@
     "@notnotype/nb-models/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
     "@notnotype/nb-models/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-page-agent/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-page-agent/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-profile/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

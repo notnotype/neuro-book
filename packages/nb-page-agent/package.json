@@ -1,0 +1,22 @@
+{
+    "name": "@notnotype/nb-page-agent",
+    "version": "0.1.0",
+    "private": true,
+    "description": "让 Agent 看懂并引导一个网页：文字快照与引用、定位、截图、高亮说明框；只管一个页面里的事，宿主给稳定名、文字、主题与截图",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        "./attrs": "./src/attrs.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}
