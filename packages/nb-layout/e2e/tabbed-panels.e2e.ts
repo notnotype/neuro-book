@@ -39,6 +39,8 @@ const strip = (page: Page, group: string) => page.locator(`[data-tab-strip][data
 const tab = (page: Page, group: string, name: string) => strip(page, group).locator(`[data-tab="${name}"]`);
 const tabButton = (page: Page, group: string, name: string) => tab(page, group, name).getByRole("tab");
 const frame = (page: Page, id: string) => page.locator(`[data-leaf="${id}"]`);
+/** 边缘滚动的边缘带宽：库的缺省（drag-session.md 的“边缘滚动”），示例没改。 */
+const EDGE = 24;
 
 async function tabsOf(page: Page, group: string): Promise<string[]> {
     return strip(page, group).locator("[data-tab]").evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.tab!));
@@ -123,12 +125,17 @@ test("标签条放不下时横向滚动：滚到中间，拖过最后一个看�
 
     // 来源取别的编组的标签，先拿起来再量：按下时焦点进它的按钮，量目标用的 `boxOf` 也会把元素滚进视野，都会挪动 group-1 的标签条。
     await pickUp(page, tab(page, "group-3", "index.html"));
-    // 滚到中间，再按此刻的矩形找最后一个看得见的标签和紧跟它的滚出去的标签：不写死名字，换了字体也成立。
+    // 滚到中间：从最左起，把第一个越过右缘的标签的右缘贴着标签条的右缘，它就是最后一个看得见的，后面的那个整个在视野外；指针能停在
+    // 它的后半、又在边缘滚动的边缘带之外。按此刻的矩形取，不写死名字，换了字体也成立。滚的距离向下取整：`scrollLeft` 会取整，
+    // 向上取整时后面那个会露出不到 1 像素，库就把它算作看得见的，这条要测的“紧跟着的滚出去了”就没走到。
     const layout = await strip(page, "group-1").evaluate((element) => {
-        element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2;
+        element.scrollLeft = 0;
+        const right = element.getBoundingClientRect().right;
+        const lastVisible = [...element.querySelectorAll<HTMLElement>("[data-tab]")].findIndex((each) => each.getBoundingClientRect().right > right);
+        const crossing = element.querySelectorAll<HTMLElement>("[data-tab]")[lastVisible];
+        if (crossing !== undefined) element.scrollLeft += Math.floor(crossing.getBoundingClientRect().right - right);
         const view = element.getBoundingClientRect();
         const tabs = [...element.querySelectorAll<HTMLElement>("[data-tab]")].map((each) => ({id: each.dataset.tab!, rect: each.getBoundingClientRect()}));
-        const lastVisible = tabs.findLastIndex((each) => each.rect.left < view.right && each.rect.right > view.left);
         return {overflows: element.scrollWidth > element.clientWidth, scrollLeft: element.scrollLeft, view: {right: view.right}, tabs, lastVisible};
     });
     expect(layout.overflows).toBe(true);
@@ -139,9 +146,15 @@ test("标签条放不下时横向滚动：滚到中间，拖过最后一个看�
     expect(hidden).toBeDefined();
     expect(hidden!.rect.left).toBeGreaterThanOrEqual(layout.view.right);
 
-    // 指针在最后一个看得见的标签的可见部分的后半。
+    // 指针在最后一个看得见的标签的后半，又在右端的边缘带之外：在带里的话，标签条会在静止的指针下自己滚，插入位跟着变。
     const visibleRight = Math.min(last.rect.right, layout.view.right);
-    await moveTo(page, {x: visibleRight - 3, y: (last.rect.top + last.rect.bottom) / 2}, `insert:group-1:${hidden!.id}`);
+    const pointerX = last.rect.right - (EDGE + 2);
+    expect(last.rect.width / 2).toBeGreaterThan(EDGE + 2);
+    await moveTo(page, {x: pointerX, y: (last.rect.top + last.rect.bottom) / 2}, `insert:group-1:${hidden!.id}`);
+    const scrollLeft = () => strip(page, "group-1").evaluate((element) => element.scrollLeft);
+    const before = await scrollLeft();
+    await twoFrames(page);
+    expect(await scrollLeft()).toBe(before);
     // 线贴最后一个看得见的标签的后缘，挨着标签条右缘时夹在右缘之内（线宽 2）。
     const line = await page.locator("[data-drop-feedback-line]").boundingBox();
     expect(line).not.toBeNull();
@@ -152,6 +165,66 @@ test("标签条放不下时横向滚动：滚到中间，拖过最后一个看�
     const order = layout.tabs.map((each) => each.id);
     order.splice(layout.lastVisible + 1, 0, "index.html");
     await expectTabs(page, "group-1", order, "index.html");
+});
+
+test("标签条放不下时拖到它的右端：这一条自己往右滚到头、插入线跟着换，指针在旁边那条里时它不动；拖到左端滚回最左；滚到头再松手插在最后（docs/specs/ui/layout-drag.md 输出 14、验收 7）", async ({page}) => {
+    // 同上一条的准备：窗口收窄，group-1 收下另外两个编组各一个标签，六个标签放不下。
+    await page.setViewportSize({width: 1000, height: 800});
+    await settled(page);
+    await dragTo(page, tab(page, "group-2", "notes.txt"), await bodyPoint(page, "group-1", "center"), "into:group-1");
+    await dragTo(page, tab(page, "group-3", "styles.css"), await bodyPoint(page, "group-1", "center"), "into:group-1");
+    const six = ["README.md", "main.ts", "App.vue", "model.ts", "notes.txt", "styles.css"];
+    await expectTabs(page, "group-1", six);
+
+    await pickUp(page, tab(page, "group-3", "index.html"));
+    // 先拿起再量、再把 group-1 滚回最左：拿起时焦点进来源的按钮，量目标也会把元素滚进视野。
+    const layout = await page.evaluate(() => {
+        const of = (group: string) => document.querySelector<HTMLElement>(`[data-tab-strip][data-group="${group}"]`)!;
+        const one = of("group-1");
+        const two = of("group-2");
+        one.scrollLeft = 0;
+        const rect = (element: HTMLElement) => {
+            const box = element.getBoundingClientRect();
+            return {left: box.left, right: box.right, top: box.top, bottom: box.bottom};
+        };
+        return {
+            one: rect(one),
+            two: rect(two),
+            oneOverflows: one.scrollWidth > one.clientWidth,
+            twoOverflows: two.scrollWidth > two.clientWidth,
+            oneMax: one.scrollWidth - one.clientWidth,
+        };
+    });
+    // 前提：group-2 在 group-1 右边、两条同高；group-1 放不下，group-2 放得下（不然横向先挑中 group-2 自己）。
+    expect(layout.oneOverflows).toBe(true);
+    expect(layout.twoOverflows).toBe(false);
+    expect(layout.two.top).toBe(layout.one.top);
+    expect(layout.two.left).toBeGreaterThan(layout.one.right);
+    const scrollLeftOf = (group: string) => strip(page, group).evaluate((element) => element.scrollLeft);
+    const y = (layout.one.top + layout.one.bottom) / 2;
+
+    // 指针在旁边那条的右端：group-1 已被越过，但不是指针下的那条，不滚。
+    await moveTo(page, {x: layout.two.right - 4, y}, /^insert:group-2:/);
+    await twoFrames(page);
+    expect(await scrollLeftOf("group-1")).toBe(0);
+
+    // 拖到 group-1 的右端停住：往右滚到头，插入线跟着换到最后。
+    await moveTo(page, {x: layout.one.right - 4, y}, /^insert:group-1:/);
+    await expect.poll(() => scrollLeftOf("group-1")).toBe(layout.oneMax);
+    await expect(page.locator("[data-drop]")).toHaveAttribute("data-drop", "insert:group-1:end");
+
+    // 拖到左端停住：滚回最左，插在第一个前面。
+    await moveTo(page, {x: layout.one.left + 4, y}, /^insert:group-1:/);
+    await expect.poll(() => scrollLeftOf("group-1")).toBe(0);
+    await expect(page.locator("[data-drop]")).toHaveAttribute("data-drop", "insert:group-1:README.md");
+
+    // 回到右端，等滚到头再松手：插在最后。
+    await moveTo(page, {x: layout.one.right - 4, y}, /^insert:group-1:/);
+    await expect.poll(() => scrollLeftOf("group-1")).toBe(layout.oneMax);
+    await expect(page.locator("[data-drop]")).toHaveAttribute("data-drop", "insert:group-1:end");
+    await page.mouse.up();
+    await expect(page.locator("[data-drop]")).toHaveCount(0);
+    await expectTabs(page, "group-1", [...six, "index.html"], "index.html");
 });
 
 test("拖到编组正文中央：移进那个编组、排在最后、成为选中", async ({page}) => {

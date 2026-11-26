@@ -67,7 +67,7 @@ function onKeydown(event: KeyboardEvent, tab: string): void {
     display: flex;
     box-sizing: border-box; /* 高度连下边框一共是标签条的高度，内容层的 insetTop 读的是同一个数。 */
     height: var(--tab-bar-height);
-    /* 放不下时横向滚动。滚出去的标签库判插入位时也认：拖过最后一个看得见的标签，插到第一个滚出去的前面，和插入线一致。 */
+    /* 放不下时横向滚动。滚出去的标签库判插入位时也认：拖过最后一个看得见的标签，插到第一个滚出去的前面，和插入线一致。拖到条的两端时它自己滚（`App.vue` 的 `autoScroll`）。 */
     overflow-x: auto;
     overflow-y: hidden;
     /* 滚动条占的是标签条自己的高度（总高不变，标签矮一点），细的那种才不至于挤掉标签的文字。 */

@@ -170,6 +170,14 @@ const drag = useDragSession<string, Drop>(box, () => ({
     },
     // 一场里网格重发了布局（窗口缩放、别处改了树），整场取消，不拿旧的落点提交。
     structure: () => String(host.revision.value),
+    // 边缘滚动：只交指针下的那条标签条。越过一端也算在边缘带里，几条都交的话，指针在右边那条里时左边那条也在滚。
+    // 标签条只横着滚（样式里 overflow-y: hidden），竖向的边缘带在 32px 高的条上本来也不算。
+    autoScroll: {
+        containers: ({top}) => {
+            const strip = top?.closest<HTMLElement>("[data-tab-strip]") ?? null;
+            return strip === null ? [] : [strip];
+        },
+    },
     resolve: ({source, point}) => {
         const model = layout.value;
         const from = model.groupOf(source);
