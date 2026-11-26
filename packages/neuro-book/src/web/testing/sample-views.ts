@@ -1,6 +1,6 @@
 /**
  * e2e 用的浏览器测试插件 `test.sample-views`（docs/specs/workbench/views.md 的 e2e）：一个浏览器入口贡献六个视图（侧栏
- * 三个、右栏一个、面板两个，各在自己的隐式容器）、编辑器槽的样例内容（docs/specs/ui/workbench-shell.md 非目标第一条）
+ * 三个、右栏一个、面板两个，各在自己的隐式容器；开关打开时右栏另有一个受限视图）、编辑器槽的样例内容（docs/specs/ui/workbench-shell.md 非目标第一条）
  * 与测试命令 `test.sample-views.stop`。开关见
  * `src/shared/testing/sample-views-contract.ts`；它们只在测试外壳里读，产品清单与产品构建不含本插件。
  */
@@ -34,6 +34,9 @@ const VIEWS: Readonly<Record<string, ViewDeclaration>> = {
     // 长标题：看面板标签带放不下时的溢出与键盘切换。
     [SAMPLE_VIEW_IDS.zeta]: view("样例己：一个很长的面板视图标题", "panel", "i-lucide-scroll-text", {order: 1, floatable: false}),
 };
+
+/** 开关 `withRail` 打开时另贡献的受限视图（views.md 输出 22）：排在样例丁之后。 */
+const RAIL_VIEW: ViewDeclaration = view("样例庚", "auxiliarybar", "i-lucide-messages-square", {order: 1, confinedTo: "auxiliarybar"});
 
 const MARK_DECLARATION: CommandDeclaration = {
     title: {"zh-CN": "样例的菜单动作", "en-US": "Sample Menu Action"},
@@ -79,6 +82,7 @@ function switchOn(key: string): ReadonlyArray<string> {
 }
 
 export function createSampleViewsBrowserPlugin(): PluginDefinition {
+    const views: Readonly<Record<string, ViewDeclaration>> = switchOn(SAMPLE_VIEWS_SWITCHES.withRail).includes("1") ? {...VIEWS, [SAMPLE_VIEW_IDS.rail]: RAIL_VIEW} : VIEWS;
     return {
         id: sampleViewsDescriptor.id,
         entries: [{
@@ -87,7 +91,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
             activationEvents: ["onStartup"],
             dependencies: [{key: publicStateKey}, {key: commandServiceKey}],
             contributions: [
-                ...Object.entries(VIEWS).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
+                ...Object.entries(views).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_STOP_COMMAND, declaration: STOP_DECLARATION},
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_MARK_COMMAND, declaration: MARK_DECLARATION},
                 {capability: WORKBENCH_EDITOR_AREA_POINT, id: SAMPLE_EDITOR_AREA_ID, declaration: {order: 0}},
@@ -123,7 +127,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                 }};
                 const editorArea: EditorAreaImplementation = {load: async () => ({host: SampleEditorHost, group: SampleEditorArea})};
                 return {contributions: {
-                    [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(VIEWS).map((id) => [id, implementation(id)])),
+                    [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(views).map((id) => [id, implementation(id)])),
                     [WORKBENCH_EDITOR_AREA_POINT]: {[SAMPLE_EDITOR_AREA_ID]: editorArea},
                     [COMMANDS_POINT]: {[SAMPLE_VIEWS_STOP_COMMAND]: stop, [SAMPLE_VIEWS_MARK_COMMAND]: {run: () => ({ok: true, value: null})}},
                 }};

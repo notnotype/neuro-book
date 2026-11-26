@@ -24,14 +24,14 @@ import {WORKBENCH_FILE_DROP} from "../../shared/contracts";
 import type {WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
-import {MOVE_VIEW_COMMAND, moveTargetItem} from "../commands/view-commands";
+import {MOVE_VIEW_COMMAND, moveTargetItem, moveTargetsFor} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {focusLandings, isSoleWindow, mergedSections, moveTargetsOf, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import {focusLandings, isSoleWindow, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {ContainerEntry, FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -526,7 +526,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const opened = moveMenu.value;
     if (opened === null) return [];
     // 和命令面板第二步同一份目标表与同一套名字（`moveTargetItem`），都经 `move-view` 执行。
-    const targets = moveTargetsOf(doc.value, opened.viewId, catalog.value, state.value.containers) ?? [];
+    const targets = moveTargetsFor(props.layout, opened.viewId) ?? [];
     const itemsOf = (kind: (typeof targets)[number]["kind"]): ContextMenuItem[] => targets.filter((target) => target.kind === kind).map((target) => {
         const item = moveTargetItem(target);
         return {label: text(item.label), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, ...item.args})};
@@ -654,7 +654,7 @@ const stripEntriesOf = (region: PanelName): RegionStripEntry[] => (region === "s
 const containerMenu = shallowRef<{readonly container: string; readonly x: number; readonly y: number} | null>(null);
 
 /** 容器的“移到”另外两个区域（输出 44）：整个容器搬过去（`moveContainer`）。 */
-const containerMoveItemsOf = (container: string): ContextMenuItem[] => containerMoveTargets(doc.value, container).map((region): ContextMenuItem => ({
+const containerMoveItemsOf = (container: string): ContextMenuItem[] => containerMoveTargets(doc.value, container).filter((region) => props.layout.actions.permitsMoveContainer(container, region)).map((region): ContextMenuItem => ({
     label: message(`viewContainers.moveTo.${region}`),
     action: () => props.layout.actions.moveContainer(container, region),
 }));
@@ -663,7 +663,7 @@ const containerMoveItemsOf = (container: string): ContextMenuItem[] => container
 function containerMenuItemsOf(container: string): ContextMenuItem[] {
     const moves = containerMoveItemsOf(container);
     const home = containerHomeRegion(container, catalog.value, state.value.containers);
-    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return moves;
+    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers) || !props.layout.actions.permitsMoveContainer(container, home)) return moves;
     return [...moves, {label: message("viewContainers.reset"), action: () => props.layout.actions.resetContainer(container, home)}];
 }
 

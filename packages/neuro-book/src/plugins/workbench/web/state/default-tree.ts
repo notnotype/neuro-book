@@ -14,6 +14,7 @@ import {containerRegion, NO_CONTAINERS, regionAnchor, sectionLanding, settleCont
 import type {ContainerCatalog, ViewHome} from "./containers";
 import {createLayoutPolicy} from "./layout-constraints";
 import {viewKey} from "./layout-present";
+import {settlePlacements} from "./placement";
 
 /** 第一个编辑组的面板 id。 */
 export const INITIAL_EDITOR_PANEL = "g0";
@@ -146,8 +147,8 @@ function retireReplacedViews(doc: LayoutDoc, catalog: ViewCatalog): LayoutDoc {
  * 区域不用容器（锚上有标签）的文档不补：那种记录读不进来（`fitsSkeleton`），这里只会遇到默认布局与合骨架的记录。
  */
 export function reconcileViews(original: LayoutDoc, catalog: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): LayoutDoc {
-    // 先摘掉被取代的旧视图，再补缺的：不然没有缺失视图时直接返回，旧标签永远留着。
-    const doc = retireReplacedViews(original, catalog);
+    // 先摘掉被取代的旧视图、把旧记录里违反位置限制的受限视图分离出来（views.md 输出 22），再补缺的：不然没有缺失视图时直接返回，这两样永远留着。
+    const doc = settlePlacements(retireReplacedViews(original, catalog), catalog, createLayoutPolicy());
     const present = new Set(Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)));
     const missing = homesOf([...catalog.keys()].filter((id) => !present.has(viewKey(id))), catalog, containers);
     if (missing.length === 0) return doc === original ? doc : settleContainers(doc);

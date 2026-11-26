@@ -23,6 +23,7 @@ import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX} from "../../shared/v
 import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
+import {guardPlacement} from "./placement";
 import {collapseOrder, createLayoutPolicy, defaultFloatRect, keepVisible, layoutProjectionOptions, panelConstraints} from "./layout-constraints";
 import {effectiveVisibleTabs, mergedSections, regionOccupied, viewKey} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
@@ -222,25 +223,36 @@ function defineLayoutDocStore(bound: boolean) {
         const rebased = (): LayoutDoc => rebaseForOperation(doc.value, projection.value, presented.value);
 
         /**
+         * 写入的出口要守的两道关，`apply` 与试算（`permits`）共用：合骨架（落点只给合骨架的目标，但服务 `EditorPanels.tabs.moveToEdge` 能传任意目标），
+         * 不多出违反位置限制的视图（views.md 输出 22）。通过的结果归整过容器：库的结构操作只写分节的归属，入口顺序、当前容器空了换谁、区域空了隐藏在这里归整
+         * （输出 41、43）。预览不过这里，预览里不切容器（输出 38）。
+         */
+        function admitted(base: LayoutDoc, result: LayoutResult): LayoutResult {
+            if (!result.ok || result.doc === base) return result;
+            if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", message: "The result does not fit the skeleton"};
+            const settled = settleContainers(result.doc);
+            return guardPlacement(base, {ok: true, doc: settled}, catalog.value);
+        }
+
+        /** 这个操作此刻提交会不会被收下（“移动到”的目标表、入口菜单按它列项）：和 `apply` 同一道关，不写回尺寸意图、不写文档。 */
+        const permits = (operation: (current: LayoutDoc) => LayoutResult): boolean => admitted(doc.value, operation(doc.value)).ok;
+
+        /**
          * `rebase: false` 给不动树的操作（切换容器、让视图看得见）：切换不改任何尺寸意图（输出 42）。写回意图时有收起兄弟的分支按比例换算，
          * 呈现与意图一样也会差在浮点的末位，切换几次记录就变了。
          */
         function apply(operation: (current: LayoutDoc) => LayoutResult, options: {readonly flush?: boolean; readonly rebase?: boolean} = {}): LayoutResult {
             const base = options.rebase === false ? doc.value : rebased();
-            const result = operation(base);
+            const result = admitted(base, operation(base));
             if (!result.ok) {
                 if (result.code === "limit-exceeded") structureFailure.value = result.message;
                 return result;
             }
             if (result.doc === base) return {ok: true, doc: doc.value};
-            // 落点只给合骨架的目标，但服务（`EditorPanels.tabs.moveToEdge`）能传任意目标：写入的出口再守一次。
-            if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", message: "The result does not fit the skeleton"};
             if (!sameTreeShape(base, result.doc)) maximized.value = null;
-            // 库的结构操作只写分节的归属：入口顺序、当前容器空了换谁、区域空了隐藏在这里归整（输出 41、43）。预览不过这里，预览里不切容器（输出 38）。
-            const settled = settleContainers(result.doc);
-            local.value = settled;
+            local.value = result.doc;
             schedule(options.flush ?? false);
-            return {ok: true, doc: settled};
+            return result;
         }
 
         /** 区域显示（清掉隐藏与拖到零）并切到这个容器（输出 23、42）。容器要已经有成员：先归整，入口顺序里才有它。 */
@@ -286,6 +298,19 @@ function defineLayoutDocStore(bound: boolean) {
             const home = viewHome(viewId, catalog.value, containers.value) ?? {container: implicitContainerOf(viewId), location: "sidebar" as const};
             return {region: containerRegion(current, home.container) ?? home.location, container: home.container};
         }
+
+        /**
+         * `moveView` 的结构部分（输出 23）：移进一个容器，或在一个区域里新建一个只含它的用户容器。新容器的 id 只在这里生成；试算（`permitsMoveView`）也走这里，
+         * 生成的 id 只在那份算完就丢的文档里。
+         */
+        const moveViewOperation = (viewId: string, target: MoveViewTarget) => (current: LayoutDoc): LayoutResult => {
+            const key = viewKey(viewId);
+            if (findTab(current, key) === null) return notFound(key);
+            if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
+            const {container} = target;
+            const region = containerRegion(current, container) ?? declaredRegion(container);
+            return region === null ? notFound(container) : placeInContainer(current, key, region, container);
+        };
 
         return {
             state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, recordRepairs},
@@ -508,15 +533,12 @@ function defineLayoutDocStore(bound: boolean) {
                         const last = region === null ? undefined : regionSections(doc.value, region).filter((section) => section.container === target.container).at(-1);
                         if (last?.viewId === viewId) return revealContainer(target.container);
                     }
-                    return apply((current) => {
-                        const key = viewKey(viewId);
-                        if (findTab(current, key) === null) return notFound(key);
-                        if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
-                        const {container} = target;
-                        const region = containerRegion(current, container) ?? declaredRegion(container);
-                        return region === null ? notFound(container) : placeInContainer(current, key, region, container);
-                    }, {flush: true});
+                    return apply(moveViewOperation(viewId, target), {flush: true});
                 },
+                /**
+                 * “移动到”的这一项此刻会不会被收下（输出 23；位置限制，views.md 输出 22）：菜单与命令面板第二步只列会被收下的。放到自己身后（只是切过去）算收下。
+                 */
+                permitsMoveView: (viewId: string, target: MoveViewTarget): boolean => catalog.value.get(viewId)?.movable !== false && permits(moveViewOperation(viewId, target)),
                 /**
                  * 让容器看得见（输出 22 的点入口、输出 42）：它所在的区域显示（清掉隐藏与拖到零）并切到它，一次提交；分节的先后、大小、收成标题行都不动。
                  * 已经是这样时零写入。
@@ -526,6 +548,8 @@ function defineLayoutDocStore(bound: boolean) {
                  * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”），一次提交；带着什么、目标区域怎么变见 `moveContainerTo`。容器已经在那里时零写入。
                  */
                 moveContainer: (container: string, region: PanelName): LayoutResult => apply((current) => moveContainerTo(current, container, region, policy), {flush: true}),
+                /** 整个容器搬到这个区域此刻会不会被收下（入口菜单的“移到”“重置”按它列项）。 */
+                permitsMoveContainer: (container: string, region: PanelName): boolean => permits((current) => moveContainerTo(current, container, region, policy)),
                 /**
                  * 容器回到声明的区域（输出 44 的“重置”）：同 `moveContainer`，再清掉这个容器的侧轨意图（输出 50 的“展开”：重置位置清掉这一项）。
                  */

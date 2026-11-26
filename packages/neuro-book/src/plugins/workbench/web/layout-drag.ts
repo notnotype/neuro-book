@@ -32,6 +32,7 @@ import {EDITOR_TAB_TYPE, editorTabIdOf} from "../shared/editor-panels";
 import {CUSTOM_CONTAINER_PREFIX} from "../shared/views";
 import type {EditorTabDrag} from "./contracts";
 import {defaultFloatRect, EDITOR_GROUP_MINIMUM, floatRectAt, wholeInTree} from "./state/layout-constraints";
+import {guardPlacement, hasConfinedViews} from "./state/placement";
 import {isSoleWindow, layoutStructureKey, viewIdOf, viewKey} from "./state/layout-present";
 import type {ViewCatalog} from "./views/registry";
 
@@ -312,7 +313,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const {action} = drop;
         // 活动栏的入口之间：入口滑开，来源在空位上显示成入口，侧栏不切（输出 38、45）。入口上不吸收，同中央。
         if (isEntryAction(action) && action.kind !== "join-container") {
-            const result = applyEntryDrop(doc, source, action, options.policy(), {commit: false});
+            const result = guardPlacement(doc, applyEntryDrop(doc, source, action, options.policy(), {commit: false}), options.catalog());
             return result.ok ? result.doc : null;
         }
         // 入口上的并入，来源是这个区域里一个容器唯一的视图：这条入口条是它自己的，来源不收起（`homeStripOf`），预览也不拿掉它，入口都不动，只高亮目标。
@@ -320,7 +321,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (action.kind === "join-container" && !collapsed && soleRegionContainer(doc, source, action.region) !== null) return doc;
         // 预览不摆真实结果的落点（输出 38）。浮动：窗此刻就是跟手的卡片。中央：目标不动，只盖一层；放下才换标签。这两种都是来源收起，内容靠拿起留着。
         if (action.kind === "float" || action.kind === "center" || action.kind === "join-container") return sourceRemovedDoc(source);
-        const result = applyLayoutDrop(doc, source, action, options.policy());
+        const result = guardPlacement(doc, applyLayoutDrop(doc, source, action, options.policy()), options.catalog());
         return result.ok ? result.doc : null;
     }
     // 一个区域里一个容器唯一的视图：那个区域的入口条就是它自己的，在里面换位、停在别的入口上都不收起来源（输出 45）。
@@ -539,7 +540,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const spot = barSpotAt(entries, axis === "y" ? point.y : point.x, {entries: source.kind !== "container"});
         const action = entryDropAt(doc, source, spot, run.newContainer, band.region);
         if (action === null) return null;
-        const result = applyEntryDrop(doc, source, action, options.policy(), {commit: true});
+        const result = guardPlacement(doc, applyEntryDrop(doc, source, action, options.policy(), {commit: true}), options.catalog());
         if (!result.ok) return null;
         // 横跨入口条的那一段：活动栏两边各缩 6px，入口条上下各缩 4px。
         const across = (start: number, end: number): GridDropRect => (axis === "y" ? {left: rect.left + 6, right: rect.right - 6, top: start, bottom: end} : {left: start, right: end, top: rect.top + 4, bottom: rect.bottom - 4});
@@ -597,7 +598,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const ownPartition = snapshot.excludedPartition ?? snapshot.members.find((member) => member.id === source.tab)?.partition ?? null;
             return {action, ...(part === undefined ? {} : {part}), inPlace: own >= 0 && ownPartition === measured.partition && (index === own || index === own + 1), preview};
         }
-        const result = applyLayoutDrop(doc, source, action, options.policy());
+        const result = guardPlacement(doc, applyLayoutDrop(doc, source, action, options.policy()), options.catalog());
         if (!result.ok) return null;
         // 工具面板放回原处：预览画来源自己所在的位置（输出 28）。带标签条的工具面板只剩浮动窗（输出 25 第 0 行），量的块要含窗，不然原位没有可画的矩形。
         const inPlace = result.doc === doc;
@@ -660,7 +661,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const key = source.kind === "new" ? null : JSON.stringify([source, action, options.extent()]);
         const cached = key === null ? undefined : run.previews.get(key);
         if (cached !== undefined) return cached;
-        const result = applyLayoutDrop(doc, source, action, options.policy());
+        const result = guardPlacement(doc, applyLayoutDrop(doc, source, action, options.policy()), options.catalog());
         if (!result.ok) return null;
         // 放回它自己那块的中央、那块摘掉它还在：和别的面板的中央一样是添加为标签（输出 25 第 6 行），松手回到原来的位置、成为活动标签。
         const rejoins = source.kind === "tab" && action.kind === "center" && findTab(doc, source.tab)?.panel === action.panel && homeStays(doc, source.tab);
@@ -953,6 +954,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const bars = geometry(doc).bands.map((band) => entryStripOf(band.region));
                 if (from.kind === "container") return bars.map((id) => ({id, candidates: [], entries: false})).filter((region) => stopsOf(region).points.length > 0);
                 const source = from;
+                // 位置限制（views.md 输出 22）按模拟出的文档判，和指针的落点、提交同一道关；目录里没有受限视图时不必每个候选都模拟一遍。
+                const confines = hasConfinedViews(options.catalog());
                 const candidates = enumerateDropCandidates({
                     doc,
                     source,
@@ -960,7 +963,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                     stripIndexes: (panel) => stripStopsOf(doc, panel).map((stop) => stop.index),
                     seams: layoutSeamsOf(doc, geometry(doc).panels),
                     newContainer: emptyRegionContainer(doc, source),
-                });
+                }).filter((candidate) => !confines || guardPlacement(doc, applyLayoutDrop(doc, source, candidate.action, options.policy()), options.catalog()).ok);
                 const byRegion = new Map<string, LayoutDropCandidate[]>();
                 for (const candidate of candidates) byRegion.set(candidate.region, [...(byRegion.get(candidate.region) ?? []), candidate]);
                 // 按树序。来源所在的面板就算没有候选也要有一个区域：拿起时停在原位。

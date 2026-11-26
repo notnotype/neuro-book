@@ -81,6 +81,12 @@ export const ViewDeclarationSchema = Type.Object({
      * 只能点名声明方自己插件的视图（校验见 `validateViewContribution`），而且只在旧 id 此刻没有声明时生效。
      */
     replaces: Type.Optional(Type.Array(Type.String({pattern: "\\S"}), {maxItems: 8})),
+    /**
+     * 位置限制（docs/specs/workbench/views.md 输出 22）：只停这个区域、只用自己的隐式容器（别的视图也进不来）、浮动时只能是窗里唯一的标签。
+     * 判定在 `web/state/placement.ts`。要求 `location` 就是这个区域、不写 `container`（校验见 `validateViewContribution`）。
+     * 给内置视图用，SDK 的 `view()` 不收它；第三方插件照样写进声明也只限制它自己的视图，所以登记时不按发布者拒。
+     */
+    confinedTo: Type.Optional(Type.Literal("auxiliarybar")),
 }, {additionalProperties: false});
 
 /** 声明是登记后不再改的数据；布局 store 的状态把目录变成深只读，类型就按深只读写，两边一致。 */
@@ -117,6 +123,9 @@ export function validateViewContribution(descriptor: ContributionDescriptor): st
     if (declaration.replaces !== undefined) {
         const foreign = declaration.replaces.find((old) => !old.startsWith(`${descriptor.plugin}.`) || old === id);
         if (foreign !== undefined) return `视图 ${id} 的 replaces 只能点名 ${descriptor.plugin} 自己别的视图：${foreign}`;
+    }
+    if (declaration.confinedTo !== undefined && (declaration.location !== declaration.confinedTo || declaration.container !== undefined)) {
+        return `视图 ${id} 的 confinedTo 要求 location 就是 ${declaration.confinedTo}、不写 container`;
     }
     for (const axis of ["width", "height"] as const) {
         const {min, max} = viewSizeLimits(declaration, axis);
