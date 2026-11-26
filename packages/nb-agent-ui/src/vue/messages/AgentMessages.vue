@@ -84,7 +84,7 @@ function holdUntil(root: HTMLElement, target: number): void {
     let still = 0;
     const tick = (): void => {
         const width = root.getBoundingClientRect().width;
-        if (Math.abs(width - target) < 1 || still >= HOLD_STILL_FRAMES) {
+        if (Math.abs(width - target) < 0.5 || still >= HOLD_STILL_FRAMES) {
             holdFrame = 0;
             heldChat.value = null;
             return;
