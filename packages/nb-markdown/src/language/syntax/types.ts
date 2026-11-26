@@ -7,7 +7,7 @@ import type {AnyExtension, JSONContent} from "@tiptap/core";
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import type {Token, Tokens} from "marked";
 
-import type {MarkdownLexing} from "../../marked/lexing";
+import type {AtomSpan, MarkdownLexing} from "../../marked/lexing";
 import type {OpenTag} from "./tags";
 
 /** 读入时交给读法的上下文。 */
@@ -28,6 +28,8 @@ export interface ReadContext {
      */
     lexBlocks(src: string): Token[];
     lexInline(src: string): Token[];
+    /** 语言里各模块在一段文字里认出的原子范围（原子里的 `|` 不切表格的单元格）。 */
+    atomSpans(text: string): ReadonlyArray<AtomSpan>;
 }
 
 /**
@@ -80,6 +82,8 @@ export interface WriteContext {
     escape(text: string, place?: InlinePlace): string;
     /** 语言里各模块的原子转义规则（`MarkdownLexing.atomEscape`）合起来；没有时为 null 或不给。 */
     readonly atomEscape?: ((text: string, index: number) => boolean) | null;
+    /** 语言里各模块在一段文字里认出的原子范围：表格里写出的 `|` 落在原子里的不转义（原子不切单元格）。没有时不给。 */
+    readonly atomSpans?: (text: string) => ReadonlyArray<AtomSpan>;
 }
 
 /** 编解码器给写前准备的工具。 */

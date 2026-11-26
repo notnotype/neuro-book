@@ -62,6 +62,11 @@ export interface Lexing {
      */
     blockTokens(lexer: Lexer, src: string): Token[];
     inlineTokens(lexer: Lexer, src: string): Token[];
+    /**
+     * 各模块在一段文字里认出的原子范围（按起点排，不含原文里的私用区字）。读写表格时用：原子里的 `|` 不切单元格，所以数单元格时
+     * 跳过、写出时不转义。
+     */
+    atomSpans(text: string): AtomSpan[];
 }
 
 /** 占位的身份字从私用区起、按原子序号递增；之后用一个固定的填充字补齐长度。原文里的私用区字也作为原子换掉，不会与占位相混。 */
@@ -289,5 +294,6 @@ export function createLexing(modules: ReadonlyArray<MarkdownLexing>): Lexing {
                 return tokens;
             }),
         inlineTokens: (lexer, src) => fragment(lexer, src, (text) => lexer.inlineTokens(text, [])),
+        atomSpans: (text) => atoms.flatMap((find) => [...find(text)]).sort((left, right) => left.from - right.from),
     };
 }

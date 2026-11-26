@@ -768,6 +768,7 @@
         "@vitejs/plugin-vue": "^6.0.7",
         "@vue/test-utils": "^2.4.11",
         "dompurify": "^3.3.3",
+        "fast-check": "4.10.2",
         "happy-dom": "^20.11.2",
         "json-editor-vue": "^0.18.1",
         "marked": "17.0.6",

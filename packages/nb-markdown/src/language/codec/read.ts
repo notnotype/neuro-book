@@ -200,6 +200,7 @@ function readBlock(language: MarkdownLanguage, lexer: Lexer, normalized: Normali
         // 另分词也要遮罩原子：这时顶层 `lex()` 已经结束，原子表已清。
         lexBlocks: (src) => language.blockTokens(lexer, src),
         lexInline: (src) => language.inlineTokens(lexer, src),
+        atomSpans: (text) => language.atomSpans(text),
     };
     function readToken(child: Token, inline: boolean): JSONContent[] {
         for (const reader of (inline ? language.inlineReaders : language.readers).get(child.type) ?? []) {

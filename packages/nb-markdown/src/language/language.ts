@@ -8,7 +8,7 @@
 import type {AnyExtension} from "@tiptap/core";
 import type {Lexer, Marked, Token} from "marked";
 
-import {createLexing} from "../marked/lexing";
+import {createLexing, type AtomSpan} from "../marked/lexing";
 import type {GluedRules} from "./codec/source";
 import {createRawSyntax} from "./syntax/raw";
 import {openTagAt} from "./syntax/tags";
@@ -21,6 +21,8 @@ export interface MarkdownLanguage {
     /** 读法对一部分文字另分词（`marked/lexing.ts` 的 `Lexing.blockTokens`、`inlineTokens`：照样遮罩原子）。 */
     blockTokens(lexer: Lexer, src: string): Token[];
     inlineTokens(lexer: Lexer, src: string): Token[];
+    /** 各模块在一段文字里认出的原子范围（`Lexing.atomSpans`）。 */
+    atomSpans(text: string): AtomSpan[];
     /** 全部语法模块的扩展，按模块顺序；编辑器与测试都用它建 schema。 */
     readonly extensions: ReadonlyArray<AnyExtension>;
     /** 块层与行内的词法单元类型 → 读法（按模块顺序，先试先赢）。 */
@@ -119,6 +121,7 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>, 
         lexer: () => lexing.lexer(),
         blockTokens: (lexer, src) => lexing.blockTokens(lexer, src),
         inlineTokens: (lexer, src) => lexing.inlineTokens(lexer, src),
+        atomSpans: (text) => lexing.atomSpans(text),
         extensions: all.flatMap((syntax) => syntax.extensions),
         readers: table((syntax) => syntax.read),
         inlineReaders: table((syntax) => syntax.readInline),
