@@ -305,7 +305,7 @@ interface Topology {
 }
 
 /** 服务端（hub）、项目 P 代次 1、两个绑定 P 的浏览器窗口；hub、项目与 browser-2 各提供 echo。 */
-async function topology(options: {readonly validateLocalCalls?: boolean} = {}): Promise<Topology> {
+async function topology(options: {readonly validateLocalCalls?: boolean; readonly projectAccess?: RemoteRouterOptions["projectAccess"]} = {}): Promise<Topology> {
     const clock = new ManualClock();
     const probes = {hub: newProbe(), project: newProbe(), browser2: newProbe()};
     const binding = {id: "P", generation: 1};
@@ -314,7 +314,7 @@ async function topology(options: {readonly validateLocalCalls?: boolean} = {}): 
     const browser1 = await start({id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, (contexts) => [caller("app.caller", "browser", contexts)], clock, {bind: {project: "p"}});
     const browser2 = await start({id: "browser-2", kind: "browser", role: "client", project: null, client: "profile-1"}, (contexts) => [provider("demo.window", "browser", probes.browser2), caller("app.caller", "browser", contexts)], clock, {bind: {project: "p"}});
     const projects = projectsStandIn();
-    const router = createRemoteRouter(hub.node, {bindProject: projects.bindProject});
+    const router = createRemoteRouter(hub.node, {bindProject: projects.bindProject, projectAccess: options.projectAccess});
     const links = new Map<string, ReturnType<typeof createLinkPair>>();
     const connect = async (instance: Instance): Promise<void> => {
         const pair = createLinkPair();
@@ -985,6 +985,71 @@ describe("Spec plugin-channel 输出 7：订阅", () => {
         first.next({topic: "a", n: 99});
         await drain();
         expect(received).toEqual([{topic: "a", n: 7}]);
+    });
+});
+
+describe("Spec plugin-channel 输出 7、8，场景 23、24：服务端作订阅方与查询实例", () => {
+    it("服务端订阅客户端：客户端链路断开即以 target-gone 结束；客户端同实例重连后不重建", async () => {
+        const t = await topology();
+        const ended: string[] = [];
+        const received: unknown[] = [];
+        const subscribed = await t.remote(t.hub).use(echo).at({client: "browser-2"}).events.ticks.subscribe({topic: "a"}, (payload) => received.push(payload), {onEnd: (reason) => ended.push(reason)});
+        expect(subscribed.ok).toBe(true);
+        await drain();
+        const sink = t.probes.browser2.sinks[0]!;
+
+        t.links.get("browser-2")!.left.close();
+        await drain();
+        expect(ended).toEqual(["target-gone"]);
+        expect(sink.signal.aborted).toBe(true);
+
+        await t.connect(t.browser2);
+        await drain();
+        expect(t.probes.browser2.sinks).toHaveLength(1);
+        sink.next({topic: "a", n: 1});
+        await drain();
+        expect(received).toEqual([]);
+        expect(ended).toEqual(["target-gone"]);
+    });
+
+    it("服务端订阅项目实例：项目链路断开即以 target-gone 结束", async () => {
+        const t = await topology({projectAccess: () => "allowed"});
+        const ended: string[] = [];
+        expect(await t.remote(t.hub).use(echo).at({project: "P"}).events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(reason)})).toMatchObject({ok: true});
+        await drain();
+
+        t.links.get("project-P")!.left.close();
+        await drain();
+        expect(ended).toEqual(["target-gone"]);
+        expect(t.probes.project.sinks[0]!.signal.aborted).toBe(true);
+    });
+
+    it("结束之后再释放不会再结束一次；先释放、之后链路断开不调 onEnd", async () => {
+        const t = await topology();
+        const ended: string[] = [];
+        const first = await t.remote(t.hub).use(echo).at({client: "browser-2"}).events.ticks.subscribe({topic: "a"}, () => undefined, {onEnd: (reason) => ended.push(`first:${reason}`)});
+        const second = await t.remote(t.hub).use(echo).at({client: "browser-2"}).events.ticks.subscribe({topic: "b"}, () => undefined, {onEnd: (reason) => ended.push(`second:${reason}`)});
+        await drain();
+        if (second.ok) second.value.release();
+        await drain();
+
+        t.links.get("browser-2")!.left.close();
+        await drain();
+        if (first.ok) first.value.release();
+        await drain();
+        expect(ended).toEqual(["first:target-gone"]);
+    });
+
+    it("服务端插件查询实例：与客户端经路由查到的相同", async () => {
+        const t = await topology();
+        const fromHub = await t.remote(t.hub).instances();
+        const fromBrowser = await t.remote(t.browser1).instances();
+
+        expect(fromHub.ok).toBe(true);
+        expect(fromHub).toEqual(fromBrowser);
+        if (fromHub.ok) {
+            expect(fromHub.value.map((instance) => instance.id).sort()).toEqual(["browser-1", "browser-2", "hub", "project-P"]);
+        }
     });
 });
 
