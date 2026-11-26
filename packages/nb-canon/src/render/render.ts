@@ -180,7 +180,8 @@ function valueItem(tag: EntryTag, meaning: Extract<TagMeaning, {kind: "value" | 
         display,
         ...(value === null ? {unknown: true as const} : {}),
         ...(resolved.incomplete === undefined ? {} : {incomplete: resolved.incomplete}),
-        ...(resolved.unavailable === undefined ? {} : {unavailable: resolved.unavailable}),
+        // 读不到的原因只在值也是未知时给：`false && 读不到的` 是确定的假，读不到的那一边不影响结果（输出 5、6）。
+        ...(resolved.unavailable === undefined || value !== null ? {} : {unavailable: resolved.unavailable}),
         ...(ref === undefined ? {} : {ref}),
         ...(image === null ? {} : {image: {path: image.图片, caption: image.说明 ?? ""}}),
     };
@@ -211,7 +212,7 @@ export function renderBlockForAuthor(id: string, source: string, context: Render
                     start: tag.start,
                     result: result?.result ?? null,
                     ...(result?.incomplete === undefined ? {} : {incomplete: result.incomplete}),
-                    ...(result?.unavailable === undefined ? {} : {unavailable: result.unavailable}),
+                    ...(result?.unavailable === undefined || result.result !== null ? {} : {unavailable: result.unavailable}),
                     ...(condition === undefined ? {} : {taken: condition.taken}),
                 });
                 return;
@@ -249,9 +250,9 @@ function valueDecoration(meaning: Extract<TagMeaning, {kind: "value" | "computed
         const {label, field} = resolved as Resolved;
         if (label !== undefined && field !== undefined && label !== field && !meaning.of.path.includes("[")) attributes.push(["label", label]);
     }
-    if (resolved.incomplete !== undefined) attributes.push(["incomplete", `${resolved.incomplete.change} ${resolved.incomplete.reason}`]);
-    if (resolved.unavailable !== undefined) attributes.push(["unavailable", resolved.unavailable]);
     const value = resolved.unavailable !== undefined && meaning.kind === "value" ? null : (resolved.value ?? null);
+    if (resolved.incomplete !== undefined) attributes.push(["incomplete", `${resolved.incomplete.change} ${resolved.incomplete.reason}`]);
+    if (resolved.unavailable !== undefined && value === null) attributes.push(["unavailable", resolved.unavailable]);
     return {attributes, content: agentJson(value)};
 }
 
@@ -367,19 +368,19 @@ export function renderBlockPlain(id: string, source: string, context: PlainConte
     const problems = new Set<PlainProblem>();
     collectStatic(analysis, context, reads, mentions, problems);
     const splices: Array<{start: number; end: number; text: string}> = [];
-    // 条件：只留生效的那一支；判断未知时整个条件写“未知”，没有一支生效时不写。被去掉的范围里的标签不写文字。
+    // 条件：只留生效的那一支；判断未知时整个条件写“未知”，没有一支生效时不写；判断未知是因为读不到值时同取值一样报 `unavailable`、
+    // 不写文字（简报据此扣下这一块）。被去掉的范围里的标签不写文字。
     const removed: Array<{start: number; end: number}> = [];
     for (const condition of analysis.conditions) {
         const open = analysis.parsed.tags[condition.open] as EntryTag;
         const close = analysis.parsed.tags[condition.close] as EntryTag;
-        const {taken} = decide(analysis, condition, context.resolve);
+        const {results, taken} = decide(analysis, condition, context.resolve);
         const branch = taken === null ? undefined : condition.branches[taken];
         if (branch === undefined) {
-            const unknown = condition.branches.some((candidate) => {
-                const meaning = analysis.meanings[candidate.head] as TagMeaning;
-                return meaning.kind === "test" && truthy(evaluate(meaning.test, context.resolve).value) === null;
-            });
-            splices.push({start: open.start, end: close.end, text: unknown ? displayText(null) : ""});
+            // 决定了“未知”的是第一个未知的判断（`decide` 在它那里停下）。
+            const unknown = condition.branches.map((candidate) => results.get(candidate.head)).find((result) => result !== undefined && result.result === null);
+            if (unknown?.unavailable !== undefined) problems.add("unavailable");
+            splices.push({start: open.start, end: close.end, text: unknown === undefined || unknown.unavailable !== undefined ? "" : displayText(null)});
             removed.push({start: open.start, end: close.end});
             continue;
         }
@@ -421,8 +422,8 @@ export function renderBlockPlain(id: string, source: string, context: PlainConte
     splices.sort((left, right) => left.start - right.start || left.end - right.end);
     let text = "";
     let cursor = 0;
+    // 各段不重叠：条件不能套条件（cross-block），被去掉的范围里的标签不另拼。
     for (const splice of splices) {
-        if (splice.start < cursor) continue;
         text += source.slice(cursor, splice.start) + splice.text;
         cursor = splice.end;
     }

@@ -15,7 +15,7 @@ import {afterAll, beforeAll, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {ReadPosition} from "../src/index";
-import {lexTags, stripEntryText} from "../src/grammar/index";
+import {lexTags, parseEntryText, stripEntryText} from "../src/grammar/index";
 import type {World} from "../src/world/world";
 import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain} from "../src/render/entry";
 import type {Mode} from "../src/engine/types";
@@ -70,14 +70,35 @@ function authorTexts(block: unknown): string[] {
     return out;
 }
 
-/** 新实现给 Agent 的值：带值的 `V` 中间的 JSON 按出现的顺序；条件取生效那一支的原文的 JSON（从给作者的值表取）。 */
+/**
+ * Agent 文字里每个条件按各个判断的 `value` 生效的那一支（按条件出现的顺序）：第一个 `true` 的支，先遇到 `null` 就没有，都是 `false`
+ * 时是 `Else`。样本里没有套着的条件，也没有字面的条件标签。
+ */
+function agentTaken(text: string): Array<number | null> {
+    const taken: Array<number | null> = [];
+    let heads: Array<string | null> | null = null;
+    for (const tag of parseEntryText(text).tags) {
+        if (tag.place !== "live" || (tag.name !== "If" && tag.name !== "ElseIf" && tag.name !== "Else")) continue;
+        const value = tag.attributes.find((attribute) => attribute.name === "value")?.value ?? null;
+        if (tag.name === "If" && tag.kind === "open") heads = [value];
+        else if (tag.name === "If" && tag.kind === "close" && heads !== null) {
+            const decided = heads.findIndex((head) => head !== "false");
+            taken.push(decided < 0 || heads[decided] === "null" ? null : decided);
+            heads = null;
+        } else if (heads !== null) heads.push(tag.name === "Else" ? "else" : value);
+    }
+    return taken;
+}
+
+/** 新实现给 Agent 的值：带值的 `V` 中间的 JSON 按出现的顺序；条件取 Agent 文字里生效那一支的原文的 JSON。 */
 function agentValues(text: string, author: unknown): string[] {
     const values = [...text.matchAll(/<V [^>]*>([^<]*)<\/V>/gu)].map((matched) => matched[1] as string);
+    const taken = agentTaken(text);
     const record = author as {source?: string; values?: readonly AuthorItem[]};
     const out: string[] = [];
     for (const item of record.values ?? []) {
         if (item.tag === "V") out.push(values.shift() ?? "");
-        else if (item.tag === "If") out.push(JSON.stringify(takenBranch(record.source ?? "", item)));
+        else if (item.tag === "If") out.push(JSON.stringify(takenBranch(record.source ?? "", {...item, taken: taken.shift() ?? null})));
     }
     return out;
 }

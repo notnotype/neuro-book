@@ -47,7 +47,14 @@ const FUNCTIONS: Readonly<Record<string, {readonly min: number; readonly max: nu
     percent: {min: 2, max: 2},
 };
 
+/**
+ * 一个式子最多这么多个字符（UTF-16 码元，rendering.md 输出 1）。解析、检查与求值都按节点递归，长度有了上界，嵌套的深度也就有了
+ * 上界（几百层），不会在写入或渲染里栈溢出；写得出来的式子远短于它。
+ */
+export const MAX_EXPRESSION_LENGTH = 1000;
+
 function parseNode(text: string): {readonly node: Expression} | {readonly error: ExpressionError} {
+    if (text.length > MAX_EXPRESSION_LENGTH) return {error: {offset: 0, message: `an expression may have at most ${String(MAX_EXPRESSION_LENGTH)} characters; split it into several tags`}};
     let comment = -1;
     let node: Expression;
     try {

@@ -100,7 +100,15 @@ export function splitBlocks(source: string, taken: Iterable<string> = []): Block
     const next = () => `${LOCAL_ID_PREFIX.block}${String(++max)}`;
     const blocks: Block[] = [];
     let cursor = 0;
-    for (const token of parseEntryText(source).tokens) {
+    let tokens: ReturnType<typeof parseEntryText>["tokens"];
+    try {
+        tokens = parseEntryText(source).tokens;
+    } catch (error) {
+        // 嵌套深到读不出结构的（几万层引用）：整段作为一块，交给写入时的检查报错。
+        if (error instanceof RangeError) return [{id: next(), source}];
+        throw error;
+    }
+    for (const token of tokens) {
         if (token.type === "space") {
             cursor += token.raw.length;
             continue;

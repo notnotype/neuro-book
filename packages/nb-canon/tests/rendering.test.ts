@@ -7,12 +7,13 @@ import {createHash} from "node:crypto";
 
 import {describe, expect, test} from "bun:test";
 
-import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type WriteRequest} from "../src/index";
+import {buildRegistry, ChapterOrder, editEntries, type ComponentDeclaration, type EntryEdits, type EntryOp, type Entry, type StoryChange, type WriteRequest} from "../src/index";
 import {parseExpression, stripEntryText} from "../src/grammar/index";
 import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain, renderSourceForAuthor, splitBlocks, type PlainOptions} from "../src/render/entry";
 import {evaluate, renderBlockPlain, type AuthorValue, type PlainBlock, type PlainContext, type Resolve} from "../src/render/render";
 import {analyzeBlock, analyzeDraft} from "../src/render/syntax";
 import {World, type WriteResult} from "../src/world/world";
+import {PROJECT, sign, verify} from "./fixtures/authorization";
 import {PANEL, PERSON} from "./fixtures/world";
 
 const BLOCK = '魔力 <V of="panel.魔力" />/<V of="panel.魔力上限" />，<If test="panel.魔力 >= 1000">能变身<Else />变不了身</If>';
@@ -537,7 +538,7 @@ describe("canon.rendering 输出 15、场景 5：纯文字的渲染", () => {
         ["引本条目一块原文：不写源文", '前<Ref id="e2" /><V of="rel.对象" />，引：<V of="text[b1]" />后', {text: "前星瑾星瑾，引：后", reads: [], mentions: ["e2"], problems: ["quoted-block"]}],
         ["条件写生效的那一支，算出来的引用写名字", `<If test="${REVERED}"><V of="rel.对象" /><Else /><V of="rel.清单" /></If>`, {text: "星瑾", reads: ["e2"], mentions: ["e2"], problems: []}],
         ["没生效的支里读到的条目照样记进 reads，读不到也不报（那一支不写）", `<If test="${REVERED}">有<Else /><V entry="e3" of="entry.name" /></If>`, {text: "有", reads: ["e2", "e3"], mentions: [], problems: []}],
-        ["判断未知：写“未知”", "<If test=\"ref('e3').entry.name == '阿七'\">有<Else />无</If>", {text: "未知", reads: ["e3"], mentions: [], problems: []}],
+        ["判断因读不到值而未知：同取值一样报 unavailable，不写文字", "<If test=\"ref('e3').entry.name == '阿七'\">有<Else />无</If>", {text: "", reads: ["e3"], mentions: [], problems: ["unavailable"]}],
         ["没有一支生效：不写", "前<If test=\"rel.关系[e2].态度 == '鄙视'\">有</If>后", {text: "前后", reads: ["e2"], mentions: [], problems: []}],
         ["以引用为键的列表：行写名字，不用读取时补的 label", '<V of="rel.关系" />', {text: "星瑾", reads: [], mentions: ["e2"], problems: []}],
         ["作者写的列表：行写 label", '<V of="rel.清单" />', {text: "短剑", reads: [], mentions: [], problems: []}],
@@ -566,7 +567,129 @@ describe("canon.rendering 输出 15、场景 5：纯文字的渲染", () => {
         expect(renderBlockPlain("b1", '<div><Ref id="e2" /></div>', context)).toEqual({id: "b1", text: '<div><Ref id="e2" /></div>', reads: [], mentions: [], problems: ["syntax"]});
     });
 
+    test("判断读得到、值是空的：写“未知”，不报问题", () => {
+        expect(renderBlockPlain("b1", '前<If test="panel.空 > 1">有<Else />无</If>后', context)).toEqual({id: "b1", text: "前未知后", reads: [], mentions: [], problems: []});
+    });
+
     test("没登记的标签：不写文字，报 unknown-tag", () => {
         expect(renderBlockPlain("b1", '前<Plot id="x" />后', context)).toEqual({id: "b1", text: "前后", reads: [], mentions: [], problems: ["unknown-tag"]});
+    });
+});
+
+/** 一条第 4 章的写下或计划的变更，补丁整段替换星瑕的 b1。 */
+const textChange = (tmp: string, value: string, status: StoryChange["status"] = "active", extra: Array<StoryChange["patches"][number]> = []) => ({ref: {kind: "change" as const, id: tmp}, after: {id: tmp, kind: "written", text: tmp, at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [...extra, {op: "set", at: {entry: "e1", path: "text[b1]"}, value}], status, by: author}}) as WriteRequest["puts"][number];
+
+const publishPuts = (base: World, puts: WriteRequest["puts"]) => base.publish({requestId: id(), by: author, what: "edit", title: "改", baseVersion: base.version, puts}, "t");
+
+/**
+ * 存下一条补丁文字过不了现在的检查的变更（旧数据、卸了插件）：先用“占位”写下，再把最后一次修订里的“占位”换成 `source` 重放。
+ */
+function storedChange(base: World, source: string, status: StoryChange["status"]): {readonly world: World; readonly id: string} {
+    const written = ok(publishPuts(base, [textChange("tmp:old", "占位", status)]));
+    const last = JSON.parse(JSON.stringify(written.world.revisions.at(-1)).replaceAll("占位", JSON.stringify(source).slice(1, -1)));
+    return {world: World.replay([...written.world.revisions.slice(0, -1), last], base.options), id: written.ids["tmp:old"]!};
+}
+
+const editsOf = (base: World, ops: EntryOp[]): EntryEdits => ({requestId: id(), by: author, what: "edit", title: "改", baseVersion: base.version, ops} as EntryEdits);
+
+describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线的边界", () => {
+    test("editEntries 的整段替换、替换、增块、新建都存规范写法", () => {
+        const base = world(["甲乙"]);
+        const set = ok(editEntries(base, editsOf(base, [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: '名 <V of="entry.name"/>'}]), "t"));
+        expect(textOf(set.world)[0]!.source).toBe('名 <V of="entry.name" />');
+        const replaced = ok(editEntries(base, editsOf(base, [{op: "replace", at: {entry: "e1", path: "text[b1]"}, find: "甲", with: '<V of="entry.name"/>'}]), "t"));
+        expect(textOf(replaced.world)[0]!.source).toBe('<V of="entry.name" />乙');
+        const added = ok(editEntries(base, editsOf(base, [{op: "addBlock", entry: "e1", source: '<Ref  id="e2"/>', after: "b1"}]), "t"));
+        expect(textOf(added.world).map((block) => block.source)).toEqual(["甲乙", '<Ref id="e2" />']);
+        const created = ok(editEntries(base, editsOf(base, [{op: "create", id: "tmp:n", entry: {name: "乙", kind: "人物", text: ['<V of="entry.name"/>']}} as EntryOp]), "t"));
+        expect(created.world.data.entries.get(created.ids["tmp:n"]!)!.init.text.map((block) => block.source)).toEqual(['<V of="entry.name" />']);
+    });
+
+    test("开头几个 BOM 都去掉：直接发布与 editEntries 存下同一份", () => {
+        const bom = String.fromCharCode(0xfeff);
+        const base = world(["甲"]);
+        expect(textOf(ok(writeText(base, [`${bom}${bom}正文`])).world)[0]!.source).toBe("正文");
+        expect(textOf(ok(editEntries(base, editsOf(base, [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: `${bom}${bom}正文`}]), "t")).world)[0]!.source).toBe("正文");
+    });
+
+    test("规范化不改作者签过的请求：签名按原样的请求算，含非规范写法的照常发布", () => {
+        const empty = World.empty({...options(), project: PROJECT, verifyAuthorSource: verify});
+        const opened = ok(empty.publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:e"}, after: {id: "tmp:e", type: "人物", parent: null, folder: "", order: 0, init: {name: "人", aliases: [], summary: "", text: [{id: "b1", source: "原来"}], data: {}}}}]}, "t")).world;
+        const entry = structuredClone(opened.data.entries.get("e1")!);
+        entry.init.text = [{id: "b1", source: '同行 <Ref id="e1"/>'}];
+        const request: WriteRequest = {requestId: id(), by: author, what: "edit", title: "定", baseVersion: opened.version, puts: [{ref: {kind: "entry", id: "e1"}, after: entry}, {ref: {kind: "decision", id: "tmp:d"}, after: {id: "tmp:d", text: "第几章揭开", status: "decided", conclusion: "第 2 章", about: [], hints: []}}]} as WriteRequest;
+        const published = ok(opened.publish({...request, authorizations: [sign(request, "tmp:d", "new→decided")]}, "t"));
+        expect(published.world.data.entries.get("e1")!.init.text[0]!.source).toBe('同行 <Ref id="e1" />');
+    });
+
+    test("补偿修订照原样恢复改前的文字：旧文字不是规范写法也不改写", () => {
+        const old = injected(world(), [["b2", '<Ref  id="e2"/>']]);
+        const edited = ok(writeText(old, [BLOCK, "新的"]));
+        const reverted = ok(edited.world.revert(edited.revision.id, false, {requestId: id(), by: author}, "t"));
+        expect(textOf(reverted.world)[1]).toEqual({id: "b2", source: '<Ref  id="e2"/>'});
+    });
+
+    test("变更里的整段替换：没登记的标签按基线放行；基线收生效的变更里的标签，不收撤回的", () => {
+        const withPlot = injected(world(), [["b2", '<Plot id="x" />']]);
+        expect(rejected(publishPuts(withPlot, [textChange("tmp:a", '<Plot id="x" />')]))).toBe("ok");
+        expect(rejected(publishPuts(withPlot, [textChange("tmp:a", '<Plot id="y" />')]))).toEqual([{code: "unknown-tag", path: "patches[0]"}]);
+        expect(rejected(writeText(storedChange(world(), '<Plot id="z" />', "active").world, [BLOCK, '<Plot id="z" />']))).toBe("ok");
+        expect(rejected(writeText(storedChange(world(), '<Plot id="z" />', "undone").world, [BLOCK, '<Plot id="z" />']))).toEqual([{code: "unknown-tag", path: "init.text[b2]"}]);
+    });
+
+    test("基线只认自闭合的写法：已有 <Plot id=\"x\" /> 时写带内容的 <Plot id=\"x\">…</Plot> 照样拒收；旧块里非规范的没登记标签 Agent 看到原样", () => {
+        const base = injected(world(), [["b2", '<Plot  id="x"/>']]);
+        expect(rejected(writeText(base, [BLOCK, '<Plot  id="x"/>', '<Plot id="x">作者打的字</Plot>']))).toEqual([{code: "unknown-tag", path: "init.text[b3]"}]);
+        expect(agentBlocks(base, at("ch5"))[1]).toBe('<Plot  id="x"/>');
+    });
+
+    test("原样留着的旧补丁不再查，按内容认：前面插一条别的补丁也算原样，文字不被改写；撤回的变更重新生效要查", () => {
+        const stored = storedChange(world(), "<div>旧</div>", "active");
+        const change = structuredClone(stored.world.data.changes.get(stored.id)!);
+        const extra = {op: "set", at: {entry: "e1", path: "panel.存款"}, value: 1} as StoryChange["patches"][number];
+        const kept = ok(publishPuts(stored.world, [{ref: {kind: "change", id: stored.id}, after: {...change, patches: [extra, ...change.patches]}}]));
+        expect(kept.world.data.changes.get(stored.id)!.patches[1]!.value).toBe("<div>旧</div>");
+        const undone = storedChange(world(), "<div>旧</div>", "undone");
+        const again = structuredClone(undone.world.data.changes.get(undone.id)!);
+        expect(rejected(publishPuts(undone.world, [{ref: {kind: "change", id: undone.id}, after: {...again, status: "active"}}]))).toEqual([{code: "unsupported-markdown", path: "patches[0]"}]);
+    });
+
+    test("同一请求里新建的条目：主文字里用临时 id 引它，存下的是正式 id", () => {
+        const base = world();
+        const person = (tmp: string, name: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+        const created = ok(publishPuts(base, [
+            {ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", "甲", ['见 <Ref id="tmp:b" />，<V entry="tmp:b" of="entry.name" />，<V expr="ref(\'tmp:b\').entry.name" />'])},
+            {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", "乙", [])},
+        ]));
+        const [a, b] = [created.ids["tmp:a"]!, created.ids["tmp:b"]!];
+        expect(created.world.data.entries.get(a)!.init.text[0]!.source).toBe(`见 <Ref id="${b}" />，<V entry="${b}" of="entry.name" />，<V expr="ref('${b}').entry.name" />`);
+        expect(agentBlocks(created.world, at("ch1"), "actual", a)[0]).toBe(`见 <Ref id="${b}" name="乙" />，<V entry="${b}" of="entry.name">"乙"</V>，<V expr="ref('${b}').entry.name">"乙"</V>`);
+    });
+
+    test("式子超过 1000 个字符拒收（嵌套的深度因此有界，写入与渲染不会栈溢出）；splitBlocks 读不出结构的整段作为一块", () => {
+        expect(rejected(writeText(world(), [`<V expr="${"1+".repeat(600)}entry.name" />`]))).toEqual([{code: "forbidden-syntax", path: "init.text[b1]"}]);
+        expect(rejected(writeText(world(), [`<V expr="${"1+".repeat(400)}panel.魔力" />`]))).toBe("ok");
+        const deep = "> ".repeat(25_000);
+        expect(splitBlocks(deep)).toEqual([{id: "b1", source: deep}]);
+    });
+
+    test("预览的行列：CR、CRLF、LF 都算一个换行", () => {
+        for (const newline of ["\r", "\r\n", "\n"]) {
+            const rendered = renderSourceForAuthor(world(), "e1", `第一段${newline}${newline}魔力 <V of="panel.魔力"`, at("ch5"), "actual");
+            if (rendered === null || typeof rendered === "string") throw new Error("no render");
+            expect(rendered.blocks[0]).toMatchObject({error: {code: "tag-malformed", line: 3, column: 4}});
+        }
+    });
+});
+
+describe("canon.rendering 输出 5、6、7（审查补）：结果确定时不标读不到；字符串列表的显示", () => {
+    test("`false && 读不到的`是确定的假：Agent 与作者都不带 unavailable", () => {
+        const base = cast(["<V expr=\"false && ref('e3').entry.name\" />"]);
+        expect(agentBlocks(base, at("ch1"))).toEqual(["<V expr=\"false && ref('e3').entry.name\">false</V>"]);
+        expect(authorValues(base, at("ch1"))[0]).toEqual({tag: "V", start: 0, expr: "false && ref('e3').entry.name", raw: false, display: "否"});
+    });
+
+    test("作者看到的字符串列表写各项，用顿号连", () => {
+        expect(authorValues(plainWorld(['<V of="entry.aliases" />']), at("ch1"))[0]).toMatchObject({raw: ["小瑕", "阿瑕"], display: "小瑕、阿瑕"});
     });
 });

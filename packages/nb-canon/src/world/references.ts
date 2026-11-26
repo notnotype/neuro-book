@@ -10,6 +10,7 @@
 import {markReferences, type MarkRegistry, type MarkTarget} from "../components/marks";
 import {effectiveFields, retainedFields, type ComponentRegistry} from "../components/registry";
 import {parsePath} from "../core/address";
+import {rewriteEntryIds} from "../grammar/index";
 import type {Check, Decision, Entry, FieldDeclaration, Mark, ObjectKind, ObjectRef, Patch, StoryChange, Telling, WriteRequest} from "../core/schema";
 
 export type RefTargetKind = "entry" | "change" | "line" | "decision" | "check";
@@ -252,8 +253,9 @@ export function newReferences(before: readonly Reference[], after: readonly Refe
 /**
  * 把写入请求里的临时 id 换成正式 id（components.md 输出 18）：只换引用位置上的、对象自己的 id、地址路径里的
  * `[临时 id]` 段（以引用为键的列表的元素，`know.知情[tmp:k].程度`）、地址做键的地方（`retold`、`initBasis`）与
- * 决策挂的诊断稳定键里的对象。不在这些位置上的 `tmp:` 文字原样存下。`context.entry` 按请求里写的 id（临时 id 也行）
- * 取条目，补丁的值要按它的字段声明判断是不是引用。
+ * 决策挂的诊断稳定键里的对象，以及主文字里活的标签指向的条目（`V` 的 `entry`、`Ref` 的 `id`、式子里的 `ref('…')`：同一请求里
+ * 新建几个互相提到的条目时，存下的是正式 id）。不在这些位置上的 `tmp:` 文字原样存下。`context.entry` 按请求里写的 id（临时 id
+ * 也行）取条目，补丁的值要按它的字段声明判断是不是引用。
  */
 export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Record<string, string>>, context: ReferenceContext): WriteRequest {
     if (Object.keys(ids).length === 0) return request;
@@ -264,6 +266,8 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
         at.entry = swap(at.entry);
         if (typeof at.path === "string") at.path = replacePathSegments(at.path, ids);
     };
+    // 只有写了临时 id 的文字才解析一遍。
+    const swapText = (source: string) => (source.includes("tmp:") ? rewriteEntryIds(source, (id) => ids[id] ?? id) : source);
     const swapKeys = (record: Record<string, unknown> | undefined) => (record === undefined ? undefined : Object.fromEntries(Object.entries(record).map(([key, value]) => [replacePathSegments(key, ids), value])));
     for (const put of copy.puts) {
         put.ref = {...put.ref, id: swap(put.ref.id) as string};
@@ -277,6 +281,18 @@ export function replaceRequestTempIds(request: WriteRequest, ids: Readonly<Recor
             }
         }
         if (put.ref.kind === "check") swapAddress(after.at as {entry?: unknown; path?: unknown});
+        if (put.ref.kind === "entry") {
+            const init = after.init as {text?: unknown} | null | undefined;
+            if (init !== null && typeof init === "object") for (const [, block] of objectItems(init.text)) if (typeof block.source === "string") block.source = swapText(block.source);
+        }
+        if (put.ref.kind === "change") {
+            for (const [, patch] of objectItems(after.patches)) {
+                const value = patch.value as {source?: unknown} | string | null | undefined;
+                if (patch.op === "addBlock" && value !== null && typeof value === "object" && typeof value.source === "string") value.source = swapText(value.source);
+                const at = patch.at as {path?: unknown} | null | undefined;
+                if ((patch.op === "set" || patch.op === "replaceBlock") && typeof value === "string" && at !== null && typeof at === "object" && typeof at.path === "string" && at.path.startsWith("text[")) patch.value = swapText(value);
+            }
+        }
         // 分叉的 `fork.line` 是线的定义而不是引用，单独换。
         const fork = put.ref.kind === "change" ? (after.fork as {line?: unknown} | null | undefined) : undefined;
         if (fork !== null && typeof fork === "object" && typeof fork.line === "string") fork.line = swap(fork.line);

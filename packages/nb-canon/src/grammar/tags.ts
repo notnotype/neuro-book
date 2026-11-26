@@ -155,17 +155,22 @@ export function agentJson(value: unknown): string {
     return (JSON.stringify(value ?? null) ?? "null").replace(/[<`]/gu, unicodeEscape);
 }
 
-/** 写入之前的规范化（输出 1）：去掉开头的 BOM，换行规范成 LF。 */
+const BOM = String.fromCharCode(0xfeff);
+
+/** 写入之前的规范化（输出 1）：去掉开头所有的 BOM，换行规范成 LF。规范后的再规范不变（几个入口各做一次也是同一份）。 */
 export function normalizeEntrySource(text: string): string {
-    return (text.startsWith(String.fromCharCode(0xfeff)) ? text.slice(1) : text).replace(/\r\n?/gu, "\n");
+    let start = 0;
+    while (text.startsWith(BOM, start)) start += 1;
+    return text.slice(start).replace(/\r\n?/gu, "\n");
 }
 
-/** 原文偏移 → 行与列（都从 1 起，列按 UTF-16 码元）。 */
+/** 原文偏移 → 行与列（都从 1 起，列按 UTF-16 码元）。CRLF、单独的 CR、LF 都算一个换行：预览的源文字没有规范化过。 */
 export function positionOf(source: string, offset: number): {readonly line: number; readonly column: number} {
     let line = 1;
     let lineStart = 0;
     for (let index = 0; index < offset && index < source.length; index += 1) {
-        if (source[index] === "\n") {
+        const char = source[index];
+        if (char === "\n" || (char === "\r" && source[index + 1] !== "\n")) {
             line += 1;
             lineStart = index + 1;
         }

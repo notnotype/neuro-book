@@ -57,6 +57,8 @@ export interface BlockAnalysis {
     readonly parsed: ParsedEntryText;
     /** 渲染时让整块出错的问题（不可免的第一个）；没登记的标签不算，渲染时照“需要插件”给。 */
     readonly error: SyntaxProblem | null;
+    /** 不带登记表的写入检查的全部问题（按偏移排），写入时的检查直接用。 */
+    readonly problems: readonly CheckProblem[];
     /** 与 `parsed.tags` 一一对应。 */
     readonly meanings: readonly TagMeaning[];
     readonly conditions: readonly Condition[];
@@ -148,12 +150,14 @@ function readable(source: string): ParsedEntryText | null {
 
 function analyzeUncached(source: string): BlockAnalysis {
     const parsed = readable(source);
-    if (parsed === null) return {source, parsed: parseEntryText(""), error: TOO_DEEP, unreadable: true, meanings: [], conditions: []};
+    if (parsed === null) return {source, parsed: parseEntryText(""), error: TOO_DEEP, problems: [], unreadable: true, meanings: [], conditions: []};
     const problems = checkEntryText(parsed);
     const first = problems.find((problem) => problem.excusable !== true);
-    return {source, parsed, error: first === undefined ? null : syntaxProblem(source, first), meanings: parsed.tags.map(meaningOf), conditions: conditionsOf(parsed)};
+    return {source, parsed, error: first === undefined ? null : syntaxProblem(source, first), problems, meanings: parsed.tags.map(meaningOf), conditions: conditionsOf(parsed)};
 }
 
+// 键只有源文：分析的结果现在只取决于源文。插件登记标签以后（t04）`error` 与 `meanings` 也取决于登记表，那时键要带上登记表的摘要，
+// 或者把依赖登记表的部分移出缓存。
 const cache = new Map<string, BlockAnalysis>();
 const CACHE_LIMIT = 10_000;
 
@@ -181,28 +185,34 @@ export interface BlockCheckOptions {
     readonly existing?: (canonical: string) => boolean;
 }
 
+/** 没登记的标签按基线放行（输出 19）：只放自闭合的、与基线里规范写法相同的；带内容的写法即使插件在也不合法。 */
+const excused = (tag: EntryTag, options: BlockCheckOptions): boolean => tag.kind === "self" && options.existing?.(canonicalTag(tag)) === true;
+
 /** 写入时检查一块（输出 1、19；源文已规范化）；合格返回 null。 */
 export function blockProblem(source: string, options: BlockCheckOptions = {}): SyntaxProblem | null {
     const analysis = analyzeBlock(source);
     if (analysis.unreadable === true) return analysis.error;
     const parsed = analysis.parsed;
-    for (const problem of checkEntryText(parsed, {registered: options.registered})) {
-        if (problem.excusable === true && problem.tag !== undefined && options.existing?.(canonicalTag(parsed.tags[problem.tag] as EntryTag)) === true) continue;
+    const problems = options.registered === undefined ? analysis.problems : checkEntryText(parsed, {registered: options.registered});
+    for (const problem of problems) {
+        if (problem.excusable === true && problem.tag !== undefined && excused(parsed.tags[problem.tag] as EntryTag, options)) continue;
         return syntaxProblem(source, problem);
     }
     return null;
 }
 
-/** 一块源文里活的、没登记的标签的规范写法（给 `existing` 的基线）。 */
+/** 一块源文里活的、自闭合的、没登记的标签的规范写法（给 `existing` 的基线）。 */
 export function unregisteredTags(source: string): string[] {
     const analysis = analyzeBlock(source);
-    return analysis.parsed.tags.filter((tag, index) => tag.place === "live" && analysis.meanings[index]?.kind === "unregistered").map(canonicalTag);
+    return analysis.parsed.tags.filter((tag, index) => tag.place === "live" && tag.kind === "self" && analysis.meanings[index]?.kind === "unregistered").map(canonicalTag);
 }
 
-/** 写入之前的规范化（输出 1、18）：去 BOM、换行规范成 LF、活的标签写成规范写法。对规范的源文不变，可以重复做。 */
+/**
+ * 写入之前的规范化（输出 1、18）：去 BOM、换行规范成 LF、活的标签写成规范写法。对规范的源文不变，可以重复做。分析经缓存：源文
+ * 本来就是规范写法时（多数情况），接着的写入检查用的是同一份解析。读不出结构的原样交给写入检查拒收。
+ */
 export function normalizeBlockSource(text: string): string {
     const normalized = normalizeEntrySource(text);
-    const parsed = readable(normalized);
-    // 读不出结构的原样交给写入检查拒收。
-    return parsed === null ? normalized : canonicalEntryText(parsed);
+    const analysis = analyzeBlock(normalized);
+    return analysis.unreadable === true ? normalized : canonicalEntryText(analysis.parsed);
 }

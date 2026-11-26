@@ -3,6 +3,7 @@
  * 别的字逐字保留，所以对规范写法的源文“去值(装饰(源文))”逐字等于源文。
  */
 
+import {parseExpression} from "./expression";
 import {parseEntryText, type EntryTag, type ParsedEntryText} from "./parse";
 import {escapeDecoration, tagText} from "./tags";
 
@@ -43,11 +44,15 @@ export function canonicalEntryText(parsed: ParsedEntryText): string {
     return rewrite(parsed, (tag) => (tag.kind === "paired" || tag.kind === "malformed" ? null : tagText(tag.name, attributesOf(tag), formOf(tag))));
 }
 
-/** 带值写法（输出 8）：给活的标签加上装饰；`decorationOf` 返回 null 的写成规范写法。 */
+/**
+ * 带值写法（输出 8）：给活的标签加上装饰，写成规范写法；`decorationOf` 返回 null 的照原文（没登记的标签 Agent 看到原样的，输出 19；
+ * 装饰以外的字与源文逐字相同）。
+ */
 export function decorateEntryText(parsed: ParsedEntryText, decorationOf: (tag: EntryTag) => Decoration | null): string {
     return rewrite(parsed, (tag) => {
         if (tag.kind === "paired" || tag.kind === "malformed") return null;
         const decoration = decorationOf(tag);
+        if (decoration === null) return null;
         const attributes = [...attributesOf(tag), ...(decoration?.attributes ?? []).map(([name, value]) => [name, escapeDecoration(value)] as const)];
         if (decoration?.content !== undefined && tag.kind === "self") return `${tagText(tag.name, attributes, "open")}${decoration.content}</${tag.name}>`;
         return tagText(tag.name, attributes, formOf(tag));
@@ -69,6 +74,32 @@ export function stripEntryText(text: string, registered: ReadonlySet<string> = n
     });
 }
 
+/** 式子里 `ref('…')` 的参数换掉：按语法树找调用（`ref ( 'e2' )` 也算，字符串里写着的 `ref('e2')` 不算）。读不了的式子照原文。 */
+function rewriteRefs(expression: string, map: (id: string) => string): string {
+    const parsed = parseExpression(expression);
+    if (!parsed.ok) return expression;
+    const spans: Array<{readonly start: number; readonly end: number; readonly id: string}> = [];
+    const visit = (value: unknown): void => {
+        if (value === null || typeof value !== "object") return;
+        if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+        }
+        const node = value as {type?: unknown; callee?: {type?: unknown; name?: unknown}; arguments?: Array<{type?: unknown; value?: unknown; start: number; end: number}>};
+        const argument = node.arguments?.[0];
+        if (node.type === "CallExpression" && node.callee?.type === "Identifier" && node.callee.name === "ref" && argument?.type === "Literal" && typeof argument.value === "string") spans.push({start: argument.start, end: argument.end, id: argument.value});
+        for (const [key, child] of Object.entries(value)) if (key !== "loc") visit(child);
+    };
+    visit(parsed.expression.node);
+    let text = "";
+    let cursor = 0;
+    for (const span of spans.sort((left, right) => left.start - right.start)) {
+        text += `${expression.slice(cursor, span.start)}'${map(span.id)}'`;
+        cursor = span.end;
+    }
+    return text + expression.slice(cursor);
+}
+
 /**
  * 换掉主文字里指向条目的 id：`V` 的 `entry`、`Ref` 的 `id`，与 `expr`、`test` 里的 `ref('…')`。只动活的标签：代码里、转义的照原文
  * （样本的迁移把原型 id 换成世界 id 时用，不碰别的字符串）。
@@ -81,7 +112,7 @@ export function rewriteEntryIds(text: string, map: (id: string) => string): stri
         const attributes = tag.attributes.map((attribute): readonly [string, string] => {
             let value = attribute.value;
             if ((tag.name === "V" && attribute.name === "entry") || (tag.name === "Ref" && attribute.name === "id")) value = map(value);
-            else if (attribute.name === "expr" || attribute.name === "test") value = value.replace(/ref\('([^']*)'\)/gu, (_whole, id: string) => `ref('${map(id)}')`);
+            else if (attribute.name === "expr" || attribute.name === "test") value = rewriteRefs(value, map);
             changed ||= value !== attribute.value;
             return [attribute.name, value];
         });
