@@ -283,6 +283,34 @@ test.describe("滚动", () => {
         expect(await log(page)).toEqual(["end:committed", `commit:a->${under}`]);
     });
 
+    // 反向排版的滚动区：滚动位置从 0（起点在右端或下端）往负数走。边缘滚动按物理方向算余量，往起点的反方向能滚，滚回去也能到 0。
+    for (const {name, css, axis} of [
+        {name: "flex-direction: column-reverse 的竖向列表", css: "[data-session-scroller] {display: flex !important; flex-direction: column-reverse !important;} [data-session-scroller] > [data-row] {flex: none;}", axis: "y"},
+        {name: "direction: rtl 的横向滚动", css: "[data-session-scroller] {direction: rtl;} [data-session-scroller] > [data-row] {width: 900px;}", axis: "x"},
+    ] as const) {
+        test(`${name}：拖到起点反方向的一端往负数滚，再拖到另一端滚回 0`, async ({page}) => {
+            await open(page);
+            await page.addStyleTag({content: css});
+            const position = () => scroller(page).evaluate((element, horizontal) => (horizontal ? element.scrollLeft : element.scrollTop), axis === "x");
+            expect(await position()).toBe(0);
+            const box = await scroller(page).boundingBox();
+            if (box === null) throw new Error("滚动区没有矩形");
+            const start = await center(sourceA(page));
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 4});
+            await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "pointer");
+            const toward = axis === "x" ? {x: box.x + 4, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + 4};
+            await page.mouse.move(toward.x, toward.y);
+            await expect.poll(position).toBeLessThan(-30);
+            const back = axis === "x" ? {x: box.x + box.width - 4, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + box.height - 4};
+            await page.mouse.move(back.x, back.y);
+            await expect.poll(position).toBe(0);
+            await page.keyboard.press("Escape");
+            await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
+        });
+    }
+
     test("用户自己滚动：撤下落点，这期间放下不写；指针再动恢复（输出 12）", async ({page}) => {
         await open(page);
         await grabTo(page, row(page, "r1"), row(page, "r4"), "r4");

@@ -11,7 +11,7 @@
 ### 新增
 
 - `sashSize` 的函数形式多收第三个参数 `{before, after}`：挨着这条线的两个直接孩子的 id，与 `NestedGrid` 的 `sashDisabled` 同一个认法，宿主不用再按分支 id 加序号认线（序号随结构变）；只用前两个参数的函数照旧可用。类型 `GridSashResolver` 跟着改，`GridOptions.sashSize` 改用它。
-- 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。
+- 边缘滚动能横向滚。哪个轴滚由容器的计算样式定（`overflow-x`、`overflow-y` 是 `auto` 或 `scroll`），两个轴都在边缘带里时一起滚；几条标签条按指针各滚各的，嵌套的容器按从里到外的先后各挑各的轴。从右到左排版、`*-reverse` 的 flex 与竖排的容器按物理方向滚（拖到左端往左、拖到上端往上）。
 - `resizeFloatRect` 的 `bounds` 可以给 `area`（相对网格根的矩形）：跟着指针的边不越过它，起点就在区域外的边不再往外，也不往里跳，最小尺寸优先。`FloatWindowHandles` 多了同义的 `area` 属性，指针与键盘缩放都按它。
 - `FloatWindowHandles` 的 `commit` 多了第二个参数 `direction`（`LayoutFloatResize`）：这次动的边，键盘缩放是右下角。`rect` 里没动的那一轴是夹过的值，要保住记录的宿主只取 `direction` 不为 0 的轴。只接第一个参数的监听不用改。
 - `NestedGrid` 的 expose 加 `leafRect(id)`：树里这块叶此刻的矩形（相对网格根），手势预览中跟着预览、最大化时是盖住的外接矩形，浮动窗、离开中的叶与不存在的 id 是 `null`；在计算属性里读会跟着摆放重算。它不看 `floats`，可以拿来算 `floats`。
