@@ -624,6 +624,34 @@ test("视口变窄后只拉高被夹的窗：视口变回来，宽是记录的�
     await expectRect(page, "notes", {width: 420, height: 340});
 });
 
+test("视口矮到窗比最小高度还矮时横拖右边：高度不撑回最小尺寸，预览不盖住底栏", async ({page}) => {
+    await page.setViewportSize({width: 1250, height: 220});
+    await settled(page);
+    const desk = await deskBox(page);
+    const start = await boxOf(frame(page, "files"));
+    // 前提：files 被夹到比最小高度 160 还矮。
+    expect(start.height).toBeLessThan(160);
+    const at = await centerOf(handle(page, "files", "right"));
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 27, at.y, {steps: 4});
+    await expectRect(page, "files", {x: start.x, y: start.y, width: start.width + 27, height: start.height});
+    const preview = await boxOf(frame(page, "files"));
+    expect(preview.y + preview.height).toBeLessThanOrEqual(desk.y + desk.height + 1);
+    // 窗正下方的底栏上那一点命中的是底栏，不是 files。
+    const bar = await boxOf(page.locator(".taskbar"));
+    const hit = await page.evaluate(({x, y}) => {
+        const element = document.elementFromPoint(x, y);
+        return {files: element?.closest("[data-leaf='files']") != null, bar: element?.closest(".taskbar") != null};
+    }, {x: preview.x + preview.width / 2, y: bar.y + bar.height / 2});
+    expect(hit).toEqual({files: false, bar: true});
+    await page.mouse.up();
+    await settled(page);
+    await expectRect(page, "files", {width: start.width + 27, height: start.height});
+    // 只写回横向：记录的高还是 300。
+    expect((await saved(page)).windows.files!.floatRect).toMatchObject({width: 480 + 27, height: 300});
+});
+
 test("视口窄到平铺不下：落点是 blocked、写 Not enough room，松手不平铺、窗停在松手处", async ({page}) => {
     await page.setViewportSize({width: 700, height: 900});
     await settled(page);
