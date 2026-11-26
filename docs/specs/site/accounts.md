@@ -87,7 +87,7 @@ owners:
 21. **旧密码格式。** 以旧站格式存着的密码能照常登录；登录成功后它被换成新格式，之后仍能用同一个密码登录。换格式不会覆盖在这次登录期间被改掉或重置的密码。
 22. **错误形状。** 失败的响应体是 `{"error":{"code":…,"fields":[…]?}}`，`code` 是下文失败表里的稳定值；`fields` 只在 `validation_failed` 时有，是不合规则的字段名的数组，字段名就是请求体里的键名；不带给人看的文字、堆栈与内部路径。请求体超过 16 KiB、不是 JSON 或不是对象时回 `validation_failed`，`fields` 为空数组。不需要参数的写接口（登出、结束会话、生成邀请码，以及 [`site.admin`](admin.md) 里的封禁、解封、结束全部会话、重置密码）请求体可以为空；给了请求体时必须是没有键的 JSON 对象，否则同样回 `validation_failed`、`fields` 为空数组。成功而没有内容可回的接口（登出、改密码、结束会话）回 `{}`。账号的所有响应都带 `Cache-Control: no-store`：回答随会话变化，不能被代理或浏览器缓存。
 23. **社交流程的落点。**（planned） 上游回调处理完后，浏览器被带回站点的一个页面。登录或注册成功到 `/`，关联成功到 `/account`；发起时带了合格的 `continue` 的，登录或注册成功后到继续地址，回到那次授权请求，不到 `/`。没完成时带查询参数 `social_error=<码>`：登录意图回 `/login`，注册意图回 `/register`，关联意图回 `/account`；码是失败表里标“跳转参数”的五个，以及 `registration_code_invalid`、`invite_code_invalid`、`username_taken`、`email_taken`、`identity_taken`、`identity_exists`、`account_banned`。站点只显示它自己判出的码：回调地址里上游或旁人写进去的错误码一律显示为 `social_failed`。
-24. **上游身份列表。**（planned） `me/identities` 的每项有 id、上游名、上游账号的名字与关联时间。上游账号的名字在注册或关联时记下，之后不随上游更新，只给本人看。
+24. **上游身份列表。**（planned） `me/identities` 的每项有 id、上游名、上游账号的名字与关联时间。上游账号的名字在注册或关联时记下，之后不随上游更新，只给本人看。列表按关联的先后排；解绑时 id 不是自己的上游身份（包括别人的、不存在的）回 `not_found`。
 
 ## 状态与转换
 
