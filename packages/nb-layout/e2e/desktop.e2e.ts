@@ -26,6 +26,10 @@
  * - 松手的淡去与缩放不动轴的一轮（同样各改坏一处、重新构建、只跑对应的用例）：
  *   - 网格从松手处出发的那次渲染里就摘掉外框的 `data-float`：“松手到边缘……投影与圆角随过渡淡去”失败（第一帧圆角已是 0）。
  *   - `resizeFloatRect` 在方向为 0 的轴上也夹到最小尺寸：“视口矮到窗比最小高度还矮时横拖右边”失败（预览高 160，盖住底栏）。
+ * - 浮动窗的 Tab 次序一轮（改的是库，各改坏一处、重新构建、只跑三条“键盘：”用例）：
+ *   - 导航序与渲染序列改回按 `floats` 的叠放次序（`useRenderOrder`、`useGridFocus` 收 `layers` 而不是 `navLayers`）：三条都失败
+ *     （进一扇窗就回底栏；`NestedGrid.dom.test.ts` 的“抬升不改导航序”也失败）。
+ *   - 接管时手柄层不进停靠点（`useGridFocus` 不给 `floatChrome`）：只有“平铺之后网格接管 Tab”失败，另两条走的是浏览器原生的 Tab，照过。
  */
 
 import {expect, test, type Page} from "@playwright/test";
