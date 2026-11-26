@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-writers-codex
-status: active
+status: shelved
 updated: 2026-11-26
 ---
 
