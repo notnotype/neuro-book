@@ -214,7 +214,8 @@ watchEffect(() => {
         }
         const borrowing = viewId === owner && elements !== null && railSegment.value !== null;
         control.setPlacement(borrowing ? {kind: "rail", main: elements.main, foot: elements.foot} : {kind: "none"});
-        control.setExpanded(borrowing && expanded);
+        // 没有地方时展开状态不动：从浮动窗归位的中途（窗拆了、右轨的元素下一次渲染才挂上）有一刻是 none，翻成 false 的话展开的列表卸掉又重建，焦点跟着丢（views 输出 21）。
+        if (borrowing) control.setExpanded(expanded);
     }
 });
 
