@@ -34,14 +34,14 @@
 
 - **设置**（`plugins/settings/`）：新的只读门面服务键（`shared/contracts.ts`），由设置窗口 `buildCatalog` 的落位结果投影：节（id、标题、是否页面节、支持的层、行键列表）、设置（键、标题、说明、所在节、支持的层）；只在桌面外壳显示的节、`other` 节、页面节、窗口是否绑定作品都按窗口自己的落位算。原来的 `settingsWindowSourceKey` 带写入口，不公开。
 - **工作台**（`plugins/workbench/`）：界面目录读取服务（`shared/contracts.ts`）：视图（id、标题、所在容器 id、是否可见、标题栏动作的命令 id）、容器（id、标题、入口所在区域）、活动栏项（id、标题、命令 id），来自工作台已接收的贡献点与当前布局。`command-query.ts` 的 `matchCommandText`、`searchCommands` 移进 `workbench/shared/`（纯函数，无 DOM 类型）并由 contracts 导出，命令面板改用同一处。
-- **稳定名**（本 Task 决定 1）：`TitleActions.vue`（命令按钮）、`WorkbenchToolStrip.vue` 与 `WorkbenchRegionStrip.vue`（活动栏项、容器入口、单视图入口）、多视图容器的视图标题头（`WorkbenchPanelHead`）、`SettingsWindow.vue`（层、节）、`SettingsRow.vue`（行）各加 `v-bind="nbTarget(…)"`；原有标记保留（拖动与 e2e 在用）。
+- **稳定名**（本 Task 决定 1）：`TitleActions.vue`（命令按钮）、`WorkbenchToolStrip.vue` 与 `WorkbenchRegionStrip.vue`（活动栏项、容器入口）、`WorkbenchPanelHead`（视图的标题按钮）、`SettingsWindow.vue`（层切换整组、节）、`SettingsRow.vue`（行）各加 `v-bind="nbTarget(…)"`；原有标记保留（拖动与 e2e 在用）。一个元素只带一个稳定名：容器入口一律是容器、视图的标题一律是视图，单视图容器展开后不会两处同名。标签带（`nb-workbench-layout` 的 `TabStrip`）与 nb-ui 的分段控件是通用组件，不认识稳定名：里面的标签与单选按角色与名字在组里定位。
 - **悬停显示**：`hover-actions.css` 的隐藏规则加 `:not([data-nb-agent-reveal])`（现有规则的特异性高，另加一条盖不过它）。
 - **对话视图**：nb-agent-ui 的消息列表根元素标 `data-nb-agent="skip"`；输入框、状态栏、会话面板不标。
 - 不变量：都是只读接口；拥有者的现有行为与 e2e 不变。
 
 ### `packages/nb-page-agent/`（新包）
 
-- 包：`private`、MIT，`exports` 指 `src`（照 nb-flock）；入口 `.`（引擎）、`./api`（TypeBox schema，无 DOM）、`./attrs`（`nbTarget`）、`./capture`（snapdom 截图）。依赖只有 `dom-accessibility-api`、`@floating-ui/dom`、`@zumer/snapdom`、`typebox`。登记：根 `AGENTS.md` 结构图、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md`、`packages/neuro-book/src/architecture.test.ts` 的 `PACKAGE_SIDES`（主入口 `web`，`./api`、`./attrs` 为 `neutral`）、包 README（Owner、Interface、依赖方向、验证命令）。发布与否等 w00034 要用时再定。
+- 包：`private`、AGPL-3.0-only（同 nb-host、nb-models），`exports` 指 `src`（照 nb-flock）；入口 `.`（引擎）、`./api`（TypeBox schema，无 DOM）、`./attrs`（`nbTarget`）、`./capture`（snapdom 截图）。依赖只有 `dom-accessibility-api`、`@floating-ui/dom`、`@zumer/snapdom`、`typebox`。登记：根 `AGENTS.md` 结构图、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md`、`packages/neuro-book/src/architecture.test.ts` 的 `PACKAGE_SIDES`（主入口 `web`，`./api`、`./attrs` 为 `neutral`）、包 README（Owner、Interface、依赖方向、验证命令）。发布与否等 w00034 要用时再定。
 - 不认识 NeuroBook：`./api` 只放页面里的概念（定位、快照、高亮的参数与页面结局、`stale-ref`、`ambiguous`、`not-found`）；`find`、窗口类失败码、`command` 定位由插件扩展（插件把 `{command}` 换成 `{target: "command", key}` 再交给引擎）。宿主注入：截图实现、界面文字表、悬停显示钩子 `reveal(target) → Element[]`、主题（CSS 变量 `--nb-page-agent-*` 加兜底值）。
 - `src/snapshot/`：可见性（累乘不透明度、`faint`）、命中检查（中心退四角，分清被盖住与滚出；用 `elementsFromPoint` 跳过自己的节点，递归 open shadow root）、层、列表摘要、主名、转义、预算、字节上限（按 UTF-8 量）、跳过区域写占位行。
 - `src/refs.ts`：加载前缀、单调发号、身份核对；同层重找只给不改页面的调用。

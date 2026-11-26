@@ -216,7 +216,7 @@ function settingsChoicesEvent(providerId: string): string;
     - 有改动时算未保存，离开它走输出 22 的确认；换标签就是换一个文件，确认后丢掉草稿、重读。
     - 搜索时它按标题、说明与“settings.json”参与 page 一样的命中（输出 21）。
 24. **只读目录**（planned）：设置插件给出一个只读服务（服务键在 `shared/contracts.ts`），按调用所在窗口交回设置窗口在这个窗口里的落位：左栏各节（id、标题、是否由页面自己画、支持的层、行的设置键）与各设置（键、标题、说明、所在节、支持的层）。只在桌面外壳里显示的节、没有归属的设置所在的“插件设置”节、窗口是否打开了作品，都与设置窗口画出的一致。这个服务不带写入口。
-25. **稳定名**（planned）：层切换的两个单选写 `settings.layer` 加 `user`、`project`，左栏的节写 `settings.section` 加节 id，设置行写 `settings.row` 加设置键（[`agent/page-agent.md`](../agent/page-agent.md) 输出 6）。
+25. **稳定名**（planned）：层切换整组写 `settings.layers`，左栏的节写 `settings.section` 加节 id，设置行写 `settings.row` 加设置键（[`agent/page-agent.md`](../agent/page-agent.md) 输出 6）。
 
 ## 状态与转换
 

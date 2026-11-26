@@ -28,6 +28,7 @@ updated: 2026-11-26
 - 2026-11-26：Spec 草稿与计划第一版提交（cf89b6a38）。计划审查：Opus、Sonnet 前端、Sonnet 整体三份已处理（[处理记录](evidences/plan-review-disposition.txt)），omp `@review` 在后台跑；计划改到[第二版](plan.md)，Spec 同步修订（bf94b13f5）。
 - 第 1 片（上游 Spec 的 planned 条目）在 master 上提交（b3c875f37）。
 - 第 3 片（nb-runtime：服务端列实例、服务端订阅在成员链路断开时以 `target-gone` 结束）在 Work 分支提交（d230b10c8），`remote` 目录 97 个测试与 nb-runtime 类型检查通过，两处改动各做了变异检查。
+- 第 4 片在 Work 分支：设置的只读目录 `settingsCatalogKey`（ab11a5237）、工作台的界面目录 `workbenchCatalogKey` 与命令面板打分移进 `shared/`（fec523a10）、`nb-page-agent` 包骨架与 `./attrs`（7dbcba70b）、拥有者写稳定名（d02891fca）。实现中定了：一个元素只带一个稳定名（容器入口一律是容器、视图标题一律是视图）；标签带与分段控件里的项按角色与名字在组里定位；包用 AGPL-3.0-only（同 nb-host）。Spec 与计划已照改。还剩悬停显示规则与消息列表的 skip。
 - 第 2 片：静态稿在草稿 worktree `.worktree/w00033-t03-drafts`（分支 `w00033-t03/drafts`，不合并），`@designer` 的意见已取舍；[评审板](artifacts/review/index.html) v1 已发布，两道题等开发者答复。
 
 ## 下一步
@@ -35,3 +36,4 @@ updated: 2026-11-26
 1. 读评审板的答复，决定写进本文件，再定稿说明框与 Profile 对象行的规则（补进 `profile-settings.md` 输出 28 的细则）。
 2. 第 4 片：拥有者的只读目录、稳定名、悬停显示规则、消息列表的 skip。
 3. omp 报告回来后按快速审查处理，修正单独提交。
+4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。
