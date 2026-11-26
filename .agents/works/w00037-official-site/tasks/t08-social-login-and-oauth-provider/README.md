@@ -181,3 +181,5 @@ Opus 那轮的修正已提交（`0f942f893`，4 个文件）：处理表第 1、
 - 升级清单核对：实现者用脚本逐行查“用例”一列点名的文件与用例名，前后都没有缺的（只核名字，没核条数）；对着计划 3.15 补了四行（`updateUserInfoOnLink` 与 `overrideUserInfo` 缺省关、一次性检查、同一上游可关联多个身份由约束限成一个、上游身份的存法），改了三行，修了三处引用不存在行名的注释。计划验收映射里的“同一个码并发换四次”原来没有用例，本片补在 `provider.test.ts`。
 - Spec 跟着补的：`site.accounts` 输出 24（列表按关联的先后；解绑不是自己的上游身份的 id 回 `not_found`，含密码那一行的 id）。
 - 晋升时要补的：两份 Spec 的证据一节要指向 Smoke 标在的 `oauth-provider.test.ts`、`accounts-social.test.ts` 与新的 `accounts-identities.test.ts`（代码合入 master 之后再写，免得链接不存在）。
+
+第 8 到 10 片的实现审查（处理见计划文末“实现审查（第 8 到 10 片）的处理”）：Opus 那 5 条的修正已提交（`be09202c9`，10 个文件）：发起时库没有这个上游（`PROVIDER_NOT_FOUND`，按码判）回 503 `unavailable`；登录意图的社交发起在调库之前计入登录的来源地址计数，与密码登录共用额度；社交注册的邮箱不合本站规则时同没验证过；`identities.ts` 与 `0003` 注明导入要写名字行；包内补三个回调并发到认领。实现者自报：五个目标包的测试与类型检查、`governance:check` 都过，合同测试连跑 3 遍都过，4 条变异都被抓到；`test:affected --with-consumers` 选中 28 个包，被它自己的 50 分钟上限截停在最后 5 个，dev-panel、nb-host、nb-story 有几条 5 秒超时（负载 12 到 27，与本次改动无关）。发起被 `provider_disabled` 或 `validation_failed` 拒掉的不计入限流，同密码登录“字段不合格的请求不计入”。omp 那 3 条要改的接着修（fix4），两次修正合在一起由主会话重跑验证。
