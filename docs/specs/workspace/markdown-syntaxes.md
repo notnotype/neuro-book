@@ -48,7 +48,7 @@ owners:
 | `inlineTags` | 标签名数组，可省略 | 本方言的行内标签 |
 | `tagWords` | `{tag, content: "count" \| "skip"}` 数组，可省略 | 标签里的字计不计；标签必须出现在 `blockTags` 或 `inlineTags` 里；没列出的声明标签计入 |
 
-`MarkdownSyntax` 是语法模块的形状（浏览器一侧的 `web/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名与编辑视图；可选的原子（planned）：模块在原文上认出的一段段文字，分词之前换成等长的占位、分完逐字换回，所以 Markdown 的规则（表格的 `|`、行首的 HTML 块）不会切开或改读它们；没有原子的模块读写不变。外来方言在展示器里按 schema 的 `renderHTML` 显示，没有专门的静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
+`MarkdownSyntax` 是语法模块的形状（浏览器一侧的 `web/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名与编辑视图；可选的原子（planned）：模块在原文上从左到右认出的、互不重叠的一段段文字，分词之前换成等长的占位、分完逐字换回，所以 Markdown 的规则（表格的 `|`、行首的 HTML 块）不会切开或改读它们；模块自己的分词规则在分词期间能按占位查回是哪一段原文，几次分词（包括一次分词进行中另起的分词）各查各的；写回文字时，文字里会被认成原子开头的写法照转义规则转义。没有原子的模块读写不变。外来方言在展示器里按 schema 的 `renderHTML` 显示，没有专门的静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
 
 `nbook.markdown` 的浏览器入口提供服务 `markdownKey`，交出用 Markdown 的组件；语言与编解码器只在这些组件里用，不经服务交出：
 

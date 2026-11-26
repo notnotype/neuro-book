@@ -9,7 +9,7 @@ superseded-by: null
 
 - 日期：2026-11-26
 - 决策者：开发者
-- 部分取代：[ADR 0038](0038-world-engine-entry-text-is-whitelisted-mdx.md) 的决策 1（主文字用 MDX、不复用项目的 Markdown 方言）与决策 3（给 Agent 的可改注记 `{地址 = 值}` 与回写协议）；决策 2（只解释白名单、不执行代码）不变，决策 4 由富文本编辑器的工作接手
+- 部分取代：[ADR 0038](0038-world-engine-entry-text-is-whitelisted-mdx.md) 的决策 1（主文字用 MDX、不复用项目的 Markdown 方言）、决策 3（给 Agent 的可改注记 `{地址 = 值}` 与回写协议），以及决策 2 里的“标签只有内置的几个”（插件可以登记标签）；决策 2 的其余部分（只解释白名单、不执行代码、写入时检查）不变。决策 4（作者怎么编辑）不在本 ADR，由 w00055 的富文本编辑器另行决定
 - 关联工作：[w00055](../../.agents/works/w00055-entry-rich-text/README.md)（决定表 2026-11-23 到 11-26，[t01 的评测与演示](../../.agents/works/w00055-entry-rich-text/tasks/t01-demos/README.md)，[t02 的实施计划](../../.agents/works/w00055-entry-rich-text/tasks/t02-kernel-tags/plan.md)）
 - 相关文档：[`canon/rendering.md`](../specs/canon/rendering.md)、[11-24 的讨论](../../.agents/works/w00039-novel-writing-plugins/research/2026-11-24-entry-text-direction.md)
 
