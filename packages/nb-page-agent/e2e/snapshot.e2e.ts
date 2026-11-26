@@ -176,7 +176,7 @@ test.describe("快照：裁剪与命中检查（输出 3）", () => {
         expect(result.elements.map((element) => [element.name, element.states])).toEqual([["很淡", ["faint"]], ["内层底下", ["offscreen"]]]);
     });
 
-    test("被祖先的伪元素蒙层盖住的不列；被 pointer-events: none 的兄弟盖住、只被盖住中心、自己 pointer-events: none 的照样列出；label 点得到的隐藏复选框列出", async ({page}) => {
+    test("被祖先的伪元素蒙层盖住的不列；被 pointer-events: none 的兄弟盖住、只被盖住中心、自己 pointer-events: none 的照样列出；被自己 label 里画出的外观盖住的复选框列出", async ({page}) => {
         await openFixture(page, `
             <style>.loading{position:relative}.loading::after{content:"";position:absolute;inset:0;background:rgba(255,255,255,.8)}</style>
             <div class="loading" style="width:200px"><button>加载中</button></div>
@@ -189,7 +189,7 @@ test.describe("快照：裁剪与命中检查（输出 3）", () => {
               <div style="position:absolute;left:90px;top:15px;width:20px;height:10px;background:#000"></div>
             </div>
             <button style="pointer-events:none">不接收指针</button>
-            <label style="position:relative;display:inline-block;padding:8px"><input type="checkbox" style="position:absolute;opacity:0;left:0;top:0;width:1px;height:1px;margin:0"> 记住我</label>`);
+            <label style="position:relative;display:inline-block"><input type="checkbox" style="position:absolute;opacity:0;left:0;top:0;width:16px;height:16px;margin:0"><span style="position:relative;display:inline-block;width:16px;height:16px;background:#ccc"></span> 记住我</label>`);
         const result = await snapshotOk(page);
         expect(result.elements.map((element) => element.name)).toEqual(["透明蒙层下", "中心被盖", "不接收指针", "记住我"]);
     });

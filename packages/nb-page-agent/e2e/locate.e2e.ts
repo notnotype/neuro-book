@@ -129,6 +129,16 @@ test.describe("定位（输出 5）", () => {
         expect(await locate(page, {target: "settings.row", key: "k"})).toMatchObject({ok: true, id: "row"});
     });
 
+    test("分配进 slot 的元素按画出的位置判断：被 shadow 里的外壳裁掉的定位不到", async ({page}) => {
+        await openFixture(page, `<div id="host"><button id="clipped">被外壳裁掉</button></div><div id="open-host"><button id="shown">外壳里看得见</button></div>`);
+        await page.evaluate(() => {
+            document.getElementById("host")!.attachShadow({mode: "open"}).innerHTML = `<div style="height:5px;overflow:hidden"><div style="height:40px"></div><slot></slot></div>`;
+            document.getElementById("open-host")!.attachShadow({mode: "open"}).innerHTML = `<div style="overflow:hidden"><slot></slot></div>`;
+        });
+        expect(await locate(page, {role: "button", name: "被外壳裁掉"})).toMatchObject({ok: false, code: "not-found"});
+        expect(await locate(page, {role: "button", name: "外壳里看得见"})).toMatchObject({ok: true, id: "shown"});
+    });
+
     test("文字被行内元素拆开、前面有很长的文字时照样按文字找到", async ({page}) => {
         await openFixture(page, `<p id="long">${"前文".repeat(400)} <b>粗体</b> 尾巴 要找的文字 结束</p>`);
         expect(await locate(page, {text: "要找的文字"})).toMatchObject({ok: true, id: "long"});
