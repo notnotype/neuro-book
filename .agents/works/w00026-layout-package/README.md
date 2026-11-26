@@ -148,6 +148,8 @@ w00047 t01（nb-story 迁新内核，未开工）改的是问答的适配器，�
 
 2026-11-25 开发者同意按推荐顺序做 t50 摩擦记录的后续：[t56 说明补齐](tasks/t56-layout-docs-gaps/README.md)（第 5 组）→ [t57 网格诊断有出口](tasks/t57-grid-diagnostics/README.md)（工作台接 `issues` 并入第 4 组）→ [t58 结构操作能试做](tasks/t58-grid-structure-trial/README.md)（第 1 组）→ [t59 收起与展开的语义](tasks/t59-collapse-semantics/README.md)（第 2 组）；第 3、6 组不做。四个 Task 都改 `grid.md` 与 `grid.ts` 一带，串行。工作方式也是开发者这天定的：编码派 coder 子代理，主会话写计划、审 diff、自己跑验证并合入；每个 Task 不再单独做计划审查与实现审查，四个做完后把整段提交范围一次交 omp 审查。
 
+2026-11-26：t56 到 t59 都已完成并合入 master（t56 说明补齐、[t57](tasks/t57-grid-diagnostics/README.md) 网格诊断出口、[t58](tasks/t58-grid-structure-trial/README.md) 结构操作可试做、[t59](tasks/t59-collapse-semantics/README.md) 收起与展开的语义统一）；整段交 omp 一次实现审查，重要 1 条（`clone` 的选项）已改（[报告](tasks/t59-collapse-semantics/evidences/impl-review-omp-t56-t59.txt)）。nb-layout 0.3.0 由开发者本机发布，registry 冒烟通过。
+
 ## 后续
 
 - 插件 SDK 的类型声明两次构建不同（`components.d.ts` 里组件属性的先后，[t47 证据](tasks/t47-build-pipeline/evidences/probes.txt)第 3 节）：SDK 是产品包，整轮重跑时发布计划会报“前一轮发出的不是这一批”。改法同 t47 给 nb-layout 的：先 `vue-tsc` 出全部声明再打包。没有排 Task。
