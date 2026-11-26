@@ -486,7 +486,7 @@ export type ViewRailRequestResult = "done" | "too-narrow" | "revoked";
  */
 export interface ViewRail {
     readonly placement: Readonly<Ref<ViewRailPlacement>>;
-    /** 此刻生效的展开状态（被预算拒绝时是 false）。 */
+    /** 此刻生效的展开状态（被预算拒绝时是 false）。`placement` 是 `none` 时不改，留着上一处的值：视图段这时藏着，换位置的中途翻成 false 会让展开的内容卸掉又重建。 */
     readonly expanded: Readonly<Ref<boolean>>;
     /** 请求展开或收起：先提交记录再完成；连续调用按调用顺序各自完成。 */
     request(expanded: boolean): Promise<ViewRailRequestResult>;
