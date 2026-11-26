@@ -56,6 +56,12 @@ export interface Lexing {
     readonly inlineTags: ReadonlyArray<string>;
     /** 各模块的转义规则合起来；没有模块给时为 null。 */
     readonly atomEscape: ((text: string, index: number) => boolean) | null;
+    /**
+     * 在 `lex()` 之外给一段文字分块（连同排队的行内分词）或分行内：读法要对一部分文字另分词时用（编解码器的 `lexBlocks`、
+     * `lexInline`）。这段文字照样遮罩、分完还原；直接调词法器的 `blockTokens`、`inlineTokens` 不遮罩（那时这次分词的原子表已清）。
+     */
+    blockTokens(lexer: Lexer, src: string): Token[];
+    inlineTokens(lexer: Lexer, src: string): Token[];
 }
 
 /** 占位的身份字从私用区起、按原子序号递增；之后用一个固定的填充字补齐长度。原文里的私用区字也作为原子换掉，不会与占位相混。 */
@@ -123,7 +129,7 @@ function mask(source: string, modules: ReadonlyArray<NonNullable<MarkdownLexing[
 }
 
 /** 把词法单元里的占位逐字换回原文（各层的 `raw`、`text`、链接的地址与标题、引用定义表）。 */
-function unmask(tokens: TokensList, table: ReadonlyMap<string, Atom>): void {
+function unmask(tokens: readonly Token[], table: ReadonlyMap<string, Atom>, links?: object): void {
     const restore = (text: string): string => (text.search(PLACEHOLDER) < 0 ? text : text.replace(PLACEHOLDER, (run) => table.get(run[0] as string)?.source ?? run));
     const seen = new WeakSet<object>();
     const walk = (value: unknown): unknown => {
@@ -139,7 +145,7 @@ function unmask(tokens: TokensList, table: ReadonlyMap<string, Atom>): void {
         return value;
     };
     walk(tokens);
-    walk(tokens.links);
+    if (links !== undefined) walk(links);
 }
 
 /** 一个原子落在哪：带着它的字段（`raw`、`text`、`href`、`title`…）、这个字段所在的词法单元，与外面各层的词法单元（由外到内）。 */
@@ -242,7 +248,7 @@ export function createLexing(modules: ReadonlyArray<MarkdownLexing>): Lexing {
             try {
                 const tokens = super.lex(masked.text);
                 const placements = sink === undefined ? null : placementsOf(tokens, masked.table);
-                unmask(tokens, masked.table);
+                unmask(tokens, masked.table, tokens.links);
                 if (sink !== undefined && placements !== null) sink({ok: true, tokens, atoms: [...masked.table.values()].sort((left, right) => left.index - right.index), placements});
                 return tokens;
             } finally {
@@ -255,11 +261,33 @@ export function createLexing(modules: ReadonlyArray<MarkdownLexing>): Lexing {
             return lexingInline(src, () => super.inlineTokens(src, tokens));
         }
     }
+    // 一段文字另分词：遮罩、分、还原；外层若正在遮罩分词（表还在），分完换回外层的表。
+    const fragment = (lexer: Lexer, src: string, run: (text: string) => Token[]): Token[] => {
+        const masked: Masked = atoms.length === 0 ? {kind: "none"} : mask(src, atoms);
+        if (masked.kind !== "masked") return run(src);
+        const outer = tables.get(lexer);
+        tables.set(lexer, masked.table);
+        try {
+            const tokens = run(masked.text);
+            unmask(tokens, masked.table, lexer.tokens.links);
+            return tokens;
+        } finally {
+            if (outer === undefined) tables.delete(lexer);
+            else tables.set(lexer, outer);
+        }
+    };
     return {
         marked,
         lexer: () => new TrackingLexer(marked.defaults),
         blockTags,
         inlineTags,
         atomEscape: escapes.length === 0 ? null : (text, index) => escapes.some((escape) => escape(text, index)),
+        blockTokens: (lexer, src) =>
+            fragment(lexer, src, (text) => {
+                const tokens = lexer.blockTokens(text, []);
+                for (const next of lexer.inlineQueue.splice(0)) lexer.inlineTokens(next.src, next.tokens);
+                return tokens;
+            }),
+        inlineTokens: (lexer, src) => fragment(lexer, src, (text) => lexer.inlineTokens(text, [])),
     };
 }

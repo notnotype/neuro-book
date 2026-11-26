@@ -6,7 +6,7 @@
  */
 
 import type {AnyExtension} from "@tiptap/core";
-import type {Lexer, Marked} from "marked";
+import type {Lexer, Marked, Token} from "marked";
 
 import {createLexing} from "../marked/lexing";
 import type {GluedRules} from "./codec/source";
@@ -18,6 +18,9 @@ export interface MarkdownLanguage {
     readonly marked: Marked;
     /** 新的词法器：读入、写回校验与写前准备都用它（行内分词期间记下正在分的文字，见 `syntax/tags.ts` 的 `lexingInline`）。 */
     lexer(): Lexer;
+    /** 读法对一部分文字另分词（`marked/lexing.ts` 的 `Lexing.blockTokens`、`inlineTokens`：照样遮罩原子）。 */
+    blockTokens(lexer: Lexer, src: string): Token[];
+    inlineTokens(lexer: Lexer, src: string): Token[];
     /** 全部语法模块的扩展，按模块顺序；编辑器与测试都用它建 schema。 */
     readonly extensions: ReadonlyArray<AnyExtension>;
     /** 块层与行内的词法单元类型 → 读法（按模块顺序，先试先赢）。 */
@@ -114,6 +117,8 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>, 
     return {
         marked: lexing.marked,
         lexer: () => lexing.lexer(),
+        blockTokens: (lexer, src) => lexing.blockTokens(lexer, src),
+        inlineTokens: (lexer, src) => lexing.inlineTokens(lexer, src),
         extensions: all.flatMap((syntax) => syntax.extensions),
         readers: table((syntax) => syntax.read),
         inlineReaders: table((syntax) => syntax.readInline),

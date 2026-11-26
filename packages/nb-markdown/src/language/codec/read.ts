@@ -180,14 +180,6 @@ function toNode(schema: Schema, json: JSONContent): PMNode {
     return type.create(json.attrs ?? null, content, marks as Mark[]);
 }
 
-/** 给一段块内容分词，并处理它排队的行内分词（`lex` 结束时才做的那一步）。 */
-function lexBlocks(lexer: Lexer, src: string): Token[] {
-    const tokens = lexer.blockTokens(src, []);
-    const queue = lexer.inlineQueue.splice(0);
-    for (const next of queue) lexer.inlineTokens(next.src, next.tokens);
-    return tokens;
-}
-
 /**
  * 读一块成 JSON：调度语法模块的读法。`raw` 节点的原文按单元在规范化文字里的位置从原文切出：沿块里的位置向后找，找不到
  * （例如引用里的子块去掉了行首的 `>`）时退回单元自己的文字，这时原文里的 CR 不会保留。
@@ -205,8 +197,9 @@ function readBlock(language: MarkdownLanguage, lexer: Lexer, normalized: Normali
         blocks: (tokens) => tokens.flatMap((child) => (child.type === "space" ? [] : readToken(child, false))),
         mark: (type, content, attrs) => content.map((node) => ({...node, marks: [...(node.marks ?? []), {type, attrs}]})),
         raw: (child, inline) => ({type: inline ? "rawInline" : "rawBlock", attrs: {raw: sourceOf(inline ? child.raw : child.raw.replace(/\n+$/u, ""))}}),
-        lexBlocks: (src) => lexBlocks(lexer, src),
-        lexInline: (src) => lexer.inlineTokens(src, []),
+        // 另分词也要遮罩原子：这时顶层 `lex()` 已经结束，原子表已清。
+        lexBlocks: (src) => language.blockTokens(lexer, src),
+        lexInline: (src) => language.inlineTokens(lexer, src),
     };
     function readToken(child: Token, inline: boolean): JSONContent[] {
         for (const reader of (inline ? language.inlineReaders : language.readers).get(child.type) ?? []) {

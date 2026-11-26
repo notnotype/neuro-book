@@ -131,6 +131,17 @@ describe("不带编辑器的词法", () => {
         expect(exact.ok && exact.atoms.length).toBe(ATOM_CAPACITY);
     });
 
+    it("lex() 之外另给一段文字分块或分行内：照样遮罩、分完还原（编解码器的读法这样另分词）", () => {
+        const lexing = createLexing([tagModule(), coreLexing]);
+        const lexer = lexing.lexer();
+        lexer.lex("先分一篇");
+        const blocks = lexing.blockTokens(lexer, "| 条件 | 值 |\n|---|---|\n| <If test=\"a || b\"> | 2 |");
+        const table = blocks.find((token) => token.type === "table") as unknown as {rows: Array<Array<{text: string}>>};
+        expect(table.rows[0]!.map((cell) => cell.text)).toEqual(["<If test=\"a || b\">", "2"]);
+        expect(atomsOf(blocks as TokensList)).toEqual(["If test=\"a || b\""]);
+        expect(atomsOf(lexing.inlineTokens(lexer, "甲 <V of=\"a\"> 乙") as TokensList)).toEqual(["V of=\"a\""]);
+    });
+
     it("模块给的范围跨行时分词失败", () => {
         const crossing: MarkdownLexing = {name: "crossing", atoms: () => [{from: 0, to: 5}]};
         expect(() => createLexing([crossing, coreLexing]).lexer().lex("ab\ncdef")).toThrow("crosses a line");
