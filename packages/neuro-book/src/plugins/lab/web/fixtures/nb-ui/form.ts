@@ -194,6 +194,9 @@ export const formFixtures: LabFixture[] = [
         scenes: [
             {id: "default", label: "标签与说明", input: {props: {label: "书名", description: "显示在书架与标题栏", required: true}, slots: {default: true}}},
             {id: "error", label: "错误", input: {props: {label: "作品目录", description: "作品文件放在这里", error: "目录不存在或没有写入权限"}, slots: {default: true}}},
+            // 没有说明的一对：控件是最后一个子元素，出错与否要量出同样的版面（`e2e/lab-nb-ui.e2e.ts`）。
+            {id: "plain", label: "只有标签", input: {props: {label: "书名"}, slots: {default: true}}},
+            {id: "plain-error", label: "只有标签、出错", input: {props: {label: "书名", error: "已有同名的书"}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Field"),
     }),
