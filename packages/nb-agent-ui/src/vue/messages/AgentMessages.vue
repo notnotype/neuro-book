@@ -4,7 +4,7 @@
  * 送进侧轨（`rail`）、画在自己的右边缘（`edge`，浮动窗）、没有（`none`）。`rail` 与 `edge` 之间换的是同一个视图段实例，
  * 只换 `Teleport` 的去处，搜索词、当前页、焦点与滚动位置都在（搬完由视图段放回去）；聊天区一直是同一份 DOM。
  */
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import type {AgentLocale, MessagesContactSection, MessagesRecentSession} from "../../types";
 import type {MessagesSegmentPlacement} from "./placement";
@@ -51,12 +51,26 @@ const edgeWidth = computed(() => (props.placement.kind === "edge" ? props.placem
  * 窗的边扫过去把它露出来或盖住，聊天区与视图段都不动。窗宽到了“聊天区 + 新宽”就放开；窗一直没到（被夹取、过渡中途改了尺寸）时，
  * 宽度连续 HOLD_STILL_FRAMES 帧不变也放开：换宽之后窗要等一两帧才开始动，这个数要比它大得多。
  * 只改宽度的（拖轨宽手柄、键盘、双击回缺省）不过渡，窗与视图段同一次到位，不固定；固定着的时候来了这种改动就放开，免得按旧的终点等下去。
+ * 要固定的宽不在换宽的那一刻量：网格的窗在同一次更新里先改，减少动态效果时它这一刻已经到了终点，量到的是“新窗宽 − 旧视图段宽”。
+ * 所以平时由 `ResizeObserver` 记下聊天区的宽（它在渲染之后回调，换宽那次更新里读到的还是之前的），固定着的时候不记。
  */
 const HOLD_STILL_FRAMES = 30;
 const rootRef = ref<HTMLElement | null>(null);
 const chatRef = ref<HTMLElement | null>(null);
 const heldChat = ref<number | null>(null);
 let holdFrame = 0;
+let restingChat: number | null = null;
+let chatObserver: ResizeObserver | null = null;
+
+onMounted(() => {
+    const chat = chatRef.value;
+    if (chat === null || typeof ResizeObserver === "undefined") return;
+    chatObserver = new ResizeObserver((entries) => {
+        const entry = entries.at(-1);
+        if (entry !== undefined && heldChat.value === null) restingChat = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width;
+    });
+    chatObserver.observe(chat);
+});
 
 function release(): void {
     if (holdFrame !== 0) cancelAnimationFrame(holdFrame);
@@ -70,7 +84,7 @@ function holdUntil(root: HTMLElement, target: number): void {
     let still = 0;
     const tick = (): void => {
         const width = root.getBoundingClientRect().width;
-        if (Math.abs(width - target) < 0.5 || still >= HOLD_STILL_FRAMES) {
+        if (Math.abs(width - target) < 1 || still >= HOLD_STILL_FRAMES) {
             holdFrame = 0;
             heldChat.value = null;
             return;
@@ -82,7 +96,7 @@ function holdUntil(root: HTMLElement, target: number): void {
     holdFrame = requestAnimationFrame(tick);
 }
 
-// `pre`：在这一次渲染改 DOM 之前量，量到的是换宽之前的聊天区；连着展开收起两次时沿用第一次固定的宽。
+// 连着展开收起两次时沿用第一次固定的宽。
 watch(() => [edgeWidth.value, props.expanded] as const, ([width, expanded], [previousWidth, previousExpanded]) => {
     if (width === previousWidth) return;
     const root = rootRef.value;
@@ -91,12 +105,15 @@ watch(() => [edgeWidth.value, props.expanded] as const, ([width, expanded], [pre
         release();
         return;
     }
-    const held = heldChat.value ?? chat.getBoundingClientRect().width;
+    const held = heldChat.value ?? restingChat ?? chat.getBoundingClientRect().width;
     heldChat.value = held;
     holdUntil(root, held + width);
 }, {flush: "pre"});
 
-onBeforeUnmount(release);
+onBeforeUnmount(() => {
+    release();
+    chatObserver?.disconnect();
+});
 
 const chatStyle = computed(() => (heldChat.value === null ? undefined : {flex: "0 0 auto", width: `${heldChat.value}px`}));
 const edgeStyle = computed(() => {

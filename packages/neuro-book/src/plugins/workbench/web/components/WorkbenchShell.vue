@@ -237,13 +237,19 @@ const railSegment = computed((): ToolStripSegment | null => {
     };
 });
 
-/** 浮动窗里展开的视图段的轨宽手柄（输出 51）：窗是单标签视图窗、视图段展开着时才有。 */
-function floatRailHandleOf(panel: string): {readonly width: number; readonly bounds: {readonly minimum: number; readonly maximum: number; readonly width: number}; readonly revision: string; readonly label: string} | null {
-    const bounds = props.layout.actions.floatRailHandle(panel);
-    const rail = state.value.floatRails.get(panel);
-    if (bounds === null || rail === undefined) return null;
-    return {width: rail.width, bounds, revision: layoutStructureKey(doc.value), label: message("shell.rail.handle")};
-}
+/**
+ * 浮动窗里展开的视图段的轨宽手柄（输出 51），按窗记：窗是单标签视图窗、视图段展开着时才有。算一次给模板的 `v-if` 与 `v-bind` 共用，
+ * 拖轨宽时外壳每帧重渲染，手柄的 props 只在这些值变了才换。
+ */
+const floatRailHandles = computed(() => {
+    const handles = new Map<string, {readonly width: number; readonly bounds: {readonly minimum: number; readonly maximum: number; readonly width: number}; readonly revision: string; readonly label: string}>();
+    const revision = layoutStructureKey(doc.value);
+    for (const [panel, rail] of state.value.floatRails) {
+        const bounds = props.layout.actions.floatRailHandle(panel);
+        if (bounds !== null) handles.set(panel, {width: rail.width, bounds, revision, label: message("shell.rail.handle")});
+    }
+    return handles;
+});
 
 function toggleRailSegment(): void {
     const rail = state.value.rail;
@@ -1285,8 +1291,8 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @move="(position) => layout.actions.moveFloat(id, position)"
                     />
                     <WorkbenchFloatRailHandle
-                        v-if="floatRailHandleOf(id) !== null"
-                        v-bind="floatRailHandleOf(id)!"
+                        v-if="floatRailHandles.has(id)"
+                        v-bind="floatRailHandles.get(id)!"
                         @preview="(width) => layout.actions.previewFloatRailWidth(id, width)"
                         @commit="(width) => layout.actions.commitFloatRailWidth(id, width)"
                     />

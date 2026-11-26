@@ -181,7 +181,11 @@ async function newSession(): Promise<void> {
     if (profile === null) return;
     // 新会话没有归属：停在 bot 页的话首屏会被“选一个 bot”的盖层盖住（`pickBot`），焦点也等不到它撤掉。
     tab.value = "sessions";
-    void revealAndFocus(props.host.create(profile));
+    // 建失败（连接断了）同对话头的新建一样留一条诊断；`ok: false` 的结果由宿主写提示，不在这里。
+    const created = props.host.create(profile).catch((error: unknown) => {
+        props.report("session-create-failed", "新对话创建失败", {error: error instanceof Error ? error.message : String(error)});
+    });
+    void revealAndFocus(created);
 }
 
 const focused = useWindowFocus();

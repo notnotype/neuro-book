@@ -1241,7 +1241,7 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(store.actions.floats()[0]!.animate).toBeUndefined();
             expect(store.actions.document().floats[0]!.rect).toEqual(record);
 
-            // 拖右边加宽 30：记录只加 30，位置不动（画出来的可能往左挪过）。
+            // 拖右边加宽 30：记录只加 30，位置不动（这扇窗没被往左挪过）。
             expect(store.actions.resizeFloat(panel, {...grown.rect, width: grown.rect.width + 30}, {width: 1, height: 0}).ok).toBe(true);
             expect(store.actions.document().floats[0]!.rect).toEqual({...record, width: record.width + 30});
 
@@ -1281,8 +1281,35 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             // 拖窗的左边：记录的位置要加回往左长的那段。
             expect(store.actions.resizeFloat(panel, {...wider, x: wider.x - 10, width: wider.width + 10}, {width: -1, height: 0}).ok).toBe(true);
             expect(store.actions.document().floats[0]!.rect).toEqual({...record, x: record.x - 10, width: record.width + 10});
+            // 键盘移动与整窗拖动落账给的也是画出来的位置：画出来的窗恰好平移那一段，不按往左长的那段漂。
+            const shown = store.actions.floats()[0]!.rect;
+            expect(store.actions.moveFloat(panel, {x: shown.x + 10, y: shown.y + 5}).ok).toBe(true);
+            expect(store.actions.floats()[0]!.rect).toEqual({...shown, x: shown.x + 10, y: shown.y + 5});
+            // 整窗拖动的矩形：位置是画出来的，大小是记录里的（`windowRect`）。
+            store.actions.commitDrop({kind: "panel", panel}, {kind: "float", rect: {...store.actions.document().floats[0]!.rect, x: shown.x - 20, y: shown.y}}, undefined, false);
+            expect(store.actions.floats()[0]!.rect).toEqual({...shown, x: shown.x - 20});
             expect(store.actions.commitFloatRailWidth(panel, 260).ok).toBe(true);
             expect(store.actions.document().floats[0]?.rail).toEqual({expanded: true});
+        });
+
+        it("靠右被往左挪过的展开窗（输出 51 的“矩形”）：拖右边缩窄，放手后画出来的窗停在拖到的地方；只拖下边时记录位置不改", async () => {
+            const {store} = await railed(1440);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const panel = store.actions.document().floats[0]!.panel;
+            const placed = store.actions.document().floats[0]!.rect;
+            expect(store.actions.setFloatRect(panel, {...placed, x: 1000, width: 400}).ok).toBe(true);
+            store.actions.requestFloatRailExpanded(panel, true);
+            await Promise.resolve();
+            const shifted = store.actions.floats()[0]!.rect;
+            expect([shifted.x < 1000, shifted.x + shifted.width]).toEqual([true, 1440]);
+
+            const taller = {...shifted, height: shifted.height + 20};
+            expect(store.actions.resizeFloat(panel, taller, {width: 0, height: 1}).ok).toBe(true);
+            expect(store.actions.document().floats[0]!.rect).toMatchObject({x: 1000, width: 400});
+
+            const narrower = {...taller, width: taller.width - 100};
+            expect(store.actions.resizeFloat(panel, narrower, {width: 1, height: 0}).ok).toBe(true);
+            expect(store.actions.floats()[0]!.rect).toEqual(narrower);
         });
 
         it("“移到”带着它，“重置”回到声明的区域时清掉它", async () => {

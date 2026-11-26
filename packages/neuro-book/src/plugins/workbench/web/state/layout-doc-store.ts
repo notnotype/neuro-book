@@ -289,6 +289,11 @@ function defineLayoutDocStore(bound: boolean) {
             if (state === undefined || !state.expanded) return {width: 0, left: 0};
             return {width: state.width - SHELL_RAIL_WIDTH, left: state.width - state.bounds.width};
         };
+        /**
+         * 手柄、键盘与整窗拖动给的位置是画出来的，写进记录前加回往左长的那段（`floatGrowth` 的 `left`），三条路径共用这一个换算。
+         * 画的时候被往左挪过（靠右放不下）的窗，用户动了它的位置或横向的边之后，记录取用户看到的位置，放手那一下不跳。
+         */
+        const recordedFloatX = (panel: string, presentedX: number): number => presentedX + floatGrowth(panel).left;
         /** 按收着的投影求一次布局，取基线、算预算；窗口尺寸还不知道、找不到编辑组时是 null（不能展开）。 */
         function budgetFor(of: LayoutDoc, request: number, bounds: ViewRailBounds) {
             const area = extent.value;
@@ -514,10 +519,10 @@ function defineLayoutDocStore(bound: boolean) {
                     return {min: {...minimumSize, width: minimumSize.width + growth}, max: {width: Math.min(maximumSize.width + growth, extent.value?.width ?? maximumSize.width), height: Math.min(maximumSize.height, extent.value?.height ?? maximumSize.height)}};
                 },
                 setFloatRect: (panel: string, rect: LayoutFloatRect): LayoutResult => apply((current) => setFloatRect(current, {panel, rect}), {flush: true}),
-                /** 只改位置（键盘移动）：大小取记录里的，呈现的可能是夹过的。 */
+                /** 只改位置（键盘移动）：大小取记录里的，呈现的可能是夹过的；位置是画出来的，按 `recordedFloatX` 换回记录的。 */
                 moveFloat: (panel: string, position: {readonly x: number; readonly y: number}): LayoutResult => apply((current) => {
                     const rect = current.floats.find((float) => float.panel === panel)?.rect;
-                    return rect === undefined ? notFound(panel) : setFloatRect(current, {panel, rect: {...rect, ...position}});
+                    return rect === undefined ? notFound(panel) : setFloatRect(current, {panel, rect: {...rect, x: recordedFloatX(panel, position.x), y: position.y}});
                 }, {flush: true}),
                 /** 提到最前（点击、聚焦）；已在最前不写。 */
                 raiseFloat: (panel: string): void => {
@@ -548,7 +553,11 @@ function defineLayoutDocStore(bound: boolean) {
                         void editorDrag.value?.dropPanel(source.panel, action, part, keyboard);
                         return;
                     }
-                    apply((current) => applyLayoutDrop(current, source, action, policy), {flush: true});
+                    // 整窗拖动落账：矩形的位置是画出来的（`windowRect`），换回记录的。
+                    const placed = source.kind === "panel" && action.kind === "float" && isFloating(doc.value, source.panel)
+                        ? {...action, rect: {...action.rect, x: recordedFloatX(source.panel, action.rect.x)}}
+                        : action;
+                    apply((current) => applyLayoutDrop(current, source, placed, policy), {flush: true});
                 },
                 /** 在落点打开文件（资源树拖来的）：标签的属性归编辑器。 */
                 commitFiles: (addresses: ReadonlyArray<string>, action: LayoutDropAction, part: string | undefined): void => {
@@ -845,15 +854,16 @@ function defineLayoutDocStore(bound: boolean) {
                     return setFloatRail(current, {panel, intent: {...expandedIntent, ...(clamped === bounds.width ? {} : {width: clamped})}});
                 }, {flush: true, rebase: false}),
                 /**
-                 * 浮动窗缩放落账（输出 51 的“矩形”）：手柄给的是画出来的矩形，只取动了的边（`direction`），宽度减回展开多出来的那段，记录矩形保持收着的。
-                 * 位置只在动的是左边、上边时取画出来的：画出来的窗靠右时被往左挪过，拖右边时不能把挪过的位置写进记录。
+                 * 浮动窗缩放落账（输出 51 的“矩形”）：手柄给的是画出来的矩形，只取动了的边与轴（`direction`），宽度减回展开多出来的那段，记录矩形保持收着的。
+                 * 横向的边（左或右）动了才取画出来的横向位置（`recordedFloatX`）：靠右被往左挪过的窗拖窄之后不再需要挪，只保留记录位置的话放手那一下整块往右跳；
+                 * 只拖上下边时横向位置不动，挪过的不写进记录。
                  */
                 resizeFloat: (panel: string, presented: LayoutFloatRect, direction: LayoutFloatResize): LayoutResult => apply((current) => {
                     const rect = current.floats.find((float) => float.panel === panel)?.rect;
                     if (rect === undefined) return notFound(panel);
                     const growth = floatGrowth(panel);
                     const next = {
-                        x: direction.width === -1 ? presented.x + growth.left : rect.x,
+                        x: direction.width === 0 ? rect.x : recordedFloatX(panel, presented.x),
                         width: direction.width === 0 ? rect.width : Math.max(1, presented.width - growth.width),
                         y: direction.height === -1 ? presented.y : rect.y,
                         height: direction.height === 0 ? rect.height : presented.height,

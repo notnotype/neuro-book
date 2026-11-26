@@ -135,6 +135,8 @@ function onFocusOut(event: FocusEvent): void {
 }
 function onScroll(event: Event): void {
     if (!(event.target instanceof HTMLElement)) return;
+    // 收起时列表整块卸掉，它的滚动容器不会再回来；记新的之前清掉，表不随展开收起的次数长。
+    for (const element of scrolled.keys()) if (!element.isConnected) scrolled.delete(element);
     if (event.target.scrollTop > 0) scrolled.set(event.target, event.target.scrollTop);
     else scrolled.delete(event.target);
 }
