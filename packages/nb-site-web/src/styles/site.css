@@ -1,0 +1,37 @@
+/*
+ * 站点自己的变量（t10 计划 3.5、3.6）。别的颜色一律取 nb-ui 主题的语义变量；这里只放 nb-ui 没有、官方站独有的几样，
+ * 亮暗两套挂在 `data-nb-appearance` 上（`host/theme.ts` 写在根元素上），换明暗只换变量。
+ *
+ * - `--site-viz-1` 到 `--site-viz-3`：看板趋势图的三条序列（t09 第 14 条，dataviz 参考配色的前三格，对着 nbook 的面板底色验过）。
+ * - `--site-seq-1` 到 `--site-seq-5`：错误次数的红色色阶，由浅到深（t09 第 15 条）。暗色先用同一组，B5 在浏览器里对着暗色面板底色验过再定。
+ * - `--site-paper-line`、`--site-paper-seal`：稿纸的格线与印章（计划 3.6）。亮色是定稿草稿里的值；暗色的值由 B2 在浏览器里
+ *   对着暗色底色定，在那之前与亮色相同。
+ */
+
+@layer base {
+    [data-nb-appearance="light"] {
+        --site-viz-1: #2a78d6;
+        --site-viz-2: #eb6834;
+        --site-viz-3: #1baf7a;
+        --site-seq-1: #f0a09c;
+        --site-seq-2: #e67570;
+        --site-seq-3: #d64a45;
+        --site-seq-4: #b3302c;
+        --site-seq-5: #861f1d;
+        --site-paper-line: color-mix(in srgb, #3f9468 42%, transparent);
+        --site-paper-seal: #c0392b;
+    }
+
+    [data-nb-appearance="dark"] {
+        --site-viz-1: #3987e5;
+        --site-viz-2: #d95926;
+        --site-viz-3: #199e70;
+        --site-seq-1: #f0a09c;
+        --site-seq-2: #e67570;
+        --site-seq-3: #d64a45;
+        --site-seq-4: #b3302c;
+        --site-seq-5: #861f1d;
+        --site-paper-line: color-mix(in srgb, #3f9468 42%, transparent);
+        --site-paper-seal: #c0392b;
+    }
+}

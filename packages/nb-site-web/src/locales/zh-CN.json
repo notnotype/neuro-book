@@ -1,0 +1,94 @@
+{
+    "site": {
+        "documentTitle": "{{page}} · NeuroBook"
+    },
+    "shell": {
+        "unavailable": "暂时连不上账号服务",
+        "retry": "重试"
+    },
+    "notFound": {
+        "title": "没有这一页",
+        "home": "回到首页"
+    },
+    "login": {
+        "title": "登录"
+    },
+    "register": {
+        "title": "注册"
+    },
+    "consent": {
+        "title": "同意条款"
+    },
+    "account": {
+        "title": "账号"
+    },
+    "oauthConsent": {
+        "title": "授权确认"
+    },
+    "admin": {
+        "dashboard": {
+            "title": "看板"
+        },
+        "users": {
+            "title": "用户"
+        },
+        "codes": {
+            "title": "注册码与邀请码"
+        },
+        "clients": {
+            "title": "OAuth 客户端"
+        },
+        "audit": {
+            "title": "审计"
+        }
+    },
+    "legal": {
+        "privacy": {
+            "title": "隐私政策"
+        },
+        "terms": {
+            "title": "服务条款"
+        }
+    },
+    "errors": {
+        "identity": {
+            "validation_failed": "有内容不符合要求，请检查标出的项",
+            "unauthenticated": "登录已失效，请重新登录",
+            "invalid_credentials": "用户名、邮箱或密码不对",
+            "account_banned": "这个账号已被封禁，请联系管理员",
+            "forbidden_origin": "请求被拒绝，请刷新页面后再试",
+            "consent_required": "请先同意最新的服务条款与隐私政策",
+            "registration_closed": "现在不开放注册",
+            "provider_disabled": "这种登录方式暂时没有开放",
+            "registration_code_invalid": "注册码不可用",
+            "invite_code_invalid": "邀请码不可用",
+            "username_taken": "这个用户名已被使用",
+            "email_taken": "这个邮箱已被使用",
+            "identity_taken": "这个第三方账号已关联到另一个账号，请直接用它登录",
+            "identity_exists": "这种登录方式已经关联过，先解绑再关联",
+            "last_login_method": "先设一个密码再解绑",
+            "invite_code_limit": "有效的邀请码已有 10 个，先停用一个",
+            "rate_limited": "操作太频繁，{{seconds}} 秒后再试",
+            "overloaded": "服务正忙，请稍后再试",
+            "unavailable": "服务暂时不可用，请稍后再试",
+            "not_found": "要找的内容不存在",
+            "internal": "服务出了问题，请稍后再试",
+            "forbidden": "没有权限做这件事",
+            "self_forbidden": "不能对自己的账号这样做",
+            "authorization_expired": "这次授权请求已过期，回到应用重新发起",
+            "client_not_found": "找不到这个应用，或它已停用",
+            "redirect_uri_invalid": "这个应用的回调地址不对",
+            "client_public": "公开客户端没有密钥",
+            "social_not_registered": "这个第三方账号还没有注册",
+            "social_email_missing": "没能从第三方账号取得已验证的邮箱",
+            "social_state_invalid": "这次登录已过期，请重新发起",
+            "social_cancelled": "已取消这次登录",
+            "social_failed": "第三方登录没有成功，请重试"
+        },
+        "web": {
+            "network": "连不上服务，请检查网络后再试",
+            "malformed": "服务的回答看不懂，请稍后再试",
+            "unknown": "出了一个没认出的问题（{{code}}）"
+        }
+    }
+}

@@ -6,14 +6,20 @@
 
 ## 边界
 
-- 只经两个合同包认识后端的接口，按白名单检查（`tests/boundary.test.ts`）：`src/` 里的源码与样式只许导入 nb-ui、两个合同包与第三方包，不许别的工作区包与 `bun:`、`node:` 内置模块（前端代码跑在浏览器里）；`tests/` 与 `vite.config.ts` 另许 `bun:`、`node:` 与测试支持包。清单里的工作区包：`dependencies` 只有 nb-ui 与两个合同包，`devDependencies` 只有测试支持包。要放开一项，先在这里写明理由，再改检查。
+- 只经两个合同包认识后端的接口，按白名单检查（`tests/boundary.test.ts`）：`src/` 里的源码与样式只许导入 nb-ui、两个合同包与第三方包，不许别的工作区包与 `bun:`、`node:` 内置模块（前端代码跑在浏览器里）；`tests/` 与 `vite.config.ts`、`vitest.config.ts` 另许 `bun:`、`node:` 与测试支持包。清单里的工作区包：`dependencies` 只有 nb-ui 与两个合同包，`devDependencies` 只有测试支持包。要放开一项，先在这里写明理由，再改检查。
+
+## 测试
+
+- `tests/` 下是纯逻辑与构建的测试，由 `bun test` 跑：分派与守卫、接口层的核心、当前账号、失败码的文案覆盖、依赖边界、构建。
+- `src/` 下的 `*.dom.test.ts` 是要浏览器接口的测试（组件、`sessionStorage`、主题写到根元素、装起来的站点），由 `vitest` 在 happy-dom 里跑（`vitest.config.ts`）；包内 `bunfig.toml` 让 `bun test` 跳过它们。
+- 包脚本 `bun run test` 两样都跑；`bun run test:affected --package nb-site-web` 走的也是它。
 
 ## 完成门禁
 
 ```text
 bun run typecheck
-bun test
+bun run test
 bun run build
 ```
 
-`tests/build.test.ts` 在临时目录里真跑一次 `vite build`；`bun run build` 把产物写进 `dist/`（不入库），`bun run --cwd packages/nb-site-web preview` 起 Vite 的预览服务看页面（地址在它的输出里）。
+`tests/build.test.ts` 在临时目录里真跑一次 `vite build`（按 `NODE_ENV=production`），并在输出里记下入口块与看板块的 gzip 大小；`bun run build` 把产物写进 `dist/`（不入库），`bun run --cwd packages/nb-site-web preview` 起 Vite 的预览服务看页面（地址在它的输出里）。

@@ -3,6 +3,8 @@
  * 各在自己的层），再导入 nb-ui 的入口（token 进 base 层、语义类进 components 层）。站点自己的原子类在 utilities 层，
  * 压过 nb-ui 的语义类。
  *
+ * 站点自己的变量在 `styles/site.css`（图表色、稿纸）。
+ *
  * 两条正向的 `@source` 只是写明扫哪些文件：Vite 的根是 `src/`，Tailwind 的自动检测本来也扫到它们。测试文件要排除：
  * 测试里写的类名不是站点用到的样式，不该进产物（nb-ui 的 tailwind.css 对自己的组件测试同样这样排除）。
  *
@@ -14,6 +16,7 @@
  */
 @import "tailwindcss";
 @import "@notnotype/nb-ui/tailwind.css";
+@import "./styles/site.css";
 @source "./**/*.vue";
 @source "./**/*.ts";
 @source not "./**/*.test.ts";

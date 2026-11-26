@@ -1,25 +1,15 @@
 import "./app.css";
-import {applyColorway} from "@notnotype/nb-ui/colorway";
-import {installTheme} from "@notnotype/nb-ui/theme";
-import nbookTheme from "@notnotype/nb-ui/themes/nbook";
-import {createApp} from "vue";
-import App from "./App.vue";
+import {createWebHistory} from "vue-router";
 
-/**
- * 不经 Nuxt 装 nb-ui 的默认主题 nbook（主题模块带 vars.css）：在 `<html>` 上写主题与明暗，再套同一明暗的配色。
- * 明暗跟随系统，系统切换时跟着换。
- */
-installTheme(nbookTheme);
-const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
+import {startSite} from "./site";
 
-function applyAppearance(): void {
-    const appearance = darkScheme.matches ? "dark" : "light";
-    const root = document.documentElement;
-    root.dataset.nbTheme = "nbook";
-    root.dataset.nbAppearance = appearance;
-    applyColorway(root, nbookTheme.colorways![appearance === "light" ? "nbook-light" : "nbook-dark"]!);
-}
-
-applyAppearance();
-darkScheme.addEventListener("change", applyAppearance);
-createApp(App).mount("#app");
+// 浏览器的真东西都在这里交给 `startSite`；装法本身在 `site.ts`，由组件测试守着。
+const target = document.getElementById("app");
+if (target === null) throw new Error("index.html 里没有 #app");
+startSite({
+    target,
+    window,
+    fetch: globalThis.fetch.bind(globalThis),
+    history: createWebHistory(),
+    now: () => Date.now(),
+});
