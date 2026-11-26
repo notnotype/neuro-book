@@ -158,9 +158,70 @@ describe("消息视图的状态", () => {
         expect(model.pickBot.value).toBe(false);
     });
 
-    it("头像列的最近会话：取前 5 个，没有标题写未命名", () => {
+    it("视图段的最近会话：按给的次序（最近活动），没有标题写未命名；视图段按高度再截", () => {
         const {model} = setup();
-        expect(model.recentSessions.value.map((item) => item.title)).toEqual(["一", "未命名", "四", "五", "六"]);
+        expect(model.recentSessions.value.map((item) => item.title)).toEqual(["一", "未命名", "四", "五", "六", "七"]);
+    });
+
+    it("最近会话重取：视图段画出来、换了会话、会话面板的列表重取过、窗口回到前台，以及画着时每 15 秒；没画出来时这些都不重取", async () => {
+        const {model, host} = setup();
+        const shown = ref(false);
+        const focused = ref(true);
+        const listed = shallowRef<readonly string[]>([]);
+        let refreshes = 0;
+        const timers: {milliseconds: number; run: () => void; stopped: boolean}[] = [];
+        const stop = model.watchRecent({
+            shown: () => shown.value,
+            focused: () => focused.value,
+            listed: () => listed.value,
+            refresh: () => {
+                refreshes += 1;
+            },
+            every: (milliseconds, run) => {
+                const timer = {milliseconds, run, stopped: false};
+                timers.push(timer);
+                return () => {
+                    timer.stopped = true;
+                };
+            },
+        });
+        // 没画出来：换会话、列表变、窗口回来都不取，也没有定时器。
+        await host.open("s1");
+        listed.value = ["s1"];
+        focused.value = false;
+        await nextTick();
+        focused.value = true;
+        await nextTick();
+        expect([refreshes, timers.length]).toEqual([0, 0]);
+
+        shown.value = true;
+        await nextTick();
+        expect(refreshes).toBe(1);
+        expect(timers.map((timer) => [timer.milliseconds, timer.stopped])).toEqual([[15_000, false]]);
+        timers[0]!.run();
+        expect(refreshes).toBe(2);
+
+        await host.open("s4");
+        await nextTick();
+        expect(refreshes).toBe(3);
+        listed.value = ["s1", "s4"];
+        await nextTick();
+        expect(refreshes).toBe(4);
+        focused.value = false;
+        await nextTick();
+        focused.value = true;
+        await nextTick();
+        expect(refreshes).toBe(5);
+
+        // 收起来（视图段不画了）停掉定时器；再画出来重取一次、另起一个。
+        shown.value = false;
+        await nextTick();
+        expect(timers[0]!.stopped).toBe(true);
+        shown.value = true;
+        await nextTick();
+        expect([refreshes, timers.length, timers[1]!.stopped]).toEqual([6, 2, false]);
+        stop();
+        expect(timers[1]!.stopped).toBe(true);
     });
 
     it("看到：有归属的会话开着、视图可见且窗口有焦点、没有盖层时才交；三样各自不满足时都不交", async () => {

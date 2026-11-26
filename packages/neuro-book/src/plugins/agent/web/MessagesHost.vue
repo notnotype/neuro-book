@@ -85,7 +85,8 @@ const model = createMessagesModel({
     providers: () => props.providers,
     activity: () => props.activity,
     hasModel: () => props.hasModel,
-    sessions: () => props.list.roots.value,
+    // 最近会话的独立查询（与第一屏共用，输出 57 的“最近会话”）：不靠会话面板的列表、不受它的搜索与过滤影响。
+    sessions: () => props.conversation.recent.sessions.value,
     selectSession: (id) => props.host.act({type: "session.select", sessionId: id}),
     texts: {contactsFailed: (code) => t("conversation.messages.contactsFailed", {code}), untitled: () => t("conversation.messages.untitled")},
 });
@@ -124,6 +125,13 @@ async function newSession(): Promise<void> {
 
 const focused = useWindowFocus();
 model.watchSeen(() => props.context.visible.value && focused.value);
+// 15 秒的定时器不随组件的作用域停，卸载时停掉。
+onBeforeUnmount(model.watchRecent({
+    shown: () => placement.value.kind !== "none",
+    focused: () => focused.value,
+    listed: () => props.list.roots.value,
+    refresh: () => void props.conversation.recent.refresh(),
+}));
 </script>
 
 <template>
