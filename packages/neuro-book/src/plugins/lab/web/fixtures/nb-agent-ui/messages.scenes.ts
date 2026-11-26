@@ -67,6 +67,7 @@ const segment = {sections: SECTIONS, selected: {kind: "contact" as const, key: "
 export const agentMessagesSegmentScenes: SegmentScene[] = [
     {id: "collapsed", label: "收着：bot、短线、新对话与最近会话、底段", input: {props: {...segment, expanded: false}, model}},
     {id: "collapsed-short", label: "收着、高度不够：“+N”，最近会话从末尾截", input: {props: {...segment, expanded: false, sections: MANY}, model}},
+    {id: "collapsed-waiting-only", label: "收着、没有未读只有等你处理：“全部 bot”上是 warning 圆点", input: {props: {...segment, expanded: false, sections: [{...SECTIONS[0]!, contacts: SECTIONS[0]!.contacts.map((contact) => ({...contact, unread: 0}))}]}, model}},
     {id: "expanded", label: "展开 260：完整列表", input: {props: {...segment, expanded: true}, model}},
     {id: "expanded-200-english", label: "英文、展开到最窄 200", input: {props: {...segment, expanded: true, sections: SECTIONS_EN, locale: "en-US"}, model}},
 ];

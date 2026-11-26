@@ -185,7 +185,7 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         wrapper.unmount();
     });
 
-    it("从侧轨换到右边缘：同一份列表搬过来、搜索词不丢，聊天区不重挂；none 时不画视图段", async () => {
+    it("从侧轨换到右边缘：同一个列表搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；none 时不画视图段", async () => {
         const {wrapper, placement, expanded} = mountFrame({expanded: true});
         const list = $("[data-messages-list-panel]")!;
         const input = $<HTMLInputElement>("[data-messages-page='bot'] input")!;
@@ -193,7 +193,7 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         input.dispatchEvent(new Event("input", {bubbles: true}));
         placement.value = {kind: "edge", width: 260};
         await nextTick();
-        const edge = wrapper.get<HTMLElement>(".acv-messages__edge");
+        const edge = wrapper.get<HTMLElement>("[data-float-rail]");
         expect(edge.element.style.width).toBe("260px");
         expect(edge.element.contains(list)).toBe(true);
         expect($<HTMLInputElement>("[data-messages-page='bot'] input")!.value).toBe("织");
@@ -269,14 +269,6 @@ describe("AgentMessagesList", () => {
         expect(tab.value).toBe("bot");
         expect(document.activeElement).toBe(bot.element);
         wrapper.unmount();
-    });
-
-    it("切换行的右端是插槽", () => {
-        const wrapper = mount(AgentMessagesList, {
-            props: {tab: "bot", sections: SECTIONS, selectedContact: null, now: NOW, locale: "zh-CN"},
-            slots: {sessions: () => null, "switch-end": () => h("button", {"data-probe-end": ""}, "收起")},
-        });
-        expect(wrapper.get("[data-messages-switch]").find("[data-probe-end]").exists()).toBe(true);
     });
 
     it("bot 行：第二行在跑写“正在回复…”、等你写“等你处理”、平时写最后一句话、没有写还没有消息；未读数；选中的行", () => {

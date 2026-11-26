@@ -48,6 +48,8 @@ const props = defineProps<{
     reveal: () => Promise<boolean>;
     /** 要展开列表的哪一页（命令“搜索会话”）：这里取走（写回 null）后展开。 */
     listRequest: ShallowRef<"bot" | "sessions" | null>;
+    /** 插件的诊断出口（`plugin.ts` 的 `report`）。 */
+    report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }>();
 
 const t = useAgentPageText();
@@ -56,8 +58,11 @@ const t = useAgentPageText();
 
 const head = viewHeadOf(props.context);
 const ownHead = computed(() => head?.ownHead.value === true);
-/** 自绘头时给 nb-agent-ui 的头高与右端让位（工作台把盖在右端的按钮宽度写在内容上）。 */
-const ownHeadStyle = computed(() => (ownHead.value ? {"--acv-head-height": `${MESSAGES_HEAD_BAND}px`, "--acv-head-inset-end": "var(--workbench-own-head-inset-end, 0px)"} : undefined));
+/**
+ * 自绘头时给 nb-agent-ui 的头高与右端让位（工作台把盖在右端的按钮宽度写在内容上）；视图段画在窗的右边缘时顶上让出头那一格，给“回到停靠”
+ * （ui/workbench-layout.md 输出 51）。
+ */
+const ownHeadStyle = computed(() => (ownHead.value ? {"--acv-head-height": `${MESSAGES_HEAD_BAND}px`, "--acv-head-inset-end": "var(--workbench-own-head-inset-end, 0px)", "--acv-segment-inset-top": `${MESSAGES_HEAD_BAND}px`} : undefined));
 // 停靠时总是接管面板头（输出 44、57）；浮成窗时工作台不看它。在 setup 里同步写，首帧不翻。
 if (head !== null) {
     head.claim.value = true;
@@ -111,7 +116,14 @@ const focusComposer = (): void => {
 async function showList(page: "bot" | "sessions"): Promise<void> {
     tab.value = page;
     if (rail === null) return;
-    const result = await rail.request(true);
+    let result: Awaited<ReturnType<typeof rail.request>>;
+    try {
+        result = await rail.request(true);
+    } catch (error) {
+        // 工作台的处理抛了错（`ViewRail.request` 交回失败的 Promise）：不展开，留一条诊断。
+        props.report("rail-request-failed", "消息视图段的展开请求失败", {error: error instanceof Error ? error.message : String(error)});
+        return;
+    }
     if (result === "done") messagesRef.value?.focusSearch(page);
 }
 
@@ -124,13 +136,25 @@ watch(() => props.listRequest.value, (page) => {
 
 /**
  * 视图段与列表里打开、新建之后走揭示通道（输出 57 的“打开”）：区域隐藏、拖到零或被别的面板最大化盖着时，侧轨还在、聊天区看不到。先选会话再揭示：
- * 揭示要等，在途的那次不能在用户的新选择之后再改选择；揭示完了焦点交给聊天输入框，只有最后一次揭示给。
+ * 揭示要等，在途的那次不能在用户的新选择之后再改选择。揭示完了焦点交给聊天输入框，只有最后一次揭示给；这时聊天区上还盖着（点了 bot、
+ * 主对话还在取，聊天区 `inert`）就等盖层撤掉再给。打开失败、没有模型时盖层留着、不再等，之后撤掉也不抢焦点。
  */
 let reveals = 0;
+const focusWanted = ref(false);
 async function revealAndFocus(): Promise<void> {
     const seq = ++reveals;
-    if (await props.reveal() && seq === reveals) focusComposer();
+    focusWanted.value = false;
+    if (await props.reveal() && seq === reveals) focusWanted.value = true;
 }
+watch([focusWanted, cover], ([wanted, current]) => {
+    if (!wanted) return;
+    if (current === null) {
+        focusWanted.value = false;
+        focusComposer();
+    } else if (current.kind === "pending" && current.pending.step !== "opening") {
+        focusWanted.value = false;
+    }
+});
 
 function openSession(id: string): void {
     model.openSession(id);

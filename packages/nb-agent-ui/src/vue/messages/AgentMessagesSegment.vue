@@ -3,7 +3,8 @@
  * “消息”视图借给侧轨的一段（同名 .md）：收着是快切的一列，展开是完整列表；按 `expanded` 换画法，不看宽度。
  *
  * 中段与底段各一个 `Teleport`：给了 `targets` 时送进侧轨的 `main`、`foot`，不给时 `disabled`，按顺序画在组件自己的根里（浮动窗的右边缘、Lab）。
- * 两种都是同一份 DOM，换位置时 Vue 只搬节点，列表的滚动与搜索框的焦点不丢。
+ * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），浏览器里搬动会丢焦点与滚动位置，换位置后恢复
+ * 是视图的事（views.md 输出 21），这里还没做：目前只有停靠与浮动互换会搬它。
  */
 import {computed, nextTick, ref, watch} from "vue";
 import {useLayoutExtent} from "@notnotype/nb-layout/vue";
@@ -123,7 +124,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
             >
                 <template v-if="!props.expanded">
                     <div v-for="contact in fit.bots" :key="contact.key" class="acv-segment__row">
-                        <span v-if="contact.key === currentBot" class="acv-segment__bar" aria-hidden="true" />
+                        <span class="acv-segment__bar" :data-shown="contact.key === currentBot ? '' : undefined" aria-hidden="true" />
                         <Tooltip :text="contact.name" :side="props.tooltipSide">
                             <button
                                 type="button"
@@ -271,7 +272,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     width: 100%;
 }
 
-/* 当前 bot：头像外侧（侧轨外缘，右边）一条竖条，同活动栏入口的块那样不随悬停变。 */
+/* 当前 bot：头像外侧（侧轨外缘，右边）一条竖条，不随悬停变；换当前 bot 时旧的淡出、新的淡入。 */
 .acv-segment__bar {
     position: absolute;
     top: 8px;
@@ -280,7 +281,12 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     width: 3px;
     border-radius: 3px 0 0 3px;
     background: var(--accent-main);
-    transition: background-color var(--motion-fast);
+    opacity: 0;
+    transition: opacity var(--motion-fast), background-color var(--motion-fast);
+}
+
+.acv-segment__bar[data-shown] {
+    opacity: 1;
 }
 
 [data-rail-weak] .acv-segment__bar {
@@ -302,7 +308,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     color: var(--skin-activitybar-foreground, var(--text-muted));
     font: inherit;
     cursor: pointer;
-    transition: background-color var(--motion-fast), color var(--motion-fast);
+    transition: background-color var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
 .acv-segment__item:hover {
@@ -310,9 +316,10 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     color: var(--skin-activitybar-active, var(--text-main));
 }
 
+/* 底段按下：灰底、正文色，同侧轨底段的切换按钮（强调色只给上段的入口）。 */
 .acv-segment__item[aria-pressed="true"] {
     background: var(--skin-activitybar-hover, var(--bg-hover));
-    color: var(--skin-activitybar-active, var(--accent-text));
+    color: var(--skin-activitybar-active, var(--text-main));
 }
 
 .acv-segment__item--bot {
@@ -386,7 +393,9 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     pointer-events: none;
 }
 
+/* 汇总里有等你处理：warning 色，并且换成方角，不只靠颜色区分（有的主题里强调色与 warning 同色）。 */
 .acv-segment__count[data-messages-summary-waiting] {
+    border-radius: 4px;
     background: var(--status-warning);
 }
 
@@ -396,7 +405,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     right: 3px;
     width: 9px;
     height: 9px;
-    border: 2px solid var(--skin-activitybar-background, var(--bg-panel));
+    border: 2px solid var(--skin-activitybar-surface, var(--panel-surface));
     border-radius: 50%;
     background: var(--status-warning);
     pointer-events: none;

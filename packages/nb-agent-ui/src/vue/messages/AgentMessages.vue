@@ -2,7 +2,7 @@
 /**
  * “消息”视图的外框（同名 .md）：聊天区加借给侧轨的视图段（`AgentMessagesSegment`）。视图段在哪由宿主给的 `placement` 定：
  * 送进侧轨（`rail`）、画在自己的右边缘（`edge`，浮动窗）、没有（`none`）。`rail` 与 `edge` 之间换的是同一个视图段实例，
- * 只换 `Teleport` 的去处，列表的滚动与搜索词不丢；聊天区一直是同一份 DOM。
+ * 只换 `Teleport` 的去处，搜索词与当前页都在（滚动与焦点见 `AgentMessagesSegment` 的说明）；聊天区一直是同一份 DOM。
  */
 import {computed, ref} from "vue";
 
@@ -53,7 +53,13 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
             <slot />
         </div>
         <!-- 送进侧轨时这一栏是空的、不占位；画在右边缘时是窗里的一栏。 -->
-        <aside v-if="props.placement.kind === 'edge' || targets !== null" class="acv-messages__edge" :class="{'acv-messages__edge--away': targets !== null}" :style="edgeStyle">
+        <aside
+            v-if="props.placement.kind === 'edge' || targets !== null"
+            class="acv-messages__edge"
+            :class="{'acv-messages__edge--away': targets !== null}"
+            :style="edgeStyle"
+            :data-float-rail="props.placement.kind === 'edge' ? '' : undefined"
+        >
             <AgentMessagesSegment
                 ref="segmentRef"
                 v-model:bot-query="botQuery"

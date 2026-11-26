@@ -55,7 +55,7 @@ describe("渲染层的样式 token", () => {
             declared: nbColorwayVarKeys,
             // 宿主给的，读的地方都带缺省值：自绘窗口头时的头高与右端让位（AgentConversationHead.md），视图段画在右边缘时顶上的让位（AgentMessages.md），
             // 视图段送进工作台侧轨时跟着侧轨的皮肤变量画（AgentMessagesSegment.md）。
-            hostVars: new Set(["--acv-head-height", "--acv-head-inset-end", "--acv-segment-inset-top", "--skin-activitybar-foreground", "--skin-activitybar-hover", "--skin-activitybar-active", "--skin-activitybar-background"]),
+            hostVars: new Set(["--acv-head-height", "--acv-head-inset-end", "--acv-segment-inset-top", "--skin-activitybar-foreground", "--skin-activitybar-hover", "--skin-activitybar-active", "--skin-activitybar-surface"]),
             runtimePrefixes: ["--tw-"],
         })).toEqual([]);
     });

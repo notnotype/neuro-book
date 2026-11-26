@@ -27,7 +27,7 @@ const emit = defineEmits<{
 /** bot 页的搜索词：宿主绑了就由宿主记（视图段收起时列表拿掉，搜索词不能跟着丢），不绑时这里记。 */
 const query = defineModel<string>("botQuery", {default: ""});
 
-defineSlots<{sessions(): unknown; "switch-end"?(): unknown}>();
+defineSlots<{sessions(): unknown}>();
 
 const {t, locale} = provideAgentText(() => props.locale);
 
@@ -123,7 +123,6 @@ function markBroken(src: string): void {
                     <Badge v-if="item.count > 0" size="sm" tone="accent">{{ item.count }}</Badge>
                 </button>
             </div>
-            <slot name="switch-end" />
         </div>
         <div v-show="props.tab === 'bot'" :id="`${ids}-page-bot`" class="acv-messages-list__page" :class="{'is-entering': entering === 'bot'}" role="tabpanel" :aria-labelledby="`${ids}-tab-bot`" data-messages-page="bot" @animationend.self="entering = null">
             <div class="acv-messages-list__search">
@@ -182,7 +181,7 @@ function markBroken(src: string): void {
     font-size: var(--text-sm);
 }
 
-/* 切换这一行：两个标题式的标签，没有底线；右端留给外框的收起按钮。 */
+/* 切换这一行：两个标题式的标签，没有底线。 */
 .acv-messages-list__switch {
     display: flex;
     flex-shrink: 0;
@@ -198,7 +197,7 @@ function markBroken(src: string): void {
     flex: 1;
     gap: 16px;
     min-width: 0;
-    /* 放不下时裁掉，不压到右端的按钮；留出焦点环的位置。 */
+    /* 放不下时裁掉；留出焦点环的位置。 */
     overflow: clip;
     overflow-clip-margin: 4px;
 }

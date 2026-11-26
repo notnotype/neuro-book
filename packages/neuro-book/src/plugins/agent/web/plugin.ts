@@ -722,7 +722,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                             const conversation = conversationProps(position, host, registry.value, services.value, renderers);
                             // 右栏是消息视图（聊天区加借给右轨的视图段）；编辑区页面照旧只有对话，会话列表在头的下拉里。
                             if (position === "page" || props.context === null) return h(ConversationHost, {...conversation, head});
-                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, reveal: revealMessages, listRequest});
+                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, reveal: revealMessages, listRequest, report});
                         };
                     },
                 });
