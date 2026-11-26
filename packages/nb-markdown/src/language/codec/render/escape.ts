@@ -75,11 +75,6 @@ export interface EscapeAround {
     readonly definitions: ReadonlyMap<string, string>;
     /** 语言的原子转义规则：文字里会被认成原子开头的写法前面加反斜杠（条目的标签）。 */
     readonly atomEscape?: ((text: string, index: number) => boolean) | null;
-    /**
-     * 语言里各模块在这段文字里认出的原子范围：范围里的字原样写出、不转义。分词时整个原子换成占位，里面的反斜杠不会被当成转义，
-     * 加了就改了原子的原文（表格里转义的条目标签 `\<V expr="a || b" />` 的 `|`、完全转义一级的 `=`）。
-     */
-    readonly atomSpans?: ((text: string) => ReadonlyArray<{readonly from: number; readonly to: number}>) | null;
 }
 
 /** 行首会被读成块语法的写法：返回要在第几个字符前加反斜杠（相对去掉前导空白后的位置），不需要为 -1。 */
@@ -122,8 +117,6 @@ export function escapeText(text: string, around: EscapeAround): string {
         return positions;
     };
     const escape = (char: string): string => (around.full ? `${SENTINEL}\\${char}` : `\\${char}`);
-    const atoms = around.atomSpans?.(text) ?? [];
-    const inAtom = (index: number): boolean => atoms.some((atom) => index >= atom.from && index < atom.to);
     // 行首的前导空白会被吃掉（四个以上还会变成代码块）：第一个写成实体。标题与表格单元格的内容被 `trim()`，全角空格这类
     // Unicode 空白也会被去掉。
     const trimmed = around.place.heading === true || around.place.table === true;
@@ -148,10 +141,6 @@ export function escapeText(text: string, around: EscapeAround): string {
         const char = text[index] as string;
         const previous = index === 0 ? around.before : (text[index - 1] as string);
         const next = index === text.length - 1 ? around.after : (text[index + 1] as string);
-        if (inAtom(index)) {
-            out.push(char);
-            continue;
-        }
         const entity = entityOf(char);
         if (entity !== null) {
             out.push(entity);
