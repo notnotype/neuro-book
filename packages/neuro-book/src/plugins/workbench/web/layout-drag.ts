@@ -4,7 +4,8 @@
  * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，分节的标题也是）、活动栏的入口（`data-tool-entry`；只含一个视图的另有 `data-tool-view`，拖的是那个视图；含几个视图的拖的是容器，只能在入口条里换序，输出 46）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）、视图自绘头的浮动窗里视图标出的拖动区（`data-window-drag`，中间隔着可交互元素的不算，`windowDragRegion`；整窗移动，docs/specs/workbench/views.md 输出 19 的“自绘头”）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
  * `data-no-drag-start` 只是不起拖（标签上的关闭按钮：拖动经过时它还在标签条里），被菜单、对话框挡住的不接收。编辑组的标签条写 `data-panel-strip`，它的多行、固定分区由编辑器量（`editorTabs`）。
  *
- * 入口条（输出 45、47）：活动栏上段（`data-tool-band`）是侧栏的，右栏、底部面板的在各自卡片顶上（`data-region-strip`）。入口之间新建容器、换序或整个容器搬过来，入口上并入；
+ * 入口条（输出 45、47、50）：侧轨的入口带（`[data-rail] [data-tool-band]`，左轨是侧栏的、右轨是右栏的）竖着排，底部面板的在卡片顶上（`data-region-strip`）横着排。
+ * 怎么量按入口带的方向分，不按区域名。入口之间新建容器、换序或整个容器搬过来，入口上并入；
  * 判定与放下的结果在 `entry-drop`，这里量入口给它。入口条不走库的落点规则：条不是面板。入口条里并进来的那一节的头不算入口条，是那一节的标题行（输出 25 第 7 行）。
  *
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
@@ -492,8 +493,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return strip === null ? null : measureTabStrip(strip);
     }
 
-    /** 一个区域的入口条元素：侧栏是活动栏上段，右栏、底部面板是卡片顶上那一行。 */
-    const bandElement = (region: PanelName): Element | null => root.querySelector(region === "sidebar" ? "[data-tool-band]" : `[data-region-strip="${region}"]`);
+    /** 一个区域的入口条元素：侧栏、右栏是各自侧轨的入口带，底部面板是卡片顶上那一行。 */
+    const bandElement = (region: PanelName): Element | null => root.querySelector(`[data-rail="${region}"] [data-tool-band]`) ?? root.querySelector(`[data-region-strip="${region}"]`);
 
     /** 看得见的入口，沿入口条的方向：收进“更多”的不在 DOM 里。 */
     function entriesIn(band: Element, axis: "x" | "y"): ReadonlyArray<BarEntryRect> {
@@ -509,7 +510,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const row = rectOf(element);
             // 被最大化的面板盖住的（叶 `inert`）、正在离开的入口条不是落点：指针下是盖在上面的那块面板，不是它。
             if (element === null || row === null || element.closest("[inert], [data-leaving]") !== null) return [];
-            if (region === "sidebar") return [{region, axis: "y", row, groupEnd: row.bottom, merged: null, rect: row, entries: entriesIn(element, "y")}];
+            // 侧轨的入口带竖着排，整条是落点，没有并进来的头。
+            if (element.hasAttribute("data-tool-band")) return [{region, axis: "y", row, groupEnd: row.bottom, merged: null, rect: row, entries: entriesIn(element, "y")}];
             const groupEnd = rectOf(element.querySelector("[data-region-entries]"))?.right ?? row.left;
             const merged = element.querySelector<HTMLElement>("[data-panel-head]")?.dataset.panelHead ?? null;
             return [{region, axis: "x", row, groupEnd, merged, rect: merged === null ? row : {...row, right: groupEnd}, entries: entriesIn(element, "x")}];
@@ -978,7 +980,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 // 从标签拿起：原位是它自己。从入口条拿起：区域就是那条入口条，起点是条目，放回去也是原位（它在面板里的标签可能看不见：面板隐藏、头只写别的视图的标题）。
                 const fromBar = origin.closest("[data-tool-entry]") !== null;
                 const tab = source.kind === "tab" ? source.tab : "";
-                const stripRegion = origin.closest<HTMLElement>("[data-region-strip]")?.dataset.regionStrip;
+                const stripRegion = origin.closest<HTMLElement>("[data-rail]")?.dataset.rail ?? origin.closest<HTMLElement>("[data-region-strip]")?.dataset.regionStrip;
                 const home = fromBar ? entryStripOf(stripRegion === "auxiliarybar" || stripRegion === "panel" ? stripRegion : "sidebar") : findTab(options.doc(), tab)?.panel;
                 const region = Math.max(0, regions.findIndex((candidate) => candidate.id === home));
                 const own = fromBar ? null : root.querySelector(`[data-panel-tab="${escape(tab)}"]`);

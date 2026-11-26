@@ -338,16 +338,31 @@ function headOfPanel(panelId: string) {
 }
 
 /**
- * 并进入口条时视图接管标题区的最小宽度（views.md 输出 19）：头那一段（入口条叶的宽减去入口与框架按钮）窄于它时不接管，头回到普通画法、视图在自己的内容里画头。
+ * 视图接管标题区的最小宽度（views.md 输出 19）：头里留给视图的那一段（头的宽减去框架按钮；并进入口条时再减去入口）窄于它时不接管，头回到普通画法、视图在自己的内容里画头。
  * 只看布局给的宽度，不看视图送进来的内容，所以不会自己来回翻。按对话视图两侧列的实际宽度定；有第二个接管标题区的视图时改成视图声明。
  */
 const VIEW_HEAD_MIN_PX = 220;
+/**
+ * 面板最近一次不为零的布局宽：区域隐藏、拖到零的那段过渡里它的宽是 0，接管与否照显示着的时候判，头不在收起过程中换画法（同 `stripWidthOf`）。
+ * 浮动窗不在呈现尺寸里，按记录的矩形。只是缓存，读它的地方同时读了 `presented`。
+ */
+const panelWidths = new Map<string, number>();
+function headWidthOf(panelId: string): number | null {
+    const float = doc.value.floats.find((candidate) => candidate.panel === panelId);
+    if (float !== undefined) return float.rect.width;
+    const width = state.value.presented[panelId]?.width ?? null;
+    if (width !== null && width > 0) {
+        panelWidths.set(panelId, width);
+        return width;
+    }
+    return panelWidths.get(panelId) ?? width;
+}
 function panelViewHead(panelId: string): PanelViewHead | null {
     const found = headOfPanel(panelId);
     if (found === null) return null;
     const region = mergedRegionOf(panelId);
-    const stripWidth = region === null ? null : stripWidthOf(region);
-    if (region !== null && stripWidth !== null && stripWidth - stripEntriesReserve(region) - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
+    const room = region === null ? headWidthOf(panelId) : stripWidthOf(region) === null ? null : (stripWidthOf(region) as number) - stripEntriesReserve(region);
+    if (room !== null && room - FRAME_BUTTON_PX * 2 - HEAD_PADDING_PX < VIEW_HEAD_MIN_PX) return null;
     return {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
 }
 
@@ -1044,8 +1059,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 @content-parked="onContentParked"
                 @issues="(issues) => reportGridIssues(issues)"
             >
-                <template #activitybar>
+                <template #activitybar="{joined}">
                     <WorkbenchToolStrip
+                        :joined="joined"
                         :label="message('shell.activityBar')"
                         :more-label="message('common.more')"
                         :entries="toolEntries"
@@ -1056,6 +1072,22 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :drag-hint="message('shell.drag.hint')"
                         @select="(id) => selectRegionEntry('sidebar', id)"
                         @run-item="(id) => chrome?.runItem(id)"
+                        @context-menu="openContainerMenu"
+                    />
+                </template>
+                <!-- 右轨（输出 50）：右栏的容器入口，和活动栏同一个组件；点、拖、右键同活动栏的上段。 -->
+                <template #rail="{joined}">
+                    <WorkbenchToolStrip
+                        region="auxiliarybar"
+                        :joined="joined"
+                        :label="message('shell.auxiliaryRail')"
+                        :more-label="message('common.more')"
+                        :entries="stripEntries.auxiliarybar"
+                        :placeholder="entryPlaceholderIn(stripEntries.auxiliarybar)"
+                        :highlighted="mergeEntry"
+                        :slide-token="slides.auxiliarybar"
+                        :drag-hint="message('shell.drag.hint')"
+                        @select="(id) => selectRegionEntry('auxiliarybar', id)"
                         @context-menu="openContainerMenu"
                     />
                 </template>
@@ -1090,10 +1122,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 <template #strip="{region, merged, idPrefix}">
                     <WorkbenchRegionStrip
                         :region="region"
-                        :label="message(region === 'panel' ? 'shell.regionStrip.panel' : 'shell.regionStrip.auxiliarybar')"
+                        :label="message('shell.regionStrip.panel')"
                         :more-label="message('common.more')"
                         :entries="stripEntriesOf(region)"
-                        :variant="region === 'panel' ? 'titles' : 'icons'"
                         :head-min-width="merged === null ? 0 : headOwnReserve(merged)"
                         :slide-token="slides[region]"
                         :drag-hint="message('shell.drag.hint')"

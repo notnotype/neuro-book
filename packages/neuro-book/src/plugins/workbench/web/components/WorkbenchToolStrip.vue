@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
+ * 侧轨（同名 .md）：左轨就是活动栏，右轨是右栏外侧那一条（docs/specs/ui/workbench-layout.md 输出 22、50）。上段列区域的容器，一个容器一个入口；
+ * 底段是贡献来的全局项（只有左轨有）。点了只发 `select` 或 `run-item`，做什么由宿主定。整条是一条纵向工具条，焦点按 roving tabindex 在条里走。
  */
 import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import {entryCountText, entryTitle} from "../../shared/entry-count";
@@ -48,6 +49,10 @@ defineOptions({name: "WorkbenchToolStrip"});
 
 const props = withDefaults(defineProps<{
     label: string;
+    /** 哪个区域的侧轨：左轨（侧栏）在区域左边，右轨（右栏）在右边，悬停提示与菜单朝区域那一侧的反方向开。 */
+    region?: "sidebar" | "auxiliarybar";
+    /** 和区域的卡片相连（宿主从表面拿到）：写 `data-rail-joined`，给测试与主题看。 */
+    joined?: boolean;
     moreLabel: string;
     entries: ReadonlyArray<ToolStripEntry>;
     items?: ReadonlyArray<ToolStripItem>;
@@ -62,7 +67,10 @@ const props = withDefaults(defineProps<{
      * 别的途径换了当前容器（命令、“移动到”、拖动落进入口、当前容器空了）内容不滚，块也直接到位。
      */
     slideToken?: number;
-}>(), {items: () => [], dragHint: "", placeholder: null, highlighted: null, slideToken: 0});
+}>(), {region: "sidebar", joined: false, items: () => [], dragHint: "", placeholder: null, highlighted: null, slideToken: 0});
+
+/** 提示与菜单开在侧轨外侧：左轨往右开，右轨往左开，不压到窗口边外。 */
+const popupSide = computed(() => (props.region === "sidebar" ? "right" : "left"));
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -71,12 +79,12 @@ const emit = defineEmits<{
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
 }>();
 
-/** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在条目右边。 */
+/** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在条目朝区域的那一侧（左轨的右边、右轨的左边）。 */
 function onEntryContextMenu(id: string, event: MouseEvent): void {
     event.preventDefault();
     if (event.button === 0 && event.clientX === 0 && event.clientY === 0 && event.currentTarget instanceof Element) {
         const rect = event.currentTarget.getBoundingClientRect();
-        emit("context-menu", id, {x: rect.right, y: rect.top});
+        emit("context-menu", id, {x: props.region === "sidebar" ? rect.right : rect.left, y: rect.top});
         return;
     }
     emit("context-menu", id, {x: event.clientX, y: event.clientY});
@@ -134,10 +142,79 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
     // 按下的入口、摆出来的入口与条目区的高度：入口是定宽的按钮，别的不会挪动它。
     layoutKey: () => `${shownEntries.value.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(",")}|${String(available.value)}`,
 });
+
+/**
+ * 纵向工具条的焦点（输出 50 的“焦点与读屏”）：条里带 `data-rail-item` 的可聚焦项按 DOM 顺序是一条（入口、“更多”、视图借来的那一段里的项、底段），
+ * 只有一项可以 Tab 进来（`tabindex=0`），上下方向键、Home、End 在条里走。视图段的项由视图画（Teleport 进来），所以按 DOM 现找，不靠这里的数据；
+ * 条里的元素变了（入口增减、视图段换画法）由 `MutationObserver` 重排一次。Tab 进来的那一项：上次在条里的那一项还在就是它，否则是按下的入口，再否则是第一项。
+ */
+const navEl = ref<HTMLElement | null>(null);
+let lastItem: HTMLElement | null = null;
+
+function railItems(): HTMLElement[] {
+    const root = navEl.value;
+    if (root === null) return [];
+    return [...root.querySelectorAll<HTMLElement>("[data-rail-item]")].filter((element) => !element.hasAttribute("disabled") && element.closest("[aria-hidden='true']") === null);
+}
+
+function syncTabStops(): void {
+    const items = railItems();
+    const stop = (lastItem !== null && items.includes(lastItem) ? lastItem : null)
+        ?? items.find((element) => element.getAttribute("aria-pressed") === "true" && element.hasAttribute("data-tool-entry"))
+        ?? items[0];
+    for (const element of items) element.setAttribute("tabindex", element === stop ? "0" : "-1");
+}
+
+function onFocusIn(event: FocusEvent): void {
+    const item = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-rail-item]") : null;
+    if (item === null || !navEl.value?.contains(item)) return;
+    lastItem = item;
+    syncTabStops();
+}
+
+const STEPS: Readonly<Record<string, (index: number, count: number) => number>> = {
+    ArrowDown: (index, count) => Math.min(count - 1, index + 1),
+    ArrowUp: (index) => Math.max(0, index - 1),
+    Home: () => 0,
+    End: (_index, count) => count - 1,
+};
+
+function onKeydown(event: KeyboardEvent): void {
+    const step = STEPS[event.key];
+    const item = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-rail-item]") : null;
+    if (step === undefined || item === null || event.altKey || event.ctrlKey || event.metaKey) return;
+    const items = railItems();
+    const index = items.indexOf(item);
+    if (index === -1) return;
+    event.preventDefault();
+    items[step(index, items.length)]?.focus();
+}
+
+let mutations: MutationObserver | null = null;
+onMounted(() => {
+    syncTabStops();
+    if (typeof MutationObserver !== "function" || navEl.value === null) return;
+    mutations = new MutationObserver(syncTabStops);
+    // 只看增删：`tabindex` 是这里自己写的，看属性会循环。
+    mutations.observe(navEl.value, {childList: true, subtree: true});
+});
+onBeforeUnmount(() => mutations?.disconnect());
+// 按下的入口换了、入口收进“更多”：增删看不到，等这一轮渲染完再排。
+watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}`).join(","), () => void nextTick(syncTabStops));
 </script>
 
 <template>
-    <nav class="workbench-tool-strip" :aria-label="label">
+    <nav
+        ref="navEl"
+        class="workbench-tool-strip"
+        :class="`workbench-tool-strip--${region}`"
+        :aria-label="label"
+        :data-rail="region"
+        data-rail-state="collapsed"
+        :data-rail-joined="joined ? '' : undefined"
+        @focusin="onFocusIn"
+        @keydown="onKeydown"
+    >
         <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
             <span
                 ref="indicatorEl"
@@ -153,7 +230,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
                 <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" data-entry-frame :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
-                    <Tooltip :text="entry.tooltip" side="right">
+                    <Tooltip :text="entry.tooltip" :side="popupSide">
                         <IconButton
                             size="lg"
                             :icon-class="entry.icon ?? PLACEHOLDER_ICON"
@@ -162,6 +239,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-tool-entry="entry.id"
                             :data-tool-view="entry.viewId ?? undefined"
+                            data-rail-item
                             class="workbench-tool-strip__item"
                             :class="{'workbench-tool-strip__item--active': entry.pressed, 'workbench-tool-strip__item--merge': entry.id === highlighted}"
                             :data-tool-merge="entry.id === highlighted ? '' : undefined"
@@ -173,14 +251,15 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                     <Badge v-if="entry.count != null" size="sm" tone="accent" class="workbench-tool-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
-            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">
-                <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-tool-strip__item" data-tool-more />
+            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" :side="popupSide" align="end" @select="(id: string) => emit('select', id)">
+                <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-tool-strip__item" data-tool-more data-rail-item />
             </DropdownMenu>
         </div>
-        <div class="workbench-tool-strip__footer" data-activity-items>
+        <!-- 全局项只在左轨（输出 50 的“三段”：主侧再加全局项）；右轨没有这一段，也不带 `data-activity-items`。 -->
+        <div v-if="region === 'sidebar'" class="workbench-tool-strip__footer" data-activity-items>
             <template v-for="item in items" :key="item.id">
                 <!-- 停用的按钮不触发悬停提示组件：停用时原因写在原生 title 上。 -->
-                <Tooltip v-if="item.interactive" :text="item.title" side="right" :disabled="item.disabledReason !== null">
+                <Tooltip v-if="item.interactive" :text="item.title" :side="popupSide" :disabled="item.disabledReason !== null">
                     <IconButton
                         size="lg"
                         :icon-class="item.icon"
@@ -189,13 +268,14 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                         :aria-pressed="item.pressed ?? undefined"
                         :disabled="item.disabledReason !== null"
                         :data-activity-item="item.id"
+                        data-rail-item
                         class="workbench-tool-strip__item"
                         :class="{'workbench-tool-strip__item--pressed': item.pressed === true}"
                         @click="emit('run-item', item.id)"
                     />
                 </Tooltip>
                 <!-- 没有命令：不可点的占位（不以可操作的假入口呈现），样子同书架右上角的头像位。 -->
-                <Tooltip v-else :text="item.title" side="right">
+                <Tooltip v-else :text="item.title" :side="popupSide">
                     <span class="workbench-tool-strip__placeholder" role="img" :aria-label="item.title" :data-activity-item="item.id" data-activity-item-placeholder>
                         <span class="workbench-tool-strip__placeholder-circle"><span class="workbench-tool-strip__placeholder-icon" :class="item.icon" aria-hidden="true"></span></span>
                     </span>
@@ -217,9 +297,9 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
     background: var(--skin-activitybar-surface, var(--panel-surface));
 }
 
-/* 书脊首尾的两条（docs/specs/theme/skins.md 输出 7）。主题没写时高度是 0，和没有一样。 */
-.workbench-tool-strip::before,
-.workbench-tool-strip::after {
+/* 书脊首尾的两条（docs/specs/theme/skins.md 输出 7）。主题没写时高度是 0，和没有一样。只画在左轨（活动栏）上：书脊是活动栏的装饰。 */
+.workbench-tool-strip--sidebar::before,
+.workbench-tool-strip--sidebar::after {
     flex: none;
     box-sizing: border-box;
     width: 34px;

@@ -85,10 +85,10 @@ type Emits = {
 };
 
 type Slots = {
-    /** 活动栏；条隐藏时不渲染。 */
-    activitybar?(): unknown;
-    /** 右栏外侧的侧轨（投影的 `rails`）：右栏有成员容器时才有这片叶。 */
-    rail?(props: {region: PanelName}): unknown;
+    /** 活动栏；条隐藏时不渲染。`joined`：此刻和侧栏的卡片相连（同 `data-shell-join`）。 */
+    activitybar?(props: {joined: boolean}): unknown;
+    /** 右栏外侧的侧轨（投影的 `rails`）：右栏有成员容器时才有这片叶。`joined` 同活动栏。 */
+    rail?(props: {region: PanelName; joined: boolean}): unknown;
     statusbar?(): unknown;
     /** 面板的头：工具面板放 `WorkbenchPanelHead`，编辑组放编辑器给的头（可以什么都不放，内容占满）。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;

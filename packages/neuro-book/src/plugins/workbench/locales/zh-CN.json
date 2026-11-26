@@ -286,8 +286,8 @@
             "withProject": "工作台已就绪。当前项目：{{name}}"
         },
         "activityBar": "活动栏",
+        "auxiliaryRail": "右栏的侧轨",
         "regionStrip": {
-            "auxiliarybar": "右栏的视图容器",
             "panel": "底部面板的视图容器"
         },
         "drag": {

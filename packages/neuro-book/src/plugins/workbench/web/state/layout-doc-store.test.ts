@@ -80,6 +80,8 @@ async function savedDoc(storage: StorageService, record: RecordDefinition<{doc: 
 }
 
 const settled = (store: LayoutDocStore) => waitUntil("保存完成", () => store.state.field.queue === 0);
+/** 区域在呈现树里的节点：区域只显示一节、顶上又没有入口条时那一列塌成那一节的叶，id 不是文档里区域节点的 id，按锚找。 */
+const presentedRegion = (store: LayoutDocStore, region: PanelName): string => [...store.actions.presentation().regionAnchors].find(([, anchor]) => anchor === region)?.[0] ?? "";
 const hideAux = (store: LayoutDocStore) => store.actions.setPartHidden("auxiliarybar", true);
 /** 视图所在的分节（面板 id）。 */
 function sectionOf(store: LayoutDocStore, viewId: string): string {
@@ -705,7 +707,7 @@ describe("呈现事实", () => {
         expect(sizeIn(store.state.doc, "g0").width).toBe(611);
         // 侧栏只显示一个分节时，呈现树里代表区域的就是这个分节：尺寸写给区域；右栏顶上有入口条（输出 47），代表区域的是包装分支（id 是区域节点的）。
         // 拖到零都记在锚上，分节自己不变成标题行（输出 11）。
-        const auxRegion = regionNodeOf(store.state.doc as LayoutDoc, "auxiliarybar")!.node.id;
+        const auxRegion = presentedRegion(store, "auxiliarybar");
         store.actions.commitGesture(store.state.presented, {[side]: {width: 222, height: 878}}, {[auxRegion]: true});
         await settled(store);
         const saved = await savedDoc(storage, USER);
@@ -804,7 +806,7 @@ describe("呈现事实", () => {
         // “这次动没动”看手势开始时的尺寸（`before`），不看 store 记的 `presented`：实时预览期间 `presented` 不更新，可能和手势开始时的不同（输出 49）。
         // 这里 `presented` 与落账后的右栏都是 160，`before` 里是 150：右栏这次动了，要写。右栏顶上有入口条，代表区域的是包装分支（输出 47）。
         expect(before[1]).not.toBe(160);
-        const auxRegion = regionNodeOf(store.actions.document(), "auxiliarybar")!.node.id;
+        const auxRegion = presentedRegion(store, "auxiliarybar");
         const shown = {...squeezed, [auxRegion]: {width: 160, height: 700}};
         store.actions.acceptPresented(shown);
         store.actions.commitGesture({...shown, [auxRegion]: {width: 150, height: 700}}, {...shown, [side]: {width: 200, height: 700}}, {});

@@ -95,11 +95,11 @@ export function panelConstraints(panel: PanelRecord, region: PanelName | null, c
 
 /**
  * 入口条叶顶上被卡片缩掉的那一截（输出 47）：卡片在叶里按主题的缝往里缩，入口条叶只有这一行，缩掉的要加回叶上，卡片里才是完整的一行头高
- * （分节的叶比头高，缩掉的是正文那段，不用加）。右栏顶上贴着窗体，缩一整条缝；底部面板顶上挨着编辑区、隔一条分隔线，缩半条缝减半条线。
- * 和别的卡片同一套规则（`shell/adjacency.ts` 的 `cardInsetPx`）：右栏顶上是外边，底部面板顶上是隔着分隔线的内边。
+ * （分节的叶比头高，缩掉的是正文那段，不用加）。只有底部面板有入口条：它顶上挨着编辑区、隔一条分隔线，缩半条缝减半条线，
+ * 和别的卡片同一套规则（`shell/adjacency.ts` 的 `cardInsetPx`，隔着分隔线的内边）。
  */
-function stripTopInset(region: PanelName, gap: number): number {
-    return cardInsetPx(region === "auxiliarybar" ? {kind: "outer", occupied: 0} : {kind: "inner", occupied: SASH_PX}, gap);
+function stripTopInset(gap: number): number {
+    return cardInsetPx({kind: "inner", occupied: SASH_PX}, gap);
 }
 
 /**
@@ -119,8 +119,10 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
         headHeight: PANEL_HEAD_HEIGHT,
         collapseThreshold: SHELL_DRAG_COLLAPSE_THRESHOLD,
         sashSize: SASH_PX,
-        // 右栏、底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏的入口在活动栏上。
-        regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT + stripTopInset(region, input.cardGap ?? 0), mergeSole: true}),
+        // 底部面板卡片顶上一行是入口条，当前容器只有一节时那一节的头并进这一行（输出 47）；侧栏、右栏的入口在各自的侧轨上（输出 22、50）。
+        regionStrip: (region) => (region === "panel" ? {height: PANEL_HEAD_HEIGHT + stripTopInset(input.cardGap ?? 0), mergeSole: true} : null),
+        // 右栏外侧的右轨（输出 50）：叶厚同活动栏，卡片宽加上它和窗体、右栏之间的缝。展开的宽度由预算给（片 5）。
+        rail: (region) => (region === "auxiliarybar" ? SHELL_RAIL_WIDTH + Math.max(0, input.cardGap ?? 0) : null),
         ...(input.removed === undefined ? {} : {removed: input.removed}),
     };
 }

@@ -22,16 +22,15 @@ const EXTENT: GridExtent = {width: 1440, height: 900};
 const ACTIVITY_BAR: CardBar = {leaf: "activitybar", group: "sidebar", side: "start"};
 const RAIL: CardBar = {leaf: railLeafId("auxiliarybar"), group: "auxiliarybar", side: "end"};
 
-/** `rail`：呈现里有右轨（输出 50），和外壳一样把它列进侧轨。 */
-function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent>> = {}, rail = false) {
-    const options = layoutProjectionOptions({doc, catalog: CATALOG, viewportWidth: EXTENT.width});
-    const {input, sashSize} = projectLayoutDoc(doc, rail ? {...options, rail: () => 48} : options);
+/** 和外壳一样：呈现里有右轨（输出 50）时把它列进侧轨。 */
+function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent>> = {}) {
+    const {input, sashSize, rails} = projectLayoutDoc(doc, layoutProjectionOptions({doc, catalog: CATALOG, viewportWidth: EXTENT.width}));
     const layout = createGrid<string>(input, {sashSize}).layout(EXTENT);
     return layoutCardEdges({
         root: input as GridNodeInput<string>,
         sizes: {...layout.sizes, ...sizesOverride},
         sashSizes: layout.sashSizes,
-        bars: rail ? [ACTIVITY_BAR, RAIL] : [ACTIVITY_BAR],
+        bars: rails.length > 0 ? [ACTIVITY_BAR, RAIL] : [ACTIVITY_BAR],
         plain: new Set(["statusbar"]),
         groupOf: (id) => regionOfStripLeaf(id) ?? regionOf(doc, id),
     });
@@ -57,26 +56,26 @@ describe("卡片的边", () => {
         expect(result.activitybar).toEqual({top: outer, right: barJoined, bottom: outer, left: outer});
         expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: outer, left: barJoined});
         expect(result[INITIAL_EDITOR_PANEL]).toEqual({top: outer, right: inner(1), bottom: inner(1), left: inner(1)});
-        // 右栏、底部面板顶上是入口条（输出 47），和下面的分节拼成一张卡片：入口条叶占卡片的上边，分节的上边相连。
+        // 底部面板顶上是入口条（输出 47），和下面的分节拼成一张卡片：入口条叶占卡片的上边，分节的上边相连。
         expect(result[regionStripLeafId("panel")]).toEqual({top: inner(1), right: inner(1), bottom: joined, left: inner(1)});
         expect(result[OUT]).toEqual({top: joined, right: inner(1), bottom: outer, left: inner(1)});
-        expect(result[regionStripLeafId("auxiliarybar")]).toEqual({top: outer, right: outer, bottom: joined, left: inner(1)});
-        expect(result[AUX]).toEqual({top: joined, right: outer, bottom: outer, left: inner(1)});
+        // 右栏没有入口条（入口在右轨上，输出 50）：分节自己贴窗体顶，右边和右轨相连。
+        expect(result[regionStripLeafId("auxiliarybar")]).toBeUndefined();
+        expect(result[AUX]).toEqual({top: outer, right: barJoined, bottom: outer, left: inner(1)});
         // 锚不画卡片。
         expect(result.sidebar).toBeUndefined();
         expect(result.statusbar).toBeUndefined();
     });
 
     it("右轨（输出 50）：和它左边右栏的每一块相连（右栏的右边、右轨的左边），右轨自己的右边贴窗体；活动栏照旧", () => {
-        const result = cards(doc(), {}, true);
+        const result = cards(doc());
         expect(result[RAIL.leaf]).toEqual({top: outer, right: outer, bottom: outer, left: barJoined});
         expect(result[AUX]?.right).toEqual(barJoined);
-        expect(result[regionStripLeafId("auxiliarybar")]?.right).toEqual(barJoined);
         expect(result.activitybar?.right).toEqual(barJoined);
     });
 
     it("右栏隐藏、拖到零：右轨不和任何卡片相连，自己一张卡片", () => {
-        const result = cards(hide(doc(), "auxiliarybar"), {}, true);
+        const result = cards(hide(doc(), "auxiliarybar"));
         expect(result[RAIL.leaf]?.left.kind).toBe("inner");
         expect(result[INITIAL_EDITOR_PANEL]?.right.kind).toBe("inner");
     });

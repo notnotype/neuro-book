@@ -73,9 +73,10 @@ const emit = defineEmits<{
 }>();
 
 defineSlots<{
-    activitybar?(): unknown;
-    /** 右栏外侧的侧轨（投影的 `rails`，输出 50）：叶里画什么。 */
-    rail?(props: {region: PanelName}): unknown;
+    /** 活动栏（左轨）。`joined`：此刻和侧栏的卡片相连（同 `data-shell-join`）。 */
+    activitybar?(props: {joined: boolean}): unknown;
+    /** 右栏外侧的侧轨（投影的 `rails`，输出 50）：叶里画什么。`joined` 同活动栏。 */
+    rail?(props: {region: PanelName; joined: boolean}): unknown;
     statusbar?(): unknown;
     /** 面板的头，工具面板与编辑组都在这里。`idPrefix` 交给 `WorkbenchPanelHead`，标签和内容才对得上。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;
@@ -657,8 +658,8 @@ defineExpose({
                         :data-hover-actions-scope="panelOfLeaf(node.id) === null || roleOf(node.id) === null || isSectionCollapsed(doc, node.id) ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(panelOfLeaf(node.id)) ? '' : undefined"
                     >
-                        <slot v-if="node.id === ACTIVITY_BAR" name="activitybar"></slot>
-                        <slot v-else-if="regionOfRailLeaf(node.id) !== null" name="rail" :region="regionOfRailLeaf(node.id)!"></slot>
+                        <slot v-if="node.id === ACTIVITY_BAR" name="activitybar" :joined="joinOf(node.id) !== undefined"></slot>
+                        <slot v-else-if="regionOfRailLeaf(node.id) !== null" name="rail" :region="regionOfRailLeaf(node.id)!" :joined="joinOf(node.id) !== undefined"></slot>
                         <template v-else-if="node.id !== slotPanel">
                             <div v-if="roleOf(node.id) === 'editor'" v-editor-head class="workbench-surface__editor-head" :data-surface-head="node.id">
                                 <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>

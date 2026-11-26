@@ -1,11 +1,11 @@
 ---
 标签: [state:local]
-别名: ["活动栏", "工具条", "Activity Bar"]
+别名: ["活动栏", "侧轨", "工具条", "Activity Bar", "Side Rail"]
 ---
 
 # WorkbenchToolStrip
 
-一棵树的布局里的活动栏（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 22）：上段列侧栏的容器，一个容器一个入口（输出 41），是侧栏的切换器，也是工具视图的落点；底段是贡献的全局项。列哪些容器、点了做什么都由宿主定。
+一棵树的布局里的侧轨（[`ui/workbench-layout.md`](../../../../../../../docs/specs/ui/workbench-layout.md) 输出 22、50）：左轨就是活动栏（`region` 是 `sidebar`），右轨是右栏外侧那一条（`auxiliarybar`），同一个组件。上段列区域的容器，一个容器一个入口（输出 41），是区域的切换器，也是工具视图的落点；左轨的底段是贡献的全局项，右轨没有。列哪些容器、点了做什么都由宿主定。
 
 ## 布局
 
@@ -21,7 +21,9 @@
 - 入口的右键或菜单键发 `context-menu`（容器的菜单由宿主开，没有菜单项时宿主不开）。菜单键时坐标是入口右上角。
 - 底段有命令的条目点了发 `run-item(id)`；不可用时停用，原因写在原生 `title`（停用的按钮不触发悬停提示组件）。声明了切换状态的带 `aria-pressed`。
 - 底段的占位不可聚焦、不可点，读屏读作一张带标题的图。
-- 整条是一个 `nav` 地标。
+- 整条是一个 `nav` 地标，带 `data-rail`（区域）、`data-rail-state`（此刻生效的展开状态，现在总是 `collapsed`）、和区域卡片相连时的 `data-rail-joined`（不相连时没有这个属性，不写 `"false"`）。
+- 整条是一条纵向工具条（输出 50 的“焦点与读屏”）：带 `data-rail-item` 的项（入口、“更多”、底段的可用项，以及视图借来的那一段里视图画的项）按 DOM 顺序是一条，只有一项 `tabindex=0`；上下方向键、Home、End 在条里走，不绕回。Tab 进来的是上次在条里的那一项，它不在了是按下的入口，再没有是第一项。条里的项增删（视图段 Teleport 进来、换画法）时重排。
+- 悬停提示与菜单开在侧轨外侧的反方向：左轨往右，右轨往左。书脊装饰只画在左轨。
 
 ## 数据
 
@@ -60,6 +62,10 @@ type ToolStripItem = {
 type Props = {
     /** `nav` 的名称。必填。 */
     label: string;
+    /** 哪个区域的侧轨；默认 `sidebar`（活动栏）。`auxiliarybar` 是右轨：没有底段，提示朝左开。 */
+    region?: "sidebar" | "auxiliarybar";
+    /** 和区域的卡片相连（表面给的）；默认 false。 */
+    joined?: boolean;
     /** “更多”按钮的名称。必填。 */
     moreLabel: string;
     /** 按显示顺序排好；受控，必填。 */

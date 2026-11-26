@@ -4,7 +4,7 @@
  * 五个视图都没写容器，各是自己的隐式容器（`view:a` 到 `view:e`）：侧栏有 A（当前）、B 两个容器，右栏有 C（当前）、D，底部面板有 E。一个区域只显示当前容器的分节，活动栏一个容器一个入口。
  * 文档、呈现树、有效可见、活动栏的入口与点了做什么都用产品的纯函数算（`state/`），只是不存盘、不接命令系统。按钮做拖放与菜单会提交的那些结构变化；真实的拖动手势在外壳切换时接上。
  * “标题区”场景里右栏的视图 C 接管标题区（docs/specs/workbench/views.md 输出 19），用一段示例内容（新建、Profile 图标与会话标题、更多）演示三列。
- * “右轨”场景在右栏外侧多一片侧轨叶（docs/specs/ui/workbench-layout.md 输出 50）：卡片主题，看右栏与右轨相连、隐藏与显示时角接过去，右轨里先是空的。
+ * 右栏的入口在右栏外侧的右轨上（docs/specs/ui/workbench-layout.md 输出 50），和活动栏同一个组件；“卡片”场景看右栏与右轨相连、隐藏与显示时角接过去。
  */
 import {
     activateTab,
@@ -37,7 +37,6 @@ import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSu
 import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
-import {SHELL_RAIL_WIDTH} from "nbook/plugins/workbench/web/shell/sizes";
 import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {implicitContainerOf, moveContainerTo, sectionLanding, settleContainers} from "nbook/plugins/workbench/web/state/containers";
 import {effectiveVisibleTabs, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels} from "nbook/plugins/workbench/web/state/layout-present";
@@ -81,12 +80,9 @@ const focusedPanel = ref<string | null>(null);
 const lastMenu = ref("");
 const surface = ref<InstanceType<typeof WorkbenchSurface> | null>(null);
 
-/** 右轨场景：叶厚同活动栏（卡片宽加缝）。 */
-const withRail = computed(() => props.scene === "rail-cards");
-const railOption = computed(() => (withRail.value ? {rail: () => SHELL_RAIL_WIDTH + Math.max(0, cardGap.value)} : {}));
-const options = computed(() => ({...layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value}), ...railOption.value}));
+const options = computed(() => layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value}));
 const collapse = computed(() => (extent.value === null ? {removed: new Set<string>(), squeezed: false} : presentationCollapse(doc.value, extent.value, {...options.value, order: collapseOrder(doc.value), focused: focusedPanel.value})));
-const projection = computed(() => projectLayoutDoc(doc.value, {...layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed}), ...railOption.value}));
+const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
 /** 分节的头只写标题（输出 20），内容是以标题命名的 region：和外壳用同一个判定。 */
 const titleOnly = computed(() => titleOnlyPanels(doc.value));
 const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value, fillers: projection.value.fillers}));
@@ -212,7 +208,7 @@ const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
 ];
 
 /** 点入口（输出 22）：和产品的外壳用同一个判定。焦点的去向是外壳的事，夹具不管。 */
-/** 右栏、底部面板入口条的入口，同活动栏（输出 47）。 */
+/** 右轨、底部面板入口条的入口，同活动栏（输出 47、50）。 */
 function stripEntries(region: PanelName): RegionStripEntry[] {
     const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
     return regionEntries(doc.value, region, CATALOG).map((entry) => {
@@ -262,7 +258,7 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
 </script>
 
 <template>
-    <div class="workbench-surface-fixture" :class="{'workbench-surface-fixture--cards': props.scene === 'cards' || withRail}" :data-visible-tabs="visibleText" :data-focused-panel="focusedPanel ?? ''" :data-last-menu="lastMenu" @keydown="onKeydown">
+    <div class="workbench-surface-fixture" :class="{'workbench-surface-fixture--cards': props.scene === 'cards'}" :data-visible-tabs="visibleText" :data-focused-panel="focusedPanel ?? ''" :data-last-menu="lastMenu" @keydown="onKeydown">
         <div class="workbench-surface-fixture__actions">
             <button v-for="(_, name) in ACTIONS" :key="name" type="button" :data-surface-action="name" @click="ACTIONS[name]?.()">{{ name }}</button>
         </div>
@@ -282,11 +278,11 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                 @gesture-commit="onGestureCommit"
                 @focus-panel="(panel) => (focusedPanel = panel)"
             >
-                <template #activitybar>
-                    <WorkbenchToolStrip label="活动栏" more-label="更多" :entries="entries" :items="STRIP_ITEMS" @select="selectEntry" />
+                <template #activitybar="{joined}">
+                    <WorkbenchToolStrip label="活动栏" more-label="更多" :joined="joined" :entries="entries" :items="STRIP_ITEMS" @select="selectEntry" />
                 </template>
-                <template #rail>
-                    <div class="workbench-surface-fixture__rail" data-lab-rail></div>
+                <template #rail="{joined}">
+                    <WorkbenchToolStrip label="右栏的侧轨" more-label="更多" region="auxiliarybar" :joined="joined" :entries="stripEntries('auxiliarybar')" @select="(id) => selectRegionEntry('auxiliarybar', id)" />
                 </template>
                 <template #statusbar>
                     <div class="workbench-surface-fixture__status">状态栏</div>
@@ -301,14 +297,13 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                         </template>
                     </WorkbenchPanelHead>
                 </template>
-                <!-- 右栏、底部面板的入口条（输出 47）：当前容器只有一节时那一节的头并在这一行里，同分节的头。 -->
+                <!-- 底部面板的入口条（输出 47）：当前容器只有一节时那一节的头并在这一行里，同分节的头。 -->
                 <template #strip="{region, merged, idPrefix}">
                     <WorkbenchRegionStrip
                         :region="region"
                         :label="`${region} 的视图容器`"
                         more-label="更多"
                         :entries="stripEntries(region)"
-                        :variant="region === 'panel' ? 'titles' : 'icons'"
                         :head-min-width="merged === null ? 0 : 160"
                         @select="(id) => selectRegionEntry(region, id)"
                     >
@@ -367,12 +362,6 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
 }
 
 /* 卡片主题的几个变量写在这里：看缝、圆角、相连，不依赖某个具体主题。 */
-/* 右轨场景里的侧轨还是空的：画上侧轨的底色，看得出它这张卡片。 */
-.workbench-surface-fixture__rail {
-    flex: 1 1 auto;
-    background: var(--skin-activitybar-surface, var(--panel-surface));
-}
-
 .workbench-surface-fixture--cards .workbench-surface-fixture__stage {
     --shell-gap: 4px;
     --shell-card-radius: 10px;
