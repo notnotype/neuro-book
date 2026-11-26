@@ -116,7 +116,8 @@ defineExpose({focusSearch});
  * 换位置（侧轨与浮动窗的右边缘之间、侧轨换了元素）后视图段自己放回焦点与滚动位置（views.md 输出 21）。浏览器里搬动或拆掉祖先的节点丢焦点、滚动回到顶。
  * 不能等换位置时再取：右轨的元素在外壳重渲染时就被拆掉，排在这个组件之前，轮到这里时焦点已经落到 body、滚动量读出来是 0。
  * 所以平时就记：`focusin` 记下最后获得焦点的那一项，`focusout` 之后它还在文档里、焦点去了别处（用户自己挪走）才清掉，被拆掉的不清；
- * 滚动在捕获阶段记每个滚过的元素。搬完（`post`）焦点落在 body 上时才放回去，焦点已经在别处（命令给了别的地方）时不抢。
+ * 滚动在捕获阶段记每个滚过的元素。搬完（`post`）还记着的就放回去：焦点是随节点被拆掉丢的，工作台的焦点规则（ui/workbench-layout 输出 16）
+ * 可能已经把它交给了标签或外壳根，那不是用户的选择；用户自己把焦点挪出视图段时上面已经清掉了。
  */
 let lastFocus: HTMLElement | null = null;
 const scrolled = new Map<HTMLElement, number>();
@@ -141,8 +142,7 @@ watch(() => props.targets, () => {
         else if (element.scrollTop !== top) element.scrollTop = top;
     }
     const focus = lastFocus;
-    const lost = document.activeElement === null || document.activeElement === document.body;
-    if (focus?.isConnected === true && insideSegment(focus) && lost) focus.focus({preventScroll: true});
+    if (focus?.isConnected === true && insideSegment(focus) && document.activeElement !== focus) focus.focus({preventScroll: true});
 }, {flush: "post"});
 
 const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
