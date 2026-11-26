@@ -11,7 +11,7 @@ import type {Token, TokensList} from "marked";
 
 import {createMarkdownLanguage} from "../language/language";
 import {coreSyntax} from "../language/syntax/core";
-import {ATOM_CAPACITY, atomAt, coreLexing, createLexing, type MarkdownLexing} from "./index";
+import {ATOM_CAPACITY, atomAt, coreLexing, createLexing, lexAtoms, type MarkdownLexing} from "./index";
 
 const CORPUS = join(import.meta.dir, "..", "language", "codec", "corpus");
 
@@ -119,11 +119,53 @@ describe("不带编辑器的词法", () => {
         expect(() => createLexing([overlapping, coreLexing]).lexer().lex("abcdef")).toThrow("overlap");
     });
 
-    it("原子多于上限时不遮罩、照原文分词", () => {
+    it("原子多于上限时不遮罩、照原文分词；lexAtoms 交回没遮罩与原子的个数", () => {
         const lexing = createLexing([tagModule(), coreLexing]);
         const source = "<X>".repeat(ATOM_CAPACITY + 1);
         const tokens = lexing.lexer().lex(source);
         expect(atomsOf(tokens)).toEqual([]);
         expect(tokens[0]!.raw).toBe(source);
+        expect(lexAtoms(lexing, source)).toEqual({ok: false, reason: "over-capacity", count: ATOM_CAPACITY + 1});
+        // 私用区的字也占名额：上限正好的那一份照常遮罩。
+        const exact = lexAtoms(lexing, "<X>".repeat(ATOM_CAPACITY - 1) + "\ue000");
+        expect(exact.ok && exact.atoms.length).toBe(ATOM_CAPACITY);
+    });
+
+    it("模块给的范围跨行时分词失败", () => {
+        const crossing: MarkdownLexing = {name: "crossing", atoms: () => [{from: 0, to: 5}]};
+        expect(() => createLexing([crossing, coreLexing]).lexer().lex("ab\ncdef")).toThrow("crosses a line");
+    });
+});
+
+describe("原子落在哪", () => {
+    const lexing = createLexing([tagModule(), coreLexing]);
+    /** 每个原子的落点写成“外层单元/所在单元.字段”。 */
+    const where = (source: string): string[][] => {
+        const lexed = lexAtoms(lexing, source);
+        if (!lexed.ok) throw new Error("not masked");
+        return lexed.placements.map((list) => list.map((placement) => [...placement.ancestors.map((token) => token.type), `${placement.token.type}.${placement.field}`].join("/")));
+    };
+
+    it("正文里被模块认领的、代码里的、链接地址与标题里的、图片说明里的各有各的落点", () => {
+        expect(where("甲 <V of=\"a\"> 与 `<V of=\"b\">`")).toEqual([["paragraph/tagAtom.raw"], ["paragraph/codespan.raw", "paragraph/codespan.text"]]);
+        expect(where("[文 <V of=\"a\">](<V of=\"b\"> '<V of=\"c\">')")).toEqual([["paragraph/link/tagAtom.raw"], ["paragraph/link.href"], ["paragraph/link.title"]]);
+        // 图片说明也分了词：原子在图片下面被认领，模块要看外层判断它算不算正文。
+        expect(where("![说明 <V of=\"a\">](x.png)")).toEqual([["paragraph/image/tagAtom.raw"]]);
+        expect(where("```\n<V of=\"a\">\n```")).toEqual([["code.raw", "code.text"]]);
+    });
+
+    it("引用式链接：定义与用到它的链接各记一处；转义的落在文字里", () => {
+        expect(where("[文][r]\n\n[r]: <V of=\"a\">")).toEqual([["paragraph/link.href", "def.raw", "def.href"]]);
+        expect(where("\\<V of=\"a\">")).toEqual([["paragraph/text.raw", "paragraph/text.text"]]);
+    });
+
+    it("表格里多出来的单元格被丢掉：那里的原子一处也没有", () => {
+        expect(where("| a |\n|---|\n| x | <V of=\"a\"> |")).toEqual([[]]);
+    });
+
+    it("没有原子时照样分词、落点为空", () => {
+        const lexed = lexAtoms(lexing, "正文 *强调*");
+        expect(lexed.ok && lexed.atoms).toEqual([]);
+        expect(lexed.ok && lexed.tokens[0]!.type).toBe("paragraph");
     });
 });

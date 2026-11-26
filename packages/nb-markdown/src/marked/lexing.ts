@@ -76,18 +76,21 @@ export function atomAt(lexer: object, identity: string): Atom | undefined {
 /** 原文里 `index` 处是不是占位的身份字。 */
 export const isAtomIdentity = (char: string | undefined): boolean => char !== undefined && char >= "\ue000" && char <= "\uf76f";
 
-interface Masked {
-    readonly text: string;
-    readonly table: ReadonlyMap<string, Atom>;
-}
+type Masked =
+    | {readonly kind: "none"}
+    | {readonly kind: "over-capacity"; readonly count: number}
+    | {readonly kind: "masked"; readonly text: string; readonly table: ReadonlyMap<string, Atom>};
 
 /**
- * 把原子换成占位。模块给的范围重叠时抛出（模块的缺陷，宁可读不出来也不读错）；原子多于上限时返回 null，调用方照原文分词。
+ * 把原子换成占位。模块给的范围重叠或跨行时抛出（模块的缺陷，宁可读不出来也不读错：跨行的范围被填成一行，块的结构就变了）；
+ * 没有原子、原子多于上限时不遮罩，调用方照原文分词。
  */
-function mask(source: string, modules: ReadonlyArray<NonNullable<MarkdownLexing["atoms"]>>): Masked | null {
+function mask(source: string, modules: ReadonlyArray<NonNullable<MarkdownLexing["atoms"]>>): Masked {
     const spans: AtomSpan[] = modules.flatMap((atoms) => [...atoms(source)]).sort((left, right) => left.from - right.from);
-    for (let index = 1; index < spans.length; index += 1) {
-        if ((spans[index] as AtomSpan).from < (spans[index - 1] as AtomSpan).to) throw new Error(`atom spans overlap at ${String((spans[index] as AtomSpan).from)}`);
+    for (let index = 0; index < spans.length; index += 1) {
+        const span = spans[index] as AtomSpan;
+        if (index > 0 && span.from < (spans[index - 1] as AtomSpan).to) throw new Error(`atom spans overlap at ${String(span.from)}`);
+        if (span.to <= span.from || /[\r\n]/u.test(source.slice(span.from, span.to))) throw new Error(`atom span at ${String(span.from)} is empty or crosses a line`);
     }
     // 原文里的私用区字：不在模块给的范围里的，各自作为一个原子。
     const all: AtomSpan[] = [];
@@ -102,8 +105,8 @@ function mask(source: string, modules: ReadonlyArray<NonNullable<MarkdownLexing[
         cursor = span.to;
     }
     takePrivateUse(source.length);
-    if (all.length === 0) return null;
-    if (all.length > ATOM_CAPACITY) return null;
+    if (all.length === 0) return {kind: "none"};
+    if (all.length > ATOM_CAPACITY) return {kind: "over-capacity", count: all.length};
     const table = new Map<string, Atom>();
     const parts: string[] = [];
     let at = 0;
@@ -116,7 +119,7 @@ function mask(source: string, modules: ReadonlyArray<NonNullable<MarkdownLexing[
     parts.push(source.slice(at));
     const text = parts.join("");
     if (text.length !== source.length) throw new Error("masked text length differs from source");
-    return {text, table};
+    return {kind: "masked", text, table};
 }
 
 /** 把词法单元里的占位逐字换回原文（各层的 `raw`、`text`、链接的地址与标题、引用定义表）。 */
@@ -139,6 +142,80 @@ function unmask(tokens: TokensList, table: ReadonlyMap<string, Atom>): void {
     walk(tokens.links);
 }
 
+/** 一个原子落在哪：带着它的字段（`raw`、`text`、`href`、`title`…）、这个字段所在的词法单元，与外面各层的词法单元（由外到内）。 */
+export interface AtomPlacement {
+    readonly token: Token;
+    readonly field: string;
+    readonly ancestors: readonly Token[];
+}
+
+/** `lexAtoms` 的结果：遮罩了的分词（没有原子时也算），或原子多于上限、没有遮罩。 */
+export type LexedAtoms =
+    | {readonly ok: true; readonly tokens: TokensList; readonly atoms: readonly Atom[]; readonly placements: ReadonlyArray<ReadonlyArray<AtomPlacement>>}
+    | {readonly ok: false; readonly reason: "over-capacity"; readonly count: number};
+
+/**
+ * 在遮罩着的词法单元上找每个原子落在哪（还原之前做：还原以后原子只剩原文，分不出是哪一个）。外层单元的 `raw`、`text` 是里层内容的
+ * 重复，所以有里层单元的对象只看别的字段（链接的地址与标题这类），没有里层单元的看全部字符串字段。表格的单元格不是词法单元，算在表格名下。
+ * 一个原子在同一个单元的同一个字段里只记一次；一处也没有记的原子是被 Markdown 的规则丢掉了（例如表格里多出来的单元格）。
+ */
+function placementsOf(tokens: TokensList, table: ReadonlyMap<string, Atom>): AtomPlacement[][] {
+    const placements: AtomPlacement[][] = Array.from({length: table.size}, () => []);
+    const recorded = new Map<Token, Set<string>>();
+    const record = (text: string, token: Token, field: string, ancestors: readonly Token[]): void => {
+        for (const char of text) {
+            if (!isAtomIdentity(char)) continue;
+            const atom = table.get(char);
+            if (atom === undefined) continue;
+            const key = `${String(atom.index)}:${field}`;
+            const seen = recorded.get(token) ?? new Set<string>();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            recorded.set(token, seen);
+            (placements[atom.index] as AtomPlacement[]).push({token, field, ancestors});
+        }
+    };
+    const hasChildren = (value: Record<string, unknown>): boolean =>
+        Object.values(value).some((field) => Array.isArray(field) && field.some((item) => item !== null && typeof item === "object"));
+    const visit = (value: Record<string, unknown>, owner: Token | null, ancestors: readonly Token[]): void => {
+        const isToken = typeof value.type === "string";
+        const token = isToken ? (value as unknown as Token) : owner;
+        const outer = isToken && owner !== null ? [...ancestors, owner] : ancestors;
+        const nested = hasChildren(value);
+        for (const [field, item] of Object.entries(value)) {
+            if (typeof item === "string") {
+                if (token !== null && !(nested && (field === "raw" || field === "text"))) record(item, token, field, outer);
+            } else if (Array.isArray(item)) {
+                for (const child of item) if (child !== null && typeof child === "object") visit(child as Record<string, unknown>, token, outer);
+            } else if (item !== null && typeof item === "object") visit(item as Record<string, unknown>, token, outer);
+        }
+    };
+    for (const token of tokens) visit(token as unknown as Record<string, unknown>, null, []);
+    return placements;
+}
+
+/** 正在 `lexAtoms` 里的词法器 → 收结果的地方。 */
+const sinks = new WeakMap<object, (result: LexedAtoms) => void>();
+
+/**
+ * 分词，并交回每个原子落在哪（docs/specs/workspace/markdown-syntaxes.md 的“可选的原子”）：模块据此判断一个原子是在正文里被自己的
+ * 分词规则认领，还是落在代码、链接地址、图片说明这类地方。词法单元与 `lexing.lexer().lex(source)` 的相同。
+ */
+export function lexAtoms(lexing: Lexing, source: string): LexedAtoms {
+    const lexer = lexing.lexer();
+    let result: LexedAtoms | undefined;
+    sinks.set(lexer, (lexed) => {
+        result = lexed;
+    });
+    try {
+        lexer.lex(source);
+    } finally {
+        sinks.delete(lexer);
+    }
+    if (result === undefined) throw new Error("lexAtoms: the lexer did not report");
+    return result;
+}
+
 /**
  * 组装。原样语法的分词规则由这里追加：它要知道全部方言标签，才不会抢走它们。`marked` 的扩展后登记的先试，所以原样语法最先
  * 登记（最后试），各模块按列表倒序登记（列表里靠前的先试）。
@@ -154,12 +231,19 @@ export function createLexing(modules: ReadonlyArray<MarkdownLexing>): Lexing {
     const Base = marked.Lexer;
     class TrackingLexer extends Base {
         override lex(src: string): TokensList {
-            const masked = atoms.length === 0 ? null : mask(src, atoms);
-            if (masked === null) return super.lex(src);
+            const sink = sinks.get(this);
+            const masked: Masked = atoms.length === 0 ? {kind: "none"} : mask(src, atoms);
+            if (masked.kind !== "masked") {
+                const tokens = super.lex(src);
+                sink?.(masked.kind === "none" ? {ok: true, tokens, atoms: [], placements: []} : {ok: false, reason: "over-capacity", count: masked.count});
+                return tokens;
+            }
             tables.set(this, masked.table);
             try {
                 const tokens = super.lex(masked.text);
+                const placements = sink === undefined ? null : placementsOf(tokens, masked.table);
                 unmask(tokens, masked.table);
+                if (sink !== undefined && placements !== null) sink({ok: true, tokens, atoms: [...masked.table.values()].sort((left, right) => left.index - right.index), placements});
                 return tokens;
             } finally {
                 tables.delete(this);
