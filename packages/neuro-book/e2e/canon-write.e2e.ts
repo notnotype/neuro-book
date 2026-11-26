@@ -151,9 +151,9 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     // “插入”把字段的写法放在光标处，焦点回到输入框、光标在写法后面：接着打的字跟在它后面。
     await entryPage(page).locator("[data-text-insert]").click();
     await page.getByRole("menuitem", {name: "人物 · 性格"}).click();
-    await expect(sourceText(page)).toContainText("一年级学生。{character.性格}");
+    await expect(sourceText(page)).toContainText('一年级学生。<V of="character.性格" />');
     await page.keyboard.type("是她的样子。");
-    await expect(sourceText(page)).toContainText("{character.性格}是她的样子。");
+    await expect(sourceText(page)).toContainText('<V of="character.性格" />是她的样子。');
     // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成性格当时的值；预览里的值不是按钮。
     const preview = entryPage(page).locator("[data-text-preview]");
     await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
@@ -347,7 +347,7 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     // 退回的文本框里“插入”同样落在光标处。
     await entryPage(page).locator("[data-text-insert]").click();
     await page.getByRole("menuitem", {name: "人物 · 性格"}).click();
-    await expect(fallback).toHaveValue(/（文本框里改的）\{character\.性格\}$/u);
+    await expect(fallback).toHaveValue(/（文本框里改的）<V of="character\.性格" \/>$/u);
     await expect(fallback).toBeFocused();
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
