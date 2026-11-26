@@ -114,7 +114,7 @@ export class TabbedLayout {
         return {ok: true};
     }
 
-    /** 最后一个编组的最后一个标签不能关：只剩侧栏时它会被拉满整个宽度，存档之后就回不到有编组的样子。 */
+    /** 最后一个编组的最后一个标签不能关：只剩侧栏时没有编组可拆（侧栏保留像素，拆它会被拒绝），之后的标签就没有地方放。 */
     canClose(tab: string): boolean {
         const id = this.groupOf(tab);
         return id !== undefined && !(this.groups.size === 1 && this.groups.get(id)!.tabs.length === 1);
