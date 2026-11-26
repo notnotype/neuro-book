@@ -31,8 +31,14 @@ export interface DeskPlate {
     readonly paint: {readonly background: string; readonly radius: string; readonly shadow: string};
 }
 
-/** 演示指针要瞄的地方。 */
-export type DeskTarget = "chapter-two-tab" | "alice-tab" | "first-editor" | "first-editor-body" | "editor-head-blank" | "explorer-entry" | "auxiliarybar" | "float-landing";
+/** 演示指针要瞄的地方。`lyra` 是星璃那一栏（第 4 轮的气泡贴着它）。 */
+export type DeskTarget = "chapter-one-tab" | "chapter-two-tab" | "alice-tab" | "first-editor" | "first-editor-body" | "editor-head-blank" | "explorer-entry" | "auxiliarybar" | "float-landing" | "lyra";
+
+/**
+ * 首屏摆什么：`tour` 是第 3 轮（第一章在前，后面是第二章与艾莉丝）；`knock` 是第 4 轮（第五章在前，后面是第一章与艾莉丝，
+ * 艾莉丝的浮窗落在侧栏作品树下面的空处，不盖正文）。
+ */
+export type DeskSetup = "tour" | "knock";
 
 /** 视口坐标的点与矩形：指针、拖影与落点预览都用视口坐标。 */
 export interface Point {

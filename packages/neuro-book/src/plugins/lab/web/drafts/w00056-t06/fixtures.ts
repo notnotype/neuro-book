@@ -1,8 +1,13 @@
-/** w00056 t06（文档站首页的产品介绍）第 3 轮原型：三种开场与第一幕；评审板在那个 Task 的 artifacts/review。 */
+/**
+ * w00056 t06（文档站首页的产品介绍）的原型；评审板在那个 Task 的 artifacts/review。
+ * 第 3 轮：三种开场与第一幕（`HomepageDraft`）。第 4 轮：方向一《入殿·俯案成界》的首屏、俯冲与改过的第一幕（`HomepageSanctum`），场景 id 加 `r4-`。
+ */
 import {defineLabFixture} from "../../fixtures/define";
 import type HomepageDesk from "./HomepageDesk.vue";
 import type HomepageDraft from "./HomepageDraft.vue";
 import type HomepageOpening from "./HomepageOpening.vue";
+import type HomepageSanctum from "./HomepageSanctum.vue";
+import type SanctumScene from "./SanctumScene.vue";
 
 type DraftProps = {readonly opening: "unfold" | "gild" | "assemble"; readonly start?: "top" | "act-one"; readonly headline?: string};
 const DRAFT_SCENES: ReadonlyArray<readonly [string, string, DraftProps]> = [
@@ -32,6 +37,23 @@ export const fixtures = [
         component: "HomepageDesk",
         scenes: [{id: "default", label: "首屏的样子：第一章在前，右栏是星璃", input: {props: {restore: null}}}],
         load: async () => (await import("./HomepageDeskFixture.vue")).default as never,
+    }),
+    defineLabFixture<typeof HomepageSanctum>({
+        component: "HomepageSanctum",
+        scenes: [
+            {id: "r4-sanctum", label: "第 4 轮：入殿·俯案成界（从首屏起，往下滚俯冲到工作台）", input: {props: {start: "top"}}},
+            {id: "r4-act-one", label: "第 4 轮：第一幕的三拍（直接落在第一幕开头）", input: {props: {start: "act-one"}}},
+        ],
+        load: async () => (await import("./HomepageSanctumFixture.vue")).default as never,
+    }),
+    defineLabFixture<typeof SanctumScene>({
+        component: "SanctumScene",
+        scenes: [
+            {id: "r4-scene-intro", label: "首屏场景：开场（桌上是占位）", input: {props: {progress: 0, intro: true, deskReady: true}}},
+            {id: "r4-scene-mid", label: "俯冲到一半", input: {props: {progress: 0.45, intro: false, deskReady: true}}},
+            {id: "r4-scene-near", label: "快落地", input: {props: {progress: 0.82, intro: false, deskReady: true}}},
+        ],
+        load: async () => (await import("./SanctumSceneFixture.vue")).default as never,
     }),
     defineLabFixture<typeof HomepageOpening>({
         component: "HomepageOpening",

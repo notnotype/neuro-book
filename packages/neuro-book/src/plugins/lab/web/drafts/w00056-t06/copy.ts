@@ -37,3 +37,28 @@ export const STEP_COPY: readonly StepCopy[] = [
 
 /** 步骤的序号：这是一幕里的先后。只写“一”会被看成一条横线，所以写全“第一步”。 */
 export const STEP_NUMERALS = ["第一步", "第二步", "第三步", "第四步", "第五步"] as const;
+
+/**
+ * 第 4 轮（《入殿·俯案成界》）第一幕的字幕：跟着第五章的一场戏走，不再按功能报步骤。字幕在工作台下面一行一行换；
+ * 星璃的话在她自己的对话栏里（`sample.ts` 的 `KNOCK_*`），不另外浮一个气泡。
+ * 拍子按 @designer 第 4 轮的意见收成三拍：打字与对照、双击铺满、交给访客；人物浮窗与“关掉再打开”不演（没有画面撑着那句话）。
+ */
+export const SANCTUM_ACT = "第一幕  一张随你摆的桌子";
+
+export const BEATS = {
+    knock: {
+        opening: "第五章，雨夜。她写到那声敲门。",
+        compare: "摊开第一章，两声敲门并排。",
+        closing: "前后的伏笔，一眼对上。",
+    },
+    focus: {
+        opening: "要专心时，双击标签栏，正文铺满桌面。",
+        closing: "再双击，一切回到原处。",
+    },
+    handoff: {
+        invite: "换你来：拖一个标签，摆到顺手的地方。",
+    },
+} as const;
+
+/** 两章里要同时描金的那两句：第五章刚打的，第一章末尾师傅的敲法。 */
+export const KNOCK_ECHOES = ["门外有人敲门，三下。", "楼下有人敲门，三下，停一停，再一下。"] as const;

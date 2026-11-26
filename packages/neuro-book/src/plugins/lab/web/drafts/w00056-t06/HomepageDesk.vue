@@ -8,7 +8,7 @@
  * 最后归整容器。这样编辑器拆组、视图搬家与拖动落点三条路改出来的文档，和产品里同一个动作改出来的一样。
  */
 import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
-import type {AgentConversationServices, AgentViewMode} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentViewMode, MessageView} from "@notnotype/nb-agent-ui";
 import type {GridExtent} from "@notnotype/nb-layout";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {activateTab, applyGestureCommit, applyLayoutDrop, edgeTargetOf, presentationCollapse, projectLayoutDoc, rebaseForOperation, sameTreeShape, setActiveContainer, setPanelHidden, tabKey} from "@notnotype/nb-workbench-layout";
@@ -58,14 +58,17 @@ import {createMemoryFiles} from "../../fixtures/explorer-scene/memory-files";
 import {labStickers} from "../../fixtures/lab-stickers";
 import {labAgentRegistry, labAgentRenderers, labAgentServices, provideLabMarkdown} from "../../fixtures/nb-agent-ui/host";
 import {dropRect} from "./desk";
-import type {DeskPlate, DeskSnapshot, DeskTarget, Point} from "./desk";
+import type {DeskPlate, DeskSetup, DeskSnapshot, DeskTarget, Point} from "./desk";
 import {createDeskExplorer} from "./desk-explorer";
-import {BOOK_TITLE, CANON_GROUPS, CATALOG, DESK_REGION_WIDTHS, lyraContext, OPEN_FILES, PROJECT_FILES, VIEWS} from "./sample";
+import {BOOK_TITLE, CANON_GROUPS, CATALOG, DESK_REGION_WIDTHS, KNOCK_MESSAGES, lyraContext, OPEN_FILES, PROJECT_FILES, TOUR_MESSAGES, VIEWS} from "./sample";
+import type {OpenFile} from "./sample";
 
 const props = withDefaults(defineProps<{
     /** 上一次关掉时记下的布局、标签与最大化；缺省是首屏的样子。 */
     restore?: DeskSnapshot | null;
-}>(), {restore: null});
+    /** 首屏摆什么（见 `DeskSetup`）；只在没有 `restore` 时用。 */
+    setup?: DeskSetup;
+}>(), {restore: null, setup: "tour"});
 
 const emit = defineEmits<{
     /** 访客自己按下了指针或按了键（演示不发这些事件）：第一幕的自动演示据此让开。 */
@@ -162,12 +165,13 @@ const area = createEditorArea({
     initial: props.restore?.tabs ?? null,
     report: (error) => record("error", error instanceof Error ? error.message : String(error)),
 });
+/** 首屏打开的标签，按标签条上的先后；第一份在前面。 */
+const FIRST_TABS: Readonly<Record<DeskSetup, readonly OpenFile[]>> = {tour: ["chapterOne", "chapterTwo", "alice"], knock: ["chapterFive", "chapterOne", "alice"]};
 if (props.restore === null) {
-    // 插在活动标签之后：依次打开得到 第一章、第二章、艾莉丝；最后再点一下第一章，让它在前面。
-    area.open(OPEN_FILES.chapterOne, {mode: "permanent"});
-    area.open(OPEN_FILES.chapterTwo, {mode: "permanent"});
-    area.open(OPEN_FILES.alice, {mode: "permanent"});
-    area.open(OPEN_FILES.chapterOne, {mode: "permanent"});
+    // 插在活动标签之后：依次打开得到标签条上的先后；最后再点一下第一份，让它在前面。
+    const tabs = FIRST_TABS[props.setup];
+    for (const file of tabs) area.open(OPEN_FILES[file], {mode: "permanent"});
+    if (tabs[0] !== undefined) area.open(OPEN_FILES[tabs[0]], {mode: "permanent"});
 }
 
 /** 地址对应的标签：拆组、浮窗以后标签换了组，id 不变。 */
@@ -208,7 +212,8 @@ const explorer = createDeskExplorer({
 /** 作品这个容器在哪个区域：搬到右栏后视图按右栏的宽度排。 */
 const explorerRegion = (current: LayoutDoc): PanelName => ((current.panels.auxiliarybar?.entries ?? []).includes(implicitContainerOf("explorer")) ? "auxiliarybar" : "sidebar");
 explorer.location.value = explorerRegion(doc.value);
-const lyra = lyraContext(LYRA_AVATAR);
+/** 星璃的对话：第一幕会往里加消息（作者问、她边打边答），所以整份换新对象让视图跟着变。 */
+const lyra = shallowRef(lyraContext(LYRA_AVATAR, props.setup === "knock" ? KNOCK_MESSAGES : TOUR_MESSAGES));
 const lyraServices: AgentConversationServices = labAgentServices();
 const lyraRegistry = labAgentRegistry();
 const lyraMode = ref<AgentViewMode>("turns");
@@ -396,11 +401,19 @@ function regionRect(region: PanelName): DOMRectReadOnly | null {
     return new DOMRectReadOnly(left, top, Math.max(...rects.map((rect) => rect.right)) - left, Math.max(...rects.map((rect) => rect.bottom)) - top);
 }
 
-/** 浮窗落在哪：编辑区偏右下，盖住第一章的一角，第二章那一栏还看得见（树区域坐标）。 */
+/**
+ * 浮窗落在哪（树区域坐标）。`tour`：编辑区偏右下，盖住第一章的一角，第二章那一栏还看得见。
+ * `knock`：侧栏作品树下面的空处，两栏正文都不盖；侧栏量不到（收着）时退到编辑区左下。
+ */
 function floatLanding(): LayoutFloatRect {
     const width = extent.value?.width ?? 1000;
     const height = extent.value?.height ?? 640;
-    return {x: Math.round(width * 0.34), y: Math.round(height * 0.3), width: 300, height: 260};
+    if (props.setup === "tour") return {x: Math.round(width * 0.34), y: Math.round(height * 0.3), width: 300, height: 260};
+    const tree = host.value?.querySelector<HTMLElement>("[data-workbench-surface]")?.getBoundingClientRect();
+    const sidebar = regionRect("sidebar");
+    const floatHeight = Math.min(320, Math.round(height * 0.46));
+    if (tree === undefined || sidebar === null) return {x: 56, y: height - floatHeight - 40, width: 280, height: floatHeight};
+    return {x: Math.round(sidebar.left - tree.left + 8), y: Math.round(height - floatHeight - 24), width: Math.max(270, Math.round(sidebar.width + 48)), height: floatHeight};
 }
 
 function target(name: DeskTarget): DOMRectReadOnly | null {
@@ -408,6 +421,8 @@ function target(name: DeskTarget): DOMRectReadOnly | null {
     if (root === null) return null;
     const rectOf = (selector: string): DOMRectReadOnly | null => root.querySelector<HTMLElement>(selector)?.getBoundingClientRect() ?? null;
     switch (name) {
+        case "chapter-one-tab":
+            return rectOf(`[data-editor-tab="${CSS.escape(tabIdOf(OPEN_FILES.chapterOne) ?? "")}"]`);
         case "chapter-two-tab":
             return rectOf(`[data-editor-tab="${CSS.escape(tabIdOf(OPEN_FILES.chapterTwo) ?? "")}"]`);
         case "alice-tab":
@@ -430,6 +445,9 @@ function target(name: DeskTarget): DOMRectReadOnly | null {
             return rectOf(`[data-tool-entry="${CSS.escape(implicitContainerOf("explorer"))}"]`);
         case "auxiliarybar":
             return regionRect("auxiliarybar");
+        case "lyra":
+            // 两轮的演示都不搬星璃，她一直在右栏。
+            return regionRect("auxiliarybar");
         case "float-landing": {
             const tree = root.querySelector<HTMLElement>("[data-workbench-surface]")?.getBoundingClientRect();
             const rect = floatLanding();
@@ -438,9 +456,9 @@ function target(name: DeskTarget): DOMRectReadOnly | null {
     }
 }
 
-/** 第一步：第二章移到第一章右边，成为新的一组（同把标签拖到编辑组右缘放下）。 */
-function splitRight(): boolean {
-    const tabId = tabIdOf(OPEN_FILES.chapterTwo);
+/** 第一步：把一份（缺省第二章）移到第一组右边，成为新的一组（同把标签拖到编辑组右缘放下）。 */
+function splitRight(file: OpenFile = "chapterTwo"): boolean {
+    const tabId = tabIdOf(OPEN_FILES[file]);
     if (tabId === null) return false;
     // 已经不在第一组（拆过了）：这一步的终态已经在了。
     if (area.groups.find(tabId)?.group.id !== INITIAL_EDITOR_PANEL) return true;
@@ -483,9 +501,75 @@ function moveGhost(point: Point): void {
 function sourceElement(name: DeskTarget): HTMLElement | null {
     const root = host.value;
     if (root === null) return null;
-    if (name === "chapter-two-tab" || name === "alice-tab") return root.querySelector<HTMLElement>(`[data-editor-tab="${CSS.escape(tabIdOf(name === "alice-tab" ? OPEN_FILES.alice : OPEN_FILES.chapterTwo) ?? "")}"]`);
+    const tabFile: Partial<Record<DeskTarget, string>> = {"chapter-one-tab": OPEN_FILES.chapterOne, "chapter-two-tab": OPEN_FILES.chapterTwo, "alice-tab": OPEN_FILES.alice};
+    const file = tabFile[name];
+    if (file !== undefined) return root.querySelector<HTMLElement>(`[data-editor-tab="${CSS.escape(tabIdOf(file) ?? "")}"]`);
     if (name === "explorer-entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(implicitContainerOf("explorer"))}"]`);
     return null;
+}
+
+/**
+ * 让某一份文件到前面，并把光标放到它的末尾、聚焦（编辑器的“继续写作”，editor 输出 29）。控件是异步挂上的，刚换组时可能还没有句柄，
+ * 这时返回 false，调用方过一会儿再试。
+ */
+function revealEnd(file: OpenFile): boolean {
+    area.open(OPEN_FILES[file], {mode: "permanent"});
+    const handle = area.activeHandle.value;
+    if (handle?.revealEnd === undefined) return false;
+    handle.revealEnd();
+    return true;
+}
+
+/**
+ * 在光标处打几个字。走浏览器的输入路径（`insertText`，和访客打字、输入法上屏一样），编辑器照常收到输入、记脏、能撤销；
+ * 不绕过编辑器去改文件。焦点不在这台工作台的编辑器里时不打，返回 false。
+ */
+function type(text: string): boolean {
+    return typing() && document.execCommand("insertText", false, text);
+}
+
+/** 焦点在不在这台工作台的编辑器里（`revealEnd` 之后编辑器可能还没准备好，聚焦没有落下）。 */
+function typing(): boolean {
+    const active = document.activeElement;
+    return active instanceof HTMLElement && host.value?.contains(active) === true && active.isContentEditable;
+}
+
+/** 桌上的正文里有没有这句（演示据此判断某一拍打过没有）。 */
+function shows(text: string): boolean {
+    return host.value?.textContent?.includes(text) ?? false;
+}
+
+/**
+ * 这句话在编辑器里占的几块矩形（视口坐标，折行时是几块）：第一幕把两章里的敲门同时描金。
+ * 只找编辑器正文（`contenteditable`）里的、整句落在一个文本节点里的；找不到返回空数组。
+ */
+function textRects(text: string): DOMRect[] {
+    const root = host.value;
+    if (root === null) return [];
+    const rects: DOMRect[] = [];
+    for (const editor of root.querySelectorAll<HTMLElement>("[contenteditable='true']")) {
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+            const at = node.textContent?.indexOf(text) ?? -1;
+            if (at < 0) continue;
+            const range = document.createRange();
+            range.setStart(node, at);
+            range.setEnd(node, at + text.length);
+            rects.push(...[...range.getClientRects()].filter((rect) => rect.width > 1));
+        }
+    }
+    return rects;
+}
+
+/** 往星璃的对话里加一条消息；`id` 已经有了就换掉那一条（边打边出的回复每次给新的文字）。 */
+function lyraPost(message: MessageView): void {
+    const messages = lyra.value.messages;
+    const at = messages.findIndex((item) => item.id === message.id);
+    lyra.value = {...lyra.value, messages: at < 0 ? [...messages, message] : messages.map((item, index) => (index === at ? message : item))};
+}
+
+function lyraHas(id: string): boolean {
+    return lyra.value.messages.some((item) => item.id === id);
 }
 
 function snapshot(): DeskSnapshot {
@@ -499,7 +583,7 @@ function applyDoc(next: DeskSnapshot): void {
     explorer.location.value = explorerRegion(next.doc);
 }
 
-defineExpose({plates, ground, target, sourceElement, splitRight, moveExplorer, setMaximized, floatAlice, showDrag, moveGhost, snapshot, applyDoc});
+defineExpose({plates, ground, target, sourceElement, splitRight, moveExplorer, setMaximized, floatAlice, showDrag, moveGhost, revealEnd, type, typing, shows, textRects, lyraPost, lyraHas, snapshot, applyDoc});
 
 // 第一次排好版（量到尺寸、卡片有了）再告诉页面，开场动画照它摆。
 const stopReady = watch(presented, (sizes) => {
