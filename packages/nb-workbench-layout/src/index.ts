@@ -69,6 +69,8 @@ export type {
 export {
     presentationCollapse,
     projectLayoutDoc,
+    railLeafId,
+    regionOfRailLeaf,
     regionOfStripLeaf,
     regionStripLeafId,
 } from "./layout-project";

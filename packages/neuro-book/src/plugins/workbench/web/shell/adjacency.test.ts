@@ -4,7 +4,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "@notnotype/nb-layout";
-import {movePanelToEdge, projectLayoutDoc, regionNodeOf, regionOf, regionOfStripLeaf, regionStripLeafId} from "@notnotype/nb-workbench-layout";
+import {movePanelToEdge, projectLayoutDoc, railLeafId, regionNodeOf, regionOf, regionOfStripLeaf, regionStripLeafId} from "@notnotype/nb-workbench-layout";
 import type {GridExtent, GridNodeInput} from "@notnotype/nb-layout";
 import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
@@ -13,21 +13,25 @@ import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "../state/default-tree";
 import {createLayoutPolicy, layoutProjectionOptions} from "../state/layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 import {cardInset, cardInsetPx, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "./adjacency";
-import type {CardSide} from "./adjacency";
+import type {CardBar, CardSide} from "./adjacency";
 
 const VIEW = (location: "sidebar" | "auxiliarybar" | "panel") => ({title: {"zh-CN": location, "en-US": location}, icon: "i", location, layout: "scroll" as const});
 const CATALOG: ViewCatalog = new Map([["side", VIEW("sidebar")], ["aux", VIEW("auxiliarybar")], ["out", VIEW("panel")]]);
 const EXTENT: GridExtent = {width: 1440, height: 900};
 
-function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent>> = {}) {
-    const {input, sashSize} = projectLayoutDoc(doc, layoutProjectionOptions({doc, catalog: CATALOG, viewportWidth: EXTENT.width}));
+const ACTIVITY_BAR: CardBar = {leaf: "activitybar", group: "sidebar", side: "start"};
+const RAIL: CardBar = {leaf: railLeafId("auxiliarybar"), group: "auxiliarybar", side: "end"};
+
+/** `rail`：呈现里有右轨（输出 50），和外壳一样把它列进侧轨。 */
+function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent>> = {}, rail = false) {
+    const options = layoutProjectionOptions({doc, catalog: CATALOG, viewportWidth: EXTENT.width});
+    const {input, sashSize} = projectLayoutDoc(doc, rail ? {...options, rail: () => 48} : options);
     const layout = createGrid<string>(input, {sashSize}).layout(EXTENT);
     return layoutCardEdges({
         root: input as GridNodeInput<string>,
         sizes: {...layout.sizes, ...sizesOverride},
         sashSizes: layout.sashSizes,
-        activitybar: "activitybar",
-        activitybarGroup: "sidebar",
+        bars: rail ? [ACTIVITY_BAR, RAIL] : [ACTIVITY_BAR],
         plain: new Set(["statusbar"]),
         groupOf: (id) => regionOfStripLeaf(id) ?? regionOf(doc, id),
     });
@@ -61,6 +65,20 @@ describe("卡片的边", () => {
         // 锚不画卡片。
         expect(result.sidebar).toBeUndefined();
         expect(result.statusbar).toBeUndefined();
+    });
+
+    it("右轨（输出 50）：和它左边右栏的每一块相连（右栏的右边、右轨的左边），右轨自己的右边贴窗体；活动栏照旧", () => {
+        const result = cards(doc(), {}, true);
+        expect(result[RAIL.leaf]).toEqual({top: outer, right: outer, bottom: outer, left: barJoined});
+        expect(result[AUX]?.right).toEqual(barJoined);
+        expect(result[regionStripLeafId("auxiliarybar")]?.right).toEqual(barJoined);
+        expect(result.activitybar?.right).toEqual(barJoined);
+    });
+
+    it("右栏隐藏、拖到零：右轨不和任何卡片相连，自己一张卡片", () => {
+        const result = cards(hide(doc(), "auxiliarybar"), {}, true);
+        expect(result[RAIL.leaf]?.left.kind).toBe("inner");
+        expect(result[INITIAL_EDITOR_PANEL]?.right.kind).toBe("inner");
     });
 
     it("侧栏隐藏：同拖到零（输出 11），活动栏不和编辑组相连，留着的 1px 边界算进占用", () => {
@@ -130,7 +148,7 @@ describe("最大化时的边", () => {
             sidebar: {top: {kind: "outer", occupied: 0}, right: {kind: "inner", occupied: 1}, bottom: {kind: "outer", occupied: 0}, left: {kind: "joined"}},
             panel: {top: {kind: "inner", occupied: 1}, right: {kind: "inner", occupied: 1}, bottom: {kind: "outer", occupied: 0}, left: {kind: "inner", occupied: 1}},
         } as const;
-        const next = maximizedCardEdges(cards, "panel", "activitybar");
+        const next = maximizedCardEdges(cards, "panel", [ACTIVITY_BAR, RAIL]);
         expect(next.panel).toEqual({top: {kind: "outer", occupied: 0}, right: {kind: "outer", occupied: 0}, bottom: {kind: "outer", occupied: 0}, left: {kind: "inner", occupied: 0}});
         expect(next.activitybar?.right).toEqual({kind: "inner", occupied: 0});
         expect(next.sidebar).toEqual(cards.sidebar);
@@ -138,8 +156,19 @@ describe("最大化时的边", () => {
 
     it("活动栏隐藏时四边都贴窗体", () => {
         const side = {kind: "inner", occupied: 1} as const;
-        const next = maximizedCardEdges({panel: {top: side, right: side, bottom: side, left: side}}, "panel", "activitybar");
+        const next = maximizedCardEdges({panel: {top: side, right: side, bottom: side, left: side}}, "panel", [ACTIVITY_BAR, RAIL]);
         expect(next.panel?.left).toEqual({kind: "outer", occupied: 0});
+    });
+
+    it("有右轨时盖住的面板右边挨着右轨，右轨不再和底下的右栏相连（输出 50：最大化不盖侧轨）", () => {
+        const outerSide = {kind: "outer", occupied: 0} as const;
+        const cards = {
+            [RAIL.leaf]: {top: outerSide, right: outerSide, bottom: outerSide, left: {kind: "joined", bar: true}},
+            panel: {top: {kind: "inner", occupied: 1}, right: {kind: "inner", occupied: 1}, bottom: outerSide, left: {kind: "inner", occupied: 1}},
+        } as const;
+        const next = maximizedCardEdges(cards, "panel", [ACTIVITY_BAR, RAIL]);
+        expect(next.panel).toEqual({top: outerSide, right: {kind: "inner", occupied: 0}, bottom: outerSide, left: outerSide});
+        expect(next[RAIL.leaf]?.left).toEqual({kind: "inner", occupied: 0});
     });
 });
 

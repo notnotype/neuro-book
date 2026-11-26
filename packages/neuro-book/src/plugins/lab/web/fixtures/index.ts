@@ -466,6 +466,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},
                 {id: "cards", label: "卡片：缝、圆角、相连按邻接算", input: {props: base}},
                 {id: "view-head", label: "标题区：右栏的视图接管面板头（左、中、右三列）", input: {props: base}},
+                {id: "rail-cards", label: "右轨：右栏外侧的侧轨，和右栏相连；隐藏、显示时角接过去（卡片）", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./WorkbenchSurfaceFixture.vue")).default,

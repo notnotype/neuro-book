@@ -47,6 +47,8 @@ const VALUES: ReadonlyArray<string> = [
     "previewEdgeDrop",
     "previewPanelRects",
     "projectLayoutDoc",
+    "railLeafId",
+    "regionOfRailLeaf",
     "raiseFloat",
     "rebaseForOperation",
     "rectContains",
