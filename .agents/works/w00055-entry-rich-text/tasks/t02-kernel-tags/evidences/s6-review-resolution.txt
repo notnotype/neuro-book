@@ -7,9 +7,9 @@ w00055 t02 S6 三份审查的处理（2026-11-26）
 
 ## 后端
 
-O2 Agent 工具不看长度先解析（重要）：成立，改。agent-entry-text.ts 的 agentBlockText：交回的文字超过 10 万字（一块上限的两倍，给带值写法的余量）不解析，去值后超过 5 万字拒收，都请它拆块；交回的文字只解析一次（stripEntryText 收读好的结果），当时的带值写法解析一次；read 改用存下的源文，不再对当前块去值。
+O2 Agent 工具不看长度先解析（重要）：成立，改。agent-entry-text.ts 的 agentBlockText：交回的文字超过 10 万字（一块上限的两倍，给带值写法的余量）不解析，去值后超过 5 万字拒收，都请它拆块；读的时候栈溢出回一句话（顾问补的）。服务端进程里的解析次数：交回的文字一次（去值与配对共用），当时的带值写法一次，带 $ 时换代号再一次；比“没有改动”时交回的一侧只去 BOM 与换行（去值已写成规范写法），不再解析、不进分析的缓存，存下的一侧走内核的规范化（稳定的文字，走缓存）。read 改用存下的源文，不再对当前块去值。
 O3 主文字里的 $代号 静默悬空（重要）：成立，改。去值后用 rewriteEntryIds 把 V 的 entry、Ref 的 id、式子里 ref('…') 的 $代号 换成同一批前面 create 的临时 id；不是这一批前面的代号回话说清。工具说明与 agent-tools 输出 7 补上。
-O4 canon_read 截断、text[块] 读不到、出错块不标（重要）：成立，改。field 写 text[块 id] 只读这一块，一页 8000 字，cursor 续读；整篇截断的提示改成“主文字用 field: "text[块 id]" 一块一块读”；出错的块写“出错：原因，第几行”。这一块的带值写法超过一页时 set text[块] 拒收、请它用 replace（顾问：这是工具合同的新行为，已写进 agent-tools 输出 6 的细则）。
+O4 canon_read 截断、text[块] 读不到、出错块不标（重要）：成立，改。field 写 text[块 id] 只读这一块，一页 8000 字，cursor 续读；出错的块写“出错：原因，第几行”。这一块的带值写法超过一页时 set text[块] 拒收、请它用 replace（顾问：这是工具合同的新行为，已写进 agent-tools 输出 6 的细则）。第一版只做到这里，顾问复核指出 Opus 的原例（一块 5088 字，整篇读截在 4000 字）仍落在“截断线 4000 与拦截线 8000 之间”的空档里，照截断的文字整段写回照样丢后半块：改成整篇读不在块中间截断，放不下的块只写“这一块共 N 字，用 field: "text[块 id]" 读”（506123dd5），用例按审查的 5088 字与两块各 3000 字写。
 O5/O14 混合批里原样交回的块照样发出（重要）：成立，改。去值、规范化以后与存下的相同的项不进 ops；ops 为空时回“没有改动”。顾问指出丢项后内核回话的操作序号会错位：加 opEdits 表，失败里的 op、problems[].op、ops[N] 路径换回项号。
 O6 两个变异活着（建议）：成立，补用例。作者值表里结果确定的 If 不带 unavailable；纯文字里第一个未知的判断读不到 / 值为空两种先后。
 O7/O16 预览不按基线查没登记标签（重要）：成立，改。renderSourceForAuthor 在 analyzeDraft 的结果上用 analysisProblem 按基线查（顾问：不调 blockProblem，它先比长度、走带缓存的分析）；基线 existingTagsOf 按世界对象记一份（WeakMap），写入校验与预览共用。
@@ -32,6 +32,10 @@ S7 着色（建议）：a 改（属性写成 名="值" 才照标签画，等号�
 S8 Lab b3 文字；rawHtmlBlock 内部名（建议）：成立，改。内核把 html、rawHtmlBlock、rawHtmlInline 都写成 “raw HTML or an HTML comment is not supported in entry text”，Lab 场景用这句。
 S9 过期文字与死字段（建议）：成立，改。EntryTextEditor.md、EntryTextEditorFixture.vue 文件头、ImageInput.vue 的注释、Lab CodeInput 场景的示例、receipt-page.dom.test.ts 的旧写法；LaidOutBlock.tagName 删掉。
 S10 对不上不报诊断（建议）：改 Spec 与计划，不加诊断通道。作者界面与世界服务同版发布，对不上只出现在升级中开着的旧窗口里；rendering 输出 7 与 plan 去掉“并报诊断”，交开发者知悉。
+
+## 修正之后的复核
+
+交顾问看过修正（cc4930729..93a460ea1），按意见补了 506123dd5：O4 的空档、交回文字的栈溢出、比“没有改动”的解析次数、长度闸门的用例、出错块的纯函数用例；rendering 输出 16 的措辞。变异检查见 s6-review-mutations.txt，另 5 个里 4 个测出；“出错的块也去值”活着：公开入口写不进出错的块，工具测试里造不出，这一支只有 agentBlockText 的纯函数用例（已知缺口）。修订列表是最新的在前（service.revisions 倒序），staleSince 取前 5 条是对的。vitest 按 S6 时同一份范围（canon 与 Lab 的 fixtures）跑是 264 条，等于 261 加这次的 3 条。
 
 ## 交开发者知悉的取舍
 - O13：一次请求最坏能占住项目进程十几分钟（刻意构造的输入），记为已知限制。
