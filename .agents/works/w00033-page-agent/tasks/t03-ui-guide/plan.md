@@ -26,9 +26,9 @@
 
 - 只改路由交给服务端自己节点的上游（构造函数里的 `Upstream`），不动 `node.ts`：
   - `request` 对 `INSTANCES_CONTRACT` 本地交回 `this.instances()`，与 `#routeRequest` 用同一个函数、同一份成员表。
-  - `subscribe` 的目标是 `{client}` 时给 handlers 包一层，把 `disconnected` 改报 `target-gone`，与 `#routeSubscribe` 一致；项目目标保持“断线等重连重建”。
+  - `subscribe` 给 handlers 包一层，把 `disconnected` 改报 `target-gone`，与 `#routeSubscribe` 一致。服务端自己的上游是进程内的路由、从不重连，项目子进程的链路断开即实例结束，所以客户端与项目两种目标都这样结束（今天两种都会一直挂着）。
 - 不变量：经路由转发的订阅、客户端作订阅方的重建不变；`ended` 标记保证与服务端自己取消同时发生时只结束一次（Opus 核过现有逻辑）。
-- 测试用 `routing.test.ts` 的 `topology()`：服务端列实例与成员经路由查到的相同；服务端订阅窗口、窗口链路断开得 `target-gone`；同实例重连不重建、以 `target-gone` 结束；项目目标的订阅断线重连后仍重建（回归）。
+- 测试用 `routing.test.ts` 的 `topology()`：服务端列实例与成员经路由查到的相同；服务端订阅窗口、窗口链路断开得 `target-gone`；同实例重连不重建、以 `target-gone` 结束；服务端订阅项目实例、子进程链路断开得 `target-gone`；客户端作订阅方断线重连后仍重建（回归）。
 
 ### 拥有者给出的只读目录与稳定名
 
@@ -86,7 +86,7 @@
 ## Spec 与文档改动（第 1 片，planned）
 
 - `docs/specs/agent/page-agent.md`：已按审查改到第二版。
-- `docs/specs/runtime/plugin-channel.md`：输出 7 补“服务端作订阅方、目标是客户端时，链路关闭即以 `target-gone` 结束、不重建”；输出 8 补“服务端插件调用时由路由本地回答，与成员经路由查到的相同”；验收补两例。
+- `docs/specs/runtime/plugin-channel.md`：输出 7 补“服务端作订阅方时，目标成员的链路关闭即以 `target-gone` 结束、不重建”；输出 8 补“服务端插件调用时由路由本地回答，与成员经路由查到的相同”；验收补两例。
 - `docs/specs/harness/runtime.md`：`waitingForUser`（嵌套调用结算时一定收回）；等用户期间仍占并发名额。
 - `docs/specs/agent/eval.md`：输出 14 的“等用户应答”加上嵌套工具自报的等待；`ToolCallError.details` 只来自声明了 `errors` 的工具；文档签名带字段说明与失败码。
 - `docs/specs/agent/contributions.md`：`agentTool` 的 `foreground` 与 `errors`。
