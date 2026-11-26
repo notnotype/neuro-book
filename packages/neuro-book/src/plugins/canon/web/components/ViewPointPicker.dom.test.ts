@@ -120,6 +120,25 @@ describe("ViewPointPicker", () => {
         expect(menu.querySelector("[data-view-point-search]")).toBeNull();
     });
 
+    it("故事线一段是一组单选：只有当前那条线可用 Tab 进来；上下键在线之间换、到头绕回", async () => {
+        const wrapper = picker({lineOptions: LINES, resolvedLine: "main"});
+        const menu = await openMenu(wrapper);
+        const lines = [...menu.querySelectorAll<HTMLElement>("[data-line-option]")];
+        expect(lines.filter((line) => line.getAttribute("tabindex") === "0").map((line) => line.getAttribute("data-line-option"))).toEqual([""]);
+        lines[0]!.focus();
+        const press = async (key: string) => {
+            (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true}));
+            await nextTick();
+        };
+        await press("ArrowDown");
+        expect(document.activeElement?.getAttribute("data-line-option")).toBe("main");
+        await press("ArrowDown");
+        await press("ArrowDown");
+        expect(document.activeElement?.getAttribute("data-line-option")).toBe("");
+        await press("ArrowUp");
+        expect(document.activeElement?.getAttribute("data-line-option")).toBe("l1");
+    });
+
     it("多于 12 章：有搜索框，焦点在它上面；按章号（纯数字只认章号）、“第 N 章”（空格可有可无）、标题里的字筛；当前章被筛掉时最初可聚焦；搜不到写一句；按下键进章表", async () => {
         const titles = ["雨夜的来客", "旧校舍的钟", "夏日祭"];
         const chapters = Array.from({length: 30}, (_, index) => chapterOf(index + 1, titles[index % titles.length]!));
@@ -150,13 +169,16 @@ describe("ViewPointPicker", () => {
         expect(menu.textContent).toContain("没有对得上的章");
     });
 
-    it("标记一格只写一样：那一章不在了优先，其次是还没出场；锁着时按钮与前后两步都不可用、悬停写原因", async () => {
+    it("标记一格只写一样：那一章不在了优先，其次是还没出场；锁着时关上菜单，按钮与前后两步都不可用、悬停写原因", async () => {
         const wrapper = picker({positionGone: true, notAppeared: true});
         expect(wrapper.text()).toContain("原来选的那一章已经不在了");
         expect(wrapper.find("[data-not-appeared]").exists()).toBe(false);
         await wrapper.setProps({positionGone: false});
         expect(wrapper.get("[data-not-appeared]").text()).toBe("这时还没出场");
+        await openMenu(wrapper);
         await wrapper.setProps({locked: "先提交或放弃正在写的主文字"});
+        // 菜单开着时锁上了：关上。
+        expect(wrapper.get("[data-view-point]").attributes("aria-expanded")).toBe("false");
         for (const selector of ["[data-view-point]", "[data-view-point-prev]"]) {
             expect(wrapper.get(selector).attributes("disabled")).toBeDefined();
             expect(wrapper.get(selector).attributes("title")).toBe("先提交或放弃正在写的主文字");

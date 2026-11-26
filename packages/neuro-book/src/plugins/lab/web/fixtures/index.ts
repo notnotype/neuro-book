@@ -2321,6 +2321,7 @@ function canonEntryPageFixtures() {
                 {id: "typed", label: "写了建议值之外的字", input: {props: {label: "性别", suggestions: ["男", "女", "不明"]}, model: {modelValue: "双性"}}},
                 {id: "empty-english", label: "英文界面", input: {props: {label: "Gender", suggestions: ["Male", "Female", "Unknown"]}, model: {modelValue: ""}}},
                 {id: "inline", label: "嵌在编辑卡里：列着全部，当前值打勾", input: {props: {label: "性别", suggestions: ["男", "女", "不明", "无"], inline: true}, model: {modelValue: "女"}}},
+                {id: "inline-many", label: "嵌在编辑卡里、建议值多：列表在里面滚，方向键走到看不见的一项时滚到露出它", input: {props: {label: "身份", suggestions: ["学生", "教师", "医生", "护士", "警察", "律师", "厨师", "司机", "作家", "画家", "商人", "军人"], inline: true}, model: {modelValue: ""}}},
             ],
             load: async () => (await import("./SuggestInputFixture.vue")).default,
         }),
