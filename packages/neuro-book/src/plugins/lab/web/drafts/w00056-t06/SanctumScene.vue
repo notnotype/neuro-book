@@ -11,6 +11,10 @@
  */
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 
+import LEATHER_CORNER from "./assets/leather-corner.webp";
+import PARCHMENT from "./assets/parchment.webp";
+import VELVET from "./assets/velvet.webp";
+
 import {prefersReducedMotion, timeScale} from "./motion";
 import {deskBox, deskShot, floaterShot, heroShot, landingBox, lightShot, SANCTUM_MIN_WIDTH, smooth} from "./sanctum";
 import type {Floater, StageSize} from "./sanctum";
@@ -19,7 +23,9 @@ const props = withDefaults(defineProps<{
     progress?: number;
     intro?: boolean;
     deskReady?: boolean;
-}>(), {progress: 0, intro: true, deskReady: true});
+    /** 工作台是夜间配色：本来就暗，首屏不用再压那么多。 */
+    night?: boolean;
+}>(), {progress: 0, intro: true, deskReady: true, night: false});
 
 const emit = defineEmits<{
     (event: "landed", landed: boolean): void;
@@ -50,7 +56,7 @@ const LAYERS = {
     manuscript: {floater: {at: {x: 0.15, y: 0.44}, depth: -620, pose: "perspective(900px) rotateY(24deg) rotateZ(-7deg) rotateX(4deg)", fade: [160, 520]}, width: 250, height: 330},
     character: {floater: {at: {x: 0.858, y: 0.38}, depth: -470, pose: "perspective(900px) rotateY(-26deg) rotateZ(6deg)", fade: [160, 520]}, width: 230, height: 300},
     map: {floater: {at: {x: 0.2, y: 0.84}, depth: -240, pose: "perspective(900px) rotateX(40deg) rotateZ(9deg)", fade: [160, 520]}, width: 330, height: 236},
-    book: {floater: {at: {x: 0.905, y: 1.03}, depth: 170, pose: "rotateZ(-14deg)", fade: [300, 560]}, width: 560, height: 560},
+    book: {floater: {at: {x: 0.9, y: 1.02}, depth: 170, pose: "rotateZ(-6deg)", fade: [300, 560]}, width: 560, height: 560},
     ribbon: {floater: {at: {x: 0.05, y: 0.22}, depth: 130, pose: "rotateZ(13deg)", fade: [280, 540]}, width: 64, height: 620},
 } as const satisfies Readonly<Record<string, Layer>>;
 type LayerId = keyof typeof LAYERS;
@@ -188,7 +194,7 @@ function render(dt: number, speed: number): void {
 }
 
 function applyDeskPaint(desk: HTMLElement, shot: ReturnType<typeof deskShot>): void {
-    desk.style.setProperty("--sx-shade", String(shot.shade));
+    desk.style.setProperty("--sx-shade", String(props.night ? shot.shade * 0.55 : shot.shade));
     desk.style.setProperty("--sx-sheen", String(shot.sheen));
     desk.style.setProperty("--sx-sheen-opacity", String(shot.sheenOpacity));
     desk.style.setProperty("--sx-halo", String(shot.halo));
@@ -386,7 +392,7 @@ onBeforeUnmount(() => {
             <div class="sx-enter sx-carrier__enter">
                 <div class="sx-halo" aria-hidden="true"></div>
                 <!-- 桌布：比桌子大一圈、往外淡进暗里；落地后围着工作台的那一圈都是它。顶光在桌面上落一滩光。 -->
-                <div class="sx-cloth" aria-hidden="true"></div>
+                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`}" aria-hidden="true"></div>
                 <div class="sx-pool" aria-hidden="true"></div>
                 <div class="sx-desk">
                     <slot name="desk" />
@@ -402,7 +408,8 @@ onBeforeUnmount(() => {
             <div class="sx-enter" style="--enter-delay: 500ms">
                 <div class="sx-bob" style="--bob: 7.5s; --bob-y: -7px">
                     <svg class="sx-sheet sx-sheet--far" viewBox="0 0 250 330" width="250" height="330">
-                        <path :d="PAPER.manuscript" fill="#dccbaa" :filter="url('paper')" />
+                        <clipPath :id="id('clip-manuscript')"><path :d="PAPER.manuscript" /></clipPath>
+                        <image :href="PARCHMENT" x="0" y="0" width="250" height="330" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-manuscript')" />
                         <path :d="PAPER.manuscript" :fill="url('foxing')" />
                         <text x="24" y="40" class="sx-ink sx-ink--title">第一章 霜港的钟</text>
                         <line x1="24" y1="52" x2="128" y2="52" stroke="#8a6a3c" stroke-width="0.8" />
@@ -420,7 +427,8 @@ onBeforeUnmount(() => {
             <div class="sx-enter" style="--enter-delay: 620ms">
                 <div class="sx-bob" style="--bob: 8.6s; --bob-y: 6px">
                     <svg class="sx-sheet sx-sheet--mid" viewBox="0 0 230 300" width="230" height="300">
-                        <path :d="PAPER.character" fill="#d9c8a6" :filter="url('paper')" />
+                        <clipPath :id="id('clip-character')"><path :d="PAPER.character" /></clipPath>
+                        <image :href="PARCHMENT" x="0" y="0" width="230" height="300" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-character')" />
                         <path :d="PAPER.character" :fill="url('foxing')" />
                         <text x="24" y="44" class="sx-ink sx-ink--name">艾莉丝</text>
                         <rect x="176" y="22" width="30" height="30" rx="3" fill="none" stroke="#9b2232" stroke-width="1.4" />
@@ -445,7 +453,8 @@ onBeforeUnmount(() => {
             <div class="sx-enter" style="--enter-delay: 740ms">
                 <div class="sx-bob" style="--bob: 9.4s; --bob-y: -5px">
                     <svg class="sx-sheet sx-sheet--near" viewBox="0 0 330 236" width="330" height="236">
-                        <path :d="PAPER.map" fill="#dbc9a7" :filter="url('paper')" />
+                        <clipPath :id="id('clip-map')"><path :d="PAPER.map" /></clipPath>
+                        <image :href="PARCHMENT" x="0" y="0" width="330" height="236" preserveAspectRatio="xMidYMid slice" :clip-path="url('clip-map')" />
                         <path :d="PAPER.map" :fill="url('foxing')" />
                         <g stroke="#8a6a3c" stroke-width="0.5" stroke-opacity="0.35">
                             <path v-for="column in 6" :key="`c${column}`" :d="`M${column * 50},10 V226`" />
@@ -484,25 +493,7 @@ onBeforeUnmount(() => {
         <!-- 前景：赤红精装书的书角（鎏金包角）与一条丝带书签，离镜头最近，虚着。 -->
         <div :ref="setLayer('book')" class="sx-layer" :style="layerSize('book')" aria-hidden="true">
             <div class="sx-enter sx-enter--rise" style="--enter-delay: 120ms">
-                <svg class="sx-book" viewBox="0 0 560 560" width="560" height="560">
-                    <rect x="52" y="64" width="620" height="620" rx="26" fill="#000" fill-opacity="0.6" :filter="url('shadow')" />
-                    <rect x="34" y="34" width="620" height="620" rx="24" fill="#2b0409" />
-                    <rect x="40" y="40" width="620" height="620" rx="22" :fill="url('leather')" :filter="url('grain')" />
-                    <rect x="40" y="40" width="620" height="620" rx="22" :fill="url('leather-sheen')" />
-                    <rect x="41.5" y="41.5" width="617" height="617" rx="21" fill="none" stroke="#d0566a" stroke-opacity="0.32" stroke-width="2" />
-                    <rect x="78" y="78" width="560" height="560" rx="10" fill="none" stroke="#24030a" stroke-opacity="0.55" stroke-width="3.2" />
-                    <rect x="79.5" y="79.5" width="560" height="560" rx="10" fill="none" stroke="#c4475a" stroke-opacity="0.22" stroke-width="1" />
-                    <rect x="96" y="96" width="540" height="540" rx="6" fill="none" :stroke="url('gold')" stroke-width="2.4" />
-                    <rect x="104" y="104" width="530" height="530" rx="4" fill="none" :stroke="url('gold')" stroke-width="0.9" stroke-opacity="0.75" />
-                    <path d="M40,66 Q40,40 66,40 L206,40 L206,60 Q130,66 108,108 Q66,130 60,206 L40,206 Z" :fill="url('gold')" stroke="#6f4a17" stroke-width="1.2" />
-                    <path d="M44,66 Q44,44 66,44 L202,44" fill="none" stroke="#fff4d6" stroke-opacity="0.75" stroke-width="1.4" />
-                    <path d="M206,60 Q130,66 108,108 Q66,130 60,206" fill="none" stroke="#2a0409" stroke-opacity="0.55" stroke-width="3" transform="translate(2 2)" />
-                    <path d="M150,50 q-26,6 -38,22 q-8,10 -20,14 M50,150 q6,-26 22,-38 q10,-8 14,-20" fill="none" stroke="#6f4a17" stroke-width="1.2" stroke-opacity="0.8" />
-                    <path d="M176,50 q-6,10 -18,8 M50,176 q10,-6 8,-18" fill="none" stroke="#6f4a17" stroke-width="1" stroke-opacity="0.7" />
-                    <circle cx="80" cy="80" r="15" :fill="url('gold')" stroke="#6f4a17" stroke-width="1.2" />
-                    <circle cx="80" cy="80" r="8.5" :fill="url('gem')" stroke="#4a2c0a" stroke-width="0.8" />
-                    <circle cx="77" cy="77" r="2.4" fill="#ffd9de" fill-opacity="0.8" />
-                </svg>
+                <img class="sx-book" :src="LEATHER_CORNER" width="560" height="560" alt="" />
             </div>
         </div>
 
@@ -576,15 +567,6 @@ onBeforeUnmount(() => {
                     <stop offset="0.5" stop-color="#fff2d6" stop-opacity="0" />
                     <stop offset="1" stop-color="#1c0e08" stop-opacity="0.3" />
                 </linearGradient>
-                <filter :id="id('paper')" x="-4%" y="-4%" width="108%" height="108%">
-                    <feTurbulence type="fractalNoise" baseFrequency="0.035 0.05" numOctaves="4" seed="3" result="noise" />
-                    <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0.42  0 0 0 0 0.29  0 0 0 0 0.16  0 0 0 -1.4 1.05" result="stain" />
-                    <feComposite in="stain" in2="SourceGraphic" operator="in" result="stained" />
-                    <feMerge>
-                        <feMergeNode in="SourceGraphic" />
-                        <feMergeNode in="stained" />
-                    </feMerge>
-                </filter>
                 <filter :id="id('grain')" x="0" y="0" width="100%" height="100%">
                     <feTurbulence type="turbulence" baseFrequency="0.42" numOctaves="2" seed="11" result="noise" />
                     <feDiffuseLighting in="noise" lighting-color="#ffffff" surfaceScale="2.6" result="lit">
@@ -747,8 +729,9 @@ onBeforeUnmount(() => {
     border-radius: 48px;
     background:
         radial-gradient(60% 55% at 50% 42%, rgb(104 16 32 / 0.42), transparent 78%),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.55  0 0 0 0 0.1  0 0 0 0 0.16  0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
-        linear-gradient(165deg, #3a0711, #26040b 55%, #190307);
+        linear-gradient(rgb(16 3 7 / 0.28), rgb(16 3 7 / 0.5)),
+        var(--sx-velvet) center / cover,
+        #22040a;
     mask-image: radial-gradient(closest-side, #000 72%, transparent);
 }
 
@@ -765,7 +748,7 @@ onBeforeUnmount(() => {
     inset: 0;
     overflow: hidden;
     border-radius: 10px;
-    background: #f3eee5;
+    background: var(--bg-main);
     box-shadow:
         0 0 0 1px rgb(225 178 133 / 0.38),
         0 22px 54px rgb(0 0 0 / 0.65);
@@ -888,10 +871,10 @@ onBeforeUnmount(() => {
     letter-spacing: 0.6em;
 }
 
+/* 书角是生成的照片（皮面、鎏金包角、刷金的书口），黑底已经抠成透明；离镜头最近，略虚。 */
 .sx-book {
     display: block;
-    overflow: visible;
-    filter: blur(1.8px);
+    filter: blur(1.4px) drop-shadow(0 30px 40px rgb(0 0 0 / 0.6));
 }
 
 .sx-sway {

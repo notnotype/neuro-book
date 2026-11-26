@@ -1,6 +1,7 @@
 /**
  * w00056 t06（文档站首页的产品介绍）的原型；评审板在那个 Task 的 artifacts/review。
- * 第 3 轮：三种开场与第一幕（`HomepageDraft`）。第 4 轮：方向一《入殿·俯案成界》的首屏、俯冲与改过的第一幕（`HomepageSanctum`），场景 id 加 `r4-`。
+ * 第 3 轮：三种开场与第一幕（`HomepageDraft`）。第 4、5 轮：方向一《入殿·俯案成界》的首屏、俯冲与改过的第一幕（`HomepageSanctum`，
+ * 第 5 轮在第 4 轮上改，场景 id 换成 `r5-`；首屏的场景单独看是 `SanctumScene` 的 `r4-scene-*`）。
  */
 import {defineLabFixture} from "../../fixtures/define";
 import type HomepageDesk from "./HomepageDesk.vue";
@@ -41,8 +42,8 @@ export const fixtures = [
     defineLabFixture<typeof HomepageSanctum>({
         component: "HomepageSanctum",
         scenes: [
-            {id: "r4-sanctum", label: "第 4 轮：入殿·俯案成界（从首屏起，往下滚俯冲到工作台）", input: {props: {start: "top"}}},
-            {id: "r4-act-one", label: "第 4 轮：第一幕的三拍（直接落在第一幕开头）", input: {props: {start: "act-one"}}},
+            {id: "r5-sanctum", label: "第 5 轮：入殿·俯案成界（从首屏起，往下滚俯冲到工作台）", input: {props: {start: "top"}}},
+            {id: "r5-act-one", label: "第 5 轮：第一幕的五拍（直接落在第一幕开头）", input: {props: {start: "act-one"}}},
         ],
         load: async () => (await import("./HomepageSanctumFixture.vue")).default as never,
     }),

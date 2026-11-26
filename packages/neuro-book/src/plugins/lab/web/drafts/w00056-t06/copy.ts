@@ -38,27 +38,33 @@ export const STEP_COPY: readonly StepCopy[] = [
 /** 步骤的序号：这是一幕里的先后。只写“一”会被看成一条横线，所以写全“第一步”。 */
 export const STEP_NUMERALS = ["第一步", "第二步", "第三步", "第四步", "第五步"] as const;
 
+/** 和首句 e3 呼应的那句英文（开发者 2026-11-26 更正为 from words to world）。 */
+export const TAGLINE = "From words to world.";
+
 /**
- * 第 4 轮（《入殿·俯案成界》）第一幕的字幕：跟着第五章的一场戏走，不再按功能报步骤。字幕在工作台下面一行一行换；
- * 星璃的话在她自己的对话栏里（`sample.ts` 的 `KNOCK_*`），不另外浮一个气泡。
- * 拍子按 @designer 第 4 轮的意见收成三拍：打字与对照、双击铺满、交给访客；人物浮窗与“关掉再打开”不演（没有画面撑着那句话）。
+ * 第 5 轮（《入殿·俯案成界》）第一幕：跟着第五章的一场戏走五拍，最后交给访客。开发者看过第 4 轮后要三件事：
+ * 放慢、讲清楚（每一拍先在字幕里说要做什么，再做）；把浮窗、视图换位置、关掉再打开这几步加回来；和首屏一样华丽。
+ * 每一拍有一个短标题（字幕上一行，金色）和两句字幕：开头说要做什么，做完说得到了什么。星璃的话在她自己的对话栏里。
  */
 export const SANCTUM_ACT = "第一幕  一张随你摆的桌子";
 
+export interface BeatCopy {
+    readonly title: string;
+    readonly opening: string;
+    /** 动作中间换一句（只有第一拍有：先打字，再拖第一章）。 */
+    readonly middle?: string;
+    readonly closing: string;
+}
+
 export const BEATS = {
-    knock: {
-        opening: "第五章，雨夜。她写到那声敲门。",
-        compare: "摊开第一章，两声敲门并排。",
-        closing: "前后的伏笔，一眼对上。",
-    },
-    focus: {
-        opening: "要专心时，双击标签栏，正文铺满桌面。",
-        closing: "再双击，一切回到原处。",
-    },
-    handoff: {
-        invite: "换你来：拖一个标签，摆到顺手的地方。",
-    },
-} as const;
+    knock: {title: "两章并排", opening: "第五章，雨夜。她写到那声敲门。", middle: "第一章也有一声。把第一章拖到右边，两章并排。", closing: "两声敲门对在一起，伏笔埋得对不对，一眼就知道。"},
+    alice: {title: "人物浮在手边", opening: "写到艾莉丝：把她的设定拖出来，浮在作品树下面。", closing: "写她的时候抬眼就看得见，正文一个字也不挡。"},
+    move: {title: "视图换个位置", opening: "视图放哪边你说了算：把作品树整块拖到右栏。", closing: "外框滑过去，里面的东西原样不动；左边换成了设定。"},
+    focus: {title: "专心", opening: "要专心时，双击标签栏，正文铺满桌面。", closing: "再双击，一切回到原处。"},
+    memory: {title: "下次还是这样", opening: "写完了，关灯。明天再打开。", closing: "分栏、浮窗、写到一半的那句，都在你离开时的地方。"},
+} as const satisfies Readonly<Record<string, BeatCopy>>;
+
+export const HANDOFF = "换你来：拖一个标签，摆到顺手的地方。";
 
 /** 两章里要同时描金的那两句：第五章刚打的，第一章末尾师傅的敲法。 */
 export const KNOCK_ECHOES = ["门外有人敲门，三下。", "楼下有人敲门，三下，停一停，再一下。"] as const;

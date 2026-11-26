@@ -2,15 +2,21 @@
  * 首页工作台（`HomepageDesk.vue`）对外的形状：开场动画要量的卡片、第一幕要记下的布局、指针要瞄的目标。
  * 单独成文件，页面只引类型与几何小函数，不必为了类型去引组件。
  */
+import type {MessageView} from "@notnotype/nb-agent-ui";
 import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import type {TabsSnapshot} from "nbook/plugins/editor/web/groups/groups";
 
-/** 关掉再打开时要带回来的三样：布局文档、编辑器标签的属性、哪一块最大化着。 */
+/**
+ * 关掉再打开时要带回来的：布局文档、编辑器标签的属性、哪一块最大化着。`files`、`lyra` 是存过盘的正文与星璃的对话
+ * （“关掉再打开”那一拍要带回打到一半的那句；只换布局的快照不带，按首屏的样本来）。
+ */
 export interface DeskSnapshot {
     readonly doc: LayoutDoc;
     readonly tabs: TabsSnapshot;
     readonly maximized: string | null;
+    readonly files?: ReadonlyArray<readonly [string, string]>;
+    readonly lyra?: readonly MessageView[];
 }
 
 /** 一块矩形，普通对象（能写进 Lab 的场景数据）。 */

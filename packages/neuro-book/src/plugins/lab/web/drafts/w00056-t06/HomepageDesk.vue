@@ -68,7 +68,9 @@ const props = withDefaults(defineProps<{
     restore?: DeskSnapshot | null;
     /** 首屏摆什么（见 `DeskSetup`）；只在没有 `restore` 时用。 */
     setup?: DeskSetup;
-}>(), {restore: null, setup: "tour"});
+    /** 夜间配色时强调色换成金（配色本身由页面写在根上，见 `HomepageSanctum.vue`）。 */
+    night?: boolean;
+}>(), {restore: null, setup: "tour", night: false});
 
 const emit = defineEmits<{
     /** 访客自己按下了指针或按了键（演示不发这些事件）：第一幕的自动演示据此让开。 */
@@ -149,7 +151,8 @@ function commitGesture(before: Readonly<Record<string, GridExtent>>, after: Read
 
 // ── 编辑器区：产品的控制器、组与标签、Markdown 编辑器，文件在内存里 ──
 
-const memory = createMemoryFiles({project: PROJECT_FILES, user: []});
+// 重新挂一台时带回存过盘的正文（“关掉再打开”那一拍）；没有就按样本。
+const memory = createMemoryFiles({project: props.restore?.files ?? PROJECT_FILES, user: []});
 const editorPanels: EditorPanelsService = {
     ...createEditorPanels({document: () => doc.value, apply: (operation) => apply(operation), policy: POLICY}),
     ready: shallowRef(true),
@@ -213,7 +216,7 @@ const explorer = createDeskExplorer({
 const explorerRegion = (current: LayoutDoc): PanelName => ((current.panels.auxiliarybar?.entries ?? []).includes(implicitContainerOf("explorer")) ? "auxiliarybar" : "sidebar");
 explorer.location.value = explorerRegion(doc.value);
 /** 星璃的对话：第一幕会往里加消息（作者问、她边打边答），所以整份换新对象让视图跟着变。 */
-const lyra = shallowRef(lyraContext(LYRA_AVATAR, props.setup === "knock" ? KNOCK_MESSAGES : TOUR_MESSAGES));
+const lyra = shallowRef(lyraContext(LYRA_AVATAR, props.restore?.lyra ?? (props.setup === "knock" ? KNOCK_MESSAGES : TOUR_MESSAGES)));
 const lyraServices: AgentConversationServices = labAgentServices();
 const lyraRegistry = labAgentRegistry();
 const lyraMode = ref<AgentViewMode>("turns");
@@ -413,7 +416,8 @@ function floatLanding(): LayoutFloatRect {
     const sidebar = regionRect("sidebar");
     const floatHeight = Math.min(320, Math.round(height * 0.46));
     if (tree === undefined || sidebar === null) return {x: 56, y: height - floatHeight - 40, width: 280, height: floatHeight};
-    return {x: Math.round(sidebar.left - tree.left + 8), y: Math.round(height - floatHeight - 24), width: Math.max(270, Math.round(sidebar.width + 48)), height: floatHeight};
+    // 宽只比侧栏多一点点：再宽就压到第五章的左边距上了（第 4 轮的截图里压了几个像素）。
+    return {x: Math.round(sidebar.left - tree.left + 6), y: Math.round(height - floatHeight - 24), width: Math.max(250, Math.round(sidebar.width + 12)), height: floatHeight};
 }
 
 function target(name: DeskTarget): DOMRectReadOnly | null {
@@ -576,6 +580,16 @@ function snapshot(): DeskSnapshot {
     return {doc: doc.value, tabs: area.groups.snapshot(), maximized: maximized.value};
 }
 
+/** 关掉之前的样子：先存盘（打到一半的那句进文件），再连同正文与星璃的对话一起记下。 */
+async function snapshotSaved(): Promise<DeskSnapshot> {
+    await area.saveAll();
+    const files = await Promise.all(PROJECT_FILES.map(async ([path, fallback]): Promise<readonly [string, string]> => {
+        const read = await memory.files.read(`project://${path}`);
+        return [path, read.ok ? read.value.text : fallback];
+    }));
+    return {...snapshot(), files, lyra: lyra.value.messages};
+}
+
 /** 换回记下的某一份布局（第一幕往回滚时）：标签一个没关，只是换了位置，编辑器的记录照旧对得上。 */
 function applyDoc(next: DeskSnapshot): void {
     maximized.value = next.maximized;
@@ -583,7 +597,7 @@ function applyDoc(next: DeskSnapshot): void {
     explorer.location.value = explorerRegion(next.doc);
 }
 
-defineExpose({plates, ground, target, sourceElement, splitRight, moveExplorer, setMaximized, floatAlice, showDrag, moveGhost, revealEnd, type, typing, shows, textRects, lyraPost, lyraHas, snapshot, applyDoc});
+defineExpose({plates, ground, target, sourceElement, splitRight, moveExplorer, setMaximized, floatAlice, showDrag, moveGhost, revealEnd, type, typing, shows, textRects, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc});
 
 // 第一次排好版（量到尺寸、卡片有了）再告诉页面，开场动画照它摆。
 const stopReady = watch(presented, (sizes) => {
@@ -604,7 +618,7 @@ onBeforeUnmount(() => {
 
 <template>
     <!-- 只认按下与按键：滚轮不算动手，第一幕里鼠标停在工作台上滚页面是常事。 -->
-    <div ref="host" class="hp-desk" @pointerdown.capture="onVisitor" @keydown.capture="onVisitor">
+    <div ref="host" class="hp-desk" :class="{'hp-desk--night': night}" @pointerdown.capture="onVisitor" @keydown.capture="onVisitor">
         <WorkbenchSurface
             ref="surface"
             class="hp-desk__surface"
@@ -705,6 +719,17 @@ onBeforeUnmount(() => {
     position: relative;
     width: 100%;
     height: 100%;
+}
+
+/* 夜间：强调色换成品牌的金（暗底上赤红太闷），派生的几项一起写，理由同上。 */
+.hp-desk--night {
+    --accent-main: #e1b285;
+    --accent-bg: rgb(225 178 133 / 0.14);
+    --accent-text: #f0c987;
+    --border-accent: color-mix(in srgb, #e1b285 45%, #3e3933);
+    --selection-bg: rgb(225 178 133 / 0.28);
+    --focus-ring: 0 0 0 1px rgb(225 178 133 / 0.45), 0 0 0 3.5px rgb(225 178 133 / 0.16);
+    --focus-outline: rgb(240 201 135 / 0.8);
 }
 
 .hp-desk__surface {
