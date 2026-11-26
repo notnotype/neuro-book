@@ -63,7 +63,7 @@ owners:
 4. **`canon_tree`。** 一层的条目：id、名字（这个位置上的）、种类、有没有子条目、已删除或还没出场；`parent` 写 id 或名字，不给是最上层；`limit` 缺省 30、最多 50；有下一页时给出剩下几项与 `cursor`。全文最多 3000 字。
 5. **`canon_read`。** `entry` 写 id 或名字。`show` 缺省 `fields`：
    - `fields`：每个设定组一节，每个字段一行：显示名、id、值、种类与可取的值（选项、范围、单位、可指向的种类、语义档）。列表每个元素一行，最多 20 行，另写还有几项；`field` 只读一个字段时列全。另列以后才启用的、去掉过的设定组。
-   - `text`：给 Agent 的渲染（[`canon.rendering`](rendering.md)），每块写块 id。
+   - `text`：给 Agent 的渲染（[`canon.rendering`](rendering.md)），每块写块 id。（planned）值写在标签中间、只给看（rendering 输出 8）。
    - `origins`：`field` 这个字段的来历，最近 15 步，有更早的给 `cursor`。
    - `history`：涉及这个条目的最近 10 次修订：id、版本、写入者、标题。
    - 全文最多 6000 字（只读主文字时 4000 字），超了截断并写明怎么读全。
@@ -87,6 +87,7 @@ owners:
    | `move` | `entry`、`parent`（id、名字或 null）、`after`（同上）、`folder`、`kind` | `place` |
    | `delete`、`restore` | `entry` | `delete`、`restore` |
 
+   - 写主文字（planned）：`create` 与 `addBlock` 的 `text`、`set` 写到 `text[块]` 的值、`replace` 写到 `text[块]` 的 `find` 与 `with`，都先按 [`canon.rendering`](rendering.md) 输出 10 去值再写。`replace` 在这一块按读取位置的带值写法里找：`find` 恰好出现一次，换成 `with`，整块去值后写回；读取之后这一块变过时按版本冲突拒收。交回的文字里有值与当时的不同时，照常写入、字段不改，回话写明“文字里的值不写入，现在是 X，改值用 set”。工具说明里写出每种标签的写法与例子。
 7. **名字与地址的解析。**
    - `entry`、`parent`、`after`、引用字段的值、`target` 可以写 id、名字（别名也行）或 `$代号`。按读取位置上的名字完全匹配：没有时回“没有叫 X 的条目”与相近的几个，多于一个时列出候选、请它写 id，不替它选。
    - `field` 写“设定组.字段”或“设定组.字段[元素].子字段”。设定组写命名空间或类型名，字段、元素、子字段写 id 或名字；“名字”“简介”“别名”是条目自己的。写 id 的总是认得；写名字时只有唯一命中才认，几个设定组、字段、元素或子字段同名时列出它们的 id，不替它选。
