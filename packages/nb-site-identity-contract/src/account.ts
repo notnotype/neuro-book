@@ -6,21 +6,14 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
+import {ROLES, SOCIAL_PROVIDERS} from "./account-constants";
 import {Bio, ContinueToken, ContinueUrl, DisplayName, Email, ExistingPassword, Id, LoginIdentifier, NewPassword, Username, UsernameInput, WebUrl} from "./fields";
 import {literalUnion, nullable, strictObject} from "./schema";
 import {IsoTimestamp, TermsVersion} from "./time";
 
-/** 账号的角色（`site.admin` 术语：管理员是角色为 `admin` 的用户）。 */
-export const ROLES = ["user", "admin"] as const;
-
-export type Role = (typeof ROLES)[number];
+export * from "./account-constants";
 
 export const RoleSchema = literalUnion(ROLES);
-
-/** 上游（术语“上游”）。社交登录本身归 t08，上游名在这里是因为上游身份列表与管理详情都要它。 */
-export const SOCIAL_PROVIDERS = ["google", "github"] as const;
-
-export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
 
 export const SocialProviderSchema = literalUnion(SOCIAL_PROVIDERS);
 
