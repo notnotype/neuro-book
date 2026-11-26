@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t42-entry-page-redesign",
+    "artifactId": "review",
+    "answerId": "20261126T053719086Z-be284343",
+    "artifactVersion": 5,
+    "contentHash": "04fa72543bb8f92220e0697e4a3fc522a82141987385baa08064edcdb3e0bbb1",
+    "submittedAt": "2026-11-26T05:37:17.301Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "chapter-finding": "search-steps",
+        "intent-words": "since",
+        "story-note": "optional",
+        "long-card": "same-card"
+    },
+    "comments": {},
+    "note": null
+}
