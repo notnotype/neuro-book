@@ -1,0 +1,19 @@
+2026-11-26 nb-layout 0.3.0 发布后的 registry 冒烟：在发布用的提交 2fb76a588 上运行 prox bun run release:smoke --from registry --wait 30，退出码 0；npm 上 @notnotype/nb-layout 的 latest 为 0.3.0。
+
+$ bun scripts/release/pack-smoke.ts --from registry --wait "30"
+✓ registry 上取得到 13 个要验的版本
+✓ 从包装上 @notnotype/nb-story：@notnotype/nb-flock@0.1.0、@notnotype/nb-form@0.3.0、@notnotype/nb-harness@0.1.2、@notnotype/nb-profile@0.1.0、@notnotype/nb-runtime@0.4.0、@notnotype/nb-session@0.1.0、@notnotype/nb-story@0.2.3
+✓ nb-story 的安装里没有 @notnotype/nb-ui、vue、typescript
+✓ nbstory --help 与空书库上的 books
+✓ nbstory config show 加载模型目录
+✓ nbstory skill install 两次：installed、unchanged
+✓ nbstory serve：登录链接打开书架页与设置页，没有脚本错误
+✓ nbstory serve 收到 SIGTERM 后以 0 退出
+✓ Vite 宿主导入 8 个公开入口与样式入口，构建通过
+✓ nb-layout 宿主：README 的起步例子与四个入口的类型检查通过，Vite 构建通过，浏览器里拖动与方向键都改了宽度、样式生效
+✓ nb-layout 示例 desktop、ide、tabbed-panels：照第三方的装法装上这次的包，类型检查与构建通过
+✓ bun add -g @notnotype/neuro-book：nbook 启动、页面打开书架并连上服务端，Ctrl-C 以 0 退出
+✓ 托管入口 server/main.js：以 --stop-stdin 起来，页面打开书架，写 stop 后以 0 退出
+✓ bunx -p @notnotype/nb-plugin-sdk nbooke create：插件装上同版本的 SDK，构建与类型检查通过
+✓ nbook plugin install 后重启：插件已加载，没有待生效的变化
+发布冒烟通过（registry）
