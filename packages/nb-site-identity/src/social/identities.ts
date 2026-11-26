@@ -8,6 +8,8 @@
  * 解绑在一个写事务里：复核会话、确认这一行是自己的、数剩下的登录方式、删两边的行。“剩下的登录方式”必须在删的同一个事务里数：
  * 写事务排在一条队列上，两个并发的解绑（或解绑与改密码）后一个看得到前一个的结果，没有密码的账号不会被并发的两次解绑删空。
  * 上游名字与 `account` 行一起删：只删 `account` 行时留下的名字行在 1 分钟之内仍算在用，挡住同一个身份马上再关联（`claimUpstreamName`）。
+ * 剩下的登录方式只算密码与所在上游此刻开放着的身份（输出 16）：没开放的上游发起不了登录（输出 11），它的身份留着也登不进来
+ * （omp 实现审查第 7 条）。列表照旧列出这些身份，本人仍能看到、解绑它们。
  */
 
 import type {Context, Hono} from "hono";
@@ -24,6 +26,8 @@ export interface IdentityRoutesOptions {
     readonly sessions: Sessions;
     readonly conn: IdentityConnection;
     readonly clock: {now(): number};
+    /** 此刻开放的上游（`providers.ts` 的 `openProviders`）：解绑时只有它们的身份算剩下的登录方式。 */
+    readonly openProviders: readonly SocialProvider[];
 }
 
 /** SQL 里的上游名列表。取值是合同包的常量，不来自请求。 */
@@ -67,6 +71,7 @@ function hasPassword(tx: IdentityTx, userId: number): boolean {
 
 export function registerIdentityRoutes(app: Hono, options: IdentityRoutesOptions): void {
     const {sessions, conn, clock} = options;
+    const open: ReadonlySet<SocialProvider> = new Set(options.openProviders);
     const itemPath = `${IDENTITY_PATHS.meIdentities}/:id` as const;
 
     app.get(IDENTITY_PATHS.meIdentities, async (c: Context) => {
@@ -87,7 +92,8 @@ export function registerIdentityRoutes(app: Hono, options: IdentityRoutesOptions
             const identities = readIdentities(tx, session.userId);
             const target = identities.find((row) => row.id === id);
             if (target === undefined) throw new IdentityFailure("not_found");
-            if (identities.length < 2 && !hasPassword(tx, session.userId)) throw new IdentityFailure("last_login_method");
+            const usableAfter = identities.filter((row) => row.id !== target.id && open.has(row.provider));
+            if (usableAfter.length === 0 && !hasPassword(tx, session.userId)) throw new IdentityFailure("last_login_method");
             tx.query(`DELETE FROM "account" WHERE "id" = ?`).run(target.id);
             tx.query(`DELETE FROM identity_upstream_name WHERE user_id = ? AND provider = ? AND upstream_account_id = ?`).run(session.userId, target.provider, target.accountId);
         });

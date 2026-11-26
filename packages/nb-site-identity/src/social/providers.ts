@@ -9,6 +9,10 @@
  * 依赖库的行为（升级清单“社交上游”几行）：Google 配了 `discoveryUrl` 时库在启动时取发现文档，回调里 id_token 带着 `sub` 与
  * `email` 就按 id_token 认人（经上游的公钥验签、核对 `nonce`），不再调 userinfo，`emailVerified` 取 id_token 的 `email_verified`；
  * GitHub 用自定义的 `getUserInfo`，库按它回的 `id` 认上游身份。
+ *
+ * 发现文档缺 `issuer` 或 `jwks_uri` 时库建不出验签的配置，却照样建上游、改读不验签不比 nonce 的 id_token（omp 实现审查第 6 条），
+ * 所以 Google 配 `requireIdTokenVerification`：库 1.7.27 在带 `discoveryUrl` 时跳过这样的上游、放进待重试表，发起时再取一次仍缺
+ * 就抛 `PROVIDER_NOT_FOUND`，`start.ts` 换成 503 `unavailable`（`site.accounts` 输出 11）。
  */
 
 import type {GenericOAuthConfig} from "better-auth/plugins";
@@ -42,6 +46,8 @@ function googleConfig(google: GoogleUpstreamConfig): GenericOAuthConfig {
         clientId: google.clientId,
         clientSecret: google.clientSecret,
         discoveryUrl: `${google.issuer}/.well-known/openid-configuration`,
+        // 文件头：拿不到验 id_token 的公钥就不建这个上游，不退回不验签。
+        requireIdTokenVerification: true,
         scopes: ["openid", "email", "profile"],
         pkce: true,
         disableImplicitSignUp: true,

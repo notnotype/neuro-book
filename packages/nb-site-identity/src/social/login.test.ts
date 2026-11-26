@@ -3,7 +3,7 @@
  *
  * 上游是仿真上游（第三方的替身），站点是真的模块。合同测试（`nb-site-contract-tests` 的 `accounts-social.test.ts`）走同样的
  * 场景；这里另测合同测试里不好造的：拨模块时钟让流程过期、清理任务删流程行、库给的 state Cookie 换成另一份、同一个回调并发到达
- * （经占住连接的队列让三个都排在认领之前）、Google 的发现文档取不到、发起的限流。
+ * （经占住连接的队列让三个都排在认领之前）、封禁与回调交错（`lockstep`）、Google 的发现文档取不到、发起的限流。
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
@@ -16,7 +16,7 @@ import {LIB_BASE_PATH} from "../auth";
 import {SOCIAL_FLOW_MS} from "./flow";
 import {ManualTimers, TEST_SITE_URL} from "../testing/library";
 import {createTestIdentity, SESSION_COOKIE, TEST_CLIENT_ADDRESS_HEADER, TEST_TERMS_VERSION, type TestIdentity} from "../testing/module";
-import {fakeSocialConfig, followSocial, holdQueue, insertSocialAccount, landing, openCallback, startedSocial, startSocial, upstreamCallback} from "../testing/social";
+import {fakeSocialConfig, followSocial, holdQueue, insertSocialAccount, landing, lockstep, openCallback, startedSocial, startSocial, upstreamCallback} from "../testing/social";
 
 let upstream: FakeUpstream;
 let identity: TestIdentity | undefined;
@@ -151,6 +151,59 @@ describe("社交登录", () => {
             {status: 302, path: "/login", socialError: "social_state_invalid", session: false},
         ]);
         expect(await sessionCount(target)).toBe(1);
+    });
+
+    it("被封禁的账号用已关联的身份登录：account_banned，不发会话", async () => {
+        const target = await socialIdentity("social-login-banned");
+        const userId = await target.addUser("alice", CONSENTED);
+        await insertSocialAccount(target, userId, "google", ALICE.sub);
+        upstream.setUser("google", ALICE);
+        await target.conn.write((tx) => void tx.query(`UPDATE "user" SET "banned" = 1 WHERE "id" = ?`).run(userId));
+
+        const response = await followSocial(target, await startSocial(target, "google", {intent: "login"}));
+        expect({...landing(response), session: hasSessionCookie(response)}).toEqual({status: 302, path: "/login", socialError: "account_banned", session: false});
+        expect(await sessionCount(target)).toBe(0);
+    });
+
+    it("封禁与社交登录的回调交错（每一步排在一起跑）：封禁提交之后这个账号没有会话，解封后也登不进来，回调落到 account_banned（site.admin 输出 2）", async () => {
+        // 库的 admin 插件先查一次 banned、再插会话，两步各自取锁；封禁的写事务（改 banned、删光会话）排在它们之间时，没有
+        // `0004_session_ban_guard.sql` 的触发器就会留下一个会话，解封之后那枚 Cookie 直接生效（omp 实现审查第 1 条）。
+        const timers = new ManualTimers();
+        const target = await createTestIdentity("social-login-ban-race", {config: {social: fakeSocialConfig(upstream)}, timers});
+        identity = target;
+        const userId = await target.addUser("alice", CONSENTED);
+        const adminId = await target.addUser("manager", {...CONSENTED, role: "admin"});
+        await insertSocialAccount(target, userId, "google", ALICE.sub);
+        upstream.setUser("google", ALICE);
+        const {cookie: adminCookie} = await target.issue(adminId);
+        const admin = (path: string) => target.fetch(`/admin/users/${String(userId)}/${path}`, {method: "POST", headers: {origin: TEST_SITE_URL, cookie: adminCookie}});
+
+        const started = await startedSocial(await startSocial(target, "google", {intent: "login"}));
+        const callback = await upstreamCallback(started);
+        // 回调先停在上游换令牌（认领已做完），封禁排上队之后再放它往下走，两边对库的每一步轮流跑。
+        const held = upstream.holdToken("google");
+        const loggingIn = openCallback(target, callback, started.stateCookie);
+        await held.arrived;
+        const gate = await holdQueue(target);
+        await gate.started;
+        const banning = admin("ban");
+        await waitUntil("封禁排上队", () => timers.pending === 1);
+        held.release();
+        const [ban, login] = await lockstep(target, timers, gate, [banning, loggingIn]);
+
+        expect(ban!.status).toBe(200);
+        expect({...landing(login!), session: hasSessionCookie(login!)}).toEqual({status: 302, path: "/login", socialError: "account_banned", session: false});
+        const aliceSessions = () => target.conn.read((tx) => tx.query<{n: number}, [number]>(`SELECT COUNT(*) AS n FROM "session" WHERE "userId" = ?`).get(userId)!.n);
+        expect(await aliceSessions()).toBe(0);
+        // 解封不恢复会话：库里仍没有这个账号的会话，回调回答里带的会话 Cookie（有的话）也是 anonymous。
+        const sessionCookie = login!.headers
+            .getSetCookie()
+            .map((cookie) => cookie.split(";")[0]!)
+            .filter((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
+            .join("; ");
+        expect((await admin("unban")).status).toBe(200);
+        expect(await aliceSessions()).toBe(0);
+        expect(await (await target.fetch("/whoami", {headers: {cookie: sessionCookie}})).json()).toEqual({state: "anonymous"});
     });
 
     it("同一个回调地址只能用一次：第二次 social_state_invalid、不发会话", async () => {

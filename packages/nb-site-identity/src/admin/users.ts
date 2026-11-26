@@ -9,7 +9,8 @@
  *
  * 封禁只看 `user.banned`：库的 `banReason`、`banExpires` 恒为空（迁移的约定），封禁没有到期，只有解封能解除。`banExpires` 必须留空：
  * 库 1.7.27 的 admin 插件在建会话前遇到 `banExpires` 有值且已过去的账号会自己把它解封（`plugins/admin/admin.mjs`），那样封禁会在
- * 模块不知道的时候失效。登录在发会话的事务里另查 `banned`（`login.ts`），不靠库的这一道。
+ * 模块不知道的时候失效。登录在发会话的事务里另查 `banned`（`login.ts`），不靠库的这一道；库自己建会话的社交回调由 `session`
+ * 表的触发器守（`0004_session_ban_guard.sql`）：库的查与插分两次取锁，封禁落在中间时插入被拒，封禁提交之后不留会话。
  */
 
 import {randomBytes} from "node:crypto";

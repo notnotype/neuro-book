@@ -216,6 +216,35 @@ describe("发起时的检查（输出 3、13，验收 4 前半）", () => {
         expect(await flowCount(target)).toBe(0);
     });
 
+    it("Google 的发现文档缺公钥地址：发起回 503 unavailable，不写流程行、不建账号、不扣码；文档补上之后下一次发起照常（输出 11）", async () => {
+        upstream.omitJwksUri(true);
+        const target = await socialIdentity("social-register-discovery-no-jwks");
+        const codeId = await addCode(target, "identity_registration_code", "REG-CODE");
+        upstream.setUser("google", googleUser("g-erin"));
+
+        expect(await outcome(await startRegister(target, "google"))).toEqual({status: 503, body: {error: {code: "unavailable"}}});
+        expect(await outcome(await startSocial(target, "google", {intent: "login"}))).toEqual({status: 503, body: {error: {code: "unavailable"}}});
+        expect({flows: await flowCount(target), users: await usernames(target), used: await usedCount(target, "identity_registration_code", codeId), side: await sideRows(target)}).toEqual({
+            flows: 0,
+            users: [],
+            used: 0,
+            side: {profiles: 0, consents: 0, upstreamNames: 0, accounts: 0},
+        });
+        expect(await target.conn.read((tx) => tx.query<{n: number}, []>(`SELECT COUNT(*) AS n FROM "session"`).get()!.n)).toBe(0);
+        expect(target.log.lines.filter((line) => line.event === "identity.unhandled_error")).toEqual([]);
+
+        // 发起时库再取一次发现文档（升级清单“社交上游”一行）：带上了公钥地址就建出上游，注册照常走完。
+        upstream.omitJwksUri(false);
+        const landed = await followSocial(target, await startRegister(target, "google"));
+        expect({...landing(landed), session: hasSessionCookie(landed), used: await usedCount(target, "identity_registration_code", codeId)}).toEqual({
+            status: 302,
+            path: "/",
+            socialError: null,
+            session: true,
+            used: 1,
+        });
+    });
+
     it("注册关闭：registration_closed，不看请求的内容", async () => {
         const target = await socialIdentity("social-register-closed", {registrationOpen: false});
         expect(await outcome(await startSocial(target, "google", {intent: "register"}, undefined, nextAddress()))).toEqual({status: 403, body: {error: {code: "registration_closed"}}});

@@ -178,7 +178,7 @@ export async function assembleIdentity(conn: IdentityConnection, options: Identi
             registration: {termsVersion: config.termsVersion, registrationOpen: config.registrationOpen},
             log,
         },
-        identities: {sessions, conn, clock},
+        identities: {sessions, conn, clock, openProviders: socialProviders},
     });
     // 清理任务顺带清掉已过去的限流窗口（`site.accounts` 的定时任务一节）。限流只在内存里，清它不碰库，放在删会话之前：库不可写时
     // 删会话失败、这次任务以失败结束，内存里的窗口照样清了。

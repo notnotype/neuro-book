@@ -68,6 +68,36 @@ describe("解绑上游身份", () => {
         expect(await accountRows(target)).toEqual([{id: credential!.id, providerId: "credential"}]);
     });
 
+    it("没开放的上游的身份不算登录方式：没有密码、关联了 Google 与 GitHub，只开放 GitHub 时解绑 GitHub 得 last_login_method、两个身份都在；两个都开放时能解绑（输出 16）", async () => {
+        const both = await socialIdentity("social-identities-closed-provider");
+        const userId = await both.addUser("olive", CONSENTED);
+        const linking = await both.issue(userId);
+        upstream.setUser("google", googleUser("g-olive"));
+        await linkWithoutPassword(both, linking.cookie, "google");
+        upstream.setUser("github", githubUser(9102, "olive-gh"));
+        await linkWithoutPassword(both, linking.cookie, "github");
+        const githubRow = (await accountRows(both)).find((row) => row.providerId === "github")!;
+        const root = both.root;
+
+        /** 用同一个库按 `social` 重起模块，发一个新会话，回解绑 GitHub 的结果与之后列表里的上游。 */
+        const unlinkGitHubWith = async (name: string, social: Parameters<typeof createTestIdentity>[1]): Promise<{readonly status: number; readonly body: unknown; readonly listed: string[]}> => {
+            await identity!.assembly.close();
+            identity = await createTestIdentity(name, {...social, root});
+            const {cookie} = await identity.issue(userId);
+            const response = await unlink(identity, cookie, githubRow.id);
+            const list = (await (await identity.fetch("/me/identities", {headers: {cookie}})).json()) as {readonly items: readonly {readonly provider: string}[]};
+            return {status: response.status, body: await response.json(), listed: list.items.map((item) => item.provider)};
+        };
+
+        expect(await unlinkGitHubWith("social-identities-closed-provider-github-only", {config: {social: {github: fakeSocialConfig(upstream).github!}}})).toEqual({
+            status: 409,
+            body: {error: {code: "last_login_method"}},
+            // 列表照旧列出没开放的上游的身份。
+            listed: ["google", "github"],
+        });
+        expect(await unlinkGitHubWith("social-identities-closed-provider-both", {config: {social: fakeSocialConfig(upstream)}})).toEqual({status: 200, body: {}, listed: ["google"]});
+    });
+
     it("没有密码的账号并发解绑两个身份：每一步排在一起跑，也只有一个成功，另一个得 last_login_method，剩下一个身份", async () => {
         const timers = new ManualTimers();
         const target = await socialIdentity("social-identities-concurrent-unlink", timers);

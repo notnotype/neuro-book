@@ -118,6 +118,16 @@ export function isForeignKeyViolation(error: unknown): boolean {
     return false;
 }
 
+/**
+ * 插入会话时撞上的是不是“被封禁的账号插不进会话”的触发器（`0004_session_ban_guard.sql`）：按扩展结果码
+ * `SQLITE_CONSTRAINT_TRIGGER` 认，不看说明文字。只凭码认得出，是因为 `session` 表上只有这一个触发器（`schema.test.ts` 核对）；
+ * 调用方要自己确定出错的就是插会话那一步（别的表上的触发器报同一个码）。
+ */
+export function isBannedSessionInsert(error: unknown): boolean {
+    for (const layer of causeChain(error)) if (layer instanceof SQLiteError && layer.code === "SQLITE_CONSTRAINT_TRIGGER") return true;
+    return false;
+}
+
 /** 错误（或它 `cause` 链上的某一层）是不是 `IdentityQueueMisuseError`：库在自己的调用里抛出时可能包一层。 */
 export function isQueueMisuse(error: unknown): boolean {
     for (const layer of causeChain(error)) if (layer instanceof IdentityQueueMisuseError) return true;

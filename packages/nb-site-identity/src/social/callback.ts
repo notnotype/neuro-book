@@ -24,7 +24,7 @@ import type {Context} from "hono";
 import {SOCIAL_ERROR_CODES, SOCIAL_ERROR_PARAM, type SocialErrorCode, type SocialIntent, type SocialProvider} from "@notnotype/nb-site-identity-contract";
 
 import {LIB_BASE_PATH, type IdentityAuth} from "../auth";
-import type {IdentityConnection} from "../db/connection";
+import {isBannedSessionInsert, type IdentityConnection} from "../db/connection";
 import {libDate} from "../db/library-rows";
 import {failureFor} from "../errors";
 import type {IdentityLog} from "../index";
@@ -170,6 +170,10 @@ export function createSocialCallback(options: SocialCallbackOptions): SocialCall
         try {
             response = await runInFrame(frame, () => auth.handler(c.req.raw));
         } catch (error) {
+            // 库查过封禁、插会话之前账号被封了：插入撞上触发器（`0004_session_ban_guard.sql`，omp 实现审查第 1 条），库原样抛出
+            // `SQLiteError`。帧里已记下要建会话的账号，说明出错的正是插会话那一步：建会话前的钩子之后库在这次回调里不再写库，
+            // 别的表上的触发器碰不到这里。
+            if (frame.sessionUserId !== undefined && isBannedSessionInsert(error)) return failed(flow.intent, "account_banned");
             // 库抛出的非 `APIError`（`onAPIError.throw`，例如库不可写）：按出错出口的归类记一行，浏览器仍回落点页。
             failureFor(error, log);
             return failed(flow.intent, "social_failed");

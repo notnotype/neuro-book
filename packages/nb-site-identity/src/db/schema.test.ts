@@ -1,6 +1,6 @@
 /**
- * 账号库迁移的形状（`migrations/0001_init.sql`、`0002_oauth.sql`、`0003_social.sql`）：库的十二张表与基准文件的关系、按迁移运行器的规则写得进去、
- * id 不重用、审计只追加、码表的约束。清单与目录的对应在 `src/migrations.test.ts`。
+ * 账号库迁移的形状（`migrations/0001_init.sql` 到 `0004_session_ban_guard.sql`）：库的十二张表与基准文件的关系、按迁移运行器的规则写得进去、
+ * id 不重用、审计只追加、被封禁的账号插不进会话、码表的约束。清单与目录的对应在 `src/migrations.test.ts`。
  */
 
 import {Database, SQLiteError} from "bun:sqlite";
@@ -56,10 +56,20 @@ async function currentLibraryExport(): Promise<string> {
     }
 }
 
-/** 库的表上的全部对象（表、索引、触发器）在 `sqlite_master` 里的名字与原文。 */
+/**
+ * 本模块加在库的表上的触发器（`0004_session_ban_guard.sql`），回 `[名字, 所在的表]`。库自己不建触发器，基准里没有它们。
+ * `session` 上只许这一个：`connection.ts` 的 `isBannedSessionInsert` 只凭扩展码认它。
+ */
+const MODULE_TRIGGERS_ON_LIB_TABLES = [["identity_session_not_banned", "session"]] as const;
+
+/** 库的表上的全部对象（表、索引、触发器）在 `sqlite_master` 里的名字与原文；本模块加的触发器不算。 */
 function libraryObjects(db: Database): {type: string; name: string; sql: string | null}[] {
     const placeholders = LIB_TABLES.map(() => "?").join(", ");
-    return db.query<{type: string; name: string; sql: string | null}, string[]>(`SELECT type, name, sql FROM sqlite_master WHERE tbl_name IN (${placeholders}) ORDER BY type, name`).all(...LIB_TABLES);
+    const own: ReadonlySet<string> = new Set(MODULE_TRIGGERS_ON_LIB_TABLES.map(([name]) => name));
+    return db
+        .query<{type: string; name: string; sql: string | null}, string[]>(`SELECT type, name, sql FROM sqlite_master WHERE tbl_name IN (${placeholders}) ORDER BY type, name`)
+        .all(...LIB_TABLES)
+        .filter((object) => !(object.type === "trigger" && own.has(object.name)));
 }
 
 let root: TestDbRoot;
@@ -83,7 +93,11 @@ describe("库的表与基准文件", () => {
         expect(firstLine).toContain(`@better-auth/oauth-provider ${dependencies["@better-auth/oauth-provider"]}，`);
     });
 
-    it("迁移里库的十二张表与基准只差每张表一处 AUTOINCREMENT 替换", () => {
+    it("迁移里库的十二张表与基准只差每张表一处 AUTOINCREMENT 替换，另加本模块的触发器", () => {
+        const placeholders = LIB_TABLES.map(() => "?").join(", ");
+        expect(
+            db.query<{name: string; tbl_name: string}, string[]>(`SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN (${placeholders}) ORDER BY name`).all(...LIB_TABLES),
+        ).toEqual(MODULE_TRIGGERS_ON_LIB_TABLES.map(([name, table]) => ({name, tbl_name: table})));
         const body = baselineBody();
         expect(body.split(LIB_ID).length - 1).toBe(LIB_TABLES.length);
         const expected = new Database(":memory:", {strict: true});
@@ -98,7 +112,7 @@ describe("库的表与基准文件", () => {
 
 describe("按迁移运行器的规则", () => {
     it("在守卫保存点里执行完、没有结束运行器的事务、外键检查通过（createTestDbRoot 按这些规则执行了清单）", () => {
-        expect(identityMigrations.map((migration) => migration.id)).toEqual(["0001_init", "0002_oauth", "0003_social"]);
+        expect(identityMigrations.map((migration) => migration.id)).toEqual(["0001_init", "0002_oauth", "0003_social", "0004_session_ban_guard"]);
         expect(db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'identity_%' ORDER BY name").all()).toEqual(
             ["identity_audit", "identity_consent", "identity_invite_code", "identity_profile", "identity_registration_code", "identity_social_flow", "identity_upstream_name"].map((name) => ({name})),
         );
@@ -180,6 +194,20 @@ function errorCode(sql: string, params: (string | number | null)[] = []): string
         throw error;
     }
 }
+
+describe("被封禁的账号插不进会话", () => {
+    it("banned 为 1 时插入以 SQLITE_CONSTRAINT_TRIGGER 被拒；0 与空照常插入", () => {
+        const insertSession = (userId: number) =>
+            errorCode(`INSERT INTO session ("expiresAt", token, "createdAt", "updatedAt", "userId") VALUES (?, ?, ?, ?, ?)`, [NOW, crypto.randomUUID(), NOW, NOW, userId]);
+        const banned = insertUser();
+        const cleared = insertUser();
+        const unset = insertUser();
+        db.run(`UPDATE "user" SET "banned" = 1 WHERE id = ?`, [banned]);
+        db.run(`UPDATE "user" SET "banned" = 0 WHERE id = ?`, [cleared]);
+        expect([insertSession(banned), insertSession(cleared), insertSession(unset)]).toEqual(["SQLITE_CONSTRAINT_TRIGGER", null, null]);
+        expect(db.query<{userId: number}, []>(`SELECT "userId" FROM session ORDER BY id`).all()).toEqual([{userId: cleared}, {userId: unset}]);
+    });
+});
 
 describe("审计只追加", () => {
     it("插入可以，改、删与同 id 的替换都被触发器拒绝；params 只收 JSON 对象", () => {

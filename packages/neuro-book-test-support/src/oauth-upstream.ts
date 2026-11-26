@@ -54,6 +54,11 @@ export interface FakeUpstream {
      * 挡住之后的一次换令牌，给要在“上游已返回之前”插入别的操作的用例造时序。连调几次挡住接下来的几次，按到达的先后对上调用的先后。
      */
     holdToken(provider: FakeProvider): HeldRequest;
+    /**
+     * 之后 Google 的发现文档带不带 `jwks_uri`（缺省带）：造“发现文档缺验 id_token 所需的公钥地址”的上游。公钥地址本身照常回答，
+     * 只是文档里不指向它。
+     */
+    omitJwksUri(omitted: boolean): void;
     close(): Promise<void>;
 }
 
@@ -97,6 +102,7 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
     const cancel = new Set<FakeProvider>();
     const holds: Record<FakeProvider, {readonly arrive: () => void; readonly released: Promise<void>}[]> = {google: [], github: []};
     const releases: (() => void)[] = [];
+    let jwksUriOmitted = false;
     let base = "";
 
     const server = createServer((request, response) => {
@@ -119,7 +125,7 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
                 authorization_endpoint: `${base}/google/o/oauth2/v2/auth`,
                 token_endpoint: `${base}/google/token`,
                 userinfo_endpoint: `${base}/google/v1/userinfo`,
-                jwks_uri: `${base}/google/oauth2/v3/certs`,
+                ...(jwksUriOmitted ? {} : {jwks_uri: `${base}/google/oauth2/v3/certs`}),
                 response_types_supported: ["code", "token", "id_token", "code token", "code id_token", "token id_token", "code token id_token", "none"],
                 subject_types_supported: ["public"],
                 id_token_signing_alg_values_supported: ["RS256"],
@@ -268,6 +274,9 @@ export async function startFakeUpstream(): Promise<FakeUpstream> {
             holds[provider].push({arrive, released});
             releases.push(release);
             return {arrived, release};
+        },
+        omitJwksUri(omitted) {
+            jwksUriOmitted = omitted;
         },
         close() {
             // 先放掉挡着的请求（到了的与还没到的），免得 close 等一个永远不回答的连接、用例等一个永远不 resolve 的 `arrived`。
