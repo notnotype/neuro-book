@@ -242,7 +242,11 @@ function syncTabStops(): void {
     const stop = (lastItem !== null && items.includes(lastItem) ? lastItem : null)
         ?? items.find((element) => element.getAttribute("aria-pressed") === "true" && element.hasAttribute("data-tool-entry"))
         ?? items[0];
-    for (const element of items) element.setAttribute("tabindex", element === stop ? "0" : "-1");
+    // 值没变不写：条里每次增删都会排一次（拖分隔线、改窗口大小时每帧都有），写同样的值也算一次 DOM 写入。
+    for (const element of items) {
+        const value = element === stop ? "0" : "-1";
+        if (element.getAttribute("tabindex") !== value) element.setAttribute("tabindex", value);
+    }
 }
 
 function onFocusIn(event: FocusEvent): void {
