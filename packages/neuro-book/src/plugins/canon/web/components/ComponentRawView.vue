@@ -28,6 +28,7 @@ const PAGE = 20;
 
 <template>
     <div class="flex flex-col gap-5" data-raw-view>
+        <p class="m-0 text-[length:var(--text-xs)] text-[var(--text-muted)]" data-raw-head>{{ text("entry.views.rawHead") }}</p>
         <p v-if="props.failed !== null" role="alert" class="flex items-center gap-2 text-[length:var(--text-sm)] text-[var(--status-warning)]">
             <span>{{ text("entry.views.failed", {reason: props.failed}) }}</span>
             <Button size="sm" variant="ghost" @click="emit('retry')">{{ text("entry.views.retry") }}</Button>

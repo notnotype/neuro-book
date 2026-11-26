@@ -253,3 +253,46 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
     await expect(look.locator("[data-fact='现在穿的']")).toContainText("第 3 章改过");
     await expect(page.locator("[data-notice-bar]")).toContainText("现在穿的变成 学院制服");
 });
+
+test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，换分页回到卡片；“添加一组设定”是带搜索的浮层，Escape 回到“＋”，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
+    await open(page, "book");
+    await openEntry(page, "星瑕");
+    await tab(page, "数值").click();
+    const looks = entryPage(page).locator("[data-data-look]");
+    await looks.getByRole("radio", {name: "给 AI 看"}).click();
+    const agent = entryPage(page).locator("[data-agent-text]");
+    await expect(agent).toContainText("【数值】");
+    await expect(agent).toContainText("- 存款 = ");
+    await expect(entryPage(page).locator("[data-agent-view]")).toContainText("在看：第 3 章末尾");
+    await looks.getByRole("radio", {name: "原始数据"}).click();
+    await expect(entryPage(page).locator("[data-raw-head]")).toHaveText("存下来的原样，不随“在看”变");
+    await expect(entryPage(page).locator("[data-raw-initial]")).toContainText("存款");
+    await expect(entryPage(page).locator("[data-raw-changes]")).toContainText(/剧情变更（[1-9]\d* 条）/u);
+    await tab(page, "人物").click();
+    await expect(entryPage(page).locator("[data-character-card]")).toBeVisible();
+    await expect(looks.getByRole("radio", {name: "卡片"})).toHaveAttribute("aria-checked", "true");
+
+    const add = entryPage(page).locator("[data-add-component]").first();
+    await add.click();
+    const picker = page.getByRole("listbox", {name: "添加一组设定"});
+    const search = page.getByRole("combobox", {name: "搜索设定组"});
+    await expect(picker).toBeVisible();
+    await expect(search).toBeFocused();
+    await search.press("Escape");
+    await expect(picker).toBeHidden();
+    await expect(add).toBeFocused();
+
+    await add.click();
+    await search.fill("形象");
+    await expect(picker.getByRole("option")).toHaveText([/^形象.*已添加$/u]);
+    await search.press("Enter");
+    await expect(picker).toBeHidden();
+    await expect(tab(page, "形象")).toHaveAttribute("aria-selected", "true");
+
+    await add.click();
+    const first = picker.getByRole("option").first();
+    const name = ((await first.textContent()) ?? "").trim().replace(/^恢复“(.*)”$/u, "$1");
+    await first.click();
+    await expect(picker).toBeHidden();
+    await expect(entryPage(page).getByRole("tab", {selected: true})).toContainText(name);
+});

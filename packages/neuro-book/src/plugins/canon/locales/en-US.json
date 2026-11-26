@@ -133,6 +133,7 @@
             "agent": "As the AI sees it",
             "raw": "Raw data",
             "agentPosition": "Viewing: {{position}}",
+            "rawHead": "As stored; doesn’t follow the viewing position",
             "initial": "Initial value",
             "initialNone": "Not in the initial value",
             "changes": "Story changes ({{count}})",

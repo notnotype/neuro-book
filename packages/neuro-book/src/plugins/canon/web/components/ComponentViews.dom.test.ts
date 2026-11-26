@@ -43,8 +43,9 @@ describe("ComponentAgentView", () => {
 });
 
 describe("ComponentRawView", () => {
-    it("初值与变更各一节，摊开存下来的原样；变更一节的标题写总条数", async () => {
+    it("头一行写明是存下来的原样、不随“在看”变；初值与变更各一节，摊开存下来的原样；变更一节的标题写总条数", async () => {
         const wrapper = await rawView(RAW);
+        expect(wrapper.get("[data-raw-head]").text()).toBe("存下来的原样，不随“在看”变");
         expect(wrapper.get("[data-raw-initial]").text()).toContain("初值");
         expect(wrapper.get("[data-raw-initial]").text()).toContain("1000");
         expect(wrapper.get("[data-raw-changes]").text()).toContain("剧情变更（1 条）");

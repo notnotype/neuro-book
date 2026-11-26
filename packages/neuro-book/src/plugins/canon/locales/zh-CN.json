@@ -133,6 +133,7 @@
             "agent": "给 AI 看",
             "raw": "原始数据",
             "agentPosition": "在看：{{position}}",
+            "rawHead": "存下来的原样，不随“在看”变",
             "initial": "初值",
             "initialNone": "初值里没有这组设定",
             "changes": "剧情变更（{{count}} 条）",
