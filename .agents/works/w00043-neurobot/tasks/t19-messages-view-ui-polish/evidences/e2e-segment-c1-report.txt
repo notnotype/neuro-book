@@ -1,0 +1,79 @@
+w00043 t19 测试第 C 段第 1 部分报告（worktree w00043-t19/e2e）
+
+一、合并结果
+- git merge feat/w00043-neurobot 成功，status 干净；合并后重建 server、web、e2e 外壳三份产物再跑。
+
+二、提交（均在 w00043-t19/e2e，只改 packages/neuro-book/e2e/）
+- eab56f5be agent-conversation 用例改按侧轨版式
+- 7925c8c0f lab-agent-ui 旧分栏用例换成侧轨版式用例
+- a460dae38 bots-chat 与 text-selection 的定位改到右轨视图段
+- cc3ab7fd0 新增 agent-messages-rail.e2e.ts
+- vue-tsc -p tsconfig.browser-test.json --noEmit 退出 0；git diff --check 通过。
+
+三、改写清单
+agent-conversation.e2e.ts
+- 原“宽版”用例 -> “展开列表（conversation.md 输出 2、3、44、57）”：点 [data-messages-open="sessions"] 展开右轨，宽 260，列表在 main 段内，点行不换视图节点，再点 [data-rail-expand] 收起。理由：宽版列表栏常驻的合同没了，换成新合同的对应用例。
+- 原“窄版 drawer”用例 -> “对话写在面板头上”：标题在面板头、没有 [data-header-new]、点标题不开列表也不展开右轨。理由：抽屉与头里的“新建”已删除。
+- 输入框用例：[data-header-new] 改 [data-messages-new-session]；抽屉步骤改为点 [data-messages-open="sessions"] 再点 [data-messages-list-panel] 里的行（合同不变，只改定位）。
+- newSession 辅助函数注释更新。
+- 浮动窗自绘头用例未改，上方加“待改写（片 6 之后，第 C 段第 2 部分）”注释；现在仍失败（见五）。
+lab-agent-ui.e2e.ts
+- 删除 describe“消息视图的分栏”（分隔条拖动、收成头像条、窄版抽屉）：这三样都不存在了，合同已变。
+- 新增 describe“消息视图的侧轨版式”共 14 条，在 docked*、edge* 场景上：收着各项都带 data-rail-item；当前会话与 weak；“+N”短场景；“会话历史”展开并聚焦搜索；展开着只切页；Esc（bot 页、会话页）；轨宽 200/260/420；英文；edge 收着与展开。“docked”用例的会话方块数放宽为至少 2 且按 s1..s6 顺序取前缀（场景高度只放得下 4 个，不是产品问题）。
+bots-chat.e2e.ts：MESSAGES 注释更新；contact 定位限定到 [data-rail="auxiliarybar"] [data-strip-contact='nbook.bots/lyra']。断言未删。
+text-selection.e2e.ts：新增辅助 openSessionPanel（点 [data-messages-open="sessions"]，等 sessionPanel 可见），在两处会话面板断言前调用。会话面板不再常驻，合同变为展开后才在。
+
+四、新用例（agent-messages-rail.e2e.ts，17 条；每条前一行注释引 Spec）
+1 头在面板头、左列没有“新建” -> conversation 输出 44、57 -> [data-agent-head] 隐藏、[data-header-new] 不存在、[data-messages-new-session]
+2 收着的各项与当前切换、每项 data-rail-item -> 输出 57 -> [data-strip-contact] aria-current、[data-strip-session]、[data-rail-item]
+3 未读徽标与汇总 -> 输出 57 -> [data-messages-summary]
+4 等你处理 -> 输出 57 -> data-strip-waiting、data-messages-summary-waiting
+5 收着点“全部 bot”展开、切 bot 页、聚焦搜索 -> 输出 57 -> [data-messages-open=bot] aria-pressed、[data-rail-expand]、[data-messages-page=bot]
+6 展开着只切页，收起后“会话历史”聚焦搜索 -> 输出 57 -> 同上加 [data-messages-page=sessions]
+7 搜索框 Esc 两步（bot 页、会话页）-> 输出 57 -> 搜索框与聊天输入框焦点、data-rail-state
+8 收起再展开两页搜索词都在 -> 输出 57
+9 最近会话：新建出现、归档消失、不受会话面板搜索与“显示已归档”影响 -> 输出 57 -> [data-strip-session]
+10 揭示：右栏隐藏后点会话 -> 输出 57、views 输出 21 -> 右栏开关 aria-pressed、输入框焦点
+11 揭示：右栏隐藏后点 bot
+12 揭示：右栏隐藏后点“新对话”
+13 揭示：别的面板最大化时点会话，退出最大化
+14 命令“搜索会话”（右栏隐藏时先显示）
+15 首屏盖层按钮 [data-messages-pick-bot-open] 等同“全部 bot”（用独立服务与状态根，先展开到 bot 页再收起才出盖层）
+16 窗口太窄（1100）：点“全部 bot”不展开，按钮不按下，布局记录无展开意图，变宽后可展开 -> workbench-layout 输出 50
+17 被拒后展开按钮带 data-rail-too-narrow 与“窗口太窄”描述 -> 输出 50
+
+五、最后一次运行
+agent-messages-rail.e2e.ts（c1-run4.log）：17 条，14 通过，3 失败。
+合并跑 agent-conversation、bots-chat、text-selection、agent-subagents、workbench-shell、workbench-side-rail 共 77 条（c1-final.log）：74 通过，3 失败。
+lab-agent-ui 侧轨版式 14 条：lab1 11 通过 3 失败，修一条后单独重跑，最后 12 通过 2 失败（c1-lab1.log、c1-lab2.log）。
+第 B 段预期失败的 4 条（workbench-side-rail 372、399、441、487 附近，消息视图位置限制）全部通过。
+
+失败逐条：
+1 agent-messages-rail.e2e.ts:373 揭示点 bot：产品缺陷。点右轨里的 bot 后右栏回来、聊天区换成她的对话，但焦点留在被点的视图段按钮上，没到聊天输入框（探针复现，隐藏与可见区域都一样），违背 conversation 输出 57“打开之后焦点交给聊天输入框”。
+2 agent-messages-rail.e2e.ts:384 揭示点“新对话”：产品缺陷。点后焦点在 body，没到输入框；同一条里点会话方块的用例（第 10 条）通过，说明只有 bot 与“新对话”两个入口缺焦点。
+3 agent-messages-rail.e2e.ts:473 data-rail-too-narrow：产品缺陷或 Spec 不明确。窗口太窄时点“全部 bot”被拒是对的（第 16 条通过），但右轨展开按钮上没有 data-rail-too-narrow，也没有“窗口太窄”的 aria-description（得到 null），因为展开意图没写，标记也没出。workbench-layout 输出 50 写“被拒时给窗口太窄”，任务说明也要求该标记；按说明保留断言。需要产品确认：由视图段发起的展开被拒时是否也要标这个。
+4 lab-agent-ui.e2e.ts:1032 “+N”点后聚焦 bot 页搜索：失败在 toBeFocused（Lab 的 docked 假右轨）。真实工作台里同样操作通过（agent-messages-rail 第 5、6 条），所以是 Lab 场景或视图段在 Lab 夹具里的聚焦时序问题，归产品或夹具，用例不动。
+5 lab-agent-ui.e2e.ts:1047 “会话历史”后聚焦会话页搜索：同上。
+6 agent-conversation.e2e.ts:165 浮动窗自绘头：预期，片 6（data-messages-layout 已删，浮动版式还没做）。
+7 workbench-shell.e2e.ts:285（失败行 322，等待 [data-drop-feedback-label]）：预期，片 6。浮动窗里消息视图的自绘头盖住标签，拖不起来，与第 B 段一致。
+8 agent-subagents.e2e.ts:115（合并跑失败两次，另一次基线跑也失败）：环境。负载 20 到 30 时超时，单独重跑 12.3 秒通过。
+（text-selection.e2e.ts:132、209 在基线跑里因会话面板不再常驻失败，已用 openSessionPanel 改定位，合并跑通过。）
+
+六、需要产品做的
+- 点右轨 bot、“新对话”后焦点交给聊天输入框（失败 1、2）。
+- 视图段发起的展开被预算拒绝时，让右轨展开按钮带 data-rail-too-narrow 与 aria-description（失败 3，先确认合同）。
+- Lab docked 场景里“+N”与“会话历史”点后聚焦搜索（失败 4、5）；Lab 夹具 AgentMessagesFixture.vue 我不能改。
+
+七、没做到的
+- 没做变异检查：“列表不在”“没有聚焦”“没有新建”这类否定断言未经变异验证，可能空过，需要主会话补。
+- 浮动窗用例（片 6）整段待第 C 段第 2 部分。
+
+八、主会话的处理（2026-11-26）
+- 分支只改了 e2e，并入 Work 分支。
+- 失败 1（点 bot 后焦点）：片 7 审查第 3 条已修（49ab9a56d，等盖层撤掉再给），合并后通过。
+- 失败 2（新对话后焦点在 body）：成立，两处原因。停在 bot 页时新会话被“选一个 bot”的盖层盖住；新建落定前聊天区换成第一屏，先给的焦点丢了。改成新建时切会话页、揭示与新建都落定后再给焦点（6562f3343）。
+- 失败 3（被拒时展开按钮没有“窗口太窄”）：成立。被拒不写文档，按钮上没有任何标记。store 记下被拒的容器，railState 在预算给不出时标 tooNarrow（只在内存，下次请求清掉），store 单测加断言并变异验证（436edee59）。
+- 失败 4、5（Lab 里聚焦搜索）：夹具问题。withAgentSceneText 包装组件不转发 expose，夹具改成直接渲染外框（436edee59），Lab 侧轨版式 14 条通过。
+- 失败 6、7：预期，片 6。失败 8：环境，单独重跑通过。
+- 变异检查（主会话补）：去掉 no-new-session，agent-messages-rail:132 失败；盖层没撤也立刻给焦点，:373 失败；两处都已恢复。
+- 复跑（6562f3343）：agent-messages-rail 17 条全过；workbench-side-rail-segment、agent-conversation、bots-chat、text-selection 共 61 条，60 过，失败的是预期的 agent-conversation:165（片 6）。
