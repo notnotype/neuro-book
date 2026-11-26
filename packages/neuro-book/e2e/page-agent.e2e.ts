@@ -325,7 +325,7 @@ test.describe("多个窗口", () => {
         return page;
     }
 
-    /** 关掉焦点模拟：之后页面的焦点跟着 `bringToFront` 走，同一时刻只有一个页面有焦点。 */
+    /** 关掉焦点模拟：之后页面的焦点跟着 `bringToFront` 走，同一时刻只有一个页面有焦点。要在页面加载之后调。 */
     async function realFocus(page: Page): Promise<void> {
         const session = await context.newCDPSession(page);
         await session.send("Emulation.setFocusEmulationEnabled", {enabled: false});
@@ -421,9 +421,10 @@ test.describe("多个窗口", () => {
         const output = await callWhile(chat, "刚开的窗口", WHICH, async () => {
             const fresh = await context.newPage();
             await fresh.setViewportSize({width: 1480, height: 900});
-            await realFocus(fresh);
             await fresh.goto(new URL("/?project=book", auto.server.url).href);
             await expect(fresh.locator("[data-explorer-row]").first()).toBeVisible();
+            // 焦点模拟要在页面加载之后关，之前关会被加载重置。
+            await realFocus(fresh);
             await userUses(fresh);
         });
         expect(JSON.parse(output)).toEqual({ok: true, width: 1480});
