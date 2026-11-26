@@ -33,6 +33,10 @@ updated: 2026-11-26
 
 开发者对决定 1 到 9 的原话：“可以”（推荐见设计稿“待开发者定”）。
 
+## 设计审查
+
+第一稿交三位审查者（同一份对象，按前后端分两份说明）：Claude Opus 审服务端、跨进程与安全边界（23 条：阻断 3、重要 14、建议 6，[报告](evidences/design-review-opus.txt)）；omp `@review`（gpt-6.2-sol）审同一份说明（17 条：阻断 4、重要 13，[报告](evidences/design-review-omp.txt)）；Claude Sonnet 审页面内引擎与控件名字的接口（22 条：重要 16、建议 6，[报告](evidences/design-review-sonnet.txt)）。主会话核实了几条关键事实（服务端插件列不出窗口、单条消息 1 MiB、eval 的询问不能记、没有 `isTrusted` 检查、通道不挂长交互），按[处理记录](evidences/design-review-disposition.txt)改成[设计稿](design.md)第二稿：37 组要改，3 组接受取舍，7 组交开发者定（设计稿“待开发者定”第 1 到 7 条）。
+
 ## 下一步
 
-设计审查：跨进程与安全边界，按快速审查派 Claude Opus 先审、omp `@review` 后台同审；页面内引擎与指令的接口另派 Sonnet 审。处理完再按 implementation-planning 写计划，开工前先做设计稿列的 6 个实验。
+等开发者确认第二稿的“待开发者定”第 1 到 7 条；确认后视改动面再审一轮（第二轮），然后按 implementation-planning 写计划，开工前先做设计稿列的 7 个实验。
