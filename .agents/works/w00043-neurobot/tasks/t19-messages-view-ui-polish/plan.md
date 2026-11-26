@@ -17,10 +17,7 @@
 
 ### `packages/nb-workbench-layout/src/`（布局文档与投影，纯 TS）
 
-- `layout-doc.ts`（类型的主人）：`LayoutAnchor` 加 `rail?: {[containerId]: {expanded?: true; width?: number}}`，`LayoutFloat` 加 `rail?: {expanded?: true; width?: number}`；`sameLayoutShape` 比较它们。**每个会新建或重建锚、浮动窗记录的函数逐个写明 `rail` 的去向**，并各有一条单测：
-  - 原样保留：模板应用、`stripDynamicTabs` / `carryDynamicTabs`（放弃恢复）、`movePanelToEdge` 与其它重建面板记录的操作（只改归属的不动 `rail`）。
-  - 转移：`floatTab` / `openFloatPanel` 浮出时把锚上该容器的项带到新窗；整窗停靠、`dockFloat` 归位时带回锚上；`moveContainerTo` 换区时跟着容器走，进了不支持侧轨的区域就丢掉。
-  - 清掉：重置位置、容器没有成员被删时只清那个容器的项。
+- `layout-doc.ts`（类型的主人）：`PanelRecord` 加 `rail?: {[containerId]: RailIntent}`（只在锚上），`LayoutFloat` 加 `rail?: RailIntent`，`RailIntent = {expanded?: true; width?: number}`；`sameLayoutShape` 比较它们。**去向在一处结算**：所有结构操作的出口 `finish` 调 `settleRails(original, next)`，规则是意图跟着它的东西走：锚上容器 C 的项在 C 最后一个分节去了别的区域时搬到那边的锚，C 唯一的视图浮成新窗时搬到窗上；窗上的项在窗的标签回到树里某个容器时写回那个容器的锚。这样浮出、归位、整容器换区域、拖放、模板与放弃恢复走同一条规则，不在各操作里各写一份，以后加的操作也自动覆盖。`setContainerEntries` 删掉入口时一起去掉它的项；`setContainerRail`、`setFloatRail` 是写入口（回到原状返回原对象）。容器的“重置”由 store 的 `resetContainer` 在搬回后清掉这一项。（片 1 已做：`5815d0a08`。）
 - `layout-doc-validate.ts`：解码结果从“成功或失败”扩成“成功（归一后的文档加非致命诊断）或失败”。`rail` 只认 `true` 与有限正数，坏值在那一项上缺省并记一条诊断，不让整份失效；store 的 `usableDoc` 用归一后的文档，诊断按现有的诊断出口记一次，不标成未读或损坏，下次写入时写回归一后的值。
 - 保留 id：`presented-ids.ts` 的 `collidesWithPresentedIds` 加 `rail:auxiliarybar`（同时查树节点 id 与 `panels` 的键）。应用生成的 id 不会是这种写法；手写出撞名 id 的旧记录读入时按现有规则拒收、回落缺省布局、不覆盖原记录，记为已知限制。
 - `layout-project.ts`：遍历规范 `body` 横向分支时，在右栏一列外侧插入右轨叶（右栏有成员容器才插），和其它孩子一起参加过滤、单子塌陷与缝计算；叶形同条叶（`fixed`、缝 0、厚度来自选项回调），但不是文档的条；底部面板旧的 `[入口条, 内层]` 包装按 id 前缀单独判。投影选项新增：每条侧轨此刻的有效厚度、右栏这一次的**呈现宽度覆盖**（预算的结果）。`presentationCollapse` 降级前先按收着算展开的侧轨。
