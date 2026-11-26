@@ -27,6 +27,7 @@ updated: 2026-11-26
 | Task | 内容 |
 |---|---|
 | [t01](tasks/t01-story-and-motion-design/README.md) | 首页的故事、脚本与动效设计：定位、基调、流程与三个方案共用的决定（进行中） |
-| [t02](tasks/t02-paper-study-scheme/README.md) | 方案 A 书房《一部长篇的一生》：脚本、分镜与关键一幕原型（第 1 轮脚本待答） |
-| [t03](tasks/t03-starsea-library-scheme/README.md) | 方案 B 星海书庭《书庭的一夜》：脚本、分镜与关键一幕原型（第 1 轮脚本待答） |
-| [t04](tasks/t04-words-to-worlds-scheme/README.md) | 方案 A+B《从文字到世界》：脚本、分镜与关键一幕原型（第 1 轮脚本待答） |
+| [t02](tasks/t02-paper-study-scheme/README.md) | 方案 A 书房《一部长篇的一生》（已搁置：第 1 轮脚本被否） |
+| [t03](tasks/t03-starsea-library-scheme/README.md) | 方案 B 星海书庭《书庭的一夜》（已搁置：第 1 轮脚本被否） |
+| [t04](tasks/t04-words-to-worlds-scheme/README.md) | 方案 A+B《从文字到世界》（已搁置：第 1 轮脚本被否） |
+| [t05](tasks/t05-writers-codex/README.md) | 新方向《执笔者之书》：整页一本书，史诗、神圣、西幻（第 1 轮脚本待答） |
