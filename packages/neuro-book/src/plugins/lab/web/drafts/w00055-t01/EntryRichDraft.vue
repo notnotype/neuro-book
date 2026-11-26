@@ -540,10 +540,18 @@ const anchor = computed(() => open.value?.dom ?? null);
 }
 
 /* 行内小块：值是此刻的样子，所以字用正文色；底色与描边用信息色（“引用”）淡淡地标出这是取来的。 */
+/* 小块外面的壳：左右内边距就是与两边的字的空隙，光标画在这里（见 entry-tags.ts 的 atomNode）。 */
+.entry-rich__mount :deep(.entry-atom) {
+    padding: 0 0.2em;
+}
+/*
+ * 小块画成行内块：小块是一段最后一个东西时，光标的 DOM 位置在它后面，Chrome 会把光标贴在前面最后一段文字的末尾画——那段文字在
+ * 小块里，看起来像要打进值里。行内块里的文字不参与外面的光标定位，光标画在它的外缘（加上壳的内边距，落在空隙里）。长的值退成
+ * 行内（`--long`），跟着正文折行。
+ */
 .entry-rich__mount :deep(.entry-chip) {
-    display: inline;
-    /* 与两边的字留出空隙：光标停在小块前后时，看得出它在小块外面。 */
-    margin: 0 0.2em;
+    display: inline-block;
+    line-height: 1.4;
     padding: 0.05em 0.3em;
     border-radius: 4px;
     background: color-mix(in srgb, var(--status-info) 10%, transparent);
@@ -558,6 +566,8 @@ const anchor = computed(() => open.value?.dom ?? null);
     background: color-mix(in srgb, var(--status-info) 18%, transparent);
 }
 .entry-rich__mount :deep(.entry-chip--long) {
+    display: inline;
+    line-height: inherit;
     padding: 0;
     background: color-mix(in srgb, var(--status-info) 6%, transparent);
     box-shadow: none;
@@ -588,8 +598,8 @@ const anchor = computed(() => open.value?.dom ?? null);
     padding: 0;
     color: var(--accent-main);
 }
-.entry-rich__mount :deep(.ProseMirror-selectednode.entry-chip),
-.entry-rich__mount :deep(.ProseMirror-selectednode.entry-if) {
+.entry-rich__mount :deep(.ProseMirror-selectednode > .entry-chip),
+.entry-rich__mount :deep(.ProseMirror-selectednode > .entry-if) {
     outline: 2px solid var(--focus-ring, var(--accent-main));
     outline-offset: 1px;
 }
@@ -613,7 +623,6 @@ const anchor = computed(() => open.value?.dom ?? null);
     padding: 0 0.3em;
 }
 .entry-rich__mount :deep(.entry-if--both) {
-    margin: 0 0.2em;
     padding: 0.05em 0.25em;
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-info) 28%, transparent);

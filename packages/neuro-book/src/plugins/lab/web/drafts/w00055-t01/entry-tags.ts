@@ -310,12 +310,16 @@ function atomNode(name: string, attributes: Record<string, unknown>, paint: (dom
         },
         addNodeView() {
             return ({node, getPos}) => {
+                // 外面一层透明的壳、里面才是画出来的小块：光标停在小块后面时，DOM 里的位置是“段落的第 n 个子节点前”，Chrome 把光标
+                // 贴着前一个元素的右边框画。壳带左右内边距，光标就画在空隙里、小块外面；壳整个不可编辑，光标进不去。
                 const dom = document.createElement("span");
                 dom.dataset.entryAtom = kind;
-                // 小块整个不可编辑：光标只能停在它前后，浏览器不会把光标画在小块里面的字后头（看起来像要打进值里）。
+                dom.className = "entry-atom";
                 dom.contentEditable = "false";
+                const face = document.createElement("span");
+                dom.append(face);
                 let attrsNow = node.attrs as Record<string, unknown>;
-                const repaint = () => paint(dom, attrsNow, host());
+                const repaint = () => paint(face, attrsNow, host());
                 repaint();
                 painters.add(repaint);
                 dom.addEventListener("mousedown", (event) => {
