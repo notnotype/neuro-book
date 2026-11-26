@@ -239,7 +239,7 @@ export function evaluate<M>(expression: ParsedExpression, resolve: (reference: F
                     }
                     default: {
                         if (typeof left !== "number" || typeof right !== "number") return null;
-                        if ((expression.operator === "/" || expression.operator === "%") && right === 0) return null;
+                        // 除以 0、`% 0` 得到无穷或 NaN，由 `finite` 当成未知。
                         const result = expression.operator === "+" ? left + right : expression.operator === "-" ? left - right : expression.operator === "*" ? left * right : expression.operator === "/" ? left / right : left % right;
                         return finite(result);
                     }

@@ -138,7 +138,8 @@ function placeOf(tag: LexedTag, placements: readonly AtomPlacement[], source: st
     }
     if (places.size === 0) return "lost";
     if (places.size === 1) return [...places][0] as TagPlace;
-    // 一个标签只能有一个去处；引用式链接的地址在定义与用到它的链接里各出现一次，都是链接。
+    // 一个标签只能有一个去处；引用式链接的地址在定义与用到它的链接里各出现一次，都是链接。既是活的又落在别处的，`marked` 17 里
+    // 构造不出来，留着是失败关闭：以后的版本若把同一段文字既分词又留在别的字段里，宁可拒收也不读错。
     if (places.has("live") || places.has("lost")) return "lost";
     for (const place of ["image", "link", "opaque", "code", "escaped", "prose"] as const) if (places.has(place)) return place;
     return "lost";
