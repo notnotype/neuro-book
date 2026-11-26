@@ -193,15 +193,6 @@ describe("离开的叶留着缩回去（ui/nested-grid 输出 44 到 48）", () 
         expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ["a", "c"]), before, false)).toEqual([]);
     });
 
-    it("没有内容、宿主列进 keepEmpty 的叶（侧轨）：同样留着缩向那一头；拖动中照旧不留", () => {
-        const before = frameOf(branch(leaf("a"), leaf("b1"), leaf("c")), ["a", "b1"]);
-        const after = frameOf(branch(leaf("a"), leaf("b1")), ["a", "b1"]);
-        const c = leafRect(before, "c");
-        expect(leavingPlacements(after, before, false)).toEqual([]);
-        expect(leavingPlacements(after, before, false, new Set(["c"])).map((item) => [item.node.id, item.rect])).toEqual([["c", {...c, x: c.x + c.width, width: 0}]]);
-        expect(leavingPlacements(after, before, true, new Set(["c"]))).toEqual([]);
-    });
-
     it("兄弟没合拢（切换容器：列还在、几节全换了；一节换成一列）：照旧立即消失，不和长出来的叠在一起", () => {
         const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
         expect(leavingPlacements(frameOf(branch(leaf("a"), column(leaf("x1"), leaf("x2")), leaf("c")), ALL), before, false)).toEqual([]);

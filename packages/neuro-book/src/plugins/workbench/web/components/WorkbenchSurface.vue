@@ -3,7 +3,7 @@
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
 import {createGrid} from "@notnotype/nb-layout";
-import {hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, railLeafId, regionNodeOf, regionOf, regionOfRailLeaf, regionOfStripLeaf, treeLeaves} from "@notnotype/nb-workbench-layout";
+import {hiddenRegionsAtZero, isContainerAnchor, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, regionOfRailLeaf, regionOfStripLeaf, treeLeaves} from "@notnotype/nb-workbench-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, GridSwap} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-workbench-layout";
 import {moveGridFocus, NestedGrid, useGridHost, type GridHostIssue} from "@notnotype/nb-layout/vue";
@@ -20,11 +20,6 @@ const STATUS_BAR = "statusbar";
 /** 状态栏不是卡片（输出 19）。 */
 const PLAIN: ReadonlySet<string> = new Set([STATUS_BAR]);
 const BARS: ReadonlyArray<string> = [ACTIVITY_BAR, STATUS_BAR];
-/**
- * 侧轨的叶没有挂内容（视图段是 Teleport 进去的），网格照默认会让它离开时立即消失；收起视图段、视图挪走时要和别的叶一样缩回去
- * （docs/specs/ui/nested-grid.md 输出 45 的宿主名单）。
- */
-const KEEP_LEAVING: ReadonlySet<string> = new Set([railLeafId("auxiliarybar")]);
 
 defineOptions({name: "WorkbenchSurface"});
 
@@ -642,7 +637,6 @@ defineExpose({
             :lifted="lifted"
             :dragging="dragging"
             :gesturing="gesturing"
-            :keep-leaving="KEEP_LEAVING"
             :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
