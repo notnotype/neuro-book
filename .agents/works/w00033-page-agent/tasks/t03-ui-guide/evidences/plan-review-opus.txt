@@ -1,0 +1,157 @@
+# w00033 t03 计划审查（后端与跨进程）：Claude Opus
+
+审查对象：plan-v1.md、spec-v1.md（固定副本）；检出 .worktree/w00033-t03-review（cf89b6a38）。只读，结论来自读代码，未跑实验的条目标“从代码推断”。
+
+### 1. 订阅“建立成功”不等于“高亮装上”，窗口合同缺“已装上”与失败结局两类事件
+**严重程度**：重要
+**类别**：正确性
+**位置**：计划“nbook.page-agent 插件”的 shared/contracts.ts 与 backend（“订阅 highlight 推结局事件”“装上后 waitingForUser”）；Spec 输出 9、11；代码 packages/nb-runtime/src/remote/node.ts:921、943，contract.ts:219
+**现象**：提供方一侧 handleSubscribe 在调用插件的 `handler.subscribe` 之前就 `channel.accept()`（node.ts:921 先于 943），提供方的 `subscribe` 也只能 `sink.next()`，不能以业务码拒绝（contract.ts:219 返回 void）。所以服务端 `subscribe()` 得 ok 时窗口还没开始等目标（至多 5 秒）、也还没画框。计划只写“推结局事件”，没有“已装上”这一种事件，也没写等目标超时的 `not-found`、引用失效的 `stale-ref`/`ambiguous`（带 8 KB 的 details）、`window-hidden` 怎样经订阅交回；窗口的 `subscribe` 抛错时服务端得 `onEnd("provider-error")`，映射到哪个码也没写。
+**为什么是问题**：waitingForUser 若从 subscribe 成功算起，5 秒的等目标与查找被免计时（与设计稿“连接、装载、查找照常计时”不符）；若想从“装上”算起，又没有信号。失败码走不了订阅的拒绝通道，只能塞进事件载荷，这决定合同 payload 的形状，第 8 片照字面写会返工。另外 onEnd 可能早于 `subscribe()` 的 Promise 结算（node.ts:668 的注释），等结局的状态机要在 await subscribe 之前就挂好。
+**如何核实**：读 node.ts:883-948；实验 7 情形 8b（subscribe 被调用后才知道断开）。
+**建议改法**：payload 写成判别联合：`{kind: "installed"}`、`{kind: "outcome", outcome, question?, clicked?}`、`{kind: "failed", code, details?}`；服务端收到 installed 才 `waitingForUser`，收到 outcome/failed 即 release；`onEnd` 的 provider-stopped、target-gone 映射 window-gone，provider-error 映射 window-unresponsive（写进 Spec）；结局用一个“只结算一次”的 Promise，在调 subscribe 前建好。
+
+### 2. waitingForUser 的 false 只挂在 promise 结算与取消信号上，嵌套调用被宿主截断时计数永不收回
+**严重程度**：重要
+**类别**：不变量
+**位置**：计划“nb-harness”（“结算或调用被取消时报 false，只报一次”）；代码 packages/neuro-book/src/plugins/agent/backend/tools.ts:244-264（ToolWrapper.execute 的 Promise.race 与撤回 5 秒）、eval/tool.ts:313、455-500（Deadline）
+**现象**（从代码推断）：工具提供方这一代撤回（停用、重载 nbook.page-agent）时，ToolWrapper 5 秒后以 `unavailable` 交回调用，但 `implementation.execute` 还在跑，调用的 `signal` 并没有触发。与此同时 page-agent 自己的入口停止，订阅句柄随作用域释放，订阅方拿不到任何回调（实验 7 情形 6a、2a：自己 release 不调 onEnd）。于是传给 waitingForUser 的结局 promise 永不结算、signal 也不触发，`onWaiting(false)` 永不到达。eval 的 Deadline 计数停在 1，这个单元余下的代码（模型的代码继续 catch 住 unavailable 往下跑）不再有时限。工具实现里 `Promise.race([ctx.waitingForUser(p), 别的])` 提前返回也同样卡住。
+**为什么是问题**：计划自己写的不变量“onWaiting 计数成对”只在“promise 终会结算或 signal 终会触发”时成立，两者都不由内核保证。
+**如何核实**：在 eval 的 kernel.test 里让一个嵌套工具 `waitingForUser(new Promise(() => {}))` 后被撤回，看单元是否还能超时。
+**建议改法**：harness 在 invokeNested 记下这次调用的等待次数，调用结局写下时（writeResult，或 attempt 的 finally）把没收回的 false 补齐；不变量写成“嵌套调用结算时一定收回”。page-agent 后端另听自己入口的停止信号，把在等的高亮以 window-gone 或 cancelled 结算。
+
+### 3. foreground 放在 harness 过滤，挡不住 eval 说明与代码里的 ui；Spec 的 no-window“或会话在后台”与之矛盾
+**严重程度**：重要
+**类别**：正确性
+**位置**：计划“nb-harness”（“后台会话的工具表与 eval 对象里没有它”）、第 3 片；Spec 失败表 `no-window`；代码 nb-harness/src/kernel/run/tools.ts:59-67（“宿主给的就是最终的工具集”）、neuro-book/src/plugins/agent/backend/agent.ts:256、454、537-548，eval/tool.ts:232-233
+**现象**：后台会话只有一种来源：会话头的 `background`（`agent.startTask` 建会话时写，fork 不继承，之后不变；session.md 会话头、agent.ts:344），所以不存在“会话中途转后台”，计划与 Spec“转后台后不再优先”说的是窗口转后台，不是会话。harness 按 `foreground` 过滤只能在 ToolBox.current()（tools.ts:67 之后）做；但 eval 说明里“可用的全局对象”由 agent.ts 的 sessionDeclarations 用过滤前的声明拼出，代码里的全局对象由 `runtime.codeTools(context)`（agent.ts:454，同样走 forProfile）给出。只在 harness 过滤时，后台会话的 eval 说明仍列 `ui`、代码里 `ui` 是个对象，调方法才在 invokeNested 的 byId 处得 unknown-tool。另外 Spec 失败表写 `no-window`“或会话在后台”，计划写后台得 `unknown-tool`，两者只能有一个。
+**为什么是问题**：计划说“eval 对象里没有它”，照字面在 harness 实现做不到；两份 Spec 的说法会让验收测试对不上。设计稿原意是“只给有用户在看的会话”，bot 归属（owner）的会话不是 background，却同样没人在窗口前（bot 的 Profile 不带 ui 只是缺省，用户能加）。
+**如何核实**：读上面几处；ToolSessionContext.background 已在 declarations(context) 与 codeTools(context) 两处都拿得到（host.ts:430）。
+**建议改法**：二选一写死。（a）不改 harness：在 agent.ts 的 forProfile 调用处按 `context.background` 去掉声明了 foreground 的工具，declarations 与 codeTools 共用这一处，eval 说明、全局对象、内核工具表一致；harness/runtime.md 不加条目，只在 contributions.md 加。（b）harness 过滤并把过滤后的集合交回宿主用于 eval。无论哪种，删掉 Spec 失败表里“或会话在后台”；是否把 owner 会话也算“无人在看”交开发者定。
+
+### 4. 按对象开关只存“被关掉的对象名”，开启一侧与 Profile 要求仍是方法 id，“新增方法跟随对象”只对一半情形成立
+**严重程度**：重要
+**类别**：正确性
+**位置**：计划“nbook.agent”第 3 点、第 4 片、“进主创与临时帮手的可选工具”；设计稿“要先补的上游”（“存对象，之后新增的方法跟随”）；代码 agent/shared/profile-tools.ts:29-36、48-62，agent/shared/settings.ts:17-20、36，agent/shared/contracts.ts:40-43
+**现象**：现有绑定是 `{added, removed}` 两组工具 id，ToolBindingSchema `additionalProperties: false`。计划只加“被关掉的对象名”。可是：（1）ui 只在主创与临时帮手的 `optional` 里，用户级 Profile、别的插件的 Profile 要开 ui，只能经“添加工具”写进 `added`，存的仍是四个方法 id，t02 新增 click、fill 时不跟随；（2）主创的 `optional` 写在 agent 插件的 MAIN_PROFILE_TOOLS（contracts.ts:40），列的是 `nbook.page-agent.*` 方法 id，t02 也要回来改 agent 插件；（3）同一对象既有对象级关闭、又有旧的方法级 added/removed 时谁优先没写；（4）设置 schema 加字段后，旧版本读新设置会因多余字段整项校验失败（是否回落到缺省、丢掉用户的全部绑定，没写）。
+**为什么是问题**：决定 14 与设计稿要的是“对象一行开关、之后新增的方法跟随”，计划只做了关闭方向；第 4 片照字面做完，t02 会再改一次存储形状。
+**如何核实**：用 changeToolBinding 走一遍“用户级 Profile 加 ui”：只能进 `added` 的方法 id。
+**建议改法**：绑定加 `objects: {added: string[], removed: string[]}`（或在 added/removed 里允许 `object:ui` 这类前缀项），profileToolIds 先展开对象再套方法级增减，写明优先级（对象级关闭盖过方法级开启，或反之）；Profile 声明的 `tools.optional` 也允许写对象名，主创写 `ui` 而不是方法 id；schema 变更在 Spec 里写兼容（旧值照读、未知字段的处理）。
+
+### 5. 高亮的 timeout 由谁计时没写；放在窗口里会被后台标签页的节流与冻结拖住，eval 又已暂停计时
+**严重程度**：重要
+**类别**：正确性
+**位置**：计划“nbook.page-agent 插件”backend（“高亮用订阅等结局”）；Spec 输入表 `timeout`（缺省 300，至多 3600）、输出 9、设计稿目标窗口一节的表（“高亮期间转后台不结束，等用户回来”）
+**现象**：Spec 允许高亮期间窗口转后台且不结束；Chrome 对隐藏标签页的定时器节流（隐藏 5 分钟后链式定时器约一分钟一次），并可能冻结或丢弃后台标签页（从浏览器行为推断，未在本仓库实测）。冻结的标签页 WebSocket 可能仍保持连接，订阅不会以 target-gone 结束。另外实验 7 列了结局事件丢失的三种情形（断线、在途时断网、与取消交错）。计划没写 timeout 是窗口推 `timeout`，还是服务端自己计时。
+**为什么是问题**：waitingForUser 期间 eval 单元不计时，“上限是高亮自己的 timeout”是设计稿接受取舍的前提。若 timeout 只在窗口里跑，窗口被冻结或事件丢失时这个上限失效，eval 无限期挂起，只能靠用户手动停止。
+**如何核实**：读设计稿“等待的机制”最后一句与实验 7 问题 3；对照 Chrome 的 Page Lifecycle 冻结与定时器节流文档。
+**建议改法**：计划写明服务端以注入时钟计 timeout，到点 release 并交回 `timeout`；窗口也可以本地计时用于撤框，但结局以服务端为准。插件测试加一例：窗口不推任何事件，注入时钟走到 timeout，结局为 timeout、计数收回。
+
+### 6. 选窗口不看会话所在的作品，可能在另一部作品或书架窗口里截图、高亮
+**严重程度**：重要
+**类别**：正确性
+**位置**：计划“nbook.page-agent 插件”backend（“选窗口（instances() 加 info()，会话小表带条数上限）”）；Spec 输出 1、2；设计稿目标窗口一节；代码 nb-runtime/src/remote/router.ts:219-221（instances 交回带 `project` 绑定的实例描述）、nb-harness/src/kernel/api/host.ts:426-428（ToolSessionContext.project）
+**现象**：候选是“提供了窗口合同的客户端实例”，第 2、3 档取有焦点的、最近有输入的。同一服务端下可以同时开着作品 A、作品 B 与书架的窗口，客户端实例描述里有绑定的项目代次，会话也有 `project`，但计划与 Spec 都没有按它筛选或排序。
+**为什么是问题**：作品 A 的会话里 `ui.find` 拿到的设置路径、`ui.screenshot` 截下的内容会来自作品 B 的窗口（截图经过审批，但批准的含义是“截你正在用的那个窗口”）；高亮落在别的作品窗口里，用户在 A 的窗口里看不到引导，结局只能等 timeout。设计稿与两轮审查的处理记录里都没讨论过这一条（D 只排除了“窗口正显示着哪些会话”）。
+**如何核实**：e2e 场景 2 的三个窗口全绑同一作品，覆盖不到；起两个绑定不同项目的窗口即可复现（从代码推断）。
+**建议改法**：候选先按“窗口绑定的项目 = 会话的 project”筛选（会话没有 project 时只取不绑定项目的窗口，或不筛，交开发者定）；都不满足时得 `no-window` 并在说明里写“没有打开这部作品的窗口”。Spec 输出 1 补这一条，验收 2 加一个绑定别的作品的窗口。
+
+### 7. 截图上传的凭证与暂存字节没有收口规则；“绑定窗口”在 HTTP 上无从核对；两个 15 秒同时到点
+**严重程度**：重要
+**类别**：正确性
+**位置**：计划“nbook.page-agent 插件”backend（上传路由一句）、验收映射输出 8；Spec 输出 8；设计稿截图一节“传输与提交点”；先例 docs/specs/workspace/files.md:83-107、packages/neuro-book/src/plugins/files/backend/upload-route.ts
+**现象**：计划只写“凭证一次性、绑定调用与窗口、15 秒”。没写：（1）上传先到、capture 回复丢失或超时、调用被取消（eval 停止）、服务端停止时，暂存在内存里的字节何时释放；（2）调用取消后凭证要不要立即作废（窗口那边的 capture 还在跑，几秒后照样 PUT 上来）；（3）凭证从签发起算 15 秒，capture 的远程调用从发出起算 15 秒，二者几乎同时到点：上传在第 14.9 秒收齐、capture 的回复在第 15.1 秒到达时，按“二者缺一则作废”是失败，但窗口已经上传成功；（4）files 的先例写明“HTTP 端口没有窗口的身份”（files.md:107），凭证只是“谁拿到谁能传”，“绑定窗口”只能理解为“只交给那个窗口”；（5）并发上限与慢上传（files 限 2 个、没有空闲超时是已知限制）。
+**为什么是问题**：每条失败路径都可能留下至多 512 KB 的暂存与一个活着的凭证；凭证过期判定与 capture 超时用同一个数，边界上的结局取决于先到哪个定时器。
+**如何核实**：读 files.md 写图片一节与 upload-route.ts 的并发与断开处理。
+**建议改法**：写一张“凭证状态”表：签发 → 收到上传（暂存）→ capture 成功（提交，交出字节并删除）；任何一步失败、调用的 signal 触发、到期、插件停止都删除凭证与暂存。凭证寿命取 capture 时限加一点余量（例如 20 秒），提交只看“capture 成功且凭证已收到上传”；PUT 按流读并在 512 KB 处截断报 413，过期或作废的凭证得 410；Spec 输出 8 写“这次调用的 signal 触发后上传被拒”。插件测试补：上传后 capture 超时、取消后才上传、服务端停止后暂存为空。
+
+### 8. 通道失败码怎样换成 ui 的码没写；“各码各有一例”无法照表验收
+**严重程度**：重要
+**类别**：接口与合同
+**位置**：Spec 失败表末句“审批与通道的失败码沿用”、输出 2；计划验收映射“失败码表”；代码 nb-runtime/src/remote/node.ts:690-709（调用方核对输出与失败码）、plugin-channel.md 输出 4、5
+**现象**：窗口合同的调用可能得到 `not-provided`（窗口是没有 page-agent 的旧构建或插件被停用）、`version-changed`（服务端更新后窗口没刷新）、`provider-error`（窗口交回的值不符合输出 schema，含超过上限）、`unavailable`（激活失败、停止中）、`timeout`、`target-gone`、`denied`。Spec 只说“沿用通道的码”，输出 2 又说“查询窗口失败”报 `window-unresponsive`、“断开”报 `window-gone`。哪些码换成 ui 的码、哪些原样抛给代码，计划与 Spec 都没写；选窗口时某个候选 info() 得 not-provided 应当跳过而不是报 window-unresponsive，也没写。
+**为什么是问题**：模型拿到的码决定下一步怎么做（Spec 的“调用方怎么办”一列）；原样漏出 `provider-error`、`version-changed` 时表里没有处理建议。第 8 片的测试“各码在核心或插件测试里各有一例”只覆盖 ui 自己的 7 个码。
+**如何核实**：对照 plugin-channel.md 输出 4 的码表与 Spec 失败表。
+**建议改法**：Spec 加一张映射表：选窗口阶段 not-provided、version-changed 的候选跳过（全部跳过后 no-window，说明里提示刷新窗口）；调用阶段 target-gone、订阅 onEnd 的 provider-stopped 为 window-gone；timeout 为 window-unresponsive；provider-error、unavailable 为 window-unresponsive 并在 details 带原码。插件测试按这张表逐行一例。
+
+### 9. 第 2 片的改动落点、影响面与测试起点写得不够：只改 router.ts 就够；服务端订阅项目实例的行为同样会变；ended 的订阅留在 owned 里
+**严重程度**：建议
+**类别**：代码质量
+**位置**：计划“packages/nb-runtime/src/remote/（router.ts、node.ts）”、第 2 片；代码 router.ts:144-166、434-460、487-494，node.ts:449-470、650-681、1041-1051、1140-1149，routing.test.ts:308（topology）
+**现象与核实**（读代码）：（1）服务端节点的上游就是路由构造函数里那个 Upstream（router.ts:144）。instances 在 `upstream.request` 里对 `INSTANCES_CONTRACT` 直接交回 `this.instances()`（与 #routeRequest:450-453 同一个函数、同一个 #members，顺序是 Map 插入序，同实例重连 `set` 不改位置；握手中的不在两边都不列；断开的在 onClose 删掉），两条路结果天然一致。订阅在 `upstream.subscribe` 的 handlers 外包一层，把 `disconnected` 改报 `target-gone`（同 #routeSubscribe:490），node.ts 不用动；若改 node.ts:1043 的判断，客户端节点断线后 `#upstreamPeer` 不会置空（connect() 的 onClose 只 resolve），容易误伤“客户端作订阅方断线重建”。（2）结束与在途事件：Peer.#onClose 先删订阅再调 onEnd，之后的事件无处可投；与服务端 release 同时发生由 `subscription.ended` 保证只结束一次，现有逻辑已对。（3）影响面：服务端订阅项目实例（项目子进程崩溃）今天同样悬空，改后以 target-gone 结束；仓库里目前没有服务端插件订阅成员，但要在 Spec 与测试里写出来。（4）同实例重连时 #register 先登记新链路再关旧链路（router.ts:211-216），服务端订阅也以 target-gone 结束，即“短暂断线也是 window-gone”，与设计稿一致，测试应断言这一条。（5）onEnd 只把订阅从 #subscriptions 删掉，不从 access() 的 `owned` 删（node.ts:670、676-678），插件不调 release 时，每个以 window-gone 结束的高亮留一个 ActiveSubscription（含监听闭包）直到 page-agent 入口停止。（6）实验 7 的 harness.ts 在 .local 里、按绝对路径导入另一个检出；routing.test.ts 已有 topology()（真实路由、进程内链路、cut()/close()），足够。
+**建议改法**：计划写明“只改 router.ts 的服务端上游”；验收加“同实例重连后服务端订阅以 target-gone 结束、不重建”“服务端订阅项目实例、子进程链路断开”两例；page-agent 后端在任何结局都调 `release()`；测试直接用 topology()。
+
+### 10. 通道 Spec 输出 7 的文字“不变”会与修好后的行为矛盾
+**严重程度**：建议
+**类别**：文档
+**位置**：计划“Spec 与文档改动”（“plugin-channel.md：输出 7、8 的文字不变”）；docs/specs/runtime/plugin-channel.md:97、194
+**现象**：输出 7 写“连回同一服务端进程、同一项目代次时只重建仍有效的订阅，并调用 onResync”，没有区分订阅方在哪一端。修好后，服务端作订阅方时，目标成员的链路关闭一律以 target-gone 结束、同实例重连也不重建；客户端作订阅方断线则等重连重建。验收 8 写“连接结束各一例”，现有用例都是客户端作订阅方（实验 7 结论 4 已指出）。
+**为什么是问题**：Spec 是行为真相源；不写清，后来者会按“重建”去改 page-agent 或内核，或把 target-gone 当成缺陷。
+**建议改法**：输出 7 补一句：“订阅方是服务端、目标是成员实例时，所经连接就是该成员的链路，它关闭时订阅以 `target-gone` 结束、不重建（成员之后同实例重连也不重建）”。输出 8 补“服务端插件调用时由路由本地回答，与成员经路由查询的结果相同”。
+
+### 11. ToolCallError.details 对所有工具一律放开，失败详情没有声明与校验，现有工具的 details 合同被悄悄扩大
+**严重程度**：建议
+**类别**：接口与合同
+**位置**：计划“nbook.agent”第 1 点、第 4 片；代码 nb-harness/src/kernel/api/tool.ts:74-75（ToolResult.details“给程序看、不进请求”）、agent/backend/eval/tool.ts:414-422（replyOf）、eval/protocol.ts:37-40（CallReply）
+**现象**：今天失败结局交给代码时只有 tool、status、code、message；成功的结构化值要声明 `returns` 并经 Value.Check 校验后才交给代码。计划让任何工具失败时的 `details` 原样（8 KB 内）进 ToolCallError。现有工具的失败 details 是写给程序与扩展的（例如 shell-background 的 `{session, job}`、eval 自己的 `{code}`），作者没有把它们当成给模型的合同；`unknown`、`denied` 的 details 也会一起带出。
+**为什么是问题**：代码里 `catch (e) { console.log(e.details) }` 会把这些内容带进模型上下文，与“details 不进请求”的注释相悖；形状不受任何 schema 约束，ui 自己的 `stale-ref` 候选列表也就没有校验，与“业务 schema 是唯一来源”不一致。8 KB 是按什么量（JSON 序列化后的 UTF-8 字节）也没写。
+**如何核实**：grep `details:` 看现有工具失败结果里放了什么。
+**建议改法**：与 `returns` 对称加一个可选的 `errors: {[code]: schema}` 声明（nb-page-agent 的 api 已有 details 形状，可直接派生），只有声明了该码的工具、且通过校验的 details 才进 ToolCallError，其余不带；8 KB 写明按 `JSON.stringify` 后的 UTF-8 字节量，超了丢掉并在 message 末尾说明。eval.md 输出 8 相应写清。
+
+### 12. 等待中的高亮一直占着嵌套调用的 shared 名额，同一单元里的 exclusive 调用会排到高亮结束
+**严重程度**：建议
+**类别**：正确性
+**位置**：计划“nb-harness”；设计稿“方法都声明 shared 并发档：高亮的等待不挡同一段代码里别的 ui 调用”；代码 nb-harness/src/kernel/run/tools.ts:284-336（NestedLock 注释“只管执行这一段，审批与等用户不占它”）、600-612、619
+**现象**：审批与 ctx.ask 的等待发生在拿锁之前或不占锁；waitingForUser 发生在 execute 里面，锁在 attempt 结束才放（tools.ts:619 的 finally）。所以高亮等用户的整段（至多 3600 秒）都占着一个 shared 名额；同一单元里之后发起的任何 exclusive 嵌套调用都排在它后面，排在那个 exclusive 后面的 shared（包括别的 ui 调用）也不插队（输出 98）。eval 此时不计时，单元看起来挂住。
+**为什么是问题**：设计稿“不挡别的 ui 调用”只在没有 exclusive 调用时成立；NestedLock 注释里“等用户不占锁”的说法对这种新的等待不再成立。典型的串行引导代码不受影响，但“边高亮边写文件”的写法会卡到用户点完或 timeout。
+**如何核实**：invoke.test 里起一个 shared 工具 `waitingForUser(永不结算)`，再 invoke 一个 exclusive 工具，看后者是否开始。
+**建议改法**：两种都可以：（a）waitingForUser 期间临时归还锁、结算后重新排队（改动在 harness，语义与审批一致）；（b）不改锁，在 harness/runtime.md 与 ui 文档里写明“等用户期间仍算在执行，exclusive 调用会等它结束”，invoke.test 加一例断言这个行为。
+
+### 13. tsType 改成带 JSDoc、换行缩进后，SDK 教学示例的场景测试会断，第 4 片的验证命令没点到它
+**严重程度**：建议
+**类别**：测试
+**位置**：计划“nbook.agent”第 2 点、第 4 片“自跑验证”；代码 agent/backend/eval/objects.ts:65、89-121，objects.test.ts:50-64，packages/neuro-book/plugin-sdk/examples/scenarios/10-eval-object.test.ts:124
+**现象**：tsType 只被 objectDoc 用（objects.ts:65）。objects.test.ts 断言单行签名；SDK 场景测试 10 断言 `count(args: {text: string}): Promise<{chars: number; lines: number}>`。计划“签名换行缩进”没说是一律换行还是有字段说明时才换行；一律换行时这两处都要改，而 plugin-sdk/examples 的注释是教学材料（AGENTS.md：讲解随场景测试一起改），第 4 片的验证只写“agent 插件受影响的测试”。另外字段说明里出现 `*/` 会提前结束 JSDoc 注释，说明里的换行也会打乱缩进。
+**为什么是问题**：第 4 片单独提交时容易漏掉 SDK 示例，到收口的 test:affected 才发现；JSDoc 转义不做，插件作者写的说明能把签名弄乱。
+**如何核实**：`bun test packages/neuro-book/plugin-sdk/examples/scenarios/10-eval-object.test.ts`（改后）。
+**建议改法**：规则写成“没有任何字段带说明或缺省时保持单行，否则换行缩进”，现有两处断言不变；说明里的 `*/` 换成 `*\/`、换行折成空格；第 4 片验证命令点名 10-eval-object 场景测试。
+
+### 14. 结局 cancelled 代码永远收不到，验收 7 要写明在哪里观察；窗口合同的输出 schema 表达不了字节上限
+**严重程度**：建议
+**类别**：测试
+**位置**：Spec 输出 9 的 `cancelled`、验收 7、输出 12；计划验收映射输出 11、12，shared/contracts.ts（“输出 schema 写字节与条数上限”）；代码 agent/backend/eval/tool.ts:302-330、318（超时或停止即 kernel.kill）
+**现象**：（1）`cancelled` 只在 eval 被停止或单元超时时出现，而这两种情况 eval 会立刻杀掉内核（tool.ts:318），代码里的 `await ui.highlight` 不会再拿到返回值；它只出现在 nestedToolResult 的 preview（日志）与 eval 卡片里。验收 7“结局 cancelled”与映射里的“插件测试”没说断言哪一处。（2）JSON Schema 的 `maxLength` 数的是字符不是 UTF-8 字节，64 KB 的字节上限写不进输出 schema；中文为主的文字按字符上限放行时可到约 192 KB。窗口超限交回时，调用方一侧 #checkOutcome（node.ts:690-697）判成 provider-error，走的是第 8 条里没写的映射。
+**为什么是问题**：验收照字面写会去断言代码里的返回值，写不出来；schema 上限与“字节”说法不一致时，测试与实现各按一种理解。
+**建议改法**：验收 7 写成“nestedToolResult 的 preview 为 cancelled、页面上没有描边框与说明框、单元的计时在等待期间不走”；Spec 输出 9 给 cancelled 加一句“只记在日志与卡片里，代码已随单元结束”。输出 schema 写字符与条数上限作兜底（取 65536 字符、500 条），字节上限由窗口在回复前按 UTF-8 量并截断，两者在合同注释里分开写。
+
+### 15. 第一次调用的时限里含窗口一侧的按需激活与引擎的动态加载，800 毫秒的 info() 可能整批超时
+**严重程度**：建议
+**类别**：安全与性能
+**位置**：计划“nbook.page-agent 插件”web（“懒加载引擎”）与 backend（选窗口）；设计稿目标窗口一节（info() 每个 800 毫秒）；Spec 输出 2（快照与目录 3 秒）；docs/specs/runtime/plugin-channel.md 输出 5（请求到达时按 onRemote 激活提供入口）
+**现象**：窗口里的提供入口若声明为按需激活，服务端第一次问某个窗口的 info() 时，800 毫秒里要先激活 page-agent 的浏览器入口（开发构建下还要经 Vite 转换模块）；第一次 snapshot 的 3 秒里还要动态导入引擎与 dom-accessibility-api。计划没写入口何时激活、时限是否扣除激活时间。
+**为什么是问题**：窗口刚打开或开发服务冷启动时，所有候选的 info() 可能同时超时，第一次调用就得 `no-window` 或 `window-unresponsive`，模型据此让用户“打开窗口”，而窗口其实开着（从代码与 Spec 推断，未实测耗时）。
+**如何核实**：在开发服务冷启动后第一次调用 ui.snapshot，记 info() 与 snapshot 的耗时。
+**建议改法**：浏览器入口随窗口启动激活（info() 只读焦点、可见性与最近输入，不碰引擎），引擎在入口激活后空闲时预加载；或计划写明 info() 超时的候选不算“不存在”，第一次全部超时时重试一次再判 no-window。Lab 或 e2e 里加一条冷启动后的第一次调用。
+
+### 16. agentTool 的 foreground 声明与透传不在任何一片里，第 8 片会被贡献点 schema 拒收
+**严重程度**：建议
+**类别**：代码质量
+**位置**：计划“切片”表第 3、4、8 片与“Spec 与文档改动”（contributions.md 的 foreground 只出现在第 1 片的文档里）；代码 packages/neuro-book/src/plugins/agent/shared/points.ts:49-72（ToolDeclarationSchema，`additionalProperties: false`）、agent/backend/tools.ts:184-213（#declaration 只透传 invokes、codeCallable、global）
+**现象**：第 3 片只给 nb-harness 的 ToolDeclaration 加 foreground；第 4 片列的是 details、tsType、按对象开关、skip，没有 foreground。agent 插件的贡献点 schema 不认识的字段整条声明不合格，#declaration 也不会把它交给内核。第 8 片 `nbook.page-agent` 声明 `foreground` 时，四个方法工具会被拒收或静默丢掉这一项。plugin-sdk 公开的声明类型（`@notnotype/nb-plugin-sdk/agent`）随之要改，计划也没提。
+**为什么是问题**：切片依赖表写“第 8 片依赖 2 到 7”，但这一项在 2 到 7 里都没有，第 8 片开工时才发现要回头改 agent 插件；按第 3 条的改法 (a) 时，过滤本身也落在 agent 插件里，更应归第 4 片。
+**如何核实**：在第 8 片的声明里加 `foreground: true`，跑 agent 插件的贡献点校验。
+**建议改法**：第 4 片加“agent.tools 声明的 foreground：schema、#declaration 透传（或在 agent 插件里按 background 过滤，见第 3 条）、SDK 类型与 contributions.md”，并加一条 agent 插件测试：后台会话的 eval 说明与代码全局对象里都没有声明了 foreground 的方法。
+
+## 未发现问题的方面
+
+- 第 2 片内核修改本身的语义：结束与在途事件的先后（Peer.#onClose 先删订阅再 onEnd，之后无事件可投）、与服务端 release 同时发生只结束一次（ended 标记）、经路由转发的订阅与窗口作订阅方的重建不受影响（只要改动限在路由给服务端的上游，见第 9 条）。
+- eval 计时信号的路径：方法工具、eval 工具与 Deadline 都在服务端主进程，onWaiting 经 invoke 的选项同步到达 Deadline，不经内核子进程；Deadline 按计数暂停、resume 有下限保护，stop 之后到达的 pause/resume 无害。并发两个都在等时计数成对（前提是第 2 条补上）。
+- 顶层透传：带 global 的方法只能从代码里调（tools.ts:378 的 code-only），ui 不会作为顶层调用出现。
+- 拦截层的时限在里层执行期间不计（chain.ts 的 disarm），长时间等待不会被拦截层超时打断。
+- 截图的审批先于执行：嵌套调用先判定、问用户，再建实现与执行（tools.ts:600-617），签凭证一定在批准之后。
+
+## 数量
+
+阻断 0、重要 8（第 1 到 8 条）、建议 8（第 9 到 16 条），共 16 条。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16

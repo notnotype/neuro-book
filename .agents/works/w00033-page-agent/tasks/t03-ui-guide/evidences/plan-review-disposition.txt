@@ -1,0 +1,58 @@
+w00033 t03 计划审查的处理（第一版计划 plan-v1 与 Spec 草稿，审查检出 cf89b6a38，2026-11-26）
+
+审查者与报告：
+- Opus（后端与跨进程）：plan-review-opus.txt，16 条（重要 8、建议 8）
+- Sonnet（前端）：plan-review-sonnet-frontend.txt，14 条（阻断 1、重要 10、建议 3）
+- Sonnet（从整体看）：plan-review-sonnet-overall.txt，14 条（重要 8、建议 6）
+- omp @review（后端，同 Opus 的说明）：后台运行中，报告回来后另记
+
+归类：A 成立要改；B 成立但接受取舍；C 不成立；D 交开发者定（结果见 t03 README 决定）。改到的位置写 Spec 或计划第二版的小节名。
+
+几位都提出的：
+- 说明框没有静态稿（整体 8、前端 10）：A。计划第 2 片出静态稿与评审板，与第 3 到 6 片并行，第 8 片等定稿。
+- 跨插件复用放错位置（整体 1、前端 4 第 3 点）：A。打分函数移进 workbench/shared，读接口都进提供方的 shared/contracts.ts，第 4、6 片验证加 architecture.test.ts。
+- 选窗口不看作品（整体 6、Opus 6）：D，开发者定只选同一作品的窗口（t03 决定 3）。Spec 输出 1、验收 2。
+- 前台标记放在 harness（整体 9、Opus 3、Opus 16）：A。不加 harness 声明，agent 插件在 forProfile 调用处按 background 或 owner 过滤，说明、全局对象、工具表一致；Spec 删掉 no-window 的“或会话在后台”，加验收 9。bot 归属的会话也算没人在看（作者判断：没人会在窗口前，按失败即关处理）。
+- 接线与登记漏项（整体 12、前端 5）：A。计划“page-agent 插件”接线一条与新包登记一条。
+
+Opus：
+- O1 订阅建立不等于装上：A。窗口合同载荷改判别联合 installed、outcome、failed；结局在 subscribe 前建好。
+- O2 waitingForUser 计数收不回：A。invokeNested 在嵌套调用结算时补齐。
+- O4 按对象开关只有关闭方向：A。绑定加 objects 的 added、removed，先展开对象再套方法级；旧版本读新字段写已知限制。
+- O5 timeout 由谁计：A。服务端以注入时钟计，Spec 输出 9。
+- O7 上传凭证收口：A。Spec“状态与转换”加截图状态表；凭证 20 秒；413、410；调用结束后拒收。
+- O8 通道失败码换算：A。Spec 新增输出 14 的换算表。
+- O9 只改 router.ts、测试用 topology()、任何结局都 release：A。
+- O10 plugin-channel 输出 7、8 文字要补：A。计划“Spec 与文档改动”。
+- O11 details 对所有工具放开：A。声明 errors 才交给代码，文档列出失败码与形状。
+- O12 等待占并发名额：A，取建议 (b)：不改锁，写进 harness/runtime.md 与 Spec 输出 11。
+- O13 tsType 换行会断 SDK 场景测试：A。没有说明与缺省时保持单行；第 7 片验证点名 10-eval-object。
+- O14 cancelled 收不到、schema 表达不了字节：A。Spec 输出 9、12 与验收 7。
+- O15 第一次调用含激活与加载：A。浏览器入口随窗口激活、引擎空闲预加载，Spec 输出 15、验收 8。
+
+Sonnet 前端：
+- F1 说明框按键被弹层截走（阻断）：A。说明框宿主截住键盘事件；Spec 输出 10、验收 6；变异检查。
+- F2 弹层关掉时说明框跟着消失：A。每次重算检查并重挂；Spec 输出 10、验收 6。
+- F3 设置目录与窗口画出的行对不上：A。公开窗口落位后的只读门面，不公开带写入口的原键；Spec 输出 7 加“节”一类与选层规则。
+- F4 工作台服务只有位置：A。改成界面目录读取服务；多视图容器的视图标题加稳定名。
+- F6 skip 范围过宽：A。只标消息列表；跳过只影响列出，定位照常；Spec 输出 3。
+- F7 Profile 对象行的规则没写：A。规则随静态稿定稿写进 profile-settings.md；定位属性写进测试分工。
+- F8 悬停显示：A（选择器特异性、核心不认识工作台标记，改成宿主钩子）；B（标签关闭按钮、子代理停止按钮这类不在悬停动作区里的，写进 Spec 非目标，第一批不做）。
+- F9 测试约定不够：A。补属性；弹层用例只放应用 e2e。
+- F11 Lab 场景挂不上、核心不能依赖应用：A。去掉 Lab 场景，真实组件用应用 e2e。
+- F12 名字计算的性能没再量、命中检查要跳过自己的节点：A。第 5 片先量；Spec 输出 3。
+- F13 逐帧跟随没有范围：A。只在目标祖先链有动画时逐帧。
+- F14 浏览器写死路径：A。改 channel: "chrome"。
+
+Sonnet 整体：
+- S2 核心包绑在 NeuroBook 上：A。./api 只放页面概念，宿主注入截图、文字、悬停、主题；截图单独入口。
+- S3 rebound 没限只读：A。Spec 输出 4。
+- S4 定位摊平会撞名：A。方法参数里定位放进 at、of、scope；结局与 until 为开放集合（Spec 输出 9、边界与兼容）。
+- S5 映射表由使用方维护：D，开发者定由拥有者写稳定名（t03 决定 1）。Spec 输出 6。
+- S7 切片：D，开发者定按功能分两轮（t03 决定 2）。计划“切片”。
+- S10 Profile 里写 page-agent 的工具 id：A。改用 defaultForAll，Spec“输入与前置条件”。
+- S11 内核改法范围：A。只对 client 目标映射，项目目标保持重建并补回归用例；tsType 已打印可选；global 要 object 与 method。
+- S13 可推迟：A（annotate 推迟）；B（side 保留：floating-ui 自带，代价很小；不减弱动效的用例限定在跟随与等待的几条）。
+- S14 测试分工盲区：A。第一段 e2e 改成只写已实现的输出；暗色主题与开发服务点一遍归主会话（第 10 片）。
+
+不成立：无。
