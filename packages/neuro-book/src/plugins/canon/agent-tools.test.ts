@@ -218,10 +218,12 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         // 生成的 id 不等于显示名（括号里的），初值照样写进了这一项。
         expect(read.text).toContain("身高 (cm)（身高cm2） = 一米七");
 
-        const version = versionIn(read);
+        let version = versionIn(read);
         const write = (edits: readonly Record<string, unknown>[]) => run(AGENT_TOOL_IDS.write, {title: "改", version, edits});
         const numberAndRef = await write([{op: "addField", entry: "星瑕", component: "面板", label: "力量", kind: "number"}, {op: "addField", entry: "星瑕", component: "面板", label: "师父", kind: "ref", targets: ["人物"]}]);
         expect(numberAndRef.status).not.toBe("error");
+        // 写过以后带旧版本先回 stale-read（输出 6）：下面要看的是各项自己的回话，带新版本。
+        version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: "星瑕"}));
         const refused: Array<[readonly Record<string, unknown>[], string]> = [
             [[{op: "addField", entry: "星瑕", component: "面板", label: "魔力", kind: "数字"}], "kind 只能是"],
             [[{op: "addField", entry: "星瑕", component: "面板", label: "  "}], "不能是空的"],
@@ -345,6 +347,84 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         expect([stale.status, stale.text]).toEqual(["error", '第 1 项（replace）：这一块里找不到 find：find 里带着读到的值，值可能变了或是按计划模式读的。按实际模式重读这一块再抄。']);
         const missing = await run(AGENT_TOOL_IDS.write, {title: "找不到", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: "宿舍", with: "家"}]});
         expect(missing.text).toBe("第 1 项（replace）：这一块里找不到 find，原样抄读到的文字。");
+        await close();
+    }, 60_000);
+
+    it("写主文字的几种组合（输出 6）：原样交回的块混在别的改动里也不写（剧情意图下不把这块钉在那一章），后面的项被拒时项号照交来的数；读后被改的 replace 先回 stale-read；算出来的值改了提示改依赖的字段", async () => {
+        const {author, run, close} = await scene();
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物", "面板"], declare: {面板: [{id: "魔力", label: "魔力", kind: "number"}]}, fields: {"人物.性格": "冷静"}, text: '性格 <V of="character.性格" />，魔力翻倍是 <V expr="panel.魔力 * 2" />，住在学院。'}]});
+        expect(created.status).not.toBe("error");
+        const xia = (created.details as {ids: Record<string, string>}).ids["tmp:xia"]!;
+        // 数的初值 Agent 给不了（要写依据），由作者填。
+        const status = await author.canon.call("status", {});
+        const filled = await author.canon.call("editEntries", {input: {requestId: "author-mana", by: {kind: "author"}, what: "edit", baseVersion: status.ok ? status.value.version : 0, title: "作者填魔力", ops: [{op: "set", at: {entry: xia, path: "panel.魔力"}, value: 3}]}});
+        expect(filled.ok).toBe(true);
+        const readAt = (at: unknown) => run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"], at});
+        const textOf = (read: ToolResult) => /\[b1\] (.*)/u.exec(read.text)?.[1] ?? "";
+
+        // 剧情意图、第 1 章：改性格，同时原样交回 b1。b1 不写，第 1 章以后的 b1 照样跟着最初的文字走。
+        let read = await readAt({chapter: 1});
+        const mixed = await run(AGENT_TOOL_IDS.write, {title: "第 1 章变热情", version: versionIn(read), intent: "story", at: {chapter: 1}, edits: [{op: "set", entry: xia, field: "人物.性格", value: "热情"}, {op: "set", entry: xia, field: "text[b1]", value: textOf(read)}]});
+        expect(mixed.status).not.toBe("error");
+        read = await readAt("initial");
+        const initial = await run(AGENT_TOOL_IDS.write, {title: "最初改住处", version: versionIn(read), at: "initial", edits: [{op: "replace", entry: xia, field: "text[b1]", find: "学院", with: "宿舍"}]});
+        expect(initial.status).not.toBe("error");
+        expect(textOf(await readAt({chapter: 2}))).toBe('性格 <V of="character.性格">"热情"</V>，魔力翻倍是 <V expr="panel.魔力 * 2">6</V>，住在宿舍。');
+
+        // 原样交回的块在前、后面一项被内核拒收：回话里的项号是交来的第几项，不是写进去的第几个操作。
+        read = await readAt("initial");
+        const numbered = await run(AGENT_TOOL_IDS.write, {title: "记一笔", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read)}, {op: "add", entry: xia, field: "面板.魔力", delta: 1}]});
+        expect([numbered.status, numbered.text]).toEqual(["error", expect.stringContaining("第 2 项")]);
+
+        // 算出来的值在文字里改了：不写，提示改它依赖的字段。
+        const computed = await run(AGENT_TOOL_IDS.write, {title: "改算出来的值", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read).replace(">6<", ">60<").replace("宿舍", "家")}]});
+        expect(computed.text).toContain("panel.魔力 * 2 是算出来的，现在是 6：改它依赖的字段");
+
+        // 读过之后这一块被改了：带旧版本做 replace，find 在现在的文字里已经没有了；回话是 stale-read，不是“抄错了”。
+        const late = await run(AGENT_TOOL_IDS.write, {title: "换回学院", version: versionIn(read), at: "initial", edits: [{op: "replace", entry: xia, field: "text[b1]", find: "宿舍", with: "学院"}]});
+        expect([late.code, late.text]).toEqual(["stale-read", expect.stringContaining("改算出来的值")]);
+        await close();
+    }, 60_000);
+
+    it("主文字里的 $代号 指向同一批 create 的条目，写进去的是它的 id；没有的代号回话说清。addBlock 交回的带值写法去值；长块分页读，整段写回被拒、改局部用 replace（输出 6、7）", async () => {
+        const {author, run, close} = await scene();
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建两个", edits: [
+            {op: "create", key: "school", name: "学院", kind: "组织"},
+            {op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物"], fields: {"人物.性格": "冷静"}, text: '她在 <Ref id="$school" /> 读书，同学是 <Ref id="$xia" />。'},
+        ]});
+        expect(created.status).not.toBe("error");
+        const ids = (created.details as {ids: Record<string, string>}).ids;
+        const [school, xia] = [ids["tmp:school"]!, ids["tmp:xia"]!];
+        const sources = async () => {
+            const blocks = await author.canon.call("textBlocks", {id: xia});
+            return blocks.ok ? blocks.value?.blocks.map((block) => block.source) : null;
+        };
+        expect(await sources()).toEqual([`她在 <Ref id="${school}" /> 读书，同学是 <Ref id="${xia}" />。`]);
+
+        let version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia}));
+        const unknown = await run(AGENT_TOOL_IDS.write, {title: "写错代号", version, edits: [{op: "addBlock", entry: xia, text: '<Ref id="$nobody" />'}]});
+        expect([unknown.status, unknown.text]).toEqual(["error", expect.stringContaining("$nobody 不是这一批前面 create 的代号")]);
+        const both = await run(AGENT_TOOL_IDS.write, {title: "加一块", version, edits: [{op: "create", key: "jin", name: "星瑾", kind: "人物"}, {op: "addBlock", entry: xia, text: '妹妹 <Ref id="$jin" name="抄来的名字" />，性格 <V of="character.性格">"抄来的"</V>。'}]});
+        expect(both.status).not.toBe("error");
+        const jin = (both.details as {ids: Record<string, string>}).ids["tmp:jin"]!;
+        expect((await sources())?.[1]).toBe(`妹妹 <Ref id="${jin}" />，性格 <V of="character.性格" />。`);
+
+        // 一块超过一页（8000 字）：field 写 text[块] 分页读；整段写回被拒，replace 照常。
+        version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: xia}));
+        const long = `${"长".repeat(9000)}结尾`;
+        expect((await run(AGENT_TOOL_IDS.write, {title: "长块", version, edits: [{op: "addBlock", entry: xia, text: long}]})).status).not.toBe("error");
+        const first = await run(AGENT_TOOL_IDS.read, {entry: xia, field: "text[b3]"});
+        expect(first.text).toContain('cursor "8000" 续读');
+        const second = await run(AGENT_TOOL_IDS.read, {entry: xia, field: "text[b3]", cursor: "8000"});
+        expect(second.text).toContain("长结尾");
+        expect(second.text).not.toContain("续读");
+        const whole = await run(AGENT_TOOL_IDS.write, {title: "整段写回", version: versionIn(second), edits: [{op: "set", entry: xia, field: "text[b3]", value: "只剩一句"}]});
+        expect([whole.status, whole.text]).toEqual(["error", expect.stringContaining("改局部用 replace")]);
+        const part = await run(AGENT_TOOL_IDS.write, {title: "改结尾", version: versionIn(second), edits: [{op: "replace", entry: xia, field: "text[b3]", find: "结尾", with: "完"}]});
+        expect(part.status).not.toBe("error");
+        expect((await sources())?.[2]).toBe(`${"长".repeat(9000)}完`);
+        // 整篇读时被截断，提示写的是真能用的读法。
+        expect((await run(AGENT_TOOL_IDS.read, {entry: xia, show: ["text"]})).text).toContain('主文字用 field: "text[块 id]" 一块一块读');
         await close();
     }, 60_000);
 

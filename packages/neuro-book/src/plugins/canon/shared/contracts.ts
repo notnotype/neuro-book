@@ -222,7 +222,8 @@ const methods = {
     chapters: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
     /** 登记的 Component 类型与字段声明（canon.components 输出 21）；带不带视图令牌一样。 */
     components: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
-    render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
+    /** 渲染条目的主文字（canon.rendering 输出 7、8）；`block` 只渲染那一块，给 Agent 的那一块另带存下的源文（`source`）。 */
+    render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), block: Type.Optional(Type.String()), view: View}), output: Out, effect: "read", errors},
     /**
      * 把一段没提交的源文字当作条目的主文字渲染给作者（canon.rendering 输出 16）；不收视图令牌（作者界面的预览用）。`source`
      * 超过 `RENDER_SOURCE_MAX` 时回 `too-large`，不渲染。
