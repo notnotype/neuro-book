@@ -666,6 +666,17 @@ describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线
         expect(agentBlocks(created.world, at("ch1"), "actual", a)[0]).toBe(`见 <Ref id="${b}" name="乙" />，<V entry="${b}" of="entry.name">"乙"</V>，<V expr="ref('${b}').entry.name">"乙"</V>`);
     });
 
+    test("式子里的引用按语法树认：带空格的 ref ( '…' ) 换，字符串里写着的 ref('…') 不换", () => {
+        const base = world();
+        const person = (tmp: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name: tmp, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+        const created = ok(publishPuts(base, [
+            {ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", ["<V expr=\"ref ( 'tmp:b' ).entry.name == 'ref(tmp:b)'\" />"])},
+            {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", [])},
+        ]));
+        const b = created.ids["tmp:b"]!;
+        expect(created.world.data.entries.get(created.ids["tmp:a"]!)!.init.text[0]!.source).toBe(`<V expr="ref ( '${b}' ).entry.name == 'ref(tmp:b)'" />`);
+    });
+
     test("式子超过 1000 个字符拒收（嵌套的深度因此有界，写入与渲染不会栈溢出）；splitBlocks 读不出结构的整段作为一块", () => {
         expect(rejected(writeText(world(), [`<V expr="${"1+".repeat(600)}entry.name" />`]))).toEqual([{code: "forbidden-syntax", path: "init.text[b1]"}]);
         expect(rejected(writeText(world(), [`<V expr="${"1+".repeat(400)}panel.魔力" />`]))).toBe("ok");
