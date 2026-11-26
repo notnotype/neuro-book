@@ -17,6 +17,7 @@ import {
     SHELL_PANEL_COLLAPSED_HEIGHT,
     SHELL_PANEL_MIN_HEIGHT,
     SHELL_PANEL_MIN_WIDTH,
+    SHELL_RAIL_WIDTH,
     SHELL_SIDEBAR_MAX_WIDTH,
     SHELL_SIDEBAR_MIN_WIDTH,
     SHELL_STATUSBAR_HEIGHT,
@@ -122,6 +123,46 @@ export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonl
         regionStrip: (region) => (region === "sidebar" ? null : {height: PANEL_HEAD_HEIGHT + stripTopInset(region, input.cardGap ?? 0), mergeSole: true}),
         ...(input.removed === undefined ? {} : {removed: input.removed}),
     };
+}
+
+/** 侧轨展开前的基线（输出 50 的“预算”）：所有侧轨都收着时求解出的编辑组宽、编辑组的最小宽与右栏宽。 */
+export interface RailBaseline {
+    readonly editor: number;
+    readonly editorMinimum: number;
+    readonly region: number;
+}
+
+/** 视图段声明的宽度范围与展开时聊天区的下限（docs/specs/workbench/views.md 输出 21 的 `VIEW_RAIL`）。都是卡片宽。 */
+export interface RailSegmentBounds {
+    readonly minimum: number;
+    readonly maximum: number;
+    readonly chatMinimum: number;
+}
+
+/**
+ * 预算的结果：`width` 是这一次生效的卡片宽（被拒时是收着的宽）；`regionWidth` 是区域这一次要按它呈现的宽（只在要压区域时有，不写意图）。
+ * 被拒（`too-narrow`）时用户意图不改，窗口变化时重算。
+ */
+export type RailBudget =
+    | {readonly result: "done"; readonly width: number; readonly regionWidth?: number}
+    | {readonly result: "too-narrow"; readonly width: number};
+
+/**
+ * 展开的侧轨要多少宽、从哪里来（docs/specs/ui/workbench-layout.md 输出 50 的“预算”）：先压编辑组到最小，再压区域到聊天区的下限，还不够就按能给的展开，
+ * 能给的比视图段的下限还窄就不展开。请求宽先夹进视图段声明的范围。纯函数：只看基线，所以结果不随这次展开本身的呈现变化来回翻。
+ */
+export function railBudget(input: {readonly baseline: RailBaseline; readonly request: number; readonly segment: RailSegmentBounds}): RailBudget {
+    const {baseline, segment} = input;
+    const request = Math.min(segment.maximum, Math.max(segment.minimum, input.request));
+    const wanted = request - SHELL_RAIL_WIDTH;
+    if (wanted <= 0) return {result: "done", width: request};
+    const fromEditor = Math.max(0, baseline.editor - baseline.editorMinimum);
+    const fromRegion = Math.max(0, baseline.region - segment.chatMinimum);
+    if (wanted <= fromEditor) return {result: "done", width: request};
+    if (wanted <= fromEditor + fromRegion) return {result: "done", width: request, regionWidth: baseline.region - (wanted - fromEditor)};
+    const available = SHELL_RAIL_WIDTH + fromEditor + fromRegion;
+    if (available < segment.minimum) return {result: "too-narrow", width: SHELL_RAIL_WIDTH};
+    return {result: "done", width: available, regionWidth: baseline.region - fromRegion};
 }
 
 /** 接受矩阵（输出 26）：工具视图只进工具面板，编辑器标签只进编辑组，哪个区域都一样。哪条边算落点归 `layoutEdgeTarget`。 */
