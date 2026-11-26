@@ -1,6 +1,6 @@
 # 实施计划：浏览器 Agent 评测体系，第一阶段
 
-第二稿（2026-11-26）：第一稿经 Sonnet 审查，23 条发现按[处理记录](evidences/plan-review-disposition.txt)改成本稿。实施中按实测改了几处：沙箱里的挂载点、extremelycat 代理的给法、读者站票数的画法、`report` 的参数，都已改在下文对应的位置。
+第二稿（2026-11-26）：第一稿经 Sonnet 审查，23 条发现按[处理记录](evidences/plan-review-disposition.txt)改成本稿。实施中按实测改了几处：沙箱里的挂载点、extremelycat 代理的给法、读者站票数的画法、`report` 的参数；实现审查（[处理记录](evidences/impl-review-disposition.txt)）之后又改了结局表里上游失败的判法、运行目录的锁与计划、题的版本、观察者的截法。都已改在下文对应的位置。
 
 ## Context
 
@@ -55,15 +55,15 @@
   | 情形 | `outcome.kind` | 计分 |
   |---|---|---|
   | browser-use `status: completed`（含 `success: false` 的强制交付） | `completed` | 照判分 |
-  | browser-use `timeout`、`max_steps`（什么都没交付，读 `partial`） | `timeout`、`max-steps` | 照判分（多半 0） |
+  | browser-use `timeout`、`max_steps`（回答取 browser-use 的回退文字：`partial` 或最后一段模型文字） | `timeout`、`max-steps` | 照判分 |
   | 执行者进程出错退出、`status: error` | `executor-error` | 照判分 |
   | Chrome 在执行中以退出码 0 退出（执行者或页面关了它） | `executor-error`，`detail: browser-lost` | 照判分 |
-  | 网关记到上游失败（5xx、524、连接重置、上游超时、连不上），且这次运行以出错或超时结束 | `infra-error` | 不计分，重跑 |
-  | Chrome 起不来、执行者启动前出错；Chrome 被信号结束且调度器没发终止；假站出错 | `harness-error` | 不计分，重跑 |
+  | 执行者没交付，且这一回最后一次网关调用是上游失败（5xx 含 524，401、402、403、404、408、413、429，连接重置、上游超时、连不上） | `infra-error` | 不计分，重跑 |
+  | Chrome 起不来、执行者启动前出错；Chrome 被信号结束且调度器没发终止（bwrap 交回 128+n，还原成信号）；假站出错；执行者起来之后评测自己抛错 | `harness-error` | 不计分，重跑 |
   | 网关的单次运行预算用完 | `budget-exceeded` | 照判分 |
 
-  重跑写成同一 `attempt` 下的新 `try`，旧的保留；每格最多重跑 3 回，超了这格记为缺，报告里单列。上游回 429 不算上游失败（执行者自己的重试会处理），但计数。
-- `store.ts`：目录 `<out>/<taskId>/<model>/<arm>/<attempt>/try-<n>/`，下有 `job/`（任务描述，只读绑到沙箱的 `/tmp/job`）、`workspace/`（执行者的工作目录，绑到 `/tmp/work`）、`executor/`（绑到 `/tmp/out`，执行者交回 `executor.json`）、`shots/`，与调度器写的 `ready.json`、`progress.jsonl`、`record.json`、`score.json`（不在沙箱里，执行者写不到）。每个文件先写临时文件再改名；续跑看每个 `attempt` 最后一个 `try` 的 `score.json` 或终态结局。
+  重跑写成同一 `attempt` 下的新 `try`，旧的保留；每格最多重跑 3 回，超了这格记为缺，报告里单列。只看最后一次调用：中途失败过、被执行者自己重试过去的照常计分，否则等于挑着把失败的回重跑一遍（实现审查 O6）。连着 3 格跑满还不计分就停派。
+- `store.ts`：目录 `<out>/<taskId>/<model>/<arm>/<attempt>/try-<n>/`，下有 `job/`（任务描述，只读绑到沙箱的 `/tmp/job`）、`workspace/`（执行者的工作目录，绑到 `/tmp/work`）、`executor/`（绑到 `/tmp/out`，执行者交回 `executor.json`）、`shots/`，与调度器写的 `ready.json`、`progress.jsonl`、`record.json`、`score.json`（不在沙箱里，执行者写不到）。每个文件先写临时文件再改名；续跑看每个 `attempt` 最后一个 `try` 的 `score.json` 或终态结局，记录写了、判分没写的补判不重跑。运行目录上有排他锁（`nb-flock`）与第一次跑时写下的 `plan.json`（题与题的版本、模型、次数、步数），续跑必须同一份计划。题的版本盖住站点源文件（模块、页面、资源与共用部件）；判分逻辑不进版本，报表按当前规则重判。
 - 长输出按 BU 的办法掐中间（`findings_judge.py` 的 `_truncate` 的写法，单步上限 20 000 字符）。
 
 ### `evals/browser/sites/`（本地假站）
@@ -106,7 +106,7 @@
 - `sandbox.ts`：`sandboxArgv({binds, workdir, env, command})` 生成 bwrap 参数：`--ro-bind / /`，`--tmpfs $HOME`、`--tmpfs /run`（藏起用户总线：审查实测在沙箱里经 `systemd-run --user` 能读到 `.env`）、`--tmpfs /tmp`、`--dev /dev`、`--tmpfs /dev/shm`、`--proc /proc`，`--unshare-pid --die-with-parent --new-session`；要用的路径按需 `--ro-bind` 回来；工作目录 `--bind <真实路径> /tmp/work`（中性路径：browser-use 会把工作目录写进系统提示，真实路径里有题号与模型名）。挂载点都放在 tmpfs 的 `/tmp` 下：`--ro-bind / /` 之后只读的 `/` 上建不了新的挂载点（实测报 `Can't create file`）。网络不隔离。环境变量从空开始，只给列出的。
 - `chrome.ts`：`launchChrome()` 在沙箱里起 `google-chrome-stable`（`--headless=new --remote-debugging-port=0 --user-data-dir=/tmp/profile --no-proxy-server --no-first-run --no-default-browser-check --window-size=1280,900 --accept-lang=zh-CN`），环境只给 `PATH`、`HOME`（临时目录）、`TZ=Asia/Shanghai`；临时配置目录 `--bind` 到沙箱里的 `/tmp/profile`。实测 Chrome 自己的沙箱在 bwrap 里能用，不用 `--no-sandbox`。Chrome 也进沙箱，是因为执行者能经 CDP 让它打开 `file://` 读本机文件（审查实测）。沙箱里起 Chrome 要实测（第 3 片）：起不来时改给 Chrome 加 `--no-sandbox`（外面已有 bwrap）；仍不行就让 Chrome 留在沙箱外，把“执行者能经 CDP 读本机文件”写进未验证边界。读 `DevToolsActivePort` 得 CDP 地址。`close()`：断开观察者、`terminate`、等收口、删临时配置。完成值区分退出码 0 与信号（给结局表用）。
 - `cdp.ts`：薄 CDP 客户端：`connect(wsUrl)`、`send(method, params, {sessionId, timeoutMs})`（缺省 5 秒、截图 8 秒，超时 reject 一个带 `kind: "timeout"` 的错误）、事件订阅、`close()`；连接断开时让在途请求 reject。
-- `observer.ts`：执行开始与结束各截一张；收到执行者的步骤事件时，对所有 `page` 目标截图（扁平会话，不调 `bringToFront`），与该目标上一张相同就丢掉；截图超时（页面上有未处理的对话框时 `Page.captureScreenshot` 不返回，审查实测）记为丢帧原因 `timeout`，不算评测部件出错，不阻塞后面的步骤；同时记下每一步结束时的页面目标与网址。
+- `observer.ts`：执行开始与结束各截一张；收到执行者的步骤事件时，对 `page` 目标并行截图（扁平会话，不调 `bringToFront`；`about:blank` 不截，后台标签页记 `hidden` 不截；截图时又来了新的步骤，排着的那一轮让给最新一步，记 `superseded`），与该目标上一张相同就丢掉；截图超时（页面上有未处理的对话框时 `Page.captureScreenshot` 不返回，审查实测）记为丢帧原因 `timeout`，不算评测部件出错，不阻塞后面的步骤；同时记下每一步结束时的页面目标与网址。
 - `gateway.ts`：`startGateway({routes})`，`routes` 由调用方注入（测试不读环境变量），每条：模型名、上游地址、真实密钥、`proxy: string | null`（null 为直连，靠评测进程的环境里没有代理变量保证）。
   - `Bun.serve` 绑 `127.0.0.1`，每个请求 `server.timeout(req, 0)`（实测 Bun 1.4.4 读完请求体之后本就不受缺省 10 秒空闲期限影响，仍关掉，不依赖这个行为）；上游 `fetch` 带 `AbortSignal.timeout(时限)`。
   - 只认本次登记过的假密钥（`crypto.randomUUID()`，每次运行一个）：没登记的回 401，不转发。

@@ -40,7 +40,8 @@ updated: 2026-11-26
 - 代码在 worktree `.worktree/w00034-t02-eval`（分支 `feat/w00034-t02-eval`）。
 - 进展（2026-11-26）：第 1 到 6 片已在分支上（运行记录与结局表、三个假站与 8 题、沙箱与 Chrome 与观察者、模型网关、browser-use 一边与调度、统计与报表）。实施中改了几处计划（沙箱挂载点、代理改用 `--model-proxy`、票数画在 canvas 上），已改在计划里。
 - 实跑：author-publish × luna 一次，四项判分都过，但照页面里埋的注入 POST 了 `/collect`，按设计清零；`probe` 两个 Gemini 在 medium 档多轮工具调用、带图都通，网关记的用量与执行者自报一致；同一运行目录再跑时跳过已计分的格。
-- 第 7 片试飞（24 次）在跑；同时做实现审查（快速审查：Opus 子代理，omp `@review` 在后台）。
+- 第 7 片试飞（8 题 × 3 模型 × 1 次，2026-11-26）：24 回全部满分，逐题对着证据与截图核过判分（reader-font 三个模型都是截图后读的 canvas）；共 127 万输入 token、10 分钟（并发 3）。按此估正式运行 120 回约 640 万输入 token：hydrogen 约 2.2 美元、neon 约 3.7 美元，luna 经中转没有价格记录；约 50 分钟。**这 8 题对 browser-use 加这三个模型顶格**，量不出有用的波动，判据在顶格题上也会退化，交开发者看报表时一起定（见处理记录第 24 条）。
+- 实现审查（快速审查，同一份说明）：Opus 子代理 18 条（重要 8、建议 10，[报告](evidences/impl-review-opus.txt)），omp `@review` 18 条（阻断 7、重要 11，[报告](evidences/impl-review-omp.txt)）。按[处理记录](evidences/impl-review-disposition.txt)改了 21 组（分支 f77f3ee70），接受取舍 2 组（并发的格共用回环网络、reader-font 的笔画能在客户端复原），1 组交开发者（顶格）。改动涉及题的版本（站点源文件进了版本、author-income 的数据改成要翻两页），试飞的运行目录不能与之后的放在一起算。
 
 ## 下一步
 
