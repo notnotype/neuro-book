@@ -177,11 +177,12 @@ export function renderInline(parent: PMNode, context: WriteContext, place: Inlin
     // GFM 表格先按没转义的 `|` 切单元格（标签与行内节点的原文里的也算），再解析单元格的内容：表格里这些输出的 `|` 都写成
     // `\|`（切单元格时去掉反斜杠）。正文文字的 `|` 由 `escapeText` 转义。
     // 原子里的 `|` 不切单元格（分词时原子换成了占位），不转义：转义了就改了原子的原文（例如条目标签属性里的 `||`）。
-    const cell = (output: string): string => {
+    const pipes = (output: string, pattern: RegExp): string => {
         if (place.table !== true) return output;
         const atoms = context.atomSpans?.(output) ?? [];
-        return output.replace(/(?<!\\)\|/gu, (pipe, at: number) => (atoms.some((atom) => at >= atom.from && at < atom.to) ? pipe : "\\|"));
+        return output.replace(pattern, (pipe, at: number) => (atoms.some((atom) => at >= atom.from && at < atom.to) ? pipe : "\\|"));
     };
+    const cell = (output: string): string => pipes(output, /(?<!\\)\|/gu);
     const writerOf = (mark: Mark): MarkWriter => {
         const writer = writers.marks.get(mark.type.name);
         if (writer === undefined) throw new Unrepresentable(`没有 ${mark.type.name} 标记的写法`);
@@ -214,7 +215,7 @@ export function renderInline(parent: PMNode, context: WriteContext, place: Inlin
         const content = child.text as string;
         if ((plan.active[index] as Run[]).some((run) => writerOf(run.mark).verbatim?.(run.mark, context, run) === true)) {
             // GFM 表格先按没转义的 `|` 切单元格，再解析行内内容：行内代码里的 `|` 也要转义。
-            out.push(place.table === true ? content.replace(/\|/gu, "\\|") : content);
+            out.push(pipes(content, /\|/gu));
             return;
         }
         const lineEnd = next === null || next.type.name === "hardBreak";

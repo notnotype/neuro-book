@@ -59,6 +59,7 @@ export interface Lexing {
     /**
      * 在 `lex()` 之外给一段文字分块（连同排队的行内分词）或分行内：读法要对一部分文字另分词时用（编解码器的 `lexBlocks`、
      * `lexInline`）。这段文字照样遮罩、分完还原；直接调词法器的 `blockTokens`、`inlineTokens` 不遮罩（那时这次分词的原子表已清）。
+     * 在同一个词法器的 `lex()` 进行中调用时抛出（分词规则里要另分词，用新的词法器的 `lex()`）。
      */
     blockTokens(lexer: Lexer, src: string): Token[];
     inlineTokens(lexer: Lexer, src: string): Token[];
@@ -86,6 +87,18 @@ export function atomAt(lexer: object, identity: string): Atom | undefined {
 
 /** 原文里 `index` 处是不是占位的身份字。 */
 export const isAtomIdentity = (char: string | undefined): boolean => char !== undefined && char >= "\ue000" && char <= "\uf76f";
+
+/** 占位的写法（身份字加若干填充字）的正则源，给模块的分词规则拼自己的写法用（例如 `<` 加占位加 `>`）。 */
+export const PLACEHOLDER_SOURCE = "[\\ue000-\\uf76f]\\uf8fe*";
+
+/** `src` 的 `at` 处起是不是一个占位：是就交回身份字与占位的长度。模块的分词规则用它认原子，不用自己数填充字。 */
+export function placeholderAt(src: string, at: number): {readonly identity: string; readonly length: number} | null {
+    const identity = src[at];
+    if (!isAtomIdentity(identity)) return null;
+    let end = at + 1;
+    while (src[end] === FILLER) end += 1;
+    return {identity: identity as string, length: end - at};
+}
 
 type Masked =
     | {readonly kind: "none"}
@@ -266,19 +279,19 @@ export function createLexing(modules: ReadonlyArray<MarkdownLexing>): Lexing {
             return lexingInline(src, () => super.inlineTokens(src, tokens));
         }
     }
-    // 一段文字另分词：遮罩、分、还原；外层若正在遮罩分词（表还在），分完换回外层的表。
+    // 一段文字另分词：遮罩、分、还原。只在这个词法器的 `lex()` 之外调用：分块时要取走排队的行内分词，`lex()` 进行中那是外层的队列
+    // （外层后面的段落会在这段文字的原子表下分词）。
     const fragment = (lexer: Lexer, src: string, run: (text: string) => Token[]): Token[] => {
+        if (tables.has(lexer)) throw new Error("blockTokens and inlineTokens of Lexing are only for use outside lex() of the same lexer");
         const masked: Masked = atoms.length === 0 ? {kind: "none"} : mask(src, atoms);
         if (masked.kind !== "masked") return run(src);
-        const outer = tables.get(lexer);
         tables.set(lexer, masked.table);
         try {
             const tokens = run(masked.text);
             unmask(tokens, masked.table, lexer.tokens.links);
             return tokens;
         } finally {
-            if (outer === undefined) tables.delete(lexer);
-            else tables.set(lexer, outer);
+            tables.delete(lexer);
         }
     };
     return {

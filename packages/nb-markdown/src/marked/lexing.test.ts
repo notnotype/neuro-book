@@ -142,6 +142,20 @@ describe("不带编辑器的词法", () => {
         expect(atomsOf(lexing.inlineTokens(lexer, "甲 <V of=\"a\"> 乙") as TokensList)).toEqual(["V of=\"a\""]);
     });
 
+    it("在同一个词法器的 lex() 进行中另分词：抛出，不弄坏外层的队列与原子表", () => {
+        let caught: unknown = null;
+        const nested = createLexing([tagModule((lexer) => {
+            try {
+                nested.blockTokens(lexer as never, "<Zed q>");
+            } catch (error) {
+                caught = error;
+            }
+        }), coreLexing]);
+        const tokens = nested.lexer().lex("<First a>\n\n<Second bb>\n\n<Third ccc>");
+        expect(String(caught)).toContain("only for use outside lex()");
+        expect(atomsOf(tokens)).toEqual(["First a", "Second bb", "Third ccc"]);
+    });
+
     it("模块给的范围跨行时分词失败", () => {
         const crossing: MarkdownLexing = {name: "crossing", atoms: () => [{from: 0, to: 5}]};
         expect(() => createLexing([crossing, coreLexing]).lexer().lex("ab\ncdef")).toThrow("crosses a line");

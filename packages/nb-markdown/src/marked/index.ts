@@ -5,6 +5,7 @@
  * 这里的类型直接用到 `marked` 的类型，随 `marked` 升级可能不兼容（同 `./language`）。
  */
 
-export {ATOM_CAPACITY, atomAt, createLexing, isAtomIdentity, lexAtoms} from "./lexing";
+export {ATOM_CAPACITY, atomAt, createLexing, isAtomIdentity, lexAtoms, PLACEHOLDER_SOURCE, placeholderAt} from "./lexing";
+export {nextMatch} from "../language/syntax/tags";
 export type {Atom, AtomPlacement, AtomSpan, LexedAtoms, Lexing, MarkdownLexing} from "./lexing";
 export {coreLexing, isBreakOnlyHtml} from "./core";

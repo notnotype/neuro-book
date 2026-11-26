@@ -98,6 +98,9 @@ describe("写入检查（输出 1、19）", () => {
         ["expr 不引用字段", "<V expr=\"1 + 2\" />", ["no-field-expression@1 + 2\""]],
         ["写坏的内置标签在正文里；代码里、转义的与不像标签的照文字", "他说 <V of=\"panel.a\" 没写完 `<V of=` \\<V of=\"b 评级 <A 级 <V 是", ["tag-malformed@<V of="]],
         ["标签在链接与图片说明里", "[文](<V of=\"panel.a\" />) ![<V of=\"panel.b\" />](x.png)", ["tag-not-live@<V of=", "tag-not-live@<V of="]],
+        ["链接标题里转义的完整标签也算标签", "[链](u \"写法 \\<V of=\"panel.a\" />\")", ["tag-not-live@<V of="]],
+        ["链接与引用定义里不成标签的 `<A` 是文字；写坏的内置标签照正文的判据", "[链](u \"评级 <A 级\") [x](https://a.com/<A/b)\n\n[r]: u \"评级 <A 级\"\n\n[链](u \"<V of=\"panel.a 没写完\")", ["tag-malformed@<V of="]],
+        ["近似的写法：单引号、不加引号、等号两边有空格", "<V of='panel.a' /> <V of=panel.a /> <V of = \"panel.a\" /> <Ref id='e2' />", ["tag-malformed@<V of=", "tag-malformed@<V of=", "tag-malformed@<V of ", "tag-malformed@<Ref i"]],
     ];
     for (const [name, source, expected] of cases) it(name, () => expect(codesOf(source)).toEqual([...expected]));
 
@@ -123,6 +126,15 @@ describe("写入检查（输出 1、19）", () => {
         const [problem] = checkEntryText(parseEntryText(source));
         expect(problem?.code).toBe("forbidden-syntax");
         expect(positionOf(source, problem!.offset)).toEqual({line: 2, column: 23});
+    });
+
+    it("一块几万个 `<` 的解析是线性的（外部的世界观可能这样写）", () => {
+        // 平方级时 4 万个要几十秒（w00055 t02 S3 审查第 4 条）；线性时不到一秒，上限放宽到 5 秒，负载高时也不误报。
+        for (const source of ["<".repeat(40000) + "<V of=\"panel.a\" />", "a<".repeat(20000)]) {
+            const started = performance.now();
+            parseEntryText(source);
+            expect(performance.now() - started).toBeLessThan(5000);
+        }
     });
 
     it("写入前的规范化：去掉 BOM，换行规范成 LF", () => {
@@ -155,6 +167,14 @@ describe("式子（输出 2、5）", () => {
         ["percent(panel.a, panel.b)", "26%"],
         ["panel.a >= 1000 ? '能' : '不能'", "能"],
         ["round.计数 + 1", 4],
+        ["(panel.a > 0)", true],
+        ["((panel.a))", 3110],
+        ["(panel.a + panel.b) / 2", 7555],
+        ["round(panel.a / 3110 * 1.005, 2)", 1.01],
+        ["round(-2.5 + panel.zero)", -3],
+        ["round(panel.a, -2)", 3100],
+        ["percent(-1 + panel.zero, 8)", "-13%"],
+        ["percent(panel.zero - 0.01, 8)", "0%"],
         // 未知按三值逻辑传。
         ["-panel.none", null],
         ["-panel.name", null],

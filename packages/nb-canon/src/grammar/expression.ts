@@ -53,6 +53,8 @@ function parseNode(text: string): {readonly node: Expression} | {readonly error:
     try {
         node = parseExpressionAt(text, 0, {
             ecmaVersion: "latest",
+            // 留着括号的节点：不留时整个式子套在括号里的，交回的节点停在 `)` 之前，下面“读完之后只剩空白”的判断会误拒。
+            preserveParens: true,
             onComment: (_block, _text, start) => {
                 if (comment < 0) comment = start;
             },
@@ -64,7 +66,19 @@ function parseNode(text: string): {readonly node: Expression} | {readonly error:
     if (comment >= 0) return {error: {offset: comment, message: "comments are not allowed"}};
     // 只许一个式子，前后可以有空白：读完之后剩下的不是空白就拒收（acorn 读完一个式子就停）。
     if (text.slice(node.end).trim() !== "") return {error: {offset: node.end, message: "only a single expression is allowed"}};
-    return {node};
+    return {node: withoutParens(node) as Expression};
+}
+
+/** 把括号节点换成它里面的式子（就地改，返回新的根）：括号只管先后，节点表与求值里没有它。 */
+function withoutParens(node: Node): Node {
+    let current = node;
+    while (current.type === "ParenthesizedExpression") current = (current as unknown as {expression: Node}).expression;
+    const record = current as unknown as Record<string, unknown>;
+    for (const [key, value] of Object.entries(record)) {
+        if (Array.isArray(value)) record[key] = value.map((item) => (item !== null && typeof item === "object" && "type" in item ? withoutParens(item as Node) : item));
+        else if (value !== null && typeof value === "object" && "type" in value) record[key] = withoutParens(value as Node);
+    }
+    return current;
 }
 
 /** 解析一个式子（`expr`、`test`）。 */
@@ -129,7 +143,8 @@ function check(node: Node, references: FieldReference[], referenceOf: Map<Node, 
                 if (problem !== null) return problem;
             }
             const digits = expression.arguments[1];
-            if ((callee as {name: string}).name === "round" && digits !== undefined && !(digits.type === "Literal" && typeof digits.value === "number" && Number.isInteger(digits.value))) return fail(digits, "the digits of round must be an integer literal");
+            const literal = digits?.type === "UnaryExpression" && digits.operator === "-" ? digits.argument : digits;
+            if ((callee as {name: string}).name === "round" && literal !== undefined && !(literal.type === "Literal" && typeof literal.value === "number" && Number.isInteger(literal.value))) return fail(literal, "the digits of round must be an integer literal");
             return null;
         }
         default:
@@ -183,6 +198,9 @@ export interface Evaluated<M> {
     readonly incomplete: M | undefined;
     readonly unavailable: string | undefined;
 }
+
+/** 四舍五入，.5 远离 0（`round(-2.5)` 得 -3）。`Math.round` 的 .5 一律向正无穷。 */
+const halfAway = (value: number): number => Math.sign(value) * Math.round(Math.abs(value));
 
 /** 运算结果按 15 位有效数字去掉二进制的尾差（`0.1 + 0.2` 得 `0.3`）；只用于显示与比较，不存。不是有限数的得未知。 */
 function finite(value: number): number | null {
@@ -271,8 +289,10 @@ export function evaluate<M>(expression: ParsedExpression, resolve: (reference: F
                 if (given === null) return null;
                 switch (name) {
                     case "round": {
+                        // 先去掉乘出来的尾差再舍：`1.005 * 100` 是 100.49999999999999，不去掉时 `round(1.005, 2)` 得 1。
                         const scale = 10 ** (given[1] ?? 0);
-                        return finite(Math.round((given[0] as number) * scale) / scale);
+                        const scaled = finite((given[0] as number) * scale);
+                        return scaled === null ? null : finite(halfAway(scaled) / scale);
                     }
                     case "floor":
                         return finite(Math.floor(given[0] as number));
@@ -288,7 +308,7 @@ export function evaluate<M>(expression: ParsedExpression, resolve: (reference: F
                         const [part, whole] = given as [number, number];
                         if (whole === 0) return null;
                         const ratio = finite((part / whole) * 100);
-                        return ratio === null ? null : `${String(Math.round(ratio))}%`;
+                        return ratio === null ? null : `${String(halfAway(ratio) + 0)}%`;
                     }
                     default:
                         return null;

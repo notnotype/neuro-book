@@ -155,6 +155,12 @@ export function escapeText(text: string, around: EscapeAround): string {
             out.push(`&#x${(char.codePointAt(0) as number).toString(16).toUpperCase()};`);
             continue;
         }
+        // 会被认成原子开头的写法（条目的 `<` 加大写字母）：转义不带哨兵，完全转义一级的试撤撤不掉它。编辑器读回时写坏的标签照样是
+        // 文字，撤掉反斜杠读回不变，但不带编辑器的词法（内核）会把它当成写坏的标签拒收（w00055 t02 S3 审查第 1 条）。
+        if (around.atomEscape?.(text, index) === true) {
+            out.push(`\\${char}`);
+            continue;
+        }
         if (around.full && ASCII_PUNCTUATION.test(char)) {
             out.push(escape(char));
             continue;
@@ -163,7 +169,7 @@ export function escapeText(text: string, around: EscapeAround): string {
             out.push(escape(char));
             continue;
         }
-        out.push(needsEscape(text, index, previous, next, around, escapes, lastGreater) || around.atomEscape?.(text, index) === true ? escape(char) : char);
+        out.push(needsEscape(text, index, previous, next, around, escapes, lastGreater) ? escape(char) : char);
     }
     return out.join("");
 }

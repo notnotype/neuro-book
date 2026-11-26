@@ -7,7 +7,7 @@
  * 与 `</If>`。转义的与代码里的闭标签不成单元，不会被当成配对；被强调、链接切开的分支落在别的层，配不上（w00055 t02 omp 设计审查第 3 条）。
  */
 
-import {atomAt, coreLexing, createLexing, isAtomIdentity, lexAtoms, type AtomPlacement, type MarkdownLexing} from "@notnotype/nb-markdown/marked";
+import {atomAt, coreLexing, createLexing, lexAtoms, nextMatch, PLACEHOLDER_SOURCE, placeholderAt, type AtomPlacement, type MarkdownLexing} from "@notnotype/nb-markdown/marked";
 import type {MarkedExtension, Token} from "marked";
 
 import {atomSpanOf, lexTags, type LexedTag} from "./tags";
@@ -46,11 +46,10 @@ export interface EntryTagToken {
     tag: number;
 }
 
-/** 配好对的条件：`tokens` 是从开标签到闭标签的兄弟单元（含这几个标签自己），`branches` 是按分支标签切开的各支。 */
+/** 配好对的条件：`raw` 是从开标签到闭标签的原文，`branches` 是按分支标签切开的各支（各支里面的层也已配好对）。 */
 export interface EntryIfToken {
     readonly type: "entryIf";
     readonly raw: string;
-    readonly tokens: Token[];
     /** 开标签与闭标签的序号。 */
     readonly open: number;
     readonly close: number;
@@ -67,8 +66,6 @@ export interface ParsedEntryText {
     readonly problems: readonly GrammarProblem[];
 }
 
-const FILLER = String.fromCharCode(0xf8fe);
-
 /** `atoms` 与解析各要一次词法：同一份原文连着用两次，留最近一次的结果。 */
 let lastLexed: {readonly source: string; readonly tags: LexedTag[]} | null = null;
 function tagsOf(source: string): LexedTag[] {
@@ -76,24 +73,24 @@ function tagsOf(source: string): LexedTag[] {
     return lastLexed.tags;
 }
 
+const PLACEHOLDER_OPEN = new RegExp(`<${PLACEHOLDER_SOURCE}`, "gu");
+
 /** 认领遮罩后的完整标签：`<`、占位的身份字、填充字、`>`。写坏的标签没有收尾的 `>`，照文字。 */
 const entryTagExtension: MarkedExtension = {
     extensions: [
         {
             name: "entryTag",
             level: "inline",
-            start(src: string) {
-                for (let at = src.indexOf("<"); at >= 0; at = src.indexOf("<", at + 1)) if (isAtomIdentity(src[at + 1])) return at;
-                return undefined;
-            },
+            // 按整段算一次全部位置（`nextMatch`）：逐个向后找是平方级，一段几万个 `<` 要几十秒（w00055 t02 S3 审查第 4 条）。
+            start: (src: string) => nextMatch(src, PLACEHOLDER_OPEN),
             tokenizer(src: string) {
-                if (src[0] !== "<" || !isAtomIdentity(src[1])) return undefined;
-                const atom = atomAt(this.lexer, src[1] as string);
+                const placeholder = src[0] === "<" ? placeholderAt(src, 1) : null;
+                if (placeholder === null) return undefined;
+                const atom = atomAt(this.lexer, placeholder.identity);
                 // 原文里的私用区字自己是一个原子，原文是那一个字；标签的原子以名字（或闭标签的 `/`）开头。
                 if (atom === undefined || !/^[A-Z/]/u.test(atom.source)) return undefined;
-                let end = 2;
-                while (src[end] === FILLER) end += 1;
-                if (src[end] !== ">" || end - 1 !== atom.to - atom.from) return undefined;
+                const end = 1 + placeholder.length;
+                if (src[end] !== ">" || placeholder.length !== atom.to - atom.from) return undefined;
                 const token: EntryTagToken = {type: "entryTag", raw: src.slice(0, end + 1), from: atom.from - 1, tag: -1};
                 return token;
             },
@@ -136,6 +133,8 @@ function placeOf(tag: LexedTag, placements: readonly AtomPlacement[], source: st
         else if (type === "image") places.add("image");
         else places.add("opaque");
     }
+    // 写坏的候选不是标签，只是为了遮罩才当原子：落在链接里、图片说明里、被丢掉的地方都按正文的判据（是不是写坏的内置标签）。
+    if (tag.kind === "malformed" && (places.size === 0 || places.has("link") || places.has("image") || places.has("lost"))) return "prose";
     if (places.size === 0) return "lost";
     if (places.size === 1) return [...places][0] as TagPlace;
     // 一个标签只能有一个去处；引用式链接的地址在定义与用到它的链接里各出现一次，都是链接。既是活的又落在别处的，`marked` 17 里
@@ -209,9 +208,9 @@ function groupConditions(list: Token[], tags: readonly EntryTag[], problems: Gra
                 } else (branches[branches.length - 1] as {tokens: Token[]}).tokens.push(member);
                 if (isClose(inner)) level -= 1;
             }
-            // 各支往下分组（含各单元里面的层）：套着的条件照样配对并报 cross-block。`tokens` 留着没分组的原样，读各支以 `branches` 为准。
+            // 各支往下分组（含各单元里面的层）：套着的条件照样配对并报 cross-block。
             for (const branch of branches) groupConditions(branch.tokens, tags, problems, true);
-            const entryIf: EntryIfToken = {type: "entryIf", raw: run.map((member) => member.raw).join(""), tokens: run, open: open.index, close: (tagOf(run[run.length - 1] as Token) as EntryTag).index, branches};
+            const entryIf: EntryIfToken = {type: "entryIf", raw: run.map((member) => member.raw).join(""), open: open.index, close: (tagOf(run[run.length - 1] as Token) as EntryTag).index, branches};
             result.push(entryIf as unknown as Token);
             index = closeAt;
             continue;
@@ -238,7 +237,7 @@ export function parseEntryText(source: string): ParsedEntryText {
         const tags = lexed.map((tag) => ({...tag, place: "lost" as const}));
         return {source, tokens: [], tags, problems: [{code: "too-many-tags", offset: 0, message: `${String(result.count)} tags and private-use characters; split the block`}]};
     }
-    const byFrom = new Map(lexed.map((tag) => [tag.start + 1, tag]));
+    const byFrom = new Map(lexed.map((tag) => [atomSpanOf(tag).from, tag]));
     const places = new Map<number, TagPlace>();
     for (const atom of result.atoms) {
         const tag = byFrom.get(atom.from);

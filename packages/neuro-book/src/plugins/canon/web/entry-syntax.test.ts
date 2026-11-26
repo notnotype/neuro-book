@@ -53,6 +53,7 @@ describe("编辑器与内核读法一致（输出 21）", () => {
         ["`<` 加大写字母与空白、没有 `>` 的纯文字", "评级 <A 级，<V 是一个字母，a < b，1<2"],
         ["行首是标签的一行不是 HTML 块", "<V of=\"panel.a\" /> 开头\n\n<Ref id=\"e2\" />"],
         ["标题与私用区的字", `# 标题 <V of="panel.a" />\n\n甲${String.fromCharCode(0xe000)}乙`],
+        ["表格单元格里的行内代码写着带 `||` 的条件", "| 名 |\n| --- |\n| `<If test=\"a || b\">` 与 <V of=\"panel.a\" /> |"],
     ];
     for (const [name, source] of cases) {
         it(name, () => {
@@ -65,6 +66,19 @@ describe("编辑器与内核读法一致（输出 21）", () => {
             expect(liveOf(rewritten)).toEqual(liveOf(source));
         });
     }
+
+    it("从文档写出：加粗、表格里的写坏的标签与 `</If` 也带转义，过得了内核的检查（完全转义的试撤撤不掉它）", () => {
+        const bold = schema.marks.bold!.create();
+        const texts = ["<V of=\"a*", "</If 与 *号", "<Ref id=\"e2"];
+        for (const text of texts) {
+            const doc = schema.nodes.doc!.create(null, schema.nodes.paragraph!.create(null, schema.text(text, [bold])));
+            const written = codec.write(doc, codec.read("").map);
+            expect(written.ok).toBe(true);
+            const output = written.ok ? written.text : "";
+            expect([output, problemsOf(output)]).toEqual([output, []]);
+            expect(codec.read(output).doc.textContent).toBe(text);
+        }
+    });
 
     it("编辑器里文字里的 `<A`、`</If>` 写出来带转义，内核当文字", () => {
         const doc = schema.nodes.doc!.create(null, schema.nodes.paragraph!.create(null, schema.text("评级 <A 级，写法 </If> 与 <V of=\"x\" />")));

@@ -35,7 +35,10 @@ export interface LexedTag {
     readonly attributes: readonly TagAttribute[];
     /** `paired` 的内容（开闭标签之间）的起止。 */
     readonly content: {readonly start: number; readonly end: number} | null;
-    /** `malformed` 的名字后面紧跟着 `名="`：像是写了属性、没写完（写入检查据此报 `tag-malformed`）。 */
+    /**
+     * `malformed` 的名字后面跟着 `名=`：像是写了属性、没写成（少了收尾、单引号、不加引号、`=` 两边有空格），写入检查据此报
+     * `tag-malformed`。
+     */
     readonly attributeLike: boolean;
 }
 
@@ -45,7 +48,7 @@ const HTML_NAMES: ReadonlySet<string> = new Set(["b", "br", "em", "i", "del", "s
 /** 候选：`<` 或 `</` 加大写开头的名字，后面紧跟空白、`/` 或 `>`；`Map<K, V>` 的 `<K,` 不是候选。 */
 const CANDIDATE = /<(\/?)([A-Z][A-Za-z0-9]*)(?=[ \t\r\n/>])/gu;
 const ATTRIBUTE = /[ \t]+([A-Za-z_][A-Za-z0-9_-]*)="([^"\r\n]*)"/uy;
-const ATTRIBUTE_START = /[ \t]+[A-Za-z_][A-Za-z0-9_-]*="/uy;
+const ATTRIBUTE_START = /[ \t]+[A-Za-z_][A-Za-z0-9_-]*[ \t]*=/uy;
 const TAIL = /[ \t]*(\/?)>/uy;
 const CLOSE_TAIL = /[ \t]*>/uy;
 
