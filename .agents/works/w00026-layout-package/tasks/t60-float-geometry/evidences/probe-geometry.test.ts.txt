@@ -1,0 +1,172 @@
+/**
+ * t60 探针：浮动窗几何的现状与推荐接口形状。只读仓库源码，推荐的新函数写在这里对照。
+ * 跑法：cd /tmp/claude-1000/w00026-plans/t60-probe && bun test geometry.test.ts
+ */
+import {expect, test} from "bun:test";
+
+import {clampFloatRect, createGrid, placeGrid, resizeFloatRect} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/index.ts";
+import type {GridExtent, GridRect, LayoutFloatResize} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/src/index.ts";
+// 桌面示例的自补几何，原样导入对照。
+import {deskClamp, intersectRect, roundRect} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/examples/desktop/src/model.ts";
+import {moveTarget} from "/home/notnotype/CodeRepository/neuro-book/packages/nb-layout/examples/desktop/src/drop.ts";
+
+// ---- 推荐的形状 ----
+
+/** 推荐：`area` 收区域矩形（带原点）或只收尺寸（原点 0，与今天相同）；`keep` 可省（整扇窗留在区域里），给了也不超过窗夹后的尺寸。 */
+function clampFloatRectNext(rect: GridRect, area: GridRect | GridExtent, keep?: {readonly width: number; readonly height: number}): GridRect {
+    const ox = "x" in area ? area.x : 0;
+    const oy = "y" in area ? area.y : 0;
+    const width = Math.min(rect.width, area.width);
+    const height = Math.min(rect.height, area.height);
+    const keepWidth = Math.min(keep?.width ?? width, width);
+    const keepHeight = Math.min(keep?.height ?? height, height);
+    return {
+        x: ox + Math.min(Math.max(rect.x - ox, keepWidth - width), area.width - keepWidth),
+        y: oy + Math.min(Math.max(rect.y - oy, 0), area.height - keepHeight),
+        width,
+        height,
+    };
+}
+
+/** 推荐：`bounds.area` 可选，动的边不越过它；起点就在区域外的边不比起点更外（不往里跳）。`max` 可省（不限）。 */
+function resizeFloatRectNext(start: GridRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max?: GridExtent; readonly area?: GridRect}): GridRect {
+    let maxWidth = bounds.max?.width ?? Number.POSITIVE_INFINITY;
+    let maxHeight = bounds.max?.height ?? Number.POSITIVE_INFINITY;
+    const {area} = bounds;
+    if (area !== undefined) {
+        if (direction.width === 1) maxWidth = Math.min(maxWidth, Math.max(area.x + area.width, start.x + start.width) - start.x);
+        if (direction.width === -1) maxWidth = Math.min(maxWidth, start.x + start.width - Math.min(area.x, start.x));
+        if (direction.height === 1) maxHeight = Math.min(maxHeight, Math.max(area.y + area.height, start.y + start.height) - start.y);
+        if (direction.height === -1) maxHeight = Math.min(maxHeight, start.y + start.height - Math.min(area.y, start.y));
+    }
+    return resizeFloatRect(start, direction, delta, {min: bounds.min, max: {width: maxWidth, height: maxHeight}});
+}
+
+// ---- 随机数（固定种子，可复现） ----
+let seed = 20261126;
+const rand = (): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+};
+const int = (low: number, high: number): number => Math.floor(low + rand() * (high - low + 1));
+
+// ---- 现状 ----
+
+test("现状 23：clampFloatRect 没有原点；keep 取窗自己的大小时，比区域大的窗被推出左缘", () => {
+    const wide = {x: 100, y: 50, width: 800, height: 300};
+    const out = clampFloatRect(wide, {width: 600, height: 400}, {width: 800, height: 300});
+    console.log("23 现状 800 宽的窗、600 宽区域、keep=窗大小 →", JSON.stringify(out));
+    expect(out.x).toBe(-200);
+    // 区域不从 0 开始（桌面左边有 300 宽的平铺窗）：直接传尺寸时窗被夹到 0..600，落进平铺窗里。
+    const desk = {x: 300, y: 0, width: 600, height: 400};
+    const direct = clampFloatRect({x: 100, y: 10, width: 200, height: 100}, desk, {width: 200, height: 100});
+    console.log("23 现状 desk 从 x=300 起，传 desk 当尺寸 →", JSON.stringify(direct), "（桌面示例的 deskClamp 得", JSON.stringify(deskClamp({x: 100, y: 10, width: 200, height: 100}, desk)), "）");
+});
+
+test("现状 24：resizeFloatRect 的 max 是尺寸不是边界，预览伸出区域", () => {
+    const start = {x: 500, y: 100, width: 300, height: 200};
+    const out = resizeFloatRect(start, {width: 1, height: 0}, {x: 900, y: 0}, {min: {width: 100, height: 100}, max: {width: 800, height: 600}});
+    console.log("24 现状 x=500 宽 300、800 宽桌面、右拉 +900、max=桌面尺寸 →", JSON.stringify(out), "右缘", out.x + out.width);
+    expect(out.x + out.width).toBe(1300);
+});
+
+test("现状 25：取叶的矩形只能再跑一遍 placeGrid", () => {
+    const g = createGrid<string>({kind: "branch", id: "r", orientation: "horizontal", children: [{kind: "leaf", id: "tiled", ref: "t", size: {width: 1, height: 0}}, {kind: "leaf", id: "desk", ref: "d", size: {width: 1, height: 0}}, {kind: "leaf", id: "tiled2", ref: "t2", size: {width: 1, height: 0}}]}, {sashSize: 4});
+    const extent = {width: 1001, height: 600};
+    for (const dpr of [1, 1.25, 1.5]) {
+        const rect = placeGrid(g.root()!, g.layout(extent), extent, dpr).items.find((item) => item.kind === "leaf" && item.node.id === "desk")!.rect;
+        console.log(`25 dpr ${dpr} desk 叶`, JSON.stringify(rect));
+    }
+});
+
+// ---- 推荐形状：与三个使用方的用法对照 ----
+
+test("推荐 23：只收尺寸时与今天完全相同（keep 不超过窗夹后尺寸的情形：工作台 keepVisible、wholeInTree 正常路径）", () => {
+    let compared = 0;
+    for (let i = 0; i < 20000; i += 1) {
+        const extent = {width: int(100, 2000), height: int(100, 1200)};
+        const rect = {x: int(-3000, 3000), y: int(-2000, 2000), width: int(50, 2500), height: int(30, 1500)};
+        const keep = rand() < 0.5 ? {width: 80, height: 32} : {width: rect.width, height: rect.height};
+        if (keep.width > Math.min(rect.width, extent.width) || keep.height > Math.min(rect.height, extent.height)) continue;
+        compared += 1;
+        expect(clampFloatRectNext(rect, extent, keep)).toEqual(clampFloatRect(rect, extent, keep));
+    }
+    console.log("推荐 23 与今天逐个相同的随机样本数", compared);
+});
+
+test("推荐 23：keep 大于窗夹后尺寸时（今天会推出区域）不再推出，整扇窗在区域里", () => {
+    const out = clampFloatRectNext({x: 100, y: 50, width: 800, height: 300}, {width: 600, height: 400}, {width: 800, height: 300});
+    console.log("推荐 23 800 宽的窗、600 宽区域 →", JSON.stringify(out));
+    expect(out).toEqual({x: 0, y: 50, width: 600, height: 300});
+});
+
+test("推荐 23：区域矩形加缺省 keep 等于桌面示例的 deskClamp（随机）", () => {
+    for (let i = 0; i < 20000; i += 1) {
+        const desk = {x: int(0, 800), y: int(0, 100), width: int(240, 1600), height: int(160, 900)};
+        const rect = {x: int(-2000, 3000), y: int(-1000, 2000), width: int(240, 2000), height: int(160, 1200)};
+        const a = clampFloatRectNext(rect, desk);
+        const b = deskClamp(rect, desk);
+        expect(a.x).toBeCloseTo(b.x, 9);
+        expect(a.y).toBeCloseTo(b.y, 9);
+        expect(a.width).toBe(b.width);
+        expect(a.height).toBe(b.height);
+    }
+    // 示例单测里的两条，换成新形状。
+    const desk = {x: 400, y: 0, width: 1036, height: 803};
+    console.log("推荐 23 示例单测：", JSON.stringify(clampFloatRectNext({x: 40, y: 40, width: 420, height: 300}, desk)), JSON.stringify(clampFloatRectNext({x: 340, y: 10, width: 480, height: 300}, {x: 300, y: 0, width: 400, height: 200})));
+});
+
+test("推荐 23：桌面的 moveTarget 换成一行 clampFloatRect 加取整，结果相同", () => {
+    for (let i = 0; i < 5000; i += 1) {
+        const desk = {x: int(0, 800), y: 0, width: int(240, 1600), height: int(160, 900)};
+        const start = {x: int(0, 1500), y: int(0, 800), width: int(240, 900), height: int(160, 700)};
+        const pressed = {x: int(0, 2000), y: int(0, 1000)};
+        const point = {x: int(-500, 3000), y: int(-500, 1500)};
+        const next = roundRect(clampFloatRectNext({...start, x: start.x + point.x - pressed.x, y: start.y + point.y - pressed.y}, desk));
+        expect({x: next.x, y: next.y}).toEqual(moveTarget(start, pressed, point, desk));
+    }
+});
+
+test("推荐 24：起点在区域里时，带 area 的缩放等于桌面示例的“先缩放再与桌面求交”（最小尺寸放得下的情形，随机）", () => {
+    const directions: LayoutFloatResize[] = [];
+    for (const width of [-1, 0, 1] as const) for (const height of [-1, 0, 1] as const) if (width !== 0 || height !== 0) directions.push({width, height});
+    let compared = 0;
+    let differs = 0;
+    for (let i = 0; i < 20000; i += 1) {
+        const desk = {x: int(0, 600), y: 0, width: int(500, 1600), height: int(400, 900)};
+        const width = int(240, desk.width);
+        const height = int(160, desk.height);
+        const start = {x: desk.x + int(0, desk.width - width), y: desk.y + int(0, desk.height - height), width, height};
+        const direction = directions[int(0, directions.length - 1)]!;
+        const delta = {x: int(-2000, 2000), y: int(-2000, 2000)};
+        const min = {width: 240, height: 160};
+        const old = roundRect(intersectRect(resizeFloatRect(start, direction, delta, {min, max: {width: desk.width, height: desk.height}}), desk));
+        const next = resizeFloatRectNext(start, direction, delta, {min, area: desk});
+        compared += 1;
+        if (JSON.stringify(old) !== JSON.stringify(next)) {
+            differs += 1;
+            // 唯一允许的差别：今天的求交能把窗压到最小尺寸以下（往起点外侧拉、又被区域截掉时不会，见下）。
+            if (differs <= 3) console.log("推荐 24 不同的样本", JSON.stringify({desk, start, direction, delta, old, next}));
+        }
+    }
+    console.log(`推荐 24 对照 ${compared} 个样本，不同 ${differs} 个`);
+    expect(differs).toBe(0);
+});
+
+test("推荐 24：起点在区域外的边不往里跳；工作台只传 max 时与今天相同", () => {
+    // 窗右缘已在区域外（工作台只要求留 80px）：往外拉不再变宽，往里拉照常；没有一下子跳回区域边上。
+    const start = {x: 900, y: 100, width: 300, height: 200};
+    const area = {x: 0, y: 0, width: 1000, height: 800};
+    const outward = resizeFloatRectNext(start, {width: 1, height: 0}, {x: 50, y: 0}, {min: {width: 100, height: 100}, area});
+    const inward = resizeFloatRectNext(start, {width: 1, height: 0}, {x: -50, y: 0}, {min: {width: 100, height: 100}, area});
+    console.log("推荐 24 右缘起点在区域外：往外", JSON.stringify(outward), "往里", JSON.stringify(inward));
+    expect(outward.width).toBe(300);
+    expect(inward.width).toBe(250);
+    for (let i = 0; i < 5000; i += 1) {
+        const start2 = {x: int(-500, 1500), y: int(0, 800), width: int(100, 900), height: int(100, 700)};
+        const direction = {width: [-1, 0, 1][int(0, 2)] as -1 | 0 | 1, height: [-1, 0, 1][int(0, 2)] as -1 | 0 | 1};
+        const delta = {x: int(-2000, 2000), y: int(-2000, 2000)};
+        const bounds = {min: {width: 100, height: 100}, max: {width: int(100, 1600), height: int(100, 900)}};
+        expect(resizeFloatRectNext(start2, direction, delta, bounds)).toEqual(resizeFloatRect(start2, direction, delta, bounds));
+    }
+});
