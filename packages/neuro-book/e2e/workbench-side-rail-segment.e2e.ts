@@ -502,11 +502,12 @@ test.describe("产品页：右轨的视图段", () => {
         await page.addStyleTag({content: ":root { --motion-layout: 3000ms !important; }"});
         const indicator = rail(page).locator("[data-tool-indicator]");
         await page.evaluate(() => {
-            const host = window as unknown as {__railProbe: {widths: number[]}};
-            host.__railProbe = {widths: []};
+            const host = window as unknown as {__railProbe: {widths: number[]; swaps: number}};
+            host.__railProbe = {widths: [], swaps: 0};
             const sample = (): void => {
                 const card = document.querySelector('[data-shell-card="rail:auxiliarybar"]');
                 if (card !== null) host.__railProbe.widths.push(card.getBoundingClientRect().width);
+                host.__railProbe.swaps += document.querySelectorAll("[data-swap]").length;
                 requestAnimationFrame(sample);
             };
             requestAnimationFrame(sample);
@@ -515,9 +516,11 @@ test.describe("产品页：右轨的视图段", () => {
         await expect(railEntryOfView(page, D)).toHaveAttribute("aria-pressed", "true");
         await expect(indicator).toHaveAttribute("data-sliding", "");
         await expect.poll(() => railWidth(page), {timeout: 10_000}).toBeCloseTo(COLLAPSED_WIDTH, 0);
-        const probe = await page.evaluate(() => (window as unknown as {__railProbe: {widths: number[]}}).__railProbe);
+        const probe = await page.evaluate(() => (window as unknown as {__railProbe: {widths: number[]; swaps: number}}).__railProbe);
         // 轨宽是过渡出来的：中间有大于 48、小于展开宽的帧。
         expect(probe.widths.some((width) => width > COLLAPSED_WIDTH + 2 && width < DEFAULT_WIDTH - 2), JSON.stringify(probe.widths)).toBe(true);
+        // 两端轨宽不同：不画原地滚动，整个过程没有一帧带 data-swap。
+        expect(probe.swaps, "异宽切换不该有交换").toBe(0);
 
         await pressEntry(page, railEntryOfView(page, RAIL));
         await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
