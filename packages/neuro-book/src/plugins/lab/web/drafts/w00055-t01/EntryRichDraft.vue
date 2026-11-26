@@ -42,7 +42,7 @@ type Open =
     | {kind: "value"; pos: number; dom: HTMLElement; editing: boolean}
     | {kind: "if"; pos: number; dom: HTMLElement}
     | {kind: "ref"; pos: number; dom: HTMLElement}
-    | {kind: "pick"; what: "value" | "ref"; pos: number; replace: boolean; dom: HTMLElement | {getBoundingClientRect: () => DOMRect}};
+    | {kind: "pick"; what: "value" | "ref" | "if-field"; pos: number; replace: boolean; dom: HTMLElement | {getBoundingClientRect: () => DOMRect}};
 const open = shallowRef<Open | null>(null);
 
 const host: AtomHost = {
@@ -143,6 +143,7 @@ onBeforeUnmount(() => {
 
 /* ---------- 插入与换值：字段与条目的列表 ---------- */
 
+const IF_ITEM = "#if";
 const query = ref("");
 const activeId = ref<string | null>(null);
 const pickGroups = computed<SuggestionMenuGroup[]>(() => {
@@ -150,31 +151,43 @@ const pickGroups = computed<SuggestionMenuGroup[]>(() => {
     if (current?.kind !== "pick") return [];
     const words = query.value.trim();
     if (current.what === "ref") return [{id: "entries", items: ENTRIES.filter((entry) => entry.name.includes(words)).map((entry) => ({id: entry.id, label: entry.name, iconClass: "i-lucide-bookmark"}))}];
+    // 插值的列表最前面是“条件”：选了以后再选它看哪个字段（打“如果”“条件”也能筛到它）。
+    const structures: SuggestionMenuGroup[] = current.what === "value" && (words === "" || "条件如果否则".includes(words))
+        ? [{id: "structures", items: [{id: IF_ITEM, label: "条件（如果……否则……）", hint: "再选看哪个字段", iconClass: "i-lucide-split"}]}]
+        : [];
     // 本条目的字段排前面（最常用），再是别的条目。
-    return ENTRIES.map((entry) => ({
+    return [...structures, ...ENTRIES.map((entry) => ({
         id: entry.id,
         label: entry.id === HOME ? "这个条目" : entry.name,
         items: fields.value
             .filter((field) => field.entry === entry.id && `${entry.name}${field.group}${field.label}`.includes(words))
             .map((field) => ({id: `${field.entry}|${field.namespace}.${field.id}`, label: `${field.group} · ${field.label}`, hint: display(field.value), iconClass: field.kind === "number" ? "i-lucide-hash" : "i-lucide-text"})),
-    })).filter((group) => group.items.length > 0);
+    })).filter((group) => group.items.length > 0)];
 });
 const pickOptions = computed(() => suggestionMenuOptions(pickGroups.value));
 watch(pickOptions, (options) => {
     activeId.value = options[0]?.id ?? null;
 });
-watch(() => open.value?.kind, (kind, before) => {
-    if (kind === "pick") {
+watch(() => (open.value?.kind === "pick" ? `pick:${open.value.what}` : open.value?.kind), (kind, before) => {
+    if (kind?.startsWith("pick") === true) {
         query.value = "";
         // 列表传送到 body，搜索框的 autofocus 赶不上挂载：挂上以后再把焦点交给它，接着打的字才落进搜索框而不是正文。
         void nextTick(() => requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".entry-pick__search input")?.focus()));
     }
-    if (before === "pick" && kind !== "pick") editor?.commands.focus();
+    if (before?.startsWith("pick") === true && kind?.startsWith("pick") !== true) editor?.commands.focus();
 });
 
 function choose(id: string): void {
     const current = open.value;
     if (current?.kind !== "pick") return;
+    if (id === IF_ITEM) {
+        open.value = {...current, what: "if-field"};
+        return;
+    }
+    if (current.what === "if-field") {
+        insertIf(current.pos, id);
+        return;
+    }
     if (current.what === "ref") insertAt(current.pos, {type: REF_NODE, attrs: {id}}, current.replace);
     else {
         const [entry = "", of = ""] = id.split("|");
@@ -198,24 +211,32 @@ function pickKey(event: KeyboardEvent): void {
         event.preventDefault();
         const current = open.value;
         open.value = null;
-        if (current?.kind === "pick" && !current.replace) editor?.chain().focus().insertContentAt(current.pos, current.what === "value" ? "{" : "@").run();
+        if (current?.kind === "pick" && !current.replace && current.what !== "if-field") editor?.chain().focus().insertContentAt(current.pos, current.what === "value" ? "{" : "@").run();
     }
 }
 
 function insertFromToolbar(what: "value" | "ref" | "if"): void {
     if (editor === null) return;
     const at = editor.state.selection.from;
-    if (what === "if") {
-        const branches: Branch[] = [{test: "panel.魔力 >= 1000", text: "满足时的文字"}, {test: null, text: "不满足时的文字"}];
-        editor.chain().focus().insertContentAt(at, {type: IF_NODE, attrs: {branches}}).run();
-        void nextTick(() => {
-            const dom = editor?.view.nodeDOM(at);
-            if (dom instanceof HTMLElement) open.value = {kind: "if", pos: at, dom};
-        });
-        return;
-    }
     const rect = editor.view.coordsAtPos(at);
-    open.value = {kind: "pick", what, pos: at, replace: false, dom: {getBoundingClientRect: () => new DOMRect(rect.left, rect.top, 1, rect.bottom - rect.top)}};
+    open.value = {kind: "pick", what: what === "if" ? "if-field" : what, pos: at, replace: false, dom: {getBoundingClientRect: () => new DOMRect(rect.left, rect.top, 1, rect.bottom - rect.top)}};
+}
+
+/** 按选的字段插一个条件：数比“至少现在的值”，文字比“等于现在的值”；插好就打开浮层，接着写各支的文字。 */
+function insertIf(pos: number, id: string): void {
+    if (editor === null) return;
+    const [entry = "", of = ""] = id.split("|");
+    const field = fieldAt(fields.value, entry === HOME ? null : entry, of);
+    const path = entry === HOME ? of : `ref('${entry}').${of}`;
+    const test = field?.kind === "number" ? `${path} >= ${String(field.value ?? 0)}` : `${path} == "${String(field?.value ?? "")}"`;
+    const branches: Branch[] = [{test, text: ""}, {test: null, text: ""}];
+    open.value = null;
+    editor.chain().focus().insertContentAt(pos, {type: IF_NODE, attrs: {branches}}).run();
+    void nextTick(() => {
+        const dom = editor?.view.nodeDOM(pos);
+        if (dom instanceof HTMLElement) open.value = {kind: "if", pos, dom};
+        requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("[data-pop=if] textarea")?.focus());
+    });
 }
 
 /* ---------- 点开的小块 ---------- */
@@ -360,11 +381,11 @@ const anchor = computed(() => open.value?.dom ?? null);
                         <span v-if="index === activeIndex" class="entry-pop__now">现在是这一支</span>
                     </div>
                     <p v-if="branch.test !== null" class="entry-pop__readable">{{ testProblem(branch.test) || readableTest(branch.test, fields) }}</p>
-                    <Textarea :model-value="branch.text" :rows="1" autosize :max-rows="6" :aria-label="`第 ${index + 1} 支的文字`" @update:model-value="(value: string) => updateBranch(index, {text: value})" />
+                    <Textarea :model-value="branch.text" :rows="1" autosize :max-rows="6" :placeholder="branch.test === null ? '都不满足时显示的文字（可以空着）' : '满足时显示的文字'" :aria-label="`第 ${index + 1} 支的文字`" @update:model-value="(value: string) => updateBranch(index, {text: value})" />
                     <p v-if="branch.text.includes('<V')" class="entry-pop__readable">显示为：{{ branchText(branch.text, fields) }}</p>
                 </div>
                 <div class="entry-pop__actions">
-                    <Button size="sm" variant="ghost" @click="addElseIf">加一支</Button>
+                    <Button size="sm" variant="ghost" @click="addElseIf">加一个“否则如果”</Button>
                     <Button size="sm" variant="ghost" @click="removeOpened">删掉这个条件</Button>
                 </div>
             </div>
@@ -373,7 +394,7 @@ const anchor = computed(() => open.value?.dom ?? null);
         <SuggestionMenu :groups="pickGroups" :active-id="activeId" :anchor="open?.kind === 'pick' ? open.dom : null" label="插入" @select="(id: string) => choose(id)" @highlight="(id: string) => (activeId = id)">
             <template #header>
                 <div class="entry-pick__search">
-                    <Input v-model="query" size="sm" autofocus :placeholder="open?.kind === 'pick' && open.what === 'ref' ? '找条目' : '找字段'" aria-label="搜索" @keydown="pickKey" />
+                    <Input v-model="query" size="sm" autofocus :placeholder="open?.kind === 'pick' && open.what === 'ref' ? '找条目' : open?.kind === 'pick' && open.what === 'if-field' ? '条件看哪个字段' : '找字段，或“条件”'" aria-label="搜索" @keydown="pickKey" />
                 </div>
             </template>
         </SuggestionMenu>
@@ -435,6 +456,8 @@ const anchor = computed(() => open.value?.dom ?? null);
 /* 行内小块：值是此刻的样子，所以字用正文色；底色与描边用信息色（“引用”）淡淡地标出这是取来的。 */
 .entry-rich__mount :deep(.entry-chip) {
     display: inline;
+    /* 与两边的字留出空隙：光标停在小块前后时，看得出它在小块外面。 */
+    margin: 0 0.2em;
     padding: 0.05em 0.3em;
     border-radius: 4px;
     background: color-mix(in srgb, var(--status-info) 10%, transparent);
@@ -504,6 +527,7 @@ const anchor = computed(() => open.value?.dom ?? null);
     padding: 0 0.3em;
 }
 .entry-rich__mount :deep(.entry-if--both) {
+    margin: 0 0.2em;
     padding: 0.05em 0.25em;
     border-radius: 4px;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-info) 28%, transparent);

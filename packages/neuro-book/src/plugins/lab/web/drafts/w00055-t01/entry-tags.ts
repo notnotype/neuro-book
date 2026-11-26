@@ -257,6 +257,8 @@ function atomNode(name: string, attributes: Record<string, unknown>, paint: (dom
             return ({node, getPos}) => {
                 const dom = document.createElement("span");
                 dom.dataset.entryAtom = kind;
+                // 小块整个不可编辑：光标只能停在它前后，浏览器不会把光标画在小块里面的字后头（看起来像要打进值里）。
+                dom.contentEditable = "false";
                 let attrsNow = node.attrs as Record<string, unknown>;
                 const repaint = () => paint(dom, attrsNow, host());
                 repaint();
@@ -324,7 +326,7 @@ export function createEntrySyntax(host: () => AtomHost): MarkdownSyntax {
             const span = document.createElement("span");
             // 没有一支生效（没写“否则”、条件不成立）或判断是未知时，不显示任何字就点不到也删不掉：画一个淡的占位。
             span.className = text === "" ? "entry-if__placeholder" : "entry-if__text";
-            span.textContent = text !== "" ? text : active < 0 ? "条件算不出" : "条件不成立";
+            span.textContent = text !== "" ? text : active < 0 ? "条件算不出" : active >= branches.length ? "条件不成立" : "还没写字";
             dom.append(span);
             return;
         }
