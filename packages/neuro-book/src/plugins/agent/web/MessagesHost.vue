@@ -141,10 +141,12 @@ watch(() => props.listRequest.value, (page) => {
  */
 let reveals = 0;
 const focusWanted = ref(false);
-async function revealAndFocus(): Promise<void> {
+/** `settled`：还要等它落定再给焦点（新建：落定前聊天区还会换成新会话的第一屏，先给的焦点会跟着旧的输入框丢掉）。 */
+async function revealAndFocus(settled: Promise<unknown> = Promise.resolve()): Promise<void> {
     const seq = ++reveals;
     focusWanted.value = false;
-    if (await props.reveal() && seq === reveals) focusWanted.value = true;
+    const [shown] = await Promise.all([props.reveal(), settled]);
+    if (shown && seq === reveals) focusWanted.value = true;
 }
 watch([focusWanted, cover], ([wanted, current]) => {
     if (!wanted) return;
@@ -170,8 +172,9 @@ function openContact(key: string): void {
 async function newSession(): Promise<void> {
     const profile = await props.conversation.pickProfile();
     if (profile === null) return;
-    props.host.act(profile === undefined ? {type: "session.create"} : {type: "session.create", profileKey: profile});
-    void revealAndFocus();
+    // 新会话没有归属：停在 bot 页的话首屏会被“选一个 bot”的盖层盖住（`pickBot`），焦点也等不到它撤掉。
+    tab.value = "sessions";
+    void revealAndFocus(props.host.create(profile));
 }
 
 const focused = useWindowFocus();
