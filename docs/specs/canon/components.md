@@ -45,7 +45,7 @@ owners:
 | 项 | 必填 | 规则 |
 |---|---|---|
 | `id` | 是 | `<插件 id>.<名>` |
-| `label` | 是 | 给作者看的名字（“面板”） |
+| `label` | 是 | 给作者看的名字（“数值”） |
 | `namespace` | 带数据时 | 合法标识符；不能是 `entry`、`text`、`ref` 与保留名（[`canon.rendering`](rendering.md) 输出 2） |
 | `version` | 带数据时 | 正整数 |
 | `fields` | 否 | 类型固定的字段声明，每个必须给出 `id` |
