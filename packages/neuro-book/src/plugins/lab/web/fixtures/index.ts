@@ -2367,7 +2367,7 @@ function canonEntryPageFixtures() {
         defineLabFixture<typeof PositionPicker>({
             component: "PositionPicker",
             scenes: (() => {
-                const positions = [{value: "initial", label: "故事开始前"}, ...[1, 2, 3].flatMap((n) => [{value: `${String(n)}:start`, label: `第 ${String(n)} 章开头`}, {value: `${String(n)}:end`, label: `第 ${String(n)} 章末尾`}])];
+                const positions = [{value: "initial", label: "最初"}, ...[1, 2, 3].flatMap((n) => [{value: `${String(n)}:start`, label: `第 ${String(n)} 章开头`}, {value: `${String(n)}:end`, label: `第 ${String(n)} 章末尾`}])];
                 return [
                     {id: "sample", label: "第 3 章末尾，作品里有计划", input: {props: {positions, canPlan: true}, model: {position: "3:end", planned: false}}},
                     {id: "no-plans", label: "作品里没有计划：没有勾选项", input: {props: {positions}, model: {position: "3:end", planned: false}}},
@@ -2375,9 +2375,9 @@ function canonEntryPageFixtures() {
                     {id: "not-appeared", label: "到这里还没出场", input: {props: {positions, notAppeared: true}, model: {position: "1:end", planned: false}}},
                     {id: "gone", label: "原来选的那一章不在了", input: {props: {positions, positionGone: true}, model: {position: "3:end", planned: false}}},
                     {id: "locked", label: "有没提交的主文字：锁着", input: {props: {positions, canPlan: true, locked: "先提交或放弃正在写的主文字"}, model: {position: "3:end", planned: true}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {positions: [{value: "initial", label: "Initial state"}, {value: "3:end", label: "End of chapter 3"}], canPlan: true}, model: {position: "3:end", planned: true}}},
                     // 位置带长章标题、英文：标记截断，390 宽不撑出横向滚动。
-                    {id: "long-title-english", label: "英文、长章标题、还没出场", input: {props: {positions: [{value: "initial", label: "Before the story"}, {value: "12:end", label: "End of chapter 12: The Long Road Home Begins"}], notAppeared: true}, model: {position: "12:end", planned: false}}},
+                    {id: "long-title-english", label: "英文、长章标题、还没出场", input: {props: {positions: [{value: "initial", label: "Initial state"}, {value: "12:end", label: "End of chapter 12: The Long Road Home Begins"}], notAppeared: true}, model: {position: "12:end", planned: false}}},
                 ];
             })(),
             load: async () => (await import("./PositionPickerFixture.vue")).default,
@@ -2385,12 +2385,14 @@ function canonEntryPageFixtures() {
         defineLabFixture<typeof PageNotices>({
             component: "PageNotices",
             scenes: [
-                {id: "sample", label: "刚保存了一次就地改", input: {props: {notice: {revision: "r1", title: "改外观"}}}},
-                {id: "with-agent", label: "Agent 也改了（之前还改过两次）", input: {props: {notice: {revision: "r1", title: "改外观"}, agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 2}}}},
+                {id: "sample", label: "刚保存了一次就地改：记在第 3 章", input: {props: {notice: {revision: "r1", title: "改外观", where: "第 3 章"}}}},
+                {id: "initial", label: "改的是最初的值", input: {props: {notice: {revision: "r1", title: "改年龄", where: "最初"}}}},
+                {id: "no-where", label: "改条目本身：没有位置", input: {props: {notice: {revision: "r1", title: "加上“形象”这组设定"}}}},
+                {id: "with-agent", label: "Agent 也改了（之前还改过两次）", input: {props: {notice: {revision: "r1", title: "改外观", where: "第 3 章"}, agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 2}}}},
                 {id: "agent-undone", label: "Agent 那一次已还原", input: {props: {agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 0, undone: true}}}},
                 {id: "error", label: "页面自己的写入失败", input: {props: {error: "这个条目在你打开以后被别处改过，重读以后再试一次"}}},
-                {id: "long", label: "很长的标题截断", input: {props: {notice: {revision: "r1", title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}}},
-                {id: "sample-english", label: "英文界面", input: {props: {notice: {revision: "r1", title: "Edit appearance"}, agent: {revision: "r2", title: "Add alias", earlier: 1}}}},
+                {id: "long", label: "很长的标题截断", input: {props: {notice: {revision: "r1", title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块", where: "第 12 章"}}}},
+                {id: "sample-english", label: "英文界面", input: {props: {notice: {revision: "r1", title: "Edit appearance", where: "Chapter 3"}, agent: {revision: "r2", title: "Add alias", earlier: 1}}}},
             ],
             load: async () => (await import("./PageNoticesFixture.vue")).default,
         }),

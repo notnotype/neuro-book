@@ -41,7 +41,7 @@ describe("条目种类的登记", () => {
             ...BUILTIN_ENTRY_KINDS,
         ]);
         expect(kinds.map((kind) => kind.kind)).toEqual(["法器", "人物", "组织", "地点", "物品"]);
-        expect(kinds.find((kind) => kind.kind === "人物")).toEqual({kind: "人物", components: ["nbook.canon.person", "nbook.canon.look", "x.magic"], order: 0});
+        expect(kinds.find((kind) => kind.kind === "人物")).toEqual({kind: "人物", components: ["nbook.canon.person", "nbook.canon.look", "x.magic"], order: 0, icon: "i-lucide-user-round"});
         const available = new Set(["nbook.canon.person", "nbook.canon.look"]);
         expect(defaultComponents(kinds, " 人物 ", available)).toEqual(["nbook.canon.person", "nbook.canon.look"]);
         expect(defaultComponents(kinds, "城市", available)).toEqual([]);

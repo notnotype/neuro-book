@@ -114,7 +114,14 @@ onBeforeUnmount(() => observer?.disconnect());
                         <span class="i-lucide-circle-check size-4 shrink-0 text-[var(--status-success)]" aria-hidden="true" />
                         <!-- 新的一条顶掉旧的：外框不动，只换字。 -->
                         <Transition name="nb-ui-switch" mode="out-in">
-                            <span :key="props.notice.revision" class="page-notice__text">{{ props.notice.title }}</span>
+                            <!-- 记在哪跟在标题后面、不收缩：窄了先截标题。中间的空格只给读屏与复制，看上去的间隔是外边距。 -->
+                            <span :key="props.notice.revision" class="page-notice__text page-notice__text--split">
+                                <span class="page-notice__title">{{ props.notice.title }}</span>
+                                <template v-if="props.notice.where !== undefined">
+                                    <span class="sr-only">{{ " " }}</span>
+                                    <span class="page-notice__where" data-notice-where>{{ text("notice.where", {where: props.notice.where}) }}</span>
+                                </template>
+                            </span>
                         </Transition>
                         <span class="page-notice__actions">
                             <Button size="sm" variant="ghost" @click="emit('receipt', props.notice.revision)">{{ text("notice.receipt") }}</Button>
@@ -182,6 +189,21 @@ onBeforeUnmount(() => observer?.disconnect());
     text-overflow: ellipsis;
     white-space: nowrap;
     margin-right: 6px;
+}
+/* 标题与记在哪：标题截断，记在哪弱一档、不收缩。 */
+.page-notice__text--split {
+    display: flex;
+    align-items: baseline;
+}
+.page-notice__title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.page-notice__where {
+    flex: none;
+    margin-left: 8px;
+    color: var(--text-muted);
 }
 .page-notice__text--wrap {
     white-space: normal;

@@ -113,7 +113,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await page.getByRole("option", {name: "女"}).click();
     await expect(gender.getByRole("combobox")).toHaveValue("女");
     expect(await background.boundingBox()).toEqual(before);
-    await expect(gender.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    await expect(gender.locator("[data-confirm-preview]")).toContainText("改最初的值");
     await gender.getByRole("button", {name: "保存"}).click();
     await expect(valueOf(page, "character.性别")).toHaveText("女");
     await expect(gender).toHaveCount(0);
@@ -151,14 +151,14 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     // 年龄：短项在浮层里；预览中（一行）与预览回来（写回哪里与变化两行）时保存按钮在同一个位置；点浮层外面放弃。
     await valueOf(page, "character.年龄").click();
     const age = editorOf(page, "character.年龄");
-    await expect(age.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    await expect(age.locator("[data-confirm-preview]")).toContainText("改最初的值");
     await age.getByRole("textbox").fill("十七");
     // 预览中只有停顿的那 300 毫秒加一次往返：状态与位置在页面里同一刻读，不分两次。
     const saveAt = (previewing: boolean) => {
         const editor = document.querySelector("[data-field-editor='character.年龄']");
         const save = editor === null ? undefined : [...editor.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存");
         const shown = editor?.querySelector("[data-confirm-preview]")?.textContent ?? "";
-        if (save === undefined || shown.includes("正在预览") !== previewing || (!previewing && !shown.includes("改故事开始前的值"))) return null;
+        if (save === undefined || shown.includes("正在预览") !== previewing || (!previewing && !shown.includes("改最初的值"))) return null;
         const {x, y} = save.getBoundingClientRect();
         return {x, y};
     };
@@ -183,7 +183,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await portrait.locator("[data-image-file]").setInputFiles({name: "星瑾.png", mimeType: "image/png", buffer: png});
     await expect(portrait.getByRole("textbox", {name: "图片的路径"})).toHaveValue("插图/星瑾.png");
     expect(await readdir(join(blankDir, "插图"))).toContain("星瑾.png");
-    await expect(portrait.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    await expect(portrait.locator("[data-confirm-preview]")).toContainText("改最初的值");
     await portrait.getByRole("button", {name: "保存"}).click();
     await expect(entryPage(page).locator("[data-look-card] [data-canon-image='插图/星瑾.png']")).toHaveAttribute("data-image-state", "loaded");
     await tab(page, "人物").click();

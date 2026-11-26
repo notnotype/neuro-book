@@ -71,8 +71,8 @@ export interface InPlaceEditOptions {
     readonly blocked: () => Text | null;
     readonly text: CanonBoundText;
     readonly resolve: (text: Text) => string;
-    /** 保存成功：给提示。 */
-    readonly saved: (published: Published, title: string) => void;
+    /** 保存成功：给提示。`where` 是这次写回的位置（“最初”“第 3 章”“前史”），预览给出的路由没有位置时不给。 */
+    readonly saved: (published: Published, title: string, where?: string) => void;
     /** 累出来的数：展开这个值的来历。 */
     readonly accumulated: (path: string) => void;
     /** 保存或取消以后，焦点回到这个字段的“改”按钮（输出 16、30）。 */
@@ -132,6 +132,9 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     const recheck = shallowRef(false);
     const saving = shallowRef(false);
     const locked = shallowRef(false);
+    // 最近一次预览给出的写回位置，保存成功时交给提示。预览收起或作废时清掉；填的值、意图、读取位置与世界版本变了都会重取预览，
+    // 所以保存时它对应的就是这次发出的输入。
+    let previewedWhere: string | undefined;
     /**
      * 预览还没回来时按了保存（短项的回车，输出 51）：先把预览立刻发出去，回来以后除了这个值本身没有别的变化（`impactIsQuiet`）就保存；
      * 有的话把预览显示出来，作者看过、再按一次才保存，不让人没看见带来的变化就写进去。预览失败或换了一份填写时不保存。
@@ -154,21 +157,31 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
 
     const resetFeedback = (): void => {
         preview.value = null;
+        previewedWhere = undefined;
         error.value = "";
         recheck.value = false;
         locked.value = false;
     };
 
     /** 预览给作者看的两句：写回哪里、带来的变化。 */
-    const describe = async (result: CanonOutputs["previewEdit"]): Promise<{route: string; impact: string[]; quiet: boolean}> => {
+    const describe = async (result: CanonOutputs["previewEdit"]): Promise<{route: string; where: string | undefined; impact: string[]; quiet: boolean}> => {
         const route = result.route;
         let routeText: string;
-        if (route.kind === "init") routeText = text("edit.routeInit");
-        else if (route.kind === "patch") {
+        let where: string | undefined;
+        if (route.kind === "init") {
+            routeText = text("edit.routeInit");
+            where = text("position.initial");
+        } else if (route.kind === "patch") {
             const read = await options.call("object", {ref: {kind: "change", id: route.change}});
             const change = read.ok ? (read.value.object as {readonly text?: string; readonly at?: Placement} | null) : null;
-            routeText = text("edit.routePatch", {place: change?.at === undefined ? "" : options.place(change.at), text: change?.text ?? ""});
-        } else if (route.kind === "change") routeText = text("edit.routeChange", {position: options.place(route.at)});
+            const place = change?.at === undefined ? "" : options.place(change.at);
+            // 没安放的（只在计划里的）那一笔不说记在哪：“记在未安放”读不通。
+            where = change?.at === undefined || change.at.kind === "unscheduled" ? undefined : place;
+            routeText = text("edit.routePatch", {place, text: change?.text ?? ""});
+        } else if (route.kind === "change") {
+            where = options.place(route.at);
+            routeText = text("edit.routeChange", {position: where});
+        }
         // 就地改不会给出这一种（它改的是一个字段）；路由是会再加种类的联合，不认识的也要有一句话。
         else routeText = text("edit.routeEntry");
         const draft = options.draft();
@@ -178,7 +191,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             skip,
             address: (at) => (at.entry === options.entry ? labelOf(at.path) : namespaceField(at.path).field),
         }, text);
-        return {route: routeText, impact, quiet: impactIsQuiet(result.revision.impact, skip)};
+        return {route: routeText, where, impact, quiet: impactIsQuiet(result.revision.impact, skip)};
     };
 
     const inputOf = (draft: EditDraft): Record<string, unknown> | null => {
@@ -194,6 +207,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         const input = inputOf(draft);
         if (input === null) {
             preview.value = null;
+        previewedWhere = undefined;
             previewing.value = false;
             return;
         }
@@ -205,6 +219,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             const described = await describe(result.value as CanonOutputs["previewEdit"]);
             if (mine !== previewRun) return;
             preview.value = {route: described.route, impact: described.impact};
+            previewedWhere = described.where;
             locked.value = false;
             const waiting = saveWhenPreviewed;
             saveWhenPreviewed = false;
@@ -213,6 +228,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         }
         saveWhenPreviewed = false;
         preview.value = null;
+        previewedWhere = undefined;
         applyFailure(draft, result.failure);
     };
 
@@ -247,7 +263,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
     // 填的值、意图变了：停一下再预览。
     watch(() => {
         const draft = options.draft();
-        return draft === null ? null : JSON.stringify([draft.path, draft.value, draft.intent, draft.read]);
+        return draft === null ? null : JSON.stringify([draft.path, draft.value, draft.intent, draft.read, options.position()]);
     }, (key) => {
         if (key === null) return;
         schedulePreview();
@@ -279,7 +295,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         saving.value = false;
         if (result.ok) {
             const label = labelOf(draft.path);
-            options.saved(result.value as Published, String(input.title ?? text("edit.heading", {label})));
+            options.saved(result.value as Published, String(input.title ?? text("edit.heading", {label})), previewedWhere);
             // 保存在途时作者开了别的字段（点了另一个值）：那一份草稿、它的预览与焦点都留着。只比路径：这次写入发布的新版本
             // 可能先于结果到达，版本的 watch 已经给同一份草稿换了 requestId。
             const current = options.draft();

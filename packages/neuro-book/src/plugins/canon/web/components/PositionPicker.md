@@ -18,7 +18,7 @@
 
 ```ts
 type PositionPickerProps = {
-    /** 能选的位置：故事开始前与各章的开头、末尾；必填。 */
+    /** 能选的位置：最初与各章的开头、末尾；必填。 */
     positions: readonly SelectOption[];
     /** 当前位置的值；必填、受控。 */
     position: string;

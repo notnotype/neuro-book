@@ -159,7 +159,7 @@ describe("条目页", () => {
         expect(originRows(wrapper)).toEqual([
             "第 2 章 买了书 估计：书大概三百 −300 900 元 改这一笔",
             "第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔",
-            "故事开始前 1,000 元",
+            "最初 1,000 元",
         ]);
         expect(wrapper.find("[data-origin-row] .text-\\[var\\(--status-warning\\)\\]").text()).toBe("估计：书大概三百");
         await wrapper.get("[data-value]").trigger("click");
@@ -186,7 +186,7 @@ describe("条目页", () => {
         cleanups.push(() => observer.disconnect());
         state.position = "1:end";
         await waitUntil("值与来历都换成第 1 章末尾的", () => valueText(wrapper) === "1,200" && originRows(wrapper).length === 2);
-        expect(originRows(wrapper)).toEqual(["第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔", "故事开始前 1,000 元"]);
+        expect(originRows(wrapper)).toEqual(["第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔", "最初 1,000 元"]);
         expect(seen.some((shown) => shown.includes("读取中"))).toBe(false);
     });
 
@@ -215,7 +215,7 @@ describe("条目页", () => {
         await waitUntil("文字里的值", () => wrapper.find("[data-value]").exists());
         await wrapper.get("[data-value]").trigger("click");
         await waitUntil("第一页", () => originRows(wrapper).length === 21);
-        expect(originRows(wrapper).at(-1)).toBe("故事开始前 1,000 元");
+        expect(originRows(wrapper).at(-1)).toBe("最初 1,000 元");
         expect(wrapper.text()).toContain("再显示更早的（还有 5 步）");
         const more = wrapper.findAll("button").find((button) => button.text().startsWith("再显示更早的"))!;
         await more.trigger("click");
@@ -491,7 +491,7 @@ describe("写入", () => {
     };
     const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
 
-    it("改一个只在初值设过的字段：预览写“改故事开始前的值”，保存后值变了、顶上有提示、焦点回到“改”；按计划时“改”不可用", async () => {
+    it("改一个只在初值设过的字段：预览写“改最初的值”，保存后值变了、顶上有提示、焦点回到“改”；按计划时“改”不可用", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -502,11 +502,13 @@ describe("写入", () => {
         const bar = await startEdit(wrapper, "character.性格");
         expect(document.activeElement?.tagName).toBe("TEXTAREA");
         await bar.get("textarea").setValue("银发");
-        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
+        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改最初的值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
         await waitUntil("值变了", () => wrapper.get("[data-edit='character.性格']").text().includes("银发"));
         await waitUntil("编辑收起", () => !wrapper.find(EDITOR).exists());
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改性格");
+        // 提示写出这次写回的位置：只在初值设过的字段，改的是最初的值（输出 18）。
+        expect(wrapper.get("[data-notice-where]").text()).toBe("记在最初");
         await waitUntil("焦点回到“改”", () => document.activeElement?.getAttribute("data-edit") === "character.性格");
 
         // 取消与 Escape 一样收起编辑，焦点也回到那个值，不掉到页面外（输出 16、51，验收 11）。
@@ -520,6 +522,25 @@ describe("写入", () => {
         state.planned = true;
         await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.性格']").attributes("disabled") !== undefined);
         expect(wrapper.get("[data-edit='character.性格']").attributes("title")).toBe("先不算计划");
+    });
+
+    it("确认条开着时换了时间点：预览按新的位置重取，保存后的提示写新的那一章", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:character";
+        state.position = "1:end";
+        const bar = await startEdit(wrapper, "character.性格");
+        await bar.get("textarea").setValue("银发");
+        state.edit = {...state.edit!, intent: "story"};
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("在第 1 章记一条变更"));
+        state.position = "2:end";
+        await waitUntil("新的预览", () => wrapper.get("[data-confirm-preview]").text().includes("在第 2 章记一条变更"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("提示", () => wrapper.find("[data-notice-where]").exists());
+        expect(wrapper.get("[data-notice-where]").text()).toBe("记在第 2 章");
     });
 
     it("页头改名、改简介：点名字本身在原处出浮层（与短项同一种），不出确认条；保存后页头换了名字、有提示，焦点回到名字", async () => {
@@ -540,7 +561,7 @@ describe("写入", () => {
         await waitUntil("浮层里的编辑器", () => editorOf("entry.name") !== null);
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
         fill("entry.name", "夜王");
-        await waitUntil("预览", () => editorOf("entry.name")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        await waitUntil("预览", () => editorOf("entry.name")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改最初的值") === true);
         save("entry.name");
         await waitUntil("名字变了", () => wrapper.get("h1").text() === "夜王");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("改名字");
@@ -549,7 +570,7 @@ describe("写入", () => {
         await wrapper.get("[data-edit='entry.summary']").trigger("click");
         await waitUntil("简介的编辑器", () => editorOf("entry.summary") !== null);
         fill("entry.summary", "第三魔法学院一年级");
-        await waitUntil("预览", () => editorOf("entry.summary")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        await waitUntil("预览", () => editorOf("entry.summary")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改最初的值") === true);
         save("entry.summary");
         await waitUntil("简介", () => wrapper.get("[data-edit='entry.summary']").text() === "第三魔法学院一年级");
     });
@@ -640,7 +661,7 @@ describe("写入", () => {
         await input.trigger("input");
         await waitUntil("高亮雾崎", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("雾崎") === true);
         await input.trigger("keydown", {key: "Enter"});
-        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改最初的值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
         await waitUntil("写进去了", async () => {
             const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
@@ -651,7 +672,7 @@ describe("写入", () => {
         const [path, caption] = image.findAll("[data-image-input] input");
         await path!.setValue("图片/雾崎.png");
         await caption!.setValue("黑衣");
-        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
+        await waitUntil("预览", () => wrapper.find("[data-confirm-preview]").exists() && wrapper.get("[data-confirm-preview]").text().includes("改最初的值"));
         await buttonByText(wrapper, "保存")!.trigger("click");
         await waitUntil("图片写进去了", async () => {
             const stored = await other.canon.call("object", {ref: {kind: "entry", id: ids[star.id]!}});
@@ -698,6 +719,8 @@ describe("写入", () => {
         await waitUntil("加上了", async () => (await stored()).物品!.some((item) => item.label === "盾" && item.数量 === 2));
         await waitUntil("对话框关了", () => document.body.querySelector("[data-element-dialog]") === null || document.body.querySelector("[role='dialog']") === null);
         expect(wrapper.get("[data-notice-bar]").text()).toContain("给星瑕的物品加一项");
+        // 改条目本身（加一项）不写位置。
+        expect(wrapper.find("[data-notice-where]").exists()).toBe(false);
 
         await waitUntil("长剑的“改”", () => wrapper.find("[aria-label='改 长剑']").exists());
         await wrapper.get("[aria-label='改 长剑']").trigger("click");
@@ -1147,6 +1170,7 @@ describe("写入", () => {
         await waitUntil("流水多了一行", () => originRows(wrapper).length === 4);
         expect(originRows(wrapper)[0]).toContain("捡到钱");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("记了一笔：捡到钱");
+        expect(wrapper.get("[data-notice-where]").text()).toBe("记在第 2 章");
         expect((wrapper.get("[data-record-form] input").element as HTMLInputElement).value).toBe("");
     });
 
@@ -1159,7 +1183,7 @@ describe("写入", () => {
         first.state.tab = "data:character";
         const bar = await startEdit(first.wrapper, "character.性格");
         await bar.get("textarea").setValue("银发");
-        await waitUntil("预览", () => first.wrapper.get("[data-confirm-preview]").text().includes("改故事开始前的值"));
+        await waitUntil("预览", () => first.wrapper.get("[data-confirm-preview]").text().includes("改最初的值"));
 
         first.wrapper.unmount();
         const again = first.remount();
@@ -1324,7 +1348,7 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         const input = editorOf("badge.图案")!.querySelector<HTMLInputElement>("[data-suggest-input] input")!;
         input.value = "凤";
         input.dispatchEvent(new Event("input", {bubbles: true}));
-        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        await waitUntil("预览", () => editorOf("badge.图案")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改最初的值") === true);
         [...editorOf("badge.图案")!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
         await waitUntil("保存了、编辑器收起", () => wrapper.get("[data-edit='badge.图案']").text() === "凤" && editorOf("badge.图案") === null);
         expect(state.edit).toBeNull();
@@ -1374,7 +1398,7 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         const input = editorOf("badge.介绍")!.querySelector("input")!;
         input.value = "一枚旧徽章";
         input.dispatchEvent(new Event("input", {bubbles: true}));
-        await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        await waitUntil("预览", () => editorOf("badge.介绍")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改最初的值") === true);
         const buttons = () => [...editorOf("badge.介绍")!.querySelectorAll("button")];
         buttons().find((button) => button.textContent?.trim() === "保存")!.click();
         // 保存的请求已经发出（`saving` 在点下去的同一刻就是真）：这时的 Escape 与“取消”都不放弃。
@@ -1451,7 +1475,7 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         input.dispatchEvent(new Event("input", {bubbles: true}));
         // 回车是下一个键盘事件（真实输入里不会和这次输入在同一段同步代码里）；离 300 毫秒的预览停顿还远。
         await nextTick();
-        expect(editor()!.textContent).not.toContain("改故事开始前的值");
+        expect(editor()!.textContent).not.toContain("改最初的值");
         input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
         await waitUntil("存进去、浮层收起", () => wrapper.get("[data-edit='character.身份']").text().includes("学生") && editor() === null);
         expect(state.edit).toBeNull();
@@ -1494,7 +1518,7 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         const identity = await type("character.身份", "学生");
         enter(identity);
         await type("character.身份", "学生会长");
-        await waitUntil("新的预览", () => editorOf("character.身份")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改故事开始前的值") === true);
+        await waitUntil("新的预览", () => editorOf("character.身份")?.querySelector("[data-confirm-preview]")?.textContent?.includes("改最初的值") === true);
         // 预览回来的同一刻要是发出了保存，“保存”就已经不可用（保存在途）；它可用，说明没有替作者存。
         const save = [...editorOf("character.身份")!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "保存")!;
         expect(save.disabled).toBe(false);
@@ -1539,6 +1563,8 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("预览", () => editor()?.querySelector("[data-confirm-preview]")?.textContent?.includes("记一条变更") === true);
         [...editor()!.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存")!.click();
         await waitUntil("换上了", () => wrapper.get("[data-outfit='i2']").text().includes("穿着") && wrapper.get("[data-fact='现在穿的']").text().includes("第 2 章改过"));
+        // “剧情里变了”在所选位置记一条变更：提示写那一章。
+        expect(wrapper.get("[data-notice-where]").text()).toBe("记在第 2 章");
 
         // 现在穿的的建议值是衣柜里各套的名字：清空输入框、聚焦时全列出来。
         await wrapper.get("[data-edit='look.现在穿的']").trigger("click");

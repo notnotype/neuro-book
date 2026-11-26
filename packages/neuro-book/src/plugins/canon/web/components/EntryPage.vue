@@ -340,9 +340,9 @@ watch(rail, async () => {
                         </DropdownMenu>
                     </div>
                 </div>
-                <!-- 一组设定一个分页，分页会比一行多：放不下时逐级让位、收进“更多”，分页条自己不横向滚动（author-ui 输出 9、32）。宽时换成内容左边的竖排。 -->
+                <!-- 一组设定一个分页，分页会比一行多：放不下时分页条自己横向滚动，每页照旧写名字（触屏上没有悬停提示，只剩图标认不出是哪一页；author-ui 输出 9）。宽时换成内容左边的竖排。 -->
                 <div v-if="!rail" class="mx-auto mt-3 flex items-end gap-1" :class="column" @contextmenu="onStripContext">
-                    <Tabs class="entry-page__tabs min-w-0 flex-[1_1_auto]" size="sm" overflow="adapt" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                    <Tabs class="entry-page__tabs min-w-0 flex-[1_1_auto]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
                     <DropdownMenu v-if="canAdd" align="end" :items="addItems" :disabled="blockedReason !== undefined" @select="(id: string) => emit('add-component', id)" @update:open="(open: boolean) => open && emit('add-open')">
                         <IconButton class="mb-1 shrink-0" size="sm" icon-class="i-lucide-plus" :disabled="blockedReason !== undefined" :aria-label="text('entry.addComponentShort')" :title="blockedReason ?? text('entry.addComponentShort')" data-add-component />
                     </DropdownMenu>

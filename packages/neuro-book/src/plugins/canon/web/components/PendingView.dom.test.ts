@@ -29,7 +29,7 @@ const detail: PendingDetailModel = {
     facts: [{label: "正文写的数", value: "500"}, {label: "算出来的数", value: "1,000"}],
     suspects: [
         {key: "c2", text: "被扒手偷了", place: "第 2 章", estimate: true, target: {kind: "change", id: "c2"}, initial: false},
-        {key: "init", text: "故事开始前", place: "", estimate: false, target: {kind: "entry", id: "e1"}, initial: true},
+        {key: "init", text: "最初", place: "", estimate: false, target: {kind: "entry", id: "e1"}, initial: true},
     ],
     links: [{label: "打开条目", target: {kind: "entry", id: "e1"}}],
 };

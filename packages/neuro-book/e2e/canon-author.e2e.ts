@@ -139,7 +139,7 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await value(page, "panel.存款").click();
     const origins = entryPage(page).locator("[data-origin-list]");
     await expect(origins).toBeVisible();
-    await expect(origins.locator("[data-origin-row]").last()).toContainText("故事开始前");
+    await expect(origins.locator("[data-origin-row]").last()).toContainText("最初");
     // 估计的那笔：依据写“估计”，用警告色。
     const estimate = origins.locator("[data-origin-row]", {hasText: "草莓蛋糕"}).getByText(/^估计/u);
     await expect(estimate).toBeVisible();
@@ -207,7 +207,7 @@ async function showRevisions(page: Page): Promise<Locator> {
     return rows;
 }
 
-test("验收 3：就地改一个只在初值设过的字段，预览写“改故事开始前的值”；保存后有提示，指着它点还原以后值回到原样；还原的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
+test("验收 3：就地改一个只在初值设过的字段，预览写“改最初的值”；保存后有提示、写着“记在最初”，指着它点还原以后值回到原样；还原的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
     const revisions = await (await showRevisions(page)).count();
@@ -216,7 +216,7 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改故
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     const bar = inlineEditor(page, "character.性格");
     await bar.getByRole("textbox").fill("嘴硬心软");
-    await expect(bar.locator("[data-confirm-preview]")).toContainText("改故事开始前的值");
+    await expect(bar.locator("[data-confirm-preview]")).toContainText("改最初的值");
     const topBefore = (await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y;
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("嘴硬心软");
@@ -224,6 +224,7 @@ test("验收 3：就地改一个只在初值设过的字段，预览写“改故
     // 提示浮在页面下方，出现时内容不动；6 秒后自己收起，指着它时不收：先指着再点（author-ui 输出 18）。
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toBeVisible();
+    await expect(notice.locator("[data-notice-where]")).toHaveText("记在最初");
     expect((await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y).toBe(topBefore);
     await notice.hover();
     await notice.getByRole("button", {name: "还原"}).click();
@@ -304,12 +305,12 @@ test("验收 11：只用键盘改一个值：走到值、Enter、填、Tab 到�
 
 /**
  * 页面或视图里会横着滚的地方：根自己、它里面 `overflow-x` 是 auto 或 scroll 的元素、它外面最近的那个滚动容器，内容比宽度宽的都算；
- * 再加上整页。空数组是没有。
+ * 再加上整页。空数组是没有。横排的分页条放不下时本来就在自己里面横向滚动（author-ui 输出 9），不算。
  */
 async function horizontalScrolls(root: Locator): Promise<string[]> {
     return root.first().evaluate((element) => {
         const scrolls = (node: Element) => ["auto", "scroll"].includes(getComputedStyle(node).overflowX);
-        const candidates = [element, ...element.querySelectorAll("*")].filter((node) => node === element || scrolls(node));
+        const candidates = [element, ...element.querySelectorAll("*")].filter((node) => node === element || (scrolls(node) && node.getAttribute("aria-label") !== "条目的分页"));
         for (let up = element.parentElement; up !== null; up = up.parentElement) {
             if (!scrolls(up)) continue;
             candidates.push(up);
@@ -346,7 +347,7 @@ test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左�
     expect(await nameHeight()).toBeLessThan(40);
 });
 
-test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动", async ({page}) => {
+test("验收 14：390 像素宽时，条目页、回执页、变更详情页与待处理、改动记录两个视图都没有横向滚动；条目页的分页横排、每页写名字，放不下时在分页条里滑动，选中的一页看得见", async ({page}) => {
     await open(page);
     const narrow = async (root: Locator): Promise<void> => {
         await page.setViewportSize({width: 390, height: 844});
@@ -354,12 +355,26 @@ test("验收 14：390 像素宽时，条目页、回执页、变更详情页与�
         expect(await horizontalScrolls(root)).toEqual([]);
         await page.setViewportSize({width: 1440, height: 900});
     };
-    // 在宽屏上走到每一处，再换成 390 宽量。
+    // 在宽屏上走到每一处，再换成 390 宽量。条目页的分页横排、放不下时在分页条里滑动：每页照旧写名字，选中的一页（最后的“情节”也是）
+    // 变窄以后仍在看得见的范围里（中心点上是它自己；click 会先把它滚进来，看不出来）。
     await openEntry(page, "星瑕");
+    const strip = entryPage(page).getByRole("tablist", {name: "条目的分页"});
     for (const tab of ["文字", "人物", "形象", "面板", "情节"]) {
         await entryPage(page).getByRole("tab", {name: new RegExp(`^${tab}`, "u")}).click();
+        await page.setViewportSize({width: 390, height: 844});
+        const selected = strip.getByRole("tab", {selected: true});
+        await expect(selected).toContainText(tab);
+        await expect.poll(() => selected.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            return hit !== null && element.contains(hit);
+        })).toBe(true);
         await narrow(entryPage(page));
     }
+    await page.setViewportSize({width: 390, height: 844});
+    await expect.poll(() => strip.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    for (const label of await strip.getByRole("tab").allTextContents()) expect(label.trim()).not.toBe("");
+    await page.setViewportSize({width: 1440, height: 900});
     await pendingItem(page).click();
     await expect(page.locator("[data-pending-detail]")).toBeVisible();
     await narrow(page.locator("[data-pending-view]"));

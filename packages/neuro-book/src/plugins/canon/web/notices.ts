@@ -26,6 +26,8 @@ export interface CanonNotice {
     /** 这次修订的 id：“查看详情”打开它的回执页，“还原”打开还原它的对话框。 */
     readonly revision: string;
     readonly title: string;
+    /** 这次写回的位置（“最初”“第 3 章”“前史”）：就地改与记一笔给，改条目本身（删除、加一组设定、别名）与正文不给。 */
+    readonly where?: string;
 }
 
 /** Agent 的提示：最近一次修订，与它之前、这条提示还没关时 Agent 又改了几次（不算最近这次）。 */
@@ -135,7 +137,7 @@ export function createNotices(routes: NoticeRoutes = {workbench: null, receipt: 
             // 新的提示顶掉旧的：页面上那一条也不再留着。带动作的工作台通知缺省常驻，这里给 `sticky: false`，同一次保存的提示
             // 不论走哪条路都自己收起。
             setCurrent(null);
-            routes.workbench.notify({tone: "success", title: canonText("notice.label"), message: notice.title, sticky: false, action: {label: canonText("notice.receipt"), run: () => routes.receipt(notice.revision)}});
+            routes.workbench.notify({tone: "success", title: canonText("notice.label"), message: notice.where === undefined ? notice.title : canonText("notice.withWhere", {title: notice.title, where: notice.where}), sticky: false, action: {label: canonText("notice.receipt"), run: () => routes.receipt(notice.revision)}});
         },
         dismiss: () => {
             setCurrent(null);

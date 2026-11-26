@@ -91,11 +91,13 @@ export function positionLabel(position: ReadPosition, chapters: readonly Chapter
 /** 一次安放写在界面上：“第 N 章”“前史”；没安放的写“未安放”。安放的章不在章表里时同样写“未安放”。 */
 export function placementLabel(at: Placement, chapters: readonly ChapterRef[], text: CanonBoundText): string {
     if (at.kind === "prehistory") return text("place.prehistory");
-    if (at.kind === "chapter") {
-        const chapter = chapters.find((item) => item.id === at.chapter);
-        if (chapter !== undefined) return text("place.chapter", {index: chapter.index});
-    }
-    return text("place.unscheduled");
+    return at.kind === "chapter" ? chapterLabel(at.chapter, chapters, text) : text("place.unscheduled");
+}
+
+/** 一章写在界面上：“第 N 章”；不在章表里时写“未安放”。 */
+export function chapterLabel(id: string, chapters: readonly ChapterRef[], text: CanonBoundText): string {
+    const chapter = chapters.find((item) => item.id === id);
+    return chapter === undefined ? text("place.unscheduled") : text("place.chapter", {index: chapter.index});
 }
 
 /** 字段旁的“第 N 章改过”“前史改过”“第 N 章核对过”（输出 10）。没有最近一次改动（只有初值）时为 null。 */

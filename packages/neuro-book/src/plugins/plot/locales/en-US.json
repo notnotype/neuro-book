@@ -226,7 +226,7 @@
         },
         "toldBy": "Told by {{name}}",
         "origin": {
-            "initial": "Before the story",
+            "initial": "Initial state",
             "goal": "When the goal appeared",
             "carried": "Carried over from {{line}}"
         },

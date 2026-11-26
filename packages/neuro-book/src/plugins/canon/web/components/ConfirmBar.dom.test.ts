@@ -28,13 +28,13 @@ const button = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.fin
 
 describe("ConfirmBar", () => {
     it("数用数字输入、带单位，挂上时焦点进去；改值发 update:value；预览两句；预览回来以后保存可用", async () => {
-        const wrapper = bar({preview: {route: "改故事开始前的值", impact: ["别的都不变"]}});
+        const wrapper = bar({preview: {route: "改最初的值", impact: ["别的都不变"]}});
         await wrapper.vm.$nextTick();
         expect(document.activeElement).toBe(wrapper.get("input").element);
         expect(wrapper.text()).toContain("元");
         await wrapper.get("input").setValue("800");
         expect(wrapper.emitted("update:value")?.at(-1)).toEqual(["800"]);
-        expect(wrapper.get("[data-confirm-preview]").text()).toBe("改故事开始前的值别的都不变");
+        expect(wrapper.get("[data-confirm-preview]").text()).toBe("改最初的值别的都不变");
         expect(button(wrapper, "保存").attributes("disabled")).toBeUndefined();
         await button(wrapper, "保存").trigger("click");
         expect(wrapper.emitted("save")).toHaveLength(1);
@@ -42,9 +42,9 @@ describe("ConfirmBar", () => {
 
     it("没有预览、预览中、保存中、锁住时保存不可用；原因不锁保存", () => {
         expect(button(bar(), "保存").attributes("disabled")).toBeDefined();
-        expect(button(bar({preview: {route: "改故事开始前的值", impact: []}, previewing: true}), "保存").attributes("disabled")).toBeDefined();
-        expect(button(bar({preview: {route: "改故事开始前的值", impact: []}, locked: true, error: "这个数是几笔累出来的"}), "保存").attributes("disabled")).toBeDefined();
-        const conflict = bar({preview: {route: "改故事开始前的值", impact: []}, error: "这个值刚刚变了"});
+        expect(button(bar({preview: {route: "改最初的值", impact: []}, previewing: true}), "保存").attributes("disabled")).toBeDefined();
+        expect(button(bar({preview: {route: "改最初的值", impact: []}, locked: true, error: "这个数是几笔累出来的"}), "保存").attributes("disabled")).toBeDefined();
+        const conflict = bar({preview: {route: "改最初的值", impact: []}, error: "这个值刚刚变了"});
         expect(conflict.get("[role='alert']").text()).toBe("这个值刚刚变了");
         expect(button(conflict, "保存").attributes("disabled")).toBeUndefined();
     });
@@ -68,7 +68,7 @@ describe("ConfirmBar", () => {
         expect(lines(more)).toEqual(["改第 2 章那一笔", "少了 1 条待处理，还有 2 项"]);
         expect(more.get("[data-confirm-preview]").findAll("p")[1]!.attributes("title")).toBe(impact.join("\n"));
 
-        const conflict = bar({variant: "inline", preview: {route: "改故事开始前的值", impact: ["别的都不变"]}, error: "这个值刚刚变了"});
+        const conflict = bar({variant: "inline", preview: {route: "改最初的值", impact: ["别的都不变"]}, error: "这个值刚刚变了"});
         expect(lines(conflict)).toEqual(["这个值刚刚变了"]);
         expect(conflict.get("[role='alert']").text()).toBe("这个值刚刚变了");
         expect(button(conflict, "保存").attributes("disabled")).toBeUndefined();
@@ -81,7 +81,7 @@ describe("ConfirmBar", () => {
     });
 
     it("就地改的单行输入：回车就是保存，预览还在等时也发出（宿主等预览回来再定存不存，输出 51）；保存在途、锁着时不发；多行的文字回车不保存", async () => {
-        const single = bar({variant: "inline", rows: 1, kind: "text", value: "十七", preview: {route: "改故事开始前的值", impact: []}});
+        const single = bar({variant: "inline", rows: 1, kind: "text", value: "十七", preview: {route: "改最初的值", impact: []}});
         expect(single.find("textarea").exists()).toBe(false);
         await single.get("input").trigger("keydown", {key: "Enter"});
         expect(single.emitted("save")).toHaveLength(1);
@@ -94,7 +94,7 @@ describe("ConfirmBar", () => {
         await single.get("input").trigger("keydown", {key: "Enter"});
         expect(single.emitted("save")).toHaveLength(2);
 
-        const passage = bar({variant: "inline", kind: "text", value: "嘴硬心软", preview: {route: "改故事开始前的值", impact: []}});
+        const passage = bar({variant: "inline", kind: "text", value: "嘴硬心软", preview: {route: "改最初的值", impact: []}});
         await passage.get("textarea").trigger("keydown", {key: "Enter"});
         expect(passage.emitted("save")).toBeUndefined();
     });
