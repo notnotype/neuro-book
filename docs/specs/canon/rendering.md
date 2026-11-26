@@ -72,7 +72,7 @@ owners:
 ## 输出与可观察行为
 
 1. **写入时检查。**（planned）写入主文字的一块（新建、整段替换、增块）时检查，不过就拒收，指出块、行与列（[`canon.revisions`](revisions.md) 的 `validation-failed`）。检查之前先去掉开头的 BOM、把换行规范成 LF；存下来的是规范后的原文，活的标签写成规范写法（输出 18）。拒收的情形：
-   - 白名单以外的 Markdown：别的原样 HTML、HTML 注释、脚注、数学（`unsupported-markdown`）；
+   - 白名单以外的 Markdown：别的原样 HTML、HTML 注释、脚注、数学（`unsupported-markdown`）；嵌套深到读不出结构的（几万层引用或列表，只会来自粘贴）同样拒收（`unsupported-markdown`），存下来的旧数据里有这样的块时照输出 4 按出错显示；
    - 活的标签名字不认、属性不认或缺了必填的属性、`V` 与登记的标签不是自闭合的，或带着装饰（输出 9 的属性与内容）（`unknown-tag`；没登记的标签见输出 19）；
    - 式子写错、带注释、用了白名单以外的节点或运算符，地址写错（`forbidden-syntax`，行列落在属性值里）；`expr` 一个字段引用都没有（`no-field-expression`）；
    - `If` 没闭合、跨段、被强调切开或套在另一个 `If` 里（`cross-block`）；孤立的 `ElseIf`、`Else`、`</If>`，或内置与登记的标签名后面写了属性却不成标签（例如少了收尾的 `<V of="panel.魔力"`、属性用了单引号或没加引号、`=` 两边有空格），又不在代码里、没转义（`tag-malformed`；落在链接与图片说明里的同样这样判）。别的 `<` 加大写名字（`评级 <A 级`）是文字；
