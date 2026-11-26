@@ -44,6 +44,7 @@
         "src/**/*.test.ts",
         "plugin-sdk",
         "scripts",
+        "evals",
         "desktop/scripts",
         "desktop/src/bun/desktop-shortcut.ts",
         "desktop/src/bun/login-item.ts",
