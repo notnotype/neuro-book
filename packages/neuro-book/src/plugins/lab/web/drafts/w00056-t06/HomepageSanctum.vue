@@ -264,10 +264,13 @@ async function drag(from: DeskTarget | (() => DOMRectReadOnly | null), to: () =>
     const source = typeof from === "function" ? from() : (desk.value?.target(from) ?? null);
     const fingers = hand();
     if (source === null || fingers === null) return false;
+    // 落点量不到（布局改了、那一块不在）就不拖，交给调用方直接摆：拖到原地松手什么都不会发生，还会以为演完了。
+    const destination = to();
+    if (destination === null) return false;
     const grab = centerOf(source);
     await reach(grab, signal);
     await wait(300, signal);
-    const stops = [...(options.via?.() ?? []), to() ?? grab];
+    const stops = [...(options.via?.() ?? []), destination];
     pointerPressed.value = true;
     ripple(grab);
     if (fingers.down(grab) === null) {

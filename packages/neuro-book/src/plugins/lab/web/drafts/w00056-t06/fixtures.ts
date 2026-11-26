@@ -51,6 +51,11 @@ export const fixtures = [
             {id: "r6-day", label: "第 6 轮：白天（午后的抄经室）", input: {props: {start: "top", appearance: "day"}}},
             {id: "r6-act-one", label: "第 6 轮：第一幕的六拍（直接落在第一幕开头）", input: {props: {start: "act-one"}}},
             {id: "r6-act-one-day", label: "第 6 轮：第一幕，白天", input: {props: {start: "act-one", appearance: "day"}}},
+            // 前几轮评审板里的链接：组件已经是这一轮的样子，场景 id 留着，旧链接不落空。
+            {id: "r5-sanctum", label: "第 5 轮评审板的链接（现为第 6 轮）：从首屏起", input: {props: {start: "top"}}},
+            {id: "r5-act-one", label: "第 5 轮评审板的链接（现为第 6 轮）：第一幕", input: {props: {start: "act-one"}}},
+            {id: "r4-sanctum", label: "第 4 轮评审板的链接（现为第 6 轮）：从首屏起", input: {props: {start: "top"}}},
+            {id: "r4-act-one", label: "第 4 轮评审板的链接（现为第 6 轮）：第一幕", input: {props: {start: "act-one"}}},
         ],
         load: async () => (await import("./HomepageSanctumFixture.vue")).default as never,
     }),

@@ -570,7 +570,8 @@ function target(name: DeskTarget): DOMRectReadOnly | null {
         case "statusbar":
             return rectOf("[data-hp-status]");
         case "auxiliary-strip":
-            return rectOf('[data-region-strip="auxiliarybar"]') ?? rectOf("[data-region-strip]");
+            // 只认右栏的入口条：退到别的条（底部面板）上，演示会把作品树拖进底部面板。
+            return rectOf('[data-region-strip="auxiliarybar"]');
         case "alice-float-corner": {
             const group = aliceFloat();
             if (group === null) return null;
