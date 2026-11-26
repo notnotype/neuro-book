@@ -24,6 +24,8 @@ npm install @notnotype/nb-layout   # 或 bun add、pnpm add
   import "@notnotype/nb-layout/style.css";
   ```
 
+  TypeScript 6 下 tsconfig 写 `"types": []` 时，这一行报 TS2882（找不到 `.css` 模块的声明）：改成 `"types": ["vite/client"]`，或者换成别的声明了 `*.css` 模块的类型。
+
 - 承诺的宿主是 Vue 3 加 Vite；别的打包器没有实测。
 
 ## 起步

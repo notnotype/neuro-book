@@ -196,6 +196,57 @@ describe("resolveListInsertion", () => {
         expect(clampedIndicator(append)).toEqual({left: 200 - GRID_DROP_INDICATOR_PX, top: 60, right: 200, bottom: 100});
     });
 
+    /**
+     * 会滚动的列表：过了最后一个看得见的成员，放下的位置要和线一致。线画在最后一个看得见的后缘，
+     * 后面还有滚出去的成员时，插到第一个滚出去的前面，而不是追加到所有滚出去的之后。
+     */
+    it("越过最后一个看得见的、后面有沿主轴滚出去的：插到第一个滚出去的前面，线照旧贴最后一个看得见的后缘", () => {
+        const scrolled: readonly GridDropMember[] = [
+            column("off-start", -90, -10),
+            column("a", -10, 90),
+            column("b", 90, 180),
+            column("empty", 180, 180),
+            column("c", 210, 300),
+            column("d", 300, 390),
+        ];
+        const horizontal = resolveListInsertion({orientation: "horizontal", point: {x: 150, y: 50}, containerRect: CONTAINER, members: scrolled});
+        expect(horizontal?.beforeId).toBe("c");
+        expect(clampedIndicator(horizontal)).toEqual({left: 180, top: 0, right: 180 + GRID_DROP_INDICATOR_PX, bottom: 100});
+        // 线与只有看得见的成员时的追加线逐值相同：变的只是插到谁前面。
+        const visibleOnly = resolveListInsertion({orientation: "horizontal", point: {x: 150, y: 50}, containerRect: CONTAINER, members: scrolled.slice(0, 3)});
+        expect(visibleOnly).toEqual({beforeId: null, indicator: {left: 180, top: 0, right: 180 + GRID_DROP_INDICATOR_PX, bottom: 100}});
+        // 退让量照旧作用在这条外侧线上。
+        expect(resolveListInsertion({orientation: "horizontal", point: {x: 150, y: 50}, containerRect: CONTAINER, members: scrolled, edgeGap: 4})).toEqual({
+            beforeId: "c",
+            indicator: {left: 184, top: 0, right: 184 + GRID_DROP_INDICATOR_PX, bottom: 100},
+        });
+        // 前端滚出去的不影响：指针在首个看得见的前半，插到它前面。
+        expect(resolveListInsertion({orientation: "horizontal", point: {x: 5, y: 50}, containerRect: CONTAINER, members: scrolled})).toEqual({
+            beforeId: "a",
+            indicator: {left: 0, top: 0, right: GRID_DROP_INDICATOR_PX, bottom: 100},
+        });
+
+        const rows: readonly GridDropMember[] = [row("top", 0, 40), row("middle", 40, 80), row("below", 100, 140), row("further", 140, 180)];
+        const vertical = resolveListInsertion({orientation: "vertical", point: {x: 20, y: 70}, containerRect: CONTAINER, members: rows});
+        expect(vertical?.beforeId).toBe("below");
+        expect(clampedIndicator(vertical)).toEqual({left: 0, top: 80, right: 200, bottom: 80 + GRID_DROP_INDICATOR_PX});
+    });
+
+    it("紧跟最后一个看得见的只在交叉轴被裁掉、在前端之外，或后面只有无效矩形：照旧追加", () => {
+        const visible: readonly GridDropMember[] = [column("a", 0, 90), column("b", 90, 180)];
+        const append = {beforeId: null, indicator: {left: 180, top: 0, right: 180 + GRID_DROP_INDICATOR_PX, bottom: 100}};
+        const at = (members: readonly GridDropMember[]) => resolveListInsertion({orientation: "horizontal", point: {x: 150, y: 50}, containerRect: CONTAINER, members});
+        // 换行到下一行（主轴上还在盒里、交叉轴上在盒下面）：哪一行接哪一行是调用方的事；更后面滚出去的也不越过它去认。
+        expect(at([...visible, column("wrapped", 0, 90, 100, 200), column("beyond", 210, 300)])).toEqual(append);
+        // 主轴前端之外。
+        expect(at([...visible, column("before-start", -100, -10)])).toEqual(append);
+        // 后面只有无效矩形、零尺寸的。
+        expect(at([...visible, column("zero", 210, 210), {id: "nan", rect: {left: Number.NaN, top: 0, right: 300, bottom: 100}}])).toEqual(append);
+        // 竖向同理：在盒子右边裁掉的不算后继。
+        const rows: readonly GridDropMember[] = [row("top", 0, 40), row("middle", 40, 80), row("aside", 40, 80, 200, 300)];
+        expect(resolveListInsertion({orientation: "vertical", point: {x: 20, y: 70}, containerRect: CONTAINER, members: rows})?.beforeId).toBeNull();
+    });
+
     it("内容盒比插入线还薄时线退化成盒子本身，不越界", () => {
         const insertion = resolveListInsertion({orientation: "horizontal", point: {x: 0.25, y: 50}, containerRect: THIN_CONTAINER, members: [column("slim", 0, 1)]});
         expect(insertion?.beforeId).toBe("slim");
