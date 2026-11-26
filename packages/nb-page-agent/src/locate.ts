@@ -3,14 +3,14 @@
  * 调用方放在 `at`、`of`、`scope`、`within` 里的都是同一个对象；参数形状由宿主先按 `./api` 的 schema 校验过。
  */
 
-import {KEY_ATTRIBUTE, TARGET_ATTRIBUTE, locatorKind} from "./api";
+import {DETAILS_BYTE_LIMIT, KEY_ATTRIBUTE, TARGET_ATTRIBUTE, locatorKind} from "./api";
 import type {BaseLocator, Candidate, Locator, PageFailure, PageFailureCode} from "./api";
-import {collapse, composedContains, composedParent, deepQueryAll} from "./dom";
+import {collapse, composedContains, composedParent, deepQueryAll, flatChildren} from "./dom";
 import type {Inspector} from "./inspect";
 import {sameIdentity, sameLayer} from "./refs";
 import type {RefRegistry} from "./refs";
 import {INTERACTIVE_ROLES, visibleTextOf} from "./snapshot/describe";
-import {truncate} from "./text";
+import {truncate, utf8Length} from "./text";
 
 export interface LocateOptions {
     /** 这次调用会不会改页面；会改的不按稳定名重找（输出 4）。 */
@@ -28,6 +28,7 @@ export interface LocateEnvironment {
 
 const CANDIDATE_LIMIT = 10;
 const CANDIDATE_NAME_CHARS = 100;
+const CANDIDATE_KEY_CHARS = 256;
 
 export function locate(environment: LocateEnvironment, locator: Locator, options: LocateOptions): Located | PageFailure {
     const warnings: string[] = [];
@@ -53,13 +54,18 @@ export function candidateOf(environment: LocateEnvironment, element: Element): C
         role: identity.role,
         name: truncate(identity.name, CANDIDATE_NAME_CHARS),
     };
-    if (identity.target !== null) candidate.target = identity.target;
-    if (identity.key !== null) candidate.key = identity.key;
+    if (identity.target !== null) candidate.target = truncate(identity.target, CANDIDATE_KEY_CHARS);
+    if (identity.key !== null) candidate.key = truncate(identity.key, CANDIDATE_KEY_CHARS);
     return candidate;
 }
 
-function failure(code: PageFailureCode, message: string, candidates?: readonly Candidate[]): PageFailure {
-    return candidates === undefined || candidates.length === 0 ? {ok: false, code, message} : {ok: false, code, message, details: {candidates: [...candidates]}};
+/** `details` 按 JSON 序列化后至多 8 KB（输出 12）：超了从后往前去掉候选，并在说明里写明省略了几个。 */
+function failure(code: PageFailureCode, message: string, candidates: readonly Candidate[] = []): PageFailure {
+    const kept = [...candidates];
+    while (kept.length > 0 && utf8Length(JSON.stringify({candidates: kept})) > DETAILS_BYTE_LIMIT) kept.pop();
+    const omitted = candidates.length - kept.length;
+    const text = omitted === 0 ? message : `${message}（候选太长，省略了 ${String(omitted)} 个）`;
+    return kept.length === 0 ? {ok: false, code, message: text} : {ok: false, code, message: text, details: {candidates: kept}};
 }
 
 function describe(locator: BaseLocator): string {
@@ -103,22 +109,33 @@ function search(inspector: Inspector, locator: BaseLocator, scope: Element | Doc
 }
 
 /**
- * 按看得见的文字找：先取文字匹配、且没有更深的后代也匹配的元素（最贴近这段文字的那个），
- * 再升到包着它的可交互元素（点按钮里的文字就是点按钮）。
+ * 按看得见的文字找：取文字匹配、又没有更深的后代也匹配的元素（最贴近这段文字的那个），再升到包着它的可交互元素
+ * （点按钮里的文字就是点按钮）。
+ *
+ * 一遍先序走展平树：子树的 `textContent` 里连这段文字都没有就不往下走（它不含隐藏与否，只用来剪枝，原生实现便宜）；
+ * 走到底没有后代匹配时，才按看得见的文字判断这个元素自己。这样只在包着这段文字的那几条祖先链上算可见文字，不是每个元素都算。
  */
 function searchText(inspector: Inspector, text: string, exact: boolean, scope: Element | Document): Element[] {
-    // textContent 不折叠空白，拿要找的文字里最长的一段不含空白的片段先筛一遍，便宜地排除绝大多数元素。
-    const fragment = collapse(text).toLowerCase().split(" ").reduce((longest, piece) => piece.length > longest.length ? piece : longest, "");
-    const matched = deepQueryAll(scope, "*").filter((element) => (element.textContent ?? "").toLowerCase().includes(fragment)
-        && textMatches(visibleTextOf(element, Math.max(400, text.length * 2)), text, exact)
-        && inspector.isRendered(element));
-    const deepest = matched.filter((element) => !matched.some((other) => other !== element && composedContains(element, other)));
-    const out: Element[] = [];
-    for (const element of deepest) {
-        const promoted = interactiveAncestor(inspector, element, scope) ?? element;
-        if (!out.includes(promoted)) out.push(promoted);
-    }
-    return out;
+    const needle = collapse(text).toLowerCase();
+    const deepest: Element[] = [];
+    /** 交回这棵子树里有没有匹配的元素。 */
+    const visit = (element: Element): boolean => {
+        const shadow = element.shadowRoot;
+        // shadow 里的文字不在宿主的 textContent 里，宿主不剪枝。
+        if (shadow === null && !collapse(element.textContent ?? "").toLowerCase().includes(needle)) return false;
+        let below = false;
+        for (const child of flatChildren(element)) if (visit(child)) below = true;
+        if (below) return true;
+        if (!textMatches(visibleTextOf(element), text, exact) || !inspector.isRendered(element)) return false;
+        deepest.push(element);
+        return true;
+    };
+    if (scope instanceof Document) {
+        if (scope.body !== null) visit(scope.body);
+    } else visit(scope);
+    const out = new Set<Element>();
+    for (const element of deepest) out.add(interactiveAncestor(inspector, element, scope) ?? element);
+    return [...out];
 }
 
 function interactiveAncestor(inspector: Inspector, element: Element, scope: Element | Document): Element | null {
@@ -156,10 +173,11 @@ function resolveRef(environment: LocateEnvironment, ref: string, scope: Element 
         return {ok: true, element, warnings};
     }
     // 元素不在了或换了身份：稳定名与 key 在同一层里唯一时，不改页面的方法改用它（输出 4）。
+    // 没有 key 与有 key 是不同的身份：没有 key 的旧引用只重找同样没有 key 的元素。
     const sameName = issued.target === null ? [] : search(inspector, issued.key === null ? {target: issued.target} : {target: issued.target, key: issued.key}, scope)
         .filter((candidate) => {
             const identity = inspector.identity(candidate);
-            return identity !== null && sameLayer(issued, identity);
+            return identity !== null && identity.key === issued.key && sameLayer(issued, identity);
         });
     if (!options.mutating && sameName.length === 1) {
         const rebound = sameName[0]!;

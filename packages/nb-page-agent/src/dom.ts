@@ -4,8 +4,13 @@
 
 import {OWN_NODE_ATTRIBUTE, SKIP_ATTRIBUTE, SKIP_VALUE} from "./api";
 
-/** 组合树里的父元素：shadow root 里的顶层元素的父是宿主元素。 */
+/**
+ * 展平树里的父元素：分配进 slot 的元素的父是那个 slot（它画在 slot 的位置，受 slot 祖先的层与裁剪）；shadow root 里的顶层元素
+ * 的父是宿主元素。
+ */
 export function composedParent(element: Element): Element | null {
+    const slot = element.assignedSlot;
+    if (slot !== null) return slot;
     if (element.parentElement !== null) return element.parentElement;
     const parent = element.parentNode;
     return parent instanceof ShadowRoot ? parent.host : null;
@@ -25,11 +30,6 @@ export function composedClosest(element: Element, selector: string): Element | n
         if (current.matches(selector)) return current;
     }
     return null;
-}
-
-/** 引擎自己画的节点（描边框、说明框）：不进快照、不算遮挡、不被定位。 */
-export function isOwnNode(element: Element): boolean {
-    return composedClosest(element, `[${OWN_NODE_ATTRIBUTE}]`) !== null;
 }
 
 /** 宿主标了 `data-nb-agent="skip"` 的区域（含自己）。 */
@@ -59,6 +59,20 @@ export function topElementAt(document: Document, x: number, y: number): Element 
         scope = shadow;
     }
     return found;
+}
+
+/**
+ * 展平树里的子元素：有 open shadow root 的宿主只交 shadow 里的（轻 DOM 的子元素经 slot 画出来，没分配的不画）；slot 交分配到
+ * 它的元素，没有时交它自己的后备内容。
+ */
+export function flatChildren(element: Element): Element[] {
+    const shadow = element.shadowRoot;
+    if (shadow !== null) return [...shadow.children];
+    if (element instanceof HTMLSlotElement) {
+        const assigned = element.assignedElements({flatten: true});
+        if (assigned.length > 0) return assigned;
+    }
+    return [...element.children];
 }
 
 /** 在文档与全部 open 的 shadow root 里查选择器，按组合树的先后。 */

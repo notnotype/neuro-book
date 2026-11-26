@@ -19,9 +19,6 @@ export const CONTAINER_ROLES: ReadonlySet<string> = new Set([
     "complementary", "banner", "contentinfo", "form", "search", "group", "radiogroup", "tabpanel", "grid", "table", "list",
 ]);
 
-/** 层根（输出 3）：弹出来的东西各成一层。 */
-export const LAYER_ROLES: ReadonlySet<string> = new Set(["dialog", "alertdialog", "menu", "listbox"]);
-
 /** 列表类容器与它们的行：滚出去的行折进一行摘要，列出来的行带位置。 */
 export const LIST_ROLES: ReadonlySet<string> = new Set(["tree", "treegrid", "listbox", "grid", "table", "menu", "tablist"]);
 export const ROW_ROLES: ReadonlySet<string> = new Set(["treeitem", "option", "row", "menuitem", "menuitemcheckbox", "menuitemradio", "tab"]);
@@ -41,13 +38,16 @@ const IMPLICIT_ROLE_TAGS: ReadonlySet<string> = new Set([
     "ol", "optgroup", "option", "output", "progress", "section", "summary", "table", "tbody", "textarea", "tfoot", "td", "th", "thead", "tr", "ul",
 ]);
 
+const ROLE_PATTERN = /^[a-z][a-z-]*$/u;
+
 /** 快照对每个元素都问一次角色：没有 role 属性的 div、span 这类元素占绝大多数，先跳过库函数。 */
 export function roleOf(element: Element): string | null {
     if (!element.hasAttribute("role") && !IMPLICIT_ROLE_TAGS.has(element.localName)) {
         return element.hasAttribute("contenteditable") && element instanceof HTMLElement && element.isContentEditable ? "textbox" : null;
     }
     const role = getRole(element);
-    if (role !== null && role !== "generic" && role !== "presentation" && role !== "none") return role;
+    // 显式 role 只取第一个词、不校验（库的行为）；页面能写进换行这类字符，不认它，免得原样写进快照伪造出一行。
+    if (role !== null && role !== "generic" && role !== "presentation" && role !== "none" && ROLE_PATTERN.test(role)) return role;
     if (element instanceof HTMLInputElement) return INPUT_ROLES[element.type] ?? null;
     if (element instanceof HTMLElement && element.isContentEditable && element.hasAttribute("contenteditable")) return "textbox";
     if (element.localName === "p") return "paragraph";
@@ -58,8 +58,8 @@ export function nameOf(element: Element): string {
     return collapse(computeAccessibleName(element));
 }
 
-/** 看得见的文字（`includeText` 与按文字定位用）：跳过 `aria-hidden`、脚本与样式。 */
-export function visibleTextOf(element: Element, limit = 400): string {
+/** 看得见的文字（`includeText` 与按文字定位用）：跳过 `aria-hidden`、脚本与样式。读够 `limit` 个字符就停（只用于显示时给上限）。 */
+export function visibleTextOf(element: Element, limit = Infinity): string {
     let out = "";
     const visit = (node: Node): void => {
         if (out.length > limit) return;
@@ -71,11 +71,23 @@ export function visibleTextOf(element: Element, limit = 400): string {
         if (node.getAttribute("aria-hidden") === "true" || node.hasAttribute("hidden")) return;
         const tag = node.localName;
         if (tag === "script" || tag === "style" || tag === "template" || tag === "noscript") return;
-        for (const child of node.childNodes) visit(child);
-        if (node instanceof HTMLElement && getComputedStyleSafe(node)?.display !== "inline") out += " ";
+        const display = getComputedStyleSafe(node)?.display;
+        if (display === "none") return;
+        for (const child of Array.from(flatChildNodes(node))) visit(child);
+        if (display !== "inline") out += " ";
     };
     visit(element);
     return collapse(out);
+}
+
+/** 展平树里的子节点（同 `dom.ts` 的 `flatChildren`，含文字节点）。 */
+function flatChildNodes(element: Element): ArrayLike<Node> {
+    if (element.shadowRoot !== null) return element.shadowRoot.childNodes;
+    if (element instanceof HTMLSlotElement) {
+        const assigned = element.assignedNodes({flatten: true});
+        if (assigned.length > 0) return assigned;
+    }
+    return element.childNodes;
 }
 
 function getComputedStyleSafe(element: Element): CSSStyleDeclaration | null {

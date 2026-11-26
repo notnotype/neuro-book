@@ -34,9 +34,13 @@ test("500 个可交互元素的快照耗时", async ({page}) => {
             runs.push(performance.now() - start);
             if (!("ok" in result)) listed = result.elements.length;
         }
-        return {nodes, listed, runs};
+        // 按文字找一个命中 250 处的短词（每个按钮里都有）：最坏的一档。
+        const textStart = performance.now();
+        window.agent.locate({text: "按钮"});
+        const text = performance.now() - textStart;
+        return {nodes, listed, runs, text};
     });
     const sorted = [...stats.runs].sort((a, b) => a - b);
-    console.log(JSON.stringify({nodes: stats.nodes, listed: stats.listed, first: Math.round(stats.runs[0]!), median: Math.round(sorted[3]!), max: Math.round(sorted[6]!)}));
+    console.log(JSON.stringify({nodes: stats.nodes, listed: stats.listed, first: Math.round(stats.runs[0]!), median: Math.round(sorted[3]!), max: Math.round(sorted[6]!), text: Math.round(stats.text)}));
     expect(stats.listed).toBeGreaterThan(0);
 });

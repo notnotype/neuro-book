@@ -11,8 +11,8 @@ export interface Identity {
     readonly name: string;
     readonly target: string | null;
     readonly key: string | null;
-    /** 所在层的根；null 是底层。 */
-    readonly layer: Element | null;
+    /** 所在层的根；null 是底层。弱引用：记录要存很久，不能拉住已经关掉的弹层与它的整棵子树。 */
+    readonly layer: WeakRef<Element> | null;
     readonly layerRole: string | null;
     readonly layerName: string | null;
 }
@@ -21,9 +21,10 @@ export interface Identity {
  * 同一层：层根是同一个元素；或原来的层根已不在页面上（弹层关了又开，换了新元素），现在的层根角色与名字相同。
  */
 export function sameLayer(issued: Identity, current: Identity): boolean {
-    if (issued.layer === current.layer) return true;
-    return issued.layer !== null && current.layer !== null && !issued.layer.isConnected
-        && issued.layerRole === current.layerRole && issued.layerName === current.layerName;
+    if (issued.layer === null || current.layer === null) return issued.layer === null && current.layer === null;
+    const was = issued.layer.deref();
+    if (was !== undefined && was === current.layer.deref()) return true;
+    return (was === undefined || !was.isConnected) && issued.layerRole === current.layerRole && issued.layerName === current.layerName;
 }
 
 export function sameIdentity(issued: Identity, current: Identity): boolean {

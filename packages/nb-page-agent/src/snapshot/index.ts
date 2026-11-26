@@ -5,12 +5,13 @@
  * 逐个判断看不看得见；再自底向上定容器列不列（有列出的后代，或自己没被盖住）；最后按预算挑行、渲染成文本树与元素数组。
  */
 
-import {ELEMENT_LIMIT, KEY_ATTRIBUTE, RESULT_BYTE_LIMIT, SKIP_ATTRIBUTE, SKIP_VALUE, SNAPSHOT_DEFAULT_TOKENS, SNAPSHOT_MAX_TOKENS, TARGET_ATTRIBUTE, TEXT_BYTE_LIMIT} from "../api";
+import {ELEMENT_LIMIT, KEY_ATTRIBUTE, SKIP_ATTRIBUTE, SKIP_VALUE, SNAPSHOT_DEFAULT_TOKENS, SNAPSHOT_MAX_TOKENS, TARGET_ATTRIBUTE} from "../api";
 import type {PageFailure, SnapshotArgs, SnapshotElement, SnapshotResult} from "../api";
-import {composedContains, composedParent, topElementAt} from "../dom";
+import {composedContains, composedParent, skipRegionOf, topElementAt} from "../dom";
+import type {Inspector} from "../inspect";
 import {locate} from "../locate";
 import type {LocateEnvironment} from "../locate";
-import {estimateTokens, quote, truncate, utf8Length} from "../text";
+import {estimateTokens, quote, truncate} from "../text";
 import {CONTAINER_ROLES, INTERACTIVE_ROLES, LIST_ROLES, ROW_ROLES, TEXT_ROLES, statesOf, valueOf, visibleTextOf} from "./describe";
 import {contextFor, enter, intersect, isEmptyBox, rootContext} from "./walk";
 import type {Box, WalkContext} from "./walk";
@@ -23,9 +24,6 @@ const TEXT_CHARS = 200;
 const KEY_CHARS = 256;
 /** 留给截断提示的预算。 */
 const HINT_TOKENS = 120;
-/** 超出字节上限时每轮把预算降到这个比例重排，至多这么多轮。 */
-const SHRINK_RATIO = 0.7;
-const SHRINK_ROUNDS = 8;
 /** 截断时至多推荐这么多个可以用 `scope` 缩小到的区域。 */
 const SCOPE_HINTS = 5;
 /** 焦点所在区域按这些角色认（输出 3 的截断顺序）。 */
@@ -47,7 +45,8 @@ interface SnapshotNode {
     readonly element: Element;
     readonly kind: Kind;
     readonly role: string;
-    readonly name: string;
+    /** 要列出时才算（`nodeName`）。 */
+    name?: string;
     readonly order: number;
     readonly parent: SnapshotNode | null;
     readonly layer: Layer;
@@ -56,6 +55,7 @@ interface SnapshotNode {
     readonly box: Box | null;
     readonly status: Status;
     readonly faint: boolean;
+    readonly layerRoot: boolean;
     listed: boolean;
     hasListedDescendant: boolean;
     position?: number;
@@ -74,9 +74,11 @@ export function takeSnapshot(environment: LocateEnvironment, args: SnapshotArgs)
         const scoped = locate(environment, args.scope, {mutating: false, settle: false});
         if (!scoped.ok) return {...scoped, message: `scope：${scoped.message}`};
         warnings.push(...scoped.warnings);
-        const context = contextFor(scoped.element);
+        // 跳过区域里的元素作 scope 时只写区域的占位：跳过区域不列内容（输出 3），换个起点也一样。
+        const from = skipRegionOf(scoped.element) ?? scoped.element;
+        const context = contextFor(from);
         if (context === null || !inspector.isRendered(scoped.element)) return {ok: false, code: "not-found", message: "scope 指的元素没有画在页面上"};
-        root = scoped.element;
+        root = from;
         start = context;
         const identity = inspector.identity(scoped.element)!;
         const name = identity.name === "" ? "" : ` ${quote(identity.name, NAME_CHARS)}`;
@@ -85,7 +87,7 @@ export function takeSnapshot(environment: LocateEnvironment, args: SnapshotArgs)
 
     const collected = collect(environment, root, start, args.includeText === true);
     const active = deepActiveElement(document);
-    decideListing(collected.nodes);
+    decideListing(collected.nodes, (node) => nodeName(inspector, node));
     summarizeLists(collected.nodes, document);
     for (const node of collected.nodes) {
         if (node.listed && node.kind !== "skipped") node.ref = refs.issue(node.element, inspector.identityWith(node.element, node.layer.root));
@@ -98,23 +100,19 @@ export function takeSnapshot(environment: LocateEnvironment, args: SnapshotArgs)
 
     const header = [windowLine(document, refs.prefix)];
     if (scopeLine !== null) header.push(scopeLine);
-    header.push(layersLine(collected.layers));
+    header.push(layersLine(inspector, collected.layers));
 
-    const requested = args.maxTokens ?? SNAPSHOT_DEFAULT_TOKENS;
-    let budget = requested;
-    for (let round = 0; ; round += 1) {
-        const rendered = render(environment, collected, layerRefs, header, budget, active);
-        const notes = [...warnings];
-        if (round > 0) notes.push(`byte-limit: 快照超过字节上限，按 ${String(budget)} token 的预算重排`);
-        if (rendered.truncated) notes.push(`truncated: 有 ${String(rendered.omitted)} 个元素超出预算没有列出`);
-        const result: SnapshotResult = {text: rendered.text, elements: rendered.elements, truncated: rendered.truncated, warnings: notes};
-        if (utf8Length(result.text) <= TEXT_BYTE_LIMIT && utf8Length(JSON.stringify(result)) <= RESULT_BYTE_LIMIT) return result;
-        if (round >= SHRINK_ROUNDS) {
-            // 实际到不了：预算至多 8000 token，名字、值与 key 都有字数上限。留着是为了无论如何都不交回超过上限的回复。
-            return {text: truncate(rendered.text, TEXT_BYTE_LIMIT / 4), elements: [], truncated: true, warnings: [...warnings, "byte-limit: 快照超过字节上限，元素数组已清空"]};
-        }
-        budget = Math.floor(budget * SHRINK_RATIO);
-    }
+    // 字节上限（输出 12）由预算保证：至多 8000 token，每个估算的 token 至多 4 个 UTF-8 字节，文字远在 64 KB 以内；元素数组是
+    // 同一批行，名字、值与 key 都有字数上限。整个回复的上限由宿主在回复前再量一次。
+    const rendered = render(environment, collected, layerRefs, header, args.maxTokens ?? SNAPSHOT_DEFAULT_TOKENS, active);
+    if (rendered.truncated) warnings.push(`truncated: 有 ${String(rendered.omitted)} 个元素超出预算没有列出`);
+    return {text: rendered.text, elements: rendered.elements, truncated: rendered.truncated, warnings};
+}
+
+/** 节点的名字只在要列出时才算（可访问名是遍历里最贵的一步）。 */
+function nodeName(inspector: Inspector, node: SnapshotNode): string {
+    node.name ??= node.kind === "text" && node.role !== "heading" ? visibleTextOf(node.element, TEXT_CHARS * 2) : inspector.name(node.element);
+    return node.name;
 }
 
 function deepActiveElement(document: Document): Element | null {
@@ -158,13 +156,7 @@ function collect(environment: LocateEnvironment, root: Element, start: WalkConte
         const layer = layerFor(entered.layer);
         const skipped = element.getAttribute(SKIP_ATTRIBUTE) === SKIP_VALUE;
         const role = entered.role;
-        let kind: Kind | null = skipped ? "skipped" : role === null ? null : classify(role, entered.layerRoot, includeText);
-        let name = "";
-        if (kind !== null) {
-            name = kind === "text" && role !== "heading" ? visibleTextOf(element, TEXT_CHARS * 2) : inspector.name(element);
-            // 容器只列带名字的；列表与层根不带名字也列，它们撑起文本树的层次。
-            if (kind === "container" && name === "" && !LIST_ROLES.has(role!) && !entered.layerRoot) kind = null;
-        }
+        const kind: Kind | null = skipped ? "skipped" : role === null ? null : classify(role, entered.layerRoot, includeText);
         let node: SnapshotNode | null = null;
         if (kind !== null) {
             const rect = element.getBoundingClientRect();
@@ -173,11 +165,12 @@ function collect(environment: LocateEnvironment, root: Element, start: WalkConte
             if (entered.visibilityHidden || rect.width <= 0 || rect.height <= 0) {
                 status = "hidden";
             } else {
-                const clipped = intersect(rect, entered.hard);
+                const clipped = intersect(rect, entered.clips.hard);
                 if (isEmptyBox(clipped)) status = "hidden";
                 else {
-                    const visible = intersect(clipped, entered.scroll);
-                    if (isEmptyBox(visible)) status = "offscreen";
+                    const visible = intersect(clipped, entered.clips.scroll);
+                    // 滚出去的要还能滚回来：落在滚动内容起点左上方的（例如 left: -9999px 的跳过链接）滚不进视野，按看不见算。
+                    if (isEmptyBox(visible)) status = canScrollTo(rect, entered.clips.scroller, element.ownerDocument) ? "offscreen" : "hidden";
                     else {
                         box = visible;
                         status = kind === "interactive" || kind === "text" ? (reachable(element, visible) ? "visible" : "covered") : "visible";
@@ -185,8 +178,8 @@ function collect(environment: LocateEnvironment, root: Element, start: WalkConte
                 }
             }
             node = {
-                element, kind, role: role ?? "", name, order: nodes.length, parent, layer, list: kind !== "skipped" && role !== null && ROW_ROLES.has(role) ? list : null,
-                scroller: entered.scroller, box, status, faint: entered.opacity < FAINT_OPACITY, listed: false, hasListedDescendant: false,
+                element, kind, role: role ?? "", order: nodes.length, parent, layer, list: kind !== "skipped" && role !== null && ROW_ROLES.has(role) ? list : null,
+                scroller: entered.clips.scroller, box, status, faint: entered.opacity < FAINT_OPACITY, layerRoot: entered.layerRoot, listed: false, hasListedDescendant: false,
             };
             nodes.push(node);
             if (entered.layerRoot) layer.node = node;
@@ -196,9 +189,18 @@ function collect(environment: LocateEnvironment, root: Element, start: WalkConte
         const nextParent = node ?? parent;
         const nextList = node !== null && LIST_ROLES.has(node.role) ? node : list;
         const childContext = entered.child;
-        // 宿主先走它 open 的 shadow root（画出来的内容），再走轻 DOM；按兄弟指针走，不为每个元素建数组。
+        // 按展平树走（同 `dom.ts` 的 `flatChildren`）：有 shadow root 的宿主只走 shadow 里的，轻 DOM 的子元素经 slot 走到；
+        // 常见情形按兄弟指针走，不为每个元素建数组。
         const shadow = element.shadowRoot;
-        if (shadow !== null) for (let child = shadow.firstElementChild; child !== null; child = child.nextElementSibling) visit(child, childContext, nextParent, nextList);
+        if (shadow !== null) {
+            for (let child = shadow.firstElementChild; child !== null; child = child.nextElementSibling) visit(child, childContext, nextParent, nextList);
+            return;
+        }
+        const assigned = element instanceof HTMLSlotElement ? element.assignedElements({flatten: true}) : [];
+        if (assigned.length > 0) {
+            for (const child of assigned) visit(child, childContext, nextParent, nextList);
+            return;
+        }
         for (let child = element.firstElementChild; child !== null; child = child.nextElementSibling) visit(child, childContext, nextParent, nextList);
     };
     visit(root, start, null, null);
@@ -206,8 +208,9 @@ function collect(environment: LocateEnvironment, root: Element, start: WalkConte
 }
 
 /**
- * 能点到：在可见部分的中心、再退到四角做命中检查，最上面的（跳过引擎自己的节点）是它自己或它的后代、
- * 是它的祖先（它自己 `pointer-events: none`，上面也没有别的东西），或是它的 label，就算没被盖住。
+ * 能点到：在可见部分的中心、再退到四角做命中检查，最上面的（跳过引擎自己的节点）是它自己或它的后代、是它的 label，
+ * 或它自己 `pointer-events: none`（命中检查穿过它）而最上面的是它的祖先，就算没被盖住。祖先在最上面而它自己接收指针时，
+ * 是被祖先的伪元素蒙层或背景盖住了（例如加载中的 `::after` 遮罩、负 z-index），按被盖住算。
  */
 function reachable(element: Element, box: Box): boolean {
     const width = box.right - box.left;
@@ -221,10 +224,15 @@ function reachable(element: Element, box: Box): boolean {
         [box.right - inset, box.bottom - inset],
     ];
     const labels = "labels" in element ? (element as HTMLInputElement).labels : null;
+    let passesThrough: boolean | null = null;
     for (const [x, y] of points) {
         const top = topElementAt(element.ownerDocument, x, y);
         if (top === null) continue;
-        if (composedContains(element, top) || composedContains(top, element)) return true;
+        if (composedContains(element, top)) return true;
+        if (composedContains(top, element)) {
+            passesThrough ??= element.ownerDocument.defaultView?.getComputedStyle(element).pointerEvents === "none";
+            if (passesThrough) return true;
+        }
         if (labels !== null && [...labels].some((label) => composedContains(label, top))) return true;
     }
     return false;
@@ -232,7 +240,7 @@ function reachable(element: Element, box: Box): boolean {
 
 // ---------- 第二步：列不列 ----------
 
-function decideListing(nodes: readonly SnapshotNode[]): void {
+function decideListing(nodes: readonly SnapshotNode[], nameOf: (node: SnapshotNode) => string): void {
     // 先序排列，倒着走时每个节点的后代都已经定了。
     for (let index = nodes.length - 1; index >= 0; index -= 1) {
         const node = nodes[index]!;
@@ -247,12 +255,15 @@ function decideListing(nodes: readonly SnapshotNode[]): void {
                 }
                 break;
             case "container":
-                node.listed = node.hasListedDescendant || (node.status === "visible" && reachable(node.element, node.box!));
+                // 容器只列带名字的；列表与层根不带名字也列，它们撑起文本树的层次。
+                node.listed = (node.hasListedDescendant || (node.status === "visible" && reachable(node.element, node.box!)))
+                    && (LIST_ROLES.has(node.role) || node.layerRoot || nameOf(node) !== "");
                 break;
             case "skipped":
                 node.listed = node.status === "offscreen" || (node.status === "visible" && reachable(node.element, node.box!));
                 break;
         }
+        if (node.listed) nameOf(node);
         if ((node.listed || node.hasListedDescendant) && node.parent !== null) node.parent.hasListedDescendant = true;
     }
 }
@@ -277,15 +288,27 @@ function summarizeLists(nodes: readonly SnapshotNode[], document: Document): voi
         rows.forEach((row, index) => {
             row.position = (flat ? positiveInteger(row.element.getAttribute("aria-posinset")) : null) ?? index + 1;
         });
-        const total = (flat ? positiveInteger(rows[0]!.element.getAttribute("aria-setsize")) : null)
-            ?? positiveInteger(list.element.getAttribute("aria-rowcount")) ?? rows.length;
+        // 总数只在页面写明时给（aria-setsize、aria-rowcount）：虚拟列表只渲染一段，已渲染的行数不是总数。
+        const total = (flat ? positiveInteger(rows[0]!.element.getAttribute("aria-setsize")) : null) ?? positiveInteger(list.element.getAttribute("aria-rowcount"));
         const positions = rows.map((row) => row.position!);
         const shown = rows.filter((row) => row.listed).map((row) => row.position!);
+        // 行都列出来了、页面也没说还有更多时不写摘要：列表所在的面板能滚，不等于滚这个列表会多出行来。
+        if (shown.length === rows.length && (total === null || total <= rows.length)) continue;
         const scroll = scrollDirections(rows[0]!.scroller, document);
-        if (shown.length === rows.length && total <= rows.length && scroll.length === 0) continue;
         const shownText = shown.length === 0 ? "none" : `${String(Math.min(...shown))}-${String(Math.max(...shown))}`;
-        list.summary = `(rows: ${String(total)} total, rendered ${String(Math.min(...positions))}-${String(Math.max(...positions))}, shown ${shownText}${scroll.length === 0 ? "" : `, can scroll ${scroll.join("/")}`})`;
+        const rendered = `rendered ${String(Math.min(...positions))}-${String(Math.max(...positions))}`;
+        list.summary = `(rows: ${total === null ? "" : `${String(total)} total, `}${rendered}, shown ${shownText}${scroll.length === 0 ? "" : `, can scroll ${scroll.join("/")}`})`;
     }
+}
+
+/** 元素在滚动内容里的位置不在起点的左上方之外：滚得到它。 */
+function canScrollTo(rect: DOMRect, scroller: Element | null, document: Document): boolean {
+    if (scroller === null) {
+        const view = document.defaultView;
+        return view === null || (rect.right + view.scrollX > 0 && rect.bottom + view.scrollY > 0);
+    }
+    const frame = scroller.getBoundingClientRect();
+    return rect.right - frame.left + scroller.scrollLeft > 0 && rect.bottom - frame.top + scroller.scrollTop > 0;
 }
 
 function scrollDirections(scroller: Element | null, document: Document): string[] {
@@ -318,12 +341,14 @@ function windowLine(document: Document, prefix: string): string {
     return `window ${prefix} ${quote(document.title, 80)} ${pathText}${size}${document.hasFocus() ? "  focused" : ""}`;
 }
 
-function layersLine(layers: readonly Layer[]): string {
+function layersLine(inspector: Inspector, layers: readonly Layer[]): string {
     const parts: string[] = [];
     for (const layer of layers) {
         const covered = layer.shown === 0 && layer.covered > 0;
         if (layer.order > 0 && !covered && layer.shown === 0 && layer.node?.listed !== true) continue;
-        const label = layer.root === null ? "base" : layer.node === null ? layer.root.localName : `${layer.node.role}${layer.node.name === "" ? "" : ` ${quote(layer.node.name, 40)}`}`;
+        // 层根不一定在这次遍历里（scope 落在弹层里时它在起点之外），按元素现查角色与名字。
+        const name = layer.root === null ? "" : inspector.name(layer.root);
+        const label = layer.root === null ? "base" : `${inspector.role(layer.root) ?? layer.root.localName}${name === "" ? "" : ` ${quote(name, 40)}`}`;
         parts.push(covered ? `${label} (covered)` : label);
     }
     return `layers: ${parts.join(" > ")}`;
@@ -361,7 +386,8 @@ interface Line {
 function linesOf(node: SnapshotNode, active: Element | null): Line[] {
     const indent = "  ".repeat(depthOf(node));
     if (node.kind === "skipped") {
-        const label = `${node.role === "" ? "" : ` ${node.role}`}${node.name === "" ? "" : ` ${quote(node.name, NAME_CHARS)}`}`;
+        const name = node.name ?? "";
+        const label = `${node.role === "" ? "" : ` ${node.role}`}${name === "" ? "" : ` ${quote(name, NAME_CHARS)}`}`;
         const text = `${indent}- (skipped${label})`;
         return [{text, tokens: estimateTokens(text) + 1}];
     }
@@ -372,7 +398,7 @@ function linesOf(node: SnapshotNode, active: Element | null): Line[] {
     if (key !== null) parts.push(`key=${keyText(key)}`);
     const value = node.kind === "interactive" ? valueOf(node.element, node.role) : undefined;
     if (value !== undefined) parts.push(`value=${quote(value, VALUE_CHARS)}`);
-    const name = node.name === "" ? "" : ` ${quote(node.name, node.kind === "text" ? TEXT_CHARS : NAME_CHARS)}`;
+    const name = (node.name ?? "") === "" ? "" : ` ${quote(node.name!, node.kind === "text" ? TEXT_CHARS : NAME_CHARS)}`;
     const text = `${indent}- ${node.role}${name} [${parts.join(" ")}]`;
     const lines: Line[] = [{text, tokens: estimateTokens(text) + 1}];
     if (node.summary !== undefined) {
@@ -386,7 +412,7 @@ function elementOf(node: SnapshotNode, layerRef: string, active: Element | null)
     const element: {ref: string; role: string; name: string; target?: string; key?: string; layer: string; states: string[]; value?: string} = {
         ref: node.ref!,
         role: node.role,
-        name: truncate(node.name, node.kind === "text" ? TEXT_CHARS : NAME_CHARS),
+        name: truncate(node.name ?? "", node.kind === "text" ? TEXT_CHARS : NAME_CHARS),
         layer: layerRef,
         states: stateTokens(node, active),
     };
@@ -486,17 +512,20 @@ function focusRegion(nodes: readonly SnapshotNode[], active: Element | null): Sn
 function truncationHint(environment: LocateEnvironment, listed: readonly SnapshotNode[], included: ReadonlySet<SnapshotNode>, omitted: number, costOf: (node: SnapshotNode) => number): string {
     const omittedIn = new Map<SnapshotNode, number>();
     const subtree = new Map<SnapshotNode, number>();
+    const elementsIn = new Map<SnapshotNode, number>();
     const sizeOf = (node: SnapshotNode): number => (subtree.get(node) ?? 0) + costOf(node) + 40;
     for (const node of listed) {
         const cost = costOf(node);
         const missing = !included.has(node) && node.kind !== "skipped";
         for (let ancestor = listedParent(node); ancestor !== null; ancestor = listedParent(ancestor)) {
             subtree.set(ancestor, (subtree.get(ancestor) ?? 0) + cost);
+            if (node.kind !== "skipped") elementsIn.set(ancestor, (elementsIn.get(ancestor) ?? 0) + 1);
             if (missing) omittedIn.set(ancestor, (omittedIn.get(ancestor) ?? 0) + 1);
         }
     }
     const candidates = [...omittedIn.entries()]
-        .filter(([node]) => node.kind === "container" && node.name !== "" && sizeOf(node) <= SNAPSHOT_MAX_TOKENS - HINT_TOKENS)
+        // 推荐的区域要能整块列出：放得进最大预算，后代也不超过元素上限。
+        .filter(([node]) => node.kind === "container" && (node.name ?? "") !== "" && sizeOf(node) <= SNAPSHOT_MAX_TOKENS - HINT_TOKENS && (elementsIn.get(node) ?? 0) < ELEMENT_LIMIT)
         .sort((a, b) => b[1] - a[1]);
     const picked: Array<readonly [SnapshotNode, number]> = [];
     for (const entry of candidates) {
@@ -504,7 +533,7 @@ function truncationHint(environment: LocateEnvironment, listed: readonly Snapsho
         if (picked.some(([other]) => composedContains(other.element, entry[0].element) || composedContains(entry[0].element, other.element))) continue;
         picked.push(entry);
     }
-    if (picked.length === 0) return `truncated: ${String(omitted)} more elements; raise maxTokens (up to 8000) or pass scope`;
-    const items = picked.map(([node, count]) => `${environment.refs.issue(node.element, environment.inspector.identityWith(node.element, node.layer.root))} ${node.role} ${quote(node.name, 40)} (${String(count)} more, ~${String(sizeOf(node))} tokens)`);
+    if (picked.length === 0) return `truncated: ${String(omitted)} more elements; raise maxTokens (up to 8000), or pass a smaller scope (one snapshot lists at most ${String(ELEMENT_LIMIT)} elements)`;
+    const items = picked.map(([node, count]) => `${environment.refs.issue(node.element, environment.inspector.identityWith(node.element, node.layer.root))} ${node.role} ${quote(node.name ?? "", 40)} (${String(count)} more, ~${String(sizeOf(node))} tokens)`);
     return `truncated: ${String(omitted)} more elements; snapshot again with scope {ref} and maxTokens of at least its size, on one of: ${items.join(", ")}`;
 }

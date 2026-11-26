@@ -51,7 +51,7 @@ export class Inspector {
             // display: contents 的元素自己没有框，看它的子元素。
             return [...element.children].some((child) => this.isRendered(child));
         }
-        return !isEmptyBox(intersect(rect, entered.hard));
+        return !isEmptyBox(intersect(rect, entered.clips.hard));
     }
 
     role(element: Element): string | null {
@@ -81,7 +81,7 @@ export class Inspector {
             name: collapse(this.name(element)).slice(0, IDENTITY_NAME_CHARS),
             target: element.getAttribute(TARGET_ATTRIBUTE),
             key: element.getAttribute(KEY_ATTRIBUTE),
-            layer,
+            layer: layer === null ? null : new WeakRef(layer),
             layerRole: layer === null ? null : this.role(layer),
             layerName: layer === null ? null : this.name(layer),
         };

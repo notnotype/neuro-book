@@ -73,6 +73,17 @@ test.describe("引用：只在同一层里重找（输出 4）", () => {
     });
 });
 
+test.describe("引用：没有 key 的旧引用（输出 4）", () => {
+    test("没有 key 的旧引用不重找到同名但带 key 的元素", async ({page}) => {
+        await openFixture(page, `<div id="box"><button data-nb-target="demo.row">行</button></div>`);
+        const ref = refOf(await snapshotOk(page), "button", "行");
+        await page.evaluate(() => {
+            document.getElementById("box")!.innerHTML = `<button data-nb-target="demo.row" data-nb-key="alpha">另一行</button>`;
+        });
+        expect(await locate(page, {ref})).toMatchObject({ok: false, code: "stale-ref"});
+    });
+});
+
 test.describe("定位（输出 5）", () => {
     test("稳定名加 key；角色加名字缺省不分大小写、折叠空白的子串匹配，exact 时精确", async ({page}) => {
         await openFixture(page, `
@@ -116,6 +127,22 @@ test.describe("定位（输出 5）", () => {
         expect(await locate(page, {target: "settings.row", key: "k"}, {settle: true})).toMatchObject({ok: true, id: "control"});
         expect(await locate(page, {target: "settings.row", key: "k2"}, {settle: true})).toMatchObject({ok: true, id: "row2"});
         expect(await locate(page, {target: "settings.row", key: "k"})).toMatchObject({ok: true, id: "row"});
+    });
+
+    test("文字被行内元素拆开、前面有很长的文字时照样按文字找到", async ({page}) => {
+        await openFixture(page, `<p id="long">${"前文".repeat(400)} <b>粗体</b> 尾巴 要找的文字 结束</p>`);
+        expect(await locate(page, {text: "要找的文字"})).toMatchObject({ok: true, id: "long"});
+    });
+
+    test("候选很多、很长时 details 按 JSON 至多 8 KB，并写明省略了几个", async ({page}) => {
+        const long = "长".repeat(200);
+        await openFixture(page, Array.from({length: 12}, (_, index) => `<button data-nb-target="demo.big" data-nb-key="${long}${String(index)}">${long}</button>`).join(""));
+        const result = await locate(page, {target: "demo.big"});
+        expect(result).toMatchObject({ok: false, code: "ambiguous"});
+        if (!result.ok) {
+            expect(new TextEncoder().encode(JSON.stringify(result.details)).length).toBeLessThanOrEqual(8192);
+            expect(result.message).toMatch(/省略了 \d+ 个/u);
+        }
     });
 
     test("隐藏的与 aria-hidden 的副本不参与定位；跳过区域里的控件照样能定位", async ({page}) => {
