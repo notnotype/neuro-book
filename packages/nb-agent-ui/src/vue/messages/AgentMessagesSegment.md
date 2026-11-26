@@ -23,7 +23,7 @@
 - **展开**：中段是 `AgentMessagesList`（切换行、bot 页、会话页），宽由宿主给（侧轨的轨宽减去入口那一列）。列表在展开之后淡入，晚于宽度过渡（`--motion-layout`）开始，宽度长出来的过程中不挤着显示名字；减少动效时直接显示。收起时列表直接拿掉，bot 页的搜索词经 `v-model:botQuery` 留在宿主，会话页的搜索词本来在宿主。
 - 搜索框里 `Esc`：框里有字先清空；已空时发 `escape-search`（宿主把焦点交回聊天输入框），不收起。
 - 每个可聚焦项带 `data-rail-item`：侧轨把它们和入口、展开按钮排成一条，统一管 Tab 与方向键。不给 `targets` 时没有侧轨来管，每一项照常可 Tab。
-- 不给 `targets`（浮动窗的右边缘）时底段最下面多一个展开、收起按钮（`data-messages-segment-toggle`，可访问名“展开”，`aria-expanded` 写状态，发 `toggle-expanded`）：侧轨上这个按钮是侧轨自己的，窗里由视图画。
+- 不给 `targets`（浮动窗的右边缘）时底段最下面多一个展开、收起按钮（`data-messages-segment-toggle`，可访问名“展开”，`aria-expanded` 写状态，发 `toggle-expanded`）：侧轨上这个按钮是侧轨自己的，窗里由视图画。收着且 `tooNarrow` 时悬停与读屏描述给“窗口太窄”，按钮带 `data-rail-too-narrow`，同侧轨的展开按钮。
 - 换位置时（侧轨与右边缘之间、侧轨换了元素）先记下焦点与滚过的元素，搬完放回去：浏览器里被搬动的节点会丢焦点、滚动回到顶。
 - 悬停提示在左边（`tooltipSide`，缺省 `left`：消息视图只停右轨与右边缘）。
 - 按钮的颜色跟着工作台侧轨的皮肤变量（`--skin-activitybar-foreground`、`-hover`、`-active`、`-surface`），宿主没给时用 nb-ui 的正文与悬停色；底段按下是灰底、正文色。
@@ -45,6 +45,8 @@ type AgentMessagesSegmentProps = {
     botQuery?: string;
     /** 区域隐藏或拖到零：“当前”退成弱描边。默认 false。 */
     weak?: boolean;
+    /** 不给 `targets` 时底下的展开按钮给“窗口太窄”（宿主拒了展开请求、仍放不下）。默认 false。 */
+    tooNarrow?: boolean;
     now: number;
     locale?: AgentLocale;
     tooltipSide?: "left" | "right";

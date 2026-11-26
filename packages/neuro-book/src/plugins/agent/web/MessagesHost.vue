@@ -85,7 +85,7 @@ const rail = viewRailOf(props.context);
 /** 工作台给的位置换成 nb-agent-ui 的：浮动窗是右边缘，侧轨的两个位置原样交过去（两边都写成 `object`，外框按元素收下）。 */
 const placement = computed((): MessagesSegmentPlacement => {
     const current = rail?.placement.value ?? {kind: "none" as const};
-    return current.kind === "window" ? {kind: "edge", width: current.width} : current;
+    return current.kind === "window" ? {kind: "edge", width: current.width, tooNarrow: current.tooNarrow} : current;
 });
 const expanded = computed(() => rail?.expanded.value === true);
 /** 停靠着、区域隐藏或拖到零（视图此刻不可见）：“当前”退成弱描边。 */

@@ -12,7 +12,7 @@ import type {ViewContext} from "../contracts";
 /** 侧轨给视图段的两个位置：工作台自己按元素用；交给视图时就是共用合同的 `ViewRailPlacement`。 */
 export type RailPlacement =
     | {readonly kind: "rail"; readonly main: HTMLElement; readonly foot: HTMLElement}
-    | {readonly kind: "window"; readonly width: number}
+    | {readonly kind: "window"; readonly width: number; readonly tooNarrow: boolean}
     | {readonly kind: "none"};
 
 /** 外壳持有的一端：分发借用时写 `setPlacement`、生效的展开状态写 `setExpanded`；换代或删实例时 `retire`。 */

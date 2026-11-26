@@ -210,6 +210,12 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         expect([toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded")]).toEqual(["展开", "false"]);
         toggle.click();
         expect(events.at(-1)).toEqual(["toggle-expanded"]);
+        expect(toggle.hasAttribute("data-rail-too-narrow")).toBe(false);
+
+        // 宿主拒了展开、仍放不下：按钮上给“窗口太窄”，同侧轨的展开按钮（workbench-layout 输出 51 的“矩形”）。
+        placement.value = {kind: "edge", width: 260, tooNarrow: true};
+        await nextTick();
+        expect([toggle.hasAttribute("data-rail-too-narrow"), toggle.getAttribute("aria-description")]).toEqual([true, "窗口太窄"]);
 
         placement.value = {kind: "none"};
         await nextTick();

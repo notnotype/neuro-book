@@ -12,7 +12,7 @@
 - 聊天区（默认插槽）占满视图；它一直是同一份 DOM，视图段换位置、收起展开都不重挂，滚动与输入框的焦点都在。
 - 视图段在哪由宿主给的 `placement` 定：
   - `rail`：送进侧轨给的 `main`、`foot` 两个元素（工作台的右轨）。视图里不占位置。
-  - `edge`：画在视图自己的右边缘，一栏宽 `width`，左边一条描边，这一栏写 `data-float-rail`；顶上让出 `--acv-segment-inset-top`（缺省 0，浮动窗把右上角留给“回到停靠”）。
+  - `edge`：画在视图自己的右边缘，一栏宽 `width`，左边一条描边，这一栏写 `data-float-rail`；`tooNarrow` 转给视图段底下的展开按钮（“窗口太窄”）；顶上让出 `--acv-segment-inset-top`（缺省 0，浮动窗把右上角留给“回到停靠”）。
   - `none`：不画（视图段这一刻没借到地方）。
   - `rail` 与 `edge` 之间换的是同一个视图段实例，只换去处：搜索词、当前页、焦点与滚动位置都在（搬完由视图段放回去）。
 - 收着与展开、底段的两个按钮、“+N”、搜索框里的 `Esc` 见 `AgentMessagesSegment`；要不要展开由宿主向工作台请求，外框只转发事件。
@@ -21,7 +21,7 @@
 
 ```ts
 type AgentMessagesProps = {
-    placement: MessagesSegmentPlacement; // {kind: "rail"; main; foot} | {kind: "edge"; width} | {kind: "none"}
+    placement: MessagesSegmentPlacement; // {kind: "rail"; main; foot} | {kind: "edge"; width; tooNarrow?} | {kind: "none"}
     /** 视图段此刻生效的展开状态（工作台给）。 */
     expanded: boolean;
     sections: readonly MessagesContactSection[];

@@ -452,6 +452,7 @@ export default {
         moreBots: "还有 {{count}} 个 bot",
         expand: "展开",
         collapse: "收起",
+        tooNarrow: "窗口太窄",
     },
     panel: {
         tree: {

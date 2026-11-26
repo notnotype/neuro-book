@@ -460,6 +460,7 @@ export default {
         moreBots: "{{count}} more bots",
         expand: "Expand",
         collapse: "Collapse",
+        tooNarrow: "Window too narrow",
     },
     panel: {
         tree: {

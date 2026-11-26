@@ -208,7 +208,7 @@ watchEffect(() => {
         if (control === null) continue;
         const floating = floatRailOfView(viewId);
         if (floating !== null) {
-            control.setPlacement({kind: "window", width: floating.width});
+            control.setPlacement({kind: "window", width: floating.width, tooNarrow: floating.tooNarrow});
             control.setExpanded(floating.expanded);
             continue;
         }

@@ -71,6 +71,7 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
                 :recent-sessions="props.recentSessions"
                 :tab="props.tab"
                 :weak="props.weak"
+                :too-narrow="props.placement.kind === 'edge' && props.placement.tooNarrow === true"
                 :now="props.now"
                 :locale="props.locale"
                 @update:tab="emit('update:tab', $event)"

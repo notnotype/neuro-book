@@ -161,9 +161,9 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         await ready(instances, "test.rail");
         const old = instances.railOf("test.rail")!;
         // bun 的测试里没有 DOM：用浮动窗那一种位置，同样只比引用。
-        old.setPlacement({kind: "window", width: 260});
+        old.setPlacement({kind: "window", width: 260, tooNarrow: false});
         old.setExpanded(true);
-        expect(old.rail.placement.value).toEqual({kind: "window", width: 260});
+        expect(old.rail.placement.value).toEqual({kind: "window", width: 260, tooNarrow: false});
         instances.renderError("test.rail", instances.instances.get("test.rail")!.generation, "boom");
         expect(instances.railOf("test.rail")).toBeNull();
         // 出错的这一代立即退休：外壳只给就绪的实例分发，不在这里收回的话视图还往右轨里送。
@@ -175,7 +175,7 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         expect(old.rail.placement.value).toEqual({kind: "none"});
         expect(old.rail.expanded.value).toBe(false);
         expect(await old.rail.request(true)).toBe("revoked");
-        old.setPlacement({kind: "window", width: 300});
+        old.setPlacement({kind: "window", width: 300, tooNarrow: false});
         expect(old.rail.placement.value).toEqual({kind: "none"});
         expect(requested).toEqual([]);
     });

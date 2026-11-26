@@ -469,11 +469,12 @@ export interface ViewRailOptIn {
 
 /**
  * 视图段此刻借到的地方。`main`、`foot` 是工作台渲染的元素（同 `ViewHeadSlots` 写成 `object`，视图用 `instanceof HTMLElement` 取）：`main` 在中间独立滚动，
- * `foot` 是底段视图的固定项。`window` 是只有它一个标签的浮动窗，视图把视图段画在窗的右边缘，`width` 是此刻生效的轨宽（输出 51）。
+ * `foot` 是底段视图的固定项。`window` 是只有它一个标签的浮动窗，视图把视图段画在窗的右边缘，`width` 是此刻生效的轨宽，`tooNarrow` 是刚才请求展开被拒、
+ * 窗口仍放不下（视图在自己画的展开按钮上给“窗口太窄”，输出 51 的“矩形”）。侧轨上的展开按钮是工作台的，这一项只给 `window`。
  */
 export type ViewRailPlacement =
     | {readonly kind: "rail"; readonly main: object; readonly foot: object}
-    | {readonly kind: "window"; readonly width: number}
+    | {readonly kind: "window"; readonly width: number; readonly tooNarrow: boolean}
     | {readonly kind: "none"};
 
 /** `request` 的结果：`done` 已提交；`too-narrow` 窗口太窄、意图不改；`revoked` 这一份视图段已经不是当前的（换代、换位置、撤回）。 */

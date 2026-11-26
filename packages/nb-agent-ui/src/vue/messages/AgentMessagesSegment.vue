@@ -22,10 +22,12 @@ const props = withDefaults(defineProps<{
     recentSessions: readonly MessagesRecentSession[];
     tab: "bot" | "sessions";
     weak?: boolean;
+    /** 不给 `targets` 时底下的展开按钮给“窗口太窄”：宿主拒了展开请求、仍放不下（同侧轨展开按钮的 `data-rail-too-narrow`）。 */
+    tooNarrow?: boolean;
     now: number;
     locale?: AgentLocale;
     tooltipSide?: "left" | "right";
-}>(), {targets: null, weak: false, locale: undefined, tooltipSide: "left"});
+}>(), {targets: null, weak: false, tooNarrow: false, locale: undefined, tooltipSide: "left"});
 
 const emit = defineEmits<{
     "update:tab": [tab: "bot" | "sessions"];
@@ -247,12 +249,14 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
                         <span class="i-lucide-history acv-segment__icon" aria-hidden="true" />
                     </button>
                 </Tooltip>
-                <Tooltip v-if="props.targets === null" :text="props.expanded ? t('messages.collapse') : t('messages.expand')" :side="props.tooltipSide">
+                <Tooltip v-if="props.targets === null" :text="props.expanded ? t('messages.collapse') : props.tooNarrow ? t('messages.tooNarrow') : t('messages.expand')" :side="props.tooltipSide">
                     <button
                         type="button"
                         class="acv-segment__item acv-segment__toggle nb-ui-focus-ring"
                         :aria-label="t('messages.expand')"
                         :aria-expanded="props.expanded"
+                        :aria-description="props.tooNarrow && !props.expanded ? t('messages.tooNarrow') : undefined"
+                        :data-rail-too-narrow="props.tooNarrow && !props.expanded ? '' : undefined"
                         data-messages-segment-toggle
                         data-rail-item
                         @click="emit('toggle-expanded')"
