@@ -15,7 +15,7 @@ updated: 2026-11-26
 
 ## 当前状态
 
-2026-11-19 经 nbdev 新建。2026-11-26 开工：读了 browser-use 的评测仓库（`browser-use/benchmark` `77b4df3`，浅克隆在 `.local/github/benchmark`）与它公开的逐题分，写出[设计稿](design.md)，开发者当天确认（决定 1 到 4），交 GPT 查漏。
+2026-11-19 经 nbdev 新建。2026-11-26 开工：读了 browser-use 的评测仓库（`browser-use/benchmark` `77b4df3`，浅克隆在 `.local/github/benchmark`）与它公开的逐题分，写出[设计稿](design.md)，开发者当天确认（决定 1 到 4），交 GPT 查漏（omp `@review`，17 条：阻断 6、重要 11，[报告](evidences/design-review.txt)）。16 条按[处理记录](evidences/design-review-disposition.txt)改成第二稿，主要是：两边的模型请求经评测自己的网关（统一计量、核对实收参数、密钥不给执行者）、两边产出同一种运行记录、NeuroBook 一边换真实时钟、假站在服务端校验业务、执行者用 bwrap 隔离。第 6 条（“接近”的判据在 24 题下多半下不了结论）交开发者定。
 
 ## 决定
 
@@ -33,4 +33,4 @@ updated: 2026-11-26
 
 ## 下一步
 
-处理 GPT 查漏的结果，改设计稿；再按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写计划，从第一阶段（browser-use 一边的基线）开始。
+开发者定第 6 条的统计口径、确认第二稿；再按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写计划，从第一阶段（browser-use 一边的基线）开始。
