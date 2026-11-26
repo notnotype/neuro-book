@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-social-login-and-oauth-provider
-status: planned
-updated: 2026-11-24
+status: done
+updated: 2026-11-26
 ---
 
 # 社交登录与对外 OAuth 服务
@@ -15,7 +15,7 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 
 ## 当前状态
 
-未开工：开发者 2026-11-24 要求先把 ADR、Task 与文档写好，开工等他的指示。
+已完成（2026-11-26）：十片与三轮实现审查（第 2、3 片，第 4 到 7 片，第 8 到 10 片，各 Opus 加 omp）、晋升前逐句核对的修正都在分支 `feat/w00037-t08-social-oauth` 上，经 Work 分支（`c49dadfc7`，先并进了 master）合入 master（`a81b85b5e`）；`site.oauth-provider` 晋升 implemented，`site.accounts` 与 `site.admin` 里 t08 的 planned 标记已去掉（`7f6969cf1`；留导入码的次数与注册页预填邀请码两句，归 t12、t10）。上线前要开发者在 Google、GitHub 注册 OAuth 应用。
 
 范围：Google 与 GitHub 登录（通用 OAuth 插件、照真实形状的仿真上游、先填后跳的注册顺序、邮箱撞号、关联与解绑），对外 OAuth 服务（可达端点的精确清单、客户端登记、授权码加 PKCE、授权确认、令牌与用户信息、随账号失效），库私有的续接协议与回调错误包进自家接口。
 
@@ -87,7 +87,7 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 
 ## 下一步
 
-Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），主会话审过、写进 `site.oauth-provider` 与 `site.accounts`、`site.admin` 后，按高风险后端做设计审查（Opus 先审，omp 在后台）。
+无。留给别的 Task 的：前端的社交登录、注册、关联与解绑页面，以及授权确认页、站点同意页（t10，失败码见合同包的 `SOCIAL_ERROR_CODES`）；部署时配 Google、GitHub 的客户端 id 与密钥（开发者的账号注册）。
 
 ## 实施进度
 
