@@ -5,7 +5,7 @@
  * `src/shared/testing/sample-views-contract.ts`；它们只在测试外壳里读，产品清单与产品构建不含本插件。
  */
 
-import {defineComponent, h} from "vue";
+import {defineComponent, h, Teleport} from "vue";
 import type {PropType} from "vue";
 import {Type} from "typebox";
 
@@ -13,13 +13,14 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
-import {WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {VIEW_RAIL, viewRailOf, WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewRailBounds} from "nbook/plugins/workbench/shared/contracts";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {EditorAreaContext, EditorAreaImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
-import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
+import {SAMPLE_EDITOR_AREA_ID, SAMPLE_RAIL_BOUNDS, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 const view = (name: string, location: ViewDeclaration["location"], icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
 
@@ -81,6 +82,41 @@ function switchOn(key: string): ReadonlyArray<string> {
     return (globalThis.localStorage?.getItem(key) ?? "").split(",").filter(Boolean);
 }
 
+/** `rail` 视图段的范围：开关里的 JSON，读不出时用缺省。 */
+function railBoundsSwitch(): ViewRailBounds {
+    try {
+        const raw = globalThis.localStorage?.getItem(SAMPLE_VIEWS_SWITCHES.railBounds);
+        return raw === null || raw === undefined ? SAMPLE_RAIL_BOUNDS : {...SAMPLE_RAIL_BOUNDS, ...(JSON.parse(raw) as Partial<ViewRailBounds>)};
+    } catch (error) {
+        console.warn("[test.sample-views] rail-bounds 开关读不出，用缺省", error);
+        return SAMPLE_RAIL_BOUNDS;
+    }
+}
+
+/**
+ * `rail` 视图的视图段（views.md 输出 21）：借到右轨时往 `main` 送三个会话按钮、往 `foot` 送一个按钮，都带 `data-rail-item`；展开时 `main` 里另有一行写着“展开”。
+ * 视图自己的内容写出此刻的借用状态，e2e 经它核对借用、撤回与展开。
+ */
+const SampleRailView = defineComponent({
+    name: "SampleRailView",
+    props: {context: {type: Object as PropType<ViewContext>, required: true}},
+    setup: (props) => {
+        const rail = viewRailOf(props.context);
+        return () => {
+            const placement = rail?.placement.value ?? {kind: "none" as const};
+            const expanded = rail?.expanded.value === true;
+            const body = h("div", {"data-sample-rail": placement.kind, "data-sample-rail-expanded": expanded ? "true" : "false"}, `样例庚：${placement.kind}`);
+            if (placement.kind !== "rail" || !(placement.main instanceof HTMLElement) || !(placement.foot instanceof HTMLElement)) return body;
+            const items = ["一", "二", "三"].map((name) => h("button", {type: "button", "data-rail-item": "", "data-sample-rail-item": name, "aria-label": `会话${name}`, class: "sample-rail-item"}, name));
+            return [
+                body,
+                h(Teleport, {to: placement.main}, [h("div", {"data-messages-segment": "", "data-messages-segment-state": expanded ? "expanded" : "collapsed"}, [...items, ...(expanded ? [h("div", {"data-sample-rail-list": ""}, "展开")] : [])])]),
+                h(Teleport, {to: placement.foot}, [h("button", {type: "button", "data-rail-item": "", "data-sample-rail-foot": "", "aria-label": "新对话"}, "+")]),
+            ];
+        };
+    },
+});
+
 export function createSampleViewsBrowserPlugin(): PluginDefinition {
     const views: Readonly<Record<string, ViewDeclaration>> = switchOn(SAMPLE_VIEWS_SWITCHES.withRail).includes("1") ? {...VIEWS, [SAMPLE_VIEW_IDS.rail]: RAIL_VIEW} : VIEWS;
     return {
@@ -108,7 +144,14 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                 };
                 globalThis.addEventListener(SAMPLE_VIEWS_RUN_EVENT, run);
                 context.scope.register({kind: "sample-views-run-event", label: `${sampleViewsDescriptor.id} run event`, value: run, release: (listener) => globalThis.removeEventListener(SAMPLE_VIEWS_RUN_EVENT, listener)});
-                const implementation = (viewId: string): ViewImplementation => ({
+                const railImplementation: ViewImplementation & {readonly [VIEW_RAIL]: ViewRailBounds} = {
+                    load: async () => {
+                        if (switchOn(SAMPLE_VIEWS_SWITCHES.failLoad).includes(SAMPLE_VIEW_IDS.rail)) throw new Error(`样例视图 ${SAMPLE_VIEW_IDS.rail} 按开关加载失败`);
+                        return SampleRailView;
+                    },
+                    [VIEW_RAIL]: railBoundsSwitch(),
+                };
+                const implementation = (viewId: string): ViewImplementation => (viewId === SAMPLE_VIEW_IDS.rail ? railImplementation : {
                     load: async () => {
                         if (switchOn(SAMPLE_VIEWS_SWITCHES.failLoad).includes(viewId)) throw new Error(`样例视图 ${viewId} 按开关加载失败`);
                         const view = (await import("./SampleViewsView.vue")).default;

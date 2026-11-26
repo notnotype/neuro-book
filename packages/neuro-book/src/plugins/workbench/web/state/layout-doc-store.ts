@@ -85,6 +85,8 @@ function defineLayoutDocStore(bound: boolean) {
         const catalog = shallowRef<ViewCatalog>(new Map());
         /** 视图声明的视图段（外壳交进来：注册表的 `railOf`，渲染出错、交付撤回的视图给 null，输出 50 的“展开”）。 */
         const railBounds = shallowRef<(viewId: string) => ViewRailBounds | null>(() => null);
+        /** 轨宽手柄拖动中的宽（输出 50 的“轨宽手柄”）：只给呈现，不写文档；松手由 `commitRailWidth` 提交。 */
+        const railPreview = shallowRef<number | null>(null);
         const containers = shallowRef<ContainerCatalog>(NO_CONTAINERS);
         /** 这个窗口的文档。打开时读到记录才有；没有记录时是 null，默认树跟着视图目录（目录是陆续交进来的），第一次改动才定下来。 */
         const local = shallowRef<LayoutDoc | null>(null);
@@ -200,7 +202,7 @@ function defineLayoutDocStore(bound: boolean) {
             const viewId = sections.length === 1 ? sections[0]?.viewId ?? null : null;
             const bounds = soleRailBounds(current, container);
             const intent = current.panels[anchor]?.rail?.[container];
-            const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, intent?.width ?? bounds.width));
+            const requested = bounds === null ? SHELL_RAIL_WIDTH : Math.min(bounds.maximum, Math.max(bounds.minimum, railPreview.value ?? intent?.width ?? bounds.width));
             const collapsed: RailState = {container, viewId, bounds, expanded: false, tooNarrow: false, width: SHELL_RAIL_WIDTH, requested};
             if (bounds === null || intent?.expanded !== true) return collapsed;
             const budget = budgetFor(current, requested, bounds);
@@ -635,6 +637,10 @@ function defineLayoutDocStore(bound: boolean) {
                     if (!moved.ok || anchor === null || moved.doc.panels[anchor]?.rail?.[container] === undefined) return moved;
                     return setContainerRail(moved.doc, {anchor, container, intent: null});
                 }, {flush: true}),
+                /** 轨宽手柄拖动中的预览宽；null 撤回（输出 50 的“轨宽手柄”）。 */
+                previewRailWidth: (width: number | null): void => {
+                    railPreview.value = width;
+                },
                 /** 视图段的范围从哪里读（外壳交进来，见 `railBounds`）。 */
                 acceptRailBounds: (next: (viewId: string) => ViewRailBounds | null): void => {
                     railBounds.value = next;

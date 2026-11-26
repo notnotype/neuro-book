@@ -460,7 +460,7 @@ export const labFixtures: LabFixture[] = [
             const base = {
                 contextKey: "lab:surface",
                 doc: {version: 1 as const, tree: {version: 2 as const, root: {...leaf, size: {width: 0, height: 0}}}, panels: {g0: {role: "editor" as const, tabs: [], active: null}}, floats: [], hiddenBars: [], currentEditor: "g0"},
-                projection: {input: leaf, strips: [], rails: [], widthOverrides: new Map()},
+                projection: {input: leaf, strips: [], rails: []},
             };
             return [
                 {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},

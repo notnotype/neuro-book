@@ -21,7 +21,7 @@ import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {WORKBENCH_FILE_DROP} from "../../shared/contracts";
-import type {WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
+import type {ViewRailRequestResult, WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND, moveTargetItem, moveTargetsFor} from "../commands/view-commands";
@@ -31,7 +31,7 @@ import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerMoveTargets, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {entriesOnRail, focusLandings, isSoleWindow, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
+import {entriesOnRail, focusLandings, isSoleWindow, layoutStructureKey, mergedSections, panelTitle, regionEntries, regionEntryIntent, regionVisible, titleOnlyPanels, viewIdOf, viewKey} from "../state/layout-present";
 import type {ContainerEntry, FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -57,7 +57,7 @@ import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 import WorkbenchToolStrip from "./WorkbenchToolStrip.vue";
-import type {ToolStripEntry, ToolStripItem} from "./WorkbenchToolStrip.vue";
+import type {ToolStripEntry, ToolStripItem, ToolStripSegment} from "./WorkbenchToolStrip.vue";
 import WorkbenchViewFrame from "./WorkbenchViewFrame.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
 import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
@@ -154,7 +154,75 @@ const instances = useViewInstances({
         const panel = panelOfView(viewId);
         return panel === null ? null : regionOf(doc.value, panel);
     },
+    requestRail: (viewId, expanded) => requestViewRail(viewId, expanded),
 });
+
+// ── 视图段（docs/specs/workbench/views.md 输出 21，docs/specs/ui/workbench-layout.md 输出 50）─────────────────
+
+/** store 按它判当前容器有没有视图段：声明了、交付着、实例没有渲染出错。 */
+props.layout.actions.acceptRailBounds((viewId) => (instances.instances.get(viewId)?.status === "render-failed" ? null : props.views.railOf?.(viewId) ?? null));
+
+/** 视图段此刻借给谁：右栏当前容器恰有一节、是这个视图（`state.rail`）。 */
+const railOwner = computed(() => state.value.rail?.viewId ?? null);
+
+/** 视图的 `request`：只有此刻借着视图段的那个视图能请求，别的（换了容器、换了位置）是 `revoked`。 */
+function requestViewRail(viewId: string, expanded: boolean): ViewRailRequestResult {
+    const rail = state.value.rail;
+    if (rail === null || rail.viewId !== viewId) return "revoked";
+    const result = props.layout.actions.requestRailExpanded(rail.container, expanded);
+    return result.ok ? result.result : "revoked";
+}
+
+/** 右轨交来的视图段位置。 */
+const railElements = shallowRef<{readonly main: HTMLElement; readonly foot: HTMLElement} | null>(null);
+function setRailElements(main: HTMLElement | null, foot: HTMLElement | null): void {
+    railElements.value = main === null || foot === null ? null : {main, foot};
+}
+
+/**
+ * 分发借用（views.md 输出 21 的“借用”）：同面板头的做法，按已提交的文档汇总、在同一次 flush 里分给每个声明了视图段的实例：借着的那个拿到右轨的位置与生效的展开状态，
+ * 别的都是 `none`。右轨拆掉时先在这里把位置收回（元素交 null），视图的 `Teleport` 不会往已拆掉的元素里送。
+ */
+watchEffect(() => {
+    const owner = railOwner.value;
+    const elements = railElements.value;
+    const expanded = state.value.rail?.expanded === true;
+    for (const viewId of instances.instances.keys()) {
+        const control = instances.railOf(viewId);
+        if (control === null) continue;
+        const borrowing = viewId === owner && elements !== null && railSegment.value !== null;
+        control.setPlacement(borrowing ? {kind: "rail", main: elements.main, foot: elements.foot} : {kind: "none"});
+        control.setExpanded(borrowing && expanded);
+    }
+});
+
+/** 右轨的视图段（侧轨组件的 `segment`）：当前容器有视图段时才有。 */
+const railSegment = computed((): ToolStripSegment | null => {
+    const rail = state.value.rail;
+    if (rail === null || rail.bounds === null || rail.viewId === null) return null;
+    const status = instances.instances.get(rail.viewId)?.status;
+    return {
+        expanded: rail.expanded,
+        tooNarrow: rail.tooNarrow,
+        loading: status === "loading",
+        width: rail.expanded ? rail.width : rail.requested,
+        bounds: rail.bounds,
+        revision: layoutStructureKey(doc.value),
+        handleDisabled: state.value.maximized !== null,
+        labels: {expand: message("shell.rail.expand"), collapse: message("shell.rail.collapse"), tooNarrow: message("shell.rail.tooNarrow"), handle: message("shell.rail.handle")},
+    };
+});
+
+function toggleRailSegment(): void {
+    const rail = state.value.rail;
+    if (rail === null) return;
+    props.layout.actions.requestRailExpanded(rail.container, !rail.expanded);
+}
+
+function commitRailWidth(width: number): void {
+    const rail = state.value.rail;
+    if (rail !== null) props.layout.actions.commitRailWidth(rail.container, width);
+}
 
 function layoutOfView(viewId: string): "scroll" | "fill" {
     return catalog.value.get(viewId)?.layout ?? "scroll";
@@ -1091,8 +1159,13 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :highlighted="mergeEntry"
                         :slide-token="slides.auxiliarybar"
                         :drag-hint="message('shell.drag.hint')"
+                        :segment="railSegment"
                         @select="(id) => selectRegionEntry('auxiliarybar', id)"
                         @context-menu="openContainerMenu"
+                        @segment-elements="setRailElements"
+                        @toggle-segment="toggleRailSegment"
+                        @segment-width-preview="(width) => layout.actions.previewRailWidth(width)"
+                        @segment-width-commit="commitRailWidth"
                     />
                 </template>
                 <template #statusbar>

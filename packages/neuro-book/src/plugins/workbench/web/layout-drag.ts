@@ -852,6 +852,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 来源收起、展开那一刻屏幕上的判定，指针没动之前一直是它（被拒绝、编辑器的拒绝跟着留下）。排在遮挡之前：预览重排可能让按钮区滑到静止的指针下，那一次判定不能把它盖掉。
         if (region === null && live.unmoved(point)) return run.judged;
         const onButtons = region === null && top?.closest("[data-no-drag]") != null;
+        // 侧轨的视图段与底段（输出 50 的“落点”）：拒收区，松手是取消、不开新窗，和停在面板上被拒绝同一种结果。入口带不在里面，照常是落点。
+        if (region === null && !covered && top?.closest("[data-drop-refuse]") != null) {
+            run.transient = null;
+            return {drop: null, rejected: true, refusal: null};
+        }
         try {
             return covered || onButtons ? NOT_JUDGED : dropAt(source, point, region);
         } finally {

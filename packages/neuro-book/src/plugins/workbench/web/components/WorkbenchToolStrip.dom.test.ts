@@ -8,7 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {nextTick} from "vue";
 
 import WorkbenchToolStrip from "./WorkbenchToolStrip.vue";
-import type {ToolStripEntry} from "./WorkbenchToolStrip.vue";
+import type {ToolStripEntry, ToolStripSegment} from "./WorkbenchToolStrip.vue";
 
 const entry = (id: string, label: string, count?: number): ToolStripEntry => ({id, label, icon: "i-lucide-square", tooltip: label, viewId: null, current: false, pressed: false, ...(count === undefined ? {} : {count})});
 
@@ -88,5 +88,80 @@ describe("WorkbenchToolStrip", () => {
         extra.remove();
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(tabStops(nav)).toEqual(["a"]);
+    });
+});
+
+describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md 输出 50）", () => {
+    const labels = {expand: "展开", collapse: "收起", tooNarrow: "窗口太窄", handle: "调整侧轨宽度"};
+    const segment = (overrides: Partial<ToolStripSegment> = {}): ToolStripSegment => ({expanded: false, tooNarrow: false, loading: false, width: 260, bounds: {minimum: 200, maximum: 420, width: 260}, revision: 1, handleDisabled: false, labels, ...overrides});
+    const mountRail = (value: ToolStripSegment | null) => mount(WorkbenchToolStrip, {props: {label: "右栏的侧轨", moreLabel: "更多", entries: [{...entry("view:m", "消息"), current: true, pressed: true}], region: "auxiliarybar", segment: value}, attachTo: document.body});
+
+    it("有视图段：画出 main 与 foot（拒收区）并交给宿主、展开按钮；收着与展开、太窄的说法；没有视图段时这些都没有，交回 null", async () => {
+        const wrapper = mountRail(segment());
+        await nextTick();
+        const main = wrapper.get('[data-rail-segment="main"]').element;
+        const foot = wrapper.get('[data-rail-segment="foot"]').element;
+        expect([main.hasAttribute("data-drop-refuse"), foot.hasAttribute("data-drop-refuse")]).toEqual([true, true]);
+        expect(wrapper.emitted("segment-elements")?.at(-1)).toEqual([main, foot]);
+        const expand = wrapper.get("[data-rail-expand]");
+        expect([expand.attributes("aria-expanded"), expand.attributes("aria-label")]).toEqual(["false", "展开"]);
+        expect(wrapper.get("nav").attributes("data-rail-state")).toBe("collapsed");
+        expect(wrapper.find("[data-rail-handle]").exists()).toBe(false);
+        await expand.trigger("click");
+        expect(wrapper.emitted("toggle-segment")).toHaveLength(1);
+
+        await wrapper.setProps({segment: segment({expanded: true})});
+        expect(wrapper.get("nav").attributes("data-rail-state")).toBe("expanded");
+        expect([wrapper.get("[data-rail-expand]").attributes("aria-expanded"), wrapper.get("[data-rail-expand]").attributes("aria-label")]).toEqual(["true", "收起"]);
+        expect(wrapper.get("[data-rail-handle]").attributes()).toMatchObject({"role": "separator", "aria-valuenow": "260", "aria-valuemin": "200", "aria-valuemax": "420", "aria-label": "调整侧轨宽度"});
+
+        await wrapper.setProps({segment: segment({tooNarrow: true})});
+        expect(wrapper.get("[data-rail-expand]").attributes()).toMatchObject({"aria-expanded": "false", "aria-label": "窗口太窄", "data-rail-too-narrow": ""});
+        await wrapper.setProps({segment: segment({loading: true})});
+        expect(wrapper.find("[data-rail-segment='main'] [data-rail-loading]").exists()).toBe(true);
+
+        await wrapper.setProps({segment: null});
+        await nextTick();
+        expect(wrapper.find("[data-rail-segment]").exists()).toBe(false);
+        expect(wrapper.find("[data-rail-expand]").exists()).toBe(false);
+        expect(wrapper.emitted("segment-elements")?.at(-1)).toEqual([null, null]);
+    });
+
+    it("轨宽手柄的键盘：右轨往左（ArrowLeft）变宽，每次 10；Home 与双击回缺省；到了上限不再提交；最大化时没有手柄", async () => {
+        const wrapper = mountRail(segment({expanded: true, width: 300}));
+        const handle = wrapper.get("[data-rail-handle]");
+        await handle.trigger("keydown", {key: "ArrowLeft"});
+        await handle.trigger("keydown", {key: "ArrowRight"});
+        await handle.trigger("keydown", {key: "Home"});
+        await handle.trigger("dblclick");
+        expect(wrapper.emitted("segment-width-commit")).toEqual([[310], [290], [260], [260]]);
+        await wrapper.setProps({segment: segment({expanded: true, width: 420})});
+        await wrapper.get("[data-rail-handle]").trigger("keydown", {key: "ArrowLeft"});
+        expect(wrapper.emitted("segment-width-commit")).toHaveLength(4);
+        await wrapper.setProps({segment: segment({expanded: true, handleDisabled: true})});
+        expect(wrapper.find("[data-rail-handle]").exists()).toBe(false);
+    });
+
+    it("焦点在视图段里、视图段被收起：焦点所在的项还在就留着；被视图拆掉了交给展开按钮", async () => {
+        const wrapper = mountRail(segment({expanded: true}));
+        await nextTick();
+        const main = wrapper.get('[data-rail-segment="main"]').element;
+        const kept = document.createElement("button");
+        main.append(kept);
+        kept.focus();
+        await wrapper.setProps({segment: segment({expanded: false})});
+        await nextTick();
+        expect(document.activeElement).toBe(kept);
+
+        await wrapper.setProps({segment: segment({expanded: true})});
+        const list = document.createElement("button");
+        main.append(list);
+        list.focus();
+        // 视图收起时拆掉展开的列表：和这次更新同一轮。
+        const props = wrapper.setProps({segment: segment({expanded: false})});
+        list.remove();
+        await props;
+        await nextTick();
+        expect(document.activeElement).toBe(wrapper.get("[data-rail-expand]").element);
     });
 });

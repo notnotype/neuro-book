@@ -5,8 +5,9 @@
  * 开关是页面的 `localStorage` 键（测试用 `page.evaluate` 或 `addInitScript` 写），只在 e2e 构建里被读：
  * - `FAIL_ACTIVATION`：值为 "1" 时入口激活抛错；
  * - `FAIL_LOAD`、`FAIL_RENDER`：值是逗号分隔的视图 id，这些视图的 `load()` 失败、组件渲染时抛错；
- * - `WITH_RAIL`：值为 "1" 时另贡献右栏的受限视图 `rail`（位置限制，views.md 输出 22）。插件创建时读一次，所以要在页面加载前写（`addInitScript`）；
+ * - `WITH_RAIL`：值为 "1" 时另贡献右栏的受限视图 `rail`（位置限制，views.md 输出 22；视图段，输出 21）。插件创建时读一次，所以要在页面加载前写（`addInitScript`）；
  *   不默认贡献，别的用例里右栏的入口不跟着多一个。
+ * - `RAIL_BOUNDS`：`rail` 视图段的范围，JSON `{width, minimum, maximum, chatMinimum}`；不写时是 `SAMPLE_RAIL_BOUNDS`。同样在插件创建时读。
  */
 
 import type {PluginDescriptor} from "nbook/manifest";
@@ -44,4 +45,8 @@ export const SAMPLE_VIEWS_SWITCHES = {
     failLoad: "test.sample-views/fail-load",
     failRender: "test.sample-views/fail-render",
     withRail: "test.sample-views/with-rail",
+    railBounds: "test.sample-views/rail-bounds",
 } as const;
+
+/** `rail` 视图段的缺省范围：同消息视图（conversation 输出 57）。 */
+export const SAMPLE_RAIL_BOUNDS = {width: 260, minimum: 200, maximum: 420, chatMinimum: 320} as const;
