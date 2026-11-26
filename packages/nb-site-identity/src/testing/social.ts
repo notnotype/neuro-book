@@ -10,7 +10,7 @@ import type {SocialProvider} from "@notnotype/nb-site-identity-contract";
 import type {SocialConfig} from "../config";
 import {libDate} from "../db/library-rows";
 import {TEST_SITE_URL} from "./library";
-import type {TestIdentity} from "./module";
+import {TEST_CLIENT_ADDRESS_HEADER, type TestIdentity} from "./module";
 
 /** 两个上游都接到仿真上游上（与 `upstreamEnv` 给入口的七个变量同一套值）。 */
 export function fakeSocialConfig(upstream: Pick<FakeUpstream, "base">): SocialConfig {
@@ -20,11 +20,19 @@ export function fakeSocialConfig(upstream: Pick<FakeUpstream, "base">): SocialCo
     };
 }
 
-/** `POST social/:provider/start`；`cookie` 是发起者的会话 Cookie（关联意图要）。 */
-export function startSocial(identity: TestIdentity, provider: string, body: unknown, cookie?: string): Promise<Response> {
+/**
+ * `POST social/:provider/start`；`cookie` 是发起者的会话 Cookie（关联意图要）。`clientAddress` 是请求的来源地址（注册意图按它计
+ * 限流），不给时用 `createTestIdentity` 的缺省地址。
+ */
+export function startSocial(identity: TestIdentity, provider: string, body: unknown, cookie?: string, clientAddress?: string): Promise<Response> {
     return identity.fetch(`/social/${provider}/start`, {
         method: "POST",
-        headers: {origin: TEST_SITE_URL, "content-type": "application/json", ...(cookie === undefined ? {} : {cookie})},
+        headers: {
+            origin: TEST_SITE_URL,
+            "content-type": "application/json",
+            ...(cookie === undefined ? {} : {cookie}),
+            ...(clientAddress === undefined ? {} : {[TEST_CLIENT_ADDRESS_HEADER]: clientAddress}),
+        },
         body: JSON.stringify(body),
     });
 }

@@ -15,6 +15,7 @@ import type {SocialErrorCode, SocialIntent, SocialProvider} from "@notnotype/nb-
 
 import type {IdentityTx} from "../db/connection";
 import {libDate} from "../db/library-rows";
+import type {ClaimedCodes, Registrant} from "../register";
 
 /** 发起起这么久之内的回调有效（`site.accounts` 时序一节）。库的 state 行与 state Cookie 的寿命也是 10 分钟（`auth.ts`）。 */
 export const SOCIAL_FLOW_MS = 600_000;
@@ -22,14 +23,22 @@ export const SOCIAL_FLOW_MS = 600_000;
 /**
  * 发起时交给库的三个回调地址的路径（站点地址的 origin 加它）：库处理完回调后跳到其中之一，`callback.ts` 只按它们判结果，再换成
  * `site.accounts` 输出 23 的落点。浏览器到不了这三处：库的跳转都由 `callback.ts` 改写，不原样发出。
- * `newUser` 是库这次建了账号时去的（注册意图，第 9 片），与 `ok` 分得开（问 11）。
+ * `newUser` 是库这次建了账号时去的（注册意图），与 `ok` 分得开（问 11）。
  */
 export const SOCIAL_LIBRARY_TARGETS = {ok: "/__social_ok", newUser: "/__social_new", error: "/__social_error"} as const;
 
-/** 存进流程行的、发起时就定下的内容。不含密码（`0003_social.sql`）。注册的内容由第 9 片加。 */
+/** 社交注册发起时校验过的内容（`start.ts`），回调里的注册钩子按它建账号（`hooks.ts`）。 */
+export interface SocialRegistration extends Registrant {
+    /** 发起时同意的条款版本：同意记录写它，不写回调时的当前版本。 */
+    readonly termsVersion: string;
+}
+
+/** 存进流程行的、发起时就定下的内容。不含密码（`0003_social.sql`）。 */
 export interface FlowPayload {
     /** 登录、注册带了合格的续接令牌时，成功后去的站内地址（`site.accounts` 输出 23）。 */
     readonly continueUrl?: string;
+    /** 注册意图才有。 */
+    readonly register?: SocialRegistration;
 }
 
 /** 认领到的一行流程。 */
@@ -57,6 +66,10 @@ export interface SocialFrame {
     upstream?: UpstreamFacts;
     /** 库这次建会话的账号（`auth.ts` 的建会话前钩子记下）：登录成功后据此写最近登录时间。 */
     sessionUserId?: number;
+    /** 注册意图：建用户前钩子扣到的码，建账号前钩子写补充资料时用。 */
+    claimedCodes?: ClaimedCodes;
+    /** 注册意图：库这次建出的账号（建账号前钩子记下）。建会话前钩子据此认出库没建账号、登录了已关联的旧账号。 */
+    registeredUserId?: number;
 }
 
 const frames = new AsyncLocalStorage<SocialFrame>();

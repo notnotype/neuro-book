@@ -3,11 +3,14 @@
  * 挂载层只把开放了的上游交到这里（`oauth/mount.ts`）。浏览器总被带回站点的落点页（输出 23），不论成败，库的跳转不原样发出。
  *
  * 先后：
+ * 0. 查询串超过 `MAX_CALLBACK_QUERY_CHARS` 个字符 → `social_state_invalid`，不认领、不交库（计划 3.6、设计审查第 14 条：这个
+ *    地址不要会话，谁都能发，库会把整个查询串读进来）。落点仍按这个 state 原来的意图选。
  * 1. 认领流程（`flow.ts` 的 `claimFlow`）：认领不到（没有、过期、用过、上游对不上）→ `social_state_invalid`，不交库。认领在交库之前：
  *    同一次流程的回调并发到达时只有一个往下走，浏览器不对的那个也用掉了这次流程（时序一节“只能用一次”）。
  * 2. 关联意图另复核发起的会话（模块时钟）；不成立 → `social_state_invalid`，不交库。关联钩子写入之前还会再判一次（`hooks.ts`）。
  * 3. 在帧里交库（`auth.handler`）。库核对 state Cookie 认浏览器（不对时 `state_mismatch`），再换码、取上游的用户信息、登录或关联。
- * 4. 按库的回答定结论（`conclude`），换成落点。登录成功另记最近登录时间。
+ * 4. 按库的回答定结论，换成落点（`succeed`）。登录成功另记最近登录时间。注册成功（库跳到 `newUser`）不记：与密码注册一样，
+ *    注册不算一次登录。
  *
  * 回调地址带 `error` 的（上游报的，例如用户在上游点了取消）：库核对完 state 之后把它原样转进失败地址（升级清单“社交”的“地址里
  * 的 `error` 原样转出”）。所以库转出的码与地址里的相同时，结论只看地址：`access_denied` 是 `social_cancelled`，别的一律
@@ -37,6 +40,9 @@ export interface SocialCallbackOptions {
 }
 
 export type SocialCallback = (c: Context, provider: SocialProvider) => Promise<Response>;
+
+/** 回调查询串（不含 `?`）的字符数上限。上游的回调只带 `code`、`state` 等几个短参数，远在这之内。 */
+export const MAX_CALLBACK_QUERY_CHARS = 8192;
 
 /** 各意图的落点页（输出 23）。 */
 const LANDING: Readonly<Record<SocialIntent, {readonly ok: string; readonly failed: string}>> = {
@@ -119,15 +125,19 @@ export function createSocialCallback(options: SocialCallbackOptions): SocialCall
         land(`${LANDING[intent].failed}?${new URLSearchParams({[SOCIAL_ERROR_PARAM]: code})}`, cookies);
 
     /**
-     * 成功时落点与要做的事。登录意图记最近登录时间（与密码登录写的是同一列，`login.ts`）：库建会话时帧里记下了账号。注册意图在第 9
-     * 片；在那之前走到这里是程序错误。
+     * 成功时落点与要做的事。登录意图记最近登录时间（与密码登录写的是同一列，`login.ts`）：库建会话时帧里记下了账号。注册意图只该
+     * 落到 `newUser`：库登录了已关联的旧账号时建会话前就被拒了（`hooks.ts` 的 `admitSocialSession`），落到 `ok` 是程序错误。
      */
     const succeed = async (flow: ClaimedFlow, frame: SocialFrame, target: "ok" | "newUser"): Promise<string> => {
         if (flow.intent === "link") {
             if (target !== "ok") throw new Error("a social link ended at the new-user target");
             return LANDING.link.ok;
         }
-        if (flow.intent !== "login" || target !== "ok") throw new Error("a social sign-in ended at a target its intent does not allow");
+        if (flow.intent === "register") {
+            if (target !== "newUser" || frame.registeredUserId === undefined) throw new Error("a social registration succeeded without the library creating an account");
+            return flow.payload.continueUrl ?? LANDING.register.ok;
+        }
+        if (target !== "ok") throw new Error("a social sign-in ended at the new-user target");
         const userId = frame.sessionUserId;
         if (userId === undefined) throw new Error("a social sign-in succeeded without the library creating a session");
         await conn.write((tx) =>
@@ -141,6 +151,10 @@ export function createSocialCallback(options: SocialCallbackOptions): SocialCall
     return async (c, provider) => {
         const url = new URL(c.req.raw.url);
         const state = url.searchParams.get("state") ?? "";
+        // `search` 带开头的 `?`，没有查询串时是空串（与授权端点同一种数法，`oauth/mount.ts`）。
+        if (Math.max(0, url.search.length - 1) > MAX_CALLBACK_QUERY_CHARS) {
+            return failed((await conn.read((tx) => intentOfState(tx, state))) ?? "login", "social_state_invalid");
+        }
         const nowMs = clock.now();
         const claimed = await conn.write((tx): {readonly flow: ClaimedFlow | null; readonly intent: SocialIntent} => {
             const flow = claimFlow(tx, state, provider, nowMs);

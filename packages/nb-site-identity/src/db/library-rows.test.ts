@@ -30,14 +30,15 @@ afterEach(async () => {
 });
 
 /**
- * 产品装配的库，只去掉建账号前的社交钩子：它只许库在社交回调里建 `account` 行（`social/hooks.ts`），这里是直接调库的内部接口量
- * 存法。别的钩子照旧，那个钩子也不改密码登录方式的行（它只把令牌列置空，这一行本来就是空的）。
+ * 产品装配的库，只去掉建用户、建账号前的社交钩子：它们只许库在社交回调里建 `user`、`account` 行（`social/hooks.ts`），这里是
+ * 直接调库的内部接口量存法。别的钩子照旧，建账号前钩子也不改密码登录方式的行（它只把令牌列置空，这一行本来就是空的）。
  */
 async function libraryOn(root: TestDbRoot) {
     const conn = new IdentityConnection(root.open(), {log: recordingLog()});
     const options = identityAuthOptions({conn, siteUrl: TEST_SITE_URL, secret: TEST_SECRET, sessionDays: 30, termsVersion: TEST_TERMS_VERSION, clock: {now: () => Date.now()}, log: recordingLog()});
-    const {create: _socialOnly, ...accountHooks} = options.databaseHooks.account;
-    return (await betterAuth({...options, databaseHooks: {...options.databaseHooks, account: accountHooks}}).$context).internalAdapter;
+    const {create: _socialAccountOnly, ...accountHooks} = options.databaseHooks.account;
+    const {create: _socialUserOnly, ...userHooks} = options.databaseHooks.user;
+    return (await betterAuth({...options, databaseHooks: {...options.databaseHooks, user: userHooks, account: accountHooks}}).$context).internalAdapter;
 }
 
 function rawRows(root: TestDbRoot, table: "user" | "account"): unknown[] {

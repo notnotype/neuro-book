@@ -17,6 +17,8 @@
  * - t08 第 8 片：社交上游（`genericOAuth`，`social/providers.ts`）、state Cookie 的寿命、已关联身份登录时不写回上游令牌
  *   （`updateAccountOnSignIn`）、建会话前的钩子在社交回调里记下账号、库改 `emailVerified` 与重复关联走改账号的路径
  *   （`social/hooks.ts`；清单“社交”几行）。
+ * - t08 第 9 片：社交注册时库在自己的事务里先后调建用户、建账号前的钩子，会话在提交之后建；注册意图碰上已关联的身份时库不建用户、
+ *   直接建会话，建会话前的钩子拒它（`social/hooks.ts`；清单“社交”的“社交注册的先后”一行）。
  */
 
 import {Type, type Static, type TSchema} from "typebox";
@@ -38,7 +40,7 @@ import {clientSecretHash, generateClientSecret} from "./oauth/client-secret";
 import {hashPassword, verifyPassword} from "./password";
 import {consentRequiredIn} from "./session";
 import {currentFrame, SOCIAL_FLOW_MS} from "./social/flow";
-import {socialDatabaseHooks} from "./social/hooks";
+import {admitSocialSession, socialDatabaseHooks} from "./social/hooks";
 import {socialProviderConfigs} from "./social/providers";
 import {storedUserAgent} from "./user-agent";
 
@@ -297,10 +299,11 @@ export function identityAuthOptions(options: IdentityAuthOptions) {
                     // （`user-agent.ts`；`site.accounts` 副作用一节“只存概要”）。所有建会话的路（模块的 issueSession、t08 由库建的）
                     // 都经这个钩子，概要只在这一处算。`databaseHooks` 的 before 返回的 `data` 整个替换库要插入的行，是库 1.7.27 的
                     // 行为，由升级清单“内部接口”的“发会话”用例核对。
-                    // 社交回调里库自己建会话：把账号记进帧，回调据此写最近登录时间（`social/callback.ts`）。
+                    // 社交回调里库自己建会话：注册意图下库没建账号就拒（库登录了已关联的旧账号），通过时把账号记进帧，回调据此写最近
+                    // 登录时间（`social/hooks.ts` 的 `admitSocialSession`）。
                     before: async (session) => {
                         const frame = currentFrame();
-                        if (frame !== undefined) frame.sessionUserId = Number(session.userId);
+                        if (frame !== undefined) admitSocialSession(frame, Number(session.userId));
                         const now = clock.now();
                         return {
                             data: {
