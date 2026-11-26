@@ -916,7 +916,8 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                         // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
                         // 成段的文字在原处展开（输出 51）：同一张编辑卡，不浮起来，把下面的内容推开；原文由卡片组件见到
                         // `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md）。左右各伸出卡片的内边距，输入框里的字与原文对齐。
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
+                        // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
+                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
                     }
                     // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
                     // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。

@@ -190,8 +190,9 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     const saveAt = (previewing: boolean) => {
         const editor = document.querySelector("[data-field-editor='character.年龄']");
         const save = editor === null ? undefined : [...editor.querySelectorAll("button")].find((button) => button.textContent?.trim() === "保存");
-        const shown = editor?.querySelector("[data-confirm-preview]")?.textContent ?? "";
-        if (save === undefined || shown.includes("正在预览") !== previewing) return null;
+        // 预览回来时编辑卡带 data-previewed；在等预览时没有。
+        const previewed = editor?.querySelector("[data-previewed]") != null;
+        if (save === undefined || previewed === previewing) return null;
         const {x, y} = save.getBoundingClientRect();
         return {x, y};
     };

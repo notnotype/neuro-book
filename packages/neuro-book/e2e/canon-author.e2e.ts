@@ -211,15 +211,17 @@ async function showRevisions(page: Page): Promise<Locator> {
     return rows;
 }
 
-test("验收 3：就地改一个只在初值设过的字段，意图写“从最初起”与“从第 3 章起”、缺省是前者；保存后有提示、写着“改性格”与“记在最初”，指着它点还原以后值回到原样；还原的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
+test("验收 3：就地改一个只在初值设过的字段，意图写“从最初起”与“从第 3 章起”、缺省是前者；保存后有提示、写着“改年龄”与“记在最初”，指着它点还原以后值回到原样；还原的那一次查看详情列出改前改后，改动记录多了两条", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
     const revisions = await (await showRevisions(page)).count();
     await entryPage(page).getByRole("tab", {name: "人物"}).click();
-    const before = await fieldValue(page, "character.性格").innerText();
-    await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
-    const bar = inlineEditor(page, "character.性格");
-    await bar.getByRole("textbox").fill("嘴硬心软");
+    // 用短项：它的编辑卡浮在值旁边，收起时页面不变高，量得出“提示出现时内容不动”（成段的文字在原处展开，收起时页面会变短）。
+    const before = await fieldValue(page, "character.年龄").innerText();
+    const next = before === "十七" ? "十八" : "十七";
+    await entryPage(page).locator("[data-edit=\"character.年龄\"]").click();
+    const bar = inlineEditor(page, "character.年龄");
+    await bar.getByRole("textbox").fill(next);
     // 看着第 3 章末尾：意图二选一写“从<来源>起”，这个值只在最初设过，缺省是改设定；写回哪里的那句不再出现。
     const intent = bar.locator("[data-edit-intent]");
     await expect(intent.getByRole("radio", {name: "从最初起"})).toBeChecked();
@@ -228,12 +230,12 @@ test("验收 3：就地改一个只在初值设过的字段，意图写“从最
     await expect(bar).not.toContainText("改最初的值");
     const topBefore = (await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y;
     await bar.getByRole("button", {name: "保存"}).click();
-    await expect(fieldValue(page, "character.性格")).toHaveText("嘴硬心软");
+    await expect(fieldValue(page, "character.年龄")).toHaveText(next);
 
     // 提示浮在页面下方，出现时内容不动；6 秒后自己收起，指着它时不收：先指着再点（author-ui 输出 18）。
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toBeVisible();
-    await expect(notice).toContainText("改性格");
+    await expect(notice).toContainText("改年龄");
     await expect(notice.locator("[data-notice-where]")).toHaveText("记在最初");
     expect((await entryPage(page).locator("[role='tabpanel']").boundingBox())!.y).toBe(topBefore);
     await notice.hover();
@@ -242,16 +244,17 @@ test("验收 3：就地改一个只在初值设过的字段，意图写“从最
     await expect(dialog).toBeVisible();
     await page.getByRole("dialog").getByRole("button", {name: "还原", exact: true}).click();
     await expect(dialog).toHaveCount(0);
-    await expect(fieldValue(page, "character.性格")).toHaveText(before);
+    await expect(fieldValue(page, "character.年龄")).toHaveText(before);
 
-    // 还原成功以后提示换成还原的那一次；它的详情列出性格从“嘴硬心软”回到原来的样子。
+    // 还原成功以后提示换成还原的那一次；它的详情列出年龄从新值回到原来的样子。
     await expect(notice).toContainText("还原");
     await notice.hover();
     await notice.getByRole("button", {name: "查看详情"}).click();
     const receipt = page.locator("[data-receipt-page]");
     await expect(receipt).toBeVisible();
-    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText("嘴硬心软");
-    await expect(receipt.locator("[data-receipt-item]", {hasText: "性格"})).toContainText(before);
+    await expect(receipt.locator("[data-receipt-item]", {hasText: "年龄"})).toContainText(next);
+    // 样本里年龄原来空着（值上写“填写”），回执把空写成“（没有）”。
+    await expect(receipt.locator("[data-receipt-item]", {hasText: "年龄"})).toContainText(before === "填写" ? "（没有）" : before);
 
     const rows = await showRevisions(page);
     await expect(rows).toHaveCount(revisions + 2);
@@ -416,6 +419,8 @@ test("验收 51：在第 3 章末尾改一个只在最初设过的短项，选�
     await expect(entryPage(page).getByRole("tabpanel").getByText(happened).first()).toBeVisible();
 
     await revertNewest(page);
+    // 还原以后回到人物分页看值。
+    await entryPage(page).getByRole("tab", {name: "人物"}).click();
     await expect(fieldValue(page, "character.身份")).toHaveText(before);
 });
 
@@ -437,6 +442,8 @@ test("验收 51：选“从第 3 章起”不填“发生了什么”：修订�
     await entryPage(page).getByRole("tab", {name: "情节"}).click();
     await expect(entryPage(page).getByRole("tabpanel").getByText("身份变成 兼职").first()).toBeVisible();
     await revertNewest(page);
+    // 还原以后回到人物分页看值。
+    await entryPage(page).getByRole("tab", {name: "人物"}).click();
     await expect(fieldValue(page, "character.身份")).toHaveText(before);
 
     // 改设定（从最初起）：标题照旧“改身份”。
