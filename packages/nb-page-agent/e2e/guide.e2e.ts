@@ -117,8 +117,8 @@ test.describe("说明框（输出 10）", () => {
 
     test("减弱动效时只淡入淡出：出现的动画只改透明度，透明度的过渡仍在；不减弱时描边框出现带缩放、说明框带位移", async ({page}) => {
         await openFixture(page, `<button id="go" style="margin:200px">保存</button>`);
-        // 引擎节点上此刻在跑的动画改了哪些属性：关键帧里除偏移、缓动与合成方式之外的键。
-        const animated = () => page.evaluate(() => [...new Set([...document.querySelector("[data-nb-page-agent=guide]")!.shadowRoot!.getAnimations()]
+        // 这一次高亮的节点上此刻在跑的动画改了哪些属性：关键帧里除偏移、缓动与合成方式之外的键。被替换的上一次还在淡出（带 data-closing），不看它。
+        const animated = () => page.evaluate(() => [...new Set([...document.querySelector("[data-nb-page-agent=guide]:not([data-closing])")!.shadowRoot!.getAnimations()]
             .flatMap((animation) => (animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))
             .filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)))].sort());
         await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
@@ -127,9 +127,8 @@ test.describe("说明框（输出 10）", () => {
         await page.emulateMedia({reducedMotion: "reduce"});
         await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
         await installed(page);
-        await expect(part(page, "callout")).toHaveCount(1);
         expect(await animated()).toEqual(["opacity"]);
-        expect(await part(page, "callout").evaluate((element) => getComputedStyle(element).transitionDuration)).not.toBe("0s");
+        expect(await page.evaluate(() => getComputedStyle(document.querySelector("[data-nb-page-agent=guide]:not([data-closing])")!.shadowRoot!.querySelector("[data-nb-page-agent=callout]")!).transitionDuration)).not.toBe("0s");
     });
 });
 
@@ -360,6 +359,8 @@ test.describe("跟随与滚出视野（输出 9）", () => {
 
         await startHighlight(page, {at: {text: "深处"}, message: "在下面。", until: "next", dim: true});
         await installed(page);
+        // 被替换的上一次淡出完才拿走，之后页面上只剩这一次的节点。
+        await expect(page.locator("[data-nb-page-agent=guide]")).toHaveCount(1);
         await page.evaluate(() => {
             document.getElementById("box")!.scrollTop = 800;
         });
