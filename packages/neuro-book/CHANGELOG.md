@@ -4,6 +4,8 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-27
+
 ### 不兼容的改动
 
 - 插件 SDK 的组件子路径 `Button`：不写 `variant` 时从实底主按钮改成次按钮（`secondary`）。要保持主按钮的写明 `variant="primary"`；一块区域（对话框、面板头、工具条、一张卡片）里只留一个主按钮。

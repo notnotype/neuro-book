@@ -6,7 +6,7 @@
  * `version` 保持一致，由 `product.test.ts` 核对。
  */
 
-export const PRODUCT_VERSION = "0.17.0";
+export const PRODUCT_VERSION = "0.18.0";
 
 /**
  * 插件 API 的兼容起点：从这个产品版本起，插件能用的接口（SDK 公开面、内置插件导出的服务与合同、宿主共享的模块）没有不兼容的
