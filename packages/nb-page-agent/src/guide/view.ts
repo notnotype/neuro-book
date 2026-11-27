@@ -83,16 +83,22 @@ function saveFocus(document: Document): SavedFocus {
     return {element, ranges};
 }
 
+/** 节点所在的编辑宿主：最外层的可编辑祖先（它的父元素不可编辑）；不在可编辑区域里为 null。 */
+function editingHost(node: Node): HTMLElement | null {
+    let element = node instanceof Element ? node : node.parentElement;
+    if (!(element instanceof HTMLElement) || !element.isContentEditable) return null;
+    while (element.parentElement instanceof HTMLElement && element.parentElement.isContentEditable) element = element.parentElement;
+    return element;
+}
+
 /**
- * 选区落在一个可编辑区域里，而焦点不在这个区域上（例如焦点在下拉的一项上，选区还留在对话输入框里）。Chrome 把选区放进可编辑
- * 区域时会把焦点一并移过去，焦点就离开了原来的元素，弹层还可能因为焦点离开而关掉；所以这样的选区不放回去，那里的光标等它下次
- * 聚焦时再定。
+ * 选区落在一个可编辑区域里，而焦点不在这个区域的编辑宿主上（例如焦点在下拉的一项上、在包着编辑器的容器上，选区还留在编辑器
+ * 里）。Chrome 把选区放进可编辑区域时会把焦点一并移到宿主上，焦点就离开了原来的元素，弹层还可能因为焦点离开而关掉；所以这样
+ * 的选区不放回去，那里的光标等它下次聚焦时再定。
  */
 function inOtherEditable(range: Range, focused: Element | null): boolean {
-    const node = range.commonAncestorContainer;
-    const element = node instanceof Element ? node : node.parentElement;
-    if (!(element instanceof HTMLElement) || !element.isContentEditable) return false;
-    return focused === null || !focused.contains(element);
+    const host = editingHost(range.commonAncestorContainer);
+    return host !== null && focused !== host;
 }
 
 /**

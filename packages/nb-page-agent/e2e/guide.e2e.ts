@@ -602,6 +602,29 @@ test.describe("按键、选区与遮罩（输出 9、10）", () => {
         }
     });
 
+    test("焦点在可编辑区域的祖先上、选区在区域里：收起提问后焦点回到祖先，不被选区拉进区域", async ({page}) => {
+        await openFixture(page, `<div id="wrap" tabindex="-1"><div id="editor" contenteditable="true">abcdefgh</div></div><button id="go" style="margin:200px">保存</button>`);
+        await page.evaluate(() => {
+            const node = document.getElementById("editor")!.firstChild!;
+            const range = document.createRange();
+            range.setStart(node, 1);
+            range.setEnd(node, 3);
+            const selection = document.getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.getElementById("wrap")!.focus();
+        });
+        const state = () => page.evaluate(() => ({active: document.activeElement?.id ?? "", text: document.getSelection()?.toString() ?? ""}));
+        // 对照：焦点放到祖先上之后选区仍在区域里；否则下面的“焦点没被拉走”说明不了什么。
+        expect(await state()).toEqual({active: "wrap", text: "bc"});
+        await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
+        await installed(page);
+        await part(page, "ask-open").click();
+        await page.keyboard.type("问");
+        await page.keyboard.press("Escape");
+        expect((await state()).active).toBe("wrap");
+    });
+
     test("等点目标时按在原生模态对话框的遮罩上、按在整页的滚动条上都不算点错", async ({page}) => {
         await openFixture(page, `<div style="height:3000px"><button id="go" style="margin:200px">保存</button></div><dialog id="dialog"><p>对话框</p></dialog>`);
         await startHighlight(page, {at: {text: "保存"}, message: "点保存。", until: "click"});
