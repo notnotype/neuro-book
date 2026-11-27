@@ -152,9 +152,9 @@ interface ViewContainerDeclaration {
     - 内容区的名称仍是声明标题，不随按钮的文字变。
     - 实例换代时标题区跟着换；头在面板头与内容之间换位置（标签数变了）时，视图的状态（开着的列表、菜单）不丢。
     - 视图的头渲染出错时与内容出错相同（输出 5），实例进入渲染出错，面板头退回写声明标题。
-23. **界面目录读取**（planned）：工作台给出一个只读服务（服务键在 `shared/contracts.ts`），按当前布局交回视图（id、标题、所在容器 id、是否在布局里（停靠或浮动）、标题栏动作的命令 id）、容器（id、标题、入口所在区域）与活动栏项（id、标题、命令 id）。命令面板的匹配与打分由同一处导出，命令面板与别的插件用同一份。
-24. **稳定名**（planned）：视图与编辑区标题栏上画成按钮的命令写 `command` 加命令 id；活动栏项写 `workbench.activity` 加项 id；容器入口（活动栏上段、右栏与底部面板的入口条）写 `workbench.container` 加容器 id；面板头里视图的标题按钮与几个视图叠成标签时视图的标签写 `workbench.view` 加视图 id（[`agent/page-agent.md`](../agent/page-agent.md) 输出 6）。
-25. **悬停动作的显示**（planned）：悬停动作区（`[data-hover-actions]`）带 `data-nb-agent-reveal` 时照样显示，不论有没有悬停或聚焦。
+23. **界面目录读取**：工作台给出一个只读服务（服务键在 `shared/contracts.ts`），按当前布局交回视图（id、标题、所在容器 id、是否在布局里（停靠或浮动）、标题栏上画成按钮的命令 id，同外壳一样至多 8 个）、容器（id、标题、入口所在区域、成员视图）与活动栏项（id、标题、命令 id）。命令面板的匹配与打分由同一处导出，命令面板与别的插件用同一份。
+24. **稳定名**：视图与编辑区标题栏上画成按钮的命令写 `command` 加命令 id；活动栏项写 `workbench.activity` 加项 id；容器入口（活动栏上段、右栏与底部面板的入口条）写 `workbench.container` 加容器 id；面板头里视图的标题按钮与几个视图叠成标签时视图的标签写 `workbench.view` 加视图 id（[`agent/page-agent.md`](../agent/page-agent.md) 输出 6）。
+25. **悬停动作的显示**：悬停动作区（`[data-hover-actions]`）带 `data-nb-agent-reveal` 时照样显示，不论有没有悬停或聚焦。
 
 ### 约定键
 
