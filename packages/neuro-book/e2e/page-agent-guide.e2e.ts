@@ -512,6 +512,45 @@ return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
     expect(Math.abs(luminance(await pixel(page, ...otherPoint)) - luminance(plain.other))).toBeLessThan(4);
 });
 
+// ---------- 悬停动作区里的按钮（views.md 输出 25） ----------
+
+test("高亮视图标题栏上悬停才显示的按钮：所在的动作区照样显示；同一动作区的下一步不断开，结束后撤掉、回到平时透明", async ({page}) => {
+    await ready(page, auto);
+    // 一个此刻透明（指针与焦点都不在那块面板上）、里面至少两个按钮的动作区。
+    const ids = await page.evaluate(() => {
+        for (const zone of document.querySelectorAll<HTMLElement>("[data-hover-actions]:not([data-hover-actions=frame])")) {
+            const commands = [...zone.querySelectorAll("[data-title-action]")].map((button) => button.getAttribute("data-title-action")!);
+            if (commands.length >= 2 && getComputedStyle(zone).opacity === "0") return commands.slice(0, 2);
+        }
+        return null;
+    });
+    expect(ids).not.toBeNull();
+    const [first, second] = ids!;
+    const zone = page.locator("[data-hover-actions]", {has: page.locator(`[data-title-action="${first}"]`)});
+    const opacity = () => zone.evaluate((element) => getComputedStyle(element).opacity);
+    // 对照：高亮之前它是透明的。
+    expect(await opacity()).toBe("0");
+    const run = await startEval(page, lab, "高亮动作区里的按钮", `
+const out = [];
+out.push((await ui.highlight({at: {command: ${JSON.stringify(first)}}, message: "第一个按钮。", until: "next", step: 1, total: 2})).outcome);
+out.push((await ui.highlight({at: {command: ${JSON.stringify(second)}}, message: "第二个按钮。", until: "next", step: 2, total: 2})).outcome);
+return JSON.stringify(out);`, {timeout: 120});
+    await expect(guidePart(page, "callout")).toContainText("第一个按钮。");
+    await expect(zone).toHaveAttribute("data-nb-agent-reveal", "");
+    expect(await opacity()).toBe("1");
+    await guidePart(page, "next").click();
+    await expect(guidePart(page, "callout")).toContainText("第二个按钮。");
+    await expect(zone).toHaveAttribute("data-nb-agent-reveal", "");
+    expect(await opacity()).toBe("1");
+    await guidePart(page, "next").click();
+    expect(JSON.parse(await run.result())).toEqual(["next", "next"]);
+    await expectGuideRemoved(page);
+    await expect(zone).not.toHaveAttribute("data-nb-agent-reveal", "");
+    // 点“完成”时指针停在说明框的位置，可能正压在那块面板上：挪到编辑区再看平时的样子。
+    await page.mouse.move(WIDTH / 2, HEIGHT / 2);
+    await expect.poll(opacity).toBe("0");
+});
+
 // ---------- 验收 9：后台与 bot 的会话没有 ui ----------
 
 /** 最近一次“以工具结果结尾”的请求里 eval 的说明：模型这一轮看到的 eval 说明。 */
