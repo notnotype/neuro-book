@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t20 第 1 轮：停靠侧轨与展开列表</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cands--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 640px; }
+@media (max-width: 760px) { .cands, .cands--2 { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand h4 { margin: 14px 0 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.cand img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>t20 第 1 轮：停靠侧轨与展开列表</h1>
+
+<section data-nbdev-question="rail-direction" data-nbdev-type="single" data-nbdev-recommend="one">
+  <h2>右边那一列留不留？</h2>
+  <p class="rec"><strong>推荐方向一：头像一眼看到谁有未读、一下点过去，停靠与浮动是同一个样子；只是不再像单独的一条。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="现在">
+      <h3>现在</h3>
+      <h4>停靠</h4><img src="r1/now-dock.webp" alt="现在：停靠收着">
+      <h4>停靠展开</h4><img src="r1/now-dock-open.webp" alt="现在：停靠展开">
+      <h4>浮动</h4><img src="r1/now-float.webp" alt="现在：浮动收着">
+      <h4>浮动展开</h4><img src="r1/now-float-open.webp" alt="现在：浮动展开">
+    </div>
+    <div class="cand" data-nbdev-option="one" data-nbdev-label="方向一：并进卡片的窄列">
+      <h3>方向一：并进卡片的窄列</h3>
+      <h4>停靠</h4><img src="r1/one-dock.webp" alt="方向一：停靠收着">
+      <h4>停靠展开</h4><img src="r1/one-dock-open.webp" alt="方向一：停靠展开">
+      <h4>浮动</h4><img src="r1/one-float.webp" alt="方向一：浮动收着">
+      <h4>浮动展开</h4><img src="r1/one-float-open.webp" alt="方向一：浮动展开">
+      <p>没有分隔线，右栏只有消息时不画顶上的容器入口。展开后列表上面没有页签，窄列底下的 bot、会话按钮就是页签；浮动窗展开也留着窄列，“回到停靠”在它顶上。</p>
+    </div>
+    <div class="cand" data-nbdev-option="two" data-nbdev-label="方向二：没有窄列，列表按需打开">
+      <h3>方向二：没有窄列，列表按需打开</h3>
+      <h4>停靠</h4><img src="r1/two-dock.webp" alt="方向二：停靠收着">
+      <h4>停靠展开</h4><img src="r1/two-dock-open.webp" alt="方向二：停靠展开">
+      <h4>浮动</h4><img src="r1/two-float.webp" alt="方向二：浮动收着">
+      <h4>浮动展开</h4><img src="r1/two-float-open.webp" alt="方向二：浮动展开">
+      <p>聊天头左上角两个按钮：打开列表、新对话。列表自带 Bot、会话页签与收起；浮动窗里页签和“回到停靠”同一行。未读只在打开列表的按钮上写总数。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="list-rows" data-nbdev-type="single" data-nbdev-recommend="new">
+  <h2>列表行按右边这样改？</h2>
+  <p class="rec"><strong>推荐改：会话用和窄列同样的首字方块，收着与展开对得上；当前项用描边标出，不再整行涂蓝。</strong></p>
+  <div class="cands cands--2">
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="现在">
+      <h3>现在</h3>
+      <img src="r1/rows-now.webp" alt="现在的会话列表">
+    </div>
+    <div class="cand" data-nbdev-option="new" data-nbdev-label="改后">
+      <h3>改后</h3>
+      <img src="r1/rows-one.webp" alt="改后的会话列表">
+      <h4>Bot 页</h4><img src="r1/rows-one-bot.webp" alt="改后的 bot 列表">
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>会话页的搜索框</td><td>占满这一行（现在只有一截，提示文字被截断）</td></tr>
+      <tr><td>“当前作品 / 全部作品”</td><td>挪进筛选菜单，筛选按钮上照旧写生效的个数</td></tr>
+      <tr><td>会话没有说明时</td><td>行只有一行高，不留空的第二行</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>浮动窗展开着拖动不再变小；一列按钮对齐到同一条中线；轨宽手柄亮起时是细线（已修并合入）</li>
+    <li>归位后再浮动用上次的位置与大小（做，开发者 11-27 同意）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
