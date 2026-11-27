@@ -294,12 +294,13 @@ function closeChip(discard: boolean): void {
  * 焦点回编辑器，光标放在哪看 `place`：`select` 是 `pos` 处的小块成为节点选区（改已有小块时 Esc、应用之后）；`after` 是光标在它
  * 后面（新插的应用之后：作者接着往下打，选中的话打的字会把它换掉）；`keep` 不动（新插的按 Esc 取消：插入点后面紧挨着的别的小块
  * 不该被选中）。原语在浮层卸下时把焦点还给锚点（小块不能聚焦，落到 body），那一步排在卸下以后的定时器里：等这一轮更新做完、再等
- * 一个定时器，排在它后面。
+ * 一个定时器，排在它后面。这段空档里作者又开了浮层或列表（应用完马上再点一个小块）时不动：焦点已经在新开的那个里，拉回编辑区
+ * 会让它当作焦点移到外面而关上。
  */
 function focusChip(pos: number, place: "select" | "after" | "keep" = "select"): void {
     void nextTick(() =>
         setTimeout(() => {
-            if (editor === null) return;
+            if (editor === null || editing.value !== null || menu.value !== null) return;
             const {state} = editor.view;
             const node = state.doc.nodeAt(pos);
             if (place !== "keep" && node !== null && isChip(node)) {

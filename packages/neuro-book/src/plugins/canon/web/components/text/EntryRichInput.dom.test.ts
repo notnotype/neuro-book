@@ -641,6 +641,33 @@ describe("插入与改小块的边角（canon/author-ui.md 输出 48）", () => 
         expect([emitted(wrapper), field("expr").value]).toEqual([[], "panel.魔力 * 5"]);
     });
 
+    it("应用完马上再点开一个小块：还焦点的那一步不把焦点拉回编辑区，新开的浮层留着", async () => {
+        // 应用一交出整篇就（在同一轮的微任务里，早于还焦点的那个定时器）选中小块按 Enter。
+        let reopened = false;
+        const wrapper = show({
+            "modelValue": '<V expr="panel.魔力 * 2" /> 之后',
+            "onUpdate:modelValue": () => queueMicrotask(() => {
+                if (reopened) return;
+                reopened = true;
+                // 不先聚焦编辑区：焦点从还开着的旧浮层移走，会让同一个浮层当作焦点移到外面而关上（真实的点击里旧浮层已经关了）。
+                const editor = editorOf(wrapper);
+                editor.commands.setNodeSelection(1);
+                key(prose(wrapper), "Enter");
+            }),
+        });
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("expr"), "panel.魔力 * 3");
+        await flushPromises();
+        action("apply").click();
+        await vi.waitFor(() => expect(reopened).toBe(true));
+        expect(emitted(wrapper).at(-1)).toBe('<V expr="panel.魔力 * 3" /> 之后');
+        await vi.waitFor(() => expect(popover()?.dataset.chipPopover).toBe("calc"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await flushPromises();
+        expect([popover()?.dataset.chipPopover, field("expr").value]).toEqual(["calc", "panel.魔力 * 3"]);
+    });
+
     it("复制一个条件小块粘到别处：写出的是同一段写法；粘进来的纯文字里的 <V 照字写，不读成标签", async () => {
         const condition = '<If test="panel.魔力 >= 1000">强<Else />弱</If>';
         const wrapper = show({modelValue: `甲${condition}\n\n乙`, fields});
