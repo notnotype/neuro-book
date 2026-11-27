@@ -278,9 +278,9 @@ async function rightEntries(page: Page): Promise<Locator> {
     return await strip.count() > 0 ? strip : page.locator("[data-rail='auxiliarybar'] [data-tool-band]");
 }
 
-/** 右轨的展开按钮；没有右轨的构建是 null。 */
+/** 右轨的展开按钮（t20 起由视图画、`data-rail-toggle`，之前是侧轨自己的 `data-rail-expand`）；没有右轨的构建是 null。 */
 async function railExpand(page: Page): Promise<Locator | null> {
-    const button = page.locator("[data-rail='auxiliarybar'] [data-rail-expand]").first();
+    const button = page.locator("[data-rail='auxiliarybar'] [data-rail-toggle], [data-rail='auxiliarybar'] [data-rail-expand]").first();
     return await button.count() > 0 ? button : null;
 }
 

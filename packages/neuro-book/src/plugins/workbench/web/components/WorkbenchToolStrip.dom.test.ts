@@ -94,40 +94,64 @@ describe("WorkbenchToolStrip", () => {
 });
 
 describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md 输出 50）", () => {
-    const labels = {expand: "展开", collapse: "收起", tooNarrow: "窗口太窄", handle: "调整侧轨宽度"};
-    const segment = (overrides: Partial<ToolStripSegment> = {}): ToolStripSegment => ({expanded: false, tooNarrow: false, loading: false, width: 260, bounds: {minimum: 200, maximum: 420, width: 260}, revision: 1, handleDisabled: false, labels, ...overrides});
-    const mountRail = (value: ToolStripSegment | null) => mount(WorkbenchToolStrip, {props: {label: "右栏的侧轨", moreLabel: "更多", entries: [{...entry("view:m", "消息"), current: true, pressed: true}], region: "auxiliarybar", segment: value}, attachTo: document.body});
+    const labels = {handle: "调整侧轨宽度"};
+    const segment = (overrides: Partial<ToolStripSegment> = {}): ToolStripSegment => ({expanded: false, loading: false, width: 260, bounds: {minimum: 200, maximum: 420, width: 260}, revision: 1, handleDisabled: false, labels, ...overrides});
+    const messages = {...entry("view:m", "消息"), current: true, pressed: true};
+    const mountRail = (value: ToolStripSegment | null, entries: ToolStripEntry[] = [messages]) => mount(WorkbenchToolStrip, {props: {label: "右栏的侧轨", moreLabel: "更多", entries, region: "auxiliarybar", segment: value}, attachTo: document.body});
+    const band = (wrapper: ReturnType<typeof mountRail>) => wrapper.get<HTMLElement>("[data-tool-band]").element;
 
-    it("有视图段：画出 main 与 foot（拒收区）并交给宿主、展开按钮；收着与展开、太窄的说法；没有视图段时这些都没有，交回 null", async () => {
+    it("有视图段：画出 main 与 foot（拒收区）并交给宿主；侧轨不画展开按钮（是视图的）；展开时入口带横排，只有一个容器时不画；没有视图段时交回 null", async () => {
         const wrapper = mountRail(segment());
         await nextTick();
         const main = wrapper.get('[data-rail-segment="main"]').element;
         const foot = wrapper.get('[data-rail-segment="foot"]').element;
         expect([main.hasAttribute("data-drop-refuse"), foot.hasAttribute("data-drop-refuse")]).toEqual([true, true]);
         expect(wrapper.emitted("segment-elements")?.at(-1)).toEqual([main, foot]);
-        const expand = wrapper.get("[data-rail-expand]");
-        expect([expand.attributes("aria-expanded"), expand.attributes("aria-label")]).toEqual(["false", "展开"]);
-        expect(wrapper.get("nav").attributes("data-rail-state")).toBe("collapsed");
+        expect(wrapper.find("[data-rail-toggle]").exists()).toBe(false);
+        expect([wrapper.get("nav").attributes("data-rail-state"), band(wrapper).dataset.toolBandAxis, band(wrapper).style.display]).toEqual(["collapsed", "y", ""]);
         expect(wrapper.find("[data-rail-handle]").exists()).toBe(false);
-        await expand.trigger("click");
-        expect(wrapper.emitted("toggle-segment")).toHaveLength(1);
 
         await wrapper.setProps({segment: segment({expanded: true})});
-        expect(wrapper.get("nav").attributes("data-rail-state")).toBe("expanded");
-        // 名称不随状态变，状态只在 `aria-expanded`；悬停写这一下会做什么（收起）。
-        expect([wrapper.get("[data-rail-expand]").attributes("aria-expanded"), wrapper.get("[data-rail-expand]").attributes("aria-label")]).toEqual(["true", "展开"]);
+        expect([wrapper.get("nav").attributes("data-rail-state"), band(wrapper).dataset.toolBandAxis, band(wrapper).style.display]).toEqual(["expanded", "x", "none"]);
+        // 同一个元素藏起来、不拆：条目区上挂着量高的观察与按下的块。
+        await wrapper.setProps({entries: [messages, entry("view:o", "大纲")]});
+        expect(band(wrapper).style.display).toBe("");
         expect(wrapper.get("[data-rail-handle]").attributes()).toMatchObject({"role": "separator", "aria-valuenow": "260", "aria-valuemin": "200", "aria-valuemax": "420", "aria-label": "调整侧轨宽度"});
 
-        await wrapper.setProps({segment: segment({tooNarrow: true})});
-        expect(wrapper.get("[data-rail-expand]").attributes()).toMatchObject({"aria-expanded": "false", "aria-label": "展开", "aria-description": "窗口太窄", "data-rail-too-narrow": ""});
         await wrapper.setProps({segment: segment({loading: true})});
         expect(wrapper.find("[data-rail-segment='main'] [data-rail-loading]").exists()).toBe(true);
 
         await wrapper.setProps({segment: null});
         await nextTick();
         expect(wrapper.find("[data-rail-segment]").exists()).toBe(false);
-        expect(wrapper.find("[data-rail-expand]").exists()).toBe(false);
         expect(wrapper.emitted("segment-elements")?.at(-1)).toEqual([null, null]);
+    });
+
+    it("展开后入口带横排：方向键改左右；藏起来的部分（展开时的底段，视图没写 `hidden` 也算；只有一个容器时的入口带）不进工具条", async () => {
+        const wrapper = mountRail(segment({expanded: true}), [messages, entry("view:o", "大纲")]);
+        await nextTick();
+        const footItem = document.createElement("button");
+        footItem.setAttribute("data-rail-item", "");
+        wrapper.get('[data-rail-segment="foot"]').element.append(footItem);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const [first, second] = wrapper.findAll<HTMLElement>("[data-tool-entry]").map((item) => item.element);
+        first!.focus();
+        first!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        expect(document.activeElement).toBe(first);
+        first!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        expect(document.activeElement).toBe(second);
+        // 往后走过入口是手柄，不落进藏起来的底段。
+        second!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        expect(document.activeElement).toBe(wrapper.get("[data-rail-handle]").element);
+        second!.dispatchEvent(new KeyboardEvent("keydown", {key: "End", bubbles: true, cancelable: true}));
+        expect(document.activeElement).toBe(wrapper.get("[data-rail-handle]").element);
+
+        // 只有一个容器：入口带藏起来，工具条里只剩手柄。
+        await wrapper.setProps({entries: [messages]});
+        const handle = wrapper.get<HTMLElement>("[data-rail-handle]").element;
+        handle.focus();
+        handle.dispatchEvent(new KeyboardEvent("keydown", {key: "Home", bubbles: true, cancelable: true}));
+        expect(document.activeElement).toBe(handle);
     });
 
     it("轨宽手柄的键盘：右轨往左（ArrowLeft）变宽，每次 10；Home 与双击回缺省；到了上限不再提交；最大化时没有手柄", async () => {
@@ -172,10 +196,29 @@ describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md �
         expect(wrapper.emitted("segment-width-preview")?.at(-1)).toEqual([null]);
     });
 
-    it("焦点在视图段里、视图段被收起：焦点所在的项还在就留着；被视图拆掉了交给展开按钮", async () => {
+    it("视图把一项移出工具条（摘掉 data-rail-item）：这里写过的 tabindex 一并摘掉，Tab 进得去", async () => {
+        const wrapper = mountRail(segment());
+        await nextTick();
+        const toggle = document.createElement("button");
+        toggle.setAttribute("data-rail-item", "");
+        wrapper.get('[data-rail-segment="main"]').element.append(toggle);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        // 按下的入口是 Tab 停靠点，视图段里的项是 -1。
+        expect(toggle.getAttribute("tabindex")).toBe("-1");
+        toggle.removeAttribute("data-rail-item");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(toggle.hasAttribute("tabindex")).toBe(false);
+    });
+
+    it("焦点在视图段里、视图段换画法：焦点所在的项还在、看得见就留着；被视图拆掉或藏起来了交给视图的展开收起按钮", async () => {
         const wrapper = mountRail(segment({expanded: true}));
         await nextTick();
         const main = wrapper.get('[data-rail-segment="main"]').element;
+        const foot = wrapper.get('[data-rail-segment="foot"]').element;
+        // 视图画的按钮：中段的第一项，两种状态是同一个元素。
+        const toggle = document.createElement("button");
+        toggle.setAttribute("data-rail-toggle", "");
+        main.append(toggle);
         const kept = document.createElement("button");
         main.append(kept);
         kept.focus();
@@ -188,10 +231,22 @@ describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md �
         main.append(list);
         list.focus();
         // 视图收起时拆掉展开的列表：和这次更新同一轮。
-        const props = wrapper.setProps({segment: segment({expanded: false})});
+        let props = wrapper.setProps({segment: segment({expanded: false})});
         list.remove();
         await props;
         await nextTick();
-        expect(document.activeElement).toBe(wrapper.get("[data-rail-expand]").element);
+        expect(document.activeElement).toBe(toggle);
+
+        // 收着时焦点在底段，展开时底段藏起来（视图写 `hidden`）：同样交给按钮。
+        const footBox = document.createElement("div");
+        const footItem = document.createElement("button");
+        footBox.append(footItem);
+        foot.append(footBox);
+        footItem.focus();
+        props = wrapper.setProps({segment: segment({expanded: true})});
+        footBox.hidden = true;
+        await props;
+        await nextTick();
+        expect(document.activeElement).toBe(toggle);
     });
 });

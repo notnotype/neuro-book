@@ -11,7 +11,7 @@ import type {ViewContext} from "../contracts";
 
 /** 侧轨给视图段的两个位置：工作台自己按元素用；交给视图时就是共用合同的 `ViewRailPlacement`。 */
 export type RailPlacement =
-    | {readonly kind: "rail"; readonly main: HTMLElement; readonly foot: HTMLElement}
+    | {readonly kind: "rail"; readonly main: HTMLElement; readonly foot: HTMLElement; readonly width: number; readonly tooNarrow: boolean}
     | {readonly kind: "window"; readonly width: number; readonly tooNarrow: boolean}
     | {readonly kind: "none"};
 
@@ -26,6 +26,13 @@ export interface ViewRailControl {
 }
 
 const NONE: RailPlacement = {kind: "none"};
+
+function samePlacement(current: RailPlacement, next: RailPlacement): boolean {
+    if (current.kind === "none" || next.kind === "none") return current.kind === next.kind;
+    if (current.width !== next.width || current.tooNarrow !== next.tooNarrow) return false;
+    if (current.kind === "rail") return next.kind === "rail" && current.main === next.main && current.foot === next.foot;
+    return next.kind === "window";
+}
 
 /**
  * 每一代上下文一份。`request` 交给 `handle`（外壳：按此刻已提交的文档判、提交记录），这一份已退休时直接 `revoked`、不调 `handle`。
@@ -47,10 +54,8 @@ export function createViewRail(context: ViewContext, handle: (expanded: boolean)
         placement: () => placement.value,
         setPlacement: (next) => {
             if (retired) return;
-            // 同一对元素再写一次不换引用：视图里按它 `Teleport` 的位置不重挂。
-            const current = placement.value;
-            if (current.kind === next.kind && (next.kind === "none" || (next.kind === "rail" && current.kind === "rail" && current.main === next.main && current.foot === next.foot) || (next.kind === "window" && current.kind === "window" && current.width === next.width && current.tooNarrow === next.tooNarrow))) return;
-            placement.value = next;
+            // 同样的值再写一次不换引用，视图不跟着重算。
+            if (!samePlacement(placement.value, next)) placement.value = next;
         },
         setExpanded: (next) => {
             if (!retired) expanded.value = next;

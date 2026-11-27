@@ -37,10 +37,14 @@ defineSlots<{default(): unknown; sessions(): unknown}>();
 
 const botQuery = defineModel<string>("botQuery", {default: ""});
 
-/** 侧轨的两个位置；不是元素（合同里写成 `object`）时不画。 */
-const targets = computed(() => {
+/**
+ * 侧轨的两个位置；不是元素（合同里写成 `object`）时不画。同一对元素不换引用：`placement` 随轨宽、“窗口太窄”换新对象（拖轨宽时每帧一次），
+ * 视图段按 `targets` 的变化放回焦点与滚动，元素没换时不该触发。
+ */
+const targets = computed((previous?: {readonly main: HTMLElement; readonly foot: HTMLElement} | null) => {
     const placement = props.placement;
-    return placement.kind === "rail" && placement.main instanceof HTMLElement && placement.foot instanceof HTMLElement ? {main: placement.main, foot: placement.foot} : null;
+    if (placement.kind !== "rail" || !(placement.main instanceof HTMLElement) || !(placement.foot instanceof HTMLElement)) return null;
+    return previous != null && previous.main === placement.main && previous.foot === placement.foot ? previous : {main: placement.main, foot: placement.foot};
 });
 const edgeWidth = computed(() => (props.placement.kind === "edge" ? props.placement.width : null));
 
@@ -153,7 +157,8 @@ defineExpose({focusSearch: (page: "bot" | "sessions") => segmentRef.value?.focus
                     :recent-sessions="props.recentSessions"
                     :tab="props.tab"
                     :weak="props.weak"
-                    :too-narrow="props.placement.kind === 'edge' && props.placement.tooNarrow === true"
+                    :too-narrow="props.placement.kind !== 'none' && props.placement.tooNarrow === true"
+                    :width="props.placement.kind === 'none' ? null : props.placement.width"
                     :now="props.now"
                     :locale="props.locale"
                     @update:tab="emit('update:tab', $event)"

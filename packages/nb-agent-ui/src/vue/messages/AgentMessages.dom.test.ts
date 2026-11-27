@@ -49,7 +49,7 @@ function railTargets(): {main: HTMLElement; foot: HTMLElement} {
 /** 像宿主那样持有几个受控值。 */
 function mountFrame(initial: {placement?: MessagesSegmentPlacement; expanded?: boolean; selected?: {kind: "contact"; key: string} | {kind: "session"; id: string}; weak?: boolean} = {}) {
     chatMounts = 0;
-    const placement = ref<MessagesSegmentPlacement>(initial.placement ?? {kind: "rail", ...railTargets()});
+    const placement = ref<MessagesSegmentPlacement>(initial.placement ?? {kind: "rail", width: 48, ...railTargets()});
     const expanded = ref(initial.expanded ?? false);
     const tab = ref<"bot" | "sessions">("bot");
     const botQuery = ref("");
@@ -128,24 +128,36 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         wrapper.unmount();
     });
 
-    it("点 bot、会话、新对话发事件；收着时点底段的按钮或“+N”发 show-list，展开着时只切页、对应按钮按下", async () => {
-        const {wrapper, expanded, events, tab} = mountFrame();
+    it("点 bot、会话、新对话发事件；收着时点底段的按钮或“+N”发 show-list；展开着时底段藏起来，列表底部的导航切页", async () => {
+        const {wrapper, expanded, events, tab, placement} = mountFrame();
         $("[data-strip-contact='nbook.bots/vega']")!.click();
         $("[data-strip-session='s1']")!.click();
         $("[data-messages-new-session]")!.click();
         $("[data-messages-open='sessions']")!.click();
         expect(events).toEqual([["open-contact", "nbook.bots/vega"], ["open-session", "s1"], ["new-session"], ["show-list", "sessions"]]);
-        expect($$("[data-messages-open]").map((item) => item.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
 
         events.length = 0;
         expanded.value = true;
         await nextTick();
-        expect($$("[data-messages-open]").map((item) => item.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
-        $("[data-messages-open='sessions']")!.click();
+        // 底段的元素还在侧轨给的位置里（不拆），只是整段藏起来、不进 Tab。
+        const {foot} = placement.value as {foot: HTMLElement};
+        expect(foot.querySelector<HTMLElement>(".acv-segment__foot")!.hidden).toBe(true);
+        const nav = $("[data-messages-nav]")!;
+        expect([...nav.querySelectorAll("[data-messages-tab]")].map((item) => [item.getAttribute("data-messages-tab"), item.getAttribute("aria-selected")])).toEqual([["bot", "true"], ["sessions", "false"]]);
+        // 未读合计在 Bot 一项上：中性色的数字；有等你处理时另有标记；读屏名带上它。
+        const summary = nav.querySelector("[data-messages-tab='bot'] [data-messages-summary]")!;
+        expect([summary.textContent, summary.hasAttribute("data-messages-summary-waiting")]).toEqual(["2", true]);
+        expect(nav.querySelector("[data-messages-tab='bot']")!.getAttribute("aria-label")).toBe("Bot，等你处理");
+        nav.querySelector<HTMLElement>("[data-messages-tab='sessions']")!.click();
         await nextTick();
         expect(events).toEqual([["update:tab", "sessions"]]);
         expect(tab.value).toBe("sessions");
-        expect($$("[data-messages-open]").map((item) => item.getAttribute("aria-pressed"))).toEqual(["false", "true"]);
+        expect(nav.querySelector("[data-messages-tab='sessions']")!.getAttribute("aria-selected")).toBe("true");
+
+        expanded.value = false;
+        await nextTick();
+        expect(foot.querySelector<HTMLElement>(".acv-segment__foot")!.hidden).toBe(false);
+        expect($("[data-messages-nav]")).toBeNull();
         wrapper.unmount();
     });
 
@@ -186,10 +198,33 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         wrapper.unmount();
     });
 
-    it("从侧轨换到右边缘：同一个列表搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；右边缘有自己的展开按钮，侧轨里没有；none 时藏起来、换回来还是同一个视图段", async () => {
+    it("展开收起按钮是视图段的：中段第一项，收着与展开是同一个元素，收着时才进侧轨的工具条；被拒时给“窗口太窄”", async () => {
+        const {wrapper, placement, expanded, events} = mountFrame();
+        const {main} = placement.value as {main: HTMLElement};
+        const toggle = main.querySelector<HTMLElement>("[data-messages-segment] > :first-child [data-rail-toggle]")!;
+        expect(toggle.hasAttribute("data-messages-segment-toggle")).toBe(true);
+        expect([toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded"), toggle.hasAttribute("data-rail-item")]).toEqual(["展开", "false", true]);
+        toggle.click();
+        expect(events).toEqual([["toggle-expanded"]]);
+
+        expanded.value = true;
+        await nextTick();
+        expect(main.querySelector("[data-rail-toggle]")).toBe(toggle);
+        expect([toggle.getAttribute("aria-expanded"), toggle.hasAttribute("data-rail-item")]).toEqual(["true", false]);
+
+        // 宿主拒了展开、仍放不下（workbench-layout 输出 50 的“预算”）：收着时按钮上给“窗口太窄”，展开着不给。
+        expanded.value = false;
+        placement.value = {...(placement.value as {kind: "rail"; main: HTMLElement; foot: HTMLElement; width: number}), tooNarrow: true};
+        await nextTick();
+        expect(main.querySelector("[data-rail-toggle]")).toBe(toggle);
+        expect([toggle.hasAttribute("data-rail-too-narrow"), toggle.getAttribute("aria-description")]).toEqual([true, "窗口太窄"]);
+        wrapper.unmount();
+    });
+
+    it("从侧轨换到右边缘：同一个列表与按钮搬过来、搜索词还在（浏览器里的焦点与滚动 happy-dom 测不出），聊天区不重挂；none 时藏起来、换回来还是同一个视图段", async () => {
         const {wrapper, placement, expanded, events} = mountFrame({expanded: true});
-        expect($("[data-messages-segment-toggle]")).toBeNull();
         const list = $("[data-messages-list-panel]")!;
+        const toggle = $("[data-rail-toggle]")!;
         const input = $<HTMLInputElement>("[data-messages-page='bot'] input")!;
         input.value = "织";
         input.dispatchEvent(new Event("input", {bubbles: true}));
@@ -198,24 +233,21 @@ describe("AgentMessages 与 AgentMessagesSegment", () => {
         const edge = wrapper.get<HTMLElement>("[data-float-rail]");
         expect(edge.element.style.width).toBe("260px");
         expect(edge.element.contains(list)).toBe(true);
+        expect(edge.element.querySelector("[data-rail-toggle]")).toBe(toggle);
         expect($<HTMLInputElement>("[data-messages-page='bot'] input")!.value).toBe("织");
         expect(chatMounts).toBe(1);
 
         expanded.value = false;
         await nextTick();
-        // 右边缘没有侧轨来管 Tab：各项照常可聚焦，底段画在中段下面；底段最下面是视图自己的展开按钮（侧轨上那个是侧轨的）。
-        expect(edge.element.querySelector("[data-messages-segment]")).not.toBeNull();
+        // 右边缘：按钮在中段最上面（顶格“回到停靠”的下面），底段画在中段下面。
+        expect(edge.element.querySelector("[data-messages-segment] > :first-child [data-rail-toggle]")).toBe(toggle);
         expect(edge.element.querySelector("[data-messages-open='bot']")).not.toBeNull();
-        const toggle = edge.element.querySelector<HTMLElement>("[data-messages-segment-toggle]")!;
-        expect([toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded")]).toEqual(["展开", "false"]);
         toggle.click();
         expect(events.at(-1)).toEqual(["toggle-expanded"]);
         expect(toggle.hasAttribute("data-rail-too-narrow")).toBe(false);
-
-        // 宿主拒了展开、仍放不下：按钮上给“窗口太窄”，同侧轨的展开按钮（workbench-layout 输出 51 的“矩形”）。
         placement.value = {kind: "edge", width: 260, tooNarrow: true};
         await nextTick();
-        expect([toggle.hasAttribute("data-rail-too-narrow"), toggle.getAttribute("aria-description")]).toEqual([true, "窗口太窄"]);
+        expect(toggle.hasAttribute("data-rail-too-narrow")).toBe(true);
 
         // none：不显示，但同一个实例藏着（从浮动窗归位时中间有一刻是 none），换回来还是那一份。
         const segment = $("[data-messages-segment]")!;
