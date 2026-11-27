@@ -45,9 +45,9 @@ export const TAGLINE = "From words to world.";
  * 第 5 轮（《入殿·俯案成界》）第一幕：跟着第五章的一场戏走五拍，最后交给访客。开发者看过第 4 轮后要三件事：
  * 放慢、讲清楚（每一拍先在字幕里说要做什么，再做）；把浮窗、视图换位置、关掉再打开这几步加回来；和首屏一样华丽。
  * 每一拍有一个短标题和两句字幕：开头说要做什么，做完说得到了什么。星璃的话在她自己的对话栏里。
- * 第 7 轮第一幕改成连播，短标题排成字幕上面的章节条（`ChapterRail`），压到 2 到 4 个字（@designer 第 7 轮）。
+ * 第 7 轮第一幕改成连播，短标题排成章节条（`ChapterRail`），压到 2 到 4 个字（@designer 第 7 轮）。
+ * 第 8 轮字幕挪到工作台上面做眉题：短标题在前、大一号，后面是那一句；开演时眉题先是这一幕的名字（`ACT_ONE` 的 `number` 与 `title`）。
  */
-export const SANCTUM_ACT = "第一幕  一张随你摆的桌子";
 
 export interface BeatCopy {
     readonly title: string;
@@ -67,7 +67,8 @@ export const BEATS = {
     memory: {title: "下次还在", opening: "写完了，关灯。明天再打开。", closing: "分栏、浮窗、写到一半的那句，都在你离开时的地方。"},
 } as const satisfies Readonly<Record<string, BeatCopy>>;
 
-export const HANDOFF = "换你来：拖一个标签，摆到顺手的地方。";
+/** 交给访客：眉题换成这一句，下面展开星璃的小贴纸与两个按钮。 */
+export const HANDOFF = {title: "换你来", line: "拖一个标签，摆到顺手的地方。"} as const;
 
 /** 两章里要涂高亮的那两句：第五章刚打的，第一章末尾师傅的敲法。 */
 export const KNOCK_ECHOES = ["门外有人敲门，三下。", "楼下有人敲门，三下，停一停，再一下。"] as const;

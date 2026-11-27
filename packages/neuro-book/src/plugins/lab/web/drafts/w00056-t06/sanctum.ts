@@ -21,7 +21,10 @@ export const DESK_DEPTH = 1700;
 const TILT_PERSPECTIVE = 1400;
 /** 首屏时桌子向后倒的角度。 */
 const TILT = 24;
-/** 工作台下面留给字幕的那一条。 */
+/**
+ * 工作台上下留的两条（第 8 轮）：上面是眉题（这一拍的短标题与一句字幕），下面是章节条，交给访客时章节条下面再展开一行邀请与按钮。
+ */
+export const EYEBROW_BAND = 60;
 export const CAPTION_BAND = 116;
 /** 宽屏才演镜头；更窄时工作台平放在首屏文字下面，不俯冲。 */
 export const SANCTUM_MIN_WIDTH = 900;
@@ -34,6 +37,8 @@ export const SANCTUM_MIN_WIDTH = 900;
  * - `glint` 鎏金反光：书角的鎏金、标题下的花饰与按钮的金边上一团柔和的反光，跟着指针走（不扫白光）。
  * - `peek` 悬停细看：指针停在哪张纸上，那张稳住、微微前倾，压在下面的那张多探出一点。
  * - `ribbon` 丝带尾巴：指针一动，前景丝带的末端比书角慢半拍摆过去。
+ * 第 8 轮开发者定“从字到世界加指针响应”都要，另加了点纸细看、指针搅动浮尘、停在纸上唤醒细节（见 `SanctumScene.md`）。
+ * 场景只在单独看它的 Lab 场景里按这张表关掉几样，首页总是全开。
  */
 export type SceneEffect = "relay" | "parallax" | "glint" | "peek" | "ribbon";
 export const SCENE_EFFECTS: readonly SceneEffect[] = ["relay", "parallax", "glint", "peek", "ribbon"];
@@ -47,11 +52,11 @@ export const smooth = (from: number, to: number, value: number): number => {
 const lerp = (from: number, to: number, t: number): number => from + (to - from) * t;
 const round = (value: number): number => Math.round(value * 100) / 100;
 
-/** 第一幕里工作台的位置（舞台坐标）：约九成宽、封顶 1320；顶上留一点，底下留字幕。 */
+/** 第一幕里工作台的位置（舞台坐标）：约九成宽、封顶 1320；上面留眉题，下面留章节条。 */
 export function landingBox(stage: StageSize): Box {
     const margin = Math.max(40, Math.round(stage.width * 0.05));
     const width = Math.min(1320, stage.width - margin * 2);
-    const top = 36;
+    const top = EYEBROW_BAND;
     const height = Math.max(420, Math.min(800, stage.height - top - CAPTION_BAND));
     return {left: Math.round((stage.width - width) / 2), top, width, height};
 }
@@ -126,11 +131,18 @@ export interface FloaterShot {
     readonly visible: boolean;
 }
 
+/** 首屏上点了细看的那张纸：在投影出来的位置上再挪一点、放大一点（屏幕上的 px 与倍数，第 8 轮）。 */
+export interface FloaterLift {
+    readonly dx: number;
+    readonly dy: number;
+    readonly zoom: number;
+}
+
 /**
  * 投影一层：首屏时它在 `at`，往后它和桌子在同一个世界里随相机前进，离镜头越近越大、越往外走。
- * 元素本身左上角放在舞台原点，`width`、`height` 是它首屏时的大小。
+ * 元素本身左上角放在舞台原点，`width`、`height` 是它首屏时的大小。`lift` 是细看时在屏幕上多挪的那一点。
  */
-export function floaterShot(stage: StageSize, floater: Floater, size: {readonly width: number; readonly height: number}, progress: number): FloaterShot {
+export function floaterShot(stage: StageSize, floater: Floater, size: {readonly width: number; readonly height: number}, progress: number, lift: FloaterLift = {dx: 0, dy: 0, zoom: 1}): FloaterShot {
     const center = vanishing(stage);
     const startScale = scaleAt(floater.depth);
     const screen0 = {x: floater.at.x * stage.width, y: floater.at.y * stage.height};
@@ -143,7 +155,7 @@ export function floaterShot(stage: StageSize, floater: Floater, size: {readonly 
     const y = center.y + (world.y - center.y) * scale;
     const relative = scale / startScale;
     return {
-        transform: `translate3d(${round(x - size.width / 2)}px, ${round(y - size.height / 2)}px, 0px) scale(${round(relative * 1000) / 1000}) ${floater.pose}`,
+        transform: `translate3d(${round(x + lift.dx - size.width / 2)}px, ${round(y + lift.dy - size.height / 2)}px, 0px) scale(${round(relative * lift.zoom * 1000) / 1000}) ${floater.pose}`,
         opacity: round(opacity),
         visible: true,
     };

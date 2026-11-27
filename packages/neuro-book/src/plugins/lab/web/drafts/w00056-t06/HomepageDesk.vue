@@ -552,6 +552,13 @@ function target(name: DeskTarget): DOMRectReadOnly | null {
             const top = head === null ? card.top : head.bottom;
             return new DOMRectReadOnly(card.left, top, card.width, card.bottom - top);
         }
+        case "first-editor-head":
+            // 第一组的标签条（专心写那一拍双击它之前，聚光照亮这一条）。
+            return rectOf(`[data-surface-head="${INITIAL_EDITOR_PANEL}"]`);
+        case "alice-float": {
+            const group = aliceFloat();
+            return group === null ? null : rectOf(`[data-shell-card="${CSS.escape(group)}"]`);
+        }
         case "editor-head-blank": {
             const head = rectOf(`[data-surface-head="${INITIAL_EDITOR_PANEL}"]`);
             return head === null ? null : new DOMRectReadOnly(head.right - 96, head.top, 64, head.height);
@@ -570,9 +577,16 @@ function target(name: DeskTarget): DOMRectReadOnly | null {
         }
         case "statusbar":
             return rectOf("[data-hp-status]");
-        case "auxiliary-strip":
-            // 只认右栏的入口条：退到别的条（底部面板）上，演示会把作品树拖进底部面板。
-            return rectOf('[data-region-strip="auxiliarybar"]');
+        case "auxiliary-rail": {
+            // 右轨上入口那一段（入口带以外是拒收区，w00043 t19）：落点取最后一个入口的下面，作品排在星璃后面。
+            // 只认右栏的右轨：退到别的条（底部面板的入口条）上，演示会把作品树拖进底部面板。
+            const band = rectOf('[data-rail="auxiliarybar"] [data-tool-band]');
+            const frames = [...root.querySelectorAll<HTMLElement>('[data-rail="auxiliarybar"] [data-entry-frame]')];
+            const last = frames.at(-1)?.getBoundingClientRect() ?? null;
+            if (band === null) return null;
+            const top = last === null ? band.top : Math.min(band.bottom - 8, last.bottom + 2);
+            return new DOMRectReadOnly(band.left, top, band.width, Math.max(12, Math.min(last?.height ?? 28, band.bottom - top)));
+        }
         case "alice-float-corner": {
             const group = aliceFloat();
             if (group === null) return null;
@@ -875,7 +889,8 @@ onBeforeUnmount(() => {
 
 <template>
     <!-- 只认按下与按键：滚轮不算动手，第一幕里鼠标停在工作台上滚页面是常事。 -->
-    <div ref="host" class="hp-desk" :class="{'hp-desk--night': night}" @pointerdown.capture="onVisitor" @keydown.capture="onVisitor">
+    <!-- data-hp-preview：实时布局此刻按哪个候选预览（探针读：演示拖动的路上不该先排成别的样子）。 -->
+    <div ref="host" class="hp-desk" :class="{'hp-desk--night': night}" :data-hp-preview="drag?.live.previewKey.value ?? 'none'" @pointerdown.capture="onVisitor" @keydown.capture="onVisitor">
         <WorkbenchSurface
             ref="surface"
             class="hp-desk__surface"
@@ -896,8 +911,12 @@ onBeforeUnmount(() => {
             @gesture-commit="commitGesture"
             @focus-panel="(panel) => (focusedPanel = panel)"
         >
-            <template #activitybar>
-                <WorkbenchToolStrip label="活动栏" more-label="更多" :entries="activityEntries" :items="STRIP_ITEMS" @select="(id: string) => selectRegionEntry('sidebar', id)" />
+            <template #activitybar="{joined}">
+                <WorkbenchToolStrip label="活动栏" more-label="更多" :joined="joined" :entries="activityEntries" :items="STRIP_ITEMS" @select="(id: string) => selectRegionEntry('sidebar', id)" />
+            </template>
+            <!-- 右轨（workbench-layout 输出 50，w00043 t19）：右栏的容器入口，和活动栏同一个组件。第一幕“视图换位”把作品的入口拖到这里。 -->
+            <template #rail="{joined}">
+                <WorkbenchToolStrip label="右栏的侧轨" more-label="更多" region="auxiliarybar" :joined="joined" :entries="stripEntries('auxiliarybar')" @select="(id: string) => selectRegionEntry('auxiliarybar', id)" />
             </template>
             <template #statusbar>
                 <div class="hp-desk__status" data-hp-status>

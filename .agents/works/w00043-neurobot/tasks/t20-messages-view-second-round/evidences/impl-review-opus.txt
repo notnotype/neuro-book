@@ -1,0 +1,73 @@
+# w00043 t20 实现审查（Opus）：提交范围 a6e6cc018..c5eec6a12
+
+## 1. 重要｜正确性｜多标签浮动窗点“回到停靠”只记最后一个视图
+- 位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:583-600（dockFloat 逐个标签 placeInContainer → moveTabToEdge）；packages/nb-workbench-layout/src/layout-doc.ts:588-602（settleFloatRects 的 `if (isFloating(doc, float.panel)) continue;`）。
+- 现象：settleFloatRects 只在“original 的窗在 next 里不浮动了”时记。dockFloat 对工具视图窗不是一次整窗操作，而是每个标签各做一次 moveTabToEdge（各自经 finish）。搬第一个标签时窗里还剩别的标签、仍浮动，于是跳过不记；只有最后一个标签搬走、窗消失的那一次才记，且只记那一个标签。
+- 为什么是问题：Spec 输出 39“记住矩形”写明“窗里有几个标签时每个工具视图都记同一个矩形”，而“框架按钮回到停靠”正是 Spec 点名的第一条入口。库单测“窗里有几个工具视图”用的是 movePanelToEdge（整窗一次），没走 store 的真实归位路径，所以没暴露；store 用例与 e2e 都只有单标签窗。
+- 如何核实：/tmp/review-t20-impl/exp/multi-dock.ts（按 dockFloat 的做法对两标签窗 m1、x1 逐个 moveTabToEdge），输出：
+  after view:m1 floats 1 floatRects undefined
+  after view:x1 floats 0 floatRects {"view:x1":{...RECT}}
+  view:m1 没被记下。
+- 同类：用户把多标签窗里的一个标签单独拖回树里（moveTabToStrip/moveTabToEdge 一个标签），窗还在，这个视图也不记；最后拖出的那个才记。Spec 的“工具视图从浮动窗回到树里（……拖回树里停靠……）”按字面也覆盖这种拖法，需要定一句：单个标签离开仍浮动的窗算不算“回到树里”。
+- 建议改法：结算判据从“窗不浮动了”改成“这个标签 original 在浮动窗里、next 里落在树里”（按标签判，不按窗判），矩形取 original 里那扇窗的；这样 dockFloat 的逐个搬、单标签拖回、整窗搬都走同一条规则。若决定单标签拖出不记，就要让 dockFloat 换成一次整窗操作，或在 store 里把整窗矩形先算好；并在 store 用例里加一条两标签窗 dockFloat 后两个键都在的断言。
+
+## 2. 重要｜正确性/交互｜记下的矩形再浮出时只按“拖窗”的 80px 规则夹取，新开的窗可能大半在屏幕外
+- 位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:575（`doc.value.floatRects?.[key] ?? defaultFloatRect(...)`）；呈现夹取 layout-doc-store.ts:329-344 → layout-constraints.ts:58 `keepVisible`（clampFloatRect 只保 80px 宽与头高）；对照 layout-constraints.ts:60-61 `wholeInTree` 的注释“新开的窗整个夹回树区域……只留头在里面就等于开到了屏幕外”，以及 layout-drag.ts:655 松手开窗用 wholeInTree。
+- 现象：记下的矩形原样进 floatTab，写进记录的就是它，呈现只过 keepVisible。clampFloatRect 宽高会缩到区域内，但位置只保 80px 可见：例如在 1440 宽时把窗拖到 x=1300 附近（用户把窗推到一边，只露左侧一段）后经“移动到”或命令归位，下次在 1440 或更窄的窗口里经“浮动”再浮出，窗开在 x≈1360/720（区域宽减 80），只露 80px，头部右侧的框架按钮（含“回到停靠”）在屏幕外。原来的 defaultFloatRect 一定整窗可见（居中，宽高按区域夹）。
+- 为什么是问题：命令开窗是“新开的窗”，仓库已有的约定（wholeInTree 的注释）正是为了不让新开的窗开到屏幕外；开发者确认的决定是“窗口变小放不下时夹到能看见的范围内”。Spec 那句“呈现照常夹取（上一条）”只写了 80px 规则，和开发者的原话与 wholeInTree 的约定不一致，实现照 Spec 字面做，用户看到的就是一扇几乎看不见的新窗。
+- 如何核实：clampFloatRect（nb-layout/src/grid-rects.ts:174-187）对 {x:1300,width:500} 在区域宽 800 时给 x = min(max(1300, 80−500), 800−80) = 720，可见 80px。从代码推断，没有在浏览器里跑。
+- 建议改法：store 的 floatTab 用记下的矩形时先过 `wholeInTree(rect, extent.value)`（与松手开窗同一条），写进记录的就是整窗可见的矩形；同时把 Spec 那句改成“新开时整窗夹回树区域（同松手开窗），之后按上一条夹取”。若坚持只做呈现夹取，至少在 Spec 里写明这一取舍并让开发者确认。
+
+## 3. 建议｜测试｜Spec 与计划列出的几条行为没有用例，其中一条正好藏着第 1 条
+- 位置：packages/nb-workbench-layout/src/layout-doc-float-rects.test.ts；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts:1227-1256；packages/neuro-book/e2e/agent-messages-float.e2e.ts:241-266。
+- 现象与缺口：
+  a. 多标签窗的“回到停靠”：库用例“窗里有几个工具视图”用 movePanelToEdge 整窗搬，store 的 dockFloat 实际逐个标签搬（见第 1 条）；store 与 e2e 只有单标签窗。若在 store 用例里加一个两标签窗 dockFloat 后断言两个键，当前实现会失败。
+  b. “并进树里的面板”（Spec 点名的第三种入口，计划验收映射也列了）：库用例没有。我用 applyLayoutDrop 整窗中央放到 s1 跑过，结果是记下的（/tmp/review-t20-impl/exp/paths.ts 第 1 段），行为对，只是没测。
+  c. 计划切片 3 写“e2e：……展开状态照旧带着”，e2e 没有展开侧轨这一步；“记下的是收着的矩形、再浮出加展开差值”（Spec 的“侧轨展开的差值照常加”）在三层都没有断言。我在库里试了展开着归位，记下的是收着的矩形（paths.ts 第 3 段），行为对。变异“记 float.rect 加展开宽”目前没有用例能抓到。
+  d. “松手没有落点开的窗照旧开在松手处、不用它”：没有用例。现在的实现不碰它（layout-drag.ts:655 不读 floatRects），但以后有人把记下的矩形挪进库的 floatTab 或 floatDrop 时没有用例拦。
+- 建议：a 必补（与第 1 条一起）；c 在 e2e 里加一步“展开、调宽、归位、再浮出，记录宽是收着的、画出来的宽是记录加差值”；b、d 各补一条库或 store 用例。
+
+## 4. 建议｜交互/边界｜跳过 defaultFloatRect 后：同一扇窗归位的几个视图再各自浮出会完全叠在一起；也不再按视图此刻的最小尺寸放大
+- 位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:575；layout-constraints.ts:39-55（floatSize 取 max(FLOAT_DEFAULT, minimum) 并按区域夹，defaultFloatRect 按窗数错开 FLOAT_CASCADE）。
+- 现象：
+  a. Spec 规定“窗里有几个标签时每个工具视图都记同一个矩形”。之后用命令把这几个视图逐个浮出，每扇窗都用同一个矩形、不错开，后开的整扇盖住先开的，看起来只开了一扇。原来的错开逻辑（按 floats.length 偏 FLOAT_CASCADE）正是防这个的。
+  b. 记下的矩形不再过 floatSize：视图的最小尺寸声明后来变大（插件升级）时，再浮出的窗比最小尺寸小；呈现层（renderedFloats → keepVisible）不按最小尺寸放大。
+- 为什么是问题：a 是 Spec 自己的两条规则组合出来的结果，计划“不做与风险”只写了“单独浮出其中一个时用整窗的大小”，没提位置重叠；b 是隐含假设“记下时的最小尺寸今后不变”。
+- 如何核实：从代码推断；a 可在 store 里浮出 x1、x2 同窗，dockFloat（先修第 1 条）后逐个 floatTab，比较两扇窗的 rect。
+- 建议：a 在 floatTab 里，记下的矩形与现有某扇窗左上角重合时按现有窗数加错开（或交开发者定“重叠可以接受”并写进 Spec）；b 用记下的矩形时宽高取 max(记下的, 此刻 minimumSize) 再夹到区域（与第 2 条的整窗夹取放在一处）。
+
+## 5. 建议｜性能｜settleFloatRects 每次 finish 对每个键做两遍全表 findTab，大文档上结构操作变慢约 3 倍
+- 位置：packages/nb-workbench-layout/src/layout-doc.ts:588-602（landed 的 findTab 与清理循环的 findTab；findTab 每个标签现拼 tabKey 字符串，layout-doc.ts:650-657）。
+- 现象：成本是 O(键数 × 全部标签数)，与编辑器标签数相乘。finish 在拖动预览里每个候选落点都跑（applyLayoutDrop → finish），copyJson 注释里记的规模用例就是为这条热路径量的。
+- 如何核实：/tmp/review-t20-impl/exp/scale.ts，2000 个编辑器标签加 40 个视图，同一次 moveTabToEdge 平均 50 次（loadavg 6.7）：没有 floatRects 1.70ms，有 40 个记录 5.11ms。记录数随用户浮出过的视图数涨（只有视图离开文档才清），40 个偏多，5 个左右时增量约 0.4ms。
+- 建议：settleFloatRects 开头对 next 建一次“标签键 → 面板”的 Map（或只建 Set 加对落点查一次面板），两遍都查它；顺带把 copyJson 注释里的 1.2ms 量数在改完后重量一次。
+
+## 6. 建议｜注释/设计｜normalizeFloatRects 不删“标签不在文档里”的项，注释给的理由与清理判据对不上
+- 位置：packages/nb-workbench-layout/src/layout-doc-validate.ts:216-219 注释；layout-doc.ts:600（清理判据是 `findTab(doc, key) === null`，看文档里的标签，不看视图目录）。
+- 现象：注释说读入时不删是因为“视图目录可能还没交进来”。但清理按的是文档里有没有这个标签：存下来的文档里视图标签不随目录增减（reconcileViews 只补缺、不删没声明的，default-tree.ts:153-184），目录晚到不会让一个有记录的标签暂时不在文档里。正常写出的文档里 floatRects 的键总是文档里的标签（出口每次清），读入时出现“标签不在”的键只来自旧版本写回（旧版本校验与 copyJson 原样带着字段，却不会在 removeTab 时清）或手改。
+- 后果（小）：这些陈旧键留到第一次结构操作才清，期间（1）原本“结果与现状一样返回原对象”的操作（如 raiseFloat 已在最前、activateTab 已激活）因 sameLayoutShape 把 floatRects 算进形状而变成一次写入；（2）reconcileViews 在计算属性里连做几次 openPanelAtEdge 时，前一次的出口会把后面才补进来的视图的陈旧键先清掉，结果依赖补入顺序。都不丢正常写出的记录。
+- 建议：要么在校验里按同一判据（键不是文档里的标签）直接丢掉并给 repair，读写判据一致，注释删掉那条理由；要么保留现状，但把注释改成真实理由（例如“读入只修形状、不按内容清，内容由出口统一清”），别写成目录时序。
+
+## 未发现问题的方面
+- 绕过 finish 的路径：setSiblingShares 用 `{...doc}` 展开，rebaseIntents（intent-writeback.ts:111）同样展开，stripDynamicTabs 走 copyJson 带着字段，carryDynamicTabs 全经 removeTab/insertTab/activateTab/setCurrentEditor（都经 finish）；工作台里只有 default-tree.ts:112 的默认文档与 shared/editor-panels.ts:144 的编辑器文档是从零拼的，本来就没有记录。没有找到漏带或漏清 floatRects 的写入路径。setFloatRect、raiseFloat、setFloatRail 经 finish，不改树里的标签，不会误记。
+- 并进别的浮动窗、关掉（removeTab）、编辑器标签：按 Spec 不记，单测覆盖且我复核了判据。
+- 展开着归位：记下的是 float.rect（收着的），不含展开差值（实验 paths.ts 第 3 段）。
+- 校验：非对象（含数组、null）整个丢并给 repair；`__proto__` 等键被前缀检查或 FORBIDDEN_IDS 挡下；没有要修的返回原对象（单测“合法的原样读进来”断言了 toBe）；修完为空不写字段；与 rail 归一的报告格式一致。空对象 `{}` 读入时原样保留，形状比较等同于没写，下一次实际改动的出口会去掉，无害。
+- 记录大小：键只会是文档里的视图标签，出口每次清，不随装过的视图个数涨；外层 1MiB 上限照旧。
+- 旧版本兼容：旧版本校验与 copyJson 原样带着 floatRects，Spec“副作用与数据”那句成立。
+- 与 settleRails 的先后：两者读写互不相交，先后无影响。
+- sameLayoutShape 加入 floatRects：除第 6 条的陈旧键情形外，没有找到让“该写不写”或多余写入的路径；entry-drop.ts 三处用法在 floatRects 不变时结果不变。
+- 单元测试与 store 测试本地全过（nb-workbench-layout 294 pass；layout-doc-store.test.ts 65 pass）。
+
+## 各级数量
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：4（第 3、4、5、6 条）
+
+======== 主 Agent 的处理（2026-11-27，修正提交 3a2b05583，Spec 3ba51f7d3） ========
+1 多标签窗归位只记最后一个：成立，已改。结算改成按标签判（标签原在浮动窗、结果落在树里就记那扇窗的矩形），不看窗还在不在；单独拖一个回树里也记，Spec 输出 39 补了这一种。补 store 用例（多标签窗 dockFloat）与库用例（单独拖回）；变异（恢复“窗不在了才记”）两处都失败。
+2 再浮出只保证露 80px：成立，已改。新函数 rememberedFloatRect：整窗夹进树区域（wholeInTree）。Spec 改成“同新开的窗一样整个夹进树区域”。store 用例：窗口变小后再浮出整窗在区域里；变异（直接用记下的）失败。
+3 测试缺口：多标签 dockFloat、展开着归位记收着的矩形并再浮出加展开宽，已补 store 用例；“并进树里的面板”与按标签结算同一路径，审查者实验已确认，不另加；“松手没有落点不用记下的”没有读取记录的路径（落点动作自带矩形），不加。
+4 跳过 defaultFloatRect 的副作用：成立，已改。rememberedFloatRect 不小于视图此刻的最小尺寸，左上角与已有窗重合时按 24px 错开（至多 7 步）；store 用例覆盖错开。
+5 性能：成立，已改。先建“标签键到面板”的表，原文档没有浮动窗且没有记录时直接返回。
+6 读入不删的理由不对：成立，已改。读入按同一判据丢掉文档里没有的标签键并给修复说明，注释写真实理由；库用例加一项，变异失败。
