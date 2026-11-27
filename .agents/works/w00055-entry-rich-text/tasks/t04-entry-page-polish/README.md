@@ -20,6 +20,8 @@ updated: 2026-11-27
 - 现状截图（新建对话框两种入口、滚到底，空的普通条目与人物条目，宽编辑区的页头）在本地 `.local/agent/works/w00055-entry-rich-text/tasks/t04-entry-page-polish/shots/current/`。截图时发现：对话框最后两项（另一个身份、出场）在滚动区外，第一眼看不到。
 - 请 omp `@designer`（Gemini）看了两份：[对话框](evidences/designer-dialog.txt)、[页头](evidences/designer-head.txt)（说明在同目录的 `-brief.md`）。要点：对话框首屏只留名字与种类，设定组与“位置与出场”收进带当前值摘要的折叠区，马甲紧挨上级、选条目与章节要能搜、勾过以后不再跟种类换时给“恢复默认”；页头推荐左身份右坐标的两栏（种类、分组、上级、本体、出场放右栏），宽编辑区收窄内容列。
 
+- 第 1 轮静态稿（2026-11-27）：Lab 草稿区 `drafts/w00055-t04/` 的 `EntryHeadDraft`（页头三种排法：现在、两栏、压成两行；立绘头像；文字分页的空态）与 `NewEntryDraftDialog`（第一眼名字与种类，“设定组”“位置与出场”两段可展开、收起时写出现在的值，本体与上级挨着）；草稿分支 `w00055-t04/drafts` 已合进 master。画稿前核对过：分组与上级已在编辑区的面包屑里，右栏不重复；“在看”的位置是 w00039 t42 定的，不挪；人物卡空值写“填写”是 t41 定的，不改。[评审板](artifacts/review/index.html) v1 五道题：head-layout（推荐两栏）、head-avatar（推荐放）、text-empty（推荐一行淡的占位）、dialog-layout（推荐两段可展开）、dialog-wording（确认改名）。
+
 ## 下一步
 
-1. 开发者 2026-11-27：“UI 方面可以先出静态稿”。在 Lab 草稿区出静态稿、发评审板；页头用哪种排法、立绘做不做头像、页头下面两个空态改不改放在板上并排问。
+1. 读评审板的答复，记下决定；定了以后改 Spec（author-ui 输出 4、7、9）、写计划再实施。
