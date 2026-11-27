@@ -1,17 +1,20 @@
 <script setup lang="ts">
 /**
- * 第一幕的章节条（同名 .md，w00056 t06 第 7 轮出了三版，第 8 轮开发者选定古籍标尺）：纯显示，演到哪、这一段走了多少由页面给。
+ * 一幕的章节条（同名 .md，w00056 t06 第 7 轮出了三版，第 8 轮开发者选定古籍标尺；第 13 轮第二幕也用它）：纯显示，演到哪、这一段走了多少由页面给。
  * 每一段是一个按钮：标题，下面一截底线与光丝、右端一粒菱形。进度写成注册过的自定义属性（`--cr-p`），换段、补满、退回时由过渡接上。
+ * 换了一组章节（换幕）时整行按新的一组重挂，几段从左往右依次亮出来。
  */
 import {computed} from "vue";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     chapters: readonly string[];
     current: number;
     done: number;
     progress: number;
     status: "playing" | "paused" | "yielded" | "finished";
-}>();
+    /** 读屏念的名字（“第一幕的章节”）。 */
+    label?: string;
+}>(), {label: "章节"});
 
 const emit = defineEmits<{
     (event: "jump", index: number): void;
@@ -34,9 +37,9 @@ const held = computed(() => props.status === "paused" || props.status === "yield
 <template>
     <div class="cr" :class="{'cr--held': held}" :data-cr-status="status">
         <div class="cr-body">
-            <nav class="cr-track" aria-label="第一幕的章节">
-                <ol class="cr-list" :style="{'--cr-count': String(chapters.length)}">
-                    <li v-for="(chapter, index) in chapters" :key="index" class="cr-item" :class="{'is-done': index < done, 'is-current': index === current}" :style="{'--cr-p': String(fill(index))}">
+            <nav class="cr-track" :aria-label="label">
+                <ol :key="chapters.join('/')" class="cr-list" :style="{'--cr-count': String(chapters.length)}">
+                    <li v-for="(chapter, index) in chapters" :key="index" class="cr-item" :class="{'is-done': index < done, 'is-current': index === current}" :style="{'--cr-p': String(fill(index)), '--cr-i': String(index)}">
                         <button type="button" class="cr-chapter" :aria-current="index === current ? 'step' : undefined" @click="emit('jump', index)">
                             <span class="cr-title">{{ chapter }}</span>
                             <span class="cr-mark" aria-hidden="true">
@@ -123,6 +126,15 @@ const held = computed(() => props.status === "paused" || props.status === "yield
 
 .cr-item {
     transition: --cr-p 420ms var(--cr-ease);
+    animation: cr-enter 360ms var(--cr-ease) calc(var(--cr-i) * 70ms) both;
+}
+
+/* 一组章节挂上来时（第一次显出、换幕）：从左往右依次浮上来，五段约 0.65 秒走完（@designer 第 12 轮：章节条依次点亮）。 */
+@keyframes cr-enter {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
 }
 
 .cr-chapter {
@@ -398,6 +410,7 @@ const held = computed(() => props.status === "paused" || props.status === "yield
 @media (prefers-reduced-motion: reduce) {
     .cr-item {
         transition: none;
+        animation: none;
     }
 
     .cr-tip,

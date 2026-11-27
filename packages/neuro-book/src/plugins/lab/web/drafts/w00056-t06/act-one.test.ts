@@ -218,6 +218,39 @@ describe("第一幕的导演", () => {
         expect(log.slice(-2)).toEqual(["restore 0 from 99", "play 1 from 0"]);
     });
 
+    test("换幕时整台换下去：交出最后停稳那一拍的终态；页面按它挂回来，接着演时不再先摆回", async () => {
+        const {director, timers, log, plays} = await setup();
+        director.play(0);
+        await flush();
+        await finishPlay(plays);
+        timers.advance(700);
+        await flush();
+        director.pause();
+        await flush();
+        expect(director.shelve()).toBe(0);
+        const before = log.length;
+        director.resume();
+        await flush();
+        expect(log.slice(before)).toEqual(["play 1 from 0"]);
+    });
+
+    test("换幕时访客动过手：不交样子（访客摆的由页面原样记下），接着演照旧先从访客摆的样子摆回", async () => {
+        const {director, timers, log, plays, dirty} = await setup();
+        director.play(0);
+        await flush();
+        await finishPlay(plays);
+        timers.advance(700);
+        await flush();
+        dirty();
+        director.touch();
+        await flush();
+        expect(director.shelve()).toBeNull();
+        const before = log.length;
+        director.resume();
+        await flush();
+        expect(log.slice(before)).toEqual(["restore 0 from 99", "play 1 from 0"]);
+    });
+
     test("演完以后访客动手还算演完，接着演什么都不做；从头再看先摆回首屏的样子", async () => {
         const {director, timers, log, plays, dirty} = await setup();
         director.play(3);

@@ -70,6 +70,27 @@ export const BEATS = {
 /** 交给访客：眉题换成这一句，下面展开星璃的小贴纸与两个按钮。 */
 export const HANDOFF = {title: "换你来", line: "拖一个标签，摆到顺手的地方。"} as const;
 
+/**
+ * 第二幕（第 13 轮，开发者在 v12 上定照板上的脚本做原型）：开场落印的罗马数字，眉题开演时先是这一幕的名字。
+ * 五拍接着第五章往下写，短标题照第一幕压到 2 到 4 个字（章节条）；顺序照 @designer 第 12 轮：先扣中文，最后回到原文收束。
+ */
+export const ACT_TWO = {
+    number: "第二幕",
+    numeral: "II",
+    title: "为中文长篇做的编辑器",
+} as const;
+
+export const BEATS_TWO = {
+    chinese: {title: "中文规矩", opening: "行首打一个顿号，叫出插入菜单。", middle: "再给“霜港”标上读音。", closing: "提示块、注音、紧挨标点的粗体，都照中文的规矩排。"},
+    image: {title: "一张插图", opening: "从别处复制一张图，在正文里粘贴。", closing: "图存进了作品的插图文件夹，正文里就是它。"},
+    props: {title: "章节属性", opening: "这一章是谁的视角、写到哪了，记在正文上方。", middle: "状态改成修改中，出场添上守门人。", closing: "收起来是一行摘要，改过的一眼看到。"},
+    link: {title: "链到设定", opening: "提到灰塔，就链到它那一页。", closing: "按住 Ctrl 一点，灰塔的设定在新标签里翻开。"},
+    file: {title: "还是原文", opening: "换个编辑器，打开同一章。", closing: "稿子就是 Markdown 文件，哪里都打得开。"},
+} as const satisfies Readonly<Record<string, BeatCopy>>;
+
+/** 第二幕交给访客：光标停在第五章末尾。 */
+export const HANDOFF_TWO = {title: "轮到你写", line: "光标就在第五章末尾，接着写一句。"} as const;
+
 /** 两章里要涂高亮的那两句：第五章刚打的，第一章末尾师傅的敲法。 */
 export const KNOCK_ECHOES = ["门外有人敲门，三下。", "楼下有人敲门，三下，停一停，再一下。"] as const;
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 第一幕的鎏金标记（同名 .md，w00056 t06 第 9 轮）：四角、下划线、落点槽三种，取代第 8 轮贴着目标描的一圈金线框。
+ * 第一幕的鎏金标记（同名 .md，w00056 t06 第 9 轮）：四角、下划线、落点槽三种，取代第 8 轮贴着目标描的一圈金线框；第 13 轮
+ * 第二幕添了第四种细线，把两处连起来。
  *
  * 出现与收起都写在样式里：出现是挂上时跑一遍的关键帧（`backwards`，跑完不留住变换，收起时的过渡才接得上）；
  * 收起靠 `TransitionGroup` 的离场类。离场时把元素自己的无限动画（`nudge`）停掉：Vue 按离场那一刻元素上的过渡与动画时长判断何时结束，
@@ -15,8 +16,11 @@ export interface GildedRect {
 
 export interface GildedMark {
     readonly id: string;
-    readonly kind: "corners" | "underline" | "slot";
+    readonly kind: "corners" | "underline" | "slot" | "thread";
+    /** 标在哪；细线（`thread`）是它的一头。 */
     readonly rect: GildedRect;
+    /** 细线的另一头：从 `rect` 连到 `to`，连在两块相对的两边的中点之间。别的种类不看它。 */
+    readonly to?: GildedRect;
     /** 四角的臂短一些（标签这类小东西）。 */
     readonly small?: boolean;
     /** 四角出现时漾开两圈涟漪。 */
@@ -34,10 +38,33 @@ withDefaults(defineProps<{
 const OUTSET = 5;
 /** 下划线离字的下沿多远（px）。 */
 const UNDERLINE_GAP = 2;
+/** 细线的两头离两块的边多远（px），不戳进四角里。 */
+const THREAD_GAP = 10;
 
 const px = (value: number): string => `${Math.round(value * 10) / 10}px`;
 
+/**
+ * 细线的起点、长度与角度：两块左右错开时连左右相对的两边的中点，否则连上下相对的两边。元素是一条横线，从起点按角度转过去
+ * （转动的原点在左端），出现时从起点那头往另一头描出来。
+ */
+function thread(from: GildedRect, to: GildedRect): Record<string, string> {
+    const fromCenter = {x: from.left + from.width / 2, y: from.top + from.height / 2};
+    const toCenter = {x: to.left + to.width / 2, y: to.top + to.height / 2};
+    const apart = to.left >= from.left + from.width || from.left >= to.left + to.width;
+    const rightward = toCenter.x >= fromCenter.x;
+    const downward = toCenter.y >= fromCenter.y;
+    const start = apart
+        ? {x: (rightward ? from.left + from.width : from.left) + (rightward ? THREAD_GAP : -THREAD_GAP), y: fromCenter.y}
+        : {x: fromCenter.x, y: (downward ? from.top + from.height : from.top) + (downward ? THREAD_GAP : -THREAD_GAP)};
+    const end = apart
+        ? {x: (rightward ? to.left : to.left + to.width) + (rightward ? -THREAD_GAP : THREAD_GAP), y: toCenter.y}
+        : {x: toCenter.x, y: (downward ? to.top : to.top + to.height) + (downward ? -THREAD_GAP : THREAD_GAP)};
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    return {left: px(start.x), top: px(start.y), width: px(length), transform: `rotate(${Math.atan2(end.y - start.y, end.x - start.x)}rad)`};
+}
+
 function box(mark: GildedMark): Record<string, string> {
+    if (mark.kind === "thread") return mark.to === undefined ? {display: "none"} : thread(mark.rect, mark.to);
     const {left, top, width, height} = mark.rect;
     if (mark.kind === "corners") return {left: px(left - OUTSET), top: px(top - OUTSET), width: px(width + OUTSET * 2), height: px(height + OUTSET * 2)};
     if (mark.kind === "underline") return {left: px(left), top: px(top + height + UNDERLINE_GAP), width: px(width), "--gm-width": px(width)};
@@ -251,6 +278,27 @@ function box(mark: GildedMark): Record<string, string> {
     to {
         opacity: 0;
         transform: translateX(var(--gm-width));
+    }
+}
+
+/* ── 细线：一道细虚金线，从起点那头描到另一头（420ms），两头淡出 ── */
+
+.gm-mark--thread {
+    height: 0;
+    border-top: 1px dashed var(--gm-line);
+    filter: drop-shadow(0 0 3px var(--gm-glow));
+    transform-origin: 0 50%;
+    mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    animation: gm-thread-in 420ms var(--gm-ease) backwards;
+}
+
+@keyframes gm-thread-in {
+    from {
+        clip-path: inset(-3px 100% -3px 0);
+    }
+
+    to {
+        clip-path: inset(-3px 0 -3px 0);
     }
 }
 

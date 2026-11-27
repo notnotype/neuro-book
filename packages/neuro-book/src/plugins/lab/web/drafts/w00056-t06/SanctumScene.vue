@@ -24,11 +24,11 @@
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 
 import LEATHER_CORNER from "./assets/leather-corner.webp";
+import LIBRARY from "./assets/library.webp";
 import LYRA_AVATAR from "./assets/lyra-avatar.webp";
 import PARCHMENT from "./assets/parchment.webp";
 import SATIN from "./assets/silk.webp";
 import VELVET from "./assets/velvet.webp";
-import WALNUT_FAR from "./assets/walnut-far.webp";
 import WALNUT from "./assets/walnut.webp";
 
 import {cubicBezier, prefersReducedMotion, SETTLE, timeScale} from "./motion";
@@ -1360,7 +1360,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'is-diving': diving, 'sx--narrow': !wide, 'sx--day': !night, 'sx--peek': effectOn('peek'), 'sx--still': still, 'sx--focusing': focused !== null}" :data-sx-relay="relayState" :data-sx-focus="focused ?? 'none'">
-        <div class="sx-back" :style="{'--sx-walnut-far': `url(${WALNUT_FAR})`}" aria-hidden="true"></div>
+        <div class="sx-back" :style="{'--sx-library': `url(${LIBRARY})`}" aria-hidden="true"></div>
 
         <!--
             顶光：一锥暖光从穹顶落下，几道细光在里面慢慢明暗。外层的 transform 归镜头（每帧写内联样式），
@@ -2781,16 +2781,16 @@ onBeforeUnmount(() => {
 }
 
 /*
- * 第 12 轮（开发者：首屏的上半部分还是米黄色）：墙不再是一片平的暖象牙渐变，换成远处虚焦的胡桃木（同一张案面照片，入库前糊过），
- * 像一张长案往远处伸进景深里；左上的窗光是一团暖亮与两道斜光，四周沉到深木色；标题与说明那一块压暗，浅色字站得住
- * （@designer 第 12 轮方案 A）。首屏的字与导航跟着换回浅色，见 `HomepageSanctum.vue`。
+ * 第 12 轮（开发者：首屏的上半部分还是米黄色）：墙不再是一片平的暖象牙渐变；第 12 轮先用虚焦的胡桃木（@designer 方案 A），
+ * 第 13 轮开发者选了生成一张午后的藏书阁（方案 B）：书架一层层往里退，红金书脊在焦外，左上高窗斜进来的光里有浮尘，
+ * 正中是一扇暗木的拱门，标题就压在它上面（入库前糊过、压暗过一点，像景深外的背景）。再压两层：标题那一块压暗，浅色字站得住；
+ * 下半截沉到深木色，俯冲时案面远边淡出的那一截后面是书架的底裙，不露出地板上的反光。首屏的字与导航是浅色，见 `HomepageSanctum.vue`。
  */
 .sx--day .sx-back {
     background:
-        radial-gradient(46% 32% at 50% 35%, rgb(34 18 10 / 0.42), transparent 100%),
-        linear-gradient(126deg, transparent 10%, rgb(255 236 196 / 0.22) 19%, rgb(255 236 196 / 0.03) 27%, rgb(255 236 196 / 0.16) 34%, transparent 44%),
-        radial-gradient(68% 58% at 24% 16%, rgb(255 226 176 / 0.34) 0%, rgb(186 124 68 / 0.12) 48%, rgb(36 18 10 / 0.68) 100%),
-        var(--sx-walnut-far) center 22% / 118% auto no-repeat,
+        radial-gradient(44% 34% at 50% 35%, rgb(36 19 11 / 0.56) 0%, rgb(36 19 11 / 0.28) 62%, transparent 100%),
+        linear-gradient(transparent 40%, rgb(42 24 14 / 0.35) 55%, rgb(52 30 18 / 0.72) 75%),
+        var(--sx-library) center 35% / cover no-repeat,
         #3a2115;
 }
 

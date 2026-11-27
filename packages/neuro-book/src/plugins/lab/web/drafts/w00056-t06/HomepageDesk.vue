@@ -27,6 +27,7 @@ import EditorHost from "nbook/plugins/editor/web/components/EditorHost.vue";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
+import {createMarkdownMedia, markdownMediaKey} from "nbook/plugins/markdown/web/media";
 import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
 import {markdownStickersKey} from "nbook/plugins/markdown/web/parts/stickers";
 import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
@@ -67,6 +68,9 @@ import LYRA_AVATAR from "./assets/lyra-avatar.webp";
 import {createDemoPointer} from "./demo-pointer";
 import type {DemoPointer} from "./demo-pointer";
 import type {DeskPlate, DeskSetup, DeskSnapshot, DeskTarget} from "./desk";
+import {withBlobs} from "./desk-blobs";
+import type {DeskBlobs} from "./desk-blobs";
+import {createDeskEditing} from "./desk-editing";
 import {createDeskExplorer} from "./desk-explorer";
 import {BOOK_TITLE, CANON_GROUPS, CATALOG, DESK_REGION_WIDTHS, KNOCK_MESSAGES, lyraContext, OPEN_FILES, PROJECT_FILES, TOUR_MESSAGES, VIEWS} from "./sample";
 import type {OpenFile} from "./sample";
@@ -78,7 +82,9 @@ const props = withDefaults(defineProps<{
     setup?: DeskSetup;
     /** 夜间配色时强调色换成金（配色本身由页面写在根上，见 `HomepageSanctum.vue`）。 */
     night?: boolean;
-}>(), {restore: null, setup: "tour", night: false});
+    /** 贴进来的图存在哪（页面那一份，重挂工作台不丢）；不给时同 Lab 的内存文件，不能上传、正文里的图不显示。 */
+    blobs?: DeskBlobs | null;
+}>(), {restore: null, setup: "tour", night: false, blobs: null});
 
 const emit = defineEmits<{
     /** 访客自己按下了指针或按了键（演示不发这些事件）：第一幕的自动演示据此让开。 */
@@ -173,8 +179,13 @@ function commitGesture(before: Readonly<Record<string, GridExtent>>, after: Read
 
 // ── 编辑器区：产品的控制器、组与标签、Markdown 编辑器，文件在内存里 ──
 
-// 重新挂一台时带回存过盘的正文（“关掉再打开”那一拍）；没有就按样本。
-const memory = createMemoryFiles({project: props.restore?.files ?? PROJECT_FILES, user: []});
+// 重新挂一台时带回存过盘的正文（“关掉再打开”那一拍、换幕）；没有就按样本。存盘时也按这一份的路径读（第二幕多一页灰塔）。
+const seededFiles = props.restore?.files ?? PROJECT_FILES;
+/** 存过的图的地址：重挂时在内存文件里补回同名的空文件（资源管理器列得出），字节在页面那一份 `DeskBlobs` 里。 */
+const storedImages = new Set<string>(props.restore?.images ?? []);
+const memory = createMemoryFiles({project: [...seededFiles, ...[...storedImages].map((address) => address.slice("project://".length))], user: []});
+/** 编辑器区、资源管理器与插图共用的文件服务：给了 `blobs` 时能上传图片、取得到图片地址（`desk-blobs.ts`）。 */
+const files = props.blobs === null ? memory.files : withBlobs(memory.files, props.blobs, (address) => storedImages.add(address));
 const editorPanels: EditorPanelsService = {
     ...createEditorPanels({document: () => doc.value, apply: (operation) => apply(operation), policy: POLICY}),
     ready: shallowRef(true),
@@ -182,7 +193,7 @@ const editorPanels: EditorPanelsService = {
     flush: () => undefined,
 };
 const area = createEditorArea({
-    files: memory.files,
+    files,
     clock: systemClock,
     panels: editorPanels,
     workspaceKey: "homepage",
@@ -207,7 +218,9 @@ function tabIdOf(address: string): string | null {
 
 provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
 provide(markdownStickersKey, labStickers());
-provide(markdownAssetsKey, createAssetUrls({rawUrl: () => null, watch: () => () => undefined}));
+// 正文里的图从这份文件服务取地址；贴图存进作品根下的 `插图/`（产品的缺省存放位置）。
+provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => files.rawUrl(address), watch: (scheme, listener) => files.watch(scheme, listener)}));
+if (props.blobs !== null) provide(markdownMediaKey, createMarkdownMedia({files, find: null, bound: true, settings: {location: () => "folder", folder: () => "插图"}}));
 provide(editorMenusKey, createLabEditorMenus(area, text));
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
@@ -228,7 +241,7 @@ const onIntent = (intent: string): void => {
 // ── 视图：资源管理器是真的；设定与剧情先放名字（第三幕再讲）；星璃是产品的对话视图 ──
 
 const explorer = createDeskExplorer({
-    files: memory.files,
+    files,
     text,
     title: BOOK_TITLE,
     open: (address, mode) => area.open(address, {mode}).ok,
@@ -624,6 +637,11 @@ function moveExplorer(region: PanelName): boolean {
     return moved;
 }
 
+/** 第二幕开场：收起或放回右栏（星璃那一栏），正文跟着展宽或收回；走产品的布局动画（workbench-layout 输出 42）。 */
+function setAuxiliaryHidden(hidden: boolean): boolean {
+    return apply((current) => setPanelHidden(settleContainers(current), "auxiliarybar", hidden)).ok;
+}
+
 /** 第三步：最大化某一块，null 还原。 */
 function setMaximized(panel: string | null): void {
     maximized.value = panel;
@@ -665,12 +683,16 @@ function revealEnd(file: OpenFile): boolean {
 
 /**
  * 在光标处打几个字。走浏览器的输入路径（`insertText`，和访客打字、输入法上屏一样），编辑器照常收到输入、记脏、能撤销；
- * 不绕过编辑器去改文件。焦点不在这台工作台的编辑器里时不打，返回 false。`field` 时打进焦点所在的批注输入框（它传送在 body 下）。
+ * 不绕过编辑器去改文件。焦点不在这台工作台的编辑器里时不打，返回 false。`field` 时打进焦点所在的输入框：批注卡片、
+ * 注音与链接卡片（都传送在 body 下）、属性面板。
  */
 function type(text: string, where: "editor" | "field" = "editor"): boolean {
-    const ready = where === "editor" ? typing() : document.activeElement?.closest("[data-markdown-comment-card]") != null;
+    const ready = where === "editor" ? typing() : document.activeElement?.closest("[data-markdown-comment-card], [data-markdown-text-prompt], [data-markdown-properties]") != null;
     return ready && document.execCommand("insertText", false, text);
 }
+
+/** 第二幕的编辑器动作与要瞄的地方（`desk-editing.ts`）。 */
+const deskEditing = createDeskEditing({host: () => host.value, area});
 
 /** 焦点在不在这台工作台的编辑器里（`revealEnd` 之后编辑器可能还没准备好，聚焦没有落下）。 */
 function typing(): boolean {
@@ -745,13 +767,13 @@ function finishSelection(): void {
     window.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 7077, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0}));
 }
 
-/** 选区菜单上的按钮（菜单传送在 body 下，不在这台工作台里）：高亮是颜色拆分按钮的主按钮。菜单没出时返回 null。 */
-function menuButton(kind: "highlight" | "comment"): DOMRectReadOnly | null {
+/** 选区菜单上的按钮（菜单传送在 body 下，不在这台工作台里）：高亮是颜色拆分按钮的主按钮，别的按图标找。菜单没出时返回 null。 */
+function menuButton(kind: "highlight" | "comment" | "ruby" | "link"): DOMRectReadOnly | null {
     const menu = document.querySelector<HTMLElement>("[data-markdown-selection-menu]");
     if (menu === null) return null;
     const button = kind === "highlight"
         ? menu.querySelector<HTMLElement>(".markdown-color-button:has(.markdown-color-button__bar--light) .markdown-color-button__main button")
-        : (menu.querySelector<HTMLElement>(`.${CSS.escape(EDITING_ACTIONS.comment.icon)}`)?.closest("button") ?? null);
+        : (menu.querySelector<HTMLElement>(`.${CSS.escape(EDITING_ACTIONS[kind].icon)}`)?.closest("button") ?? null);
     const rect = button?.getBoundingClientRect() ?? null;
     return rect === null || rect.width < 2 ? null : rect;
 }
@@ -829,14 +851,14 @@ function snapshot(): DeskSnapshot {
     return {doc: doc.value, tabs: area.groups.snapshot(), maximized: maximized.value};
 }
 
-/** 关掉之前的样子：先存盘（打到一半的那句进文件），再连同正文与星璃的对话一起记下。 */
+/** 关掉之前的样子：先存盘（打到一半的那句进文件），再连同正文、存过的图与星璃的对话一起记下。 */
 async function snapshotSaved(): Promise<DeskSnapshot> {
     await area.saveAll();
-    const files = await Promise.all(PROJECT_FILES.map(async ([path, fallback]): Promise<readonly [string, string]> => {
+    const texts = await Promise.all(seededFiles.map(async ([path, fallback]): Promise<readonly [string, string]> => {
         const read = await memory.files.read(`project://${path}`);
         return [path, read.ok ? read.value.text : fallback];
     }));
-    return {...snapshot(), files, lyra: lyra.value.messages};
+    return {...snapshot(), files: texts, images: [...storedImages], lyra: lyra.value.messages};
 }
 
 /** 换回记下的某一份布局：标签一个没关，只是换了位置，编辑器的记录照旧对得上。布局的变化走产品的布局动画。 */
@@ -868,7 +890,13 @@ async function restoreTo(next: DeskSnapshot): Promise<boolean> {
     return true;
 }
 
-defineExpose({plates, ground, target, pointer: () => demoPointer.value, splitRight, moveExplorer, setMaximized, isMaximized, floatAlice, revealEnd, type, typing, shows, textRects, selectText, finishSelection, collapseSelection, menuButton, commentSave, focusCommentField, commentMarker, marked, markNow, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc, restoreTo});
+/** 最近存下的那张图在作品树里的名字（演示在树上标它）；还没存过图时为 null。 */
+function lastImageName(): string | null {
+    const address = [...storedImages].at(-1);
+    return address === undefined ? null : address.slice(address.lastIndexOf("/") + 1);
+}
+
+defineExpose({plates, ground, target, pointer: () => demoPointer.value, splitRight, moveExplorer, setAuxiliaryHidden, setMaximized, isMaximized, floatAlice, revealEnd, type, typing, shows, textRects, selectText, finishSelection, collapseSelection, menuButton, commentSave, focusCommentField, commentMarker, marked, markNow, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc, restoreTo, lastImageName, ...deskEditing});
 
 // 第一次排好版（量到尺寸、卡片有了）再告诉页面，开场动画照它摆。
 const stopReady = watch(presented, (sizes) => {
