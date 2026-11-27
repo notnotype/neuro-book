@@ -35,6 +35,8 @@ Agent 写进 `session://`、`tmp://`、`profile://` 的文件，用户在资源�
 
 2026-11-27 写好[计划](plan.md)；注意力排序与第 1 轮评审已定，静态稿已按“全列”改好并合入 master，草稿 worktree 已删；计划补了监视与列出的约束。设计已全部定稿。计划第 1 版经 Opus 审查，14 条（4 高、6 中、4 低）全部核实属实，已按它改写计划：不放宽 `Resource` 而另加 `FileAddress` 联合类型、挂载点与 `home` 的结构性保护、订阅在目录出现前等待、变更中心分开基准根与监视目录、订阅的结束、虚拟根的列出形状、工具结果记下全局地址、文档存储与 Markdown 的改动。omp `@review` 在后台跑，报告回来另行处理。
 
+- 切片 1（编辑器不卡死）已合入 master：`d95b0daea`、`8af62d6bc`（Work 分支 `feat/w00058-agent-resources-in-workbench`，`.worktree/w00058-agent-resources`）。验证：`area.test.ts` 新用例修复前失败、修复后通过；`test:affected` 只有 master 上原有的 SDK 快照（`NestedGrid`）失败；`tsc`、`vue-tsc` 通过。Sonnet 审查无绕过入口与副作用先后的问题，采纳一条：对话侧只对认不出的地址弹提示。w00050 t05 由本 Task 接手并标为完成。
+
 ## 下一步
 
-开 Work 分支，从切片 1（编辑器不卡死）开始；omp `@review` 的报告回来后处理，修正单独提交。
+切片 2（服务端：合同、挂载点的文件操作与结构性保护、订阅与等待、变更中心的基准根与监视目录、字节路由、根通知）；omp `@review` 的报告回来后处理，修正单独提交。
