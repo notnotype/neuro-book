@@ -169,7 +169,7 @@ onBeforeUnmount(stop);
 
 /*
  * 夜里压到约六成：第 8 轮的四成压在本来就暗的界面上，亮暗只差一点，开发者看着像没压（@designer 第 9 轮给 0.64，再往上才成死黑）。
- * 白天是一层暖褐，约三成（浅木面上两成看不出来）。
+ * 白天是一层深暖褐，约三成半（第 10 轮四周换成胡桃木，原来那层浅暖褐显脏，@designer 第 10 轮给 #26160c、36%）。
  */
 .ds__veil {
     fill: rgb(8 4 6);
@@ -177,8 +177,8 @@ onBeforeUnmount(stop);
 }
 
 .ds--day .ds__veil {
-    fill: rgb(72 46 22);
-    fill-opacity: 0.3;
+    fill: rgb(38 22 12);
+    fill-opacity: 0.36;
 }
 
 @media (prefers-reduced-motion: reduce) {

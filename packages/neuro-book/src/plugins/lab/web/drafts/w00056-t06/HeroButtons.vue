@@ -3,7 +3,6 @@
  * 首页按钮的样张（同名 .md，w00056 t06）：第 6 轮出了四版给开发者挑，第 8 轮定为 B“皮面烫金”（`GiltButton`），
  * 这里只剩选定的那一版，夜与昼两种底、两种大小各摆一格。只是样张，按钮不跳转。
  */
-import OAK from "./assets/oak.webp";
 import GiltButton from "./GiltButton.vue";
 
 const SCENES = [
@@ -15,7 +14,7 @@ const SCENES = [
 <template>
     <div class="hb">
         <!-- 样张里的按钮不跳转：点击在这一格上拦下。 -->
-        <section v-for="scene in SCENES" :key="scene.id" class="hb-cell" :class="`hb-cell--${scene.id}`" :style="scene.day ? {'--hb-oak': `url(${OAK})`} : undefined" :aria-label="scene.name" @click.prevent>
+        <section v-for="scene in SCENES" :key="scene.id" class="hb-cell" :class="`hb-cell--${scene.id}`" :aria-label="scene.name" @click.prevent>
             <div class="hb-pair">
                 <GiltButton primary :day="scene.day">下载 NeuroBook</GiltButton>
                 <GiltButton :day="scene.day">在 GitHub 上看看</GiltButton>
@@ -57,7 +56,7 @@ const SCENES = [
     gap: 16px;
 }
 
-/* 两种底：夜是首页暗夜圣殿的底，昼是午后抄经室的旧橡木桌面（第 9 轮的白天）。 */
+/* 两种底：夜是首页暗夜圣殿的底，昼是午后藏书阁窗光照着的暖象牙墙（第 10 轮的白天，首屏的按钮压在它上面）。 */
 .hb-cell--night {
     background:
         radial-gradient(70% 90% at 50% 0%, rgb(74 38 58 / 0.55), transparent 70%),
@@ -66,9 +65,8 @@ const SCENES = [
 
 .hb-cell--day {
     background:
-        radial-gradient(70% 90% at 20% 0%, rgb(255 250 236 / 0.55), transparent 70%),
-        var(--hb-oak) center / cover,
-        #d1b18e;
+        radial-gradient(70% 90% at 20% 0%, rgb(255 246 222 / 0.6), transparent 70%),
+        radial-gradient(90% 110% at 50% 18%, #f6ecd8, #efdfc0 58%, #d9b68c);
 }
 
 @container (max-width: 720px) {

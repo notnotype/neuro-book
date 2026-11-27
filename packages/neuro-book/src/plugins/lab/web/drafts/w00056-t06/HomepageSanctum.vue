@@ -1859,9 +1859,9 @@ onBeforeUnmount(() => {
     filter: drop-shadow(0 1px 14px rgb(255 248 230 / 0.55));
 }
 
-/* 花饰在亮墙上要沉成古铜才看得见（@designer 第 8 轮：浅底上的亮金几乎隐形）。 */
+/* 花饰在亮墙上要沉一些才看得见（@designer 第 8 轮：浅底上的亮金几乎隐形）；第 10 轮从古铜提回暖古金（@designer 第 10 轮）。 */
 .hs--day .hs-hero__flourish {
-    filter: sepia(0.35) saturate(1.3) brightness(0.6) contrast(1.25);
+    filter: sepia(0.25) saturate(1.35) brightness(0.74) contrast(1.15);
 }
 
 .hs--day .hs-hero__lede {
@@ -1881,9 +1881,8 @@ onBeforeUnmount(() => {
 }
 
 /*
- * 白天的眉题、章节条与字幕压在浅暖的旧橡木桌面上（第 8 轮：白天的第一幕和首屏是同一个白天，不再留一块夜里的暗绒；
- * 第 9 轮桌面从亚麻换成橡木）：字换深墨，金换古铜（@designer 第 8 轮：浅底上亮金看不出来）。木纹比亚麻深半阶、又花，
- * 还没演到的标题与虚线压得比亚麻上深一些，不然糊进木纹里。
+ * 窄屏白天的字幕与章节条压在首屏的亮墙上：字换深墨，金换古铜（@designer 第 8 轮：浅底上亮金看不出来）。
+ * 宽屏落地以后四周是压深的胡桃木与酒红丝绒（第 10 轮），见下面那几条。
  */
 .hs--day .hs-rail {
     --cr-gold: #8a5c1c;
@@ -1895,18 +1894,35 @@ onBeforeUnmount(() => {
     --cr-tip-core: #6f4a17;
 }
 
-.hs--day .hs-caption__line,
-.hs--day .hs-eyebrow__line {
+.hs--day .hs-caption__line {
     color: #24170d;
 }
 
+/*
+ * 宽屏白天落地以后，眉题与章节条压在胡桃木与丝绒上（第 10 轮，开发者：白天少了华丽感，桌面压深了）：换成浅色的字与亮金，
+ * 和夜里一个路数，只是更暖。眉题只在宽屏有；章节条窄屏也有，所以按宽屏限定。
+ */
+.hs--day .hs-eyebrow__line {
+    color: rgb(250 240 222 / 0.92);
+}
+
 .hs--day .hs-eyebrow__title {
-    color: #6a2a14;
-    text-shadow: none;
+    color: #f0d79a;
+    text-shadow: 0 1px 12px rgb(40 20 8 / 0.6);
 }
 
 .hs--day .hs-eyebrow__line::before {
-    background: linear-gradient(transparent, #8a5c1c, transparent);
+    background: linear-gradient(transparent, #d8b06a, transparent);
+}
+
+.hs--day:not(.hs--narrow) .hs-rail {
+    --cr-gold: #d8b06a;
+    --cr-gold-light: #f0d79a;
+    --cr-dim: rgb(240 214 160 / 0.42);
+    --cr-ink: rgb(250 238 214 / 0.72);
+    --cr-glow: rgb(240 200 120 / 0.3);
+    --cr-plate: rgb(44 24 12 / 0.55);
+    --cr-tip-core: #fff3cf;
 }
 
 .hs--day .hs-next {

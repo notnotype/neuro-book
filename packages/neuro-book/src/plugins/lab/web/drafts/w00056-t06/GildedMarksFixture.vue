@@ -61,8 +61,9 @@ onBeforeUnmount(() => observer?.disconnect());
     background: #1c0a0f;
 }
 
+/* 白天落地以后工作台四周是压深的胡桃木（第 10 轮）。 */
 .gmf--day {
-    background: #d1b18e;
+    background: #5a3826;
 }
 
 .gmf__frame {
