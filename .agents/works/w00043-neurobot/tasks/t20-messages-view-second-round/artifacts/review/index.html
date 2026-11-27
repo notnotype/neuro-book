@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t20 第 3 轮：底部导航与列表</title>
+<title>t20 第 4 轮：展开收起按钮与列表</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -30,19 +30,30 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t20 第 3 轮：底部导航与列表</h1>
+<h1>t20 第 4 轮：展开收起按钮与列表</h1>
 
-<section data-nbdev-question="nav-structure" data-nbdev-type="single" data-nbdev-recommend="ok">
-  <h2>收着照旧是窄列，展开后窄列让位、列表底部是 Bot｜会话｜收起，这样对吗？</h2>
-  <p class="rec"><strong>推荐按这样做。展开时窄列上半的头像与会话方块先淡出，底下三个按钮顺着弧线铺成横排，“收起”留在右下角原处，列表随后淡入；收起时先收文字与列表，再立回竖排，比展开快一些。</strong></p>
-  <div class="cands cands--4">
-    <div class="cand"><h3>停靠</h3><img src="r3/dock.webp" alt="停靠收着：窄列照旧"></div>
-    <div class="cand"><h3>停靠展开</h3><img src="r3/dock-open.webp" alt="停靠展开：列表与底部导航"></div>
-    <div class="cand"><h3>浮动</h3><img src="r3/float.webp" alt="浮动收着：窄列照旧"></div>
-    <div class="cand"><h3>浮动展开</h3><img src="r3/float-open.webp" alt="浮动展开：列表与底部导航"></div>
+<section data-nbdev-question="toggle-place" data-nbdev-type="single" data-nbdev-recommend="head">
+  <h2>展开收起按钮放在哪？</h2>
+  <p class="rec"><strong>推荐 A 聊天头右端：收着、展开都在同一个地方，停靠与浮动一样；列表就在它右边长出来，按钮指着它。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="head" data-nbdev-label="A 聊天头右端">
+      <h3>A 聊天头右端</h3>
+      <h4>收着</h4><img src="r4/head-dock.webp" alt="A：收着，按钮在聊天头右端">
+      <h4>展开</h4><img src="r4/head-dock-open.webp" alt="A：展开，按钮在聊天头右端、按下">
+    </div>
+    <div class="cand" data-nbdev-option="top" data-nbdev-label="B 窄列顶上、列表搜索行右端">
+      <h3>B 窄列顶上、列表搜索行右端</h3>
+      <h4>收着</h4><img src="r4/top-dock.webp" alt="B：收着，按钮在窄列顶上">
+      <h4>展开</h4><img src="r4/top-dock-open.webp" alt="B：展开，按钮在搜索行右端">
+      <p>两个状态里按钮位置不同。</p>
+    </div>
+    <div class="cand" data-nbdev-option="tab" data-nbdev-label="C 不设按钮：点 Bot、会话展开，再点当前页收起">
+      <h3>C 不设按钮</h3>
+      <h4>收着</h4><img src="r4/tab-dock.webp" alt="C：收着，窄列底下只有 Bot、会话">
+      <h4>展开</h4><img src="r4/tab-dock-open.webp" alt="C：展开，底部只有 Bot、会话">
+      <p>点窄列的 Bot、会话展开到那一页，再点导航条上当前那一页收起；按钮最少，但收起要靠悬停提示才知道。</p>
+    </div>
   </div>
-  <div style="display:none" data-nbdev-option="ok" data-nbdev-label="对，按这样做"></div>
-  <div style="display:none" data-nbdev-option="adjust" data-nbdev-label="要调整（写在附言里）"></div>
 </section>
 
 <section data-nbdev-question="list-style" data-nbdev-type="single" data-nbdev-recommend="1">
@@ -69,15 +80,6 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   </div>
 </section>
 
-<section data-nbdev-question="container-entry" data-nbdev-type="single" data-nbdev-recommend="row">
-  <h2>右栏里还有别的容器时，展开着怎么切换容器？</h2>
-  <p class="rec"><strong>推荐 A：展开后窄列没了，容器入口也跟着没了；右栏只有消息时（缺省）什么都不加，有别的容器时列表顶上多一行入口。</strong></p>
-  <div class="cands cands--2">
-    <div class="cand" data-nbdev-option="row" data-nbdev-label="A 列表顶上一行入口（只在有别的容器时）"><h3>A 列表顶上一行入口</h3><p>只在右栏有别的容器时出现，图标横排，和收着时窄列顶上的入口是同一组。</p></div>
-    <div class="cand" data-nbdev-option="collapse" data-nbdev-label="B 不加，收起后再切"><h3>B 不加</h3><p>展开着不能切容器，要先收起列表。</p></div>
-  </div>
-</section>
-
 <section>
   <h2>直接修，不用答</h2>
   <table>
@@ -87,8 +89,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
       <tr><td>“当前作品 / 全部作品”</td><td>放在搜索框下面那一行的左端，筛选在右端（不藏进筛选菜单）</td></tr>
       <tr><td>会话没有说明时</td><td>行只有一行高，不留空的第二行</td></tr>
       <tr><td>未读数</td><td>中性深色小胶囊，不用强调色（强调色只给当前项）；有等你处理时用 warning 色</td></tr>
-      <tr><td>导航条的“收起”</td><td>单独一格、和窄列同宽 48，用竖线隔开，不和 Bot、会话三等分</td></tr>
-      <tr><td>搜索框的提示文字</td><td>只写“搜索”</td></tr>
+            <tr><td>搜索框的提示文字</td><td>只写“搜索”</td></tr>
     </tbody>
   </table>
 </section>
@@ -100,6 +101,8 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>归位后再浮动用上次的位置与大小（已做并合入）</li>
     <li>列表整个重做（第 1 轮附言“不好看，这个消息列表可以重新做”）</li>
     <li>收着时窄列（侧柜）保留；展开时底下三个按钮落到列表底部成横排导航（第 2 轮附言）</li>
+    <li>结构按第 3 轮：收着窄列照旧，展开后窄列让位、列表底部是 Bot｜会话；展开收起按钮换个位置（第 3 轮附言，本轮第一题）</li>
+    <li>右栏有别的容器时，展开的列表顶上一行入口；只有消息时不加（第 3 轮）</li>
   </ol>
 </section>
 </main>
