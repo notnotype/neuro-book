@@ -26,7 +26,9 @@ import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, 
 import LEATHER_CORNER from "./assets/leather-corner.webp";
 import LYRA_AVATAR from "./assets/lyra-avatar.webp";
 import PARCHMENT from "./assets/parchment.webp";
+import SATIN from "./assets/silk.webp";
 import VELVET from "./assets/velvet.webp";
+import WALNUT_FAR from "./assets/walnut-far.webp";
 import WALNUT from "./assets/walnut.webp";
 
 import {cubicBezier, prefersReducedMotion, SETTLE, timeScale} from "./motion";
@@ -1358,7 +1360,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'is-diving': diving, 'sx--narrow': !wide, 'sx--day': !night, 'sx--peek': effectOn('peek'), 'sx--still': still, 'sx--focusing': focused !== null}" :data-sx-relay="relayState" :data-sx-focus="focused ?? 'none'">
-        <div class="sx-back" aria-hidden="true"></div>
+        <div class="sx-back" :style="{'--sx-walnut-far': `url(${WALNUT_FAR})`}" aria-hidden="true"></div>
 
         <!--
             顶光：一锥暖光从穹顶落下，几道细光在里面慢慢明暗。外层的 transform 归镜头（每帧写内联样式），
@@ -1386,7 +1388,7 @@ onBeforeUnmount(() => {
                 -->
                 <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-walnut': `url(${WALNUT})`}" aria-hidden="true"></div>
                 <div class="sx-pool" aria-hidden="true"></div>
-                <div ref="deskSilk" class="sx-silk" aria-hidden="true"></div>
+                <div ref="deskSilk" class="sx-silk" :style="{'--sx-satin': `url(${SATIN})`}" aria-hidden="true"></div>
                 <div class="sx-desk">
                     <slot name="desk" />
                 </div>
@@ -2778,10 +2780,18 @@ onBeforeUnmount(() => {
     background: #4a2e20;
 }
 
+/*
+ * 第 12 轮（开发者：首屏的上半部分还是米黄色）：墙不再是一片平的暖象牙渐变，换成远处虚焦的胡桃木（同一张案面照片，入库前糊过），
+ * 像一张长案往远处伸进景深里；左上的窗光是一团暖亮与两道斜光，四周沉到深木色；标题与说明那一块压暗，浅色字站得住
+ * （@designer 第 12 轮方案 A）。首屏的字与导航跟着换回浅色，见 `HomepageSanctum.vue`。
+ */
 .sx--day .sx-back {
     background:
-        radial-gradient(56% 46% at 18% 0%, rgb(255 246 222 / 0.55), transparent 72%),
-        radial-gradient(82% 74% at 50% 16%, #f6ecd8 0%, #efdfc0 30%, #cfa274 52%, #80502f 72%, #4a2e20 92%);
+        radial-gradient(46% 32% at 50% 35%, rgb(34 18 10 / 0.42), transparent 100%),
+        linear-gradient(126deg, transparent 10%, rgb(255 236 196 / 0.22) 19%, rgb(255 236 196 / 0.03) 27%, rgb(255 236 196 / 0.16) 34%, transparent 44%),
+        radial-gradient(68% 58% at 24% 16%, rgb(255 226 176 / 0.34) 0%, rgb(186 124 68 / 0.12) 48%, rgb(36 18 10 / 0.68) 100%),
+        var(--sx-walnut-far) center 22% / 118% auto no-repeat,
+        #3a2115;
 }
 
 .sx--day .sx-vignette {
@@ -2830,9 +2840,9 @@ onBeforeUnmount(() => {
 
 /*
  * 丝绸垫：深石榴红的素缎，首屏时比工作台左右各宽一成、上下各宽一成二，随俯冲收成落地后的一道窄边（上下 12px、左右 18px）。
- * 用内缩（inset）收，不用缩放：包边与金线要保持原来的粗细。缎面是左上迎光、右下沉暗的一片同色渐变，
- * 只在露出来的边上有几处很浅的起伏（明暗差一成以内），不给白亮条；包边 3px 暗红，往里 6px 压一道细暗金线，背光那头淡下去。
- * 现在只用样式画；@designer 估计要一张生成的缎面照片才不像塑料（评审板上问）。
+ * 用内缩（inset）收，不用缩放：包边与金线要保持原来的粗细。缎面是生成的照片（第 12 轮，开发者选了生成；第 11 轮只用渐变画，
+ * 像毡或皮）：中间平整、几道柔褶都在四周，按 `cover` 铺在垫子上，垫子收窄时褶子跟着留在露出来的那圈边上；
+ * 左上迎光、右下沉暗也在照片里。包边 3px 暗红，往里 6px 压一道细暗金线，背光那头淡下去，都用样式叠，缩放不变形。
  */
 .sx--day .sx-silk {
     display: block;
@@ -2843,14 +2853,7 @@ onBeforeUnmount(() => {
     border: 3px solid;
     border-color: #5c1720 #3e0d13 #360b11 #521419;
     border-radius: 5px;
-    background:
-        radial-gradient(60% 70% at 16% 10%, rgb(255 224 176 / 0.12), transparent 70%),
-        radial-gradient(34% 9% at 34% 100%, rgb(168 64 72 / 0.32), transparent 72%),
-        radial-gradient(22% 7% at 70% 99%, rgb(34 6 10 / 0.34), transparent 72%),
-        radial-gradient(6% 34% at 0% 62%, rgb(34 6 10 / 0.36), transparent 74%),
-        radial-gradient(7% 28% at 100% 28%, rgb(168 64 72 / 0.24), transparent 74%),
-        radial-gradient(26% 7% at 58% 0%, rgb(168 64 72 / 0.2), transparent 72%),
-        linear-gradient(130deg, #8f2b33 0%, #7a2129 26%, #6e1b22 50%, #5c161d 78%, #4a1117 100%);
+    background: var(--sx-satin) center / cover, #6e1b22;
     box-shadow:
         0 4px 12px rgb(18 8 4 / 0.5),
         inset 0 0 0 1px rgb(30 4 8 / 0.35),
