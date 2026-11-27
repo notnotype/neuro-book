@@ -38,7 +38,7 @@ updated: 2026-11-24
 
 ## 下一步
 
-B10（对着真实服务的浏览器冒烟与开发代理）进行中；之后是收口（前端收口审查、Spec 晋升、合入 master）。
+收口审查（Sonnet：B6、B7 修正、按钮迁移、B9、B10 五个提交与验收映射逐条对用例）进行中；处理完后合入 master、晋升 Spec。
 
 ## 实施进度
 
@@ -129,6 +129,14 @@ B8 两轮审查的修正（处理见计划文末“B8 实现审查的处理”�
 
 B9（隐私政策与服务条款两个公开页）已提交（`d043fb054`，23 个文件）：正文是 `src/legal/zh-CN/*.md`，front matter 写版本与 `placeholder`，构建时由 `build/legal-docs.ts`（`marked`，开发依赖）转成 HTML，浏览器的包里不带 Markdown 库；两份版本不一致、版本不是真实日期、正文里有一级标题时任何构建都失败；设 `NB_SITE_RELEASE=1` 时占位正文让构建失败（计划文末“B9 开工前的调整”）。阅读版式正文列最宽 680、居中，两页各是懒加载的块；空壳页 `ShellPage` 没人用了，删掉。主会话看过截图（1440 与 390），在负载 3 左右重跑：五个官方站包的测试与类型检查、前端 vitest 265、构建、浏览器场景 105、`build:image --no-docker`、`governance:check` 都过；实现者 4 条变异都被抓到（“Markdown 库进了浏览器的包”第一次没被单独抓到，拆成独立断言后抓到）。入口 gzip 84.92 KB。
 - 给 t13：部署用的镜像构建要设 `NB_SITE_RELEASE=1`（只认 `1`）。条款文字来了：删两份正文的 `placeholder`，版本改成服务端 `NB_SITE_IDENTITY_TERMS_VERSION` 的值，并改 `e2e/fixtures/identity.ts` 的 `meta.termsVersion`。
+
+B10（对着真实进程的浏览器冒烟与开发代理）已提交：`5d65d3742`（合同测试包把起进程的底座拆成不依赖测试运行器的 `process.ts`，公开 `./testing` 入口，边界检查不许它带 `bun:` 模块）、`9591172a8`（`e2e/real/` 六个场景、Playwright 分 `fake` 与 `real` 两个项目、开发代理 `build/dev-proxy.ts`）。
+- 计划的做法一（`route.fetch` 转发）探针里 Cookie 能存，但 `fulfill` 回 302 时 Chrome 整页导航失败，授权端点的跳转走不通；改用做法二：回环上起自签证书（`openssl` 现签）的 HTTPS 转发，Chrome 用 `--host-resolver-rules` 把 `site.test` 映射过去；本机设了 `http_proxy`，所以另加 `--no-proxy-server`。
+- 六个场景：管理员进看板并发注册码；访客注册、改资料、登出再登录（会话 Cookie 是 `__Host-` 前缀、`Secure`、`HttpOnly`、`SameSite=Lax`）；深链接与刷新的单页回退；条款版本三处一致、换版本后旧会话补交同意；封禁后会话失效与 `account_banned`；OAuth 从授权端点经续接登录、确认页允许、带 `code` 回到客户端并换到令牌。每个场景断言没有内容安全策略违规与未处理错误。四条变异都被抓到（“封禁不让会话失效”要把封禁路由与读会话时的检查两层都去掉才失败）。
+- 开发代理：设 `NB_SITE_DEV_API` 时把 `/api` 与 `/.well-known` 转给真实进程并把 `Origin` 改写成 `NB_SITE_URL`；Chrome 在 `http://localhost` 上收这个 `Secure` 的 Cookie（实测）。
+- 主会话在负载 2 到 4 重跑：五个官方站包的测试与类型检查、构建、浏览器场景 111（假接口 105、真实 6）、`build:image --no-docker`、`governance:check` 都过，只有前端 vitest 一条失败；整份 vitest 再跑 3 遍又挂一次、换了一条，两条单独跑都过：ClientsPage“每行菜单”与 CodesPage“发放注册码”都是等满 10 秒等不到状态，交收口审查查根因，收口前修掉。
+- 冒烟看到、不归 t10 的：刚注册已登录的用户在列表里“最后登录”是空的。Spec `site.admin` 写的是“最近一次登录成功的时间”，注册时建的会话按字面不算登录；注册与社交登录算不算，交 t07 定。看板在统计接口还没有时显示“服务的回答看不懂”（404 不是 JSON），t11 接上接口后自然消失。
+- 开发依赖多了一个环 server → web → contract-tests → server，都是 private 包，`test:affected` 与 governance 都过；真实冒烟依赖本机 Chrome、bun 与 openssl，CI 里没跑（e2e 本来就不进 CI）。
 - 留存固定显示最近 4 个安装周（常量在视图模型里）；版本与错误超出时在面板里滚，滚动区可聚焦、有名字、底边渐隐。实现者另查出活跃图那块多一个没名字的 Tab 停靠点（内容区一直 `overflow: auto`），改成放得下时 `hidden`。
 - 九块面板出错不再各自 `role=alert`，页面一处汇总播报；重试时按钮转圈不可用。vitest 单条超时设 15 秒。
 - 给 t11：today 面板要合并 `overview`、`series/active` 最后两天、`series/online` 最后一段几个请求，部分失败怎样显示由 t11 定；`DASHBOARD_PATHS` 的查询参数是占位；留存按最近 4 周取；错误、崩溃、升级的口径对着查询合同再核。
