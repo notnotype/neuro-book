@@ -4,7 +4,7 @@
  */
 
 import type {PaintRecord} from "./paint-metric";
-import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch} from "vue";
+import {computed, markRaw, defineAsyncComponent, defineComponent, h, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component, ShallowRef} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -27,8 +27,8 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, quickPickKey, VIEW_HEAD, VIEW_OWN_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {ViewHeadOptIn, ViewOwnHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, quickPickKey, VIEW_HEAD, VIEW_OWN_HEAD, VIEW_RAIL, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewHeadOptIn, ViewOwnHeadOptIn, ViewRailOptIn} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -54,7 +54,7 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION, STATUS_LINE_SECTION} from "../shared/settings";
 import {STATUS_ITEMS_POINT, statusItemsPoint} from "../shared/status-item-point";
 import type {SettingWriteResult} from "nbook/shared/settings";
-import {MESSAGES_HEAD_BAND} from "./messages-head";
+import {MESSAGES_HEAD_BAND, MESSAGES_RAIL_BOUNDS} from "./messages-head";
 import {createStatusItems} from "./status-items";
 import {createStatusLineWriter} from "./status-line-writes";
 import {statusLinePage, statusCatalog} from "./status-line-page";
@@ -94,6 +94,7 @@ const DESK_CONTRIBUTION = "nbook.agent.desk";
 export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
 export const FOCUS_SESSION_COMMAND = "nbook.agent.focus-session";
+export const SEARCH_SESSIONS_COMMAND = "nbook.agent.search-sessions";
 export const OPEN_IN_EDITOR_COMMAND = "nbook.agent.open-in-editor";
 /** “模型请求”页与打开它的命令（docs/specs/agent/request-trace.md 输出 13、26）。 */
 export const REQUESTS_PAGE = "nbook.agent.requests";
@@ -106,7 +107,8 @@ const OPEN_VIEW_COMMAND = "nbook.view.open";
  * “消息”视图（conversation.md 输出 1–3）：沿用对话视图的 id 与位置，已有的布局记录里它就在右栏，不用迁移；取代以前左侧栏的会话面板
  * （`replaces`，workbench/views.md 输出 20）。
  */
-const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "auxiliarybar", order: 0, layout: "fill", replaces: ["nbook.agent.sessions"]};
+// 消息视图只停右栏或单独浮动（workbench/views.md 输出 22 的“位置限制”，conversation.md 输出 57）。
+const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "auxiliarybar", order: 0, layout: "fill", replaces: ["nbook.agent.sessions"], confinedTo: "auxiliarybar"};
 const PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-message-square"};
 const REQUESTS_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-activity"};
 const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/attention"]}};
@@ -122,6 +124,7 @@ const COMMANDS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_IN_EDITOR_COMMAND]: command("Open the Agent conversation as a page in the editor area."),
     [NEW_SESSION_COMMAND]: command("Start a new Agent session in the conversation."),
     [FOCUS_SESSION_COMMAND]: command("Show an Agent session in the conversation; without an id, the one that needs the user.", Type.Object({sessionId: Type.Optional(Type.String())}, {additionalProperties: false})),
+    [SEARCH_SESSIONS_COMMAND]: command("Show the session history in the messages view and focus its search box."),
     [OPEN_REQUESTS_COMMAND]: command("Open the model requests page; with a session id, only that session, and with a request number, that request selected.", Type.Object({sessionId: Type.Optional(Type.String({minLength: 1})), request: Type.Optional(Type.Integer({minimum: 1}))}, {additionalProperties: false})),
 };
 
@@ -415,8 +418,16 @@ export const agentBrowserPlugin: PluginDefinition = {
                 }
                 return null;
             };
-            /** 消息视图的版式与列表栏收起：插件作用域一份，视图换代时接着用（只在内存，重开窗口回到缺省）。 */
-            const messagesMemory = reactive({layout: "narrow" as "wide" | "narrow", listCollapsed: false, listWidth: 260});
+            /**
+             * 消息视图的揭示通道（conversation.md 输出 57 的“打开”）：视图段与列表里打开、新建对话时把消息视图带到前面：区域隐藏或拖到零时显示，
+             * 盖着它的最大化退出（`nbook.view.open`）。只认消息视图，不经上次的对话位置。
+             */
+            async function revealMessages(): Promise<boolean> {
+                ensureStarted();
+                return (await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW})).ok;
+            }
+            /** 要消息视图展开列表的哪一页（命令“搜索会话”）：视图挂着时马上取走，没挂上的话挂上时取。 */
+            const listRequest = shallowRef<"bot" | "sessions" | null>(null);
 
             /** 对话位置（右栏的消息视图、编辑区页面、书房的面板）共用的依赖；`position` 分开最近用过的记录与 Skill 初始化的确认框。 */
             const hostDeps = (position: ConversationPosition): SessionHostDeps => ({
@@ -709,9 +720,9 @@ export const agentBrowserPlugin: PluginDefinition = {
                         return () => {
                             const host = hostAt(position);
                             const conversation = conversationProps(position, host, registry.value, services.value, renderers);
-                            // 右栏是消息视图（列表、头像列加聊天区）；编辑区页面照旧只有对话，会话列表在头的下拉里。
+                            // 右栏是消息视图（聊天区加借给右轨的视图段）；编辑区页面照旧只有对话，会话列表在头的下拉里。
                             if (position === "page" || props.context === null) return h(ConversationHost, {...conversation, head});
-                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, memory: messagesMemory});
+                            return h(MessagesHost, {context: props.context as ViewContext, conversation, host, list, providers: providers.value, activity: activity.items.value, hasModel: hasModel.value, openModelSettings, reveal: revealMessages, listRequest, report});
                         };
                     },
                 });
@@ -771,8 +782,14 @@ export const agentBrowserPlugin: PluginDefinition = {
                 },
             };
 
-            // 浮成只有它一个标签的窗时自绘整个头（workbench/views.md 输出 19 的“自绘头”）。
-            const view: ViewImplementation & ViewHeadOptIn & ViewOwnHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true, [VIEW_OWN_HEAD]: {band: MESSAGES_HEAD_BAND}, badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null)};
+            // 浮成只有它一个标签的窗时自绘整个头（workbench/views.md 输出 19 的“自绘头”）；把 bot、最近会话与完整列表借给右轨（输出 21，conversation.md 输出 57）。
+            const view: ViewImplementation & ViewHeadOptIn & ViewOwnHeadOptIn & ViewRailOptIn = {
+                load: () => conversationComponent("view"),
+                [VIEW_HEAD]: true,
+                [VIEW_OWN_HEAD]: {band: MESSAGES_HEAD_BAND},
+                [VIEW_RAIL]: MESSAGES_RAIL_BOUNDS,
+                badge: () => (unreadTotal.value > 0 ? unreadTotal.value : null),
+            };
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
             // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。
@@ -877,6 +894,14 @@ export const agentBrowserPlugin: PluginDefinition = {
                 [OPEN_COMMAND]: {run: async () => {
                     const revealed = await reveal();
                     return revealed.ok ? done : revealed;
+                }},
+                // 等同视图段的“会话历史”：展开列表、切到会话页、聚焦搜索框（conversation.md 输出 57）。
+                [SEARCH_SESSIONS_COMMAND]: {run: async () => {
+                    ensureStarted();
+                    const shown = await commands.execute(OPEN_VIEW_COMMAND, {viewId: CONVERSATION_VIEW});
+                    if (!shown.ok) return shown;
+                    listRequest.value = "sessions";
+                    return done;
                 }},
                 [OPEN_IN_EDITOR_COMMAND]: {run: async () => {
                     ensureStarted();

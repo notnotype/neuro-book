@@ -445,3 +445,61 @@ export function viewHeadOf(context: object): ViewHead | null {
 export function attachViewHead(context: object, head: ViewHead): void {
     viewHeads.set(context, head);
 }
+
+// ─── 视图段（docs/specs/workbench/views.md 输出 21，docs/specs/ui/workbench-layout.md 输出 50）──────────────────────
+
+/**
+ * 内置视图把自己的一段借给所在区域侧轨的标记：`const view: ViewImplementation & ViewRailOptIn = {load, [VIEW_RAIL]: {...}}`，再经 `viewRailOf(context)`
+ * 取这一代实例的视图段。同 `VIEW_HEAD`：放在共用合同里、不经插件 SDK 导出，只给内置视图。工作台不加载视图就从 `implementation()` 同步读它
+ * （`ViewRegistry.railOf`），预算、夹取、骨架按它算。
+ */
+export const VIEW_RAIL: unique symbol = Symbol("nbook.workbench/view-rail");
+
+/** 视图段声明的宽度（都是卡片宽，CSS px）：展开的缺省、下限、上限与展开时聊天区（视图自己那一侧）的下限。 */
+export interface ViewRailBounds {
+    readonly width: number;
+    readonly minimum: number;
+    readonly maximum: number;
+    readonly chatMinimum: number;
+}
+
+export interface ViewRailOptIn {
+    readonly [VIEW_RAIL]: ViewRailBounds;
+}
+
+/**
+ * 视图段此刻借到的地方。`main`、`foot` 是工作台渲染的元素（同 `ViewHeadSlots` 写成 `object`，视图用 `instanceof HTMLElement` 取）：`main` 在中间独立滚动，
+ * `foot` 是底段视图的固定项。`window` 是只有它一个标签的浮动窗，视图把视图段画在窗的右边缘，`width` 是此刻生效的轨宽，`tooNarrow` 是刚才请求展开被拒、
+ * 窗口仍放不下（视图在自己画的展开按钮上给“窗口太窄”，输出 51 的“矩形”）。侧轨上的展开按钮是工作台的，这一项只给 `window`。
+ */
+export type ViewRailPlacement =
+    | {readonly kind: "rail"; readonly main: object; readonly foot: object}
+    | {readonly kind: "window"; readonly width: number; readonly tooNarrow: boolean}
+    | {readonly kind: "none"};
+
+/** `request` 的结果：`done` 已提交；`too-narrow` 窗口太窄、意图不改；`revoked` 这一份视图段已经不是当前的（换代、换位置、撤回）。 */
+export type ViewRailRequestResult = "done" | "too-narrow" | "revoked";
+
+/**
+ * 视图这一代实例的视图段。视图用 `Teleport` 把视图段送进 `placement` 给的元素，收着与展开是同一个组件，按 `expanded` 换画法，不看过渡中的宽度。
+ * 实例换代、视图换了位置或被撤回时，工作台把旧的那份的 `placement` 改成 `none`，之后它的 `request` 一律 `revoked`。
+ */
+export interface ViewRail {
+    readonly placement: Readonly<Ref<ViewRailPlacement>>;
+    /** 此刻生效的展开状态（被预算拒绝时是 false）。`placement` 是 `none` 时不改，留着上一处的值：视图段这时藏着，换位置的中途翻成 false 会让展开的内容卸掉又重建。 */
+    readonly expanded: Readonly<Ref<boolean>>;
+    /** 请求展开或收起：先提交记录再完成；连续调用按调用顺序各自完成。 */
+    request(expanded: boolean): Promise<ViewRailRequestResult>;
+}
+
+const viewRails = new WeakMap<object, ViewRail>();
+
+/** 视图取自己这一代的视图段；没声明（或不是工作台建的上下文）时是 null。 */
+export function viewRailOf(context: object): ViewRail | null {
+    return viewRails.get(context) ?? null;
+}
+
+/** 只给工作台：为声明了的实例的这一代上下文挂上视图段（`web/views/view-rail.ts`）。 */
+export function attachViewRail(context: object, rail: ViewRail): void {
+    viewRails.set(context, rail);
+}

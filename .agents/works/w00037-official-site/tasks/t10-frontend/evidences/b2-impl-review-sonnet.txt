@@ -1,0 +1,116 @@
+# w00037 t10 B1+B2 前端实现审查（Sonnet）报告
+范围 a729103ea..b1632a9ea，worktree .worktree/w00037-t10-web。每核实一条追加一条。
+
+### 1. safeNext 经 `./`、`../` 规范化后会回出 `//host`，违反自己写明的“只收站内路径”合同（重要，类别：正确性/安全边界，潜在开放跳转）
+位置：packages/nb-site-web/src/session/dispatch.ts:21-34；漏测：tests/dispatch.test.ts:31-51
+现象：前缀检查只看 `next[1]`，随后返回 `url.pathname+search+hash`。`new URL("/.//evil.com", origin).pathname` 是 `//evil.com`，origin 没变，所以过了 origin 校验，函数回 `"//evil.com"`。实测（bun 里直接调真实函数）：
+  `/.//evil.com`、`/a/..//evil.com`、`/..//evil.com`、`/a/%2e%2e//evil.com` 全部回 `"//evil.com"`；`/a\..\..\evil` 回 `/evil`。
+真实浏览器里（Playwright 对构建产物，假接口，未登录访问 `/login?next=%2F.%2F%2Fevil.example%2Fx` 后登录）：最终停在 `http://127.0.0.1:4391//evil.example/x`，即路由器用 `createBaseLocation()+path` 拼出同源绝对地址，所以今天不会真跳到别的站（我撤掉了“已被利用”的判断）。
+为什么是问题：函数注释与测试名都说它挡 `//host`，实际输出的就是“浏览器当成别的站点”的写法。`safeNext` 的结果是以后各片（B3 同意页、B7 登录续接、授权确认页）的共同入口，其中任何一处把它放进 `<a href>`、`location.assign`、服务端 302 的 Location、或 `window.open`，都立刻成为开放跳转；而 vue-router 对 pushState 失败有 `location.assign(url)` 的退路（`vue-router/dist/vue-router.js:131`），不能把安全寄托在今天恰好走的那条路径上。现有测试只试了 `//evil`、`/\evil`、制表符三种，没有 `./` 或 `../` 之后的形态。
+如何核实：`bun -e 'import {safeNext} from "./src/session/dispatch.ts"; console.log(safeNext("/.//evil.com","https://x"))'` 输出 `//evil.com`。
+建议改法：规范化之后再判一遍：`url.pathname.startsWith("//")`（或整个结果以 `//`、`/\` 开头）就回 `undefined`；在 dispatch.test.ts 的 rejected 表里补 `/.//evil.example`、`/a/..//evil.example`、`/%2e%2e//x`。
+
+### 2. e2e“没有横向溢出”的断言量不出 10 像素以内的溢出（重要，类别：测试，空过）
+位置：packages/nb-site-web/e2e/login.e2e.ts:76-77（`document.documentElement.scrollWidth - clientWidth <= 0`）
+现象：根元素挂了 `nb-ui-scrollbar-stable`（预留 10px 滚动条槽）。在 Playwright 的有头无头 Chrome 里，空闲页面 `scrollWidth` 是 1430、`clientWidth` 是 1440，差值恒为 -10；于是真有 ≤10px 的横向溢出时差值仍 ≤ 0，断言通过。实测（预览服务加假接口，1440 宽，往 body 末尾塞一个固定宽度的 5px 高 div）：
+  extra=0    scrollWidth 1430 clientWidth 1440 diff -10 可横向滚动 0px
+  extra=1435 scrollWidth 1435 clientWidth 1440 diff  -5 可横向滚动 5px   <- 断言仍通过，页面其实能左右拖 5px
+  extra=1445 diff +5（这才会失败）
+另外 `.paper` 设了 `overflow: clip`，稿纸自身的溢出本来就不会冒出来，这条断言只可能挡“稿纸之外”的东西（页脚、将来别的版式），对它的价值本来就低，还留着 10px 的盲区。
+为什么是问题：这是 plan 3.10 / 第 6 节验收映射里“390 宽没有页面级横向溢出”的唯一判据；验收 390 宽的真实手机上滚动条是覆盖式的（没有槽），那里差值会是 0，而 Chrome 桌面窄窗口里才有这 10px 的盲区，写测试的机器与产品运行环境不同。
+如何核实：见上，脚本在 /tmp/review-w00037-t10-b2/lab/ov.mjs（对 4391 端口的预览服务）。
+建议改法：改成直接量“能不能横向滚动”：`window.scrollTo(100, 0)` 后断言 `window.scrollX === 0`（或 `document.scrollingElement.scrollLeft`），不依赖槽宽；或比较 `scrollWidth` 与 `innerWidth - 槽宽` 并给出槽宽的读法。做变异检查时往 body 塞 `width: 100vw + 5px` 的块，确认它红。
+
+### 3. 360 宽手机（最常见的安卓宽度）上稿纸的对齐与产品名折行都是坏的，e2e 只测了 390 与 1440（建议，类别：对照定稿/UI）
+位置：packages/nb-site-web/src/components/PaperSheet.vue 的 `@media (max-width: 560px)`（`width: min(calc(var(--paper-cell) * 9), 100% - 12px)`）；e2e/login.e2e.ts:25-29
+现象：宽度小于 372px 时稿纸取 `100% - 12px`，不再是 9 整格。实测（预览服务加假接口）：
+  360 宽：稿纸 348px，产品名 9 个格子装不下，“NeuroBoo / k”折成两行（k 单独一行），说明行 “…写 / 作工作区” 折行位置也变，卡片右边（x≈344）与纵向格线不重合；截图 /tmp/review-w00037-t10-b2/lab/d360.png。
+  320 宽同样折行为 “NeuroBo / ok”，卡片右缘离格线 5px 左右；d320.png（旧脚本已覆盖，现文件可能被新跑的覆盖，以 360 为准）。
+这是 plan 3.6 写明的“已知限制”，但限制范围正好包括 360×640/360×780 这个全球最常见的 Android 视口宽度之一；定稿图 paper-phones.webp 只画了 390。单字母 k 孤零零占一行，是第一屏最显眼处的瑕疵，不是边角。
+为什么是问题：计划把它当边角接受，没有估计影响面；e2e 的视口表只有 1440、390，所以这一档永远不会被发现退化。
+建议改法：≤371px 时把格子缩成 `--paper-cell: 36px`（遮罩尺寸本就用变量，svg 按 mask-size 缩放），`--paper-bleed` 取 36 与 52 的公倍数（468 的整数倍，如 1872）；9 格 = 324px，360 宽留 18px 边距，320 宽留 -2px 不够则用 8 格以内的说明折行；至少在 e2e 视口表里加 360，量“卡片左右边落在格线上”与“产品名一行”。不改也行，但要在计划里把 360 列入已知限制的范围，别让它看起来只是极窄屏的问题。
+
+### 4. social_error 里“像码的未知值”被回显，与 Spec 输出 23 的“一律显示为 social_failed”相反；README 把它记成“接受的出入”但 Spec 没改（重要，类别：违反合同）
+位置：packages/nb-site-web/src/api/failure-text.ts:50-62（`socialErrorText`，`CODE_SHAPE` 分支）；LoginPage.dom.test.ts:293-295（把这个行为当成期望）；主工作区 docs/specs/site/accounts.md 输出 23；t10 README“实施进度”第 53 行
+现象：Spec 输出 23 原话：“站点只显示它自己判出的码：回调地址里上游或旁人写进去的错误码一律显示为 `social_failed`”。实现是三分支：合同的 12 个码取文案；形如 `^[a-z][a-z0-9_]{0,63}$` 的未知值显示“出了一个没认出的问题（<原样回显的码>）”；其余显示 social_failed。中间那支就是 Spec 说“一律 social_failed”的那类输入，例如 `/login?social_error=pay_now_to_unlock` 会让站点自己的红色状态行写出“出了一个没认出的问题（pay_now_to_unlock）”，64 字符内由链接构造者任意选词，正是 Spec 想堵的“借站点的状态行说话”（实现自己的注释也这么说，却只堵了带空格与网址的那一半）。
+为什么是问题：1) Spec 是黑盒合同，按它另写的验收（B10 冒烟、t13 之类的合同测试）会期望 social_failed，现有实现会红；2) `errors.web.unknown`+码的做法（ADR 0034）适用于“服务端新加了码、前端目录还没补”，而 `social_error` 是 URL 参数，由任何人构造，两种来源的信任级别不同，不该共用一个兜底；3) 偏离 Spec 却只记在 Task README“与计划的出入”，没有改 Spec 或登记为待决，后面的片（B3 注册页、B4 账号页的 `social_error`）会照着已写好的函数复制这个行为。
+如何核实：LoginPage.dom.test.ts:293-297 的两个断言就是这个行为；`socialErrorText("mystery_code")` 回 `errors.web.unknown`。
+建议改法：二选一并明确说出：(a) 改实现——只认 `SOCIAL_ERROR_CODES`，其余一律 `social_failed`，删 `CODE_SHAPE` 分支与相应测试（最简单，也最小暴露）；(b) 要保留回显，就由主会话改 Spec 输出 23 并记决定。我倾向 (a)：URL 里的东西不需要“新码有字可显示”的宽容。
+
+### 5. 登录页绕开 nb-ui `Field` 的 `error` 的理由成立，但这是 nb-ui 的一行缺陷，绕法会被每个后续表单页复制（建议，类别：上游/重复）
+位置：packages/nb-site-web/src/pages/LoginPage.vue:10-14、字段的 `:invalid`/`:aria-describedby`；上游 packages/nb-ui/src/components/form/Field.vue 的 `<span v-if="props.error" … class="sr-only">`
+核实：理由是真的。`Field.vue` 根上是 `space-y-1.5`（Tailwind 是 `> :not(:last-child) { margin-block-end }`），`error` 非空时在默认插槽之后多渲染一个 `sr-only` 的 `<span>`，插槽里的控件不再是最后一个子元素，下面多出 6px；Field.md“出错时排版不变”与实现相悖。worktree 与 master 上这个文件一致（diff -q 无输出）。
+为什么仍记一条：B3 注册页有 5 个以上字段，B4 账号页每一节都有表单，都要标红；按现在的做法每个字段手写 `:invalid="…"` 加 `:aria-describedby="…? statusId : undefined"`，绕法复制六七遍，且与计划 3.1 写的“字段经 Field 的 error 标红”不一致。绕过去的同时 `aria-live` 与字段描述的关系只此一处手写，容易漏。AGENTS.md 要求“修法迁就上游选择时追到上游”：这里上游是 nb-ui，一个文件、改法确定。
+建议改法：现在就在 nb-ui 里修，改动一行：把 `error` 的 `sr-only` span 放到插槽之前（它是绝对定位，不占版面；`space-y` 的间距只管流内元素），再在 nb-ui 的 Field 测试里加一条“出错与否控件下沿不变”的 e2e/dom 量法，然后登录页改回 `Field error`。如果坚持不动 nb-ui，至少在 LoginPage 抽一个 `useFieldError(statusId)` 小函数，别让每页各写一遍。该上游缺陷在 t10 README 里已记为“上游候选”，我只是认为成本低到不该推迟。
+
+### 6. `src/api/` 与 `/api/` 撞路径是计划自己的矛盾；e2e 假接口里的 `resourceType` 过滤是只在开发服务才会触发的补丁，在现有用例里是死代码（重要，类别：上游选择/设计，测试空过）
+位置：packages/nb-site-web/e2e/fake-api.ts:75-82、vite.config.ts（root 是 `src/`）、src/api/（core.ts、identity.ts、failure-text.ts）；plan.md 3.2 标题“接口层：`src/api/`”与第 375 行“`vite dev` 把 `/api`、`/oauth2`、`/.well-known` 代理到本机的 nb-site-server”
+现象：Vite 的根是 `src/`，开发服务把 `src/api/core.ts` 以 `/api/core.ts` 发给浏览器；而产品的接口全在 `/api/…`。计划第 375 行要求的开发代理按前缀 `/api` 转发，会把这些模块请求一并转到后端，后端回 404，页面白屏。实现者在假接口里加“不是 fetch 的放行”来绕，但：1) 这只绕了 Playwright 的假接口，没绕计划里的开发代理（B10 才会碰到，到时再发现）；2) e2e 对着构建产物（`vite preview`）跑，构建后的 JS 在 `/assets/…`，根本没有 `/api/*.ts` 请求，这段过滤在 e2e 里永远走不到：我在仓库外副本里删掉那 4 行，8 条用例照样全过（/tmp/review-w00037-t10-b2/lab/m 副本，变异后 `8 passed`）。注释还说“Vite 开发服务的根是 src/”，与它实际所在的 preview 运行方式不符，读的人会以为这个过滤被用例守着。
+为什么是问题：AGENTS.md“质疑上游选择”：这里要迁就的上游是“目录叫 api”，补丁（过滤请求类型）每处调用方都要懂；而改目录名是一次机械重命名，B3 以后每加一个接口文件成本都在涨（注册、社交、账号页、管理接口）。
+如何核实：见上；开发服务下访问 `/api/core.ts` 返回源码（root=src），代理开着时会被转发。
+建议改法：现在把 `src/api/` 改名为不与线路前缀同名的目录（`src/http/`、`src/client/` 均可；计划 3.2 标题同步改），删掉 fake-api 里的过滤与那段注释；`page.route` 就按 `/api/` 前缀全截。若不改名，至少在 vite.config 的开发代理里写明只代理 `/api/identity/`、`/api/telemetry/` 两个合同前缀，并把 fake-api 过滤改成与它同一条规则。
+
+### 7. 倒计时状态行是 `aria-live="polite"`，`rate_limited` 每秒改一次文字 = 读屏每秒播报一遍（重要，类别：无障碍/UI）
+位置：packages/nb-site-web/src/components/FormStatus.vue:22（`aria-live="polite"`）+ LoginPage.vue:73-77、:87-96（每秒 `now.value` 变，`statusText` 变）
+现象：`rate_limited` 时 `statusText` 是“操作太频繁，N 秒后再试”，N 每秒递减，状态行里的文字节点每秒被替换。polite 的 live region 对每次文字变化都排队播报，等待 30 秒（回退值，且 Retry-After 最长可达 5 分钟窗）就是 30 次“操作太频繁，29 秒后再试……”，盖住用户正在读的其它内容。这不是推测：dom 测试 LoginPage.dom.test.ts:224-233 逐秒断言文字变了 3 次，说明 DOM 里确实每秒换字。
+为什么是问题：WAI-ARIA 对倒计时的惯例是 `role="timer"`（隐含 aria-live=off）或只在开始与结束时播报；plan 的验收只写了“每秒更新”，没写读屏行为，ui-development-spec“表单与无障碍”要求读屏拿得到原因，没有要求每秒重读。
+如何核实：用 NVDA/VoiceOver 触发 429 时听；或在 dom 测试里数 `aria-live` 区域内 characterData 变化次数（每秒 1 次）。我没有读屏环境，这一条是“从代码推断”，但机制是确定的。
+建议改法：开始时播报一次，之后倒数的那部分不在 live region 里更新：例如状态行文字用固定文案“操作太频繁，请稍候”进 live region，倒数的秒数放进 `aria-hidden` 的子 span 里画出来；或倒数期间给状态行 `aria-live="off"`、只在倒数结束（按钮恢复可用）时让按钮的可用状态自己说话。同时在 FormStatus 的 .md 里写明“文字会按秒变的状态行要关掉 live”。
+
+### 8. e2e 的几处判据在真实回归下仍然通过（变异检查结果）（重要，类别：测试）
+变异都在仓库外副本 /tmp/review-w00037-t10-b2/lab/m（源码照抄、node_modules 软链、独立 git init），用 `bun run test:e2e` 跑，端口 4393。
+a) 删掉 PaperSheet.vue 里 `:global(body:has([data-site-paper])) { background: var(--bg-panel) }` 整段：8 条全过。这条规则就是“1440 截图右边的一条灰”的修法，被现有断言完全忽略（对比度用例读的是 `[data-site-paper]` 的背景，不是 body；没有任何用例量 body 背景或右缘像素）。回归后 1440 宽右缘预留的 10px 滚动条槽重新露出 `--bg-main`（rgb 236,232,223）与纸色（255,252,245）之差。
+b) FormStatus.vue 把 `.form-status { height: 1lh }` 换成 `min-height: 0`（空着时不再占一行）：8 条全过。几何用例只比较“出错前后”的盒子，而没有把“空着时已占一行”写成判据，所以 plan 3.1/D9 的“空着也占位置”这一半没人守，只守了“前后不变”这一半。
+c) 见发现 2：横向溢出判据有 10px 盲区。
+d) fake-api 里的 `resourceType` 过滤删掉：全过（见发现 6）。
+建议改法：a) 加一个断言：`getComputedStyle(document.body).backgroundColor` 等于 `[data-site-paper]` 的背景；b) 在“前后不变”之外断言空状态下状态行盒高度 ≥ 一行（例如 ≥ 14px）且与按钮盒不相交；c) 见发现 2。每条都做一次变异确认会红。
+
+### 9. 注册接口忘了声明 `handles: ["consent_required"]` 时，匿名访客填注册表会被弹去登录页，带着一串嵌套的 next；没有任何东西提醒作者（建议，类别：约定易被忘/不变量）
+位置：packages/nb-site-web/src/site.ts:63-67（`onConsentRequired`）、src/session/guard.ts:62-65（`afterConsentRequired`）、src/api/core.ts 的 `handles` 默认空
+现象：注册请求回的 `consent_required` 是“没勾同意”（accounts 输出 3），不是同意门槛（输出 10），区别只靠请求自己在 `handles` 里声明。声明缺了时：`afterConsentRequired(current)` 对 `access: "guest"`（注册页）不是 `consent`，于是回 `withNext("/consent", "/register")`；`account.refresh()` 得匿名；`router.replace("/consent?next=%2Fregister")` 被守卫改成 `/login?next=%2Fconsent%3Fnext%3D%2Fregister`。用户看到的是“提交注册后跳到了登录页”，且没有任何错误。注释已提醒作者（ApiRequest.handles 的文档里举了注册的例子），但这是约定，不是机制。
+为什么是问题：B3 之前没有任何注册接口，这条约定要靠后面的片记住；Task 切片之间是不同的 Agent 上下文，会忘。
+如何核实：site.dom.test.ts:278 只测了“已登录且在要登录的页”撞门槛的路径，没有“访客页收到 consent_required”的用例。
+建议改法：让不声明也不出事——`onConsentRequired` 只在当前是登录态（`account.state` 是 signed-in 且 `consentRequired`）或页面 access 是 user/admin 时才跳；访客页与公开页上收到它当作普通失败交给页面（`afterConsentRequired` 对 `guest`、`public` 回 `undefined`，与 `afterUnauthenticated` 对称）。这样注册页即便漏声明也能显示“请勾选同意”。再补一个访客页收到 consent_required 的 dom 用例。
+
+### 10. 颜色对比：暗色状态行 4.24:1，“没有这一页”的链接 3.29:1，登录页行内链接只靠颜色区分（建议，类别：UI/无障碍）
+量法：Playwright 对预览服务读 computed color 与背景，按 WCAG 公式算（脚本 /tmp/review-w00037-t10-b2/lab/lk.mjs、nf.mjs）。
+a) 状态行（唯一写出失败原因的地方）：12px `--status-danger`。亮色 rgb(192,52,42) 对纸 5.44:1 通过；暗色 rgb(255,69,58) 对卡片 rgb(45,41,37) 只有 4.24:1，小于小字的 4.5:1。字号是 12px（`--text-xs`），不算大字。这与 nb-ui 对话框状态行同一令牌同一做法，所以是 nb-ui 令牌的问题，但登录页把它当唯一原因展示，影响更大。
+b) NotFoundPage.vue 的 `.site-link` 用 `--accent-main`（亮色 rgb(0,122,255)）对页面底 rgb(236,232,223) 只有 3.29:1，且静止时无下划线；登录页同类链接用的是 `--accent-text`（5.48:1）。同一站点两种取法，NotFound 那处应换成 `--accent-text`。
+c) 登录页 “还没有账号？用注册码注册” 是行内链接，静止时无下划线（`.login-link` 只在 hover 加）。链接色对周围说明文字（`--text-secondary`）的对比度亮色 1.36、暗色 1.22，几乎同亮度，只靠色相区分，不满足 WCAG 1.4.1（要 3:1 或另一种提示如下划线）。页脚两个链接成组放在页脚，可以不带下划线；行内的这个应带。
+建议改法：a) 向 nb-ui 提令牌问题（暗色 `--status-danger` 在 `--bg-panel` 上调亮到 ≥4.5），或站点状态行暗色下用同色阶更亮的一档；b) 换令牌；c) `.login-link` 静止时 `text-decoration-line: underline`，hover 时加粗 offset 即可。
+
+### 11. TypeBox 被打进访客入口（14.5KB gzip，主会话已知暂不改）与 ECharts 断言空过：两处的修法都比“以后再说”便宜（建议，类别：体积/测试）
+位置：src/pages/LoginPage.vue 等导入 `@notnotype/nb-site-identity-contract`（只用 `IDENTITY_API_PREFIX`、`IDENTITY_PATHS`、`LOGIN_IDENTIFIER`、`PASSWORD`、`SOCIAL_ERROR_*`、类型）；packages/nb-site-identity-contract/package.json exports 只有 `"."`；tests/build.test.ts:31-36、:158-165
+a) 核实：入口 JS 208 KB（gzip 74.8 KB）里 `~kind` 出现 51 次、`~optional` 3 次，是 TypeBox 的运行时。src/api/core.ts 文件头明说“不在浏览器里跑 TypeBox 的校验”，与实际打包结果矛盾；这是合同包 `index.ts` 的 `export *` 把所有 `Type.Object(...)`（顶层调用，打包器无法判纯）都带进来。每个后续片再从合同包拿东西不会更糟，但这 14.5KB 是访客第一屏必下载的、也正是 plan 第 8 节风险 8 要控制的入口体积。
+   建议：合同包加一个只导出常量与类型的子路径（如 `./constants`：路径、前缀、字段规则、失败码、`SOCIAL_ERROR_*`），前端只从那里导入，schema 子路径只给服务端与合同测试用。改在合同包里是一次导出拆分，没有行为变化；越晚改，前端导入点越多。boundary.test 可同时加一条“src/ 只许导入合同包的 constants 子路径”。
+b) ECharts 断言：现在 `/echarts|zrender/iu` 对没有 ECharts 的产物当然永远空过（代码注释已承认）。我担心的是 B5 装上之后它是否认得出：压缩后的 ECharts 产物里未必保留字面量 `echarts`/`zrender`（生产构建会去掉 `__DEV__` 告警与多数字符串）。比扫源码文本更稳的做法：构建时开 `build.sourcemap: true`（只在这个测试里），读各块 `.map` 的 `sources` 里有没有 `node_modules/echarts`、`node_modules/zrender`，不依赖压缩后的字面量。该测试注释里写了“B5 装上后先确认看板块真能被它认出来”，建议把这句改成现在就能做的：用一个必然被打进某个块的第三方包（如 `vue-router`）验证“认得出”的机制，再把正则换成 echarts。
+
+### 12. 状态行单行截断，在 360 宽被截，触屏上 `title` 看不到全文（建议，类别：UI）
+位置：FormStatus.vue `.form-status__text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }` 与 `:title`
+现象：实测 `social_error=identity_taken`（“这个第三方账号已关联到另一个账号，请直接用它登录”）在 390 宽文字宽 288 = 容器宽 288（刚好够）；360 宽 scrollWidth 288 > clientWidth 268，被截成省略号。状态行是唯一展示原因的地方，B3 的注册页还有更长的原因（如 `invite_code_limit`“有效的邀请码已有 10 个，先停用一个”）。手机上没有 hover，`title` 不弹，用户读不全原因。
+为什么是问题：状态行不推动版面是对的，但“读不全原因”是另一个代价；plan 把“超长截断+title”照搬自对话框，对话框是桌面场景。
+建议改法：窄屏允许状态行占两行（留两行高度，`line-clamp: 2`），或文案目录里把最长的几条压到 16 字以内（`tests/catalog.test.ts` 加长度上限，按 390 宽卡片内宽能放下的字数）。至少在 e2e 的状态行用例里换成最长的那条文案，量 `scrollWidth <= clientWidth`。
+
+### 13. 零散项（建议，各自很小）
+a) 登录页的提交按钮在空表单时不可用（plan 3.1 与规范都要求，不算缺陷），但没有对浏览器自动填充做验证：Chrome 在用户第一次交互之前不把自动填充的值暴露给脚本，`v-model` 收不到 `input` 事件，按钮会一直灰到用户点一下页面。这是从 Chrome 行为推断的，我没有验证；建议在真实 Chrome 上对保存了凭据的页面点一遍，若成立，加载时与 `change`、`animationstart`（`:-webkit-autofill`）也重算 `filled`。
+b) src/router.ts 的 `meta.layout`（paper/account/admin/plain）整个 B1/B2 里没有任何消费者（grep `meta.layout` 无结果），而稿纸实际是 LoginPage 自己包 `PaperSheet`。两条来源会在 B3 起分叉：注册页、同意页、授权页各自包一次，`/login` 到 `/register` 切换时整张稿纸重建；若 App.vue 按 `layout` 套稿纸，切换时稿纸与格线是同一个 DOM，只换卡片内容。要么 B3 前让 App.vue 消费 `layout`，要么删这个元数据，别留一个没人读的字段。
+c) src/host/storage.ts:55 `isDraft` 里写死 `provider === "google" || "github"`，合同包有 `SOCIAL_PROVIDERS` 常量；以后多一个上游，已存草稿会被判“形状不对”静默丢掉（只打一条 warn）。用 `(SOCIAL_PROVIDERS as readonly string[]).includes(draft.provider)`。
+d) PaperSheet.vue 里 `<section :aria-label>` 的子内容全部 `aria-hidden`：读屏会报一个名为“NeuroBook，本地优先的长篇写作工作区”的区域地标，里面是空的。字格是装饰，名字已经由 h1 与页面标题给了；建议改成 `<p class="sr-only">` 放文字、字格 `aria-hidden`，不要为装饰多造一个地标。
+e) 校正：发现 3 里我写的“320 宽卡片右缘离格线 5px 左右”没有逐像素量过，只是看截图；360 宽的折行是实测的（d360.png）。
+f) 校正：发现 12 里举的 `invite_code_limit` 是账号页的失败，不在注册页；注册页的长原因以 `identity_taken` 一类为准。
+
+## 未发现问题的方面（仔细检查后）
+- 守卫五种访问级别的分派表（public/guest/consent/user/admin）与 plan 3.1 一致；`forbidden` 后分派、`unauthenticated` 清当前账号再带 next 去登录、`afterUnauthenticated` 对访客页留在原地，逻辑与测试都对得上；没有发现重定向环（next 指向 /login、/consent、/admin 的几种互指情形我手推并在 dispatch 里验过，都在第二跳收敛）。
+- 接口层：`Object.hasOwn` 防原型码、`Retry-After` 只认 IMF-fixdate 与整数、`rate_limited` 倒数走注入时钟、回答体不是约定形状时 `malformed`、`network` 只 `console.warn` 方法与路径不带请求体（不泄露密码）；失败不抛、页面只拿 `Result`。
+- 当前账号的“代”机制（`clear()` 之后先发起的取数结果被丢掉）与 `ensure()` 共享在途请求，account.test.ts 覆盖了这几个时序。
+- 时钟注入：LoginPage 的倒计时不用假计时器、不用固定等待；ManualClock 与浏览器时钟的同一份约定有 `clock.dom.test.ts` 守着。dom 测试里没有 vi.fn/spyOn/假计时器。
+- 稿纸格线与卡片对齐：用伪元素伸出 2080px 取原点的做法成立，1440 与 390、亮暗四个组合下卡片左上与字格都在格线上（e2e 与我自己量的一致）；`overflow: clip` 没有造出滚动容器；1440 截图右缘现在没有灰条（我自己拍的 d1440.png，纸色铺到槽位）。格线绿与定稿相比是更饱和的绿、亮度对比 1.64 对定稿 1.71，量下来不是问题。
+- 构建：`bun test` 53 条、Vitest 40 条、typecheck、本包 e2e 8 条在 worktree 上都通过（负载 1.3 到 2.5）。boundary.test 的白名单扩到 e2e/ 与 vitest.config.ts 合理：它们确实跑在 Bun/Node 里；vitest.config 里 `testSupport` 是字符串常量，不是 import，扫描不到不算漏。
+- nb-ui `Field` 的 6px 问题是真的，见发现 5。
+
+## 数量
+阻断 0；重要 5（发现 1、2、4、6、7）加 1 条测试类的重要（发现 8，共 6 条标重要）；建议 6（发现 3、5、9、10、11、12、13 中 13 是零散合集）。
+按条目编号计：阻断 0，重要 6（1、2、4、6、7、8），建议 7（3、5、9、10、11、12、13）。
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13
+数量以本段为准：阻断 0；重要 6（1、2、4、6、7、8）；建议 7（3、5、9、10、11、12、13）；共 13 条，无撤回。
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13

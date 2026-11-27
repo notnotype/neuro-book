@@ -335,7 +335,7 @@ describe("焦点所在的面板看不见之后的落点（输出 16、42）", ()
         return result.doc;
     };
 
-    test("面板还显示着（内容被停放）：它头上的标签，再是它那个容器的入口（侧栏的在活动栏，右栏的在入口条）", () => {
+    test("面板还显示着（内容被停放）：它头上的标签，再是它那个容器的入口（侧栏的在活动栏，右栏的在右轨）", () => {
         expect(focusLandings(doc(), FILES)).toEqual([{kind: "tab", panel: FILES}, {kind: "entry", container: "view:files"}]);
         expect(focusLandings(doc(), CHAT)).toEqual([{kind: "tab", panel: CHAT}, {kind: "entry", container: "view:chat"}]);
     });
@@ -345,9 +345,9 @@ describe("焦点所在的面板看不见之后的落点（输出 16、42）", ()
         expect(focusLandings(switched, FILES)).toEqual([{kind: "section", panel: OUTLINE}, {kind: "entry", container: "view:files"}]);
     });
 
-    test("区域隐藏了：侧栏的去活动栏里它那个容器的入口；右栏、底部面板的入口条跟着缩没了，没有落点", () => {
+    test("区域隐藏了：侧栏、右栏的去侧轨上它那个容器的入口；底部面板的入口条跟着缩没了，没有落点", () => {
         expect(focusLandings(must(setPanelHidden(doc(), "sidebar", true)), FILES)).toEqual([{kind: "entry", container: "view:files"}]);
-        expect(focusLandings(must(setPanelHidden(doc(), "auxiliarybar", true)), CHAT)).toEqual([]);
+        expect(focusLandings(must(setPanelHidden(doc(), "auxiliarybar", true)), CHAT)).toEqual([{kind: "entry", container: "view:chat"}]);
         expect(focusLandings(must(setPanelHidden(doc(), "panel", true)), OUTPUT)).toEqual([]);
     });
 

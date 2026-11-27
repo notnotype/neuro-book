@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T022317529Z-b48221ef",
+    "artifactVersion": 8,
+    "contentHash": "5986a4c01d8ed27fb5f5752d6eb0088f10fd20d2eee70a539771380cc19e7ca7",
+    "submittedAt": "2026-11-27T02:23:15.382Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "day-r8": "oak",
+        "caption-r8": "ok",
+        "spotlight-r8": "ok",
+        "hero-r8": "ok"
+    },
+    "comments": {
+        "spotlight-r8": "高亮样式做的好看一点。例如右侧规划视图的高亮你好像没有做遮罩吧。而且这个金色高亮矩形有点丑",
+        "hero-r8": "首屏要不要多加点元素？还有这个指针动的效果不太明显，也不太好看"
+    },
+    "note": "我觉得滚动进这个工作台演示的这一幕，引导上很难让人一眼就知道这里有个动画可以停下来观看。用户估计会很容易滚过头。\n---\n工作台演示的时候，点击右侧对话视图的 Composer 输入文字的时候，现在的做法是直接发送用户消息了，能不能做一个鼠标引导 + 打字机在 Composer 输入？\n--\n还有现在：鼠标拖拽演示，你这个鼠标运动轨迹还是一个直角的吧，不能做成直线或者弧形吗？而且速度有点快"
+}

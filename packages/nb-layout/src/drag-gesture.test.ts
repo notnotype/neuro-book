@@ -1,6 +1,6 @@
 import {describe, expect, it} from "bun:test";
 
-import {DRAG_GESTURE_DEFAULTS, createDragGesture, defineDropKind, edgeScrollStep} from "./drag-gesture";
+import {DRAG_GESTURE_DEFAULTS, createDragGesture, defineDropKind, edgeScrollStep, scrollOriginReversed} from "./drag-gesture";
 import type {DragCancelReason, DragClock, DragEnd, DragGesture, DragGestureHost, DragScrollTarget, DragState, DragStops} from "./drag-gesture";
 import type {GridDropPoint} from "./grid-drop";
 
@@ -634,6 +634,33 @@ describe("输出 14：边缘滚动", () => {
         expect(edgeScrollStep({left: 0, right: 48, top: 0, bottom: 32}, {x: 1, y: 16}, "x")).toBe(0);
     });
 
+    it("滚动位置是负值范围的轴：书写模式、方向与 flex 的反向组合，期望值是 Chrome 里实测的（往负方向能滚动）", () => {
+        // [display, direction, writing-mode, flex-direction, flex-wrap] → 横、竖哪个轴的 scrollLeft、scrollTop 从 0 往负数走。
+        const measured: ReadonlyArray<readonly [string, string, string, string, string, boolean, boolean]> = [
+            ["block", "ltr", "horizontal-tb", "row", "nowrap", false, false],
+            ["block", "rtl", "horizontal-tb", "row", "nowrap", true, false],
+            ["flex", "ltr", "horizontal-tb", "row-reverse", "nowrap", true, false],
+            ["flex", "ltr", "horizontal-tb", "column-reverse", "nowrap", false, true],
+            ["flex", "rtl", "horizontal-tb", "row-reverse", "nowrap", false, false],
+            ["flex", "rtl", "horizontal-tb", "column-reverse", "nowrap", true, true],
+            ["flex", "ltr", "horizontal-tb", "row", "wrap-reverse", false, true],
+            ["flex", "ltr", "horizontal-tb", "column", "wrap-reverse", true, false],
+            ["block", "ltr", "vertical-rl", "row", "nowrap", true, false],
+            ["block", "ltr", "vertical-lr", "row", "nowrap", false, false],
+            ["block", "rtl", "vertical-rl", "row", "nowrap", true, true],
+            ["block", "rtl", "vertical-lr", "row", "nowrap", false, true],
+            ["block", "ltr", "sideways-rl", "row", "nowrap", true, false],
+            ["block", "ltr", "sideways-lr", "row", "nowrap", false, true],
+            ["flex", "ltr", "vertical-rl", "column-reverse", "nowrap", false, false],
+            ["flex", "ltr", "vertical-lr", "row-reverse", "nowrap", false, true],
+            ["grid", "rtl", "horizontal-tb", "row", "nowrap", true, false],
+            ["inline-flex", "ltr", "horizontal-tb", "column-reverse", "nowrap", false, true],
+        ];
+        for (const [display, direction, writingMode, flexDirection, flexWrap, x, y] of measured) {
+            expect({style: [display, direction, writingMode, flexDirection, flexWrap].join(" "), ...scrollOriginReversed({display, direction, writingMode, flexDirection, flexWrap})}).toEqual({style: [display, direction, writingMode, flexDirection, flexWrap].join(" "), x, y});
+        }
+    });
+
     const ROOM = {left: 1000, right: 1000, up: 1000, down: 1000};
     const NO_ROOM = {left: 0, right: 0, up: 0, down: 0};
 
@@ -695,6 +722,33 @@ describe("输出 14：边缘滚动", () => {
         t.clock.frame();
         t.clock.frame();
         expect(order).not.toContain("scroll");
+    });
+
+    it("最后一步滚到头、下一帧已挑不到容器：先按滚完的位置发布一次再停，指针不动松手照样提交", () => {
+        // 列表还有一步可滚；这一步滚完余量为 0，指针下的行也换了。
+        let room: DragScrollTarget["room"] = ROOM;
+        let zone: Drop = {name: "before", key: "before"};
+        const t = setup({
+            autoScroll: {targets: () => [{
+                rect,
+                room,
+                scrollBy: () => {
+                    room = {...ROOM, down: 0};
+                    zone = {name: "after", key: "after"};
+                    return true;
+                },
+            }]},
+            resolve: () => zone,
+        });
+        t.grab({x: 50, y: 195});
+        t.clock.frame();
+        expect(t.last()?.drop?.name).toBe("before");
+        t.clock.frame();
+        expect(t.last()?.drop?.name).toBe("after");
+        expect(t.clock.pendingFrames).toBe(0);
+        t.gesture.release(1, {x: 50, y: 195});
+        expect(t.commits).toEqual([{drop: {name: "after", key: "after"}, source: "row"}]);
+        expect(t.ends.map(({end}) => end)).toEqual([{kind: "committed"}]);
     });
 
     it("两个轴各挑各的：里层只横向滚、外层只竖向滚时，角上两个都滚；里层这个方向没余量时交给外层；外层这个轴不让滚时不滚", () => {

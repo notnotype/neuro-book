@@ -105,7 +105,7 @@ describe("处置的写事务复核操作者（设计审查第 5 条，输出 1�
                 } as RequestInit);
                 await body.requested;
                 await target.conn.write((tx) => {
-                    if (change.apply === undefined) endAllSessions(tx, adminId);
+                    if (change.apply === undefined) endAllSessions(tx, adminId, target.clock.now());
                     else tx.query(change.apply).run(adminId);
                 });
                 const before = await snapshot(target);

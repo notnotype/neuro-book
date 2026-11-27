@@ -465,6 +465,7 @@
             "retry": "Retry",
             "missing": "This bot isn't available.",
             "pickBot": "Pick a bot to start chatting",
+            "allBots": "All bots",
             "contactsFailed": "Couldn't load contacts ({{code}}).",
             "untitled": "Untitled conversation"
         }
@@ -491,6 +492,9 @@
         },
         "focus-session": {
             "title": "Go to Agent session"
+        },
+        "search-sessions": {
+            "title": "Search sessions"
         },
         "category": "Agent",
         "open-in-editor": {

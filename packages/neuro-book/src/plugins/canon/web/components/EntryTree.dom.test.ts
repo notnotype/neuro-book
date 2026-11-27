@@ -60,14 +60,21 @@ describe("EntryTree", () => {
         expect(rows()).toEqual([{id: "a", text: "星瑕"}, {id: "b", text: "哥哥"}, {id: "more:a", text: "再显示（还有 2 项）"}]);
     });
 
-    it("点条目发 open；点“再显示”发 more（根是 null）；点分组与“读取中”什么也不打开", async () => {
+    it("点条目发 open、不动展开（有子条目的也是）；点箭头只展开收起、不打开；点“再显示”发 more（根是 null）；点分组是展开收起；点“读取中”什么也不做", async () => {
         const {row, wrapper} = tree({"": layer([item("a", "星瑕", {folder: "人物", hasChildren: true})], 1), a: layer([], 0, true)}, ["folder:人物", "a"]);
         await row("a").trigger("click");
+        expect(wrapper.emitted("open")).toEqual([["a"]]);
+        expect(wrapper.emitted("update:expanded")).toBeUndefined();
+        await row("a").get("[data-tree-toggle]").trigger("click");
+        expect(wrapper.emitted("update:expanded")).toEqual([[["folder:人物"]]]);
+        expect(wrapper.emitted("open")).toEqual([["a"]]);
         await row("more:").trigger("click");
         await row("folder:人物").trigger("click");
+        expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([["a"]]);
         await row("loading:a").trigger("click");
         expect(wrapper.emitted("open")).toEqual([["a"]]);
         expect(wrapper.emitted("more")).toEqual([[null]]);
+        expect(wrapper.emitted("update:expanded")).toHaveLength(2);
     });
 
     it("根这一层还没读到时只有“读取中…”；读到了一项也没有时是“还没有条目”", async () => {

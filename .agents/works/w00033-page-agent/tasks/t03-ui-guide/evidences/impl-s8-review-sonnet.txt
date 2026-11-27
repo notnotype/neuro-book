@@ -1,0 +1,83 @@
+# w00033 t03 第 8 片（d010f68e2..cbd1dcfa2）实现审查报告
+审查范围 packages/nb-page-agent；探针在 /tmp/review-w00033-t03-s8/probe/（真实 Chrome，Playwright）。
+
+### 1. 提问时说明框换层：焦点掉到 body，提问框残留、打字无处可去、Esc 失效、原焦点不还
+严重程度：重要　类别：正确性　位置：src/guide/view.ts:228-231（mount）与 src/guide/index.ts:278（#update 里的 view.mount）
+现象：说明框的提问行展开、焦点在提问框里时，目标所在的层被关掉而目标还在（Spec 输出 10 明写要“换到目标现在所在的层继续显示”）。mount 把宿主 append 到新父元素，宿主先被移出 DOM 再 showPopover，shadow 里的焦点丢了。
+为什么是问题：之后提问行还是展开的（data-asking 还在、输入框里的字还在），但 document.activeElement 是 body；用户继续打字进不了提问框（落到 body 上，页面的快捷键反而能收到）；Esc 的处理挂在 input 的 keydown 上，所以 Esc 也不收起；`#saved`（原焦点）一直留着，只有用户再点输入框、或提交时才还原。e2e 的换层用例只在没展开提问时换层（guide.e2e.ts:316-337）。
+如何核实：/tmp/review-w00033-t03-s8/probe/t3.mjs（夹具：页面输入框 field 有焦点，高亮菜单项，点“提问”，打字 hello，再把菜单项搬到 body 并删掉 menu）。输出：换层前 shadowActive=ask；换层后 active=BODY、shadowActive=null、asking=true；再 type("XX") 页面输入框值仍是 abc、说明框输入框值仍是 hello；按 Esc 后 asking 仍 true、没有结局。
+建议改法：mount 里在挪动前看 `this.#root.activeElement !== null`，重新显示后对原来聚焦的元素再 focus（含选区）；或换层时对展开着的提问行补一次 `#input.focus({preventScroll: true})`。补一条“提问中换层”的 e2e：断言换层后 shadow 内 activeElement 仍是提问框、打字进得去、Esc 还回原焦点。
+
+### 2. 连续高亮同一个悬停区：旧高亮的撤销钩子在新高亮之后才调用，把新目标刚打开的“显示”又撤掉
+严重程度：重要　类别：正确性 / 不变量　位置：src/engine.ts:52-59（highlight）、src/guide/index.ts:175（#install 里的 reveal）与 :117-118（end 里的 #unreveal）
+现象：engine.highlight 先 new 新会话（构造里同步 locate 并 #install，调用 `reveal(target)`），再 `previous.end({outcome: "replaced"})`，后者同步调用旧会话的 `#unreveal`。当两次高亮的目标在宿主的同一个悬停区里（例如同一个标题栏动作区里的两个按钮，引导里相邻两步），宿主写的是“给区域加属性 / 撤掉时去掉属性”，次序就是：加（新）、去掉（旧），最终区域上没有属性，第二步目标是悬停才出现的话，高亮停在一个又看不见的目标上。
+为什么是问题：Spec 的“副作用与数据”要求高亮期间属性在、撤掉时才去掉；`replaced` 是正式结局，调用方不 await 就接着高亮下一步是允许的写法。GuideOptions.reveal 的注释没有要求宿主引用计数，也没写撤销钩子在新高亮之后才跑，宿主按最自然的写法（set/remove attribute）就会踩到。e2e 里的 reveal 用例（guide.e2e.ts:48-68）只有一次高亮，没覆盖替换。
+如何核实：/tmp/review-w00033-t03-s8/probe/t4.mjs（reveal 对 `[data-zone]` 加/去 data-shown；先高亮“甲”，不等结局再高亮“乙”）。输出：A 时属性在；B 装上、等 800ms 后属性不在。
+建议改法：让旧会话先撤销再让新会话 reveal：engine 里先校验定位语法（TypeError 在 locate 里抛，可以先让会话构造分两步：建好、同步 locate 成功后先 `previous.end`，再 install），或会话把 `reveal` 推迟到旧会话撤销之后；同时在 `reveal` 的注释里写明钩子对同一元素可能重复进入。补一条“连续两次高亮共用一个悬停区”的 e2e，断言第二次装上后属性仍在。
+
+### 3. dim 为真且目标只露出一部分时，压暗层的“洞”按整个目标框开，伸出滚动区域之外的那一截没有被压暗
+严重程度：重要　类别：正确性（外观）　位置：src/guide/view.ts:234-250（placeFrame）、src/guide/styles.ts:37-42（dim 用 box-shadow 的洞）
+现象：placeFrame 对 outline 写了 `clip-path`（frameClip，把描边裁在可见区域里），对 dim 只写 left/top/width/height/borderRadius，洞就是 frame.box，没有与可见区域求交。目标被滚动容器裁掉一截（部分滚出、还没整个滚出）时，洞伸出到容器外面，那一块页面是亮的，周围都是暗的。
+为什么是问题：Spec 输出 9 写“目标滚出视野时描边框（与 dim 的压暗）隐藏”，输出 10 写 dim“目标以外的地方压暗”；伸出容器的那截不是目标，却成了一块亮斑，把容器外别的内容（截图里是容器上方的文字）露出来，看上去像高亮的是容器之外的东西。e2e 只测 dim 的 data-hidden 开关（guide.e2e.ts:356-372），没有部分裁切的用例，主会话的变异检查看不到它。
+如何核实：/tmp/review-w00033-t03-s8/probe/shot2.mjs 截图 shot-dimclip.png：300×150 的滚动框里放 60 高按钮，高亮后（dim: true）把滚动框 scrollTop 设到 150，使按钮上缘被裁 14px 以上。截图像素：x=150 处 y=60..99（框上方）为 (255,255,255) 白，x=350 同高度为 (164,164,166) 压暗；说明洞伸出了框外。
+建议改法：压暗层的洞同样限制在可见区域里：把 dim 的框设成 frame.box 与 visible 的交集（圆角在被裁的那几个角上取消），而不是给 dim 套 clip-path（clip-path 只能裁掉洞外面，裁不出洞）。补一条 e2e：目标一半滚出容器时，容器外一点的像素仍是暗的。
+
+### 4. 宿主作为层根的最后一个子元素：靠 :last-child / 兄弟选择器的样式会变，层的布局跟着变
+严重程度：重要　类别：不变量　位置：src/guide/view.ts:228-231（mount 的 `parent.append(host)`）、src/guide/index.ts:278
+现象：宿主总是 append 到层根里，成为它的最后一个元素子节点。页面里写成“不是最后一个子元素就加间距 / 边线”的规则（Tailwind v4 的 `space-y-*` 展开成 `:where(& > :not(:last-child)) { margin-block-end }`，`divide-y` 同理；还有 `last:` 变体、`:last-child{border:0}`）会因此作用到原来的最后一项上：宿主自己有行内 margin:0 与 popover 的 top layer 不挡这件事，因为 `:last-child` 只看 DOM 位置。
+为什么是问题：Spec 输出 10“不改页面元素的样式”；开发者决定 4 的原话是“状态改变尽量少造成布局的不同”。nb-ui 用 Tailwind ^4.3.3（packages/nb-ui/package.json），菜单、树、表格、字段里都有这类选择器（grep space-y / divide-y / last: 命中 Table.vue、Field.vue、Tree.vue 等）。高亮一出现，被高亮的层自己就缩放 / 画出一条多余的线，撤掉时再变回去；层是命令面板、菜单这种用户盯着看的东西。e2e 夹具里的层根（guide.e2e.ts:288、317）没有任何兄弟选择器，测不到。
+如何核实：/tmp/review-w00033-t03-s8/probe/t6.mjs：菜单 `.sy > :where(:not(:last-child)) {margin-block-end:8px;border-bottom:1px solid #ccc}`，两项。高亮第一项前后：最后一项 margin-bottom 0px→8px，border-bottom 0px→1px，菜单高度 48.19→57.19。
+建议改法：先在应用里量一次（命令面板、菜单、设置窗口里高亮，比较层根高度与最后一项的计算样式），确认有真实命中后再定；可选：不挂成层根的“最后子元素”，而是挂在层根里一个不参与序列的位置（例如对有 `space-y` 的层，没有通用位置，只能记为已知限制）；或把挂载点选为“目标所在的最近的容器”而不是整个层根——但那样要重新验证“点说明框不关弹层”。至少在 Spec 或包 README 里写明“宿主是层根的子元素，会影响靠兄弟位置的样式”，并在 e2e 里加一个带 `:last-child` 规则的层，把已知影响固定下来。
+
+### 5. 目标是 `display: contents` 的元素：present() 认它还在，但描边框藏起、说明框停在视口左上角
+严重程度：建议　类别：正确性　位置：src/guide/index.ts:264-303（#update 取 `target.getBoundingClientRect()`）与 :346-352（present 对 display: contents 的特判）
+现象：present() 专门写了“display: contents 的元素自己没有框，看子元素”，所以这种目标不会被判 gone；但 #update 用目标自己的 getBoundingClientRect()，得到 0×0 在 (0,0)，`isEmptyBox(intersect(rect, visible))` 为真，走“滚出视野”分支：描边框 data-hidden、说明框贴到视口左上边。
+为什么是问题：locate 的 isRendered（inspect.ts:50-52）同样把 display: contents 当作画出来了，所以这样的元素能被高亮选中，高亮却画不出来也指不到它，并且永远不会结束（present 为真、不会 gone）。
+如何核实：/tmp/review-w00033-t03-s8/probe/t7.mjs：`<div role="button" style="display:contents"><span>包装的按钮</span></div>`，高亮它。输出 outlineHidden=true、callout 在 (8,12)，targetRect 全为 0。
+建议改法：目标自己没有框（宽高为 0 且 display 为 contents）时，取子元素框的并集作为 rect；或明确按“没有框的目标不能高亮”处理，在 locate 一侧落到有框的后代。补一条夹具用例。
+
+### 6. 装上过程中任何一步抛错：会话停在半装状态，既不结束也不撤销已做的事（reveal 泄漏、句柄永不 settle）
+严重程度：重要　类别：不变量（生命周期）　位置：src/guide/index.ts:145-166（#attempt 先清 #cleanups 再 #install）、:170-208（#install）
+现象：#attempt 找到目标后先执行并清空等待阶段的清理（观察者、定时器、截止时间），再调 #install；#install 里依次有 `reveal(target)`（宿主钩子）、`describe`、`this.#options.text()`（宿主函数）、new GuideView、`#update()`（含 showPopover），没有任何错误收口。其中任一步抛错：
+ (a) 同步路径（目标已在）：异常从 `new HighlightSession` 抛出，调用方得到异常，但已经调用过的 `reveal` 的撤销函数没人拿到，悬停区的属性留在页面上；
+ (b) 等待路径（目标稍后出现，装上发生在观察者 / 轮询的回调里）：异常变成页面上的未捕获错误；等待阶段的定时器与截止时间此前已清掉，所以会话永远停在 waiting（或 shown 但没挂监听），`installed` 与 `outcome` 都不 settle，连 5 秒的 not-found 上限也不再生效。
+为什么是问题：Spec 输出 9、状态与转换要求“撤掉高亮”“一定交出结局”，包的其它地方（end 里的 close 失败）已经专门保证“失败也交结局”；这里没有对称的保证。触发条件是宿主钩子抛错（text 表、reveal）或浏览器在 showPopover 上抛 InvalidStateError，宿主在 w00033 的接入层（Vue、i18n）里这样的错并不罕见。
+如何核实：/tmp/review-w00033-t03-s8/probe/t8.mjs。同步：text 抛错 → highlight 抛错，且 `[data-zone]` 上 reveal 设的 data-shown 仍在；等待：目标 200ms 后出现，装上时抛错（脚本里是 reveal 对没有 zone 的按钮抛），4 秒后 outcome 仍 pending（截止时间 1.5s）。
+建议改法：#install 整段 try/catch：失败时执行已收集的撤销（把 `#unreveal`、已挂的 view 交给 end 的同一条路径），以一个带码的失败（例如 window-unresponsive 同类、或新增的 `guide-failed`）结束，并把原错误带进诊断；同时把“先清等待阶段的清理”挪到 #install 成功之后。补一条用例：reveal 抛错时 outcome 得到失败结局，页面上没有宿主。
+
+### 7. 测试：四处判据在 e2e 里没有断言，删掉对应实现后 19 条全绿
+严重程度：重要　类别：测试　位置：e2e/guide.e2e.ts；对应实现 src/guide/view.ts:46-49、:86-99，src/guide/index.ts:380-409
+我在仓库外的副本（/tmp/review-w00033-t03-s8/mut/，不改被审 worktree）各做了一次删除，跑 `bun run test:e2e -- guide`，三次都是 19 passed：
+ (a) 把 ISOLATED_EVENTS 里的 compositionstart/update/end、pointerup、mousedown、mouseup、dblclick、contextmenu、copy、cut、paste 全删掉，只留 keydown/keyup/keypress/beforeinput/input/pointerdown/click：全绿。“说明框里的按键与输入不交给页面”那条（271-284 行）只监听并断言了七种事件，组字、剪贴板（页面的全局粘贴处理会收到提问框里的粘贴）、右键菜单、双击都没有断言。
+ (b) 删掉 isBackdrop 里 `<dialog>` 的遮罩分支，和 onScrollbar 里视口滚动条那一行（`clientX >= root.clientWidth`）：全绿。“点错”那条（388-412 行）只测了元素自己的滚动条（#scroller）与 `position:fixed;inset:0` 的空 div；原生模态对话框的遮罩、整页的滚动条都没测，而这两个正是 Spec 输出 9 点名的“滚动条与模态弹层的遮罩”。
+ (c) 删掉 restoreFocus 里把选区放回去的两行：全绿。焦点那条（225-253 行）只用了 `<input>`，输入框自己记着选区，所以焦点回到输入框就够了；可编辑区域（contenteditable）的选区与“没有焦点时的页面文字选区”这两条要靠这两行，没有任何用例。
+另有两处没有用例：Spec 写的“按 Esc……不关弹层”（没有页面监听 Escape 的夹具，Esc 用例里没有挂监听）、提问中换层（见第 1 条）。
+为什么是问题：这些都是 Spec 逐句写明的判据，也是主会话审查说明里点名的重点；删掉实现不失败说明它们没被测到。
+建议改法：补用例，每条做一次变异确认会失败：事件隔离用例按 ISOLATED_EVENTS 全表断言（用真实输入产生事件：组字可用 page.keyboard.insertText 配合 CDP 的 Input.imeSetComposition，剪贴板用 ClipboardEvent 派发不如真粘贴，建议在页面里监听后用 keyboard.press("Control+V")）；`<dialog>` 遮罩点击与视口滚动条（body 加高、点右边缘 x=innerWidth-5）两个 missed 排除；contenteditable 里选中一段文字后走完提问再收起，断言选区文字与焦点不变；页面文字被选中且焦点在 body 时同样；夹具里加一个 document 上监听 Escape 就关掉菜单的层，在提问框按 Esc，断言菜单还在。
+
+### 8. 选区没有跟着焦点还原：焦点在按钮等不可编辑元素上、页面文字被选中时，提问收起后选区丢了
+严重程度：建议　类别：正确性　位置：src/guide/view.ts:86-99（restoreFocus 的 `editable` 判断）
+现象：restoreFocus 只在原焦点是 body、没有焦点或可编辑元素时才把保存的选区放回去。原焦点是一个按钮（比如键盘 Tab 到按钮、页面上有一段被选中的文字）时，焦点还给了按钮，选区没还：提问框拿走焦点时 Chrome 把文档选区清掉了。
+为什么是问题：Spec 输出 10 “说明框出现不改变页面的焦点与选区”“提问提交后焦点回到原来的元素”；展开提问再收起（Esc）之后，页面文字上的选中状态丢失。收窄：只发生在“焦点在不可编辑的可聚焦元素上，同时页面上有选中的文字”这种组合，鼠标点击按钮不会产生这个组合，所以影响小。
+如何核实：/tmp/review-w00033-t03-s8/probe/t2.mjs 的第三种情形：选中 `#txt` 的前 4 个字，再 focus 到 #other 按钮，高亮、展开提问、打字、Esc。输出 `plain text + button focus {"active":"other","text":"some"} -> {"active":"other","text":""}`。其余三种（contenteditable 选区、body 焦点加页面文字选区、什么都没有）都还原正确。
+建议改法：去掉 `editable` 条件，只要原焦点不是输入框 / 文本框（它们自己记选区，再放文档范围会把输入框里的选区冲掉），就把保存的范围放回去；或总是放回，再对输入框 / 文本框调一次 setSelectionRange 的保存值。
+
+### 9. 提问框的 Esc：输入法组字中的 Esc 也会清空收起；焦点在提问行的发送、关闭按钮上时 Esc 无效
+严重程度：建议　类别：正确性　位置：src/guide/view.ts:215-224（input 的 keydown）
+现象：Enter 分支排除了 `event.isComposing` 与 keyCode 229，Escape 分支没有。输入法组字时按 Esc 是取消这次组字，浏览器给的 keydown 带 isComposing=true；这里照样 `#closeAsk()`：清空整个输入框、收起提问行、还焦点，用户只想取消组字却丢了前面已经写好的整句。另外 Esc 的监听只挂在 input 上：Tab 到发送或关闭按钮后按 Esc 不会收起（Spec 只要求“提问框按 Esc”，这一半是可以接受的，但与键盘用户的预期不一致）。
+如何核实：从代码推断，未在真实输入法里验证；e2e 用的 keyboard.press("Escape") 没有组字状态（guide.e2e.ts:263 只对 Enter 派发了 isComposing 的事件）。
+建议改法：Escape 分支同样加 `!event.isComposing && event.keyCode !== 229`；把 Esc 挂到提问行（`#askRow`）上而不是 input 上；用例里对 Escape 也派发一次 isComposing 的 keydown，断言提问行没收起。
+
+---
+## 未发现问题的方面（我做过检查的）
+- 事件与快捷键：WorkbenchCommandHost、keymap、WorkbenchTitleBar、desktop 缩放等 window 捕获阶段监听都不读 `event.target`（keymap.handle 只看按键组合与修饰键），提问框里的打字不会因 target 被重定向成宿主元素而被当成快捷键；reka 的 Escape 监听在 window 冒泡阶段（nb-ui/dialog-close.ts 注释），宿主冒泡阶段 stopPropagation 拦得住。没有发现问题。
+- 生命周期：等待中 cancel 两次、cancel 后目标出现不再装上（t9.mjs）；连续三次高亮得 X、Y replaced 且页面只剩一个宿主；end 只认第一次；close 失败照样交结局的路径（代码）；装上后观察者、监听、定时器、动画帧都在 end 里收（读代码 + t9）。
+- 快照与命中检查：高亮显示时快照与不高亮时逐字相同，说明框盖在别的按钮上不影响列出（t10.mjs）；引擎自己的节点不进快照。
+- 性能：12000 元素、目标在 25 层深处、每帧改一处文字的最坏情形，每次重算回调中位 1.1ms、p95 2.1ms、最大 3.3ms，每帧约 37 次 getComputedStyle（perf.mjs）；等待阶段在 4000 行页面上单次 locate 约 2ms，150 帧打字总时长 2484ms（理想 2500ms）、没有 long task（perf2.mjs）。没有发现问题。
+- 外观：按 r1 静态稿对照（idle / 展开提问两张截图 probe/shot-idle.png、shot-ask.png）：宽 300、间隙 3、主按钮 Next、幽灵按钮 Ask/Skip、次按钮 Back，展开提问高度 128.5 不变；界面上没有解释内部处理的文字；减弱动效规则在 shadow 里写全。没有发现问题。
+- 页面滚走后说明框仍在视口内（t5.mjs）、shadow root 内目标被摘掉得 gone（t11.mjs，用 role+name 定位；注意 `{text}` 定位找不到 shadow root 里按钮的文字，那是 locate 切片的事，不在本次范围）。
+- 未在真实 Reka 弹层、真实焦点圈（FocusScope）与 WebView2 的叠加滚动条下验证：模态弹层打开后基层目标的说明框里的提问框会不会被焦点圈抢走焦点、叠加滚动条下 onScrollbar 的间隙判断会不会漏，都是从代码推断，应用的 e2e 要覆盖。
+
+## 条数
+阻断 0；重要 6（第 1、2、3、4、6、7 条）；建议 3（第 5、8、9 条）。撤回 0。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9

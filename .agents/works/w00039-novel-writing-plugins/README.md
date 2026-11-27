@@ -90,6 +90,7 @@ updated: 2026-11-26
 | 2026-11-25 | [t41](tasks/t41-character-component/README.md) 第一期做完并合入 master（`28b552086`）：内核的实例字段四个操作，人物与形象两组的分页与就地改，种类登记，图片，Agent 工具的字段操作。计划审查两轮、内核实现审查（omp 加 Opus）、收口实现审查前端 19 条与后端 13 条，处理记录在 Task 的证据里；照推荐做的记在[待确认清单](pending-confirmations.md)（t41 的行）。等开发者试用 |
 | 2026-11-25 | 开发者批准 [t41](tasks/t41-character-component/README.md) 的 Spec 晋升（只晋升 t41 的标记）。逐句核对后补了内核、Agent 工具与界面的断言（变异 23 处都拦住），合入 `4e3431abe`；字面不符的改 Spec 贴实现，没有断言的边角与外观逐句留 planned。“作者与 Agent 都能改”小节标题上的标记挪到 t37 各条上，`canon/agent-tools.md` 整份照旧 planned。 |
 | 2026-11-26 | 开发者要做条目主文字的富文本编辑器：取值与条件**换成标签**（不再用 `{}`）；富文本为主、保留源文字、去掉分屏预览；**新开一个 Work**（[w00055](../w00055-entry-rich-text/README.md)），“不用那么急着快速做。多做点演示稿，spike 让我体验后，等需求对齐了稳定了你再开始实施”。[t38](tasks/t38-kernel-shared-parser/README.md) 转到 w00055，本 Work 不再推它 |
+| 2026-11-26 | 开发者：记账“现在可以靠 agent 代替”，记账管线“要等 workflow 接入口才好做”；“现在还是先优化体验、完善 Components”。改了设定组清单第九节第 6 条“第一期做完先接记账”：先做清单的第二、三期与体验，记账管线等工作流的接入口 |
 
 ## 调研
 
@@ -124,6 +125,10 @@ updated: 2026-11-26
 | 1 | [t39](tasks/t39-entry-text-editor/README.md) | 条目主文字的整篇编辑：不分节，点“编辑”在一个输入框里改整篇源文字，写法与内核不动（11-24 开发者定为下一步、改选源文字编辑；同日合入 master，等开发者试用，Spec 待晋升；之后是人物设定组，再是最小的记账闭环） | t28 |
 | 1 | [t40](tasks/t40-entry-text-preview/README.md) | 条目主文字的分屏预览与源文字高亮：编辑时旁边看渲染结果（内核加一条按源文字渲染的只读方法），输入框按条目的写法着色（11-24 开发者提出，同日合入 master；开发者试用后修了三处，说“勉强能用，足够我们进行下一步了”；Spec 待晋升） | t39 |
 | 1 | [t41](tasks/t41-character-component/README.md) | 人物设定组：清单的第一期（内核补在条目上加、改名、去掉、恢复字段；人物与形象两组各一个分页、就地改；种类登记的默认设定组；图片的显示、选图与上传；Agent 工具的字段操作）。11-25 合入 master，同日 Spec 晋升（逐句核对、补断言） | t10、t40 |
+| 1 | [t42](tasks/t42-entry-page-redesign/README.md) | 条目页重做：在看、编辑卡、分页条带图标与添加设定组（11-26 合入 master，完成） | t41 |
+| 1 | [t43](tasks/t43-entry-page-polish-2/README.md) | 设定页体验第二轮：开发者 11-26 试用星瑕设定页的九条（条目树点击、编辑卡高度、分页切换动画、滚动条、三种看法、几十个设定组的添加入口；Lab 的组织转 t44）。11-26 合入 master，完成，Spec 待晋升 | t42 |
+| 1 | [t45](tasks/t45-entry-page-polish-3/README.md) | 条目页第三轮：开发者 11-27 的四条（加设定组改成对话框、有名字的预设；三种看法挪到分页上；成段文字在下方编辑；人物分页的富文本编辑归 w00055）。11-27 合入 master，完成，Spec 待晋升 | t43 |
+| 2 | [t44](tasks/t44-lab-and-component-folders/README.md) | Lab 与组件目录的整理：canon 的组件按区域分子目录、场景一个状态一个、场景登记按插件拆开（开发者 11-26 在 t43 里同意，t45 之后做） | t45 |
 | — | [t38](tasks/t38-kernel-shared-parser/README.md) | 内核改用与章节相同的解析器（11-23 从 t28 拆出；11-26 开发者定换成标签写法，连同富文本编辑器转到 [w00055](../w00055-entry-rich-text/README.md)） | t39 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |

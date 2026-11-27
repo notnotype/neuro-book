@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: site.oauth-provider
 owners:
   - nb-site-identity
@@ -65,12 +65,12 @@ owners:
 
 ## 输出与可观察行为
 
-1. **只有列出的端点可达。** `/api/identity/auth/` 下只有上表的标准端点（每个只在它规定的方法上）与 [`site.accounts`](accounts.md) 的 Google、GitHub 回调可达，`/.well-known/` 下只有两份发现文档；这两个前缀下的其它地址、其它方法一律回 404（授权端点收 GET 与 POST，不收 HEAD）。
+1. **只有列出的端点可达。** `/api/identity/auth/` 下只有上表的标准端点（每个只在它规定的方法上）与 [`site.accounts`](accounts.md) 里开放了的上游（Google、GitHub）的回调可达，`/.well-known/` 下只有两份发现文档；这两个前缀下的其它地址、其它方法一律回 404（授权端点收 GET 与 POST，不收 HEAD）。
 2. **发现文档。** 两份发现文档内容相同。`issuer` 等于签发者；列出的每个端点地址都可达；只列本 Spec 支持的能力：`response_types_supported` 为 `["code"]`，`grant_types_supported` 为 `["authorization_code"]`，`code_challenge_methods_supported` 为 `["S256"]`，`token_endpoint_auth_methods_supported` 与 `revocation_endpoint_auth_methods_supported` 都为 `["client_secret_basic","none"]`，`scopes_supported` 为 `["openid","profile","email"]`，`subject_types_supported` 为 `["public"]`，`id_token_signing_alg_values_supported` 为 `["RS256"]`，`prompt_values_supported` 为 `["none","login","consent"]`，`response_modes_supported` 为 `["query"]`，`claims_supported` 是输出 7 与输出 11 出现的字段，`authorization_response_iss_parameter_supported` 为 `true`，`request_parameter_supported` 与 `request_uri_parameter_supported` 为 `false`。不出现内省、动态注册、登出端点，也不出现 DPoP 与 `claims_parameter_supported` 的字段。
-3. **授权请求。** 请求必须带已登记且没停用的客户端、与某个登记值相等的回调地址（逐字相等；公开客户端的 `http` 回环地址不比端口，主机与路径仍逐字比，`localhost` 与 `127.0.0.1` 不算相等）、`response_type=code`、`S256` 的 PKCE（机密客户端也要）、含 `openid` 且在允许之内的范围；可带 `state`、`nonce`、`prompt`、`max_age`、`response_mode=query`；`claims`、`resource` 与本条没列的参数被忽略，带不带结果相同（`resource` 不改变发出的访问令牌）。POST 发起时参数在 `application/x-www-form-urlencoded` 的请求体里，规则与 GET 相同；客户端从别的站点以 POST 发起时浏览器不带站点的会话 Cookie，按没有会话处理（输出 4）。客户端没登记或已停用、回调地址与登记的不等时不跳回客户端，浏览器被带到 `/oauth/consent?error=<码>`，码分别是 `client_not_found`、`redirect_uri_invalid`。其它不合格的跳回客户端并带标准的错误码：不带 `openid` 是 `invalid_scope`，带 `request` 或 `request_uri` 分别是 `request_not_supported`、`request_uri_not_supported`，`response_mode` 不是 `query` 是 `invalid_request`，查询串（POST 时是请求体）超过 4096 个字符是 `invalid_request`，原样与按标准编码重写后的长度各算一次。POST 的请求体超过 16 KiB 时读不到客户端与回调地址，回 400 `invalid_request`（JSON），不跳转。
+3. **授权请求。** 请求必须带已登记且没停用的客户端、与某个登记值相等的回调地址（逐字相等；公开客户端的 `http` 回环地址不比端口，主机不分大小写、路径仍逐字比，`localhost` 与 `127.0.0.1` 不算相等）、`response_type=code`、`S256` 的 PKCE（机密客户端也要）、含 `openid` 且在允许之内的范围；可带 `state`、`nonce`、`prompt`、`max_age`、`response_mode=query`；`claims`、`resource` 与本条没列的参数被忽略，带不带结果相同（`resource` 不改变发出的访问令牌）。POST 发起时参数在 `application/x-www-form-urlencoded` 的请求体里，规则与 GET 相同；客户端从别的站点以 POST 发起时浏览器不带站点的会话 Cookie，按没有会话处理（输出 4）。客户端没登记或已停用、回调地址与登记的不等时不跳回客户端，浏览器被带到 `/oauth/consent?error=<码>`，码分别是 `client_not_found`、`redirect_uri_invalid`。其它不合格的跳回客户端并带标准的错误码：不带 `openid` 是 `invalid_scope`，带 `request` 或 `request_uri` 分别是 `request_not_supported`、`request_uri_not_supported`，`response_mode` 不是 `query` 是 `invalid_request`，查询串（POST 时是请求体）超过 4096 个字符是 `invalid_request`，原样与按标准编码重写后的长度各算一次。POST 的请求体超过 16 KiB 时读不到客户端与回调地址，回 400 `invalid_request`（JSON），不跳转。
 4. **先登录。** 资源所有者没有会话（或输出 13 要求重新登录）时，授权端点把人带到 `/login?continue=<续接令牌>`。登录请求带上这个令牌、且它合格时，登录响应给出一个站内的继续地址，浏览器去那里就回到这次授权请求，请求的参数不变（`prompt=login` 与 `max_age` 已由这次登录满足，不再要求登录）。输出 3 收下的授权请求，参数再长，续接令牌也不因长度不合格。令牌被篡改或超过 10 分钟时照常登录，响应不带继续地址。从这样的登录页改走注册或社交登录时续接不丢，见 [`site.accounts`](accounts.md) 输出 4、11、23。
 5. **确认。** 客户端不免确认、且这个用户没有对它给过覆盖本次范围的授权时（或请求带 `prompt=consent` 时），授权端点把人带到 `/oauth/consent?request=<标识>`；同意后带授权码跳回客户端，拒绝时带 `access_denied` 跳回。跳回的地址里带 `state`（原样）与 `iss`。同意过的范围之外多要了范围时重新确认。
-6. **换令牌。** 机密客户端用 `client_secret_basic` 认证，公开客户端不带密钥、在请求里带 `client_id`；都要带与授权请求对应的 PKCE 校验值。成功时回一个不透明的访问令牌（`token_type` 为 `Bearer`）、它的有效期（1 小时）与 id_token（输出 11）。授权码 10 分钟内有效，只能换一次；重复使用、过期、PKCE 不对都回 `invalid_grant`。请求带 `DPoP` 头时回 `invalid_request`，不发令牌。请求里的 `resource` 参数被忽略。
+6. **换令牌。** 机密客户端用 `client_secret_basic` 认证，公开客户端不带密钥、在请求里带 `client_id`；都要带与授权请求对应的 PKCE 校验值。成功时回一个不透明的访问令牌（`token_type` 为 `Bearer`）、它的有效期（1 小时）与 id_token（输出 11）。授权码 10 分钟内有效，只能换一次；重复使用、过期、PKCE 校验值不对都回 `invalid_grant`，不带校验值回 `invalid_request`；校验值不对或不带时码不被用掉，之后带对的照常换出。请求带 `DPoP` 头时回 `invalid_request`，不发令牌。请求里的 `resource` 参数被忽略。
 7. **用户信息。** 带有效访问令牌（GET 或 POST，`Authorization: Bearer`）调用户信息端点，回 `sub`（账号的数字 id 的字符串形式）；有 `profile` 范围时另有 `preferred_username`（登录用的小写用户名）与 `name`（显示名）；有 `email` 范围时另有 `email_pending`（邮箱是否待补），它为 `false` 时另有 `email` 与 `email_verified`（站点不验证邮箱，恒为 `false`，用社交登录或关联过上游身份也不变），为 `true` 时不出现这两项。不出现别的字段（账号设了头像也不出现 `picture`）。
 8. **令牌随账号失效。** 下面任一件事之后，此前发出的、受它影响的访问令牌调用户信息端点得 401，没用掉的授权码换不出令牌（`invalid_grant`）：
    - 账号被封禁、角色被改、密码被重置、管理员结束了它的全部会话：这个账号名下的全部；
@@ -111,7 +111,7 @@ owners:
 
 ## 失败与恢复
 
-标准端点用 OAuth 与 OpenID Connect 规定的错误码：`invalid_request`、`invalid_client`、`invalid_grant`、`access_denied`、`unsupported_grant_type`、`unsupported_response_type`、`invalid_scope`、`login_required`、`consent_required`、`interaction_required`、`request_not_supported`、`request_uri_not_supported`。用户信息端点按 RFC 6750 回 401 与 `WWW-Authenticate`：不带令牌是 `invalid_request`，令牌无效、过期或被撤销是 `invalid_token`。
+标准端点用 OAuth 与 OpenID Connect 规定的错误码：`invalid_request`、`invalid_client`、`invalid_grant`、`access_denied`、`unsupported_grant_type`、`unsupported_response_type`、`invalid_scope`、`login_required`、`consent_required`、`interaction_required`、`request_not_supported`、`request_uri_not_supported`。用户信息端点按 RFC 6750 回 401 与只含 `Bearer` 质询的 `WWW-Authenticate`：不带令牌时响应体是 `invalid_request`、质询里不带错误码，令牌无效、过期或被撤销时质询与响应体都是 `invalid_token`。
 
 自家接口与站点错误页的码：
 
@@ -159,6 +159,17 @@ owners:
 
 Smoke：合同测试包里的完整授权流程用例（含 id_token 的验证）。
 
+## 实现合同
+
+- 公开入口：`@notnotype/nb-site-identity` 的 `createIdentityModule` 另回 `oauth`（标准端点与社交回调的子应用）与 `wellKnown`（两份发现文档），由 `nb-site-server` 挂在 `/api/identity/auth/` 与 `/.well-known/` 下；端点路径、发现文档、用户信息与客户端接口的 schema 在 `@notnotype/nb-site-identity-contract`。
+- owner 是 `nb-site-identity`；协议由 Better Auth 的 `oauthProvider` 与 `jwt` 插件实现（`@better-auth/oauth-provider` 与 `better-auth` 同钉一个精确版本），依赖库内部行为的地方逐行列在包的升级清单（`packages/nb-site-identity/AGENTS.md`），每行点名守它的用例。
+- 库的端点只经挂载层的白名单可达：按“方法加路径”逐个放行，编码后的路径与解码后不同的回 404；守卫用例遍历库的全部端点与方法。
+- 授权请求只把列出的参数交给库，长度上限按原样与重新编码两种算法都判；`resource`、`claims` 在交库之前去掉。
+- 让会话失效的四种变更（结束会话、封禁、改角色、改密码）在同一个写事务里撤掉对应的访问令牌与没用掉的授权码，都经删会话的那组函数。
+
 ## 证据
 
 - 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0060](../../adr/0060-official-site-identity-on-better-auth.md)、开发者 2026-11-24 的决定（按标准 OpenID Connect；签发者为站点地址）与 2026-11-25 的四条决定（结束会话与改密码撤 OAuth 令牌、社交注册只收已验证邮箱、关联不要求邮箱相同），见 [t08 的 Task 记录](../../../.agents/works/w00037-official-site/tasks/t08-social-login-and-oauth-provider/README.md)
+- 实现入口：[`packages/nb-site-identity/src/oauth/mount.ts`](../../../packages/nb-site-identity/src/oauth/mount.ts)
+- 合同测试：[`oauth-provider.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-provider.test.ts)、[`oauth-invalidation.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-invalidation.test.ts)、[`oauth-admin.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-admin.test.ts)
+- Smoke：[`oauth-provider.test.ts`](../../../packages/nb-site-contract-tests/src/oauth-provider.test.ts)

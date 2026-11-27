@@ -15,6 +15,7 @@
  *    复核到提交之间别人写不进来。哈希变了（并发的登录刚换了格式，或密码被改、被重置）时退出事务，对新哈希再校验一次，对上了重进，
  *    至多再来两轮；对不上回 `invalid_credentials`（时序“改密码或重置密码与登录并发”，验收 7）。
  * 8. 提交以后，旧格式的哈希换成新格式（输出 21）：忙时跳过；写回是条件更新，期间被改、被重置的密码不被覆盖。
+ * 9. 请求带了续接令牌时解它，合格时响应带继续地址（`site.oauth-provider` 输出 4；`oauth/continue.ts`）。
  *
  * 封禁在校验之后才判：不知道密码的人试不出谁被封了（失败表）。
  */
@@ -33,6 +34,7 @@ import {HashOverloadedError, startFailureFloor, type FailureFloor, type FailureF
 import type {IdentityLog} from "./index";
 import {appendCookies} from "./middleware";
 import {publicProfileOf, PROFILE_COLUMNS, type ProfileRow} from "./me";
+import type {ContinueResolver} from "./oauth/continue";
 import {needsRehash, type PasswordFunctions} from "./password";
 import type {IdentityRateLimits} from "./rate-limit";
 import type {Sessions} from "./session";
@@ -70,6 +72,8 @@ export interface LoginOptions {
     readonly delay: (ms: number) => Promise<void>;
     /** 失败下限的时间来源；缺省真实时间，包内测试注入。 */
     readonly failureFloor: FailureFloorTiming;
+    /** 解请求带的续接令牌（`oauth/continue.ts`）。 */
+    readonly resolveContinue: ContinueResolver;
 }
 
 /**
@@ -239,8 +243,10 @@ export function loginRoute(options: LoginOptions): (c: Context) => Promise<Respo
             }
         }
 
+        // 续接令牌在登录成功之后才解：失败的登录不碰它，不合格的令牌也不让登录失败，只是不给继续地址（输出 4；计划 3.7）。
+        const continueUrl = body.continue === undefined ? null : await options.resolveContinue(body.continue, "login");
         appendCookies(c, issued.cookies);
-        const response: LoginResponse = {user: publicProfileOf(issued.profile)};
+        const response: LoginResponse = {user: publicProfileOf(issued.profile), ...(continueUrl === null ? {} : {continueUrl})};
         return c.json(response);
     };
 }

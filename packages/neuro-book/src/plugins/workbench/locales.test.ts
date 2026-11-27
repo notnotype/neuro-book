@@ -411,7 +411,12 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "shell.drop.joinContainer": {"zh-CN": "并入{part}", "en-US": "Add to {part}"},
     // w00026 t25：打开着的空区域（docs/specs/ui/workbench-layout.md 输出 11；ADR 0050）。
     "shell.emptyRegion": {"zh-CN": "把视图拖到这里", "en-US": "Drag a view here"},
-    "shell.regionStrip.auxiliarybar": {"zh-CN": "右栏的视图容器", "en-US": "Secondary side bar containers"},
+    // w00043 t19：右轨（docs/specs/ui/workbench-layout.md 输出 50）。
+    "shell.auxiliaryRail": {"zh-CN": "右栏的侧轨", "en-US": "Secondary side bar rail"},
+    "shell.rail.expand": {"zh-CN": "展开", "en-US": "Expand"},
+    "shell.rail.collapse": {"zh-CN": "收起", "en-US": "Collapse"},
+    "shell.rail.tooNarrow": {"zh-CN": "窗口太窄", "en-US": "Window too narrow"},
+    "shell.rail.handle": {"zh-CN": "调整侧轨宽度", "en-US": "Resize side rail"},
     "shell.regionStrip.panel": {"zh-CN": "底部面板的视图容器", "en-US": "Panel containers"},
     // w00026 t24 切片 5：“移动到”的新容器（docs/specs/ui/workbench-layout.md 输出 23）。
     "viewCommands.newContainerIn.sidebar": {"zh-CN": "新容器（侧栏）", "en-US": "New container (Sidebar)"},

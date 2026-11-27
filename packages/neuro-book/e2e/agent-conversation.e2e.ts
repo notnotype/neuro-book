@@ -79,7 +79,7 @@ async function send(page: Page, text: string): Promise<void> {
     await page.keyboard.press("Enter");
 }
 
-/** 新建一段会话。头上的新建只在已有会话时才有（没选会话时头上没有它），所以经命令面板，两种情况一样。 */
+/** 新建一段会话：经命令面板，不依赖右轨视图段里的“新对话”在不在（视图段收着、展开着、没挂上时都一样）。 */
 const newSession = async (page: Page): Promise<void> => {
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("新建 Agent 会话");
@@ -92,69 +92,55 @@ const CONVERSATION_VIEW = "nbook.agent.conversation";
 const conversationHandle = (page: Page) => page.locator(`[data-panel-tab="view:${CONVERSATION_VIEW}"]`);
 const panelHeadOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
 
-test("宽版（conversation.md 输出 1–3、44）：右栏拖到 600 像素以上是两栏，列表栏常驻、对话的头画在聊天区上方、面板头写“消息”；会话一页点一行在同一个视图打开；收起列表栏后左边换成头像列", async ({page}) => {
+// 覆盖 conversation.md 输出 2、3、44、57“展开”：旧的宽版（右栏拖到 600 像素以上两栏、列表栏常驻、可拖线收成头像列）已经没有，完整列表在右轨展开之后。
+test("展开列表（conversation.md 输出 2、3、44、57）：点底段“会话历史”展开右轨，列表在右轨里、对话的头仍在面板头里；会话一页点一行在同一个视图打开；点展开按钮收回快切列", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await openConversation(page);
     await newSession(page);
-    const root = page.locator("[data-messages-layout]");
-    await expect(root).toHaveAttribute("data-messages-layout", "narrow");
-    // 右栏左边那条竖分隔线：往左拖，右栏变宽。
-    const view = (await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).boundingBox())!;
-    const sash = await page.locator("[data-workbench-surface] .nb-grid-sash").evaluateAll((elements, left) => elements.map((element) => element.getBoundingClientRect()).find((rect) => rect.height > rect.width && Math.abs(rect.right - left) < 24) ?? null, view.x);
-    expect(sash).not.toBeNull();
-    const x = sash!.x + sash!.width / 2;
-    const y = sash!.y + sash!.height / 2;
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.mouse.move(x - (720 - view.width), y, {steps: 8});
-    await page.mouse.up();
-    await expect(root).toHaveAttribute("data-messages-layout", "wide");
-    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
-    await expect(page.locator("[data-messages-strip]")).toBeHidden();
-    // 头回到聊天区上方，面板头照常写视图标题。
-    await expect(page.locator("[data-agent-head]")).toBeVisible();
-    await expect(conversationHandle(page)).toHaveText("消息");
-    // 会话一页点一行：聊天区换成那个会话，还是这一个视图。
-    await page.locator("[data-messages-tab='sessions']").click();
-    const rows = page.locator("[data-messages-list-panel] [data-panel-row]");
+    const rail = page.locator('[data-rail="auxiliarybar"]');
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
+    const node = await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).elementHandle();
+
+    await page.locator('[data-messages-open="sessions"]').click();
+    await expect(rail).toHaveAttribute("data-rail-state", "expanded");
+    const list = rail.locator('[data-rail-segment="main"] [data-messages-list-panel]');
+    await expect(list).toBeVisible();
+    await expect(rail.locator("[data-rail-handle]")).toHaveAttribute("aria-valuenow", "260");
+    // 头不随展开换位置：停靠时一直在面板头里，内容里不另画一行头（输出 44、57）。
+    await expect(conversationHandle(page).locator("[data-header-title]")).toBeVisible();
+    await expect(page.locator("[data-agent-head]")).toBeHidden();
+    // 会话一页点一行：聊天区换成那个会话，还是这一个视图、同一份聊天区。
+    const rows = list.locator("[data-panel-row]");
     await expect(rows.first()).toBeVisible();
     await rows.first().click();
-    await expect(page.locator("[data-messages-chat] [data-agent-head]")).toBeVisible();
-    // 拖列表栏右边的线：列表栏变宽。
-    const listWidth = () => page.locator("[data-messages-list-panel]").evaluate((element) => (element as HTMLElement).offsetWidth);
-    expect(await listWidth()).toBe(260);
-    const line = (await root.getByRole("separator").boundingBox())!;
-    await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(line.x + line.width / 2 + 40, line.y + line.height / 2, {steps: 6});
-    await page.mouse.up();
-    expect(Math.abs(await listWidth() - 300)).toBeLessThanOrEqual(1);
-    // 收起列表栏：左边换成头像列，按它的按钮展开；展开后还是拖出来的宽度（宿主记着）。
-    await page.locator("[data-messages-collapse]").click();
-    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
-    await expect(page.locator("[data-messages-strip]")).toBeVisible();
-    await page.locator("[data-messages-toggle]").click();
-    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
-    await expect.poll(async () => Math.abs(await listWidth() - 300)).toBeLessThanOrEqual(1);
+    await expect(conversationHandle(page).locator("[data-header-title]")).toBeVisible();
+    await expect(input(page)).toBeVisible();
+    expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
+
+    // 点展开按钮收起：回到快切列，列表拿掉。
+    await rail.locator("[data-rail-expand]").click();
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
+    await expect(rail.locator('[data-messages-segment-state="collapsed"]')).toBeVisible();
 });
 
-test("对话写在面板头上（conversation.md 输出 44）：窄版时头的三列在面板头里；按标题开列表抽屉，Esc 关掉回到标题", async ({page}) => {
+// 覆盖 conversation.md 输出 44（停靠时照旧接管标题区，左列只留返回）、57：头的标题在面板头里；左列没有“新建”，按标题不开列表、不展开右轨。
+test("对话写在面板头上（conversation.md 输出 44、57）：停靠时头在面板头里，左列没有“新建”（挪进了右轨的视图段）；按标题不开列表、不展开右轨", async ({page}) => {
     await openConversation(page);
     await newSession(page);
     const handle = conversationHandle(page);
-    // 列表在消息视图的抽屉里（右栏默认宽度是窄版）。
-    const sessions = page.locator("[data-messages-list-panel]");
+    const rail = page.locator('[data-rail="auxiliarybar"]');
     await expect(handle.locator("[data-header-title]")).toBeVisible();
     await expect(page.locator("[data-agent-head]")).toBeHidden();
+    await expect(page.locator("[data-header-new]")).toHaveCount(0);
+    await expect(rail.locator("[data-messages-new-session]")).toBeVisible();
 
-    // 按标题开列表抽屉（标题按钮写 aria-expanded）；Esc 关掉，焦点回到标题。
+    // 按标题不再开列表：右轨照旧收着，没有列表，标题按钮也不带“展开着”。
     await handle.click();
-    await expect(sessions).toBeVisible();
-    await expect(handle).toHaveAttribute("aria-expanded", "true");
-    await page.keyboard.press("Escape");
-    await expect(sessions).toBeHidden();
-    await expect(handle).toBeFocused();
-    await expect(handle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
+    await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(handle).not.toHaveAttribute("aria-expanded", "true");
 });
 
 /** 指针拖一段：按下、过起拖门槛、再走到终点松开。 */
@@ -175,7 +161,8 @@ const centerOf = async (page: Page, selector: string): Promise<{x: number; y: nu
 const hitIn = (page: Page, at: {x: number; y: number}, selector: string): Promise<boolean> =>
     page.evaluate(({at, selector}) => document.elementFromPoint(at.x, at.y)?.closest(selector) != null, {at, selector});
 
-test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，conversation.md 消息视图）：没有面板头那一行，第一行同高顶到窗口顶；按钮盖在右上角；按空白、标题拖窗口，按钮上不起拖；空白处右键是“移动到”；标题按钮聚焦才显示；成了标签条时面板头回来，拿走后又自绘；宽版也一样", async ({page}) => {
+// 覆盖 workbench/views.md 输出 19“自绘头”、ui/workbench-layout.md 输出 51“顶格”、conversation.md 输出 57“浮动”：单标签浮动窗里没有面板头那一行，聊天头顶到窗口顶；视图段在窗的右边缘、“回到停靠”在它顶格；按空白、标题拖窗口，按钮上不起拖；空白处右键是“移动到”；标题按钮聚焦才显示。窗里成不了多标签（workbench/views.md 输出 22 的位置限制），所以“成了标签条时面板头回来”不再有这个场景。
+test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，ui/workbench-layout.md 输出 51，conversation.md 输出 57）：没有面板头那一行，聊天头同高顶到窗口顶；视图段在窗的右边缘，“回到停靠”在它的顶格；按空白、标题拖窗口，视图段的按钮上不起拖；空白处右键是“移动到”；标题按钮聚焦才显示", async ({page}) => {
     await openConversation(page);
     await newSession(page);
     await input(page).click();
@@ -204,24 +191,24 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
             const box = document.querySelector(selector)?.getBoundingClientRect();
             return box === undefined ? null : {top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height};
         };
-        return {card: rect(`[data-shell-card="${target}"]`)!, content: rect(`[data-content="${key}"] [data-messages-host]`)!, head: rect("[data-agent-head]"), strip: rect("[data-messages-strip-head]"), switchRow: rect("[data-messages-list-panel] [data-messages-switch]"), layout: document.querySelector("[data-messages-layout]")?.getAttribute("data-messages-layout") ?? null};
+        return {card: rect(`[data-shell-card="${target}"]`)!, content: rect(`[data-content="${key}"] [data-messages-host]`)!, head: rect("[data-agent-head]"), edge: rect("[data-float-rail]")};
     }, {target, key: `view:${CONVERSATION_VIEW}`});
 
-    // 窄版：头像列顶上那一行与对话头同高 40、都顶到窗口顶，内容的上边就是卡片的上边。
+    // 对话头同高 40、顶到窗口顶，内容的上边就是卡片的上边；视图段在窗的右边缘、贯通窗高（收着时宽 48，聊天头在它左边）。
     let geo = await rows();
-    expect(geo.layout).toBe("narrow");
     expect(Math.abs(geo.content.top - geo.card.top)).toBeLessThan(1);
     expect(Math.abs(geo.head!.top - geo.card.top)).toBeLessThan(1);
-    expect(Math.abs(geo.strip!.top - geo.card.top)).toBeLessThan(1);
     expect(Math.round(geo.head!.height)).toBe(40);
-    expect(Math.round(geo.strip!.height)).toBe(40);
+    expect(Math.abs(geo.edge!.right - geo.card.right)).toBeLessThan(1);
+    expect(Math.abs(geo.edge!.top - geo.card.top)).toBeLessThan(1);
+    expect(geo.head!.right).toBeLessThanOrEqual(geo.edge!.left + 1);
     // 上面两个角是窗口的圆角：角上那一点的各层里没有消息视图（最上面是窗口的缩放手柄，所以看全部各层，不只看最上面的）。
     const inCorner = (x: number, y: number) => page.evaluate(({x, y}) => document.elementsFromPoint(x, y).some((element) => element.closest("[data-messages-host]") !== null), {x, y});
     expect(await inCorner(geo.card.left + 1, geo.card.top + 1)).toBe(false);
     expect(await inCorner(geo.card.right - 1, geo.card.top + 1)).toBe(false);
     expect(await inCorner(geo.card.left + 20, geo.card.top + 20)).toBe(true);
 
-    // “回到停靠”盖在右上角：悬停这块窗时看得见、点得到，对话头在右端让出了它的宽度。
+    // “回到停靠”在窗右上角那一格（视图段的顶格）：悬停这块窗时看得见、点得到，它不在视图段之内，聊天头整个在它左边。
     await page.mouse.move(geo.card.left + 100, geo.card.top + 150);
     const dock = ownHead.locator("[data-panel-action=\"nbook.view.dock\"]");
     const frameActions = ownHead.locator("[data-hover-actions=\"frame\"]");
@@ -230,20 +217,13 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     const dockBox = (await dock.boundingBox())!;
     const headEnd = await agentHead.locator(".acv-head__end").boundingBox();
     expect(headEnd!.x + headEnd!.width).toBeLessThanOrEqual(dockBox.x);
+    expect(await dock.evaluate((element) => element.closest("[data-float-rail]") !== null)).toBe(false);
     // 指针离开窗口、焦点也不在窗里：按钮淡出（焦点在窗里时照旧显示）。
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(geo.card.left - 40 > 0 ? geo.card.left - 40 : 5, 5);
     await expect(frameActions).toHaveCSS("opacity", "0");
 
-    // 抽屉从对话头下面拉出，不盖住“回到停靠”。
-    await page.locator("[data-messages-toggle]").click();
-    const drawer = page.locator("[data-messages-list-panel]");
-    await expect(drawer).toBeVisible();
-    expect((await drawer.boundingBox())!.y).toBeGreaterThanOrEqual(geo.head!.bottom - 1);
-    await page.keyboard.press("Escape");
-    await expect(drawer).toBeHidden();
-
-    // 按住对话头的标题文字拖：整个窗跟着走。按住头像列的按钮拖：窗不动。
+    // 按住对话头的标题文字拖：整个窗跟着走。按住视图段的按钮拖：窗不动。
     // 后面把资源管理器拖出这个窗时松在空处，它自己成了一个窗：只量消息视图这一个。
     const windowAt = async () => (await page.locator(`[data-float-chrome="${target}"]`).boundingBox())!;
     const before = await windowAt();
@@ -251,14 +231,15 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await expect.poll(async () => Math.round((await windowAt()).x - before.x)).toBe(-60);
     expect(Math.round((await windowAt()).y - before.y)).toBe(30);
     const moved = await windowAt();
-    await dragBy(page, await centerOf(page, "[data-messages-toggle]"), 50, 40);
+    await dragBy(page, await centerOf(page, "[data-float-rail] [data-messages-new-session]"), 50, 40);
     await expect(page.locator("[data-workbench-dragging]")).toHaveCount(0);
     expect(await windowAt()).toEqual(moved);
     await page.keyboard.press("Escape");
 
     // 空白处右键是这个视图的“移动到”；标题文字上右键不开（留给浏览器）。
     geo = await rows();
-    await page.mouse.click(geo.head!.left + 4, geo.head!.top + 20, {button: "right"});
+    // 头最左边几个像素是窗的左缩放手柄，空白处取它右边一点。
+    await page.mouse.click(geo.head!.left + 24, geo.head!.top + 20, {button: "right"});
     await expect(page.getByRole("menu")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
@@ -266,11 +247,12 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await expect(page.getByRole("menu")).toHaveCount(0);
 
     // 键盘：从视图里往回 Tab，先到“回到停靠”（焦点进了这一条，按钮显示），再到标题按钮：标题按钮平时不接指针，键盘聚焦时显示在左上角、点得到；
-    // 它仍是拿起这个窗的入口，Enter 只激活、窄版也不开抽屉。
+    // 它仍是拿起这个窗的入口，Enter 只激活、不开列表。
     const titleCenter = await centerOf(page, `[data-panel-head="${target}"] [data-panel-tab]`);
     expect(await hitIn(page, titleCenter, `[data-panel-head="${target}"] [data-panel-tab]`)).toBe(false);
     const focusedIs = (locator: typeof title) => locator.evaluate((element) => element === document.activeElement);
-    await page.locator("[data-messages-toggle]").focus();
+    // 从聊天头的“更多操作”起往回：输入框里 Shift+Tab 是切模式，不从那里走。
+    await page.locator("[data-agent-head] button").first().focus();
     for (let step = 0; step < 8 && !(await focusedIs(dock)); step += 1) await page.keyboard.press("Shift+Tab");
     await expect(dock).toBeFocused();
     await expect(frameActions).toHaveCSS("opacity", "1");
@@ -279,7 +261,7 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await expect(title).toHaveCSS("opacity", "1");
     expect(await hitIn(page, titleCenter, `[data-panel-head="${target}"] [data-panel-tab]`)).toBe(true);
     await page.keyboard.press("Enter");
-    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
+    await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
     await expect(title).toBeFocused();
     // 空格拿起（出拖影），Esc 放下；菜单键开“移动到”。
     await page.keyboard.press("Space");
@@ -293,63 +275,6 @@ test("浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”，
     await expect(page.getByRole("menu")).toHaveCount(0);
     await input(page).click();
     await expect(title).toHaveCSS("opacity", "0");
-
-    // 资源管理器的分节拖到窗口顶上那一条：添加为标签，面板头回来、对话头回到普通画法（在内容里、在标签条下面）。
-    const SESSIONS_VIEW = "nbook.explorer";
-    geo = await rows();
-    const from = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
-    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2 + 10, {steps: 2});
-    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
-    await page.mouse.move((geo.card.left + geo.card.right) / 2, geo.card.top + 20, {steps: 8});
-    await page.mouse.up();
-    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
-    await expect(panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-tab]")).toHaveCount(2);
-    await expect(ownHead).toHaveCount(0);
-    await conversationHandle(page).click();
-    await expect(agentHead).toBeVisible();
-    await expect(agentHead).not.toHaveAttribute("data-window-drag", "");
-    geo = await rows();
-    expect(Math.round(geo.content.top - geo.card.top)).toBe(32);
-    await expect(input(page)).toContainText("头搬家前写的字");
-    expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
-    // 头在内容里时列表照样开：头像列顶上的按钮开抽屉。
-    await page.locator("[data-messages-toggle]").click();
-    await expect(page.locator("[data-messages-list-panel]")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.locator("[data-messages-list-panel]")).toBeHidden();
-
-    // 把资源管理器拖走，窗里又只剩消息视图：又自绘头。
-    const to = (await page.locator("[data-workbench-shell]").boundingBox())!;
-    const tabBox = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
-    await page.mouse.move(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(tabBox.x + tabBox.width / 2 + 10, tabBox.y + tabBox.height / 2 + 10, {steps: 2});
-    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
-    await page.mouse.move(to.x + 40, to.y + 12, {steps: 8});
-    await page.mouse.up();
-    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
-    await expect(ownHead).toHaveCount(1);
-    await expect(agentHead).toHaveAttribute("data-window-drag", "");
-
-    // 拉大到宽版：列表的切换行与对话头同一行、同高、顶到窗口顶；按切换行的空白拖窗口，按“会话”标签拖不动。
-    const corner = await centerOf(page, `[data-float-chrome="${target}"] [data-float-handle="bottom-right"]`);
-    await dragBy(page, corner, 360, 160);
-    await expect(page.locator("[data-messages-layout]")).toHaveAttribute("data-messages-layout", "wide");
-    geo = await rows();
-    expect(Math.abs(geo.switchRow!.top - geo.card.top)).toBeLessThan(1);
-    expect(Math.abs(geo.head!.top - geo.card.top)).toBeLessThan(1);
-    expect(Math.round(geo.switchRow!.height)).toBe(40);
-    expect(Math.round(geo.head!.height)).toBe(40);
-    const wideBefore = await windowAt();
-    const tabs = (await page.locator("[data-messages-list-panel] [role=\"tablist\"]").boundingBox())!;
-    const sessionsTab = (await page.locator("[data-messages-tab=\"sessions\"]").boundingBox())!;
-    await dragBy(page, {x: sessionsTab.x + sessionsTab.width / 2, y: sessionsTab.y + sessionsTab.height / 2}, 40, 20);
-    expect(await windowAt()).toEqual(wideBefore);
-    await dragBy(page, {x: sessionsTab.x + sessionsTab.width + 12, y: tabs.y + tabs.height / 2}, 40, 20);
-    await expect.poll(async () => Math.round((await windowAt()).x - wideBefore.x)).toBe(40);
-    await expect(input(page)).toContainText("头搬家前写的字");
 
     // 点“回到停靠”：窗没了，视图回到停靠位，面板头照常画、对话头不再是拖动区。
     geo = await rows();
@@ -864,11 +789,12 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await page.keyboard.press("Delete");
 
     await page.keyboard.type("没写完的字");
-    await page.locator("[data-header-new]").click();
+    // 头上不再有“新建”（输出 44、57）：新对话在右轨视图段里。
+    await page.locator("[data-messages-new-session]").click();
     await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
-    // 头写在面板头上（输出 44）：按面板头的标题开列表抽屉，会话一页里选。
-    await conversationHandle(page).click();
+    // 完整列表在右轨展开之后：点底段“会话历史”，会话一页里选。
+    await page.locator('[data-messages-open="sessions"]').click();
     await page.locator("[data-messages-list-panel] [data-panel-row]", {hasText: "雨夜"}).click();
     await expect(input(page)).toContainText("没写完的字");
     await page.reload();

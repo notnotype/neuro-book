@@ -1,0 +1,186 @@
+w00033 t01 设计稿第三稿 第二轮审查（前端部分，Sonnet）
+范围：页面里的接口、界面目录、引导、控件名字、拖拽指引。发现按追加顺序编号，也大致按影响从高到低。
+
+### 1. 说明框在 reka 模态里拿不到输入焦点，在菜单与命令面板里点“下一步”会把目标关掉
+**严重程度**：阻断
+**类别**：依赖的机制与设计相反（维度 2、5）
+**位置**：设计稿“引导”的“说明框”“结局”，“开工前的实验”第 3 条，“现状里要用到的事实”第 19 行
+**现象**：稿子只写了“框出现时不抢焦点，用户自己点进输入框才聚焦”，并把“提问输入可用”留给实验 3。它没说说明框挂在 DOM 的哪里、用什么手段穿过模态。
+**为什么是问题**：核心用例“带我去改主题”的第二、三步都在设置窗口里，而设置窗口是 nb-ui 的模态 Dialog（`SettingsWindow.vue` 用 `Dialog`，`pageModal = !contained`）。我读了 reka 2.10.3 的源码：`DialogContentModal` 把 `trap-focus` 绑到 `open`，`FocusScope` 在 document 上听 `focusin`，目标不在容器里就 `focus(lastFocusedElement, {select: true})`。所以：
+(1) 说明框里的“提问”输入框一聚焦就被拉回对话框里上一个聚焦的元素，并且 `select: true` 会把那个元素的文字全选（与第一轮 S9 同一类）；Tab 键也出不去。
+(2) 菜单、命令面板的情形更糟：`QuickPick.vue:152` 的 `onPointerDownOutside` 对左键直接 `requestClose("outside")`；`DropdownMenu`、`Menubar`、`Popover` 对“外面按下”同样关闭（`Dialog.vue` 靠 `preventDismiss` 才没事）。说明框在这些浮层外面，用户点“下一步”“跳过”或输入框，浮层先被关掉，目标随之消失，结局变成 `gone` 而不是 `next`。
+(3) reka 的 `hideOthers` 会把模态之外的兄弟节点设成 `aria-hidden`；说明框若先于模态挂在页面根上，读屏与基于无障碍树的测试就看不到它。
+稿子只在“提示条与停止按钮”那一段提到“显式 pointer-events: auto”，那只解决点击，解决不了焦点与外点关闭。
+**如何核实**：读 `node_modules/reka-ui/dist/FocusScope/FocusScope.js` 的 `handleFocusIn`；`Dialog/DialogContentModal.js` 第 68 行；`nb-ui/src/components/popup/QuickPick.vue` 第 152 行。样机里在设置窗口打开时往 body 追加一个带 input 的 div，点它即可复现。
+**建议改法**：设计里先选定机制，不要留到实验后再说。可选：(a) 说明框挂进当前最上层模态的内容元素里（跟着窗口拖动，要处理 overflow 与裁切）；(b) 提问与按钮改成“不需要焦点”的形态（按钮用 `pointerdown.preventDefault` 且不聚焦，提问输入放在对话视图，不放在说明框里），并在文档里写明限制；(c) 让 nb-ui 提供“登记外部元素为该层分支”的出口（reka 有 `DismissableLayerBranch`、`FocusScope` 栈暂停）。无论选哪个，实验 3 的判据要加“菜单、命令面板打开时点说明框，浮层仍开着、目标仍在”。
+
+### 2. `highlight` 没有定义“目标还没出现”“不在视野里”时的行为，稿子自己的示例代码第二步会随机得 `not-found`
+**严重程度**：重要
+**类别**：遗漏（维度 3、4、5）
+**位置**：“引导”的示例代码与“结局”，“失败”，“动作（第二批）”
+**现象**：只有第二批的动作写了“动作前等目标看得见、可用、没被遮住、位置稳定”。`highlight` 属于第一批，稿子里没有任何一句说它要不要等目标出现、要不要滚进视野；`timeout` 只被定义成“等用户”的时限。示例里第一步 `until: "click"` 点开设置，第二步马上 `highlight({section})`。
+**为什么是问题**：用户点完“打开设置”，设置窗口要经过命令执行、窗口挂载、list 分区的按需加载（`settings/web/sections.ts` 的 `activate` 与 `onSettingsPage` 事件），菜单、命令面板的项还有 `nb-ui-popover-motion` 入场动画。eval 代码在 `clicked` 回来的同一个微任务里调下一个 `highlight`，目标往往还没渲染，得 `not-found`，示例代码没有处理它。另外：目标在可滚动容器里被裁掉（资源管理器、设置页长列表）时，描边框画在被裁掉的位置或根本不可见，稿子没说要不要 `scrollIntoView`；虚拟树里没渲染的行直接 `not-found`（快照一节写了，引导里没承接）。
+**如何核实**：用 Lab 场景或真实窗口，跑“点设置 → 立刻 highlight 一个设置页里的 `section`”，看调用时刻设置窗口的 DOM；读 `SettingsWindow.vue` 的 `load()` 路径。
+**建议改法**：`highlight` 与动作共用同一套“等目标就绪”（可见、位置稳定、至多 N 毫秒，超时得 `not-found` 并附最近的候选），N 单独定（缺省 3 秒），与等用户的 `timeout` 分开写；目标在滚动容器里时调用 `scrollIntoView({block: "nearest"})`（不改焦点）；虚拟列表的行写明“先让模型用定位命令或搜索”；示例代码补上 `not-found` 的分支。
+
+### 3. “每条命令都能在命令面板按标题搜到，路径缺省最后附命令面板兜底”不成立
+**严重程度**：重要
+**类别**：依赖的机制与设计相反（维度 2）
+**位置**：“界面目录”第 4 条
+**现象**：稿子断言命令面板是任何命令的兜底入口。
+**为什么是问题**：`WorkbenchCommandPalette.vue:62` 的候选是 `host.commands.list().filter((c) => c.expose?.human !== false && runsWithoutArgs(c.args) && host.commands.isEnabled(c.id).ok)`。三类命令搜不到：(1) 声明 `expose: {human: false}` 的（`editor/web/commands.ts` 的 open、open-page、go-to-line，`explorer/web/commands.ts`，`workbench/web/commands/open-commands.ts` 的面板自己都是）；(2) 参数有必填项的（SDK 里要求这类命令必须写 `human: false`，`sdk/command-helpers.ts:55`）；(3) 此刻不可用的：`CommandService.isEnabled` 的约定是不可用时 `ok: false`（`contracts.ts` 的注释“不可用时给出 unavailable 与原因，而不是 {ok: true, value: false}”），面板按 `.ok` 过滤，所以灰着的命令在面板里根本没有。稿子又要求目录列出“此刻能不能用及原因”，这一类恰好是兜底失效的那些。结果：对 `human: false` 的命令，目录给出的路径只有一条根本走不通的“命令面板”；对此刻不可用的命令，用户在面板里搜不到，会以为引导错了。
+**如何核实**：读 `WorkbenchCommandPalette.vue:55-65`；在 Lab 命令场景里 `human=false` 的几条（`LabCommandInspector` 会列）搜一遍。
+**建议改法**：目录只收“人能触发的命令”（`human !== false` 且参数可空），其余不进 `ui.find`；路径末尾的“命令面板”只对 `isEnabled.ok` 的命令附上，不可用的写明原因、不给路径；`human: false` 的命令若有别的界面入口（标题动作、菜单），路径只走那个入口。
+
+### 4. 界面目录里的“视图位置”只是声明的默认值：用户移动、浮动后目录会指错地方，且没有公开的读布局入口
+**严重程度**：重要
+**类别**：依赖的机制与设计相反（维度 2、3）
+**位置**：“界面目录”第 1 条“视图（在活动栏、侧栏还是面板，怎么打开）”，“要先补的上游”最后一行
+**现象**：稿子说目录“读的是声明”，视图的位置也从声明里拿。
+**为什么是问题**：`workbench/shared/views.ts` 里 `location`、`container` 的注释写明“只在视图第一次放进布局时用”；用户可以把视图拖到别的区域、浮动成窗口（`nbook.view.move-view`，`floatable`），布局存在服务端插件存储里。目录按声明写“资源管理器在侧栏”，用户移走之后高亮会指向不存在的位置，路径里的“怎么打开”也不对（视图已在别处显示、侧栏收起时才需要先开区域）。工作台对外公开的只有 `workbenchRootKey`，它只有 `pages()`（`web/contracts.ts:28`），读不到布局；视图注册表、布局 store 都在工作台插件内部。上游表里只写“实施计划里逐个确认读取入口”，没有说视图这一项缺的是“此刻的布局”而不是“声明”。
+**如何核实**：读 `shared/views.ts:60-90` 的注释与 `web/contracts.ts` 的 `WorkbenchRoot`；在真实窗口把资源管理器拖到右栏再看声明。
+**建议改法**：二选一并写进稿子：(a) 工作台新增一个只读的“视图当前位置与显示状态”公开服务（上游表加一行），目录用它；(b) 目录里视图一项不写位置，只写“用命令 `nbook.view.open` 打开”，位置交给快照（打开后视图一定在 DOM 里，用 `data-*` 标记按视图 id 定位）。不要把声明里的默认位置当成现状交给模型。
+
+### 5. 菜单与标题动作没有聚合读取入口，路径中间步骤（⋯、菜单栏分组、右键）没有可定位的标识
+**严重程度**：重要
+**类别**：遗漏（维度 2、4、5）
+**位置**：“界面目录”条目种类与第 3 条；“要先补的上游”最后一行；“定位”
+**现象**：目录要列“命令出现在哪些视图标题栏与菜单”。路径的每一步都要是能定位的标识。
+**为什么是问题**：(1) 菜单位置至少 11 个（`grep menuLocation(`：editor 的 title、tab-context、toolbar、selection、slash、block、body-context、code-context 八个，explorer 的 context，workbench 的 titlebar-menu 与 view-title），每个位置的 `MenuItemRegistry` 都是拥有者插件自己 `new` 出来的私有对象（`workbench/web/plugin.ts:180-181`、`editor/web/plugin.ts`、`explorer/web/plugin.ts`）。别的插件能做的只有 `context.declarations.list(point)`（nb-runtime 提供，任何入口可用）读到已接受的声明，读不到“此刻显示什么”：`when`、`extensions`、`context: resource/selection/instance` 都要位置自己的事实（当前文件、选区、视图实例）才能求值，窗口外的目录求不出来。(2) 路径步骤只写 `{command, title, via}`：命令藏在“⋯”溢出菜单、菜单栏分组、右键菜单、状态栏“更多”里时，DOM 里没有这个命令（菜单关着就没渲染），第一步必须是“先点开 ⋯”，而 `TitleActions` 的“⋯”只有 `data-title-actions-more`，菜单栏的分组触发器与右键目标行都没有稳定名；标题栏还按宽度逐级让位（`WorkbenchTitleBar.vue:119` 的 `showMenubar = level < 2`），同一个“文件 › 保存”在窄窗口是汉堡按钮。(3) 同一个命令在多处同时存在（拆组后每个编辑器组都有同样的标题动作；视图标题动作在每个视图实例各一份），按命令定位得 `ambiguous`，而路径条目里没有 `within`。
+**如何核实**：`grep -rn "menuLocation(" packages/neuro-book/src`；读 `titlebar-source.ts` 的 `viewActions`；拆两个编辑器组后看 `[data-title-action]` 的数量。
+**建议改法**：(a) 目录只承诺“命令表 + 标题动作 + 标题栏菜单 + 活动栏与状态栏条目”四种有稳定入口的出现位置，右键、选区、斜杠菜单等依赖上下文的写“需要先选中某对象”，不写成可逐步高亮的路径；(b) 路径步骤加 `within`（视图 id 或区域）与 `open`（先要打开的触发器：`⋯`、菜单栏分组）两个字段，给 `⋯`、菜单栏分组与汉堡按钮补稳定名；(c) 把“用 `context.declarations.list` 拼”与“各位置自己提供求值函数”两种取数方式的取舍写进上游表，实施计划才有依据。
+
+### 6. 搜索只按当前界面语言匹配，且另写一套“分词子串”，没有复用命令面板已有的跨语言子序列评分
+**严重程度**：重要
+**类别**：与现有做法冲突（维度 1、6）
+**位置**：“界面目录”第 2 条，“技术选型”最后第二行，“开工前的实验”第 8 条
+**现象**：稿子写“标题与说明用当前界面语言，和用户看到的一致”，搜索“先做标题与说明的分词子串匹配加简单打分”。
+**为什么是问题**：(1) 模型发给 `ui.find` 的关键词语言与界面语言不一定一致（界面是中文，模型常用英文词 `theme`；反之亦然），只按当前语言匹配，同一个查询换界面语言就查不到。命令面板已经处理了这件事：`workbench/web/commands/command-query.ts` 的 `searchCommands` 同时拿 `command.id` 与 `otherTexts(command.title, text)`（`TextResolver.variants`，各语言的写法）参与匹配，注释写明“语言切换时输入保留”。(2) 命令的 `description` 是“稳定的英文语义说明，不随界面语言变化”（`commands/shared/contracts.ts:80`），设置的 `description` 却是随语言的 `TextSchema`，“按标题与说明搜”在两类条目上语义不一致：中文界面里搜中文词能命中设置说明、命不中命令说明。(3) 中文没有空格，“分词子串”缺分词器时等于整句子串；模型常会发“在哪改主题”这种短句，整句匹配不到“主题”。(4) 面板已有 `matchCommandText`（精确、前缀、连续包含、子序列，分数从小到大）和 MRU，另写一套打分，两处排序会不一致。
+**如何核实**：中文界面下对 `ui.find({query: "theme"})`，看设置项（标题只有中文）是否命中；读 `command-query.ts:134-155`。
+**建议改法**：目录搜索复用 `matchCommandText` 与 `otherTexts`，对标题、各语言的写法、id、说明（命令的英文说明与设置的说明都算）各取最低分；查询先用 `Intl.Segmenter` 切词，各词都命中才算命中；稿子里“当前界面语言”只约束返回给模型的显示文字，不约束匹配范围。实验 8 的查询里加一条与界面语言相反的（中文界面搜 `auto save`）。
+
+### 7. `until: "click"` 没定义“点了目标”看哪个事件、认不认合成点击：reka 的选项在 pointerup 选中、菜单键盘选择用页面自己的 `.click()`
+**严重程度**：重要
+**类别**：与 reka、nb-ui 现有做法冲突（维度 2、5）
+**位置**：“引导”的 `until`、“结局”，“测试”第 2 条（“只认真实点击”）
+**现象**：稿子只写“等用户真的点了目标”，没有写监听什么事件、在哪个阶段、怎样排除 Agent 自己第二批的合成点击。决定 10 已搁置“只认真实输入”，但引导里的“只认真实点击”还留着，两者的界线没写。
+**为什么是问题**：读 reka 2.10.3 源码：(1) `SelectItem` 用 `onPointerup` 选中并关闭（`Select/SelectItem.js:119`），选项随即卸载，之后的 `click` 派发到哪里取决于浏览器，监听 `click` 可能永远等不到；(2) `MenuItem` 的键盘选择与“按下点在别处、在这里松开”的情形都调用 `event.currentTarget.click()`（`Menu/MenuItem.js:60,66`）——这是 `isTrusted: false` 的页面自己的点击，却代表真实的用户意图；若按 `isTrusted` 过滤，键盘用户选菜单项会得到 `missed` 或一直等；(3) `TabsTrigger` 在 `mousedown` 激活（`Tabs/TabsTrigger.js:57`）；(4) `DropdownMenuTrigger` 用键盘 Enter、ArrowDown 打开，根本没有 `click`。这就是简报里问的“只认真实点击与页面自己调用 `.click()` 的取舍”：稿子没取舍，实现者只能猜。
+**如何核实**：在样机里对 Select 选项、菜单项各用鼠标与键盘操作一遍，记录收到的 `pointerup`、`click` 及 `isTrusted`。
+**建议改法**：定义“用户操作了目标”= 捕获阶段 `pointerdown` 起点在目标内、且（`click` 到达目标 或 紧随的 `pointerup`/键盘 Enter、Space 作用在目标上）；过滤合成事件的依据改为“事件处理期间引擎自己没有在派发动作”（引擎自己发的事件在一个同步标记里），不用 `isTrusted`，这样页面自己的 `.click()` 算用户意图、Agent 的点击不算。把选项、菜单项、标签三种写进测试。
+
+### 8. `missed` 过敏：第一次点到别处就结束等待，说明框自己、滚动条、预备性点击都没排除
+**严重程度**：重要
+**类别**：遗漏（维度 4、5）
+**位置**：“引导”的“结局”（`missed`）与示例代码
+**现象**：“`missed`（带 `clicked`：用户点到的元素的角色与名字，第一次点错就结束这次等待）”。稿子没有列哪些点击不算“点错”。
+**为什么是问题**：引导里常见的合法操作都会触发它：(1) 点说明框自己的“下一步”“跳过”“提问”（引擎节点虽然带标记，但“点击别处”的监听写在 window 上时要显式排除）；(2) 按滚动条或拖滚动条（Chromium 里滚动条上的按下会作为目标元素的 `pointerdown`/`mousedown` 派发）；(3) 预备性点击：目标是“确认”按钮，但用户先要点文件名输入框、选下拉，这是正常步骤，却得 `missed`；(4) 点模态遮罩、空白处、选中文字、右键；(5) 点目标后代内部的元素应算命中，要用 `composedPath()` 判断（目标在 shadow root 里时 `target` 是宿主）。另外 `clicked` 里要写“角色与名字”，这必须在捕获阶段同步算出：点击会让菜单关掉、列表重排，等事件结束再算，元素已经没了。示例代码里 `missed` 的分支是注释，没有写“再高亮一次”会不会形成死循环（用户一直在预备性点击，每次都得 `missed` 并重发）。
+**如何核实**：Playwright 样机：在 Dialog 里高亮“确认”，依次点输入框、滚动条、说明框按钮、遮罩，看得到的结局。
+**建议改法**：`missed` 只在“可交互元素（按钮、链接、菜单项、行、带 tabindex 的元素）上完整的按下加抬起”且不在目标内、不在引擎节点内、不在滚动条区域（`offsetX` 超出 `clientWidth`）时才算；其余点击忽略，继续等。`missed` 的语义写成“用户按了别的可交互元素”，并让 `highlight` 可选 `onMiss: "ignore" | "report"`，缺省 `ignore`，需要纠错提示时模型自己选。`clicked` 在捕获阶段同步算好。
+
+### 9. 高亮结局之后高亮的去留、run 结束后的孤儿高亮与“提问”的回答去处都没定
+**严重程度**：重要
+**类别**：遗漏（维度 3、4）
+**位置**：“引导”的“结局”“等待的机制”，“目标窗口”的租约与情形表
+**现象**：稿子只说“同一窗口同时一个高亮，新的替换旧的”和“eval 停止或单元超时时服务端撤掉高亮”。没有写：(1) `clicked`、`next`、`missed`、`asked`、`timeout` 之后框是消失还是留着；(2) 一次 run 正常结束、eval 返回之后高亮还在不在；(3) `asked` 之后用户在哪里看到答案。
+**为什么是问题**：(1)(2)：租约“运行结束才放开”，高亮是窗口状态；`until: "none"` 的高亮、`asked` 后 `return r.question` 的 eval，都是 run 结束时高亮还在。没有人再等它，说明框的“下一步”“跳过”按下去也没有收件人，框一直挂到用户按 Esc（且 Esc 在有模态时归模态，见发现 12）。别的会话来调 `ui` 得到的是已放开的租约，却面对一个不是自己的高亮。(3)：`asked` 的流程是“交回问题，模型回答后从这一步接着引导”，回答出现在 Agent 对话视图里，而引导发生在别的区域，对话视图可能没打开（`data-nb-agent="skip"` 的视图不在快照里，模型也看不到它开没开）；说明框里的“提问”框也没有“已发送，等待回答”的状态，用户点了没反应。
+**如何核实**：读“目标窗口”的租约一段与“等待的机制”；脚本化模型跑“`until: "none"` 后直接结束”，看窗口里的框。
+**建议改法**：写一张表：每种结局之后框的状态（`clicked`、`next` 保留到下一次 `highlight` 或 `clearHighlight`；`dismissed`、`gone`、`timeout` 清除）；run 结束或租约放开时撤掉高亮（与 eval 停止一致），说明框在无人等待时不显示“下一步”类按钮；`asked` 后说明框切到“已发送”状态，并在回答产生时由模型下一次 `highlight` 的 `message` 承接，对话视图未显示时 `asked` 的结果带 `warnings`。
+
+### 10. 设置路径“section → setting”没考虑层标签、宿主过滤与 page 分区，示例里的 id 也不是真实的 id 形状
+**严重程度**：重要
+**类别**：遗漏（维度 2、5）
+**位置**：“界面目录”示例与第 3 条；“定位”里的 `section`、`setting`
+**现象**：示例路径是 `nbook.settings.open → {section: "appearance"} → {setting: "nbook.theme.current"}`，稿子说“路径的每一步都是能定位的标识”。
+**为什么是问题**：读 `settings/web/settings-window.ts:430-450`：(1) 设置窗口顶部有“用户 / 本作品”两个层标签，list 分区只显示声明了当前层的配置项（`layers.includes(tab)`），其余折成一行“已排除”文字。配置项只声明用户层时，窗口停在本作品层就定位不到，路径里没有“切到某层”这一步（`nbook.settings.open` 本身支持 `layer` 参数，路径的第一步应带上它，稿子没写）。(2) 分区带 `host: "desktop"` 时在网页里整节不列，目录若按声明拼就会列出看不到的分区（`shared/sections.ts` 的 `host`）。(3) 分区有两种：list 分区的内容来自配置项声明，目录能拼；page 分区（主题、键位、Agent 的角色等）内容是插件自己的页面，没有声明，目录只能给到分区这一级，第三步的 `setting` 无从谈起，稿子在“覆盖不到”里只说了“插件页面内部”，没有说设置项里有一类就在这里。(4) `settings.open` 的 `focus` 对 page 分区由页面自己解释，对 list 分区稿子没有查是否有效，目录不能默认用它。(5) 示例的 id 形状不对：分区贡献点的 `idPrefix` 是 `plugin`，真实 id 形如 `nbook.appearance`（`workbench/shared/contracts.ts:162`），不会有裸的 `appearance`；设置键也不是 `nbook.theme.current`，写进示例会让实现者按它写测试。实验 8 的“主题”查询会撞上这点。
+**如何核实**：读 `settings-window.ts` 的 `view`；`SettingsListSection.vue` 的 `data-settings-excluded`；Lab 里把窗口切到本作品层看只有用户层的项。
+**建议改法**：目录里设置条目的路径写成 `[打开设置（带 layer 与 section）, setting]`，其中 section 由 `settings.open` 的参数直接到达，不再单独当成一步需要用户点；条目标注 `layers`；宿主过滤按 `host` 在窗口里求；page 分区只给到 `section` 一级并写“进入后看快照”；示例换成真实 id。
+
+### 11. “自动层”的写入面比稿子写的大：nb-ui 的菜单项没有可透传的数据，已有同义标记被另起一套，状态栏量宽副本会让命令名重复
+**严重程度**：重要
+**类别**：与 nb-ui、工作台现有做法冲突（维度 2、6、7）
+**位置**：“控件的名字”表第一行，“要先补的上游”“nb-ui、工作台与设置”行
+**现象**：稿子只列了“菜单项把命令 id 透传到 DOM；`TitleActions` 写命令 id；设置行写设置键、设置窗口的节写节 id”。
+**为什么是问题**：(1) `TitleActions.vue` 已经写 `data-title-action="<命令 id>"` 与 `data-title-action-key`，设置行已经写 `data-settings-row="<设置键>"`（`SettingsRow.vue:141`），设置窗口左栏已经写 `data-settings-nav="<分区 id>"`。这些就是“自动层”的同义物。稿子再另起 `data-nb-command`、`data-nb-setting`、`data-nb-section` 并说“现有 e2e 标记用途不同，不迁移”，对这三类不成立：用途完全相同。结果同一个元素上两个属性，改名时要改两处。(2) nb-ui 的 `MenuNodes.vue` 里菜单项是泛型数据（`DropdownMenuItemData`、`MenubarItemData`、右键菜单项），渲染时只写 `role`、`aria-*`、`title`、class；`id` 只用来发 `select` 事件，且 `TitleActions` 里 `id` 是 `entry.key`（如 `own:0`），不是命令 id。`QuickPickItem` 同样没有数据字段。所以“透传命令 id”需要给这些类型加一个通用的 `attrs`（或 `dataset`）字段，nb-ui 不应该知道 `data-nb-command` 这个名字；稿子没写，也没把命令面板的项算进来（面板里的项在 `li` 的 `id` 里带了 `optionId(item.id)`，没有专门属性）。(3) `WorkbenchItemStrip.vue:163` 有一份 `aria-hidden inert` 的量宽副本，里面是同样的按钮（`data-measure-item`）；命令名写在按钮上时，这份副本会让按命令定位得到两个命中。稿子的“看得见”只对快照说了“`aria-hidden`、`inert` 的不列”，没有说定位器也必须走同一个过滤。
+**如何核实**：`grep -rn "data-title-action\|data-settings-row\|data-settings-nav" packages/neuro-book/src`；读 `MenuNodes.vue` 的 `common()`；在状态栏里查两份按钮。
+**建议改法**：自动层直接复用现有属性：引擎里写一张“属性 → 定位字段”的映射（`data-title-action`→command，`data-settings-row`→setting，`data-settings-nav`→section），不新增同义属性；只为没有任何标记的渲染方（菜单项、命令面板项、活动栏与状态栏条目）加一个 nb-ui 的通用 `attrs` 字段；定位器与快照共用同一个“可列出”过滤；上游表里把“nb-ui 通用透传”“命令面板项”“状态栏量宽副本”写成三行。
+
+### 12. Esc 结束引导：没写监听阶段与“有没有模态”怎么判，非模态场景（编辑器、行内重命名、菜单）会误结束
+**严重程度**：建议
+**类别**：遗漏（维度 4、5）
+**位置**：“引导”的“Esc”一条
+**现象**：“没有模态时结束为 `dismissed`；有模态时 Esc 照常归模态，目标随之消失则以 `gone` 结束。”
+**为什么是问题**：(1) reka 的 `DismissableLayer` 用 vueuse 的 `onKeyStroke("Escape")` 听 window 冒泡阶段的 keydown，并只检查 `defaultPrevented`（`DismissableLayer.js:72-77`），不打 `stopPropagation`。引擎想“让模态先处理”，监听必须挂在 window 的冒泡阶段并在它之后跑；挂捕获阶段会抢在模态之前。稿子没写。(2) “有没有模态”要靠快照用的层检查，但菜单、列表框、命令面板、Popover 都是 reka 层，不是 `role=dialog`，层根只按“dialog、alertdialog、menu、listbox 等角色认”，QuickPick 的 `combobox` 面板与 reka Select 的 listbox 要逐个对。(3) 非 reka 的 Esc 也会同时结束引导：编辑器里按 Esc 关联想与查找框（Monaco）、资源管理器行内重命名按 Esc 取消、Tiptap 里取消选区。用户只是想取消重命名，整段引导被结束，且说明框消失。
+**如何核实**：样机：高亮一个目标，在 Monaco 里触发联想后按 Esc，看引导是否结束。
+**建议改法**：只在 Esc 的事件目标在说明框内、或焦点在 body 且当前没有任何层时结束；其余 Esc 不处理，用户用“跳过引导”按钮退出（它本来就有键盘路径）。监听挂 window 冒泡、读 `defaultPrevented`。
+
+### 13. 高亮前“先聚焦让它出现”与“不抢焦点”相互矛盾，且在模态里聚焦不了模态之外的目标
+**严重程度**：建议
+**类别**：别扭之处（维度 1、3）
+**位置**：“快照”的“看得见”一条，“引导”的“说明框”
+**现象**：看得见一条写“不透明度很低的（悬停才出现的动作）标 `faint`，仍可定位，高亮与动作前先聚焦让它出现”；说明框一条写“框出现时不抢焦点”。
+**为什么是问题**：悬停动作靠 `hover-actions.css` 的 `[data-hover-actions-scope]:not(:hover):not(:focus-within)` 变透明，聚焦其中一个按钮确实能让它出现；但“先聚焦”会把用户正在输入的编辑器、对话框输入框的焦点和选区拿走，正是决定 15、16 里“不抢焦点”要防的事；高亮只是“指一下”，动作前聚焦才合理。模态打开时目标在模态外也不会被高亮（被层挡住），但同一个视图里的 faint 目标，引导的下一步可能就是“把鼠标移到这里出现的按钮”。
+**如何核实**：读 `workbench/web/components/hover-actions.css`；在编辑器输入时让引擎对标题动作 `focus()`，看光标。
+**建议改法**：高亮只描边，不聚焦；说明框文案里对 faint 目标自动补“移到这里会出现”这类提示，或在该目标的范围上由引擎写一个不改页面样式的 `data-hover-actions-active` 之类的现有开关（该文件注释里宿主已有这个钩子），不走焦点；只有动作（第二批）才先聚焦。
+
+### 14. 拖拽指引的 `to` 只能指向元素，而工作台的落点是几何分区，不是 DOM 元素；跨滚动容器、视口外的画法也没写
+**严重程度**：重要
+**类别**：依赖的机制与设计相反（维度 2、5）
+**位置**：“引导”的“拖拽指引（第二批）”，决定 16
+**现象**：“`highlight` 加 `to`（另一个定位），在起点与终点之间画箭头”。
+**为什么是问题**：(1) 工作台里最有教学价值的拖拽（把视图拖到另一个区域、拖标签拆组、拖到编辑区边缘）的落点是 `nb-layout` 按面板矩形算出来的分区：`workbench/web/drag-geometry.ts` 注释写明“类型与纯计算，不读 DOM”，落点预览由 `DropFeedbackOverlay` 在拖动开始后才画（`WorkbenchDragFeedback.vue`）。起点（标签、标题条）是元素，终点“编辑组的右边缘”不是元素，`to` 只收定位的话，只能指到整个编辑组，箭头指到组中心，用户会放到组中间而不是边缘，结果不是拆组。(2) 起点与终点在不同滚动容器（资源管理器的树到编辑区）时，稿子只写“起点与终点之间画箭头”，没写两端各自被裁、一端在视口外、一端是虚拟列表里未渲染的行时怎么画；用户拖动期间资源管理器会自动滚动。(3) 拖动过程中说明框的位置（箭头起点所在的元素会被拖影遮住）与 `data-workbench-dragging` 下整页光标改变，稿子没说引擎要不要在拖动期间隐藏说明框，免得压住落点（`data-drag-feedback` 的命中检测会跳过拖影，不会跳过引擎节点）。
+**如何核实**：读 `drag-geometry.ts` 开头与 `WorkbenchDragFeedback.md` 的“布局”；实验 3 的样机里加“拖标签到右边缘”。
+**建议改法**：`to` 允许 `{…定位, side?: "left"|"right"|"top"|"bottom"|"center"}` 或 `{point: {x, y}}`，`side` 由引擎按目标矩形的相应一侧里面一点取；两端不在视野时箭头截到可见边并带“继续往下滚”的标记；拖动开始（`data-workbench-dragging` 出现）后说明框淡出为只留箭头；批二实现前先在样机里验证这三种落点。
+
+### 15. 高亮框跟随只靠 ResizeObserver 加滚动监听，覆盖不了 nb-ui 的入场动效与布局漂移；“层由命中检查反推”没给采样点（第一轮 S4 未到可照字面实现）
+**严重程度**：建议
+**类别**：遗漏（维度 4、5）
+**位置**：“引导”的“说明框”，“快照”的“层”
+**现象**：描边框“跟随目标矩形（`ResizeObserver` 加捕获阶段的滚动监听）”；层“由命中检查反推，层根按 dialog、alertdialog、menu、listbox 等角色认”。
+**为什么是问题**：(1) 目标自己不改尺寸、祖先也没滚动，但位置变了的情形很多：菜单与命令面板用 `nb-ui-popover-motion` 缩放入场，Drawer 滑入，窗口被拖动或缩放（`FloatingWindow` 拖动靠 transform/left），兄弟节点增删让目标下移。`ResizeObserver` 只看尺寸，滚动监听只看滚动，这些都不触发，框会停在动画第一帧的位置，说明框也跟着错位。稿子前面刚规定动作等待“只用定时器与 `MutationObserver`，不依赖动画帧”，跟随却没写用什么。`@floating-ui/dom` 的 `autoUpdate` 已经覆盖祖先滚动、祖先尺寸、元素尺寸、`IntersectionObserver` 版的布局漂移，并有 `animationFrame: true` 选项；稿子只拿它定位说明框，描边框另写。(2) 层的反推：`elementsFromPoint` 在哪些点采样没写（视口九点？目标矩形四角？），层根“按角色认”对 `QuickPick`（`DialogContent` + `combobox`）、reka Select（`listbox` 在 popper 里）、Popover（`dialog`）和非模态的 `FloatingWindow` 分别怎么判“挡住下层”（`base(blocked)` 的判据）没给，实验 7 只写“对照期望”。
+**如何核实**：样机：高亮 Dropdown 里的菜单项，菜单入场动画期间截图；读 `@floating-ui/dom` 的 `autoUpdate`。
+**建议改法**：描边框与说明框共用 `autoUpdate`，高亮期间开 `animationFrame`（目标可见时才开，隐藏标签页时 rAF 本来就停）；加“位置稳定后再显示框”（`getAnimations({subtree: true})` 全部完成或 N 毫秒内矩形不变）；层的判据写成表：采样点（视口中心与四个三分点）、`aria-modal`/`data-state=open`/`pointer-events` 三条线索各自对应哪种控件。
+
+### 16. `nbTarget` 放在核心包里会让每个插件依赖引擎包；手写层的属性在带装饰的 nb-ui 控件上仍落在外层
+**严重程度**：建议
+**类别**：接口形状（维度 3、6）
+**位置**：“结构”的 `src/attrs.ts`，“控件的名字”手写层
+**现象**：`nbTarget(name, key?)` 在核心包 `packages/nb-page-agent`，业务代码写 `v-bind="nbTarget('explorer.row', file.address)"`。核心包同时放着引擎（含 `dom-accessibility-api`、`@floating-ui/dom`），而“引擎第一次被调用时才动态加载”。
+**为什么是问题**：(1) 每个内置插件的 `web/` 为了写属性都要 `import` 核心包。包入口如果同时导出引擎，打包器不一定能摇掉（模块里有副作用时），首屏就会带上引擎；插件 SDK 的外部作者也要装它。`nbTarget` 只是返回两个键值对的纯函数，却被绑在重依赖包里。(2) 用属性代替指令之后，S1 的第二半没解：`Input.vue`（`inheritAttrs: false`）带前后缀、清除按钮时，除 `aria-*` 与 `role` 外的属性都落在外层 div（`Input.vue:104-112` 的注释写明“`data-*` 落在外层”），`data-nb-target` 因此挂在包装层上，快照里的 `textbox` 行没有稳定名，只能靠动作那一节的“落到唯一可交互后代”绕回来；`Select`、`DateInput`、`TagInput` 同样 `inheritAttrs: false`。(3) 稿子允许“被引用的手写稳定名列进 Spec 的名字表，治理测试防悄悄改名”，但没说治理测试怎样找到这些名字（`nbTarget('explorer.row', …)` 的第一个参数是常量还是任意表达式）。
+**如何核实**：`grep -rn "inheritAttrs" packages/nb-ui/src/components`；读 `Input.vue` 的头部注释与模板。
+**建议改法**：把 `nbTarget` 与属性名常量放进一个零依赖的子路径（例如 `nb-page-agent/attrs`），包的 `exports` 只开这一条给业务代码用；快照对“带稳定名的包装层”要把名字下沉给它唯一的可交互后代（规则写进稿子，并测 `Input`、`Select`、`DateInput`）；名字表的治理检查要求第一个参数是字符串字面量。
+
+### 17. 校正与说明（前面几条里的两处未核实的细节）
+**严重程度**：建议
+**类别**：报告自身的限定
+**位置**：本报告第 13、15 条
+**现象**：第 15 条写“`FloatingWindow` 拖动靠 transform 或 left”，我没有读到它的拖动实现，不作为依据；稳妥的依据是 `DialogSurface.vue:228-235` 里 Dialog 入场用 `translate` 加 `scale` 的过渡（从触发点缩放进来），这一条足以支撑“位置在动画期间变化而 `ResizeObserver` 与滚动都不触发”。第 13 条建议里“写一个现有开关”会改页面元素的属性，与稿子“不改页面元素的 class 与样式”有张力：若采用，需要在稿子里写明引擎对页面只读，宁可让 faint 目标只描边、说明框里提示“移到这里会出现”。
+**为什么是问题**：避免实现者按未核实的细节行事。
+**如何核实**：读 `FloatingWindow.vue` 的拖动与 `DialogSurface.vue:220-240`。
+**建议改法**：以本条为准修正第 13、15 条的相应表述。
+
+### 18. 停止按钮“模态打开时也点得到、有键盘路径”：点得到可以，键盘路径在模态里被 FocusScope 挡住
+**严重程度**：建议
+**类别**：依赖的机制与设计相反（维度 2、7）
+**位置**：“窗口里看得到什么”的“提示条与停止按钮”，“测试”的“模态打开时点停止”
+**现象**：稿子写“模态打开时也点得到（显式 `pointer-events: auto`），有键盘路径，不遮标题栏控件”，测试只写“点停止”。
+**为什么是问题**：与第 1 条同源：`pointer-events: auto` 让指针能到，但 Tab 无法把焦点移到模态外的按钮（`FocusScope` 的 `trapped` 与 `focusin` 回拉），所以“键盘路径”在设置窗口、命令面板打开时不成立；用键盘操作的用户只能用对话视图的发送区域外的快捷键。点击停止时若打开的是菜单或命令面板，它们会因“外面按下”先关闭（见第 1 条），停止仍然执行，这可以接受，但应写进预期。
+**如何核实**：设置窗口打开时按 Tab 循环，看焦点是否能到停止按钮。
+**建议改法**：键盘路径改成一个全局快捷键命令（例如 `nbook.agent.stop` 绑定默认键位，由 keymap 分发，在模态里也生效，因为 keymap 挂在 document 上）；稿子把“键盘路径”换成“命令加快捷键”，测试加“设置窗口打开时按键盘快捷键停止”。
+
+----
+未发现问题的方面（仔细检查后没有发现，或第三稿的改法足以照字面实现）：
+- 第一轮 S5、S6（引用带前缀、存身份、动作不重找、只读才重找并标 rebound）：写法完整，可按字面实现。
+- 第一轮 S12（列表摘要、行带位置、视口外多渲染行折叠、预算按估算 token 与截断优先级）：可实现；“没渲染的行得 not-found”在引导里的承接见第 2 条。
+- 第一轮 S13（静下来 = 100 毫秒无 DOM 变化且无有限动画，至多 1.5 秒）、S14（主名跳过状态标记）、S15（唯一性只要求在最近的带 key 容器里，`within` 缺省取“当前活动的那一个”）、S20（对话视图 `data-nb-agent="skip"`）：改法与现有代码不冲突。
+- 第一轮 S3 的 `faint` 部分（沿祖先链取有效不透明度）成立，只有“先聚焦”一句有问题（第 13 条）。
+- 第一轮 S4（层）：思路可行，采样点与判据未写（第 15 条）。
+- 第一轮 S22（层级登记例外）：本轮没有核对 `z-index.ts` 的例外机制，未发现问题不等于已确认。
+- 拖拽指引之外的批二动作、截图、选窗口：不在本审查范围。
+
+各级数量：阻断 1（第 1 条）；重要 9（第 2、3、4、5、6、7、8、9、10、11、14 条中扣去列为建议的，见下）；建议 若干。精确分级：
+- 阻断：1
+- 重要：2、3、4、5、6、7、8、9、10、11、14（共 11 条）
+- 建议：12、13、15、16、17、18（共 6 条；17 是对前文的校正，不算独立发现）
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、18
+更正：上面“重要 9”那一句写得含糊，以“精确分级”三行为准：阻断 1、重要 11、建议 5（12、13、15、16、18）；第 17 条是校正说明。
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、18

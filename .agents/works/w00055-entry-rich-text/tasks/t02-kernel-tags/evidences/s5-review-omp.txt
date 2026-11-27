@@ -1,0 +1,102 @@
+w00055 t02 S5 只读实现审查：938996b32..94307cd50。开始时 HEAD 为 94307cd50762038782dc465f7ce89f284a1a9cc6，被审源码与该提交一致。
+
+### 1. 文字规范化让同批有效的作者授权失效
+严重程度：重要；类别：不变量。
+位置：packages/nb-canon/src/world/world.ts:465-489、524；packages/nb-canon/src/world/authorization.ts:57-65。
+现象：`#publish` 先按原请求算修订摘要，但接着覆盖 `input`；`#decisionWrites(input, …)` 因而拿规范化后的请求重算 `binds.request`。同一批授权决策、另改一块文字时，作者按原样签了 `<Ref id="e1"/>`，仅因其被改写成 `<Ref id="e1" />` 就收 `author-source-invalid / binds-mismatch`；授权签的内容与落盘的请求摘要本应是同一份（revisions 输出 21）。base 的 `#decisionWrites` 收的确实是原样请求。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/world-contracts.ts` 的 `signed raw / canonical control`。使用既有 HMAC fixture 为 `new→decided` 签发，走 `World.publish`：原样签的非规范文字失败；提前把同一文字转成规范写法再签，成功。
+改法：保留不可重新赋值的原始请求给去重、授权核对和授权记录；规范化只生成候选用的请求。用一个同时改文字块与签决策的真签名测试，断言通过且落盘的 `requestDigest` 等于 `source.binds.request`。
+
+### 2. 已撤回的补丁能给新标签开白名单；坏补丁重新生效也不再检查
+严重程度：重要；类别：正确性。
+位置：packages/nb-canon/src/world/world.ts:1391-1402、1543-1549、1589-1598。
+现象：基线收的是每条已写/计划变更的补丁原文，没判断是否出现于条目当前主文字。新增一条从未生效、状态为 `undone` 的变更（该状态跳过检查），正文仍为“原来”；随后把该变更里的 `<Plot id="x" />` 写进初值，会成功，没加该变更时同一写入报 `unknown-tag`。同一个“还没套用就算已有”的假设也落在校验跳过条件：先存一条 `undone` 的 `<div>旧</div>` 文本补丁，再只把状态改成 `active`，发布成功，章末渲染报 `unsupported-markdown`。base 对新生效变更里的文本补丁无条件查。套不上的补丁、别的线和未实际生效的计划也被纳入基线。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/world-contracts.ts` 的 `unknown token never active baseline`、`activate unchanged bad patch`；均经 `World.publish`，后者经 `renderEntryForAuthor` 读回。
+改法：基线只从写前同一条目、同一写入视图的有效块取；给无显式读取位置的 `publish` 明确基线的视图规则。只有仍适用且留在原安放/模式的旧补丁才能跳过语法检查；由未套用转生效的要检查。补 `undone`、待定转生效、别线、同线被覆盖的对照用例。
+
+### 3. 补偿修订重写旧源文，规范化跑一次与跑两次的结果也不同
+严重程度：重要；类别：不变量。
+位置：packages/nb-canon/src/world/world.ts:354、475、587-592、1408-1437；packages/nb-canon/src/world/entry-edits.ts:99-106、526-529、993-1006；packages/nb-canon/src/grammar/tags.ts:158-161。
+现象：`#publish` 对 `compensation` 也规范化；还原不是重写正文的请求，revisions 输出 11 要求精确恢复改前值，base 直接恢复。另一个可观察的后果是 `normalizeEntrySource` 只去一个 `U+FEFF`：同一带两个开头 BOM 的源文，直接发布剩一个，批改和就地改在规划与发布各去一次，实际读回“正文”却与规划值不同，整批报 `result-mismatch`。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/world-contracts.ts` 的 `double BOM…`、`revert saved raw and restored`。直接发布后的首码元为 65279；随后写“更改后”再 `World.revert`，返回成功却丢掉旧块开头的 BOM。
+改法：补偿修订跳过新源文规范化，不迁历史；定义并一次去掉所有起始 BOM（或显式拒收多重 BOM），使各写入入口使用同一个幂等结果。测试用已存 CRLF 或非规范标签再验证精确还原，而不是只测规范的新数据。
+
+### 4. 过深的式子越过失败兜底，整次写入或渲染抛异常
+严重程度：重要；类别：正确性。
+位置：packages/nb-canon/src/render/syntax.ts:140-155、185-189；packages/nb-canon/src/grammar/expression.ts:67-90；packages/nb-canon/src/render/entry.ts:94-103。
+现象：`readable` 只包 `parseEntryText`，不包之后的白名单检查、标签含义分析和求值。单个 `V` 的 `expr` 用 24,000 个 `1+` 接 `entry.name`，全文 48,023 个 UTF-16 码元（低于预览上限；只用一个标签且无其他语法），在 `withoutParens` 抛 `RangeError`。`World.publish` 不给 `validation-failed`，预览与读取已存坏块的三种渲染也不能按块报错。基线读旧块同样调用 `analyzeBlock`；字面标签也进 `meaningOf`。另一个直接绕开的入口是 `splitBlocks`：25,000 层引用抛异常，base 的切块解析有失败时整块交回的兜底。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/deep-expressions.ts` 的 24,000 组（写入、预览、重放旧块后三种公开渲染）；`bun /tmp/review-w00055-t02-s5/lab-omp/render-contracts.ts` 的 `split deeply nested`。既有 25,000 层引用的写入和预览用例只覆盖 marked 内部的栈溢出。
+改法：表达式解析、检查与求值用显式栈，或在递归前施加同一个可诊断的结构深度限制；太深的式子报属性内诊断，余块照常。`splitBlocks` 用同一安全的 Markdown 分析入口。不要把任意来源的 `RangeError` 都归成“嵌套太深”。
+
+### 5. 星瑕样本第一次发布把两个临时条目 id 永久写进了修订
+严重程度：重要；类别：正确性。
+位置：packages/nb-canon/src/sample/convert.ts:103-107、117、186-191；packages/nb-canon/src/world/references.ts:268-298；packages/nb-canon/tests/legacy-render.test.ts:114-120。
+现象：样本适配器把同批新建的 `brother`、`mg` 改成 `tmp:brother`、`tmp:mg`，但 `replaceRequestTempIds` 不处理块源文。首笔发布拿到了正式 id `e2`、`e3`，星瑕 `b5` 仍保存两个临时 id；Agent 读取两处均是 `unavailable="条目不存在">null`。第二笔样本写入恰好整份覆写星瑕，才把它们改对。base 的花括号路径也没有解决同批临时 id；但 S5 计划明确要求“首次写入就读到正式 id”，最终世界上按故事时间读取并不能验证这一条。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/sample-first-write.ts` 的 `formal IDs`、`stored`、`first render`、`after second`；用在库样本的前两笔 `toRequest`、`World.publish`，第一笔后立刻读。
+改法：在同批分配正式 id 后、应用请求前，用同一标签文法替换块中活的条目引用，或者重新编排样本使它不向尚未编号的对象写活引用且不破坏首笔验收；只有整批重放后才对照快照不够。补一个只发布首笔、断言保存的 id 与渲染值的测试。
+
+### 6. 已有的自闭合插件标签可以被换成新的带内容标签
+严重程度：重要；类别：正确性。
+位置：packages/nb-canon/src/render/syntax.ts:73-75、185-201；packages/nb-canon/src/grammar/check.ts:75-86；packages/nb-canon/src/grammar/text.ts:46-54；packages/nb-canon/src/render/render.ts:274-282。
+现象：基线里有 `<Plot id="x" />` 时，另一个块新写 `<Plot id="x">作者打的内容</Plot>` 竟能发布。未登记名的错误被标为 `excusable`，而 `canonicalTag` 把 `paired` 当 `self`，抹掉内容后比较成同一个标签。输出 1、19 的例外只允许已有相同标签；带内容的写法即便插件仍登记也不合法。反方向也破坏“原样”：重放旧块里的 `<Plot  id="x"/>`，Agent 返回 `<Plot id="x" />`，尽管没装插件，代码还是重写了这个标签。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/unknown-forms.ts` 的 `existing plugin self + new pair` 与 `noncanonical unknown tag in old block`。重放已存插件块，再走 `World.publish` 与 `renderEntryForAgent`。
+改法：只有自闭合、无装饰的合法形态才可进入基线或使用例外；不要让规范比较丢掉结构。Agent 遇到无装饰的未登记标签保留原片段，不调用统一的规范化序列化。
+
+### 7. 旧样本对照没有读取 Agent 实际输出的判断值
+严重程度：建议；类别：测试有效性。
+位置：packages/nb-canon/tests/legacy-render.test.ts:58-77、91-110、118-120；packages/nb-canon/tests/fixtures/legacy-render.json。
+现象：对照 Agent 时生效支由作者值表决定，过滤后只收集 `V` 里的 JSON；Agent 返回的 `If`、`ElseIf` 的 `value` 从不参与。一旦实发的判断与作者不一致，读者会采取另一支，但旧样本对照照样通过。这里有专门的渲染测试覆盖别的判断，不能把这个缺口说成所有判断都未测。
+核实：只在 `lab-omp/mutation` 副本将 `renderBlockForAgent` 对样本 `panel.魔力 >= 1000` 的 `value` 强制写成 `false`，只改实发装饰，不动作者或纯文字；`bun test tests/legacy-render.test.ts` 仍为 2 pass、0 fail、87 expect。原提交未变。
+改法：从实际 Agent 输出的 `value` 推出生效支并同基线比；闭合与分支边界不要直接按 `lexTags` 的第一个 `Else`/`</If>` 切，使用已判定为活标签的范围或独立固定期望。样本没有代码里的伪分支，这个变异只证明判断值的缺口。
+
+### 8. 在旧补丁前插入无关补丁，会改写旧文字或阻止发布
+严重程度：重要；类别：不变量。
+位置：packages/nb-canon/src/world/world.ts:1430-1437、1593-1598。
+现象：补丁是否未改只按同下标比。原样保留 `text[b1]` 的旧补丁，只给另一个块 `text[b2]` 补一条：追加在末尾保留旧源文 `第一行\r\n<Ref id="e1"/>`，插入在开头却把 b1 改写成 `第一行\n<Ref id="e1" />`。如果 b1 是过不了新白名单的历史文字，插入会使无关写入失败。S5 要求改别处时不规范化原样保留的源文；对两个独立块换顺序不该改变这点。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/patch-shift.ts` 对比同一旧世界的末尾追加与开头插入；`bun /tmp/review-w00055-t02-s5/lab-omp/unknown-forms.ts` 的 `only insert another patch before old invalid` 收到 `patches[1] / unsupported-markdown`。两者都经 `World.publish`。
+改法：按补丁所写对象、操作与原值消费一次对应的旧项，不能仅按下标匹配。需要顺序的同地址操作仍按适用性校验；未编辑且仍写同一块的补丁保留原文。
+
+### 9. 样本适配器漏重绑合法的 `ref` 表达式
+严重程度：建议；类别：正确性。
+位置：packages/nb-canon/src/grammar/text.ts:76-85；packages/nb-canon/src/grammar/expression.ts:174-181；packages/nb-canon/src/sample/convert.ts:111-123。
+现象：S5 要求按标签文法重绑 `expr`、`test` 里的引用，适配器只对属性值做 `/ref\('([^']*)'\)/` 文本替换。`ref ( 'brother' ).entry.name` 是同一个合法的字段引用，却不替换原型 id。和第 5 条不同，此时 `brother` 的正式 id 已学到，不需要同批分号；当前库内样本没有这种式子。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/sample-first-write.ts` 的 `remapped expression`、`legacy adapter expression results`，只在实验中改第二笔样本的块；经 `toRequest → World.publish → renderEntryForAgent`，保存的是 `brother`，读回是 `unavailable="条目不存在">null`。
+改法：用现有式子解析找到真正 `ref` 的参数字面量范围，只替换该范围。验收同时断言带空格的调用会重绑、字符串里的文字不会被改。
+
+### 10. 预览把只含 CR 的多行正文按一行报告错误
+严重程度：建议；类别：正确性。
+位置：packages/nb-canon/src/render/entry.ts:51-56；packages/nb-canon/src/render/syntax.ts:67-69；packages/nb-canon/src/grammar/tags.ts:164-173。
+现象：预览按未规范化的源文分析，但 `positionOf` 只数 LF。输入 `第一段\r\r魔力 <V of="entry.name"` 返回 `tag-malformed` 的 1:9；同样两处换行用 LF 就是 3:4。输出 16 要行列按给定源文算；而正常写入先把 CR 换成 LF。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/unknown-forms.ts` 的 `CR-only preview`、`LF preview`。
+改法：行列转换把 CR、CRLF 都当成一个换行；仍以原文偏移匹配值表。补同一位置的 LF、CRLF、CR 对照。
+
+### 11. Agent 的计算值可以同时标为不可用并给出非空值
+严重程度：建议；类别：正确性。
+位置：packages/nb-canon/src/render/render.ts:244-255；packages/nb-canon/src/grammar/expression.ts:218-227。
+现象：`false && ref('missing').entry.name` 按三值逻辑算出 `false`，也收集到操作数的不可用原因。Agent 得到 `<V expr="false && ref('missing').entry.name" unavailable="条目不存在">false</V>`。输出 5 的 `假 && 未知` 是假没错，但输出 6 和 S5 计划约定 `unavailable` 表示值取不到、正文为 `null`；当前同一个标签给两种状态。base 的计算注记也会同时给结果与依赖的不可用原因，不算新引入的求值回归。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/plain-public.ts` 的 b8，由 `World.publish` 后经 `renderEntryForAgent` 读回；纯文字同一处为“否”。
+改法：保留三值结果；结果已确定时不要用 `unavailable` 描述无关操作数。如仍需给依赖诊断，另明定合同，不把一个有效值写成同时不可用。补逻辑与三元式短路的渲染验收。
+
+### 12. 同批写多个含旧插件标签的条目，按条目重复扫描全部变更
+严重程度：建议；类别：安全与性能。
+位置：packages/nb-canon/src/world/world.ts:1391-1404、1527-1531、1593-1598。
+现象：按条目记忆只挡住同条目的重复检查。批里每个要保留未登记标签的条目都扫描所有变更和它们的补丁。同一世界的 128 个条目、20,000 条无文字补丁的变更，光构造基线即访问 2,560,000 条变更，最终每条目只取自己初值里的一块。
+核实：`bun /tmp/review-w00055-t02-s5/lab-omp/baseline-scale.ts`，用 `World.replay` 建同一世界，再对 128 个 b2 分别发布一批正常 `Ref` 与一批被准许保留的 `<Plot id="x" />`；同进程单次分别 223.1 毫秒与 584.7 毫秒，均发布成功。不含重放或落盘，不是参考机的记账预算测量。
+改法：修正第 2 条的基线口径后按条目、线、落点读已有折叠结果；不应给每个目标重扫所有历史。若需建索引，同一旧世界最多分组一次，正常无未登记标签的请求仍不建。
+
+## 验证记录
+
+- `packages/nb-canon`：`bun test tests/rendering.test.ts tests/legacy-render.test.ts tests/text-blocks.test.ts tests/entry-edits.test.ts tests/worldlines.test.ts`，186 pass、0 fail、695 expect（10.85 秒）；`bunx --no-install tsc --noEmit`，退出码 0（17.64 秒）。
+- `packages/neuro-book`：`bun test src/plugins/plot/core/brief`，87 pass、0 fail、517 expect（3.96 秒）。
+- 复现脚本和单独的变异副本都在 `/tmp/review-w00055-t02-s5/lab-omp/`。正式测试与复现加载 `94307cd50` 的实现；第 7 条的变异只在副本运行。
+- 未运行全量包测试、应用类型检查、e2e、开发服务或完整性能预算测量。S6 应用接入（含 `backend/remote.ts` 的 `writeBack`）与转换器旧实现不计入本轮发现。
+
+## 未发现问题的方面
+
+- 同一请求 id 原样重试返回第一次结果；改成等价的规范写法再用同一 id 返回 `request-id-reused`。常规合法写入的块 id、位置读取和分线投影未见回归（第 3、8 条的边界除外）。
+- `analyzeDraft` 不把预览源文放进分析缓存，命中同一源文时可复用；条目值与生效分支按每次读取的位置与模式算，不存进源文缓存。实际与计划、主线与子线已有用例通过。
+- 经 `plain-public.ts` 验证，此批保密场景中，未生效分支与 `ElseIf` 判断的外部读取、代码及转义字面标签、图片字段里的引用行键、算出的引用值均触发简报整块扣除，普通块仍输出。带引用前缀的多行分支只保留选中支，嵌套 `If` 按 `cross-block` 拒绝；脚本里 10 块的作者值表起点能对回源文，Agent 去值逐字还原。
+- 内核旧注记回写入口及导出已删；剩余同名 `writeBack` 只用于块 `set` 的来历路由。`agentView` 在 base 和被审提交里都只声明、登记透传，在内核和应用源码中未找到实际消费者；未把它算作本次回写残留，也未验证未来的模板解释。
+
+严重程度：阻断 0；重要 7（1、2、3、4、5、6、8）；建议 5（7、9、10、11、12）。
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12。

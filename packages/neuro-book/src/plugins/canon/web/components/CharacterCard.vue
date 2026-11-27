@@ -56,8 +56,8 @@ const emit = defineEmits<{
 defineSlots<{
     /** 每个值旁边：就地改的编辑器（浮层，锚在 `anchor`）。 */
     editor?(props: {id: string; anchor: HTMLElement | null}): unknown;
-    /** 每段文字与现在的状态的位置上：浮在原处的编辑层（这个位置是 `relative` 的）。 */
-    "passage-editor"?(props: {id: string}): unknown;
+    /** 每段文字与现在的状态的位置上：就地改的编辑器，`anchor` 是原文按钮（编辑浮层锚在它下方）。 */
+    "passage-editor"?(props: {id: string; anchor: HTMLElement | null}): unknown;
     /** 现在的状态展开时下面的细节。 */
     "condition-detail"?(props: {id: string}): unknown;
 }>();
@@ -158,11 +158,11 @@ defineExpose({clearOwn: () => (own.value = "")});
 
                 <div v-if="props.condition !== null" class="character-card__condition">
                     <span class="character-card__label">{{ props.condition.label }}</span>
-                    <div class="character-card__in-place relative min-w-0">
-                        <button type="button" class="character-card__value character-card__value--wrap nb-ui-focus-ring" :class="{'character-card__value--empty': props.condition.text === null}" :aria-expanded="props.conditionOpen" :aria-label="valueLabel(props.condition.label, props.condition.text)" :data-condition="props.condition.id" @click="emit('toggle-condition')">
+                    <div class="min-w-0">
+                        <button :ref="keep(props.condition.id)" type="button" class="character-card__value character-card__value--wrap nb-ui-focus-ring" :class="{'character-card__value--empty': props.condition.text === null}" :aria-expanded="props.conditionOpen" :aria-label="valueLabel(props.condition.label, props.condition.text)" :data-condition="props.condition.id" @click="emit('toggle-condition')">
                             <Transition name="nb-ui-switch" mode="out-in"><span :key="props.condition.text ?? ''">{{ props.condition.text ?? props.condition.hint }}</span></Transition>
                         </button>
-                        <slot name="passage-editor" :id="props.condition.id" />
+                        <slot name="passage-editor" :id="props.condition.id" :anchor="anchors[props.condition.id] ?? null" />
                     </div>
                     <!-- 语义档的来历就在它的细节里（起点与之后记下的各句）：“第 N 章改过”展开细节。 -->
                     <button v-if="props.condition.mark !== undefined && props.condition.text !== null" type="button" class="character-card__mark character-card__mark--button nb-ui-focus-ring" :aria-expanded="props.conditionOpen" :data-origins="props.condition.id" @click="emit('toggle-condition')">{{ props.condition.mark }}</button>
@@ -180,21 +180,20 @@ defineExpose({clearOwn: () => (own.value = "")});
                 <h3>{{ passage.label }}</h3>
                 <button v-if="passage.mark !== undefined && passage.text !== null" type="button" class="character-card__mark character-card__mark--button nb-ui-focus-ring" :data-origins="passage.id" @click="emit('origins', passage.id, $event.currentTarget as HTMLElement)">{{ passage.mark }}</button>
             </header>
-            <div class="character-card__in-place relative">
-                <button
-                    type="button"
-                    class="character-card__passage nb-ui-focus-ring"
-                    :class="{'character-card__passage--empty': passage.text === null}"
-                    :disabled="blocked()"
-                    :title="props.editReason || undefined"
-                    :aria-label="valueLabel(passage.label, passage.text)"
-                    :data-edit="editKey(passage.id)"
-                    @click="pick($event, passage.id)"
-                >
-                    <Transition name="nb-ui-switch" mode="out-in"><span :key="passage.text ?? ''">{{ passage.text ?? passage.hint }}</span></Transition>
-                </button>
-                <slot name="passage-editor" :id="passage.id" />
-            </div>
+            <button
+                :ref="keep(passage.id)"
+                type="button"
+                class="character-card__passage nb-ui-focus-ring"
+                :class="{'character-card__passage--empty': passage.text === null}"
+                :disabled="blocked()"
+                :title="props.editReason || undefined"
+                :aria-label="valueLabel(passage.label, passage.text)"
+                :data-edit="editKey(passage.id)"
+                @click="pick($event, passage.id)"
+            >
+                <Transition name="nb-ui-switch" mode="out-in"><span :key="passage.text ?? ''">{{ passage.text ?? passage.hint }}</span></Transition>
+            </button>
+            <slot name="passage-editor" :id="passage.id" :anchor="anchors[passage.id] ?? null" />
         </section>
     </div>
 </template>
@@ -458,9 +457,5 @@ defineExpose({clearOwn: () => (own.value = "")});
     .character-card-row-move {
         transition: none;
     }
-}
-/* 成段的文字在原处改时（宿主的编辑卡带 `data-editing-in-place`，输出 51），原文藏起来，编辑卡占它的位置、把下面推开。 */
-.character-card__in-place:has(> [data-editing-in-place]) > button {
-    display: none;
 }
 </style>

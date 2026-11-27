@@ -1,0 +1,301 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "version": 5,
+    "supersedes": 4,
+    "action": "publish",
+    "kind": "design",
+    "title": "t20 第 5 轮：列表照 t03 的稿",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "446c2d1fc98f5150058139d23c38a18103aaea3a5b4f02629e7d718115a770b0",
+    "files": [
+        "index.html",
+        "r1/now-dock-open.webp",
+        "r1/now-dock.webp",
+        "r1/now-float-open.webp",
+        "r1/now-float.webp",
+        "r1/one-dock-open.webp",
+        "r1/one-dock.webp",
+        "r1/one-float-open.webp",
+        "r1/one-float.webp",
+        "r1/rows-now.webp",
+        "r1/rows-one-bot.webp",
+        "r1/rows-one.webp",
+        "r1/two-dock-open.webp",
+        "r1/two-dock.webp",
+        "r1/two-float-open.webp",
+        "r1/two-float.webp",
+        "r2/dock-open-bot.webp",
+        "r2/dock-open.webp",
+        "r2/dock.webp",
+        "r2/float-open.webp",
+        "r2/float.webp",
+        "r3/dock-open.webp",
+        "r3/dock.webp",
+        "r3/float-open.webp",
+        "r3/float.webp",
+        "r3/list1-bot.webp",
+        "r3/list1.webp",
+        "r3/list2-bot.webp",
+        "r3/list2.webp",
+        "r3/list3-bot.webp",
+        "r3/list3.webp",
+        "r4/head-dock-open.webp",
+        "r4/head-dock.webp",
+        "r4/tab-dock-open.webp",
+        "r4/tab-dock.webp",
+        "r4/top-dock-open.webp",
+        "r4/top-dock.webp",
+        "r5/dock-open-bot.webp",
+        "r5/dock-open.webp",
+        "r5/dock.webp",
+        "r5/float-open.webp",
+        "r5/float.webp"
+    ],
+    "questions": [
+        {
+            "id": "rail-direction",
+            "type": "single",
+            "label": "右边那一列留不留？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "one",
+                    "label": "方向一：并进卡片的窄列"
+                },
+                {
+                    "value": "two",
+                    "label": "方向二：没有窄列，列表按需打开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-rows",
+            "type": "single",
+            "label": "列表行按右边这样改？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "new",
+                    "label": "改后"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "new"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "bottom-nav",
+            "type": "single",
+            "label": "按这样做：收着时右下角打开列表，展开后列表底部是 Bot｜会话｜收起？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "按这样做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整（写在附言里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "nav-structure",
+            "type": "single",
+            "label": "收着照旧是窄列，展开后窄列让位、列表底部是 Bot｜会话｜收起，这样对吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "对，按这样做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整（写在附言里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "list-style",
+            "type": "single",
+            "label": "列表用哪种样子？",
+            "options": [
+                {
+                    "value": "1",
+                    "label": "一：排印提纲"
+                },
+                {
+                    "value": "2",
+                    "label": "二：轻卡片"
+                },
+                {
+                    "value": "3",
+                    "label": "三：工具索引"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "1"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": {
+                "kind": "superseded",
+                "in": 5,
+                "by": null
+            }
+        },
+        {
+            "id": "container-entry",
+            "type": "single",
+            "label": "右栏里还有别的容器时，展开着怎么切换容器？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 列表顶上一行入口（只在有别的容器时）"
+                },
+                {
+                    "value": "collapse",
+                    "label": "B 不加，收起后再切"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "row"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "toggle-place",
+            "type": "single",
+            "label": "展开收起按钮放在哪？",
+            "options": [
+                {
+                    "value": "head",
+                    "label": "A 聊天头右端"
+                },
+                {
+                    "value": "top",
+                    "label": "B 窄列顶上、列表搜索行右端"
+                },
+                {
+                    "value": "tab",
+                    "label": "C 不设按钮：点 Bot、会话展开，再点当前页收起"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "head"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": {
+                "kind": "superseded",
+                "in": 5,
+                "by": null
+            }
+        },
+        {
+            "id": "list-t03",
+            "type": "single",
+            "label": "列表照 t03 第 5 轮定下的稿，只换成底部导航、去掉顶上页签，这样行吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "行"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整（写在附言里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "toggle-b",
+            "type": "single",
+            "label": "展开收起按钮按 B（收着在窄列顶上，展开在搜索行右端），看了这版定下吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "定 B"
+                },
+                {
+                    "value": "head",
+                    "label": "改 A 聊天头右端"
+                },
+                {
+                    "value": "tab",
+                    "label": "改 C 不设按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-27T03:00:41.858Z"
+}

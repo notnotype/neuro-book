@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * “消息”视图的列表（同名 .md）：bot、会话两个标签。bot 一页是联系人，会话一页是宿主经插槽给的会话面板。纯受控，只有搜索词是自己的。
+ * “消息”视图的列表（同名 .md）：bot、会话两个标签。bot 一页是联系人，会话一页是宿主经插槽给的会话面板。纯受控；bot 页的搜索词宿主不绑时自己记。
  */
 import {computed, nextTick, ref, watch} from "vue";
 import {Badge, Button, Input} from "@notnotype/nb-ui/components";
@@ -15,24 +15,25 @@ const props = withDefaults(defineProps<{
     selectedContact: string | null;
     now: number;
     locale?: AgentLocale;
-    /** 切换这一行是宿主窗口的拖动区（宿主自绘窗口头时）：写 `data-window-drag`，空白处按住拖的是窗口，标签与按钮照旧。 */
-    windowDrag?: boolean;
-}>(), {locale: undefined, windowDrag: false});
+}>(), {locale: undefined});
 
 const emit = defineEmits<{
     "update:tab": [tab: "bot" | "sessions"];
     "open-contact": [key: string];
     "retry-contacts": [sectionKey: string];
+    "escape-search": [];
 }>();
 
-defineSlots<{sessions(): unknown; "switch-end"?(): unknown}>();
+/** bot 页的搜索词：宿主绑了就由宿主记（视图段收起时列表拿掉，搜索词不能跟着丢），不绑时这里记。 */
+const query = defineModel<string>("botQuery", {default: ""});
+
+defineSlots<{sessions(): unknown}>();
 
 const {t, locale} = provideAgentText(() => props.locale);
 
 /** 每个挂上的列表一组面板 id：标签的 `aria-controls` 与面板的 `aria-labelledby` 对上。 */
 const ids = `acv-messages-${Math.random().toString(36).slice(2, 8)}`;
 
-const query = ref("");
 const unreadTotal = computed(() => props.sections.reduce((sum, section) => sum + section.contacts.reduce((inner, contact) => inner + (contact.unread ?? 0), 0), 0));
 
 /** 按名字筛（大小写不分）；段的状态照旧画。 */
@@ -66,6 +67,32 @@ function onTabKeydown(event: KeyboardEvent): void {
 const total = computed(() => props.sections.reduce((sum, section) => sum + section.contacts.length, 0));
 const matched = computed(() => shown.value.reduce((sum, section) => sum + section.contacts.length, 0));
 
+const rootRef = ref<HTMLElement | null>(null);
+
+/** 这一页的搜索框：bot 页是自己的，会话页是插槽里会话面板的第一个输入框。 */
+function searchOf(page: "bot" | "sessions"): HTMLInputElement | null {
+    return rootRef.value?.querySelector<HTMLInputElement>(`[data-messages-page="${page}"] input`) ?? null;
+}
+
+defineExpose({focusSearch: (page: "bot" | "sessions") => searchOf(page)?.focus()});
+
+/**
+ * 搜索框里的 `Esc`（两页一样）：框里有字先清空，已空时交给宿主（把焦点交回聊天输入框）。会话页的搜索词在宿主，清空是在框上发一次 `input`，
+ * 走它自己的 `v-model`，和用户删字一样。
+ */
+function onSearchKeydown(event: KeyboardEvent): void {
+    const input = event.target;
+    if (event.key !== "Escape" || event.defaultPrevented || !(input instanceof HTMLInputElement) || (input !== searchOf("bot") && input !== searchOf("sessions"))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (input.value !== "") {
+        input.value = "";
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+        return;
+    }
+    emit("escape-search");
+}
+
 const initial = (contact: MessagesContact): string => Array.from(contact.name.trim())[0] ?? "?";
 const brokenAvatars = ref<ReadonlySet<string>>(new Set());
 const avatarOf = (contact: MessagesContact): string | null => (contact.avatar !== undefined && !brokenAvatars.value.has(contact.avatar) ? contact.avatar : null);
@@ -75,8 +102,8 @@ function markBroken(src: string): void {
 </script>
 
 <template>
-    <div class="acv-messages-list" data-messages-list>
-        <div class="acv-messages-list__switch" :data-window-drag="props.windowDrag ? '' : undefined" data-messages-switch>
+    <div ref="rootRef" class="acv-messages-list" data-messages-list @keydown="onSearchKeydown">
+        <div class="acv-messages-list__switch" data-messages-switch>
             <div ref="tablistRef" class="acv-messages-list__tabs" role="tablist" :aria-label="t('messages.list')" @keydown="onTabKeydown">
                 <button
                     v-for="item in tabs"
@@ -96,7 +123,6 @@ function markBroken(src: string): void {
                     <Badge v-if="item.count > 0" size="sm" tone="accent">{{ item.count }}</Badge>
                 </button>
             </div>
-            <slot name="switch-end" />
         </div>
         <div v-show="props.tab === 'bot'" :id="`${ids}-page-bot`" class="acv-messages-list__page" :class="{'is-entering': entering === 'bot'}" role="tabpanel" :aria-labelledby="`${ids}-tab-bot`" data-messages-page="bot" @animationend.self="entering = null">
             <div class="acv-messages-list__search">
@@ -155,20 +181,15 @@ function markBroken(src: string): void {
     font-size: var(--text-sm);
 }
 
-/* 切换这一行：两个标题式的标签，没有底线；右端留给外框的收起按钮。 */
+/* 切换这一行：两个标题式的标签，没有底线。 */
 .acv-messages-list__switch {
     display: flex;
     flex-shrink: 0;
     align-items: center;
     gap: 4px;
-    /* 宿主自绘窗口头时与对话头同高（`--acv-head-height`），缺省 40。 */
-    height: var(--acv-head-height, 40px);
+    height: 40px;
     padding: 0 8px 0 14px;
     user-select: none;
-}
-
-.acv-messages-list__switch[data-window-drag] {
-    touch-action: none;
 }
 
 .acv-messages-list__tabs {
@@ -176,7 +197,7 @@ function markBroken(src: string): void {
     flex: 1;
     gap: 16px;
     min-width: 0;
-    /* 放不下时裁掉，不压到右端的按钮；留出焦点环的位置。 */
+    /* 放不下时裁掉；留出焦点环的位置。 */
     overflow: clip;
     overflow-clip-margin: 4px;
 }

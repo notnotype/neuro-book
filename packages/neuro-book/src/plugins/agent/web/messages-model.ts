@@ -12,7 +12,10 @@ import {contactKey, createContactOpener} from "./contact-opener";
 import type {ContactOpenerOptions, PendingContact} from "./contact-opener";
 
 export interface MessagesModelOptions extends ContactOpenerOptions {
-    /** 根会话（按最近活动排、不受搜索与过滤影响）：头像列取前 5 个。 */
+    /**
+     * 最近会话（conversation.md 输出 57 的“最近会话”：顶层、未归档、本作品范围，按最近活动；`createRecentSessions`），不受会话面板的搜索与过滤影响。
+     * 视图段按高度从末尾截，这里最多交 `RECENT_LIMIT` 个。
+     */
     readonly sessions: () => readonly {readonly id: string; readonly title: string; readonly icon?: string}[];
     /** 选会话（会话一页、头像列）。 */
     readonly selectSession: (id: string) => void;
@@ -36,7 +39,27 @@ export interface MessagesModel {
     retryContacts(plugin: string): void;
     /** 交“看到”：有归属的会话开着、`active`（视图可见且窗口有焦点）、没有盖层时，把已应用的 seq 交给它的归属插件。 */
     watchSeen(active: () => boolean): () => void;
+    /**
+     * 最近会话什么时候重取（输出 57 的“最近会话”）：视图段画出来（`shown` 变真）、换了会话（新建、选中）、会话面板的列表变了（`listed`：
+     * 面板里改名、归档与恢复之后它会重取）、窗口回到前台，以及画着时每 15 秒一次。交回停掉的函数。
+     */
+    watchRecent(watch: RecentWatch): () => void;
 }
+
+export interface RecentWatch {
+    readonly shown: () => boolean;
+    readonly focused: () => boolean;
+    /** 会话面板那份列表：换了对象就说明它重取过。 */
+    readonly listed: () => unknown;
+    readonly refresh: () => void;
+    /** 定时器；缺省 `setInterval`。 */
+    readonly every?: (milliseconds: number, run: () => void) => () => void;
+}
+
+/** 视图段至多画这么多个最近会话（按高度再截）。 */
+export const RECENT_LIMIT = 20;
+/** 画着时隔多久重取一次：同会话面板（`SessionPanelHost.vue`）。 */
+export const RECENT_POLL_MS = 15_000;
 
 export function createMessagesModel(options: MessagesModelOptions): MessagesModel {
     const {host} = options;
@@ -77,8 +100,37 @@ export function createMessagesModel(options: MessagesModelOptions): MessagesMode
     const pickBot = computed(() => pending.value === null && host.sessionId.value === null && tab.value === "bot");
 
     const recentSessions = computed((): MessagesRecentSession[] => options.sessions()
-        .slice(0, 5)
+        .slice(0, RECENT_LIMIT)
         .map((item) => ({id: item.id, title: item.title || options.texts.untitled(), icon: item.icon ?? "i-lucide-bot"})));
+
+    function watchRecent(recent: RecentWatch): () => void {
+        const every = recent.every ?? ((milliseconds, run) => {
+            const timer = setInterval(run, milliseconds);
+            return () => clearInterval(timer);
+        });
+        let stopPolling: (() => void) | null = null;
+        const stopShown = watch(recent.shown, (shown) => {
+            stopPolling?.();
+            stopPolling = null;
+            if (!shown) return;
+            recent.refresh();
+            stopPolling = every(RECENT_POLL_MS, recent.refresh);
+        }, {immediate: true});
+        // 画着时才跟：没画出来时下一次画出来会重取。
+        const stopChanges = watch([() => host.sessionId.value, recent.listed], () => {
+            if (recent.shown()) recent.refresh();
+        });
+        const stopFocus = watch(recent.focused, (focused) => {
+            if (focused && recent.shown()) recent.refresh();
+        });
+        return () => {
+            stopShown();
+            stopChanges();
+            stopFocus();
+            stopPolling?.();
+            stopPolling = null;
+        };
+    }
 
     return {
         sections,
@@ -95,5 +147,6 @@ export function createMessagesModel(options: MessagesModelOptions): MessagesMode
         sessionOpened: opener.cancel,
         retryContacts: (plugin) => options.providers().find((entry) => entry.plugin === plugin)?.provider.reload(),
         watchSeen: opener.watchSeen,
+        watchRecent,
     };
 }

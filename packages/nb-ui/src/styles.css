@@ -248,6 +248,13 @@ input.nb-ui-native-input[type="number"] {
     user-select: none;
     -webkit-user-select: none;
 }
+/*
+ * reka 在提示外面另包一层定位层（`data-reka-popper-content-wrapper`），只给提示本身写 `pointer-events: none` 时这一层照样接指针：
+ * 盖在提示底下的东西点不到，指针停在这一层上还会让提示一直开着（悬在侧栏边上的提示挡住树的第一行，w00039 t43）。
+ */
+[data-reka-popper-content-wrapper]:has(.nb-ui-tooltip-surface) {
+    pointer-events: none;
+}
 
 /*
  * 弹出列表（菜单、下拉、选择器、候选）的外框 modifier：半径、投影与内边距各取一档主题变量。

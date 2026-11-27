@@ -17,7 +17,7 @@ import {currentProjectKey} from "nbook/shared/projects";
 import {descriptor} from "../plugin";
 import {canonSettings} from "../shared/settings";
 import {componentsPoint} from "../shared/components";
-import {CANON_ENTRY_KINDS_POINT, entryKindsPoint, mergeEntryKinds, missingDefaults} from "../shared/entry-kinds";
+import {CANON_ENTRY_KINDS_POINT, entryKindsPoint, mergeEntryKinds, missingDefaults, presetProblems} from "../shared/entry-kinds";
 import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {ComponentContribution} from "../shared/components";
 import {CANON_COMPONENTS_POINT, canonWorldContract} from "../shared/contracts";
@@ -77,12 +77,24 @@ export const canonProjectPlugin: PluginDefinition = {
                 queueMicrotask(() => {
                     checkQueued = false;
                     if (context.signal.aborted) return;
-                    const kinds = mergeEntryKinds(context.declarations.list<EntryKindDeclaration>(CANON_ENTRY_KINDS_POINT));
-                    for (const {kind, type} of missingDefaults(kinds, new Set([...declared.values()].map((declaration) => declaration.id)))) {
+                    const listed = context.declarations.list<EntryKindDeclaration>(CANON_ENTRY_KINDS_POINT);
+                    const available = new Set([...declared.values()].map((declaration) => declaration.id));
+                    for (const {kind, type} of missingDefaults(mergeEntryKinds(listed), available)) {
                         const key = `${kind}\u0000${type}`;
                         if (reported.has(key)) continue;
                         reported.add(key);
                         diagnostics.record({level: "warn", event: "canon.entry-kinds.missing-component", message: `种类“${kind}”默认带的设定组 ${type} 没有登记，新建时不带它`, data: {kind, type}, source: {plugin: descriptor.id}});
+                    }
+                    // 预设的问题另记一种（键带预设 id 与问题，同一处只写一次）：与默认组分开，同一个类型既在默认里又在预设里时两条都写。
+                    for (const problem of presetProblems(listed, available)) {
+                        const key = `preset\u0000${problem.kind}\u0000${problem.preset}\u0000${problem.problem}\u0000${problem.problem === "missing-component" ? problem.type : ""}`;
+                        if (reported.has(key)) continue;
+                        reported.add(key);
+                        const message = problem.problem === "missing-component" ? `种类“${problem.kind}”的预设 ${problem.preset} 写到的设定组 ${problem.type} 没有登记，勾选时不带它`
+                            : problem.problem === "nothing-usable" ? `种类“${problem.kind}”的预设 ${problem.preset} 写到的设定组都没有登记，不列出`
+                            : problem.problem === "no-label" ? `种类“${problem.kind}”的预设 ${problem.preset} 没有显示名，不列出`
+                            : `种类“${problem.kind}”的预设 ${problem.preset} 有几条登记写了不同的显示名，用先登记的那个`;
+                        diagnostics.record({level: "warn", event: "canon.entry-kinds.preset-problem", message, data: {...problem}, source: {plugin: descriptor.id}});
                     }
                 });
             };

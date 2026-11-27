@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-social-login-and-oauth-provider
-status: planned
-updated: 2026-11-24
+status: done
+updated: 2026-11-26
 ---
 
 # 社交登录与对外 OAuth 服务
@@ -15,7 +15,7 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 
 ## 当前状态
 
-未开工：开发者 2026-11-24 要求先把 ADR、Task 与文档写好，开工等他的指示。
+已完成（2026-11-26）：十片与三轮实现审查（第 2、3 片，第 4 到 7 片，第 8 到 10 片，各 Opus 加 omp）、晋升前逐句核对的修正都在分支 `feat/w00037-t08-social-oauth` 上，经 Work 分支（`c49dadfc7`，先并进了 master）合入 master（`a81b85b5e`）；`site.oauth-provider` 晋升 implemented，`site.accounts` 与 `site.admin` 里 t08 的 planned 标记已去掉（`7f6969cf1`；留导入码的次数与注册页预填邀请码两句，归 t12、t10）。上线前要开发者在 Google、GitHub 注册 OAuth 应用。
 
 范围：Google 与 GitHub 登录（通用 OAuth 插件、照真实形状的仿真上游、先填后跳的注册顺序、邮箱撞号、关联与解绑），对外 OAuth 服务（可达端点的精确清单、客户端登记、授权码加 PKCE、授权确认、令牌与用户信息、随账号失效），库私有的续接协议与回调错误包进自家接口。
 
@@ -87,7 +87,7 @@ Google 与 GitHub 登录（通用 OAuth 插件、仿真上游、注册顺序、�
 
 ## 下一步
 
-Spec 改写稿与实施计划由规划子代理起草（草稿在仓库外），主会话审过、写进 `site.oauth-provider` 与 `site.accounts`、`site.admin` 后，按高风险后端做设计审查（Opus 先审，omp 在后台）。
+无。留给别的 Task 的：前端的社交登录、注册、关联与解绑页面，以及授权确认页、站点同意页（t10，失败码见合同包的 `SOCIAL_ERROR_CODES`）；部署时配 Google、GitHub 的客户端 id 与密钥（开发者的账号注册）。
 
 ## 实施进度
 
@@ -192,3 +192,19 @@ omp 那 3 条的修正已提交（`0dc6d182d`，14 个文件）：
 - 社交注册意图下被封禁时，码随情形不同：已关联的旧账号被封时是 `social_failed`，不建号、不扣码；刚建的账号在库建会话之前被封时是 `account_banned`，账号与扣码已提交（账号确实建成了）。不统一，写进 `site.accounts` 输出 13。
 
 主会话在 `0dc6d182d` 上重跑（负载降到 2 后）：五个目标包的测试与类型检查都过，合同测试 334、账号模块 598、账号合同包 113、站点服务 156，没有失败。
+
+晋升前逐句核对（Opus，[`evidences/promotion-check-opus.txt`](evidences/promotion-check-opus.txt)）：`site.oauth-provider` 全文与另两份 Spec 带“（planned）”的句子。
+- 没实现 2 句：`site.accounts` 输出 18 的旧站码保留次数与期限（t12）、注册页预填邀请码（前端），标记留着。
+- 与字面不一致 4 处。三处改了 Spec 措辞：只有开放了的上游的回调可达；回环主机不分大小写；`identity_taken`、`identity_exists` 只作跳转参数，挪出 409 那行。另一处改实现：用户信息 401 的 `WWW-Authenticate` 带着库的 DPoP 质询，去掉。
+- 没有测试 26 句（PKCE 必须、码过期、`max_age` 补交、RFC 6750 错误码、存储副作用等），连同 DPoP 一起交给 fix5 补。
+- `site.accounts` 的 Smoke 补了社交注册。
+
+fix5 已提交（`a2a759944`，13 个文件），主会话收尾一个（`1a8cb8004`）：
+- 用户信息端点回 401 时 `WWW-Authenticate` 只留 `Bearer` 质询：按 RFC 7235 的结构拆头，保留 RFC 6750 的 `error`，拆不出时只回 `Bearer` 并记 warn。
+- 26 句缺测试的都补了用例。T11（建签名钥撞写锁）只确认了 `start_failed`，撞在哪一步是读代码推断的；T12 靠把会话行的到期改到系统时间之前，因为库按系统时间判。
+- 补出来与 Spec 字面不一致的三处，按实测改了 Spec：
+  - 不带 PKCE 校验值回 `invalid_request`，校验值不对或不带时码都不被用掉（主会话把两条用例补到断言之后照常换出）；
+  - 不带令牌时 401 的质询里不带错误码，只在响应体（RFC 6750 第 3.1 节）；
+  - 注册意图下已关联的账号在库查过封禁之后被封，落点仍是 `identity_taken`，因为注册意图在建会话之前就拒了旧账号（主会话把实现者留在仓库外的交错用例改成这个断言放回）。
+- 变异 5 条都被抓到。T8 的变异造不出来（`max_age` 是库在跳转前去掉的），用 T10 代替。
+- 主会话在 `1a8cb8004` 上重跑：五个目标包的测试与类型检查都过（合同测试 344、账号模块 608、合同包 113、站点服务 156），`governance:check` 过。

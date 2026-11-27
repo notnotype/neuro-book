@@ -8,7 +8,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof EntryPageNav>(() => props.input, ["add-component", "add-open", "context"]);
+const subject = useLabSubject<typeof EntryPageNav>(() => props.input, ["add-toggle", "context", "menu"]);
 </script>
 
 <template>

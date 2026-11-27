@@ -180,7 +180,7 @@ test("逐级让位：从 1440 收到 390 依次收起横排标志、菜单栏、
     await page.setViewportSize({width: firstWidth[2]!, height: 700});
     await expect.poll(levelAt).toBe(2);
     // 侧栏是当前容器的分节，分节的 id 是布局起的：看活动栏里当前容器的入口按没按下（侧栏可见时才按下，docs/specs/ui/workbench-layout.md 输出 22）。直接在页面里读，不等元素出现
-    const sidebarShown = () => page.evaluate(() => document.querySelector('[data-tool-band] [data-tool-entry][aria-pressed="true"]') !== null);
+    const sidebarShown = () => page.evaluate(() => document.querySelector('[data-rail=sidebar] [data-tool-band] [data-tool-entry][aria-pressed="true"]') !== null);
     expect(await sidebarShown()).toBe(true);
     await live("button[data-titlebar-menu-entry]").focus();
     await page.keyboard.press("Enter");

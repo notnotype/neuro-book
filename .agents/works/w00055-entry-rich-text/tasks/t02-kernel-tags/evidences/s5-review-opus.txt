@@ -1,0 +1,117 @@
+# w00055 t02 S5 实现审查（Opus 子代理）
+审查对象：938996b32..94307cd50；worktree HEAD 核对为 94307cd50，读的就是被审版本。
+
+### 1. 规范化后的请求被拿去算授权的 binds：带非规范主文字的已签名请求被拒 binds-mismatch
+- 严重程度：重要；类别：不变量 / 正确性
+- 位置：packages/nb-canon/src/world/world.ts:475（`input = normalizeRequestText(this, input)`）、:526（`this.#decisionWrites(input, request, ids)`）、:441（`authorizationBinds({project, request: input, ...})`）；`#decisionWrites` 的注释（:423）写明“`input` 是请求原样（授权按它算）”
+- 现象：`#publish` 把形参 `input` 直接重新赋成规范化后的请求，后面 `#decisionWrites` 用它算 `binds.request`。宿主按将要发出的原样请求签名（tests/fixtures/authorization.ts 的 `sign`），请求里只要有一块主文字不是规范写法（`<V of="x"/>` 少空格、CRLF、BOM），摘要就对不上，整次拒收 `author-source-invalid`/`binds-mismatch`。提交范围里的注释说“重试与授权按原样的请求比”，只有重试（requestDigest 在规范化之前算）做到了，授权没有。修订里存的 `requestDigest` 是原样请求的，与授权里存的 `binds.request` 本该相同（decisions.test.ts 断言过），现在对非规范请求两者走的是不同的请求。
+- 如何核实：/tmp/review-w00055-t02-s5/lab-opus/auth.test.ts（公开入口 `World.publish`，同一请求里放一条 pending→decided 的决策与一个新条目，按 fixtures 的 `sign` 签原样请求）：主文字是规范写法时通过；`名字 <V of="entry.name"/>` 与 `名字\r\n<V …/>` 两例都得 `{"code":"author-source-invalid",…,"reason":"binds-mismatch"}`。`bun test /tmp/review-w00055-t02-s5/lab-opus/auth.test.ts`（在 packages/nb-canon 里跑）：1 pass 2 fail。
+- 建议改法：规范化的结果另起名（例如 `normalized`），`#decisionWrites` 照旧收原样的 `input`、换临时 id 用 `normalized`；或在 `#decisionWrites` 调用处显式传原样请求。补一条用例：带授权的请求里含非规范主文字照常发布，且 `revision.authorizations[0].source.binds.request === revision.requestDigest`。
+
+### 2. splitBlocks 对嵌套太深的文字抛 RangeError，丢了旧实现“整段作为一块交给写入检查”的兜底
+- 严重程度：建议；类别：正确性
+- 位置：packages/nb-canon/src/render/entry.ts:103（`for (const token of parseEntryText(source).tokens)`）
+- 现象：旧实现用 `try { fromMarkdown(...) } catch { return [{id, source}] }` 兜住；新实现直接调 `parseEntryText`，不走 `syntax.ts` 的 `readable`。注释写的是“找不到就整段作为一块，交给写入时的检查报错”，但读不出结构时是抛异常，而不是整段一块。写入路径（`blockProblem`、`normalizeBlockSource`、三种渲染）都有 `readable` 兜底，只有这一个公开函数漏了。
+- 如何核实：/tmp/review-w00055-t02-s5/lab-opus/deep.ts（`bun /tmp/review-w00055-t02-s5/lab-opus/deep.ts quote 10000`）：`">".repeat(10000)+" x"` 的 analyze、blockProblem 得 `unsupported-markdown`，norm 正常，`split THROW RangeError`；`**` 套 5000 层的 If 同样。Spec 输出 3 说它“留给要整段导入文字的调用方”，导入的正是粘贴来的文字。
+- 建议改法：splitBlocks 用 `syntax.ts` 的 `readable`（或导出一个不抛的解析入口），读不出就返回整段一块；补一条“几万层引用 → 一块”的用例（现在 rendering.test.ts:124 只测正常切块）。
+
+### 3. 纯文字里条件的判断读不到值时写“未知”且不报 unavailable：与同义的 `V expr` 三元式、与旧三元式都不一样，简报关卡不再拦这块
+- 严重程度：重要；类别：正确性 / 不变量（plot.brief 的关卡）
+- 位置：packages/nb-canon/src/render/render.ts:377-384（条件没有生效的支时只看 `truthy(...) === null` 写“未知”，不看 `evaluated.unavailable`）；tests/rendering.test.ts:537 的用例“判断未知：写“未知””把这种情形断言成 `problems: []`
+- 现象：同一个读不到的判断（e3 尚未出场），三种写法的纯文字：`<If test="ref('e3').entry.name == '阿七'">有<Else />无</If>` 得 `{text:"未知", problems:[]}`；`<V expr="ref('e3').entry.name == '阿七' ? '有' : '无'" />` 得 `{text:"", problems:["unavailable"]}`；`<V entry="e3" of="entry.name" />` 得 `{text:"", problems:["unavailable"]}`。旧实现（base 的 render.ts:328-332）对三元式 `{c ? "x" : "y"}` 在 `result.unavailable` 存在时报 `unavailable`、不写文字；S4 的转换器把顶层三元式换成了 `If`，所以迁移本身就改变了这些块在简报里的去留：gate.ts:339 见到任何 problem 就扣下，现在“未知”二字会写进写手的简报。Spec 输出 15 写的是“If 判断未知时写“未知”（同旧三元式）”，旧三元式在读不到时并不写“未知”。S0 对照没抓到，是因为样本的 7 个位置上 11 处三元式都读得到值（推断，对照测试通过）。
+- 如何核实：/tmp/review-w00055-t02-s5/lab-opus/ifunavail.ts（`renderBlockPlain`，resolver 照 `resolverFor` 对未出场条目的返回 `{value:null, unavailable:"尚未出场"}`）；公开入口上的同一情形就是 rendering.test.ts:537 那条用例。
+- 建议改法：`decide` 的结果里已经有每个判断的 `unavailable`（`results`），没有生效的支时，只要决定结局的那个判断（第一个未知）带 `unavailable`，就照 `V` 报 `unavailable`、整个条件不写文字；判断只是值为空（不是读不到）的才写“未知”。改 537 行的期望，并加一条“值为 null 但读得到”的对照。若有意保留现状，Spec 输出 15 要写明条件与 `V` 在这里不同，且删掉“同旧三元式”。
+
+### 4. normalizeBlockSource 对开头有两个 BOM 的文字不幂等；editEntries 规范化两次，结果按 result-mismatch 整次拒收
+- 严重程度：建议；类别：正确性
+- 位置：packages/nb-canon/src/grammar/tags.ts:160（只去掉一个开头的 U+FEFF）；packages/nb-canon/src/render/syntax.ts:202 的注释（“对规范的源文不变，可以重复做”）；entry-edits.ts:528（`planEntries` 先规范化一次）与 world.ts:475（`#publish` 再规范化一次）
+- 现象：`normalizeBlockSource("﻿﻿x")` 得 `"﻿x"`，再做一次得 `"x"`。`editEntries` 的方案里存的预期值是第一次的结果，`#publish` 的第二次把它改成 `"x"`，读回核对对不上：`{"code":"result-mismatch","got":"x","op":0}`。直接 `World.publish` 只做一次，存下的仍带一个 BOM，与 Spec 输出 1“检查之前先去掉开头的 BOM”不符。其余 72 个组合（6 种标签写法 × 12 种上下文：链接文字、强调、setext 标题、列表续行、表格、缩进代码、引用、行内代码并列等）都是幂等的，见 /tmp/review-w00055-t02-s5/lab-opus/idem.ts。
+- 如何核实：`bun /tmp/review-w00055-t02-s5/lab-opus/bom.ts`（公开入口 `editEntries`）。
+- 建议改法：去掉开头所有的 U+FEFF（`replace(/^﻿+/u, "")`）。更稳的做法是同一份文字只规范化一次：`#publish` 认出“已规范化”（例如 entry-edits 在合成请求时标明，或只在 `World.publish` 的公开入口做），这样两处的读法以后再出现不幂等也不会变成读回失败。
+
+### 5. 没登记标签的基线比 Spec 输出 19 宽：收进了已撤销、别的线、按计划的全部补丁；`change.kind` 的过滤是空操作
+- 严重程度：建议；类别：正确性 / 代码质量（从代码推断，未做公开入口实验）
+- 位置：packages/nb-canon/src/world/world.ts:1391-1405（`existingTagsOf`）
+- 现象：Spec 输出 19 的例外是“这个条目当前的主文字里（任一块）已经有”。实现收的是初值的块，加上世界里每一条变更（`world.data.changes` 全部）里改这个条目主文字的补丁。`StoryChangeSchema.kind` 只有 `written` 与 `plan` 两种（core/schema.ts:219），所以 `if (change.kind !== "written" && change.kind !== "plan") continue` 永远不跳过任何变更，看上去像在筛选、其实没有；`status` 为 `undone`、`held` 的，别的世界线上的，删掉的块的，都算进基线。结果是：一个标签只要在任何一版、任何一条线、甚至已撤销的补丁里出现过，就永远可以写回这个条目。影响有限（没登记的标签只显示“需要插件”、纯文字报 `unknown-tag` 被关卡扣下），但这与 Spec 写的判据不同，审查者与后来的人会按 Spec 推断行为。
+- 开销：基线只在遇到能免的 `unknown-tag` 时才算（`blockProblem` 里 `existing` 是惰性的），每次校验每个条目一次，O(全部变更的补丁数)；变更上万时一次几毫秒，可以接受。顺带每个历史版本的源文都经 `analyzeBlock` 进缓存。
+- 建议改法：二选一并让 Spec 与代码一致。(a) 照 Spec：基线取这个条目在写入位置（或全部线的当前位置）上的主文字，即引擎读出的 `view.text`；(b) 保留“出现过即可”，把 Spec 输出 19 改成这个说法，并删掉无效的 `kind` 判断，注释里写明已撤销、别的线也算是有意的。
+
+### 6. 一块新文字每次写入要解析 2 到 4 遍：规范化的解析结果不复用，editEntries 还规范化两次；在 marked 的超线性输入上把单写者队列卡几十秒
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/nb-canon/src/render/syntax.ts:203-208（`normalizeBlockSource` 用 `readable` 解析，结果丢掉）、:185-194（`blockProblem` → `analyzeBlock` 缓存未命中再解析一遍，并且 `checkEntryText` 在 `analyzeUncached` 与 `blockProblem` 里各跑一遍）；entry-edits.ts:528 与 world.ts:475（两处规范化）
+- 现象：用解析一次要 0.6 到 0.9 秒的一块（`"*a ".repeat(1500)+"x"+" b*".repeat(1500)`，9 千字）量公开入口：`World.publish` 新建条目约等于 2 次解析的时间，`editEntries` 整段替换约 3.7 次（/tmp/review-w00055-t02-s5/lab-opus/parsecount.ts）。旧实现在 `blockProblem` 里只解析一次、结果进缓存。marked 与旧的 micromark 链在这种嵌套强调上都是超线性的（24 千字一次 9 到 13 秒，lab-opus/em.ts 与 em-legacy.ts），写入的块没有长度上限（BlockSchema 的 `source` 是不限长的 `Type.String()`，只有预览限 5 万字），所以同一份粘贴来的文字现在占住写入队列的时间是原来的 2 到 4 倍：24 千字的这种文字经 `editEntries` 约 45 秒。条目文字来自模板与分享的世界观，属于外部输入。
+- 如何核实：在 packages/nb-canon 里 `bun /tmp/review-w00055-t02-s5/lab-opus/parsecount.ts 1500`；单次解析的耗时 `bun /tmp/review-w00055-t02-s5/lab-opus/em.ts 4000`。
+- 建议改法：(1) 规范化与分析共用一次解析：`normalizeBlockSource` 在规范写法与输入相同（多数情况）时把这次的分析放进缓存，或者返回分析，`blockProblem` 直接用；`blockProblem` 复用 `analysis` 里已有的问题列表，只在需要 `registered`/`existing` 时补判。(2) 同一请求只规范化一次（见第 4 条）。(3) 写入时给一块设长度上限（例如与预览同为 5 万字，超了 `too-large` 或拆块），把最坏情况收住；这一条要开发者定。
+
+### 7. 几处结构与注释：validate 的文档注释被挤到 patchText 头上；纯文字拼接里的重叠判断走不到；值表类型的 `tag: string` 分支吞掉判别；残留“主 MDX”“MDX 解析链”的说法
+- 严重程度：建议；类别：代码质量 / 文档
+- 位置与现象：
+  - world.ts:1379-1380：原来 `validate` 的 `/** 写入时校验（revisions.md 输出 3、17 …） */` 现在紧挨着新加的 `/** 补丁写的主文字 … */ function patchText`，编辑器与 TS 把两段都当成 patchText 的说明，`validate` 没有了文档注释。把那一行挪回 `function validate` 上面。
+  - render.ts:425 `if (splice.start < cursor) continue;`：条件被去掉的范围与其中的标签不会同时进 `splices`（`inRemoved` 先滤掉了），生效那一支两侧的切口与支里的标签首尾相接不相交，所以这一行走不到。变异检查（删掉它）在 rendering、legacy-render、text-blocks、grammar、entry-edits 五个文件上 245 条全过。要么删掉，要么写明它防的是哪种情形（例如以后的块级条件或登记标签的描述），否则读者会以为这里有真的重叠要处理。
+  - render.ts:127 `AuthorValue` 的最后一个分支是 `{readonly tag: string; …; needsPlugin: true}`：`tag: string` 包含 `"V"`、`"If"`，调用方写 `if (value.tag === "V")` 时 TS 收窄不掉这个分支（legacy-render.test.ts 的 `AuthorItem` 只好另写一个宽类型），S6 的前端按标签名对值表时会遇到同样的问题。建议加判别字段（例如 `kind: "value" | "condition" | "ref" | "image" | "plugin"`），或把“需要插件”的项改成 `{tag: "plugin", name}`。
+  - 改名没扫干净的注释：core/id-lists.ts:2“主 MDX 的块”、core/identifiers.ts:2“直接写进 MDX 的成员访问”、core/display.ts:2 与 schema.ts:3“不依赖渲染链（MDX 解析）”。S5 之后内核已经不读 MDX，计划的文档表里也把“主 MDX”改称“主文字”。
+- 如何核实：`grep -n 'MDX' packages/nb-canon/src/core/*.ts packages/nb-canon/src/schema.ts`；变异脚本 /tmp/review-w00055-t02-s5/lab-opus/mutate.sh（在仓库外的副本 lab-opus/mut 上改、跑、还原）。
+
+### 8. 迁移没做完：计划要的“没有残留花括号写法”的断言不存在；Lab 的两个出错场景仍是旧写法与旧报错，英文预览场景的报错与文字对不上
+- 严重程度：建议；类别：测试 / 数据迁移
+- 位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:2208（`problem`：文字 `存款 {panel.存款 联邦币。`，报错 `Unexpected end of file in expression, expected a corresponding closing brace for \`{\` (1:4)`）、:2220（`preview-problem`：`魔力 {panel.魔力` 与同一句旧报错）、:2222（`preview-english`：文字已换成合法的 `<V of="panel.存款" />`，`previewNote` 仍写 `Line 5, column 10 is not valid: Unexpected end of file in expression`）；计划 S5 的验证一条
+- 现象：计划 S5 写明“样本、测试与 fixture 里没有残留的花括号写法（断言）”，设计审查处理第 8 条也以这条断言取代旧写法的防线。在 nb-canon 的 tests 与应用的 plot、canon/testing、lab fixtures 里都没搜到这样的断言（`grep -rn '残留\|花括号' packages/nb-canon/tests` 只命中 grammar 的占位还原与转换器自己的用例）。手工搜旧写法：nb-canon 的样本 JSON（44 处，全在 `source` 键）、测试、scale.ts，以及应用的 plot 简报测试、brief-world、world-fixtures、canon-scale 都已换干净；剩下的就是上面 Lab 的两处。换写法以后 `{panel.存款` 是普通文字、写得进去，这两个“写得不对”的场景演示的是一种已经不会发生的错误，报错文字也是 MDX 链的；`preview-english` 则是合法文字配一条出错提示。
+- 为什么是问题：Lab 场景是 S6 改编辑器时开发者看的样子，旧报错会被当作现行的写法与文案；没有断言，以后补的测试数据再写成 `{…}` 也不会有人发现（新内核把它当普通文字，用例照过）。
+- 建议改法：两个出错场景改成新写法下真会出的错（例如 `魔力 <V of="panel.魔力"` 配 `tag-malformed` 的报错文字，行列按新文字算），`preview-english` 的 `previewNote` 删掉或配一处真错；按计划补一条断言：扫样本 JSON 的 `source`、nb-canon 测试与上面几个 fixture 文件，`/\{(?:ref\(|[\p{L}_][\p{L}\p{N}_]*\.)/u` 之类的旧写法不出现（转换器的测试与 legacy 目录除外）。
+
+### 9. rendering.test.ts 整个重写后，Spec 实现合同里点名的 4 条测试已不存在，公开入口清单仍列着删掉的 parseBlock、scanAnnotations、writeBack
+- 严重程度：建议；类别：文档
+- 位置：/tmp/review-w00055-t02-s5/rendering.md 的“实现合同”（固定副本第 174 行起）；packages/nb-canon/tests/rendering.test.ts；packages/nb-canon/src/index.ts:44-46
+- 现象：实现合同的“关键不变量”链接到 rendering.test.ts 的“`set` 整段替换一块也过白名单”“别的修订改了值，Agent 把旧文字原样交回：value-conflict，值不被改回去，也不发布”“按计划模式读到的块原样交回：拒收 planned-not-writable…”“一块坏了：…（场景 3、输出 14）”“canon.rendering 输出 15：纯文字的渲染”，在 94307cd50 上按名字 grep 都是 0 条（只有“输出 5：三值逻辑”还在）；后两条的内容换了名字还在（“场景 3、输出 4、14：一块坏了”“输出 15、场景 5：纯文字的渲染”），前三条随回写删掉了。“公开入口”仍写 `parseBlock`、`scanAnnotations`、`writeBack` 与应用侧的 `writeBack`，而 index.ts 现在导出的是 `analyzeBlock`、`normalizeBlockSource`、`AuthorValue`；`owner 与依赖方向`还写“依赖 MDX 解析链”。
+- 为什么是问题：实现合同是晋升时逐条核对的依据，链接断了的条目核不了；Spec 的真相源在 master，S5 改了测试名而 Spec 没跟上。
+- 如何核实：`for t in 整段替换一块也过白名单 value-conflict，值不被改回去 planned-not-writable，世界不变; do grep -c "$t" packages/nb-canon/tests/rendering.test.ts; done`。
+- 建议改法：在主工作区的 rendering.md 里把实现合同换成现在的入口与测试名（去掉回写的三条不变量，补“去值(带值渲染(源文)) 等于源文”对应 legacy-render.test.ts 的第二条、“写入前规范化”对应 rendering.test.ts:115），依赖改为 marked 与 `./grammar`。
+
+### 10. 写入路径上 S5 新加的几条判据没有测试守着：变异检查有 7 个活下来，其中 3 个跑全量 836 条也全过
+- 严重程度：重要；类别：测试
+- 位置：packages/nb-canon/src/world/entry-edits.ts:98-107、:613；packages/nb-canon/src/world/world.ts:1391-1405、:1408-1443、:1593-1598
+- 现象：在仓库外的副本（/tmp/review-w00055-t02-s5/lab-opus/mut，脚本 lab-opus/mutate.sh）上逐个改、跑 rendering、legacy-render、text-blocks、grammar、entry-edits 五个文件（245 条）：
+  - `planEntries` 不规范化（`const input = raw`）：全过；跑整个 nb-canon 836 条也全过。公开入口上的后果：`editEntries` 的 `set text[b1]` 与 `addBlock` 只要写成 `<V of="entry.name"/>`（少一个空格）就整次拒收 `result-mismatch`（lab-opus/canon-edit.ts 在变异副本上跑出；真实代码上四种操作都通过）。计划 S5 点名的“publish、editInPlace、editEntries、初值与补丁走同一处，候选与读回核对用同一份”只有 `World.publish` 那一半有用例（rendering.test.ts:115）。
+  - `replace` 后不规范化（删 entry-edits.ts:613）：五个文件全过；后果同上，`replace` 的 `with` 写非规范标签得 `result-mismatch`。
+  - 补丁的检查不带基线（`blockProblem(blockSource)`）：全量 836 条全过。输出 19 的例外只测了初值的块（rendering.test.ts:134），变更里整段替换写已有的没登记标签没有用例。
+  - 基线不收补丁里的标签（`existingTagsOf` 只看初值）：五个文件全过。
+  - 原样留着的旧补丁也重新检查（删 world.ts:1596 的 `sameJson` 判断）：全量 836 条全过。注释写的理由（“插件卸了以后，它里面没登记的标签不该挡住这条变更别的修改”）没有用例；而且因为基线里本来就有这个补丁的标签，这条跳过在“没登记的标签”这个理由下其实观察不到，只在旧补丁里有现在不收的写法（原样 HTML、脚注）时才有差别，见下。
+  - 规范化时不跳过与旧世界相同的块、相同的补丁（两处）：五个文件全过。
+  对照：`decide` 先遇到未知就都不生效、列表元素不带 `label`、条件未知写“未知”、字面标签报 `syntax`、没登记报 `unknown-tag`、`#publish` 的规范化，这 6 个都被测出。
+- 建议改法：在 rendering.test.ts（或 entry-edits.test.ts）补：`editEntries` 的 `set`、`replace`、`addBlock`、`create` 各写一次非规范标签，断言发布成功且存下规范写法；变更里整段替换写一个初值里已有的没登记标签放行、写一个只在别的补丁里出现过的标签放行（或按第 5 条的结论拒收）；旧补丁里有原样 HTML（用 `injected` 的办法放进去）时改这条变更的别的字段照常发布。最后一条若加不出有意义的用例，就删掉那段跳过与注释，回到 base 的“每个文字补丁都查”。
+
+### 11. 缓存里存的不只是词法：`error` 与 `meanings` 依赖登记表，`readable` 把任何 RangeError 都当成“嵌套太深”且不留诊断
+- 严重程度：建议；类别：代码质量 / 不变量（为 t04 埋的耦合）
+- 位置：packages/nb-canon/src/render/syntax.ts:140-147（`readable`）、:149-168（`analyzeUncached` 与按源文的缓存）、:107（`meaningOf` 的 default 分支）
+- 现象：计划第 2 节的前提是“词法与登记表无关：解析结果可以按源文缓存；判写坏的标签时才用登记表”。实现缓存的 `BlockAnalysis` 里还有 `error`（`checkEntryText(parsed)` 不带 `registered` 算出的第一个问题）与 `meanings`（`BUILTIN_TAGS` 以外一律 `unregistered`），三种渲染都直接读它们。现在登记表恒为空，结果正确；t04 一旦有登记的标签，带缓存的渲染会把登记了的标签照“需要插件”给，`blockProblem` 与渲染对同一块的判断也会分叉，而缓存键只有源文，装卸插件后不会失效。另：`readable` 捕获全部 `RangeError`，除了栈溢出，`Invalid string length`、`Invalid array length` 或 grammar 里将来的一个越界 bug 也会被报成 `unsupported-markdown`“Nested too deeply”，没有任何诊断，违反“不用静默的 catch 吞掉错误，至少写一条诊断”。
+- 建议改法：缓存只放与登记表无关的部分（`parsed`、`conditions`、字段引用），`error` 与“是不是登记的标签”在取用时按当时的登记表算，或把登记表的版本并进缓存键；在 BlockAnalysis 的注释里写明这个前提。`readable` 至少把捕获到的错误交给诊断出口（或记一条 `console.warn` 级别的内核诊断），并在注释里写明“只指望栈溢出”。
+
+### 更正与补充（按 grep -n 核过的行号与补做的公开入口实验）
+- 第 1 条位置更正：`#decisionWrites` 的调用在 world.ts:524（不是 526），“`input` 是请求原样（授权按它算）”在 :424（不是 423）；:441、:475 无误。
+- 第 3 条位置更正：用例“判断未知：写“未知””在 rendering.test.ts:540（不是 537）。
+- 第 3 条补证据（公开入口 `World.publish` + `renderEntryPlain`，脚本 lab-opus/plain-public.ts、lab-opus/plain-self.ts；base 版本用 `git archive 938996b32` 解到 lab-opus/base 跑）：
+  - 条目尚未出场：base 的 `{ref("e2").entry.name == "阿七" ? "有" : "无"}` 得 `{text:"", problems:["unavailable"]}`；新的 `<If>` 得 `{text:"未知", problems:[]}`。这一种情形关卡照样扣下：`reads` 里有 e2，gate.ts:257 把尚未出场（`late`）的条目归为 placeholder，:340 按 placeholder 扣整块。所以标题里“关卡不再拦”对这种情形不成立。
+  - 本条目自己的字段读不到（面板第 3 章起才启用，第 1 章末尾，实际与按计划两种模式结果相同）：base 的 `魔力{panel.魔力 >= 1000 ? "够" : "不够"}` 得 `{text:"魔力", reads:[], problems:["unavailable"]}`，被扣下；新的 `魔力<If test="panel.魔力 >= 1000">够<Else />不够</If>` 得 `{text:"魔力未知", reads:[], problems:[]}`，`reads`、`mentions` 都是空的，关卡（gate.ts:339-344）不会扣，“魔力未知”会写进写手的简报。样本里那 11 处三元式正是这个形状（`panel.魔力 >= 1000`），S4 把它们都换成了 `If`。
+  - 结论：第 3 条成立，范围收窄为“读不到的是本条目自己的字段（以及别的不进 reads 的原因：没有这个字段、命名空间没启用、类型不可用）时，块不再被扣”，严重程度维持重要。base 的测试里没有三元式读不到的纯文字用例（`git show 938996b32:packages/nb-canon/tests/rendering.test.ts` 只在三值逻辑表里有 `panel.未知 ? … : …`），旧行为来自 base 的 render.ts:328-332 与上面的实测。
+- 第 6 条措辞：“旧实现只解析一次”是读 base 的 `blockProblem`（syntax.ts:304，直接 `parseBlock`，带缓存）与 base 的 entry-edits（不解析主文字）得出的，没有量；“经 editEntries 约 45 秒”是 3.7 倍乘以单次 12.7 秒推算的，没有实测。
+- 第 9 条收窄：Spec 在 master，不在被审的两个提交里，实现合同按惯例在实现与晋升时补；这条作为收口时的提醒，不算主要发现。
+
+### 未发现问题的方面
+- 重点 1：同一请求 id 先后带“规范前”“规范后”的文字：`World.publish` 与 `editEntries` 都得 `request-id-reused`，原样重试得 `repeated`（lab-opus/retry-revert.ts）；摘要在规范化之前算，与“重试按原样的请求比”一致，按请求内容判重是正确的。形状不对的请求（块不是对象、`source` 不是字符串、`patches` 不是数组）在 normalizeRequestText 里原样放过，留给后面的校验（读代码）。应用侧 editEntries 的输入有合同的 schema 校验，planEntries 的规范化不会碰到非字符串（读代码）。规范化在 72 个上下文组合上幂等，不动行内代码、缩进代码与转义里的标签（lab-opus/idem.ts），只有第 4 条的双 BOM 例外。
+- 重点 1：`revert` 的补偿请求也经规范化：存的是非规范的旧块（用 replay 放进去的 `旧\r\n文字`）被改过再还原，回来的是 `旧\n文字`，不是原样（lab-opus/retry-revert.ts）。按决定“没有真实作品要迁”，S5 之后存下的都已是规范写法，这种差别只会出现在 S5 之前的数据上，不单列。
+- 重点 2：块 id 不变而文字变了：规范化并检查；换了 id 而文字不变：当新块规范化并检查；只重排：不规范化也不检查（rendering.test.ts:91 覆盖“只改别的块时旧块不再查”）。变更的补丁按下标比，插入或删掉前面的补丁会让后面原样的补丁重新受检，这与 base“每个文字补丁都查”相同，不是回退（读代码）。坏的旧块原样留着时整篇写入照常（rendering.test.ts:199 场景 3）。
+- 重点 3：嵌套太深时，写入（`normalizeBlockSource`、`blockProblem`）、三种渲染、预览、基线（`unregisteredTags`）都由 `readable` 兜住；`checkEntryText` 与 `conditionsOf` 在 marked 能读出的深度上都不溢出（lab-opus/deep.ts，引用 5000/10000 层、强调里的 If 1000/5000 层），只有 splitBlocks 漏了（第 2 条）。`analyzeDraft` 不进缓存；缓存满了整个清空与 base 相同。
+- 重点 4：作者的值表与 Spec 输出 7 对得上（只给活的标签、按起点排、`If` 与 `ElseIf` 各一项、`taken` 只在 `If` 上、没生效的支照样求值，Else 与 `</If>` 无项）；Agent 的带值写法：先遇到未知就都不生效、`label` 只在显示名与 id 不同且不是列表元素时给、读不到写 null 加 `unavailable`，都有用例且变异检查测得出。装饰的转义与去值往返：名字、显示名、原因里带 `"`、`<V …/>`、`&`、反引号、换行，值里带 `</V>`、`|`、反斜杠、反引号，在段落、表格、强调、行内代码旁边都能逐字去值回源文（lab-opus/escape.ts、lab-opus/pipe.ts）。纯文字的静态收集覆盖活的与字面的标签、条件的判断与各支、`Ref`、`Image of`；字面的与写坏的都报 `syntax`，关卡见到任何 problem 就扣块，所以字面标签里的条目 id 不会漏进简报。
+- 重点 5：nb-canon 里已没有 `writeBack`（注记的那个）、`scanAnnotations`、`annotation` 的引用与注记写法；`world/text-blocks.ts` 的同名 `writeBack` 是文字路由，按计划保留。剩下的只有第 7 条列的“主 MDX”旧说法。
+- 重点 6：调研摘要第一节的 19 个文件里，S5 改了样本、nb-canon 的 3 个测试与 scale.ts、应用的 plot 4 个文件、world-fixtures、lab fixtures、canon-scale；没改的是 canon 插件的 entry-language.test.ts（8 处）、EntryTextEditor.dom.test.ts（4）、entry-page.dom.test.ts（10）、receipt-page.dom.test.ts（1）、e2e/canon-write.e2e.ts（2）以及 entry-language.ts、entry-text-editor.ts、EntryTextEditor.md，都属 S6 的编辑器与界面，不在本次范围（S6 要记得改，canon-write.e2e 经应用写进新内核，旧写法会变成普通文字，用例可能照过但测的意思变了）。样本 JSON 的 44 处都在 `source` 键上，`rewriteEntryIds` 只改活的标签；样本里 V 的 `entry` 22 处（brother 11、mg 11），式子里没有 `ref('…')`，所以 `rewriteEntryIds` 改写式子的那条分支在样本与测试里都没被走到（只读代码确认正则不处理 `ref( 'x' )` 这类空白写法），迁移完连同样本适配器保留，建议补一条单测。用不限命名空间的正则再搜（`\{(ref\(|名字.名字\}|text\[)`）没有新的残留。保密用例的换写法逐条看过：`{ref("k").entry.name}` → `<V entry="k" of="entry.name" />`、`att.态度["lord"]` → `of="att.态度[lord]"`、`{ref("self").text[b1]}` → `<V entry="self" of="text[b1]" />`，拦的仍是同一件事，plot 简报 87 条全过。
+- 重点 7：legacy-render.test.ts 的 `agentValues` 对 `If` 一项取的是给作者的值表里的 `taken` 切出的原文，不读 Agent 文字里的 `value`，所以 S0 对照没有独立比过 Agent 文字里条件的结果；这一点由 rendering.test.ts 里断言 `value="true"`、`"false"`、`"null"` 的几条补上（场景 1、表格、没生效的支、读不到的判断），不单列。`takenBranch` 按开标签之后的第一个 `</If>` 切，条件不能嵌套，不会切错。
+- 安全：条目文字里的作者数据进装饰时都转义（上面的往返实验）；式子只解释不执行（grammar 已审）。nb-canon `bunx tsc --noEmit` 通过；`bun test tests/rendering.test.ts tests/legacy-render.test.ts tests/text-blocks.test.ts` 106 条全过；nb-canon 全量 836 条在变异副本的未改版本上全过（同一份源码）。
+
+### 按影响排序
+1（重要，不变量）、3（重要，正确性）、10（重要，测试）、4、2、6、5、11、8、7、9（收口提醒）。
+
+### 各级数量
+阻断 0；重要 3（第 1、3、10 条）；建议 8（第 2、4、5、6、7、8、9、11 条；第 9 条收窄为收口提醒）。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+（补正：上文“nb-canon 全量 836 条在未改版本上全过”没有单独跑；实际跑的是三个活下来的变异体各跑一次全量、都是 836 过 0 败，未改版本的全量结果由此推断。）

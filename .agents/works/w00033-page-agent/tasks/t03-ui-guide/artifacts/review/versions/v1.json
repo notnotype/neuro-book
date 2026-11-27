@@ -1,0 +1,67 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00033-page-agent",
+    "taskId": "t03-ui-guide",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：引导的说明框与 Profile 的 ui 一行",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "968994d2f7446c4818ba5a0d1ffc19fbedf791a852d9786509d222ced08941a7",
+    "files": [
+        "index.html",
+        "r1/ask-always-activity.webp",
+        "r1/ask-always-palette.webp",
+        "r1/ask-folded-activity.webp",
+        "r1/ask-folded-palette.webp",
+        "r1/asking-always.webp",
+        "r1/asking-folded.webp",
+        "r1/dark.webp",
+        "r1/english.webp",
+        "r1/profile-no-eval.webp",
+        "r1/profile-ui.webp"
+    ],
+    "questions": [
+        {
+            "id": "ask-layout",
+            "type": "single",
+            "label": "说明框里的提问框一直显示，还是平时收成“提问”按钮？",
+            "options": [
+                {
+                    "value": "always",
+                    "label": "A 一直显示"
+                },
+                {
+                    "value": "folded",
+                    "label": "B 收成“提问”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "folded"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "approve-look",
+            "type": "confirm",
+            "label": "按这一稿实现说明框、描边与 ui 一行",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-26T12:56:11.350Z"
+}

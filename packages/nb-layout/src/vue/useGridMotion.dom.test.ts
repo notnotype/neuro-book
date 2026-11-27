@@ -126,6 +126,8 @@ describe("decideMotion", () => {
             expect(decision.entering.get("content:v")).toEqual({x: 320, y: 122, width: 300, height: 168});
             expect(decision.following.has("leaf:l2")).toBe(true);
             expect(decision.keptSize.has("leaf:l2")).toBe(false);
+            // 回到树里的窗：外框在起点那次渲染里还画成窗（输出 110 的淡去，`docking`）。
+            expect(decision.docked).toEqual(new Set(["leaf:l2"]));
         }
         const plain = decideMotion(frame({items: after, previous: before}), warmed().memory);
         if (plain.kind !== "move") throw new Error("应当过渡");

@@ -27,7 +27,7 @@ export interface DragGeometry {
     readonly origin: GridDropPoint;
 }
 
-/** 一条入口条在判定里的样子：活动栏上段竖着排，右栏、底部面板的入口条横着排。 */
+/** 一条入口条在判定里的样子：侧轨的入口带（活动栏、右轨）竖着排，底部面板的入口条横着排。 */
 export interface EntryBand {
     readonly region: PanelName;
     readonly axis: "x" | "y";
@@ -75,7 +75,7 @@ export const centerOf = (rect: GridDropRect): GridDropPoint => ({x: (rect.left +
 export function collapsedGeometry(kept: FrozenGeometry, doc: LayoutDoc, base: LayoutDoc, layout: {readonly extent: GridExtent | null; readonly projection: LayoutProjectionOptions; readonly dpr: number}): FrozenGeometry {
     const {extent, projection, dpr} = layout;
     if (extent === null) return kept;
-    // 入口条叶只在呈现里，不在文档的树里：按投影一起量（入口条跟着区域挪、缩没了）。
+    // 入口条叶与右轨叶只在呈现里，不在文档的树里：按投影一起量（入口条跟着区域挪、缩没了；右栏空了右轨也不在）。活动栏是条，一直在。
     const stripLeaves = kept.geometry.bands.flatMap((band) => (band.region === "sidebar" ? [] : [entryStripOf(band.region)]));
     const ids = [...treeLeaves(doc.tree.root).map((leaf) => leaf.id), ...stripLeaves];
     const before = previewPanelRects(doc, ids, projection, extent, dpr);
@@ -122,8 +122,8 @@ export function collapsedGeometry(kept: FrozenGeometry, doc: LayoutDoc, base: La
 
 /**
  * 来源收起之后的入口条（输出 38）。来源是它容器唯一的成员时那个入口没了，后面的都往前补一格（一格是这个入口到下一个入口的距离，最后一个是它自己的长度）；
- * 入口还在的不动：容器少一个分节，入口不变。右栏、底部面板的入口条跟着它的入口条叶挪；区域里的分节都收走了、入口条叶不在了，这条入口条就不是落点；
- * 收起后并进来了一节（`mergedAfter`），落点那一段只到入口这一组为止。
+ * 入口还在的不动：容器少一个分节，入口不变。底部面板的入口条跟着它的入口条叶挪、右轨跟着右轨叶挪；区域里的分节都收走了、叶不在了，这条就不是落点；
+ * 收起后并进来了一节（`mergedAfter`），落点那一段只到入口这一组为止（只有横着排的入口条会并）。
  */
 export function bandsAfterCollapse(kept: ReadonlyArray<EntryBand>, base: LayoutDoc, moves: ReadonlyMap<string, EdgeMoves>, mergedAfter: ReadonlyMap<PanelName, string | null>): ReadonlyArray<EntryBand> {
     return kept.flatMap((band): EntryBand[] => {
@@ -139,6 +139,11 @@ export function bandsAfterCollapse(kept: ReadonlyArray<EntryBand>, base: LayoutD
         if (band.region === "sidebar") return [{...band, entries}];
         const move = moves.get(entryStripOf(band.region));
         if (move === undefined) return [];
+        if (band.axis === "y") {
+            // 右轨：竖着排，整条挪，入口沿纵轴跟着上沿挪。
+            const row = {left: band.row.left + move.left, right: band.row.right + move.right, top: band.row.top + move.top, bottom: band.row.bottom + move.bottom};
+            return [{...band, row, rect: row, groupEnd: band.groupEnd + move.top - shift, entries: entries.map((entry) => ({...entry, start: entry.start + move.top, end: entry.end + move.top}))}];
+        }
         const row = {left: band.row.left + move.left, right: band.row.right + move.right, top: band.row.top + move.top, bottom: band.row.bottom + move.top};
         const groupEnd = band.groupEnd + move.left - shift;
         const merged = mergedAfter.get(band.region) ?? null;

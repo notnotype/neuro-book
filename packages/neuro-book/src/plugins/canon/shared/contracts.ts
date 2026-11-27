@@ -19,7 +19,7 @@ import type {Static} from "typebox";
 
 import type {CanonReads} from "./reads";
 
-export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT} from "./components";
+export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT, PERSON_MAIN_PRESET} from "./components";
 // 作者界面的两个贡献点（author-ui.md 输出 12、36）：别的插件交界面时从这里取 id（跨插件只引对方的 shared/contracts.ts）。
 export {CANON_COMPONENT_VIEWS_POINT} from "./component-views";
 export type {ComponentViewDeclaration} from "./component-views";
@@ -138,6 +138,8 @@ const methods = {
             filter: Type.Optional(Type.Object({
                 chapter: Type.Optional(Type.String()),
                 entry: Type.Optional(Type.String()),
+                /** 只列有改动落在这个命名空间下的；给了 `entry` 时只算这个条目上的改动（project.md 方法表 `changes`）。 */
+                namespace: Type.Optional(Type.String()),
                 line: Type.Optional(Type.String()),
                 kind: Type.Optional(Type.Union([Type.Literal("written"), Type.Literal("plan")])),
                 status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("held"), Type.Literal("undone")])),

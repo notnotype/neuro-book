@@ -1,9 +1,9 @@
 import type {PluginDescriptor} from "nbook/manifest";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 
-import {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT} from "nbook/plugins/canon/shared/contracts";
+import {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_ENTRY_KINDS_POINT, CANON_MARKS_POINT, PERSON_MAIN_PRESET} from "nbook/plugins/canon/shared/contracts";
 
-import {PLOT_COMPONENTS, PLOT_DIAGNOSTICS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
+import {COMPONENT_IDS, ENTRY_TYPES, PLOT_COMPONENTS, PLOT_DIAGNOSTICS, PLOT_MARKS, PLOT_PLUGIN_ID} from "./shared/declarations";
 
 /**
  * 剧情插件（docs/specs/plot/）：知识点与知情、伏笔、角色的目标与态度、决策的守卫、写作指示与写完以后的检查，建在世界引擎的
@@ -18,5 +18,7 @@ export const descriptor: PluginDescriptor = {
         ...PLOT_COMPONENTS.map(({id, ...declaration}) => ({capability: CANON_COMPONENTS_POINT, id, declaration})),
         ...PLOT_MARKS.map(({id, ...declaration}) => ({capability: CANON_MARKS_POINT, id, declaration})),
         ...PLOT_DIAGNOSTICS.map(({id, ...declaration}) => ({capability: CANON_DIAGNOSTICS_POINT, id, declaration})),
+        // 人物的“主要角色”预设（设定插件内置的，author-ui.md 输入一节）里追加剧情的两组：知道什么、目标与态度。
+        {capability: CANON_ENTRY_KINDS_POINT, id: `${PLOT_PLUGIN_ID}.person`, declaration: {kind: ENTRY_TYPES.person, presets: [{id: PERSON_MAIN_PRESET, components: [COMPONENT_IDS.knowing, COMPONENT_IDS.attitude]}]}},
     ],
 };

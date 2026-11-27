@@ -1,229 +1,256 @@
-# 设计：Agent 操作 NeuroBook 界面（第二稿）
+# 设计：Agent 看懂并引导 NeuroBook 界面（第四稿，第一批，实验后修订）
 
 ## 依据
 
-- Work 的“已定的事”：[README](../../README.md)；来源 [w00032 t16](../../../w00032-agent-integration/tasks/t16-command-bridge/README.md) 的决定 2 到 14。本 Task 的决定 1 到 9 见 [Task README](README.md)。
-- eval 与全局对象：[`agent/eval.md`](../../../../../docs/specs/agent/eval.md)、[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md) 的 `agent.evalObjects`（输出 24、25）；远程服务：[`runtime/plugin-channel.md`](../../../../../docs/specs/runtime/plugin-channel.md)。
+- Work 的“已定的事”：[README](../../README.md)；来源 [w00032 t16](../../../w00032-agent-integration/tasks/t16-command-bridge/README.md) 的决定 2 到 14。本 Task 的决定 1 到 19 见 [Task README](README.md)。
+- eval 与全局对象：[`agent/eval.md`](../../../../../docs/specs/agent/eval.md)、[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md)（输出 24、25）、[`agent/permissions.md`](../../../../../docs/specs/agent/permissions.md)（输出 24、25）；远程服务与订阅：[`runtime/plugin-channel.md`](../../../../../docs/specs/runtime/plugin-channel.md)（输出 7、8）。
 - 调研：[宿主操作](../../../w00032-agent-integration/research/2026-10-30-host-control-survey.md)、[浏览器 Agent](../../../w00034-browser-use/research/2026-11-19-browser-agents-survey.md)。
-- 第一稿经三位审查者审过（Opus、omp、Sonnet，共 62 条），本稿按[处理记录](evidences/design-review-disposition.txt)改；文中“（处理记录 N）”指那里的第 N 条。
+- 审查：第一轮[处理记录](evidences/design-review-disposition.txt)，第二轮[处理记录](evidences/design-review-r2-disposition.txt)。第二批另开 [t02](../t02-ui-actions/README.md)（决定 18）。
+- 开工前的实验（2026-11-26，三个子代理，实测为主）：[快照、层与界面目录](evidences/experiments-snapshot-layers-catalog.txt)、[截图、说明框、点击事件与 CSP](evidences/experiments-capture-callout-clicks-csp.txt)、[订阅](evidences/experiments-subscription.txt)。本稿按实验结论改过，文中“（实验）”指这三份。
 
 ## 现状里要用到的事实
 
-- 服务端插件按窗口的实例 id 调用浏览器端登记的远程服务（`use(合同).at({client: 实例 id})`），命令系统的 `nbook.commands/remote` 就是这样做的。但服务端插件自己调 `context.remote.instances()` 现在得 `target-gone`（路由只答窗口发来的查询），与通道 Spec 输出 8 不符，要先补。
-- 服务端没有“当前窗口”，也不知道哪个窗口在显示哪个会话；窗口的公开状态只在本窗口读得到。
-- 远程服务单条消息至多 1 MiB，超过就断开整条连接；二进制按通道 Spec 走 HTTP。插件可以登记自己的 `PUT` 路由收原始字节（主题素材的上传是先例）。
-- 通道 Spec 不把“等用户”的长交互挂在一次调用上。
-- eval 全局对象：对象与方法必须属于同一个插件；方法收一个对象参数；`effect` 只有 `read`、`write`、`exec`。工具的处理函数拿得到会话 id、作品、是否后台运行，拿不到窗口。eval 本身是 `exec` 档，它的询问不能记；缺省审批模式是询问。业务失败交回代码时只剩码与文字。对象文档在插件激活时按全部声明生成一次。
-- eval 单元缺省 30 秒、模型可设到 3600 秒；只有等用户应答的时间不计入。
-- 应用里没有一处检查 `isTrusted`；nb-ui 的模态（reka）打开时把 body 设成 `pointer-events: none`、把其余部分设成 `aria-hidden`，DOM 上没有统一的 `aria-modal`。工作台的标题动作在指针不在时 `opacity: 0`。资源管理器的树是虚拟列表。
-- 对话视图的停止按钮调 `abort({sessionId, runId?, keepQueue})`。
+- 服务端插件按窗口的实例 id 调用浏览器端登记的远程服务（`use(合同).at({client: 实例 id})`），也能向窗口发起订阅（合同 `provider: "client"`、`callers: ["server"]`）；提供方只能推事件，结束订阅由订阅方 `release()`（实验）。
+- 内核的两处缺口（实验实测，都与通道 Spec 不符，都是“服务端节点自己作调用方、上游是路由”时漏掉的路径）：服务端插件调 `context.remote.instances()` 得 `target-gone`（输出 8）；窗口断开时，服务端发起的订阅收不到任何结束通知，句柄一直挂着（输出 7）。
+- 远程消息单条至多 1 MiB（按 UTF-8 字节、整帧），超了断开整条连接；二进制走插件自己的 HTTP 路由（主题素材的 `PUT` 上传是先例）。
+- eval 全局对象：对象与方法属于同一个插件；方法收一个对象参数；`effect` 只有 `read`、`write`、`exec`；嵌套调用有 `shared`、`exclusive` 两种并发档。工具处理函数拿得到会话 id、作品、是否后台运行，拿不到窗口。业务失败交回代码时只剩码与文字。eval 的审批两层（决定 13）。
+- 窗口里能读到的界面声明（实验）：命令服务 `list()` 给全部命令（标题、分类、快捷键、`human`、参数 schema），`isEnabled()` 给此刻能不能用，命令面板就是这样筛候选的；设置窗口的数据源 `sections()`、`settings()` 正好是全部分节与设置项，但标为“不是公开接口”；视图有声明，视图此刻在哪里没有任何对外出口。
+- 页面上已有的标识（实验，“改主题”逐步实点核过）：标题栏动作 `data-title-action`（命令 id）；活动栏的设置项 `data-activity-item`（打开设置窗口）；视图容器入口 `data-tool-view`（视图 id，例如资源管理器的入口在活动栏上叫“项目”）；设置窗口的层切换是 `data-settings-tabs` 里 `role=radio` 的按钮，`data-value` 为 `user` 或 `project`；节 `data-settings-nav`；行 `data-settings-row`（设置键）。外观一节是 `nbook.appearance`，主题是 `nbook.workbench/theme`，自动保存是 `nbook.editor/autoSave`；`nbook.settings.open({section, layer, focus})` 能直接打开到某层某节。
+- 规模（实验）：命令 132 条（人可用 126）、设置 72 项、分节 18 个、视图 8 个、标题动作 9 个；全部压紧成目录约 4,300 token。
+- 层（实验）：没有任何弹层写 `aria-modal`。删除确认与命令面板是真模态（遮罩、body `pointer-events: none`、其余部分 `aria-hidden`）；设置窗口不是模态，下面照样能点；右键菜单与下拉不挡指针，点外面会穿过去并关掉它们。弹层都挂在 body 的直接子元素下，角色都可认（dialog、alertdialog、menu、listbox）。
+- 标题动作的“悬停才出现”是祖先 `[data-hover-actions]` 的 `opacity: 0`，按钮本身不透明，此时仍可点（实验）。
 
-## 第一版范围
+## 范围
 
-| 批 | 内容 |
-|---|---|
-| 一 | 快照与引用、截图、高亮（含等用户点击）、目标窗口与租约、控件的名字、安全区与私有投影；以及下面“要先补的上游”整节 |
-| 二 | 点击、填写、按键、选择、勾选、滚动、悬停、等待；Agent 光标、提示条与停止按钮；后果大的动作要确认 |
+第一批：快照与引用、界面目录、截图、引导；以及“要先补的上游”。
 
-不做：指针与拖动、触摸；命令绑定与通用命令；页面内执行任意脚本；iframe 内部；设置的读写与窗口状态的只读面。
+不做：一切会改数据的动作（[t02](../t02-ui-actions/README.md)）；指针与拖动；命令绑定；页面内执行任意脚本；iframe 内部；设置的读写与窗口状态的只读面；安全区与私有投影（决定 10）；可复用的引导脚本（以后另开 Task）；菜单里的命令进目录（决定 19）。
 
 ## 结构
 
 ```
 packages/nb-page-agent/        核心包（纯 TS，不依赖应用、nb-ui 与 Vue）
   src/api/     业务 schema：方法的参数、返回、失败码（TypeBox，没有 DOM）
-  src/         页面内引擎：私有投影、快照、引用、定位、动作、截图、高亮、光标
-  src/attrs.ts nbTarget(name, key?) 帮助函数，返回 data-nb-* 属性对象
+  src/         页面内引擎：快照、引用、定位、截图、高亮与说明框
+  src/attrs.ts nbTarget(name, key?)：只返回 data-nb-* 属性对象的纯函数，独立入口 ./attrs
   e2e/         自带夹具页，Playwright 在真实 Chromium 里跑
 packages/neuro-book/src/plugins/page-agent/   内置插件 nbook.page-agent
-  shared/      窗口合同 nbook.page-agent/window（callers: server）与回报合同 nbook.page-agent/host（callers: client）
-  backend/     全局对象 ui 与方法工具；按会话的选窗口表；截图上传路由；高亮的等待登记
-  web/         每个窗口里起引擎、实现窗口合同；提示条与停止按钮（经 workbench.overlays，用 nb-ui 组件）
+  shared/      窗口合同 nbook.page-agent/window（provider client，callers ["server"]）
+  backend/     全局对象 ui 与方法工具；选窗口；截图的上传路由
+  web/         每个窗口里起引擎、实现窗口合同、拼界面目录、给引擎标识映射表
 ```
 
-- 引擎第一次被调用时才动态加载。引擎只读 DOM，以后 w00034 经 CDP 把它注入外部网页。
-- 业务 schema 是唯一来源：从它派生模型看到的参数与返回（eval 文档）、远程合同的对象形状输入与读写声明、失败码映射；不各写一份。
+- 引擎第一次被调用时才动态加载；只读 DOM，以后 w00034 经 CDP 注入外部网页（实验：严格 CSP 下 shadow root、`adoptedStyleSheets`、`popover` 都可用，`<style>` 元素与 `style` 属性被拦，样式一律走 `adoptedStyleSheets` 或 CSSOM）。界面目录与标识映射表只在插件的 `web/` 里。
+- 业务 schema 是唯一来源：从它派生 eval 文档里的签名、远程合同的对象形状输入与读写声明、失败码映射。
 
 ## 给模型的接口：全局对象 `ui`
 
-| 方法 | 批 | 审批档 | 做什么 |
-|---|---|---|---|
-| `ui.snapshot({scope?, includeText?, maxTokens?})` | 一 | read | 当前窗口的文字快照 |
-| `ui.screenshot({of?, annotate?})` | 一 | exec | 截当前窗口或某个控件，图附在结果里 |
-| `ui.highlight({…定位, message, title?, side?, until?, timeout?})` | 一 | read | 高亮一个控件并写说明；`until: "click"` 等用户真的点了它 |
-| `ui.clearHighlight({})` | 一 | read | 去掉高亮 |
-| `ui.click`、`ui.fill`、`ui.press`、`ui.selectOption`、`ui.check` | 二 | write | 动作；目标标了要确认的，带 `confirm: true` 时这一次按 exec 审批 |
-| `ui.scroll`、`ui.hover`、`ui.waitFor` | 二 | read | 不改数据的动作与等待 |
+| 方法 | 审批档 | 做什么 |
+|---|---|---|
+| `ui.snapshot({scope?, includeText?, maxTokens?})` | read | 当前窗口的文字快照 |
+| `ui.find({query, kind?, limit?})` | read | 在界面目录里找设置、视图、命令，交回标识与路径 |
+| `ui.screenshot({of?, annotate?})` | exec | 截当前窗口或某个控件，图附在结果里 |
+| `ui.highlight({…定位, message, title?, side?, until, step?, total?, timeout?})` | read | 高亮一个控件、写说明，等用户点它或点“下一步” |
 
-**定位**是一个扁平对象，字段都可选，运行时校验恰好给一种主定位：`ref`；`target` 加可选 `key`（稳定名）；`command`（控件绑定的命令 id）；`role` 加 `name`；`text`（可见文字，最后手段）。另有 `exact`、`nth` 与 `within`（只收引用或稳定名，缺省取容器声明的“当前活动的那一个”）。名字与文字缺省不分大小写、折叠空白的子串匹配，`exact: true` 时精确匹配；命中多个又没给 `nth` 时得 `ambiguous`，候选放进失败的 `details`。
+- 方法都声明 `shared` 并发档：高亮的等待不挡同一段代码里别的 `ui` 调用。
+- `ui` 与 eval 一样作主创与临时帮手的可选工具，不进任何 Profile 的 `required`，bot 的 Profile 不带；Profile 页按对象一行开关。后台会话拿不到 `ui`。
 
-**引用**形如 `a3.12`：前段是这次页面加载的短前缀，后段是窗口里单调发的号。发号时存下元素的身份（角色、主名、稳定名、key、命令、所在层），每次使用先重算核对：前缀不是本次加载的、或身份变了，按“不在了”处理。动作一律不重找，得 `stale-ref` 并附当前候选；只读的方法可在同一层内、稳定名与 key 都相同时重找，结果标 `rebound`。
+### 定位
 
-**快照**交回文本树与元素数组：
+扁平对象，字段都可选，运行时校验恰好给一种主定位：`ref`；`target` 加可选 `key`（稳定名）；`command`（命令 id）；`role` 加 `name`；`text`（可见文字，最后手段）。另有 `exact`、`nth` 与 `within`（引用或稳定名）。名字与文字缺省不分大小写、折叠空白的子串匹配，`exact: true` 时精确；命中多个又没给 `nth` 时得 `ambiguous`，候选放进失败的 `details`。目标不是可交互元素时，落到它唯一的可交互后代。
+
+稳定名有两个来源：手写的 `data-nb-target` 与 `data-nb-key`；以及插件给引擎的标识映射表，把现有标记翻成稳定名或命令 id，不另起一套：
+
+| 现有标记 | 翻成 |
+|---|---|
+| `data-title-action` | 命令 id |
+| `data-activity-item` | `workbench.activity` 加项 id |
+| `data-tool-view` | `workbench.view` 加视图 id |
+| `data-settings-tabs` 里 `role=radio` 的 `data-value` | `settings.layer` 加 `user` 或 `project` |
+| `data-settings-nav` | `settings.section` 加节 id |
+| `data-settings-row` | `settings.row` 加设置键 |
+
+### 引用
+
+形如 `a3.12`：前段是这次页面加载的短前缀，后段是窗口里单调发的号。发号时存下元素的身份（角色、主名、稳定名、key、命令、所在层），每次使用先重算核对；前缀不对或身份变了，按“不在了”处理。只读的方法可在同一层内、稳定名与 key 都相同时重找，结果标 `rebound`；否则得 `stale-ref` 并附当前候选。
+
+### 快照
+
+交回文本树与元素数组：
 
 ```
 window a3 "NeuroBook" /project/雾港  1440x900  focused
-layers: base(blocked) > dialog "新建文件"
-- dialog "新建文件"
-  - textbox "文件名" [a3.40 focused value="第三章.md"]
-  - button "确认" [a3.41]
-  - button "取消" [a3.42]
+layers: base > dialog "设置"
+- dialog "设置"
+  - radio "用户" [a3.40 checked target=settings.layer key=user]
+  - link "外观" [a3.41 target=settings.section key=nbook.appearance]
+  - combobox "主题" [a3.42 target=settings.row key=nbook.workbench/theme value="NeuroBook"]
+- region "项目" …
 ```
 
-- **看得见**：沿祖先链取有效不透明度、`visibility`、`display`、被裁成零面积；不透明度很低的（悬停才出现的动作）标 `faint`，仍可定位，高亮与动作前先聚焦让它出现。`aria-hidden`、`inert` 的不列。
-- **层**由命中检查反推，层根按 dialog、alertdialog、menu、listbox 等角色认；被上层挡住的层只写名字。命中到 html 或 body 且页面禁了指针时，结果点名说明。
-- **列表**：列表类容器写一行摘要（总数、已渲染范围、可滚动），行上带位置；视口外多渲染的行折叠成一行。没渲染的行定位不到时得 `not-found`，文档提示先用定位命令或搜索。
-- **名字**：内容命名的角色（树行、标签、菜单项）另算主名，跳过状态标记（`role=img` 的已修改、冲突等）；快照写主名。
-- **预算**按估算 token（缺省约 2000），超了按“最上层 > 焦点所在区域 > 其余”截断，并写明能用 `scope`（引用或稳定名）缩小到哪些区域。
+- **看得见**：沿祖先链累乘不透明度，并看 `visibility`、`display`、被裁成零面积；不透明度很低的（悬停才出现的动作）标 `faint`，仍可定位。`aria-hidden`、`inert` 的不列。
+- **能不能点**：在元素可点区域的中心做命中检查，被盖住时退到四角，给出能点的那一点（第二批的动作就点这一点）；分清“被别的元素盖住”与“滚出了滚动容器”（后者标 `offscreen`，不算被挡）。
+- **层**：按角色认层根（dialog、alertdialog、menu、listbox），层与层的先后、底层是否被挡都由命中检查判断，不按角色推断（设置窗口不是模态，下面照样可点）。完全被挡的层只写名字；页面禁了指针时结果点名说明。
+- **列表**：列表类容器写一行摘要（总数、已渲染范围、可滚动），行上带位置；滚出视口、多渲染的行由命中检查排除。
+- **名字**：内容命名的角色（树行、标签、菜单项）另算主名，跳过状态标记；快照写主名。
+- **预算**按估算 token，缺省 3000、至多 8000（实验：常见状态 900 到 2000，设置窗口打开时约 2000），超了按“最上层 > 焦点所在区域 > 其余”截断，并写明能用 `scope`（引用或稳定名）缩小到哪些区域。
 - **转义**：名字与值按 JSON 字符串转义（含换行、控制字符、双向控制字符），先截断再转义。
-- **不列**：安全区（含 Agent 自己的对话视图）、引擎自己的节点。
+- **不列**：Agent 自己的对话视图（`data-nb-agent="skip"`；实验：空会话就占快照的 9% 到 21%）、引擎自己的节点。密码框的值不输出。
+- **大小**：窗口回复前量 UTF-8 字节：文字至多 64 KB、元素至多 500 个、`details` 至多 8 KB，超了截断并标记。耗时预算：工作台快照 50 毫秒以内（实验 12 到 26 毫秒）。
 
-**动作**（第二批）：
-- 事件字段写全：`pointerType: "mouse"`、`pointerId: 1`、`isPrimary: true`、`button`、`buttons`、`view`，坐标取命中检查通过的那一点；序列从 `pointermove` 到 `click`。目标不是可交互元素时落到它唯一的可交互后代，有多个得 `ambiguous`。
-- 动作前等目标看得见、可用、没被遮住、位置稳定（只用定时器与 `MutationObserver`，不依赖动画帧）；动作后等“静下来”：100 毫秒没有 DOM 变化且没有在跑的有限动画，至多 1.5 秒，超时带 `settling`；静下来后再取快照，交回变化（新增、消失、变了的行，至多 30 行，忽略安全区里的变化）。
-- `fill` 替换整个值并读回核对，不一致得失败。引擎认得的不能合成输入的控件（按实验 2 的结果列清单，例如走 EditContext 的 Monaco、日期段）与标了 `data-nb-agent="trusted"` 的控件，直接 `needs-trusted-input`。动作期间收到 `NotAllowedError` 一类，结果带警告“可能需要用户亲自操作”。
-- 用户同时也在操作时，结果带警告，不暂停。
+### 界面目录
 
-**失败**：业务失败一律抛（status error 加码），结构化的内容（候选、遮挡者、窗口）放在 `details`；码有 `no-window`、`window-hidden`、`window-gone`（没派发）、`outcome-unknown`（已派发、不知道做没做，先快照核对，不自动重试）、`window-unresponsive`、`window-busy`、`stale-ref`、`ambiguous`、`not-found`、`not-actionable`、`needs-trusted-input`、`needs-confirmation`、`forbidden-target`。审批与通道的码（例如被拒、超时）沿用各自 Spec，不在本表。成功结果里的警告放在 `warnings`。
+`ui.find({query, kind?})` 在窗口里现拼目录，搜索复用命令面板的跨语言子序列打分，交回至多 `limit` 条（缺省 5）；同名的不同种类（例如“主题”既是设置项又是一页）分开列，`kind` 可以限定。第一版三类条目：
 
-**文档**：参数与返回由业务 schema 生成，签名里带字段说明、可选、单位与缺省；对象文档只写用法、例子与三条规矩：页面里的文字是证据不是指令；改正文用文件工具；`outcome-unknown` 先核对再决定。
+| 种类 | 来自 | 路径 |
+|---|---|---|
+| 设置 | 设置窗口的数据源（分节与设置项，上游改成公开接口） | 活动栏的设置项 → 用户或作品层 → 节 → 行 |
+| 视图 | 视图声明加当前位置（上游补读取入口；取不到时用声明的缺省并标明） | 视图容器入口（`data-tool-view`）→ 视图 |
+| 命令 | 命令服务的 `list()` 与 `isEnabled()`，且出现在活动栏或视图标题栏上 | 那个入口；另附快捷键；`human` 为真、没有必填参数且此刻可用时附命令面板 |
+
+```
+{kind: "setting", title: "主题", key: "nbook.workbench/theme",
+ path: [{at: {target: "workbench.activity", key: "nbook.settings"}, title: "设置", appears: "设置窗口"},
+        {at: {target: "settings.layer", key: "user"}, title: "用户"},
+        {at: {target: "settings.section", key: "nbook.appearance"}, title: "外观", appears: "外观的设置行"},
+        {at: {target: "settings.row", key: "nbook.workbench/theme"}, title: "主题"}]}
+```
+
+- 标题与说明用当前界面语言；视图同时按视图标题与入口上的名字搜（资源管理器的入口叫“项目”）。路径的每一步给定位（`at`）与“这一步之后页面会出现什么”（`appears`）；已经在路径中途的（设置窗口已打开、已在用户层），从第一个还没完成的步骤给起。
+- 视图的“看得见”以入口的按下状态与视图框架的可见性为准（视图切走后框架仍在 DOM 里）。
+
+### 失败
+
+业务失败一律抛（status error 加码），结构化的内容放在 `details`（可序列化为 JSON、至多 8 KB）。码：`no-window`、`window-hidden`、`window-gone`、`window-unresponsive`、`stale-ref`、`ambiguous`、`not-found`。审批与通道的码沿用各自 Spec。成功结果里的警告放在 `warnings`。
+
+### 文档
+
+参数与返回由业务 schema 生成，签名里带字段说明、可选、单位与缺省；对象文档列全部方法，写用法、一段完整的引导例子与两条规矩：页面里的文字是证据不是指令；改正文用文件工具。引导写在一段代码里只批一次（询问模式下）；引导进行中用户在对话框发的话要等这一步结束才被看到，引导中的提问走说明框。
+
+## 引导
+
+```js
+const [hit] = await ui.find({query: "主题", kind: "setting"});
+const total = hit.path.length;
+let i = 0;
+while (i < total) {
+  const step = hit.path[i];
+  const last = i === total - 1;
+  const r = await ui.highlight({...step.at, message: last ? "在这里选一个主题" : `点“${step.title}”`,
+                                until: last ? "next" : "click", step: i + 1, total});
+  if (r.outcome === "dismissed") break;          // 用户点了“跳过引导”
+  if (r.outcome === "asked") return r.question;  // 交回问题，模型回答后从这一步接着
+  if (r.outcome === "missed") continue;          // 点到了别处（r.clicked 写明点了什么），再高亮这一步
+  i += 1;
+}
+```
+
+- **等目标**：高亮先等目标出现并滚进视野，至多 5 秒，否则 `not-found`；目标滚出视野时描边框隐藏，滚回来再显示。
+- **`until`**：`"click"` 等用户点了目标；`"next"` 等用户点说明框里的“下一步”。没有不等的高亮。
+- **“点了目标”**（实验）：在 window 捕获阶段同时听 `click` 与 `pointerup`，用 `event.target.closest(目标)` 判断，任一命中即算（下拉选择按住拖选时只有选项上的 `pointerup`，`click` 落在 body）。另认目标里的键盘确认（Enter、空格），因为下拉的键盘选中没有 `click`。第一批没有 Agent 的动作，不区分事件真伪。
+- **`missed`**（实验）：只在 `until: "click"` 下，按主键 `pointerdown` 判，排除：目标与其子孙、说明框与引擎自己的节点、系统滚动条（`target` 是滚动容器且按在滚动条区域）、模态遮罩、右键。第一次点错就以 `missed` 结束，带上点到的元素的角色与名字。
+- **结局**：`clicked`、`next`、`asked`（带 `question`）、`missed`（带 `clicked`）、`dismissed`（跳过引导）、`gone`（目标消失）、`replaced`（同一窗口有新的高亮）、`timeout`、`window-gone`（窗口断开或刷新）、`cancelled`（eval 停止或单元超时）。调用结束时高亮一定撤掉。
+- **说明框**：自写（决定 11）。跟随目标的描边框加说明框；说明框里有标题与说明、进度、“下一步”（`until: "next"`）、“跳过引导”与一个小的“提问”输入。说明只作纯文本。不压暗页面、不改页面元素的样式。
+- **挂在哪里**（实验）：说明框是一个 `popover="manual"` 的元素，挂进当前最上层弹层的 DOM 子树里。挂在 body 下时，一按说明框，命令面板与下拉菜单就关，带焦点圈定的面板会把“提问”的输入抢回去；挂进弹层子树后两者都正常。`popover` 进顶层，不被小弹层的 `overflow: hidden` 裁掉，也不受弹层入场缩放的坐标影响（实验 2 里不进顶层时最大偏差约 27 像素）；没有弹层时挂在 body 下。
+- **不抢焦点**：说明框出现本身不改焦点与选区；“下一步”“跳过”在 `pointerdown`、`mousedown` 上取消默认，点了也不抢焦点；用户点进“提问”输入框打字后，说明框撤掉时把焦点还给原来的元素。
+- **跟随**：`ResizeObserver`、捕获阶段的滚动、DOM 变化触发重算；有动画在跑时（`getAnimations`）逐帧重算到没有运行中的动画为止（实验：只靠事件在入场动效里最多滞后约 25 像素；逐帧重算偏差 0）。
+- **悬停才出现的目标**：工作台的悬停样式加一个“Agent 指着这里时也显示”的属性，高亮期间加到目标所在的 `[data-hover-actions]` 上；不聚焦目标。
+- 同一窗口同时一个高亮，新的替换旧的（旧的得 `replaced`）。层级登记进 nb-ui 层级表的例外；减弱动效时没有过渡。说明框的外观先出静态稿。
+
+**等待的机制**：高亮是服务端向窗口的一次订阅。订阅开始时窗口装上高亮，用户动作或到时后推一条结局，服务端收到即 `release()`；服务端 `release()`（eval 停止、单元超时）时窗口撤掉高亮。窗口断开或刷新时，订阅以 `target-gone` 结束（要先补内核的缺口，见“要先补的上游”），结局是 `window-gone`；短暂断线同样结束这一步，不做重连后重建，模型重新高亮这一步即可。`timeout` 缺省 300 秒、至多 3600 秒。nb-harness 给嵌套调用一个“正在等用户”的标记，从窗口确认装上开始、结算即收回，随调用取消自动收回；连接、装载、查找与清理照常计时。eval 按整个单元暂停计时，等待期间并发跑的别的代码也不计时，上限是高亮自己的 `timeout`，接受这一取舍。
 
 ## 目标窗口
 
-每个会话一份选择，由插件后端一张以会话 id 为键的表持有，所有 `ui` 方法共用；子会话继承父会话选中的窗口。
-
-**选窗口**（没有选中、或选中的已断开时）：列出提供了窗口合同的客户端实例，并发问 `info()`（有没有焦点、看不看得见、最近一次真实输入的时刻、正显示着哪些会话），每个 800 毫秒超时，按下表取第一个：
+每次 `ui` 调用按下表选窗口，取第一个：
 
 | 次序 | 条件 |
 |---|---|
-| 1 | 显示着本会话，且有焦点 |
-| 2 | 显示着本会话，且看得见 |
-| 3 | 有焦点 |
-| 4 | 看得见，最近有真实输入的在前 |
+| 1 | 这个会话上次用的窗口：还连着、看得见、2 分钟内用过 |
+| 2 | 有焦点的窗口 |
+| 3 | 看得见、最近有真实输入的窗口 |
 
-都不满足得 `no-window`；目录查询本身失败得 `window-unresponsive`，不当成“没有窗口”。t16 决定 2 设想由窗口上报焦点，这里改为调用时拉取：服务端不用维护一份会过期的登记，窗口数通常 1 到 3 个。
+- 候选是提供了窗口合同的客户端实例；第 2、3 档并发问 `info()`（有没有焦点、看不看得见、最近一次真实输入的时刻），每个 800 毫秒超时；第 1 档只问那一个窗口。用户切到另一个窗口时，只要上次那个还看得见、2 分钟内用过就不跟过去（决定 3）；它转后台就按第 2、3 档重选。
+- “上次用的窗口”记在插件后端一张以会话 id 为键的小表里（有条数上限，最久没用的先丢）；子会话按同一规则自己选，不继承。
+- 都不满足得 `no-window`；目录查询本身失败得 `window-unresponsive`，不当成“没有窗口”。后台会话拿不到 `ui`。
+- 窗口调用的时限：快照与目录 3 秒，截图 15 秒，到时得 `window-unresponsive`。
+- 同一窗口两个会话同时引导时，后一个替换前一个；第一批没有会改数据的动作，不做租约。
 
-**粘住**：选中后一直用它，直到断开或这个会话 2 分钟没调 `ui`；期间只问那一个窗口，可见性与焦点随每次结果带回。粘住的窗口转后台时，读照做，动作、截图、高亮得 `window-hidden`，不改选别的窗口，等用户切回（决定 3）。
-
-**超时**：读 3 秒、动作 10 秒，到时得 `window-unresponsive`；高亮的等待另算（见“高亮”）。
-
-**租约**（第一批就有，因为高亮有状态）：窗口里一份，绑定 `{sessionId, runId}`；同一次运行续租，运行结束或 2 分钟没调用才放开；别的会话来调得 `window-busy`。窗口每次执行前在同一个同步步骤里核对租约与调用身份。
-
-**各种变化下的状态**：
-
-| 情形 | 选中的窗口 | 引用 | 租约与高亮 |
+| 情形 | 上次用的窗口 | 引用 | 高亮 |
 |---|---|---|---|
-| 断线后同一实例重连 | 保留 | 仍有效 | 保留 |
-| 窗口刷新（新实例） | 重选 | 前缀不符，`stale-ref` | 随页面消失 |
-| 会话回退、fork、换 Profile | fork 出的会话重选；其余保留 | 仍有效 | 运行结束即放开 |
-| 会话关闭 | 删除（重复清理无害） | — | 放开 |
-| 服务端重启 | 表清空，重选 | 窗口都会重载 | 随页面消失 |
+| 断线（同一实例之后重连） | 重连后仍可用 | 仍有效 | 订阅以 `target-gone` 结束，`window-gone` |
+| 窗口刷新（新实例） | 重选 | 前缀不符，`stale-ref` | 同上 |
+| 窗口转后台 | 重选 | 仍属于那个窗口 | 高亮期间转后台不结束，等用户回来 |
+| 服务端重启 | 表清空 | 窗口重连后前缀不变的仍有效 | 服务端那边随进程结束；窗口那边订阅被取消，高亮撤掉 |
 
-**后台会话**不能用 `ui`：上游给工具加“只给有用户在看的会话”的标记，后台会话的工具表与 eval 对象里都没有它，不靠审批模式推出。
+窗口合同的每个方法声明 read，输出 schema 写字节、长度与条数上限。信任边界是现有拓扑的“本机插件都受信、只有一个使用主体”。
 
 ## 截图
 
-- **审批**：`exec` 档，判定对象 `{kind: "screen", value: of ?? "window"}`。批准的含义是“截你正在用的那个窗口”：执行时只截粘住的窗口，它转后台就不截；结果写明截的是哪个窗口。“本会话都允许”与“以后都允许”沿用现有记忆，后者对之后所有会话的截图生效。
-- **传输**：服务端为这次调用签发一次性上传凭证（绑定调用与窗口，30 秒有效）；窗口在重画时排除私有内容，缩到长边至多 1280 像素，编码成 JPEG 或 WebP，至多 512 KB，经插件的 `PUT` 路由上传；服务端校验类型、尺寸与字节后交给模型。远程调用只交小结果；取消、断线、超限时凭证作废。
-- **保存**：截图作为工具结果存进会话日志，是会话的持久数据：归档不删，fork 会复制；删除等会话删除的合同。
+- **审批**：`exec` 档，判定对象 `{kind: "screen", value: of === undefined ? "window" : "element"}`。在 eval 里调用时是第二层的一次询问，可选“本会话都允许”“以后都允许”（后者对之后所有会话的截图生效）。批准的含义是“截你正在用的那个窗口”，结果写明截的是哪个窗口。
+- **重画**：用 snapdom（实验：1440×900 一张 0.3 到 0.6 秒，首次 1.4 到 2.7 秒；版面、弹层、背景模糊都对；自绘滚动条变成系统滚动条、悬停态丢失、小字抗锯齿差一两像素）。缩到长边至多 1280 像素，编码成 WebP（实验约 50 KB），浏览器不支持时用 JPEG 质量 0.8（约 85 KB），至多 512 KB。
+- **传输与提交点**：服务端先签一次性上传凭证（绑定这次调用与窗口），再调窗口的 `capture`（15 秒）；窗口重画、编码、经插件的 `PUT` 路由上传，上传完成后 `capture` 才返回。服务端以“凭证对应的上传已收到且 `capture` 成功”为提交点，二者缺一则作废并失败；只有提交后的图进工具结果。路由检查来源、类型、尺寸与字节。
+- **保存**：截图存进会话日志，是会话的持久数据：归档不删，fork 会复制；删除等会话删除的合同。
 - DOM 重画是近似，不是屏幕像素；以后桌面外壳给真实截图时换实现，接口不变。`annotate: true` 时在图上叠引用编号。
-
-## 高亮
-
-- **自写**，不用 driver.js（交开发者确认，见“待开发者定”）：一个跟随目标矩形的描边框（`ResizeObserver` 加捕获阶段的滚动监听），说明框用 `@floating-ui/dom` 定位。不压暗页面、不改页面元素的 class 与样式、不抢焦点（说明框里没有可聚焦的元素）；说明只作纯文本（`textContent`）。
-- 说明框固定带来源（Agent 标记与会话标题），和官方引导区分；安全区与私有控件不许高亮。
-- 同一窗口同时一个高亮，新的替换旧的。Esc：没有模态时去掉高亮；有模态时 Esc 照常归模态，目标随之消失则高亮以 `gone` 结束。
-- 层级登记进 nb-ui 层级表的例外，压住页面与模态，不压 Lab 检查框与桌面外框。减弱动效时没有过渡。
-- **等用户点击**：`highlight` 是一次短调用，装上后交回等待身份；用户点了目标（只认真实点击）、按 Esc、目标消失、被替换、到时，窗口经回报合同 `nbook.page-agent/host` 发一条“已结束”，服务端按身份结算，迟到的消息不结算后来的高亮。结局：`clicked`、`dismissed`、`gone`、`replaced`、`timeout`、`cancelled`。`timeout` 缺省 300 秒、至多 3600 秒。eval 停止或单元超时时服务端撤掉高亮。
-- **不计时**：nb-harness 给嵌套调用一个“正在等用户”的标记，从窗口确认装上开始、结算即收回，随调用取消自动收回；连接、装载、查找与清理照常计时。eval 现在按整个单元暂停计时，所以等待期间并发跑的别的代码也不计时；上限是高亮自己的 `timeout`，接受这一取舍。
-
-## 窗口里看得到什么
-
-- **Agent 光标**（第二批，核心里）：不接收任何事件；动作前移到目标、点击时有涟漪；移动用 Web Animations，减弱动效时直接到位。思路借 page-agent 的 `SimulatorMask`（MIT，保留版权声明）。
-- **提示条与停止按钮**（第二批，插件 `web/` 经 `workbench.overlays` 挂 nb-ui 组件）：Agent 在这个窗口操作时出现，写会话标题，带停止按钮；停止调 `abort({sessionId, runId, keepQueue: true})`，迟到的清理不撤下一次运行的提示条。模态打开时也点得到（显式 `pointer-events: auto`），有键盘路径，不遮标题栏控件。
-- 引擎自己的节点带统一标记，命中检查、快照与变化摘要都忽略它们。
-- 光标、提示条、高亮说明框的外观在实施前出静态稿给开发者看。
-
-## 安全区与不公开的内容
-
-**不变量**：Agent 的动作改变不了它自己的权限与身份。
-
-- **安全区** `data-nb-agent="never"` 按子树继承：区域里的控件不进快照与变化摘要、不能定位、不能高亮，动作得 `forbidden-target`。必须标的区域：审批与提问向导、模式与审批模式的选择、权限规则页、Profile 的工具绑定、对话输入框与发送、Agent 自己的对话视图、凭据输入。一条治理测试核对这些区域都标了。这些区域的处理函数另外只认 `isTrusted` 的事件，作网页下的第二道防线；以后桌面外壳的可信输入也经引擎，边界仍是引擎的检查。
-- **要确认** `data-nb-agent="confirm"`（第二批）：删除、清空一类后果大的控件。动作先得 `needs-confirmation`，模型带 `confirm: true` 重发，这一次按 exec 审批，审批卡写目标的名字。
-- **需要用户亲自操作** `data-nb-agent="trusted"`：动作直接 `needs-trusted-input`（例如复制按钮）。
-- **私有投影**：窗口里一层统一的过滤，快照、元素数组、名字计算、文字定位、候选、遮挡者、变化摘要、错误、截图与编号标注都从它取；私有子树不参与文字匹配与名字计算，值、文字、`title`、描述一律写 `[private]`，截图在重画时排除。缺省私有：`type=password`、`autocomplete` 为密码或一次性码、名字或 `name`、`id`、标签像凭据（与请求头编辑器现有的判断同一条规则）；`data-nb-private` 显式标记，`data-nb-private="false"` 才退出。
 
 ## 控件的名字
 
-不做 `v-nb-target` 指令（交开发者确认，见“待开发者定”）：指令在多根组件（Select、Dialog）上不生效；最该命名的控件（标题动作、菜单项、设置开关）由数据渲染，插件作者没有模板可写。名字分三层：
+不做 `v-nb-target` 指令（决定 14）：
 
 | 层 | 谁写 | 写什么 |
 |---|---|---|
-| 自动 | 渲染方 | 命令按钮与菜单项写 `data-nb-command`（命令 id）；设置行写 `data-nb-target="settings.row"` 与设置键作 key；对话框按标题 |
+| 自动 | 渲染方，已有的标记直接用 | 见“定位”里的映射表 |
 | 手写 | 插件作者，只给自动层覆盖不到的控件 | `data-nb-target` 与可选 `data-nb-key`，可用 `v-bind="nbTarget('explorer.row', file.address)"` |
-| 保护 | 插件作者，加兜底规则 | `data-nb-private`、`data-nb-agent` |
 
-- 稳定名是点分的小写段，第一段是所属插件或区域；列表项的 key 用业务身份，不用下标。
-- 唯一性只要求在最近的带 key 的容器里；容器可声明“当前活动的那一个”作 `within` 的缺省（例如编辑器分组）。
+- 稳定名是点分的小写段，第一段是所属插件或区域；列表项的 key 用业务身份，不用下标。唯一性只要求在最近的带 key 的容器里。
 - 开发构建里由引擎扫描 DOM 检查重复与不合规的名字，每个名字警告一次，重复数变化时再警告。
-- 引导与 Skill 优先引用命令 id；被引用的稳定名列进 Spec 的名字表，治理测试防悄悄改名。现有的 `data-explorer-*` 等 e2e 标记用途不同，不迁移。
+- 引导优先引用命令 id 与设置键；被引用的手写稳定名列进 Spec 的名字表，治理测试防悄悄改名。
 
 ## 技术选型
 
 | 问题 | 选用 | 理由 | 否决 |
 |---|---|---|---|
-| 角色与可访问名 | `dom-accessibility-api`（MIT）算名字；交互角色自维护小表 | 名字规则容易写错，用久经考验的库 | 照抄 Playwright 的 `roleUtils`（依赖其内部模块） |
-| 高亮 | 自写，说明框用 `@floating-ui/dom`（MIT） | driver.js 1.14 的焦点、HTML 说明、改页面样式与滚动容器、Esc 归属都与工作台冲突，当薄壳用剩下的只有定位 | driver.js |
-| 截图 | snapdom、html-to-image、modern-screenshot 按实验定 | 都是 MIT、DOM 重画；比失真、耗时、编码后大小与排除私有子树 | html2canvas；屏幕共享 |
-| 点击与输入 | 自写，事件序列参照 page-agent（MIT） | 要按 nb-ui、reka、Monaco 的实际行为调 | Testing Library 的 user-event |
-| 服务端到窗口 | 现有远程服务；二进制走插件的 `PUT` 路由 | 通道 Spec 的做法 | 自己开连接；截图塞进远程结果 |
+| 角色与可访问名 | `dom-accessibility-api`（MIT）算名字；交互角色自维护小表 | 名字规则容易写错，用久经考验的库 | 照抄 Playwright 的 `roleUtils` |
+| 高亮与说明框 | 自写，说明框用 `@floating-ui/dom`（MIT）定位，`popover="manual"` 进顶层 | 实验 2 的挂法与跟随都按自写的样机验过 | driver.js（决定 11） |
+| 截图 | snapdom（MIT） | 实验 1：快、保真、弹层正常 | modern-screenshot（慢 10 倍以上）；html-to-image（更慢，弹层整块缺失）；html2canvas；屏幕共享 |
+| 界面目录的搜索 | 复用命令面板的跨语言子序列打分 | 与用户在命令面板里搜到的一致 | 另写分词匹配 |
+| 等用户 | 远程服务的订阅（补上内核的缺口） | 取消即撤高亮，断开有确定的结局 | 另开回报合同加等待 id |
+| 截图传输 | 插件的 `PUT` 路由加一次性凭证 | 通道 Spec 的做法 | 截图塞进远程结果 |
 
 ## 要先补的上游
 
 | 模块 | 改什么 |
 |---|---|
-| nb-runtime | 服务端插件的 `instances()` 由路由本地回答（通道 Spec 输出 8），补用例 |
+| nb-runtime | 服务端插件的 `instances()` 由路由本地回答（通道 Spec 输出 8）；服务端发起的订阅在目标成员的链路关闭时以 `target-gone` 结束，与经路由转发的订阅一致（输出 7）；两处各补用例（实验 7 的复现脚本可作起点） |
 | nb-harness | 嵌套调用的“正在等用户”标记；工具的“只给有用户在看的会话”标记 |
-| `nbook.agent` | 失败时 `ToolCallError` 带 `details`；eval 文档签名打印字段说明、可选与缺省；对象文档与 eval 版本按会话的方法清单生成；审批、提问、模式、权限规则、工具绑定、输入框标安全区并只认真实输入 |
-| nb-ui 与工作台 | 菜单项把标识透传到 DOM；`TitleActions` 写命令 id；设置行写设置键 |
+| `nbook.agent` | 失败时 `ToolCallError` 带 `details`；eval 文档签名打印字段说明、可选与缺省；工具绑定支持按 eval 对象开关（存对象，之后新增的方法跟随），Profile 页显示成一行；对话视图标 `data-nb-agent="skip"` |
+| 工作台 | 视图当前位置的读取入口；悬停样式加“Agent 指着这里时也显示”的属性 |
+| 设置 | 设置窗口的数据源（全部分节与设置项）改成公开的读取接口 |
 
-`ui` 的方法与 eval 一样，作主创与临时帮手的可选工具，不用 `defaultForAll`，bot 的岗位 Profile 不带。
+## 实验之后还没验证的
 
-## 开工前的实验
+- 暗色主题下的说明框与截图（实验时不能改主题设置）。
+- 悬停才出现的目标加上“Agent 指着这里时也显示”的属性后的样子（要先有那条上游改动）。
+- 有对话内容时对话视图占快照的比例（样例作品里没法产生真实对话；它反正不列）。
+- 订阅在真实 Chrome 里刷新与关标签页时的表现（实验用的是进程内链路与真实 WebSocket，不是浏览器）。
 
-各半天左右，结果写进 Task 的证据：
-
-1. 点击：reka 的 Select、DropdownMenu、ContextMenu、Menubar 与 nb-ui 的 Tabs，比较只发 `click`、完整序列、缺 `isPrimary`、缺 `buttons`；需要用户激活的 API（剪贴板、`showPicker`）在合成点击下的表现。
-2. 输入：原生输入框、`v-model` 输入框、文本域、Tiptap、Monaco（EditContext 开与关）、日期段、组合框；方法有 value setter、`execCommand('insertText')`、`beforeinput`；判据是读回值、下游状态与撤销。
-3. 自写高亮的样机：Dialog、AlertDialog、Drawer、命令面板与下拉里，焦点与输入框选区不变；Esc；嵌套滚动跟随；亮暗主题；减弱动效。
-4. 截图库对比：失真、耗时、编码后大小、排除私有子树。
-5. 浮层的 shadow root 与 `adoptedStyleSheets` 在严格 CSP 的外部页面上是否生效（为 w00034）。
-6. 真实工作台的快照：字符数、估算 token、耗时；含虚拟树、拆组编辑器、悬停动作。
-7. 层：Dialog 套 Select、右键菜单、确认框、命令面板依次打开时的快照与期望对照。
+这几项在实施的对应切片里补测。
 
 ## 测试
 
-- 逻辑单测（bun）：定位校验、引用身份与前缀、私有投影、转义、变化摘要、稳定名规则、失败码与 `details`、业务 schema 派生的文档与远程合同。
-- 核心包的真实浏览器测试（Playwright，自带夹具页）：原生与 ARIA 控件、shadow root、遮挡层、嵌套滚动、密码框；以 index 为 key 的列表反序后旧引用得 `stale-ref`；名字里有引号、换行、双向控制字符时行数不变；说明文字里的标签原样显示、页面不多出元素；高亮只认真实点击、不抢焦点。
-- 真实组件场景：应用里一个 Lab 场景（nb-ui 的 Dialog 套 Select、右键菜单、确认框、虚拟树、悬停动作、拆组编辑器），核心与应用的测试共用；无障碍对照用 CDP 的 `Accessibility.getFullAXTree`。另开一份不减弱动效的配置跑动作后的等待。
-- 应用 e2e：脚本化模型写 eval 代码，快照、按名字高亮与点击，断言工作台真的变了；三个窗口里用真实输入的时刻区分谁被选中；刷新后旧引用 `stale-ref`；询问模式下先批 eval 再见截图的审批卡，拒绝后代码里看到被拒；模态打开时点停止，当次 eval 以停止结束；合成点击审批卡不生效、动作点权限页得 `forbidden-target`；用合成假值覆盖私有投影的每个出口；截图超大视口不断线。
-- 变异检查：引用前缀、身份核对、跨层重找、等动画、忽略自己的节点、私有投影、安全区、模态下停止、不抢焦点、只认真实点击。
-- 性能：快照耗时预算，含大文档与上千节点。
-- 真实模型冒烟（`*.llm.test.ts`）：“教我新建章节”走一遍，记请求数与输入 token。
+- 逻辑单测（bun）：定位校验、引用身份与前缀、转义、字节上限、稳定名规则、失败码与 `details`、业务 schema 派生的文档与远程合同、界面目录的拼装与搜索。
+- 核心包的真实浏览器测试（Playwright，自带夹具页）：原生与 ARIA 控件、shadow root、遮挡层、嵌套滚动；以 index 为 key 的列表反序后旧引用得 `stale-ref`；名字里有引号、换行、双向控制字符时行数不变；说明文字里的标签原样显示；“点了目标”认 `click` 与 `pointerup`、点到别处按排除条件得 `missed`；说明框不抢焦点，“提问”得 `asked`；说明框挂进弹层后点它不关弹层。
+- 真实组件场景：应用里一个 Lab 场景（设置窗口、命令面板、右键菜单、下拉、确认框、虚拟树、悬停动作、拆组编辑器），核心与应用的测试共用；无障碍对照用 CDP 的 `Accessibility.getFullAXTree`；另开一份不减弱动效的配置。
+- 内核：`instances()` 与订阅在成员断开时的结束，用真实路由与链路测（实验 7 的情形）。
+- 订阅的收口（真实服务端与窗口）：eval 停止、单元超时、断线、刷新、服务端重启时，结局各对一次、高亮都撤掉，“正在等用户”标记随之收回。
+- 应用 e2e：脚本化模型写 eval 代码，`find` 找到主题的路径并逐步高亮，用 Playwright 真实点击推进，断言每一步高亮的是对的控件，最后一步“下一步”结束；三个窗口里用真实输入的时刻区分谁被选中；刷新后旧引用 `stale-ref`；询问模式下先批 eval 再见截图的审批卡；截图超大视口不断线、超过字节上限的快照被截断而不是断线。
+- 变异检查：引用前缀、身份核对、跨层重找、转义、字节上限、忽略自己的节点、`missed` 的排除、不抢焦点、说明框挂进弹层、订阅取消时撤高亮。
+- 性能：快照 50 毫秒、界面目录与截图的耗时预算，含大文档与上千节点。
+- 真实模型冒烟（`*.llm.test.ts`）：“在哪改主题，带我去”走一遍，记请求数与输入 token。
 
 ## 风险
 
-- **合成输入覆盖不全**：实验 1、2 先做，做不到的显式 `needs-trusted-input`，不假装成功。
-- **token**：只列可交互元素、按 token 的预算、列表摘要、动作交回变化；冒烟时盯请求数。
-- **审批次数**：见“待开发者定”第 1 条。
+- **界面目录跟着界面变**：路径依赖活动栏、设置窗口与视图入口的真实标记，标记改名会让目录指错；映射表与“改主题”“打开资源管理器”的路径进 e2e。
+- **说明框与弹层**：挂进弹层子树依赖弹层的 DOM 结构；弹层实现换了要重测。
+- **token**：只列可交互元素、按 token 的预算、列表摘要；冒烟时盯请求数。
+- **没有安全边界**（决定 10）：Agent 能读到窗口里的密钥（密码框除外）。第二批开工前，把它能点到审批卡、模式开关一事再交开发者确认。
 - **上游改动多**：第一批的工作量主要在“要先补的上游”，每项单独提交、单独测试。
-
-## 待开发者定
-
-1. **eval 每段代码都要批一次**：eval 是执行档、询问不能记。缺省的询问模式和“可以写文件”模式下，每段用到 `ui` 的代码都要批一次；`discuss`、`plan` 模式下连快照也用不了。推荐接受：引导写在一段代码里（逐步高亮、等点击）只批一次；文档提示要流畅就用 `auto` 模式。备选：给 eval 加只读的静态分析（只调读档方法的代码按读档放行，要写并维护一个保守的分析器），或允许为 eval 写放行规则（规则一写，任何代码都放行）。
-2. **不做 `v-nb-target` 指令**，名字分三层（见“控件的名字”）。t16 决定 8 要求先审查再定，审查的结论是指令在常用组件上不生效、最该命名的控件没有地方写。
-3. **高亮自写，不用 driver.js**。t16 决定 3 是“先看 driver.js 够不够，不行就自写”。
-4. **安全区的清单**（见“安全区与不公开的内容”）：Agent 不能操作、也不读这些区域，包括它自己的对话视图。
-5. **后台会话不能用 `ui`**。
-6. **后果大的动作要确认**（第二批）：删除、清空一类控件，在“可以写文件”模式下也要问一次。
-7. **`ui` 进哪些 Profile**：推荐与 eval 相同（主创、临时帮手的可选工具），bot 不带。

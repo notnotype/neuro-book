@@ -222,7 +222,7 @@ type StdinMode = {readonly kind: "ignore"} | {readonly kind: "text"; readonly te
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** 底座发的一次请求（含读完响应体）的缺省上限：合同里没有哪个请求要等这么久，到点说明被测程序挂住了。 */
-const REQUEST_TIMEOUT_MS = 10_000;
+export const REQUEST_TIMEOUT_MS = 10_000;
 /** 收口时等 SIGTERM 生效的上限；被测程序的停止时限缺省 10 秒，但测试里没有在途的慢请求，正常几十毫秒就退出。 */
 const CLEANUP_TIMEOUT_MS = 5_000;
 

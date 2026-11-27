@@ -252,6 +252,67 @@ test.describe("滚动", () => {
         expect(lines[1]).toBe(`commit:r1->${under}`);
     });
 
+    test("边缘滚动最后一步滚到头、换了指针下的行：停下后指针不动松手，提交滚完时指针下的行", async ({page}) => {
+        await open(page);
+        // 行改成 10px 高，滚动区离底只剩 12px：贴着下边的指针一步就滚到头，这一步把指针下的行换成下一行（14px 的步长被夹成 12px）。
+        await page.addStyleTag({content: "[data-session-scroller] > [data-row] {height: 10px !important; padding: 0 !important; border: 0 !important; font-size: 8px !important; line-height: 10px !important; box-sizing: border-box !important; overflow: hidden;}"});
+        const max = await scroller(page).evaluate((element) => {
+            element.scrollTop = element.scrollHeight - element.clientHeight - 12;
+            return element.scrollHeight - element.clientHeight;
+        });
+        expect(max).toBeGreaterThan(12);
+        const box = await scroller(page).boundingBox();
+        if (box === null) throw new Error("滚动区没有矩形");
+        const start = await center(sourceA(page));
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 4});
+        await expect(sessionRoot(page)).not.toHaveAttribute("data-session-over", "none");
+        const at = {x: box.x + box.width / 2, y: box.y + box.height - 4};
+        await page.mouse.move(at.x, at.y);
+        await expect.poll(() => scroller(page).evaluate((element) => element.scrollTop)).toBe(max);
+        // 等滚动停下：再过几帧，边缘滚动挑不到容器就不再排帧。
+        await page.evaluate(async () => {
+            for (let i = 0; i < 3; i += 1) await new Promise(requestAnimationFrame);
+        });
+        // 拖影压在指针下（场景特意让它接指针），跳过反馈元素取下面的行。
+        const under = await page.evaluate(({x, y}) => document.elementsFromPoint(x, y).find((element) => element.closest("[data-drag-feedback]") === null)?.closest<HTMLElement>("[data-row]")?.dataset.row ?? null, at);
+        expect(under).not.toBeNull();
+        await expect(sessionRoot(page)).toHaveAttribute("data-session-over", under as string);
+        await page.mouse.up();
+        await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
+        expect(await log(page)).toEqual(["end:committed", `commit:a->${under}`]);
+    });
+
+    // 反向排版的滚动区：滚动位置从 0（起点在右端或下端）往负数走。边缘滚动按物理方向算余量，往起点的反方向能滚，滚回去也能到 0。
+    // 滚动区定成整数宽：宽度带小数时 Chrome 的从右到左滚动范围可能偏出 1px（滚回右端停在 1 不是 0），这里要的是两端的确切位置。
+    for (const {name, css, axis} of [
+        {name: "flex-direction: column-reverse 的竖向列表", css: "[data-session-scroller] {display: flex !important; flex-direction: column-reverse !important;} [data-session-scroller] > [data-row] {flex: none;}", axis: "y"},
+        {name: "direction: rtl 的横向滚动", css: "[data-session-scroller] {direction: rtl; flex: none !important; width: 300px;} [data-session-scroller] > [data-row] {width: 900px;}", axis: "x"},
+    ] as const) {
+        test(`${name}：拖到起点反方向的一端往负数滚，再拖到另一端滚回 0`, async ({page}) => {
+            await open(page);
+            await page.addStyleTag({content: css});
+            const position = () => scroller(page).evaluate((element, horizontal) => (horizontal ? element.scrollLeft : element.scrollTop), axis === "x");
+            expect(await position()).toBe(0);
+            const box = await scroller(page).boundingBox();
+            if (box === null) throw new Error("滚动区没有矩形");
+            const start = await center(sourceA(page));
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 4});
+            await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "pointer");
+            const toward = axis === "x" ? {x: box.x + 4, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + 4};
+            await page.mouse.move(toward.x, toward.y);
+            await expect.poll(position).toBeLessThan(-30);
+            const back = axis === "x" ? {x: box.x + box.width - 4, y: box.y + box.height / 2} : {x: box.x + box.width / 2, y: box.y + box.height - 4};
+            await page.mouse.move(back.x, back.y);
+            await expect.poll(position).toBe(0);
+            await page.keyboard.press("Escape");
+            await expect(sessionRoot(page)).toHaveAttribute("data-session-state", "idle");
+        });
+    }
+
     test("用户自己滚动：撤下落点，这期间放下不写；指针再动恢复（输出 12）", async ({page}) => {
         await open(page);
         await grabTo(page, row(page, "r1"), row(page, "r4"), "r4");

@@ -68,6 +68,7 @@ export {default as Slider} from "./form/Slider.vue";
 
 export type {ButtonSize, ButtonVariant} from "./controls/Button.vue";
 export type {CopyButtonState} from "./controls/CopyButton.vue";
+export type {PopoverReference} from "./feedback/Popover.vue";
 export type {DropdownMenuItemData, DropdownMenuItemType} from "./popup/dropdown-menu.types";
 export type {IconButtonSize, IconButtonVariant} from "./controls/IconButton.vue";
 export type {FocusRingStyle} from "./controls/focus-ring";
@@ -98,7 +99,7 @@ export type {CollapsibleCardStatus} from "./layout/CollapsibleCard.vue";
 export type {CollapsibleRowStatus} from "./layout/CollapsibleRow.vue";
 export type {ScrollAreaOrientation, ScrollAreaType} from "./layout/ScrollArea.vue";
 export type {BreadcrumbItemData} from "./navigation/Breadcrumb.vue";
-export type {GenericTreeNode} from "./navigation/Tree.vue";
+export type {GenericTreeNode, TreeSurface, TreeToggleOn} from "./navigation/Tree.vue";
 export type {CheckboxOption} from "./form/CheckboxGroup.vue";
 export type {DateInputSize, DateInputVariant} from "./form/DateInput.vue";
 export type {InputType} from "./form/Input.vue";

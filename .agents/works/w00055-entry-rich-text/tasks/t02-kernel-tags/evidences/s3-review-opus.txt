@@ -1,0 +1,165 @@
+# w00055 t02 S2+S3 实现审查（Opus）
+
+审查对象：451d94623..5da1c66c1，worktree HEAD 核对为 5da1c66c1。实验脚本在 /tmp/review-w00055-t02-s3/lab-opus/。
+
+### 1. 编辑器“完全转义”一级的试撤会撤掉原子转义，写出内核拒收的文字（违反输出 21）
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-markdown/src/language/codec/render/escape.ts:155-166（`around.full` 分支先于 `atomEscape`），write.ts 的试撤流程（escape.ts:1-6 的说明）
+- 现象：富文本里一段加粗的文字 `<V of="a*`（作者照字面打的），`codec.write` 写出 `**<V of="a\***`，`<` 前没有反斜杠；`checkEntryText(parseEntryText(...))` 得 `tag-malformed`。同一段不加粗时写出 `\<V of="a*`，能过。
+- 原因：最小转义读回不对时换“完全转义”，这一级把全部 ASCII 标点（包括 `<`）都写成“哨兵 + 反斜杠”，之后逐个试撤，只要编辑器读回的文档不变就撤掉。`atomEscape` 只在最小转义的分支里起作用；到了完全转义，`<` 前的反斜杠也是可撤的。对编辑器来说写坏的标签本来就当文字读，撤掉 `\` 读回不变，于是被撤掉。但内核把“内置名加 `名="`”或 `</If` 这种没写完的写法判为 `tag-malformed`。编辑器的读回校验只比文档，不比内核检查，所以发现不了。完整的标签不受影响：撤掉转义后读回会多出一个条目节点，试撤失败。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/rt2.ts`，第一行输出 `bold <V of="a* => "**<V of=\"a\\***" [ "tag-malformed" ]`。在 fuzz1.ts 的 3000 个随机文档里也出现一次（`**<V of="a\***`）。entry-syntax.test.ts 的随机生成器从 Markdown 源文出发，词里只有完整的转义标签 `\<V of="y" />`，没有写坏的内置标签，也没有逼出完全转义的文档，所以覆盖不到这条。
+- 改法：`escapeText` 里先判断 `atomEscape`：命中的写成不带哨兵的 `\<`，放在 `around.full` 分支之前，让试撤撤不掉它。entry-syntax.test.ts 再加一条从文档出发的用例：加粗的 `<V of="a*`、`</If` 写出后能过 `checkEntryText`。
+
+### 2. 链接标题、链接地址里不成标签的 `<A` 也报 `tag-not-live`：纯文字被拒，编辑器写出的链接标题过不了检查
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-canon/src/grammar/parse.ts:252-255（`tag-not-live` 不看 `kind`），parse.ts:135（`LINK` 分支不区分写坏的）
+- 现象：
+  - `[链](u "评级 <A 级")` 得 `tag-not-live`；
+  - `[x](https://a.com/<A/b)` 得 `tag-not-live`；
+  - 引用定义 `[r]: u "评级 <A 级"` 得 `tag-not-live`；
+  - 链接标题里转义了的 `\<V of=…` 也得 `tag-not-live`。
+  - 同一句放在正文里、图片说明里都是文字，没有问题。
+  - 编辑器里给一段文字加链接，标题写“评级 <A 级”，`codec.write` 写出 `[链](u "评级 <A 级")`，内核拒收；地址 `https://a.com/<A/b` 写出 `[链](<https://a.com/\<A/b>)`，同样拒收。
+- 为什么是问题：Spec 输出 1 写明“别的 `<` 加大写名字（`评级 <A 级`）是文字”，`tag-not-live` 只针对“标签”落在链接地址、标题里。输出 21 要求编辑器写出的文字过得了输出 1。写坏的候选只是为了遮罩才当原子，本身不是标签。正文里的写坏候选按 `prose` 处理，只有“内置或登记的名字加 `名="`、或闭标签”才报 `tag-malformed`；链接里却一律拒收，两处判据不一样。而且拒收的提示是“移到正文里”，作者照 Spec 的办法写成 `\<` 也过不了。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/link1.ts`、`link2.ts`。
+- 改法：`link`、`image`、`lost` 三种落点只对完整的标签报 `tag-not-live`。写坏的候选落在这些地方时按 `prose` 的判据处理：内置或登记的名字加 `名="`、或闭标签，报 `tag-malformed`，其余算文字。前面有转义的完整标签落在链接标题里，要么也放行（它是字面），要么在 Spec 里写明“链接标题里不能出现标签的写法，连转义的也不行”，并把改法改成写实体。表驱动测试补上 `[链](u "评级 <A 级")`。
+
+### 3. `round` 内部的乘法没有去尾差，和“运算结果去掉二进制尾差”的说法不一致；负数的舍入方向、负的位数没有定
+- 严重程度：建议；类别：正确性
+- 位置：packages/nb-canon/src/grammar/expression.ts:273-276（`round`），287-291（`percent`），132（位数只认 `Literal`）
+- 现象：panel.p 的值是 1.005 时：
+  - `panel.p * 100` 得 100.5（`finite` 去了尾差）；
+  - `round(panel.p * 100)` 得 101；
+  - `round(panel.p, 2)` 却得 1，不是 1.01，因为 `Math.round(1.005 * 100)` 拿到的是 100.49999999999999。
+  - 负数按 JS 的 `Math.round` 向正无穷舍：`round(-2.5)` 得 -2，`percent(-1, 8)` 得 `"-12%"`。Spec 输出 2 写的是“四舍五入”，读者多半以为是 -3、-13%。
+  - `round(x, -1)` 被拒，提示“位数必须是整数字面量”。在 ESTree 里 `-1` 是一元式，作者看不懂为什么被拒。
+- 为什么是问题：作者在阅读视图里会看到“1.005 保留两位得 1”，和同一个文件里 `finite` 的注释（去尾差用于显示与比较）自相矛盾。`percent` 先过一遍 `finite` 再舍入，所以没有这个问题，两处做法不一样。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/expr1.ts`。
+- 改法：
+  - `round` 写成 `Math.round(finite(x * scale))` 再除以 `scale`，与 `percent` 一致。
+  - 负数的舍入在 Spec 输出 2 里写明。要“远离 0”就用 `Math.sign(v) * Math.round(Math.abs(v))`。
+  - 位数放行“负号加整数字面量”，或者在 Spec 里写明不支持负的位数。
+  - 表驱动测试补 `round(1.005, 2)`、`round(-2.5)` 两例。
+
+### 4. `entryTag` 的 `start` 逐个找 `<`，耗时是平方级：一块 4.9 万个 `<` 要 43 秒，只用核心语法的词法 0.8 秒
+- 严重程度：重要；类别：安全与性能
+- 位置：packages/nb-canon/src/grammar/parse.ts:85-88
+- 现象：`marked` 的行内文字规则在每个 `<` 前都会停一次，每次都用剩下的文字调各扩展的 `start`。这里的 `start` 从头用 `indexOf` 一个个找 `<`，再看后面是不是身份字；剩下的文字里有多少个不跟身份字的 `<`，就要在 JS 里循环多少次。实测（`bun /tmp/review-w00055-t02-s3/lab-opus/perf2.ts`、`perf1.ts`、`perf3.ts`）：
+  - `"a<".repeat(10000)`：1.5 秒；
+  - `"a<".repeat(20000)`：8 秒；
+  - `"<".repeat(49000)` 加一个标签：43.5 秒，还在 5 万字符的上限之内；
+  - 同样的输入只用核心语法的词法：0.38 秒、0.83 秒。
+  - `"a < b "` 重复 8000 次（4.8 万字）：1.7 秒。
+- 为什么是问题：主文字可能来自模板或别人分享的世界观，属于外部输入。写入检查、预览（`renderSource`，上限 5 万字符）、每块渲染都要经过这里，一块文字能把内核卡住几十秒。nb-markdown 已经为同一个问题写了 `nextMatch`（language/syntax/tags.ts:79，按段记住全部匹配位置、二分查找），核心语法的 `htmlMark`、`htmlBreak` 都用它，所以核心语法本身不慢。这里没有沿用。
+- 改法：`./marked` 导出 `nextMatch`（它是纯 TS），`start` 改成 `nextMatch(src, /<[\ue000-\uf76f]/gu)`。再加一条性能测试，例如 4 万个 `<` 的一块在几百毫秒内解析完，作为回归守护。
+
+### 5. 单引号、不加引号、`=` 两边有空格的内置标签不报错，当纯文字写进去
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-canon/src/grammar/tags.ts:48（`ATTRIBUTE_START` 只认 `名="`），check.ts:139
+- 现象：下面几种写法 `checkEntryText` 都返回空，标签被当成纯文字存下：
+  - `魔力 <V of='panel.a' />`
+  - `<V of=panel.a />`
+  - `<V of = "panel.a" />`
+  - `<Ref id='e2' />`
+  - 用单引号写的去值输入 `魔力 <V of='panel.a'>3110</V>`，去值以后也原样留下，同样能写入。
+- 为什么是问题：
+  - 设计审查第 1 条的处理把 `tag-malformed` 定成“内置或登记的标签名后面写了属性却不成标签”，Spec 输出 1 也这样写。上面几种都是“写了属性”，计划却收窄成“后面跟着 `名="`”，Spec 与实现不一致，处理记录里也没有提这次收窄。
+  - 后果最重的是 Agent 一侧：式子里的字符串规定用单引号（`test="character.身份 == '学生'"`），模型很容易把属性也写成单引号。写入不报错，Agent 以为插了一个取值，作者在阅读视图里看到的是原样的 `<V of='panel.a' />`。只有 S5 的纯文字渲染会报 `syntax`，写入这一关没有拦住。
+  - 对照 `<If test='panel.a'>…</If>`：后面的 `<Else />`、`</If>` 成了孤立的分支标签，所以报错；单独一个 `V`、`Ref` 就没人管。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/mal1.ts`。
+- 改法：`attributeLike` 放宽成名字后面跟着“空白加属性名加可选空白加 `=`”，例如 `/[ \t]+[A-Za-z_][A-Za-z0-9_-]*[ \t]*=/uy`。这只影响内置或登记的名字，误伤面很小：作者写“<V 是一个字母”这种不会命中。表驱动测试补上面四例；“去值”的说明里加一句“改了引号的交回会被拒收”。
+
+### 6. `Lexing.blockTokens` 在外层遮罩分词进行中调用会弄坏外层：注释里写的“分完换回外层的表”并不成立
+- 严重程度：建议；类别：不变量
+- 位置：packages/nb-markdown/src/marked/lexing.ts:269-295
+- 现象：`fragment` 声称支持外层正在遮罩分词时另分一段：它先存下外层的表，分完再换回去。但它的 `blockTokens` 分支会做 `lexer.inlineQueue.splice(0)`，把外层还没处理的行内队列也一起取走，在片段自己的原子表下分词。`marked` 的 `lex()` 是按下标遍历 `inlineQueue` 的，外层剩下的段落于是在错误的表下分完，外层的循环也提前结束。另外，`unmask(tokens, masked.table, lexer.tokens.links)` 会用片段的表去还原外层的引用定义表：外层的定义里如果还有占位，就会被换成片段的原文。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/nest1.ts`。外层是三段 `<First a>`、`<Second bb>`、`<Third ccc>`，在第一个原子的分词规则里调一次 `lexing.blockTokens(this.lexer, "<Zed q>")`。结果后两段成了 `text:<Second bb>`、`text:<Third ccc>`，原子丢了。
+- 为什么是问题：现在的调用方（编解码器的 `lexBlocks`、`lexInline`）都在顶层 `lex()` 结束之后才调，所以暂时碰不到。但注释与 markdown-syntaxes 的合同（“几次分词，包括一次分词进行中另起的分词，各查各的”）都让人以为可以嵌套。之后谁在分词规则里用 `ReadContext` 风格的另分词，读错的结果不会报错。
+- 改法（二选一）：
+  - 外层表还在时直接抛错，注释改成“只在 `lex()` 之外调用”；
+  - 或者片段用一个新的词法器分词（`lexing.lexer()`，只把 `links` 合并回来），不碰外层的队列与表。
+  - 两种都要补一条嵌套调用的用例。
+
+### 7. 引用式链接的标签里有私用区的字（或标签）时，链接接不上定义；`tokens.links` 的键不还原
+- 严重程度：建议；类别：正确性
+- 位置：packages/nb-markdown/src/marked/lexing.ts:121-129（每个原子各分一个身份字），137-154（`unmask` 只还原值，不还原 `links` 的键）
+- 现象：`[链][甲\ue000]\n\n[甲\ue000]: http://x` 用条目的词法读，第一段是纯文字，不是链接。去掉私用区的字（`[链][甲]`）就是链接；用章节编辑器的词法（没有原子）读，也是链接。原因是同一个私用区的字出现两次，被当成两个原子，分到两个不同的身份字，定义的标签与用到它的标签在 `marked` 眼里不同。标签里写同一个标签也一样：`[<Ref id="e1" />]` 接不上 `[<Ref id="e1" />]: http://x`。另外 `unmask(…, links)` 只改 `links` 的值，键（已经规范化的标签）里留着占位的身份字，编解码器写引用式链接时拿到的是带占位的键。
+- 为什么是问题：Spec 输出 17 写的是“原文里 Unicode 私用区的字照常是文字”，这里读法却变了，写入检查也不报，作者看到的链接直接没了。情形很窄，但违反了“没有原子的写法读法不变”的直觉。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/pua1.ts`。
+- 改法：原文里同一个私用区的字用同一个身份字（按字去重：它们不需要序号，`parse.ts` 的 `byFrom` 本来就跳过它们）；`unmask` 也还原 `links` 的键。标签里的标签已经报了 `tag-not-live`，可以不管。
+
+### 8. 整个式子套在括号里时被拒收：`test="(panel.a > 0)"` 报 forbidden-syntax“only a single expression is allowed”
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-canon/src/grammar/expression.ts:53-66
+- 现象：`parseExpressionAt` 没开 `preserveParens`。整个式子外面有括号时，acorn 交回的是括号里面那个节点，它的 `end` 落在 `)` 之前。于是 `text.slice(node.end).trim()` 剩下 `")"`，被当成“后面还有别的式子”拒收。实测：
+  - 拒收：`<If test="(panel.a > 0)">`、`<V expr="(panel.a + panel.b)" />`、`<V expr="((panel.a))" />`，都报 `forbidden-syntax: only a single expression is allowed`；
+  - 放行：`(panel.a + panel.b) / 2`、`panel.a > 0 && (panel.b > 0)`、`-(panel.a)`。
+- 为什么是问题：Spec 白名单的节点表与 brief 都把括号算作可以写的东西，计划写的判据是“去掉首尾空白后从 0 读到末尾”。整个式子外面套一层括号是作者与模型都常见的写法，被拒的提示还说“只许一个式子”，让人看不出问题在哪。表驱动测试没有这一例（只有 `panel.a, panel.b`、`panel.a; 1` 两种真正多出来的情形）。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/paren.ts`、`expr2.ts`。
+- 改法：开 `preserveParens: true`，`check`、`evaluate`、`memberReference` 遇到 `ParenthesizedExpression` 就拆一层，或者解析完以后统一剥掉。表驱动测试补 `(panel.a > 0)`、`((panel.a))` 两例，各断言放行与求值结果。
+
+### 9. 表格单元格里的行内代码含带 `|` 的标签时整篇重写失败：行内代码的写法仍把原子里的 `|` 全转义
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-markdown/src/language/codec/render/inline.ts:215-218（逐字写出的标记分支：`content.replace(/\|/gu, "\\|")`），对照同文件 179-184 已经改过的 `cell()`
+- 现象：源文 ``| 名 |\n| --- |\n| `<If test="a || b">` |`` 能过内核的写入检查（代码里的标签是字面的）。编辑器读进来没问题，但 `codec.write(doc, codec.read("").map)` 返回 `{ok: false, code: "unrepresentable", reason: "各级写法都读不回来"}`。在富文本里新建同样的单元格（代码标记，文字 `<If test="a || b">`），写出同样失败。章节编辑器（没有原子）里，同样的代码写成 `` `a \|\| b` ``，读回不变。
+- 原因：S3 改了 `cell()`，原子里的 `|` 不转义。但行内代码这类逐字写出的标记走另一个分支，在表格里无条件把 `|` 写成 `\|`。写出的 `` `<If test="a \|\| b">` `` 读回时，整个标签是一个原子（遮罩不看代码与转义），反斜杠留在原子里，代码的文字成了 `<If test="a \|\| b">`，读回对不上；各级写法都是这样，最后失败。读法一侧的 `cellCount` 已经按原子跳过，只有写法一侧漏了。
+- 为什么是问题：违反输出 21（“编辑器原样写回或整篇重写写出的文字过得了输出 1”）。计划第 1 节与 omp 设计审查第 4 条要求的“写法不转义原子里的 `|`”只做了一半。表格里改了别的格子，这张表也写不出。
+- 核实：`bun /tmp/review-w00055-t02-s3/lab-opus/tbl2.ts`、`tbl1.ts`（第 4 行 `FAIL`）。entry-syntax.test.ts 的随机生成器里，表格的词有 `` `码 <V of="x" />` ``，但那个标签里没有 `|`；固定用例里表格带 `||` 的条件也不在代码里，所以覆盖不到。
+- 改法：逐字分支同样按 `context.atomSpans?.(content)` 跳过原子里的 `|`（与 `cell()` 共用一个辅助函数）。用例补“表格单元格里的行内代码写着带 `||` 的条件”，原样写回与整篇重写都要断言。
+
+### 10. 占位的写法在 parse.ts 里另写了一份；`entryIf.tokens` 是“半分组”的，注释说的不对
+- 严重程度：建议；类别：代码质量
+- 位置：packages/nb-canon/src/grammar/parse.ts:70（`FILLER = 0xf8fe` 的副本），:95-96（按填充字数长度），:241（`byFrom` 用 `tag.start + 1`），:212-214（`tokens` 与 `branches`）
+- 现象与问题：
+  - 填充字的码位、“身份字后面跟填充字”的布局只在 nb-markdown/src/marked/lexing.ts 里定义，`./marked` 只导出了 `isAtomIdentity`。parse.ts 自己复制了 `0xf8fe`，还按这个布局数长度。lexing.ts 哪天换了填充方式（例如改成多个身份字），这里会静默认不出标签，所有标签都落进 `lost`。
+  - `byFrom` 用 `tag.start + 1` 对上原子的 `from`，与 tags.ts 的 `atomSpanOf` 是两处各写一遍的同一个约定。
+  - 注释说 `entryIf.tokens` 是“留着没分组的原样”，实际上各支的单元与 `run` 是同一批对象：`groupConditions(branch.tokens, …)` 对它们里层的就地分组也会反映到 `tokens` 里，只有这一层没分组。S5 渲染时谁去读 `tokens`，就会读到一半分了组、一半没分组的树。
+- 改法：
+  - `./marked` 导出“从 `src` 的某处读一个完整占位”的函数（例如 `placeholderAt(src, at): {identity, length} | null`），parse.ts 用它，不再自己数填充字。
+  - `byFrom` 改用 `atomSpanOf(tag).from`。
+  - `entryIf` 要么只留 `branches`（加开闭标签的序号），要么在注释里写明 `tokens` 只用来算原文范围、不能拿去读结构。
+
+## 未发现问题的方面
+
+- 遮罩与还原：
+  - 身份字的分配与上限对得上：6000 个身份字是 U+E000 到 U+F76F，`PLACEHOLDER` 正则与 `isAtomIdentity` 的范围一致。
+  - 原文里的私用区字（包括 U+F8FE）都换成身份字，不会和填充字混；等长检查在。
+  - 占位没有空白与标点，`marked` 的行内文字规则不会把它切开。
+  - 随机输入下没有残留的占位，作者的性质测试也覆盖了这一点。
+- 落点：`placementsOf` 对 `marked` 17 的单元判得对：
+  - 表格（表头、各行、`align`）、列表项、任务项的 `checkbox`、引用定义的 `tag`、`href`、`title`；
+  - 链接（文字是里层、地址与标题是字段）、图片（`marked` 17 的图片有 `tokens`，里层的完整标签按祖先判为 `image`）；
+  - 代码的 `lang`、块级与行内的 `html`。
+  - 没找到多记或漏记的单元类型。
+- 标签词法：
+  - `valueStart` 的偏移正确；
+  - 正则在 6000 个写坏的候选、长行上都是线性的；
+  - 七个 HTML 名字的排除与 core 的 `HTML_MARK_OPEN`、`HTML_BREAK` 一致；
+  - “评级 <S 级”“<B 级”在内核与编辑器里都是文字；
+  - `paired` 只到下一个 `<` 或换行，`agentJson` 保证带值的 `V` 总能配上。
+- 条件配对：跨段、被粗体切开、分支在强调或链接里、套着的 If、Else 之后的 ElseIf、孤立的分支，各种情形的码都与 Spec 一致；`tag` 序号的回填正确。`lastLexed` 单格缓存以源文相等为键，交回的数组没有人改，嵌套分词下也安全。
+- 写入检查：
+  - `ALLOWED_TOKENS` 与 core、原样语法实际产出的单元类型对得上：原样语法的 `rawHtmlBlock`、`rawHtmlInline`、`footnoteDef`、`footnoteRef`、`mathBlock`、`mathInline` 都被拒；不成对的 `<strong>` 落成 `html`，也被拒。
+  - 编辑器写出的硬换行（`<br>`、`<br><br>`）都能过；`<br>\n文字` 两边都读成原样，一致。
+  - `excusable` 只给没登记的名字。
+- 式子：
+  - acorn 的接受面拒收了全部白名单以外的写法：可选链（ChainExpression）、`new`、`in`、`void`、`typeof`、`++`、标记模板、`import.meta`、对象与数组字面量、展开、赋值、序列、BigInt、正则。
+  - 注释（含 `<!--`、`-->`、`#!`）都报 `comments are not allowed`。
+  - 函数名不占命名空间（`round.计数`）。
+  - 三值逻辑的 `&&`、`||`、`?:`、比较、除以 0、`% 0`、溢出都与输出 5 一致。
+  - `memberReference` 与分支起点的实现相同。
+- 带值写法与去值：
+  - 对过得了检查的规范写法源文，没有找到让“去值(带值写法(源文)) 逐字等于源文”不成立的输入：装饰里的私用区字、U+2028、`|`、反引号、实体都在原子里，或已转义。
+  - 只抄开标签、带值的 `V` 套在别的标签里、值里有 `<` 或换行，交回时都失败关闭（`unknown-tag`）。
+  - 改了引号的情形见第 5 条。
+- 编解码器：
+  - 没有原子的语言（章节编辑器）读写不变：`atomSpans` 为空，`atomEscape` 为 null，`fragment` 直接调原来的分词，`frontmatter` 缺省是 true；nb-markdown 全部 374 条测试通过。
+  - `cellCount` 用 `trimStart` 算的偏移正确。
+  - 标签节点紧挨反斜杠、`<`、`>`、粗体、链接时，写出与读回都不变。
+- 边界测试：`./grammar`、`./marked` 的边界测试守住了运行时依赖。
+
+## 各级数量
+
+阻断 0；重要 6（第 1、2、4、5、8、9 条）；建议 4（第 3、6、7、10 条）。没有撤回或收窄的条目。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10

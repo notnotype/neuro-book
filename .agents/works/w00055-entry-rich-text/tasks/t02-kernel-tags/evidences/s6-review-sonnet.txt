@@ -1,0 +1,95 @@
+# 前端审查报告（Sonnet）w00055 t02 S6
+
+### 1. HTML 形式的强调（htmlMark）被画成普通文字，粗体、斜体、删除线全丢
+严重程度：重要；类别：正确性
+位置：packages/neuro-book/src/plugins/canon/web/components/EntryText.vue:96-118（`inlineToken` 没有 `htmlMark` 的分支）；词法来源 packages/nb-markdown/src/marked/core.ts:33（`name: "htmlMark"`，字段 `tag`、`tokens`）
+现象：条目文法与章节编辑器共用 `coreLexing`，`<strong>`、`<b>`、`<em>`、`<i>`、`<del>`、`<s>` 成对出现时整体是一个 `htmlMark` 单元。`inlineToken` 的 switch 里只有 `strong`、`em`、`del`，`htmlMark` 落到 `default`，只画 `tokens` 的子内容，没有 strong、em、del 元素。
+为什么是问题：Spec markdown-dialect 输出 25 与 rendering 白名单明写 `<strong>` 是粗体、`<em>` 是斜体、`<del>` 是删除线；而且编辑器“写回必须读得回来”时会主动把 `**` 改写成 `<strong>`（docs/specs/workspace/markdown-dialect.md 第 67 行“写回必须读得回来”：读不回来时把强调与删除线写成 HTML 形式），所以带标签的粗体恰好最容易以这种形式存下来（t03 的富文本一接上就会大量出现）。作者在阅读视图和预览里看不到格式，而写入时检查是放行的。
+如何核实：我在 /tmp/review-w00055-t02-s6/lab-sonnet/render.lab.test.ts 用真实的 vitest 配置挂载 EntryText，源文 `a <strong>粗 <V of="a.b" /></strong> <em>斜</em> <del>删</del>`，输出 `<p data-source-line="1">a 粗 <button …>VAL</button> 斜 删</p>`，没有任何 strong、em、del。EntryText.dom.test.ts 全文没有强调的用例（grep `strong`、`em`、`**` 为空）。
+建议改法：加 `case "htmlMark"`，按 `token.tag`（已转小写）映射：strong 与 b 画 strong，em 与 i 画 em，del 与 s 画 del，子内容 `inlineList(token.tokens)`。并在 dom 测试里覆盖 `**`、`*`、`~~` 与六种 HTML 写法，带标签的粗体也要有一条。
+
+### 2. `data-source-line` 的“往后找原文”会找错位置，引用与带缩进的列表里常常没有行号
+严重程度：建议；类别：正确性（体验）
+位置：packages/neuro-book/src/plugins/canon/web/components/entry-text.ts:62-75（`place`）
+现象：单元的 `raw` 是 marked 去掉了 `> `、列表缩进、CRLF 之后的文字，不是源文里的原样片段。`place` 用 `source.indexOf(raw, cursor)` 找它，有两种后果：
+ (a) 找不到：引用里多行的段落、列表项里续行缩进的段落、嵌套列表（`list`、`list_item`）、引用里的列表、CRLF 源文里多行的段落，都没有 `data-source-line`；
+ (b) 找错：找不到的单元不推进 `cursor`，后面同样文字的单元会在更靠前的位置匹配上。
+我用 layoutBlock 跑了：源文 `> 甲\n> 乙\n>\n> 乙\n\n后`：引用 1 行；第一个段落（raw `甲\n乙`）没有行号；第二个段落（应在第 4 行）被标成第 2 行。嵌套列表 `- a\n  - b\n  - b\n- b`，内层两个 `li` 没有行号。CRLF 源文 `甲\r\n乙\r\n\r\n# 题…` 里 `甲\r\n乙` 段落没有行号（marked 在内部把 `\r\n` 换成了 `\n`）。（实验：/tmp/review-w00055-t02-s6/lab-sonnet/probe2.ts）
+为什么是问题：消费者 EntryTextEditor.vue:134 按文档顺序遍历 `[data-source-line]`，遇到第一个行号大于光标行的就停，取前一个当目标。缺行号只是退回到更早的段落；找错的行号会让光标在第 4 行时滚到第 2 行的位置，更糟的是行号不再单调时会提前 `break`。引用、列表是主文字里最常见的结构，这个功能（输出 48 的跟随滚动）在长引用里基本失灵。旧版是 mdast 的 `position`，没有这个问题，这里是回退。
+如何核实：bun run probe2.ts（命令在 packages/neuro-book 下执行）。
+建议改法：不要靠 raw 反找。两条路：让内核（`nb-markdown/marked`）的词法在每个块一级单元上给出偏移（根治，也是 t03 富文本要的东西）；或者按行数累加：块一级兄弟单元的 `raw` 含它前后的空行与换行，按 `raw` 里的换行数推进行号，进入引用、列表时行号只做相对累加，不依赖在源文里匹配。无论哪种，`cursor` 在找不到时也应推进，不要让后面的单元去匹配前面的文字。
+
+### 3. 展开来历画在“含这个值的第一块”后面，但那一块里的值可能根本没画出来
+严重程度：建议；类别：正确性（体验）
+位置：EntryText.vue:221-224（`contains`）与 :259-263（`originBlock`）
+现象：`contains` 按值表判断，值表里“没生效的支”里的 `V`、读不到的值（`unavailable`）、图片值、算出来的值都有项，但页面不画成可点的按钮。同一个地址在两块里都有时，点第二块里画着的值，来历却画在第一块后面。实验：块 1 是 `<If test="a.x">甲<Else />乙 <V of="panel.a" /></If>`（生效的是“甲”，`V` 在没生效的 Else 支里），块 2 是 `丙 <V of="panel.a" />`，`open="e1|panel.a"`：`<section>` 文字依次是 `甲ORIGIN`、`丙 9`，来历在块 1 后面（lab-sonnet/origin.lab.test.ts）。
+为什么是问题：作者点的是块 2 的值，展开的框却出现在一个看不到该值的块下面，上下文对不上。旧版（391132728 之前）按语法树判断，我没有核实当时树里是否只留生效的内容，所以不断言这是回退；但按现在的值表判断，偏差是确定的。条目里同一个字段被引用两次（开头一次、结尾一次）并不少见。
+建议改法：`contains` 要和 `tagNode`/`valueNode` 的画法同步：只数“实际画成可点按钮”的值。办法是把 `layoutBlock` 一次画完以后记下画出的地址（渲染时登记到一个 Set），或者在 `LaidOutBlock` 上给一个“生效的值的 key 列表”（遍历 token 时跳过没生效的支）。更省事的做法是点击时把“点的是哪一块”也随事件带上，来历直接按块 id 放。
+
+### 4. 阅读视图的词法单元测试几乎只测了“值”，强调、表格、列表、链接、转义、实体、`<br>` 等画法没有断言
+严重程度：建议；类别：测试
+位置：packages/neuro-book/src/plugins/canon/web/components/EntryText.dom.test.ts（全文 8 个用例）
+现象：S6 把渲染从 mdast 换成 marked 单元，`blockToken`/`inlineToken` 有 20 多个分支；用例只覆盖了标题、段落、列表项、引用、围栏代码（隐含）、行内代码、转义的标签、实体、条件、值与引用。没有任何用例覆盖 `strong`、`em`、`del`、`htmlMark`、表格（表头与行）、有序列表、松散列表、链接、图片、硬换行与 `<br>`。发现 1 的缺陷（`htmlMark` 没画）就是因此漏掉的：grep `strong`、`\*\*` 为空。
+另外两处没有锁住的行为：任务列表项的状态（`checkbox` 单元直接画成空，`- [x] 乙` 和 `- [ ] 甲` 看起来一样，只丢了信息，与旧版相同，所以不算回退，但建议在测试里写明是有意的）；链接只留文字、丢地址，也没有测试。
+建议改法：补一条“把 Markdown 写法逐种画出来”的用例，源文里放：`**粗** *斜* ~~删~~ <strong>…</strong>`、表格含表头与一个 `<V>` 单元格、有序/松散列表、链接与图片、`a<br>b`、`\\*`，断言 HTML 结构与文字。
+
+### 5. 内核在 Bun 上放行的深嵌套块，在浏览器（V8）里会抛 RangeError，把阅读视图与预览整个弄坏
+严重程度：重要（概率低，后果大）；类别：正确性
+位置：EntryText.vue:231-241（`Block` 里 `computed(() => layoutBlock(...))` 与随后的递归 `blockToken`），entry-text.ts:46（`parseEntryText` 无保护）；对端：packages/nb-canon/src/render/syntax.ts:142-148 `readable`（只在 Bun 的栈深度上捕 RangeError）
+现象：内核写入检查与渲染把“解析抛 RangeError”当成 `TOO_DEEP` 整块出错，但这个界线取决于运行时的栈。我在 Bun 下试 `>`×N 加 ` x`：N 到 6400 都能解析，`blockProblem` 返回 null（写入放行），12000 才 RangeError。同样的源文在 Node 26（V8，与 Chrome 同引擎）里 parseEntryText 在 N=3200 抛 RangeError；用真实的 EntryText 组件挂载一块 `>`×2500 的块，`mount` 直接抛 RangeError（errorHandler 也收到）（测试里同一组件里正常的前后块也没有渲染完；lab-sonnet/deep.ts、deep.lab.test.ts、deep2.lab.test.ts、diag2.ts）。
+为什么是问题：这样的块能被写入并存下来（2500 到 6000 层引用，只有几千个字符，远小于 5 万字上限），此后每个打开这个条目的窗口都在渲染时抛错；编辑视图的预览用同一个组件，从代码推断同样会抛，作者进去想改也可能被拖垮（未在真实页面验证）。规范输出 16 明说“嵌套深到渲染不了的……照出错的块给”，现在前端没有兜这一层。生产构建里 Vue 对渲染异常的表现我没有验证（开发构建与测试里是直接抛）。来源只会是粘贴或 Agent 误写，所以概率低，但属于“数据一旦存下就让界面不可用”的一类。
+建议改法：`layoutBlock` 里把 `parseEntryText` 包在 try/catch 里，只接 `RangeError`，交回 `{mismatch: "nested too deeply to read"}`（与现有整块按出错显示的路径一致，不新增分支）；同时 `blockToken` 递归的栈也要覆盖到：要么在 `layoutBlock` 里顺便量一下单元树的深度（超过几百层就按出错处理），要么把“可读的最大深度”下放到内核的写入检查，用一个与运行时无关的数（按单元树深度，而不是靠 RangeError）。后者才是根治：内核的界线不该由栈决定。
+
+### 6. 编辑器着色“遇到换行退出”没有任何断言，删掉这条规则测试照过
+严重程度：建议；类别：测试
+位置：packages/neuro-book/src/plugins/canon/entry-language.test.ts:“没写完的标签只影响它那一段”（那条只用 `<Ref id="e2"`，走的是 tag 状态的空行规则）；规则在 web/entry-language.ts:35（`expressionRules` 的最后一条 `[/\n/u, popall]`）
+现象：我把 entry-language.ts 复制到 lab-sonnet/mut/，删掉 expressionRules 里 `[/\n/u, {token: "", next: "@popall"}]` 这一行，用同一份测试文件（lab-sonnet/mut-lang.test.ts）跑：8 个全过。也就是 `<V of="panel.魔力` 这类“值里没写完、行就断了”的情形（作者边打边出现的最常见中间态）没有测试守着。我手工验证了现在的行为是对的：`<V of="panel.魔力\n后面 **粗** 正文` 第二行 `**粗**` 照常着色。
+建议改法：补一条：`colored('<V of="panel.魔力\n后面 **粗**')` 的第二行是 `[["**粗**","strong"]]`；再补一条 `<V expr="a + 'x\n y'" />` 单引号字符串跨行时第二行回到正文。做完按变异做一遍（删规则、断言必须失败）。
+
+### 7. 着色把几种内核拒收的写法画成合法的标签；链接文字里的活标签反而不着色
+严重程度：建议；类别：体验
+位置：packages/neuro-book/src/plugins/canon/web/entry-language.ts:45-47（tag 起点的前瞻）、:76-78（`(of|expr|test)(\s*=\s*)(")`）、:68（链接规则）
+现象（都用真实 Monaco 分词器跑过，lab-sonnet/lang.test.ts）：
+ (a) `<V of = "a.b" />`（等号两边有空格）：着色成完整的标签，`a`、`.`、`b` 按字段名画；内核的词法要求 `名="值"` 紧挨着（tags.ts ATTRIBUTE），这样写是 `tag-malformed`，保存时被拒。作者看到的是“写对了的颜色”。`<V of='a.b' />`（单引号）着色里属性值被拆成两个 attribute.name，倒是看得出不对。
+ (b) `[先 <V of="a.b" /> 后](http://x)`：链接规则把整个 `[...](...)` 吞掉，中间那段 token 为空，活的标签不着色；内核里链接文字里的标签是活的（预览会画出值）。
+ (c) 缩进代码块（4 个空格）里的 `<V …>` 照标签着色，内核认它是代码、照原文显示。
+规范说着色“只管着色，不判对错”，所以这些不算错误；但 (a) 会让作者以为写对了。
+建议改法：(a) 去掉 `\s*` 让 `=` 两边不能有空格，与 ATTRIBUTE 一致；(b) 把链接规则的中间组改成 `@inline` 的递归，或先不匹配含 `<` 大写字母的链接；(c) 可以记为已知限制，在文件头注释里写一句。
+
+### 8. Lab“出错的块”场景的原因文字对不上内核真实给的诊断
+严重程度：建议；类别：文档（Lab 场景）
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:2022（`b3`，`error.message: "<div> is not supported in entry text"`）
+现象：对 `<div>坏掉的一块</div>` 调内核的 `blockProblem`（lab-sonnet/diag.ts），真实结果是 `{code:"unsupported-markdown", line:1, column:1, message:"rawHtmlBlock is not supported in entry text"}`。场景写的是 `<div> is not supported …`，是作者凭印象写的。另外三个“写得不对”场景（problem、preview-problem、preview-english）的文字、行列我都对了一遍：`<V is not a complete tag; finish it, or write \< to keep it as text` 与行列（1:4、第 7 行第 4 列、第 5 行第 10 列）和内核一致。
+旁注（后端措辞，不在本次范围，供转交）：这条诊断把 marked 的内部单元名 `rawHtmlBlock` 直接给了作者，作者读不懂；`unsupportedTokens` 里对 `html` 有“raw HTML or an HTML comment”的说法，`rawHtmlBlock` 与 `rawHtmlInline` 没有。
+建议改法：Lab 场景改成内核实际给的文字；后端那一条建议把 `rawHtmlBlock`/`rawHtmlInline` 也映射成“raw HTML”。
+
+### 9. 换成标签写法以后留下的过期文字与死字段
+严重程度：建议；类别：文档 / 代码质量
+位置与现象：
+ - components/EntryTextEditor.md:17 仍写“整篇的源文字（Markdown 加 `{表达式}`）”；
+ - lab/web/fixtures/EntryTextEditorFixture.vue:6 的文件头仍写“`#` 开头是标题、花括号是一个写死的值”，实际已改成按条目文法给每个活的标签一项假值；
+ - canon/web/components/ImageInput.vue:8 的注释“根入口带着 MDX 解析链”：S6 已经删了 MDX 解析；
+ - lab/web/fixtures/index.ts:1040（CodeInput 场景）的示例文字仍是 `{entry.外貌.发色} 这样的表达式写在花括号里`；
+ - entry-text.ts:34、79 的 `LaidOutBlock.tagName` 没有任何使用者（grep 只有定义与赋值）；
+ - receipt-page.dom.test.ts:195 的 `"她很有钱，有 {panel.存款} 元。"` 仍是旧写法（现在只是普通文字，测试照过，但原意是带值）。
+建议改法：逐处改成标签写法，删 `tagName`。
+
+### 10. 值表与源文对不上时只在界面上写一句，没有“报诊断”
+严重程度：建议；类别：正确性（对规范与计划）
+位置：EntryText.vue:231-241（`Block` 里 `"mismatch" in laid` 分支）；规范 rendering.md 输出 7 与计划 plan-v4.md 第 66 行
+现象：规范与计划都写“对不上的块整块按出错显示并报诊断，不按位置猜”。组件只做了“整块按出错显示”；canon 的前端（web/ 下除测试外）完全没有用诊断的地方，mismatch 的原因（`no value for <V> at 5`、`N values match no tag`）只出现在块下面那行危险色小字里，没有记录。
+为什么是问题：这条路径的触发条件就是前后端的条目文法不是同一版（升级中、缓存的旧窗口）或内核与前端对“活的标签”的判断出现分歧，正是需要事后查的情形；界面上那一行英文原因普通作者看不懂，也不会去汇报。别的插件的做法是依赖 `diagnosticsKey` 后 `diagnostics.record({level: "warn", event, message, source: {plugin}})`（例如 plugins/markdown/web/plugin.ts:106）。
+建议改法：EntryText 不直接拿服务；让 canon 的 web 插件把一个 `report(event, detail)` 经注入（或 provide）交给组件，`Block` 在 mismatch 时记一条 `nbook.canon.entry-text.mismatch`（带块 id 与原因，同一个块只记一次）。dom 测试里补一条：对不上时 report 被调用且带原因。如果判断前端不必走诊断，那就在规范与计划里把“并报诊断”改成“按出错显示”，两边保持一致。
+
+## 未发现问题的方面（核实过）
+- 值表对回标签（`layoutBlock` 的 `hasItem`、名字@起点配对、多出与缺少都整块出错）：与内核 `renderBlockForAuthor` 的出项规则逐条对过（live、非 close、非 malformed、非 Else；unregistered 给 needsPlugin；If/ElseIf 各一项；没生效的支照样有项）。前后端对同一个源文串跑同一份文法，起点一致；CRLF、BOM 不会让起点错位（预览回给的 `source` 原样，positionOf 也把 CRLF 当一个换行），只影响行号（见第 2 条）。
+- 条件：生效支、未知写“未知”、都不成立不画、`taken` 下标与内核分支顺序一致（含 Else），与实验结果一致；`needsPlugin`、读不到的值、算出来的值、图片、引用、已删除引用的画法与 391132728 之前的组件一致。
+- 实体只在正文里解码、行内代码不解码、转义、链接只留文字、硬换行、`<br>`、空行里的只有 `<br>` 的段落、松散与紧凑列表、表格、围栏与缩进代码块：用真实挂载实验看过，输出正确。
+- 预览的空判断（`source.trim() === ""`）与“插入”写的 `<V of="命名空间.字段" />`（字段 id 受标识符规则约束，不需要转义）正确；dom 测试与 e2e 的期望已同步。
+- Lab 的三个“写得不对”场景的文字与行列与内核真实诊断一致（仅 b3 不一致，见第 8 条）。
+- 机检：`bun run typecheck` 退出码 0；EntryText.dom.test.ts、EntryTextEditor.dom.test.ts 共 18 条通过；entry-language.test.ts、text-preview.test.ts 通过。`src/architecture.test.ts` 有一条失败，原因是 plugins/lab/web/drafts/w00056-t06/HomepageDesk.vue 导入 bots 的 avatar.webp，与本次改动无关（本次提交未碰该文件）。
+- 体验与动效：本次不改样子，没有新增界面文字与交互；`needsPlugin` 文案中英文都已加。
+
+## 条数
+共 10 条：阻断 0；重要 2（第 1、5 条）；建议 8（第 2、3、4、6、7、8、9、10 条）。
+按类别：正确性 4（1、2、3、5）加 1（10，对规范）；测试 2（4、6）；体验 1（7）；文档与代码质量 2（8、9）。

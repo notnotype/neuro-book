@@ -7,8 +7,6 @@ import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {DropdownMenu} from "@notnotype/nb-ui/components";
-
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {canonCatalogs} from "../text";
@@ -32,6 +30,25 @@ const nav = (props: Record<string, unknown> = {}) => {
 };
 
 describe("EntryPageNav", () => {
+    it("看法菜单（输出 9、54）：能换看法的行留箭头格、选中的显出；选中的再点发 menu，没选中的点了只是选中；看法名写在标题后、与标题分开", async () => {
+        const items = [{...ITEMS[0]!, looks: true}, {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const, removable: true, looks: true}, ITEMS[1]!];
+        const wrapper = nav({items, menus: true, note: "AI视图"});
+        const tabs = () => wrapper.findAll("[role='tab']");
+        expect(tabs().map((tab) => tab.find(".entry-page-nav__menu").exists())).toEqual([true, true, false]);
+        expect(tabs().slice(0, 2).map((tab) => tab.get(".entry-page-nav__menu").attributes("data-shown") ?? null)).toEqual(["", null]);
+        expect(tabs().map((tab) => tab.attributes("aria-haspopup") ?? null)).toEqual(["menu", null, null]);
+        // 看法名只写在选中的那一行，标题之外单独一格（标题截断时它留着）。
+        expect(tabs().map((tab) => tab.text())).toEqual(["人物，AI视图", "形象", "文字"]);
+        expect(tabs()[0]!.get(".entry-page-nav__note").classes()).not.toContain("truncate");
+        await tabs()[1]!.trigger("click");
+        expect(wrapper.emitted("update:modelValue")).toEqual([["data:look"]]);
+        await tabs()[0]!.trigger("click");
+        expect(wrapper.emitted("menu")).toEqual([["data:character", tabs()[0]!.element]]);
+        await wrapper.setProps({menuOpen: true, note: ""});
+        expect(tabs()[0]!.attributes("aria-expanded")).toBe("true");
+        expect(tabs()[0]!.text()).toBe("人物");
+    });
+
     it("竖排的 tablist，两段之间一条分隔；每页有图标，条数写在行尾；选中的一页 aria-selected、可以 Tab 到", () => {
         const wrapper = nav();
         const list = wrapper.get("[role='tablist']");
@@ -58,16 +75,19 @@ describe("EntryPageNav", () => {
         expect(wrapper.emitted("update:modelValue")).toEqual([["extra:experience"], ["plot"], ["plot"], ["text"]]);
     });
 
-    it("右键一页发 context；有能加的组时最后是“添加一组设定”，选一项发 add-component，打开时发 add-open；没有能加的就不出", async () => {
-        const wrapper = nav({addable: [{value: "nbook.canon.look", label: "形象"}]});
+    it("右键一页发 context；可以加时最后是“添加一组设定”（标着开对话框），点了发 add-toggle；有原因时不可用、悬停写原因；不能加就不出", async () => {
+        const wrapper = nav({canAdd: true});
         await wrapper.findAll("[role='tab']")[1]!.trigger("contextmenu", {clientX: 10, clientY: 20});
         expect(wrapper.emitted("context")).toEqual([["text", {x: 10, y: 20}]]);
-        const menu = wrapper.findComponent(DropdownMenu);
-        expect(menu.props("items")).toEqual([{id: "nbook.canon.look", label: "形象"}]);
-        menu.vm.$emit("update:open", true);
-        menu.vm.$emit("select", "nbook.canon.look");
-        expect(wrapper.emitted("add-open")).toHaveLength(1);
-        expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
+        const add = wrapper.get("[data-add-component]");
+        // 在 tablist 外面：分页列表里只有分页。
+        expect(wrapper.get("[role='tablist']").find("[data-add-component]").exists()).toBe(false);
+        expect(add.attributes("aria-haspopup")).toBe("dialog");
+        await add.trigger("click");
+        expect(wrapper.emitted("add-toggle")).toEqual([[]]);
+        await wrapper.setProps({addReason: "先不算计划"});
+        expect(add.attributes("disabled")).toBeDefined();
+        expect(add.attributes("title")).toBe("先不算计划");
         expect(nav().find("[data-add-component]").exists()).toBe(false);
     });
 });

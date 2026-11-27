@@ -24,6 +24,15 @@ export interface GenericTreeNode {
  */
 export type TreeSurface = "card" | "plain";
 
+/**
+ * 点行时切不切换展开。`row`（缺省）：点行既选中、又切换有子节点的行的展开。`arrow`：点行只选中，展开收起只认点箭头与键盘的
+ * 左右键；给“节点本身能打开、下面又有子节点”的树用（例如设定树里的人物条目，点它是打开它，不该顺带收起它的子条目）。
+ */
+export type TreeToggleOn = "row" | "arrow";
+
+/** reka `TreeItem` 的 `select`、`toggle` 事件：`detail.originalEvent` 是触发它的点击或按键，`preventDefault` 取消这一次。 */
+type TreeItemEvent = CustomEvent<{readonly originalEvent?: Event}>;
+
 const props = withDefaults(defineProps<{
     items?: GenericTreeNode[];
     modelValue?: string | string[];
@@ -31,6 +40,7 @@ const props = withDefaults(defineProps<{
     multiple?: boolean;
     disabled?: boolean;
     surface?: TreeSurface;
+    toggleOn?: TreeToggleOn;
 }>(), {
     items: () => [],
     modelValue: undefined,
@@ -38,6 +48,7 @@ const props = withDefaults(defineProps<{
     multiple: false,
     disabled: false,
     surface: "card",
+    toggleOn: "row",
 });
 
 defineSlots<{
@@ -83,6 +94,26 @@ function emitModelValue(value: GenericTreeNode | GenericTreeNode[] | undefined):
         return;
     }
     emit("update:modelValue", value?.id);
+}
+
+/** 这一下点在箭头上（`arrow` 时箭头那一格带 `data-tree-toggle`）。 */
+const isArrowClick = (event: TreeItemEvent): boolean => {
+    const target = event.detail?.originalEvent?.target;
+    return target instanceof Element && target.closest("[data-tree-toggle]") !== null;
+};
+
+/** `arrow` 时点箭头只切换展开：取消 reka 跟着这次点击做的选中，也不往外发 `select`。 */
+function onItemSelect(event: TreeItemEvent, node: GenericTreeNode): void {
+    if (props.toggleOn === "arrow" && isArrowClick(event)) {
+        event.preventDefault();
+        return;
+    }
+    emit("select", node);
+}
+
+/** `arrow` 时点行（不在箭头上）不切换展开；键盘的左右键照常（原始事件不是鼠标事件）。 */
+function onItemToggle(event: TreeItemEvent): void {
+    if (props.toggleOn === "arrow" && event.detail?.originalEvent instanceof MouseEvent && !isArrowClick(event)) event.preventDefault();
 }
 
 const surfaceClass = computed(() => props.surface === "card"
@@ -145,13 +176,23 @@ function indentFor(level: number): string {
             :level="item.level"
             :data-tree-id="item.value.id"
             class="nb-ui-focus-ring group flex min-h-[var(--control-h-sm)] cursor-pointer items-center gap-[var(--space-3)] rounded-[calc(var(--radius-control)*0.75)] py-0.5 pe-[var(--space-3)] text-[length:var(--text-sm)] text-[var(--text-secondary)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] hover:text-[var(--text-main)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] data-[selected]:[font-weight:var(--weight-medium)] data-[selected]:text-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-40"
-            @select="emit('select', item.value)"
+            @select="(event: TreeItemEvent) => onItemSelect(event, item.value)"
+            @toggle="onItemToggle"
         >
             <!-- 箭头只在有子节点时出现；没有子节点时留一个同宽的空位，两种行的文字才对齐。
                  展开/收起换图标（chevron-right / chevron-down）而不是把同一个图标转 90°：
                  旋转的雪佛龙在 12px 上会被人眼读成偏了一点，而换图标没有这个问题。 -->
+            <!-- `arrow` 时箭头是单独的点击目标：放大到 20 像素见方、悬停有底色，负外边距让它在行里仍只占 12 像素，两种行照旧对齐。 -->
             <span
-                v-if="item.hasChildren"
+                v-if="item.hasChildren && props.toggleOn === 'arrow'"
+                class="-m-1 flex size-5 shrink-0 items-center justify-center rounded-[calc(var(--radius-control)*0.6)] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)]"
+                aria-hidden="true"
+                data-tree-toggle
+            >
+                <span class="h-3 w-3" :class="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" />
+            </span>
+            <span
+                v-else-if="item.hasChildren"
                 class="h-3 w-3 shrink-0 text-[var(--text-muted)]"
                 :class="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
                 aria-hidden="true"

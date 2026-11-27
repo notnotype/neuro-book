@@ -36,6 +36,10 @@ export interface IdentityModuleOptions extends IdentityAssemblyOptions {
 export interface IdentityModule {
     /** 站点地址上的子应用；入口把它挂在 `IDENTITY_API_PREFIX` 下，子应用里的路由不再带前缀。 */
     readonly site: Hono;
+    /** 库的对外端点（标准端点与社交回调）；入口把它挂在 `IDENTITY_AUTH_PREFIX` 下，子应用里的路由不带前缀（计划 3.13）。 */
+    readonly oauth: Hono;
+    /** 两份发现文档；入口把它挂在 `/.well-known` 下。 */
+    readonly wellKnown: Hono;
     /**
      * 问身份（`site.accounts` 输出 7；计划 3.11）：与 `GET whoami` 是同一个函数，只读请求的 Cookie 头，回 `WhoamiResponse` 或 503 的
      * `ErrorBody`。统计模块（t11）经入口的适配器在进程内调它；拆成两个进程时同一个形状就是对 `whoami` 端点的 `fetch`。
@@ -49,7 +53,7 @@ export interface IdentityModule {
 export async function createIdentityModule(options: IdentityModuleOptions): Promise<IdentityModule> {
     const conn = new IdentityConnection(options.db, {log: options.log});
     const assembly = await assembleIdentity(conn, options);
-    return {site: assembly.site, whoami: (request) => assembly.sessions.whoami(request), close: assembly.close};
+    return {site: assembly.site, oauth: assembly.oauth, wellKnown: assembly.wellKnown, whoami: (request) => assembly.sessions.whoami(request), close: assembly.close};
 }
 
 /** 入口交给模块命令的东西里本模块用到的部分；形状是入口 `CommandContext` 的子集，适配器原样转交。 */

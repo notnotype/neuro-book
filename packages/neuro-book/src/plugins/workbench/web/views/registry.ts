@@ -20,8 +20,8 @@ import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 import type {ViewContainerDeclaration, ViewDeclaration} from "../../shared/views";
-import {VIEW_HEAD, VIEW_OWN_HEAD} from "../../shared/contracts";
-import type {ViewHeadOptIn, ViewOwnHeadOptIn} from "../../shared/contracts";
+import {VIEW_HEAD, VIEW_OWN_HEAD, VIEW_RAIL} from "../../shared/contracts";
+import type {ViewHeadOptIn, ViewOwnHeadOptIn, ViewRailBounds, ViewRailOptIn} from "../../shared/contracts";
 import type {ViewImplementation} from "../contracts";
 
 /** 视图声明目录：视图 id 到声明。布局模型靠它决定视图的默认位置、尺寸约束与顺序。 */
@@ -37,7 +37,7 @@ export type ViewDelivery =
 /** 一次加载的结果。stale：结果回来时句柄已撤回、换了或工作台已停止，这次结果作废，不算失败。 */
 export type ViewLoad =
     /** `head`：实现申请了标题区（输出 19）；`ownHead`：还声明了浮动窗里自绘头（同条的“自绘头”）。Lab 的局部实现可以不给，按没申请。 */
-    | {readonly status: "loaded"; readonly component: Component; readonly head?: boolean; readonly ownHead?: {readonly band: number}}
+    | {readonly status: "loaded"; readonly component: Component; readonly head?: boolean; readonly ownHead?: {readonly band: number}; readonly rail?: ViewRailBounds}
     | {readonly status: "failed"; readonly error: unknown}
     | {readonly status: "stale"};
 
@@ -51,6 +51,17 @@ export interface ViewSource {
     retry(viewId: string): Promise<WindowPluginRetry>;
     /** 标题后的计数（views.md 输出 17），响应式；Lab 的局部实现可以不给。 */
     badge?(viewId: string): number | null;
+    /** 实现声明的视图段（views.md 输出 21），响应式，不加载视图；没声明、没交付时是 null。Lab 的局部实现可以不给。 */
+    railOf?(viewId: string): ViewRailBounds | null;
+}
+
+/** 实现上的 `VIEW_RAIL`：形状合格才算声明了（都是有限正数，下限不高于上限，缺省在范围里）。 */
+function railBoundsOf(implementation: ViewImplementation): ViewRailBounds | null {
+    const bounds = (implementation as Partial<ViewRailOptIn>)[VIEW_RAIL];
+    if (bounds === undefined) return null;
+    const {width, minimum, maximum, chatMinimum} = bounds;
+    const positive = [width, minimum, maximum, chatMinimum].every((value) => typeof value === "number" && Number.isFinite(value) && value > 0);
+    return positive && minimum <= maximum && width >= minimum && width <= maximum ? {width, minimum, maximum, chatMinimum} : null;
 }
 
 function entryReason(state: EntryState): string {
@@ -137,6 +148,19 @@ export class ViewRegistry implements ViewSource {
         }
     }
 
+    /** 实现声明的视图段（views.md 输出 21）：同 `badge()` 从句柄同步读、不加载视图；形状不合（不是有限正数、下限高于上限、缺省不在范围里）按没声明。 */
+    railOf(viewId: string): ViewRailBounds | null {
+        void this.#version.value;
+        const handle = this.#handles.get(viewId);
+        if (handle === undefined || !handle.published || this.#stopped) return null;
+        try {
+            return railBoundsOf(handle.implementation());
+        } catch {
+            // 撤回后 `implementation()` 抛 PluginStateError：句柄正在失去 published，按没交付处理；撤回到了会再 bump 一次。
+            return null;
+        }
+    }
+
     receiver(): ContributionReceiver<ViewDeclaration, ViewImplementation> {
         return {
             published: (handle) => {
@@ -166,7 +190,8 @@ export class ViewRegistry implements ViewSource {
             const head = (implementation as Partial<ViewHeadOptIn>)[VIEW_HEAD] === true;
             // 自绘头只和标题区一起读：视图经 `ViewHead.ownHead` 得知此刻在自绘。
             const ownHead = head ? (implementation as Partial<ViewOwnHeadOptIn>)[VIEW_OWN_HEAD] : undefined;
-            return this.#current(viewId, handle) ? {status: "loaded", component, ...(head ? {head} : {}), ...(ownHead === undefined ? {} : {ownHead: {band: ownHead.band}})} : {status: "stale"};
+            const rail = railBoundsOf(implementation);
+            return this.#current(viewId, handle) ? {status: "loaded", component, ...(head ? {head} : {}), ...(ownHead === undefined ? {} : {ownHead: {band: ownHead.band}}), ...(rail === null ? {} : {rail})} : {status: "stale"};
         } catch (error) {
             // implementation() 在撤回后抛 PluginStateError：那也是“已作废”，不是加载失败。
             return this.#current(viewId, handle) ? {status: "failed", error} : {status: "stale"};

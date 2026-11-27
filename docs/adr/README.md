@@ -37,7 +37,7 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0035](0035-harness-log-driven-kernel.md) | Agent harness 以会话日志为唯一真相源（JSONL、写入批、单写者），循环由内核自写、与服务商通信只用 OMP `streamSimple`，Profile 与插件都是只做归约、反应、视图、拦截的扩展 |
 | [0036](0036-app-package-installs-omp.md) | 应用包把 OMP 作为依赖安装、不打进 bundle；服务端入口先拍启动环境、接管 OMP 的进程级处理，再以代码分割加载本体（接管是上游修复前的临时做法） |
 | [0037](0037-world-engine-story-change-log.md) | 作者视角的世界引擎以剧情变更日志与修订为真相（计划是没写的变更，修订带版本、可还原），条目由主 MDX 加按 Component 分块的状态组成；随剧情变化的文字整段替换，记账默认生效（其中“包括直接改文件后被读进来的内容”已被 0039 取代，“以后加世界线时换掉位置模块、日志形状不变”已被 0042 取代） |
-| [0038](0038-world-engine-entry-text-is-whitelisted-mdx.md) | 世界引擎条目的主文字用 MDX、不复用项目 Markdown 方言，按白名单解释语法树、不执行代码；给 Agent 的渲染用带值写法；作者的编辑界面另找办法 |
+| [0038](0038-world-engine-entry-text-is-whitelisted-mdx.md) | 世界引擎条目的主文字用 MDX、不复用项目 Markdown 方言，按白名单解释语法树、不执行代码；给 Agent 的渲染用带值写法；作者的编辑界面另找办法（决策 1 与 3 已被 0064 取代） |
 | [0039](0039-world-engine-segmented-revision-log.md) | 世界引擎的真相源是 `.nbook/world/log/` 下按 256 KiB 分段的只追加修订日志，打开时在内存里重放、按章留折叠的中间结果，不用数据库；条目不做成文件，第一版不开放经文件改设定；日志不进 nb-history |
 | [0040](0040-file-writes-staged-and-committed-by-root-owner.md) | 文件服务不劫持读，写只有一个入口：写入方暂存、拥有根的进程在锁里提交并记账；外部改动由监视与对账发现，History 经文件服务定义的记账槽接入（部分取代项目文件底座提案的“读写都经文件服务”） |
 | [0041](0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md) | 世界引擎的内核只加通用机制（条目引用、讲述发生点与标注、在场、时间说法、世界线、决策存储、标注与诊断两个贡献点），知情、伏笔、目标、决策的语义与检查放进剧情插件 |
@@ -63,3 +63,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0061](0061-official-site-sqlite-file-per-module.md) | 官方站每个模块一个 SQLite 文件，迁移向后兼容一个版本，合同测试不起数据库容器；需要多副本同时写的模块再单独换 |
 | [0062](0062-telemetry-tiers-by-identifiability.md) | 遥测按能不能认出人分五档、不带持久标识、每天一份汇总，开发期原始上报留 7 天；埋点接口由不联网的本机统计插件提供，遥测只读；告知与向导分开，收集清单按档分版本 |
 | [0063](0063-official-site-identity-own-routes-library-sessions.md) | 账号的登录、注册、改密码、资料与管理操作由账号模块自己做，Better Auth 只管发会话、认 Cookie 与 t08 的协议部分；自己改密码保留当前会话；库的版本钉死（细化 0060 决策 1、4，部分取代决策 5 第二条） |
+| [0064](0064-entry-text-uses-tags-and-the-chapter-parser.md) | 条目的主文字改用标签写法（`<V>`、`<If>`），与章节共用 marked 与同一份 Markdown 配置；给 Agent 的值只给看、交回时去掉；给作者的渲染是源文加值表 |

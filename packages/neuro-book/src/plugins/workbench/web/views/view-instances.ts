@@ -11,6 +11,9 @@ import type {ViewLocation} from "../../shared/views";
 import type {ViewSource} from "./registry";
 import {createViewHead} from "./view-head";
 import type {ViewHeadControl} from "./view-head";
+import {createViewRail} from "./view-rail";
+import type {ViewRailControl} from "./view-rail";
+import type {ViewRailRequestResult} from "../../shared/contracts";
 
 export interface ViewInstance {
     generation: number;
@@ -28,6 +31,8 @@ export interface ViewInstances {
     headOf(viewId: string): ViewHeadControl | null;
     /** 这一代的实现声明的自绘头（同条的“自绘头”）：申请了标题区、声明了自绘、实例就绪时才有。 */
     ownHeadOf(viewId: string): {readonly band: number} | null;
+    /** 这一代的视图段（views.md 输出 21）：实现声明了、实例就绪时才有，随上下文一起换代；旧的那份退休（位置 `none`、请求 `revoked`）。 */
+    railOf(viewId: string): ViewRailControl | null;
     readonly generations: ComputedRef<ReadonlyMap<string, number>>;
     reload(viewId: string): void;
     retryRender(viewId: string): void;
@@ -43,6 +48,8 @@ export function useViewInstances(options: {
     placed(): ReadonlySet<string>;
     /** 视图在哪个具名面板；无名面板是 null。 */
     location(viewId: string): ViewLocation | null;
+    /** 视图段的请求（`ViewRail.request`）交给谁；不给时一律 `revoked`（Lab 的局部宿主）。 */
+    requestRail?(viewId: string, expanded: boolean): ViewRailRequestResult;
 }): ViewInstances {
     const instances = reactive(new Map<string, ViewInstance>());
     /**
@@ -55,6 +62,9 @@ export function useViewInstances(options: {
     const wantsHead = new Map<string, boolean>();
     /** 这一代的实现声明的自绘头：同 `wantsHead`。 */
     const ownHeads = new Map<string, {readonly band: number}>();
+    /** 声明了视图段的实例这一代的那一份；与 `contexts` 同进同出。 */
+    const rails = new Map<string, ViewRailControl>();
+    const wantsRail = new Set<string>();
     /** 实例删了再建也接着数。 */
     const generations = new Map<string, number>();
 
@@ -76,17 +86,26 @@ export function useViewInstances(options: {
         heads.delete(viewId);
     }
 
-    /** 换一代上下文；申请了标题区的同时换一份标题区。 */
+    /** 旧一代的视图段退休：视图手里留着的旧引用读到 `none`，请求得到 `revoked`。 */
+    function retireRail(viewId: string): void {
+        rails.get(viewId)?.retire();
+        rails.delete(viewId);
+    }
+
+    /** 换一代上下文；申请了标题区、声明了视图段的同时各换一份。 */
     function setContext(viewId: string, generation: number): void {
         const context = contextFor(viewId, generation);
         contexts.set(viewId, context);
         retireHead(viewId);
+        retireRail(viewId);
         if (wantsHead.get(viewId) === true) heads.set(viewId, createViewHead(context));
+        if (wantsRail.has(viewId)) rails.set(viewId, createViewRail(context, (expanded) => options.requestRail?.(viewId, expanded) ?? "revoked"));
     }
 
     function dropContext(viewId: string): void {
         contexts.delete(viewId);
         retireHead(viewId);
+        retireRail(viewId);
     }
 
     async function load(viewId: string): Promise<void> {
@@ -103,6 +122,8 @@ export function useViewInstances(options: {
         else if (result.status === "failed") Object.assign(current, {status: "load-failed", error: result.error instanceof Error ? result.error.message : String(result.error)});
         else {
             wantsHead.set(viewId, result.head === true);
+            if (result.rail === undefined) wantsRail.delete(viewId);
+            else wantsRail.add(viewId);
             if (result.ownHead === undefined) ownHeads.delete(viewId);
             else ownHeads.set(viewId, result.ownHead);
             setContext(viewId, generation);
@@ -143,6 +164,7 @@ export function useViewInstances(options: {
         instances,
         contextOf: (viewId) => contexts.get(viewId) ?? null,
         headOf: (viewId) => (instances.get(viewId)?.status === "ready" ? heads.get(viewId) ?? null : null),
+        railOf: (viewId) => (instances.get(viewId)?.status === "ready" ? rails.get(viewId) ?? null : null),
         ownHeadOf: (viewId) => (instances.get(viewId)?.status === "ready" && heads.has(viewId) ? ownHeads.get(viewId) ?? null : null),
         generations: computed(() => new Map([...instances].map(([id, instance]) => [id, instance.generation]))),
         reload: (viewId) => {
@@ -158,6 +180,8 @@ export function useViewInstances(options: {
         renderError: (viewId, generation, message) => {
             const instance = instances.get(viewId);
             if (instance === undefined || instance.generation !== generation) return;
+            // 视图段随出错的这一代退休：外壳按就绪的实例分发，出错的实例拿不到控制，旧控制的位置不收回的话视图还往右轨里送。
+            retireRail(viewId);
             Object.assign(instance, {status: "render-failed", error: message});
         },
         retryEntry: async (viewId) => {

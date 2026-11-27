@@ -115,6 +115,11 @@ const tabLabel = (page: Page) => page.locator("[data-editor-tab-label]", {hasTex
 const crumbs = (page: Page) => page.locator("[data-editor-breadcrumbs]");
 const blockType = (page: Page) => page.locator(".markdown-block-type");
 const sessionPanel = (page: Page) => page.locator("[data-agent-session-panel]");
+/** 会话面板在右轨的完整列表里（conversation.md 输出 57）：点底段“会话历史”展开右轨才有。 */
+const openSessionPanel = async (page: Page): Promise<void> => {
+    await page.locator('[data-messages-open="sessions"]').click();
+    await expect(sessionPanel(page)).toBeVisible();
+};
 
 async function expectWorkbenchChrome(page: Page): Promise<void> {
     await expectNotSelectable(tabLabel(page), "note.md");
@@ -136,6 +141,7 @@ test("桌面：工作台里框架文字不可选，正文与其中不可编辑�
     await expectSelectable(prose(page), "原样块文字");
     await expectSelectable(prose(page), "<kbd>");
     await expectWorkbenchChrome(page);
+    await openSessionPanel(page);
     await expect(sessionPanel(page)).toContainText("没有会话");
     await expectNotSelectable(sessionPanel(page), "没有会话");
 });
@@ -209,6 +215,7 @@ test("桌面：首次启动向导里位置的路径可选，标题不可选", as
 test("浏览器：没有全局规则，会话面板空态文字可选；编辑器标签、面包屑、工具栏、设置导航、书架卡片各自不可选", async ({page}) => {
     await openNote(page);
     await expectSelectable(prose(page), "正文一段");
+    await openSessionPanel(page);
     await expectSelectable(sessionPanel(page), "没有会话");
     await expectWorkbenchChrome(page);
 

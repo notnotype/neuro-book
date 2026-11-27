@@ -25,9 +25,10 @@ import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
 import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
 import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
+import {fieldsText} from "../shared/agent-fields";
 import {agentBlockText, replaceInBlock} from "./agent-entry-text";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
-import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
+import {clip, failureText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
 export const AGENT_TOOL_IDS = {lookup: "nbook.canon.lookup", tree: "nbook.canon.tree", read: "nbook.canon.read", write: "nbook.canon.write"} as const;
 
@@ -408,7 +409,7 @@ function readTool(services: Services): AgentToolImplementation {
                     parts.push(`${blockLine({...block, text: page})}${rest > 0 ? `\n……（这一块共 ${String(block.text.length)} 字，后面还有 ${String(rest)} 字：cursor "${String(from + page.length)}" 续读。这么长的块用 replace 改局部）` : ""}`);
                     return {text: parts.join("\n\n"), details: {version: read.value.version, entry: resolved.id}};
                 }
-                if (show.includes("fields")) parts.push(fieldsText(view, declarations, context.components, field));
+                if (show.includes("fields")) parts.push(fieldsText(view, declarations, context.components, field === undefined ? {} : {field}));
                 const limit = show.includes("text") && show.length === 1 ? 4000 : 6000;
                 if (show.includes("text")) {
                     const rendered = await call("render", {entry: resolved.id, position: context.position, mode, audience: "agent"});

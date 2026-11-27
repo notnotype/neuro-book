@@ -1,0 +1,68 @@
+w00039 t44 计划第 1 稿设计审查的处理（2026-11-27）
+
+审查：Claude Sonnet 子代理，报告见 design-review.txt。15 条：阻断 1、重要 7、建议 7。全部成立，改成计划第 2 稿；没有“不成立”或“接受取舍”的。
+
+1（阻断，架构测试的口子）成立，要改。计划写成三条可判定的规则：
+  - isLabScene 并入 labSceneMayImport；
+  - scene-kit 对 isLabScene 不算引开发插件；
+  - 产品代码不得引 */web/lab/（类型引用也拦）。
+  用例表补正反例。插件场景照旧可以引任何插件的 web/、shared/，现有场景普遍跨两三个插件。
+
+2（重要，共用的支持模块）成立，要改。归属规则：
+  - 只有一个插件的场景用的，跟着那个插件走；
+  - 被共用的，放进它模拟的那个插件（例如 settings-host 放 settings）。
+  因为规则 1 允许 web/lab 引别的插件的 web/lab，所以不再和第 3 条规则冲突。
+  split-fixtures 报出每个跨插件的声明，主会话逐个定归属，写进 evidences/support-modules.txt。S3 不派子代理，主会话自己做。
+
+3（重要，草稿）成立，要改。move-files 的扫描范围包括 lab/web/drafts/；旧路径留再导出文件，给还在出稿的草稿 worktree 用，删除记进 followups。
+
+4（重要，Tailwind 扫描）成立，要改。tailwind.product.css 加 @source not "../plugins/*/web/lab"，先实测通配；S1 用 bun run build 前后对比产物 CSS。
+
+5（重要，门禁扫描根）成立，要改。相对导入与“假盒子”两项检查的扫描根扩到 plugins/*/web/lab/；总表收集时校验形状；新加一条“每个 web/lab/ 都有 fixtures.ts 并被收到”。
+
+6（重要，与 w00055 冲突）成立，要改。
+  - 不定死谁先合入：w00055 t02 在等真实 Agent 的评测，时间不由本 Task 定。
+  - 改为让 S2、S3 全由可重跑的脚本完成：w00055 先合，就在新 master 上重跑脚本；t44 先合，w00055 重放它的 6 处场景改动。
+  - 切片写明 S1 到 S4 严格串行。
+
+7（重要，ConfirmBar 的取舍与规则矛盾）成立，要改。
+  - 规则改成“模板里每个分支至少一个场景走到，只是文字或数据不同的合并”。
+  - ConfirmBar 照规则重选，是 6 个：number、unknown、inline-note、inline-passage（并入“还有 N 项”）、inline-unknown、inline-english。
+  - 开发者批的是 5 个，交付时说明。
+  - “由 e2e 覆盖”的说法删掉，改成“版面由 lab-scenes 量保留的场景，行为由 dom 测试覆盖”。
+
+8（建议，check:dist 的标记）成立，要改。不另加只为门禁存在的常量：没被引用的导出会被摇树删掉，起不到标记作用。改为 defineLabFixture 在登记形状不对时抛 nb-lab: 开头的错，这段文案随任何场景文件进产物，nb-lab: 本来就在 DEVELOPMENT_MARKERS 里。单测覆盖这次校验。
+
+9（建议，glob 路径）成立，要改。路径改成 ../../../*/web/lab/fixtures.ts，排除 lab 自己；一个都没匹配到时抛错。
+
+10（重要，场景清单的粒度与做法）成立，要改。场景快照改为全量 JSON：
+  - 每个组件的 component、slots、noInput；
+  - 每个场景的 id、label、input；
+  - load() 解析出的组件名。
+  S1 前存基线，S1、S2、S3 后逐字比对；S3 提交后马上跑 lab-scenes。
+
+11（建议，define.ts 的理由与 scene-kit 清单）成立，要改。
+  - 理由改为“场景只依赖 define.ts 与 scene-kit，总表不再是类型的出处”。
+  - define.ts 头注释说的运行时环是指 defineLabFixture 这个值，不是类型，所以挪类型不是为了消除环。
+  - 清单按 grep 补全，S1 开头再核一遍；总表的再导出保留。
+
+12（建议，辅助件与测试的归属）成立，要改。
+  - 同名的跟组件走；
+  - entry-tabs.ts 进 entry-page/；
+  - ComponentViews.dom.test.ts 进 groups/；
+  - 跨组照常写相对路径，不另设共用目录。
+  完整的路径表由脚本生成，先人工过一遍再写入。
+
+13（建议，文档清单）成立，要改。按审查列出的行补进“Spec 与文档改动”；S5 的验收是逐处搜 fixtures/index 与 web/fixtures/。
+
+14（建议，英文与长文字的规则）成立，要改。
+  - 规则改成“每种版式至多一个英文、一个长文字”；
+  - 写明 -english 后缀是语言开关，长文字场景用 -long 后缀。
+
+15（建议，类比与风险）成立，要改。
+  - 去掉“草稿区同样做法”的类比，新加一节“开发代码进入产品插件目录的边界”；
+  - 提到 web/testing/ 的先例与差别；
+  - 风险一节按 1、3、4、6、8 重写；
+  - workbench 29 个组件，规则写成“超过 30 个时下一次改到它时分”。
+
+补上哪条依据能避免这一轮：计划第 1 稿是按“草稿区已有 glob 收集”类推写的，没有逐个列出按目录前缀认开发代码的机制。以后把开发代码挪出开发插件目录时，先列这些机制再写设计。

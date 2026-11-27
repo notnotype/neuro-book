@@ -9,7 +9,7 @@
         "typecheck": "vue-tsc --noEmit -p tsconfig.json"
     },
     "dependencies": {
-        "@notnotype/nb-layout": "^0.3.0",
+        "@notnotype/nb-layout": "^0.4.0",
         "vue": "^3.5.24"
     },
     "devDependencies": {
