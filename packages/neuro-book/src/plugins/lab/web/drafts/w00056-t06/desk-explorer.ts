@@ -23,7 +23,7 @@ import {createExplorerViewHost} from "nbook/plugins/explorer/web/view-host";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import type {PanelName} from "@notnotype/nb-workbench-layout";
 
-import type {MemoryFiles} from "../../fixtures/explorer-scene/memory-files";
+import type {MemoryFiles} from "../../../../explorer/web/lab/memory-files";
 
 export interface DeskExplorer {
     readonly Host: Component;

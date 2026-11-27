@@ -58,9 +58,9 @@ import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../../lab-event-sink";
-import {createLabEditorMenus} from "../../fixtures/editor-scene/lab-editor-menus";
-import {createMemoryFiles} from "../../fixtures/explorer-scene/memory-files";
-import {labStickers} from "../../fixtures/lab-stickers";
+import {createLabEditorMenus} from "../../../../editor/web/lab/lab-editor-menus";
+import {createMemoryFiles} from "../../../../explorer/web/lab/memory-files";
+import {labStickers} from "../../../../stickers/web/lab/lab-stickers";
 import {labAgentRegistry, labAgentRenderers, labAgentServices, provideLabMarkdown} from "../../fixtures/nb-agent-ui/host";
 // 星璃的头像是 bots 插件的内置素材；插件之间不直接引对方 web、shared 以外的文件（architecture.test.ts 的依赖方向），这里用一份副本。
 import LYRA_AVATAR from "./assets/lyra-avatar.webp";

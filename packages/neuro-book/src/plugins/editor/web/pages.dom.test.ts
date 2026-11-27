@@ -24,7 +24,7 @@ import {editorCatalogs} from "./text";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 
 import {createApplication} from "nbook/application";
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 

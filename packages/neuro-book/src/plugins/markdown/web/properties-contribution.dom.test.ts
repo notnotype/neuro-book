@@ -21,7 +21,7 @@ import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 

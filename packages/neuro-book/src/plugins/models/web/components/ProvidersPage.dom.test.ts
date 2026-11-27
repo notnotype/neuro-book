@@ -7,8 +7,8 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 import {Select} from "@notnotype/nb-ui/components";
 
-import {createFakeModelsRemote} from "nbook/plugins/lab/web/fixtures/models-scene/fake-remote";
-import {generatedRows, SAMPLE_ROWS, SAMPLE_SNAPSHOT, sampleRow} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {createFakeModelsRemote} from "nbook/plugins/models/web/lab/fake-remote";
+import {generatedRows, SAMPLE_ROWS, SAMPLE_SNAPSHOT, sampleRow} from "nbook/plugins/models/web/lab/sample";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 

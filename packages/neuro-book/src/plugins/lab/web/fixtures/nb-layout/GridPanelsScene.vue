@@ -30,7 +30,7 @@ import type {Grid, GridFloatInput, GridRect} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutProjectionOptions, LayoutResult, PanelRecord, TabRef} from "@notnotype/nb-workbench-layout";
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
-import GridStructureLeaf from "./GridStructureLeaf.vue";
+import GridStructureLeaf from "../../../../workbench/web/lab/GridStructureLeaf.vue";
 import {createInstanceCounter, moveFocusOnF6} from "./scene-support";
 
 const HEAD = 32;

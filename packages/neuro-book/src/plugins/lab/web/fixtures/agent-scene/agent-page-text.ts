@@ -1,37 +1,5 @@
 /**
- * Agent 设置页夹具的翻译端口：Lab 窗口的端口不登记本插件的目录，所以夹具另建一个宿主引擎、登记 `nbook.agent` 的目录，只注入给
- * 场景里的零件（做法同 `projects-scene/projects-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面。
+ * 旧路径的再导出：w00039 t44 把这个模块搬到了 `plugins/agent/web/lab/agent-page-text.ts`。还在出稿的草稿 worktree（`lab/web/drafts/` 下的副本）
+ * 按旧路径引它；它们合了 master、改成新路径后删掉这个文件（w00039 的 followups 记着）。
  */
-
-import {defineComponent, h} from "vue";
-import type {Component, PropType} from "vue";
-
-import {agentCatalogs} from "nbook/plugins/agent/web/text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
-import {provideHostText} from "nbook/web/host/host-text";
-import {createHostTextEngine} from "nbook/web/host/text-engine";
-
-import type {LabSceneInput} from "../../lab-subject";
-
-const sceneLocale = (scene: string): DisplayLocale => (/(?:^|-)english$/u.test(scene) ? "en-US" : "zh-CN");
-
-export function provideAgentPageText(scene: string): void {
-    const engine = createHostTextEngine({locale: sceneLocale(scene)});
-    engine.register("nbook.agent", agentCatalogs.catalogs, agentCatalogs.source);
-    provideHostText(engine.port);
-}
-
-/** 给一个接 `scene` 与 `input` 的夹具组件套上本插件的翻译端口。 */
-export function withAgentPageText(fixture: Component): Component {
-    return defineComponent({
-        name: "AgentPageTextFixture",
-        props: {
-            scene: {type: String, required: true},
-            input: {type: Object as PropType<LabSceneInput>, default: undefined},
-        },
-        setup(props) {
-            provideAgentPageText(props.scene);
-            return () => h(fixture, {scene: props.scene, input: props.input});
-        },
-    });
-}
+export * from "nbook/plugins/agent/web/lab/agent-page-text";

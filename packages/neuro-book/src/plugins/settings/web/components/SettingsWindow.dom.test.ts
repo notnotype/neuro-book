@@ -10,12 +10,12 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch} from "vue";
 import type {PropType} from "vue";
 
-import {createSettingsScene} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import type {SettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import {SCENE_PROJECT_FILE} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
-import {modelsSettings} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
-import type {SettingsWindowSceneId} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
+import {createSettingsScene} from "nbook/plugins/settings/web/lab/scene-data";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import type {SettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import {SCENE_PROJECT_FILE} from "nbook/plugins/settings/web/lab/scene-data";
+import {modelsSettings} from "nbook/plugins/settings/web/lab/scene-settings";
+import type {SettingsWindowSceneId} from "nbook/plugins/settings/web/lab/scene-settings";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";

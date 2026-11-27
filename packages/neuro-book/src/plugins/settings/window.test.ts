@@ -36,7 +36,7 @@ import {clockKey, windowConnectionKey, windowDesktopKey, windowPluginsKey} from 
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";

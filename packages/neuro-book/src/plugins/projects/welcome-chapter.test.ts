@@ -19,7 +19,7 @@ import {createApplication} from "nbook/application";
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import type {DisplayLocale} from "nbook/shared/localized-text";

@@ -14,11 +14,11 @@ import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
-import {createSettingsHost} from "./settings-scene/settings-host";
+import {createSettingsHost} from "../../../settings/web/lab/settings-host";
 import {provideSettingsText, settingsSceneLocale} from "./settings-scene/settings-text";
-import type {HostLayer} from "./settings-scene/settings-host";
-import {SCENE_SETTINGS} from "./settings-scene/scene-data";
-import {rowDemoSettings} from "./settings-scene/scene-settings";
+import type {HostLayer} from "../../../settings/web/lab/settings-host";
+import {SCENE_SETTINGS} from "../../../settings/web/lab/scene-data";
+import {rowDemoSettings} from "../../../settings/web/lab/scene-settings";
 
 const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();

@@ -7,7 +7,7 @@ import CharacterViewDraft from "./CharacterViewDraft.vue";
 import LookViewDraft from "./LookViewDraft.vue";
 
 import type {LabFixtureProps} from "../../lab-subject";
-import {provideCanonText} from "../../fixtures/canon-text";
+import {provideCanonText} from "../../../../canon/web/lab/canon-text";
 
 const props = defineProps<LabFixtureProps & {view: "character" | "look"}>();
 provideCanonText(props.scene);
