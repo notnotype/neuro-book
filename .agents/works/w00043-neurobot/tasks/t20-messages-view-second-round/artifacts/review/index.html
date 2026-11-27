@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t20 第 4 轮：展开收起按钮与列表</title>
+<title>t20 第 5 轮：列表照 t03 的稿</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -30,54 +30,31 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t20 第 4 轮：展开收起按钮与列表</h1>
+<h1>t20 第 5 轮：列表照 t03 的稿</h1>
 
-<section data-nbdev-question="toggle-place" data-nbdev-type="single" data-nbdev-recommend="head">
-  <h2>展开收起按钮放在哪？</h2>
-  <p class="rec"><strong>推荐 A 聊天头右端：收着、展开都在同一个地方，停靠与浮动一样；列表就在它右边长出来，按钮指着它。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="head" data-nbdev-label="A 聊天头右端">
-      <h3>A 聊天头右端</h3>
-      <h4>收着</h4><img src="r4/head-dock.webp" alt="A：收着，按钮在聊天头右端">
-      <h4>展开</h4><img src="r4/head-dock-open.webp" alt="A：展开，按钮在聊天头右端、按下">
-    </div>
-    <div class="cand" data-nbdev-option="top" data-nbdev-label="B 窄列顶上、列表搜索行右端">
-      <h3>B 窄列顶上、列表搜索行右端</h3>
-      <h4>收着</h4><img src="r4/top-dock.webp" alt="B：收着，按钮在窄列顶上">
-      <h4>展开</h4><img src="r4/top-dock-open.webp" alt="B：展开，按钮在搜索行右端">
-      <p>两个状态里按钮位置不同。</p>
-    </div>
-    <div class="cand" data-nbdev-option="tab" data-nbdev-label="C 不设按钮：点 Bot、会话展开，再点当前页收起">
-      <h3>C 不设按钮</h3>
-      <h4>收着</h4><img src="r4/tab-dock.webp" alt="C：收着，窄列底下只有 Bot、会话">
-      <h4>展开</h4><img src="r4/tab-dock-open.webp" alt="C：展开，底部只有 Bot、会话">
-      <p>点窄列的 Bot、会话展开到那一页，再点导航条上当前那一页收起；按钮最少，但收起要靠悬停提示才知道。</p>
-    </div>
+<section data-nbdev-question="list-t03" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>列表照 t03 第 5 轮定下的稿，只换成底部导航、去掉顶上页签，这样行吗？</h2>
+  <p class="rec"><strong>推荐行：会话行照会话面板（种类图标、标题、说明、状态、子代理个数，按最近活动排、不分组），bot 行照 IM（最后一句话、在跑时蓝字），都是 t03 定过的；列表宽缺省改成 300（t03 稿的宽），260 时搜索框挤。</strong></p>
+  <div class="cands cands--4">
+    <div class="cand"><h3>停靠展开 · 会话</h3><img src="r5/dock-open.webp" alt="停靠展开：会话页"></div>
+    <div class="cand"><h3>停靠展开 · Bot</h3><img src="r5/dock-open-bot.webp" alt="停靠展开：bot 页"></div>
+    <div class="cand"><h3>浮动展开</h3><img src="r5/float-open.webp" alt="浮动展开：会话页"></div>
+    <div class="cand"><h3>浮动收着</h3><img src="r5/float.webp" alt="浮动收着"></div>
   </div>
+  <div style="display:none" data-nbdev-option="ok" data-nbdev-label="行"></div>
+  <div style="display:none" data-nbdev-option="adjust" data-nbdev-label="要调整（写在附言里）"></div>
 </section>
 
-<section data-nbdev-question="list-style" data-nbdev-type="single" data-nbdev-recommend="1">
-  <h2>列表用哪种样子？</h2>
-  <p class="rec"><strong>推荐一：靠字重与留白分层，200 到 420 宽都稳，一屏七到十条；会话不再用首字方块（首字重复多、认不出），按今天、更早分组，当前项浅底加强调色标题。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="1" data-nbdev-label="一：排印提纲">
-      <h3>一：排印提纲</h3>
-      <img src="r3/list1.webp" alt="方向一：会话页">
-      <h4>Bot 页</h4><img src="r3/list1-bot.webp" alt="方向一：bot 页">
-    </div>
-    <div class="cand" data-nbdev-option="2" data-nbdev-label="二：轻卡片">
-      <h3>二：轻卡片</h3>
-      <img src="r3/list2.webp" alt="方向二：会话页">
-      <h4>Bot 页</h4><img src="r3/list2-bot.webp" alt="方向二：bot 页">
-      <p>说明可写两行，一屏四到六条，矮的浮动窗里显得满。</p>
-    </div>
-    <div class="cand" data-nbdev-option="3" data-nbdev-label="三：工具索引">
-      <h3>三：工具索引</h3>
-      <img src="r3/list3.webp" alt="方向三：会话页">
-      <h4>Bot 页</h4><img src="r3/list3-bot.webp" alt="方向三：bot 页">
-      <p>单行最密，一屏十二条以上；说明不显示，搜索要先点放大镜。</p>
-    </div>
+<section data-nbdev-question="toggle-b" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>展开收起按钮按 B（收着在窄列顶上，展开在搜索行右端），看了这版定下吗？</h2>
+  <p class="rec"><strong>你上一轮倾向 B；放进 t03 的列表后搜索行多一个按钮，浮动窗里和“回到停靠”挨着，300 宽还放得下。</strong></p>
+  <div class="cands cands--2">
+    <div class="cand"><h3>收着</h3><img src="r5/dock.webp" alt="收着：按钮在窄列顶上"></div>
+    <div class="cand"><h3>展开</h3><img src="r5/dock-open.webp" alt="展开：按钮在搜索行右端"></div>
   </div>
+  <div style="display:none" data-nbdev-option="ok" data-nbdev-label="定 B"></div>
+  <div style="display:none" data-nbdev-option="head" data-nbdev-label="改 A 聊天头右端"></div>
+  <div style="display:none" data-nbdev-option="tab" data-nbdev-label="改 C 不设按钮"></div>
 </section>
 
 <section>
@@ -85,9 +62,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <table>
     <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
     <tbody>
-      <tr><td>会话页的搜索框</td><td>占满这一行（现在只有一截，提示文字被截断）</td></tr>
-      <tr><td>“当前作品 / 全部作品”</td><td>放在搜索框下面那一行的左端，筛选在右端（不藏进筛选菜单）</td></tr>
-      <tr><td>会话没有说明时</td><td>行只有一行高，不留空的第二行</td></tr>
+      <tr><td>会话页的搜索框</td><td>占满搜索行里剩下的宽度（稿里还只有一截）</td></tr>
       <tr><td>未读数</td><td>中性深色小胶囊，不用强调色（强调色只给当前项）；有等你处理时用 warning 色</td></tr>
             <tr><td>搜索框的提示文字</td><td>只写“搜索”</td></tr>
     </tbody>
@@ -99,10 +74,10 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <ol class="decided">
     <li>浮动窗展开着拖动不再变小；一列按钮对齐到同一条中线；轨宽手柄亮起时是细线（已修并合入）</li>
     <li>归位后再浮动用上次的位置与大小（已做并合入）</li>
-    <li>列表整个重做（第 1 轮附言“不好看，这个消息列表可以重新做”）</li>
     <li>收着时窄列（侧柜）保留；展开时底下三个按钮落到列表底部成横排导航（第 2 轮附言）</li>
     <li>结构按第 3 轮：收着窄列照旧，展开后窄列让位、列表底部是 Bot｜会话；展开收起按钮换个位置（第 3 轮附言，本轮第一题）</li>
     <li>右栏有别的容器时，展开的列表顶上一行入口；只有消息时不加（第 3 轮）</li>
+    <li>列表回到 t03 第 5 轮定下的稿；第 3、4 轮的三个方向与第 1 轮的首字方块作废（第 4 轮后会话里）</li>
   </ol>
 </section>
 </main>
