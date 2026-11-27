@@ -3,7 +3,7 @@
  * 类型检查的范围里，没有 DOM 类型，所以只经这个不带 DOM 的接口用它。
  */
 
-import type {HighlightArgs, HighlightInstalled, Locator, PageFailure, PageOutcome, SnapshotArgs, SnapshotResult} from "@notnotype/nb-page-agent/api";
+import type {HighlightArgs, HighlightEnd, HighlightInstalled, Locator, PageFailure, SnapshotArgs, SnapshotResult} from "@notnotype/nb-page-agent/api";
 
 import type {WindowInfo} from "../shared/contracts";
 
@@ -21,7 +21,7 @@ export interface PageSide {
 /** 一次高亮：画出来时 `installed` resolve（没画出来就结束时是 null），撤掉之后 `outcome` resolve；`cancel` 撤掉，结局是 `cancelled`。 */
 export interface PageHighlight {
     readonly installed: Promise<HighlightInstalled | null>;
-    readonly outcome: Promise<PageOutcome | {readonly outcome: "cancelled"} | PageFailure>;
+    readonly outcome: Promise<HighlightEnd>;
     cancel(): void;
 }
 

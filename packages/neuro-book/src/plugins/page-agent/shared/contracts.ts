@@ -164,7 +164,8 @@ export const HighlightEventSchema = Type.Union([
     Type.Object({kind: Type.Literal("outcome"), outcome: PageOutcomeSchema}, {additionalProperties: false}),
     Type.Object({
         kind: Type.Literal("failed"),
-        code: Type.Union([Type.Literal("stale-ref"), Type.Literal("ambiguous"), Type.Literal("not-found"), Type.Literal("invalid-locator"), Type.Literal("window-hidden")]),
+        /** `guide-failed`：页面画不出高亮（引擎或宿主的钩子出错），服务端按窗口出错处理。 */
+        code: Type.Union([Type.Literal("stale-ref"), Type.Literal("ambiguous"), Type.Literal("not-found"), Type.Literal("invalid-locator"), Type.Literal("window-hidden"), Type.Literal("guide-failed")]),
         detail: PageFailureDetailSchema,
     }, {additionalProperties: false}),
 ]);

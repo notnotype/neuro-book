@@ -116,6 +116,8 @@ export function windowCallFailure(failure: RemoteFailure<string>): ToolResult {
             return failureResult("invalid-arguments", detail?.message ?? "定位写错了");
         case "capture-failed":
             return failureResult("window-unresponsive", detail?.message ?? "窗口没能画出截图", {cause: "capture-failed"});
+        case "guide-failed":
+            return failureResult("window-unresponsive", detail?.message ?? "窗口没能画出高亮", {cause: "guide-failed"});
         default:
             return windowFailureResult(callFailure(failure as RemoteFailure));
     }

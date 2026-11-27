@@ -187,7 +187,7 @@ export const pageAgentWebPlugin: PluginDefinition = {
                         highlight: {
                             subscribe: async (filter, sink, call) => {
                                 const side = await ready(call.signal);
-                                const fail = (code: "stale-ref" | "ambiguous" | "not-found" | "invalid-locator" | "window-hidden", message: string, candidates?: readonly unknown[]): void => {
+                                const fail = (code: "stale-ref" | "ambiguous" | "not-found" | "invalid-locator" | "window-hidden" | "guide-failed", message: string, candidates?: readonly unknown[]): void => {
                                     sink.next({kind: "failed", code, detail: {message: message.slice(0, 1024), ...(candidates === undefined ? {} : {candidates: candidates as never})}});
                                 };
                                 if (!side.info().visible) {
@@ -210,7 +210,7 @@ export const pageAgentWebPlugin: PluginDefinition = {
                                 });
                                 void handle.outcome.then((end) => {
                                     if (call.signal.aborted) return;
-                                    if ("code" in end) fail(end.code, end.message, end.details?.candidates);
+                                    if ("code" in end) fail(end.code, end.message, end.code === "guide-failed" ? undefined : end.details?.candidates);
                                     else if (end.outcome !== "cancelled") sink.next({kind: "outcome", outcome: end});
                                 });
                             },

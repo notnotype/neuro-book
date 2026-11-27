@@ -66,22 +66,14 @@ const GUIDE_THEME: GuideTheme = {
 
 /**
  * 悬停才显示的工作台动作（docs/specs/workbench/views.md 输出 25）：高亮其中的按钮时给它所在的动作区写 `data-nb-agent-reveal`，
- * 这期间一直显示。换下一个高亮时新的先写、旧的后撤，所以按计数撤，同一个动作区还有高亮在用时不去掉。
+ * 这期间一直显示。引擎保证换下一个高亮时上一次先撤、这一次再写，同一个动作区的两步不会互相撤掉。
  */
-function createReveal(): NonNullable<GuideOptions["reveal"]> {
-    const holders = new WeakMap<Element, number>();
-    return (target) => {
-        const zone = target.closest("[data-hover-actions]");
-        if (zone === null) return undefined;
-        holders.set(zone, (holders.get(zone) ?? 0) + 1);
-        zone.setAttribute("data-nb-agent-reveal", "");
-        return () => {
-            const left = (holders.get(zone) ?? 1) - 1;
-            holders.set(zone, left);
-            if (left === 0) zone.removeAttribute("data-nb-agent-reveal");
-        };
-    };
-}
+const reveal: NonNullable<GuideOptions["reveal"]> = (target) => {
+    const zone = target.closest("[data-hover-actions]");
+    if (zone === null) return undefined;
+    zone.setAttribute("data-nb-agent-reveal", "");
+    return () => zone.removeAttribute("data-nb-agent-reveal");
+};
 
 function currentPath(): string {
     const raw = location.pathname + location.search;
@@ -101,7 +93,7 @@ export default defineComponent({
         text: {type: Object as PropType<TextPort>, required: true},
     },
     setup(props) {
-        const agent = createPageAgent({guide: {text: () => guideText(props.text), theme: GUIDE_THEME, reveal: createReveal()}});
+        const agent = createPageAgent({guide: {text: () => guideText(props.text), theme: GUIDE_THEME, reveal}});
         let lastInputAt: number | null = null;
         const onInput = (event: Event): void => {
             if (event.isTrusted) lastInputAt = Date.now();

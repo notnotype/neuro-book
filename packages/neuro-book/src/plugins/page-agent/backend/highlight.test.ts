@@ -140,7 +140,7 @@ describe("结局与等用户（输出 9、11）", () => {
         await waitUntil("窗口那边被退订、等用户收回", () => sub.signal.aborted && waits[0]!.settled);
     });
 
-    it("窗口 10 秒里没画出来得 window-unresponsive；页面上的失败（定位）原样交回带候选；写错的定位是参数错误", async () => {
+    it("窗口 10 秒里没画出来得 window-unresponsive；页面上的失败（定位）原样交回带候选；写错的定位是参数错误；页面画不出来按窗口出错", async () => {
         const {world, start, subscription} = await setup();
         const slow = start({at: {text: "保存"}, message: "点保存", until: "click"});
         const one = await subscription(1);
@@ -157,6 +157,11 @@ describe("结局与等用户（输出 9、11）", () => {
         const three = await subscription(3);
         three.emit({kind: "failed", code: "invalid-locator", detail: {message: "定位只能给一种主定位"}});
         expect(await invalid).toMatchObject({status: "error", code: "invalid-arguments"});
+
+        const broken = start({at: {text: "保存"}, message: "点保存", until: "click"});
+        const four = await subscription(4);
+        four.emit({kind: "failed", code: "guide-failed", detail: {message: "画高亮时出错：文字表坏了"}});
+        expect(await broken).toMatchObject({status: "error", code: "window-unresponsive", details: {cause: "guide-failed"}});
         expect(await start({at: {command: "a", text: "b"}, message: "x", until: "click"})).toMatchObject({status: "error", code: "invalid-arguments"});
     });
 
