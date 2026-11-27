@@ -177,9 +177,11 @@ describe("DataTable 的加载", () => {
         expect(wrapper.get(".nb-data-table-layer.is-mask [role=status]").text()).toBe("加载中");
 
         await wrapper.setProps({rows: chapters(4), loading: false});
-        expect(wrapper.find(".nb-data-table-layer").exists()).toBe(false);
+        // 遮罩刚出现就加载完：新行与 aria-busy 立即换掉，遮罩再停一小段才去掉，不闪一下就没了。
         expect(wrapper.get(".nb-data-table-body").attributes("aria-busy")).toBeUndefined();
         expect(bodyRows(wrapper)[0]!.text()).toContain("第 61 章");
+        expect(wrapper.find(".nb-data-table-layer.is-mask").exists()).toBe(true);
+        await vi.waitFor(() => expect(wrapper.find(".nb-data-table-layer").exists()).toBe(false));
     });
 
     it("遮罩盖着旧行时行所在的那一层是 inert，工具条与页脚不是；焦点在被盖住的行内按钮上时接到表格区", async () => {

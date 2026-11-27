@@ -1,7 +1,8 @@
 <script setup lang="ts" generic="Row extends object">
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, ref, watch} from "vue";
 
 import {useUiText} from "../../text-port";
+import {useDelayedVisibility} from "../../composables/useDelayedVisibility";
 import Button from "../controls/Button.vue";
 import Pagination from "../navigation/Pagination.vue";
 import EmptyState from "./EmptyState.vue";
@@ -46,32 +47,10 @@ defineSlots<{
 const text = useUiText();
 
 /**
- * 加载指示的延时（frontend.md 的“加载态延时显示”），单位毫秒。
+ * 加载指示延时出现、出现后停够最短时长（frontend.md 的“加载态延时显示”）。
  * 判据是请求飞出去以后已经等过这么久，所以从 loading 变真算起，不看屏幕上有没有行。
  */
-const LOADING_DELAY = 200;
-
-const loadingVisible = ref(false);
-let loadingTimer: ReturnType<typeof setTimeout> | undefined;
-
-function clearLoadingTimer(): void {
-    if (loadingTimer !== undefined) clearTimeout(loadingTimer);
-    loadingTimer = undefined;
-}
-
-watch(() => props.loading, (loading) => {
-    clearLoadingTimer();
-    if (!loading) {
-        loadingVisible.value = false;
-        return;
-    }
-    loadingTimer = setTimeout(() => {
-        loadingTimer = undefined;
-        loadingVisible.value = true;
-    }, LOADING_DELAY);
-}, {immediate: true});
-
-onBeforeUnmount(clearLoadingTimer);
+const loadingVisible = useDelayedVisibility(() => props.loading);
 
 const pageCount = computed(() => (props.total === null || props.total <= 0 ? 1 : Math.ceil(props.total / props.pageSize)));
 /** 分页条自己会把越界的页码夹到边界显示，条数的起点按同一个夹过的值算，两边对得上。 */
@@ -106,7 +85,7 @@ const layer = computed<Layer>(() => {
         case "error": return "error";
         case "empty": return "empty";
         case "initial": return loadingVisible.value ? "spinner" : null;
-        case "rows": return props.loading && loadingVisible.value ? "mask" : null;
+        case "rows": return loadingVisible.value ? "mask" : null;
     }
     return null;
 });
@@ -115,8 +94,11 @@ const tableRows = computed(() => (bodyState.value === "rows" ? props.rows : []))
 const paginationDisabled = computed(() => props.total === null || props.total <= 0);
 const loadingText = computed(() => text("spinner.loading"));
 
-/** 翻页加载时旧行被遮罩盖着，这时行不可交互：键盘也走不到被盖住的行内按钮。 */
-const rowsInert = computed(() => layer.value === "mask");
+/**
+ * 翻页加载时旧行被遮罩盖着，这时行不可交互：键盘也走不到被盖住的行内按钮。
+ * 加载完、遮罩还在停最短时长时，底下已经是新行，不再挡操作（设计语言“动效的行为”第 2 条的同一个道理）。
+ */
+const rowsInert = computed(() => layer.value === "mask" && props.loading);
 
 const bodyRef = ref<HTMLElement | null>(null);
 /*
