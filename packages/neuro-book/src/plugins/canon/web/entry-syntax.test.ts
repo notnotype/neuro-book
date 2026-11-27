@@ -147,6 +147,7 @@ describe("条件合成一个节点（输出 17；w00055 t03 S1 的探针）", ()
         ["一段里两个条件", '<If test="panel.a">一</If>与<If test="panel.b">二<Else />三</If>'],
         ["支两头有空格、以 - 或 # 开头", '前<If test="panel.a"> - 甲 <Else /># 乙</If>后'],
         ["整个条件包在加粗里", '前**<If test="panel.a">甲<Else />乙</If>**后'],
+        ["支里连着几段加粗（读法给嵌套的同类标记）", '<If test="panel.a">**粗****粗****粗**<Else />乙</If>'],
     ];
     for (const [name, source] of cases) {
         it(name, () => {
@@ -160,6 +161,10 @@ describe("条件合成一个节点（输出 17；w00055 t03 S1 的探针）", ()
             expect(conditions.length).toBe(kernelConditions(source));
             const kept = codec.write(read.doc, read.map);
             expect(kept.ok && kept.text).toBe(source);
+            // 整篇重写：写得出、过内核检查、条件个数不变、读回来的字相同。
+            const rewritten = codec.write(read.doc, codec.read("").map);
+            if (!rewritten.ok) throw new Error(`整篇重写写不出：${name}`);
+            expect([problemsOf(rewritten.text), kernelConditions(rewritten.text), codec.read(rewritten.text).doc.textContent]).toEqual([[], conditions.length, read.doc.textContent]);
             // 改第一个条件的第一支（含表格里要转义的 `|` 与 `*`）：写得出、过内核检查、读回来是同样的字。
             const {node, at} = conditions[0]!;
             const branches = (node.attrs.branches as EntryIfBranch[]).map((branch, index) => (index === 0 ? {...branch, content: [{type: "text", text: "甲 | *乙*"}]} : branch));
