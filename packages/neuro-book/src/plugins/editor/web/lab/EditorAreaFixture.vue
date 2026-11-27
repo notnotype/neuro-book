@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 编辑组的 Lab 集成场景（docs/specs/workbench/editor.md，同名 .md）：产品里同一个编辑器区控制器、组与标签模型、
- * 文档模型与控件，文件客户端换成内存适配器（`explorer-scene/memory-files.ts`，与真实 Files 对过契约）；编辑组摆在工作台同一张表面上，拖动也是工作台的手势，
+ * 文档模型与控件，文件客户端换成内存适配器（`explorer/web/lab/memory-files.ts`，与真实 Files 对过契约）；编辑组摆在工作台同一张表面上，拖动也是工作台的手势，
  * 布局文档放在内存里。保存、外部改写、外部删除都真的改变场景数据；切场景时控制器与订阅一起释放。场景 `split` 先拆成两组；场景 `empty` 不打开文件，空态带上
  * 与产品同样的三行提示（产品里由插件按命令可用性筛出，这里是固定样例），点了只记事件。
  */
@@ -244,7 +244,7 @@ const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/we
 provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
 // 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
-// 表情：Lab 的表情目录（`lab-stickers.ts`）；场景 `stickers` 打开的文件里有几种写法。
+// 表情：Lab 的表情目录（`stickers/web/lab/lab-stickers.ts`）；场景 `stickers` 打开的文件里有几种写法。
 provide(markdownStickersKey, labStickers());
 provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
 provide(editorMenusKey, createLabEditorMenus(area, text, {commentMargin: props.scene === "comments-margin" || props.scene === "comments-slots"}));

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * SettingsWindow 的 Lab 场景（docs/specs/settings/settings-window.md）：窗口由本场景的局部宿主驱动（`settings-scene/`），
+ * SettingsWindow 的 Lab 场景（docs/specs/settings/settings-window.md）：窗口由本场景的局部宿主驱动（`settings/web/lab/`），
  * 产品里同一个窗口模型、配置实例与分区注册表，配置层换成内存里的拥有者。窗口发的通知与作者诊断记进事件 tab。
  * Lab 按“组件:场景”重挂本 fixture，换场景就是换一个宿主。
  */

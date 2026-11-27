@@ -1,5 +1,5 @@
 /**
- * 一棵树的工作台表面（docs/specs/ui/workbench-layout.md 的“渲染”“面板头与活动栏”）：夹具是 `lab/web/fixtures/WorkbenchSurfaceFixture.vue`，文档、呈现树、有效可见、活动栏条目都用产品的纯函数算。
+ * 一棵树的工作台表面（docs/specs/ui/workbench-layout.md 的“渲染”“面板头与活动栏”）：夹具是 `workbench/web/lab/WorkbenchSurfaceFixture.vue`，文档、呈现树、有效可见、活动栏条目都用产品的纯函数算。
  */
 
 import {rm} from "node:fs/promises";

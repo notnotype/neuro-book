@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * FilesExplorerView 的 Lab 夹具：多数场景把场景输入直接绑到视图上（受控零件）；`live` 场景挂产品里同一个视图宿主、
- * 控制器与命令，文件客户端换成内存适配器（`explorer-scene/ExplorerLiveScene.vue`）。
+ * 控制器与命令，文件客户端换成内存适配器（`explorer/web/lab/ExplorerLiveScene.vue`）。
  */
 import FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 

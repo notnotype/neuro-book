@@ -1,6 +1,6 @@
 /**
  * 桌面插件夹具的翻译端口：Lab 窗口的端口不登记 `nbook.desktop` 的目录，所以夹具另建一个宿主引擎、登记它，只注入给场景里的
- * 零件（做法同 `projects-scene/projects-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用中文。
+ * 零件（做法同 `projects/web/lab/projects-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用中文。
  */
 
 import {defineComponent, h} from "vue";

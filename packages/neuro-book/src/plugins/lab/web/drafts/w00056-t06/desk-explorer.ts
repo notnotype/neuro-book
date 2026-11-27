@@ -1,5 +1,5 @@
 /**
- * 首页工作台里的资源管理器：产品里同一个视图宿主、控制器与命令（接法同 `fixtures/explorer-scene/ExplorerLiveScene.vue`），
+ * 首页工作台里的资源管理器：产品里同一个视图宿主、控制器与命令（接法同 `explorer/web/lab/ExplorerLiveScene.vue`），
  * 文件是工作台的内存文件；“打开”命令另登记一条，交给同一张桌子的编辑器区，点文件就在编辑组里打开。
  */
 import type {TextPort} from "@notnotype/nb-ui/text-port";

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * “服务商与模型”“模型角色”两页的 Lab 场景。两页是页面不是宿主：数据模块建在内存里的远程合同替身上
- * （`models-scene/fake-remote.ts`），页面上下文由这里给，写失败交给窗口的通知改记进事件 tab；层能不能写固定为能。场景 id 以 `roles` 开头的画角色页，
+ * （`models/web/lab/fake-remote.ts`），页面上下文由这里给，写失败交给窗口的通知改记进事件 tab；层能不能写固定为能。场景 id 以 `roles` 开头的画角色页，
  * 其余画服务商页；`-narrow` 把页面收到 560px 宽看下拉，`-readonly` 是模型服务没有运行，`-write-failed` 写方法都失败；`-focus` 的几个像对话的
  * 提示卡那样带 `focus` 打开（settings-pages.md 输出 18）：取走即清空，同设置窗口。
  */

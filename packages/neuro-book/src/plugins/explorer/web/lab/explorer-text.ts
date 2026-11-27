@@ -1,6 +1,6 @@
 /**
  * 资源管理器夹具的翻译端口：Lab 窗口的端口不登记本插件的目录，所以夹具另建一个宿主引擎、登记 `nbook.explorer` 的目录，
- * 只注入给场景里的零件（做法同 `PluginsPageFixture.vue`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用
+ * 只注入给场景里的零件（做法同 `plugins/web/lab/PluginsPageFixture.vue`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用
  * 中文；这些零件没有 `locale` 属性，语言只由场景决定。
  */
 

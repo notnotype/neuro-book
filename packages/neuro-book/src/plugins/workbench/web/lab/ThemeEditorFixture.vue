@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * ThemeEditor 的 Lab 场景：模型建在内存里的“我的主题”上（`theme-editor-scene/lab-user-themes.ts`），主题目录是真的 `ThemeCatalog`，
+ * ThemeEditor 的 Lab 场景：模型建在内存里的“我的主题”上（`workbench/web/lab/lab-user-themes.ts`），主题目录是真的 `ThemeCatalog`，
  * 预览覆盖照常写进目录但 Lab 的文档根不读它（Lab 不受主题影响），所以这里看的是编辑器自己：分区、配色行、对比度、取景框。
  * 场景名决定库里有什么与打开哪个分区；场景名带 `-english` 的是英文界面。
  */

@@ -1,6 +1,6 @@
 /**
  * 网页工具夹具的翻译端口：Lab 窗口的端口不登记本插件的目录，所以夹具另建一个宿主引擎、登记 `nbook.web` 与设置行要的
- * `nbook.settings` 的目录，只注入给场景里的零件（做法同 `models-scene/models-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面。
+ * `nbook.settings` 的目录，只注入给场景里的零件（做法同 `models/web/lab/models-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面。
  */
 
 import {defineComponent, h} from "vue";

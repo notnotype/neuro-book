@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * “网络”页的 Lab 场景。配置服务来自设置场景的局部宿主（用户层在内存里，页面拿到的是 `nbook.network` 自己的配置服务）；选路
- * 说明与测试用 `network-scene/fake-remote.ts`，在线目录用模型页的远程合同替身。写失败交给窗口的通知改记进事件 tab。
+ * 说明与测试用 `network/web/lab/fake-remote.ts`，在线目录用模型页的远程合同替身。写失败交给窗口的通知改记进事件 tab。
  * 场景 id：`system` 跟随系统（环境变量里的代理），`system-none` 系统没设，`system-unsupported` 自动配置脚本，`system-unreadable`
  * 读不到，`loading` 说明一直不答，`custom-tested` 自定义并测过，`custom-empty` 自定义还没填地址，`testing` 测试挂着，
  * `test-failed` 连不上，`test-bypassed` 测试目标在旁路清单里，`direct` 直连，`catalog-never` 没取过在线目录，`catalog-failed`

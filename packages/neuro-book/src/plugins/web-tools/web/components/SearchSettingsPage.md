@@ -57,4 +57,4 @@ defineProps<{
 - `state:local`：选中项、等着启用、开合与草稿（见“状态”）；密钥框里有没有待交出的输入（`ApiKeyField` 的 `pending`），决定第一次填写时“检测”能不能点。
 - `state:inject`：文字经宿主注入的翻译端口取。
 
-数据模块、配置服务、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身与设置宿主摆出来（场景见 `SearchSettingsPageFixture.vue`）。
+数据模块、配置服务、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身与设置宿主摆出来（场景见 `web-tools/web/lab/SearchSettingsPageFixture.vue`）。

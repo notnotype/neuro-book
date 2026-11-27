@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * WorksSettingsPage 的 Lab 场景：配置服务来自设置场景的局部宿主（`settings-scene/`），用户层在内存里；目录选择器用 Lab 的
+ * WorksSettingsPage 的 Lab 场景：配置服务来自设置场景的局部宿主（`settings/web/lab/`），用户层在内存里；目录选择器用 Lab 的
  * 固定目录树。页面拿到的是 `nbook.projects` 自己的配置服务，与产品一样只能写作品目录。写不进去时页面发的 `write-failed`
  * 记进事件 tab（产品里由插件发通知）。有效的作品目录照服务端的算法（`backend/library.ts`）从这份配置算出。
  */

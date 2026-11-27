@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * “搜索与网页”页的 Lab 场景。页面不是宿主：数据模块建在内存里的远程合同替身上（`web-tools-scene/fake-remote.ts`），“使用”哪家
+ * “搜索与网页”页的 Lab 场景。页面不是宿主：数据模块建在内存里的远程合同替身上（`web-tools/web/lab/fake-remote.ts`），“使用”哪家
  * 经设置场景的局部宿主写（用户层在内存里，页面拿到的是 `nbook.web` 自己的配置服务）；页面上下文由这里给，写失败交给窗口的通知
  * 改记进事件 tab；层能不能写固定为能。场景 id：`unset` 没有密钥，`set` DeepSeek 已设置，`loading` 状态一直不答，`checking` 检测
  * 一直挂着，`passed`、`failed` 挂载后检测一次，`not-run` 检测结果未知，`readonly` 网页工具没有运行，`unreadable` 密钥文件读不了，
