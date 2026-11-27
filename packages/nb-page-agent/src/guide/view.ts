@@ -85,10 +85,11 @@ function saveFocus(document: Document): SavedFocus {
 
 /** 节点所在的编辑宿主：最外层的可编辑祖先（它的父元素不可编辑）；不在可编辑区域里为 null。 */
 function editingHost(node: Node): HTMLElement | null {
-    let element = node instanceof Element ? node : node.parentElement;
-    if (!(element instanceof HTMLElement) || !element.isContentEditable) return null;
-    while (element.parentElement instanceof HTMLElement && element.parentElement.isContentEditable) element = element.parentElement;
-    return element;
+    const start = node instanceof Element ? node : node.parentElement;
+    if (!(start instanceof HTMLElement) || !start.isContentEditable) return null;
+    let host: HTMLElement = start;
+    while (host.parentElement instanceof HTMLElement && host.parentElement.isContentEditable) host = host.parentElement;
+    return host;
 }
 
 /**
