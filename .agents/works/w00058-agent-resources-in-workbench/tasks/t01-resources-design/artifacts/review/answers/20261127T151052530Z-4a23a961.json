@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00058-agent-resources-in-workbench",
+    "taskId": "t01-resources-design",
+    "artifactId": "review",
+    "answerId": "20261127T151052530Z-4a23a961",
+    "artifactVersion": 1,
+    "contentHash": "116a0afd8c33aced4425c314480f46e38954f639eec9de0785b4cedc075d672e",
+    "submittedAt": "2026-11-27T15:10:51.409Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "layout": true,
+        "current-marker": "dot",
+        "readonly-mark": "lock",
+        "sparse-states": true
+    },
+    "comments": {
+        "layout": "这个显示更多是不是不太好？现在好像没有给这个开口吧？"
+    },
+    "note": null
+}
