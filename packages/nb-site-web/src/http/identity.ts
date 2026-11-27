@@ -3,7 +3,7 @@
  * 自己处理哪些码；页面只拿 `Result`。路径与类型都取合同包，不在这里另写一份。
  *
  * 各片用到哪个接口就在这里加哪个：现在是取身份的两个（当前账号用）、`meta`、登录、登出、注册、补交同意、社交流程的发起，
- * 与账号页用的资料、密码、会话、上游身份、邀请码（B4）。
+ * 与账号页用的资料、密码、会话、上游身份、邀请码（B4）与已授权的应用（B7）。
  */
 
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS, identityPath} from "@notnotype/nb-site-identity-contract/constants";
@@ -12,6 +12,7 @@ import type {
     ConsentRequest,
     ConsentResponse,
     EmptyResponse,
+    GrantListResponse,
     IdentityListResponse,
     InviteCodeItem,
     InviteCodeListResponse,
@@ -65,6 +66,10 @@ export interface IdentityApi extends AccountSource {
     createInviteCode(): Promise<Result<InviteCodeItem>>;
     /** 停用自己的一个邀请码（输出 18）：成功回停用之后的那一项。 */
     disableInviteCode(id: number): Promise<Result<InviteCodeItem>>;
+    /** 自己给过应用的授权（`site.oauth-provider` 输出 15）：免确认的客户端不在里面。 */
+    grants(): Promise<Result<GrantListResponse>>;
+    /** 撤销一项授权（输出 15）：不是自己的、已撤销的或客户端改成了免确认的回 `not_found`。 */
+    revokeGrant(id: number): Promise<Result<EmptyResponse>>;
 }
 
 const path = (relative: string): string => `${IDENTITY_API_PREFIX}${relative}`;
@@ -104,5 +109,7 @@ export function createIdentityApi(core: ApiCore): IdentityApi {
         inviteCodes: () => core.request<InviteCodeListResponse>({method: "GET", path: path(IDENTITY_PATHS.meInviteCodes)}),
         createInviteCode: () => core.request<InviteCodeItem>({method: "POST", path: path(IDENTITY_PATHS.meInviteCodes)}),
         disableInviteCode: (id) => core.request<InviteCodeItem>({method: "PATCH", path: path(identityPath.meInviteCode(id)), body: {disabled: true} satisfies PatchInviteCodeRequest}),
+        grants: () => core.request<GrantListResponse>({method: "GET", path: path(IDENTITY_PATHS.meGrants)}),
+        revokeGrant: (id) => core.request<EmptyResponse>({method: "DELETE", path: path(identityPath.meGrant(id))}),
     };
 }

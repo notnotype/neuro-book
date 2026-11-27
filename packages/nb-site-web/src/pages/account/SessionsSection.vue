@@ -3,8 +3,8 @@
  * 账号页的“已登录的设备”一节（t10 计划 3.12；`site.accounts` 输出 17）：每个会话一行，写浏览器与系统的概要与最后使用时间，
  * 这台设备的会话带“这台设备”、写“正在使用”。别的会话可以逐个结束；“退出其它所有设备”逐个结束当前之外的会话。
  *
- * - 最后使用时间只写一个相对的说法，粒度到小时（“1 小时内”“3 小时前”，一天以上写日期）：服务端每小时至多更新一次（输出 17），
- *   写到分钟是假精度。登录时间放进那一格的悬停提示。
+ * - 最后使用时间只写一个相对的说法，粒度到小时（“1 小时内”“3 小时前”“昨天”，更早的写日期；`recent-time.ts`）：服务端每小时
+ *   至多更新一次（输出 17），写到分钟是假精度。登录时间放进那一格的悬停提示。
  * - 结束一个会话回 `not_found`：它已经不在了（到期、在别处被结束），当作结束了。
  * - “退出其它所有设备”串行地发（计划 3.1 的逐页接口表），碰到 `not_found` 之外的第一次失败就停：剩下的不发，免得一整批接着撞上同一次
  *   限流或同一个坏掉的服务。停下后重取列表，状态行写失败的原因（限流照常倒数）；之前结束过的，原因前面写“结束了 N 个，M 个没结束”。
@@ -22,6 +22,7 @@ import {useSite} from "../../context";
 import {locale} from "../../locale";
 import {siteRef, useSiteText} from "../../text";
 import {useFormFeedback} from "../form-feedback";
+import {accountDate, recentTime} from "../recent-time";
 import type {RemoteList} from "./account-lists";
 import AccountSection from "./AccountSection.vue";
 
@@ -43,13 +44,7 @@ const others = computed(() => props.sessions.items.value.filter((session) => !se
 /** 他能不能点这一节的按钮：没有在结束的、不在倒数。 */
 const idle = computed(() => ending.value === undefined && !feedback.waiting.value);
 
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
-
 const timeFormat = computed(() => new Intl.DateTimeFormat(locale.value, {year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"}));
-const relativeFormat = computed(() => new Intl.RelativeTimeFormat(locale.value, {numeric: "always"}));
-const dayFormat = computed(() => new Intl.DateTimeFormat(locale.value, {month: "long", day: "numeric"}));
-const yearDayFormat = computed(() => new Intl.DateTimeFormat(locale.value, {year: "numeric", month: "long", day: "numeric"}));
 
 /** 登录时间（悬停提示里）：服务端记的是准确时刻，写到分钟。 */
 function time(iso: string): string {
@@ -62,12 +57,7 @@ function time(iso: string): string {
  */
 function lastUsed(iso: string): string {
     const now = clock.now();
-    const at = Date.parse(iso);
-    const elapsed = now - at;
-    if (elapsed < HOUR_MS) return t("account.sessions.withinHour");
-    if (elapsed < DAY_MS) return relativeFormat.value.format(-Math.floor(elapsed / HOUR_MS), "hour");
-    const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
-    return (sameYear ? dayFormat : yearDayFormat).value.format(at);
+    return recentTime(iso, now, locale.value, t("account.sessions.withinHour")) ?? accountDate(iso, now, locale.value);
 }
 
 function device(session: SessionItem): string {

@@ -1,5 +1,5 @@
 /**
- * 账号页（`AccountPage.vue` 与四节）：装起整个站点（`site-harness.ts`），账号服务由注入的 `fetch` 按方法与路径回答，时间由手动时钟
+ * 账号页（`AccountPage.vue` 与五节）：装起整个站点（`site-harness.ts`），账号服务由注入的 `fetch` 按方法与路径回答，时间由手动时钟
  * 推进。断言的是他看得到、做得到的：每一行写了什么、按钮能不能点、发了哪些请求与请求体、状态行的字、标红与焦点、最后停在哪一页。
  * 量位置的验收（两种账号版式相同、状态行不推动内容、没有横向滚动、目录随滚动高亮）要真实布局，在 `e2e/account.e2e.ts`。
  */
@@ -7,6 +7,8 @@
 import {IDENTITY_PATHS, INVITE_CODE_ACTIVE_LIMIT, identityPath} from "@notnotype/nb-site-identity-contract/constants";
 import type {
     ChangePasswordRequest,
+    GrantItem,
+    GrantListResponse,
     IdentityItem,
     IdentityListResponse,
     InviteCodeItem,
@@ -27,12 +29,14 @@ import type {Handler, Harness} from "../../testing/site-harness";
 const SESSIONS = identityUrl(IDENTITY_PATHS.meSessions);
 const IDENTITIES = identityUrl(IDENTITY_PATHS.meIdentities);
 const INVITES = identityUrl(IDENTITY_PATHS.meInviteCodes);
+const GRANTS = identityUrl(IDENTITY_PATHS.meGrants);
 const ME = identityUrl(IDENTITY_PATHS.me);
 const PASSWORD = identityUrl(IDENTITY_PATHS.mePassword);
 const LOGOUT = identityUrl(IDENTITY_PATHS.logout);
 const sessionUrl = (id: number): string => identityUrl(identityPath.meSession(id));
 const identityItemUrl = (id: number): string => identityUrl(identityPath.meIdentity(id));
 const inviteUrl = (id: number): string => identityUrl(identityPath.meInviteCode(id));
+const grantUrl = (id: number): string => identityUrl(identityPath.meGrant(id));
 const socialStartUrl = (provider: "github" | "google"): string => identityUrl(identityPath.socialStart(provider));
 
 const text = zhCN.account;
@@ -50,11 +54,12 @@ const withLead = (lead: string, reason: string): string => fill(zhCN.form.leadRe
 
 const rateLimited = (headers: Record<string, string>): Response => failure({error: {code: "rate_limited"}}, 429, headers);
 
-/** 账号服务里这个人的三份列表；处理器改它，下一次 `GET` 就按改过的回答。 */
+/** 账号服务里这个人的四份列表；处理器改它，下一次 `GET` 就按改过的回答。 */
 interface AccountData {
     sessions: SessionItem[];
     identities: IdentityItem[];
     invites: InviteCodeItem[];
+    grants: GrantItem[];
 }
 
 const CURRENT: SessionItem = {id: 1, createdAt: "2026-11-20T08:00:00.000Z", lastUsedAt: "2026-11-26T10:00:00.000Z", browser: "Chrome", os: "Windows", current: true};
@@ -68,8 +73,13 @@ function invite(id: number, overrides: Partial<InviteCodeItem> = {}): InviteCode
     return {id, code: `NB-CODE-${id}`, createdAt: "2026-11-10T00:00:00.000Z", usedCount: 0, maxUses: null, expiresAt: null, usable: true, ...overrides};
 }
 
+/** 授权：现在（`NOW`，11 月 26 日 10:00）之前半小时、3 小时，与两周前给的。 */
+const SHELF: GrantItem = {id: 41, clientName: "书架同步助手", scopes: ["openid", "profile", "email"], createdAt: "2026-11-26T09:30:00.000Z"};
+const BACKUP: GrantItem = {id: 42, clientName: "章节备份", scopes: ["openid", "profile"], createdAt: "2026-11-26T07:00:00.000Z"};
+const READER: GrantItem = {id: 43, clientName: "读者端", scopes: ["openid"], createdAt: "2026-11-12T09:00:00.000Z"};
+
 function defaultData(): AccountData {
-    return {sessions: [CURRENT, PHONE, UNKNOWN], identities: [GITHUB], invites: [invite(31, {usedCount: 1, maxUses: 3, expiresAt: "2026-12-24T00:00:00.000Z"}), invite(32)]};
+    return {sessions: [CURRENT, PHONE, UNKNOWN], identities: [GITHUB], invites: [invite(31, {usedCount: 1, maxUses: 3, expiresAt: "2026-12-24T00:00:00.000Z"}), invite(32)], grants: [SHELF, BACKUP]};
 }
 
 function listHandlers(data: AccountData): Record<string, Handler> {
@@ -77,6 +87,7 @@ function listHandlers(data: AccountData): Record<string, Handler> {
         [`GET ${SESSIONS}`]: () => Response.json({items: data.sessions} satisfies SessionListResponse),
         [`GET ${IDENTITIES}`]: () => Response.json({items: data.identities} satisfies IdentityListResponse),
         [`GET ${INVITES}`]: () => Response.json({items: data.invites} satisfies InviteCodeListResponse),
+        [`GET ${GRANTS}`]: () => Response.json({items: data.grants} satisfies GrantListResponse),
     };
 }
 
@@ -104,7 +115,7 @@ async function openAccount(options: OpenOptions = {}): Promise<Opened> {
         handlers: {...listHandlers(data), ...options.handlers?.(data)},
     });
     await settledAt(harness, "/account", "account");
-    await vi.waitFor(() => expect(harness.target.querySelector('[data-site-account-section="invites"]')).not.toBeNull());
+    await vi.waitFor(() => expect(harness.target.querySelector('[data-site-account-section="apps"]')).not.toBeNull());
     return {harness, data, page: harness.target.querySelector<HTMLElement>('[data-site-page="account"]')!};
 }
 
@@ -734,6 +745,103 @@ describe("邀请码", () => {
     });
 });
 
+describe("已授权的应用", () => {
+    /** 每一行看得见的三样：客户端名字、范围、给出的时间。 */
+    function grantRows(page: HTMLElement): {client: string; scopes: string; time: string}[] {
+        return [...section(page, "apps").querySelectorAll<HTMLElement>("[data-site-account-grant]")].map((row) => ({
+            client: row.querySelector("[data-site-account-grant-client]")?.textContent?.trim() ?? "",
+            scopes: row.querySelector("[data-site-account-grant-scopes]")?.textContent?.trim() ?? "",
+            time: row.querySelector("[data-site-account-grant-time]")?.textContent?.trim() ?? "",
+        }));
+    }
+
+    async function confirmRevoke(row: HTMLElement): Promise<void> {
+        button(row, text.apps.revoke).click();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull());
+        button(document.body.querySelector('[role="alertdialog"]')!, text.apps.revoke).click();
+    }
+
+    it("每项一行：客户端名字、范围、给出的时间（一小时内写“刚刚”，一天内写几小时前，更早的写日期），准确时刻在悬停提示里；照服务端给的顺序", async () => {
+        // 故意给一个不按时间排的顺序：页面不重排。
+        const {page} = await openAccount({data: {grants: [BACKUP, READER, SHELF]}});
+        const scopes = text.apps.scopes;
+        expect(grantRows(page)).toEqual([
+            {client: "章节备份", scopes: [scopes.openid, scopes.profile].join(text.apps.scopeJoin), time: fill(text.apps.granted, {time: "3小时前"})},
+            {client: "读者端", scopes: scopes.openid, time: fill(text.apps.granted, {time: "11月12日"})},
+            {client: "书架同步助手", scopes: [scopes.openid, scopes.profile, scopes.email].join(text.apps.scopeJoin), time: fill(text.apps.granted, {time: text.apps.justNow})},
+        ]);
+        const time = section(page, "apps").querySelector<HTMLElement>('[data-site-account-grant="43"] time')!;
+        expect(time.getAttribute("datetime")).toBe(READER.createdAt);
+        expect(time.getAttribute("title")).toMatch(/2026/u);
+    });
+
+    it("撤销的读屏名字带上是哪个应用", async () => {
+        const {page} = await openAccount();
+        const rows = [...section(page, "apps").querySelectorAll<HTMLElement>("[data-site-account-grant]")];
+        expect(rows.map((row) => button(row, text.apps.revoke).getAttribute("aria-label"))).toEqual(["书架同步助手", "章节备份"].map((client) => fill(text.apps.revokeNamed, {client})));
+    });
+
+    it("没有授权：一行空状态，没有撤销按钮", async () => {
+        const {page} = await openAccount({data: {grants: []}});
+        const apps = section(page, "apps");
+        expect(apps.querySelector("[data-site-account-grant]")).toBeNull();
+        expect(apps.querySelector("[data-site-account-grants-empty]")?.textContent?.trim()).toBe(text.apps.empty);
+        expect(hasButton(apps, text.apps.revoke)).toBe(false);
+    });
+
+    it("撤销：先确认（标题带应用名），确认后发 DELETE、重取列表，那一行没了", async () => {
+        const {harness, page} = await openAccount({
+            handlers: (data) => ({
+                [`DELETE ${grantUrl(42)}`]: () => {
+                    data.grants = data.grants.filter((item) => item.id !== 42);
+                    return Response.json({});
+                },
+            }),
+        });
+        const apps = section(page, "apps");
+        const before = gets(harness, GRANTS);
+        button(apps.querySelector('[data-site-account-grant="42"]')!, text.apps.revoke).click();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull());
+        expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain(fill(text.apps.revokeTitle, {client: "章节备份"}));
+        expect(actions(harness)).toEqual([]);
+        button(document.body.querySelector('[role="alertdialog"]')!, text.apps.revoke).click();
+
+        await vi.waitFor(() => expect(apps.querySelector('[data-site-account-grant="42"]')).toBeNull());
+        expect(actions(harness)).toEqual([{method: "DELETE", path: grantUrl(42), body: undefined}]);
+        expect(gets(harness, GRANTS)).toBe(before + 1);
+        expect(grantRows(page).map((row) => row.client)).toEqual(["书架同步助手"]);
+    });
+
+    it("撤销回 not_found（别处撤销了，或客户端改成了免确认）：状态行写明，重取列表，那一行没了", async () => {
+        const {harness, page} = await openAccount({
+            handlers: (data) => ({
+                [`DELETE ${grantUrl(41)}`]: () => {
+                    data.grants = data.grants.filter((item) => item.id !== 41);
+                    return failure({error: {code: "not_found"}}, 404);
+                },
+            }),
+        });
+        const apps = section(page, "apps");
+        const before = gets(harness, GRANTS);
+        await confirmRevoke(apps.querySelector<HTMLElement>('[data-site-account-grant="41"]')!);
+
+        await vi.waitFor(() => expect(statusOf(apps)).toBe(text.apps.gone));
+        await vi.waitFor(() => expect(apps.querySelector('[data-site-account-grant="41"]')).toBeNull());
+        expect(gets(harness, GRANTS)).toBe(before + 1);
+    });
+
+    it("撤销回别的失败（rate_limited）：状态行写原因，列表不重取，那一行还在", async () => {
+        const {harness, page} = await openAccount({handlers: () => ({[`DELETE ${grantUrl(41)}`]: () => rateLimited({"Retry-After": "30"})})});
+        const apps = section(page, "apps");
+        const before = gets(harness, GRANTS);
+        await confirmRevoke(apps.querySelector<HTMLElement>('[data-site-account-grant="41"]')!);
+
+        await vi.waitFor(() => expect(statusOf(apps)).not.toBe(""));
+        expect(apps.querySelector('[data-site-account-grant="41"]')).not.toBeNull();
+        expect(gets(harness, GRANTS)).toBe(before);
+    });
+});
+
 describe("资料", () => {
     it("只发改过的项，清空的网站发 null；保存成功写“已保存”，按注入的时钟 3 秒后清掉", async () => {
         const {harness, page} = await openAccount({
@@ -877,15 +985,16 @@ describe("资料", () => {
 });
 
 describe("页面", () => {
-    it("目录列出四节，没有“已授权的应用”；点一项，地址的锚点跟着换、那一项标为当前", async () => {
+    it("目录列出五节（最后是“已授权的应用”）；点一项，地址的锚点跟着换、那一项标为当前", async () => {
         const {harness, page} = await openAccount();
         const items = [...page.querySelectorAll<HTMLAnchorElement>("[data-site-account-toc-item]")];
-        expect(items.map((item) => item.getAttribute("href"))).toEqual(["#profile", "#security", "#sessions", "#invites"]);
-        expect(items.map((item) => item.getAttribute("aria-current"))).toEqual(["location", null, null, null]);
+        expect(items.map((item) => item.getAttribute("href"))).toEqual(["#profile", "#security", "#sessions", "#invites", "#apps"]);
+        expect(items.at(-1)?.textContent?.trim()).toBe(text.apps.title);
+        expect(items.map((item) => item.getAttribute("aria-current"))).toEqual(["location", null, null, null, null]);
 
         items[2]!.click();
         await vi.waitFor(() => expect(harness.site.router.currentRoute.value.hash).toBe("#sessions"));
-        expect(items.map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "location", null]);
+        expect(items.map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "location", null, null]);
         // 焦点进了那一节：给它的标题，读屏读出到了哪一节。
         expect(document.activeElement).toBe(section(page, "sessions").querySelector("h2"));
     });

@@ -1,8 +1,8 @@
 /**
- * 管理面板三个列表页的浏览器场景（t10 计划 3.13；t09 第 12 条）：构建产物加假接口（`fake-api.ts`，四张表在 `fixtures/identity.ts`），
+ * 管理面板四个列表页的浏览器场景（t10 计划 3.13；t09 第 12 条）：构建产物加假接口（`fake-api.ts`，五张表在 `fixtures/identity.ts`），
  * 以管理员的会话打开，量 happy-dom 量不了的：工具条、表格、页脚三块位置固定，只有表格区滚、页面不滚；最后一页不满时分页条仍在底部；
  * 多于 7 页时分页条 7 格；刷新与后退回到同一页；1440 与 1024 两种桌面宽、亮暗两种明暗下没有页面级的横向滚动；表格出错、对话框的
- * 状态行出现与消失都不推动布局。筛选、搜索、请求与各项处置在三个页面的组件测试里（`src/pages/admin/*Page.dom.test.ts`）。
+ * 状态行出现与消失都不推动布局。筛选、搜索、请求与各项处置在各页的组件测试里（`src/pages/admin/*Page.dom.test.ts`）。
  */
 
 import {readFileSync} from "node:fs";
@@ -31,6 +31,7 @@ const PAGES = [
     {path: "/admin/users", list: "users"},
     {path: "/admin/codes", list: "registration-codes"},
     {path: "/admin/codes?kind=invite", list: "invite-codes"},
+    {path: "/admin/clients", list: "oauth-clients"},
     {path: "/admin/audit", list: "audit"},
 ] as const;
 
@@ -92,7 +93,7 @@ for (const viewport of VIEWPORTS) {
         });
     }
 
-    test(`${viewport.name}：四个列表都没有页面级横向或纵向滚动`, async ({page}) => {
+    test(`${viewport.name}：各个列表都没有页面级横向或纵向滚动`, async ({page}) => {
         fake = await installFakeIdentity(page, {session: "admin"});
         for (const {path, list} of PAGES) {
             await openList(page, path, list, viewport);

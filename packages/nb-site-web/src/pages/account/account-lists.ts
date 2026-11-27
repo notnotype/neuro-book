@@ -1,12 +1,13 @@
 /**
- * 账号页进页时要取的三份列表（t10 计划 3.12；`site.accounts` 输出 17、18、24）：已登录的设备、上游身份、邀请码。资料不在这里，
+ * 账号页进页时要取的四份列表（t10 计划 3.12；`site.accounts` 输出 17、18、24，`site.oauth-provider` 输出 15）：已登录的设备、
+ * 上游身份、邀请码、已授权的应用。资料不在这里，
  * 它是当前账号模块里的那一份（`session/account.ts`），改资料成功后由 `CurrentAccount.update` 换上。
  *
- * 三份一起取，都到了页面才画各节（计划 3.1“页面级的加载”）：只画出一部分时，后到的一节会把下面的节往下推。之后每一节在自己的
+ * 四份一起取，都到了页面才画各节（计划 3.1“页面级的加载”）：只画出一部分时，后到的一节会把下面的节往下推。之后每一节在自己的
  * 操作完成后单独重取自己的那一份；重取失败时留着旧的列表，失败交给那一节的状态行。在 `setup` 里调用。
  */
 
-import type {IdentityItem, InviteCodeItem, SessionItem} from "@notnotype/nb-site-identity-contract/constants";
+import type {GrantItem, IdentityItem, InviteCodeItem, SessionItem} from "@notnotype/nb-site-identity-contract/constants";
 import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
@@ -46,15 +47,17 @@ export interface AccountLists {
     readonly sessions: RemoteList<SessionItem>;
     readonly identities: RemoteList<IdentityItem>;
     readonly invites: RemoteList<InviteCodeItem>;
-    /** 三份一起取；进页时调一次，失败后“重试”再调。 */
+    readonly grants: RemoteList<GrantItem>;
+    /** 四份一起取；进页时调一次，失败后“重试”再调。 */
     load(): Promise<void>;
 }
 
-export function useAccountLists(identity: Pick<IdentityApi, "sessions" | "identities" | "inviteCodes">): AccountLists {
+export function useAccountLists(identity: Pick<IdentityApi, "sessions" | "identities" | "inviteCodes" | "grants">): AccountLists {
     const state = shallowRef<AccountListsState>({kind: "loading"});
     const sessions = remoteList(() => identity.sessions());
     const identities = remoteList(() => identity.identities());
     const invites = remoteList(() => identity.inviteCodes());
+    const grants = remoteList(() => identity.grants());
     let generation = 0;
 
     return {
@@ -62,10 +65,11 @@ export function useAccountLists(identity: Pick<IdentityApi, "sessions" | "identi
         sessions,
         identities,
         invites,
+        grants,
         async load() {
             const mine = ++generation;
             state.value = {kind: "loading"};
-            const results = await Promise.all([sessions.reload(), identities.reload(), invites.reload()]);
+            const results = await Promise.all([sessions.reload(), identities.reload(), invites.reload(), grants.reload()]);
             if (mine !== generation) return;
             const failed = results.find((result) => !result.ok);
             if (failed === undefined || failed.ok) {

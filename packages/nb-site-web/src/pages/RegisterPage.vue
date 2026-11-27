@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
  * 注册页（t10 计划 3.1、3.9；t09 第 7、10 条；审定 D1、D2、D5）：用注册码密码注册，或带齐同样的内容去上游做社交注册。
- * 只有访客进得来，守卫按分派送走已登录的人。登录续接（`continue`）归 B7。
+ * 只有访客进得来，守卫按分派送走已登录的人。
  *
  * - 两个勾选框（D1）：条款与隐私政策一项，境外存放一项；密码注册与社交注册都要两项都勾（`site.accounts` 输出 3、13）。
  * - 显示名可省、邀请码可省（D2）：留空的不进请求。`/register?invite=<码>` 预填邀请码（输出 18）。
  * - 社交注册先在页面上按同样的规则查一遍，过了才发起；服务端再按输出 3 校验，不合格不给上游地址（输出 13）。拿到地址后、
  *   离开之前把表单存成草稿（`host/storage.ts`）；上游带着 `social_error` 回到这一页时还原，注册码在、密码本来就不存。
  * - `meta` 说注册关闭（或提交时回 `registration_closed`）时整张表单不可用，社交注册也不可发起。
+ * - 从授权请求来的人地址上带续接令牌（`session/continue.ts`，从登录页的“注册”链接带过来）：注册请求、社交注册的发起与“登录”链接
+ *   都带上它，社交注册的草稿也存着它；注册响应给了继续地址就去那里（`session/enter.ts`）。
  *
  * 失败的显示照三张稿纸页共用的做法（`form-feedback.ts`）：哪个码标哪个字段见下面的 `showFailure`。
  */
@@ -31,6 +33,7 @@ import FormStatus from "../components/FormStatus.vue";
 import SocialButtons from "../components/SocialButtons.vue";
 import {useSite} from "../context";
 import type {SocialRegisterDraft} from "../host/storage";
+import {continuePart, readContinue} from "../session/continue";
 import {enterAfterSignIn} from "../session/enter";
 import {siteRef, useSiteText} from "../text";
 import {useFormFeedback} from "./form-feedback";
@@ -76,7 +79,8 @@ function fieldOf(table: Readonly<Record<string, RegisterField>>, key: string): R
 
 const EMAIL_RULE = new RegExp(EMAIL.pattern, "u");
 
-const {identity, account, clock, storage, leave} = useSite();
+const site = useSite();
+const {identity, clock, storage, leave} = site;
 const route = useRoute();
 const router = useRouter();
 const t = useSiteText();
@@ -231,6 +235,7 @@ async function submit(): Promise<void> {
             ...optionalParts(),
             termsVersion: version,
             overseasStorage: agreeOverseas.value,
+            ...continuePart(continueToken.value),
         });
         if (!result.ok) {
             showFailure(result.failure, version);
@@ -238,7 +243,7 @@ async function submit(): Promise<void> {
         }
         // 注册成功（落到别的页）时草稿就没用了（计划 3.9）。
         storage.clearSocialRegisterDraft();
-        const outcome = await enterAfterSignIn(account, router);
+        const outcome = await enterAfterSignIn(site, router, result.value.continueUrl);
         if (outcome === "anonymous") status.value = {reason: "not-applied", text: siteRef("register.notApplied")};
     } catch (error) {
         // 账号与会话已经建起来了，只是守卫或页面加载出了错：告诉他刷新，诊断留在控制台。
@@ -266,6 +271,7 @@ async function startSocial(provider: SocialProvider): Promise<void> {
         ...optionalParts(),
         termsVersion: version,
         overseasStorage: agreeOverseas.value,
+        ...continuePart(continueToken.value),
     };
     const result = await identity.socialStart(provider, body);
     if (!result.ok) {
@@ -281,6 +287,7 @@ async function startSocial(provider: SocialProvider): Promise<void> {
         inviteCode: inviteCode.value,
         registrationCode: registrationCode.value,
         consent: {termsVersion: version, overseas: agreeOverseas.value},
+        ...continuePart(continueToken.value),
     });
     // 从上游点返回、页面原样恢复时：表单与草稿都还在，只要把按钮放开。
     await leave(result.value.url);
@@ -305,6 +312,14 @@ function firstQuery(value: unknown): string | undefined {
     return typeof first === "string" ? first : undefined;
 }
 
+/**
+ * 续接令牌：上游带着 `social_error` 回来的地址上没有它（社交流程的落点只带码，`site.accounts` 输出 23），从草稿里还原；
+ * 别的时候读地址。还原出来的令牌也写回地址（`stripSocialError` 那一次替换），刷新之后还在。
+ */
+let restoredContinue: string | undefined;
+const continueToken = computed(() => restoredContinue ?? readContinue(route.query));
+const loginLink = computed(() => ({path: "/login", query: continuePart(continueToken.value)}));
+
 // 进页时只看一次地址（计划 3.1“`social_error`”、3.9“什么时候读与清”）：带 `social_error` 时显示它、取出草稿还原（读一次就删）；
 // 不带（空值也算不带，输出 23）时删掉草稿：上一次没走完的社交注册不该在下一次进来时冒出来。参数都从地址里去掉（`social-error.ts`），
 // 组件不重建，这段不会再跑。
@@ -318,11 +333,12 @@ if (socialError === undefined) {
     if (draft !== undefined) {
         restore(draft);
         restored = true;
+        restoredContinue = draft.continue;
     }
     status.value = {reason: "social_error", text: socialErrorText(socialError)};
     markOnMount = fieldOf(FIELD_OF_SOCIAL_ERROR, socialError);
 }
-stripSocialError(route, router);
+stripSocialError(route, router, {add: continuePart(restoredContinue)});
 
 // 邀请链接预填邀请码（输出 18）；从上游回来、草稿里已有邀请码时以草稿为准。
 const invited = firstQuery(route.query.invite);
@@ -372,7 +388,7 @@ onMounted(() => {
         </form>
         <SocialButtons intent="register" :providers="providers" :disabled="closed || busy" @start="startSocial" />
         <p class="site-form-alt">
-            {{ t("register.hasAccount") }}<RouterLink to="/login" class="site-link">{{ t("register.login") }}</RouterLink>
+            {{ t("register.hasAccount") }}<RouterLink :to="loginLink" class="site-link">{{ t("register.login") }}</RouterLink>
         </p>
     </div>
 </template>

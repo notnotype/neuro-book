@@ -14,11 +14,18 @@ export function readSocialError(query: LocationQuery): string | undefined {
     return typeof first === "string" && first !== "" ? first : undefined;
 }
 
-/** 地址上有这个参数（空值也算）时把它去掉；`hash` 给了就同时换锚点。 */
-export function stripSocialError(route: RouteLocationNormalizedLoaded, router: Router, hash?: string): void {
+export interface StripOptions {
+    /** 同时换锚点。 */
+    readonly hash?: string;
+    /** 同一次替换里加上的查询参数（注册页把草稿里还原的续接令牌写回地址）。 */
+    readonly add?: Readonly<Record<string, string>>;
+}
+
+/** 地址上有这个参数（空值也算）时把它去掉。 */
+export function stripSocialError(route: RouteLocationNormalizedLoaded, router: Router, options: StripOptions = {}): void {
     if (!Object.hasOwn(route.query, SOCIAL_ERROR_PARAM)) return;
     const {[SOCIAL_ERROR_PARAM]: _shown, ...query} = route.query;
-    router.replace({path: route.path, query, hash: hash ?? route.hash}).catch((error: unknown) => {
+    router.replace({path: route.path, query: {...query, ...options.add}, hash: options.hash ?? route.hash}).catch((error: unknown) => {
         console.warn(`没能把 ${SOCIAL_ERROR_PARAM} 从地址里去掉`, error);
     });
 }

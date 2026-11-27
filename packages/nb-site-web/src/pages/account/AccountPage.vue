@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * 账号页（t10 计划 3.12；t09 第 3、8、11 条：一页到底、左边目录、没有横幅；两种账号版式相同）。顶上是站名与账号菜单（管理面板、
- * 退出登录），下面左边是目录、右边是各节。第五节“已授权的应用”归 B7，目录里还没有它。
+ * 退出登录），下面左边是目录、右边是五节。
  *
- * - 页面级的加载（计划 3.1）：三份列表（`account-lists.ts`）与 `meta` 都回来了才画各节；超过 200 毫秒才显示“正在载入”，列表失败时
+ * - 页面级的加载（计划 3.1）：四份列表（`account-lists.ts`）与 `meta` 都回来了才画各节；超过 200 毫秒才显示“正在载入”，列表失败时
  *   同一位置写原因与重试。`meta` 决定“登录与安全”列出哪几个上游，晚到时那几行会消失、把下面的节往上拉，所以一起等；它失败不挡页面，
  *   这时没关联的上游照样列出。
  * - 目录随滚动高亮：顶边已滚过视口上部四分之一处的最后一节；滚到底时是最后一节（最后几节矮，顶边到不了那里）。点目录滚到那一节、
@@ -30,18 +30,20 @@ import type {SiteTextKey} from "../../text";
 import {readSocialError, stripSocialError} from "../social-error";
 import {usePageMeta} from "../use-meta";
 import {useAccountLists} from "./account-lists";
+import GrantsSection from "./GrantsSection.vue";
 import InvitesSection from "./InvitesSection.vue";
 import ProfileSection from "./ProfileSection.vue";
 import SecuritySection from "./SecuritySection.vue";
 import SessionsSection from "./SessionsSection.vue";
 
-type SectionId = "profile" | "security" | "sessions" | "invites";
+type SectionId = "profile" | "security" | "sessions" | "invites" | "apps";
 
 const SECTIONS: readonly {readonly id: SectionId; readonly title: SiteTextKey}[] = [
     {id: "profile", title: "account.profile.title"},
     {id: "security", title: "account.security.title"},
     {id: "sessions", title: "account.sessions.title"},
     {id: "invites", title: "account.invites.title"},
+    {id: "apps", title: "account.apps.title"},
 ];
 
 /** 超过这么久还没取到才显示“正在载入”（计划 3.1“页面级的加载”）：快的时候不闪一下。 */
@@ -100,7 +102,7 @@ watch(
         const code = readSocialError(route.query);
         if (code !== undefined) socialError.value = code;
         // 空的码当作没带：只去掉参数，不跳到那一节。
-        stripSocialError(route, router, code === undefined ? undefined : "#security");
+        stripSocialError(route, router, code === undefined ? {} : {hash: "#security"});
     },
     {immediate: true},
 );
@@ -331,6 +333,7 @@ async function onMenu(id: string): Promise<void> {
                         <SecuritySection :me="me" :identities="lists.identities" :providers="providers" :social-error="socialError" @password-changed="onPasswordChanged" />
                         <SessionsSection ref="sessionsSection" :sessions="lists.sessions" />
                         <InvitesSection :invites="lists.invites" />
+                        <GrantsSection :grants="lists.grants" />
                     </div>
                 </Transition>
             </main>

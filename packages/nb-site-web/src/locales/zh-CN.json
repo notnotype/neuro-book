@@ -164,10 +164,60 @@
             "remaining": "还能生成 {{count}} 个",
             "full": "有效的邀请码已有 {{limit}} 个，先停用一个",
             "empty": "还没有邀请码"
+        },
+        "apps": {
+            "title": "已授权的应用",
+            "granted": "{{time}}授权",
+            "justNow": "刚刚",
+            "scopeJoin": "、",
+            "scopes": {
+                "openid": "账号标识",
+                "profile": "用户名与显示名",
+                "email": "邮箱"
+            },
+            "revoke": "撤销",
+            "revokeNamed": "撤销 {{client}} 的授权",
+            "revokeTitle": "撤销“{{client}}”的授权？",
+            "revokeDescription": "它不能再用你的账号读资料，下次登录它时要重新确认。",
+            "gone": "这项授权已经不在了",
+            "empty": "还没有授权给应用"
         }
     },
     "oauthConsent": {
-        "title": "授权确认"
+        "title": "授权确认",
+        "heading": "“{{client}}”想用你的 NeuroBook 账号登录",
+        "switchAccount": "换一个账号",
+        "gets": "它会得到",
+        "scopes": {
+            "openid": "认出你是哪一个 NeuroBook 账号",
+            "profile": "你的用户名与显示名",
+            "email": "你的邮箱"
+        },
+        "allow": "允许",
+        "deny": "拒绝",
+        "returnTo": "允许后回到 {{host}}",
+        "loading": "正在载入",
+        "loadFailed": "没能载入这次授权请求",
+        "retry": "重试",
+        "ended": {
+            "authorization_expired": {
+                "title": "这次授权请求已过期",
+                "detail": "回到应用重新发起。"
+            },
+            "client_not_found": {
+                "title": "找不到这个应用",
+                "detail": "它没有登记，或已经停用。"
+            },
+            "redirect_uri_invalid": {
+                "title": "这个应用的回调地址不对",
+                "detail": "回到应用重新发起；仍然这样时请联系应用的开发者。"
+            },
+            "unknown": {
+                "title": "没能继续这次授权",
+                "detail": "回到应用重新发起。",
+                "code": "回到应用重新发起。出错的码：{{code}}"
+            }
+        }
     },
     "admin": {
         "nav": "管理面板",
@@ -290,6 +340,7 @@
             "banned": "已封禁",
             "normal": "正常",
             "neverSignedIn": "没有登录过",
+            "justNow": "刚刚",
             "rowActions": "{{username}} 的操作",
             "selfForbidden": "不能对自己的账号这样做",
             "empty": "没有符合的用户",
@@ -405,7 +456,86 @@
             }
         },
         "clients": {
-            "title": "OAuth 客户端"
+            "title": "OAuth 客户端",
+            "columns": {
+                "name": "名字",
+                "clientId": "客户端 ID",
+                "type": "种类",
+                "redirectUris": "回调地址",
+                "skipConsent": "免确认",
+                "state": "状态",
+                "createdAt": "登记"
+            },
+            "types": {
+                "confidential": "机密",
+                "public": "公开"
+            },
+            "moreUris": "等 {{count}} 个",
+            "skipConsentYes": "免确认",
+            "skipConsentNo": "要确认",
+            "states": {
+                "enabled": "可用",
+                "disabled": "已停用"
+            },
+            "copyId": "复制 {{clientId}}",
+            "rowActions": "{{name}} 的操作",
+            "empty": "还没有登记客户端",
+            "form": {
+                "name": "名字",
+                "namePlaceholder": "授权确认页上给用户看的名字",
+                "redirectUris": "回调地址",
+                "redirectUrisHint": "一行一个，至多 {{max}} 个",
+                "type": "种类",
+                "typeHint": "登记后不能改",
+                "confidential": "机密",
+                "confidentialDescription": "有自己的服务端，能保管密钥",
+                "public": "公开",
+                "publicDescription": "桌面或浏览器里的应用，不带密钥",
+                "skipConsent": "免确认（只用于自家的应用）",
+                "rules": {
+                    "name": "名字要 1 到 {{max}} 个字",
+                    "redirectUrisCount": "回调地址要 1 到 {{max}} 个",
+                    "redirectUriLength": "每个回调地址至多 {{max}} 个字符"
+                }
+            },
+            "register": {
+                "open": "登记客户端",
+                "title": "登记客户端",
+                "submit": "登记",
+                "doneTitle": "客户端已登记",
+                "secretNote": "关掉之后就看不到这个密钥了，请现在复制。",
+                "publicNote": "公开客户端没有密钥。"
+            },
+            "edit": {
+                "menu": "改动",
+                "title": "改动 {{name}}",
+                "submit": "保存"
+            },
+            "credentials": {
+                "clientId": "客户端 ID",
+                "secret": "密钥",
+                "copyId": "复制客户端 ID",
+                "copySecret": "复制密钥"
+            },
+            "disable": {
+                "menu": "停用",
+                "title": "停用 {{name}}？",
+                "description": "停用之后它不能再发起登录，它名下的令牌都会失效；再启用时这些令牌也不恢复。",
+                "confirm": "停用"
+            },
+            "enable": {
+                "menu": "启用",
+                "title": "启用 {{name}}？",
+                "description": "启用之后它可以重新发起登录，停用前的令牌不会恢复。",
+                "confirm": "启用"
+            },
+            "rotate": {
+                "menu": "换密钥",
+                "title": "给 {{name}} 换密钥？",
+                "description": "会生成一个新密钥，只显示这一次；旧密钥立即不能用。",
+                "confirm": "换密钥",
+                "doneTitle": "{{name}} 的新密钥"
+            }
         },
         "audit": {
             "title": "审计",

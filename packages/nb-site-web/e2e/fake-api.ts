@@ -4,23 +4,30 @@
  * 免得页面多发了请求而场景照样通过。各片接上新接口时在 `answer` 里加一支，不另写一份。
  *
  * 看板的接口（统计模块的查询接口）按路径连同查询串回答（`dashboard`），只答管理员的会话；数据取 `fixtures/dashboard.ts`。
- * 管理接口（`site.admin`）也只答管理员的会话：四个列表按查询参数从整张表里筛、切页，处置改表里的那一条，下一次 `GET` 按改过的回答。
+ * 管理接口（`site.admin`）也只答管理员的会话：五个列表按查询参数从整张表里筛、切页，处置改表里的那一条，下一次 `GET` 按改过的回答。
+ *
+ * 授权确认页的两个接口按 `oauth` 回答；浏览器整页去授权端点（登录续接的继续地址）时回一页写着“授权端点”的 HTML，记进 `authorizeVisits`。
  */
 
-import {IDENTITY_API_PREFIX, IDENTITY_PATHS, SOCIAL_PROVIDERS, identityPath} from "@notnotype/nb-site-identity-contract";
+import {IDENTITY_API_PREFIX, IDENTITY_PATHS, OAUTH_ENDPOINT_PATHS, SOCIAL_PROVIDERS, identityPath} from "@notnotype/nb-site-identity-contract";
 import type {
     AdminInviteCodeItem,
     AdminUserItem,
     AuditItem,
     ConsentRequest,
     ConsentResponse,
+    CreateOAuthClientRequest,
     ErrorBody,
+    GrantItem,
     IdentityItem,
     InviteCodeItem,
     LoginRequest,
     MeResponse,
     MetaResponse,
+    OAuthClientItem,
+    OAuthDecisionRequest,
     PatchMeRequest,
+    PatchOAuthClientRequest,
     RegisterRequest,
     RegistrationCodeItem,
     SessionItem,
@@ -48,12 +55,18 @@ import {
     adminUserItems,
     anonymousWhoami,
     auditItems,
+    grantList,
     identityList,
     inviteCodeList,
     meta,
+    oauthAllowed,
+    oauthAuthorization,
+    oauthClientItems,
+    oauthDenied,
     registerResponse,
     registrationCodeItems,
     resetPasswordResponse,
+    rotateSecretResponse,
     selfForbidden,
     sessionList,
     socialStartResponse,
@@ -77,10 +90,11 @@ export interface FakeIdentity {
     consentRequired: boolean;
     /** 普通用户会话的 `me`（`consentRequired` 另由上一项决定）。账号页改资料、设密码时跟着改。 */
     me: MeResponse;
-    /** 账号页的三份列表；结束会话、解绑、生成与停用邀请码时跟着改，下一次 `GET` 按改过的回答。 */
+    /** 账号页的四份列表；结束会话、解绑、生成与停用邀请码、撤销授权时跟着改，下一次 `GET` 按改过的回答。 */
     sessions: SessionItem[];
     identities: IdentityItem[];
     invites: InviteCodeItem[];
+    grants: GrantItem[];
     /** 改资料的回答。缺省是成功：把请求体并进 `me`。 */
     patchMe: (body: PatchMeRequest, fake: FakeIdentity) => FakeAnswer;
     /** 解绑的回答。缺省是成功：从列表里去掉。 */
@@ -109,17 +123,27 @@ export interface FakeIdentity {
     dashboard: (path: string, fake: FakeIdentity) => FakeAnswer | Promise<FakeAnswer> | undefined;
     /** 看板发出的请求（路径连同查询串），按先后。 */
     readonly dashboardRequests: string[];
-    /** 管理面板的四张表；处置与发放跟着改。缺省是 `fixtures/identity.ts` 的那几份的副本。 */
+    /** 管理面板的五张表；处置、发放与登记跟着改。缺省是 `fixtures/identity.ts` 的那几份的副本。 */
     adminUsers: AdminUserItem[];
     registrationCodes: RegistrationCodeItem[];
     adminInvites: AdminInviteCodeItem[];
     audit: AuditItem[];
+    oauthClients: OAuthClientItem[];
     /**
      * 管理接口的回答先问它（`request` 是 `方法 路径`，不带查询串）：回 `undefined` 时照表回答。用例在这里让某个处置失败、让列表晚到。
      */
     admin: (request: string, fake: FakeIdentity) => FakeAnswer | Promise<FakeAnswer> | undefined;
     /** 管理接口收到的请求（`方法 路径` 连同查询串）与请求体，按先后。 */
     readonly adminRequests: {readonly request: string; readonly body: unknown}[];
+    /**
+     * 授权确认页两个接口的回答（`request` 是 `GET` 时查询串里的标识或 `POST` 请求体里的那个）。缺省是 `oauthSucceeds`：取数回
+     * `fixtures/identity.ts` 的那次请求，同意、拒绝回各自的跳回地址。只在有会话时调用。
+     */
+    oauth: (method: "GET" | "POST", request: string, body: OAuthDecisionRequest | undefined, fake: FakeIdentity) => FakeAnswer;
+    /** 授权确认页发出的 `POST`，按先后。 */
+    readonly oauthDecisions: OAuthDecisionRequest[];
+    /** 浏览器整页去过的授权端点地址（路径连同查询串），按先后。 */
+    readonly authorizeVisits: string[];
     /** 没准备的请求（`方法 路径`）。 */
     readonly unexpected: string[];
 }
@@ -171,6 +195,11 @@ export function unlinkSucceeds(): FakeIdentity["unlink"] {
 }
 
 const notFound = {status: 404, body: {error: {code: "not_found"}} satisfies ErrorBody};
+
+/** 授权确认页的接口照常回答：取数回那次请求，同意与拒绝回各自的跳回地址。 */
+export function oauthSucceeds(): FakeIdentity["oauth"] {
+    return (method, _request, body) => (method === "GET" ? {status: 200, body: oauthAuthorization} : {status: 200, body: body?.accept === true ? oauthAllowed : oauthDenied});
+}
 
 /** 看板每条请求的路径与它的回答（数据取 `fixtures/dashboard.ts`）。 */
 export const DASHBOARD_BODIES: ReadonlyMap<string, unknown> = new Map<string, unknown>([
@@ -302,6 +331,29 @@ async function answerAdmin(fake: FakeIdentity, method: string, pathname: string,
         fake.registrationCodes = [created, ...fake.registrationCodes];
         return {status: 200, body: created};
     }
+    if (method === "GET" && pathname === path(IDENTITY_PATHS.adminOAuthClients)) return {status: 200, body: pageOf(fake.oauthClients, query)};
+    if (method === "POST" && pathname === path(IDENTITY_PATHS.adminOAuthClients)) {
+        const request = body as CreateOAuthClientRequest;
+        const id = Math.max(0, ...fake.oauthClients.map((item) => item.id)) + 1;
+        const client: OAuthClientItem = {id, clientId: `newClient${id}AbCdEfGhIjKlMnOpQrStUv`, ...request, disabled: false, createdAt: new Date().toISOString()};
+        fake.oauthClients = [client, ...fake.oauthClients];
+        return {status: 200, body: {client, clientSecret: request.type === "confidential" ? `nbs_new_${id}_Xy7Qm2Lp9Kt4` : null}};
+    }
+    const clientAction = new RegExp(`^${path("/admin/oauth-clients")}/([A-Za-z0-9_-]+)(/rotate-secret)?$`, "u").exec(pathname);
+    if (clientAction !== null) {
+        const index = fake.oauthClients.findIndex((item) => item.clientId === clientAction[1]);
+        if (index < 0) return notFound;
+        const client = fake.oauthClients[index]!;
+        if (method === "POST" && clientAction[2] !== undefined) {
+            if (client.type === "public") return {status: 409, body: {error: {code: "client_public"}} satisfies ErrorBody};
+            return {status: 200, body: rotateSecretResponse};
+        }
+        if (method === "PATCH" && clientAction[2] === undefined) {
+            const changed: OAuthClientItem = {...client, ...(body as PatchOAuthClientRequest)};
+            fake.oauthClients[index] = changed;
+            return {status: 200, body: changed};
+        }
+    }
     const codeId = idAfter(pathname, IDENTITY_PATHS.adminRegistrationCodes);
     if (method === "PATCH" && codeId !== undefined) {
         const index = fake.registrationCodes.findIndex((item) => item.id === codeId);
@@ -325,12 +377,14 @@ function answerAccount(fake: FakeIdentity, method: string, pathname: string, bod
         [path(IDENTITY_PATHS.meSessions)]: () => ({items: fake.sessions}),
         [path(IDENTITY_PATHS.meIdentities)]: () => ({items: fake.identities}),
         [path(IDENTITY_PATHS.meInviteCodes)]: () => ({items: fake.invites}),
+        [path(IDENTITY_PATHS.meGrants)]: () => ({items: fake.grants}),
     };
     const list = listed[pathname];
     const sessionId = idAfter(pathname, IDENTITY_PATHS.meSessions);
     const identityId = idAfter(pathname, IDENTITY_PATHS.meIdentities);
     const inviteId = idAfter(pathname, IDENTITY_PATHS.meInviteCodes);
-    const isAccount = list !== undefined || sessionId !== undefined || identityId !== undefined || inviteId !== undefined
+    const grantId = idAfter(pathname, IDENTITY_PATHS.meGrants);
+    const isAccount = list !== undefined || sessionId !== undefined || identityId !== undefined || inviteId !== undefined || grantId !== undefined
         || pathname === path(IDENTITY_PATHS.mePassword) || (method === "PATCH" && pathname === path(IDENTITY_PATHS.me));
     if (!isAccount) return undefined;
     if (fake.session === undefined) return {status: 401, body: unauthenticated};
@@ -347,6 +401,11 @@ function answerAccount(fake: FakeIdentity, method: string, pathname: string, bod
         return {status: 200, body: {}};
     }
     if (method === "DELETE" && identityId !== undefined) return fake.unlink(identityId, fake);
+    if (method === "DELETE" && grantId !== undefined) {
+        if (!fake.grants.some((item) => item.id === grantId)) return notFound;
+        fake.grants = fake.grants.filter((item) => item.id !== grantId);
+        return {status: 200, body: {}};
+    }
     if (method === "POST" && pathname === path(IDENTITY_PATHS.meInviteCodes)) {
         const id = Math.max(0, ...fake.invites.map((item) => item.id)) + 1;
         const created: InviteCodeItem = {id, code: `NB-NEW-${id}`, createdAt: new Date().toISOString(), usedCount: 0, maxUses: null, expiresAt: null, usable: true};
@@ -363,7 +422,14 @@ function answerAccount(fake: FakeIdentity, method: string, pathname: string, bod
     return undefined;
 }
 
-function answer(fake: FakeIdentity, method: string, pathname: string, body: unknown): FakeAnswer | undefined {
+function answer(fake: FakeIdentity, method: string, pathname: string, query: URLSearchParams, body: unknown): FakeAnswer | undefined {
+    if (pathname === path(IDENTITY_PATHS.oauthAuthorization) && (method === "GET" || method === "POST")) {
+        if (fake.session === undefined) return {status: 401, body: unauthenticated};
+        if (method === "GET") return fake.oauth("GET", query.get("request") ?? "", undefined, fake);
+        const decision = body as OAuthDecisionRequest;
+        fake.oauthDecisions.push(decision);
+        return fake.oauth("POST", decision.request, decision, fake);
+    }
     if (method === "GET" && pathname === path(IDENTITY_PATHS.whoami)) {
         if (fake.session === undefined) return {status: 200, body: anonymousWhoami};
         const me = fake.session === "admin" ? adminMe : fake.me;
@@ -409,7 +475,11 @@ function answer(fake: FakeIdentity, method: string, pathname: string, body: unkn
 /** 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。 */
 export async function installFakeIdentity(
     page: Page,
-    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink" | "dashboard" | "adminUsers" | "registrationCodes" | "adminInvites" | "audit" | "admin">> = {},
+    initial: Partial<Pick<
+        FakeIdentity,
+        "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "grants" | "patchMe" | "unlink"
+        | "dashboard" | "adminUsers" | "registrationCodes" | "adminInvites" | "audit" | "oauthClients" | "admin" | "oauth"
+    >> = {},
 ): Promise<FakeIdentity> {
     const fake: FakeIdentity = {
         session: initial.session,
@@ -418,6 +488,7 @@ export async function installFakeIdentity(
         sessions: initial.sessions ?? [...sessionList.items],
         identities: initial.identities ?? [...identityList.items],
         invites: initial.invites ?? [...inviteCodeList.items],
+        grants: initial.grants ?? [...grantList.items],
         patchMe: initial.patchMe ?? patchMeSucceeds(),
         unlink: initial.unlink ?? unlinkSucceeds(),
         meta: initial.meta ?? meta,
@@ -436,19 +507,28 @@ export async function installFakeIdentity(
         registrationCodes: initial.registrationCodes ?? [...registrationCodeItems],
         adminInvites: initial.adminInvites ?? [...adminInviteCodeItems],
         audit: initial.audit ?? [...auditItems],
+        oauthClients: initial.oauthClients ?? [...oauthClientItems],
         admin: initial.admin ?? (() => undefined),
         adminRequests: [],
+        oauth: initial.oauth ?? oauthSucceeds(),
+        oauthDecisions: [],
+        authorizeVisits: [],
         unexpected: [],
     };
     await page.route((url) => url.pathname.startsWith("/api/"), async (route: Route) => {
         const request = route.request();
         const {pathname, search} = new URL(request.url());
+        if (request.method() === "GET" && pathname === OAUTH_ENDPOINT_PATHS.authorize && request.resourceType() === "document") {
+            fake.authorizeVisits.push(`${pathname}${search}`);
+            await route.fulfill({status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>authorize</title><h1>授权端点</h1>"});
+            return;
+        }
         const body = request.postData() === null ? undefined : request.postDataJSON();
         if (request.method() === "GET" && pathname === path(IDENTITY_PATHS.meta) && fake.metaArrives !== undefined) await fake.metaArrives;
         const dashboard = request.method() === "GET" && pathname.startsWith(`${TELEMETRY_API_PREFIX}/`);
         const reply = dashboard
             ? await answerDashboard(fake, `${pathname}${search}`)
-            : ((await answerAdmin(fake, request.method(), pathname, new URLSearchParams(search), body)) ?? answer(fake, request.method(), pathname, body));
+            : ((await answerAdmin(fake, request.method(), pathname, new URLSearchParams(search), body)) ?? answer(fake, request.method(), pathname, new URLSearchParams(search), body));
         if (reply === undefined) {
             fake.unexpected.push(`${request.method()} ${pathname}${search}`);
             await route.fulfill({status: 404, json: {error: {code: "not_found"}} satisfies ErrorBody});

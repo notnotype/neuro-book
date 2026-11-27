@@ -25,8 +25,8 @@ const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
 const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
 const ADMIN_USERS = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.adminUsers}`;
 
-/** 账号页进来时自己取的三份列表；看守卫与统一处理发了哪些请求时滤掉它们。 */
-const ACCOUNT_PAGE_LISTS = [IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map((path) => `${IDENTITY_API_PREFIX}${path}`);
+/** 账号页进来时自己取的四份列表；看守卫与统一处理发了哪些请求时滤掉它们。 */
+const ACCOUNT_PAGE_LISTS = [IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes, IDENTITY_PATHS.meGrants].map((path) => `${IDENTITY_API_PREFIX}${path}`);
 const withoutAccountPage = (requested: readonly string[]): string[] => requested.filter((url) => !ACCOUNT_PAGE_LISTS.includes(url) && url !== META);
 const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
 
@@ -57,7 +57,7 @@ interface Server {
     whoami: () => Response;
     me: () => Response;
     /**
-     * 别的接口；缺省回一份空列表（账号页进来时取的三份列表都是这个形状），看板的几份回还没有上报的看板，管理面板的列表回一页空的
+     * 别的接口；缺省回一份空列表（账号页进来时取的四份列表都是这个形状），看板的几份回还没有上报的看板，管理面板的列表回一页空的
      * （`otherwise`）。
      */
     other: (input: string) => Response;

@@ -20,8 +20,8 @@ import type {ManualClock} from "./manual-clock";
 
 export const identityUrl = (relative: string): string => `${IDENTITY_API_PREFIX}${relative}`;
 
-/** 账号页读的三份列表（`pages/account/account-lists.ts`）。 */
-const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map(identityUrl));
+/** 账号页读的四份列表（`pages/account/account-lists.ts`）。 */
+const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes, IDENTITY_PATHS.meGrants].map(identityUrl));
 
 /** 管理员登录之后落在看板上，它一打开就读的那几份（`pages/admin/dashboard/source.ts`）。 */
 const EMPTY_DASHBOARD_BODIES = dashboardBodies(EMPTY_DASHBOARD);
@@ -153,7 +153,7 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
             const url = new URL(input, "http://site.invalid");
             const handler = server.handlers.get(`${method} ${input}`) ?? server.handlers.get(`${method} ${url.pathname}`);
             if (handler !== undefined) return handler(body, server, url.searchParams);
-            // 登录、注册、补交同意之后都落在账号页，它一打开就读这三份列表。在乎列表内容的用例自己准备处理器，其余的回空列表。
+            // 登录、注册、补交同意之后都落在账号页，它一打开就读这四份列表。在乎列表内容的用例自己准备处理器，其余的回空列表。
             if (method === "GET" && ACCOUNT_LISTS.has(input)) return Response.json({items: []});
             // 看板同理：管理员登录之后落在看板上，在乎看板数据的用例用 `dashboardHandlers` 准备，其余的回一份还没有上报的看板。
             // 只替管理员的会话回：别的会话不该发这些请求，发了就记进 `unexpected`。

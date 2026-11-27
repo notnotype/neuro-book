@@ -20,6 +20,8 @@ export interface SiteContext {
     readonly identity: IdentityApi;
     readonly storage: SiteStorage;
     readonly clock: SiteClock;
+    /** 站点的 origin（`location.origin`）：核对 `next` 与继续地址是站内地址时用。 */
+    readonly origin: string;
     /**
      * 带浏览器离开站点去这个地址（`StartSiteOptions.leave`）。通常页面随之卸载，回来的 Promise 永远不 settle；他在上游页点返回、
      * 浏览器从往返缓存（bfcache）原样恢复这一页时 resolve。调用方在离开期间把按钮挡住（“正在离开”），`await` 之后放开：恢复的页面

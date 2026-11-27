@@ -85,6 +85,27 @@ describe("同意页", () => {
         expect(consentBodies(harness)).toEqual([{termsVersion: TERMS_VERSION, overseasStorage: true} satisfies ConsentRequest]);
     });
 
+    it("授权端点带来的续接令牌：补交请求带上它，响应给了继续地址就整页去那里；没给时照常按分派走", async () => {
+        const token = "tok_opaque-1";
+        const continueUrl = "/api/identity/auth/oauth2/authorize?client_id=shelf&state=s1";
+        const continued: Handler = (_body, server) => {
+            const session = {...server.session!, consentRequired: false};
+            server.session = session;
+            return Response.json({...me(session), continueUrl} satisfies ConsentResponse);
+        };
+        const harness = startAt(`/consent?continue=${token}`, needsConsent("user", {handlers: {[CONSENT]: continued}}));
+        await settledAt(harness, `/consent?continue=${token}`, "consent");
+        await agreeAndSubmit(harness);
+        await vi.waitFor(() => expect(harness.left.map((leave) => leave.url)).toEqual([continueUrl]));
+        expect(consentBodies(harness)).toEqual([{termsVersion: TERMS_VERSION, overseasStorage: true, continue: token} satisfies ConsentRequest]);
+
+        const plain = startAt(`/consent?continue=${token}`, needsConsent("user"));
+        await settledAt(plain, `/consent?continue=${token}`, "consent");
+        await agreeAndSubmit(plain);
+        await settledAt(plain, "/account", "account");
+        expect(plain.left).toEqual([]);
+    });
+
     it("别的页上的请求撞上同意门槛：带着那一页的地址来，补交之后回去", async () => {
         const harness = startAt("/account", {session: {role: "user", consentRequired: false}, handlers: {[CONSENT]: consented}});
         await settledAt(harness, "/account", "account");

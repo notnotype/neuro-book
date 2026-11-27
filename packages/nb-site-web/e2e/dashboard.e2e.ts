@@ -362,13 +362,13 @@ test("面板在加载、没有数据、出错、有数据四种状态下高度�
     for (const release of pending) release();
 });
 
-test("走到空壳页再回来：外壳不动，看板的两张图重新画出来", async ({page}) => {
+test("走到别的页再回来：外壳不动，看板的两张图重新画出来", async ({page}) => {
     fake = await installFakeIdentity(page, {session: "admin"});
     await openDashboard(page, VIEWPORTS[0], "light");
     const nav = await box(page, "[data-site-admin-shell] > nav");
 
-    await page.locator('[data-site-admin-nav="admin-clients"]').click();
-    await expect(page.locator('[data-site-page="admin-clients"]')).toBeVisible();
+    await page.locator('[data-site-admin-nav="admin-audit"]').click();
+    await expect(page.locator('[data-site-page="admin-audit"]')).toBeVisible();
     expect(await box(page, "[data-site-admin-shell] > nav")).toEqual(nav);
 
     await page.locator('[data-site-admin-nav="admin-dashboard"]').click();

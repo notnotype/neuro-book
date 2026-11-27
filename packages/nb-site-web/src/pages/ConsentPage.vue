@@ -2,7 +2,8 @@
 /**
  * 同意页（t10 计划 3.1；t09 第 7 条；审定 D1）：缺同意的用户（条款换了版本、导入的旧账号、没同意境外存放）在这里补交
  * （`site.accounts` 输出 10）。守卫只让缺同意的人进来；别的页撞上同意门槛时带着 `next` 来这里（`site.ts` 的统一处理），
- * 补交之后对当前地址再走一遍守卫，按分派回 `next`。登录续接（`continue`）归 B7。
+ * 补交之后对当前地址再走一遍守卫，按分派回 `next`。授权端点把会话不满足门槛的人带到 `/consent?continue=<令牌>`
+ * （`site.oauth-provider` 输出 12）：补交请求带上令牌，响应给了继续地址就去那里回到授权请求（`session/enter.ts`）。
  *
  * 两项都勾了才能提交：条款与隐私政策一项、境外存放一项（D1）。失败都写状态行（计划 3.1 的逐页表）；补交时回 `consent_required`
  * 是版本刚又换了，重取 `meta`、撤掉两个勾。
@@ -15,6 +16,7 @@ import {RouterLink, useRoute, useRouter} from "vue-router";
 import type {Failure} from "../http/core";
 import FormStatus from "../components/FormStatus.vue";
 import {useSite} from "../context";
+import {continuePart, readContinue} from "../session/continue";
 import {enterAfterSignIn} from "../session/enter";
 import {signOut} from "../session/sign-out";
 import {siteRef, useSiteText} from "../text";
@@ -30,7 +32,8 @@ const DOCUMENTS: readonly {readonly path: string; readonly title: SiteTextKey}[]
     {path: "/privacy", title: "legal.privacy.title"},
 ];
 
-const {identity, account, clock, storage} = useSite();
+const site = useSite();
+const {identity, account, clock, storage} = site;
 const route = useRoute();
 const router = useRouter();
 const t = useSiteText();
@@ -79,13 +82,14 @@ async function submit(): Promise<void> {
             return;
         }
         const sent = state.meta.termsVersion;
-        const result = await identity.consent({termsVersion: sent, overseasStorage: agreeOverseas.value});
+        const result = await identity.consent({termsVersion: sent, overseasStorage: agreeOverseas.value, ...continuePart(readContinue(route.query))});
         if (!result.ok) {
             showFailure(result.failure, sent);
             return;
         }
-        // 重取账号之后“还缺同意”是假的，守卫对 `/consent` 按分派送走：带着的 `next` 照同样的规则校验（`session/enter.ts`）。
-        await enterAfterSignIn(account, router);
+        // 没有继续地址时：重取账号之后“还缺同意”是假的，守卫对 `/consent` 按分派送走，带着的 `next` 照同样的规则校验
+        // （`session/enter.ts`）。
+        await enterAfterSignIn(site, router, result.value.continueUrl);
     } catch (error) {
         console.warn("补交同意之后没能打开下一页", error);
         status.value = {reason: "not-entered", text: siteRef("consent.notEntered")};

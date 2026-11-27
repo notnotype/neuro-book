@@ -27,7 +27,7 @@ const VIEWPORTS = [
     {name: "360", width: 360, height: 800},
 ] as const;
 const SCHEMES = ["light", "dark"] as const;
-const SECTIONS = ["profile", "security", "sessions", "invites"] as const;
+const SECTIONS = ["profile", "security", "sessions", "invites", "apps"] as const;
 
 let fake: FakeIdentity;
 
@@ -35,7 +35,7 @@ test.afterEach(() => {
     expect(fake.unexpected).toEqual([]);
 });
 
-/** 打开账号页，等四节都画出来、过渡跑完。 */
+/** 打开账号页，等五节都画出来、过渡跑完。 */
 async function openAccount(page: Page, viewport: {readonly width: number; readonly height: number}, scheme: "light" | "dark"): Promise<void> {
     await page.setViewportSize(viewport);
     await page.emulateMedia({colorScheme: scheme});
@@ -109,7 +109,7 @@ async function currentTocItem(page: Page): Promise<string | null> {
 for (const viewport of [VIEWPORTS[0], VIEWPORTS[1]]) {
     test(`${viewport.name} 宽：滚动时目录高亮跟着走，滚到底高亮最后一节；点目录滚到那一节`, async ({page}) => {
         fake = await installFakeIdentity(page, {session: "user"});
-        // 矮一点的视口：四节在 1440 宽时也放不下一屏，滚动才有意义。
+        // 矮一点的视口：五节在 1440 宽时也放不下一屏，滚动才有意义。
         await openAccount(page, {width: viewport.width, height: 600}, "light");
         expect(await currentTocItem(page)).toBe("profile");
 
@@ -122,7 +122,7 @@ for (const viewport of [VIEWPORTS[0], VIEWPORTS[1]]) {
         }
 
         await page.mouse.wheel(0, 100_000);
-        await expect.poll(() => currentTocItem(page)).toBe("invites");
+        await expect.poll(() => currentTocItem(page)).toBe("apps");
 
         await page.evaluate(() => window.scrollTo(0, 0));
         await expect.poll(() => currentTocItem(page)).toBe("profile");
@@ -207,16 +207,16 @@ test("360 宽：滚到最后一节时，目录那一排横着滚，让当前的�
     fake = await installFakeIdentity(page, {session: "user"});
     await openAccount(page, VIEWPORTS[2], "light");
     const nav = page.locator("[data-site-account-toc]");
-    // 这一档宽度下四个标签放不下一排：这条用例的前提。
+    // 这一档宽度下五个标签放不下一排：这条用例的前提。
     expect(await nav.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
 
     await page.mouse.move(180, 600);
     await page.mouse.wheel(0, 100_000);
-    await expect.poll(() => currentTocItem(page)).toBe("invites");
+    await expect.poll(() => currentTocItem(page)).toBe("apps");
     const inside = (): Promise<boolean> =>
         page.evaluate(() => {
             const bar = document.querySelector("[data-site-account-toc]")?.getBoundingClientRect();
-            const item = document.querySelector('[data-site-account-toc-item="invites"]')?.getBoundingClientRect();
+            const item = document.querySelector('[data-site-account-toc-item="apps"]')?.getBoundingClientRect();
             return bar !== undefined && item !== undefined && item.left >= bar.left - 0.5 && item.right <= bar.right + 0.5;
         });
     await expect.poll(inside).toBe(true);
@@ -234,13 +234,13 @@ test.describe("平滑滚动", () => {
     // 其余场景按减弱动效跑，点目录是瞬时跳过去的；这里要的是平滑滚动经过中间几节的那一段。
     test.use({contextOptions: {reducedMotion: "no-preference"}});
 
-    for (const [from, to] of [["profile", "sessions"], ["invites", "security"]] as const) {
+    for (const [from, to] of [["profile", "sessions"], ["apps", "security"]] as const) {
         test(`1440 宽：从“${from}”点目录里的“${to}”，平滑滚动的一路上高亮都是“${to}”，停下后还是它；之后再滚，高亮重新跟着走`, async ({page}) => {
             fake = await installFakeIdentity(page, {session: "user"});
             await openAccount(page, {width: 1440, height: 600}, "light");
-            if (from === "invites") {
+            if (from === "apps") {
                 await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-                await expect.poll(() => currentTocItem(page)).toBe("invites");
+                await expect.poll(() => currentTocItem(page)).toBe("apps");
             }
             // 从点下去的那一刻起每一帧记下高亮，直到这次滚动结束；只靠结束后的一次读取，看不出半路上闪过别的节。
             await page.evaluate((id) => {

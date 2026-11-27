@@ -11,14 +11,19 @@ import {
     AuditItem,
     ConsentResponse,
     ErrorBody,
+    GrantListResponse,
     IdentityListResponse,
     InviteCodeListResponse,
     LoginResponse,
     MeResponse,
     MetaResponse,
+    OAuthAuthorizationResponse,
+    OAuthClientItem,
+    OAuthDecisionResponse,
     RegisterResponse,
     RegistrationCodeItem,
     ResetPasswordResponse,
+    RotateSecretResponse,
     SessionListResponse,
     SocialStartResponse,
     WhoamiResponse,
@@ -98,6 +103,29 @@ export const inviteCodeList = {
     ],
 } satisfies InviteCodeListResponse;
 
+/** 账号页“已授权的应用”：两个应用，按给出的先后倒序（`site.oauth-provider` 输出 15）。 */
+export const grantList = {
+    items: [
+        {id: 41, clientName: "书架同步助手", scopes: ["openid", "profile", "email"], createdAt: "2026-11-24T09:00:00.000Z"},
+        {id: 42, clientName: "章节备份", scopes: ["openid", "profile"], createdAt: "2026-11-12T09:00:00.000Z"},
+    ],
+} satisfies GrantListResponse;
+
+/** 从授权请求来的人登录、注册、补交同意之后的继续地址：授权端点，参数原样（`site.oauth-provider` 输出 4）。 */
+const continueUrl = "/api/identity/auth/oauth2/authorize?client_id=shelfSyncClient&state=s1";
+
+/** 带着续接令牌登录成功：响应多一个继续地址。 */
+export const userLoginContinued = {...userLogin, continueUrl} satisfies LoginResponse;
+
+/** 授权确认页要确认的那次请求（`site.oauth-provider` 输出 14）。 */
+export const oauthAuthorization = {clientName: "书架同步助手", redirectHost: "shelf.example.com", scopes: ["openid", "profile", "email"]} satisfies OAuthAuthorizationResponse;
+
+/** 同意与拒绝之后跳回客户端的地址。 */
+export const oauthAllowed = {redirectUrl: "https://shelf.example.com/callback?code=c-allow&state=s1&iss=https%3A%2F%2Fneurobook.example"} satisfies OAuthDecisionResponse;
+export const oauthDenied = {redirectUrl: "https://shelf.example.com/callback?error=access_denied&state=s1&iss=https%3A%2F%2Fneurobook.example"} satisfies OAuthDecisionResponse;
+
+export const authorizationExpired = {error: {code: "authorization_expired"}} satisfies ErrorBody;
+
 export const usernameTaken = {error: {code: "username_taken"}} satisfies ErrorBody;
 
 export const invalidCredentials = {error: {code: "invalid_credentials"}} satisfies ErrorBody;
@@ -174,6 +202,25 @@ export const auditItems = Array.from({length: 60}, (_, index): AuditItem => {
     };
 }) satisfies AuditItem[];
 
+/** OAuth 客户端：机密的一个、公开的一个（两个回调地址，免确认）、已停用的一个。 */
+export const oauthClientItems = [
+    {id: 51, clientId: "shelfSyncClientAbCdEfGhIjKlMnOpQr", name: "书架同步助手", redirectUris: ["https://shelf.example.com/callback"], type: "confidential", skipConsent: false, disabled: false, createdAt: "2026-11-05T08:00:00.000Z"},
+    {
+        id: 52,
+        clientId: "desktopAppZyXwVuTsRqPoNmLkJiHgFeDc",
+        name: "NeuroBook 桌面版",
+        redirectUris: ["http://127.0.0.1/callback", "http://localhost/callback"],
+        type: "public",
+        skipConsent: true,
+        disabled: false,
+        createdAt: "2026-11-03T08:00:00.000Z",
+    },
+    {id: 53, clientId: "chapterBackupQwErTyUiOpAsDfGhJkLz", name: "章节备份", redirectUris: ["https://backup.example.com/oauth"], type: "confidential", skipConsent: false, disabled: true, createdAt: "2026-11-01T08:00:00.000Z"},
+] satisfies OAuthClientItem[];
+
+/** 换密钥成功：新密钥只在这一次回答里。 */
+export const rotateSecretResponse = {clientSecret: "nbs_rotated_9fK2mQ7xL4pW8tR1"} satisfies RotateSecretResponse;
+
 /** 重置密码成功：新密码只在这一次回答里。 */
 export const resetPasswordResponse = {password: "Kq7-vT2m-Rw9x"} satisfies ResetPasswordResponse;
 
@@ -196,6 +243,12 @@ export const IDENTITY_FIXTURES: readonly {readonly name: string; readonly schema
     {name: "sessionList", schema: SessionListResponse, value: sessionList},
     {name: "identityList", schema: IdentityListResponse, value: identityList},
     {name: "inviteCodeList", schema: InviteCodeListResponse, value: inviteCodeList},
+    {name: "grantList", schema: GrantListResponse, value: grantList},
+    {name: "userLoginContinued", schema: LoginResponse, value: userLoginContinued},
+    {name: "oauthAuthorization", schema: OAuthAuthorizationResponse, value: oauthAuthorization},
+    {name: "oauthAllowed", schema: OAuthDecisionResponse, value: oauthAllowed},
+    {name: "oauthDenied", schema: OAuthDecisionResponse, value: oauthDenied},
+    {name: "authorizationExpired", schema: ErrorBody, value: authorizationExpired},
     {name: "usernameTaken", schema: ErrorBody, value: usernameTaken},
     {name: "invalidCredentials", schema: ErrorBody, value: invalidCredentials},
     {name: "rateLimited", schema: ErrorBody, value: rateLimited},
@@ -204,6 +257,8 @@ export const IDENTITY_FIXTURES: readonly {readonly name: string; readonly schema
     {name: "registrationCodeItems", schema: Type.Array(RegistrationCodeItem), value: registrationCodeItems},
     {name: "adminInviteCodeItems", schema: Type.Array(AdminInviteCodeItem), value: adminInviteCodeItems},
     {name: "auditItems", schema: Type.Array(AuditItem), value: auditItems},
+    {name: "oauthClientItems", schema: Type.Array(OAuthClientItem), value: oauthClientItems},
+    {name: "rotateSecretResponse", schema: RotateSecretResponse, value: rotateSecretResponse},
     {name: "resetPasswordResponse", schema: ResetPasswordResponse, value: resetPasswordResponse},
     {name: "notFound", schema: ErrorBody, value: notFound},
     {name: "selfForbidden", schema: ErrorBody, value: selfForbidden},

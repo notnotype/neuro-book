@@ -26,6 +26,8 @@ export interface SocialRegisterDraft {
     readonly inviteCode: string;
     readonly registrationCode: string;
     readonly consent: {readonly termsVersion: string; readonly overseas: boolean};
+    /** 登录续接的令牌（`session/continue.ts`）：从授权请求来的人做社交注册、没成回到注册页时，跟着表单一起还原。没有就不出现。 */
+    readonly continue?: string;
 }
 
 /** 落在存储里的样子：多一个格式版本与写入时刻（毫秒）。 */
@@ -67,7 +69,8 @@ function isDraft(value: unknown): value is StoredDraft {
         && typeof draft.registrationCode === "string"
         && typeof consent === "object" && consent !== null
         && typeof consent.termsVersion === "string"
-        && typeof consent.overseas === "boolean";
+        && typeof consent.overseas === "boolean"
+        && (draft.continue === undefined || typeof draft.continue === "string");
 }
 
 export function createSiteStorage(options: SiteStorageOptions): SiteStorage {
@@ -125,6 +128,7 @@ export function createSiteStorage(options: SiteStorageOptions): SiteStorage {
                 inviteCode: draft.inviteCode,
                 registrationCode: draft.registrationCode,
                 consent: {termsVersion: draft.consent.termsVersion, overseas: draft.consent.overseas},
+                ...(draft.continue === undefined ? {} : {continue: draft.continue}),
             };
             write(SOCIAL_REGISTER_DRAFT_KEY, JSON.stringify(stored));
         },

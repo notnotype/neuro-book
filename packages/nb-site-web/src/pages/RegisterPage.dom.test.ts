@@ -490,3 +490,59 @@ describe("邀请链接", () => {
         expect(formOf(harness).inviteCode.value).toBe("INV-42");
     });
 });
+
+/** 授权端点带来的续接令牌（`site.oauth-provider` 输出 4），与服务端认得它时回的继续地址。 */
+const TOKEN = "tok_opaque-1";
+const CONTINUE_URL = "/api/identity/auth/oauth2/authorize?client_id=shelf&state=s1";
+
+/** 注册成功，响应带继续地址。 */
+const registeredAndContinued: Handler = (_body, server) => {
+    server.session = {role: "user", consentRequired: false};
+    return Response.json({user: profile("user"), continueUrl: CONTINUE_URL} satisfies RegisterResponse);
+};
+
+describe("登录续接（continue）", () => {
+    it("注册请求带上地址里的令牌；响应给了继续地址就整页去那里，不按分派进站", async () => {
+        const harness = startAt(`/register?continue=${TOKEN}`, {handlers: {[REGISTER]: registeredAndContinued}});
+        await settledAt(harness, `/register?continue=${TOKEN}`, "register");
+        await fillAndSubmit(harness);
+        await vi.waitFor(() => expect(harness.left.map((leave) => leave.url)).toEqual([CONTINUE_URL]));
+        expect(registerBodies(harness)).toEqual([expect.objectContaining({continue: TOKEN})]);
+        expect(harness.site.router.currentRoute.value.path).toBe("/register");
+    });
+
+    it("“登录”链接把令牌带回登录页", async () => {
+        const harness = startAt(`/register?continue=${TOKEN}`);
+        await settledAt(harness, `/register?continue=${TOKEN}`, "register");
+        expect(harness.target.querySelector(".site-form-alt a")?.getAttribute("href")).toBe(`/login?continue=${TOKEN}`);
+    });
+
+    it("社交注册的发起带上令牌，草稿也存着它", async () => {
+        const harness = startAt(`/register?continue=${TOKEN}`, {handlers: {[START_GITHUB]: toUpstream}});
+        await settledAt(harness, `/register?continue=${TOKEN}`, "register");
+        const form = formOf(harness);
+        fillRequired(form);
+        agree(form);
+        await vi.waitFor(() => expect(socialButton(harness.target, "github").disabled).toBe(false));
+        socialButton(harness.target, "github").click();
+        await vi.waitFor(() => expect(harness.left).toHaveLength(1));
+        expect(startBodies(harness)).toEqual([expect.objectContaining({intent: "register", continue: TOKEN})]);
+        expect(JSON.parse(harness.left[0]!.draft!)).toEqual(expect.objectContaining({continue: TOKEN}));
+    });
+
+    it("从上游带着 social_error 回来（落点地址上没有令牌）：令牌从草稿还原、写回地址，“登录”链接与再次提交都带着它", async () => {
+        saveDraft({continue: TOKEN});
+        const harness = startAt("/register?social_error=username_taken", {handlers: {[REGISTER]: registeredAndContinued}});
+        await settledAt(harness, `/register?continue=${TOKEN}`, "register");
+        expect(harness.target.querySelector(".site-form-alt a")?.getAttribute("href")).toBe(`/login?continue=${TOKEN}`);
+
+        const form = formOf(harness);
+        type(form.username, "Alice_02");
+        type(form.email, "alice@example.com");
+        type(form.password, "correct horse");
+        await vi.waitFor(() => expect(form.submit.disabled).toBe(false));
+        form.submit.click();
+        await vi.waitFor(() => expect(harness.left.map((leave) => leave.url)).toEqual([CONTINUE_URL]));
+        expect(registerBodies(harness)).toEqual([expect.objectContaining({username: "Alice_02", continue: TOKEN})]);
+    });
+});

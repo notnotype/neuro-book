@@ -12,6 +12,8 @@ import type {
     AdminUserItem,
     AuditItem,
     AuditListResponse,
+    OAuthClientItem,
+    OAuthClientListResponse,
     RegistrationCodeFilter,
     RegistrationCodeItem,
     RegistrationCodeListResponse,
@@ -29,6 +31,7 @@ export const ADMIN_LIST_URLS = {
     registrationCodes: url(IDENTITY_PATHS.adminRegistrationCodes),
     inviteCodes: url(IDENTITY_PATHS.adminInviteCodes),
     audit: url(IDENTITY_PATHS.adminAudit),
+    oauthClients: url(IDENTITY_PATHS.adminOAuthClients),
 } as const;
 
 const NO_USERS: UserListResponse["counts"] = {all: 0, admin: 0, banned: 0, email_pending: 0};
@@ -44,6 +47,7 @@ export const EMPTY_ADMIN_LISTS: ReadonlyMap<string, unknown> = new Map<string, u
     [ADMIN_LIST_URLS.registrationCodes, {...emptyPage(), counts: NO_CODES} satisfies RegistrationCodeListResponse],
     [ADMIN_LIST_URLS.inviteCodes, emptyPage() satisfies AdminInviteCodeListResponse],
     [ADMIN_LIST_URLS.audit, emptyPage() satisfies AuditListResponse],
+    [ADMIN_LIST_URLS.oauthClients, emptyPage() satisfies OAuthClientListResponse],
 ]);
 
 export function adminUser(id: number, overrides: Partial<AdminUserItem> = {}): AdminUserItem {
@@ -87,6 +91,20 @@ export function inviteCode(id: number, overrides: Partial<AdminInviteCodeItem> =
         expiresAt: null,
         usable: true,
         owner: {id: 8, username: "bob"},
+        ...overrides,
+    };
+}
+
+export function oauthClient(id: number, overrides: Partial<OAuthClientItem> = {}): OAuthClientItem {
+    return {
+        id,
+        clientId: `client${String(id).padStart(4, "0")}AbCdEfGhIjKlMnOpQrStUv`,
+        name: `应用 ${id}`,
+        redirectUris: [`https://app${id}.example.com/callback`],
+        type: "confidential",
+        skipConsent: false,
+        disabled: false,
+        createdAt: "2026-11-04T08:00:00.000Z",
         ...overrides,
     };
 }

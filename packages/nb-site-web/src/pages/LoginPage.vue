@@ -1,7 +1,10 @@
 <script setup lang="ts">
 /**
  * 登录页，也是主页（t10 计划 3.1；t09 第 1 条；审定 D7：只有登录入口、一行说明与隐私政策、服务条款的链接）。`/` 与 `/login`
- * 用同一个组件；已登录的人进不来，守卫按分派送走。表单下是社交登录的两枚图标（`SocialButtons`）。登录续接（`continue`）归 B7。
+ * 用同一个组件；已登录的人进不来，守卫按分派送走。表单下是社交登录的两枚图标（`SocialButtons`）。
+ *
+ * 从授权请求来的人地址上带续接令牌（`session/continue.ts`）：登录请求与社交登录的发起都带上它，“注册”链接把它带到注册页；
+ * 登录响应给了继续地址就去那里（`session/enter.ts`）。带令牌的已登录用户也看得到这张表单（授权请求要求重新登录，守卫放行）。
  *
  * 失败的显示照三张稿纸页共用的做法（`form-feedback.ts`）：字段标红并聚焦，原因写在固定位置的状态行；哪个码标哪些字段由这一页定。
  *
@@ -19,6 +22,7 @@ import {socialErrorText} from "../http/failure-text";
 import FormStatus from "../components/FormStatus.vue";
 import SocialButtons from "../components/SocialButtons.vue";
 import {useSite} from "../context";
+import {continuePart, readContinue} from "../session/continue";
 import {enterAfterSignIn} from "../session/enter";
 import {siteRef, useSiteText} from "../text";
 import {useFormFeedback} from "./form-feedback";
@@ -30,7 +34,8 @@ type LoginField = "identifier" | "password";
 /** 两个字段的名字，也是登录请求体里的键：`validation_failed` 的 `fields` 是请求体的键名（`site.accounts` 输出 22）。 */
 const LOGIN_FIELDS: readonly LoginField[] = ["identifier", "password"];
 
-const {identity, account, clock, leave} = useSite();
+const site = useSite();
+const {identity, clock, leave} = site;
 const route = useRoute();
 const router = useRouter();
 const t = useSiteText();
@@ -49,6 +54,9 @@ const filled = computed(() => identifier.value !== "" && password.value !== "");
 const busy = computed(() => submitting.value || starting.value || feedback.waiting.value);
 const canSubmit = computed(() => filled.value && !busy.value);
 const providers = computed(() => meta.latest.value?.providers);
+/** 地址上的续接令牌，与它在链接上的样子（去注册页时带着）。 */
+const continueToken = computed(() => readContinue(route.query));
+const registerLink = computed(() => ({path: "/register", query: continuePart(continueToken.value)}));
 
 // 改了任一字段，标红就过时了（原因还留在状态行，下次提交时换掉）。
 watch([identifier, password], () => feedback.unmark());
@@ -71,12 +79,12 @@ async function submit(): Promise<void> {
     submitting.value = true;
     feedback.reset();
     try {
-        const result = await identity.login({identifier: identifier.value, password: password.value});
+        const result = await identity.login({identifier: identifier.value, password: password.value, ...continuePart(continueToken.value)});
         if (!result.ok) {
             showFailure(result.failure);
             return;
         }
-        const outcome = await enterAfterSignIn(account, router);
+        const outcome = await enterAfterSignIn(site, router, result.value.continueUrl);
         if (outcome === "anonymous") status.value = {reason: "not-applied", text: siteRef("login.notApplied")};
     } catch (error) {
         // 会话已经建起来了，只是守卫或页面加载出了错：告诉他刷新，诊断留在控制台。
@@ -92,7 +100,7 @@ async function startSocial(provider: SocialProvider): Promise<void> {
     if (busy.value) return;
     starting.value = true;
     feedback.reset();
-    const result = await identity.socialStart(provider, {intent: "login"});
+    const result = await identity.socialStart(provider, {intent: "login", ...continuePart(continueToken.value)});
     if (result.ok) {
         await leave(result.value.url);
         starting.value = false;
@@ -129,14 +137,14 @@ watch(
             </Field>
             <FormStatus class="site-form-status" :text="statusText" :spoken="statusSpoken" :reason="status?.reason">
                 <template v-if="status?.action === 'register'" #action>
-                    <RouterLink to="/register" class="site-link">{{ t("login.goRegister") }}</RouterLink>
+                    <RouterLink :to="registerLink" class="site-link">{{ t("login.goRegister") }}</RouterLink>
                 </template>
             </FormStatus>
             <Button type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("login.submit") }}</Button>
         </form>
         <SocialButtons intent="login" :providers="providers" :disabled="busy" @start="startSocial" />
         <p class="site-form-alt">
-            {{ t("login.noAccount") }}<RouterLink to="/register" class="site-link">{{ t("login.register") }}</RouterLink>
+            {{ t("login.noAccount") }}<RouterLink :to="registerLink" class="site-link">{{ t("login.register") }}</RouterLink>
         </p>
     </div>
 </template>

@@ -33,8 +33,8 @@ const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
 const LOGIN = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.login}`;
 const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
 const SOCIAL_START = new Map(SOCIAL_PROVIDERS.map((provider) => [`${IDENTITY_API_PREFIX}${identityPath.socialStart(provider)}`, provider]));
-/** 账号页一打开就读的三份列表：登录成功后普通用户落在账号页，这里回空列表。 */
-const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map((path) => `${IDENTITY_API_PREFIX}${path}`));
+/** 账号页一打开就读的四份列表：登录成功后普通用户落在账号页，这里回空列表。 */
+const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes, IDENTITY_PATHS.meGrants].map((path) => `${IDENTITY_API_PREFIX}${path}`));
 /** 登录成功后管理员落在看板，它一打开就读的几份：回一份还没有上报的看板。 */
 const DASHBOARD = dashboardBodies(EMPTY_DASHBOARD);
 
@@ -93,6 +93,8 @@ interface Started {
 }
 
 interface ServerOptions {
+    /** 浏览器一开始就带着的会话；缺省是匿名。 */
+    readonly session?: Role;
     readonly login?: Server["login"];
     readonly meta?: Server["meta"];
     readonly socialStart?: Server["socialStart"];
@@ -113,7 +115,7 @@ function start(path: string, options: ServerOptions = {}): Started {
     const history = createMemoryHistory();
     history.replace(path);
     const server: Server = {
-        session: undefined,
+        session: options.session,
         login: options.login ?? (() => failure({error: {code: "invalid_credentials"}}, 401)),
         meta: options.meta ?? (() => Response.json(OPEN_META)),
         socialStart: options.socialStart ?? ((provider) => Response.json({url: upstreamUrl(provider)} satisfies SocialStartResponse)),
@@ -473,5 +475,75 @@ describe("社交登录的两枚图标", () => {
         await vi.waitFor(() => expect(socialButtons(started).map((button) => button.disabled)).toEqual([false, false]));
         expect(form.submit.disabled).toBe(false);
         expect(started.left).toEqual([]);
+    });
+});
+
+/** 授权端点把要先登录的人带来时地址上的续接令牌（`site.oauth-provider` 输出 4）。对页面是不透明的。 */
+const TOKEN = "tok_opaque-1";
+/** 服务端认得令牌时回的继续地址：授权端点，站内地址。 */
+const CONTINUE_URL = "/api/identity/auth/oauth2/authorize?client_id=shelf&state=s1";
+
+/** 普通用户登录成功（建起会话），响应带这个继续地址。 */
+const continuedTo = (continueUrl: string) => (_body: LoginRequest, server: Server): Response => {
+    server.session = "user";
+    const {email: _email, emailPending: _pending, hasPassword: _hasPassword, consentRequired: _consent, ...profile} = me("user");
+    return Response.json({user: profile, continueUrl} satisfies LoginResponse);
+};
+
+describe("登录续接（continue）", () => {
+    it("登录请求带上地址里的令牌；响应给了站内的继续地址就整页去那里，不按分派进站", async () => {
+        const started = await onLoginPage(`/login?continue=${TOKEN}`, continuedTo(CONTINUE_URL));
+        await fillAndSubmit(started);
+        await vi.waitFor(() => expect(started.left).toEqual([CONTINUE_URL]));
+        expect(started.logins).toEqual([{identifier: "alice", password: "correct horse", continue: TOKEN}]);
+        expect(started.site.router.currentRoute.value.path).toBe("/login");
+        expect(started.target.querySelector('[data-site-page="account"]')).toBeNull();
+    });
+
+    it("继续地址不是站内地址（服务端的缺陷）：不去，照常按分派进站", async () => {
+        for (const outside of ["https://evil.example/authorize", "//evil.example/authorize"]) {
+            const started = await onLoginPage(`/login?continue=${TOKEN}`, continuedTo(outside));
+            await fillAndSubmit(started);
+            await settledAt(started, "/account", "account");
+            expect(started.left).toEqual([]);
+        }
+    });
+
+    it("响应没给继续地址（令牌不合格或过期）：照常按分派进站，不停在带令牌的登录页上", async () => {
+        const started = await onLoginPage(`/login?continue=${TOKEN}`, succeedAs("user"));
+        await fillAndSubmit(started);
+        await settledAt(started, "/account", "account");
+        expect(started.logins).toEqual([{identifier: "alice", password: "correct horse", continue: TOKEN}]);
+        expect(started.left).toEqual([]);
+    });
+
+    it("没带令牌时登录请求里没有 continue 这一项", async () => {
+        const started = await onLoginPage("/login", succeedAs("user"));
+        await fillAndSubmit(started);
+        await settledAt(started, "/account", "account");
+        expect(started.logins).toEqual([{identifier: "alice", password: "correct horse"}]);
+    });
+
+    it("“注册”链接与“没注册”状态行里的链接都把令牌带到注册页；社交登录的发起也带上它", async () => {
+        const started = start(`/login?continue=${TOKEN}&social_error=social_not_registered`);
+        await settledAt(started, `/login?continue=${TOKEN}`, "login");
+        const form = formOf(started);
+        const registerHref = `/register?continue=${TOKEN}`;
+        expect(form.status.querySelector("a")?.getAttribute("href")).toBe(registerHref);
+        expect(started.target.querySelector(".site-form-alt a")?.getAttribute("href")).toBe(registerHref);
+
+        await vi.waitFor(() => expect(socialButtons(started)[0]!.disabled).toBe(false));
+        socialButtons(started)[0]!.click();
+        await vi.waitFor(() => expect(started.left).toEqual([upstreamUrl("github")]));
+        expect(started.starts).toEqual([{provider: "github", body: {intent: "login", continue: TOKEN}}]);
+    });
+
+    it("已登录的人带着令牌来（授权请求要求重新登录）：看得到登录表单；不带令牌时照常被送走", async () => {
+        const continued = start(`/login?continue=${TOKEN}`, {session: "user"});
+        await settledAt(continued, `/login?continue=${TOKEN}`, "login");
+        expect(formOf(continued).identifier).not.toBeNull();
+
+        const plain = start("/login", {session: "user"});
+        await settledAt(plain, "/account", "account");
     });
 });

@@ -1,5 +1,6 @@
 /**
- * 管理接口（t10 计划 3.2；`site.admin` 输入与前置条件的接口表）：三个列表页用的四个列表、对账号的五种处置、注册码的发放与停用。
+ * 管理接口（t10 计划 3.2；`site.admin` 输入与前置条件的接口表）：四个列表页用的五个列表、对账号的五种处置、注册码的发放与停用，
+ * 与 OAuth 客户端的登记、改动、换密钥（`site.oauth-provider` 输出 9、16）。
  * 建在接口层的核心上，路径与类型都取合同包；页面只拿 `Result`。
  *
  * 不进应用根的上下文：只有管理面板的页面用它，各页用 `createAdminApi(useSite().api)` 自己建一份，跟着管理面板的块走，
@@ -13,8 +14,14 @@ import type {
     AdminUserItem,
     AuditListQuery,
     AuditListResponse,
+    CreateOAuthClientRequest,
+    CreateOAuthClientResponse,
     CreateRegistrationCodeRequest,
     InviteCodeListQuery,
+    OAuthClientItem,
+    OAuthClientListQuery,
+    OAuthClientListResponse,
+    PatchOAuthClientRequest,
     PatchRegistrationCodeRequest,
     RegistrationCodeItem,
     RegistrationCodeListQuery,
@@ -22,6 +29,7 @@ import type {
     ResetPasswordResponse,
     Role,
     RoleRequest,
+    RotateSecretResponse,
     UserListQuery,
     UserListResponse,
 } from "@notnotype/nb-site-identity-contract/constants";
@@ -46,6 +54,13 @@ export interface AdminApi {
     disableRegistrationCode(id: number): Promise<Result<RegistrationCodeItem>>;
     listInviteCodes(query: InviteCodeListQuery): Promise<Result<AdminInviteCodeListResponse>>;
     listAudit(query: AuditListQuery): Promise<Result<AuditListResponse>>;
+    listOAuthClients(query: OAuthClientListQuery): Promise<Result<OAuthClientListResponse>>;
+    /** 登记客户端（输出 9）：机密客户端的密钥只在这个回答里出现一次。回调地址不合种类的规则回 `redirect_uri_invalid`。 */
+    createOAuthClient(body: CreateOAuthClientRequest): Promise<Result<CreateOAuthClientResponse>>;
+    /** 改名字、回调地址、是否免确认、是否停用（输出 16）：成功回改过之后的那一项；`clientId` 是客户端 id，不是数字 id。 */
+    patchOAuthClient(clientId: string, body: PatchOAuthClientRequest): Promise<Result<OAuthClientItem>>;
+    /** 换密钥（输出 9）：新密钥只出现这一次，旧密钥立即不能用；公开客户端回 `client_public`。 */
+    rotateOAuthClientSecret(clientId: string): Promise<Result<RotateSecretResponse>>;
 }
 
 const path = (relative: string): string => `${IDENTITY_API_PREFIX}${relative}`;
@@ -70,5 +85,9 @@ export function createAdminApi(core: ApiCore): AdminApi {
         disableRegistrationCode: (id) => core.request<RegistrationCodeItem>({method: "PATCH", path: path(identityPath.adminRegistrationCode(id)), body: {disabled: true} satisfies PatchRegistrationCodeRequest}),
         listInviteCodes: (query) => core.request<AdminInviteCodeListResponse>({method: "GET", path: withQuery(IDENTITY_PATHS.adminInviteCodes, query)}),
         listAudit: (query) => core.request<AuditListResponse>({method: "GET", path: withQuery(IDENTITY_PATHS.adminAudit, query)}),
+        listOAuthClients: (query) => core.request<OAuthClientListResponse>({method: "GET", path: withQuery(IDENTITY_PATHS.adminOAuthClients, query)}),
+        createOAuthClient: (body) => core.request<CreateOAuthClientResponse>({method: "POST", path: path(IDENTITY_PATHS.adminOAuthClients), body}),
+        patchOAuthClient: (clientId, body) => core.request<OAuthClientItem>({method: "PATCH", path: path(identityPath.adminOAuthClient(clientId)), body}),
+        rotateOAuthClientSecret: (clientId) => core.request<RotateSecretResponse>({method: "POST", path: path(identityPath.adminOAuthClientRotate(clientId))}),
     };
 }

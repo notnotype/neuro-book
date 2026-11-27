@@ -20,6 +20,7 @@ import {useSite} from "../../context";
 import {createAdminApi} from "../../http/admin";
 import {locale} from "../../locale";
 import {useSiteText} from "../../text";
+import {recentTime} from "../recent-time";
 import AdminListFrame from "./AdminListFrame.vue";
 import {fullTime, shortDate} from "./format";
 import {memberOf, oneOf, searchTerm, searchText, withField} from "./list-query";
@@ -117,6 +118,15 @@ const columns = computed<TableColumn<UserRow>[]>(() => [
     {key: "actions", label: "", width: "44px", align: "right"},
 ]);
 
+/**
+ * 最后登录：近的写相对说法（“刚刚”“3 小时前”“昨天”，与账号页同一个函数），更早的写表格的短日期（t09 定稿 r3 `users`）。
+ * “现在”在表格每次重画时取注入的时钟，不另起计时：停在页面上略旧可以接受，翻页、重取时就新了。
+ */
+function lastLogin(iso: string): string {
+    const now = clock.now();
+    return recentTime(iso, now, locale.value, t("admin.users.justNow")) ?? shortDate(iso, now);
+}
+
 function menuItems(user: AdminUserItem): DropdownMenuItemData[] {
     const self = user.id === myId.value;
     // 对自己不能封禁、不能改角色（输出 5）；结束会话与重置密码不受此限。
@@ -203,7 +213,7 @@ function rowActionsLabel(user: AdminUserItem): string {
                 <time class="admin-muted admin-num" :datetime="row.createdAt" :title="fullTime(row.createdAt, locale)">{{ shortDate(row.createdAt, clock.now()) }}</time>
             </template>
             <template #cell-lastLoginAt="{row}">
-                <time v-if="row.lastLoginAt !== null" class="admin-muted admin-num" :datetime="row.lastLoginAt" :title="fullTime(row.lastLoginAt, locale)">{{ shortDate(row.lastLoginAt, clock.now()) }}</time>
+                <time v-if="row.lastLoginAt !== null" class="admin-muted admin-num" :datetime="row.lastLoginAt" :title="fullTime(row.lastLoginAt, locale)">{{ lastLogin(row.lastLoginAt) }}</time>
                 <span v-else class="admin-muted">{{ t("admin.users.neverSignedIn") }}</span>
             </template>
             <template #cell-actions="{row}">

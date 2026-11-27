@@ -76,12 +76,6 @@ describe("导航", () => {
         expect(current(harness)).toEqual(["admin-dashboard"]);
         expect(shell(harness)).toBe(before);
     });
-
-    it("空壳页也写着自己的页名", async () => {
-        const harness = await openAdmin("/admin/clients", "admin-clients");
-        expect(harness.target.querySelector('[data-site-page="admin-clients"] h1')?.textContent).toBe(zhCN.admin.clients.title);
-        expect(current(harness)).toEqual(["admin-clients"]);
-    });
 });
 
 describe("用户菜单", () => {

@@ -35,7 +35,8 @@ export interface StartSiteOptions {
     /** 当前时刻与重复的计时（`host/clock.ts`）；产品里是浏览器的时钟，组件测试给手动推进的。 */
     readonly clock: SiteClock;
     /**
-     * 带浏览器离开站点去一个地址（社交流程的上游授权地址）：整页跳转，页面随之卸载。产品里是 `location.assign`；
+     * 带浏览器整页去一个地址：社交流程的上游授权地址、登录续接的继续地址（服务端的授权端点）、授权确认之后跳回客户端的地址。
+     * 页面随之卸载。产品里是 `location.assign`；
      * 组件测试给一个记下地址的函数，happy-dom 的窗口不真的跳。
      */
     readonly leave: (url: string) => void;
@@ -124,7 +125,7 @@ export function startSite(options: StartSiteOptions): Site {
     });
 
     const app = createApp(App);
-    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock, leave});
+    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock, origin: win.location.origin, leave});
     app.use(router);
     app.mount(options.target);
 

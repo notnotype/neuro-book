@@ -131,6 +131,47 @@ function held(respond: Handler): {readonly handler: Handler; release(): void; re
     };
 }
 
+describe("最后登录", () => {
+    /** 每一行“最后登录”那一格的字，按用户名。 */
+    function lastLogins(harness: Harness): Record<string, string> {
+        const headers = [...table(harness).querySelectorAll("thead th")].map((cell) => cell.textContent?.trim());
+        const column = headers.indexOf(text.columns.lastLoginAt);
+        return Object.fromEntries([...table(harness).querySelectorAll("tbody tr")].map((row) => {
+            const cells = row.querySelectorAll("td");
+            return [cells[1]?.textContent?.replace(text.admin, "").trim() ?? "", cells[column]?.textContent?.trim() ?? ""];
+        }));
+    }
+
+    // 现在（`NOW`）是 11 月 26 日 10:00 UTC。
+    const users = (): AdminUserItem[] => [
+        adminUser(1, {username: "minutes", lastLoginAt: "2026-11-26T09:30:00.000Z"}),
+        adminUser(2, {username: "hours", lastLoginAt: "2026-11-26T07:00:00.000Z"}),
+        adminUser(3, {username: "yesterday", lastLoginAt: "2026-11-25T08:00:00.000Z"}),
+        adminUser(4, {username: "earlier", lastLoginAt: "2026-11-10T08:00:00.000Z"}),
+        adminUser(5, {username: "never", lastLoginAt: null}),
+        ...Array.from({length: 20}, (_, index) => adminUser(10 + index)),
+    ];
+
+    it("一小时内写“刚刚”，一天内写几小时前，昨天写“昨天”，更早的写短日期，没有登录过的写明；准确时刻在悬停提示里", async () => {
+        const harness = await openUsers("/admin/users", {}, users());
+        expect(lastLogins(harness)).toMatchObject({minutes: text.justNow, hours: "3小时前", yesterday: "昨天", earlier: "11-10", never: text.neverSignedIn});
+        const time = [...table(harness).querySelectorAll<HTMLTimeElement>("tbody time")].find((element) => element.dateTime === "2026-11-10T08:00:00.000Z")!;
+        expect(time.title).toMatch(/2026/u);
+    });
+
+    it("时间往前走了：再画这一页（翻页回来）时按新的现在写", async () => {
+        const harness = await openUsers("/admin/users", {}, users());
+        expect(lastLogins(harness)).toMatchObject({minutes: text.justNow, hours: "3小时前"});
+        harness.clock.advance(2 * 60 * 60 * 1000);
+        pageButton(harness, 2).click();
+        await settledAt(harness, "/admin/users?page=2", "admin-users");
+        await vi.waitFor(() => expect(rows(harness)).not.toContain("minutes"));
+        harness.site.router.back();
+        await settledAt(harness, "/admin/users", "admin-users");
+        await vi.waitFor(() => expect(lastLogins(harness)).toMatchObject({minutes: "2小时前", hours: "5小时前"}));
+    });
+});
+
 describe("取数与地址", () => {
     it("第一次打开取第 1 页、每页 20 条、不带基准；筛选项的条数取回答的 counts", async () => {
         const harness = await openUsers();
