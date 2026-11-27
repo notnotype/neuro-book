@@ -1,0 +1,166 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t04-entry-page-polish",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：条目页的页头与新建对话框",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "145ed2e6b7003e4214764bdf2a16d77f2d0e9cb198d7e6d265e897e489c4f820",
+    "files": [
+        "index.html",
+        "r1/dialog-current-empty.webp",
+        "r1/dialog-current-person.webp",
+        "r1/dialog-new-groups-customized.webp",
+        "r1/dialog-new-person.webp",
+        "r1/dialog-new-place-same-as.webp",
+        "r1/dialog-new-plain.webp",
+        "r1/head-columns-filled-avatar-rail.webp",
+        "r1/head-columns-filled-rail.webp",
+        "r1/head-columns-plain-rail.webp",
+        "r1/head-compact-filled-rail.webp",
+        "r1/head-compact-plain-rail.webp",
+        "r1/head-current-filled-rail.webp",
+        "r1/head-current-plain-rail.webp",
+        "r1/head-text-empty-button.webp",
+        "r1/head-text-empty-line.webp",
+        "r2/dialog-r2-customized.webp",
+        "r2/dialog-r2-person.webp",
+        "r2/dialog-r2-plain.webp",
+        "r2/dialog-r2-same-as.webp",
+        "r2/head-avatar.webp"
+    ],
+    "questions": [
+        {
+            "id": "head-layout",
+            "type": "single",
+            "label": "页头用哪种排法？",
+            "options": [
+                {
+                    "value": "current",
+                    "label": "A 现在"
+                },
+                {
+                    "value": "columns",
+                    "label": "B 两栏"
+                },
+                {
+                    "value": "compact",
+                    "label": "C 压成两行"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "columns"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "head-avatar",
+            "type": "single",
+            "label": "人物有立绘时，页头放一个小头像吗？",
+            "options": [
+                {
+                    "value": "none",
+                    "label": "不放"
+                },
+                {
+                    "value": "avatar",
+                    "label": "放"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "avatar"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "text-empty",
+            "type": "single",
+            "label": "文字分页还没有主文字时，显示什么？",
+            "options": [
+                {
+                    "value": "button",
+                    "label": "A 现在：一句话加“开始写”"
+                },
+                {
+                    "value": "line",
+                    "label": "B 一行淡的占位"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "line"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dialog-layout",
+            "type": "single",
+            "label": "新建对话框改成“名字、种类，加两段可展开”吗？",
+            "options": [
+                {
+                    "value": "current",
+                    "label": "A 现在"
+                },
+                {
+                    "value": "sections",
+                    "label": "B 两段可展开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sections"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dialog-wording",
+            "type": "confirm",
+            "label": "对话框的字段名按表改",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dialog-wide",
+            "type": "confirm",
+            "label": "新建对话框按这个横版做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-27T13:53:19.999Z"
+}
