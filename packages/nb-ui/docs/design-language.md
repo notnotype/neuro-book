@@ -11,6 +11,23 @@
 - 数值的事实源是 `src/tokens.css`、`src/theme.css` 与 `themes/*/vars.css`。本文写角色、判据与结论，不抄取值；文中偶尔出现的数字是判据本身的一部分，或标明了出处
 - Apple UI Kit 的逐层读数、对话框实测表、平台明文引用、Chromium 提交记录：[`docs/research/apple-macos-ui-kit-readings.md`](../../../docs/research/apple-macos-ui-kit-readings.md)。本文只留结论
 
+### 依据的设计理论与规范
+
+下面这些出处管着本文与 [开发规范](./ui-development-spec.md) 里的一批判据（w00057 t01 从中翻译成能判对错的条目）。条目里写“依据：某某”时指这张表；只列出处与它管什么，不抄原文。可达性以 WCAG 2.2 的 AA 级为门槛，AAA 级的条目（2.4.13 焦点外观、2.5.5 44 像素目标）只作设计目标，不阻断。
+
+| 简称 | 出处 | 管什么 |
+| --- | --- | --- |
+| NN/g 十条 | Nielsen Norman Group，[10 Usability Heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/) | 状态可见、用户掌控、一致、防错、认得出胜过记得住、错误给出改法 |
+| NN/g 响应时间 | [Response Times: The 3 Important Limits](https://www.nngroup.com/articles/response-times-3-important-limits/)、[Progress Indicators](https://www.nngroup.com/articles/progress-indicators/) | 0.1、1、10 秒三档与进度指示（“反馈与等待”） |
+| NN/g 动效时长 | [Executing UX Animations: Duration and Motion Characteristics](https://www.nngroup.com/articles/animation-duration/) | 时长区间（“七、动效”） |
+| NN/g 说明与空态 | [Why So Many Info Tips Are Bad](https://www.nngroup.com/articles/info-tips-bad/)、[Help and Documentation](https://www.nngroup.com/articles/help-and-documentation/)、[Designing Empty States in Complex Applications](https://www.nngroup.com/articles/empty-state-interface-design/) | 说明文字的三类、空态（“四、排版”、开发规范“状态下限”） |
+| 格式塔 | NN/g 的 [Proximity](https://www.nngroup.com/articles/gestalt-proximity/)、[Common Region](https://www.nngroup.com/articles/common-region/)、[Similarity](https://www.nngroup.com/articles/gestalt-similarity/) | 分组与层次（“三、几何”） |
+| 费茨与希克 | NN/g 的 [Fitts's Law and Its Applications in UX](https://www.nngroup.com/articles/fitts-law/)；Laws of UX 的 [Hick's Law](https://lawsofux.com/hicks-law/)（二手整理，原始研究是 Hick 1952、Hyman 1953） | 可点区域、连用的挨着放、常驻动作按频率排 |
+| WCAG 2.2 | W3C [Web Content Accessibility Guidelines 2.2](https://www.w3.org/TR/WCAG22/) 与各条的 [Understanding](https://www.w3.org/WAI/WCAG22/Understanding/) 文档 | 对比度（1.4.3、1.4.11）、目标尺寸（2.5.8）、焦点不被挡（2.4.11）、状态消息（4.1.3）、文字间距（1.4.12）；交互动效 2.3.3 是 AAA，只借它对“动效”的定义 |
+| HIG | Apple Human Interface Guidelines 的 [Motion](https://developer.apple.com/design/human-interface-guidelines/motion)、[Feedback](https://developer.apple.com/design/human-interface-guidelines/feedback)、[Writing](https://developer.apple.com/design/human-interface-guidelines/writing)、[Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) | 动效的目的与可打断、确认框、按钮写动作、减弱动效换淡入淡出、不只靠颜色 |
+| M3 转场 | Material Design 3 的四种转场模式（正文要 JS，可读 Material Components Android 的 [Motion 文档](https://github.com/material-components/material-components-android/blob/master/docs/theming/Motion.md)） | 进出方向（“七、动效”）；时长刻度不采用 |
+| Butterick | [Practical Typography](https://practicaltypography.com/) 的 Line length、Alternate figures | 段落行宽、会变的数字用等宽数字（“四、排版”） |
+
 ---
 
 ## 一、论点
@@ -44,6 +61,14 @@ Surface 的结构主判据是这块面**压在什么上面**：直接压在窗�
 6. **不打断人手上的事。** 提示、加载完成、别处的变化不抢焦点，不推开正在看、正在填的内容（几种状态版式相同，见 [`ui-development-spec.md`](./ui-development-spec.md) 第 3 节第 4 条）。判据：提示出现前后，正在编辑的输入框位置与焦点不变。
 7. **常用的好做，会丢东西的难误碰。** 常用操作一步可达，放在它作用的对象旁边；删除、去掉这类会丢东西的放进二级菜单并确认或可撤销，不和常用操作挨着。
 8. **界面自己说明自己。** 能点的看得出能点，图标配名字（窄了只剩图标时悬停给全名）；不靠说明文字，见“四、排版”里的同名一段。
+
+### 反馈与等待
+
+上面第 5、6 条的时间与分寸（依据：NN/g 响应时间、NN/g 十条第 1、3 条、HIG Feedback）：
+
+1. **0.1 秒内有回应。** 可点的控件按下后，下一帧就有看得见的变化（按压态、高亮、进入进行中），不等结果回来。判据：e2e 点击后在下一个 `requestAnimationFrame` 里读计算样式、`data-state` 或 `aria-busy`，与点击前不同。
+2. **等待按时长分档。** 预计超过 1 秒的操作，触发它的控件原地进入进行中（`Button` 的加载态，外框不变）；超过 10 秒的给进度（“已检 3 / 共 12”、百分比）与取消；等待期间能接着做别的事的，不用模态遮挡。区域级的加载指示延时出现、出现后停够最短时长（[前端规范](../../../docs/standards/code/frontend.md)“加载与流畅性”第 7 条）。判据：Lab 用可控的慢替身造 1.5 秒与 12 秒两种，看进行中、进度与取消。正例：模型服务商详情的“检测全部”与“取消检测”。
+3. **确认框只给意外又不可逆的后果。** 弹确认的前提是这次操作会丢掉用户没预料到、又找不回的东西；预期之内的删除（删一个刚建的空分组）直接做、给撤销。常规的成功不发通知，只在失败时说。判据：改动里的每个 `AlertDialog` 与每条成功通知，都写得出它防的是哪种找不回的损失；写不出的不合格。
 
 ---
 
@@ -326,6 +351,9 @@ Apple 的官方落点是 UIKit 的 `containerConcentricRadius` 与 SwiftUI 的 `
 要各主题都成立时用 `round(nearest, calc(1em * var(--leading-ui)), 1px)` 取整（放在 `@supports` 里，
 不支持时退回倍数），改完在每个主题下核对一遍。
 
+同一行里的图标与文字，图标的竖直中心与文字第一行的中线差不超过 1 像素；同一列各行的图标左缘对齐。
+判据：Lab 探针量图标盒子与文字行盒的中心，三档字号各量一次（与自检“控件对齐文字的第一行”同一口径，那条管控件，这条管图标）。
+
 ### 内容列有上限宽度
 
 窗口一宽，表单列如果跟着长，控件就会变成整行宽——一个 1000px 宽的下拉框不是「更宽敞」，
@@ -338,6 +366,21 @@ Apple 的官方落点是 UIKit 的 `containerConcentricRadius` 与 SwiftUI 的 `
 
 判据：把窗口拖到 1400px 以上，内容列宽度不再随窗口增长，且其中任一控件的宽度 ≤ 内容列宽度。
 反例：窗口 1400px 时下拉框宽 1090px。
+
+### 分组与层次
+
+依据：格式塔的接近、相似与共同区域，费茨与希克（来源表）。
+
+1. **组内近、组间远。** 按看得见的内容之间的距离量（文字与控件的外沿，不按盒子）：
+   - 组内最大间距的 2 倍不超过组间最小间距。现有界面：设置窗口行距 16、组距 32，模型服务商详情字段距 8、组距 24。
+   - 标签离它自己的控件最近，近过离上一个控件；组标题到本组第一行不大于组内行距，标题上方的留白至少是下方的 2 倍，标题贴着自己这一组。
+   - 只约束最内两层（例如行与组），外层不再层层翻倍，否则越往外越松。
+   - 已经用边框、底色块或分隔线分开的组，不卡这个比例：分组已经由共同区域表达。
+   - 判据：Lab 探针量相邻元素的外沿间距。阈值由开发者 2026-11-27 定（w00057 t01，参考了 Gemini 的意见）。
+2. **可滚动区域里没有“假底”。** 一屏之内、内容还没完的地方，不出现横跨整个面板、粗于发丝线或带整条底色的分隔，免得读成“到底了”。分隔线只用 `--divider`、`--border-w`；整条底色只给层级 +1 的单元。
+3. **长得一样的行为一样。** 能点的与不能点的不用同一种外观：强调色的文字只给可点的与“当前”。同一外观的按钮读起来同等重要（格式塔的相似），所以本库规定一块区域（对话框、面板头、工具条、一张卡片）里至多一个主按钮（`variant="primary"`），其余用 `secondary`、`subtle` 或 `ghost`；`Button` 不写 `variant` 时是 `secondary`。判据：Lab 场景里按区域数实底强调色按钮；强调色文字逐个点，要么有反应，要么是“当前”标记。
+4. **常驻的动作按频率排，低频的收起。** 工具条、面板头、行尾常驻的动作按使用频率从高到低排，低频的收进“更多”菜单（希克定律：选项越多，决定越慢）。新加一个常驻动作时，说得出它为什么比已有的某个更该常驻，否则进“更多”。不规定个数上限，没有可引的数。
+5. **连着用的挨着放，危险的隔开。** 提交按钮在它要确认的内容旁边（最后一个字段之后、同一列里）；删除、清空这类危险动作不紧挨常用动作，中间隔一道分隔或放进“更多”。“对话框不是三段式盒子”第 4 条的宽框按钮右对齐是它的一例。
 
 ### 超椭圆：目前未使用
 
@@ -395,7 +438,19 @@ Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境。
 版心宽度用 `em` 而不是 `ch` 或 `px`：CJK 下 1em 正好是一个汉字宽，
 所以 `--reading-measure` 的数直接就是「每行多少个字」。
 
-**界面不靠说明文字解释自己。** 不加标语、副标题和控件下方的说明；一个控件要靠说明才看得懂时，先改布局、分组或名称。确实改不掉的说明走标签旁的说明图标，不常驻占行。例外：错误与状态信息、操作后果不明显时的提示（例如删除确认）、读屏文字、写作内容本身，以及会误导操作的设置项。“后果”指用户按下之前要权衡的事（删了找不回、会计费、会发到外面）；系统内部怎么处理（“改了以后按通用协议发送，不再带专用处理”“能力与单价仍按模板的目录”“已改成别的地址，模板的地址是 …”）不算，写进代码注释与 Spec，界面上只留能操作的东西（例如“恢复模板地址”）。开发者反复指出过这一条（2026-11-23）。
+**界面不靠说明文字解释自己。** 不加标语、副标题和控件下方的说明；一个控件要靠说明才看得懂时，先改布局、分组或名称。改不掉的，按下表归类，每句话只归一类（依据：NN/g 说明与空态、HIG Writing）：
+
+| 类 | 是什么 | 放哪 |
+| --- | --- | --- |
+| 约束与后果 | 格式、上限、必填条件；按下之前要权衡的后果（删了找不回、会计费、会发到外面）；停用的原因 | 常驻可见，紧挨它约束的控件；不藏进说明图标 |
+| 补充解释 | 术语是什么意思、为什么要这项数据、这一项打开后用户会看到什么 | 标签旁的说明图标，一两句，不放链接与长段落 |
+| 内部处理 | 系统怎么发请求、数据从哪来、为什么这样设计、复述看得见的文字、宣传语 | 不进界面，写进组件注释与 Spec |
+
+“内部处理”的例子：“改了以后按通用协议发送，不再带专用处理”“能力与单价仍按模板的目录”“已改成别的地址，模板的地址是 …”；界面上只留能操作的东西（例如“恢复模板地址”）。另外照常写的：错误与状态信息、读屏文字、写作内容本身。开发者反复指出过这一条（2026-11-23）。判据：把改动里每句不是标签、不是状态的文字（含说明图标里的）抄成一张表标出类别；约束进了说明图标、内部处理上了界面，都不合格。
+
+**会变的数字用等宽数字。** 计数、进度、计时、金额、行号这类上下成列的数字用 `font-variant-numeric: tabular-nums`（依据：Butterick 的 Alternate figures）；就地变化的读数同样用，数字变了在盒子里不左右跳；正文里的数字不用。判据：读计算样式；Lab 里让计数从 9 变到 10、从 1 变到 8，截图对比数字的位置。
+
+**多行的说明性段落行宽封顶。** 对话框正文、错误详情、空态这类多行段落，行宽不超过 34em（约 34 个汉字，与 nbook 稿面的 `--reading-measure` 同值；依据：Butterick 的 Line length，那里的 45 到 90 个字符是拉丁文的数，中文没有可引的规范，借稿面版心的值）。`--reading-measure` 只在 nbook 主题里登记、给稿面用，界面段落不消费它；要成为令牌，先有两个以上界面消费点（开发规范“材料、颜色与层级”第 6 条）。表单内容列的 720px 封顶之内，段落再受这一条约束。
 
 ---
 
@@ -459,6 +514,16 @@ Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境。
 
 这三条在 `src/theme/theme-packages.test.ts` 里有对应用例，改配色表时会被挡下。
 
+### 对比度
+
+依据 WCAG 2.2 的 1.4.3 与 1.4.11（AA），四种内置组合（nbook、macos × 亮、暗）都要满足：
+
+1. **文字 4.5:1。** `--text-main`、`--text-secondary`、`--text-muted`、强调色与状态色的文字，对它们实际落的底（`--bg-main`、`--bg-panel`、`--bg-sidebar`、`--bg-hover`，强调与状态色叠在面板上的淡底）都不低于 4.5:1；18.66px 粗体或 24px 以上的大字 3:1。次要文字没有豁免，WCAG 只豁免装饰与停用控件里的字。
+2. **控件的状态与焦点 3:1。** 选中态、焦点指示对相邻色不低于 3:1；停用的控件不要求。焦点环的实色那一圈（`--focus-ring` 最内圈）取 `--focus-outline`、2px，没有边框的控件（ghost 按钮、行）靠它也够 3:1。
+3. **已知偏离：输入框的边框。** 靠完整边框辨认的输入框，WCAG 要求边框对底色 3:1；nbook、macos 的轻边框约 1.4:1，这是向 macOS 低对比边框看齐的观感取舍，开发者 2026-11-23 定不改。
+
+用例在应用的 `packages/neuro-book/src/ui/theme/builtin-colorways-contrast.dom.test.ts`，与主题编辑器的对比度检查用同一段计算（[`theme/editor.md`](../../../docs/specs/theme/editor.md) 输出 14），改配色表时会被挡下。
+
 ---
 
 ### 归属不靠贴色
@@ -481,8 +546,11 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 两点容易漏：
 
-- **库只把时长类 token 归零**（`src/tokens.css`，带 `!important`），它不知道你新增了
-  `--glass-lift` 这种变量。**主题自己新增的动效必须由主题自己关掉**——这是「新增变量」这个能力
+- **减弱动效是把位移换成淡入淡出，不是全部取消**（依据：WCAG 2.3.3 对“动效”的定义不含颜色、透明度与模糊的变化；HIG Accessibility 的做法是位移换淡入淡出、不进出模糊）。
+  库在 `src/tokens.css`（带 `!important`）把有位移的时长令牌归零，`--motion-fast`、`--motion-base` 保留给颜色与透明度；
+  用了 `transform`、`scale`、`translate`、`filter: blur()` 的配方在同一媒体块里去掉变换、只留透明度。
+  判据：`emulateMedia({reducedMotion: "reduce"})` 下读计算样式，变换类的过渡与动画时长为 0，透明度的不为 0。
+- 库不知道你新增了 `--glass-lift` 这种变量。**主题自己新增的动效必须由主题自己关掉**——这是「新增变量」这个能力
   的配套义务。
 - **`mask-image` 也算「看不见的透明度」。** 滚轮的上下渐隐是用 mask 做的，
   `prefers-reduced-transparency` 下要一起收掉，否则轮子两端的字永远是半透明的。
@@ -497,6 +565,12 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 
 `prefers-reduced-transparency` 的浏览器覆盖不如 `prefers-reduced-motion`，
 真要交付还得在产品里自带一个开关；CSS 侧先把合同立住。
+
+另三条（依据：HIG Accessibility、WCAG 1.4.12）：
+
+- **不只靠颜色。** 错误、已修改、选中、在线与离线这类状态，除颜色外还有形状、图标或文字之一（`SettingsRow` 的已修改圆点有形状，算过；只把文字变红不算）。判据：Lab 截图转灰度，各状态仍分得开。
+- **两个偏好都看一遍。** 新组件在减弱动效与减弱透明度下各截一次：状态切换仍看得出（有淡入淡出），玻璃面退成实心。`lab:shot --media` 出这两种截图。
+- **文字间距加大不丢内容**（摸底，不阻断）：注入 WCAG 1.4.12 的四项（行高 1.5 倍、段后 2 倍、字距 0.12 倍、词距 0.16 倍字号）后，没有文字被裁掉、重叠或盖住控件；单行截断有完整文字出口（悬停或详情）的算过。它与“同一列表等高、单行截断”可能相抵，`lab:shot --text-spacing` 先只报告。
 
 窄屏另有性能降级（`@media (max-width: 768px)`）：丢掉折射，大容器那一档也降到纯 blur。
 依据是模糊的开销随**面积 × 半径**增长，公开实测给的量级是大半径 blur 在全屏区域上可以吃掉每帧上百毫秒
@@ -519,7 +593,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 - **不付性能代价**：只动 `transform` 与 `opacity`，长内容里也要稳定满帧，量过再交付（量法见“踩过的坑”的探针一节）。
 - **不引入新问题**：不抖、不闪、不重排、不溢出，尊重“减少动态效果”（“六、无障碍”）；手机、窄窗口、宽屏、深浅色都要成立。
 
-### 时长只有三档，按语义选，不按感觉选
+### 时长按语义选，不按感觉选
 
 | 档 | 语义 | 用在哪 |
 | --- | --- | --- |
@@ -616,6 +690,29 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
    （`SuggestionMenu`）只入场（`.nb-ui-popover-motion--enter-only`）：关上时锚点与内容都已经被宿主收走。
    两者原来都没挂动效，直接蹦出来（w00025 t20）。
 
+### 进出方向与来处一致
+
+从哪里来就回哪里去：浮层从触发器长出、收回到触发器；从侧边滑入的从同一边退出；前进与后退方向相反；没有空间关系的同级切换（换作品、换不相干的视图）只淡入淡出，不加位移。依据：HIG Motion；四种情形借 M3 转场模式的名字，对应本库已有的配方：
+
+| M3 模式 | 用在 | 本库配方 |
+| --- | --- | --- |
+| container transform（容器变形） | 一个小块展开成大块（卡片展开、行变详情） | 页边批注卡片的原地向下长（“列表里卡片的出现与移动”） |
+| shared axis（共享轴） | 有前后、父子关系的切换（向导下一步、分段控件换页） | 内容换页的短横向位移，方向随推进方向（“内容切换走 `--motion-base`”） |
+| fade through（淡出再淡入） | 彼此无关的去处 | `nb-ui-switch` 的 `out-in` 配方 |
+| fade（淡入淡出） | 原地出现与消失（对话框、菜单、通知） | 浮层入场的 scale 加透明度（“浮层入退场的编排是固定的”） |
+
+判据：Lab 里录屏，或用 `animation-play-state` 停在中间截图，看进入与退出的方向。M3 的时长刻度不采用，时长仍按上面的表。
+
+### 动效的行为
+
+“按状态变化找该动的地方”里“跟手、可打断”“克制”两条的判据（依据：HIG Motion）：
+
+1. **可打断、可折返。** HIG 只要求不必等动画结束；本库再要求折返：过渡进行中反向触发（展开到一半再收起、开关来回点、菜单刚打开就按 Escape），从当前位置折返到正确的终态：不先跳到终点再反向，不停在中间，终态与操作次数对得上。来回切换的状态用 `transition`，不用每次从头播的 `@keyframes`。判据：一个时长之内连点两次，等过渡结束读终态的计算样式与 `aria-expanded`。
+2. **动画期间不挡操作。** 过渡进行中不停用控件、不吞点击与按键，下一步操作不等动画结束。唯一的例外是“浮层入退场的编排”第 6 条的焦点交接，它等的是原语的 `closed` 事件，不是动画。判据：e2e 在过渡开始后、结束前点下一个控件，操作生效。
+3. **高频操作不加位移动效。** 逐字输入、方向键移动高亮、拖动跟手、滚动、每秒多次更新的读数，只允许不超过 `--motion-fast` 的颜色与透明度变化，或干脆不过渡；不做位移、缩放与尺寸动画。低频的出现与消失、展开与收起、换内容照样要有过渡（自检“状态变化有动效”）。判据：按住方向键连移 10 项，高亮不拖尾；这些元素的 `transition-property` 不含 `transform`、`height`、`top`。
+4. **首次显示不播入场。** 页面首次挂载、恢复上次布局、切主题与配色时，已经在那里的东西直接出现在终态；入场过渡只给这一次操作新带出来的东西（页边批注的“首次排好位置之前不显示，也不过渡”是它的一例）。判据：挂载后立刻读 `document.getAnimations()`，组件根下没有位移动画。
+5. **状态之间的过渡写进组件文档。** 新建或改动的组件，同名 `.md` 的“状态”一节对每两个状态之间的切换各写一句：过渡哪几项属性、用哪个时长与缓动令牌；不过渡的写理由（[组件规范](../../../docs/standards/code/components.md)）。既有组件下次修改时补，不一次性补齐。
+
 ### 禁条
 
 - **组件不得写死时长或缓动**：`duration-200`、`0.15s`、`transition: all 0.18s ease`
@@ -623,8 +720,8 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 - **禁 `transition-all` / `transition: all`**：它把布局属性也卷进过渡（尺寸变化被
   意外动画），并且让审查看不出「到底什么在变」。transition 的属性列表必须显式。
 - 动效不承担必要信息（`ui-development-spec.md`“表单与无障碍”一节）：状态必须同时有不依赖动画的表达。
-- `prefers-reduced-motion` 下时长类 token 归零由库负责（`src/tokens.css`，带 `!important`）；
-  **主题自己新增的动效变量由主题自己关**（见“无障碍”一节），这是新增变量的配套义务。
+- `prefers-reduced-motion` 下位移换淡入淡出由库负责（`src/tokens.css`，带 `!important`，见“六、无障碍”）；
+  **主题自己新增的动效变量由主题自己关**，这是新增变量的配套义务。
 
 ### 判据
 
