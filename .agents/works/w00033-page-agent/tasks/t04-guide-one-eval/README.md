@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-guide-one-eval
-status: active
+status: done
 updated: 2026-11-27
 ---
 
