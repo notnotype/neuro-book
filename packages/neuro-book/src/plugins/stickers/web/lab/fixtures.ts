@@ -99,7 +99,7 @@ function stickersFixtures(): LabFixture[] {
         }),
         defineLabFixture<typeof StickerPickerPanel>({
             component: "StickerPickerPanel",
-            noInput: "面板要一个选择器服务，台子按场景名用样本表情包造一个真的（stickers-scene/StickerPickerFixture.vue）",
+            noInput: "面板要一个选择器服务，台子按场景名用样本表情包造一个真的（StickerPickerFixture.vue）",
             scenes: [
                 {id: "packs", label: "几个表情包：组头、标签、底部的写法"},
                 {id: "recent", label: "有最近用过"},

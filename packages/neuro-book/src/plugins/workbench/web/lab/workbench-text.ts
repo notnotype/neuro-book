@@ -1,6 +1,6 @@
 /**
  * 工作台零件夹具的翻译端口：Lab 窗口的端口不登记 `nbook.workbench` 的目录，所以夹具另建一个宿主引擎、登记它，只注入给场景里
- * 的零件（做法同 `settings-scene/settings-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用中文；
+ * 的零件（做法同 `lab/web/fixtures/settings-scene/settings-text.ts`）。场景 id 是 `english` 或以 `-english` 结尾的用英文界面，其余用中文；
  * 个别场景在改成端口之前就用英文且 id 被 e2e 引用，改 id 会断，由夹具用 `englishScenes` 点名。这些零件没有 `locale` 属性，
  * 语言只由场景决定。
  */
