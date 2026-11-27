@@ -11,7 +11,7 @@ import type {ProfileEntry, ProfileProblem, ToolCatalogEntry} from "../shared/con
 import {modelNeedGaps} from "../shared/model-needs";
 import type {ModelCapabilities, ModelNeedGap} from "../shared/model-needs";
 import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
-import type {ToolBinding, ToolChange} from "../shared/profile-tools";
+import type {MethodsOf, ToolBinding, ToolChange} from "../shared/profile-tools";
 import {profileAgents} from "../shared/profile-agents";
 import {declaredAllowlist, profileAllowlist} from "../shared/profile-allowlist";
 import type {DeclaredAllowlist} from "../shared/profile-allowlist";
@@ -76,6 +76,12 @@ export interface ProfileToolRow {
     readonly restorable?: boolean;
     /** 表情包一节：第一个常用表情的缩略图地址。 */
     readonly thumbnail?: string;
+    /** 工具一节：这一行是一个全局对象，合了它的方法（profile-settings.md 输出 28）；去掉、加回按对象写绑定。 */
+    readonly object?: string;
+    /** 读屏名字与搜索里跟在名字后面的标识：工具行是工具 id；对象行的 `id` 是页面内部用的，这里写 `ui.*`。不写时用 `id`。 */
+    readonly label?: string;
+    /** 这一行有问题（对象要先加入 eval）：说明换成原因，带警示图标。 */
+    readonly warning?: boolean;
 }
 
 export interface ProfileToolGroup {
@@ -317,7 +323,8 @@ function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     if (entry.tools === undefined) return null;
     const {text, catalog} = input;
     const requirements = {required: entry.tools.required, optional: entry.tools.optional, ...(entry.defaultTools === false ? {defaultTools: false as const} : {})};
-    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), input.bindings[entry.key]);
+    // 与工具一节、服务端同一份算法（带按对象的增减）：派发工具哪天成了全局对象的方法，这里也对得上。
+    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), input.bindings[entry.key], catalogMethodsOf(catalog));
     if (!ids.includes(SPAWN_TOOL)) return null;
     const binding = input.settings[entry.key]?.agents;
     const declared = entry.agents?.allowed ?? [];
@@ -474,44 +481,135 @@ function stickersField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTo
     });
 }
 
+/** 对象行的 id：与工具 id 分开，去掉、加回时据此换成按对象改（`objectAwareChange`）。 */
+const OBJECT_ROW = "object:";
+export const objectRowId = (object: string): string => `${OBJECT_ROW}${object}`;
+const EVAL_TOOL = "nbook.agent.eval";
+const EFFECT_RANK: Readonly<Record<string, number>> = {read: 0, write: 1, exec: 2};
+
+/** 工具目录里全局对象的方法，按对象名（与服务端 `AgentTools.methodsOf` 同一规则：目录只给有效对象的方法带 `object`）。 */
+export function catalogMethodsOf(catalog: readonly ToolCatalogEntry[]): MethodsOf {
+    const methods = new Map<string, string[]>();
+    for (const tool of catalog) {
+        if (tool.object === undefined) continue;
+        const list = methods.get(tool.object.name) ?? [];
+        list.push(tool.id);
+        methods.set(tool.object.name, list);
+    }
+    return (object) => methods.get(object) ?? [];
+}
+
+/**
+ * 一个全局对象的一行（输出 28）：等级只写最高的一档，悬停里列出每个方法与它的等级；说明是对象在界面上的说明，Profile 没有
+ * `eval` 时换成“要先加入 eval 才用得上”并标警示。必需的方法在里面时这一行不能去掉。
+ */
+function objectRow(object: string, tools: readonly ToolCatalogEntry[], required: ReadonlySet<string>, hasEval: boolean, text: TextResolver): ProfileToolRow {
+    const effectOf = (tool: ToolCatalogEntry): string => text.t(agentText(`profiles.tools.effect.${tool.effect}`));
+    const top = [...tools].sort((a, b) => (EFFECT_RANK[b.effect] ?? 0) - (EFFECT_RANK[a.effect] ?? 0))[0]!;
+    const methods = [...tools].sort((a, b) => a.object!.method.localeCompare(b.object!.method))
+        .map((tool) => text.t(agentText("profiles.tools.objectMethod", {method: `${object}.${tool.object!.method}`, effect: effectOf(tool)})));
+    const description = text.t(tools[0]!.object!.description);
+    // 悬停里总是对象的说明加方法；没有 eval 时行上的说明换成原因（警示只在行上）。说明末尾的句号去掉，由文字表接上。
+    const detail = text.t(agentText("profiles.tools.objectDetail", {summary: description.replace(/[。．.！!？?\s]+$/u, ""), methods: methods.join(text.t(agentText("profiles.tools.listSeparator")))}));
+    return {
+        id: objectRowId(object),
+        name: object,
+        label: `${object}.*`,
+        effect: effectOf(top),
+        danger: top.effect === "exec",
+        summary: hasEval ? description : text.t(agentText("profiles.tools.objectNeedsEval")),
+        detail,
+        required: tools.some((tool) => required.has(tool.id)),
+        gone: false,
+        object,
+        ...(hasEval ? {} : {warning: true}),
+    };
+}
+
+/** 一组工具排成行：同一对象的方法合成一行，排在它第一个方法的位置。 */
+function toolRows(tools: readonly ToolCatalogEntry[], required: ReadonlySet<string>, hasEval: boolean, text: TextResolver): ProfileToolRow[] {
+    const rows: ProfileToolRow[] = [];
+    const seen = new Set<string>();
+    for (const tool of tools) {
+        if (tool.object === undefined) {
+            rows.push(toolRow(tool, required.has(tool.id), text));
+            continue;
+        }
+        if (seen.has(tool.object.name)) continue;
+        seen.add(tool.object.name);
+        rows.push(objectRow(tool.object.name, tools.filter((other) => other.object?.name === tool.object!.name), required, hasEval, text));
+    }
+    return rows;
+}
+
 function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
     if (entry.tools === undefined) return null;
     const {text, catalog} = input;
     const byId = new Map(catalog.map((tool) => [tool.id, tool]));
     const nameOf = (id: string): string | undefined => byId.get(id)?.providerName;
+    const methodsOf = catalogMethodsOf(catalog);
     const requirements = {required: entry.tools.required, optional: entry.tools.optional, ...(entry.defaultTools === false ? {defaultTools: false as const} : {})};
     const binding = input.bindings[entry.key];
-    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), binding);
+    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), binding, methodsOf);
     const visible = visibleToolIds(ids, nameOf);
     const required = new Set(entry.tools.required);
     const gone = ids.filter((id) => !byId.has(id));
-    if (entry.hidden === true && visible.length === 0 && gone.length === 0) return null;
+    // 绑定里加上、但插件已卸载的对象：目录里查不到它的方法，按对象列一行“已卸载”。
+    const goneObjects = (binding?.objects?.added ?? []).filter((object) => methodsOf(object).length === 0);
+    if (entry.hidden === true && visible.length === 0 && gone.length === 0 && goneObjects.length === 0) return null;
+    const hasEval = visible.includes(EVAL_TOOL);
     const rows = visible.map((id) => byId.get(id)!);
-    const groups: ProfileToolGroup[] = byProvider(rows, (tool) => tool.plugin, input).map((group) => ({id: group.id, provider: group.provider, tools: group.tools.map((tool) => toolRow(tool, required.has(tool.id), text))}));
-    if (gone.length > 0) {
+    const groups: ProfileToolGroup[] = byProvider(rows, (tool) => tool.plugin, input).map((group) => ({id: group.id, provider: group.provider, tools: toolRows(group.tools, required, hasEval, text)}));
+    if (gone.length > 0 || goneObjects.length > 0) {
+        const goneSummary = text.t(agentText("profiles.tools.goneSummary"));
         groups.push({
             id: GONE_GROUP,
             provider: text.t(agentText("profiles.tools.gone")),
-            tools: gone.map((id) => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.tools.goneSummary")), detail: text.t(agentText("profiles.tools.goneSummary")), required: required.has(id), gone: true})),
+            tools: [
+                ...gone.map((id) => ({id, name: id, effect: "", danger: false, summary: goneSummary, detail: goneSummary, required: required.has(id), gone: true})),
+                ...goneObjects.map((object) => ({id: objectRowId(object), name: object, label: `${object}.*`, effect: "", danger: false, summary: goneSummary, detail: goneSummary, required: false, gone: true, object})),
+            ],
         });
     }
     const shown = new Set(visible);
-    const candidates = byProvider(catalog.filter((tool) => !shown.has(tool.id)), (tool) => tool.plugin, input).map((group) => ({
+    const shownObjects = new Set(rows.flatMap((tool) => (tool.object === undefined ? [] : [tool.object.name])));
+    const candidates = byProvider(catalog.filter((tool) => !shown.has(tool.id) && (tool.object === undefined || !shownObjects.has(tool.object.name))), (tool) => tool.plugin, input).map((group) => ({
         id: group.id,
         provider: group.provider,
-        tools: group.tools.map((tool): ProfileToolCandidate => {
-            const same = sameNameTool(tool.id, visible, nameOf, entry.tools!.required);
-            return {...toolRow(tool, false, text), providerName: tool.providerName, ...(same.replaces === undefined ? {} : {replaces: same.replaces}), blocked: same.blockedBy !== undefined};
+        tools: toolRows(group.tools, new Set(), hasEval, text).map((row): ProfileToolCandidate => {
+            if (row.object !== undefined) return {...row, providerName: row.id, blocked: false};
+            const same = sameNameTool(row.id, visible, nameOf, entry.tools!.required);
+            return {...row, providerName: byId.get(row.id)!.providerName, ...(same.replaces === undefined ? {} : {replaces: same.replaces}), blocked: same.blockedBy !== undefined};
         }),
     }));
-    return {groups, count: visible.length, modified: binding !== undefined && (binding.added.length > 0 || binding.removed.length > 0), candidates};
+    const modified = binding !== undefined && (binding.added.length > 0 || binding.removed.length > 0 || (binding.objects?.added.length ?? 0) > 0 || (binding.objects?.removed.length ?? 0) > 0);
+    // 计数按行：一个对象算一个（输出 28）。
+    const count = groups.filter((group) => group.id !== GONE_GROUP).reduce((total, group) => total + group.tools.length, 0);
+    return {groups, count, modified, candidates};
 }
 
-/** 改绑定用的：这个 Profile 本来就有哪些工具。 */
-export function toolChangeContext(entry: ProfileEntry, catalog: readonly ToolCatalogEntry[]): {readonly requirements: {readonly required: readonly string[]; readonly optional: readonly string[]; readonly defaultTools?: false}; readonly defaultForAll: readonly string[]} {
+/** 页面上的改动换成绑定的改动：对象行的 id 换成按对象改（输出 29）。 */
+export function objectAwareChange(change: ToolChange): ToolChange {
+    const split = (ids: readonly string[] | undefined): {readonly tools: string[]; readonly objects: string[]} => ({
+        tools: (ids ?? []).filter((id) => !id.startsWith(OBJECT_ROW)),
+        objects: (ids ?? []).filter((id) => id.startsWith(OBJECT_ROW)).map((id) => id.slice(OBJECT_ROW.length)),
+    });
+    const add = split(change.add);
+    const remove = split(change.remove);
+    return {
+        add: add.tools,
+        remove: remove.tools,
+        addObjects: [...(change.addObjects ?? []), ...add.objects],
+        removeObjects: [...(change.removeObjects ?? []), ...remove.objects],
+    };
+}
+
+/** 改绑定用的：这个 Profile 本来就有哪些工具、全局对象各有哪些方法。 */
+export function toolChangeContext(entry: ProfileEntry, catalog: readonly ToolCatalogEntry[]): {readonly requirements: {readonly required: readonly string[]; readonly optional: readonly string[]; readonly defaultTools?: false}; readonly defaultForAll: readonly string[]; readonly methodsOf: MethodsOf} {
     return {
         requirements: {required: entry.tools?.required ?? [], optional: entry.tools?.optional ?? [], ...(entry.defaultTools === false ? {defaultTools: false as const} : {})},
         defaultForAll: catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id),
+        methodsOf: catalogMethodsOf(catalog),
     };
 }
 

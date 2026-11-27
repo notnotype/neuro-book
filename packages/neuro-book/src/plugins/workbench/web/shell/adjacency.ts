@@ -4,7 +4,7 @@
  * - 贴着窗体、标题栏或状态栏的一边（outer）留整缝，中间夹着零尺寸的叶时扣掉它与缝占的像素；
  * - 挨着别的卡片的一边（inner）留半缝，并扣掉两者之间占的一半，两张卡片之间合起来正好一条缝；
  * - 相连（joined）：同一个卡片组（宿主给，工作台是区域）里相邻的两块拼成一张卡片，一个容器的几节就是一张；
- *   活动栏和贴着它、在侧栏组里、宽度大于零的每一块相连（`bar`），侧栏一列几节时整列相连。拖到零时不相连。
+ *   侧轨（`bars`：左边的活动栏、右栏外侧的右轨，输出 50）和贴着它、在它的卡片组里、宽度大于零的每一块相连（`bar`），一列几节时整列相连。拖到零时不相连。
  *
  * 纯模块：只读呈现树与这一刻的尺寸，相连与否因此跟着拖动中的几何变。
  */
@@ -14,7 +14,7 @@ import type {GridBranchInput, GridExtent, GridNodeInput} from "@notnotype/nb-lay
 export type CardSide =
     | {readonly kind: "outer"; readonly occupied: number}
     | {readonly kind: "inner"; readonly occupied: number}
-    /** `bar`：这一边相连的是活动栏（活动栏自己的右边、侧栏的左边）。 */
+    /** `bar`：这一边相连的是侧轨与它的区域之间（活动栏的右边与侧栏的左边、右栏的右边与右轨的左边）。 */
     | {readonly kind: "joined"; readonly bar?: true};
 
 export interface CardEdges {
@@ -28,13 +28,21 @@ export interface CardInput {
     readonly root: GridNodeInput<string>;
     readonly sizes: Readonly<Record<string, GridExtent>>;
     readonly sashSizes: Readonly<Record<string, ReadonlyArray<number>>>;
-    readonly activitybar: string;
-    /** 和活动栏相连的卡片组（工作台是侧栏）。 */
-    readonly activitybarGroup: string;
+    /** 侧轨：和它的卡片组相连的条。 */
+    readonly bars: ReadonlyArray<CardBar>;
     /** 不是卡片的叶（状态栏）：挨着它算贴边。 */
     readonly plain: ReadonlySet<string>;
     /** 叶所在的卡片组：同组、相邻的两块拼成一张卡片。null 是自成一张（编辑组、浮动窗、条、实时布局的空位）。 */
     groupOf(id: string): string | null;
+}
+
+/**
+ * 一条侧轨：`leaf` 是它的叶，`group` 是和它相连的卡片组，`side` 是它在卡片组的哪一边（活动栏在侧栏前面是 `start`，右轨在右栏后面是 `end`）。
+ */
+export interface CardBar {
+    readonly leaf: string;
+    readonly group: string;
+    readonly side: "start" | "end";
 }
 
 type Orientation = "horizontal" | "vertical";
@@ -86,6 +94,7 @@ export const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind =
 export function layoutCardEdges(input: CardInput): Readonly<Record<string, CardEdges>> {
     const cards: Record<string, CardEdges> = {};
     const leftNeighbor = new Map<string, string | null>();
+    const rightNeighbor = new Map<string, string | null>();
     const groups = new Map<string, string | null>();
     const groupOf = (id: string): string | null => {
         if (!groups.has(id)) groups.set(id, input.groupOf(id));
@@ -104,28 +113,34 @@ export function layoutCardEdges(input: CardInput): Readonly<Record<string, CardE
         }
         if (input.plain.has(node.id)) return;
         const left = sideOf(path, "horizontal", -1, input);
+        const right = sideOf(path, "horizontal", 1, input);
         cards[node.id] = {
             top: edge(node.id, sideOf(path, "vertical", -1, input)),
-            right: edge(node.id, sideOf(path, "horizontal", 1, input)),
+            right: edge(node.id, right),
             bottom: edge(node.id, sideOf(path, "vertical", 1, input)),
             left: edge(node.id, left),
         };
         leftNeighbor.set(node.id, left.neighbor?.id ?? null);
+        rightNeighbor.set(node.id, right.neighbor?.id ?? null);
     };
     visit(input.root, []);
 
-    const bar = cards[input.activitybar];
-    if (bar !== undefined) {
+    const joined: CardSide = {kind: "joined", bar: true};
+    for (const bar of input.bars) {
+        if (cards[bar.leaf] === undefined) continue;
+        // 卡片在侧轨的哪一边：活动栏（start）贴着它右边的块，右轨（end）贴着它左边的块。
+        const beside = bar.side === "start" ? leftNeighbor : rightNeighbor;
         for (const [id, card] of Object.entries(cards)) {
-            if (leftNeighbor.get(id) !== input.activitybar || groupOf(id) !== input.activitybarGroup || (input.sizes[id]?.width ?? 1) <= 0) continue;
-            cards[input.activitybar] = {...(cards[input.activitybar] as CardEdges), right: {kind: "joined", bar: true}};
-            cards[id] = {...card, left: {kind: "joined", bar: true}};
+            if (beside.get(id) !== bar.leaf || groupOf(id) !== bar.group || (input.sizes[id]?.width ?? 1) <= 0) continue;
+            const own = cards[bar.leaf] as CardEdges;
+            cards[bar.leaf] = bar.side === "start" ? {...own, right: joined} : {...own, left: joined};
+            cards[id] = bar.side === "start" ? {...card, left: joined} : {...card, right: joined};
         }
     }
     return cards;
 }
 
-/** 这一边和活动栏相连。 */
+/** 这一边和侧轨相连（侧轨自己朝着区域的那一边，或区域的块朝着侧轨的那一边）。 */
 export const joinedToBar = (side: CardSide | undefined): boolean => side?.kind === "joined" && side.bar === true;
 
 /** 一边留多宽：贴边整缝减去占用，相邻半缝减去一半的占用（都不小于 0），相连 0。缝宽是主题变量，平铺时为 0。 */
@@ -153,14 +168,20 @@ export function cardInsetPx(side: CardSide, gap: number): number {
 }
 
 /**
- * 最大化的面板盖住除条以外的全部区域（输出 13）：它的矩形不来自布局，四边都挨着窗体，左边有活动栏时挨着活动栏；被盖住的面板不动，它们的边照旧。活动栏这时不和底下的侧栏相连。
+ * 最大化的面板盖住除条与侧轨以外的全部区域（输出 13、50）：它的矩形不来自布局，四边都挨着窗体，左边有活动栏时挨着活动栏、右边有右轨时挨着右轨；
+ * 被盖住的面板不动，它们的边照旧。侧轨这时不和底下的区域相连。
  */
-export function maximizedCardEdges(cards: Readonly<Record<string, CardEdges>>, panel: string, activitybar: string): Readonly<Record<string, CardEdges>> {
+export function maximizedCardEdges(cards: Readonly<Record<string, CardEdges>>, panel: string, bars: ReadonlyArray<CardBar>): Readonly<Record<string, CardEdges>> {
     if (cards[panel] === undefined) return cards;
     const outer: CardSide = {kind: "outer", occupied: 0};
-    const bar = cards[activitybar];
-    const next: Record<string, CardEdges> = {...cards, [panel]: {top: outer, right: outer, bottom: outer, left: bar === undefined ? outer : {kind: "inner", occupied: 0}}};
-    if (bar !== undefined) next[activitybar] = {...bar, right: {kind: "inner", occupied: 0}};
+    const inner: CardSide = {kind: "inner", occupied: 0};
+    const present = bars.filter((bar) => cards[bar.leaf] !== undefined);
+    const has = (side: CardBar["side"]): boolean => present.some((bar) => bar.side === side);
+    const next: Record<string, CardEdges> = {...cards, [panel]: {top: outer, right: has("end") ? inner : outer, bottom: outer, left: has("start") ? inner : outer}};
+    for (const bar of present) {
+        const own = cards[bar.leaf] as CardEdges;
+        next[bar.leaf] = bar.side === "start" ? {...own, right: inner} : {...own, left: inner};
+    }
     return next;
 }
 

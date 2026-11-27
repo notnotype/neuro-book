@@ -912,7 +912,9 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await expect(openedLabel(page.locator("[data-editor-group-head-active]"))).toHaveText("drop-one.md");
 
     // Esc：反馈撤了，不开窗。
-    await dragRow(page, "project://plain/drop-two.md", {x: firstBody.x + 40, y: firstBody.y + firstBody.height / 2});
+    // 拆出新组之后第一组的矩形变了（窄了、左缘也动了）：左缘的落点按此刻的矩形取，不用拆分之前量的 firstBody。
+    const firstNow = (await groups.first().boundingBox())!;
+    await dragRow(page, "project://plain/drop-two.md", {x: firstNow.x + 6, y: firstNow.y + firstNow.height / 2});
     await expect(page.locator("[data-drop-kind=\"edge\"]")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
@@ -937,7 +939,7 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await expect(windows).toHaveCount(1);
 
     // 活动栏上段的空白（不是条目按钮）：放不进，不开窗。
-    const band = (await page.locator("[data-tool-band]").boundingBox())!;
+    const band = (await page.locator("[data-rail=sidebar] [data-tool-band]").boundingBox())!;
     await dragRow(page, "project://plain/a.md", {x: band.x + band.width / 2, y: band.y + band.height - 6});
     await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
     await page.mouse.up();

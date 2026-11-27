@@ -269,7 +269,36 @@ interface ScenarioResult {
     readonly note?: string;
 }
 
-type Scenario = (page: Page, cdp: CDPSession) => Promise<ScenarioResult>;
+/** 返回 null：这份构建没有这个场景要的东西（例如基线还没有右轨），汇总里这一格空着。 */
+type Scenario = (page: Page, cdp: CDPSession) => Promise<ScenarioResult | null>;
+
+/** 右栏的入口：基线是右栏上面的入口条，有右轨的构建是右轨上的入口带。 */
+async function rightEntries(page: Page): Promise<Locator> {
+    const strip = page.locator("[data-region-strip='auxiliarybar']");
+    return await strip.count() > 0 ? strip : page.locator("[data-rail='auxiliarybar'] [data-tool-band]");
+}
+
+/** 右轨的展开按钮（t20 起由视图画、`data-rail-toggle`，之前是侧轨自己的 `data-rail-expand`）；没有右轨的构建是 null。 */
+async function railExpand(page: Page): Promise<Locator | null> {
+    const button = page.locator("[data-rail='auxiliarybar'] [data-rail-toggle], [data-rail='auxiliarybar'] [data-rail-expand]").first();
+    return await button.count() > 0 ? button : null;
+}
+
+async function setRailExpanded(page: Page, button: Locator, expanded: boolean): Promise<void> {
+    const state = page.locator("[data-rail='auxiliarybar']");
+    if ((await state.getAttribute("data-rail-state") === "expanded") !== expanded) await button.click();
+    await page.locator(`[data-rail='auxiliarybar'][data-rail-state='${expanded ? "expanded" : "collapsed"}']`).waitFor();
+    await settle(page);
+    await pointerAway(page);
+}
+
+/** 消息视图分节头上的框架按钮（浮动、回到停靠）：悬停才显示，用元素自己的 click，不靠指针。 */
+async function pressPanelAction(page: Page, selector: string): Promise<boolean> {
+    const button = page.locator(selector).first();
+    if (await button.count() === 0) return false;
+    await button.evaluate((element) => (element as HTMLElement).click());
+    return true;
+}
 
 const SCENARIOS: ReadonlyArray<readonly [string, Scenario]> = [
     ["still", async (page, cdp) => {
@@ -336,7 +365,7 @@ const SCENARIOS: ReadonlyArray<readonly [string, Scenario]> = [
         await glide(page, lifted, editor, 8);
         await settle(page);
         await assertLiveDrag(page);
-        // 编辑组 → 右栏 → 右栏的入口条 → 底部面板 → 活动栏：经过三块面板、两条入口条。
+        // 编辑组 → 右栏 → 右栏的入口（基线是入口条，有右轨的是右轨的入口带） → 底部面板 → 活动栏：经过三块面板、两处入口。
         // 区域里分节的叶 id 是生成的，从入口条往下取一点当那块面板。
         const below = async (region: string, by: number): Promise<{x: number; y: number}> => {
             const box = await page.locator(`[data-region-strip="${region}"]`).boundingBox();
@@ -344,8 +373,8 @@ const SCENARIOS: ReadonlyArray<readonly [string, Scenario]> = [
             return {x: box.x + box.width / 2, y: box.y + box.height + by};
         };
         const stops = [
-            await below("auxiliarybar", 160),
-            await centre(page.locator("[data-region-strip='auxiliarybar']")),
+            await centre(page.locator("[data-content='view:nbook.agent.conversation']")),
+            await centre(await rightEntries(page)),
             await below("panel", 60),
             await centre(page.locator("[data-tool-band]").first()),
         ];
@@ -359,6 +388,67 @@ const SCENARIOS: ReadonlyArray<readonly [string, Scenario]> = [
         });
         await drop(page);
         return {id: "live-path", totals, per: {unit: "frame", count: totals.frames}};
+    }],
+    // 下面几个是右轨与浮动窗里的视图段（w00043 t19）：基线没有的返回 null。
+    ["rail-expand", async (page, cdp) => {
+        const button = await railExpand(page);
+        if (button === null) return null;
+        const totals = await measure(page, cdp, async () => {
+            await setRailExpanded(page, button, true);
+            await setRailExpanded(page, button, false);
+        });
+        return {id: "rail-expand", totals, per: {unit: "frame", count: totals.frames}, note: "展开再收起"};
+    }],
+    ["rail-drag", async (page, cdp) => {
+        const button = await railExpand(page);
+        if (button === null) return null;
+        await setRailExpanded(page, button, true);
+        const at = await centre(page.locator("[data-rail='auxiliarybar'] [data-rail-handle]"));
+        await page.mouse.move(at.x, at.y);
+        await page.mouse.down();
+        await page.mouse.move(at.x - 2, at.y);
+        await frames(page, 2);
+        const totals = await measure(page, cdp, () => glide(page, {x: at.x - 2, y: at.y}, {x: at.x - 122, y: at.y}, 60));
+        await page.mouse.up();
+        await settle(page);
+        await setRailExpanded(page, button, false);
+        return {id: "rail-drag", totals, per: {unit: "frame", count: totals.frames}};
+    }],
+    ["float-dock", async (page, cdp) => {
+        const float = "[data-panel-head='section:nbook.agent.conversation'] [data-panel-action='nbook.view.float']";
+        if (await page.locator(float).count() === 0) return null;
+        const totals = await measure(page, cdp, async () => {
+            await pressPanelAction(page, float);
+            await page.locator("[data-leaf][data-float]").waitFor();
+            await settle(page);
+            await pressPanelAction(page, "[data-panel-action='nbook.view.dock']");
+            await page.locator("[data-leaf][data-float]").waitFor({state: "detached"});
+            await settle(page);
+        });
+        await pointerAway(page);
+        return {id: "float-dock", totals, per: {unit: "frame", count: totals.frames}, note: "浮出再回到停靠"};
+    }],
+    // 改了布局（资源管理器挪进右栏），放在最后。
+    ["rail-switch", async (page, cdp) => {
+        const button = await railExpand(page);
+        if (button === null) return null;
+        await setRailExpanded(page, button, true);
+        await page.locator("[data-panel-tab='view:nbook.explorer']").click({button: "right"});
+        await page.getByRole("menuitem", {name: "新容器（右栏）", exact: true}).click();
+        await settle(page);
+        const entries = page.locator("[data-rail='auxiliarybar'] [data-tool-band] [data-tool-entry]");
+        if (await entries.count() < 2) throw new Error("右栏没有两个容器");
+        const conversation = page.locator("[data-rail='auxiliarybar'] [data-tool-band] [data-tool-view='nbook.agent.conversation']");
+        const other = page.locator("[data-rail='auxiliarybar'] [data-tool-band] [data-tool-entry]:not([data-tool-view='nbook.agent.conversation'])").first();
+        const totals = await measure(page, cdp, async () => {
+            for (const entry of [conversation, other, conversation, other]) {
+                await entry.click();
+                await frames(page, 2);
+                await settle(page);
+            }
+        });
+        await pointerAway(page);
+        return {id: "rail-switch", totals, per: {unit: "frame", count: totals.frames}, note: "展开着视图段的容器与收着的容器来回切四次"};
     }],
 ];
 
@@ -376,7 +466,8 @@ async function openBook(page: Page, url: string): Promise<CDPSession> {
     for (const region of ["auxiliarybar", "panel"]) {
         const toggle = page.locator(`[data-titlebar-layout="${region}"]`);
         if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
-        await page.locator(`[data-region-strip="${region}"]`).waitFor();
+        // 有右轨的构建里右栏没有入口条，入口在右轨上。
+        await page.locator(region === "auxiliarybar" ? "[data-region-strip='auxiliarybar'], [data-rail='auxiliarybar']" : `[data-region-strip="${region}"]`).first().waitFor();
     }
     await settle(page);
     await pointerAway(page);
@@ -396,7 +487,10 @@ async function runOnce(browser: Browser, checkout: Checkout): Promise<ScenarioRe
         try {
             const cdp = await openBook(page, server.url);
             const results: ScenarioResult[] = [];
-            for (const [, scenario] of SCENARIOS) results.push(await scenario(page, cdp));
+            for (const [, scenario] of SCENARIOS) {
+                const result = await scenario(page, cdp);
+                if (result !== null) results.push(result);
+            }
             return results;
         } finally {
             await context.close();
@@ -421,7 +515,11 @@ function table(runs: ReadonlyArray<{readonly label: string; readonly results: Re
     const lines = ["场景\t单位\t构建\t" + METRICS.map((metric) => `${metric}/单位`).join("\t") + "\traf/秒\t帧数"];
     for (const [id] of SCENARIOS) {
         for (const label of labels) {
-            const picked = runs.filter((run) => run.label === label).map((run) => run.results.find((result) => result.id === id) as ScenarioResult);
+            const picked = runs.filter((run) => run.label === label).flatMap((run) => run.results.filter((result) => result.id === id));
+            if (picked.length === 0) {
+                lines.push([id, "-", label, ...METRICS.map(() => "-"), "-", "-"].join("\t"));
+                continue;
+            }
             const unit = picked[0]?.per.unit ?? "frame";
             const cells = METRICS.map((metric) => median(picked.map((result) => result.totals[metric] / result.per.count)).toFixed(2));
             const perSecond = median(picked.map((result) => result.totals.raf / (result.totals.ms / 1000))).toFixed(1);

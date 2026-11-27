@@ -1,17 +1,23 @@
+/**
+ * 条目主文字的写入检查与三种渲染（docs/specs/canon/rendering.md），在真实的世界上：写入走 `World.publish`，渲染走按条目的入口。
+ * 标签的读法与检查本身的细节在 grammar.test.ts；这里测内核把它们接到世界上以后调用方看得到的结果。
+ */
+
 import {createHash} from "node:crypto";
 
 import {describe, expect, test} from "bun:test";
-import type {Expression} from "estree";
 
-import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type WriteRequest} from "../src/index";
+import {buildRegistry, ChapterOrder, editEntries, previewEntries, type ComponentDeclaration, type EntryEdits, type EntryOp, type Entry, type StoryChange, type WriteRequest} from "../src/index";
+import {parseExpression, stripEntryText} from "../src/grammar/index";
+import {normalizeBlockSource, blockProblem} from "../src/render/syntax";
 import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain, renderSourceForAuthor, splitBlocks, type PlainOptions} from "../src/render/entry";
-import {evaluate, renderBlockPlain, type PlainBlock, type Resolve} from "../src/render/render";
-import {parseBlock, parseDraft} from "../src/render/syntax";
-import {scanAnnotations, writeBack} from "../src/render/writeback";
+import {evaluate, renderBlockPlain, type AuthorValue, type PlainBlock, type PlainContext, type Resolve} from "../src/render/render";
+import {analyzeBlock, analyzeDraft} from "../src/render/syntax";
 import {World, type WriteResult} from "../src/world/world";
+import {PROJECT, sign, verify} from "./fixtures/authorization";
 import {PANEL, PERSON} from "./fixtures/world";
 
-const BLOCK = '魔力 {panel.魔力}/{panel.魔力上限}，{panel.魔力 >= 1000 ? "能变身" : "变不了身"}';
+const BLOCK = '魔力 <V of="panel.魔力" />/<V of="panel.魔力上限" />，<If test="panel.魔力 >= 1000">能变身<Else />变不了身</If>';
 
 const options = () => ({
     order: new ChapterOrder(["ch1", "ch2", "ch3", "ch4", "ch5"]),
@@ -44,132 +50,242 @@ function world(blocks: string[] = [BLOCK]): World {
     return ok(first.world.publish({requestId: id(), by: author, what: "bookkeeping", title: "得到面板", baseVersion: 1, puts: [{ref: {kind: "change", id: "tmp:c"}, after: {id: "tmp:c", kind: "written", text: "得到面板", at: {kind: "chapter", chapter: "ch3", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "panel.启用"}, value: true}], status: "active", by: author}}]} as WriteRequest, "t") as WriteResult).world;
 }
 
-describe("canon.rendering 输出 1、2、3：白名单、保留名与切块", () => {
+/** 把星瑕的主文字整个换成 `blocks`（块 id 依次是 b1、b2…）发布。 */
+function writeText(base: World, blocks: string[]): WriteResult {
+    const next = structuredClone(base.data.entries.get("e1")!);
+    next.init.text = blocks.map((source, index) => ({id: `b${String(index + 1)}`, source}));
+    return base.publish({requestId: id(), by: author, what: "edit", title: "改", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e1"}, after: next}]}, "t");
+}
+
+/** 写入被拒时的问题（码与位置）；写入成功时是 "ok"。 */
+const rejected = (result: WriteResult) => (result.ok ? "ok" : result.failure.code === "validation-failed" ? result.failure.problems.map((problem) => ({code: problem.code, path: problem.path})) : result.failure.code);
+
+/** 绕过写入检查放进几块（旧数据、卸了插件的标签）：直接重放一次改它的修订。 */
+function injected(base: World, blocks: ReadonlyArray<readonly [string, string]>): World {
+    const order = base.data.entries.get("e1")!.init.text.map((block) => block.id);
+    return World.replay([
+        ...base.revisions,
+        {...base.revisions.at(-1)!, id: "r9", version: base.version + 1, requestId: "legacy", ops: [{ref: {kind: "entry", id: "e1"}, kind: "modify", fields: [
+            ...blocks.map(([block, source]) => ({path: `init.text[${block}]`, after: {id: block, source}})),
+            {path: "init.text#order", before: order, after: [...order, ...blocks.map(([block]) => block)]},
+        ]}]},
+    ], base.options);
+}
+
+const textOf = (base: World) => base.data.entries.get("e1")!.init.text;
+
+function agentBlocks(base: World, position: ReturnType<typeof at>, mode: "actual" | "planned" = "actual", entry = "e1"): string[] {
+    const rendered = renderEntryForAgent(base, entry, position, mode);
+    if (rendered === null || typeof rendered === "string") throw new Error("no render");
+    return rendered.blocks.map((block) => block.text);
+}
+
+/** 给作者的一块的值表。 */
+function authorValues(base: World, position: ReturnType<typeof at>, index = 0, entry = "e1", mode: "actual" | "planned" = "actual"): readonly AuthorValue[] {
+    const rendered = renderEntryForAuthor(base, entry, position, mode);
+    if (rendered === null || typeof rendered === "string") throw new Error("no render");
+    const block = rendered.blocks[index]!;
+    if (!("values" in block)) throw new Error(`block is an error block: ${JSON.stringify(block)}`);
+    return block.values;
+}
+
+describe("canon.rendering 输出 1、3、18：写入时检查与规范写法", () => {
+    test("整篇写入：不过检查的块拒收并指出块；只改别的块时，存下来的旧块不再查", () => {
+        expect(rejected(writeText(world(), [BLOCK, '魔力 <V of="panel.魔力"']))).toEqual([{code: "tag-malformed", path: "init.text[b2]"}]);
+        const result = writeText(world(), [BLOCK, "第二段"]);
+        expect(rejected(result)).toBe("ok");
+    });
+
     test.each([
-        ["import x from \"y\"\n\n正文", "forbidden-syntax"],
-        ["<Foo />", "unknown-tag"],
-        ["<Ref id={x.y} />", "unknown-tag"],
-        ["他说{+5}", "no-field-expression"],
-        ["{panel.魔力 + 1}", "forbidden-syntax"],
-        ["{ref(\"e1\")}", "no-field-expression"],
-        ["他说{}", "no-field-expression"],
-        ["{ }", "no-field-expression"],
-        ["{panel.任务[3]}", "forbidden-syntax"],
-        ["<Ref id=\"e1\">", "cross-block"],
-    ])("%s → %s", (source, code) => {
-        const result = parseBlock(source);
-        expect(result.ok ? null : result.problem.code).toBe(code as never);
+        ["少了收尾的内置标签", '魔力 <V of="panel.魔力"', "tag-malformed"],
+        ["原样 HTML", "<div>旧</div>", "unsupported-markdown"],
+        ["带着装饰的 V（值是程序加的）", '<V of="panel.魔力">3110</V>', "unknown-tag"],
+        ["带着装饰的 Ref", '<Ref id="e2" name="星瑾" />', "unknown-tag"],
+        ["式子写错", '<V expr="panel.+" />', "forbidden-syntax"],
+        ["If 没闭合", '<If test="panel.魔力 > 0">有', "cross-block"],
+        ["嵌套深到读不出结构（几万层引用）", "> ".repeat(25_000), "unsupported-markdown"],
+    ])("拒收：%s", (_name, source, code) => {
+        expect(rejected(writeText(world(), [source]))).toEqual([{code, path: "init.text[b1]"}]);
     });
 
-    test("只含注释的表达式放行", () => {
-        expect(parseBlock("{/* 以后补 */}").ok).toBe(true);
-        expect(parseBlock("说明{// 行注释\n}").ok).toBe(true);
+    test("一块正好 5 万个字符照常写入，多一个字拒收", () => {
+        expect(rejected(writeText(world(), ["字".repeat(50_000)]))).toBe("ok");
+        expect(rejected(writeText(world(), ["字".repeat(50_001)]))).toEqual([{code: "block-too-large", path: "init.text[b1]"}]);
     });
 
-    test("负数字面量、只含注释的表达式、转义与代码里的花括号放行", () => {
-        for (const source of ["{panel.存款 > -100 ? \"有钱\" : \"欠债\"}", "{/* block:b7 */}", "他说\\{+5}，`代码{x}`", "见[设定][s1]。"]) expect(parseBlock(source).ok).toBe(true);
-    });
-
-    test("写入时检查：块不合规则就拒收并指出块与行列", () => {
+    test("变更里的整段替换也过检查", () => {
         const base = world();
-        const next = structuredClone(base.data.entries.get("e1")!);
-        next.init.text.push({id: "b2", source: "他说{+5}"});
-        const result = base.publish({requestId: id(), by: author, what: "edit", title: "改", baseVersion: 2, puts: [{ref: {kind: "entry", id: "e1"}, after: next}]}, "t");
-        expect(result.ok === false && result.failure.code === "validation-failed" && result.failure.problems[0]).toMatchObject({code: "no-field-expression", path: "init.text[b2]"});
+        const result = base.publish({requestId: id(), by: author, what: "edit", title: "坏", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:b"}, after: {id: "tmp:b", kind: "written", text: "坏", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: [], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: '<V of="panel.魔力"'}], status: "active", by: author}}]}, "t");
+        expect(rejected(result)).toEqual([{code: "tag-malformed", path: "patches[0]"}]);
     });
 
-    test("整篇写入按顶层节点切块，新 id 不与已有的重复", () => {
-        expect(splitBlocks("# 星瑕\n\n第一段。\n\n- 一\n- 二", ["b3"])).toEqual([{id: "b4", source: "# 星瑕"}, {id: "b5", source: "第一段。"}, {id: "b6", source: "- 一\n- 二"}]);
+    test("存下的是规范写法：去掉 BOM、换行成 LF、标签之间一个空格、自闭合写 ` />`；整段替换的变更也一样", () => {
+        const bom = String.fromCharCode(0xfeff);
+        const written = ok(writeText(world(), [`${bom}魔力 <V  of="panel.魔力"/>\r\n<If  test="panel.魔力 > 0" >有<Else/>无</If>`])).world;
+        expect(textOf(written)).toEqual([{id: "b1", source: '魔力 <V of="panel.魔力" />\n<If test="panel.魔力 > 0">有<Else />无</If>'}]);
+        const replaced = ok(written.publish({requestId: id(), by: author, what: "edit", title: "换", baseVersion: written.version, puts: [{ref: {kind: "change", id: "tmp:r"}, after: {id: "tmp:r", kind: "written", text: "换", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: [], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: '<Ref   id="e2"/>'}], status: "active", by: author}}]}, "t"));
+        const change = replaced.world.data.changes.get(replaced.ids["tmp:r"]!)!;
+        expect(change.patches[0]!.value).toBe('<Ref id="e2" />');
+    });
+
+    test("splitBlocks 按顶层节点切块，新 id 不与已有的重复", () => {
+        expect(splitBlocks('# 星瑕\n\n第一段 <V of="panel.魔力" />。\n\n- 一\n- 二', ["b3"])).toEqual([{id: "b4", source: "# 星瑕"}, {id: "b5", source: '第一段 <V of="panel.魔力" />。'}, {id: "b6", source: "- 一\n- 二"}]);
+    });
+});
+
+describe("canon.rendering 输出 19：没登记的标签", () => {
+    test("新写进去的拒收（unknown-tag）", () => {
+        expect(rejected(writeText(world(), [BLOCK, '<Plot id="x" />']))).toEqual([{code: "unknown-tag", path: "init.text[b2]"}]);
+    });
+
+    test("条目里已经有规范写法相同的这个标签时放行（插件卸了以后还能写）；属性不同的照样拒收", () => {
+        const base = injected(world(), [["b2", '<Plot id="x" />']]);
+        expect(rejected(writeText(base, [BLOCK, '<Plot id="x" />', '又一处 <Plot  id="x"/>']))).toBe("ok");
+        expect(rejected(writeText(base, [BLOCK, '<Plot id="x" />', '<Plot id="y" />']))).toEqual([{code: "unknown-tag", path: "init.text[b3]"}]);
+    });
+
+    test("作者看到“需要插件”，Agent 看到原样的标签，纯文字报 unknown-tag", () => {
+        const base = injected(world(), [["b2", '前<Plot id="x" />后']]);
+        expect(authorValues(base, at("ch5"), 1)).toEqual([{tag: "Plot", start: 1, needsPlugin: true}]);
+        expect(agentBlocks(base, at("ch5"))[1]).toBe('前<Plot id="x" />后');
+        const plain = renderEntryPlain(base, "e1", at("ch5"), "actual");
+        if (plain === null || typeof plain === "string") throw new Error("no render");
+        expect(plain.blocks[1]).toMatchObject({text: "前后", problems: ["unknown-tag"]});
     });
 });
 
 describe("canon.rendering 输出 5：三值逻辑", () => {
-    const expression = (source: string) => {
-        const parsed = parseBlock(`{${source}}`);
-        if (!parsed.ok) throw new Error(parsed.problem.message);
-        return parsed.block.expressions[0]!;
-    };
     const values: Record<string, unknown> = {"panel.真": true, "panel.假": false, "panel.未知": null, "panel.数": 5};
     const resolve: Resolve = (reference) => ({value: values[reference.path] ?? null});
     test.each([
         ["panel.数 > 3", true],
         ["panel.未知 > 3", null],
-        ["panel.数 > \"三\"", null],
+        ["panel.数 > '三'", null],
         ["!panel.未知", null],
         ["panel.假 && panel.未知", false],
         ["panel.真 && panel.未知", null],
         ["panel.真 || panel.未知", true],
         ["panel.假 || panel.未知", null],
-        ["panel.未知 ? \"是\" : \"否\"", null],
-        ["panel.数 === 5 ? \"是\" : \"否\"", "是"],
+        ["panel.未知 ? '是' : '否'", null],
+        ["panel.数 === 5 ? '是' : '否'", "是"],
     ])("%s → %o", (source, expected) => {
-        const site = expression(source);
-        expect(evaluate(site.expression as Expression, site.references, resolve).value).toBe(expected as never);
+        const parsed = parseExpression(source);
+        if (!parsed.ok) throw new Error(source);
+        expect(evaluate(parsed.expression, resolve).value).toBe(expected as never);
     });
 });
 
 describe("canon.rendering 场景 1：两种渲染与读不到的值（输出 6–9）", () => {
-    test("第 5 章末尾：作者看到值与千位分隔，Agent 读到带值写法", () => {
-        const base = world();
-        const forAuthor = renderEntryForAuthor(base, "e1", at("ch5"), "actual");
-        if (forAuthor === null || typeof forAuthor === "string") throw new Error("no render");
-        const paragraph = (forAuthor.blocks[0] as unknown as {tree: {children: Array<{children: Array<Record<string, unknown>>}>}}).tree.children[0]!.children;
-        expect(paragraph.filter((node) => node.type !== "text")).toEqual([
-            {type: "canonValue", path: "panel.魔力", entry: null, label: "魔力", raw: 3110, display: "3,110"},
-            {type: "canonValue", path: "panel.魔力上限", entry: null, label: "魔力上限", raw: 12000, display: "12,000"},
-            {type: "canonComputed", source: "panel.魔力 >= 1000 ? \"能变身\" : \"变不了身\"", raw: "能变身", display: "能变身"},
+    const starts = (...tags: string[]) => tags.map((tag) => BLOCK.indexOf(tag));
+
+    test("第 5 章末尾：作者的值表按标签的起点给值、显示名与千位分隔；Agent 读到带值写法", () => {
+        const [magic, limit, condition] = starts('<V of="panel.魔力" />', '<V of="panel.魔力上限"', "<If");
+        expect(authorValues(world(), at("ch5"))).toEqual([
+            {tag: "V", start: magic!, path: "panel.魔力", entry: null, label: "魔力", raw: 3110, display: "3,110"},
+            {tag: "V", start: limit!, path: "panel.魔力上限", entry: null, label: "魔力上限", raw: 12000, display: "12,000"},
+            {tag: "If", start: condition!, result: true, taken: 0},
         ]);
-        const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (agent === null || typeof agent === "string") throw new Error("no render");
-        expect(agent.blocks[0]!.text).toBe('魔力 {panel.魔力 = 3110}/{panel.魔力上限 = 12000}，{panel.魔力 >= 1000 ? "能变身" : "变不了身" -> "能变身"}');
+        expect(agentBlocks(world(), at("ch5"))).toEqual(['魔力 <V of="panel.魔力">3110</V>/<V of="panel.魔力上限">12000</V>，<If test="panel.魔力 >= 1000" value="true">能变身<Else />变不了身</If>']);
     });
 
-    test("第 1 章面板还没启用：作者看到占位，Agent 读到 null 与不可用的装饰，条件是 null", () => {
-        const agent = renderEntryForAgent(world(), "e1", at("ch1"), "actual");
-        if (agent === null || typeof agent === "string") throw new Error("no render");
-        expect(agent.blocks[0]!.text).toBe('魔力 {panel.魔力 = null # 不可用：面板第 3 章起生效}/{panel.魔力上限 = null # 不可用：面板第 3 章起生效}，{panel.魔力 >= 1000 ? "能变身" : "变不了身" -> null # 不可用：面板第 3 章起生效}');
+    test("第 1 章面板还没启用：作者看到未知与原因，没有生效的支；Agent 读到 null 加 unavailable，条件是 null", () => {
+        const values = authorValues(world(), at("ch1"));
+        expect(values.map((value) => [value.tag, "unavailable" in value ? value.unavailable : undefined])).toEqual([["V", "面板第 3 章起生效"], ["V", "面板第 3 章起生效"], ["If", "面板第 3 章起生效"]]);
+        expect(values[0]).toMatchObject({raw: null, display: "未知", unknown: true});
+        expect(values[2]).toMatchObject({result: null, taken: null});
+        expect(agentBlocks(world(), at("ch1"))).toEqual(['魔力 <V of="panel.魔力" unavailable="面板第 3 章起生效">null</V>/<V of="panel.魔力上限" unavailable="面板第 3 章起生效">null</V>，<If test="panel.魔力 >= 1000" value="null">能变身<Else />变不了身</If>']);
     });
 
-    test("条目引用补上这个位置的名字；源文里作者写的括注是注记以外的字", () => {
-        const base = world(['见<Ref id="e2" />（化名）{panel.存款}（未知）']);
-        const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
+    test("条目引用补上这个位置的名字；源文里作者写的括注与源文逐字相同", () => {
+        const base = world(['见<Ref id="e2" />（化名）<V of="panel.存款" />（未知）']);
+        expect(agentBlocks(base, at("ch5"))).toEqual(['见<Ref id="e2" name="星瑾" />（化名）<V of="panel.存款">0</V>（未知）']);
+    });
+});
+
+describe("canon.rendering 场景 3、输出 4、14：一块坏了", () => {
+    test("存下来的旧数据过不了检查：这一块给纯文本与诊断，其余照常；改别的块照常写；交回合法文字后这一块被整段替换", () => {
+        const broken = injected(world([BLOCK, "第三块"]), [["b3", "<div>旧</div>"]]);
+        const forAuthor = renderEntryForAuthor(broken, "e1", at("ch5"), "actual");
+        if (forAuthor === null || typeof forAuthor === "string") throw new Error("no render");
+        expect(forAuthor.blocks.map((block) => ("error" in block ? block.error.code : "ok"))).toEqual(["ok", "ok", "unsupported-markdown"]);
+        expect(forAuthor.blocks[2]).toMatchObject({id: "b3", error: {line: 1, column: 1}, text: "<div>旧</div>"});
+        const agent = renderEntryForAgent(broken, "e1", at("ch5"), "actual");
         if (agent === null || typeof agent === "string") throw new Error("no render");
-        expect(agent.blocks[0]!.text).toBe('见<Ref id="e2" name="星瑾" />（化名）{panel.存款 = 0}（未知）');
+        expect(agent.blocks[2]).toMatchObject({id: "b3", text: "<div>旧</div>", error: {code: "unsupported-markdown"}});
+        expect(rejected(writeText(broken, [BLOCK, "第三块改了", "<div>旧</div>"]))).toBe("ok");
+        const fixed = ok(writeText(broken, [BLOCK, "第三块", "修好了"])).world;
+        expect(textOf(fixed)[2]).toEqual({id: "b3", source: "修好了"});
+    });
+});
+
+describe("canon.rendering 场景 6、输出 22：交回的文字去值", () => {
+    test("渲染再去值得到源文；改了字与值以后去值，文字照改、字段照旧", () => {
+        const base = world();
+        const text = agentBlocks(base, at("ch5"))[0]!;
+        expect(stripEntryText(text)).toBe(BLOCK);
+        const edited = stripEntryText(text.replace("魔力 <V", "魔法力 <V").replace(">3110<", ">3000<"));
+        expect(edited).toBe('魔法力 <V of="panel.魔力" />/<V of="panel.魔力上限" />，<If test="panel.魔力 >= 1000">能变身<Else />变不了身</If>');
+        const after = ok(writeText(base, [edited])).world;
+        expect(textOf(after)).toEqual([{id: "b1", source: edited}]);
+        expect(after.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3110}}}}});
+    });
+});
+
+describe("canon.rendering 场景 7、输出 17：字面与转义", () => {
+    const LITERAL = '写法是 `<V of="panel.魔力" />`';
+    const TABLE = '| 状态 |\n| --- |\n| <If test="panel.魔力 > 0 || panel.存款 > 0">有<Else />无</If> |';
+
+    test("代码里的标签与不成标签的 `<A`：写得进去，作者没有值，Agent 读到的与源文相同", () => {
+        const base = ok(writeText(world(), [LITERAL, "评级 <A 级"])).world;
+        expect([authorValues(base, at("ch5"), 0), authorValues(base, at("ch5"), 1)]).toEqual([[], []]);
+        expect(agentBlocks(base, at("ch5"))).toEqual([LITERAL, "评级 <A 级"]);
+    });
+
+    test("少了收尾的拒收；写进代码里的通过，纯文字报 syntax", () => {
+        expect(rejected(writeText(world(), ['魔力 <V of="panel.魔力"']))).toEqual([{code: "tag-malformed", path: "init.text[b1]"}]);
+        const base = ok(writeText(world(), ['`<V of="panel.魔力"`'])).world;
+        const plain = renderEntryPlain(base, "e1", at("ch5"), "actual");
+        if (plain === null || typeof plain === "string") throw new Error("no render");
+        expect(plain.blocks[0]!.problems).toEqual(["syntax"]);
+    });
+
+    test("表格单元格里的条件：单元格不被切开，条件照常算", () => {
+        const base = ok(writeText(world(), [TABLE])).world;
+        expect(authorValues(base, at("ch5"))).toEqual([{tag: "If", start: TABLE.indexOf("<If"), result: true, taken: 0}]);
+        expect(agentBlocks(base, at("ch5"))[0]).toContain('value="true">有<Else />无</If> |');
+        const plain = renderEntryPlain(base, "e1", at("ch5"), "actual");
+        if (plain === null || typeof plain === "string") throw new Error("no render");
+        expect(plain.blocks[0]!.text).toBe("| 状态 |\n| --- |\n| 有 |");
     });
 });
 
 describe("canon.rendering 输出 16：按给的源文字渲染", () => {
-    const DRAFT = '# 近况\n\n魔力 {panel.魔力}，同行的是 <Ref id="e2" />。';
+    const DRAFT = '# 近况\n\n魔力 <V of="panel.魔力" />，同行的是 <Ref id="e2" />。';
 
-    test("没存下的源文字按条目此刻的数据渲染成一块：字段是值、引用是名字，节点带着它在源文字里的行；世界不变", () => {
+    const sourceBlock = (base: World, source: string, chapter: string, mode: "actual" | "planned" = "actual") => {
+        const rendered = renderSourceForAuthor(base, "e1", source, at(chapter), mode);
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        return rendered;
+    };
+
+    test("没存下的源文字按条目此刻的数据渲染成一块：源文与值表；世界不变", () => {
         const base = world();
-        const rendered = renderSourceForAuthor(base, "e1", DRAFT, at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        expect([rendered.version, rendered.position, rendered.mode, rendered.blocks.length]).toEqual([base.version, at("ch5"), "actual", 1]);
-        const block = rendered.blocks[0] as unknown as {id: string; tree: {children: Array<{type: string; position: {start: {line: number}}; children: Array<Record<string, unknown>>}>}};
-        expect(block.id).toBe("source");
-        expect(block.tree.children.map((node) => [node.type, node.position])).toEqual([["heading", {start: {line: 1}}], ["paragraph", {start: {line: 3}}]]);
-        // 位置只留块一级节点的起始行：行内的节点没有位置，哪里都没有列与偏移。
-        expect([block.tree.children[1]!.children.some((node) => "position" in node), /"(?:column|offset|end)"/u.test(JSON.stringify(block))]).toEqual([false, false]);
-        expect(block.tree.children[1]!.children.filter((node) => node.type !== "text")).toEqual([
-            {type: "canonValue", path: "panel.魔力", entry: null, label: "魔力", raw: 3110, display: "3,110"},
-            {type: "canonRef", id: "e2", name: "星瑾", deleted: false},
-        ]);
-        // 只读：存下来的主文字与版本都没动。
-        expect([base.version, base.data.entries.get("e1")!.init.text]).toEqual([2, [{id: "b1", source: BLOCK}]]);
+        const rendered = sourceBlock(base, DRAFT, "ch5");
+        expect([rendered.version, rendered.position, rendered.mode]).toEqual([base.version, at("ch5"), "actual"]);
+        expect(rendered.blocks).toEqual([{id: "source", source: DRAFT, values: [
+            {tag: "V", start: DRAFT.indexOf("<V"), path: "panel.魔力", entry: null, label: "魔力", raw: 3110, display: "3,110"},
+            {tag: "Ref", start: DRAFT.indexOf("<Ref"), id: "e2", name: "星瑾", deleted: false},
+        ]}]);
+        expect([base.version, textOf(base)]).toEqual([2, [{id: "b1", source: BLOCK}]]);
     });
 
-    test("读的是给的位置上的数据：第 1 章面板还没启用，字段是占位", () => {
-        const rendered = renderSourceForAuthor(world(), "e1", "魔力 {panel.魔力}", at("ch1"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        const paragraph = (rendered.blocks[0] as unknown as {tree: {children: Array<{children: Array<{type: string}>}>}}).tree.children[0]!.children;
-        expect(paragraph.map((node) => node.type)).toEqual(["text", "canonPlaceholder"]);
+    test("读的是给的位置上的数据：第 1 章面板还没启用，值是未知", () => {
+        expect(sourceBlock(world(), '魔力 <V of="panel.魔力" />', "ch1").blocks[0]).toMatchObject({values: [{tag: "V", unknown: true, unavailable: "面板第 3 章起生效"}]});
     });
 
-    test("过不了写入检查的源文字：照出错的块给纯文本与行、列", () => {
-        const rendered = renderSourceForAuthor(world(), "e1", "第一段\n\n他说{+5}", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        expect(rendered.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "no-field-expression", line: 3, column: 3}), text: "第一段\n\n他说{+5}"}]);
+    test("过不了写入检查的源文字：照出错的块给纯文本与行、列（按给的源文字算）", () => {
+        const source = '第一段\n\n魔力 <V of="panel.魔力"';
+        expect(sourceBlock(world(), source, "ch5").blocks).toEqual([{id: "source", error: expect.objectContaining({code: "tag-malformed", line: 3, column: 4}), text: source}]);
     });
 
     test("条目不存在是 null；那一章不在是 chapter-not-found；那条线不在是 line-not-found", () => {
@@ -181,210 +297,31 @@ describe("canon.rendering 输出 16：按给的源文字渲染", () => {
     test("读的是给的模式：别的条目的字段按实际与按计划各是各的值；引用不存在的条目写“已删除的条目”", () => {
         const base = cast([]);
         const values = (mode: "actual" | "planned") => {
-            const rendered = renderSourceForAuthor(base, "e1", '存款 {ref("e2").panel.存款}，同行的是 <Ref id="e404" />', at("ch3"), mode);
-            if (rendered === null || typeof rendered === "string") throw new Error("no render");
-            const paragraph = (rendered.blocks[0] as unknown as {tree: {children: Array<{children: Array<Record<string, unknown>>}>}}).tree.children[0]!.children;
-            return paragraph.filter((node) => node.type !== "text").map((node) => (node.type === "canonValue" ? node.raw : [node.name, node.deleted]));
+            const block = sourceBlock(base, '存款 <V entry="e2" of="panel.存款" />，同行的是 <Ref id="e404" />', "ch3", mode).blocks[0]!;
+            if (!("values" in block)) throw new Error("error block");
+            return block.values.map((value) => ("raw" in value ? value.raw : "name" in value ? [value.name, value.deleted] : null));
         };
         expect([values("actual"), values("planned")]).toEqual([[800, ["已删除的条目", true]], [900, ["已删除的条目", true]]]);
     });
 
     test("解析的结果不留：同一段没存过的源文字每次都重新解析；与存下来的块相同时用留着的那一份", () => {
-        const draft = "只在预览里出现过的一段 {panel.魔力}";
-        renderSourceForAuthor(world(), "e1", draft, at("ch5"), "actual");
-        expect(parseDraft(draft)).not.toBe(parseDraft(draft));
-        // `BLOCK` 是存下来的块，渲染过就在缓存里。
+        const draft = '只在预览里出现过的一段 <V of="panel.魔力" />';
+        sourceBlock(world(), draft, "ch5");
+        expect(analyzeDraft(draft)).not.toBe(analyzeDraft(draft));
         renderEntryForAuthor(world(), "e1", at("ch5"), "actual");
-        expect(parseDraft(BLOCK)).toBe(parseBlock(BLOCK));
+        expect(analyzeDraft(BLOCK)).toBe(analyzeBlock(BLOCK));
     });
 
-    test("嵌套深到栈溢出的源文字（几万层引用）：照出错的块给，不抛", () => {
+    test("没登记的标签按写入时的基线查：条目里没有的照出错的块给（写入会拒收），已有的给“需要插件”", () => {
+        expect(sourceBlock(world(), '新写的 <Plot id="x" />', "ch5").blocks[0]).toMatchObject({error: {code: "unknown-tag", line: 1, column: 5}});
+        expect(sourceBlock(injected(world(), [["b2", '<Plot id="x" />']]), '新写的 <Plot id="x" />', "ch5").blocks[0]).toEqual({id: "source", source: '新写的 <Plot id="x" />', values: [{tag: "Plot", start: 4, needsPlugin: true}]});
+    });
+
+    test("嵌套深到读不出结构的源文字（几万层引用）：照出错的块给，不抛；超过一块的长度上限照常渲染（上限只管写入）", () => {
         const deep = "> ".repeat(25_000);
-        const rendered = renderSourceForAuthor(world(), "e1", deep, at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        expect(rendered.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "mdx-invalid", line: 1}), text: deep}]);
-    });
-});
-
-describe("canon.rendering 输出 10、12、13 与场景 2、3、4：回写", () => {
-    const agentText = (base: World) => {
-        const agent = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (agent === null || typeof agent === "string") throw new Error("no render");
-        return agent.blocks[0]!.text;
-    };
-
-    test("按计划模式读到的块原样交回：拒收 planned-not-writable，世界不变（输出 12）", () => {
-        const base = world();
-        const planned = renderEntryForAgent(base, "e1", at("ch5"), "planned");
-        if (planned === null || typeof planned === "string") throw new Error("no render");
-        expect(planned.mode).toBe("planned");
-        const result = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: planned.position, version: planned.version, mode: planned.mode, text: planned.blocks[0]!.text}, "t");
-        expect(result).toEqual({ok: false, failure: {code: "planned-not-writable"}});
-    });
-
-    test("值改了、文字也改了，剧情变化：一次修订里记一条差额并整段替换这一块", () => {
-        const base = world();
-        const text = agentText(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}").replace("魔力 {", "魔法力 {");
-        const result = ok(writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text, intent: "story"}, "t"));
-        expect(result.world.version).toBe(base.version + 1);
-        const view = result.world.line().engine.entry("e1", at("ch5"), "actual");
-        expect(view).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
-        expect(view !== null && view !== "chapter-not-found" && view.text[0]!.source).toBe('魔法力 {panel.魔力}/{panel.魔力上限}，{panel.魔力 >= 1000 ? "能变身" : "变不了身"}');
-        expect(result.world.line().engine.entry("e1", at("ch4"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3110}}}}});
-    });
-
-    test("改了 -> 的部分得到 computed-edited；删掉注记得到 annotation-mismatch；同一字段两个不同值得到 conflicting-values", () => {
-        const base = world(["{panel.魔力} 与 {panel.魔力}，{panel.魔力 >= 1000 ? \"能\" : \"不能\"}"]);
-        const text = agentText(base);
-        const write = (changed: string) => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: changed}, "t");
-        const failure = (changed: string) => {
-            const result = write(changed);
-            return result.ok ? "ok" : result.failure.code;
-        };
-        expect(failure(text.replace('-> "能"', '-> "不能"'))).toBe("computed-edited");
-        expect(failure(text.replace("{panel.魔力 = 3110} 与 ", ""))).toBe("annotation-mismatch");
-        expect(failure(text.replace("{panel.魔力 = 3110} 与 {panel.魔力 = 3110}", "{panel.魔力 = 1} 与 {panel.魔力 = 2}"))).toBe("conflicting-values");
-        // 只改其中一处时按改了的那处。
-        expect(failure(text.replace("{panel.魔力 = 3110} 与 {panel.魔力 = 3110}", "{panel.魔力 = 3110} 与 {panel.魔力 = 2000}"))).toBe("ok");
-    });
-
-    test("装饰在回写时忽略：删掉或改掉都不影响", () => {
-        const base = world();
-        const text = agentText(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3110 # 随便写}");
-        const result = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text}, "t");
-        expect(result.ok).toBe(true);
-        expect(result.ok && result.world.version).toBe(base.version);
-    });
-
-    test("注记的值按 JSON 读出边界，字符串里的花括号与 -> 不切断", () => {
-        const items = scanAnnotations('{entry.name = "a}b -> c"} 与 {panel.x >= 1 ? "{" : "}" -> "}"}');
-        expect(items?.map((item) => [item.kind, item.left, item.value])).toEqual([["assign", "entry.name", "a}b -> c"], ["computed", "panel.x >= 1 ? \"{\" : \"}\"", "}"]]);
-    });
-
-    test("一块坏了：作者看到纯文本与诊断，Agent 读到原样源文与出错标记，交回合法文字后整段替换（场景 3、输出 14）", () => {
-        const base = world([BLOCK]);
-        // 绕过写入检查放进一块旧数据：直接重放一次修改它的修订。
-        const broken = World.replay([
-            ...base.revisions,
-            {...base.revisions.at(-1)!, id: "r9", version: base.version + 1, requestId: "legacy", ops: [{ref: {kind: "entry", id: "e1"}, kind: "modify", fields: [{path: "init.text[b2]", after: {id: "b2", source: "<Foo />"}}, {path: "init.text#order", before: ["b1"], after: ["b1", "b2"]}]}]},
-        ], options());
-        const forAuthor = renderEntryForAuthor(broken, "e1", at("ch5"), "actual");
-        if (forAuthor === null || typeof forAuthor === "string") throw new Error("no render");
-        expect(forAuthor.blocks[1]).toMatchObject({id: "b2", error: {code: "unknown-tag"}, text: "<Foo />"});
-        const agent = renderEntryForAgent(broken, "e1", at("ch5"), "actual");
-        if (agent === null || typeof agent === "string") throw new Error("no render");
-        expect(agent.blocks[1]).toMatchObject({id: "b2", text: "<Foo />", error: {code: "unknown-tag"}});
-        const fixed = ok(writeBack(broken, {requestId: id(), by: author, entry: "e1", block: "b2", position: at("ch5"), version: broken.version, mode: "actual", text: "修好了"}, "t"));
-        expect(fixed.world.data.entries.get("e1")!.init.text[1]).toEqual({id: "b2", source: "修好了"});
-    });
-});
-
-describe("canon.rendering 输出 12、13：读取之后世界前进过", () => {
-    const later = (base: World) => ok(base.publish({requestId: id(), by: author, what: "bookkeeping", title: "加 50", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:d"}, after: {id: "tmp:d", kind: "written", text: "加 50", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: [], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: 50, basis: {kind: "author"}}], status: "active", by: author}}]}, "t")).world;
-    const blockOf = (base: World) => {
-        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        return rendered.blocks[0]!.text;
-    };
-    const send = (now: World, read: World, text: string, intent?: "creative" | "story") => writeBack(now, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: read.version, mode: "actual", text, ...(intent === undefined ? {} : {intent})}, "t");
-
-    test("别的修订改了值，Agent 把旧文字原样交回：value-conflict，值不被改回去，也不发布", () => {
-        const base = world();
-        const now = later(base);
-        for (const intent of ["story", "creative"] as const) {
-            const result = send(now, base, blockOf(base), intent);
-            expect(result).toEqual({ok: false, failure: {code: "value-conflict", current: 3160}});
-        }
-        expect(now.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3160}}}}});
-    });
-
-    test("`->` 的值因为别的修订变了：是过期，不是 computed-edited", () => {
-        const base = world(['{panel.魔力 >= 3150 ? "够" : "不够"}']);
-        const now = later(base);
-        const result = send(now, base, blockOf(base));
-        expect(result).toEqual({ok: false, failure: {code: "value-conflict", current: "够"}});
-    });
-
-    test("世界前进过、交回的值与现在相同：没有改动，什么都不发布；有文字改动：version-conflict", () => {
-        const base = world();
-        const now = later(base);
-        const fresh = blockOf(now);
-        const same = send(now, base, fresh);
-        expect(same.ok && same.repeated).toBe(true);
-        expect(now.version).toBe(base.version + 1);
-        expect(send(now, base, fresh.replace("魔力 {", "魔法力 {"))).toMatchObject({ok: false, failure: {code: "version-conflict"}});
-    });
-
-    test("同一个请求 id 重试：回第一次的修订，不是后来的别的修订", () => {
-        const base = world();
-        const requestId = id();
-        const input = {requestId, by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual" as const, text: blockOf(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}"), intent: "story" as const};
-        const first = ok(writeBack(base, input, "t"));
-        const unrelated = later(first.world);
-        const retried = ok(writeBack(unrelated, input, "t"));
-        expect(retried.repeated).toBe(true);
-        expect(retried.revision.id).toBe(first.revision.id);
-        expect(retried.world.version).toBe(unrelated.version);
-    });
-
-    test("章讲的线换了、世界版本没变：照带渲染给的位置，读的还是原来那条线，不把旧线的值写到新线", () => {
-        const base = world();
-        const forked = ok(base.publish({requestId: id(), by: author, what: "edit", title: "分叉", baseVersion: base.version, puts: [
-            {ref: {kind: "change", id: "tmp:cut"}, after: {id: "tmp:cut", kind: "written", text: "切口", at: {kind: "chapter", chapter: "ch4", key: 1}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: author}},
-        ]}, "t"));
-        const cut = forked.ids["tmp:cut"]!;
-        const branched = ok(forked.world.publish({requestId: id(), by: author, what: "edit", title: "分叉", baseVersion: forked.world.version, puts: [
-            {ref: {kind: "change", id: "tmp:f"}, after: {id: "tmp:f", kind: "written", nature: "fork", fork: {line: "tmp:r", name: "支线", parent: "main", cut, type: "branch"}, text: "分叉", at: {kind: "chapter", chapter: "ch4", key: 2}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: author}},
-            {ref: {kind: "change", id: "tmp:own"}, after: {id: "tmp:own", kind: "written", text: "支线上改", at: {kind: "chapter", chapter: "ch5", key: 1, line: "tmp:r"}, told: [], involves: [], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.魔力"}, value: 500, basis: {kind: "author"}}], status: "active", by: author}},
-        ]}, "t"));
-        const line = branched.ids["tmp:r"]!;
-        const rendered = renderEntryForAgent(branched.world, "e1", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        const switched = branched.world.withOptions({...branched.world.options, chapterLines: new Map([["ch5", [{line, from: 1}]]])});
-        expect(switched.version).toBe(branched.world.version);
-        const result = writeBack(switched, {requestId: id(), by: author, entry: "e1", block: "b1", position: rendered.position, version: rendered.version, mode: rendered.mode, text: rendered.blocks[0]!.text, intent: "story"}, "t");
-        expect(result.ok && result.repeated).toBe(true);
-        expect(switched.line(line)?.engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3610}}}}});
-    });
-
-    test("重新读到新版本后再交回：照常发布", () => {
-        const now = later(world());
-        const result = send(now, now, blockOf(now).replace("{panel.魔力 = 3160}", "{panel.魔力 = 3000}"), "story");
-        expect(result.ok).toBe(true);
-    });
-});
-
-describe("canon.rendering 输出 1、8、10：写入检查与注记的扫描", () => {
-    test("`set` 整段替换一块也过白名单", () => {
-        const base = world();
-        const result = base.publish({requestId: id(), by: author, what: "edit", title: "坏", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:b"}, after: {id: "tmp:b", kind: "written", text: "坏", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: [], lines: [], links: [], patches: [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: "他说{+5}"}], status: "active", by: author}}]}, "t");
-        expect(result.ok === false && result.failure.code === "validation-failed" && result.failure.problems.map((problem) => problem.code)).toEqual(["no-field-expression"]);
-    });
-
-    test.each([
-        ["波浪线围栏", "~~~\n{x}\n~~~\n\n魔力 {panel.魔力}"],
-        ["开头带空格的围栏", "  ```\n{x}\n  ```\n\n魔力 {panel.魔力}"],
-        ["长围栏里有短围栏", "````\n```\n{x}\n```\n````\n\n魔力 {panel.魔力}"],
-        ["行内代码", "`{x}` 魔力 {panel.魔力}"],
-        ["转义", "\\{x} 魔力 {panel.魔力}"],
-    ])("%s里的花括号不当注记：原样交回没有改动，改值照常", (_name, source) => {
-        const base = world([source]);
-        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        const text = rendered.blocks[0]!.text;
-        const send = (changed: string) => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: changed, intent: "story"}, "t");
-        const same = send(text);
-        expect(same.ok && same.repeated).toBe(true);
-        const edited = ok(send(text.replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}")));
-        expect(edited.world.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
-    });
-
-    test("`->` 的左边按 JS 词法跳过注释：注释里的 `->` 不算分隔", () => {
-        const base = world(['{panel.魔力 /* a -> b */ >= 1 ? "a" : "b"}']);
-        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        const same = writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: rendered.blocks[0]!.text}, "t");
-        expect(same.ok && same.repeated).toBe(true);
+        expect(sourceBlock(world(), deep, "ch5").blocks).toEqual([{id: "source", error: expect.objectContaining({code: "unsupported-markdown", line: 1}), text: deep}]);
+        const long = `${"字".repeat(52_000)}<V of="panel.魔力" />`;
+        expect(sourceBlock(world(), long, "ch5").blocks[0]).toMatchObject({id: "source", values: [{tag: "V", raw: 3110}]});
     });
 });
 
@@ -396,48 +333,42 @@ describe("canon.rendering 输出 6、7、9：读不到的值、引用与显示�
         const base = {order, registry: buildRegistry([LINK as never]), reductions: () => undefined, chapterText: () => "", digest: options().digest};
         const person = (tmp: string, name: string, data: Entry["init"]["data"], text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data}});
         const jin = ok(World.empty(base).publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:j"}, after: person("tmp:j", "星瑾", {}, [])}]}, "t"));
-        return ok(jin.world.publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 1, puts: [{ref: {kind: "entry", id: "tmp:x"}, after: person("tmp:x", "星瑕", {link: {type: LINK.id, version: 1, enabled: true, declared: [{id: "额外", label: "额 外", kind: "number"}], fields: {友: {ref: "e1"}, n: 1, 额外: 7}}}, ["朋友 {link.友}，额外 {link.额外}，n {link.n}"])}]}, "t")).world;
+        return ok(jin.world.publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 1, puts: [{ref: {kind: "entry", id: "tmp:x"}, after: person("tmp:x", "星瑕", {link: {type: LINK.id, version: 1, enabled: true, declared: [{id: "额外", label: "额 外", kind: "number"}], fields: {友: {ref: "e1"}, n: 1, 额外: 7}}}, ['朋友 <V of="link.友" />，额外 <V of="link.额外" />，n <V of="link.n" />'])}]}, "t")).world;
     }
-    const position = {kind: "chapter" as const, chapter: "ch1", edge: "end" as const};
+    const position = {kind: "chapter" as const, chapter: "ch1", edge: "end" as const, line: "main"};
 
-    test("给作者：引用字段显示当时的名字，id 不出现；实例字段带显示名", () => {
-        const rendered = renderEntryForAuthor(linked(), "e2", position, "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        const text = JSON.stringify(rendered.blocks[0]);
-        expect(text).toContain('"type":"canonRef","id":"e1","name":"星瑾","deleted":false');
-        expect(text).toContain('"label":"额 外"');
+    test("给作者：引用字段的显示文字是当时的名字，id 不在显示文字里；实例字段带显示名", () => {
+        const values = authorValues(linked(), position, 0, "e2");
+        expect(values[0]).toMatchObject({path: "link.友", display: "星瑾", ref: {id: "e1", name: "星瑾", deleted: false}});
+        expect(values[1]).toMatchObject({path: "link.额外", label: "额 外", raw: 7, display: "7"});
     });
 
-    test("给 Agent：显示名与 id 不同时带装饰，相同时不带；读取结果里也有显示名", () => {
-        const world = linked();
-        const rendered = renderEntryForAgent(world, "e2", position, "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        expect(rendered.blocks[0]!.text).toBe('朋友 {link.友 = {"ref":"e1"} # 显示名：朋友}，额外 {link.额外 = 7 # 显示名：额 外}，n {link.n = 1}');
-        expect(world.line().engine.entry("e2", position, "actual")).toMatchObject({namespaces: {link: {fields: {额外: {label: "额 外", value: 7}, n: {value: 1}}}}});
+    test("给 Agent：显示名与 id 不同时带 label，相同时不带；读取结果里也有显示名", () => {
+        const base = linked();
+        expect(agentBlocks(base, position, "actual", "e2")).toEqual(['朋友 <V of="link.友" label="朋友">{"ref":"e1"}</V>，额外 <V of="link.额外" label="额 外">7</V>，n <V of="link.n">1</V>']);
+        expect(base.line().engine.entry("e2", position, "actual")).toMatchObject({namespaces: {link: {fields: {额外: {label: "额 外", value: 7}, n: {value: 1}}}}});
     });
 
-    test("类型不在：作者看到占位，Agent 看到 null 加不可用；存下的值不丢", () => {
-        const world = linked();
-        const gone = world.withOptions({...world.options, registry: buildRegistry([])});
-        const agent = renderEntryForAgent(gone, "e2", position, "actual");
-        if (agent === null || typeof agent === "string") throw new Error("no render");
-        expect(agent.blocks[0]!.text).toContain("{link.n = null # 不可用：类型不可用}");
-        const shown = renderEntryForAuthor(gone, "e2", position, "actual");
-        if (shown === null || typeof shown === "string") throw new Error("no render");
-        expect(JSON.stringify(shown.blocks[0])).toContain('"type":"canonPlaceholder","reason":"类型不可用"');
+    test("类型不在：作者看到未知与原因，Agent 看到 null 加 unavailable；存下的值不丢", () => {
+        const base = linked();
+        const gone = base.withOptions({...base.options, registry: buildRegistry([])});
+        expect(agentBlocks(gone, position, "actual", "e2")[0]).toContain('<V of="link.n" unavailable="类型不可用">null</V>');
+        expect(authorValues(gone, position, 0, "e2")[2]).toMatchObject({unknown: true, unavailable: "类型不可用"});
         expect(gone.line().engine.entry("e2", position, "actual")).toMatchObject({namespaces: {link: {readOnly: "component-unknown", fields: {n: {value: 1}}}}});
     });
 
+    test("给 Agent（列表字段）：显示名与 id 不同时带 label，列表元素的地址不带", () => {
+        expect(agentBlocks(plainWorld(['<V of="rel.清单" /> <V of="rel.清单[x1].数量" />']), at("ch1"))).toEqual(['<V of="rel.清单" label="随身物品">[{"id":"x1","label":"短剑","数量":1}]</V> <V of="rel.清单[x1].数量">1</V>']);
+    });
+
     test("版本对不上：照常给值", () => {
-        const world = linked();
-        const moved = world.withOptions({...world.options, registry: buildRegistry([{...LINK, version: 2} as never])});
-        const agent = renderEntryForAgent(moved, "e2", position, "actual");
-        if (agent === null || typeof agent === "string") throw new Error("no render");
-        expect(agent.blocks[0]!.text).toContain("{link.n = 1}");
+        const base = linked();
+        const moved = base.withOptions({...base.options, registry: buildRegistry([{...LINK, version: 2} as never])});
+        expect(agentBlocks(moved, position, "actual", "e2")[0]).toContain('<V of="link.n">1</V>');
     });
 });
 
-/** 图片字段与文字字段各一：渲染里的图片节点、属性里的表达式靠它们。 */
+/** 图片字段与文字字段各一：渲染里的图片项靠它们。 */
 const PIC: ComponentDeclaration = {
     id: "test.pic",
     label: "图",
@@ -469,150 +400,75 @@ function cast(blocks: string[]): World {
     ]} as WriteRequest, "t")).world;
 }
 
-function agentBlocks(base: World, position: ReturnType<typeof at>, mode: "actual" | "planned" = "actual"): string[] {
-    const rendered = renderEntryForAgent(base, "e1", position, mode);
-    if (rendered === null || typeof rendered === "string") throw new Error("no render");
-    return rendered.blocks.map((block) => block.text);
-}
-
-/** 给作者的一块里所有 canon 开头的节点，按出现的先后。 */
-function authorNodes(base: World, position: ReturnType<typeof at>, index = 0): Array<Record<string, unknown>> {
-    const rendered = renderEntryForAuthor(base, "e1", position, "actual");
-    if (rendered === null || typeof rendered === "string") throw new Error("no render");
-    const block = rendered.blocks[index]!;
-    if (!("tree" in block)) throw new Error("block is an error block");
-    const found: Array<Record<string, unknown>> = [];
-    const walk = (node: {type: string; children?: unknown[]}) => {
-        if (node.type.startsWith("canon")) found.push(node);
-        for (const child of node.children ?? []) walk(child as typeof node);
-    };
-    walk(block.tree as unknown as Parameters<typeof walk>[0]);
-    return found;
-}
-
-describe("canon.rendering 输出 1：白名单的放行与拒收（补）", () => {
-    const kinds = (source: string): string[] => {
-        const result = parseBlock(source);
-        if (!result.ok) throw new Error(result.problem.message);
-        const found: string[] = [];
-        const walk = (node: {type: string; children?: unknown[]}) => {
-            found.push(node.type);
-            for (const child of node.children ?? []) walk(child as typeof node);
-        };
-        walk(result.block.tree as unknown as Parameters<typeof walk>[0]);
-        return found;
-    };
-
-    test("MDX 解析失败得 mdx-invalid", () => {
-        const result = parseBlock("{panel.+}");
-        expect(result.ok === false && result.problem.code).toBe("mdx-invalid");
-    });
-
-    test("中文标点旁的强调按 CJK 友好的规则解析成粗体", () => {
-        expect(kinds("**“走吧。”**然后")).toContain("strong");
-    });
-
-    test("GFM 的表格与删除线放行", () => {
-        expect(kinds("| 名 | 值 |\n| --- | --- |\n| 魔力 | {panel.魔力} |")).toContain("table");
-        expect(kinds("~~旧名~~ 新名")).toContain("delete");
-    });
-
-    test("以 ref(\"…\") 开头的成员链放行，引用指向那个条目", () => {
-        const result = parseBlock('{ref("e2").panel.存款}');
-        expect(result.ok && result.block.expressions[0]!.references).toEqual([{entry: "e2", path: "panel.存款"}]);
-    });
-
-    test("元素 id 写成 [t3] 与 [\"t3\"] 等价", () => {
-        const bare = parseBlock("{panel.物品[t3].数量}");
-        const quoted = parseBlock('{panel.物品["t3"].数量}');
-        expect(bare.ok && quoted.ok && bare.block.expressions[0]!.references).toEqual(quoted.ok ? quoted.block.expressions[0]!.references : false);
-        expect(bare.ok && bare.block.expressions[0]!.references).toEqual([{entry: null, path: "panel.物品[t3].数量"}]);
-    });
-
-    test("<Image> 带 src 与 alt 放行", () => {
-        expect(parseBlock('<Image src="assets/a.png" alt="原身" />').ok).toBe(true);
+describe("canon.rendering 输出 5、6：引用别的条目与读不到的值", () => {
+    test("V 的 entry 取那个条目在同一位置、同一模式上的值", () => {
+        const base = cast(['<V entry="e2" of="panel.存款" />']);
+        const value = (chapter: string, mode: "actual" | "planned" = "actual") => agentBlocks(base, at(chapter), mode)[0];
+        expect([value("ch1"), value("ch2"), value("ch3"), value("ch3", "planned")]).toEqual(["500", "800", "800", "900"].map((n) => `<V entry="e2" of="panel.存款">${n}</V>`));
+        expect(authorValues(base, at("ch3"), 0, "e1", "planned")[0]).toMatchObject({entry: "e2", raw: 900, display: "900"});
     });
 
     test.each([
-        ["可选链 ?.", "{panel?.魔力}", "forbidden-syntax"],
-        ["模板字面量", "{`魔力${panel.魔力}`}", "forbidden-syntax"],
-        ["作用在字段上的负号", "{-panel.魔力}", "forbidden-syntax"],
-        ["<Image> 带别的属性", '<Image src="assets/a.png" width="3" />', "unknown-tag"],
-    ])("拒收：%s", (_name, source, code) => {
-        const result = parseBlock(source);
-        expect(result.ok ? null : result.problem.code).toBe(code as never);
+        ["尚未出场", '<V entry="e3" of="panel.存款" />'],
+        ["已删除", '<V entry="e4" of="panel.存款" />'],
+        ["没有这个字段", '<V of="panel.不存在" />'],
+        ["命名空间已去掉", '<V entry="e5" of="panel.存款" />'],
+    ])("%s：Agent 读到 null 加 unavailable，作者看到未知与原因，同一块里读得到的值照常", (_name, tag) => {
+        const base = cast([`前 ${tag} 后 <V of="panel.存款" />`]);
+        const [text] = agentBlocks(base, at("ch1"));
+        const opening = tag.slice(0, -3).replace(/[.[\]()]/gu, "\\$&");
+        expect(text).toMatch(new RegExp(`^前 ${opening} unavailable="[^"]+">null</V> 后 <V of="panel\\.存款">5</V>$`, "u"));
+        const values = authorValues(base, at("ch1"));
+        expect(values[0]).toMatchObject({raw: null, display: "未知", unknown: true});
+        expect(typeof (values[0] as {unavailable?: unknown}).unavailable === "string").toBe(true);
+        expect(values[1]).toMatchObject({path: "panel.存款", raw: 5});
+    });
+
+    test("读不到的值参与判断：结果是未知，没有生效的支", () => {
+        const base = cast(["<If test=\"ref('e3').panel.存款 >= 1\">有<Else />无</If>"]);
+        expect(agentBlocks(base, at("ch1"))[0]).toContain('value="null"');
+        expect(authorValues(base, at("ch1"))[0]).toMatchObject({tag: "If", result: null, taken: null, unavailable: expect.any(String)});
     });
 });
 
-describe("canon.rendering 输出 5、6：引用别的条目与读不到的值（补）", () => {
-    test("ref(\"…\") 取那个条目在同一位置、同一模式上的值", () => {
-        const base = cast(['{ref("e2").panel.存款}']);
-        expect(agentBlocks(base, at("ch1"))).toEqual(['{ref("e2").panel.存款 = 500}']);
-        expect(agentBlocks(base, at("ch2"))).toEqual(['{ref("e2").panel.存款 = 800}']);
-        expect(agentBlocks(base, at("ch3"))).toEqual(['{ref("e2").panel.存款 = 800}']);
-        expect(agentBlocks(base, at("ch3"), "planned")).toEqual(['{ref("e2").panel.存款 = 900}']);
+describe("canon.rendering 输出 7、8：值表各项与带值写法", () => {
+    test("图片：Image 标签给路径与说明；值是图片的 V 带图片的路径与说明", () => {
+        const values = authorValues(cast(['<Image src="assets/c.png" alt="立绘" />\n\n<V of="pic.图" />']), at("ch1"));
+        expect(values[0]).toEqual({tag: "Image", start: 0, path: "assets/c.png", caption: "立绘"});
+        expect(values[1]).toMatchObject({tag: "V", path: "pic.图", image: {path: "assets/a.png", caption: "原身"}});
     });
 
-    test.each([
-        ["尚未出场", '{ref("e3").panel.存款}', "ch1"],
-        ["已删除", '{ref("e4").panel.存款}', "ch1"],
-        ["没有这个字段", "{panel.不存在}", "ch1"],
-        ["命名空间已去掉", '{ref("e5").panel.存款}', "ch1"],
-    ])("%s：Agent 读到 null 加不可用，作者看到占位，同一块里读得到的值照常", (_name, reference, chapter) => {
-        const base = cast([`前 ${reference} 后 {panel.存款}`]);
-        const annotation = reference.slice(1, -1);
-        const escaped = annotation.replace(/[.()[\]]/gu, "\\$&");
-        expect(agentBlocks(base, at(chapter))[0]).toMatch(new RegExp(`^前 \\{${escaped} = null # 不可用：[^}]+\\} 后 \\{panel\\.存款 = 5\\}$`, "u"));
-        const nodes = authorNodes(base, at(chapter));
-        expect(nodes.map((node) => node.type)).toEqual(["canonPlaceholder", "canonValue"]);
-        expect(typeof nodes[0]!.reason === "string" && nodes[0]!.reason.length > 0).toBe(true);
-        expect(nodes[1]).toMatchObject({path: "panel.存款", raw: 5});
+    test("图片字段写成 Image of：作者拿到字段里的路径，Agent 读到 path", () => {
+        const base = cast(['<Image of="pic.图" alt="立绘" />']);
+        expect(authorValues(base, at("ch1"))).toEqual([{tag: "Image", start: 0, path: "assets/a.png", caption: "立绘"}]);
+        expect(agentBlocks(base, at("ch1"))).toEqual(['<Image of="pic.图" alt="立绘" path="assets/a.png" />']);
     });
 
-    test("读不到的值参与比较：结果是未知，作者看到占位", () => {
-        const base = cast(['{ref("e3").panel.存款 >= 1 ? "有" : "无"}']);
-        expect(agentBlocks(base, at("ch1"))[0]).toMatch(/-> null # 不可用：/u);
-        expect(authorNodes(base, at("ch1"))[0]).toMatchObject({type: "canonPlaceholder"});
-    });
-});
-
-describe("canon.rendering 输出 7、8：作者渲染的节点形状与带值写法的原样输出（补）", () => {
-    test("图片：标签与图片字段都是 canonImage（路径与说明）", () => {
-        const base = cast(['<Image src="assets/c.png" alt="立绘" />\n\n{pic.图}']);
-        const nodes = authorNodes(base, at("ch1"));
-        expect(nodes).toEqual([{type: "canonImage", path: "assets/c.png", caption: "立绘"}, {type: "canonImage", path: "assets/a.png", caption: "原身"}]);
+    test("图片值写成 {\"图片\": 路径, \"说明\": 文字}", () => {
+        expect(agentBlocks(cast(['<V of="pic.图" />']), at("ch1"))).toEqual(['<V of="pic.图">{"图片":"assets/a.png","说明":"原身"}</V>']);
     });
 
     test("条目引用：当时的名字；已删除的条目写“已删除的条目”并标 deleted", () => {
         const base = cast(['见<Ref id="e2" />与<Ref id="e4" />']);
-        expect(authorNodes(base, at("ch1"))).toEqual([
-            {type: "canonRef", id: "e2", name: "星瑾", deleted: false},
-            {type: "canonRef", id: "e4", name: "已删除的条目", deleted: true},
+        expect(authorValues(base, at("ch1"))).toEqual([
+            {tag: "Ref", start: 1, id: "e2", name: "星瑾", deleted: false},
+            {tag: "Ref", start: 17, id: "e4", name: "已删除的条目", deleted: true},
         ]);
         expect(agentBlocks(base, at("ch1"))).toEqual(['见<Ref id="e2" name="星瑾" />与<Ref id="e4" name="已删除的条目" />']);
     });
 
-    test("读不到的值：占位节点带原因", () => {
-        const nodes = authorNodes(cast(['{ref("e3").panel.存款}']), at("ch1"));
-        expect(nodes).toEqual([{type: "canonPlaceholder", reason: expect.any(String)}]);
+    test("转义的、行内代码与代码块里的标签原样输出，值表里没有它们", () => {
+        const source = '他说 \\<V of="panel.存款" />，`<V of="panel.存款" />` 与 <V of="panel.存款" />\n\n```\n<V of="panel.存款" />\n```';
+        expect(agentBlocks(cast([source]), at("ch1"))).toEqual(['他说 \\<V of="panel.存款" />，`<V of="panel.存款" />` 与 <V of="panel.存款">5</V>\n\n```\n<V of="panel.存款" />\n```']);
+        expect(authorValues(cast([source]), at("ch1"))).toHaveLength(1);
     });
 
-    test("图片值写成 {\"图片\": 路径, \"说明\": 文字}", () => {
-        const text = agentBlocks(cast(["{pic.图}"]), at("ch1"))[0]!;
-        const items = scanAnnotations(text);
-        expect(items?.map((item) => [item.kind, item.left, item.value])).toEqual([["assign", "pic.图", {"图片": "assets/a.png", "说明": "原身"}]]);
-    });
-
-    test("属性里的表达式同样写成注记", () => {
-        const base = cast(['<Image src={pic.路径} alt="立绘" />']);
-        expect(agentBlocks(base, at("ch1"))).toEqual(['<Image src={pic.路径 = "assets/b.png"} alt="立绘" />']);
-        expect(authorNodes(base, at("ch1"))).toEqual([{type: "canonImage", path: "assets/b.png", caption: "立绘"}]);
-    });
-
-    test("转义的 \\{、行内代码与代码块里的花括号原样输出，不当注记", () => {
-        const source = "他说\\{+5}，`{panel.存款}` 与 {panel.存款}\n\n```\n{panel.存款}\n```";
-        expect(agentBlocks(cast([source]), at("ch1"))).toEqual(["他说\\{+5}，`{panel.存款}` 与 {panel.存款 = 5}\n\n```\n{panel.存款}\n```"]);
-        expect(authorNodes(cast([source]), at("ch1"))).toHaveLength(1);
+    test("没生效的支里的标签照样有项、照样求值；Else 与 </If> 没有项", () => {
+        const source = '<If test="panel.存款 > 100">多<ElseIf test="panel.存款 > 1" /><V of="panel.存款" /><Else />无</If>';
+        const values = authorValues(cast([source]), at("ch1"));
+        expect(values.map((value) => [value.tag, "result" in value ? value.result : "raw" in value ? value.raw : null])).toEqual([["If", false], ["ElseIf", true], ["V", 5]]);
+        expect(values[0]).toMatchObject({taken: 1});
+        expect(agentBlocks(cast([source]), at("ch1"))).toEqual(['<If test="panel.存款 > 100" value="false">多<ElseIf test="panel.存款 > 1" value="true" /><V of="panel.存款">5</V><Else />无</If>']);
     });
 });
 
@@ -630,140 +486,15 @@ function strained(blocks: string[]): World {
     return ok(spent.publish({requestId: id(), by: author, what: "edit", title: "改初值", baseVersion: spent.version, puts: [withDeposit(spent, 1000)]} as WriteRequest, "t")).world;
 }
 
-describe("canon.rendering 输出 9：不完整的装饰（补）", () => {
-    test("地址的值不完整：注记加“不完整：原因”；算出来的结果依赖它时也加", () => {
-        const base = strained(['{panel.存款} 与 {panel.存款 >= 500 ? "够" : "不够"}']);
-        expect(agentBlocks(base, at("ch4"))[0]).toMatch(/^\{panel\.存款 = 1000 # 不完整：[^}]+\} 与 \{panel\.存款 >= 500 \? "够" : "不够" -> "够" # 不完整：[^}]+\}$/u);
-        expect(agentBlocks(base, at("ch2"))[0]).toBe('{panel.存款 = 1000} 与 {panel.存款 >= 500 ? "够" : "不够" -> "够"}');
+describe("canon.rendering 输出 9：不完整的装饰", () => {
+    test("地址的值不完整：带 incomplete（变更 id 与原因码）；算出来的结果依赖它时也带", () => {
+        const base = strained(['<V of="panel.存款" /> 与 <V expr="panel.存款 >= 500" />']);
+        expect(agentBlocks(base, at("ch4"))[0]).toMatch(/^<V of="panel\.存款" incomplete="c\d+ [a-z-]+">1000<\/V> 与 <V expr="panel\.存款 >= 500" incomplete="c\d+ [a-z-]+">true<\/V>$/u);
+        expect(authorValues(base, at("ch4"))[0]).toMatchObject({raw: 1000, incomplete: {change: expect.any(String), reason: expect.any(String)}});
+        expect(agentBlocks(base, at("ch2"))[0]).toBe('<V of="panel.存款">1000</V> 与 <V expr="panel.存款 >= 500">true</V>');
     });
 });
 
-describe("canon.rendering 输出 12、13：回写的文字操作与拒收（补）", () => {
-    const send = (base: World, position: ReturnType<typeof at>, text: string, intent?: "creative" | "story") => writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position, version: base.version, mode: "actual", text, ...(intent === undefined ? {} : {intent})}, "t");
-    const failure = (result: ReturnType<typeof writeBack>) => (result.ok ? "ok" : result.failure.code);
-
-    test("创作修改改了文字：改的是初值里这一块，不新增变更；之前的位置也读到新文字", () => {
-        const base = cast(["魔力 {panel.存款}"]);
-        const result = ok(send(base, at("ch4"), "魔法力 {panel.存款 = 5}"));
-        expect(result.world.data.entries.get("e1")!.init.text).toEqual([{id: "b1", source: "魔法力 {panel.存款}"}]);
-        expect(result.world.data.changes.size).toBe(base.data.changes.size);
-        expect(agentBlocks(result.world, at("ch1"))).toEqual(["魔法力 {panel.存款 = 5}"]);
-    });
-
-    test("这一块是整段替换或增块的变更给出的：创作修改改那条变更，初值不动", () => {
-        const base = cast(["魔力 {panel.存款}"]);
-        const patch = (op: "replaceBlock" | "addBlock", path: string, value: unknown) => ({ref: {kind: "change" as const, id: `tmp:${op}`}, after: {id: `tmp:${op}`, kind: "written", text: op, at: {kind: "chapter", chapter: "ch4", key: 10}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op, at: {entry: "e1", path}, value}], status: "active", by: author}});
-        const published = ok(base.publish({requestId: id(), by: author, what: "edit", title: "改块", baseVersion: base.version, puts: [patch("replaceBlock", "text[b1]", "重写 {panel.存款}"), patch("addBlock", "text[b2]", {after: "b1", source: "新增 {panel.存款}"})]} as WriteRequest, "t"));
-        const changed = published.world;
-        const replaced = ok(send(changed, at("ch5"), "重写了 {panel.存款 = 5}"));
-        expect(replaced.world.data.entries.get("e1")!.init.text).toEqual([{id: "b1", source: "魔力 {panel.存款}"}]);
-        expect(replaced.world.data.changes.get(published.ids["tmp:replaceBlock"]!)!.patches[0]).toMatchObject({op: "replaceBlock", value: "重写了 {panel.存款}"});
-        expect(agentBlocks(replaced.world, at("ch5"))[0]).toBe("重写了 {panel.存款 = 5}");
-        const added = ok(writeBack(changed, {requestId: id(), by: author, entry: "e1", block: "b2", position: at("ch5"), version: changed.version, mode: "actual", text: "新增了 {panel.存款 = 5}"}, "t"));
-        expect(added.world.data.changes.get(published.ids["tmp:addBlock"]!)!.patches[0]).toMatchObject({op: "addBlock", value: {source: "新增了 {panel.存款}"}});
-        expect(added.world.data.entries.get("e1")!.init.text).toEqual([{id: "b1", source: "魔力 {panel.存款}"}]);
-    });
-
-    test("注记被重排、复制或新增：annotation-mismatch，不发布", () => {
-        const base = world();
-        const text = agentBlocks(base, at("ch5"))[0]!;
-        const first = "{panel.魔力 = 3110}";
-        const second = "{panel.魔力上限 = 12000}";
-        expect(failure(send(base, at("ch5"), text.replace(`${first}/${second}`, `${second}/${first}`)))).toBe("annotation-mismatch");
-        expect(failure(send(base, at("ch5"), `${text} ${first}`))).toBe("annotation-mismatch");
-        expect(failure(send(base, at("ch5"), `${text} {panel.存款 = 0}`))).toBe("annotation-mismatch");
-        expect(base.version).toBe(2);
-    });
-
-    test("改了不可用的字段：field-unavailable", () => {
-        const base = world();
-        const text = agentBlocks(base, at("ch1"))[0]!;
-        expect(text).toContain("{panel.魔力 = null # 不可用：");
-        expect(failure(send(base, at("ch1"), text.replace(/\{panel\.魔力 = null[^}]*\}/u, "{panel.魔力 = 100}")))).toBe("field-unavailable");
-    });
-
-    test("改了不完整的字段：incomplete-field", () => {
-        const base = strained(["{panel.存款}"]);
-        const text = agentBlocks(base, at("ch4"))[0]!;
-        expect(failure(send(base, at("ch4"), text.replace("= 1000", "= 1500")))).toBe("incomplete-field");
-    });
-
-    test("改了几笔累出来的数：accumulated-value", () => {
-        const base = cast(["{panel.存款}"]);
-        const added = ok(base.publish({requestId: id(), by: author, what: "bookkeeping", title: "加 50", baseVersion: base.version, puts: [{ref: {kind: "change", id: "tmp:d"}, after: {id: "tmp:d", kind: "written", text: "加 50", at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [{op: "add", at: {entry: "e1", path: "panel.存款"}, value: 50, basis: {kind: "author"}}], status: "active", by: author}}]} as WriteRequest, "t")).world;
-        const text = agentBlocks(added, at("ch5"))[0]!;
-        expect(text).toBe("{panel.存款 = 55}");
-        expect(failure(send(added, at("ch5"), "{panel.存款 = 100}"))).toBe("accumulated-value");
-    });
-});
-
-describe("canon.project 失败码 not-found（补）：回写时块或条目不存在", () => {
-    test("块 id 不在条目里、条目不存在、条目已删除：都是 not-found，世界不变", () => {
-        const base = world([BLOCK]);
-        const write = (entry: string, block: string) => writeBack(base, {requestId: id(), by: author, entry, block, position: at("ch5"), version: base.version, mode: "actual", text: "新的"}, "t");
-        expect(write("e1", "b99")).toEqual({ok: false, failure: {code: "not-found"}});
-        expect(write("e404", "b1")).toEqual({ok: false, failure: {code: "not-found"}});
-        const entry = base.data.entries.get("e2")!;
-        const deleted = ok(base.publish({requestId: id(), by: author, what: "edit", title: "删", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e2"}, after: {...structuredClone(entry), deleted: true}}]}, "t"));
-        expect(writeBack(deleted.world, {requestId: id(), by: author, entry: "e2", block: "b1", position: at("ch5"), version: deleted.world.version, mode: "actual", text: "新的"}, "t")).toEqual({ok: false, failure: {code: "not-found"}});
-    });
-});
-
-describe("canon.rendering 输出 12、13（审查补）：请求 id、位置与过期", () => {
-    const send = (now: World, read: World, text: string, requestId = id(), intent?: "creative" | "story") => writeBack(now, {requestId, by: author, entry: "e1", block: "b1", position: at("ch5"), version: read.version, mode: "actual", text, ...(intent === undefined ? {} : {intent})}, "t");
-    const textOf = (base: World) => {
-        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        return rendered.blocks[0]!.text;
-    };
-
-    test("同一个请求 id 内容不同：request-id-reused，不答成功；被普通发布用过的 id 也一样", () => {
-        const base = world();
-        const requestId = id();
-        const first = ok(send(base, base, textOf(base).replace("{panel.魔力 = 3110}", "{panel.魔力 = 3000}"), requestId, "story"));
-        expect(send(first.world, first.world, textOf(first.world).replace("{panel.魔力 = 3000}", "{panel.魔力 = 2000}"), requestId, "story")).toEqual({ok: false, failure: {code: "request-id-reused"}});
-        const usedByPublish = first.world.revisions.at(0)!.requestId;
-        expect(send(first.world, first.world, textOf(first.world).replace("{panel.魔力 = 3000}", "{panel.魔力 = 2000}"), usedByPublish, "story")).toEqual({ok: false, failure: {code: "request-id-reused"}});
-    });
-
-    test("位置没写明线：line-required，世界不变", () => {
-        const base = world();
-        const {line: _line, ...withoutLine} = at("ch5");
-        expect(writeBack(base, {requestId: id(), by: author, entry: "e1", block: "b1", position: withoutLine, version: base.version, mode: "actual", text: textOf(base)}, "t")).toEqual({ok: false, failure: {code: "line-required"}});
-    });
-
-    test("世界前进过、这一块的注记对不上了：是过期（version-conflict），不是 annotation-mismatch", () => {
-        const base = world(["{panel.魔力} 与 {panel.魔力上限}"]);
-        const stale = textOf(base);
-        const now = ok(base.publish({requestId: id(), by: author, what: "edit", title: "改块", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(base.data.entries.get("e1")!), init: {...structuredClone(base.data.entries.get("e1")!.init), text: [{id: "b1", source: "只有 {panel.魔力}"}]}}}]}, "t")).world;
-        expect(send(now, base, stale)).toMatchObject({ok: false, failure: {code: "version-conflict"}});
-        // 世界没前进时同样的文字才是注记对不上。
-        expect(send(now, now, stale)).toMatchObject({ok: false, failure: {code: "annotation-mismatch"}});
-    });
-
-    test("表达式以行注释结尾：注记另起一行，原样交回没有改动，改值照常", () => {
-        const base = world(["魔力 {panel.魔力 // 注\n}"]);
-        const text = textOf(base);
-        const same = send(base, base, text);
-        expect(same.ok && same.repeated).toBe(true);
-        const edited = ok(send(base, base, text.replace("= 3110", "= 3000"), id(), "story"));
-        expect(edited.world.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
-    });
-});
-
-describe("canon.rendering 输出 13（审查补二）：过期时注记对不上", () => {
-    test("世界前进过、交回的注记与现在这一块的表达式对不上（个数相同、地址不同）：version-conflict", () => {
-        const base = world(["{panel.魔力} 与 {panel.魔力上限}"]);
-        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
-        if (rendered === null || typeof rendered === "string") throw new Error("no render");
-        const stale = rendered.blocks[0]!.text;
-        const now = ok(base.publish({requestId: id(), by: author, what: "edit", title: "换序", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(base.data.entries.get("e1")!), init: {...structuredClone(base.data.entries.get("e1")!.init), text: [{id: "b1", source: "{panel.魔力上限} 与 {panel.魔力}"}]}}}]}, "t")).world;
-        const result = writeBack(now, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: stale}, "t");
-        expect(result).toMatchObject({ok: false, failure: {code: "version-conflict"}});
-    });
-});
-
-/** 关系：一个引用字段、一张以引用为键的列表（行里还有一个引用）、一张作者写的列表。 */
 const REL: ComponentDeclaration = {
     id: "test.rel",
     label: "关系",
@@ -772,7 +503,7 @@ const REL: ComponentDeclaration = {
     fields: [
         {id: "对象", label: "对象", kind: "ref"},
         {id: "关系", label: "关系", kind: "list", keyedBy: "ref", item: [{id: "态度", label: "态度", kind: "text"}, {id: "起因", label: "起因", kind: "ref"}]},
-        {id: "清单", label: "清单", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
+        {id: "清单", label: "随身物品", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
     ],
 };
 
@@ -808,37 +539,273 @@ function plainBlocks(base: World, options: PlainOptions = {}): PlainBlock[] {
 
 const shape = (block: PlainBlock) => ({text: block.text, reads: [...block.reads].sort(), mentions: [...block.mentions].sort(), problems: [...block.problems].sort() as string[]});
 
-describe("canon.rendering 输出 15：纯文字的渲染", () => {
+describe("canon.rendering 输出 15、场景 5：纯文字的渲染", () => {
+    const REVERED = "rel.关系[e2].态度 == '崇敬'";
     test.each([
-        ["引用字段的值写名字，<Ref> 写名字", "{rel.对象}与<Ref id=\"e2\" />", {text: "星瑾与星瑾", reads: [], mentions: ["e2"], problems: []}],
-        ["别的条目的字段：读了它", '{ref("e2").entry.name}', {text: "星瑾", reads: ["e2"], mentions: [], problems: []}],
-        ["按条目选出的一行的子字段：读了那个条目", '{rel.关系["e2"].态度}', {text: "崇敬", reads: ["e2"], mentions: [], problems: []}],
-        ["行里的引用：写名字", '{rel.关系["e2"].起因}', {text: "阿七", reads: ["e2"], mentions: ["e3"], problems: []}],
-        ["取出单个列表行：没有写法", '前{rel.关系["e2"]}后', {text: "前后", reads: ["e2"], mentions: [], problems: ["raw-value"]}],
-        ["引别的条目的一块原文", '{ref("e2").text[b1]}', {text: "", reads: ["e2"], mentions: [], problems: ["quoted-block"]}],
-        ["引本条目一块原文（被引的块存在，源文里有 <Ref> 与表达式）：不写源文", '前<Ref id="e2" />{rel.对象}，引：{text[b1]}后', {text: "前星瑾星瑾，引：后", reads: [], mentions: ["e2"], problems: ["quoted-block"]}],
-        ["算出来的引用：写名字", '{rel.关系["e2"].态度 == "崇敬" ? rel.对象 : rel.清单}', {text: "星瑾", reads: ["e2"], mentions: ["e2"], problems: []}],
-        ["以引用为键的列表：行写名字，不用读取时补的 label", "{rel.关系}", {text: "星瑾", reads: [], mentions: ["e2"], problems: []}],
-        ["作者写的列表：行写 label", "{rel.清单}", {text: "短剑", reads: [], mentions: [], problems: []}],
-        ["字符串列表：顿号连起来", "又名{entry.aliases}", {text: "又名小瑕、阿瑕", reads: [], mentions: [], problems: []}],
-        ["图片字段：写说明", "{pic.图}", {text: "原身", reads: [], mentions: [], problems: []}],
-        ["图片标签：写说明，属性里的表达式不拼进文字", '<Image src="a.png" alt="脚印图" />后面<Image src={pic.路径} alt="x" />', {text: "脚印图后面x", reads: [], mentions: [], problems: []}],
-        ["图片的说明写成表达式：没有写法", '<Image src="a.png" alt={ref("e2").entry.name} />', {text: "", reads: ["e2"], mentions: [], problems: ["raw-value"]}],
-        ["还没出场：读不到值", '{ref("e3").entry.name}', {text: "", reads: ["e3"], mentions: [], problems: ["unavailable"]}],
-        ["已删除：名字写“已删除的条目”，读它的值读不到", '<Ref id="e4" />，{ref("e4").entry.name}', {text: "已删除的条目，", reads: ["e4"], mentions: ["e4"], problems: ["unavailable"]}],
+        ["引用字段的值写名字，<Ref> 写名字", '<V of="rel.对象" />与<Ref id="e2" />', {text: "星瑾与星瑾", reads: [], mentions: ["e2"], problems: []}],
+        ["别的条目的字段：读了它", '<V entry="e2" of="entry.name" />', {text: "星瑾", reads: ["e2"], mentions: [], problems: []}],
+        ["按条目选出的一行的子字段：读了那个条目", '<V of="rel.关系[e2].态度" />', {text: "崇敬", reads: ["e2"], mentions: [], problems: []}],
+        ["行里的引用：写名字", '<V of="rel.关系[e2].起因" />', {text: "阿七", reads: ["e2"], mentions: ["e3"], problems: []}],
+        ["取出单个列表行：没有写法", '前<V of="rel.关系[e2]" />后', {text: "前后", reads: ["e2"], mentions: [], problems: ["raw-value"]}],
+        ["引别的条目的一块原文", '<V entry="e2" of="text[b1]" />', {text: "", reads: ["e2"], mentions: [], problems: ["quoted-block"]}],
+        ["引本条目一块原文：不写源文", '前<Ref id="e2" /><V of="rel.对象" />，引：<V of="text[b1]" />后', {text: "前星瑾星瑾，引：后", reads: [], mentions: ["e2"], problems: ["quoted-block"]}],
+        ["条件写生效的那一支，算出来的引用写名字", `<If test="${REVERED}"><V of="rel.对象" /><Else /><V of="rel.清单" /></If>`, {text: "星瑾", reads: ["e2"], mentions: ["e2"], problems: []}],
+        ["没生效的支里读到的条目照样记进 reads，读不到也不报（那一支不写）", `<If test="${REVERED}">有<Else /><V entry="e3" of="entry.name" /></If>`, {text: "有", reads: ["e2", "e3"], mentions: [], problems: []}],
+        ["判断因读不到值而未知：同取值一样报 unavailable，不写文字", "<If test=\"ref('e3').entry.name == '阿七'\">有<Else />无</If>", {text: "", reads: ["e3"], mentions: [], problems: ["unavailable"]}],
+        ["没有一支生效：不写", "前<If test=\"rel.关系[e2].态度 == '鄙视'\">有</If>后", {text: "前后", reads: ["e2"], mentions: [], problems: []}],
+        ["以引用为键的列表：行写名字，不用读取时补的 label", '<V of="rel.关系" />', {text: "星瑾", reads: [], mentions: ["e2"], problems: []}],
+        ["作者写的列表：行写 label", '<V of="rel.清单" />', {text: "短剑", reads: [], mentions: [], problems: []}],
+        ["字符串列表：顿号连起来", '又名<V of="entry.aliases" />', {text: "又名小瑕、阿瑕", reads: [], mentions: [], problems: []}],
+        ["图片字段：写说明", '<V of="pic.图" />', {text: "原身", reads: [], mentions: [], problems: []}],
+        ["图片标签：写说明", '<Image src="a.png" alt="脚印图" />后面<Image of="pic.图" alt="x" />', {text: "脚印图后面x", reads: [], mentions: [], problems: []}],
+        ["还没出场：读不到值", '<V entry="e3" of="entry.name" />', {text: "", reads: ["e3"], mentions: [], problems: ["unavailable"]}],
+        ["已删除：名字写“已删除的条目”，读它的值读不到", '<Ref id="e4" />，<V entry="e4" of="entry.name" />', {text: "已删除的条目，", reads: ["e4"], mentions: ["e4"], problems: ["unavailable"]}],
+        ["行内代码里的标签：照原文，读到的条目照记，报 syntax", '见 `<V entry="e2" of="panel.秘密" />`', {text: '见 `<V entry="e2" of="panel.秘密" />`', reads: ["e2"], mentions: [], problems: ["syntax"]}],
+        ["转义的 <Ref>：照原文，记进 mentions，报 syntax", '见 \\<Ref id="e2" />', {text: '见 \\<Ref id="e2" />', reads: [], mentions: ["e2"], problems: ["syntax"]}],
+        ["代码里不成标签的内置标签名：报 syntax", '`<V of="panel.魔力"`', {text: '`<V of="panel.魔力"`', reads: [], mentions: [], problems: ["syntax"]}],
+        ["转义的、不成标签的别的名字：只是文字（编辑器写出 `<A` 时一律转义）", "评级 \\<A 级", {text: "评级 \\<A 级", reads: [], mentions: [], problems: []}],
+        ["代码里不成标签的别的名字：只是文字", "`<A 级`", {text: "`<A 级`", reads: [], mentions: [], problems: []}],
+        ["代码里成标签的别的名字：字面的标签，报 syntax", "`List<T>`", {text: "`List<T>`", reads: [], mentions: [], problems: ["syntax"]}],
     ])("%s", (_name, block, expected) => {
         expect(shape(plainBlocks(plainWorld([block]))[0]!)).toEqual(expected);
     });
 
     test("调用方给名字：<Ref>、引用的值、以引用为键的列表行都经它写", () => {
-        const base = plainWorld(["<Ref id=\"e2\" />、{rel.对象}、{rel.关系}"]);
+        const base = plainWorld(['<Ref id="e2" />、<V of="rel.对象" />、<V of="rel.关系" />']);
         const block = plainBlocks(base, {entryName: (target) => (target === "e2" ? "旅人" : null)})[0]!;
         expect(block.text).toBe("旅人、旅人、旅人");
         expect(block.mentions).toEqual(["e2"]);
     });
 
-    test("块出错（存下来的旧数据不合白名单）：原样源文，标 syntax，不给读取与名字", () => {
-        const context = {resolve: () => ({value: null}), entryName: () => null, isEntry: () => true};
-        expect(renderBlockPlain("b1", "<Bad />", context)).toEqual({id: "b1", text: "<Bad />", reads: [], mentions: [], problems: ["syntax"]});
+    const context: PlainContext = {resolve: () => ({value: null}), entryName: () => null, isEntry: () => true};
+
+    test("块出错（存下来的旧数据过不了检查）：原样源文，标 syntax，不给读取与名字", () => {
+        expect(renderBlockPlain("b1", '<div><Ref id="e2" /></div>', context)).toEqual({id: "b1", text: '<div><Ref id="e2" /></div>', reads: [], mentions: [], problems: ["syntax"]});
+    });
+
+    test("判断读得到、值是空的：写“未知”，不报问题", () => {
+        expect(renderBlockPlain("b1", '前<If test="panel.空 > 1">有<Else />无</If>后', context)).toEqual({id: "b1", text: "前未知后", reads: [], mentions: [], problems: []});
+    });
+
+    test("没登记的标签：不写文字，报 unknown-tag", () => {
+        expect(renderBlockPlain("b1", '前<Plot id="x" />后', context)).toEqual({id: "b1", text: "前后", reads: [], mentions: [], problems: ["unknown-tag"]});
+    });
+});
+
+/** 一条第 4 章的写下或计划的变更，补丁整段替换星瑕的 b1。 */
+const textChange = (tmp: string, value: string, status: StoryChange["status"] = "active", extra: Array<StoryChange["patches"][number]> = []) => ({ref: {kind: "change" as const, id: tmp}, after: {id: tmp, kind: "written", text: tmp, at: {kind: "chapter", chapter: "ch4", key: 0}, told: [], involves: ["e1"], lines: [], links: [], patches: [...extra, {op: "set", at: {entry: "e1", path: "text[b1]"}, value}], status, by: author}}) as WriteRequest["puts"][number];
+
+const publishPuts = (base: World, puts: WriteRequest["puts"]) => base.publish({requestId: id(), by: author, what: "edit", title: "改", baseVersion: base.version, puts}, "t");
+
+/**
+ * 存下一条补丁文字过不了现在的检查的变更（旧数据、卸了插件）：先用“占位”写下，再把最后一次修订里的“占位”换成 `source` 重放。
+ */
+function storedChange(base: World, source: string, status: StoryChange["status"]): {readonly world: World; readonly id: string} {
+    const written = ok(publishPuts(base, [textChange("tmp:old", "占位", status)]));
+    const last = JSON.parse(JSON.stringify(written.world.revisions.at(-1)).replaceAll("占位", JSON.stringify(source).slice(1, -1)));
+    return {world: World.replay([...written.world.revisions.slice(0, -1), last], base.options), id: written.ids["tmp:old"]!};
+}
+
+const editsOf = (base: World, ops: EntryOp[]): EntryEdits => ({requestId: id(), by: author, what: "edit", title: "改", baseVersion: base.version, ops} as EntryEdits);
+
+describe("canon.rendering 输出 1、18、19（审查补）：规范化与基线的边界", () => {
+    test("editEntries 的整段替换、替换、增块、新建都存规范写法", () => {
+        const base = world(["甲乙"]);
+        const set = ok(editEntries(base, editsOf(base, [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: '名 <V of="entry.name"/>'}]), "t"));
+        expect(textOf(set.world)[0]!.source).toBe('名 <V of="entry.name" />');
+        const replaced = ok(editEntries(base, editsOf(base, [{op: "replace", at: {entry: "e1", path: "text[b1]"}, find: "甲", with: '<V of="entry.name"/>'}]), "t"));
+        expect(textOf(replaced.world)[0]!.source).toBe('<V of="entry.name" />乙');
+        const added = ok(editEntries(base, editsOf(base, [{op: "addBlock", entry: "e1", source: '<Ref  id="e2"/>', after: "b1"}]), "t"));
+        expect(textOf(added.world).map((block) => block.source)).toEqual(["甲乙", '<Ref id="e2" />']);
+        const created = ok(editEntries(base, editsOf(base, [{op: "create", id: "tmp:n", entry: {name: "乙", kind: "人物", text: ['<V of="entry.name"/>']}} as EntryOp]), "t"));
+        expect(created.world.data.entries.get(created.ids["tmp:n"]!)!.init.text.map((block) => block.source)).toEqual(['<V of="entry.name" />']);
+    });
+
+    test("开头几个 BOM 都去掉：直接发布与 editEntries 存下同一份", () => {
+        const bom = String.fromCharCode(0xfeff);
+        const base = world(["甲"]);
+        expect(textOf(ok(writeText(base, [`${bom}${bom}正文`])).world)[0]!.source).toBe("正文");
+        expect(textOf(ok(editEntries(base, editsOf(base, [{op: "set", at: {entry: "e1", path: "text[b1]"}, value: `${bom}${bom}正文`}]), "t")).world)[0]!.source).toBe("正文");
+    });
+
+    test("规范化不改作者签过的请求：签名按原样的请求算，含非规范写法的照常发布", () => {
+        const empty = World.empty({...options(), project: PROJECT, verifyAuthorSource: verify});
+        const opened = ok(empty.publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [{ref: {kind: "entry", id: "tmp:e"}, after: {id: "tmp:e", type: "人物", parent: null, folder: "", order: 0, init: {name: "人", aliases: [], summary: "", text: [{id: "b1", source: "原来"}], data: {}}}}]}, "t")).world;
+        const entry = structuredClone(opened.data.entries.get("e1")!);
+        entry.init.text = [{id: "b1", source: '同行 <Ref id="e1"/>'}];
+        const request: WriteRequest = {requestId: id(), by: author, what: "edit", title: "定", baseVersion: opened.version, puts: [{ref: {kind: "entry", id: "e1"}, after: entry}, {ref: {kind: "decision", id: "tmp:d"}, after: {id: "tmp:d", text: "第几章揭开", status: "decided", conclusion: "第 2 章", about: [], hints: []}}]} as WriteRequest;
+        const published = ok(opened.publish({...request, authorizations: [sign(request, "tmp:d", "new→decided")]}, "t"));
+        expect(published.world.data.entries.get("e1")!.init.text[0]!.source).toBe('同行 <Ref id="e1" />');
+    });
+
+    test("补偿修订照原样恢复改前的文字：旧文字不是规范写法也不改写", () => {
+        const old = injected(world(), [["b2", '<Ref  id="e2"/>']]);
+        const edited = ok(writeText(old, [BLOCK, "新的"]));
+        const reverted = ok(edited.world.revert(edited.revision.id, false, {requestId: id(), by: author}, "t"));
+        expect(textOf(reverted.world)[1]).toEqual({id: "b2", source: '<Ref  id="e2"/>'});
+    });
+
+    test("变更里的整段替换：没登记的标签按基线放行；基线收生效的变更里的标签，不收撤回的", () => {
+        const withPlot = injected(world(), [["b2", '<Plot id="x" />']]);
+        expect(rejected(publishPuts(withPlot, [textChange("tmp:a", '<Plot id="x" />')]))).toBe("ok");
+        expect(rejected(publishPuts(withPlot, [textChange("tmp:a", '<Plot id="y" />')]))).toEqual([{code: "unknown-tag", path: "patches[0]"}]);
+        expect(rejected(writeText(storedChange(world(), '<Plot id="z" />', "active").world, [BLOCK, '<Plot id="z" />']))).toBe("ok");
+        expect(rejected(writeText(storedChange(world(), '<Plot id="z" />', "undone").world, [BLOCK, '<Plot id="z" />']))).toEqual([{code: "unknown-tag", path: "init.text[b2]"}]);
+    });
+
+    test("基线只认自闭合的写法：已有 <Plot id=\"x\" /> 时写带内容的 <Plot id=\"x\">…</Plot> 照样拒收；旧块里非规范的没登记标签 Agent 看到原样", () => {
+        const base = injected(world(), [["b2", '<Plot  id="x"/>']]);
+        expect(rejected(writeText(base, [BLOCK, '<Plot  id="x"/>', '<Plot id="x">作者打的字</Plot>']))).toEqual([{code: "unknown-tag", path: "init.text[b3]"}]);
+        expect(agentBlocks(base, at("ch5"))[1]).toBe('<Plot  id="x"/>');
+    });
+
+    test("原样留着的旧补丁不再查，按内容认：前面插一条别的补丁也算原样，文字不被改写；撤回的变更重新生效要查", () => {
+        const stored = storedChange(world(), "<div>旧</div>", "active");
+        const change = structuredClone(stored.world.data.changes.get(stored.id)!);
+        const extra = {op: "set", at: {entry: "e1", path: "panel.存款"}, value: 1} as StoryChange["patches"][number];
+        const kept = ok(publishPuts(stored.world, [{ref: {kind: "change", id: stored.id}, after: {...change, patches: [extra, ...change.patches]}}]));
+        expect(kept.world.data.changes.get(stored.id)!.patches[1]!.value).toBe("<div>旧</div>");
+        const undone = storedChange(world(), "<div>旧</div>", "undone");
+        const again = structuredClone(undone.world.data.changes.get(undone.id)!);
+        expect(rejected(publishPuts(undone.world, [{ref: {kind: "change", id: undone.id}, after: {...again, status: "active"}}]))).toEqual([{code: "unsupported-markdown", path: "patches[0]"}]);
+    });
+
+    test("同一请求里新建的条目：主文字里用临时 id 引它，存下的是正式 id", () => {
+        const base = world();
+        const person = (tmp: string, name: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+        const created = ok(publishPuts(base, [
+            {ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", "甲", ['见 <Ref id="tmp:b" />，<V entry="tmp:b" of="entry.name" />，<V expr="ref(\'tmp:b\').entry.name" />'])},
+            {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", "乙", [])},
+        ]));
+        const [a, b] = [created.ids["tmp:a"]!, created.ids["tmp:b"]!];
+        expect(created.world.data.entries.get(a)!.init.text[0]!.source).toBe(`见 <Ref id="${b}" />，<V entry="${b}" of="entry.name" />，<V expr="ref('${b}').entry.name" />`);
+        expect(agentBlocks(created.world, at("ch1"), "actual", a)[0]).toBe(`见 <Ref id="${b}" name="乙" />，<V entry="${b}" of="entry.name">"乙"</V>，<V expr="ref('${b}').entry.name">"乙"</V>`);
+    });
+
+    test("editEntries 同一批里新建的条目：别的条目整段替换、增块、新建的主文字里用它的临时 id，存下的是正式 id", () => {
+        const base = world(["甲"]);
+        const result = editEntries(base, editsOf(base, [
+            {op: "create", id: "tmp:n", entry: {name: "新人", kind: "人物", text: ['见 <Ref id="tmp:m" />']}},
+            {op: "create", id: "tmp:m", entry: {name: "另一人", kind: "人物", text: ['见 <Ref id="tmp:n" />']}},
+            {op: "set", at: {entry: "e1", path: "text[b1]"}, value: '同行 <Ref id="tmp:n" />'},
+            {op: "addBlock", entry: "e1", source: '<V entry="tmp:n" of="entry.name" />', after: "b1"},
+        ] as EntryOp[]), "t");
+        const done = ok(result);
+        const [n, m] = [done.ids["tmp:n"]!, done.ids["tmp:m"]!];
+        expect(textOf(done.world).map((block) => block.source)).toEqual([`同行 <Ref id="${n}" />`, `<V entry="${n}" of="entry.name" />`]);
+        expect([done.world.data.entries.get(n)!.init.text[0]!.source, done.world.data.entries.get(m)!.init.text[0]!.source]).toEqual([`见 <Ref id="${m}" />`, `见 <Ref id="${n}" />`]);
+    });
+
+    test("写了临时 id 又超过长度上限的块：照常拒收，不为换 id 去解析它", () => {
+        const base = world();
+        const deep = `${"> ".repeat(25_000)}<Ref id="tmp:b" />`;
+        const person = (tmp: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name: tmp, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+        expect(rejected(publishPuts(base, [{ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", [deep])}, {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", [])}]))).toEqual([{code: "block-too-large", path: "init.text[b1]"}]);
+    });
+
+    test("式子里的引用按语法树认：带空格的 ref ( '…' ) 换，字符串里写着的 ref('…') 不换", () => {
+        const base = world();
+        const person = (tmp: string, text: string[]): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, init: {name: tmp, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+        const created = ok(publishPuts(base, [
+            {ref: {kind: "entry", id: "tmp:a"}, after: person("tmp:a", ["<V expr=\"ref ( 'tmp:b' ).entry.name == 'ref(tmp:b)'\" />"])},
+            {ref: {kind: "entry", id: "tmp:b"}, after: person("tmp:b", [])},
+        ]));
+        const b = created.ids["tmp:b"]!;
+        expect(created.world.data.entries.get(created.ids["tmp:a"]!)!.init.text[0]!.source).toBe(`<V expr="ref ( '${b}' ).entry.name == 'ref(tmp:b)'" />`);
+    });
+
+    test("式子超过 1000 个字符拒收（嵌套的深度因此有界，写入与渲染不会栈溢出）；splitBlocks 读不出结构的整段作为一块", () => {
+        expect(rejected(writeText(world(), [`<V expr="${"1+".repeat(600)}entry.name" />`]))).toEqual([{code: "forbidden-syntax", path: "init.text[b1]"}]);
+        expect(rejected(writeText(world(), [`<V expr="${"1+".repeat(400)}panel.魔力" />`]))).toBe("ok");
+        const deep = "> ".repeat(25_000);
+        expect(splitBlocks(deep)).toEqual([{id: "b1", source: deep}]);
+    });
+
+    test("单元树超过 100 层拒收（98 层引用加段落与文字是 100 层，照常；99 层拒收），存下的旧数据照出错的块给（与运行时的栈深无关）", () => {
+        const quotes = (levels: number) => `${"> ".repeat(levels)}字`;
+        expect(rejected(writeText(world(), [quotes(98)]))).toBe("ok");
+        expect(rejected(writeText(world(), [quotes(99)]))).toEqual([{code: "unsupported-markdown", path: "init.text[b1]"}]);
+        expect(blockProblem(quotes(99))?.message).toBe("nested more than 100 levels deep; flatten the quotes, lists or emphasis");
+        const stored = injected(world(), [["b2", quotes(99)]]);
+        expect(agentBlocks(stored, at("ch5"))[1]).toBe(quotes(99));
+        const rendered = renderEntryForAuthor(stored, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        expect(rendered.blocks[1]).toMatchObject({error: {code: "unsupported-markdown"}, text: quotes(99)});
+    });
+
+    test("原样的 HTML（块级与行内）的诊断写 raw HTML，不写内部的单元名", () => {
+        for (const source of ["<div>旧</div>", "前 <span>旧</span> 后"]) expect(blockProblem(source)?.message).toBe("raw HTML or an HTML comment is not supported in entry text");
+    });
+
+    test("旧块里存着没新建的临时 id：之后的请求新建同名的临时 id，原样留着的旧块不被改绑；新写的块照换（发布、editEntries 与它的预览）", () => {
+        const stored = ok(writeText(world(), ['提到 <Ref id="tmp:x" />。'])).world;
+        expect(textOf(stored)[0]!.source).toBe('提到 <Ref id="tmp:x" />。');
+        const newcomer = {id: "tmp:x", type: "人物", parent: null, folder: "", order: 5, init: {name: "新来的", aliases: [], summary: "", text: [], data: {}}} as Entry;
+        const renamed = {...structuredClone(stored.data.entries.get("e1")!), init: {...stored.data.entries.get("e1")!.init, name: "星瑕二"}};
+        const published = ok(publishPuts(stored, [{ref: {kind: "entry", id: "tmp:x"}, after: newcomer}, {ref: {kind: "entry", id: "e1"}, after: renamed}]));
+        expect(textOf(published.world)[0]!.source).toBe('提到 <Ref id="tmp:x" />。');
+        const edits = editsOf(stored, [
+            {op: "create", id: "tmp:x", entry: {name: "新来的", kind: "人物"}},
+            {op: "set", at: {entry: "e1", path: "entry.name"}, value: "星瑕二"},
+            {op: "set", at: {entry: "e1", path: "text[b1]"}, value: '提到 <Ref id="tmp:x" />。'},
+            {op: "addBlock", entry: "e1", source: '又提到 <Ref id="tmp:x" />。', after: "b1"},
+        ] as EntryOp[]);
+        for (const result of [editEntries(stored, edits, "t"), previewEntries(stored, edits, "t")]) {
+            const done = ok(result);
+            const x = done.ids["tmp:x"]!;
+            expect(textOf(done.world).map((block) => block.source)).toEqual(['提到 <Ref id="tmp:x" />。', `又提到 <Ref id="${x}" />。`]);
+        }
+        // 变更的补丁一侧同样：原样留着的旧补丁不换，新加的补丁照换。
+        const withPatch = ok(publishPuts(world(), [textChange("tmp:c1", '第 4 章 <Ref id="tmp:x" />')]));
+        const change = withPatch.ids["tmp:c1"]!;
+        const old = structuredClone(withPatch.world.data.changes.get(change)!);
+        const added = {op: "set", at: {entry: "e1", path: "text[b1]"}, value: '新 <Ref id="tmp:x" />'} as StoryChange["patches"][number];
+        const again = ok(publishPuts(withPatch.world, [{ref: {kind: "entry", id: "tmp:x"}, after: newcomer}, {ref: {kind: "change", id: change}, after: {...old, patches: [...old.patches, added]}}]));
+        const patches = again.world.data.changes.get(change)!.patches;
+        expect([patches[0]!.value, patches[1]!.value]).toEqual(['第 4 章 <Ref id="tmp:x" />', `新 <Ref id="${again.ids["tmp:x"]!}" />`]);
+    });
+
+    test("按块渲染（Agent 写回一块时用）：只给那一块，给 Agent 的另带存下的源文；没有那块时没有块", () => {
+        const base = injected(world(), [["b2", '魔力 <V  of="panel.魔力"/>。']]);
+        expect(renderEntryForAgent(base, "e1", at("ch5"), "actual", {block: "b2"})).toMatchObject({blocks: [{id: "b2", text: '魔力 <V of="panel.魔力">3110</V>。', source: '魔力 <V  of="panel.魔力"/>。'}]});
+        expect(renderEntryForAgent(base, "e1", at("ch5"), "actual", {block: "b9"})).toMatchObject({blocks: []});
+        expect(renderEntryForAuthor(base, "e1", at("ch5"), "actual", {block: "b2"})).toMatchObject({blocks: [{id: "b2"}]});
+    });
+
+    test("非规范写法的旧块：读到的带值写法去值，规范化以后与存下的源文规范化以后相同（Agent 原样交回算没有改动）", () => {
+        const base = injected(world(), [["b2", '魔力 <V  of="panel.魔力"/>，<Plot  id="x"/>。']]);
+        const read = agentBlocks(base, at("ch5"))[1]!;
+        expect(normalizeBlockSource(stripEntryText(read))).toBe(normalizeBlockSource('魔力 <V  of="panel.魔力"/>，<Plot  id="x"/>。'));
+        // 去值时活的标签已写成规范写法：Agent 工具比“有没有改动”时交回的一侧不再规范化（只差 BOM 与换行）。
+        expect(stripEntryText(read)).toBe('魔力 <V of="panel.魔力" />，<Plot id="x" />。');
+    });
+
+    test("预览的行列：CR、CRLF、LF 都算一个换行", () => {
+        for (const newline of ["\r", "\r\n", "\n"]) {
+            const rendered = renderSourceForAuthor(world(), "e1", `第一段${newline}${newline}魔力 <V of="panel.魔力"`, at("ch5"), "actual");
+            if (rendered === null || typeof rendered === "string") throw new Error("no render");
+            expect(rendered.blocks[0]).toMatchObject({error: {code: "tag-malformed", line: 3, column: 4}});
+        }
+    });
+});
+
+describe("canon.rendering 输出 5、6、7（审查补）：结果确定时不标读不到；字符串列表的显示", () => {
+    test("`false && 读不到的`是确定的假：Agent 与作者都不带 unavailable", () => {
+        const base = cast(["<V expr=\"false && ref('e3').entry.name\" />"]);
+        expect(agentBlocks(base, at("ch1"))).toEqual(["<V expr=\"false && ref('e3').entry.name\">false</V>"]);
+        expect(authorValues(base, at("ch1"))[0]).toEqual({tag: "V", start: 0, expr: "false && ref('e3').entry.name", raw: false, display: "否"});
+    });
+
+    test("判断的结果确定时作者的值表也不带读不到；条件未知时按第一个未知的判断报：读不到的报 unavailable 不写字，值为空的写“未知”", () => {
+        const base = cast(["<If test=\"false && ref('e3').entry.name == 'x'\">甲<Else />乙</If>"]);
+        expect(authorValues(base, at("ch1"))[0]).toEqual({tag: "If", start: 0, result: false, taken: 1});
+        const context: PlainContext = {resolve: (reference) => (reference.entry === "e3" ? {value: null, unavailable: "还没出场"} : {value: null}), entryName: () => null, isEntry: () => true};
+        const missingFirst = "前<If test=\"ref('e3').entry.name == '阿七'\">甲<ElseIf test=\"panel.空 > 1\" />乙</If>后";
+        const emptyFirst = "前<If test=\"panel.空 > 1\">甲<ElseIf test=\"ref('e3').entry.name == '阿七'\" />乙</If>后";
+        expect([renderBlockPlain("b1", missingFirst, context), renderBlockPlain("b1", emptyFirst, context)].map((block) => [block.text, block.problems])).toEqual([["前后", ["unavailable"]], ["前未知后", []]]);
+    });
+
+    test("作者看到的字符串列表写各项，用顿号连", () => {
+        expect(authorValues(plainWorld(['<V of="entry.aliases" />']), at("ch1"))[0]).toMatchObject({raw: ["小瑕", "阿瑕"], display: "小瑕、阿瑕"});
     });
 });

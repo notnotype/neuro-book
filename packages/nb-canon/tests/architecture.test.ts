@@ -39,3 +39,10 @@ test("子路径 ./schema 只依赖 TypeBox：不带引擎与渲染", () => {
     expect([...packages].sort()).toEqual(["typebox"]);
     expect(files.map((file) => relative(SRC, file)).filter((file) => file.startsWith("render/") || file.startsWith("engine/"))).toEqual([]);
 });
+
+test("子路径 ./grammar 运行时只依赖 nb-markdown 的纯入口 ./marked 与 acorn：浏览器的编辑器与阅读视图也引它，不带 Tiptap", () => {
+    const files = [...closure(join(SRC, "grammar", "index.ts"))];
+    const specifiers = new Set(files.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+["']([^."'][^"']*)["']/gmu)].map((match) => match[1]!)));
+    expect([...specifiers].sort()).toEqual(["@notnotype/nb-markdown/marked", "acorn"]);
+    expect(files.map((file) => relative(SRC, file)).filter((file) => !file.startsWith("grammar/") && !file.startsWith("core/"))).toEqual([]);
+});

@@ -364,8 +364,9 @@ async function update(): Promise<void> {
 
 /* 小组标题同“搜索与网页”页：带分隔线的小号粗体。 */
 .network-page__title {
-    margin: 0 0 var(--space-2);
-    padding-bottom: var(--space-4);
+    /* 同设置窗口的小组标题：到第一行不大于行距（nb-ui 设计语言“分组与层次”第 1 条）。 */
+    margin: 0 0 var(--space-1);
+    padding-bottom: var(--space-3);
     border-bottom: var(--border-w) solid var(--divider);
     font-size: var(--text-sm);
     font-weight: var(--weight-strong);

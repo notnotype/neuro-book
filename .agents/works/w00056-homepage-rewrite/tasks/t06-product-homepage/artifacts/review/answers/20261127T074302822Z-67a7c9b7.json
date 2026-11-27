@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T074302822Z-67a7c9b7",
+    "artifactVersion": 12,
+    "contentHash": "a210bb54d92fc13084cdb6577fc21e344af3eb8f11328b1fece94b6f4acef81a",
+    "submittedAt": "2026-11-27T07:42:59.927Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "day-r12": "library",
+        "demo-r12": "ok",
+        "act-two-r12": "prototype"
+    },
+    "comments": {},
+    "note": null
+}

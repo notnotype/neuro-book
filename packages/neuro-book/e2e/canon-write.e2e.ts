@@ -19,6 +19,7 @@ import {localModelSettings} from "nbook/plugins/agent/testing/endpoint";
 
 import {PACKAGE_ROOT, startProductServer, track} from "./fixtures";
 import type {ProcessHandle, ProductServer} from "./fixtures";
+import {selectTab} from "./support/entry-page";
 
 test.describe.configure({mode: "serial"});
 // 作者界面在 1280 宽时编辑区不到 640 像素，条目页落到窄版。
@@ -138,7 +139,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.性格")).toHaveText("银白长发");
 
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await expect(entryPage(page).locator("[data-text-empty]")).toHaveText("还没有主文字");
     await entryPage(page).getByRole("button", {name: "开始写"}).click();
     // 进来是一个空的输入框；还没写字时标签没有未保存的圆点。
@@ -151,9 +152,9 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     // “插入”把字段的写法放在光标处，焦点回到输入框、光标在写法后面：接着打的字跟在它后面。
     await entryPage(page).locator("[data-text-insert]").click();
     await page.getByRole("menuitem", {name: "人物 · 性格"}).click();
-    await expect(sourceText(page)).toContainText("一年级学生。{character.性格}");
+    await expect(sourceText(page)).toContainText('一年级学生。<V of="character.性格" />');
     await page.keyboard.type("是她的样子。");
-    await expect(sourceText(page)).toContainText("{character.性格}是她的样子。");
+    await expect(sourceText(page)).toContainText('<V of="character.性格" />是她的样子。');
     // 旁边的预览是输入框里的整篇照此刻的数据画的（author-ui 输出 48）：插入的写法显示成性格当时的值；预览里的值不是按钮。
     const preview = entryPage(page).locator("[data-text-preview]");
     await expect(preview).toContainText("一年级学生。银白长发是她的样子。");
@@ -214,7 +215,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
 test("主文字的稿（验收 16）：加一段，刷新以后标签带圆点、直接在编辑里、改的字还在；提交成一条修订、主文字是一块，从提示还原", async ({page}) => {
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await expect(textSource(page)).toHaveCount(1);
     // 空作品没有章、也没有计划：“在看”不出，编辑期间也就没有要锁的（有章时见本文件最后一条）。
@@ -256,7 +257,7 @@ test("长的主文字左右分屏（author-ui 输出 48）：打字以后预览�
     await page.setViewportSize({width: 1920, height: 900});
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await focusSource(page);
     await page.keyboard.press("Control+End");
@@ -293,7 +294,7 @@ test("长的主文字左右分屏（author-ui 输出 48）：打字以后预览�
 test("别处也改了主文字（验收 16）：另一个窗口先提交，这边提交时出对照；选“现在的”就照别处的那一版", async ({page, browser}) => {
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await focusSource(page);
     await page.keyboard.press("Control+End");
@@ -306,7 +307,7 @@ test("别处也改了主文字（验收 16）：另一个窗口先提交，这�
     try {
         await open(other);
         await openEntry(other, "人物", "星瑕");
-        await entryPage(other).getByRole("tab", {name: "文字"}).click();
+        await selectTab(entryPage(other).getByRole("tab", {name: "文字"}));
         await entryPage(other).getByRole("button", {name: "编辑", exact: true}).click();
         await focusSource(other);
         await other.keyboard.press("Control+End");
@@ -335,7 +336,7 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     await page.route("**/assets/editor.all-*.js", (route) => route.abort());
     await open(page);
     await openEntry(page, "人物", "星瑕");
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     const fallback = textSource(page).locator("[data-code-input-fallback]");
     await expect(fallback).toBeVisible();
@@ -347,7 +348,7 @@ test("编辑器加载不了时（workbench/editor 输出 69）：输入框退回
     // 退回的文本框里“插入”同样落在光标处。
     await entryPage(page).locator("[data-text-insert]").click();
     await page.getByRole("menuitem", {name: "人物 · 性格"}).click();
-    await expect(fallback).toHaveValue(/（文本框里改的）\{character\.性格\}$/u);
+    await expect(fallback).toHaveValue(/（文本框里改的）<V of="character\.性格" \/>$/u);
     await expect(fallback).toBeFocused();
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("（文本框里改的）");
@@ -383,14 +384,15 @@ test("Agent 用 canon_write 建条目：批准后树里有它、读得到初值�
     await showTree(page, row(page, "组织"));
     await row(page, "组织").click();
     await expect(row(page, "第三魔法学院")).toBeVisible();
-    await row(page, "第三魔法学院").click();
+    // 有子条目的条目点行是打开它，展开只认点箭头（author-ui 输出 5）。
+    await row(page, "第三魔法学院").locator("[data-tree-toggle]").click();
     await expect(row(page, "雾崎")).toBeVisible();
     await row(page, "雾崎").click();
     await expect(activeTabLabel(page)).toHaveText("雾崎");
     // 人物的条目先看人物分页（author-ui 输出 9），主文字在“文字”里。
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("星瑕的对头");
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await expect(fieldValue(page, "character.性格")).toHaveText("一身黑衣");
 
     // 雾崎的页开着：Agent 再建一个条目，页上另出一行 Agent 提示；从提示还原，那个条目没了。
@@ -425,7 +427,7 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await openEntry(page, "人物", "星瑕");
     const position = entryPage(page).locator("[data-view-point]");
     await expect(position).toContainText("第 1 章末尾");
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
     await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
     await focusSource(page);
     await page.keyboard.press("Control+End");

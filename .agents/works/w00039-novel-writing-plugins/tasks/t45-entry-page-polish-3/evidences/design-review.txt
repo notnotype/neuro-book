@@ -1,0 +1,173 @@
+t45 计划的设计审查（第 1 轮，Claude Sonnet 子代理，2026-11-27；说明见同目录 design-review-brief.md，审查对象是 master 上 61cf48859 之后的 plan.md）。下面先是报告原文，最后是主会话的处理。
+
+# t45 计划设计审查报告（只读，对象：.agents/works/w00039-novel-writing-plugins/tasks/t45-entry-page-polish-3/plan.md）
+
+### 1. 看法菜单要用的 `radio` 项在 ContextMenu 里不存在
+严重程度：重要　类别：依赖的机制不存在
+位置：plan.md「关键设计 / EntryPage」第一条（“项是三个 `radio`”）与「分页右键菜单……加同样三项（一组 `radio`）」；packages/nb-ui/src/components/popup/context-menu.types.ts:22
+现象：计划选了 nb-ui `ContextMenu`（理由是“条目页的右键菜单已经在用”），又要在里面放三个 `radio` 项。`ContextMenuItem.type` 只有 `"item" | "checkbox"`；`radio` 与 `group` 只在 `DropdownMenuItemData`（dropdown-menu.types.ts:4、:34）里。`ContextMenu.md` 的数据一节同样只列 checkbox。
+为什么是问题：照字面实现，要么编不过，要么得先给 nb-ui 的 ContextMenu 加受控 radio（同名 .md、ContextMenuPanel 的 `menuitemradio` 角色、组内互斥的勾画法、测试），这是计划里没有的 nb-ui 改动，S2 的范围与验收映射都没写。把 `DropdownMenu` 排除的理由（“要把分页交给 Reka 当触发器”）与此是同一类取舍，但没有比较“给 ContextMenu 加 radio”与“用 checkbox 假装单选”的代价。
+如何核实：grep -n radio packages/nb-ui/src/components/popup/ContextMenuPanel.vue context-menu.types.ts ContextMenu.md 无命中；DropdownMenu.vue:110 才有 radio 与 group。
+建议改法：二选一并写进计划。(a) S2 先在 nb-ui 给 ContextMenu 加 `type: "radio"` 与 `group`（`role=menuitemradio`、`aria-checked`，宿主受控），同步 ContextMenu.md 与测试；(b) 菜单项用 `checkbox` 型但选中项再点不取消，读屏会读成多选，不推荐。另右键分页菜单里那三项同理。
+
+### 2. “选中的标签再点出菜单”：菜单开着时再点同一个标签会关了又开；Enter/Space 若挂在 keydown 上会发两次；菜单与右键菜单共用 `context` 状态与 `aria-expanded`
+严重程度：重要　类别：键盘与焦点、共享状态
+位置：plan.md「Tabs.vue」「EntryPage…」；packages/nb-ui/src/components/popup/ContextMenu.vue:43-48、:62；EntryPage.vue:167-188、:452；Tabs.vue:251、:289
+现象与依据：
+(1) 关了又开。ContextMenu 在 document 上挂的是 `click` 捕获监听（ContextMenu.vue:62），菜单外的点击先关（`request-close("outside")`、`update:open(false)`），随后才轮到 Tabs 按钮自己的 click。选中标签再点就是“菜单外点击”加“选中标签再点”，两个状态改动落在同一个 tick：`context = null` 之后又被 `menu` 事件置成新值，结果菜单没有被关掉，只是在原处重开。计划把这个标签画成 `aria-expanded`，读屏与指针用户都会期望“再点一次收起”，实际收不起来。nb-ui 的 `Popover` 为同一件事专门写了“锚点上按下不算点外面”（Popover.vue:60-63），ContextMenu 没有对应机制。
+(2) 键盘重复。`<button>` 上 Enter 与 Space 本来就会触发 click，Tabs 现有的选中就靠 click。计划写“点它、或焦点在它上面按 Enter、Space、ArrowDown 时发 `menu`”，若实现成 keydown 里处理 Enter/Space，会同时有 keydown 与随后的 click 两次发 `menu`（第二次把刚开的菜单重置位置或在上面的 (1) 情形里表现为闪一下）。只有 ArrowDown 需要新增 keydown，Enter/Space 应明确写“沿用 click，不另处理”。
+(3) 共享状态。EntryPage 里右键菜单用的是单个 `context` ref（EntryPage.vue:167）与 `contextItems`（:181，内容按 `context.value.value` 这个分页算“添加”“去掉”两类），`<ContextMenu>` 也只有一个实例（:452）。看法菜单要么复用它（则 `Tabs` 的 `menu.open` 要知道这次打开的是看法菜单还是右键菜单，否则右键一下别的标签也会把选中标签的 `aria-expanded` 与箭头转到“开”），要么另开一个实例（则两个菜单可同时打开，ContextMenu 的 document 监听互相当作“菜单外”）。计划没有说用哪种。
+如何核实：ContextMenu.vue 的 onMounted 与 closeOnOutside；EntryPage.vue 的 `context`；写一个 dom 测试：开菜单后对同一标签再 click，断言菜单应收起。
+建议改法：(a) EntryPage 在 `menu` 事件处理里先看“看法菜单现在是不是开着且锚在同一标签上”，是则当作关（只关、不重开；要在 ContextMenu 的 capture 监听之后的同一次 click 里判断，办法是在 `request-close("outside")` 时记下关掉的时刻与锚点，同一次事件里不再开）；(b) 计划里写明 Enter/Space 走 click，只有 ArrowDown 单独处理，并给它的测试写“按一次 Enter 只发一次 `menu`”；(c) 看法菜单独占一个状态 `lookMenu`（含锚点与 open），`Tabs` 的 `open` 只读它；右键菜单仍用 `context`，同一时刻只开一个（开一个时关另一个）。
+
+### 3. 计划说“分页标题的变长变短由 Tabs 的指示线跟随”，实际没有任何宽度过渡：每次换分页相邻标签都要跳一个箭头的宽度；`adapt` 的测量层也没算箭头
+严重程度：重要　类别：界面规矩（过渡）、与现有机制不符
+位置：plan.md「EntryPage…」最后一条“分页标题的变长变短由 `Tabs` 的指示线跟随”；Tabs.vue:248-249、:287-288、:264-272
+现象：Tabs 的指示线是标签按钮自己的 `after:` 伪元素（`after:inset-x-0 after:bottom-0`），只对颜色做 `transition-colors`；按钮宽度没有任何过渡。选中标签要多出一个 `chevron-down`，且“标题在不是第一个看法时写成人物 · AI视图”，所以：
+- 每次换分页，旧选中项少一个箭头、新选中项多一个，标签条上它们之间与后面的所有标签（含“＋”）瞬间平移一个箭头加间距（`--space-2` 加 `1.15em` 图标宽，sm 号字下约 20 像素）；
+- 换看法时标题字数变了，后面的标签同样瞬间跳。
+计划依据设计顾问“横排预留 ▾ 宽防抖动”的意见，却没有做：箭头只在选中标签上画。
+还有：`overflow="adapt"` 时标签宽度由测量层（Tabs.vue:264-272，`data-measure-tab`）量出来决定档位，测量层没有画箭头，带 `menu` 的选中标签实际比量到的宽，临界处可能溢出。EntryPage 现在用的是 scroll 模式不受影响，但 `menu` 是 nb-ui 公共属性，计划的 `Tabs.md` 改动没写它与 `adapt` 的关系。
+如何核实：Tabs.vue 里搜 `transition`，只有 colors；测量层 `v-for="item in props.items"` 里没有 menu 相关片段。
+建议改法：(a) 所有带 `menu` 的标签（或选中的数据分页）都预留箭头位，未选中时箭头透明、不挪布局（计划已写“随 open 转半圈”，同样用透明度过渡）；(b) 看法后缀不放进标题字符串，画成按钮内一个独立的小标记（过渡淡入），标题宽度不变，只有后缀本身出现时撑宽，那一处宽度变化用 grid/`max-width` 过渡，或接受“只在换看法时跳一次”并写进计划与 Tabs.md；(c) 测量层同样画箭头，或 Tabs.md 写“`menu` 与 `adapt` 不同用”。
+
+### 4. 竖排分页把“· AI视图”拼进标题，168 像素的列里最先被 `truncate` 掉的就是它
+严重程度：建议　类别：界面、别扭之处
+位置：plan.md「EntryPageNav」；EntryPageNav.vue:90、:122-128（`min-w-0 flex-1 truncate`，列宽 168px，EntryPage.vue:483）
+现象：竖排每行是 图标 16 + 标题 `flex-1 truncate` + 计数 + 计划新增的箭头，内边距 20、间距各 8，标题可用宽约 100 到 110 像素，约 7 个汉字。“人物 · AI视图”恰好 8 个字符加空格；设定组的名字由作者与插件起，“关系网 · 原始视图”这类写法在竖排里必然被截成“关系网 · 原…”。非缺省看法是这个后缀存在的唯一理由，它偏偏排在可被截掉的末尾。横排的 `Tabs` 没有最大宽度（scroll 模式）不截。
+建议改法：看法画成行内独立的小标记（例如标题后面一个 `AI`、`RAW` 缩写徽标，或箭头换成当前看法的图标），不进标题字符串；标题截断时标记不被截。同时 `data-*` 或 `aria-label` 里写全名“人物，AI视图”给读屏。
+
+### 5. 成段文字改成 Portal 浮层后丢了“向下长并滚进可见范围”的能力：长页面里最后一段只能翻到原文上面，验收判据“上缘不高于原文下缘”不成立，浮层高度不受视口约束
+严重程度：重要　类别：依赖的机制不成立
+位置：plan.md「EntryPageHost」成段文字一条（“打开后滚进可见范围的处理保留（浮层靠下时翻到上面由 `Popover` 的避让做）”）、验收映射输出 51 的 e2e；EntryPageHost.vue:955-967（现有 reveal）；packages/nb-ui/src/components/feedback/Popover.vue:91-107
+现象：
+(1) 自相矛盾。计划同时写“滚进可见范围的处理保留”与“靠下时翻到上面”。现有的 reveal（EntryPageHost.vue:957-960）对象是在流内、绝对定位的编辑卡：它撑大了滚动区的可滚动范围，`scrollIntoView({block:"nearest"})` 才有地方滚。改成 Reka 的 Portal 浮层（固定定位，不进滚动区的 scrollHeight）以后，同一段代码没有可滚的对象；滚页面也不会腾出位置。
+(2) 条目页的碰撞边界是整篇 `[data-entry-page]`（EntryPageHost 现有短项同写法）。条目页的内容不满一屏时 article 因 `min-h-full` 撑满滚动区，浮层放得下；内容超过一屏、作者滚到底，最后一段（人物页最后一个成段文字、其后没有通用字段表时）下方只剩 `py-5` 的 20 像素，浮层按避让只能翻到原文上方，盖住该段的标题与上文。这与同一计划里的 e2e 判据（“外貌编辑浮层的上缘不高于原文下缘”）正面冲突，也与 Spec 输出 51 的“盖在后面的内容上、原文不动”相反。
+(3) Reka 的 PopperContent 带 `size` 中间件并把可用高度写在 `--reka-popper-available-height`（node_modules/reka-ui/dist/Popper/PopperContent.js:181-187），但 Popover.vue 没有用它做 `max-height`。成段文字从原文行数起步，最高 8 行再加意图行与按钮行，约 280 到 330 像素；上下都放不下时（390x844 软键盘弹出以后视口只有约 400）浮层照原高度画，保存按钮可能在窗口外，原计划“保存不在窗口外”的要求没有承接。
+(4) 与短项不同，成段文字以前靠 `-inset-x-3` 让输入框里第一行的字与原文对齐；新浮层 `align:"start"` 后输入框的字比原文右移内边距加边框共 13 像素，且 `Popover` 没有 `alignOffset`。
+如何核实：在 Lab 里把一个人物页的内容撑到两屏，滚到底点最后一个成段文字；或读 Popover.vue 确认没有 `max-height`、没有 `alignOffset`；读 EntryPageHost.vue 现有 reveal 的 `element` 是流内元素。
+建议改法：二选一写进计划。(a) 打开时给条目页内容区临时加底部余量（浮层预计高度，随打开关闭过渡），再 `scrollIntoView` 锚点加浮层所需高度，使“下方”总放得下；(b) 接受翻转，Spec 输出 51 改成“浮层在原文下方，放不下时在上方”，e2e 判据改成“与原文不重叠”（上缘不高于原文下缘 或 下缘不低于原文上缘），并在 Popover 暴露 `maxHeight` 或把 `--reka-popper-available-height` 接成 `max-height` 加内部滚动。无论哪种，对“浮层高度受视口约束”写一条验收（390x844 与 1440x700 各一）。
+
+### 6. 原文不再被盖住以后，再点原文按钮会静默重置正在写的草稿
+严重程度：重要　类别：既有约定被破坏（隐含耦合）
+位置：plan.md「CharacterCard.vue、LookCard.vue：去掉 `data-editing-in-place` 时藏原文的样式」；web/in-place-edit.ts:386-399（`open`）；Popover.vue:60-63
+现象：编辑期间原文按钮以前被卡片盖住（`visibility:hidden`，CharacterCard.vue:464），点不到。现在原文留在浮层上方、可点可聚焦，点它走 `pick → context.edit(id,{inline:true}) → edit.open(path)`。`open` 没有“同一路径已打开就不动”的保护，它无条件 `resetFeedback()` 并 `setDraft` 一份新的（值取读到的值、新的 requestId）。作者把一段话写了一半，再点一下原文，草稿悄无声息地被换回原文，没有确认也没有提示。同样的路径还有：Tab 键回到上面的原文按钮再按 Enter。Popover.vue 的 `onInteractOutside` 把“在锚点上按下”排除在“点外面”之外（注释写着调用方的 click 会自己切换），所以这里不会被 Reka 拦住。
+为什么是问题：Spec 输出 51 的合同是“点编辑层外面不收起、填了一半还在”，作者没有任何东西提示“再点原文会丢”；同一条目的不同成段文字之间点另一个原文，则是草稿被另一个字段的草稿换掉（state.edit 只有一份），也同样无提示。
+如何核实：dom 测试里打开外貌、往输入框里写字，再 click 原文按钮，读 `state.edit.value`。
+建议改法：成段文字打开期间原文按钮的 click 改成“把焦点放回输入框”（`pick` 里判断 `state.edit?.path === 当前路径` 时只聚焦，不 `open`）；在 `useInPlaceEdit.open` 里加同路径幂等也可。点另一个字段时的行为（带草稿换字段）补一条 Spec 说明与测试。
+
+### 7. 计划里“Escape 是 ConfirmBar 自己处理还是靠浮层”的结论：ConfirmBar 自己处理，Reka 不会再取消一次；但焦点不在卡片里时 Escape 没人接
+严重程度：建议　类别：键盘与焦点（回答审查重点 2 的待定处）
+位置：plan.md「EntryPageHost」成段文字一条括号里的待核对；ConfirmBar.vue:113-118；node_modules/reka-ui/dist/DismissableLayer/DismissableLayer.js（onKeyStroke("Escape")）；EntryPageHost.vue:904-907
+核实结果：
+- ConfirmBar 在最外层 `<section @keydown>` 上处理 Escape：`event.isComposing` 时直接返回，否则 `preventDefault()` 后发 `cancel`。
+- Reka 的 DismissableLayer 在 window 上用 `onKeyStroke("Escape")` 监听（冒泡阶段，晚于 section）：先发 `escapeKeyDown`（Popover.vue 因此把 `closedByEscape` 置真），仅当 `!event.defaultPrevented` 才再发 `dismiss`（即 `update:open(false)`）。所以焦点在卡片里按 Escape：ConfirmBar 取消，Reka 看到 defaultPrevented，不再发 `update:open(false)`，不会取消两次。组字中的 Escape：ConfirmBar 不 preventDefault，Reka 会发 `update:open(false)`，所以成段文字的 `update:open` **必须整个忽略**（计划写了“点外面不收起”，但没写 Escape 在组字中这一路），不能和短项一样接到 `dismiss()`，否则 Reka 路不认组字；短项只是靠 `composing` 标志兜住了。
+- 因此不需要计划里说的“在 Popover 外包一层 keydown 区分”。
+遗留缺口：Escape 只有在焦点落在卡片里才取消。非模态浮层不拦截点击，作者点一下页面空白处或滚一下（焦点掉到 body）再按 Escape，Reka 的 `update:open(false)` 被计划整个忽略，Escape 就是空的；Spec 输出 51 写的是“按 Escape 放弃”，没有焦点前提。旧的在流内卡片有同样的缺口，但它是旧行为；既然要重写这一条，写明它。另外 Popover.vue 的 `closedByEscape` 在组字中的 Escape 里也被置真，浮层随后因“保存”关闭时焦点会被它拉回锚点，效果无害（`refocus` 本来就要回到原文按钮）。
+建议改法：成段文字的 `update:open` 只在“Escape 且不在组字且焦点不在卡片内”时才取消（需要 nb-ui `Popover` 多发一个 `escape-key-down` 事件或给 `update:open` 带原因），或者在 FieldEditor 里自己在 document 上挂一个 Escape 监听（卸载时摘掉），与 ConfirmBar 的同一套组字与在途判断（`dismiss()`）共用。计划里写清选哪种，并加一条 dom 测试（焦点在 body 时 Escape 取消）。
+
+### 8. 勾选列表的键盘模型：中文输入法下“打字回搜索框”接不住；偏离同一应用里现成的 combobox 模式且没写理由；ARIA 角色没定；`submit` 在新建条目里没定义
+严重程度：重要　类别：键盘与焦点、对照参照
+位置：plan.md「ComponentChecklist」键盘一条与 emits；现有参照 AddComponentPicker.vue:80-117、:127-145（搜索框是 combobox，焦点始终留在输入框里，方向键移的是 `aria-activedescendant`，列表是 listbox/option）
+现象：
+(1) “焦点在行上时，打字（可打印字符）把焦点送回搜索框接着打”。这是在 keydown 里按 `event.key` 判可打印字符；中文输入法下首个按键是 `key === "Process"`（keyCode 229，`isComposing`），不是单个字符，行上拿不到。作者在行上直接敲拼音，没有任何反应，或者首字母丢掉。这是中文产品，不是边角。同类做法的先例：ConfirmBar 先判 `event.isComposing`（ConfirmBar.vue:114）。
+(2) 现成的参照（添加设定组的浮层、条目选择器）都是“焦点不离搜索框、虚拟高亮”：打字、方向键、回车互不抢焦点，不存在“把焦点送回去”这种补丁。计划改成“方向键把焦点移进列表、行上 roving focus、Space 勾选”，是为了同时有“Space 勾”与“Enter 提交”，但没有写这个取舍的理由，也没有和“搜索框内保留焦点，Enter 勾、Ctrl/⌘+Enter 提交”这种做法比较（ConfirmBar 的成段文字就是 Ctrl+Enter 保存）。
+(3) ARIA。每行是 Reka 的 Checkbox（`role=checkbox`），行间用方向键 roving，搜索框与列表之间 ArrowDown/ArrowUp 切换焦点：标准的 checkbox 组是 Tab 在各项间走、方向键不参与；有搜索框的多选列表标准写法是 combobox + `listbox[aria-multiselectable]` + `option[aria-selected]` + `aria-activedescendant`。计划没写容器与分组标题的角色（`role=group` + `aria-labelledby`？）、已添加那行的 `aria-disabled` 与“已添加”是否进读屏名、预设按钮的组名。读屏用户拿到的是一个自造的复合控件。
+(4) `submit(current)` 的语义只在 AddComponentDialog 里定义了。NewEntryDialog 里 Enter 该怎么办计划没说：若接成“确认新建条目”，作者在搜索类型时按一下回车就把条目建出去了（名字也许还没填好，也许还没勾完）；若不接，Enter 在那里没有意义，且与 AddComponentDialog 里的 Enter 不一致。
+(5) 键盘走到被搜索筛掉的行：已勾但被筛掉的行，“添加 N 组”的 N 包含它们，列表里看不到，提交时才知道。
+如何核实：对照 AddComponentPicker.vue 的 `onKeydown`；在 dom 测试里对行触发 `keydown`（key: "Process", isComposing: true）。
+建议改法：保持焦点留在搜索框的虚拟高亮模式（沿用 `SuggestionMenu` 的 listbox/option 与 `aria-activedescendant`，补 `aria-multiselectable` 与选中态）：方向键移高亮，Enter 勾/取消高亮行，Ctrl/⌘+Enter 或底部主按钮提交；这样输入法、Space 打字、读屏全部沿用现成的写法。若坚持 roving 模型，至少：(a) 行上监听 `beforeinput` 或 `keydown` 里判 `isComposing/key==="Process"` 一并把焦点送回搜索框（并写明首字符可能丢）；(b) 写清角色与分组标签；(c) NewEntryDialog 的 `submit` 明确为“勾选或取消当前行”，不触发确认；(d) 被筛掉的已勾项在搜索框旁给一个可见的计数。
+
+### 9. 加设定组对话框的写入路径没有设计：基线版本、失败写在哪、在途不关、批量失败说不清是哪一组、布局变化会把对话框关掉
+严重程度：重要　类别：失败路径、既有约定
+位置：plan.md「AddComponentDialog」“EntryPageHost 的写入”；EntryPageHost.vue:441-488（`dialogBase`/`menuBase`/`runEntries`）、:538-543（`addComponent`）；EntryPage.vue:301-304
+现象：
+(1) `runEntries` 的 `from` 决定三件事：基线版本取 `dialogBase`（须先调 `openDialog()`）还是 `menuBase`（`add-open` 时记）、失败写进 `dialogError` 还是 `actionError`、冲突提示是哪句。计划只写“一次 `runEntries`，几条 `component add`”，没写用哪个。用 `from:"menu"`（现 `addComponent` 的写法）：失败写进 `actionError`（条目页头下面，被模态对话框盖在后面看不见）；用 `"dialog"`：需要 `AddComponentDialog` 有 `error`、`busy` 两个属性，`Dialog` 按 ElementDialog、MoveDialog 的写法“结果回来前不关、按钮不可用”，对话框开着时改了条目别处要得到冲突。这三样计划都没列，对话框新写的组件容易复制出一个“失败了对话框已关、什么提示也没有”的版本。
+(2) 批量失败。一次 `editEntries` 带 N 条 `component add`，内核收这种批（`ENTRY_EDITS_MAX` 50，单条 `component add` 逐条处理），但遇到第一条不可用的就整批失败：`entry-edits.ts:781、:793` 返回 `problem(index,"id-taken",…)`，只带一条 problem，`path` 是 `ops[i]`。现有的 `alreadyAdded` 解释函数读 `problems[0].code` 并写“这组设定已经加上了”，不说是哪一组；对话框里勾了三组、别处刚好加了其中一组，作者得到的是整批失败加一句不指名的话。至少要按 `problems[].path` 或下标找到是哪一组，写“‘某某’已经加上了”并把它在列表里改成已添加（或重读后自动取消勾选）。
+(3) `pendingTab`：切到“第一组新加的分页”要求第一组有命名空间；`queryOnly` 类型没有命名空间（entry-edits.ts:778 那一支，不进 `entry.init.data`），`addComponent` 现在对它是 `namespace = null`，不切页。预设里夹着一个 queryOnly 类型、且排在第一个时，计划的“切到第一组新加的分页”什么也不切。应取“第一个有命名空间的新加类型”。
+(4) EntryPage 在 `[rail, canAdd]` 变化时 `pickerAnchor = null`（EntryPage.vue:302-304），注释的理由是“不留一个锚在已经不在的按钮上的浮层”。对话框不锚在按钮上，作者勾到一半时窗口宽度跨过 1024/1040 阈值（缩放、开关侧栏都会改滚动区宽度），旧逻辑会把对话框关掉、勾选全丢。计划说“关上后焦点回到＋”，但没说开关状态的归属：对话框的 `open` 不该再绑 `pickerAnchor`；焦点回到“当前那一套的＋或‘添加一组设定’行”，要按 `data-add-component` 现找。
+(5) 右键菜单里的“添加一组设定”子菜单“保留（单加一组的快路）”：它直接 `emit("add-component", type)` 走 `addComponent`，与对话框是两条写入路径，标题、冲突提示、`pendingTab` 各自一份。合并成一个 `addComponents(types: string[])` 并保留 `from` 参数更稳。
+如何核实：读 EntryPageHost.vue 的 `runEntries`；读 entry-edits.ts 的 `component` 分支；在 dom 测试里让世界写入失败（版本冲突）、断言对话框里有提示并仍开着。
+建议改法：计划里补一小节“写入与失败”：`AddComponentDialog` 属性 `busy`、`error`；宿主 `openDialog()` 在打开时调；`from:"dialog"`；批量时按失败的下标指名；`pendingTab` 取第一个有命名空间的类型；`open` 由宿主独立持有，不随 `[rail, canAdd]` 关闭（`canAdd` 变假才关）。验收映射补“失败时对话框仍开且勾选保留”“别处刚加了其中一组”。
+
+### 10. 新建条目对话框换成勾选列表：`fits` 是按条目预算好的，新建时种类是自由文本且逐字变化；对话框已经很高，再嵌一个自己滚动的列表是双层滚动；`typesTouched` 的规则与预设互相拧
+严重程度：重要　类别：接口与合同、界面
+位置：plan.md「NewEntryDialog、entries-view.ts、new-entry.ts」；add-component-picker.ts（`AddComponentItem.fits`）；AddComponentPicker.vue:58-68；NewEntryDialog.vue:44-47、:68-82；new-entry.ts:34-39
+现象：
+(1) `AddComponentItem.fits` 是布尔，由宿主按“这个条目的种类”预先算好（EntryPageHost.vue:501-516）。新建时种类是 `draft.kind`，一个自由输入的字符串，点种类按钮或输入框失焦才“选定”（NewEntryDialog.vue:68-69），打字时不套默认。计划写“`types` 换成带图标与分组的 `AddComponentItem`（`present` 恒为假）”，却没说 `fits` 怎么随种类变：要么 entries-view 为每个种类各算一份 items（按 `kinds` 含不含它），要么 `ComponentChecklist` 改成收类型的 `kinds` 自己判；`kind` 属性又只用来写“适用于<种类>”的组名。前者与“视图挂上时读一次”的缓存合不上，后者改了 `AddComponentItem` 的形状，两处都不是计划写的样子。种类栏逐字输入时 `kind` 在每个字上变，组名会闪成“适用于人”“适用于人物”。
+(2) 预设按钮的数据同理：`entries-view` 要给每个种类的预设，选中种类是 `draft.kind.trim()`；输入框里还没选定的种类（打了一半的字）是否出预设按钮，计划没定。
+(3) `typesTouched`：计划写“点预设算动过勾选”。后果：点“人物”种类（套默认 人物、形象），再点“基本”预设（正好等于默认）也算动过，之后换种类再也不会换默认；而“主要角色”勾上以后换成“地点”，主要角色的几组被留在勾选里，作者没动过任何一个框却看不到它们属于哪个种类。要么预设点击不改 `typesTouched`、种类变了就和预设一起换掉；要么写明“动过以后保持不变”并接受。无论哪种，Spec 输出 4 与 `withKind` 的说明都要补一句。
+(4) 尺寸：对话框 `size="md"` 里现在已有名字、种类加一排种类按钮、分组、放在谁下面、启用哪些数据、另一个身份、从哪里出场七八个字段。再放一个搜索框、一排预设按钮和封顶 22rem（约 350 像素）的列表，高度远超 390x844，也超 1366x768 的笔记本：Dialog 正文本身会滚动（Dialog.md 第 28 行），列表在里面又有自己的滚动条，两层滚动，滚轮在列表内滚到头以后外层才动。计划只写了加设定组对话框的 390 宽，没给新建条目的高度方案。
+(5) 键盘 `submit` 在这里没有定义（见发现 8）。
+如何核实：读 entries-view.ts:148 的 `kindDefaults` 是一次算好的 Record；NewEntryDialog 现在的 `types` 属性是不带 `fits` 的；用 390x844 在 Lab 里打开 NewEntryDialogFixture。
+建议改法：(a) `ComponentChecklist` 收 `kinds`（类型适用的种类）而不是 `fits`，由它按当前选定的 `kind` 判，`kind` 只在选定（`chooseKind` 之后）才传；(b) 新建时列表不封顶高度、让 Dialog 正文统一滚（或列表只在加设定组对话框里封顶）；(c) 点预设不改 `typesTouched`，只有手动勾选才改，Spec 与测试明说。
+
+### 11. 预设的登记格式与并法：诊断的去重键与事件名会吞掉预设的诊断；预设 id 没有命名空间，意外同名就被静默并入；schema 少了必要的约束
+严重程度：建议　类别：接口与合同
+位置：plan.md「entry-kinds.ts」；canon/backend/plugin.ts:78-88（`reported` 与 `canon.entry-kinds.missing-component`）；canon/shared/entry-kinds.ts:18-27、:56-73
+现象：
+(1) 诊断。计划说“缺了显示名的预设与写到没登记类型的预设，诊断沿用 `missingDefaults` 的写法”。现有写法：去重键是 `${kind}\u0000${type}`，事件名 `canon.entry-kinds.missing-component`，文字“种类‘X’默认带的设定组 T 没有登记，新建时不带它”。一个类型既写在默认里又写在预设里、都没登记时，第二条的键相同，被 `reported.has(key)` 吞掉；预设的诊断复用“默认带的”这句话是错的；“缺显示名”和“同 id 显示名不同”根本不是 `{kind,type}` 形状。需要自己的事件名、键（带预设 id）与文字。
+(2) 命名空间。预设 id 在种类内唯一，“别的插件写同一个 id 是往这个预设里追加”。这是无意追加的方式：第三方插件想给“人物”登记一个自己的预设，起了个 `main`，就会被静默并进“主要角色”，显示名也被内置的盖掉，没有任何提示；剧情插件追加内置的 `main` 只是恰好用对了。贡献 id 已按插件 id 前缀校验（`idPrefix:"plugin"`），预设 id 没有同等规则。建议新预设的 id 要带贡献方插件前缀（`nbook.canon.main`），追加用显式的 `extends`/同 id，或者至少同 id 且两条都写了不同 `label` 时写一条诊断。
+(3) schema。计划只给了 TS 形状。`EntryKindDeclarationSchema` 现在是 `additionalProperties:false`，预设项需要：`id`、`label` 都 `minLength:1` 且 `pattern:"\\S"`（与 `kind` 一致，防止空白 id/label 被登记成无名预设），`components` 的 `minItems` 与元素 `minLength:1`，预设项自己 `additionalProperties:false`，`presets` 的 `maxItems`（防止一次登记上百个预设塞满对话框）。并法对 id 也该 trim（`kind` 就 trim 了）。
+(4) 顺序。`declarations.list` 按贡献 id 排，并法是“内置的先”，其余以 id 序；预设的先后“按第一次出现”，所以第三方预设一定排在内置预设后面，插件之间按插件 id 字母序，作者在对话框里看到的顺序没有 `order` 可控（`order` 只对种类）。预设很少时无所谓，但这是个没有出口的约束，写进 Spec。
+(5) 已核实不是问题：剧情插件的 `canon.entry-kinds` 贡献在 canon 停用或未装时，`plugins/host.ts:896` 把它记成 `pending / unknown-point`，不报错也不生效；单条声明的 `validate` 看不到别处的登记（contracts.ts 注释），所以“预设写到不可用类型”只能在项目入口的 `checkEntryKinds` 里核，计划的位置对。
+如何核实：backend/plugin.ts 的 `reported`；shared/entry-kinds.ts 的 schema。
+建议改法：见各条；诊断另起事件名 `canon.entry-kinds.preset-problem`，数据带 `{kind, preset, problem, type?}`，键含预设 id。
+
+### 12. 要改的调用方与测试漏列：现有 e2e、dom 测试、Lab 场景、文案键与“点已选中的分页”的连带影响
+严重程度：重要　类别：遗漏、验收映射
+位置：plan.md「验收映射」「验证」「切片」；e2e/canon-character.e2e.ts:258-310；src/plugins/canon/web/entry-page.dom.test.ts:304-333；EntryPage.dom.test.ts:134-172；entries-view.dom.test.ts:182-251；lab/web/fixtures/index.ts:28、:2376-2414、AddComponentPickerFixture.vue；canon/locales/en-US.json、zh-CN.json
+现象与清单（都已 grep 核对）：
+(1) “选中的分页再点就出菜单”会改变所有“点一下分页”的现有用例。条目打开时第一个数据分页（人物）本来就是选中的（canon-author.e2e.ts:130 断言如此），而 e2e 里点分页的写法有：canon-author 16 处、canon-write 9 处、canon-character 5 处、plot-author 5 处，共 35 处（`getByRole("tab",{name})`/`tab(page,…)`/`entryTab(...).click()`），其中许多是在已选中的页上再点一次作“确保在这一页”。菜单在分页下方 4 像素处出现，正好压在页面左上第一批值按钮上；Playwright 下一个 click 的目标落在菜单范围内时被菜单拦住（actionability 重试到超时），这类用例会失败（未实跑，从代码推断；菜单只在点外面、Escape、选项时关）。这与项目记忆里“改定位点前先改 e2e 辅助函数、再开大范围”的教训同型，计划没有“先迁移辅助函数”这一步。dom 测试同理（22 处 `data-tab-value` 与 `role=tab` 的查找）。
+建议：先把 e2e 与 dom 的 `tab()` 辅助函数改成“已选中就不点”（读 `aria-selected`），再做 S2。
+(2) 现有 e2e 里整个一条要重写：canon-character.e2e.ts:258 “输出 54 与 38”，用 `[data-data-look]` 的三个 radio（名字“卡片”“给 AI 看”“原始数据”，而新名字是“用户视图”“AI视图”“原始视图”，“原始数据”也改了字）、`getByRole("listbox",{name:"添加一组设定"})`、combobox“搜索设定组”、“Escape 回到＋”、“Tab 从＋往下走”。验收映射只写了“新增”的 e2e，没把这条列为要改写的，也没列新对话框的 Tab/Escape 焦点归还。
+(3) dom 测试：entry-page.dom.test.ts:304-333 用 `data-testid="data-look-card|agent|raw"`；EntryPage.dom.test.ts:134-172 查 `[data-add-component]` 与“＋”的浮层；EntryPageNav.dom.test.ts；entries-view.dom.test.ts:182-251 查新建对话框里的 `checked()`（读 CheckboxGroup 的结构）与 `[data-new-entry-kinds] button`；AddComponentPicker.dom.test.ts 计划里写了删，但上面几处没写迁移。
+(4) Lab：计划每片写了“Lab”，但没写删除 `AddComponentPickerFixture.vue` 及其场景注册（fixtures/index.ts:28 的类型导入、:2376-2414 的场景组，含三十多项的 `many` 与英文场景）；新对话框、`ComponentChecklist`、带 `menu` 的 Tabs、带看法的 EntryPage / EntryPageNav 的场景也没列；Skill 第 7 条要求固定尺寸里的文字登记英文场景并看 390 宽（“Character · AI view ▾”在竖排 168 像素里）。
+(5) 文案：只写了 `entry.views.*` 的改名。新增的至少有：对话框标题、“添加 N 组”、“添加”、“已添加”、预设行的读屏名、搜索框、空态、批量成功提示“加上了 N 组设定”、批量失败提示、看法菜单的读屏名、分页上的“· AI视图”后缀的读屏写法；zh-CN 与 en-US 两份。
+(6) 接口缺口：`EntryPage` 的新属性计划只写了 `looks`、`look`、`update:look`。对话框归谁、`presets` 与 `open` 怎么进来没写（原来是 `pickerItems`、`kind` 两个属性加内部的 `pickerAnchor`）；计划里还要靠 `data:` 开头判断“当前选中的设定组分页”，而 EntryPage 这一层本来不认这个前缀（前缀是宿主的），`EntryTab` 已经有 `removable` 标“这一页是一组设定”，应加一个 `looks?: boolean` 之类的明确字段，别在骨架里按字符串前缀猜。
+(7) 现在的状态（`condition`）这一格：`passage-editor` 的 `anchor` 在 CharacterCard 里是点了切换细节的按钮（`data-condition`、`toggle-condition`），不是“编辑按钮”，编辑是从细节里的“改起点”开始的（CharacterView.vue:83-86 收起细节再浮层）。浮层锚在那个按钮、正下方就是还在收起过渡里的细节面板；`data-edit` 的 refocus 查不到它（已有行为）。计划把它与另两种成段文字一视同仁，没写。
+如何核实：grep 出的数字见各行；`rg 'getByRole\("tab"' e2e/canon-*.e2e.ts`。
+建议改法：在“切片”里加 S0：迁移 e2e/dom 的分页辅助函数；每片的“自跑”列出要改的既有测试；S4 写明删除 Lab 场景与迁移；把 (6) 写进关键设计。
+
+### 13. 看法菜单关闭后的焦点归还只写了两种原因，ContextMenu 实际有四种；开菜单时焦点从分页移进菜单后“点外面”“Tab”会落到 body
+严重程度：建议　类别：键盘与焦点
+位置：plan.md「EntryPage…」“按 Escape 或选了以后焦点回到分页”；ContextMenu.vue:50-58、ContextMenu.md“交互”
+现象：ContextMenu 关闭时发 `request-close(reason)`，reason 有 `select`、`outside`、`escape`、`tab` 四种，并且“关闭后不归还焦点”，由宿主决定。打开时 ContextMenu 把焦点移到第一个菜单项（ContextMenu.vue:90）。计划只处理了 Escape、选了一项两种；`tab` 时 ContextMenu 已经 `preventDefault` 了 Tab（不让焦点落到页面末尾），宿主若不处理，菜单卸载后焦点留在被移除的元素上，落到 body，键盘用户的位置丢了。`outside` 时焦点已随用户落到别处，应当不抢回（现有的右键菜单路径就是这样）。还有一条：横排与竖排切换时（`rail` 变化）EntryPage 已经有把焦点放回“新那套的选中项”的 watch（EntryPage.vue:306-311，只在焦点在 tablist 里时），菜单开着时焦点在菜单里，这个 watch 不触发，换排法后菜单锚点的矩形还是旧的，菜单悬在不存在的标签上；需要在 `rail` 变化时同 `pickerAnchor` 一样关掉看法菜单（EntryPage.vue:302-304 现有的做法）。
+建议改法：看法菜单的 `request-close` 处理写成：select、escape、tab → 焦点回选中的分页；outside → 不动；`rail` 或 `tab` 变化 → 关。验收里各写一条。
+
+## 未发现问题的方面（逐项核对过）
+- 与开发者已定的 5 条决定：预设可登记并追加、对话框、预设点选、新建里也能用；看法放在选中分页上并写明非缺省看法、名字“用户视图 | AI视图 | 原始视图”；成段文字在原文下方出浮层、不推开；富文本归 w00055；内置预设与“选中再点出菜单”、不加提示。计划逐条覆盖，没有悄悄改变已定项（发现 5 说的是实现手段做不到已定的“原文下方”，不是改了决定）。
+- 内核收批量：`ENTRY_EDITS_MAX` 为 50，单条 `component add` 逐条处理，同一批里加几组没有内核层面的障碍（见发现 9 对失败与基线的补充）。
+- 剧情插件往 canon 的 `canon.entry-kinds` 追加：id 前缀按插件 id 校验，canon 未装或停用时该条记为 `pending/unknown-point`，不报错；`mergeEntryKinds` 的“内置在前”对 `nbook.plot.*` 成立；`components`、`order`、`icon` 的并法与新增的 `presets` 互不影响（`order` 取最小、`icon` 取第一个）。
+- 种类默认组与预设的关系：条目页分页顺序与 Agent 新建只读 `components`（默认组），预设不进这两处，没有互相影响。
+- Tabs 的 `role=tab` 上带 `aria-haspopup`、`aria-expanded` 符合 ARIA 1.2（tab 角色支持这两个属性）；roving tabindex 与方向键自动激活不受 `menu` 影响（ArrowDown 在横排 tablist 上现在没有用途）；指示线是标签自己的伪元素，不存在“指示线测量”，宽度由按钮决定（计划的说法错在“指示线跟随”，见发现 3）。
+- 分页拖动：EntryPage 没有分页拖动（拖动是工作台标签的事），计划不涉及。
+- Escape 与 Ctrl+回车、输入法组字、点外面不收起在受控 `Popover` 下可成立（见发现 7 的前提），切走分页再回来草稿还在：草稿在 `state.edit`，不随浮层卸载。
+
+## 汇总
+共 13 条有效发现：阻断 0，重要 9（1、2、3、5、6、8、9、10、12），建议 4（4、7、11、13）。
+最严重的几条：
+- 发现 1：计划要放进 ContextMenu 的 `radio` 项，该组件没有（只有 DropdownMenu 有），是计划外的 nb-ui 改动。
+- 发现 5：成段文字改 Portal 浮层后“向下长、滚进可见”不再成立，长页面最后一段只能翻到原文上方，与计划自己的 e2e 判据冲突；浮层高度不受视口约束。
+- 发现 6：原文不再被盖住后，再点原文按钮会无提示地重置草稿（`edit.open` 没有同路径保护）。
+- 发现 8：勾选列表“打字送回搜索框”的做法接不住中文输入法，也偏离了同一应用里现成的 combobox 虚拟高亮模式。
+- 发现 9：加设定组对话框的写入路径（基线版本、失败写在哪、在途不关、批量失败指名、布局变化会关掉对话框）没有设计。
+- 发现 12：35 处 e2e 点分页会撞上“选中再点出菜单”，加上现有 e2e、dom 测试、Lab 场景的迁移都没列进计划。
+
+## 主会话的处理（2026-11-27）
+
+逐条对照代码核过，12 条成立、改进计划，1 条接受取舍：
+
+1. 成立，要改：ContextMenu 补 `radio` 与 `group`（照 DropdownMenu），S2 列进 nb-ui 改动与测试。
+2. 成立，要改：ContextMenu 加 `anchor`（在它上面点不算外面，同 Popover），再点同一页由宿主关；Enter、Space 走原生 click，只有 ArrowDown 另挂；看法菜单独占 `lookMenu` 状态，开一个关另一个。
+3. 成立，要改：带 `menu` 的标签都留箭头格（未选中时透明）；看法名做成 `note` 附注，宽度用 grid 0fr→1fr 过渡；测量层一起量。
+4. 成立，要改：竖排里看法是行内单独的附注（不截），标题先截。
+5. 成立，要改：采用审查的 (b)：下方放不下时由避让翻到上方，与原文不重叠（Spec 改写），内容高度封顶在 `--reka-popper-available-height`；去掉对传送浮层无效的 reveal；e2e 判据改成“不重叠、1440 下在下方”。不做 alignOffset：短项同样左缘对齐值的起点，保持一致。
+6. 成立，要改：成段文字开着时再点原文只把焦点放回输入框，不重开；补 dom 测试。
+7. 核实结论采纳（ConfirmBar 自己接 Escape，不需要外包 keydown；成段文字的 update:open 整个忽略）。遗留缺口“焦点不在编辑卡里时 Escape 不放弃”接受取舍：旧做法同样如此，要补需要 nb-ui Popover 发关闭原因，收益小；Spec 写明前提。
+8. 成立，要改：勾选列表改回现成的写法：焦点留在搜索框（combobox + listbox aria-multiselectable + aria-activedescendant），Enter 勾或取消、Ctrl/⌘+Enter 提交，组字不处理；写清分组与预设一排的角色；新建对话框里 Ctrl+Enter 不做事。被筛掉的勾选照旧算，“添加 N 组”的 N 就是可见的计数。
+9. 成立，要改：对话框有 busy、error，宿主 `addComponents(types, from)`，对话框用 from:"dialog"（打开时记基线），失败写状态行、不关、勾选保留；按 problems 的下标指名；切到第一个有命名空间的新加类型；对话框归宿主，不随 [rail, canAdd] 关；右键单加走同一入口。
+10. 成立，要改：列表项带 `kinds`、按选定的种类自己判“适用于”，种类选定以后才传；新建对话框里列表不封顶，正文统一滚；点预设不算动过勾选。
+11. 成立，要改：预设诊断另起事件 `canon.entry-kinds.preset-problem`、键带预设 id；同 id 显示名不同记诊断；schema 补 minLength、pattern、minItems、maxItems、additionalProperties；先后规则写进 Spec。预设 id 不加插件前缀：追加内置预设正是要同 id，撞名由 label-conflict 诊断暴露。
+12. 成立，要改：加 S0 先改 e2e 与 dom 的点分页写法（已选中不点）；列出要迁移的 dom 测试、要重写的 canon-character:258、要删的 Lab 场景、两份文案；EntryTab 加 `looks` 字段，不按前缀猜；“现在的状态”那一格的锚按 CharacterView 的流程接。
+13. 成立，要改：看法菜单 select、escape、tab 时焦点回选中的分页，outside 不动；换分页、横排竖排切换时关掉。

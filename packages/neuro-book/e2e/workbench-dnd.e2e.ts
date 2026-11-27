@@ -59,7 +59,7 @@ const band = (page: Page, panel: string) => page.locator(`[data-panel-band="${pa
  */
 const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"], [data-region-strip="panel"] [data-tool-view="${viewId}"][aria-pressed="true"]`);
 /** 只含这个视图的活动栏入口（输出 22、41：入口是容器的，只含一个视图的入口写着它的视图 id）。 */
-const entry = (page: Page, viewId: string) => page.locator(`[data-tool-band] [data-tool-view="${viewId}"]`);
+const entry = (page: Page, viewId: string) => page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-view="${viewId}"]`);
 
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 /** 分节的标题行是展开、收起的开关（输出 20）：能收起时标题按钮带 `aria-expanded`。 */
@@ -151,7 +151,7 @@ const labelText = (page: Page): Promise<string> => page.evaluate(async () => {
 });
 
 /** 活动栏上段的入口，从上到下：容器 id，用户拖出来的容器（`custom:<UUID>`，输出 41）写成 `custom`。 */
-const entriesOf = (page: Page): Promise<string[]> => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => {
+const entriesOf = (page: Page): Promise<string[]> => page.locator("[data-rail=sidebar] [data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => {
     const id = element.getAttribute("data-tool-entry")!;
     return id.startsWith("custom:") ? "custom" : id;
 }));
@@ -1050,7 +1050,7 @@ test.describe("产品页：拖放", () => {
         await labelText(page);
         // 活动栏的第一个位置是第一个入口之前的空位（输出 31）。丁是右栏里它那个容器唯一的视图：入口之间是整个容器搬过来（输出 45）。
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "move-container");
-        const bandBox = (await page.locator("[data-tool-band]").boundingBox())!;
+        const bandBox = (await page.locator("[data-rail=sidebar] [data-tool-band]").boundingBox())!;
         const first = (await line(page).boundingBox())!;
         expect(first.x).toBeGreaterThanOrEqual(bandBox.x);
         expect(first.x + first.width).toBeLessThanOrEqual(bandBox.x + bandBox.width);

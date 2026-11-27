@@ -40,7 +40,7 @@ export interface RevisionsViewOptions {
 export function createRevisionsView(options: RevisionsViewOptions): ViewImplementation {
     return {
         load: async () => {
-            const Host = (await import("./components/RevisionsViewHost.vue")).default;
+            const Host = (await import("./components/revisions/RevisionsViewHost.vue")).default;
             return defineComponent({
                 name: "CanonRevisionsView",
                 props: viewContextProp,

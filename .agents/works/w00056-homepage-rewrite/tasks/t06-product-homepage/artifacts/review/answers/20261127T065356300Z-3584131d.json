@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T065356300Z-3584131d",
+    "artifactVersion": 11,
+    "contentHash": "0220762ea1258a06f25356fb13494cab54c1e37f2624b7d81f6574036d4f06cb",
+    "submittedAt": "2026-11-27T06:53:53.491Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "perf-r11": "smooth",
+        "day-r11": "silk"
+    },
+    "comments": {
+        "day-r11": "但是首屏的上半部分还是米黄色的啊"
+    },
+    "note": "1. 老问题：拖拽演示，这个拖拽速度太快了\n2. 从第一幕滚动达到第二幕的时候，没有演示开场动画吗\n3. 演示动画的时候能不能让这个鼠标一直显示？"
+}

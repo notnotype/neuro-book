@@ -968,119 +968,179 @@ test.describe("桌面壳里的文字选择", () => {
 });
 
 /**
- * “消息”视图外框的分栏（AgentMessages.md 的“拖宽度”）：列表栏与聊天区之间是 nb-layout 的分隔线。拖动要真实的布局与指针，happy-dom 给不出。
+ * “消息”视图的侧轨版式（AgentMessages.md、AgentMessagesSegment.md；docs/specs/agent/conversation.md 输出 57）：Lab 里 `docked*` 场景挂一条替身侧轨
+ * （入口一列、`main`、`foot`），视图段送进它的两个位置，展开收起按钮是视图段自己画的；宿主那一半照真实宿主做（`show-list` 时展开并切页，展开好了聚焦搜索）。
+ * 收着与展开的画法、焦点、按钮按下与 Esc 都要真实的布局与焦点，happy-dom 给不出。真实工作台里的预算、揭示与最近会话在 `agent-messages-rail.e2e.ts`。
  */
-test.describe("消息视图的分栏", () => {
-    const separator = (page: Page) => stage(page).getByRole("separator");
+test.describe("消息视图的侧轨版式", () => {
+    const rail = (page: Page) => stage(page).locator("[data-lab-rail]");
+    const segment = (page: Page) => stage(page).locator("[data-messages-segment]");
     const listPanel = (page: Page) => stage(page).locator("[data-messages-list-panel]");
-    const strip = (page: Page) => stage(page).locator("[data-messages-strip]");
-    const widthOf = async (page: Page, selector: string) => stage(page).locator(selector).evaluate((element) => (element as HTMLElement).offsetWidth);
+    /** 收着时底段的两个按钮；展开后底段在替身侧轨里藏起来，换页用列表底部的导航。 */
+    const open = (page: Page, tab: "bot" | "sessions") => stage(page).locator(`[data-messages-open="${tab}"]`);
+    const navTab = (page: Page, tab: "bot" | "sessions") => stage(page).locator(`[data-messages-nav] [data-messages-tab="${tab}"]`);
+    const toggle = (page: Page) => stage(page).locator("[data-rail-toggle]");
+    /** bot 页的搜索框；会话页的搜索框是场景里“会话面板”占位里的输入框。 */
+    const botSearch = (page: Page) => stage(page).locator("[data-messages-page=bot] input");
+    const sessionsSearch = (page: Page) => stage(page).getByRole("textbox", {name: "搜索会话"});
+    const widthOf = async (page: Page, locator: ReturnType<typeof stage>) => Math.round((await locator.boundingBox())!.width);
+    /** 展开时没有 48 的入口列：列表占满替身侧轨（AgentMessagesFixture.vue），差只有侧轨自己的 1 像素边线。 */
+    const RAIL_BORDER = 2;
+    const eventNames = async (page: Page) => page.locator('[data-lab-panel="events"] .nb-lab-event-chip').evaluateAll((chips) => chips.map((chip) => chip.textContent?.trim() ?? ""));
 
-    /** 按住分隔线横着拖 `dx` 像素再松手。 */
-    async function dragSeparator(page: Page, dx: number): Promise<void> {
-        const box = (await separator(page).boundingBox())!;
-        const x = box.x + box.width / 2;
-        const y = box.y + box.height / 2;
-        await page.mouse.move(x, y);
-        await page.mouse.down();
-        await page.mouse.move(x + dx, y, {steps: 8});
-        await page.mouse.up();
-        await frames(page);
+    // 覆盖 conversation.md 输出 57“收着”、views.md 输出 21：收着时 bot 一组、新对话与最近会话、底段，每一项带 data-rail-item；当前 bot 带 aria-current，
+    // 等你处理的 bot 带 data-strip-waiting，底段的汇总徽标写未读合计并带 data-messages-summary-waiting。
+    test("收着：bot、新对话、最近会话、底段与展开按钮各项都带 data-rail-item；当前 bot 与等你处理的标出来，汇总徽标写未读合计", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked", "900x560");
+        await expect(segment(page)).toHaveAttribute("data-messages-segment-state", "collapsed");
+        await expect(listPanel(page)).toHaveCount(0);
+        await expect.poll(() => widthOf(page, rail(page))).toBe(48);
+        await expect(stage(page).locator("[data-strip-contact]")).toHaveCount(3);
+        await expect(stage(page).locator("[data-strip-contact='nbook.bots/lyra']")).toHaveAttribute("aria-current", "true");
+        await expect(stage(page).locator("[data-strip-contact][aria-current]")).toHaveCount(1);
+        await expect(stage(page).locator("[data-strip-contact='nbook.bots/vega']")).toHaveAttribute("data-strip-waiting", /.*/u);
+        await expect(stage(page).locator("[data-strip-contact='nbook.bots/lyra']")).not.toHaveAttribute("data-strip-waiting");
+        await expect(stage(page).locator("[data-messages-new-session]")).toBeVisible();
+        // 当前是 bot：最近会话的方块都不描边；按高度放得下几个就放几个，给会话留两个位置，次序是宿主给的次序、只在末尾截。
+        const shown = await stage(page).locator("[data-strip-session]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-strip-session")));
+        expect(shown.length).toBeGreaterThanOrEqual(2);
+        expect(shown).toEqual(["s1", "s2", "s3", "s4", "s5", "s6"].slice(0, shown.length));
+        await expect(stage(page).locator("[data-strip-session][aria-current]")).toHaveCount(0);
+        // 汇总徽标：未读合计（星璃 2），有等你处理的（织女）所以带标记。
+        // 导航与底段各有一个汇总徽标（藏起来的那份仍在 DOM），收着时看底段里的那个：Lab 的替身侧轨不带 data-rail-segment，所以按“不在导航里”取。
+        const footSummary = stage(page).locator("[data-messages-summary]:not([data-messages-nav] [data-messages-summary])");
+        await expect(footSummary).toHaveText("2");
+        await expect(footSummary).toHaveAttribute("data-messages-summary-waiting", /.*/u);
+        // 底段的两项只是打开列表的按钮：没有按下态。
+        await expect(open(page, "bot")).not.toHaveAttribute("aria-pressed");
+        await expect(open(page, "sessions")).not.toHaveAttribute("aria-pressed");
+        // 展开收起按钮是中段第一项，也是 roving 的成员。
+        await expect(toggle(page)).toHaveAttribute("aria-expanded", "false");
+        expect(await stage(page).locator("[data-rail-item]").first().evaluate((element) => element.hasAttribute("data-rail-toggle"))).toBe(true);
+        // 每个可聚焦项都是侧轨 roving 的成员。
+        const items = stage(page).locator("[data-strip-contact], [data-strip-session], [data-messages-new-session], [data-messages-open], [data-strip-more], [data-rail-toggle]");
+        const marked = stage(page).locator("[data-strip-contact][data-rail-item], [data-strip-session][data-rail-item], [data-messages-new-session][data-rail-item], [data-messages-open][data-rail-item], [data-strip-more][data-rail-item], [data-rail-toggle][data-rail-item]");
+        await expect(marked).toHaveCount(await items.count());
+    });
+
+    // 覆盖 conversation.md 输出 57“收着”（当前会话描边）：当前是会话时只有那个方块 aria-current，bot 都不是当前。
+    test("收着：当前是会话时只有那个方块描边，bot 都不是当前", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked-session", "900x560");
+        await expect(stage(page).locator("[data-strip-session][aria-current]")).toHaveCount(1);
+        await expect(stage(page).locator("[data-strip-session='s2']")).toHaveAttribute("aria-current", "true");
+        await expect(stage(page).locator("[data-strip-contact][aria-current]")).toHaveCount(0);
+    });
+
+    // 覆盖 conversation.md 输出 57“收着”（区域隐藏或拖到零时当前退成弱描边）：只有 weak 场景的视图段根上写 data-rail-weak。
+    test("收着：区域隐藏或拖到零时视图段根上写 data-rail-weak，平时没有", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked-weak", "900x560");
+        await expect(segment(page)).toHaveAttribute("data-rail-weak", /.*/u);
+        await openScene(page, "AgentMessages", "docked", "900x560");
+        await expect(segment(page)).not.toHaveAttribute("data-rail-weak");
+    });
+
+    // 覆盖 conversation.md 输出 57“收着”（太多时并成“+N”、当前会话永远占位、按高度只在末尾增减）：高度不够时 bot 并成“+N”，当前会话仍在，点“+N”同“全部 bot”。
+    test("收着、高度不够：bot 并成“+N”，最近会话从末尾截而当前会话仍在；点“+N”展开到 bot 页并聚焦搜索", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked-short", "900x560");
+        const more = stage(page).locator("[data-strip-more]");
+        await expect(more).toBeVisible();
+        expect(await stage(page).locator("[data-strip-contact]").count()).toBeLessThan(8);
+        await expect(stage(page).locator("[data-strip-session='s6']")).toHaveAttribute("aria-current", "true");
+        expect(await stage(page).locator("[data-strip-session]").count()).toBeLessThan(6);
+        await more.click();
+        await expect(segment(page)).toHaveAttribute("data-messages-segment-state", "expanded");
+        await expect(stage(page).locator("[data-messages-page=bot]")).toBeVisible();
+        await expect(botSearch(page)).toBeFocused();
+        expect(await eventNames(page)).toContain("show-list");
+    });
+
+    // 覆盖 conversation.md 输出 57“展开”：收着时点底段按钮展开并切到那一页、聚焦这一页的搜索；展开后底部导航的对应项被选中，展开时没有入口那一列、列表占满轨宽。
+    test("收着时点“会话历史”：展开、切到会话页、聚焦搜索，导航的会话项被选中；没有入口列、列表占满轨宽", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked", "900x560");
+        await open(page, "sessions").click();
+        await expect(segment(page)).toHaveAttribute("data-messages-segment-state", "expanded");
+        await expect(listPanel(page)).toBeVisible();
+        await expect(stage(page).locator("[data-messages-page=sessions]")).toBeVisible();
+        await expect(sessionsSearch(page)).toBeFocused();
+        await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "true");
+        await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "false");
+        await expect(open(page, "sessions")).toBeHidden();
+        await expect.poll(async () => (await widthOf(page, rail(page))) - (await widthOf(page, listPanel(page)))).toBeLessThanOrEqual(RAIL_BORDER);
+        expect(await widthOf(page, rail(page))).toBe(300);
+    });
+
+    // 覆盖 conversation.md 输出 57“展开”：已展开时点底部导航的另一项只切页（选中的换过去），不聚焦搜索框。
+    test("展开着时点导航的另一项：只切页、选中换过去，焦点不进搜索框", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked-expanded-sessions", "900x560");
+        await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "true");
+        await navTab(page, "bot").click();
+        await expect(stage(page).locator("[data-messages-page=bot]")).toBeVisible();
+        await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "true");
+        await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "false");
+        await expect(botSearch(page)).not.toBeFocused();
+        await expect(segment(page)).toHaveAttribute("data-messages-segment-state", "expanded");
+        // 切页的是同一个展开：宿主没有再收到一次 show-list（收着时才发）。
+        expect(await eventNames(page)).not.toContain("show-list");
+    });
+
+    // 覆盖 conversation.md 输出 57“展开”（搜索框里 Esc 先清空，已空时把焦点交回聊天输入框，不收起）：两页一样，已空时发 escape-search。
+    for (const [name, scene] of [["bot 页", "docked-expanded"], ["会话页", "docked-expanded-sessions"]] as const) {
+        test(`搜索框里 Esc（${name}）：有字先清空，已空时发 escape-search，不收起`, async ({page}) => {
+            await openScene(page, "AgentMessages", scene, "900x560");
+            const search = name === "bot 页" ? botSearch(page) : sessionsSearch(page);
+            await search.focus();
+            await page.keyboard.type("星");
+            await expect(search).toHaveValue("星");
+            await page.keyboard.press("Escape");
+            await expect(search).toHaveValue("");
+            await expect(search).toBeFocused();
+            expect(await eventNames(page)).not.toContain("escape-search");
+            await page.keyboard.press("Escape");
+            await expect.poll(async () => (await eventNames(page)).filter((event) => event === "escape-search").length).toBe(1);
+            await expect(segment(page)).toHaveAttribute("data-messages-segment-state", "expanded");
+        });
     }
 
-    test("宽版：拖线改列表栏的宽度，收起再展开还是拖出来的宽度", async ({page}) => {
-        await openScene(page, "AgentMessages", "wide", "900x560");
-        await expect(listPanel(page)).toBeVisible();
-        expect(await widthOf(page, "[data-messages-list-panel]")).toBe(260);
+    // 覆盖 conversation.md 输出 57“展开”（缺省 300，200–420）与 AgentMessagesList 的底部导航：轨宽 200、420 时列表宽跟着，导航的两项不压到右端。
+    for (const [width, scene] of [[200, "docked-expanded-200"], [300, "docked-expanded"], [420, "docked-expanded-420"]] as const) {
+        test(`展开到轨宽 ${width}：列表占满轨宽，底部导航的两项都在列表之内`, async ({page}) => {
+            await openScene(page, "AgentMessages", scene, "900x560");
+            await expect.poll(() => widthOf(page, rail(page))).toBe(width);
+            await expect.poll(async () => width - (await widthOf(page, listPanel(page)))).toBeLessThanOrEqual(RAIL_BORDER);
+            const list = (await listPanel(page).boundingBox())!;
+            await expect(stage(page).locator("[data-messages-switch]")).toHaveCount(0);
+            await expect(stage(page).locator("[data-messages-nav]").getByRole("tab")).toHaveCount(2);
+            for (const tab of await stage(page).locator("[data-messages-nav]").getByRole("tab").all()) {
+                const box = (await tab.boundingBox())!;
+                expect(box.x).toBeGreaterThanOrEqual(list.x - TOLERANCE_PX);
+                expect(box.x + box.width).toBeLessThanOrEqual(list.x + list.width + TOLERANCE_PX);
+            }
+        });
+    }
 
-        await dragSeparator(page, 60);
-        expect(Math.abs(await widthOf(page, "[data-messages-list-panel]") - 320)).toBeLessThanOrEqual(TOLERANCE_PX);
-
-        // 宽度交回了宿主：收起、展开都会按宿主给的宽度重新分配，没交回就回到 260。
-        await stage(page).locator("[data-messages-collapse]").click();
-        await expect(strip(page)).toBeVisible();
-        await stage(page).locator("[data-messages-toggle]").click();
+    // 覆盖 conversation.md 输出 57“收着”“展开”（英文界面）：英文 390 宽下收着时 bot 的名称是英文，展开时长名字与长摘要截断，列表不横向溢出。
+    test("英文：收着时名称是英文；展开后长名字与长摘要截断，列表不横向溢出", async ({page}) => {
+        await openScene(page, "AgentMessages", "docked-390-english", "900x560");
+        await expect(stage(page).locator("[data-strip-contact='nbook.bots/lyra']")).toHaveAttribute("aria-label", /Lyra the very long-named companion/u);
+        await openScene(page, "AgentMessages", "docked-expanded-390-english", "900x560");
         await expect(listPanel(page)).toBeVisible();
-        await expect.poll(async () => Math.abs(await widthOf(page, "[data-messages-list-panel]") - 320)).toBeLessThanOrEqual(TOLERANCE_PX);
+        const overflow = await listPanel(page).evaluate((element) => ({scroll: element.scrollWidth, client: element.clientWidth}));
+        expect(overflow.scroll).toBeLessThanOrEqual(overflow.client + 1);
     });
 
-    test("宽版：拖到最小宽度以内再过门槛收成头像列，往外拖展开；键盘左右键改宽度", async ({page}) => {
-        await openScene(page, "AgentMessages", "wide", "900x560");
-        // 260 往里拖 130：到 130，小于 200 - 40。
-        await dragSeparator(page, -130);
-        await expect(strip(page)).toBeVisible();
-        await expect(listPanel(page)).toBeHidden();
-        expect(await widthOf(page, "[data-messages-strip]")).toBe(52);
-
-        // 收着时往外拖过门槛就展开，展开后不小于最小宽度。
-        await dragSeparator(page, 170);
-        await expect(listPanel(page)).toBeVisible();
-        await expect(strip(page)).toBeHidden();
-        const expanded = await widthOf(page, "[data-messages-list-panel]");
-        expect(expanded).toBeGreaterThanOrEqual(200);
-
-        await separator(page).focus();
-        await page.keyboard.press("ArrowRight");
-        await frames(page);
-        expect(await widthOf(page, "[data-messages-list-panel]")).toBe(expanded + 10);
-    });
-
-    test("宽版收着时：按住线往外拖过门槛再拖回门槛内，不松手时就回到头像列；焦点在线上按 Enter 展开、再按收起", async ({page}) => {
-        await openScene(page, "AgentMessages", "wide-collapsed", "900x560");
-        await expect(strip(page)).toBeVisible();
-        const box = (await separator(page).boundingBox())!;
-        const x = box.x + box.width / 2;
-        const y = box.y + box.height / 2;
-        await page.mouse.move(x, y);
-        await page.mouse.down();
-        await page.mouse.move(x + 180, y, {steps: 8});
-        await expect(listPanel(page)).toBeVisible();
-        await expect(strip(page)).toBeHidden();
-        // 拖回门槛内：面板回到头像列的宽度，画的也要换回头像列（列表不能挤在 52 像素里）。
-        await page.mouse.move(x + 10, y, {steps: 8});
-        await expect(strip(page)).toBeVisible();
-        await expect(listPanel(page)).toBeHidden();
-        await page.mouse.up();
-        await frames(page);
-        await expect(strip(page)).toBeVisible();
-
-        await separator(page).focus();
-        await page.keyboard.press("Enter");
-        await expect(listPanel(page)).toBeVisible();
-        await expect.poll(async () => widthOf(page, "[data-messages-list-panel]")).toBe(260);
-        await expect(separator(page)).toBeFocused();
-        await page.keyboard.press("Enter");
-        await expect(strip(page)).toBeVisible();
-        await expect(listPanel(page)).toBeHidden();
-    });
-
-    test("宽版英文、列表栏最窄：切换行的标签不压到收起按钮", async ({page}) => {
-        await openScene(page, "AgentMessages", "wide-narrowest-english", "900x560");
-        const tab = (await stage(page).locator("[data-messages-tab='sessions']").boundingBox())!;
-        const collapse = (await stage(page).locator("[data-messages-collapse]").boundingBox())!;
-        expect(tab.x + tab.width).toBeLessThanOrEqual(collapse.x);
-    });
-
-    test("窄版：抽屉从头像列伸出来压在聊天区上，行点得到；线拖不动", async ({page}) => {
-        await openScene(page, "AgentMessages", "narrow-drawer", "900x560");
-        await expect(listPanel(page)).toBeVisible();
-        const drawer = (await listPanel(page).boundingBox())!;
-        const rail = (await strip(page).boundingBox())!;
-        expect(drawer.x).toBeGreaterThanOrEqual(rail.x + rail.width - TOLERANCE_PX);
-        expect(drawer.width).toBeGreaterThan(200);
-        // 抽屉真的画在聊天区上面：行中心最上面的元素就是这一行。不靠 click 判断：抽屉被 52 像素的那块面板裁掉时，
-        // click 会先把行滚进那块面板再点，照样点得到。
-        const row = stage(page).locator("[data-messages-contact='nbook.bots/vega']");
-        expect(await row.evaluate((element) => {
-            const box = element.getBoundingClientRect();
-            const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-            return top !== null && element.contains(top);
-        })).toBe(true);
-        await row.click();
-        await expect(page.locator('[data-lab-panel="events"] .nb-lab-event-chip', {hasText: "open-contact"})).toHaveCount(1);
-
-        await dragSeparator(page, 80);
-        expect(await widthOf(page, "[data-messages-strip]")).toBe(52);
-        await expect(separator(page)).toHaveAttribute("aria-disabled", "true");
-    });
+    // 覆盖 conversation.md 输出 57“浮动”：视图段画在视图自己的右边缘，收着 48、展开 300，贴着视图的右缘；没有替身侧轨。
+    for (const [state, scene, width] of [["收着", "edge", 48], ["展开", "edge-expanded", 300]] as const) {
+        test(`浮动窗的右边缘（${state}）：视图段宽 ${width}，贴着视图的右缘，聊天区在左边`, async ({page}) => {
+            await openScene(page, "AgentMessages", scene, "900x560");
+            await expect(stage(page).locator("[data-messages-placement='edge']")).toHaveCount(1);
+            await expect(rail(page)).toHaveCount(0);
+            await expect(segment(page)).toHaveAttribute("data-messages-segment-state", state === "收着" ? "collapsed" : "expanded");
+            const root = (await stage(page).locator("[data-messages-placement='edge']").boundingBox())!;
+            const edge = (await segment(page).boundingBox())!;
+            expect(Math.abs(edge.width - width)).toBeLessThanOrEqual(TOLERANCE_PX);
+            expect(Math.abs(edge.x + edge.width - (root.x + root.width))).toBeLessThanOrEqual(TOLERANCE_PX);
+            const chat = (await stage(page).getByText("聊天区（AgentConversationView）").boundingBox())!;
+            expect(chat.x + chat.width).toBeLessThanOrEqual(edge.x + TOLERANCE_PX);
+        });
+    }
 });

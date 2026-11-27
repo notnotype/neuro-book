@@ -242,7 +242,7 @@ function confirm(): void {
                 <span class="acv-catalog__muted" data-catalog-selected>{{ t("catalog.selected", {count: picked.length}) }}</span>
                 <span class="acv-catalog__spacer" />
                 <Button variant="secondary" @click="emit('update:open', false)">{{ t("catalog.cancel") }}</Button>
-                <Button :disabled="picked.length === 0" data-catalog-confirm @click="confirm">{{ t("catalog.confirm", {count: picked.length}) }}</Button>
+                <Button variant="primary" :disabled="picked.length === 0" data-catalog-confirm @click="confirm">{{ t("catalog.confirm", {count: picked.length}) }}</Button>
             </div>
         </template>
     </Dialog>

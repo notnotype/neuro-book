@@ -10,6 +10,8 @@ export {default as AgentStatusBar} from "./composer/AgentStatusBar.vue";
 export {default as AgentSessionPanel} from "./AgentSessionPanel.vue";
 export {default as AgentMessages} from "./messages/AgentMessages.vue";
 export {default as AgentMessagesList} from "./messages/AgentMessagesList.vue";
+export {default as AgentMessagesSegment} from "./messages/AgentMessagesSegment.vue";
+export type {MessagesSegmentPlacement} from "./messages/placement";
 export {default as AgentModelCatalog} from "./catalog/AgentModelCatalog.vue";
 export {default as AgentRequestTrace} from "./requests/AgentRequestTrace.vue";
 

@@ -34,14 +34,14 @@ export type {
     DialogCloseReason, DialogSize, DrawerDirection, FloatingWindowCloseReason, DropdownMenuItemData,
     DropdownMenuItemType, FocusRingStyle, GenericTreeNode, IconButtonSize, IconButtonVariant,
     InputType, KbdSize, MenubarItemData, MenubarMenuData,
-    NotificationPosition, NotificationTone, NumberInputSize, Orientation, OverlayCloseReason, ProgressSize, ProgressTone,
+    NotificationPosition, NotificationTone, NumberInputSize, Orientation, OverlayCloseReason, PopoverReference, ProgressSize, ProgressTone,
     QuickPickCloseReason, QuickPickItem, QuickPickProps, RadioGroupSize, RadioOption,
     ScrollAreaOrientation, ScrollAreaType, SearchSelectOption, SearchSelectSize, SegmentedControlOption,
     SegmentedControlSize, SegmentedControlValue, SelectDirection, SelectOption,
     SelectSize, Side, SkeletonShape, SliderSize, SpinnerSize, 
     SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuStatus, SuggestionSide, SwitchSize,
     TableColumn, TableDensity, TabsItem, TabsSize, TagInputSize, TagInputVariant, ToggleGroupOption,
-    ToggleGroupSize, Tone,
+    ToggleGroupSize, Tone, TreeSurface, TreeToggleOn,
     FieldContext,
 } from "@notnotype/nb-ui/components";
 

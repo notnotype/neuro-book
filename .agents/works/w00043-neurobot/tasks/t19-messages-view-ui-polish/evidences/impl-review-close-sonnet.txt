@@ -1,0 +1,93 @@
+### 1. 轨宽不是缺省值时，移动浮动窗（键盘与整窗拖动）把“往左长”的那段写进记录位置，窗漂移
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts` `moveFloat`（约 518 行）与 `renderedFloats`（约 324 行 `x: rect.x - growth.left`）；调用方 `packages/nb-layout/src/vue/FloatWindowHandles.vue:101`、`packages/neuro-book/src/plugins/workbench/web/drag-geometry.ts:176` 的 `windowRect`。
+- 现象：bd7c9db5a 让画出来的窗位置 = 记录 x − `growth.left`（轨宽比缺省多出的那段往左长）。resizeFloat 已经把这段加回去了，但“移动”这条路径没改：键盘移动发出 `{x: props.rect.x + delta}`，`props.rect` 是画出来的矩形；整窗拖动 `windowRect` 用 `drag.from`（画出来的 x）算位置，再由 `commitDrop` 的 `float` 动作原样写进记录。两条路径写进记录的 x 都是“已经减过 left 的位置”，渲染时又减一次。
+- 影响：用户把轨宽拖成非缺省值（这正是本轮新手柄的用途）之后，每按一次方向键窗向反方向多漂 `left` 像素；整窗拖放后松手窗跳一段（轨宽比缺省窄时往右跳）。大小仍取记录里的，所以不会出现宽度累加，只有位置。
+- 如何核实（真实 store，Bun；实验文件在 `/tmp/review-t19-close/exp/exp.test.ts`，拷自 layout-doc-store.test.ts 加了一条用例，没有改仓库）：浮出 `test.x1`、`requestFloatRailExpanded(panel,true)`、`commitFloatRailWidth(panel,300)`（缺省 260，left=40），取 `before = floats()[0].rect`，调 `moveFloat(panel,{x: before.x+10, y: before.y})`。输出 `before.x=450`，之后画出来的 `x=420`（期望 460），记录 x=460。这一步绕过了 DOM，直接用的是 `FloatWindowHandles` 键盘分支会发出的那个参数；真实页面里复现：展开消息窗、拖轨宽手柄到 300、再对窗的移动手柄按 →（或拖标题移动）。
+- 建议改法：位置的换算放在一处。`moveFloat` 与整窗拖动落账（`commitDrop` 里 `source.kind==="panel"` 且 `action.kind==="float"` 时）收到的是画出来的位置，写入前加回 `growth.left`（与 `resizeFloat` 的 `presented.x + growth.left` 同一个换算）；或者给 store 一个 `presentedToRecord(panel, rect)` 供三处共用。补一条 store 用例：自定义轨宽后 moveFloat 画出来的位置恰好平移 delta。
+
+### 2. 靠右被往左挪过的展开窗，拖右边缩小，松手时窗整块跳回右边
+- 严重程度：建议；类别：正确性
+- 位置：`layout-doc-store.ts` `resizeFloat`（约 850 行：`x: direction.width === -1 ? presented.x + growth.left : rect.x`）与 `renderedFloats` 的夹取（`x = max(0, min(wanted.x, area.width - wanted.width))`）。
+- 现象：Spec 输出 51 写“靠屏幕右边时呈现位置往左挪、记录位置不改”，resizeFloat 为此在拖右边时保留记录 x。但夹取量是宽度的函数：窗拖窄之后，记录 x 在新宽下不再需要往左挪，画出来的窗整块往右弹。
+- 实验（同上目录，EXP-shift，直接调用 store，绕过了 DOM 手势）：区域宽 1440，记录 `{x:1000,width:400}`，展开后画出来 `{x:828,width:612}`；拖右边缩小 100，手势结束时（预览）是 `{x:828,width:512}`，`resizeFloat` 后画出来 `{x:928,width:512}`、记录 `{x:1000,width:300}`。也就是松手那一帧窗向右跳了 100 像素，右边缘从 1340 跳到 1440。真实页面里复现：把窗摆到靠右、展开视图段（窗被往左挪），拖窗的右边往里缩，松手。
+- 为什么不一定是“符合 Spec”：Spec 只说挪过的位置不写回，没说拖右边时松手可以跳；手势中用户看到的位置与提交后不一致，违反“松手那一下不跳”的约定（`previewFloat` 里“和写入时一样取整：放下那一下不跳”）。
+- 建议改法：拖的是右边时，若画出来的 x 与“记录 x − left”不同（即被夹取挪过），说明用户眼里的左边就是画出来的 x，把记录 x 写成 `presented.x + growth.left`，即只有“窗没被挪过”时才保留记录位置；这样仍满足“靠右往左挪不写回”（没缩放时不会触发），只是缩放这个明确的用户动作要求画面不跳。
+
+### 3. 右轨“新对话”绕过了 `act` 的错误收口，新建失败时变成无诊断的未处理 rejection
+- 严重程度：建议（错误路径）；类别：不变量
+- 位置：`packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:184`（`void revealAndFocus(props.host.create(profile))`）与 `revealAndFocus`（约 144 行 `await Promise.all([props.reveal(), settled])`）；对照 `packages/neuro-book/src/plugins/agent/web/session-host.ts:1730` `act`。
+- 现象：6562f3343 之前走 `host.act({type:"session.create"})`，`act` 用 `.catch` 写一条 `conversation-action-failed` 诊断。现在直接调 `host.create(profile)`（`createSession` 里 `await remote.create(...)`、`openHere(...)` 都可能 reject，例如连接中断），返回的 Promise 交给 `Promise.all`；它 reject 时 `revealAndFocus` 整个 reject，外面是 `void`，结果是浏览器里的 unhandled rejection，没有诊断，也不给焦点（`reveal` 的结果被一并丢掉）。
+- 如何核实：从代码推断，未跑。`createSession` 里 `remote.create` 的失败有两种：返回 `ok:false`（已处理，写 `notice`）、抛错（没处理）。后者在 RPC 断开时可能出现。
+- 建议改法：`revealAndFocus` 里把 `settled` 接一层 `.catch` 写诊断（`props.report("session-create-failed", …)`，与同文件 `requestRail` 的写法一致），或者让 `host` 暴露一个带收口的“新建并等待”入口，不要在组件里直接用裸 `create`。
+
+### 4. `scrolled` 表只在换位置时清理，收起展开几次就留下已脱离文档的元素
+- 严重程度：建议；类别：不变量（资源释放）
+- 位置：`packages/nb-agent-ui/src/vue/messages/AgentMessagesSegment.vue` `onScroll`（约 139 行）与 `watch(() => props.targets, …)` 里的 `scrolled.delete`。
+- 现象：`scrolled: Map<HTMLElement, number>` 记每个滚过的元素，只有 `targets` 变化的 post 回调才删 `!isConnected` 的项。展开列表里滚动、收起（列表整块卸掉）、再展开，每轮都往表里留一个已脱离文档的滚动容器，连同它的子树一直被引用，直到用户下一次搬动视图段。长时间停靠不动的会话里这是单调增长（量级小：每次展开收起至多几个元素，但引用的是整棵列表 DOM）。
+- 建议改法：`onScroll` 记入时顺手删表里 `!isConnected` 的项（表很小，线性扫一遍可以接受）；或者 `expanded` 变化时（`watch(() => props.expanded)`，已经有一个）清掉 `scrolled`，因为列表被拆掉后那些元素本来就没有用了。
+
+### 5. `heldChat` 在 pre 监听里量聊天区宽，量到的值取决于网格是否已经改了窗宽；减少动态效果下可能量成“新窗宽 − 旧视图段宽”，聊天区被固定在错的宽度约 30 帧
+- 严重程度：重要（未在真实页面验证，需要主会话跑）；类别：正确性
+- 位置：`packages/nb-agent-ui/src/vue/messages/AgentMessages.vue` 的 `watch(() => [edgeWidth.value, props.expanded], …, {flush: "pre"})`（约 96–106 行）里的 `chat.getBoundingClientRect().width`；对照 `packages/nb-layout/src/vue/NestedGrid.vue` 约 928–940 行的过渡写在 `.nb-grid-content[data-moving]` 上，时长取 `--nb-layout-motion-layout`。
+- 推演：宿主在同一次 flush 里先写窗的新宽（NestedGrid 的渲染，它早于懒加载的视图实例创建，更新顺序按 uid 在前），再由 `AgentMessages` 的 pre 监听读聊天区宽。有过渡时，强制布局读到的是过渡起点（旧宽），所以注释里的“量到换宽之前”成立。减少动态效果时（nb-ui 令牌在 `prefers-reduced-motion` 下把时长全降为 0）窗宽在这次样式写入就到终点：此时读到的聊天区宽是 `新窗宽 − 旧视图段宽`（视图段这一栏的 DOM 还没改）。例：窗 460→672、视图段 48→260，旧聊天区 412，读到 624。固定成 624 之后目标宽是 `624+260=884`，窗终点是 672，永远到不了，靠 30 帧不变放开：这约 0.5 秒里聊天区 624、视图段那栏被挤成 48（里面 260 宽的列表被裁），然后一下子重排。正好是这段注释要消除的“排两次”。
+- 为什么 e2e 可能漏：e2e 是生产构建且减弱动效（见仓库约定），聊天区宽“过渡中不变”在窗宽一步到位时也可能恰好满足；要看的是展开那一刻聊天区宽是不是旧值。
+- 如何核实（真实页面，我没有跑）：Playwright `page.emulateMedia({reducedMotion: "reduce"})` 与不减弱各跑一遍：浮出消息视图、点窗里的展开，逐帧（rAF）采样 `[data-messages-chat]` 的 `offsetWidth` 与 `[data-float-rail]` 的 `offsetWidth`。预期聊天区宽一直等于点击前；若减弱时前 ~30 帧聊天区宽 = 旧窗宽 + 212 − 48，则成立。
+- 建议改法（让部件变少）：不要在改宽的同一帧里量。用一个 `ResizeObserver` 盯聊天区，只在 `heldChat === null` 时记下 `lastChat`（回调在渲染步骤里跑、晚于 flush，所以点击那次 flush 里读到的还是旧值），pre 监听用 `lastChat`。或者，聊天区终点宽本来就是“点击前的聊天区宽”，可以由宿主在发请求前（`requestRail` 调用处，同步段里还没改任何东西）读一次交给外框。另外 tick 里的 `getBoundingClientRect()` 可换成读 `offsetWidth` 或同一个 RO，每帧少一次几何对象分配与 transform 影响。
+
+### 6. 浮动窗矩形的往返没有被测到：只测了“拖右边加宽”和“拖左边”，移动（键盘与整窗拖动）、靠右挪过后缩放、非缺省轨宽下的移动都没有用例
+- 严重程度：建议；类别：测试
+- 位置：`layout-doc-store.test.ts`（约 1228–1290 行两条浮动窗用例）、`e2e/agent-messages-float.e2e.ts`（151、199、262、329 行）。
+- 现象：第 1、2 条两个问题，既没有 store 用例也没有 e2e 能抓到：store 用例里 `resizeFloat` 只给了不夹取的窗；`moveFloat` 完全没出现在浮动窗视图段的用例里；e2e 的“靠右夹取”只验证展开与收起往返，没有缩放或移动；“展开收起不漂移”用的是缺省宽，`left=0`，换算项恰好为零，所以位置换算漏掉 `growth.left` 的写法也会通过。
+- 建议：在 store 用例里补三条（都是纯 store，不用 DOM）：①自定义轨宽（如 300）后 `moveFloat(panel, {x: presented.x + 10, …})`，断言画出来的 x 平移恰好 10；②靠右夹取的窗拖右边缩小后画出来的右边缘与手势预览的右边缘一致；③`commitDrop` 的整窗落账（`kind:"float"`）同样断言。变异检查：把 `growth.left` 从 `renderedFloats` 里去掉，现有用例是否仍全绿（我判断是：缺省宽时 left 恒为 0，只有 `commitFloatRailWidth(300)` 之后的用例碰到它，且那条只断言了 resize 的左边路径）。
+- 另：`animatingFloats` “用微任务清、排在 Vue 渲染之后”的先后，store 用例只在没有 Vue 的环境里用 `await Promise.resolve()` 验证了“清掉了”，没有验证“清掉之前那次渲染读到了 animate”。我读代码认为先后成立（点击处理里同步提交，`local.value` 赋值时 Vue 已把 flush 排进微任务，清标记的 `then` 注册在它之后；`ViewRail.request` 也是同步 `handle`），所以不算缺陷；这条成立只靠 e2e 的“窗宽过渡到位”，e2e 又是减弱动效的，宽度变化看不出有没有过渡。建议在 dom 层（NestedGrid 在 Lab 里）或 e2e 里关掉减弱动效，断言展开后第一帧窗宽仍是旧值（`data-moving` 在），否则 `animate` 一旦失效没有任何测试会红。
+- 另：`AgentMessages.vue` 的 `heldChat`、`holdUntil`（0dd44a503 约 100 行）没有 dom 测试，happy-dom 量不了布局，这是已知限制；第 5 条的减弱动效情形尤其需要在真实浏览器里覆盖。
+
+### 7. 外壳与合同文字没跟上：`WorkbenchShell.md`、Spec views 输出 21、`AgentMessagesSegment.md` 与实现不符
+- 严重程度：建议；类别：文档
+- 位置与现象：
+  1. `packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.md:17` 仍写“别的实例都是 `none`”“视图的 `request` 只对借着的那个视图转给 `requestRailExpanded`，别的是 `revoked`”，实际已经有 `window` 位置、`requestFloatRailExpanded`、`floatRailHandleOf` 与浮动窗的轨宽手柄（b40104617、bd7c9db5a、`WorkbenchShell.vue` 第 170–220、1283–1288 行）；组件改了，同名 `.md` 没有改（AGENTS 里“改组件同名 .md 必读”的另一半）。
+  2. `docs/specs/workbench/views.md` 输出 21 的“接口”一条写 `{kind: "window", width}`，实现与合同已经是 `{kind:"window", width, tooNarrow}`（94793b9d2、7e660d554 在 `contracts.ts` 里加了必填的 `tooNarrow`）；同一条写“`expanded` 是此刻生效的展开状态”，而 e42d450ea 之后 `none` 时外壳不再改它，视图拿到的是上一处的值（`contracts.ts:489` 的注释已经改了，Spec 没有）。
+  3. `packages/nb-agent-ui/src/vue/messages/AgentMessagesSegment.md:27` 写“换位置时先记下焦点与滚过的元素，搬完放回去”，9e5bf637a 之后实现是“平时就记（`focusin`/`focusout`/`scroll` 捕获），搬完放回去”，并且“焦点被工作台交给别处也放回去”（25388f245）。Spec views 输出 21 的“焦点”一条还写着“焦点已去别处时不抢回”，与 25388f245 的“`document.activeElement !== focus` 就抢回”表面冲突；作者的理由（宿主交给标签或外壳根不算用户选择）有道理，应在 Spec 里把“不抢回”限定为“用户自己挪走的”。
+- 建议：同提交改文档；Spec 部分属于晋升前核对的范围，标出来即可。
+
+### 8. 小项合并
+- 严重程度：建议；类别：代码质量 / 安全与性能
+  1. `refusedFloatRail`、`refusedRail` 只是一个 id 串，窗被关掉或视图归位后不会清；同 id 的窗再次浮出时（`freeId` 会复用）会带着旧的“被拒”标记走一遍预算判断，窗口放不下时一浮出按钮就标“窗口太窄”。位置：`layout-doc-store.ts:112`、`:108`。概率低，清法：`floatRails`/`railState` 里读到 `refused` 与现状不符（窗不存在）时顺手清，或在 `apply` 成功后按文档里存在的窗过滤。
+  2. 浮动窗展开被拒时按“记录宽 + 请求宽 − 48 > 区域宽”整体拒绝（`requestFloatRailExpanded`、`floatRails`），右轨则有 `limit`，请求比能给的宽时生效宽取能给的（`railState` 的 `budget.width`）。参照有、实现没有：窗口缩小一点后，用户拖宽过的窗（比如 420）会整个收着并标“窗口太窄”，而不是展开成 360。Spec 输出 51 写的是“宽度不够时按收着呈现”，所以不算违约，只是与右轨不一致，是否要对齐交开发者定。
+  3. `WorkbenchShell.vue` 约 1283 行 `floatRailHandleOf(id)` 在 `v-if` 与 `v-bind` 各调一次，每次新造 `bounds` 对象与 `message(...)`，手柄组件每次外壳渲染都因 props 引用变而更新；用一个 `v-for`/`v-slot` 一次取出或 computed 记下即可（热路径：拖轨宽时每帧一次）。
+  4. `AgentMessages.vue` 的 `holdUntil` 每帧读 `root.getBoundingClientRect().width`，被 transform 缩放的祖先（窗刚打开的入场动画若用缩放）会让它与 `target`（取自同一函数的未缩放 CSS 宽）对不上，退化为 30 帧放开；改读 `offsetWidth` 或 ResizeObserver 更稳。
+  5. 性能证据：`perf-slice8.txt` 的“resize”场景 mutations 72.0/62.5 = 115%，超出了该文件开头自己定的“不超过基线 110%”，处理是归因后判通过，归因（右栏一列多出右轨 48 与缝使编辑器工具条更窄、跨过更多收放门槛）是合理的推断，但没有用“把基线的右栏也缩 48 像素宽”做对照来证明。可接受，记一笔。
+
+## 未发现问题的方面
+- f64d257e6 与 c51e70e77：`git diff f64d257e6^ c51e70e77` 为空，撤得干净；`keepLeaving` 在源码里没有残留（只在被忽略的 `dist`）。
+- 1474d48ac（`syncTabStops` 只在值变了才写）：`MutationObserver` 只看 `childList`，不看属性，没有循环；被 `closest("[aria-hidden]")` 过滤掉的项原来就不写，没有漏掉该改的。仔细检查后没有发现。
+- 6a4fa7d72（`railWidthOf`）：读的是已提交的文档，不受拖动预览影响；`setActiveContainer` 失败时回退到收着宽，只会走原地滚动那条旧路径，没有新的失败；两端同宽照旧原地滚。仔细检查后没有发现。
+- `animatingFloats` 的微任务先后（见第 6 条）：同步提交、Vue flush 在前，成立。
+- 浮动窗轨宽手柄的手势：`end()` 里先 `preview(null)` 再 `commit`，同一同步段，不会有一帧回弹；`onBeforeUnmount` 收口；拖动中右边不动、左边长的算式用 store 用例核对一致。
+- 6562f3343 之外的 MessagesHost 改动（`requestRail` 的收口）没发现问题。
+- UI 第 5 条：新增文案只有“窗口太窄”（状态）、“展开”“收起”，没有解释内部处理的话；第 6 条：窗的宽度过渡、列表淡入已有，窗里按钮图标直接切换（与侧轨上的同一做法），收起时列表直接拿掉（`AgentMessagesSegment.md` 已写明，原有做法）。
+
+## 数量
+- 阻断 0；重要 2（第 1 条已用真实 store 复现；第 5 条未在真实页面验证）；建议 6（第 2、3、4、6、7、8 条）。
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8
+
+======== 处理（主会话，2026-11-26）========
+修正提交 27b572dd2（Work 分支）；Spec views 输出 21 在主工作区改。
+
+1. 成立，要改。store 加 recordedFloatX（画出来的横向位置加回往左长的那段），moveFloat、commitDrop 的整窗拖动落账、resizeFloat 三处共用。
+   用例补在“浮动窗的轨宽手柄”那条：轨宽 300 后键盘移动、整窗拖动落账，画出来的窗恰好平移。变异：moveFloat、commitDrop 各撤回换算，那条失败。
+2. 成立，要改。横向的边（左或右）动了就取画出来的横向位置，只拖上下边时记录位置不动。新用例“靠右被往左挪过的展开窗”：拖下边记录 x 不变；拖右边缩 100，放手后画出来的等于手势的。
+   变异：改回“只有左边取画出来的”，新用例失败。
+3. 成立，要改。右轨“新对话”的 create 接 catch，写 session-create-failed 诊断后照常揭示。没有补用例（错误路径要伪造断线，宿主那一层的 act 同样没有用例；从代码看）。
+4. 成立，要改。onScroll 记新的之前清掉已脱离文档的元素。
+5. 成立（推演），要改。改成平时由 ResizeObserver 记聊天区的宽（固定着时不记），换宽时取记下的值；放开的判据容差改成 1 像素。
+   真实页面的减少动态效果对照等 e2e 子代理跑完再在开发服务上跑（不减弱与减弱各一遍，逐帧取聊天区宽）。
+6. 部分成立。store 用例补了 1、2 两种；animate 先于渲染的先后由 e2e 子代理正在写的不减弱动效用例覆盖（断言窗宽有至少 3 个中间值）。AgentMessages 的固定逻辑 happy-dom 量不了布局，由同一条 e2e 与真实页面覆盖。
+7. 成立，要改。WorkbenchShell.md 写上 window 位置、浮动窗的请求与轨宽手柄、none 时不改展开状态；AgentMessagesSegment.md 改成平时就记、搬完放回（含工作台交走的焦点）；
+   Spec views 输出 21 的接口写 tooNarrow 与 none 时 expanded 的语义，“焦点”一条把“不抢回”限定为用户自己挪走的。
+8.1 不改：同 id 的窗再浮出时“被拒”标记还在，只会让按钮在窗口确实放不下时提前标“窗口太窄”，结果与点一下相同；收益小（按“过度防御的不改”）。
+8.2 接受取舍，交开发者知悉：浮动窗展开放不下时整个按收着呈现（Spec 输出 51 原文），右轨则给能给的宽；要对齐另开 Task。
+8.3 成立，要改。外壳改成按窗算一次的 computed（floatRailHandles），v-if 与 v-bind 共用。
+8.4 由第 5 条的改法一并处理（放开容差 1 像素；仍读 getBoundingClientRect，窗的飞行用 left/top/width，没有缩放）。
+8.5 记下：resize 的归因没有做“基线右栏也缩 48”的对照，判据按拆来源与单独运行的结果。

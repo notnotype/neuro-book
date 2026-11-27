@@ -71,7 +71,7 @@ function openAdd(): void {
                 {{ group.provider }}<span class="profile-tools__group-count">{{ group.tools.length }}</span>
             </button>
             <ul v-if="!folded.has(group.id)" class="profile-tools__rows">
-                <li v-for="tool in group.tools" :key="tool.id" class="profile-tools__row" :class="{'is-gone': tool.gone}" :data-profile-tool="tool.id">
+                <li v-for="tool in group.tools" :key="tool.id" class="profile-tools__row" :class="{'is-gone': tool.gone}" :data-profile-tool="tool.id" :data-profile-tool-object="tool.object">
                     <span v-if="props.kind === 'stickers'" class="profile-tools__name-cell">
                         <img v-if="tool.thumbnail !== undefined" class="profile-tools__thumb" :src="tool.thumbnail" alt="" loading="lazy" decoding="async" />
                         <span v-else class="profile-tools__thumb" aria-hidden="true"></span>
@@ -80,13 +80,13 @@ function openAdd(): void {
                     <code v-else class="profile-tools__name" :title="tool.name">{{ tool.name }}</code>
                     <span class="profile-tools__effect" :class="{'is-danger': tool.danger}">{{ tool.effect }}</span>
                     <Tooltip :text="tool.detail">
-                        <span class="profile-tools__summary" tabindex="0">{{ tool.summary }}</span>
+                        <span class="profile-tools__summary" :class="{'is-warning': tool.warning}" tabindex="0"><span v-if="tool.warning" class="i-lucide-triangle-alert profile-tools__reason" aria-hidden="true" />{{ tool.summary }}</span>
                     </Tooltip>
                     <span class="profile-tools__action">
                         <Badge v-if="tool.required" size="sm" variant="soft" :tone="tool.gone ? 'warning' : undefined">{{ text(key('required')) }}</Badge>
-                        <Button v-else-if="tool.restorable === true" size="sm" variant="ghost" :aria-label="text(addBackKey('addBackLabel'), {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-add-back @click="emit('add-back', tool.id)">{{ text(addBackKey('addBack')) }}</Button>
-                        <Tooltip v-else :text="text(key('remove'), {name: tool.name, id: tool.id})">
-                            <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text(key('remove'), {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
+                        <Button v-else-if="tool.restorable === true" size="sm" variant="ghost" :aria-label="text(addBackKey('addBackLabel'), {name: tool.name, id: tool.label ?? tool.id})" :disabled="disabled" data-profile-tool-add-back @click="emit('add-back', tool.id)">{{ text(addBackKey('addBack')) }}</Button>
+                        <Tooltip v-else :text="text(key('remove'), {name: tool.name, id: tool.label ?? tool.id})">
+                            <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text(key('remove'), {name: tool.name, id: tool.label ?? tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
                         </Tooltip>
                     </span>
                 </li>
@@ -203,6 +203,19 @@ function openAdd(): void {
     color: var(--text-muted);
     white-space: nowrap;
     text-overflow: ellipsis;
+}
+
+/* 这一行有问题（全局对象要先加入 eval）：与模型一栏的提示同一个图标与颜色。 */
+.profile-tools__summary.is-warning {
+    color: var(--status-warning);
+}
+
+.profile-tools__reason {
+    display: inline-block;
+    width: 1.1em;
+    height: 1.1em;
+    margin-right: var(--space-1);
+    vertical-align: -0.2em;
 }
 
 .profile-tools__action {

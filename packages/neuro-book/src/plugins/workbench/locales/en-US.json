@@ -286,8 +286,11 @@
             "withProject": "The workbench is ready. Current project: {{name}}"
         },
         "activityBar": "Activity Bar",
+        "auxiliaryRail": "Secondary side bar rail",
+        "rail": {
+            "handle": "Resize side rail"
+        },
         "regionStrip": {
-            "auxiliarybar": "Secondary side bar containers",
             "panel": "Panel containers"
         },
         "drag": {

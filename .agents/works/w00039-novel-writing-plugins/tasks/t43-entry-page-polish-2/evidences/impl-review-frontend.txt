@@ -1,0 +1,105 @@
+# w00039 t43 前端实现审查（5b6cac15b..eaedff944）
+说明：dom 测试 AddComponentPicker、ConfirmBar、EntryPage、ComponentViews 四个文件在 worktree 里跑过，26 条全过；没跑 e2e、没起开发服务，下面凡标“从代码推断”的都没在浏览器里验证。
+
+## 1. 重要 / 正确性：OriginList 改成固定列的网格后，窄屏（390）位置列只剩约 42 像素
+位置：packages/neuro-book/src/plugins/canon/web/components/OriginList.vue 的 `.origin-list__row`（grid-template-columns: minmax(0,1fr) 5rem 6rem 4.5rem，column-gap 0.75rem）
+现象：变化、结果、按钮三列加三个间隙固定占 80+96+72+36 = 284 像素，位置列拿剩下的。390 视口下条目页内容列净宽 326（左右各 32 内边距），来历再嵌在值下面，位置列不到 42 像素；“第 12 章”“第 3 章末尾”这类位置（12px 字）放不下，会在位置列里折成两三行，一步变得很高。base 的位置列是固定 `w-16`（64 像素）、发生了什么在窄时换行，没有这个问题。
+为什么是问题：输出 14（窄屏）要求 390 下条目页可用；e2e 验收 14 只量“没有横向滚动”，量不出折行。网格列是 `minmax(0,1fr)` 所以不会横向溢出，是静默变丑。面板分页右边一栏更窄，同样受影响。
+如何核实：Lab 里 OriginList 场景把画布设 vp=390x844，看“第 2 章末尾”那类行；或从 DOM 量 `.origin-list__where` 的 getBoundingClientRect().width。
+建议改法：窄时（容器查询或 max-[480px]）把结果与按钮挪到第二行，或让变化、结果两列在窄时收窄；至少给位置列 `min-width` 并让整行在窄时换成两行布局。
+（从代码推断，未在浏览器量）
+
+## 2. 建议 / 正确性：减弱动效时换分页仍有约两帧的空白，与文档“直接换”不符
+位置：EntryPage.vue `<Transition name="entry-page-tab" mode="out-in">` 与同文件 style 的 `.entry-page-tab-enter-from { opacity: 0 }`
+现象：Vue 的 Transition 先把 `enter-from` 类加上，要等两个 requestAnimationFrame 之后才去掉，旧内容的离场同理（leave-to 也是两帧后才加）。令牌时长是 0 时，计时在 `whenTransitionEnds` 里立即结束，但这两帧的等待仍在：旧内容多停两帧，新内容以 opacity 0 出现两帧再出来，约 30 到 60 毫秒闪一下。样式里只对 `prefers-reduced-motion` 去掉了 transform，opacity 0 的那段没去；应用自己的“减弱动效”设置（令牌为 0）连 transform 的 12px 偏移也还在这两帧里。
+为什么是问题：EntryPage.md 与代码注释写“减弱动效时直接换”，实际换分页每次有一次短暂空白。
+如何核实：e2e 里 emulateMedia({reducedMotion:"reduce"}) 后点分页，用 MutationObserver 记 tabpanel 内容层有没有 `entry-page-tab-enter-from` 类出现过；或看 Vue runtime-dom 的 Transition 的 nextFrame。
+建议改法：减弱动效时不挂 Transition（`:css="false"` 或按设置给 `name` 空），或给 enter-from/leave-to 的样式放进 `@media (prefers-reduced-motion: no-preference)`，并把应用设置的减弱动效也接进来；或改文档写“约两帧”。
+（从 Vue 源码推断，未在浏览器验证）
+
+## 3. 建议 / 正确性：ComponentRawView 的“初值”一段用变更列表的条数判断加载，会闪出“初值里没有这组设定”
+位置：ComponentRawView.vue 初值一段 `v-if="props.loading && props.changes.length === 0"` / `v-else-if="props.initial === undefined"`；数据来自 EntryPageHost.vue 的 `rawView`（`loading` 是两个读取的或，`initial` 来自 `rawEntry`）
+现象：初值与变更是两条独立的读取。变更先回来（非空）而条目对象还在读时，`loading` 为真但 `changes.length > 0`，第一个分支不成立，`initial === undefined` 成立，初值一段写出“初值里没有这组设定”，等条目读回来再换掉，是一句错话闪一下。反过来，条目已读到而变更还在读且为空时，初值段显示“读取中”，已有的初值被藏着。
+为什么是问题：初值一段的“有没有”应该由条目读取自己的状态决定，不能借变更列表的条数。
+如何核实：Lab ComponentRawView 场景里 `loading:true, changes:[2 条], initial: undefined`，看初值段文字；或 dom 测试里补这一组 props（现有 ComponentViews.dom.test 的场景没有这一组）。
+建议改法：宿主分别给 `initialLoading`（rawEntry）与 `changesLoading`（list），两段各用各的。
+
+## 4. 建议 / 不变量（键盘与读屏）：Tab 离开搜索框时焦点掉到文档末尾
+位置：AddComponentPicker.vue `onKeydown` 的 `event.key === "Tab"` 分支（`emit("close", false)`，不 preventDefault）
+现象：浮层传送到 body 末尾，焦点在里面的搜索框上。按 Tab 时 close(false) 把浮层卸掉，焦点不回到“＋”，浏览器从被卸掉的节点之后找下一个可聚焦元素，落到文档末尾或浏览器界面，再按 Tab 从页面最前开始。键盘用户打开浮层又想放弃，要重新走一遍整页。
+为什么是问题：Spec 输出 38 只写 Escape 回到按钮，Tab 没写，但 AddComponentPicker.md 把 Tab 定为 close(false)，结果是焦点丢失，不是“离开”。
+如何核实：e2e 里 Tab 之后读 document.activeElement（预计是 body）。
+建议改法：Tab 时先把焦点放回锚（close(true)），不 preventDefault，默认动作会接着从锚走到下一个元素；dom 测试把“Tab 发 close(false)”改成断言焦点位置。
+（从代码推断）
+
+## 5. 建议 / 测试与代码质量：`alignPanel` 里真正起作用的是强制回流引起的滚动夹取，`scrollTop += gap` 分支几乎走不到，e2e 也区分不出
+位置：EntryPage.vue `alignPanel`；e2e/canon-author.e2e.ts 分页排法一条里“滚过分页条以后换分页”那几行
+现象：out-in 时旧内容先被移除，`before-enter` 里读 `getBoundingClientRect()` 会强制回流，这时分页内容是空的，文档变矮，浏览器把 scrollTop 夹到 0（`article` 是 `min-h-full`，空面板时文档不会比视口高）。夹完以后 `gap` 几乎总是 ≥ 0，`scroller.scrollTop += gap` 不执行。也就是“新的一页从吸顶页头下沿开始”靠的是这次回流的副作用，不是那行写入；谁把这次“只读”的读取改成别的写法（例如挪到 nextTick），行为就变成停在半中间。e2e 在 ≥481 宽度下页头吸顶、分页条一直可点（点击不需要滚动），后面量 `gap`∈[0,40)，没有 alignPanel 也满足，变异检查大概率活下来。
+为什么是问题：注释写的机制和实际机制不一致；测试没有真的覆盖这条判据。
+如何核实：变异检查：把 alignPanel 整个删掉，重建三份产物后跑该条 e2e，看是否仍通过；或在 before-enter 里临时 console.log(scroller.scrollTop) 看夹取后的值。
+建议改法：注释改写成真实机制（空面板时的滚动夹取），或显式 `scroller.scrollTop = 0`/按吸顶高度写入而不依赖回流；e2e 改成在窄宽度（≤480，页头不吸顶、分页条会滚出视野）下，用 scrollTo 滚到分页条以下再用键盘（focus 加方向键）切分页，避免 click 自带的滚动。
+（从代码推断，未做变异检查）
+
+## 6. 建议 / 正确性（英文）：PanelView 为“改”预留的 `w-9`（36px）放不下英文 “Edit”
+位置：PanelView.vue `<span v-if="props.editing" class="flex w-9 shrink-0 justify-end">`
+现象：Button size="sm" 是 `px-2.5`（左右各 10）加 12px 字，英文 “Edit” 约 22px，整颗约 42px，比 36px 的槽宽 6px；槽是 flex 容器，按钮从槽的起点方向溢出，压在卡片按钮右缘上。中文“改”约 32px 放得下。
+如何核实：Lab PanelView 的 sample-english 场景（已有），editing 开着，量按钮与槽的宽。
+建议改法：槽宽用 `min-w-9` 并让它按最宽的那一格撑开（同一列等宽），或用 `w-auto` 加 `grid` 的统一列。
+
+## 7. 建议 / 不变量：EditorGroup 换 OverlayScrollbar 后，所有页面标签的横向滚动条一并被隐藏；滑块轨道会盖住页面右缘的控件
+位置：EditorGroup.vue 页面标签那一块；OverlayScrollbar.md “不支持”与“注意事项”
+现象：`nb-ui-scrollbar-none` 把 `scrollbar-width: none` 加到页面容器上，容器是 `overflow-auto`（双向），OverlayScrollbar 只画竖向。OverlayScrollbar.md 明写“需要横滚的元素不要用本组件”。条目页自己保证不横向溢出（验收 14），回执页、变更详情页、台账页（LedgerPage 的表格自带 `overflow-x-auto`）也有内层滚动，当前没发现真的会横溢的页面；但页面是别的插件也能贡献的（editor 的页面合同），第三方页面横向溢出时既没有滚动条也没有提示。另外，滑块显示时轨道（10px，pointer-events:auto）盖在页面右缘，页面内容右缘有必须点到的控件时（别的插件的页面）鼠标悬停在页面上就点不到。
+如何核实：写一个贡献宽表格的测试页面放进编辑区，看有没有横向滚动条；悬停时点右缘按钮。
+建议改法：EditorGroup.md 里把这条限制写明（页面合同：不得横向溢出、右缘留 10px），或页面容器改 `overflow-y-auto overflow-x-hidden`；第一版接受则记为已知限制。
+（从代码与组件文档推断，未验证）
+
+## 8. 建议 / 测试：短项浮层“不盖住左边标签列”的 e2e 断言量的是内层，量不出 12 像素以内的越界
+位置：e2e/canon-character.e2e.ts 年龄那一段 `expect((await age.boundingBox())!.x).toBeGreaterThanOrEqual(valueLeft)`
+现象：`age` 是 `[data-field-editor]` 内层 div，外面还有 Popover 的 `p-3`（12px）与 1px 边框，所以外框左缘比这个 x 小 13px。浮层外框往左越过值的起点 12px 以内（例如避让多挪了几像素）时，断言仍然通过。宿主里 `POPOVER_PADDING = 24` 也没算两侧 1px 边框，浮层总宽比估算多 2px，窄屏（390、360）时 `max-w-[calc(100vw-32px)]` 下会比外框宽 2px（内层固定 `width: Npx`）。
+如何核实：量 `[data-popover-content]` 或最近的 `.nb-ui-popover-surface` 的外框，对照值的 x。
+建议改法：断言量外框；`POPOVER_PADDING` 取 26 或从样式读。
+
+## 9. 建议 / 代码质量：新加的分节注释把 `dataView` 的说明挤离了它的定义
+位置：EntryPageHost.vue 第 1120–1121 行附近
+现象：原来紧贴 `const dataView` 的 JSDoc（“数据分页用哪个界面……”）现在后面跟着新的 `/* ---------- 设定组的三种看法（输出 54） ---------- */` 和一大段新代码，`dataView` 在 1156 行，说明与它隔了三十多行，工具提示与读者都会把这段说明当成“三种看法”那一节的开头。
+建议改法：把新的一节整体挪到 `dataView` 之后，或把 JSDoc 挪回 `const dataView` 上面。
+
+## 10. 建议 / 代码质量：Tree.vue 里 `onToggle` 其实是谓词，名字像事件处理函数
+位置：packages/nb-ui/src/components/navigation/Tree.vue `const onToggle = (event) : boolean`，旁边是真正的处理函数 `onItemToggle`
+现象：`onToggle` 返回“这一下点在箭头上”，而 `onItemToggle`、`onItemSelect` 才是处理函数；读 `onItemSelect` 里的 `onToggle(event)` 会以为是在触发切换。
+建议改法：改名成 `isArrowClick`。
+
+## 11. 建议 / 代码质量：竖排的“添加一组设定”行靠近视口底部时浮层会被收得很矮
+位置：AddComponentPicker.vue 里 `side="bottom"`
+现象：SuggestionMenu 有 `side="auto"`（下方不足 96px 且上方更宽就翻上去，浮层高度随可用空间收），picker 写死 bottom 且 SuggestionMenu 不翻（`:side-flip="false"`）。竖排时“添加一组设定”是导航末尾，分页多（十几个）时行本身就靠近视口下沿，三十多项的浮层高度被收到只剩搜索框加几行。
+建议改法：横排“＋”用 bottom，竖排传 auto；或统一 auto。
+
+## 未发现问题的方面（逐项查过）
+- Tree toggleOn:"arrow"：`select` 里对箭头点击 preventDefault 并不外发，`toggle` 里只对 MouseEvent 且不在箭头上时 preventDefault。键盘：Enter/空格走 select（originalEvent 是 KeyboardEvent，不在箭头上）、左右键走 toggle（非 MouseEvent，不被取消），没有副作用。EntryTree 分组行改由 select 自己切换，点箭头只经 reka 切换一次，没有重复切换。
+- styles.css 的 `[data-reka-popper-content-wrapper]:has(.nb-ui-tooltip-surface)`：`.nb-ui-tooltip-surface` 在组件里只有 Tooltip.vue 使用（别的是测试与 Lab 夹具），Tooltip 的内容本来就是 pointer-events:none，不存在靠指针进入提示内容保持打开的用法，别处不受影响。没有回归测试，但 happy-dom 不算 :has，也难测。
+- AddComponentPicker：捕获阶段 pointerdown 的挂（anchor 从 null 变非 null、immediate）与卸（anchor 变 null、onBeforeUnmount）成对，锚在两个按钮间换时不重复挂；`focusPending` 的第二个 watch 在锚换了但搜索框没重挂时也会重新放焦点；`aria-activedescendant` 用的 `suggestionOptionId(menuId, activeIndex)` 与 SuggestionMenu 里 `rendered` 的累计下标同一顺序（筛选后 `watch(options)` 重置高亮）；搜索框在 SuggestionMenu 的 header 插槽里不随列表滚，30 多项只滚列表。
+- ConfirmBar 预留一行：`inert` 与 `visibility:hidden` 同时设，切换不挪焦点（切意图时焦点在分段上）；`pristine` 同时挡按钮与两种回车；与 Spec 输出 16 “填的值与现在的值一样时保存不可用、回车不保存”一致。
+- 编辑卡浮在原处：`-inset-x-3` 在条目页列的 32px 内边距里，390 下不越界；z-[2] 与 PageNotices 的 sticky z-index 2 同级，后者在 DOM 后面，不会盖住提示；原文用 visibility:hidden 保位。
+- 三种看法与分页过渡的嵌套：外层 Transition 的内容层是新建的 div，内层三种看法各是不同类型的 vnode，没有“相同类型不触发过渡”的问题。
+- 界面说明文字：“存下来的原样，不随‘在看’变”与“在看：第 N 章末尾”是 Spec 输出 54 明写的两行，不算多出来的说明。
+- 状态变化的过渡：三种看法用 nb-ui-switch，浮层用 SuggestionMenu 自带的淡入，编辑层出现沿用 nb-ui-switch，ConfirmBar 的备注行有 opacity/visibility 过渡，分页增减沿用 EntryPageNav 的 TransitionGroup。
+- 四个 dom 测试文件在 worktree 里全过。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11
+级别数量：阻断 0；重要 1；建议 10。
+
+## 主会话的处理（2026-11-26）
+
+审查者：Claude Sonnet（reviewer），说明见会话；提交范围 5b6cac15b..eaedff944 的前端部分。
+
+1. 成立，改了。开发服务的 Lab 里量过：326 宽时位置一列 40 像素，变化与结果之间空出一大块。列改定在整张表上、各行用 subgrid 接过去，变化、结果、按钮三列按最宽的那格定宽；326 宽时位置一列 96 像素，760 宽时 530 像素，各行仍上下对齐。
+2. 成立，接受取舍。减弱动效时 Vue 的 Transition 照样隔两帧才换上，与 nb-ui 各处的 `nb-ui-switch` 一样，不单为分页另写一套；注释与 EntryPage.md 写成实际的样子。
+3. 成立，改了。ComponentRawView 的 `loading` 拆成 `initialLoading` 与 `changesLoading`，两节各按自己的读取；dom 测试补了“变更先回来、初值还在读”，Lab 补了同名场景。
+4. 成立，改了。Tab 也发 `close(true)`、不拦默认动作：焦点先回“＋”，Tab 再从它往下走。dom 测试断言焦点回到“＋”，e2e 断言 Tab 以后焦点仍在条目页里。
+5. 收窄。行为本身对：before-enter 里读位置会让浏览器按空的分页排一次版、把滚动位置夹回页头下沿，夹不回来的由 `gap < 0` 那一支补。注释写错了机制，已改成实际的先后；e2e 能不能抓到删掉 `alignPanel` 由收口的变异检查确认（结果见 Task README）。
+6. 成立，改了。PanelView 的卡片一列与“改”一列定在整组上、各卡用 subgrid 接过去，“改”那一格按最宽的按钮定宽。Lab 补了“能改”与英文的两个场景：英文的 Edit 42 像素、那一格 42 像素，三张卡等宽。
+7. 成立，接受取舍。目前的页面都不横向溢出；EditorGroup.md 写明叠加的滚动条只画纵向、页面不要横向溢出、右缘 10 像素的轨道接指针。
+8. 成立，改了。e2e 量浮层外框（`.nb-ui-popover-surface`）；`POPOVER_PADDING` 改成 26（两侧内边距加边框）。
+9. 成立，改了。`dataView` 的说明挪回它的定义上面。
+10. 成立，改了。改名 `isArrowClick`。
+11. 成立，改了。去掉 `side="bottom"`，用 SuggestionMenu 缺省的 `auto`：锚靠近视口下沿时翻到上面。

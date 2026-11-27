@@ -18,6 +18,7 @@
 - 样式由组件或语义 class 拥有，保持低特异性；动画尊重 reduced motion，文本、焦点环和状态色保持可辨识。
 - 应用的样式入口是 Tailwind v4，层序 `theme, base, components, utilities`，nb-ui 的源码由应用一起编译（写法见 [`packages/neuro-book/src/web/tailwind.css`](../../../packages/neuro-book/src/web/tailwind.css) 与 `packages/nb-ui/src/tailwind.css` 的头注释）。分层的原子类压过 components 层和 nb-ui 的语义类，却会输给不分层的样式：特异性低于一个类的全局规则（reset、`html`/`body`/`*` 上的声明）要放进 `@layer base`，否则它会压过所有原子类。
 - 固定格式控件、面板或网格使用 `min/max`、grid track、`aspect-ratio` 等稳定约束；长文本必须换行或动态收敛，不遮挡相邻内容。
+- scoped 样式里按主题或明暗切换，写 `:root[data-nb-appearance="dark"] .类名`，不写 `:global([data-nb-appearance="dark"]) .类名`：Vue 编译 scoped 样式时只留 `:global()` 括号里的部分，后面的类名被丢掉，规则静默落到根元素上（w00037 t10 B3：暗色下社交图标一直是亮色的图，深色底却画到了 `<html>` 上；只断言“图可见”的用例没抓到，要断言明暗两态各自的计算样式）。
 
 ## 受控视图
 
@@ -37,7 +38,7 @@
 
 ### 加载与流畅性
 
-7. **加载态延时显示**：形态按 [nb-ui 规范](../../../packages/nb-ui/docs/ui-development-spec.md)的“状态下限”；显示要延时（约 200ms），读得快的请求什么都不出现，慢请求出现时也不推动布局。判据是请求飞出去后已经等过一小段时间，不是屏幕上有没有内容。
+7. **加载态延时显示**：形态按 [nb-ui 规范](../../../packages/nb-ui/docs/ui-development-spec.md)的“状态下限”；显示要延时（约 200ms），读得快的请求什么都不出现，慢请求出现时也不推动布局。判据是请求飞出去后已经等过一小段时间，不是屏幕上有没有内容。一旦出现，至少停留约 400ms 再消失，免得 300ms 左右的请求闪一下（nb-ui 的 `useDelayedVisibility`）。
 8. **一次请求只由一个信号呈现，视图不接收 `loading`**：加载与失败由外壳统一画，外壳把所有来源（共享快照加各视图自带的取数）组合成一个忙信号、一个失败信号、一个重试入口。分层各画一次，用户会看到两块占位轮流闪。
 9. **交互即时性**：作用域、标签、分区这类切换同步生效，副作用（写回、重取、惰性加载）放后台。任何“等网络回来再切”都读成卡顿。
 10. **惰性加载**：重视图只在真的被打开时创建与取数；绑定对象可以在宿主 setup 里建，但请求要等启用。打开后目标变化才重新读取。

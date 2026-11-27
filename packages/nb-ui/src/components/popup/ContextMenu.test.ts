@@ -172,6 +172,39 @@ describe("ContextMenu 键盘", () => {
         expect(items[1]!.querySelector(".i-lucide-check")).toBeNull();
     });
 
+    it("单选项画成 menuitemradio，aria-checked 跟着 checked，选中的画勾；选了照常执行并请求关闭", async () => {
+        const wrapper = mount(ContextMenu, {props: {open: true, x: 10, y: 10, items: [
+            {label: "用户视图", type: "radio", checked: true, action: () => chosen.push("用户视图")},
+            {label: "AI视图", type: "radio", checked: false, action: () => chosen.push("AI视图")},
+        ]}, attachTo: document.body});
+        mounted.push(wrapper);
+        await flushPromises();
+        const items = Array.from(document.querySelectorAll<HTMLElement>("[role^=menuitem]"));
+        expect(items.map((item) => [item.textContent?.trim(), item.getAttribute("role"), item.getAttribute("aria-checked")])).toEqual([
+            ["用户视图", "menuitemradio", "true"],
+            ["AI视图", "menuitemradio", "false"],
+        ]);
+        expect(items[0]!.querySelector(".i-lucide-check")).not.toBeNull();
+        expect(items[1]!.querySelector(".i-lucide-check")).toBeNull();
+        items[1]!.click();
+        expect(chosen).toEqual(["AI视图"]);
+        expect(wrapper.emitted("request-close")).toEqual([["select"]]);
+    });
+
+    it("给了 anchor：点在它上面不算点外面，菜单不请求关闭；点别处照常是 outside", async () => {
+        const anchor = document.createElement("button");
+        document.body.append(anchor);
+        const wrapper = mount(ContextMenu, {props: {open: true, x: 10, y: 10, items: ITEMS, anchor}, attachTo: document.body});
+        mounted.push(wrapper);
+        await flushPromises();
+        anchor.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        anchor.dispatchEvent(new MouseEvent("contextmenu", {bubbles: true}));
+        expect(wrapper.emitted("request-close")).toBeUndefined();
+        document.body.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+        expect(wrapper.emitted("request-close")).toEqual([["outside"]]);
+        anchor.remove();
+    });
+
     it("关闭原因：Tab（阻止默认的焦点移动）、Escape、菜单外点击各自带上", async () => {
         const wrapper = await open();
         const tab = new KeyboardEvent("keydown", {key: "Tab", shiftKey: true, bubbles: true, cancelable: true});

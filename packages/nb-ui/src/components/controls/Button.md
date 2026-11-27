@@ -15,7 +15,7 @@
 ## 交互
 
 - 点击按原生按钮语义触发；`type` 决定它是普通按钮、提交按钮还是重置按钮。
-- `variant` 只改变材质与语义颜色：`primary` 为主操作，`secondary` 为次操作，`subtle` 为低强调操作，`danger` 为危险操作，`ghost` 为透明背景操作。
+- `variant` 只改变材质与语义颜色：`primary` 为主操作，`secondary` 为次操作，`subtle` 为低强调操作，`danger` 为危险操作，`ghost` 为透明背景操作。缺省是 `secondary`：一块区域（对话框、面板头、工具条、一张卡片）至多一个主按钮，主按钮要写明 `variant="primary"`（[设计语言](../../../docs/design-language.md)“分组与层次”第 3 条）。
   - `primary` 是 `--accent-main` 实底配 `--text-inverse` 文字，悬停加深并带同色柔晕。`danger` 同理，取 `--status-danger`。
   - `secondary` 常态是 `--text-main` 的淡色半透明底，没有边框；悬停与按下底色依次加深，悬停带柔晕。
   - `subtle` 常态是更淡的半透明底，`ghost` 常态透明；两者悬停时淡入底板、文字转 `--text-main`。
@@ -31,7 +31,7 @@ export type ButtonVariant = "primary" | "secondary" | "subtle" | "danger" | "gho
 export type ButtonSize = "sm" | "md" | "lg";
 
 type ButtonProps = {
-    /** 视觉变体；默认 "primary" */
+    /** 视觉变体；默认 "secondary" */
     variant?: ButtonVariant;
     /** 尺寸；默认 "md" */
     size?: ButtonSize;

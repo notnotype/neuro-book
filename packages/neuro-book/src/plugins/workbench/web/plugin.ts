@@ -17,6 +17,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {resolverFor} from "nbook/shared/localized-text";
 import {bindingsOf} from "nbook/shared/store/public";
 import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
@@ -35,7 +36,7 @@ import {PANE_FOCUS_COMMAND_DECLARATIONS, paneFocusCommands} from "./commands/pan
 import type {PaneFocusMover} from "./commands/pane-focus-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
-import {appearanceSetting, dragCardRefreshSetting, dragCardShrinkSetting, dragFeelSetting, dropSectorsSetting, dropSplitSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {appearanceSetting, dragCardRefreshSetting, dragCardShrinkSetting, dragFeelSetting, dropSectorsSetting, dropSplitSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT, workbenchCatalogKey} from "../shared/contracts";
 import type {EditorPanelsService, EditorSaveGate, NotificationInput} from "../shared/contracts";
 import {createEditorPanels} from "../shared/editor-panels";
 import {themeScenesPoint, themesPoint, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "../shared/themes";
@@ -57,6 +58,7 @@ import {overlaysPoint, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
 import {viewContainersPoint, viewsPoint, WORKBENCH_VIEW_CONTAINERS_POINT, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewContainerDeclaration, ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
+import {createWorkbenchCatalog} from "./catalog";
 import type {ActivityBarItemImplementation} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
 import {recordGridIssues} from "./grid-diagnostics";
@@ -129,7 +131,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowPluginFilesKey, required: false}, {key: windowTextKey, required: false}],
-        provides: [workbenchRootKey, quickPickKey, notificationsKey, editorPanelsKey],
+        provides: [workbenchRootKey, quickPickKey, notificationsKey, editorPanelsKey, workbenchCatalogKey],
         receives: [WORKBENCH_THEMES_POINT, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
         contributions: [
             {capability: SETTINGS_CHOICES_POINT, id: THEME_CHOICES_PROVIDER, declaration: {}},
@@ -311,7 +313,20 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 {path: WORKBENCH_PATH, title: "NeuroBook", load: async () => workbenchPages.workbench},
             ]);
             return {
-                services: [provideService(workbenchRootKey, {pages: () => pages.list()}), provideService(quickPickKey, palettes.quickPick), provideService(notificationsKey, {notify: (input) => notifications.notify(input)}), provideService(editorPanelsKey, editorPanels)],
+                services: [
+                    provideService(workbenchRootKey, {pages: () => pages.list()}),
+                    provideService(quickPickKey, palettes.quickPick),
+                    provideService(notificationsKey, {notify: (input) => notifications.notify(input)}),
+                    provideService(editorPanelsKey, editorPanels),
+                    provideService(workbenchCatalogKey, createWorkbenchCatalog({
+                        document: () => layout.current.value?.actions.document() ?? null,
+                        views: views.catalog,
+                        containers: viewContainers,
+                        activityItems: context.declarations.list<ActivityBarItemDeclaration>(WORKBENCH_ACTIVITYBAR_ITEMS_POINT),
+                        viewTitleItems: context.declarations.list<ViewTitleItemDeclaration>(WORKBENCH_VIEW_TITLE_POINT),
+                        text: resolverFor(() => displayLocale(settings), text),
+                    })),
+                ],
                 receivers: {[WORKBENCH_THEMES_POINT]: themes.receiver(), [WORKBENCH_THEME_SCENES_POINT]: themes.sceneReceiver(), [WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
                     [SETTINGS_CHOICES_POINT]: {[THEME_CHOICES_PROVIDER]: {source: () => computed(() => ({status: "ready" as const, items: themes.list.map((entry) => ({value: entry.id, label: entry.plugin === USER_THEME_PLUGIN ? `${text.t(entry.declaration.title)} · ${text.t(workbenchText("themes.mine"))}` : text.t(entry.declaration.title)}))}))}},

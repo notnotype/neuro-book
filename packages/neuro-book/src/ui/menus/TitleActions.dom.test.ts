@@ -52,6 +52,13 @@ describe("TitleActions", () => {
         expect(wrapper.emitted("run")?.[1]).toEqual(["acme.copy"]);
     });
 
+    it("画成按钮的动作带稳定名 command 与命令 id（agent/page-agent.md 输出 6）", () => {
+        const wrapper = mount(TitleActions, {props, attachTo: document.body});
+        wrappers.push(wrapper);
+        const button = wrapper.get('[data-title-action-key="own:0"]');
+        expect([button.attributes("data-nb-target"), button.attributes("data-nb-key")]).toEqual(["command", "test.own:0"]);
+    });
+
     it("“⋯”开着时身份变了：菜单关闭，之前的选择不执行；没有菜单项时不画“⋯”", async () => {
         const wrapper = mount(TitleActions, {props, attachTo: document.body});
         wrappers.push(wrapper);

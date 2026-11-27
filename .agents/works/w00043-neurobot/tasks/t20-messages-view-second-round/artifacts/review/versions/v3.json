@@ -1,0 +1,202 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "t20 第 3 轮：底部导航与列表",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "a5f88a525afb890f92e783d6319006906a82fb15fe7a44a06d70206a3eb821d1",
+    "files": [
+        "index.html",
+        "r1/now-dock-open.webp",
+        "r1/now-dock.webp",
+        "r1/now-float-open.webp",
+        "r1/now-float.webp",
+        "r1/one-dock-open.webp",
+        "r1/one-dock.webp",
+        "r1/one-float-open.webp",
+        "r1/one-float.webp",
+        "r1/rows-now.webp",
+        "r1/rows-one-bot.webp",
+        "r1/rows-one.webp",
+        "r1/two-dock-open.webp",
+        "r1/two-dock.webp",
+        "r1/two-float-open.webp",
+        "r1/two-float.webp",
+        "r2/dock-open-bot.webp",
+        "r2/dock-open.webp",
+        "r2/dock.webp",
+        "r2/float-open.webp",
+        "r2/float.webp",
+        "r3/dock-open.webp",
+        "r3/dock.webp",
+        "r3/float-open.webp",
+        "r3/float.webp",
+        "r3/list1-bot.webp",
+        "r3/list1.webp",
+        "r3/list2-bot.webp",
+        "r3/list2.webp",
+        "r3/list3-bot.webp",
+        "r3/list3.webp"
+    ],
+    "questions": [
+        {
+            "id": "rail-direction",
+            "type": "single",
+            "label": "右边那一列留不留？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "one",
+                    "label": "方向一：并进卡片的窄列"
+                },
+                {
+                    "value": "two",
+                    "label": "方向二：没有窄列，列表按需打开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-rows",
+            "type": "single",
+            "label": "列表行按右边这样改？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "new",
+                    "label": "改后"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "new"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "bottom-nav",
+            "type": "single",
+            "label": "按这样做：收着时右下角打开列表，展开后列表底部是 Bot｜会话｜收起？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "按这样做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整（写在附言里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "nav-structure",
+            "type": "single",
+            "label": "收着照旧是窄列，展开后窄列让位、列表底部是 Bot｜会话｜收起，这样对吗？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "对，按这样做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整（写在附言里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "list-style",
+            "type": "single",
+            "label": "列表用哪种样子？",
+            "options": [
+                {
+                    "value": "1",
+                    "label": "一：排印提纲"
+                },
+                {
+                    "value": "2",
+                    "label": "二：轻卡片"
+                },
+                {
+                    "value": "3",
+                    "label": "三：工具索引"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "1"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "container-entry",
+            "type": "single",
+            "label": "右栏里还有别的容器时，展开着怎么切换容器？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 列表顶上一行入口（只在有别的容器时）"
+                },
+                {
+                    "value": "collapse",
+                    "label": "B 不加，收起后再切"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "row"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-27T02:39:36.038Z"
+}

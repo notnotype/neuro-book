@@ -8,8 +8,8 @@ import type {HighlightRect, HighlightTone} from "./highlight-box.types";
  * 标签的文字色走 --text-inverse 而不是 --accent-text。
  *
  * 两者名字像，角色不同：--accent-text 是**强调底色**（--accent-bg，一层低透明度的强调色）
- * 上的文字色，所以它本身就是强调色系的——nbook-light 里它是 #0060df。把它写在实心的
- * --accent-main（#007aff）上，等于蓝字压蓝底，读不出来。实心强调面上的文字色是 --text-inverse。
+ * 上的文字色，所以它本身就是强调色系的——nbook-light 里它是 #0e5bcb。把它写在实心的
+ * --accent-main（#076ce1）上，等于蓝字压蓝底，读不出来。实心强调面上的文字色是 --text-inverse。
  */
 
 const LABEL_HEIGHT = 22;

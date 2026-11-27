@@ -1,23 +1,24 @@
 <script setup lang="ts">
 /**
- * 右栏、底部面板的入口条（同名 .md；docs/specs/ui/workbench-layout.md 输出 47）：区域卡片顶上一行，一个容器一个入口，右栏画图标、底部面板画标题。
+ * 底部面板的入口条（同名 .md；docs/specs/ui/workbench-layout.md 输出 47）：区域卡片顶上一行，一个容器一个入口，画容器的标题。右栏的入口在右轨上（输出 50）。
  * 当前容器只有一节时，那一节的头由宿主放进默认插槽，接在入口后面占这一行剩下的宽度。点了只发 `select` 或 `context-menu`，做什么由宿主定；
  * 入口是拖动源（`data-tool-entry`，同活动栏），拖放由宿主的拖动会话接管，这里只画占位与并入的高亮。
  */
 import type {PanelName} from "@notnotype/nb-workbench-layout";
-import {Badge, DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 import "./panel-metrics.css";
-import {entryCountText, entryTitle} from "../../shared/entry-count";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
+import {entryTitle} from "../../shared/entry-count";
 import {useEntryIndicator} from "./use-entry-indicator";
 
 /** 一个入口：区域里的一个容器（输出 41、47）。 */
 export interface RegionStripEntry {
     /** 容器 id。 */
     readonly id: string;
-    /** 容器的名称：图标入口的可访问名称，标题入口写出来的字，也是“更多”菜单里的文字。 */
+    /** 容器的名称：入口写出来的字，也是“更多”菜单里的文字。 */
     readonly label: string;
     /** 成员视图的声明都不在时没有图标可取，是 null：画中性的占位图标。 */
     readonly icon: string | null;
@@ -29,13 +30,13 @@ export interface RegionStripEntry {
     readonly current: boolean;
     /** 当前容器且区域可见；至多一项。 */
     readonly pressed: boolean;
-    /** 计数（docs/specs/workbench/views.md 输出 17）：标题入口写在标题后（只含一个视图的容器，同那个视图的标签）；图标入口画在右上角（容器的合计）。没有是 null 或不给。 */
+    /** 计数（docs/specs/workbench/views.md 输出 17）：写在标题后（只含一个视图的容器，同那个视图的标签）。没有是 null 或不给。 */
     readonly count?: number | null;
 }
 
 const PLACEHOLDER_ICON = "i-lucide-circle-help";
-/** 图标入口的宽（24px 的按钮）与“更多”的宽。 */
-const ICON_ENTRY_PX = 24;
+/** “更多”的宽（24px 的按钮）。 */
+const MORE_PX = 24;
 
 defineOptions({name: "WorkbenchRegionStrip"});
 
@@ -46,8 +47,6 @@ const props = withDefaults(defineProps<{
     label: string;
     moreLabel: string;
     entries: ReadonlyArray<RegionStripEntry>;
-    /** 右栏是图标（按下底色），底部面板是标题（下划线）。 */
-    variant: "icons" | "titles";
     /**
      * 并进来的头至少要留多宽（截断的标题、视图动作、框架按钮）：入口放不下时先收进“更多”，头不被挤到这个宽度以下（让位顺序见 .md）。
      * 没有并进来的头时是 0。
@@ -72,7 +71,7 @@ const emit = defineEmits<{
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
 }>();
 
-/** 标题入口写的字：标题，有计数时后面接计数（“通知 2”），读屏名称同样带上。 */
+/** 入口写的字：标题，有计数时后面接计数（“通知 2”），读屏名称同样带上。 */
 const titleOf = (entry: RegionStripEntry): string => entryTitle(entry.label, entry.count);
 
 /** 菜单键打出来的 `contextmenu` 没有可靠的指针坐标：菜单开在入口下面。 */
@@ -105,7 +104,7 @@ function measure(): void {
     rootWidth.value = width > 0 ? width : null;
     entryGap.value = entriesEl.value === null ? 0 : Number.parseFloat(getComputedStyle(entriesEl.value).columnGap) || 0;
     const ruler = measureEl.value;
-    if (props.variant !== "titles" || ruler === null) return;
+    if (ruler === null) return;
     const next = new Map<string, number>();
     for (const element of ruler.querySelectorAll<HTMLElement>("[data-measure-entry]")) next.set(element.dataset.measureEntry ?? "", element.offsetWidth);
     titleWidths.value = next;
@@ -119,23 +118,23 @@ onMounted(() => {
     observer.observe(rootEl.value);
 });
 onBeforeUnmount(() => observer?.disconnect());
-// 换了入口（名称、个数）时标题入口的宽要重量；量尺在下一次渲染之后才是新的。
+// 换了入口（名称、个数）时入口的宽要重量；量尺在下一次渲染之后才是新的。
 watch(() => props.entries.map(titleOf).join("\n"), () => requestAnimationFrame(measure), {flush: "post"});
 
-const widthOf = (id: string): number => (props.variant === "icons" ? ICON_ENTRY_PX : titleWidths.value.get(id) ?? 0);
+const widthOf = (id: string): number => titleWidths.value.get(id) ?? 0;
 const strip = computed(() => {
     const room = rootWidth.value;
     const all = {shown: props.entries.map((entry) => entry.id), hidden: [] as string[]};
-    if (room === null || (props.variant === "titles" && titleWidths.value.size === 0)) return all;
+    if (room === null || titleWidths.value.size === 0) return all;
     // 当前容器的入口加“更多”总放得下：条再窄也不让它收进“更多”，挤的是并进来的头。
     const current = props.entries.find((entry) => entry.current);
-    const floor = current === undefined ? 0 : widthOf(current.id) + ICON_ENTRY_PX + entryGap.value;
-    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(floor, room - props.headMinWidth), ICON_ENTRY_PX, entryGap.value);
+    const floor = current === undefined ? 0 : widthOf(current.id) + MORE_PX + entryGap.value;
+    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: widthOf(entry.id)})), Math.max(floor, room - props.headMinWidth), MORE_PX, entryGap.value);
 });
 const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: titleOf(entry), id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 
-/** 按下态（右栏的底色、底部面板的下划线）是入口这一组里一个独立的块，区域切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
+/** 按下态（下划线）是入口这一组里一个独立的块，区域切换容器、内容滚过去的那一次滑过去（`use-entry-indicator.ts`）。 */
 const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: indicatorStyle, onTransitionEnd: onIndicatorTransitionEnd} = useEntryIndicator({
     band: entriesEl,
     pressed: () => {
@@ -151,7 +150,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 </script>
 
 <template>
-    <div ref="rootEl" class="workbench-region-strip" :class="`workbench-region-strip--${variant}`" :data-region-strip="region">
+    <div ref="rootEl" class="workbench-region-strip" :data-region-strip="region">
         <div ref="entriesEl" class="workbench-region-strip__entries" role="group" :aria-label="label" data-region-entries>
             <span
                 ref="indicatorEl"
@@ -172,23 +171,21 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
                             type="button"
                             class="workbench-region-strip__entry nb-ui-focus-ring-inset"
                             :class="{'workbench-region-strip__entry--merge': entry.id === highlighted}"
-                            :aria-label="variant === 'icons' ? titleOf(entry) : undefined"
                             :aria-pressed="entry.pressed"
                             :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-region-entry="entry.id"
                             :data-tool-entry="entry.id"
                             :data-tool-view="entry.viewId ?? undefined"
+                            v-bind="nbTarget('workbench.container', entry.id)"
                             :data-tool-merge="entry.id === highlighted ? '' : undefined"
                             :data-pressed="entry.pressed ? '' : undefined"
                             @mousedown.prevent
                             @click="emit('select', entry.id)"
                             @contextmenu="onEntryContextMenu(entry.id, $event)"
                         >
-                            <span v-if="variant === 'icons'" class="workbench-region-strip__icon" :class="entry.icon ?? PLACEHOLDER_ICON" aria-hidden="true"></span>
-                            <span v-else class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
+                            <span class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
                         </button>
                     </Tooltip>
-                    <Badge v-if="variant === 'icons' && entry.count != null" size="sm" tone="accent" class="workbench-region-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="bottom" align="start" @select="(id: string) => emit('select', id)">
@@ -199,7 +196,7 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
             <slot></slot>
         </div>
         <!-- 标题入口的量尺：一行看不见的全部入口，不占位置，不进可访问树。 -->
-        <div v-if="variant === 'titles'" ref="measureEl" class="workbench-region-strip__ruler" aria-hidden="true">
+        <div ref="measureEl" class="workbench-region-strip__ruler" aria-hidden="true">
             <span v-for="entry in entries" :key="entry.id" class="workbench-region-strip__entry" :data-measure-entry="entry.id">
                 <span class="workbench-region-strip__title">{{ titleOf(entry) }}</span>
             </span>
@@ -287,14 +284,6 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
     grid-area: 1 / 1;
 }
 
-/* 图标入口的角标压在右上角，不挡点击。入口只有 24px，角标往外探出半个身位。 */
-.workbench-region-strip__count {
-    align-self: start;
-    justify-self: end;
-    margin: -4px -6px 0 0;
-    pointer-events: none;
-}
-
 .workbench-region-strip__frame--moving {
     transition: transform var(--motion-move) var(--ease-layout);
 }
@@ -325,54 +314,19 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 }
 
 /*
- * 右栏：24px 的图标按钮，16px 的图标居中；这一组的左内边距让第一个入口的图标左缘落在展开标记那条线上（panel-metrics.css）。
- * 按下是底色，画在按下的块上，按下的按钮自己不画底，悬停时也不另画一层。
- */
-.workbench-region-strip--icons .workbench-region-strip__entries {
-    padding-inline-start: calc(var(--workbench-fold-inset) - var(--space-1) - 4px);
-}
-
-.workbench-region-strip--icons .workbench-region-strip__entry {
-    width: 24px;
-    border-radius: var(--radius-button-sm);
-}
-
-.workbench-region-strip--icons .workbench-region-strip__entry:hover {
-    background: var(--bg-hover);
-}
-
-.workbench-region-strip--icons .workbench-region-strip__entry[data-pressed] {
-    background: transparent;
-}
-
-.workbench-region-strip--icons .workbench-region-strip__indicator {
-    border-radius: var(--radius-button-sm);
-    background: var(--bg-hover);
-}
-
-.workbench-region-strip--icons .workbench-region-strip__entry[data-pressed] {
-    color: var(--accent-text);
-}
-
-.workbench-region-strip__icon {
-    width: 16px;
-    height: 16px;
-}
-
-/*
- * 底部面板：标题入口，水平内边距固定 4px（不随主题变），第一个入口的文字和分节头的标题文字在一条竖线上（头的左内边距加标题格的内边距）。
+ * 标题入口，水平内边距固定 4px（不随主题变），第一个入口的文字和分节头的标题文字在一条竖线上（头的左内边距加标题格的内边距）。
  * 按下是按钮宽度上的一条下划线，同面板头标签带的选中标记，画在按下的块的底边。
  */
-.workbench-region-strip--titles .workbench-region-strip__entry {
+.workbench-region-strip__entry {
     padding-inline: var(--space-2);
     font-weight: var(--weight-medium);
 }
 
-.workbench-region-strip--titles .workbench-region-strip__entry[data-pressed] {
+.workbench-region-strip__entry[data-pressed] {
     color: var(--text-main);
 }
 
-.workbench-region-strip--titles .workbench-region-strip__indicator {
+.workbench-region-strip__indicator {
     box-shadow: inset 0 -2px 0 var(--accent-main);
 }
 

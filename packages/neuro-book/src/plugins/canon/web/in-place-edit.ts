@@ -16,7 +16,7 @@ import type {FieldDeclaration, FieldState, Placement, ReadPosition} from "@notno
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {CanonClient, CanonOutputs, Published} from "../shared/contracts";
-import type {ConfirmBarKind, EditIntent} from "./components/confirm-bar";
+import type {ConfirmBarKind, EditIntent} from "./components/editing/confirm-bar";
 import {namespaceField} from "./entry-heads";
 import {failureText} from "./failures";
 import {impactIsQuiet, impactLines} from "./impact";
@@ -62,6 +62,8 @@ export interface ConfirmBarModel {
     readonly recheck: boolean;
     readonly saving: boolean;
     readonly locked: boolean;
+    /** 填的值与这个字段现在的值一样：保存不可用（输出 16）。 */
+    readonly pristine: boolean;
 }
 
 export interface InPlaceEditOptions {
@@ -186,6 +188,13 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
         return shown === "" || shown.length > 20 || shown.includes("\n") ? text("edit.storyTitleLong", {label}) : text("edit.storyTitle", {label, value: shown});
     };
     const titleOf = (draft: EditDraft): string => (draft.intent === "story" ? (draft.note?.trim() || storyFallback(draft)) : text("edit.heading", {label: labelOf(draft.path)}));
+
+    /** 填的值与字段现在的值（照打开时预填的算法）解析出来一样：没有可存的。“发生了什么”不算：值没变时记不出一条剧情变更。 */
+    const pristineOf = (draft: EditDraft): boolean => {
+        const field = options.field(draft.path);
+        const kind = kindOf(field.declaration);
+        return JSON.stringify(parsed(draft.value, kind)) === JSON.stringify(parsed(draftText(field.state, kind), kind));
+    };
 
     const labelOf = (path: string): string => {
         const field = options.field(path);
@@ -371,6 +380,7 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
                 recheck: recheck.value,
                 saving: saving.value,
                 locked: locked.value || blocked !== null,
+                pristine: pristineOf(draft),
             };
         }),
         open: (path, given = {}) => {
@@ -402,6 +412,8 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             if (draft !== null) options.setDraft({...draft, note});
         },
         save: () => {
+            const draft = options.draft();
+            if (draft === null || pristineOf(draft)) return;
             if (!previewing.value) {
                 if (preview.value !== null) void submit();
                 return;

@@ -36,4 +36,4 @@ type Emits = {
 
 有 `badge` 的按钮在图标后面画这段数字（例如批注的条数），按钮比 24px 宽，宽度的预算由拥有者用 `title-actions.ts` 的 `titleModelFor` 扣掉；收进“⋯”的项不画数字。
 
-每个按钮带 `data-title-action="<命令 id>"` 与 `data-title-action-key="<key>"`，“⋯”带 `data-title-actions-more`。
+每个按钮带 `data-title-action="<命令 id>"` 与 `data-title-action-key="<key>"`，“⋯”带 `data-title-actions-more`。按钮另带稳定名 `command` 加命令 id（`data-nb-target`、`data-nb-key`，[`agent/page-agent.md`](../../../../../docs/specs/agent/page-agent.md) 输出 6）：Agent 的引导按它找控件，不随语言与顺序变，不改名。

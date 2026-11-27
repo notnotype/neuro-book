@@ -34,6 +34,7 @@
     "packages/nb-flock",
     "packages/nb-host",
     "packages/nb-models",
+    "packages/nb-page-agent",
     "packages/nb-site-identity-contract",
     "packages/nb-site-telemetry-contract",
     "packages/nb-site-identity",

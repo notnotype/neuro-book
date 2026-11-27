@@ -24,7 +24,7 @@ import type {EntryKind} from "../shared/entry-kinds";
 import type {CanonImages} from "./images";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import {ComponentViewRegistry} from "./component-views";
-import type {TextAddress} from "./components/entry-text";
+import type {TextAddress} from "./components/text/entry-text";
 import type {EditDraft} from "./in-place-edit";
 import type {CanonNotices} from "./notices";
 import type {OriginsPage} from "./origin-pages";
@@ -116,7 +116,11 @@ export interface EntryPageOptions {
     readonly entryKinds?: () => readonly EntryKind[];
     /** 设定里的图片（输出 53）；窗口里没有文件服务时不给。 */
     readonly images?: CanonImages | null;
+    /** 登记这个设定组类型的插件 id（“添加一组设定”按它分组，输出 38）；还没读到声明时为 null。缺省都按 null。 */
+    readonly componentPlugin?: (type: string) => string | null;
 }
+
+const NO_PLUGIN = (): null => null;
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
     const heads = reactive(new Map<string, EntryHead>());
@@ -135,7 +139,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
     };
     return {
         load: async () => {
-            const Host = (await import("./components/EntryPageHost.vue")).default;
+            const Host = (await import("./components/entry-page/EntryPageHost.vue")).default;
             return defineComponent({
                 name: "CanonEntryPage",
                 props: {context: {type: Object as PropType<EditorPageContext<EntryPageState>>, required: true}},
@@ -162,7 +166,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => register(id, commit), entryKinds: kinds, images: options.images ?? null});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, windowLine: options.windowLine ?? FOLLOW_ONLY, views: options.views, entryTabs: options.entryTabs ?? NO_TABS, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head), draft: options.drafts.session(id), sourceInput: options.sourceInput ?? null, onCommitReady: (commit: (() => Promise<void>) | null) => register(id, commit), entryKinds: kinds, images: options.images ?? null, componentPlugin: options.componentPlugin ?? NO_PLUGIN});
                     };
                 },
             });

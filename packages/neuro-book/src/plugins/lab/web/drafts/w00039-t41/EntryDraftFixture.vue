@@ -2,12 +2,12 @@
 /** w00039 t41 第 2 轮静态稿的台子：真实的条目页骨架，分页内容是人物或形象的草稿。 */
 import {computed, ref} from "vue";
 
-import EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
+import EntryPage from "nbook/plugins/canon/web/components/entry-page/EntryPage.vue";
 import CharacterViewDraft from "./CharacterViewDraft.vue";
 import LookViewDraft from "./LookViewDraft.vue";
 
 import type {LabFixtureProps} from "../../lab-subject";
-import {provideCanonText} from "../../fixtures/canon-text";
+import {provideCanonText} from "../../../../canon/web/lab/canon-text";
 
 const props = defineProps<LabFixtureProps & {view: "character" | "look"}>();
 provideCanonText(props.scene);

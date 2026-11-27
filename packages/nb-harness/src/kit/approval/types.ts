@@ -12,6 +12,8 @@ export interface ReviewRequest {
     readonly effect: ToolEffect;
     /** 展开过的判定路径（全局地址）。 */
     readonly paths: readonly PathSubject[];
+    /** 路径与命令之外的判定对象（工具的 `subjects` 交出的，例如截图的 `{kind: "screen"}`），原样交给审批者（permissions.md 输出 20）。 */
+    readonly subjects: readonly {readonly kind: string; readonly value: string}[];
 }
 
 /** 审批者：放行、拒绝或转问。 */

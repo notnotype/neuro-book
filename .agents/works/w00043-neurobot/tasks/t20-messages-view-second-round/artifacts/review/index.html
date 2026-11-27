@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t20 第 6 轮：会话列表的搜索行</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cands--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 640px; }
+.cands--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands--2 { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand h4 { margin: 14px 0 6px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.cand img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>t20 第 6 轮：会话列表的搜索行</h1>
+
+<section data-nbdev-question="toolbar" data-nbdev-type="single" data-nbdev-recommend="a">
+  <h2>会话列表顶上那一行（搜索、作品范围、过滤、新建）改成哪种？</h2>
+  <p class="rec"><strong>推荐 A：一行只剩搜索框和两个图标；“当前作品／全部作品”很少切，收进过滤菜单（菜单按钮上带已选条件数），窄到 220 也不挤。B 多占一行，窄时“当前作品”被截断；C 的“本书”前缀把搜索框切成两截。</strong></p>
+  <div class="cands cands--4">
+    <div class="cand" data-nbdev-option="now" data-nbdev-label="现在的"><h3>现在</h3><img src="r6/list-now.webp" alt="现在：搜索框、当前作品下拉、过滤、加号、收起挤在一行"></div>
+    <div class="cand" data-nbdev-option="a" data-nbdev-label="A 范围收进过滤菜单"><h3>A 范围收进过滤菜单</h3><img src="r6/list-a.webp" alt="A：搜索框内右端是过滤按钮，框外是新建与收起"><h4>窄（约 220）</h4><img src="r6/narrow-a.webp" alt="A 窄"><p>过滤菜单：上面一组单选“当前作品／全部作品”，下面是原来的过滤项</p></div>
+    <div class="cand" data-nbdev-option="b" data-nbdev-label="B 范围单独一行"><h3>B 范围单独一行</h3><img src="r6/list-b.webp" alt="B：第一行搜索与收起，第二行当前作品／全部作品分段、过滤、新建"><h4>窄（约 220）</h4><img src="r6/narrow-b.webp" alt="B 窄"></div>
+    <div class="cand" data-nbdev-option="c" data-nbdev-label="C 范围做搜索框前缀"><h3>C 范围做搜索框前缀</h3><img src="r6/list-c.webp" alt="C：搜索框左端是“本书”下拉，右端是过滤"><h4>窄（约 220）</h4><img src="r6/narrow-c.webp" alt="C 窄"></div>
+  </div>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>未读数</td><td>中性深色小胶囊，不用强调色（强调色只给当前项）；有等你处理时用 warning 色</td></tr>
+      <tr><td>搜索框的提示文字</td><td>只写“搜索”</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>浮动窗展开着拖动不再变小；一列按钮对齐到同一条中线；轨宽手柄亮起时是细线（已修并合入）</li>
+    <li>归位后再浮动用上次的位置与大小（已做并合入）</li>
+    <li>收着时窄列（侧柜）保留；展开时底下三个按钮落到列表底部成横排导航（第 2 轮附言）</li>
+    <li>结构按第 3 轮：收着窄列照旧，展开后窄列让位、列表底部是 Bot｜会话；展开收起按钮换个位置（第 3 轮附言，本轮第一题）</li>
+    <li>右栏有别的容器时，展开的列表顶上一行入口；只有消息时不加（第 3 轮）</li>
+    <li>列表回到 t03 第 5 轮定下的稿；第 3、4 轮的三个方向与第 1 轮的首字方块作废（第 4 轮后会话里）</li>
+    <li>列表照 t03 稿、底部导航、不要顶上页签，缺省宽 300（第 5 轮）</li>
+    <li>展开收起按钮按 B：收着在窄列顶上，展开在搜索行右端（第 5 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

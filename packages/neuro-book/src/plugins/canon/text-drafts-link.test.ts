@@ -187,12 +187,14 @@ describe("author-ui 输出 46：请求在途时断线", () => {
     }), 60_000);
 
     it("发布以后条目大到一次读不回来、回执又丢了：问到已经发布就收场，不用先把块读回来", () => inScene(async (scene) => {
-        const entry = await scene.seed(["a".repeat(500_000)]);
+        // 一块最多 5 万字：读得回来的 18 块（各一万字，约 540 KB），再加 17 块，合起来超过一次读取的预算（960 KiB）。
+        const block = (mark: string) => mark.repeat(10_000);
+        const entry = await scene.seed(Array.from({length: 18}, () => block("甲")));
         const window = await scene.window("browser-1");
         const desk = deskOf(window);
         const session = desk.drafts.session(entry);
         expect(await session.begin(at)).toBeNull();
-        session.edit((draft) => addAfter(draft, "b1", "b".repeat(490_000)).draft);
+        for (let index = 0; index < 17; index += 1) session.edit((draft) => addAfter(draft, "b1", block("乙")).draft);
 
         scene.loseReply(writing);
         expect(await session.submit("改主文字")).toEqual({status: "unknown"});
@@ -365,7 +367,7 @@ describe("author-ui 输出 45、46：暂存的回执丢了、链路断开", () =
         const desk = deskOf(await scene.window("browser-1"));
         const session = desk.drafts.session(entry);
         await session.begin(at);
-        session.edit((draft, blocks) => setText(draft, blocks, "__proto__", "没闭合的 {表达式"));
+        session.edit((draft, blocks) => setText(draft, blocks, "__proto__", '没写完的 <V of="entry.name"'));
         expect((await session.submit("改主文字")).status).toBe("problems");
         expect(Object.entries(session.state.problems)).toMatchObject([["__proto__", {kind: "rejected"}]]);
         desk.dispose();
@@ -515,18 +517,19 @@ describe("author-ui 输出 45、46：放弃与确认、两处同时开始、大�
         mine.dispose();
     }), 60_000);
 
-    it("一块几十万字的修改：稿存得下、请求发得出，冻结也存得下（不把文字再存一遍），照常发布", () => inScene(async (scene) => {
+    it("几十万字的修改（一块最多 5 万字，四十块各一万字）：稿存得下、请求发得出，冻结也存得下（不把文字再存一遍），照常发布", () => inScene(async (scene) => {
         const entry = await scene.seed(["A"]);
         const window = await scene.window("browser-1");
         const desk = deskOf(window);
         const session = desk.drafts.session(entry);
         await session.begin(at);
-        const large = "a".repeat(530_000);
-        session.edit((draft, read) => setText(draft, read, "b1", large));
+        const piece = "a".repeat(10_000);
+        session.edit((draft, read) => setText(draft, read, "b1", piece));
+        for (let index = 0; index < 39; index += 1) session.edit((draft) => addAfter(draft, "b1", piece).draft);
         await session.flush();
         expect(session.state.saved).toBe("saved");
         expect((await session.submit("改主文字")).status).toBe("published");
-        expect(scene.sources(entry, at).map((source) => source.length)).toEqual([530_000]);
+        expect(scene.sources(entry, at).map((source) => source.length)).toEqual(Array.from({length: 40}, () => 10_000));
         desk.dispose();
     }), 60_000);
 

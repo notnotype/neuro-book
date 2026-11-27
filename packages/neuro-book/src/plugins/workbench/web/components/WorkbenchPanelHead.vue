@@ -6,7 +6,8 @@ import {IconButton} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import type {PanelHeadSlots} from "../views/view-head";
-import {panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
+import {panelTabDomId, panelTabpanelDomId, panelTitleDomId, viewIdOf} from "../state/layout-present";
 import "./hover-actions.css";
 import "./panel-metrics.css";
 
@@ -90,6 +91,12 @@ const emit = defineEmits<{
     (event: "own-head-inset", width: number): void;
 }>();
 
+/** 视图标题的稳定名（docs/specs/agent/page-agent.md 输出 6）：视图的标签才有，编辑器页这类标签没有。 */
+const viewTarget = (tabId: string) => {
+    const viewId = viewIdOf(tabId);
+    return viewId === null ? {} : nbTarget("workbench.view", viewId);
+};
+
 defineSlots<{
     /** 当前视图的动作。 */
     actions?(): unknown;
@@ -97,7 +104,8 @@ defineSlots<{
 
 const TAB_MAX_WIDTH = 96;
 
-const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon})));
+// 几个视图叠成标签时，标签就是视图的标题：同样写稳定名（输出 6）。
+const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon, attrs: viewTarget(tab.id)})));
 
 const activeTab = computed(() => (props.titleOnly ? (props.tabs.find((tab) => tab.id === props.active) ?? null) : null));
 /** 自绘头优先于接管标题区：宿主不会同时给两样，这里也只认一样。 */
@@ -137,7 +145,8 @@ const sideWidth = computed(() => Math.ceil(Math.max(startExtent.value?.width ?? 
  * 自绘头右端让出的宽度：按钮一组的宽，加上它到窗口右缘的内边距与它和视图的“⋯”之间的间距（两个数与下面 `--own` 的样式同值）。
  * 动作透明时也占位，所以只在动作增减时变，缩放窗口不变。
  */
-const OWN_HEAD_END_PADDING = 8;
+/** 12：画在窗右边缘的视图段收着时是 48 宽的一列（`SHELL_RAIL_WIDTH`），24 宽的“回到停靠”离右缘 12 正好在那一列的中线上，和下面的按钮对齐（输出 51 的“顶格”）。 */
+const OWN_HEAD_END_PADDING = 12;
 const OWN_HEAD_END_GAP = 4;
 const ownEndExtent = useLayoutExtent(computed(() => (ownHeadShown.value ? endColumn.value : null)));
 watch(() => (ownEndExtent.value === null ? null : Math.ceil(ownEndExtent.value.width)), (width) => {
@@ -189,6 +198,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                 class="workbench-panel-head__own-handle nb-ui-focus-ring-inset"
                 tabindex="0"
                 :data-panel-tab="activeTab!.id"
+                v-bind="viewTarget(activeTab!.id)"
                 :aria-description="dragHint === '' ? undefined : dragHint"
                 @click="onTitleClick($event, activeTab!.id)"
                 @contextmenu="onTitleContextMenu($event, activeTab!.id)"
@@ -223,6 +233,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                     class="workbench-panel-head__view-handle nb-ui-focus-ring-inset"
                     tabindex="0"
                     :data-panel-tab="activeTab!.id"
+                    v-bind="viewTarget(activeTab!.id)"
                     :aria-description="dragHint === '' ? undefined : dragHint"
                     :aria-haspopup="viewHead!.popup === null ? undefined : 'dialog'"
                     :aria-expanded="viewHead!.popup === null ? undefined : viewHead!.popup.expanded"
@@ -243,6 +254,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                     class="workbench-panel-head__handle nb-ui-focus-ring-inset"
                     tabindex="0"
                     :data-panel-tab="activeTab.id"
+                    v-bind="viewTarget(activeTab.id)"
                     :aria-description="dragHint === '' ? undefined : dragHint"
                     :aria-expanded="fold === null ? undefined : !fold.collapsed"
                     :aria-controls="fold === null ? undefined : panelTabpanelDomId(idPrefix, activeTab.id)"
@@ -582,7 +594,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     flex: none;
     justify-content: flex-end;
     height: var(--own-head-band);
-    padding-inline: var(--space-1) 8px;
+    padding-inline: var(--space-1) 12px;
     z-index: 10;
     pointer-events: none;
 }

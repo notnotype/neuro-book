@@ -77,7 +77,7 @@ type Slots = {
 };
 ```
 
-没有 expose；attrs 落在根上。根带 `data-settings-row`（键）、`data-settings-row-state`（`edit`、`inherit` 或 `not-allowed`），已修改时带 `data-settings-row-modified`，停用时带 `data-settings-row-blocked`；宽排法里控件那一行带 `data-settings-row-wide`、行下信息带 `data-settings-row-below`、标题行右端的一块带 `data-settings-row-head`。内部标记：已修改圆点 `data-settings-row-dot`，沿用标签 `data-settings-row-inherited`，最右一格 `data-settings-row-cell`，只读的值与锁 `data-settings-row-value`、`data-settings-row-lock`，状态图标 `data-settings-row-reason`（`data-tone` 是色调），提示里的一行 `data-settings-row-reason-line`。
+没有 expose；attrs 落在根上。根带稳定名 `settings.row` 加设置键（`data-nb-target`、`data-nb-key`，[`agent/page-agent.md`](../../../../../docs/specs/agent/page-agent.md) 输出 6；Agent 的引导按它找这一行，不改名）、`data-settings-row`（键）、`data-settings-row-state`（`edit`、`inherit` 或 `not-allowed`），已修改时带 `data-settings-row-modified`，停用时带 `data-settings-row-blocked`；宽排法里控件那一行带 `data-settings-row-wide`、行下信息带 `data-settings-row-below`、标题行右端的一块带 `data-settings-row-head`。内部标记：已修改圆点 `data-settings-row-dot`，沿用标签 `data-settings-row-inherited`，最右一格 `data-settings-row-cell`，只读的值与锁 `data-settings-row-value`、`data-settings-row-lock`，状态图标 `data-settings-row-reason`（`data-tone` 是色调），提示里的一行 `data-settings-row-reason-line`。
 
 ## 状态
 

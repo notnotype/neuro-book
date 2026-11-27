@@ -5,7 +5,7 @@
 
 import type {AgentConversationHead, AgentNoticeCard, AgentWelcome} from "@notnotype/nb-agent-ui/lab";
 
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 import {conversationContext} from "./data";
 import {WELCOME_RECENT, WELCOME_STARTERS} from "./view.scenes";
 

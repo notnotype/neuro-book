@@ -24,6 +24,8 @@ import {LOCAL_ID_PREFIX} from "../core/ids";
 import {fieldOf} from "../engine/reference";
 import type {OriginStep} from "../engine/types";
 import {MAIN_LINE} from "../lines/table";
+import {normalizeBlockSource} from "../render/syntax";
+import {replaceTextTempIds} from "./references";
 import {textTouches, writeBack} from "./text-blocks";
 import type {Problem, World, WriteFailure, WriteResult} from "./world";
 
@@ -93,6 +95,17 @@ export interface EntryPlan {
 }
 
 export type EntryPlanned = EntryPlan | {readonly ok: false; readonly failure: EntryEditFailure};
+
+/** 批量编辑里新写的主文字规范化：新建条目的各段、加的块、整段替换一块的新原文。 */
+function normalizedEdits(input: EntryEdits): EntryEdits {
+    const ops = input.ops.map((op): EntryOp => {
+        if (op.op === "create" && op.entry.text !== undefined) return {...op, entry: {...op.entry, text: op.entry.text.map(normalizeBlockSource)}};
+        if (op.op === "addBlock") return {...op, source: normalizeBlockSource(op.source)};
+        if (op.op === "set" && op.at.path.startsWith("text[") && typeof op.value === "string") return {...op, value: normalizeBlockSource(op.value)};
+        return op;
+    });
+    return ops.every((op, index) => op === input.ops[index]) ? input : {...input, ops};
+}
 
 /** 读取位置换成明确写线的位置（worldlines 输出 12）：之后读、来历、排序键与核对都用同一条线。 */
 export function resolveLine(world: World, position: ReadPosition): ReadPosition {
@@ -511,7 +524,9 @@ function buildEntry(world: World, draft: Draft, id: string, input: NewEntry): En
 /**
  * 定方案（输出 25）：按原世界给每项定路由，在工作副本上合成写入请求。不发布、不核对；`checkPlan` 在候选世界上核对。
  */
-export function planEntries(world: World, input: EntryEdits): EntryPlanned {
+export function planEntries(world: World, raw: EntryEdits): EntryPlanned {
+    // 新写的主文字先规范化（rendering.md 输出 1、18），读回核对的预期值与存下的是同一份；读到的旧值（`read`）不动。
+    const input = normalizedEdits(raw);
     if (input.ops.length === 0 || input.ops.length > ENTRY_EDITS_MAX) return {ok: false, failure: {code: "validation-failed", problems: [{code: "type-mismatch", path: "ops", message: `a batch has 1 to ${String(ENTRY_EDITS_MAX)} operations`}]}};
     const intent = input.intent ?? "creative";
     const position = resolveLine(world, input.position ?? defaultPosition(world));
@@ -596,6 +611,7 @@ export function planEntries(world: World, input: EntryEdits): EntryPlanned {
                     if (op.find === "" || first < 0) return problem(index, "replace-not-found", "the text to replace is not in the current value");
                     if (value.value.indexOf(op.find, first + 1) >= 0) return problem(index, "replace-not-unique", "the text to replace appears more than once");
                     next = value.value.slice(0, first) + op.with + value.value.slice(first + op.find.length);
+                    if (op.at.path.startsWith("text[")) next = normalizeBlockSource(next as string);
                 } else {
                     if (op.read !== undefined && !sameJson(value.value, op.read)) return {ok: false, failure: {code: "value-conflict", current: value.value, op: index}};
                     next = op.value;
@@ -959,7 +975,7 @@ function routeSet(world: World, draft: Draft, position: ReadPosition, intent: "c
 }
 
 /** 在候选世界上逐项读回核对（输出 25）：剧情变化在新变更之后的那一点读，改设定在读取位置读。 */
-export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult {
+export function checkPlan(plan: EntryPlan, result: WriteResult, before: World): EntryEditResult {
     if (!result.ok) {
         if (result.failure.code !== "validation-failed" || plan.targets.length === 0) return result;
         // 发布前的校验按候选对象与路径报问题：对得上某一项写下的位置时带上它的序号。
@@ -985,8 +1001,16 @@ export function checkPlan(plan: EntryPlan, result: WriteResult): EntryEditResult
             const after = currentAt(result.world, plan.position, expect.at);
             got = after === "chapter-not-found" || after === "line-not-found" ? undefined : after.value;
         }
+        // 写进主文字的临时 id 发布时换成了正式 id（components.md 输出 18）：期望的文字照同一份换法算。只有与旧块相同的文字是原样
+        // 留着的、不换（`replaceRequestTempIds` 只换新写的）：这时期望的是没换的原文。
+        const text = "value" in expect && typeof expect.value === "string" && expect.at.path.startsWith("text[") ? expect.value : undefined;
+        const kept = text !== undefined && (() => {
+            const old = currentAt(before, plan.position, expect.at);
+            return old !== "chapter-not-found" && old !== "line-not-found" && old.value === text;
+        })();
+        const wanted = !("value" in expect) ? undefined : text !== undefined && !kept ? replaceTextTempIds(text, result.ids) : expect.value;
         const matches = "value" in expect
-            ? sameJson(got ?? null, expect.value ?? null) || (expect.value === undefined && got === undefined)
+            ? sameJson(got ?? null, wanted ?? null) || (wanted === undefined && got === undefined)
             : Array.isArray(got) && (got as unknown[]).some((item) => (typeof item === "string" ? item : (item as {id?: unknown} | null)?.id) === expect.has) === expect.present;
         if (!matches) return {ok: false, failure: {code: "result-mismatch", got, op: expect.op}};
     }
@@ -1037,7 +1061,7 @@ export function editEntries(world: World, input: EntryEdits, time: string, optio
     }
     const planned = planEntries(world, input);
     if (!planned.ok) return planned;
-    return checkPlan(planned, world.publish(planned.request, time, digest));
+    return checkPlan(planned, world.publish(planned.request, time, digest), world);
 }
 
 /** 只算不发布（输出 25 与 22）：与写入同一份方案；用一个没人用过的请求 id 去算，返回时写回调用方的请求 id。 */
@@ -1046,6 +1070,6 @@ export function previewEntries(world: World, input: EntryEdits, time: string): E
     if (!planned.ok) return planned;
     let requestId = `preview:${planned.request.requestId}`;
     while (world.requested(requestId) !== undefined) requestId = `preview:${requestId}`;
-    const result = checkPlan(planned, world.preview({...planned.request, requestId}, time));
+    const result = checkPlan(planned, world.preview({...planned.request, requestId}, time), world);
     return result.ok ? {...result, revision: {...result.revision, requestId: planned.request.requestId}} : result;
 }

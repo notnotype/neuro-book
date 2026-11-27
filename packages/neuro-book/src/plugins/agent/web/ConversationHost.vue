@@ -49,6 +49,8 @@ const props = defineProps<{
     close?: (() => void) | null;
     /** 不放会话列表（头的标题下拉）：书房的面板里只开 bot 的主对话。没传的布尔属性 Vue 当成 false，所以写成反向的。 */
     noSessionList?: boolean;
+    /** 头的左列不画“新建”：消息视图把新对话挪进了视图段（conversation.md 输出 44、57）。写成反向的，理由同上。 */
+    noNewSession?: boolean;
     /** 首屏指标（conversation.md 输出 56）：这个位置叫什么、记到哪。 */
     paint?: {readonly position: PaintPosition; readonly now: () => number; readonly record: (level: "info" | "warning", record: PaintRecord) => void} | null;
 }>();
@@ -144,7 +146,7 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         :registry="props.registry"
         :renderers="props.renderers"
         status-bar
-        new-session
+        :new-session="!props.noNewSession"
         :welcome="props.welcome"
         :draft-profile="props.draftProfile"
         :status-line="props.statusLine.setting"

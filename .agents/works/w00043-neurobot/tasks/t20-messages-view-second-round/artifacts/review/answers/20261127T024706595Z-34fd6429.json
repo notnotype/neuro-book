@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "answerId": "20261127T024706595Z-34fd6429",
+    "artifactVersion": 3,
+    "contentHash": "a5f88a525afb890f92e783d6319006906a82fb15fe7a44a06d70206a3eb821d1",
+    "submittedAt": "2026-11-27T02:47:02.253Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "nav-structure": "adjust",
+        "container-entry": "row"
+    },
+    "comments": {
+        "nav-structure": "感觉这个展开收起按钮可以换一个位置"
+    },
+    "note": "1. 我说的会话列表不是其实是指的这个搜索标题与说明这个头不太好看\n2. 我记得这个会话列表出过静态稿的\n3. 展开收起的动画要做，例如原来有个头像的，展开后 bot 也有头像。具体怎么做可以多出几种做法多试试"
+}

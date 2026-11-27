@@ -10,7 +10,7 @@ import {computed, onMounted, ref} from "vue";
 
 import {IconButton, InfoTip, Input, Switch, Tabs} from "@notnotype/nb-ui/components";
 
-import CharacterCard from "nbook/plugins/canon/web/components/CharacterCard.vue";
+import CharacterCard from "nbook/plugins/canon/web/components/groups/CharacterCard.vue";
 
 import {FILLED_CARD, FILLED_TABS} from "./sample";
 

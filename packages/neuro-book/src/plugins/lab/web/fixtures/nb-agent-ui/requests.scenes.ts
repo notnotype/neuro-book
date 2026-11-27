@@ -4,7 +4,7 @@
  */
 import type {RequestTraceDetail, RequestTraceRow} from "@notnotype/nb-agent-ui";
 import type {AgentRequestTrace} from "@notnotype/nb-agent-ui/vue";
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 const at = (hour: number, minute: number, second = 0) => new Date(2026, 10, 15, hour, minute, second).getTime();
 const now = at(10, 31, 20);

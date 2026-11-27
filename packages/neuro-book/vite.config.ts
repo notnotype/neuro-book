@@ -71,6 +71,10 @@ export default defineConfig({
             "typebox/compile",
             // 窗口读第三方插件的清单、判断插件版本范围（`nbook/plugin-platform/shared/versions`）；它是 CommonJS，不预构建在浏览器里加载不了。
             "semver",
+            // 页面引擎（@notnotype/nb-page-agent，nbook.page-agent 的浮层）算可访问名用它。
+            "dom-accessibility-api",
+            // 页面引擎的截图入口（@notnotype/nb-page-agent/capture）。
+            "@zumer/snapdom",
         ],
     },
     // 第三方许可清单（JSON）：应用的 npm 包据此生成 THIRD-PARTY-NOTICES.md（scripts/pack-app.ts），它不随页面发出去。

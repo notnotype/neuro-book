@@ -20,8 +20,8 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
-import {createLabEditorMenus} from "nbook/plugins/lab/web/fixtures/editor-scene/lab-editor-menus";
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createLabEditorMenus} from "nbook/plugins/editor/web/lab/lab-editor-menus";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 
 import {holdSelection, listComments, markdownEditingActions} from "@notnotype/nb-markdown/editor";

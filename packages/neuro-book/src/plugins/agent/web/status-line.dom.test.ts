@@ -12,7 +12,7 @@ import type {StatusLineItem} from "@notnotype/nb-agent-ui";
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {provideText} from "nbook/shared/testing/text-port";

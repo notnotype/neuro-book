@@ -132,7 +132,7 @@ export const agentBackendPlugin: PluginDefinition = {
             });
             const clock = context.services.require(clockKey);
             // eval 的内核跟着这一次激活：会话关闭不结束内核（eval.md 输出 11），停止时会话都关完之后再全部结束。
-            const evalTools = evalTool({entry: kernelEntry(), clock, toolsOf: (context) => runtime.codeTools(context), notices: runtime.evalNotices});
+            const evalTools = evalTool({entry: kernelEntry(), clock, toolsOf: (context) => runtime.codeTools(context), notices: runtime.evalNotices, report});
             const previews = new PreviewTokens(clock);
             const stateRoot = context.services.require(stateRootKey).path;
             const profilesRoot = join(stateRoot, "agent", "profiles");

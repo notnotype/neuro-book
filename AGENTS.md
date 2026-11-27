@@ -110,6 +110,7 @@ neuro-book/
 │   ├── nb-flock/                   # 不判旧的进程级文件锁（flock、LockFileEx，进程退出即放）；零依赖，随 nb-story 发布（w00043）
 │   ├── nb-host/                    # 两端宿主：回环与来源、状态根认领、RPC 端口、启动与停止、诊断出口、浏览器连接与重连（w00043）
 │   ├── nb-models/                  # 模型服务：配置形状、内置角色、设置页合同、选择顺序与服务核心（w00043）
+│   ├── nb-page-agent/              # 页面引导：让 Agent 看懂并引导一个网页（快照、定位、截图、高亮说明框）；宿主是内置插件 nbook.page-agent（w00033）
 │   ├── nb-site-*/                  # 官方站（w00037）：进程入口 nb-site-server、账号与统计两个模块及各自的合同包、前端 nb-site-web、合同测试包；共用规则见 packages/nb-site-server/AGENTS.md
 │   └── neuro-book-test-support/    # 系统临时根与 fixture 支持
 ├── scripts/                        # 仓库治理与自动化

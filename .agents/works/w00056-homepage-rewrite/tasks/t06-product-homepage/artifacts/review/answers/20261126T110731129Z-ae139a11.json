@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261126T110731129Z-ae139a11",
+    "artifactVersion": 4,
+    "contentHash": "ca0c0878e7ca22c663bce93689ab33b80b408d867c2d23f910248f169adb5189",
+    "submittedAt": "2026-11-26T11:07:29.575Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "direction-r4": "polish",
+        "act-one-r4": "revise",
+        "first-line-r4": "e3"
+    },
+    "comments": {
+        "direction-r4": "例如按钮加点金边这种装饰，更加有那种皇室奢华感。还有这个工作台用夜间模式（默认，可以切换）比较符合当前场景",
+        "first-line-r4": "我记得这个和 From words，worlds 这句话有呼应的啊"
+    },
+    "note": null
+}

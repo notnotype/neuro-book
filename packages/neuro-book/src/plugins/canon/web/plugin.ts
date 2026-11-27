@@ -40,7 +40,7 @@ import {createCanonImages} from "./images";
 import type {EntryKindDeclaration} from "../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import type {ComponentViewDeclaration} from "../shared/component-views";
-import {componentsPoint, LOOK_COMPONENT, PERSON_COMPONENT} from "../shared/components";
+import {CANON_COMPONENTS_POINT, componentsPoint, LOOK_COMPONENT, PERSON_COMPONENT} from "../shared/components";
 import {canonClientKey, canonReadsKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {canonText} from "../shared/text";
@@ -51,6 +51,7 @@ import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMM
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
+import {componentIcon} from "./components/entry-page/entry-tabs";
 import {ENTRY_LANGUAGE, ENTRY_LANGUAGE_DECLARATION, entryLanguageDefinition} from "./entry-language";
 import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
 import {createTextDrafts} from "./text-drafts";
@@ -274,6 +275,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 },
                 entryKinds,
                 images,
+                componentPlugin: (type) => context.declarations.get(CANON_COMPONENTS_POINT, type)?.plugin ?? null,
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
             // “打开这一章”：章节文件名里带标题，按编号在活页夹目录里找（与项目实例读正文认同一个文件）。
@@ -289,7 +291,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             // 还原的对话框：第一次有人要还原时才挂上（才建读取层），之后留着，关的时候有收起的动画。
             const overlay: WorkbenchOverlayImplementation = {
                 load: async () => {
-                    const Host = (await import("./components/RevertHost.vue")).default;
+                    const Host = (await import("./components/revisions/RevertHost.vue")).default;
                     return defineComponent({
                         name: "CanonRevertOverlay",
                         setup() {
@@ -321,11 +323,11 @@ export const canonBrowserPlugin: PluginDefinition = {
                 badge: () => pendingCount.count.value,
             };
             const view: ViewImplementation = {
-                load: async () => createEntriesViewHost((await import("./components/EntryTree.vue")).default, {
+                load: async () => createEntriesViewHost((await import("./components/entries/EntryTree.vue")).default, {
                     world: worldOf(),
                     state,
                     open: (id) => execute(OPEN_ENTRY_COMMAND, {id}),
-                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices, kinds: entryKinds},
+                    create: {dialog: (await import("./components/entries/NewEntryDialog.vue")).default, call, notices, kinds: entryKinds, iconOf: (type) => componentIcon(views, type), componentPlugin: (type) => context.declarations.get(CANON_COMPONENTS_POINT, type)?.plugin ?? null},
                 }),
             };
             return {
@@ -343,9 +345,9 @@ export const canonBrowserPlugin: PluginDefinition = {
                     [EDITOR_LANGUAGES_POINT]: {[ENTRY_LANGUAGE]: {load: () => Promise.resolve(entryLanguageDefinition)}},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
-                        [PERSON_COMPONENT]: componentView(() => import("./components/CharacterView.vue")),
-                        [LOOK_COMPONENT]: componentView(() => import("./components/LookView.vue")),
-                        [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
+                        [PERSON_COMPONENT]: componentView(() => import("./components/groups/CharacterView.vue")),
+                        [LOOK_COMPONENT]: componentView(() => import("./components/groups/LookView.vue")),
+                        [PANEL_TYPE]: componentView(() => import("./components/groups/PanelDataView.vue")),
                     },
                     [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState), pickLine}),
                 },

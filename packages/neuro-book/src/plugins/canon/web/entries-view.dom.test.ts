@@ -23,8 +23,8 @@ import {mergeEntryKinds} from "../shared/entry-kinds";
 import {countedClient} from "../testing/counted-client";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
-import EntryTree from "./components/EntryTree.vue";
-import NewEntryDialog from "./components/NewEntryDialog.vue";
+import EntryTree from "./components/entries/EntryTree.vue";
+import NewEntryDialog from "./components/entries/NewEntryDialog.vue";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import type {EntriesViewState} from "./entries-view";
 import {createNotices} from "./notices";
@@ -192,9 +192,8 @@ describe("设定视图", () => {
         type(name!, "魔杖");
         await waitUntil("名字写进草稿", () => state.creating.value?.name === "魔杖");
         type(kind!, "物品");
-        await waitUntil("登记的类型", () => dialog().textContent?.includes("面板") ?? false);
-        const panel = [...dialog().querySelectorAll("label")].find((label) => label.textContent?.includes("面板"))!;
-        panel.click();
+        await waitUntil("登记的类型", () => dialog().textContent?.includes("数值") ?? false);
+        dialog().querySelector<HTMLElement>("[data-checklist-item='nbook.canon.panel']")!.click();
         await waitUntil("“新建”可用", () => !create().disabled);
         create().click();
 
@@ -214,7 +213,7 @@ describe("设定视图", () => {
         await person.trigger("click");
         const dialog = (): Element => document.body.querySelector("[role='dialog']")!;
         // 登记的类型是对话框开了才读的：读到以后勾选补上人物与形象。
-        const checked = (): string[] => [...dialog().querySelectorAll<HTMLInputElement>("input[type='checkbox']")].filter((box) => box.checked).map((box) => box.closest("label")?.textContent?.trim() ?? "");
+        const checked = (): string[] => [...dialog().querySelectorAll<HTMLElement>("[role='option'][aria-selected='true']")].map((option) => option.textContent?.trim() ?? "");
         await waitUntil("人物与形象勾上", () => document.body.querySelector("[data-new-entry]") !== null && checked().sort().join("|") === ["人物", "形象"].sort().join("|"));
         const [name, kind] = [...dialog().querySelectorAll("input")] as HTMLInputElement[];
         expect(kind!.value).toBe("人物");

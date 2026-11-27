@@ -2,7 +2,7 @@
 /**
  * MarkdownDisplay 的场景（docs/specs/ui/markdown-display.md 验收场景 1、2、3）：`streaming` 场景按定时把场景的原文一段段追加，
  * 播完去掉光标；`conversation` 场景把场景的原文摆成 100 条消息，拖 Lab 画布改宽度，用来看长对话改宽度时的卡顿。表情三个场景用
- * Lab 的表情目录（`lab-stickers.ts`），`stickers-late` 的目录 1.5 秒后才给结果，`stickers-display` 把这个包设成按贴纸显示。
+ * Lab 的表情目录（`stickers/web/lab/lab-stickers.ts`），`stickers-late` 的目录 1.5 秒后才给结果，`stickers-display` 把这个包设成按贴纸显示。
  */
 import {Button} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
@@ -16,7 +16,7 @@ import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 import {useLabEventSink} from "../lab-event-sink";
 import {mountStickerDisplayStyle} from "nbook/plugins/stickers/web/display-style";
 
-import {LAB_STICKER_PACK, labStickers} from "./lab-stickers";
+import {LAB_STICKER_PACK, labStickers} from "nbook/plugins/stickers/web/lab/lab-stickers";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
@@ -68,7 +68,7 @@ const conversation = computed(() => Array.from({length: MESSAGES}, (_, index) =>
     <div v-if="props.scene === 'streaming'" class="h-full w-full overflow-auto p-4">
         <MarkdownDisplay data-lab-subject v-bind="subject.bindings.value" :text="played" :streaming="playing" :resolve-asset="resolveAsset" @activate="(activation) => events('activate', activation)" />
         <LabFixtureControls>
-            <Button size="sm" @click="play">重播</Button>
+            <Button variant="primary" size="sm" @click="play">重播</Button>
         </LabFixtureControls>
     </div>
     <!-- 长对话：拖 Lab 画布的宽度改宽度。 -->

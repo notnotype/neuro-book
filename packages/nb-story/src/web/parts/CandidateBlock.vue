@@ -39,7 +39,7 @@ async function undo(): Promise<void> {
             <p class="text-[length:var(--text-xs)] text-[var(--text-secondary)]">涉及：<NameLink v-for="other in item.entities.filter(entity => entity.id !== props.entity)" :id="other.id" :key="other.id" :label="other.label" class="mr-1" /></p>
             <EvidenceQuote :ref-text="item.evidence" :text="item.quote" />
             <div class="flex items-center gap-1.5">
-                <Button size="sm" icon-class="i-lucide-check" :disabled="busy" data-testid="candidate-confirm" @click="decide(item, 'revisions.confirm')">确认是同一人</Button>
+                <Button variant="primary" size="sm" icon-class="i-lucide-check" :disabled="busy" data-testid="candidate-confirm" @click="decide(item, 'revisions.confirm')">确认是同一人</Button>
                 <Button size="sm" variant="ghost" :disabled="busy" data-testid="candidate-reject" @click="decide(item, 'revisions.reject')">不是</Button>
             </div>
             <p class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]">确认后从第 {{ item.evidence.split('.')[0] }} 章第 {{ item.evidence.split('.')[1] }} 段起生效，读到它之前仍看不到。</p>

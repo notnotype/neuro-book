@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T050334506Z-9a255645",
+    "artifactVersion": 10,
+    "contentHash": "9a5ada3198a95e3c41d9b42eedf75b48387934a8be003f6396bf6f6895cf5ab5",
+    "submittedAt": "2026-11-27T05:03:29.741Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "elements-r10": "ok",
+        "day-r10": "walnut"
+    },
+    "comments": {
+        "day-r10": "日间模式这个工作台的投影和周围背景感觉很突兀。是不是这里放一个丝绸红布可能会好一些？"
+    },
+    "note": "1. 首屏的滚动怎么变得这么卡了？\n2. "
+}

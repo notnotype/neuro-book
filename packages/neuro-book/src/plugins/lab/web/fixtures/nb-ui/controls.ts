@@ -16,7 +16,7 @@ import type {
     Toolbar,
 } from "@notnotype/nb-ui/components";
 
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
 
@@ -202,6 +202,12 @@ export const controlsFixtures: LabFixture[] = [
                 {value: "problems", label: "问题", iconClass: "i-lucide-circle-alert", count: 3},
                 {value: "history", label: "历史记录", iconClass: "i-lucide-history"},
             ], ariaLabel: "面板", size: "sm", overflow: "adapt"}, model: {modelValue: "problems"}}},
+            // 标签上的菜单与附注：带菜单的标签都留箭头格、选中的显出；附注写在标题后。点选中的那个发 menu（菜单由消费方画）。
+            {id: "menu", label: "标签上的菜单与附注", input: {props: {items: [
+                {value: "person", label: "人物", iconClass: "i-lucide-user-round", menu: {open: false}, note: "AI视图"},
+                {value: "look", label: "形象", iconClass: "i-lucide-shirt", menu: {open: false}},
+                {value: "text", label: "文字", iconClass: "i-lucide-file-text"},
+            ], ariaLabel: "条目的分页", size: "sm"}, model: {modelValue: "person"}}},
         ],
         subject: nbUiSubject("Tabs"),
     }),

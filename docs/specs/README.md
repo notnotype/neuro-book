@@ -182,6 +182,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的权限规则 | [`agent/permissions.md`](agent/permissions.md) | 规则的三层与合并、判定流水线、判定对象、`bash` 方言与只读清单、本会话批准的规则 |
 | Agent 的上下文压缩 | [`agent/compaction.md`](agent/compaction.md) | 三种压缩方法与缺省顺序、放回的内容、贡献点 `agent.compactionMethods` |
 | Agent 的代码执行 | [`agent/eval.md`](agent/eval.md) | `nbook.agent.eval`：常驻 JS 内核、代码里调工具与全局对象、时限与重置、审批 |
+| Agent 看懂并引导界面 | [`agent/page-agent.md`](agent/page-agent.md) | eval 对象 `ui`：选当前窗口、文字快照与引用、稳定名、界面目录、截图、高亮引导与等用户 |
 | Agent 的内置 Profile | [`agent/builtin-profiles.md`](agent/builtin-profiles.md) | 主创与会话标题：工具、规则文件进开场、标题和说明的生成时机与兜底 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记、后台任务）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行、`$` 菜单与确认框、设置里的 Skill 页 |

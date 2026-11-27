@@ -82,16 +82,16 @@ const scroller = ref<HTMLElement | null>(null);
             <template v-else-if="delivery.kind === 'entry-blocked'">{{ text('viewFrame.blocked', {reason: delivery.reason}) }}</template>
             <template v-else-if="delivery.kind === 'entry-failed'">
                 <span>{{ text('viewFrame.failed', {reason: delivery.reason}) }}</span>
-                <Button size="sm" :disabled="busy" data-view-retry-entry @click="emit('retry-entry')">{{ text('common.retry') }}</Button>
+                <Button variant="primary" size="sm" :disabled="busy" data-view-retry-entry @click="emit('retry-entry')">{{ text('common.retry') }}</Button>
             </template>
             <template v-else-if="delivery.kind === 'entry-stopped'">{{ text('viewFrame.stopped', {reason: delivery.reason}) }}</template>
             <template v-else-if="status === 'load-failed'">
                 <span>{{ text('viewFrame.loadFailed', {reason: error ?? ''}) }}</span>
-                <Button size="sm" :disabled="busy" data-view-reload @click="emit('reload')">{{ text('viewFrame.reload') }}</Button>
+                <Button variant="primary" size="sm" :disabled="busy" data-view-reload @click="emit('reload')">{{ text('viewFrame.reload') }}</Button>
             </template>
             <template v-else-if="status === 'render-failed'">
                 <span>{{ text('viewFrame.renderFailed', {reason: error ?? ''}) }}</span>
-                <Button size="sm" :disabled="busy" data-view-retry-render @click="emit('retry-render')">{{ text('common.retry') }}</Button>
+                <Button variant="primary" size="sm" :disabled="busy" data-view-retry-render @click="emit('retry-render')">{{ text('common.retry') }}</Button>
             </template>
             <template v-else>
                 <Spinner size="sm" />

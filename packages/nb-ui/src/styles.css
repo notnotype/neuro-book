@@ -248,6 +248,13 @@ input.nb-ui-native-input[type="number"] {
     user-select: none;
     -webkit-user-select: none;
 }
+/*
+ * reka 在提示外面另包一层定位层（`data-reka-popper-content-wrapper`），只给提示本身写 `pointer-events: none` 时这一层照样接指针：
+ * 盖在提示底下的东西点不到，指针停在这一层上还会让提示一直开着（悬在侧栏边上的提示挡住树的第一行，w00039 t43）。
+ */
+[data-reka-popper-content-wrapper]:has(.nb-ui-tooltip-surface) {
+    pointer-events: none;
+}
 
 /*
  * 弹出列表（菜单、下拉、选择器、候选）的外框 modifier：半径、投影与内边距各取一档主题变量。
@@ -583,7 +590,7 @@ input.nb-ui-native-input[type="number"] {
 /*
  * 侧面板（SidePanel）：贴右边、全高。上沿让出 `--nb-side-panel-inset-top`（宿主给，例如桌面窗口自己画的标题行；nb-ui 不认识
  * 桌面壳）。自右滑入滑出用关键帧：reka 关闭时等 animationend；退场带 forwards，否则 animationend 到卸载之间弹回一帧。
- * 系统减少动画时时长 token 归零，动画即刻结束。
+ * 系统减少动画时入场的 `--motion-move` 归零；文件末尾的减弱动效块把这对关键帧换成只有透明度，入场取 `--motion-base` 淡入。
  */
 .nb-ui-side-panel {
     top: var(--nb-side-panel-inset-top, 0px);
@@ -893,4 +900,54 @@ input.nb-ui-native-input[type="number"] {
  */
 :where(button, summary, [role="button"], [role="tab"]) {
     user-select: none;
+}
+
+/*
+ * 减弱动效：位移换淡入淡出（design-language.md“六、无障碍”）。tokens.css 把有位移的时长归零，`--motion-fast`、
+ * `--motion-base` 留给颜色与透明度；拿这两档做位移、缩放的地方，在减弱动效下把位移的起点与终点收成同一个值，
+ * 过渡列表不动。不在这里统一改 `transition-property`：几项时长不同的过渡（`grid-template-rows` 用 move、`opacity`
+ * 用 fast）换了属性列表以后，时长按下标错配，透明度会拿到 0；而且 components 层的重要声明组件自己盖不过。
+ *
+ * - 按下、悬停的缩放（`active:scale-*` 这类原子类）：值收成 none。
+ * - 关键帧：同名的 `@keyframes` 写在这里、只在这个媒体条件下生效，排在原定义之后，取而代之，只留透明度。
+ *   组件 scoped 样式里的关键帧名字带哈希，盖不到，由组件自己在同一媒体条件下收（DialogSurface 等）。
+ * - 转圈、骨架屏这类表示“正在进行”的循环动画不收：它们本身就是状态。
+ */
+@media (prefers-reduced-motion: reduce) {
+    [class*="scale-"] {
+        scale: none !important;
+    }
+
+    /* 子菜单换级时外框的位置与尺寸过渡（上面 `.nb-menu-level` 也是重要声明，这里选择器更具体），直接到终点。 */
+    .nb-menu-level.nb-menu-level {
+        transition-property: none !important;
+    }
+
+    .nb-ui-side-panel[data-state="open"] {
+        animation-duration: var(--motion-base);
+    }
+
+    @keyframes nb-popover-in {
+        from {
+            opacity: 0;
+        }
+    }
+
+    @keyframes nb-popover-out {
+        to {
+            opacity: 0;
+        }
+    }
+
+    @keyframes nb-ui-side-panel-in {
+        from {
+            opacity: 0;
+        }
+    }
+
+    @keyframes nb-ui-side-panel-out {
+        to {
+            opacity: 0;
+        }
+    }
 }

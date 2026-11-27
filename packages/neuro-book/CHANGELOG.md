@@ -6,12 +6,14 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ### 不兼容的改动
 
+- 插件 SDK 的组件子路径 `Button`：不写 `variant` 时从实底主按钮改成次按钮（`secondary`）。要保持主按钮的写明 `variant="primary"`；一块区域（对话框、面板头、工具条、一张卡片）里只留一个主按钮。
 - 插件 SDK 的 `NestedGrid`：树里节点的收起策略（`collapse`）去掉 `restoreSize` 与 `restoreToShare`，展开总是回到节点的尺寸意图：按钮、`setCollapsed` 与分隔线上的 Enter 结果相同，Enter 不再由隔着分隔线的那块独自让位，按比例分的兄弟按份额让出与吸收。已经构建的插件照常运行，树里多写的这两项被忽略；重新编译时写着它们的树字面量会报类型错误，删掉即可。独立 `Splitter` 的面板配置照旧要 `restoreSize`，类型改名为 `SplitterCollapseState`。
 
 ### 新增
 
 - 插件 SDK 的 `NestedGrid`：树里保留像素的节点可以标 `rigid: true`：沿排列方向钉在自己的尺寸上，拖动推过它时由更远的兄弟让位，窗口窄到放不下时它最后才让。
 - 插件 SDK 的 `NestedGrid`：树里节点的收起策略可以写 `locked: true`，锁住收起状态：拖动收不了也拉不开，分隔线上的 Enter 跳过它，只有插件自己改树时能翻；手势要翻它时提交被拒，码是 `collapse-locked`。
+- 插件 SDK 的 `Tree` 多一个 `toggleOn` 属性：写 `"arrow"` 时点行只选中，点箭头才展开收起；`Popover` 多一个 `reference` 属性，按给定的位置弹出，焦点与点外面收起仍按 `anchor`。组件子路径同时导出它们的类型 `TreeToggleOn`、`PopoverReference`，以及 `Tree` 的 `surface` 属性的类型 `TreeSurface`。
 - 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
 - 插件 SDK 的组件子路径加上 `DataTable`（带工具条与分页的数据表格：加载、空、出错时工具条与页脚不动，表头吸顶）；`Table` 多一个 `stickyHeader` 属性，表头吸顶。
 - 网页工具可以用 Tavily 搜索与读网页。设置窗口的“搜索与网页”页改成左边列表、右边详情（同“服务商与模型”页），各家带 logo：在详情里“设为使用中”（还没填密钥的那家先填密钥、填好后自动切过去）；左栏顶上的“搜索规则”设默认结果条数与屏蔽网站；各家的“高级”里能改接口地址，Tavily 还能选搜索深度。
@@ -19,6 +21,9 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 ### 改动
 
+- 界面的颜色按 WCAG AA 调过：次要文字、状态色文字与亮色主题的强调蓝都深了一点，对它们所在的底至少 4.5:1；没有边框的按钮与行聚焦时，焦点环的实线加粗到 2 像素，看得清。
+- 系统设了“减少动态效果”时，界面不再全部硬切：滑动、缩放、从按钮处长出来都取消，出现与消失、换内容改成淡入淡出。
+- 数据表格的加载遮罩一旦出现，至少停 0.4 秒再消失，几百毫秒的请求不再闪一下；停留期间新的一页已经能点。
 - 插件与用户自己写的 Profile 要有 Agent 模式（普通、讨论、计划），在 Profile 声明里写 `referencedExtensions: ["nbook.agent.modes"]`；模式控件跟着它显示，与工具里有没有 `switch_mode` 无关（`switch_mode` 只决定 Agent 能不能主动申请切换）。原来只列了 `switch_mode` 的 Profile 不再显示模式控件，切换时也不再报“发送失败(unknown-extension)”。
 - `web_search` 没给条数时每条查询回 5 条（原先一条查询 8 条），在“搜索规则”里改。
 - 网页工具的插件 id 改为 `nbook.web`（0.15.0 到 0.17.0 里是 `nbook.web-tools`），工具 id 随之改为 `nbook.web.search`、`nbook.web.fetch`，旧 id 不再认。写着旧 id 的设置不再生效：权限规则里按 `nbook.web-tools.fetch` 拒绝或询问的主机会照常放行，Profile 工具绑定里去掉的这两个工具会回来，自己写的 Profile 把旧 id 列为必需工具时用它的会话发一次就报缺工具、之后只读（改 Profile 后重开恢复），改过的 DeepSeek 地址回到缺省。权限规则请改用给模型的名字 `web_fetch`、`web_search` 来写（以后改 id 也不受影响）；`web_search` 的参数 `query` 换成了 `queries`，按参数 `query` 写的规则要改。已填的密钥照常可用。

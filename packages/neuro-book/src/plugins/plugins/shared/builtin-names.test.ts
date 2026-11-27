@@ -10,7 +10,7 @@ import {BUILTIN_PLUGIN_IDS, builtinPluginTextKey} from "./builtin-names";
 
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
-/** 迁到目录之前（`BUILTIN_PLUGIN_NAMES` 表）的中英文字，原样抄下；之后新加的内置插件（`nbook.desktop`、`nbook.bots`、`nbook.stickers`）也在这里写一份，与目录对照。 */
+/** 迁到目录之前（`BUILTIN_PLUGIN_NAMES` 表）的中英文字，原样抄下；之后新加的内置插件（`nbook.desktop`、`nbook.bots`、`nbook.stickers`、`nbook.page-agent`）也在这里写一份，与目录对照。 */
 const LEGACY: Readonly<Record<string, {readonly name: Record<string, string>; readonly description: Record<string, string>}>> = {
     "nbook.bots": {name: {"zh-CN": "bot", "en-US": "Bots"}, description: {"zh-CN": "常驻的 bot：按插件交出的预设建出来，有自己的目录与一条长期的主对话。", "en-US": "Resident bots: created from presets that plugins provide, each with its own folder and one long-running main conversation."}},
     "nbook.stickers": {name: {"zh-CN": "表情包", "en-US": "Stickers"}, description: {"zh-CN": "表情包的目录与管理：你自己的、插件带来的与内置的表情包；Agent 回复里的表情按它找图。", "en-US": "Sticker packs: your own, those from plugins and the built-in ones; stickers in Agent replies are looked up here."}},
@@ -27,6 +27,7 @@ const LEGACY: Readonly<Record<string, {readonly name: Record<string, string>; re
     "nbook.agent": {name: {"zh-CN": "Agent", "en-US": "Agent"}, description: {"zh-CN": "写作助手的会话与运行：接收插件给的扩展、工具与 Profile。", "en-US": "Writing assistant sessions and runs; takes the extensions, tools and profiles plugins provide."}},
     "nbook.models": {name: {"zh-CN": "模型服务", "en-US": "Model Service"}, description: {"zh-CN": "服务商与模型、密钥与模型角色；给写作助手提供模型。", "en-US": "Providers and models, keys and model roles; supplies models to the writing assistant."}},
     "nbook.network": {name: {"zh-CN": "网络", "en-US": "Network"}, description: {"zh-CN": "设置里的“网络”分区：模型列表的自动更新，以后还有代理。", "en-US": "The Network section in settings: automatic model list updates, and later a proxy."}},
+    "nbook.page-agent": {name: {"zh-CN": "界面引导", "en-US": "UI Guide"}, description: {"zh-CN": "让写作助手看懂当前窗口（文字快照、截图、设置与命令在哪里），并一步步高亮控件带你操作。", "en-US": "Lets the writing assistant see the current window (text snapshots, screenshots, where settings and commands are) and guide you step by step by highlighting controls."}},
     "nbook.plot": {name: {"zh-CN": "剧情", "en-US": "Story"}, description: {"zh-CN": "知识点与知情、伏笔、角色的目标：在世界引擎之上算出谁知道什么、伏笔走到了哪一步。", "en-US": "Knowledge, foreshadowing and character goals on top of the world engine: who knows what, and how far each setup has come."}},
     "nbook.plugins": {name: {"zh-CN": "插件管理", "en-US": "Plugin Manager"}, description: {"zh-CN": "安装、启用、禁用与卸载插件。", "en-US": "Installs, enables, disables and uninstalls plugins."}},
     "nbook.projects": {name: {"zh-CN": "作品", "en-US": "Books"}, description: {"zh-CN": "书架、作品的新建与打开。", "en-US": "The bookshelf; creating and opening books."}},

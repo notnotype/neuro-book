@@ -72,6 +72,17 @@ export function wait(ms: number, signal: AbortSignal): Promise<void> {
     });
 }
 
+/** 等浏览器画过 `count` 帧：主线程忙完一阵（例如重新挂一台工作台）以后，排在帧上的过渡这时才往下走。 */
+export function frames(count: number): Promise<void> {
+    return new Promise((resolve) => {
+        const step = (left: number): void => {
+            if (left <= 0) resolve();
+            else requestAnimationFrame(() => step(left - 1));
+        };
+        step(count);
+    });
+}
+
 /** 按帧推进的补间：每帧给出缓动后的进度；被打断时停在当前帧并抛出 `Interrupted`。 */
 export function tween(duration: number, ease: Ease, frame: (progress: number) => void, signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {

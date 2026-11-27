@@ -14,13 +14,16 @@ import type {ComponentType} from "@notnotype/nb-canon";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {CanonClient} from "../shared/contracts";
-import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
+import {checklistGroup} from "./components/entry-page/component-checklist";
+import type {ChecklistItem, ChecklistPreset} from "./components/entry-page/component-checklist";
+import type {EntryTreeItem, EntryTreeLayer} from "./components/entries/entry-tree";
+import {GROUP_ICON} from "./components/entry-page/entry-tabs";
 import {failureText} from "./failures";
-import {emptyDraft, newEntryOp, withKind} from "./new-entry";
+import {byKind, emptyDraft, newEntryOp, withKind} from "./new-entry";
 import type {NewEntryDraft} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
-import {defaultComponents, ENTRY_KINDS} from "../shared/entry-kinds";
+import {defaultComponents, ENTRY_KINDS, kindPresets} from "../shared/entry-kinds";
 import type {EntryKind} from "../shared/entry-kinds";
 import {useCanonText} from "./text";
 import {writeBlocked} from "./writable";
@@ -58,6 +61,10 @@ export interface EntriesViewHostOptions {
         readonly notices: CanonNotices;
         /** 登记的条目种类（`canon.entry-kinds`，已并好、排好）；视图挂上时读一次。 */
         readonly kinds: () => readonly EntryKind[];
+        /** 设定组类型的图标（同条目页的分页）；不给时都是 `GROUP_ICON`。 */
+        readonly iconOf?: (type: string) => string;
+        /** 登记这个设定组类型的插件 id：勾选列表按它分组；不给时都算“插件”。 */
+        readonly componentPlugin?: (type: string) => string | null;
     };
 }
 
@@ -151,10 +158,24 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
             watch(kindDefaults, (next, previous) => {
                 const draft = state.creating.value;
                 if (draft === null || draft.typesTouched) return;
-                const kind = draft.kind.trim();
-                if (draft.types.join("\u0000") !== (previous?.[kind] ?? []).join("\u0000")) return;
-                const types = next[kind] ?? [];
+                const kind = draft.kindChosen;
+                if (draft.types.join("\u0000") !== (byKind(previous ?? {}, kind) ?? []).join("\u0000")) return;
+                const types = byKind(next, kind) ?? [];
                 if (types.join("\u0000") !== draft.types.join("\u0000")) state.creating.value = {...draft, types: [...types]};
+            });
+            // 勾选列表的各行与每个登记的种类的预设（输出 4）：新建时没有“已添加”。
+            const items = computed<ChecklistItem[]>(() => components.value.map((type) => ({
+                value: type.id,
+                label: type.label,
+                iconClass: create?.iconOf?.(type.id) ?? GROUP_ICON,
+                group: checklistGroup(create?.componentPlugin?.(type.id) ?? null),
+                kinds: type.kinds ?? [],
+                present: false,
+                restore: false,
+            })));
+            const presets = computed<Record<string, readonly ChecklistPreset[]>>(() => {
+                const available = new Set(components.value.map((type) => type.id));
+                return Object.fromEntries(registered.map((kind) => [kind.kind, kindPresets(registered, kind.kind, available)]));
             });
             const saving = shallowRef(false);
             const error = shallowRef("");
@@ -218,7 +239,8 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                     kinds: [...new Set([...registered.map((kind) => kind.kind), ...known.value.map((item) => item.type).filter((kind) => kind !== "")])],
                     kindDefaults: kindDefaults.value,
                     entries: known.value.map((item) => ({id: item.id, name: item.nameAt ?? item.name})),
-                    types: components.value.map((type) => ({id: type.id, label: type.label})),
+                    items: items.value,
+                    kindPresets: presets.value,
                     chapters: chapters.value?.data?.items ?? [],
                     saving: saving.value,
                     error: error.value,

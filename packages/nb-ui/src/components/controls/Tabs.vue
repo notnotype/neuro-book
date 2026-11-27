@@ -22,6 +22,13 @@ export type TabsItem = {
     controls?: string;
     /** 写到这个标签元素上的额外属性（如 `data-*`、`aria-roledescription`）；与组件自己管的属性同名时以组件为准。 */
     attrs?: Readonly<Record<string, string>>;
+    /**
+     * 这个标签带一个菜单（同名 .md 的“标签上的菜单”）：标题后留一格向下的箭头，选中时显出、没选中时透明但占位（换选中项时别的标签
+     * 不挪）；选中的这个标签再被点或按 ArrowDown 时发 `menu`。`open` 是菜单开着：箭头转半圈、`aria-expanded`。菜单由消费方画。
+     */
+    menu?: {open: boolean};
+    /** 标题后的附注（例如这一页现在的看法），弱一号的颜色；出现与消失时宽度有过渡（换字时直接换），标题截断时先截它。 */
+    note?: string;
 };
 export type TabsSize = Extract<ControlSize, "sm" | "md">;
 
@@ -50,6 +57,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
+    /** 选中的、带 `menu` 的标签再被点（含 Enter、Space 触发的点击）或按 ArrowDown；`element` 是这个标签，菜单由消费方画、贴着它。 */
+    (e: "menu", value: string, element: HTMLElement): void;
 }>();
 
 const attrs = useAttrs();
@@ -59,15 +68,36 @@ function isSelected(item: TabsItem): boolean {
     return item.value === props.modelValue;
 }
 
-function select(item: TabsItem): void {
+function select(item: TabsItem, event?: MouseEvent): void {
     if (item.disabled) {
+        return;
+    }
+    // 第一次点是选中，选中以后再点才是菜单：没选中的标签上没有菜单，箭头也是透明的。
+    if (isSelected(item) && item.menu !== undefined && event?.currentTarget instanceof HTMLElement) {
+        emit("menu", item.value, event.currentTarget);
         return;
     }
     emit("update:modelValue", item.value);
 }
 
+/** 带菜单的标签：只在选中时说自己有菜单，没选中的点了是选中，不是开菜单。 */
+function menuAttrs(item: TabsItem): Record<string, string | boolean | undefined> {
+    if (item.menu === undefined || !isSelected(item)) return {};
+    return {"aria-haspopup": "menu", "aria-expanded": item.menu.open};
+}
+
+
 /** 左右键、Home、End 在启用的标签间移动选中项，并把焦点跟到新标签上 */
 function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "ArrowDown") {
+        const tab = (event.target as Element | null)?.closest<HTMLElement>("[role='tab']") ?? null;
+        const item = props.items.find((candidate) => candidate.value === tab?.dataset.tabValue);
+        if (tab !== null && item !== undefined && isSelected(item) && item.menu !== undefined) {
+            event.preventDefault();
+            emit("menu", item.value, tab);
+        }
+        return;
+    }
     const move = rovingMove(event.key, "horizontal");
     if (move === null) return;
     const next = moveRoving(props.items, props.items.findIndex((item) => item.value === props.modelValue), move, (item) => item.disabled === true);
@@ -234,7 +264,7 @@ function handleWheel(event: WheelEvent): void {
             <button
                 v-for="item in visibleItems"
                 :key="item.value"
-                v-bind="item.attrs"
+                v-bind="{...item.attrs, ...menuAttrs(item)}"
                 type="button"
                 role="tab"
                 :id="item.id"
@@ -248,11 +278,12 @@ function handleWheel(event: WheelEvent): void {
                 class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] after:[transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:opacity-45"
                 :class="[tabBoxClass, tabClass(item)]"
                 :style="truncating ? {maxWidth: `${props.maxItemWidth}px`, ...(adapt.level === 3 ? {flexShrink: 1, minWidth: '0'} : {})} : undefined"
-                @click="select(item)"
+                @click="select(item, $event)"
             >
                 <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
-                <span v-if="!iconOnly(item)" class="min-w-0 truncate">{{ item.label }}</span>
+                <span v-if="!iconOnly(item)" class="min-w-0 truncate">{{ item.label }}<Transition name="nb-ui-tabs-note"><span v-if="item.note" class="nb-ui-tabs-note"><span class="nb-ui-tabs-note__text"><span class="sr-only">，</span>{{ item.note }}</span></span></Transition></span>
                 <span v-if="item.count !== undefined && !iconOnly(item)" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
+                <span v-if="item.menu !== undefined" class="nb-ui-tabs-menu-mark i-lucide-chevron-down" :data-shown="isSelected(item) ? '' : undefined" :data-open="isSelected(item) && item.menu.open ? '' : undefined" aria-hidden="true"></span>
             </button>
         </div>
         <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" align="end" @select="selectHidden">
@@ -264,8 +295,9 @@ function handleWheel(event: WheelEvent): void {
         <div ref="measureRef" class="nb-ui-tabs-adapt__measure" aria-hidden="true" inert>
             <span v-for="item in props.items" :key="item.value" :class="tabBoxClass" data-measure-tab>
                 <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
-                <span>{{ item.label }}</span>
+                <span>{{ item.label }}<span v-if="item.note" class="nb-ui-tabs-note__text">{{ item.note }}</span></span>
                 <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)]">{{ item.count }}</span>
+                <span v-if="item.menu !== undefined" class="nb-ui-tabs-menu-mark"></span>
             </span>
             <span :class="tabBoxClass" data-measure-icon><span class="h-[1.15em] w-[1.15em] shrink-0"></span></span>
             <span :class="tabBoxClass" data-measure-more>{{ moreText }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
@@ -275,7 +307,7 @@ function handleWheel(event: WheelEvent): void {
         <button
             v-for="item in props.items"
             :key="item.value"
-            v-bind="item.attrs"
+            v-bind="{...item.attrs, ...menuAttrs(item)}"
             type="button"
             role="tab"
             :id="item.id"
@@ -286,16 +318,56 @@ function handleWheel(event: WheelEvent): void {
             :disabled="item.disabled"
             class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] after:[transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:opacity-45"
             :class="[tabBoxClass, tabClass(item)]"
-            @click="select(item)"
+            @click="select(item, $event)"
         >
             <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
-            <span>{{ item.label }}</span>
+            <span>{{ item.label }}<Transition name="nb-ui-tabs-note"><span v-if="item.note" class="nb-ui-tabs-note"><span class="nb-ui-tabs-note__text"><span class="sr-only">，</span>{{ item.note }}</span></span></Transition></span>
             <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
+            <span v-if="item.menu !== undefined" class="nb-ui-tabs-menu-mark i-lucide-chevron-down" :data-shown="isSelected(item) ? '' : undefined" :data-open="isSelected(item) && item.menu.open ? '' : undefined" aria-hidden="true"></span>
         </button>
     </div>
 </template>
 
 <style scoped>
+/*
+ * 标题后的附注：出现时宽度从 0 过渡到字的宽度（grid 的 0fr 到 1fr），消失时反过来、收完才拿掉，后面的标签滑开而不是跳开。
+ * 与标题的间隔写在附注自己的内边距里，收着时一起收掉。
+ */
+.nb-ui-tabs-note {
+    display: inline-grid;
+    grid-template-columns: 1fr;
+    vertical-align: bottom;
+    color: var(--text-muted);
+}
+.nb-ui-tabs-note-enter-active,
+.nb-ui-tabs-note-leave-active {
+    transition: grid-template-columns var(--motion-base) var(--ease-layout), opacity var(--motion-base) var(--ease-layout);
+}
+.nb-ui-tabs-note-enter-from,
+.nb-ui-tabs-note-leave-to {
+    grid-template-columns: 0fr;
+    opacity: 0;
+}
+.nb-ui-tabs-note__text {
+    min-width: 0;
+    overflow: hidden;
+    padding-left: var(--space-2);
+    white-space: nowrap;
+}
+/* 菜单的箭头：带菜单的标签总留这一格，选中时显出，菜单开着时转半圈。 */
+.nb-ui-tabs-menu-mark {
+    width: 1em;
+    height: 1em;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-layout), transform var(--motion-fast) var(--ease-layout);
+}
+.nb-ui-tabs-menu-mark[data-shown] {
+    opacity: 0.7;
+}
+.nb-ui-tabs-menu-mark[data-open] {
+    transform: rotate(180deg);
+}
 /* 测量层叠在标签带下面：不可见、不接指针、不撑高度，子元素照常按内容宽度排开，量得出各自的宽度。 */
 .nb-ui-tabs-adapt__measure {
     position: absolute;
@@ -323,5 +395,12 @@ function handleWheel(event: WheelEvent): void {
 }
 .nb-ui-tabs-scroll[data-fade-start][data-fade-end] {
     mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+}
+
+/* 减弱动效：菜单箭头直接转到位，只留显隐的淡入淡出（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-tabs-menu-mark {
+        transition: opacity var(--motion-fast) var(--ease-layout);
+    }
 }
 </style>

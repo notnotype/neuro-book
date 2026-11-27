@@ -1,0 +1,201 @@
+---
+schema: nbook.spec/v1
+kind: behavior
+status: implemented
+capability: agent.page-agent
+owners:
+  - nbook.page-agent
+  - nb-page-agent
+---
+
+# Agent 看懂并引导界面（`ui`）
+
+## 目标与非目标
+
+给应用内的 Agent 一个 eval 全局对象 `ui`（[`agent/eval.md`](eval.md)）：看懂用户当前的 NeuroBook 窗口（文字快照、截图）、在界面目录里找到设置、视图与命令在哪里，并一步步高亮控件引导用户操作。
+
+不承诺：
+
+- 不代替用户操作界面：点击、填写、按键、选择、拖动都不在本 Spec。
+- 不执行页面里的任意脚本；不进入 iframe 内部；不读写设置；不调用命令。
+- 不是安全边界：Agent 能读到窗口里显示的内容（密码框的值除外），快照与截图不区分私有内容。
+- 界面目录不收菜单（右键、菜单栏、溢出菜单）里的命令，也不收插件页面里没有声明的内部内容与多步才完成的流程。
+- 截图是按 DOM 重画的近似图，不是屏幕像素；图上不叠引用编号。
+- 只在悬停时出现、又不在工作台悬停动作区（`[data-hover-actions]`）里的控件（例如未选中标签页的关闭按钮），悬停之前不保证能列出与高亮。
+- 宽高为 0、靠旁边的元素画出外观的原生复选框与单选（点文字切换的那种）不列出，按文字能定位到它的标签。
+- 高亮期间，说明框作为第一个子元素挂在目标所在那一层的根元素里（点它才不会关掉弹层）：那一层里按“第一个子元素”或相邻兄弟写的样式会作用到它的位置上。
+- 提问之前选区在一个可编辑区域里、焦点却不在这个区域上时（例如焦点在下拉的一项上、在包着编辑器的容器上，选区留在编辑器里），收起提问后焦点回到原处，那个可编辑区域里的选区不放回：浏览器把选区放进可编辑区域时会把焦点一并移过去。
+- 面板窄、视图标题栏按宽度少放而收进“⋯”的命令照样列进界面目录（目录按外壳的上限至多 8 个、不跟宽度），这时路径里的按钮不在页面上。几个视图叠成标签、目标视图不是当前标签时，它标题栏上的按钮要先点它的标签才出现，路径里没有这一步。
+- 底部面板并成一行（标题写在入口上）的视图、浮出去的自绘头视图，标题在页面上没有看得见的控件：`ui.find` 给的视图路径最后一步（`workbench.view`）在这两种布局里找不到。
+
+## 术语与参与者
+
+- **窗口**：一个打开着 NeuroBook 的浏览器页面，即通道里一个客户端实例（[`runtime/plugin-channel.md`](../runtime/plugin-channel.md)）；刷新后是新的实例。窗口打开的作品是这个实例绑定的项目，书架窗口不绑定作品。
+- **当前窗口**：按输出 1 为一次 `ui` 调用选中的窗口。
+- **会话的作品**：会话所属的项目（[`harness/session.md`](../harness/session.md) 会话头的 `project`）；没有时会话不属于任何作品。
+- **引用**：快照给每个元素的编号，形如 `a3.12`，只在发它的那次页面加载里有效；对调用方是不透明的字符串。
+- **稳定名**：`target` 加可选 `key`，由控件的拥有者写在控件上（输出 6）。
+- **说明框**：高亮时显示在目标旁边的小框。
+- **引导**：一段 eval 代码按顺序高亮多个控件、等用户逐步操作。
+
+## 输入与前置条件
+
+`ui` 是所有 Profile 的缺省工具（[`agent/contributions.md`](contributions.md) 输出 4 的 `defaultForAll`，声明了 `defaultTools: false` 的 Profile 不带），在 Profile 页里显示成一行，可以去掉、加回（[`agent/profile-settings.md`](profile-settings.md)）。后台会话（会话头的 `background`）、bot 归属的会话（会话头的 `owner`）以及它们派出的子会话里没有 `ui`：eval 说明不列它，代码里没有这个对象。
+
+| 方法 | 审批档 | 参数 | 返回 |
+|---|---|---|---|
+| `ui.snapshot` | read | `scope?`（定位）、`includeText?`、`maxTokens?`（缺省 3000，至多 8000） | 窗口信息、文本树、元素数组、`truncated`、`warnings` |
+| `ui.find` | read | `query`、`kind?`（`setting`、`section`、`view`、`command`）、`limit?`（缺省 5，至多 20） | 条目数组（输出 7） |
+| `ui.screenshot` | exec | `of?`（定位） | 窗口信息、宽高；图片附在结果里 |
+| `ui.highlight` | read | `at`（定位）、`message`、`title?`、`side?`、`until`（`click` 或 `next`）、`step?`、`total?`、`back?`（缺省否，只在 `until` 为 `next` 时起作用）、`dim?`（缺省否）、`timeout?`（秒，缺省 300，1 到 3600） | 结局（输出 9） |
+
+**定位**是一个对象，恰好给下面一种主定位：`ref`；`target` 加可选 `key`；`command`（命令 id，等同 `{target: "command", key: <命令 id>}`）；`role` 加可选的 `name`；`text`。可另给 `exact`、`nth`、`within`（`within` 也是定位，但它里面不能再给 `within`）。定位写错（没有或给了两种主定位、`key` 没有 `target`、`command` 与别的主定位混用）得 `invalid-arguments`。
+
+## 输出与可观察行为
+
+1. **选窗口。** 候选只含打开的是会话的作品的窗口；会话不属于任何作品时，只含不绑定作品的窗口。在候选里每次调用按次序取第一个：这个会话上次用的窗口（还连着、看得见、2 分钟内用过）；有焦点且看得见的窗口；看得见的窗口里最近有用户输入的那个；候选都看不见时，最近有用户输入的那个（快照与目录照常，截图与高亮得 `window-hidden`）。用户切到另一个窗口时，只要上次那个还看得见、2 分钟内用过，就不跟过去。子会话自己选，不继承父会话的。
+2. **没有可用的窗口。** 没有符合的窗口得 `no-window`，说明写明是没有窗口、没有打开这部作品的窗口，还是窗口要刷新（输出 14）；窗口在规定时间里没有应答（快照与目录 3 秒、截图 15 秒、高亮装上 10 秒）得 `window-unresponsive`。
+3. **快照。** 只列看得见的可交互元素与带名字的容器，按层级缩进成文本树，每行写角色、名字、引用与状态：
+   - 看得见按祖先链累乘的不透明度、`visibility`、`display`、是否被裁成零面积判断；不透明度很低的仍列出并标 `faint`；`aria-hidden`、`inert` 的不列。
+   - 被别的元素完全盖住的不列（盖在祖先上的伪元素蒙层也算），`ui` 自己画的描边框与说明框不算遮挡；滚出滚动容器、还能滚回来的标 `offscreen`，落在滚动内容起点左上方、滚不到的不列。open shadow root 里的元素按画出的位置（slot 处）照样列出与判断。
+   - 弹层（dialog、alertdialog、menu、listbox）各成一层，表头按先后写出各层；完全被挡住的层只写名字。
+   - 列表类容器的行没有都列出、或页面写明还有更多时，写一行摘要（页面写明了的总数、已渲染的范围、列出的范围、能往哪边滚），行上带位置。
+   - 树行、标签、菜单项这类由内容命名的元素，名字不含状态标记。
+   - 名字与值按 JSON 字符串转义（换行、控制字符、双向控制字符都转义），先截断再转义。
+   - Agent 对话视图的消息列表与 `data-nb-agent="skip"` 的区域不列内容，只写一行占位；对话视图的输入框、模型与模式选择照常列出。跳过只影响列出与文字，定位照样能命中区域里的控件；`scope` 指到这类区域里面的元素时同样只写占位。密码框的值不输出。
+   - 超过 `maxTokens` 时按“最上层 > 焦点所在区域 > 其余”截断，`truncated` 为真，并写出可以用 `scope` 缩小到的区域。
+4. **引用。** 同一元素在同一次页面加载里引用不变。用引用时，前缀不是这次加载的得 `stale-ref`；元素的身份（角色、名字、稳定名、key、所在层）变了，按元素不在了处理：不改页面的方法（本 Spec 的四个方法都是）在同一层里稳定名与 key 都相同的元素只有一个时改用它，并在 `warnings` 标 `rebound`；否则得 `stale-ref`，`details` 列出当前候选。会改页面的方法不重找，一律 `stale-ref`。
+5. **定位。** 名字与文字缺省不分大小写、折叠空白的子串匹配，`exact` 为真时精确匹配；按文字命中的是包着这段文字的可交互元素（没有时是最贴近这段文字的元素）。只认画在页面上的元素：隐藏的与 `aria-hidden` 的副本不算，滚出视野的算。命中多个又没给 `nth` 得 `ambiguous`，`details` 列出候选；没有命中得 `not-found`。高亮的目标本身不可交互时，落到它唯一的可交互后代；截图的 `of` 与快照的 `scope` 用目标本身。
+6. **稳定名。** 控件的拥有者在控件上写 `data-nb-target` 与可选的 `data-nb-key`（可用核心包 `./attrs` 的 `nbTarget(name, key?)`），快照里写成 `target=… key=…`。稳定名是点分的小写段，第一段是拥有它的插件或区域；key 用业务身份，不用下标；只要求在最近的带 key 的容器里唯一。第一批由拥有者写上的：
+
+   | 控件 | 拥有者 | 稳定名 |
+   |---|---|---|
+   | 视图与编辑区标题栏上画成按钮的命令 | 工作台 | `command` 加命令 id |
+   | 活动栏项 | 工作台 | `workbench.activity` 加项 id |
+   | 视图容器的入口（活动栏上段、右栏与底部面板的入口条） | 工作台 | `workbench.container` 加容器 id |
+   | 视图的标题（面板头里的标题按钮；几个视图叠成标签时是视图的标签） | 工作台 | `workbench.view` 加视图 id |
+   | 设置窗口的层切换（整组） | 设置 | `settings.layers` |
+   | 设置窗口左栏的节 | 设置 | `settings.section` 加节 id |
+   | 设置行 | 设置 | `settings.row` 加设置键 |
+
+   层切换里的单选按角色与名字在所在的组里定位（`within`）。
+
+7. **界面目录。** `ui.find` 交回至多 `limit` 条，按与命令面板相同的打分排序，标题与说明用当前界面语言；同名的不同种类分开列。每条有 `kind`、`title`、标识（设置键、节 id、视图 id 或命令 id）与 `path`：
+   - 设置：活动栏的设置项 → 层 → 节 → 行；只收设置窗口在这个窗口里实际画出行的设置（只在桌面外壳里显示的节在浏览器窗口里不收，没有归属的设置在“插件设置”节）。层沿用设置窗口当前的层，当前层不支持这项时走另一层；窗口没打开作品时只有用户层。
+   - 节：设置窗口左栏的每一节，含由页面自己画的节（例如模型、Profile、主题）；路径止于节。
+   - 视图：它当前所在的视图容器入口 → 视图；按视图标题与容器标题都能搜到。只收在布局里（停靠或浮动）的视图：关掉的视图页面上没有它，点不到，它与它标题栏上的命令都不收。
+   - 命令：只收出现在活动栏或视图标题栏上的命令，路径是那个入口；另给快捷键；命令可由用户运行、没有必填参数且此刻可用时，另标 `palette: true`（也能从命令面板运行）。
+   路径每一步有定位 `at` 与这一步之后页面上会出现什么 `appears`；已经走到路径中途的，从第一个还没完成的步骤给起。
+8. **截图。** 截当前窗口或 `of` 指的控件（`of` 找不到时得 `not-found`，不改截整窗），长边至多 1280 像素，编成 JPEG 后至多 512 KB，作为结果里的一张图片交给模型。审批的判定对象是 `{kind: "screen", value: "window"}` 或 `{kind: "screen", value: "element"}`，按 [`agent/permissions.md`](permissions.md) 判定，结果写明截的是哪个窗口。截图过程中断开、超时或调用被停止，没有图进结果；调用结束之后窗口再交来的图被拒收。
+9. **高亮与等待。** 先等目标出现并滚进视野（至多 5 秒，否则 `not-found`），再画描边框与说明框，从这时起等用户（输出 11），等到下列之一就交回结局并撤掉高亮：
+   - `clicked`：`until` 为 `click`，用户在目标上点击或抬起指针，或在目标里按 Enter、空格；
+   - `next`：`until` 为 `next`，用户点了说明框里的“下一步”（最后一步写“完成”）；
+   - `back`：`until` 为 `next` 且 `back` 为真，用户点了说明框里的“上一步”；调用的代码退回上一步重新高亮；
+   - `asked`：用户在说明框里提问，结果带 `question`（至多 2000 字）；
+   - `missed`：`until` 为 `click`，用户用主键按在目标、说明框、滚动条与模态弹层的遮罩之外的元素上，结果带 `clicked`（那个元素的角色与名字）；按右键不算；
+   - `dismissed`：用户点了“跳过引导”；
+   - `gone`：目标从页面上消失；
+   - `replaced`：同一窗口开始了另一个高亮；
+   - `timeout`：到了 `timeout`，由服务端计时，窗口转后台或被浏览器节流时照样到点；
+   - `window-gone`：窗口断开或刷新；
+   - `cancelled`：这段 eval 被停止或单元超时；代码已随单元结束，这个结局只记在日志与 eval 卡片里。
+   目标滚出视野时描边框（与 `dim` 的压暗）隐藏，说明框停在滚动区域里离目标最近的那条边上，仍能跳过与提问；滚回来两者回到目标旁。结局与 `until` 的取值以后会增加，调用方把不认识的结局当作引导中断。
+10. **说明框。** 显示 `title`、`message`（只作纯文字）、给了 `step` 与 `total` 时的进度“第 N 步，共 M 步”、`until` 为 `next` 时的“下一步”按钮（`step` 等于 `total` 时写“完成”）、`back` 为真时的“上一步”按钮、“跳过引导”按钮与“提问”按钮；按钮与进度的文字随界面语言。
+    - 点“提问”后，提问框在原位换掉按钮那一行；展开与收起不改变说明框的高度，不推动说明框里别的内容。
+    - 描边框画在目标外侧，小于 28×28 像素的目标按 28×28 画；目标贴着它所在的可见区域的边（例如整个面板）时，描边框画在目标里面。
+    - 说明框出现不改变页面的焦点与选区；点说明框的任何地方都不移走焦点；提问提交后焦点回到原来的元素。
+    - 说明框挂在目标所在的层里：在弹层（菜单、下拉、命令面板、对话框）里高亮时，点说明框不会关掉弹层；那一层被关掉而目标还在时，说明框换到目标现在所在的层继续显示。
+    - 说明框里的按键不交给页面：在提问框里打字、按 Enter、方向键，不会执行命令面板里的命令、不会让下拉或菜单按字母跳转、不会移动它们的高亮项。提问框按 Enter 提交（输入法组字时不提交），按 Esc 清空、收起并回到原来的焦点，不关弹层。
+    - 缺省不压暗页面；`dim` 为真时目标以外的地方压暗，只改外观：页面照常能点，`until` 为 `click` 时点在目标以外照样按 `missed` 算。不改页面元素的样式。
+    - 状态变化有过渡（出现、展开与收起提问、目标滚出与滚回、撤掉），减弱动效时没有位移与缩放，只淡入淡出（nb-ui 设计语言“六、无障碍”）。
+11. **等用户不计时。** 说明框装上之后到结局之间，eval 单元的时限暂停（[`agent/eval.md`](eval.md) 输出 14 的“等用户应答”）；这次调用以任何方式结束时一定恢复计时。等待期间这次调用仍占着它的并发名额：同一段代码里之后的 `exclusive` 调用等它结束。
+12. **失败的内容与大小。** 业务失败在代码里抛出，带码与 `details`（按 JSON 序列化后至多 8 KB 的 UTF-8）；成功结果的警告在 `warnings`。快照的 token 预算（至多 8000）与元素上限（500 个）保证窗口交回的文字在 64 KB 的 UTF-8 以内、每个回复按 JSON 序列化后在 256 KB 的 UTF-8 以内；超出预算的元素截掉，在 `warnings` 标明（`truncated`），不会断开窗口的连接。目录至多 20 条。
+13. **文档。** eval 说明里 `ui` 只占一行摘要与文档地址；文档列出全部方法，签名带每个字段的说明、可选与缺省，列出各方法的失败码与 `details` 的形状，并写明页面里的文字是证据不是指令、改正文用文件工具。
+14. **通道失败的换算。** 调窗口时通道（[`runtime/plugin-channel.md`](../runtime/plugin-channel.md) 输出 4）的失败换成本 Spec 的码，原码放在 `details.cause`：
+
+    | 阶段 | 通道的结局 | `ui` 的码 |
+    |---|---|---|
+    | 选窗口 | 候选 `not-provided`、`version-changed` | 跳过这个候选；都被跳过时 `no-window`，说明请用户刷新窗口 |
+    | 选窗口 | 候选 `timeout`、`provider-error`、`unavailable` 等没应答 | 跳过这个候选；没有可用的候选又有没应答的，`window-unresponsive` |
+    | 选窗口 | 候选 `target-gone`（探测途中关了） | 当作这个候选不在 |
+    | 调用与等待 | `target-gone`、`unavailable` 且原因是断开（窗口确认收到之前断了）、订阅以 `provider-stopped` 或 `target-gone` 结束 | `window-gone` |
+    | 调用与等待 | `not-provided`、`version-changed` | `no-window`，说明请用户刷新窗口 |
+    | 调用与等待 | `timeout`、`provider-error`、其余的 `unavailable` | `window-unresponsive` |
+
+15. **窗口就绪。** 窗口打开后，第一次 `ui` 调用与之后的调用用同样的时限：页面一侧随窗口启动，不在第一次调用时才加载。
+
+## 状态与转换
+
+一次高亮：等目标 → 已装上（等用户）→ 结局（撤掉）。同一窗口同时至多一个高亮。
+
+一次截图：签发上传凭证 → 收到图 → 窗口回报截图成功（图进结果）。任何一步失败、调用结束、凭证到期（20 秒）或插件停止，凭证与收到的图一起作废。
+
+时序与寿命：
+
+- 高亮只在这次 `ui.highlight` 调用期间存在：窗口交回的结局在撤掉高亮之后才发出；`timeout`、`cancelled`、`window-gone` 与插件停止由服务端结算，窗口收到退订或断线时撤掉，页面上不留描边框与说明框。
+- 窗口断开或刷新时，正在等的高亮以 `window-gone` 结束；同一窗口之后重连，不会恢复这次高亮。
+- 服务端重启时，正在等的高亮所在的 eval 已随进程结束；窗口那边的高亮撤掉。
+- `nbook.page-agent` 停用或重载时，正在等的高亮以 `window-gone` 结束，计时恢复。
+- 引用只在发它的窗口的那次页面加载里有效：窗口刷新后全部作废（`stale-ref`）；同一页面加载里，断线重连后仍有效；选中的窗口换了，旧窗口的引用在新窗口上得 `stale-ref`，再换回原窗口时仍有效。
+- “上次用的窗口”只保存在服务端内存里，服务端重启后重新选；窗口转后台或 2 分钟没用后不再优先。
+
+## 副作用与数据
+
+- 不改作品数据与设置。
+- 截图作为工具结果存进会话日志（[`harness/session.md`](../harness/session.md) 的大块内容），是会话的持久数据：归档不删，fork 会复制。
+- 高亮期间给目标所在的工作台悬停动作区加一个属性，让悬停才出现的动作显示出来，高亮撤掉时去掉。
+
+## 失败与恢复
+
+| 码 | 含义 | 调用方怎么办 |
+|---|---|---|
+| `no-window` | 没有可用的窗口（含没有打开这部作品的窗口、窗口要刷新） | 按说明请用户打开、切回或刷新 NeuroBook 窗口 |
+| `window-hidden` | 选中的窗口看不见（截图、高亮时） | 请用户切回那个窗口 |
+| `window-gone` | 窗口在调用途中断开或刷新 | 重新快照，重做这一步 |
+| `window-unresponsive` | 窗口没有在时限内应答、交回的内容不合格，或画不出高亮 | 稍后重试 |
+| `stale-ref` | 引用已失效 | 重新快照 |
+| `ambiguous` | 定位命中多个 | 用 `details` 的候选或加 `nth`、`within` |
+| `not-found` | 定位没有命中，或高亮等目标超时 | 换定位方式；虚拟列表里没渲染的行先滚动或搜索 |
+| `invalid-arguments` | 参数或定位写错 | 照文档的签名改写再调 |
+
+审批的失败码沿用 [`agent/permissions.md`](permissions.md)；通道的失败按输出 14 换算。
+
+## 边界与兼容
+
+- 公开面：`ui` 的方法、参数、返回与失败码；控件上的 `data-nb-target`、`data-nb-key` 与 `data-nb-agent="skip"`；核心包 `nb-page-agent` 的 `./attrs` 入口（`nbTarget(name, key?)` 返回这些属性）。
+- 被官方引导或 Skill 引用的稳定名不改名；拥有者改控件时稳定名跟着控件走。
+- 结局与 `until` 是开放集合（输出 9）；引用的格式不属于公开面。
+- 信任边界：本机插件都受信、只有一个使用主体；窗口提供的远程服务只接受服务端调用。
+
+## 验收与 Smoke
+
+1. 打开样例作品，用一段 eval 代码 `ui.find({query: "主题", kind: "setting"})`，按路径逐步 `ui.highlight`，用真实点击推进；每一步高亮的是路径里那个控件，最后一步点“完成”结束；代码在两步之间另插一个要按“下一步”、带 `back` 的步骤，点“上一步”后代码退回前一步重新高亮；全程 eval 只审批一次（询问模式）。
+2. 同一作品的三个窗口加一个打开别的作品的窗口：在其中一个上有真实输入后调 `ui.snapshot`，选中它；切到另一个并输入，2 分钟内仍用原来的；原来那个转后台后改用新的；别的作品的窗口任何时候都不被选中；同一作品的全部关掉得 `no-window`。
+3. 快照后刷新窗口：旧引用得 `stale-ref`；高亮等待中刷新得 `window-gone`，页面上没有残留的高亮。
+4. 询问模式：先批 eval，再出截图的审批卡；拒绝后代码里看到被拒；批准后结果里有一张不超过 512 KB 的图。
+5. 一个快照超过字节上限的页面：快照被截断并标明，窗口连接不断开。
+6. 在命令面板与下拉打开时高亮其中一项：点“下一步”不关掉它们；在提问框里打字、按方向键与 Enter，面板的高亮项不会移到别的项（提问框有焦点时组件可以收起项上的高亮标记，收起提问后回到原项）、没有命令执行，焦点与输入框的选区不变。高亮弹层之外的控件后关掉弹层，说明框仍然可见。
+7. 高亮等待中停止 eval：日志里结局为 `cancelled`，页面上没有描边框与说明框；单元时限在等待期间不走。
+8. 窗口刚打开就调 `ui.snapshot`：在时限内交回。
+9. 后台会话与 bot 归属的会话的 eval 说明里没有 `ui`，代码里 `typeof ui` 为 `"undefined"`。
+10. 带 `dim` 高亮活动栏的一项：目标与说明框不暗，界面其余部分压暗；点侧栏里的另一个控件，它照常响应，结局为 `missed`，页面上没有残留的压暗。在打开的下拉里带 `dim` 高亮一项时，下拉的其它项也压暗。
+
+Smoke：`packages/neuro-book/src/plugins/page-agent/page-agent.llm.test.ts`（真实模型“在哪改主题，带我去”）。
+
+## 实现合同
+
+- **公开入口**：核心包 `@notnotype/nb-page-agent` 的 `createPageAgent`（`snapshot`、`locate`、`describe`、`highlight`）与子路径 `./api`（参数、结果、结局与失败的 TypeBox schema）、`./attrs`（`nbTarget`）、`./capture`（按 DOM 重画的截图）；内置插件 `nbook.page-agent` 的 eval 全局对象 `ui`（工具 `nbook.page-agent.snapshot`、`find`、`screenshot`、`highlight`）、窗口合同 `nbook.page-agent/window` 与截图上传路由；页面上的属性 `data-nb-target`、`data-nb-key`、`data-nb-agent="skip"`、`data-nb-agent-reveal`。
+- **owner 与依赖方向**：核心包只管一个页面里的事，不依赖应用包、`nb-runtime` 与 Vue，界面文字、主题与悬停显示由宿主给。插件依赖 `nbook.agent`（`agent.tools`、`agent.evalObjects`）、工作台与设置的只读目录（经它们的 `shared/`）和命令服务；稳定名由控件的拥有者经 `./attrs` 写。
+- **关键不变量**：
+  - 一个页面同时至多一个高亮：新的先结束旧的（`replaced`），旧的撤销先于新的显示；结局在撤掉之后才交出（`guide.e2e.ts`“换层、替换与画不出来”）。
+  - 引用只在发它的那次页面加载里有效；身份变了不悄悄换元素，只有同层唯一同名同 key 时重找并标 `rebound`（`locate.e2e.ts`）。
+  - 等用户从装上起算、由服务端时钟计时，任何结局都收回等用户（`highlight.test.ts`“结局与等用户”）。
+  - 截图凭证只对一次调用有效，调用结束、到期或插件停止即作废；上传按收到的字节累计上限（`captures.test.ts`）。
+  - 内核工具表、eval 说明与代码里的全局对象取同一份工具集；没人在窗口前的会话（含它们派出的子会话）没有 `ui`（`agent.test.ts`“输出 4：声明 foreground 的工具不进后台会话与 bot 归属的会话”）。
+
+## 证据
+
+- 批准依据：[w00033 t01](../../../.agents/works/w00033-page-agent/tasks/t01-design/README.md) 的决定 1 到 19 与[设计稿](../../../.agents/works/w00033-page-agent/tasks/t01-design/design.md)第四稿（开发者 2026-11-26 确认）；[w00033 t03](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/README.md) 的决定 1 到 3（计划审查后，开发者 2026-11-26 确认）、决定 4 到 8（说明框的静态稿评审与遮罩、回退、引用寿命，开发者 2026-11-26、27 确认）
+- 实现入口：[`index.ts`](../../../packages/nb-page-agent/src/index.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/page-agent/plugin.ts)
+- 合同测试：[`spec-outputs.e2e.ts`](../../../packages/nb-page-agent/e2e/spec-outputs.e2e.ts)、[`snapshot.e2e.ts`](../../../packages/nb-page-agent/e2e/snapshot.e2e.ts)、[`locate.e2e.ts`](../../../packages/nb-page-agent/e2e/locate.e2e.ts)、[`guide.e2e.ts`](../../../packages/nb-page-agent/e2e/guide.e2e.ts)、[`spec-guide.e2e.ts`](../../../packages/nb-page-agent/e2e/spec-guide.e2e.ts)、[`capture.e2e.ts`](../../../packages/nb-page-agent/e2e/capture.e2e.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/windows.test.ts)、[`tools.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/tools.test.ts)、[`highlight.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/highlight.test.ts)、[`captures.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/captures.test.ts)、[`docs.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/docs.test.ts)、[`page-agent.e2e.ts`](../../../packages/neuro-book/e2e/page-agent.e2e.ts)、[`page-agent-guide.e2e.ts`](../../../packages/neuro-book/e2e/page-agent-guide.e2e.ts)
+- Smoke：[`page-agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/page-agent.llm.test.ts)

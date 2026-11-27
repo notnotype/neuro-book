@@ -10,12 +10,12 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch} from "vue";
 import type {PropType} from "vue";
 
-import {createSettingsScene} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import type {SettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import {SCENE_PROJECT_FILE} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
-import {modelsSettings} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
-import type {SettingsWindowSceneId} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
+import {createSettingsScene} from "nbook/plugins/settings/web/lab/scene-data";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import type {SettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import {SCENE_PROJECT_FILE} from "nbook/plugins/settings/web/lab/scene-data";
+import {modelsSettings} from "nbook/plugins/settings/web/lab/scene-settings";
+import type {SettingsWindowSceneId} from "nbook/plugins/settings/web/lab/scene-settings";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
@@ -106,6 +106,15 @@ describe("SettingsWindow", () => {
 
         await scene("unbound");
         expect(document.body.querySelector("[data-settings-tabs]")).toBeNull();
+    });
+
+    it("层切换整组、左栏的节与设置行带稳定名（agent/page-agent.md 输出 6）", async () => {
+        await scene("user");
+        expect(one("[data-settings-tabs]").dataset.nbTarget).toBe("settings.layers");
+        const nav = one("[data-settings-nav='nbook.appearance']");
+        expect([nav.dataset.nbTarget, nav.dataset.nbKey]).toEqual(["settings.section", "nbook.appearance"]);
+        const row = one(`[data-settings-row="${appearanceSetting.key}"]`);
+        expect([row.dataset.nbTarget, row.dataset.nbKey]).toEqual(["settings.row", appearanceSetting.key]);
     });
 
     it("改值经窗口模型写当前标签那一层；本作品标签下沿用的行照常可改、改了才写本作品层；只允许用户层的项不列出，末尾说明", async () => {

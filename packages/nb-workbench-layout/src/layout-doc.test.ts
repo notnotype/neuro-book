@@ -614,7 +614,7 @@ describe("校验", () => {
     const valid = (): LayoutDoc => docOf(V([H(["activitybar", "sidebar", "ea"]), "statusbar"]));
 
     it("合法文档通过", () => {
-        expect(validateLayoutDoc(valid())).toEqual({ok: true, doc: valid()});
+        expect(validateLayoutDoc(valid())).toEqual({ok: true, doc: valid(), repairs: []});
     });
 
     it("条的叶 id 要等于条名；别的节点、面板与浮动窗的 id 不能是条名，也不能撞上呈现里生成的 id（入口条叶、区域的内层分支）", () => {
@@ -1286,7 +1286,7 @@ describe("区域与容器", () => {
 
     describe("校验", () => {
         it("带容器的文档通过", () => {
-            expect(validateLayoutDoc(containers())).toEqual({ok: true, doc: containers()});
+            expect(validateLayoutDoc(containers())).toEqual({ok: true, doc: containers(), repairs: []});
         });
 
         it("浮动窗不属于容器：带着归属的浮动窗记录拒绝；开浮动窗时不把归属写进去", () => {

@@ -282,18 +282,19 @@ test.describe("产品页", () => {
         await expect(page.locator(`[data-tool-entry="${PROJECT_CONTAINER}"]`)).toBeFocused();
     });
 
-    test("右栏拖空后还能打开：唯一的视图移走，右栏隐藏；开关打开空右栏、写着提示，开关能再关掉；把视图拖进去，整个容器搬过去；再移走，右栏随之隐藏（输出 11、36、43、45；ADR 0050）", async ({page}) => {
+    test("右栏拖空后还能打开：唯一的视图浮出，右栏隐藏；开关打开空右栏、写着提示，开关能再关掉；把视图拖进去，整个容器搬过去；再浮出，右栏随之隐藏（输出 11、36、43、45；ADR 0050；views 输出 22）", async ({page}) => {
         await open(page);
         // 区域里有分节时锚不进呈现树：按具名面板名选不到叶（“边界与兼容”的标记）。
         await expect(leaf(page, "sidebar")).toHaveCount(0);
         await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
         const toggle = regionToggle(page, "auxiliarybar");
-        await moveViaMenu(page, CONVERSATION, "新容器（侧栏）");
+        // 消息视图只能停右栏或浮动（views 输出 22）：把右栏拖空用“浮动打开”，不能搬进侧栏。
+        const containerBefore = (await saved(page))?.doc.panels[await sectionOf(page, CONVERSATION)]?.container ?? null;
+        await moveViaMenu(page, CONVERSATION, "浮动");
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
         await shrunk(page, "auxiliarybar");
         const containerOf = async (): Promise<string | null> => (await saved(page))?.doc.panels[await sectionOf(page, CONVERSATION)]?.container ?? null;
-        await expect.poll(containerOf).toMatch(/^custom:/u);
-        const container = await containerOf();
+        const container = containerBefore ?? (await containerOf());
 
         // 打开：一块空面板，没有头，正中一句提示；开关是按下的，再点一次关掉。
         await toggle.click();
@@ -311,21 +312,36 @@ test.describe("产品页", () => {
         await toggle.click();
         await expect(empty).toBeVisible();
 
-        // 把对话拖进去：整块一个落点；对话是它容器唯一的视图，整个容器搬过去，id 不变（输出 45）。
-        const from = (await headOf(page, CONVERSATION).locator("[data-panel-tab]").boundingBox())!;
+        // 对话在单标签窗里，拿标题拖是整窗拖动：经过打开着的空区域不停靠，没有落点指示（输出 39、48）。消息视图在窗里自绘头，标题按钮平时不接指针
+        // （views 输出 19）：从“回到停靠”往回 Tab 一次到它，键盘聚焦时它显示在左上角、点得到。
+        const title = headOf(page, CONVERSATION).locator("[data-panel-tab]");
+        await frame(page, CONVERSATION, "dock").focus();
+        await page.keyboard.press("Shift+Tab");
+        await expect(title).toBeFocused();
+        await expect(title).toHaveCSS("opacity", "1");
+        const from = (await title.boundingBox())!;
         const target = (await leaf(page, "auxiliarybar").boundingBox())!;
+        const windowBefore = (await page.locator("[data-float-chrome]").boundingBox())!;
         await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
         await page.mouse.down();
         await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2 + 12, {steps: 3});
         await page.mouse.move(target.x + target.width / 2, target.y + target.height / 3, {steps: 8});
-        await expect(page.locator("[data-drop-feedback-label]")).toHaveText("放在这里");
+        // 窗跟着指针走（证明这一场确实在拖），指针下是空区域却没有落点。
+        await expect.poll(async () => (await page.locator("[data-float-chrome]").boundingBox())!.x).toBeGreaterThan(windowBefore.x + 100);
+        await expect(page.locator("[data-drop-feedback-label]")).toHaveCount(0);
+        await expect(page.locator("[data-drop-kind]")).toHaveCount(0);
         await page.mouse.up();
+        await expect(empty).toBeVisible();
+        // 整个容器搬进去的办法是“回到停靠”（窗被拖到了屏幕边上，按钮在视口外，用键盘）：对话是它容器唯一的视图，容器 id 不变（输出 45）。
+        await frame(page, CONVERSATION, "dock").focus();
+        await page.keyboard.press("Enter");
         await expect(empty).toHaveCount(0);
         await expect(content(page, CONVERSATION)).toBeVisible();
-        await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.activeContainer).toBe(container);
+        // 没有写过容器的视图停在它的隐式容器里，容器 id 是 `view:<视图 id>`；回到停靠把它写成区域的当前容器。
+        await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.activeContainer).toBe(container ?? `view:${CONVERSATION}`);
 
-        // 再移走：这一次把右栏拖空了，右栏随之隐藏。
-        await moveViaMenu(page, CONVERSATION, "新容器（侧栏）");
+        // 再浮出：这一次把右栏拖空了，右栏随之隐藏。
+        await moveViaMenu(page, CONVERSATION, "浮动");
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
         await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.hidden).toBe(true);
     });
@@ -602,12 +618,15 @@ test.describe("产品页", () => {
         expect(await part()).toBe(first);
     });
 
-    test("F6 也停在活动栏与右栏、底部面板的入口条上，入口条在它区域的分节之前（输出 18）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 18、50：F6 的站点里右栏的入口条没有了，右轨在右栏的分节之后，底部面板的入口条仍在它的分节之前。
+    test("F6 也停在活动栏、右轨与底部面板的入口条上：右轨在右栏的分节之后，底部面板的入口条在它的分节之前（输出 18、50）", async ({page}) => {
         await open(page);
         for (const region of ["auxiliarybar", "panel"] as const) {
             if (await regionToggle(page, region).getAttribute("aria-pressed") !== "true") await regionToggle(page, region).click();
-            await expect(page.locator(`[data-region-strip="${region}"]`)).toBeVisible();
         }
+        await expect(page.locator('[data-rail="auxiliarybar"]')).toBeVisible();
+        await expect(page.locator('[data-region-strip="auxiliarybar"]')).toHaveCount(0);
+        await expect(page.locator('[data-region-strip="panel"]')).toBeVisible();
         const part = () => page.evaluate(() => {
             const owner = document.activeElement?.closest<HTMLElement>("[data-content-leaf], [data-leaf]");
             return owner?.dataset.contentLeaf ?? owner?.dataset.leaf ?? null;
@@ -623,17 +642,18 @@ test.describe("产品页", () => {
         }
         const conversation = await sectionOf(page, CONVERSATION);
         expect(stops).toContain("activitybar");
-        // 两条入口条都是一站。底部面板缺省那一节（后台任务）是空列表，没有可聚焦的东西，F6 跳过它；入口条排在区域的分节之前是投影的树序
-        //（layout-project.test.ts），F6 按树序走，这里在右栏逐站核对一次。
+        // 入口条与右轨都是一站。底部面板缺省那一节（后台任务）是空列表，没有可聚焦的东西，F6 跳过它；底部面板的入口条排在区域的分节之前是投影的树序
+        //（layout-project.test.ts），右轨排在右栏之后；F6 按树序走，这里在右栏逐站核对一次。
         expect(stops, JSON.stringify(stops)).toContain("strip:panel");
-        expect(stops.indexOf("strip:auxiliarybar"), JSON.stringify(stops)).toBeGreaterThanOrEqual(0);
-        expect(stops.indexOf(conversation), JSON.stringify(stops)).toBeGreaterThan(stops.indexOf("strip:auxiliarybar"));
-        // Shift+F6 反着走：从分节回到它的入口条。
+        expect(stops, JSON.stringify(stops)).not.toContain("strip:auxiliarybar");
+        expect(stops.indexOf("rail:auxiliarybar"), JSON.stringify(stops)).toBeGreaterThanOrEqual(0);
+        expect(stops.indexOf("rail:auxiliarybar"), JSON.stringify(stops)).toBeGreaterThan(stops.indexOf(conversation));
+        // Shift+F6 反着走：从右轨回到右栏的分节。
         await panelToggle(page).focus();
-        for (let step = 0; step < stops.length && await part() !== conversation; step += 1) await page.keyboard.press("F6");
-        expect(await part()).toBe(conversation);
+        for (let step = 0; step < stops.length && await part() !== "rail:auxiliarybar"; step += 1) await page.keyboard.press("F6");
+        expect(await part()).toBe("rail:auxiliarybar");
         await page.keyboard.press("Shift+F6");
-        expect(await part()).toBe("strip:auxiliarybar");
+        expect(await part()).toBe(conversation);
     });
 
     test("保存失败：状态栏显示“布局未保存”，库恢复后点“重试”补上（验收 12）", async ({page}) => {
@@ -824,7 +844,7 @@ test.describe("Lab", () => {
         // 夹具的五个视图各是自己的容器：分节的头按它那个视图找，活动栏的入口按容器 id。
         const head = (view: string, action: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]) [data-panel-action="${action}"]`);
         // 右栏、底部面板入口条上的入口也带 `data-tool-entry`：这里说的是活动栏的入口。
-        const entry = (view: string) => page.locator(`[data-tool-band] [data-tool-entry="view:${view}"]`);
+        const entry = (view: string) => page.locator(`[data-rail=sidebar] [data-tool-band] [data-tool-entry="view:${view}"]`);
         const left = async (selector: string): Promise<number> => (await page.locator(selector).boundingBox())?.x ?? Number.NaN;
         const settled = async (visible: boolean): Promise<void> => {
             expect(await instances()).toEqual(before);

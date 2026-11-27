@@ -1,0 +1,112 @@
+# w00033 t03 前端实现审查（sonnet）
+审查提交 9d2327ab5，worktree .worktree/w00033-page-agent。已跑：`bunx vitest run src/plugins/agent/web src/plugins/page-agent/web src/plugins/workbench/web/catalog.test.ts`（9 个文件 77 条通过）；`vue-tsc --noEmit -p tsconfig.browser-test.json` 无报错。没跑 e2e。
+
+### 1. ui.find 的“视图”路径终点是 workbench.view，但视图叠成标签或标题并进入口条时页面上没有这个目标
+严重程度：重要　类别：正确性（从代码推断，未在真实窗口里复现）
+位置：packages/neuro-book/src/plugins/page-agent/web/catalog.ts:96-103、126；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue:194、231、252（只有 `titleOnly` 且 `activeTab !== null` 的三个分支写了 `viewTarget`）、268-285（TabStrip 与 `titleInEntry` 分支没有）
+现象：`candidates()` 对每个视图都给出路径“容器入口 -> `{target: "workbench.view", key: 视图 id}`”，视图命令的终点同理（viewSteps 的第一步总是容器入口，最后一步的 at 是 `command`）。而 `workbench.view` 只写在“面板只有一个标签（`titleOnly`）”时的标题按钮上。同一面板里叠了两个以上视图（用户拖标签合并是常规操作）时，标题区画的是 TabStrip，标签上没有 `data-nb-target`；`titleInEntry`（分节并进入口条）时标题在入口条里，同样没有。此时路径最后一步的 `at` 在页面上找不到，`ui.highlight` 等 5 秒得 `not-found`。
+为什么是问题：Spec page-agent 输出 6 末尾写明“几个视图叠成标签时的视图标签，按角色与名字在所在的组里定位（within）”，也就是承认叠标签时没有稳定名；但 catalog 并没有按这一情形换定位，`ui.find` 给出的 `path[].at` 在这一布局下必然落空。`appears` 又写 null，`remaining()` 也无从发现这一步已经走不通。catalog.test 只测了浮动与默认布局，没有“视图叠成标签”的用例。
+如何核实：在 Lab 或工作台里把两个视图拖进同一个面板，调 `ui.find({query: "<其中一个视图名>"})`，对返回的最后一步 `at` 调 `ui.highlight`，预期 not-found（对应 e2e 可在 page-agent-guide 里加）。
+建议改法：二选一。(a) 在 TabStrip 的标签上也写 `workbench.view` + 视图 id（拥有者写稳定名本来就是 Task 决定 1，标签是同一个控件的另一种画法）；(b) catalog 读到视图所在面板有多个标签时，改给 `{role: "tab", name: 视图标题, within: <面板>}`。(a) 更简单，且和 Spec 写的“按角色与名字定位”不冲突。无论哪种都补一条 catalog 用例。
+
+（对第 1 条的修正）WorkbenchPanelHead.md 第 25 行写明 `titleOnly` 是“侧栏这一列，别的工具面板只有一个标签时”：侧栏每个视图自己一节，不叠标签，所以受影响的是右栏、底部面板与浮动窗里有两个及以上标签的面板，以及底部面板并成一行时标题写在入口条上的（`titleInEntry`）视图。范围比我上面写的“用户拖标签合并”窄，但这些位置的视图仍会被 ui.find 列出且路径终点落空。严重程度仍按“重要”，因为 Spec 输出 7 没有把它们排除在“视图”之外。
+
+### 2. Profile 页对象行的“去掉”“加入”可访问名与悬停提示把内部行 id 写成“object:ui”
+严重程度：建议（可访问名文字外泄，影响读屏与鼠标悬停提示）　类别：正确性
+位置：packages/neuro-book/src/plugins/agent/web/components/ProfileToolsSection.vue:94、95；components/AddToolsDialog.vue:101（传 `{name: tool.name, id: tool.id}`）；locales/zh-CN.json:627、634、635（“去掉 {{name}}（{{id}}）”“加入 {{name}}（{{id}}）”“不加入 …”），en-US 同
+现象：工具行的 `id` 是工具 id（例如 `nbook.agent.eval`），本来就写给用户看以分清同名工具；对象行的 `id` 是内部行 id `object:ui`（profile-view.ts:484 `objectRowId`），只用来让 `objectAwareChange` 区分对象与工具。于是对象行的“×”提示与 aria-label 是“去掉 ui（object:ui）”，对话框里是“加入 ui（object:ui）”。`data-profile-tool="object:ui"` 与对话框搜索命中 `tool.id`（AddToolsDialog.vue:41）也带着这个前缀。
+为什么是问题：`object:` 是实现细节，不是用户或模型认识的名字；同一份文字对工具行是有意义的 id，对对象行是误导。
+如何核实：看 e2e 里 `[data-add-tool='object:ui']`（page-agent-guide.e2e.ts:~628）说明属性确实带前缀；读 ProfileToolsSection.vue:94 的模板可确定 aria-label 取 `tool.id`。未在页面上实际读 aria-label，从代码推断。
+建议改法：对象行的文字参数里 id 用对象名（或 `ui.*`）：行上加一个展示用的 `label`/`displayId`，两处模板改读它；行 id 仍用 `object:` 区分。搜索里 `tool.id` 同理改读展示 id。
+
+（对第 2 条的行号修正）ProfileToolsSection.vue 的位置是 88、89，不是 94、95。
+
+### 3. inOtherEditable 的判据方向反了：焦点在可编辑区域的祖先上时仍把选区放回去，焦点被拉进编辑器
+严重程度：建议　类别：正确性（已在 Chrome 里用纯 DOM 复现判据与后果；没有经 GuideView 整条链路复现）
+位置：packages/nb-page-agent/src/guide/view.ts:91-96（`return focused === null || !focused.contains(element)`）
+现象：函数想表达“焦点不在这个可编辑区域上就不放回选区（Chrome 会把焦点一并拉进去）”，实际写的是“焦点元素不包含选区所在元素”。三种情形：
+- 焦点就在编辑宿主上（`focused === 宿主`）：`focused.contains(element)` 为真，放回，对。
+- 焦点在编辑器的祖先（带 tabindex 的容器、对话框根）上，编辑器里仍有选区：`focused.contains(element)` 也为真，于是放回选区。我在 /tmp/review-w00033-t03-impl/lab-frontend/probe.mjs 里用 Chrome 复现：`#wrap`（tabindex=-1）包着 contenteditable `#ed`，选区留在 `#ed` 里、焦点在 `#wrap`，按 restoreFocus 的做法 `removeAllRanges(); addRange(range)` 后 `document.activeElement` 变成 `ed`（输出 `A_focusAfterRestore: "ed"`）。这正是注释里要避免的“焦点被选区拉走、弹层随之关掉”。
+- 焦点在可编辑区域里的非可编辑子元素（例如节点视图里的按钮，contenteditable=false）上：`focused.contains(element)` 为假（`B_focusedContainsElement: false`），不放回，选区丢失；此时放回会让焦点从按钮挪到编辑宿主，所以不放回是对的，但原因不是 contains 的方向。
+为什么是问题：第二种情形里用户的焦点被说明框的收起动作带进了别处的编辑器；用例只测了“焦点在编辑器里”和“焦点在无关按钮上”两种，抓不到这一类。
+如何核实：运行 probe.mjs（`node /tmp/review-w00033-t03-impl/lab-frontend/probe.mjs`，用本机 Chrome）；整条链路的复现需要在核心夹具里放 `<div tabindex=-1><div contenteditable>…</div></div>`，选区放进里面、焦点给外层，提问再收起，看 `document.activeElement`。
+建议改法：判据改为“选区在编辑宿主里，且焦点正是这个编辑宿主（`focused === host`，或 `focused.isContentEditable` 且同宿主）才放回”，其余一律不放回：`const host = element.closest('[contenteditable]:not([contenteditable=false])'); return host === null ? false : focused !== host;`（`isContentEditable` 取到的是继承值，不能直接当宿主用）。补一条“焦点在祖先容器上”的用例。
+
+### 4. 高亮自绘头浮动窗里的视图标题：目标是透明且不接指针的按钮，悬停显示钩子不覆盖它
+严重程度：建议（只在视图单独浮出且自绘头时发生）　类别：正确性（从代码推断）
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue:194-199（自绘头标题按钮带 `workbench.view`）与 612-626（该按钮 `opacity: 0; pointer-events: none`，聚焦才显示）；packages/neuro-book/src/plugins/page-agent/web/engine/PageAgentEngine.vue:71-76（`reveal` 只认 `closest("[data-hover-actions]")`）
+现象：Agent 对话视图（ConversationHost、MessagesHost 声明了 ownHead）单独浮出时标题按钮写了稳定名，所以 `ui.find` 能给出它、`ui.highlight` 能定位到它，但它是透明的、点不到的。引擎的 `reveal` 在它外面没有 `[data-hover-actions]` 祖先，返回 undefined，什么也不显示。结果是描边框和说明框指着左上角一块空白；`until: "click"` 时用户点那个位置落到视图内容上，得 `missed`。
+为什么是问题：Spec views.md 输出 25 的目的是“要高亮的按钮看不见，用户就找不到它”，自绘头标题是同一类“看不见的目标”，却没有对应的显示规则。
+如何核实：把对话视图浮出（单独一个标签的浮动窗），`ui.highlight({at: {target: "workbench.view", key: "<对话视图 id>"}})`，看页面。
+建议改法：给自绘头标题按钮加一条 `[data-nb-agent-reveal]` 的显示规则，并让 `reveal` 在目标上没有悬停区时对目标自己写同名属性（`target.hasAttribute("data-nb-target")` 时写在目标上）；或者 catalog 对浮动自绘头的视图不给 `workbench.view` 步骤。前者改动更小。若判断“浮出的自绘头视图不会被引导”，在 Spec 里写明并保持现状。
+
+### 5. 窗口一侧的 highlight 订阅：订阅在开始前已被退订时高亮永远撤不掉；`candidates as never` 绕过类型
+严重程度：建议　类别：不变量（竞态，从代码推断）／代码质量
+位置：packages/neuro-book/src/plugins/page-agent/web/plugin.ts:189、191、207
+现象：(1) `ready(signal)` 在页面已连上时直接 `Promise.resolve(page)`，不看 `signal` 是否已经 abort。nb-runtime 的 node.ts:943 在 `await handler.subscribe(...)` 之前还要先做若干异步查找，退订可能先到；此时 `call.signal` 已 aborted，subscribe 接着调 `side.highlight(filter)` 画出高亮，再 `addEventListener("abort", …, {once: true})`——已经 aborted 的信号不会再触发，`handle.cancel()` 永远不被调；`installed`、`outcome` 的 `.then` 又都因 `call.signal.aborted` 把事件吞掉。页面上留下一个没有主人的说明框，直到用户点“跳过引导”或下一次高亮把它替换。Spec“状态与转换”写明窗口收到退订时撤掉高亮、页面上不留描边框与说明框。(2) 第 191 行 `candidates as never` 把任意 `readonly unknown[]` 塞进事件的类型，类型检查在此处不再起作用；候选来自 `PageFailure.details.candidates`，本来有确切类型，应该沿用。
+为什么是问题：(1) 窗口很快被退订（eval 单元刚开就被停止）时才触发，概率低，但后果是残留；修法一行。(2) 项目规则不用 `as never` 绕过类型系统。
+如何核实：(1) 在 plugin.ts 单元测试或 e2e 里用已 abort 的信号调 subscribe，看页面有没有 `[data-nb-page-agent]`；没有现成测试覆盖这条路径。
+建议改法：(1) `const side = await ready(call.signal); if (call.signal.aborted) return;`，并在 `side.highlight` 返回之后再核对一次 `call.signal.aborted`，已 aborted 就 `handle.cancel()` 后返回；或改成 `call.signal.aborted ? handle.cancel() : call.signal.addEventListener(...)`。(2) `fail` 的 `candidates` 参数用 `PageFailure` 里候选的类型。
+
+（对第 5 条的撤回与修正）复核 nb-runtime 的 node.ts:882-945 后，第 5 条里的 (1) 不成立：`handleSubscribe` 在调用 provider 的 subscribe 之前已核对 `signal.aborted`，之后到 `await ready(...)` 返回之间只隔微任务，退订消息到不了其间；所以“订阅已被退订、高亮撤不掉”这条竞态撤回，不算有效发现。第 5 条只保留 (2)：plugin.ts:191 的 `candidates as never` 是类型绕过，严重程度建议、类别代码质量，改法同上（沿用候选的真实类型）。另：`ready(signal)` 在引擎未挂上时被 abort 会 reject，让 subscribe 抛出，nb-runtime 记一条 provider-threw 并以 provider-error 结束；退订之后无人收，只多一条诊断，不处理也可。
+
+### 6. 应用一侧的悬停显示钩子没有任何测试经过真实引擎走一遍
+严重程度：建议　类别：测试
+位置：packages/neuro-book/src/plugins/page-agent/web/engine/PageAgentEngine.vue:71-76；e2e/lab-workbench-surface.e2e.ts:132-142；e2e/support/page-agent-world.ts:186
+现象：`reveal` 是应用接进引擎的胶水（找 `closest("[data-hover-actions]")`、写与撤 `data-nb-agent-reveal`），而现有证据是：核心包用例测钩子的调用顺序与计数（第 8 片已审）；Lab e2e 用 `element.setAttribute("data-nb-agent-reveal", "")` 手写属性验证 CSS 规则；page-agent-guide 的所有用例没有一条高亮悬停动作区里的按钮，`expectGuideRemoved` 只在撤干净时数一次属性。也就是 `closest` 选对元素、同一动作区相邻两步先撤后装、按钮真被显示出来这三件事，没有一条用例穿过引擎验证。
+为什么是问题：Spec 副作用一节、views.md 输出 25 的正是这个行为；这几件事里任何一件坏掉（例如动作区选择器改名、`closest` 落到嵌套的另一个动作区），现有测试都是绿的。
+如何核实：把 PageAgentEngine.vue 里 `zone.setAttribute(...)` 注释掉再跑 page-agent-guide 与 lab-workbench-surface 两份，应该全绿。没有实际跑 e2e，从读用例推断。
+建议改法：在 page-agent-guide 里加一条：鼠标不在面板上时 `ui.highlight` 一个视图标题动作按钮（`target: "command"`），断言按钮 opacity 为 1 且动作区带属性，下一步换成同区另一个按钮时属性仍在、结束后属性消失；变异检查删掉 `setAttribute` 看它红。
+
+### 7. 新加稳定名的六个组件，同名 .md 没有同步
+严重程度：建议　类别：文档
+位置：packages/neuro-book/src/ui/menus/TitleActions.md、src/ui/settings/SettingsRow.md、src/plugins/workbench/web/components/{WorkbenchPanelHead,WorkbenchRegionStrip,WorkbenchToolStrip}.md、src/plugins/settings/web/components/SettingsWindow.md
+现象：提交 d02891fca 给这六个组件的元素写了 `data-nb-target`/`data-nb-key`，`git diff 8351618c9..9d2327ab5 --stat -- '*.md'` 在 packages/neuro-book 里只改了 ProfileToolsSection.md；`grep -n "data-nb-target\|nbTarget\|稳定名"` 在这六份 .md 里都没有命中。TitleActions.md:39 本来列了按钮上的 `data-title-action`、`data-title-action-key`，WorkbenchPanelHead.md:23-28 列了 `data-panel-tab`、`data-hover-actions`；`hover-actions.css` 新增的 `data-nb-agent-reveal` 也只在 CSS 注释里，WorkbenchPanelHead.md 讲悬停范围的那一条没提。
+为什么是问题：docs/standards/code/components.md 规定“改组件必同步同名 .md”；这些属性是 Spec 写明的公开面（page-agent.md“边界与兼容”），后来的人改组件、重命名元素时读 .md 看不到有被引用的稳定名。
+如何核实：见上面的 grep。
+建议改法：每份 .md 的属性/可观察状态一节补一行“控件带稳定名 `<名>` + key `<取值>`，被官方引导引用，不改名（page-agent.md 输出 6）”；WorkbenchPanelHead.md 悬停一条补 `data-nb-agent-reveal`。
+
+### 8. 对象行悬停说明：说明与方法列表之间没有分隔，方法列表里的“：”与分隔符“、”难读
+严重程度：建议　类别：正确性（文案）
+位置：packages/neuro-book/src/plugins/agent/locales/zh-CN.json:658-661、en-US.json 同；profile-view.ts:503-523（`objectDetail`、`objectMethod`、`listSeparator`）
+现象：悬停提示是 `{{summary}} 方法：{{methods}}`，summary 是对象的界面说明，不以标点结尾，成了“看懂并引导界面 方法：ui.find：读、ui.highlight：读、ui.screenshot：执行、ui.snapshot：读”；没有 eval 时 summary 换成“要先加入 eval 才用得上”，提示变成“要先加入 eval 才用得上 方法：…”，对象的真实说明在提示里也看不到了。英文 “Add eval to use this Methods: ui.find: read, …”。
+为什么是问题：一句话里三层“：”“、”并列，读者不容易分清；没有 eval 时提示丢了对象说明（行上本来就显示的那句警示重复一遍）。
+如何核实：e2e page-agent-guide.e2e.ts:584-590 断言了片段包含（`方法：ui.find`），所以改格式要同步改它。
+建议改法：用换行分开（`{{summary}}\n方法：{{methods}}`，Tooltip 需支持换行，否则句号），方法之间用“；”或每个方法一行；没有 eval 时 detail 仍写对象说明，警示只放在行上的 summary 位。
+
+### 9. agentsField 的工具集计算没带 methodsOf，同一文件里两处 profileToolIds 不一致
+严重程度：建议　类别：代码质量（目前不会出错）
+位置：packages/neuro-book/src/plugins/agent/web/profile-view.ts:324（agentsField，不传 methodsOf）与 547（toolsField，传）
+现象：任务让服务端与页面“用同一份计算”（shared/profile-tools.ts），toolsField 与服务端 `forSession` 都带上了按对象的增减，agentsField 判断“有没有 `nbook.agent.spawn`”仍调用不带 methodsOf 的版本。今天 spawn 不是全局对象的方法，所以结果相同。
+为什么是问题：哪天某个被判断的工具（spawn、skill、sticker 等）成了对象方法，Profile 页这一节会与服务端对不上，且没有测试提示。
+建议改法：把“这个 Profile 此刻的工具 id”提成 profile-view.ts 里的一个小函数，agentsField 与 toolsField 共用；或在 agentsField 里同样传 `catalogMethodsOf(catalog)`。
+
+### 10. 工作台界面目录少了 Spec 写的“是否可见”，目录里列出了页面上不存在入口的视图
+严重程度：建议　类别：正确性（与 Spec 不一致）
+位置：packages/neuro-book/src/plugins/workbench/shared/contracts.ts:102-109（`WorkbenchCatalogEntryView` 只有 id、title、container、actions）；packages/neuro-book/src/plugins/workbench/web/catalog.ts:47-58；docs/specs/workbench/views.md 输出 23
+现象：Spec 写视图项带“id、标题、所在容器 id、是否可见、标题栏动作的命令 id”，实现没有 `visible`。后果在 page-agent/web/catalog.ts:96-103：`container === null`（视图不在布局里或浮动）时路径只有一步“点 `workbench.view`”，页面上并没有这个控件（视图没打开）；`ui.find` 把它当成可直接点的一步交给模型。
+为什么是问题：合同与实现不一致，且这一项正好是 catalog 判断“这一步能不能走”所需要的。
+如何核实：关掉某个视图（或把它收起），`ui.find` 它的标题，看返回的 `path` 只有一步 `workbench.view`。从代码推断，未跑。
+建议改法：二选一：按 Spec 补 `visible`（布局里有这个标签且面板展开），catalog 在不可见时给“用命令打开”的步骤或标注；或把 Spec 的这一项删掉并说明 `container: null` 的含义。
+
+### 11. Profile 页对象行的出现、消失与警示变化没有过渡
+严重程度：建议　类别：代码质量（UI 检查，ui-development 第 6 条）
+位置：packages/neuro-book/src/plugins/agent/web/components/ProfileToolsSection.vue:73-95、198-219
+现象：去掉或加回对象行时整行直接出现、消失（`v-for` 里没有 TransitionGroup）；Profile 里 eval 被去掉或加回时，每个对象行的说明文字与警示图标/颜色直接切换，说明文字宽度变了行里的省略位置也跟着跳。整个文件没有一条 `transition`。
+为什么是问题：Task 决定 4 写“状态改变尽量少造成布局的不同；布局的不同要加动画”，设计语言也要求状态变化有过渡。不过这个组件的其它行（工具、子代理、Skill）原本就没有过渡，对象行与它们一致。
+建议改法：要补就整节补（行增减用 TransitionGroup 的高度与不透明度，警示色用 `transition: color`），不只给对象行；不补则在 Task 记录里写明“这一节沿用既有行为”。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- 组件卸载：PageAgentEngine 卸下时只摘输入监听并交还 `connect`，不结束进行中的高亮；但订阅的寿命由服务端退订、插件停止、窗口断开三条路径结算，`handle.cancel()` 都会被调，我没找到引擎先于订阅被卸下而留下残余的路径（页面间导航是整页加载），所以不算问题。
+- 事件顺序：`installed` 在 `outcome` 之前，`failed` 只在 outcome 阶段发一次；同一页面第二个高亮时旧的先 `replaced`、再装新的（engine.ts 里 `previous?.end` 在 `session.start()` 之前），各订阅内每个事件至多一次。悬停显示的撤销闭包只摘自己写的那个动作区的属性，同名属性只有引擎一个写者，没发现会误删别处的情形。
+- 主题变量：`GUIDE_THEME` 里 17 个 `--*` 都在 nb-ui 的 colorway 契约或 tokens.css 里有定义（`--accent-main`、`--text-*`、`--overlay-bg` 来自 colorway-contract.ts），明暗两套都有值；说明框是在目标所在层里挂的 shadow 宿主，继承该层的变量。
+- 语言：`guideText(props.text)` 每次高亮开始时按窗口当前语言取，切换语言后下一次高亮生效（一次高亮进行中切换不换文字，属 Spec 写的“每次高亮开始时取”范围）。英文文字按 300px 固定宽度与按钮的 padding 估算四个按钮 230px 内，未发现截断，未在页面上量。
+- Profile 页：等级取最高、计数按对象、已卸载按对象、对话框按对象加回、动对象时清方法旧条目，shared/profile-tools.ts 与页面共用同一份，`changeToolBinding` 的各分支（去掉再加回、本来只有部分方法、defaultTools:false、插件已停）都推演过，没发现错误。服务端 `methodsOf` 与页面 `catalogMethodsOf` 取同一份目录数据（`#objectOf`），规则一致。
+- 稳定名取值：`command`+命令 id、`workbench.activity`/`container`/`view`+id、`settings.layers`/`section`/`row`+id 都是业务身份，不随语言或顺序变；`nbTarget` 在渲染时校验名字。
+- hover-actions.css：新增的 `:not([data-nb-agent-reveal])` 只让规则更难命中，不会让平时就显示悬停动作；该规则新增一项属性选择器抬高了特异性，但仓库里没有别的规则覆盖这块的 opacity（grep 过），没有被盖住的风险。
+
+## 各级数量
+阻断 0；重要 1（第 1 条）；建议 10（第 2、3、4、5、6、7、8、9、10、11 条，其中第 5 条只剩 `as never` 一点）；撤回 1（第 5 条的竞态部分）。
+没跑 e2e 与开发服务；第 1、4、10 条为从代码推断；第 3 条的判据与后果在 Chrome 里用纯 DOM 复现，未经 GuideView 整条链路。
+
+有效发现的编号：1、2、3、4、5（仅 `as never`）、6、7、8、9、10、11

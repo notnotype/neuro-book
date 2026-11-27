@@ -75,6 +75,6 @@ async function submit(): Promise<void> {
             <Input id="graph-import-title" v-model="title" placeholder="不填就用文件里的书名" data-testid="graph-import-title" />
         </div>
         <p v-if="error" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="graph-import-error">{{ error }}</p>
-        <div v-if="file"><Button size="sm" :disabled="busy" data-testid="graph-import-submit" @click="submit">{{ busy ? "导入中…" : "导入" }}</Button></div>
+        <div v-if="file"><Button variant="primary" size="sm" :disabled="busy" data-testid="graph-import-submit" @click="submit">{{ busy ? "导入中…" : "导入" }}</Button></div>
     </section>
 </template>

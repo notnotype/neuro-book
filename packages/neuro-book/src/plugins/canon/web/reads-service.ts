@@ -15,7 +15,7 @@ import type {CanonWorld} from "./world";
 
 /** 页头组件绑上读取层与窗口的线；组件本身第一次用到时才加载（canon 的界面组件都按需加载）。 */
 function boundPageHead(world: CanonWorld, line: WindowLine): Component<PageHeadProps> {
-    const Head = defineAsyncComponent(() => import("./components/PageHead.vue"));
+    const Head = defineAsyncComponent(() => import("./components/entry-page/PageHead.vue"));
     return defineComponent({
         name: "CanonPageHead",
         props: {title: {type: String, required: true}, position: {type: String, default: ""}, planned: {type: Boolean, default: false}, wide: {type: Boolean, default: false}},

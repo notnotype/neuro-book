@@ -6,9 +6,9 @@ import "@notnotype/nb-markdown/markdown.css";
 import {Button, IconButton, Input, Popover, SearchSelect, SegmentedControl, Textarea} from "@notnotype/nb-ui/components";
 import type {SearchSelectOption} from "@notnotype/nb-ui/components";
 
-import EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
-import OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
-import type {EntryResults} from "nbook/plugins/canon/web/components/entry-picker";
+import EntryPicker from "nbook/plugins/canon/web/components/entries/EntryPicker.vue";
+import OriginList from "nbook/plugins/canon/web/components/groups/OriginList.vue";
+import type {EntryResults} from "nbook/plugins/canon/web/components/entries/entry-picker";
 import {portraitSrc} from "./images";
 
 type Scene = "filled" | "no-look" | "empty" | "edit-suggest" | "edit-ref" | "edit-text" | "add-field" | "origins" | "semantic";

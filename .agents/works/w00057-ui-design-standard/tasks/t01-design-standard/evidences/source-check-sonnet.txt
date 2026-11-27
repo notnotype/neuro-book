@@ -1,0 +1,176 @@
+# 界面设计标准草稿：出处核对报告
+核对时间 2026-11-27。每个出处都已重新取回原文（curl，HTTP 200），不用草稿旁边 src/ 目录里的旧副本。取回的原文与转成纯文本的版本在 /tmp/w00057-t01/fetch 与 /tmp/w00057-t01/txt。
+判定口径：一致 = 引文原文里有（允许大小写、标点差）且语境与草稿用法相符；“引文不是原句”= 草稿放在引号里的话原文里没有这串字，但意思在原文里有（列出原文实际写法）；找不到 = 原文里没有对应内容。
+
+## 1. NN/g 十条（ten-usability-heuristics）
+- 编号：1 系统状态可见、3 用户掌控、4 一致性、5 防错、6 认得出胜过记得住、8 简约、9 错误恢复、10 帮助与文档，与草稿用到的编号全部一致。
+- “clearly marked emergency exit”（FB-5）：一致。原文 3 条写 a clearly marked "emergency exit" to leave the unwanted action；用于“要有出口”，语境相符。
+- “feedback that arrives quickly”（FB-1 依据）：引文不是原句。原文 1 条的文字是 “Present feedback to the user as quickly as possible (ideally, immediately)” 与定义句 “through appropriate feedback within a reasonable amount of time”。意思一致，引号里的话要改成原文。
+- “precisely indicate the problem, and constructively suggest a solution”（TX-3）：一致，第 9 条原句 “Error messages should be expressed in plain language (no error codes), precisely indicate the problem, and constructively suggest a solution.”
+- “Users should not have to wonder whether different words … mean the same thing”（TX-4）：一致，第 4 条首句 “Users should not have to wonder whether different words, situations, or actions mean the same thing.”
+- 差距分析里对第 1、4、5、6、8 条含义的概括：一致（第 6 条原文 “Information required to use the design (e.g. field labels or menu items) should be visible or easily retrievable”；FB-3 用它支持“停用原因要看得见”，属引申，原文没有说停用控件）。
+
+## 2. NN/g 动效时长（animation-duration）
+- “It is far more common for animations to be too long than too short”（MO-4）：一致，原文逐字如此。
+- 差距分析里的数字：
+  - “多数 100 到 500 毫秒”：一致（“the duration of most animations should be in the range of 100–500 ms”）。
+  - “小元素约 100 毫秒”：一致（简单的反馈动画如复选框、开关 “roughly 100 ms”）。
+  - “大变化 200 到 300 毫秒”：一致（“substantial screen changes, such as when a modal window moves into view, … 200–300 ms can be appropriate”）。
+  - “最多 400 毫秒”与“400 毫秒已经很慢”：一致（“In most cases, a range of 100–400 ms is appropriate, with 400ms being a very slow animation, to be used only for big movements across large screens”）。
+  - “500 毫秒开始拖沓”：一致（“At 500ms, animations start to feel like a real drag”）。
+  - “入场略长于退场”：一致（entering “usually need a subtly longer duration than … exiting”，例：300 毫秒出现、200 或 250 毫秒消失）。
+- 注意：草稿把“200 到 300”“最多 400”并成一句，原文这是两处不同的话（200–300 针对弹窗这类大屏幕变化，400 是“很慢、只用于跨大屏的大位移”），草稿写法不算错，但“最多 400”不是原文“上限”而是“很慢”的描述。
+
+## 3. NN/g 响应时间（response-times-3-important-limits）
+- 0.1 / 1 / 10 秒三个数：一致。原文 0.1 秒 “the limit for having the user feel that the system is reacting instantaneously”；1.0 秒 “the limit for the user's flow of thought to stay uninterrupted”；10 秒 “the limit for keeping the user's attention focused on the dialogue”。
+- “0.1 second is about the limit for having the user feel that the system is reacting instantaneously”（第八节、FB-1）：一致，逐字。
+- “0.1 second … reacting instantaneously”：一致。
+- 语境提示：原文接着写 “meaning that no special feedback is necessary except to display the result”，即 0.1 秒内只要结果出来就行、不需要额外反馈。FB-1 把它推成“按下后下一帧就有可见变化（按压态等），不等结果”，这是草稿自己的更严格要求（“下一帧”也比 0.1 秒严），不是原文的意思；依据栏用它作“0.1 秒内要有回应”的上限出处可以，但要说明“下一帧”是本仓库定的。
+- FB-2 的分档：原文 “For delays of more than 1 second, indicate to the user that the computer is working”；“Anything slower than 10 seconds needs a percent-done indicator as well as a clearly signposted way for the user to interrupt the operation”。与草稿“超过 1 秒给进行中、超过 10 秒给进度与取消”一致。
+
+## 4. NN/g 进度指示（progress-indicators）
+- “percent-done progress indicators should be used for longer processes that take 10 or more seconds”（第八节）：一致。原文是 “Generally, percent-done progress indicators should be used for longer processes that take 10 or more seconds.”
+- “For anything that takes less than 1 second to load, it is distracting to use a looped animation”（第八节冲突、PL-2）：一致，逐字。语境：原文说循环动画 “should be reserved for actions that take between 2-10 seconds”，不到 1 秒时会让人焦虑，与草稿用法相符。
+- FB-2 依据写“1 秒、2 到 10 秒、10 秒以上三档”：与原文两种指示器的分法基本一致，但原文的三档实际是“不到 1 秒不用循环动画”“2 到 10 秒用循环动画”“10 秒以上用百分比”，1 到 2 秒之间原文没有规定。FB-2 的“预计超过 1 秒就原地进入进行中”那条的 1 秒来自 NN/g 响应时间文章，不是进度指示文章，依据栏把两篇并在一起写。
+- 原文还有一条草稿没引的：百分比指示也可用于不到 10 秒的“处理一批文档”，要写 “Updating address 3 of 50” 并让用户可以停止；FB-2 的“已检 N / 共 M”与取消与之相符。
+
+## 5. NN/g 说明图标（info-tips-bad）
+- “Info tips should not be used to bury essential instructions, constraints, or legal disclaimers”：一致，逐字（Pitfall #2）。
+- “Any constraints, rules, or limitations for inputs should be displayed on the primary level”：一致，原文小写开头 “Additionally, any constraints, rules, or limitations for inputs should be displayed on the primary level.”
+- “Redundant or obvious tips waste users’ time”：一致，原文 “Redundant or obvious tips waste users' time and undermine trust.”（草稿截去后半句，不影响意思）。
+- “Info tips are not a catch-all solution for decluttering the interface”：一致，但草稿截断了后半句：原文是 “… decluttering the interface by sweeping essential content into a hidden layer.” 意思是“不要把必要内容扫进隐藏层”。TX-1 用它支持“说明图标不是清理界面的万能办法”，方向一致。
+- TX-1 表里“补充解释”的例子（术语是什么意思、为什么要这项数据）：原文 “Well-crafted info tips can: Clarify jargon or technical terms; Explain why specific data is requested”，一致。“一两句，不放链接与长段落”：原文 Pitfall #3 反对 modal、整页、“Overly complex, verbose content”，没有专门说“链接”，“不放链接”是草稿加的。
+- 原文还把 “Complex instructions or explanations”（帮助用户做决定的复杂说明）列为不该放进说明图标，应当常驻显示（“display key information at the primary level”），与 TX-1“按下之前要权衡的后果常驻”一致。
+
+## 6. NN/g 帮助（help-and-documentation）
+- “it is better if the system can be used without documentation”：一致。原文 “Even though it is better if the system can be used without documentation, it may be necessary to provide help and documentation.” 草稿用它支持“内部处理不进界面”，原文主旨是“能不靠说明书最好”，用法偏引申但不矛盾。
+
+## 7. NN/g 空态（empty-state-interface-design）
+- 三条指南：一致（Use Empty States to Communicate System Status / Provide Learning Cues / Provide Direct Pathways for Key Tasks）。
+- “Use Empty States to Communicate System Status”（PL-1，“空态第 1 条”）：一致，是第一条标题。语境一致：原文说空白面板会让人猜 “Is content still loading? Did an error occur? Did I set the wrong filters?”，并举例加载时显示 “No records” 是不准确的状态消息。
+- “Provide Direct Pathways for Key Tasks”（TX-5）：一致（原标题前面还有 “Use Empty States to”）。原文 “Provide direct pathways (i.e., links) to getting started with key tasks related to populating the empty state.”
+- TX-5 里“筛选造成的空要写清是筛掉了，给‘清除筛选’”：原文只是举例说明筛选后空白会让人困惑，没有写“清除筛选”按钮，属草稿的推导。
+
+## 8. NN/g 接近（gestalt-proximity）
+- “a minimal amount of spacing between a top-aligned label and its corresponding form field”（第四节、LY-1）：一致。原句是括号里的 “a minimal amount of spacing between a top-aligned label and its corresponding form field makes that relationship apparent compared to a larger margin before the next label-field pair.” LY-1 第 196 行把后半句 “makes that relationship apparent” 一并引，也一致。
+- “Larger gaps between groups than within them”（第四节）与 “Larger gaps between groups than within them signal separation”（LY-1）：原文里找不到这串话。原文最接近的是 “Design elements near each other are perceived as related, while elements spaced apart are perceived as belonging to separate groups” 与 “Using varying amounts of whitespace to either unite or separate elements is key to communicating meaningful groupings”。意思一致，但整句引文要改成原文或去掉引号。原文没有“组间距至少是组内距两倍”之类的数，草稿已自己声明阈值是本稿定的，属实。
+
+## 9. NN/g 共同区域（common-region）
+- “When possible, using whitespace alone … reduces the visual complexity”：一致。原文 “When possible, using whitespace alone to create clear groupings reduces the visual complexity of a design.”
+- “false floors”：一致，原文 “segmenting a page into distinct sections can create false floors, and may prevent users from scrolling down the page because they think they've hit the end. This issue is especially common when borders extend the full width of the screen.”
+- “Full-width bordered sections can also create false floors”（LY-2 依据）：引文不是原句，原文没有这串字。意思基本一致（全宽边框更常见）；图注还写了 “Full-width content blocks with distinct borders and contrasting background colors can prevent users from continuing to scroll down a page because the new color creates a stopping point”，支持“整条底色”。草稿 LY-2 的“粗于发丝线”是草稿自己加的细化，原文没有。
+
+## 10. NN/g 相似（gestalt-similarity）
+- “Same-color buttons will be perceived as sharing the same level of importance”（第四节、LY-3）：一致，逐字（原文接着说要为主要行动保留单独一种颜色，让它在次要按钮里突出）。
+- “link color should not be used for keywords, nonclickable headings, or nearby icons that aren’t actually clickable”（LY-3）：一致。原文 “So, link color should not be used for keywords, nonclickable headings, or nearby icons that aren't actually clickable.”
+- 注意：原文没有“一块区域至多一个主按钮”这条规则，它只说“要为主要行动保留一种单独的颜色”。LY-3 的“至多一个 primary”是草稿的推论，不是原文规定。
+
+## 11. NN/g 费茨（fitts-law）
+- “if people do not realize that a target is padded, they may still cautiously slow down”（TG-2）：一致。原文 “…if people do not realize that a target is padded, they may still cautiously slow down more than necessary as they get closer to the target”。语境：原文说“加了隐形扩区只能挡掉部分冲过头错误，但用户看不出来仍会放慢”，不是说“不许加隐形内边距”。TG-2 的“不靠看不见的内边距扩大点击区”比原文严，是草稿的取舍。
+- “make targets big”：一致。原文 “The most obvious implication of Fitts's law is: make targets big.”
+- “the visible area should match the clickable area”（第五节、TG-2 之外）：引文不是原句，原文里找不到这串话。最接近的是 “If people don't realize that a target is padded, they will still slow down … in order to make sure they hit the visible area” 与图标加标签那段的括号 “assumes that you do make the entire area clickable and avoid the design mistake of only making the icon itself the active target”。意思大体相符，需要改成原文或去掉引号。
+- “ordering by frequency of use helps”（第五节）：引文不是原句。原文是 “you may consider ordering items according to their frequency of use (with the most frequently accessed ones at the top)”，而且语境是“线性菜单里从菜单把手到各项的距离不同”，不是工具条与常驻动作。LY-4 把它与希克定律并用来支持“常驻动作按频率排、低频收进更多”，是延伸，原文没有“低频收起”。
+- “Place controls used in sequence close to each other, but not so close that they crowd each other”（TG-3）：引文不是原句。原文小标题是 “Place Related Targets Close to Each Other”，正文 “If you know that a set of controls will be clicked in a certain order, place them close to each other (but not too close — see guideline above)”，另有 “Don't Crowd Targets”。意思一致。TG-3 后半句“危险动作要隔开”原文没有对应句，是草稿加的。
+- 草稿“宽框按钮右对齐……是费茨定律的一个实例”：原文 Fitts 一文里有 “the Submit button is far from the message area, and, according to Fitts's law, this lack of proximity will also slow down users”（出现在 NN/g 相似一文里），方向一致。
+
+## 12. 希克定律（lawsofux.com/hicks-law）
+- 定义 “The time it takes to make a decision increases with the number and complexity of choices.” 与草稿“选项越多、决定越慢”一致。页面是二手整理，来源写 Hick 1952（页面 Origins 一节写 “In 1952, this pair set out to examine …”），草稿“Hick 1952、Hyman 1953”：Hick 1952 页面里有；Hyman 1953 页面只写了 Ray Hyman 没写年份，年份取不到（本次没有去查原始论文）。
+- 草稿“NN/g 只有一段视频 https://www.nngroup.com/videos/hicks-law-long-menus/，没有成文文章”：视频页取得到（标题 “Hick's Law: Designing Long Menu Lists (Video)”，2018-07-06），页面只有摘要，没有转写；“没有成文文章”这一句我没有逐站核对，只能说视频页确实只有摘要。
+- LY-4 的“NN/g 明确反对‘导航只能 7 项’的说法”：原文里找不到。在 lawsofux 希克页、NN/g 视频页、NN/g 费茨一文、NN/g menu-design 一文（我另取了 https://www.nngroup.com/articles/menu-design/）里都搜了 seven、7、magic，没有这样的话；费茨一文只在讲费茨生平时提到 Miller 的 “magical number 7”。这句话没有出处，需要补出处或删掉。
+
+## 13. WCAG 2.2（https://www.w3.org/TR/WCAG22/，另取 Understanding 文档 target-size-minimum、status-messages、focus-appearance、animation-from-interactions、non-text-contrast、contrast-minimum、focus-not-obscured-minimum、text-spacing）
+条目号与级别（以正文 “Success Criterion … (Level …)” 为准）：
+- 2.5.8 Target Size (Minimum)：AA，一致。“at least 24 by 24 CSS pixels”逐字；间距例外原文 “Undersized targets (those less than 24 by 24 CSS pixels) are positioned so that if a 24 CSS pixel diameter circle is centered on the bounding box of each, the circles do not intersect another target or the circle for another undersized target”，与草稿“圆不碰别的目标或别的圆”一致（草稿写“以目标中心”，原文是“以包围盒中心”，同义）。TG-1 里“句子里的行内链接、浏览器原生控件不算”对应原文 Inline、User Agent Control 两项例外，一致。原文另有 Equivalent（同页有达标的等价控件）与 Essential 两项例外，草稿没写，不影响判据。
+- 2.5.5 Target Size (Enhanced)：AAA，44×44，一致（第四节决定 9）。
+- 1.4.3 Contrast (Minimum)：AA，一致。正文 4.5:1，大字 3:1。“Large-scale text”的定义是 “at least 18 point or 14 point bold”，换算 18pt = 24 CSS 像素、14pt = 18.66 像素，草稿“18.66 像素粗体或 24 像素以上”一致（换算是草稿做的，原文用 point）。第四节决定 2 说“WCAG 1.4.3 对次要文字没有豁免（只豁免装饰、停用控件里的字）”：原文豁免项是 Incidental（停用的界面组件、纯装饰、看不见的、图片里的字）与 Logotypes（标志与品牌名），草稿漏了标志一项，核心判断（没有“次要文字”豁免）一致。
+- 1.4.11 Non-text Contrast：AA，一致，3:1 对 “adjacent color(s)”，停用组件豁免（“except for inactive components”）与 AX-2“停用的控件不要求”一致。Understanding 文档的输入框例子一致：灰边框 #767676 对白色相邻底色通过；也有“输入框底色与外部深色背景对比、边框不需要对比”的例子。需要注意的一处：Understanding 明确写 “This success criterion does not require that controls have a visual boundary indicating the hit area. If a control has visible content (such as text or a sufficiently contrasting icon) … a border … is not required”，也就是带文字的 ghost 按钮没有边框并不违反 1.4.11，只要求焦点指示足够对比。AX-2 写“没有边框的，底色对相邻色至少 3:1”会比 WCAG 更严（适用于靠底色辨认的输入框，不适用于有文字的按钮），草稿第六节说的“靠完整边框辨认的输入框”是对的。
+- 2.4.11 Focus Not Obscured (Minimum)：AA，一致。原文 “the component is not entirely hidden due to author-created content”，与 TG-4“不被完全挡住”一致；2.4.12 Enhanced 是 AAA。
+- 2.4.13 Focus Appearance：AAA，一致。原文要求聚焦指示的面积 “at least as large as the area of a 2 CSS pixel thick perimeter of the unfocused component”，并且 “contrast ratio of at least 3:1 between the same pixels in the focused and unfocused states”。草稿 AX-2 写“至少 2 像素周长”措辞含糊：原文是“面积不小于该控件 2 像素粗的外框面积”，不是周长长度，建议改写。
+- 4.1.3 Status Messages：AA，一致。“status messages can be programmatically determined through role or properties such that they can be presented to the user by assistive technologies without receiving focus”，与 FB-4“不移焦点”一致。Understanding 里情形 A 用 role=status（操作结果、状态）、情形 B 用 role=alert（警告与错误）、情形 C 用 role=status/log 等（进度），与草稿一致。“对不重要、不紧急的内容用 role=alert 列为失败”：Understanding 的 Failures 一节确有 “Using role="alert" or aria-live="assertive" on content which is not important and time-sensitive (future link)”，一致，但该条标着 (future link)，即尚未写成正式的 Failure 技术文档。FB-4 里“播报区在结果出现之前就已挂载”：Understanding 文档里没有这一句（搜 before、已存在、live region 都没有对应原文），这是 ARIA 的通行做法，不是这份文档的话，依据栏不要挂在 WCAG 名下。
+- 2.3.3 Animation from Interactions：AAA，一致。“Motion animation triggered by interaction can be disabled, unless the animation is essential”。“motion animation”的定义原文 “Motion animation does not include changes of color, blurring, or opacity which do not change the perceived size, shape, or position of the element.” 草稿第二节冲突 2 与 MO-7 依据写“不含颜色、透明度的变化”：一致但不全，漏了 blurring（模糊）也被排除，且颜色/透明度排除有条件“不改变感知的大小、形状、位置”。MO-7 里“模糊的过渡取消”不是 WCAG 要求，它来自 HIG（见 HIG 无障碍）。
+- 1.4.12 Text Spacing：AA，一致。四项原文：行高至少 1.5 倍字号；段后至少 2 倍字号；字距至少 0.12 倍字号；词距至少 0.16 倍字号。草稿 AX-5 写“行高 1.5 倍、段后 2 倍、字距 0.12 倍、词距 0.16 倍字号”一致。另一点：原文是“用户把这些值覆盖后内容与功能不丢”，并有 Note 1 “Content is not required to use these text spacing values”，AX-5 写成“注入后没有文字被裁掉”与原文测试方式相符。
+- 第七节“WCAG 2.2 新增的”：草稿列的 2.4.11（AA）、2.4.13（AAA）、2.5.8（AA）与 WCAG 2.2 “new in 2.2” 清单一致。
+
+## 14. Apple HIG 动效（motion.json，网页要 JS，改读 /tutorials/data/design/human-interface-guidelines/motion.json）
+- “Let people cancel motion”（第二节、MO-2）：引文一致。原文整段 “Let people cancel motion. As much as possible, don't make people wait for an animation to complete before they can do anything, especially if they have to experience the animation more than once.” 语境只说“不必等动画播完”，MO-2 把它写成“过渡进行中反向触发要折返到正确终态、用 transition 不用 keyframes”，这些细则原文没有，属草稿的引申；依据栏最好改成“不必等动画结束（与 MO-3 同一句）”，MO-2 的折返要求标为本稿的工程要求。
+- “generally avoid adding motion to UI interactions that occur frequently”（第二节、MO-4）：一致。原文 “In apps, generally avoid adding motion to UI interactions that occur frequently. … you generally want to avoid making people spend extra time paying attention to unnecessary motion every time they interact with it.” 草稿 MO-4 把“所有动效”收窄成“位移、缩放、尺寸动画”，保留颜色与透明度的短过渡，是草稿自己的取舍，原文说的是 motion 整体。
+- “don’t make people wait for an animation to complete before they can do anything”（MO-3）：一致，逐字。
+- “don’t make people wait”（FB-2 依据）：语境不符。这几个词确实在原文里，但原文说的是“不要让人等一个动画播完”，不是“等待耗时操作时要给进度”。FB-2 把它挂在“等待按时长分档”下，会被读成 HIG 对耗时操作的要求，建议去掉这条依据，只留 NN/g 两篇。
+- “if someone reveals a view by sliding it down from the top, they don’t expect to dismiss the view by sliding it to the side”（MO-5）：一致，原文 “…they don't expect to dismiss the view by sliding it to the side.” 语境：feedback motion 要“符合手势与预期”，与 MO-5 的“进出方向一致”相符。
+- “Add motion purposefully”（MO-1）与 “Don’t add motion for the sake of adding motion”（MO-6）：都逐字一致，原文 “Add motion purposefully, supporting the experience without overshadowing it. Don't add motion for the sake of adding motion.” MO-6（首次显示不播入场）是按精神推导，原文没有专门说首次渲染。
+- 第二节“HIG：从上面滑下来的，不该向侧面收走”：一致。
+
+## 15. Apple HIG 反馈（feedback.json）
+- “Show people when a command can’t be carried out and help them understand why”（FB-3）：一致，逐字。原文例子是地图 App 在起点终点相同时告知“无法给出路线”，是对“命令无法执行”的说明，FB-3 把它用到“停用的控件说得出原因”，方向相近但不是同一情形（原文说的是用户发出命令之后被拒，不是控件事先停用）。
+- “Warn people when they initiate a task that can cause data loss that’s unexpected and irreversible. In contrast, don’t warn people when data loss is the expected result”（FB-5）：一致，原文 “…is the expected result of their action.” 草稿在 “expected result” 处截断，意思不变。
+- “people … only need to know when it doesn’t [succeed]”（FB-5）：一致。原文 “…because people typically expect their action or task to succeed, they only need to know when it doesn't.” 草稿用省略号与方括号补全，语境是“确认成功的反馈只留给足够重要的操作”，与“常规成功不发通知”相符。
+
+## 16. Apple HIG 写作（writing.json）
+- “When labeling buttons and links, it’s almost always best to use a verb”（TX-2）：一致，逐字。
+- “be consistent with what you choose”（TX-2）：一致。语境：多步流程里用 “Get Started”“Continue”“Next”“Done” 并保持一致，与草稿“开始、下一步、完成”一致。
+- “Avoid robotic error messages with no helpful information, like ‘Invalid name.’”（TX-3，两处）：一致。原文引号用的是双引号 “Invalid name.”，草稿改成单引号，不影响内容。同段还写了 “instruct people how to enter the information correctly, rather than scolding them” 与 “‘Use only letters for your name’ is better than ‘Don't use numbers or symbols.’”，支持“说明怎么改”。
+- “Avoid using we altogether”（TX-3）：一致。原文 “Avoid using we altogether because it may be unclear who the "we" in question refers to. This is particularly problematic in error messages like ‘We're having trouble loading this content.’” 草稿同一条里“不用‘哎呀’这类感叹词”不是 HIG 的话，是草稿加的。
+- “Create a list of common terms”与 “Create a list of common terms, and reference that list to keep your language consistent”（TX-4）：一致，逐字。
+- “Provide clear next steps on any blank screens”与 “… give them a button or link”（TX-5）：一致。原文 “Provide clear next steps on any blank screens. … give them a button or link to do so if possible.”
+- “Describe what it does when turned on”（TX-1）：一致。原文 “If the setting label isn't enough, add an explanation. Describe what it does when turned on, and people can infer the opposite.” 与草稿“设置项下面写一句‘打开后会怎样’”一致。
+
+## 17. Apple HIG 无障碍（accessibility.json）
+- macOS 28×28 pt（缺省）、20×20 pt（最小）：一致。表格 “macOS … Default control size 28x28 pt, Minimum control size 20x20 pt”。（iOS 与 iPadOS 是 44×44 缺省、28×28 最小，与 macOS 不同，草稿只引 macOS，对。）原文另有间距建议：有边框约 12 pt，无边框约 24 pt，草稿未引。
+- “Convey information with more than color alone”（第六节、AX-3）：一致，逐字。原文接着写 “Offer visual indicators, like distinct shapes or icons, in addition to color”。
+- “Strive to meet color contrast minimum standards … check the minimum contrast in both light and dark appearances”（AX-1）：一致。这是两句拼接：“Strive to meet color contrast minimum standards.”（段首）与 “If your app supports [dark mode], make sure to check the minimum contrast in both light and dark appearances.”（该段末）。中间用省略号合理。原文把 WCAG AA 作为标准（表：4.5:1，大字或粗体 3:1），支持草稿选 WCAG AA。
+- “Replacing transitions in x-, y-, and z-axes with fades”（MO-7、第二节冲突 2）：一致。原文列表项是 “Replacing transitions in x-, y-, and z-axes with fades to avoid motion”（草稿截去 “to avoid motion”）。
+- “Avoiding animating into and out of blurs”（MO-7）：一致，逐字。
+- 语境：这几条是 Reduce Motion 开启时的 “Other best practices for reducing motion”，同段先说 “ensure your app or game responds by reducing automatic and repetitive animations, including zooming, scaling, and peripheral motion”。MO-7 的“位移换淡入淡出”与之相符。
+
+## 18. Material 3 动效（改读 Material Components Android 的 docs/theming/Motion.md，取的是 raw.githubusercontent.com/…/master 版本；m3.material.io 页面本次没有去取，只核对了 Google 官方 Android 文档）
+- 四种转场模式名：一致。文档 “Material provides a set of transition patterns … all four motion patterns defined in the Material spec” 列出 Container transform、Shared axis (or Forward and Backward)、Fade through (or Top Level)、Fade (or Enter and Exit)。草稿 MO-5 的中文译名（容器变形、共享轴、淡出再淡入、淡入淡出）是译名，英文名无误。
+- MO-5 表里每个模式的适用场景：
+  - container transform：文档 “designed for transitions between UI elements that include a container … creates a visible connection between two UI elements”，起点容器的尺寸与形状变成终点容器（如列表的整行变成全屏）。草稿“一个小块展开成大块”一致。
+  - shared axis：文档 “used for transitions between UI elements that have a spatial or navigational relationship … shared transformation on the x, y, or z axis”，例子是 onboarding 沿 x 轴、stepper 沿 y 轴、父子导航沿 z 轴。草稿“有前后、父子关系的切换（向导下一步……）”一致；例子“分段控件换页”不在文档里，是草稿自己的对应。文档里 shared axis 的“前进/后退”方向（Forward and Backward）也与草稿“方向随推进方向”一致。
+  - fade through：文档 “for transitions between UI elements that do not have a strong relationship to each other”，例子是底部导航切换、刷新、账号切换。草稿“彼此无关的去处”一致。注意：MaterialFade Through 默认的次要过渡是 Scale（文档的 “Fade through composition” 表：Primary FadeThrough，Secondary Scale），即入场一方带缩放。草稿 MO-5 另行写“没有空间关系的同级切换……只淡入淡出，不加位移”，缩放不是位移，不算错，但与 M3 默认的“淡出再淡入加缩放”不完全是同一配方。
+  - fade：文档 “for UI elements that enter or exit within the bounds of the screen, such as a dialog that fades in the center of the screen”，例子：对话框、菜单、snackbar、FAB。草稿“在原地出现与消失（对话框、菜单、通知）”一致；MaterialFade 同样默认带 Scale 的次要过渡，草稿对应“浮层入场 scale 加透明度”也与此一致。
+- 决定 7 里的 M3 刻度：一致。文档 “16 duration attributes”，值 50、100、150、200、250、300、350、400、450、500、550、600、700、800、900、1000 毫秒，即 50 到 1000 毫秒；缓动有 standard 与 emphasized 两组（各含默认、减速进入、加速退出），另有 linear。草稿“16 档时长（50 到 1000 毫秒）与 emphasized、standard 两组曲线”一致。文档还写 “duration should increase as the area/traversal of an animation increases”。
+- 草稿来源表里的两个 m3.material.io 网页（easing-and-duration/tokens-specs、transition-patterns）本次未取（页面要 JS）；上面的结论只对 Android 文档成立，若要把原话写进仓库，应以 m3.material.io 为准再核对一次，或明确写“依据 Material Components Android 文档”。
+
+## 19. Butterick's Practical Typography
+（原文里夹着软连字符 U+00AD，逐字比对时要先去掉，否则会误报找不到；已处理。）
+- Line length：“45–90 characters”一致。原文标题 “line length 45–90 characters or 2–3 alphabets”，正文 “Aim for an average line length of 45–90 characters, including spaces.” 草稿第七节与 PL-5 写“45 到 90 个字符”一致；“是拉丁文的数”：原文没有写“拉丁文”，但 2–3 个字母表的判法与“包含空格的字符数”确实只对字母文字成立，草稿不给中文字数的做法没问题。
+- Alternate figures：
+  - “are essential for … vertically aligned columns”（第七节、PL-3）：一致。原文 “But tabular figures are essential for one purpose: vertically aligned columns, like you find in grids of numbers.”
+  - “proportional figures are preferred”（PL-3）：一致。原文 “In body text, proportional figures are preferred because they tend to have more even spacing and a more consistent appearance.” 与草稿“正文里的数字不用 tabular”一致。
+  - 语境提示：Butterick 只说“上下成列对齐的数字要等宽”，没有说“就地变化的计数、进度、计时”。PL-3 把范围扩到“会就地变化的数字”（防止数字变化时左右跳）是草稿的引申，依据栏只能支持“成列”那一半。
+
+## 20. 汇总
+全部出处都已重新取回；没有取不到的页面，只有两处例外：m3.material.io 两个网页本次没取（草稿自己也说要 JS，改读了 Android 文档，结论只对该文档成立）；Hyman 1953 的年份没有查原始论文。
+
+### A. 引号里的话原文里找不到（意思大体在，但引文不是原句；要改成原文或去掉引号）
+1. 第一节 FB-1 依据（第 101 行）：“feedback that arrives quickly”（NN/g 十条）。原文：“Present feedback to the user as quickly as possible (ideally, immediately)”。
+2. LY-1（第 63、196 行）：“Larger gaps between groups than within them (signal separation)”（NN/g 接近）。原文最接近：“elements spaced apart are perceived as belonging to separate groups”，以及括号里 “a minimal amount of spacing between a top-aligned label and its corresponding form field makes that relationship apparent compared to a larger margin before the next label-field pair”（这一句草稿引对了）。
+3. LY-2（第 200 行）：“Full-width bordered sections can also create false floors”（NN/g 共同区域）。原文：“segmenting a page into distinct sections can create false floors … especially common when borders extend the full width of the screen”。“false floors”两字本身是原文的。
+4. LY-4（第 208 行）：“ordering by frequency of use helps”（NN/g 费茨）。原文：“you may consider ordering items according to their frequency of use (with the most frequently accessed ones at the top)”，语境是线性菜单里各项到菜单把手的距离，不是常驻动作与低频收起。
+5. TG-2 / 第五节（第 69 行）：“the visible area should match the clickable area”（NN/g 费茨）。原文没有这句；最接近：“If people don't realize that a target is padded, they will still slow down … to make sure they hit the visible area”。
+6. TG-3（第 224 行）：“Place controls used in sequence close to each other, but not so close that they crowd each other”（NN/g 费茨）。原文小标题 “Place Related Targets Close to Each Other”，正文 “If you know that a set of controls will be clicked in a certain order, place them close to each other (but not too close — see guideline above)”。
+
+### B. 没有出处的断言
+7. LY-4（第 208 行）：“NN/g 明确反对‘导航只能 7 项’的说法”。在 lawsofux 希克页、NN/g 视频页、NN/g 费茨一文、NN/g menu-design 一文里都搜不到；需要补出处或删掉。
+8. FB-4：“播报区在结果出现之前就已挂载”不在 WCAG 4.1.3 的 Understanding 文档里（那里只有 role=status / role=alert 的情形划分，以及 Failures 里的 “Using role=alert … on content which is not important and time-sensitive (future link)”）；依据栏不要挂在 WCAG 名下。
+9. TX-3“不用‘哎呀’这类感叹词”不是 HIG 的话（HIG 只说 Avoid using we）；TX-1“补充解释不放链接”、TX-5“筛选造成的空要给‘清除筛选’”也不是 NN/g 原文，是草稿推导。
+
+### C. 引文本身对，但用法比原文宽或语境不同（建议在依据栏措辞上收窄）
+10. FB-2 依据 HIG 动效 “don’t make people wait”：原文说的是不要让人等动画播完，不是耗时操作的进度反馈。建议删掉这条依据。
+11. MO-2 依据 “Let people cancel motion”：原文只要求不必等动画结束；“反向触发折返到正确终态、transition 不用 keyframes”是草稿的工程要求。
+12. FB-1 的“下一帧就有变化”：NN/g 响应时间 0.1 秒的原话是 “no special feedback is necessary except to display the result”，下一帧是本稿定的更严要求。
+13. FB-3 依据 HIG “Show people when a command can’t be carried out…”：原文情形是命令发出后被拒绝并说明，不是控件事先停用。
+14. LY-3：NN/g 相似原文只说“主要行动要保留单独一种颜色”，没有“一块区域至多一个主按钮”。
+15. TG-2：NN/g 费茨对隐形扩区只说“用户看不出来仍会放慢”，没有禁止；草稿的“不靠隐形内边距”更严。
+16. AX-2：WCAG 1.4.11 Understanding 写明带文字等可见内容的控件不需要边框或底色对比（只要求焦点指示对比）；“没有边框的，底色对相邻色至少 3:1”会比 WCAG 更严，仅适用于靠底色辨认的输入框一类。“2.4.13 至少 2 像素周长”措辞含糊，原文是“面积不小于 2 CSS 像素粗的外框面积”。
+17. MO-7 / 第二节：WCAG 2.3.3 的 “motion animation” 定义是 “does not include changes of color, blurring, or opacity which do not change the perceived size, shape, or position of the element”，草稿只写“颜色、透明度”，漏了 blurring 与限定条件；“取消模糊过渡”来自 HIG，不是 WCAG。
+18. PL-3 依据 Butterick：原文只管“上下成列”，草稿扩到“就地变化的数字”。
+19. 第四节决定 2：WCAG 1.4.3 的豁免除“装饰、停用控件”外还有“看不见的、图片中的字、标志与品牌名”。
+
+### D. 数字与条目号核对结果（全部一致）
+- WCAG：2.5.8 AA 24×24 与间距例外（24 像素圆）；1.4.3 AA 4.5:1 与大字 3:1（18pt/14pt 粗体 = 24/18.66 像素）；1.4.11 AA 3:1；2.4.11 AA；2.4.13 AAA（2 像素粗外框面积、聚焦前后 3:1）；4.1.3 AA；2.3.3 AAA；1.4.12 AA 四项（行高 1.5、段后 2、字距 0.12、词距 0.16）；2.5.5 AAA 44×44。
+- NN/g：0.1 / 1 / 10 秒；动效多数 100 到 500 毫秒、简单反馈约 100 毫秒、弹窗等大变化 200 到 300 毫秒、400 毫秒 “very slow”、500 毫秒 “real drag”；入场略长于退场。
+- Apple HIG（macOS）：缺省 28×28 pt、最小 20×20 pt。
+- Butterick：45–90 字符（含空格）。
+- Material：四种转场模式名与适用场景；16 档时长 50 到 1000 毫秒；standard 与 emphasized 两组缓动。

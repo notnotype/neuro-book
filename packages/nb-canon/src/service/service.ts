@@ -26,7 +26,6 @@ import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor, renderSourceForAuthor, type RenderOptions} from "../render/entry";
-import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
 import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
 import {editEntries, previewEntries, type EntryEditResult, type EntryEdits} from "../world/entry-edits";
 import {marksIn} from "../world/references";
@@ -869,9 +868,9 @@ export class WorldService {
                 const read = this.#entryOn(world, id, ok.position, mode);
                 return typeof read === "string" || read.view === null ? read : {...read, view: {...read.view, upcoming: []}};
             },
-            render: (entry, position, mode, audience) => {
+            render: (entry, position, mode, audience, block) => {
                 const ok = within("render", position);
-                return ok === "view-denied" ? ok : this.#renderOn(world, entry, ok.position, mode, audience, {hideUpcoming: true});
+                return ok === "view-denied" ? ok : this.#renderOn(world, entry, ok.position, mode, audience, {hideUpcoming: true, ...(block === undefined ? {} : {block})});
             },
             lookup: (names, position) => {
                 const ok = within("lookup", position);
@@ -1156,8 +1155,9 @@ export class WorldService {
         };
     }
 
-    render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent") {
-        return this.#renderOn(this.#world, entry, position, mode, audience);
+    /** 渲染条目的主文字；给了 `block` 只渲染那一块（`RenderOptions.block`）。 */
+    render(entry: string, position: ReadPosition, mode: Mode, audience: "author" | "agent", block?: string) {
+        return this.#renderOn(this.#world, entry, position, mode, audience, block === undefined ? {} : {block});
     }
 
     /** 把一段没提交的源文字当作条目的主文字渲染给作者（方法表 `renderSource`，rendering.md 输出 16）；只读。 */
@@ -1273,10 +1273,6 @@ export class WorldService {
      */
     previewEdit(input: EditPreviewInput): EditPreview {
         return previewEdit(this.#world, input, this.#ports.now());
-    }
-
-    writeBack(input: WriteBackInput, token?: string): Promise<WriteBackResult | {readonly ok: false; readonly failure: ServiceFailure}> {
-        return this.#write(token, (world) => writeBack(world, input, this.#ports.now()));
     }
 
     revert(target: string, withDependents: boolean, meta: RevertMeta, token?: string) {

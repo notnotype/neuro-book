@@ -337,7 +337,8 @@ Agent 有一个 eval 工具（[代码执行](../../../docs/specs/agent/eval.md)�
 - **对象**：在 `plugin.ts` 里用 `/agent` 的 `evalObject` 声明，``plugin.descriptor([evalObject(`${plugin.id}.stats`, {name: "stats", summary: "一行摘要", docs: "给模型读的说明"})])``。只有声明，不用入口与激活。`name` 是代码里的全局名，与内核给的名字（`tool`、`display`、`console`、`require`）或 JS 的全局（`Math`、`process`）重名的不登记；两个插件登记同名对象时两个都不登记，诊断里写明两方。
 - **方法**：每个方法是一个工具，用 `agentTool` 写在服务端入口，声明里多一个 `global: {object: "stats", method: "count"}`；`global.object` 要是同一插件登记的对象。这样的工具不进模型的工具清单，只能在代码里调；审批、规则、参数校验与日志都按方法走，和别的工具一样，会写文件的方法照常要用户批准。
 - **交回的值**：声明了 `returns`（JSON Schema）的方法，代码拿到的是结果的 `details`（照 `returns` 校验过）；没声明的拿到结果文字。方法收一个参数对象。
-- **文档**：`nbook.agent` 为每个对象生成 `docs://eval/<名>.md`：摘要、`docs`、每个方法由 `parameters` 与 `returns` 生成的 TypeScript 签名加它的 `description`。eval 的说明里只放一行摘要与这个地址，模型用之前去读。只有绑定了至少一个方法的会话里才列出这个对象。
+- **失败详情**：失败时代码拿到的 `ToolCallError` 有 `code`；想让代码拿到结构化的失败详情（例如候选列表），在声明里写 `errors: {<码>: <JSON Schema>}`。只有这里列出的码、结果的 `details` 照它校验过且序列化后不超过 8 KB 时，`ToolCallError.details` 才有值；不合格或太长的不带，说明末尾写明，并记一条诊断。
+- **文档**：`nbook.agent` 为每个对象生成 `docs://eval/<名>.md`：摘要、`docs`、每个方法由 `parameters` 与 `returns` 生成的 TypeScript 签名加它的 `description`，声明了 `errors` 的再按码列出 `details` 的形状。eval 的说明里只放一行摘要与这个地址，模型用之前去读。只有绑定了至少一个方法的会话里才列出这个对象。
 
 ### 作者可用的内置命令
 

@@ -1,7 +1,7 @@
 /**
  * 视图命令（docs/specs/ui/workbench-layout.md 输出 23、35，docs/specs/workbench/views.md 输出 14）。打开视图：显示它所在的面板、激活；不给 `viewId` 时经选择挑一个。
  * 移动视图（commands.md 的 `move-view`）：分节标题与浮动窗视图标签的“移动到”带 `{viewId, container}`（容器 id）或 `{viewId, newContainerIn}`（区域名）直接执行；
- * 命令面板执行 `{}`，经选择先选视图、再选目标，第二步的目标表与菜单同一份（`moveTargetsOf`）。
+ * 命令面板执行 `{}`，经选择先选视图、再选目标，第二步的目标表与菜单同一份（`moveTargetsFor`）。
  *
  * 选择之间目标容器没了（没有成员也没有声明），按 `stale-target` 拒绝且不写。
  */
@@ -95,14 +95,23 @@ function resultOf(result: LayoutResult): CommandResult<null> {
 
 const isPlaced = (store: LayoutDocStore, viewId: string): boolean => findTab(store.actions.document(), viewKey(viewId)) !== null;
 
-function targetsFor(store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null {
-    const movable = store.state.catalog.get(viewId)?.movable !== false;
-    return movable ? moveTargetsOf(store.actions.document(), viewId, store.state.catalog, store.state.containers) : null;
+/**
+ * 这个视图此刻的“移动到”目标（输出 23），菜单（`WorkbenchShell.vue`）与命令面板第二步读同一份：目标表里此刻提交会被拒的（位置限制，views.md 输出 22）不列。
+ * 视图不让移动、不在文档里时是 null。
+ */
+export function moveTargetsFor(store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null {
+    return candidateTargets(store, viewId)?.filter((target) => store.actions.permitsMoveView(viewId, moveTargetItem(target).args)) ?? null;
 }
+
+const candidateTargets = (store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null =>
+    store.state.catalog.get(viewId)?.movable === false ? null : moveTargetsOf(store.actions.document(), viewId, store.state.catalog, store.state.containers);
+
+/** 命令面板第一步只要知道有没有一个会被收下的目标：每个目标都是一次整份文档的试算，找到一个就停（几十个视图时逐个全算要上秒）。 */
+const hasMoveTarget = (store: LayoutDocStore, viewId: string): boolean => candidateTargets(store, viewId)?.some((target) => store.actions.permitsMoveView(viewId, moveTargetItem(target).args)) === true;
 
 async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick): Promise<CommandResult<null>> {
     const {catalog} = store.state;
-    const movable = [...catalog.keys()].filter((viewId) => isPlaced(store, viewId) && targetsFor(store, viewId) !== null);
+    const movable = [...catalog.keys()].filter((viewId) => isPlaced(store, viewId) && hasMoveTarget(store, viewId));
     const pickedView = await quickPick.pick({
         title: TEXT.pickView,
         placeholder: TEXT.pickView,
@@ -112,7 +121,7 @@ async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick): Promise
     if (pickedView.kind === "unavailable") return {ok: false, code: "unavailable", reason: pickedView.reason};
     if (pickedView.kind !== "item") return DONE;
     // 第二步的目标表按第一步选完时的文档求。
-    const targets = targetsFor(store, pickedView.id);
+    const targets = moveTargetsFor(store, pickedView.id);
     if (targets === null) return {ok: false, code: "stale-target", reason: TEXT.stale};
     const items = targets.map(moveTargetItem);
     const pickedTarget = await quickPick.pick({

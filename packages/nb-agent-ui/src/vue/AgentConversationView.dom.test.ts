@@ -123,6 +123,13 @@ describe("AgentConversationView", () => {
         view.unmount();
     });
 
+    it("消息流带 data-nb-agent=\"skip\"，输入框不在它里面（边界与兼容）", () => {
+        const view = mountView("zh-CN");
+        expect(view.get("[data-agent-stream]").attributes("data-nb-agent")).toBe("skip");
+        expect(view.get("[data-agent-composer]").element.closest("[data-nb-agent='skip']")).toBeNull();
+        view.unmount();
+    });
+
     it("宿主注入了翻译端口时语言以端口为准，locale 不起作用；端口换语言，不重新挂载就跟着换", async () => {
         const translator = createMinimalTranslator({catalogs: {[NB_UI_NAMESPACE]: NB_UI_CATALOGS, [NB_AGENT_UI_NAMESPACE]: NB_AGENT_UI_CATALOGS}, strict: true});
         const locale = ref("en-US");

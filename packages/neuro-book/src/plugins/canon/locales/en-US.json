@@ -78,7 +78,7 @@
             "title": "Character"
         },
         "panel": {
-            "title": "Panel"
+            "title": "Stats"
         },
         "look": {
             "title": "Look"
@@ -127,8 +127,38 @@
         "fieldRenamed": "Renamed “{{from}}” to “{{label}}” on {{name}}",
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
         "fieldRestored": "Restored “{{label}}” on {{name}}",
+        "views": {
+            "card": "User view",
+            "agent": "AI view",
+            "raw": "Raw view",
+            "agentPosition": "Viewing: {{position}}",
+            "rawHead": "As stored; doesn’t follow the viewing position",
+            "initial": "Initial value",
+            "initialNone": "Not in the initial value",
+            "changes": "Story changes ({{count}})",
+            "changesNone": "No story change touches this group",
+            "more": "Show {{count}} more",
+            "failed": "Couldn’t read it: {{reason}}",
+            "retry": "Retry"
+        },
+        "addGroup": {
+            "search": "Search settings groups",
+            "fits": "For {{kind}}",
+            "canon": "Settings",
+            "plot": "Plot",
+            "other": "Plugins",
+            "added": "Added",
+            "none": "No settings group called “{{query}}”",
+            "title": "Add settings groups",
+            "submit": "Add {{count}}",
+            "submitNone": "Add",
+            "presets": "Presets",
+            "list": "Settings groups"
+        },
         "addComponentShort": "Add a settings group",
         "groupAlreadyAdded": "This settings group is already on the entry",
+        "groupAlreadyAddedNamed": "The “{{name}}” group is already on the entry",
+        "groupsAdded": "Add the {{names}} groups",
         "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
     },
     "position": {
@@ -153,6 +183,7 @@
         "label": "{{label}}: {{value}}",
         "blockFailed": "This block could not be rendered: {{reason}}",
         "deletedRef": "deleted entry",
+        "needsPlugin": "needs a plugin",
         "listSeparator": ", ",
         "yes": "yes",
         "no": "no",
@@ -172,8 +203,6 @@
         "basisDerived": "Derived from a check",
         "editStep": "Edit this step",
         "failed": "Could not read the history",
-        "where": "Where",
-        "what": "What happened",
         "delta": "Change",
         "result": "Result"
     },
@@ -185,9 +214,9 @@
         "notesMore": "{{count}} earlier notes not shown"
     },
     "panel": {
-        "empty": "This panel has nothing yet",
+        "empty": "No stats yet",
         "ledger": "Ledger for {{label}}",
-        "cards": "Panel values"
+        "cards": "Stat values"
     },
     "plot": {
         "empty": "No plot touches it yet",
@@ -250,7 +279,7 @@
         "delta": "Change",
         "text": "What happened",
         "deltaPlaceholder": "+300 or -200",
-        "textPlaceholder": "e.g. got paid",
+        "textPlaceholder": "What happened",
         "submit": "Record",
         "saved": "Recorded: {{text}}"
     },

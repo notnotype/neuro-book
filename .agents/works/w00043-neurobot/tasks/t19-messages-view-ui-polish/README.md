@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t19-messages-view-ui-polish
-status: active
-updated: 2026-11-25
+status: done
+updated: 2026-11-26
 ---
 
 # 消息视图界面优化：头像列位置、列表入口、会话图标、消息样式与头
@@ -49,6 +49,8 @@ updated: 2026-11-25
 
 13. 提案第三稿接受（开发者 2026-11-25 答“同意”），不再审第三轮；下一步写 Spec（planned）与 `plan.md`，计划交设计审查（前端 Sonnet，网格与布局记录部分 gpt）。
 
+14. 浮动窗里拖视图段内侧的轨宽手柄时，窗的右边不动、左边往外长，手柄跟着指针（开发者 2026-11-26 在选择框里选了推荐项“窗的左边往外长”）；写进 Spec 输出 51 的“矩形”。
+
 ## 当前状态
 
 - 草稿在草稿 worktree `.worktree/w00043-t19-drafts`（分支 `w00043-t19/drafts`，不合并）：直接在 `AgentMessages.vue` 里按 `globalThis.__msgDraft` 切变体，开发服务的真实页面上看（头、区域入口条与左边活动栏只在真实页面里有）；“头像列通到顶”的版本由截图脚本改入口条的样式摆出来。假模型端点造的三段对话。原图在本地 `shots/r1/`。
@@ -80,10 +82,22 @@ updated: 2026-11-25
 - 测试第 B 段交回（报告与处理 [`evidences/e2e-segment-b-report.txt`](evidences/e2e-segment-b-report.txt)）：21 条新用例与 10 个文件的迁移，快进并入；报的两处产品缺陷一处成立（视图在从零拉出的手势中加载会打断手势，投影改为只读侧轨预算的两个数，`1037f2f9d`），一处是用例与输出 45 不符（已改用例）；加载失败时右轨按收着呈现写进 Spec 输出 50。剩下预期失败的是消息视图的 5 条（片 7）与原有的 files-explorer:629。
 - 片 7（消息视图停靠在右轨的部分；片 6 等 w00026 t60，顺序调到它前面）四个提交：`69be05bba` nb-agent-ui 新组件 `AgentMessagesSegment`（收着：bot、短线、新对话与最近会话、底段两个按钮，按中段高度截几项 `src/messages-segment-fit.ts`；展开：完整列表淡入）、`AgentMessages` 改成聊天区加视图段（`placement` 为 `rail`/`edge`/`none`，同一实例只换 `Teleport` 去处）、列表的 `v-model:botQuery`、`focusSearch` 与搜索框 `Esc`；宿主声明 `confinedTo` 与视图段（260、200–420、聊天下限 320），头恒接管标题区、左列不画“新建”、按标题不开列表，首屏盖层加“全部 bot”，去掉宽窄版式记忆与旧 Lab 场景；`7b166b1ff` 最近会话改用与第一屏共用的独立查询，画出来、换会话、面板重取、窗口回到前台与每 15 秒重取；`e1cbca0de` 揭示通道（就是 `nbook.view.open`：显示右栏、退出盖着的最大化；先选后揭示，只有最后一次给焦点）与命令“搜索会话”；`f3d59240f` 去掉列表里不再用的 `windowDrag`。nb-agent-ui 全包 230 条、agent 插件 624 条单测与 76 条 dom、Lab 夹具登记、两个包的类型检查、治理与文档检查都过；变异 4 处都被抓住。开发服务真实页面看了收着、展开（编辑组让出、“会话历史”按下）与揭示（隐藏右栏后点右轨的会话，右栏回来并打开它）。
 - 片 7 前端实现审查（Sonnet）9 条（重要 5、建议 4），处理见 [`evidences/impl-review-7-sonnet.txt`](evidences/impl-review-7-sonnet.txt) 末尾，修正 `49ab9a56d`；搬动后的焦点与滚动、浮动窗里的收起挪进片 6。
-- 已派（后台）：测试第 C 段第 1 部分（消息视图的 e2e，Sonnet 编码子代理，`/tmp/review-t19-e2e/segment-c1.md`）。段 C 跑 e2e 期间主会话不构建、不跑 e2e。
-- 下一步：片 6（浮动）。
-- 写底层提案（右栏入口条竖排成侧轨、视图段、展开、位置限制、浮动），要点先给开发者看，再交 omp `@review` 审一轮（开发者要求改底层要 gpt 审）；之后写 Spec（planned）与 `plan.md`，在 Work worktree 实现。左右整列对调另开 Task。
-- 顾问报告 [`evidences/advisor-omp-gemini.txt`](evidences/advisor-omp-gemini.txt)（omp gemini-4-neon-xhigh）、拉远看 [`evidences/zoom-out-review.txt`](evidences/zoom-out-review.txt)（Sonnet），说明 [`evidences/advisor-object.md`](evidences/advisor-object.md)。两份一致的：轨的条目用声明式数据由工作台画、不用 Teleport 送 DOM；不在布局树里加条节点（w00026 t27 `strip-1` 丙“右栏右边一条活动栏”当时就因六处冲突没选，开发者选了卡片顶上一行）；窄版完整列表用搜索优先的切换浮层，管理放到宽处。拉远看另建议左右对调另立提案、先出“头像列留在视图里不画线”的对照。已归纳给开发者；开发者 2026-11-25 同意按归纳的方向出稿。
-- 评审板第 3 轮（取代第 2 轮两题）：`rail-kind` 甲 工作台的侧轨（推荐）对 乙 头像列留在视图里贴右边、无竖线、底色深一档；`list-switcher` A 锚在按钮旁的浮层（推荐）对 B 顶部居中的 QuickPick；附左右对调整窗稿（对调另开 Task）。稿面修了：接缝按相连画、聊天区铺满、当前会话改描边只突出一层、底部图标换成机器人与搜索列表。原图在本地 `shots/r3/`。
-- 第 2 轮答复后：侧轨涉及工作台骨架（ADR 0044、`ui/workbench-layout.md` 输出 1、22、47），先写提案；窄版列表交互出稿比较；消息样式随后一轮。
-- 协调（2026-11-26，w00026 的会话留）：[w00026 t60 浮动窗的几何接口](../../../w00026-layout-package/tasks/t60-float-geometry/README.md) 会先改 `nb-layout` 的 `grid-rects.ts`（`clampFloatRect` 的 `area` 可带原点、`resizeFloatRect` 的 `bounds.area`）、`FloatWindowHandles`（`area` 属性、`commit` 的第二个参数 `direction`：这次动的边）、`NestedGrid`（手柄层不随抬升搬节点、`float-raise` 事件、expose `leafRect`、`GridFloatInput.animate`：落实 nested-grid 输出 105 的 planned 指引）与 `grid-motion.ts`（松手的起点）。本 Task 第 6 片的“窗的手柄只结算动的边”“程序宽度过渡”请变基后直接用 `direction` 与 `animate`，不另做一套；有冲突或形状不合用，在 t60 的 README 里留话。
+- 测试第 C 段第 1 部分交回（报告与处理 [`evidences/e2e-segment-c1-report.txt`](evidences/e2e-segment-c1-report.txt)）：新文件 `agent-messages-rail.e2e.ts` 17 条，改写 `agent-conversation`、`lab-agent-ui`（旧分栏换成 14 条侧轨用例）、`bots-chat`、`text-selection`，已并入。它报的 5 处里 3 处是产品问题已修（点 bot、新对话后的输入框焦点；被预算拒绝时展开按钮标“窗口太窄”），2 处是 Lab 夹具不转发 expose（已修）。复跑只剩预期的片 6 那条；两处否定断言补了变异。
+- 2026-11-26：w00026 t60 已合入 master，片 6 开工。master 并进 Work 分支（`29f552700`，只有 `NestedGrid.md` 一处文字冲突，两边的句子都留；master 上 w00056 t06 的 Lab 草稿还传着片 3b 删掉的 `WorkbenchRegionStrip` 的 `variant`，在分支上删掉那一行并在 t06 的 README 留了协调说明）。片 6 拆四段：第 1 段 `b40104617` 浮动窗里的视图段（单标签视图窗给 `window` 位置；展开写窗上的意图，画出来的窗加宽、这一次走布局过渡、靠右往左挪、放不下标“窗口太窄”；缩放落账只取动的边、减回展开的宽；`setFloatRail` 导出并补单测；消息视图在窗的右边缘画展开按钮、顶格让给“回到停靠”，换位置后恢复焦点与滚动），store 单测与两处变异、开发服务上看了浮出与展开。剩下：第 3 段右轨没有内容的叶离场保留，第 4 段视图段在过渡层里飞。第 2 段 `bd7c9db5a`：浮动窗的轨宽手柄（`WorkbenchFloatRailHandle`，画在窗的零件层，手势同右轨的 `useRailHandle`；拖动中右边不动、左边跟着长，按开发者第 14 条），store 单测与变异；开发服务上拖了 40 像素，右边停在原处、左边与手柄跟着走。中途开发服务的模块是旧的（布局库加了新导出，Vite 缓存了包解析），重启后正常。
+- 片 6 第 3、4 段取消（已记待确认清单）：第 3 段先按计划做了 `NestedGrid` 的 `keepLeaving` 名单（`f64d257e6`，单测与变异都过），到开发服务上探针才看出侧轨跟着右区，只在右区没有分节时才离开，那时它和右区的卡片一起离开、两侧兄弟不合拢，名单不生效；右区还有别的容器时，会话视图浮出去侧轨也留着，视图段随窗的内容一起飞。撤回提交 `c51e70e77`，master 上 nested-grid 那句 planned 也撤回（`749313021`、`6f600729a`）。探针都在开发服务上跑，跑完布局按叶与入口逐项对照起点恢复。
+- 写第 C 段第 2 部分的说明时发现：浮动窗里展开被预算拒绝后按钮上什么都看不出（`window` 位置只带宽度）。`7e660d554` 让它带上 store 算好的 `tooNarrow`，视图段底下的展开按钮照右轨的写法给“窗口太窄”（`data-rail-too-narrow`、读屏描述）；dom 测试与一处变异。Spec 输出 51 的“过渡”改成视图段随窗飞、右轨跟着右栏（master `aebaecd74`，planned）。
+- 测试第 C 段第 2 部分交回（报告与处理 [`evidences/e2e-segment-c2-report.txt`](evidences/e2e-segment-c2-report.txt)）：新文件 `agent-messages-float.e2e.ts` 11 条，改写 `agent-conversation`、`workbench-shell` 各一条。它报的两处产品缺陷都修了：浮动窗位置只有“窗口太窄”变了也换引用（`94793b9d2`）；搬动后焦点丢，根因三层（右轨的元素先被拆掉、工作台的焦点规则把焦点交给了别处、归位中途位置是 none 时展开的列表被卸掉重建），视图段改成平时就记焦点与滚动、none 时藏起来不卸载，外壳在 none 时不改展开状态（`9e5bf637a`、`25388f245`、`e42d450ea` 及其前一个提交）。浮动与右轨两个文件 28 条全过；相关四个文件 129/130，剩下的 lab-agent-ui:572 是原有失败。e2e 分支快进并入（`1c5ccbc20`）。
+- 片 8 第 1 段：右栏两个容器的右轨宽度不同时切换不画原地滚动、整次走布局过渡（`6a4fa7d72`，store 的 `railWidthOf`；单测与变异，按切过去之后的布局算预算那半句的变异活着，测试视图的约束相同测不出，用例名只写测到的）；e2e 补“整个过程没有 data-swap”（`1c5ccbc20`，变异后 352 帧带交换、失败）。
+- 片 8 第 2 段：`layout-frames.ts` 加 rail-expand、rail-drag、float-dock、rail-switch 四个场景（`24de59aa8`）；对比基线时拖分隔线多 15%，拆来源是右轨排焦点对没变的值也写 `tabindex`（每帧 3 条），改成先比较再写（`1474d48ac`）。修正后拖分隔线 100%、浮出归位 104%；改窗口大小的写入 115%、样式重算 110%，拆来源是右轨占了宽度、编辑区的 Markdown 工具条更窄、两档宽度间收放的按钮更多，单独跑改窗口大小时分支反而更少（48 对 51），判为版式造成、不改。证据 [perf-slice8.txt](evidences/perf-slice8.txt)。
+- 片 8 真实页面检查（开发服务样例作品，Chrome 不减弱动效，逐帧取矩形）：停靠时展开、收起、拖轨宽、双击回缺省、浮出、归位都有过渡、没有报错，探完布局与起点一致。查出一处：浮动窗里展开时视图段一次到 260、窗的宽度才开始过渡，聊天区从 412 被挤到 200 再长回来（收起时反过来撑宽）。改成展开、收起的过渡中聊天区按改之前的宽固定，视图段按新宽停在最终位置、由窗的右边露出或盖住（`0dd44a503`）；只改宽度的手势不固定（先按任何换宽都固定时，拖手柄那几帧窗与视图段差一帧，聊天区被固定在差 5 像素的宽上半秒）。改后四种操作逐帧聊天区都是 412。Spec 输出 51 的“过渡”补了这一句。
+- 已派（后台）：e2e 补“浮动窗展开收起的过渡中聊天区宽度不变”并变异（Sonnet 编码子代理，说明 `/tmp/t19-e2e-d/brief.md`，e2e worktree 已快进到 `0dd44a503`）；收口实现审查（Sonnet，说明 `/tmp/review-t19-close/brief.md`，审片 6、片 8 与第 C 段修正共 17 个提交，外加整个 Task 与 Spec 的一致性）。验收映射逐条对过，都有用例。
+- 收口实现审查（Sonnet）8 条：重要 2、建议 6，处理见 [`evidences/impl-review-close-sonnet.txt`](evidences/impl-review-close-sonnet.txt) 末尾，修正 `27b572dd2`。重要的两条：轨宽不是缺省时键盘移动与整窗拖动让浮动窗漂（画出来的位置没换回记录，三处改成共用一个换算，用例与变异）；减少动态效果时固定聊天区量到的是新窗宽（改成平时由 ResizeObserver 记下，真实页面对照待做）。Spec views 输出 21 跟上实现（`window` 带 `tooNarrow`、`none` 时不改展开状态、“不抢回”限定为用户自己挪走的）。交开发者知悉：浮动窗展开放不下时整个按收着呈现，右轨则给能给的宽，两者不一致（Spec 原文如此，要对齐另开 Task）。
+- e2e 补段（Sonnet）交回 `928679c39`：不减弱动效、逐帧断言展开收起时聊天区宽不变、视图段左边不动、窗宽有中间值；变异（去掉固定）时聊天区掉到 200、失败。报告 [`evidences/e2e-segment-d-report.txt`](evidences/e2e-segment-d-report.txt)。它整份跑时原有两条（展开收起、靠右夹取）稳定失败，正是收口审查第 5 条：减少动态效果时固定的宽量错、走 30 帧兜底，`27b572dd2` 已改。并回 Work 分支（`ad4299a97`）重建后整份 12 条全过；新用例重复 10 遍在负载 13–15 时 5 遍失败，都在“窗宽至少 3 个中间值”的防空过上（主线程忙时过渡只剩一两帧），改成至少 1 个（`767b9c596`），负载 12 时 10 遍全过。开发服务上对照：减少动态效果时一帧到位、聊天区 412 不变；不减弱时逐帧 412，最后一帧差 1 像素来自放开容差，改回半像素（`9649ad865`）后逐帧都是 412。
+- 合入前的 e2e 清单（16 个文件、378 条，负载 10 上下）：366 过、12 败。原有 7 条（`themes` 241、397、601 四条，`lab-agent-ui:572`）；负载 4 条（`lab-agent-ui` 140、1110、1121 场景冷启动超时，`agent-messages-float:438` 过渡没采到中间帧），负载 3 时单独重跑全过；产品缺陷 1 条 `workbench-containers:1770`：右轨收着有视图段时，入口带按自己此刻的高算能摆几项，拖进来的预览入口永远放不下、被收进“更多”（`0dd44a503` 上同样失败，片 7 起就有、第 C 段没跑这个文件）。改成按能长到的高算（收着时加上视图段 `main` 让得出的，展开时条目区跨到空着的那一行），`0accb9875`；1770 与 `workbench-side-rail`、`workbench-side-rail-segment`、`agent-messages-rail` 55 条全过，变异（不加让出的）时 1770 失败。展开状态那半没有用例。
+- 类型检查（neuro-book、nb-agent-ui）过。并 master 两次后工作台 bun 606 条、工作台与 agent、Lab 的 vitest 231/232、nb-agent-ui vitest 229 条过；失败的一条是 Lab 场景分层输入契约里 `ComponentRawView` 三个场景（canon 的，master `a0a2a073c` 上同样失败，不属本 Task）。
+- **已合入 master（`1efeea066`）**。删了基线 worktree `.worktree/w00043-t19-base` 与 e2e worktree、分支 `w00043-t19/e2e`。草稿 worktree `.worktree/w00043-t19-drafts` 还有 4 个未提交的草稿文件（原型，按规矩不提交），留着，开发者说删再删。
+- 反思回写：nb-ui `design-language.md` 踩过的坑 85（按自己此刻的高算放得下几项）、86（外框过渡改宽时旁边那栏被挤窄再撑回，以及减少动态效果下量错的时机）；Agent 记忆一条（layout-frames 写入数先按来源拆）。
+- 待开发者：Spec 晋升（workbench-layout 输出 50、51，views 输出 21、22，nested-grid 输出 105，conversation 输出 57 仍是 planned），批准后先逐句核对再改成 implemented；浮动窗展开放不下时整个按收着、右轨给能给的宽，两者不一致（Spec 原文如此），要对齐另开 Task。
+- 开发者 2026-11-27 看了合入后的页面，提 6 点：1 浮动窗展开着拖动整窗变小，头上控件的摆放能否优化；2 归位后再浮动不记得尺寸，好不好做；3 展开按钮没和别的按钮对齐，浮动窗里的“回到停靠”也没对齐；4 停靠展开时列表与聊天区之间的蓝线太粗；5 停靠时右边那条侧轨能不能优化；6 展开后的列表重做。e2e 环境探针截图在本地 `shots/fb1/`。
+  - 1、3、4 是缺陷，已修（`58d836381`，合入 master `a6e6cc018`）：整窗拖动开始时给预览的是记录的矩形（收着的宽），改成画出来的；展开按钮在收着的右轨上贴外缘、比一列中线偏 5px，浮动窗的展开按钮上下间距比别的多 4px、“回到停靠”离右缘 8px 偏 3.5px，都对到同一条中线；两个轨宽手柄亮起时涂满 6px 命中区，改成与网格分隔线同样的线芯（`--sash-line-*`，悬停 250ms 渐显）。e2e 新增两条（`agent-messages-float` 的“展开着拖动整窗”“收着的一列按钮中线对齐”），三处变异都被抓到；`agent-messages-float`、`agent-messages-rail`、`workbench-side-rail` 三个文件 46 条过。手柄线粗细没写用例（纯样式）。
+  - 2、5、6 与头上控件的摆放是设计问题，已在会话里给出判断与方案，等开发者定。

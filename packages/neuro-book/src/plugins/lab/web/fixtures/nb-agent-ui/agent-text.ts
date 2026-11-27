@@ -3,7 +3,7 @@
  * 而 Lab 窗口的端口跟着窗口的语言走；场景要看哪种语言由场景输入里的 `locale` 决定（“英文界面”写 `en-US`，缺省中文），
  * 所以夹具按它另建一个宿主引擎（`createHostTextEngine` 登记了 nb-agent-ui 与 nb-markdown 的目录；对话里 Markdown 图片的
  * “不在作品里”是 `nbook.markdown` 的键，eval 卡片的文字是 `nbook.agent` 的，都另外登记），只注入给场景里的组件。做法同
- * `workbench-scene/workbench-text.ts`。
+ * `workbench/web/lab/workbench-text.ts`。
  */
 
 import {defineComponent, h, watch} from "vue";

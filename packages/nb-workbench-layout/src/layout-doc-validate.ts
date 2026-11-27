@@ -6,10 +6,14 @@
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
 import type {GridFailure, GridSnapshotNode} from "@notnotype/nb-layout";
 import {barOfRef, barRef, LAYOUT_DOC_VERSION, LAYOUT_MAX_FLOATS, panelOfRef, tabKey, treeLeaves} from "./layout-doc";
-import type {LayoutBar, LayoutDoc, TabRef} from "./layout-doc";
+import type {LayoutBar, LayoutDoc, LayoutFloat, LayoutFloatRect, PanelRecord, RailIntent, TabRef} from "./layout-doc";
 import {collidesWithPresentedIds} from "./presented-ids";
 
-export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc} | GridFailure<"unsupported-version" | "invalid">;
+/**
+ * 通过时的 `doc` 已归一；`repairs` 是归一时局部修掉的值（英文，给诊断用），没有修就是空的。修掉的值不让整份失效：
+ * 侧轨意图（输出 50 的“展开”）是界面偏好，坏一项只把那一项当缺省，其余布局照用；下次写入时写回的就是归一后的值。
+ */
+export type LayoutDocValidation = {readonly ok: true; readonly doc: LayoutDoc; readonly repairs: ReadonlyArray<string>} | GridFailure<"unsupported-version" | "invalid">;
 
 const FORBIDDEN_IDS = new Set(["__proto__", "constructor", "prototype"]);
 const BAR_NAMES: ReadonlySet<string> = new Set<LayoutBar>(["activitybar", "statusbar"]);
@@ -18,7 +22,7 @@ const isFiniteSize = (value: unknown): boolean => isObject(value) && typeof valu
 
 function validateNode(value: unknown, seen: Set<string>, depth: number): string | null {
     if (!isObject(value)) return "The node is not an object";
-    if (typeof value.id !== "string" || value.id === "" || FORBIDDEN_IDS.has(value.id)) return `Invalid id: ${String(value.id)}`;
+    if (typeof value.id !== "string" || value.id === "" || FORBIDDEN_IDS.has(value.id)) return `Invalid id: ${describeValue(value.id)}`;
     // 宿主按叶 id 认条（画活动栏、状态栏），条的叶 id 就是条名，别的节点不能叫这个名字；呈现里生成的 id 也不能撞。
     const bar = value.kind === "leaf" && typeof value.ref === "string" ? barOfRef(value.ref) : null;
     if (bar !== null ? value.id !== bar : BAR_NAMES.has(value.id)) return `Node ${value.id} does not match the bar name`;
@@ -45,11 +49,64 @@ const isTabRef = (value: unknown): value is TabRef => isObject(value)
 
 const isEntryList = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry !== "") && new Set(value).size === value.length;
 
+/**
+ * 修掉的值写进说明时的样子：数、布尔、null 写原值，别的只写种类。不对对象调 `String`：JSON 里的对象可以带自有的 `toString` 键，强制转换会抛错，
+ * 一个坏值就让整份记录读不了。
+ */
+function describeValue(value: unknown): string {
+    if (value === null || typeof value === "number" || typeof value === "boolean") return String(value);
+    if (typeof value === "string") return JSON.stringify(value.length > 40 ? `${value.slice(0, 40)}…` : value);
+    return Array.isArray(value) ? "an array" : typeof value === "object" ? "an object" : typeof value;
+}
+
+/**
+ * 一项侧轨意图的归一（输出 50）：`expanded` 只认 `true`，`width` 只认有限正数，别的值当没写；归一后没有字段的整项不要。
+ * 返回 null 表示整项丢掉；`where` 写进修掉的说明。
+ */
+function normalizeRailIntent(value: unknown, where: string, repairs: string[]): RailIntent | null {
+    if (!isObject(value)) {
+        repairs.push(`${where}: not an object`);
+        return null;
+    }
+    const expanded = value.expanded === undefined || value.expanded === true ? value.expanded : undefined;
+    if (value.expanded !== expanded) repairs.push(`${where}.expanded: ${describeValue(value.expanded)}`);
+    const widthOk = value.width === undefined || (typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0);
+    if (!widthOk) repairs.push(`${where}.width: ${describeValue(value.width)}`);
+    const intent: RailIntent = {...(expanded === true ? {expanded: true as const} : {}), ...(widthOk && value.width !== undefined ? {width: value.width as number} : {})};
+    const unknown = Object.keys(value).filter((key) => key !== "expanded" && key !== "width");
+    if (unknown.length > 0) repairs.push(`${where}: unknown fields ${unknown.join(", ")}`);
+    return intent.expanded === undefined && intent.width === undefined ? null : intent;
+}
+
+/** 锚上的 `rail`：只在区域的锚上，键在入口顺序里；修完是空的就整个字段不写。 */
+function normalizeAnchorRail(id: string, panel: Record<string, unknown>, repairs: string[]): Record<string, RailIntent> | null {
+    const where = `panels.${id}.rail`;
+    if (!isObject(panel.rail)) {
+        repairs.push(`${where}: not an object`);
+        return null;
+    }
+    const entries = isEntryList(panel.entries) && panel.name !== undefined && (panel.tabs as unknown[]).length === 0 ? panel.entries : null;
+    if (entries === null) {
+        repairs.push(`${where}: only a region anchor has one`);
+        return null;
+    }
+    const kept: Record<string, RailIntent> = {};
+    for (const [container, value] of Object.entries(panel.rail)) {
+        if (FORBIDDEN_IDS.has(container) || !entries.includes(container)) {
+            repairs.push(`${where}.${container}: not in the entry order`);
+            continue;
+        }
+        const intent = normalizeRailIntent(value, `${where}.${container}`, repairs);
+        if (intent !== null) kept[container] = intent;
+    }
+    return Object.keys(kept).length === 0 ? null : kept;
+}
+
 /** 形状的唯一权威（读记录时调）。工作台的 TypeBox 只管外层版本与字节。 */
 export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     const invalid = (message: string): LayoutDocValidation => ({ok: false, code: "invalid", message});
     if (!isObject(value)) return invalid("The document is not an object");
-    if (value.version !== LAYOUT_DOC_VERSION) return {ok: false, code: "unsupported-version", message: `Version ${String(value.version)}`};
+    if (value.version !== LAYOUT_DOC_VERSION) return {ok: false, code: "unsupported-version", message: `Version ${describeValue(value.version)}`};
     if (!isObject(value.tree) || value.tree.version !== GRID_SNAPSHOT_VERSION) return invalid("The tree version is wrong");
     const seen = new Set<string>();
     const nodeProblem = validateNode(value.tree.root, seen, 1);
@@ -109,7 +166,7 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
             if (panel.activeContainer !== null && !(isEntryList(panel.entries) && panel.entries.includes(panel.activeContainer as string))) return invalid(`The active container of panel ${id} is not in its entry order`);
         }
         if (panel.name !== undefined) {
-            if ((panel.name !== "sidebar" && panel.name !== "auxiliarybar" && panel.name !== "panel") || names.has(panel.name)) return invalid(`Invalid panel name: ${String(panel.name)}`);
+            if ((panel.name !== "sidebar" && panel.name !== "auxiliarybar" && panel.name !== "panel") || names.has(panel.name)) return invalid(`Invalid panel name: ${describeValue(panel.name)}`);
             names.add(panel.name);
         }
         const keys = (panel.tabs as TabRef[]).map(tabKey);
@@ -122,5 +179,70 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     if (panelIds.some((id) => !inTree.has(id) && !floating.has(id))) return invalid("A panel is neither in the tree nor floating");
     if ([...inTree].some((id) => (value.panels as Record<string, unknown>)[id] === undefined)) return invalid("The tree has an unregistered panel");
     if (editors === 0) return invalid("The tree needs at least one editor group");
-    return {ok: true, doc: value as unknown as LayoutDoc};
+    return normalizeRails(value as unknown as LayoutDoc);
+}
+
+/**
+ * 形状都对了之后归一侧轨意图（`normalizeRailIntent`）与记住的浮动窗矩形（`normalizeFloatRects`）。没有要修的返回原对象；有就只重建碰到的记录，别的子对象原样沿用。
+ */
+function normalizeRails(doc: LayoutDoc): LayoutDocValidation {
+    const repairs: string[] = [];
+    let panels: Record<string, PanelRecord> | null = null;
+    for (const [id, panel] of Object.entries(doc.panels)) {
+        if (panel.rail === undefined) continue;
+        const before = repairs.length;
+        const rail = normalizeAnchorRail(id, panel as unknown as Record<string, unknown>, repairs);
+        if (repairs.length === before && rail !== null) continue;
+        const {rail: _rail, ...bare} = panel;
+        panels ??= {...doc.panels};
+        panels[id] = rail === null ? bare : {...bare, rail};
+    }
+    let floats: LayoutFloat[] | null = null;
+    for (const [index, float] of doc.floats.entries()) {
+        if (float.rail === undefined) continue;
+        const before = repairs.length;
+        const rail = normalizeRailIntent(float.rail, `floats.${float.panel}.rail`, repairs);
+        if (repairs.length === before && rail !== null) continue;
+        const {rail: _rail, ...bare} = float;
+        floats ??= [...doc.floats];
+        floats[index] = rail === null ? bare : {...bare, rail};
+    }
+    const floatRects = doc.floatRects === undefined ? undefined : normalizeFloatRects(doc.floatRects, doc.panels, repairs);
+    if (panels === null && floats === null && floatRects === doc.floatRects) return {ok: true, doc, repairs};
+    const {floatRects: _floatRects, ...rest} = doc;
+    return {ok: true, doc: {...rest, ...(panels === null ? {} : {panels}), ...(floats === null ? {} : {floats}), ...(floatRects === undefined ? {} : {floatRects})}, repairs};
+}
+
+/**
+ * 记住的矩形再浮出时会照写入的规则取整（`roundFloatRect`）：宽高不到 1 的取整后可能是 0，成了不合校验的浮动窗，整份记录下次读不进来。
+ * 所以这里比浮动窗本身（`isFloatRect`，只要求正数）更严，宽高至少 1。
+ */
+const isRememberedRect = (value: unknown): boolean => isFloatRect(value) && (value as LayoutFloatRect).width >= 1 && (value as LayoutFloatRect).height >= 1;
+
+/**
+ * 记住的浮动窗矩形（输出 39 的“记住矩形”）：键只认文档里有的工具视图标签键，值只认合法矩形，坏项丢掉、其余照用。
+ * 标签不在文档里的键与出口（`settleFloatRects`）清的是同一种，这里按同一判据先丢：留着的话第一次本来“和现状一样”的操作也会因为清它写一次。
+ * 没有要修的返回原对象；修完空了是 undefined（整个字段不写）。
+ */
+function normalizeFloatRects(value: unknown, panels: LayoutDoc["panels"], repairs: string[]): Readonly<Record<string, LayoutFloatRect>> | undefined {
+    if (!isObject(value)) {
+        repairs.push("floatRects: not an object");
+        return undefined;
+    }
+    const views = new Set(Object.values(panels).flatMap((panel) => panel.tabs.filter((tab) => tab.kind === "view").map(tabKey)));
+    const kept: Record<string, LayoutFloatRect> = {};
+    let changed = false;
+    for (const [key, rect] of Object.entries(value)) {
+        if (!views.has(key) || !isRememberedRect(rect)) {
+            repairs.push(`floatRects.${key}: ${isRememberedRect(rect) ? "not a tool view in this document" : describeValue(rect)}`);
+            changed = true;
+            continue;
+        }
+        kept[key] = rect as LayoutFloatRect;
+    }
+    if (Object.keys(kept).length === 0) {
+        if (!changed) repairs.push("floatRects: empty");
+        return undefined;
+    }
+    return changed ? kept : value as Readonly<Record<string, LayoutFloatRect>>;
 }

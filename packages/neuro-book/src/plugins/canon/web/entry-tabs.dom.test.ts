@@ -99,7 +99,7 @@ describe("条目页的附加分页", () => {
         const names = tabNames(starPage);
         expect(names.indexOf("足迹")).toBe(names.findIndex((name) => name.startsWith("情节")) - 1);
         expect(names.indexOf("经历")).toBe(names.indexOf("足迹") - 1);
-        expect(names.indexOf("经历")).toBeGreaterThan(names.indexOf("面板"));
+        expect(names.indexOf("经历")).toBeGreaterThan(names.indexOf("数值"));
 
         await starPage.findAll('[role="tab"]').find((tab) => tab.text().trim() === "经历")!.trigger("click");
         await waitUntil("分页的组件挂上", () => starPage.find("[data-test-tab]").exists());

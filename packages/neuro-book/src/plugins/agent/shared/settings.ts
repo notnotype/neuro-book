@@ -20,6 +20,13 @@ const ToolBindingSchema = Type.Object({
     removed: Type.Array(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
+/** 工具绑定另有按全局对象加、减的（profile-settings.md 输出 29）；可派的子代理、Skill、表情包的绑定没有。 */
+const ProfileToolBindingSchema = Type.Object({
+    added: Type.Array(Type.String({minLength: 1})),
+    removed: Type.Array(Type.String({minLength: 1})),
+    objects: Type.Optional(ToolBindingSchema),
+}, {additionalProperties: false});
+
 const ProfileSettingSchema = Type.Object({
     /** `<服务商>/<模型>`；与 `role` 都写时它优先（docs/specs/models/service.md 输出 8）。 */
     model: Type.Optional(Type.String({minLength: 1})),
@@ -33,10 +40,11 @@ const ProfileSettingSchema = Type.Object({
     stickers: Type.Optional(ToolBindingSchema),
 }, {additionalProperties: false});
 
-export const ToolBindingsSchema = Type.Record(Type.String({minLength: 1}), ToolBindingSchema);
+export const ToolBindingsSchema = Type.Record(Type.String({minLength: 1}), ProfileToolBindingSchema);
 export const ProfileSettingsSchema = Type.Record(Type.String({minLength: 1}), ProfileSettingSchema);
 
 export type ToolBinding = Static<typeof ToolBindingSchema>;
+export type ProfileToolBinding = Static<typeof ProfileToolBindingSchema>;
 export type ProfileSetting = Static<typeof ProfileSettingSchema>;
 
 export const RUN_GUARDS_SECTION = "nbook.agent.reliability";

@@ -1,0 +1,194 @@
+# 实现审查报告：w00033 t03 第 5 片（页面引擎核心）
+审查对象：29d63a1ab、277d73075（packages/nb-page-agent）。实验都在 lab/pkg（被审 worktree 副本，未改被审文件）。
+
+### 1. 内联元素上的 overflow 把整个子树当成看不见（或滚出去）
+严重程度：重要
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/walk.ts:123-137
+现象：`enter` 对任何 `overflow` 不是 visible 的元素都用 `clientWidth/clientHeight` 建裁剪框。`display: inline` 的元素 computed `overflow` 照样是 hidden/auto，但它的 `clientWidth/clientHeight` 恒为 0，裁剪框成了零面积，整个子树被判隐藏（hidden 的裁剪）或 offscreen（auto 的滚动框）。
+为什么是问题：`<span class="truncate">`、`<a class="overflow-hidden">`、`<span style="overflow:hidden">` 套按钮是常见写法（工具类 CSS 常加在没有 blockify 的行内元素上），overflow 在行内元素上本来没有任何效果，页面上按钮完全可点，快照里却消失（hidden）或被标 offscreen 并在列表里被折进摘要。`isRendered`、定位、`scope` 也用同一个 `enter`，所以 `locate({role:"button", name})` 同样 not-found。
+如何核实：lab/pkg/p1.mjs。夹具：`<p>text <span style="overflow:hidden"><button>InlineClipped</button></span> <span style="overflow:auto"><button>InlineAuto</button></span> <div style="overflow:hidden"><button>BlockClipped</button></div></p>`。快照只有 `button "InlineAuto" [offscreen]` 与 `BlockClipped`，`InlineClipped` 没了；用 p2.mjs 对照，按钮 rect 在页面里正常，`elementFromPoint` 命中它自己，span 的 `clientWidth` 为 0、computed overflow 为 hidden。
+建议改法：只在元素真的是滚动容器/裁剪盒时才建框：display 为 inline（含 `display: contents`）或 table 内部的 `table-row`、`table-column` 等不适用 overflow 的取值时跳过；或者 `clientWidth === 0 && clientHeight === 0 && display === "inline"` 时跳过。再补一条 e2e（行内 overflow 里的按钮照样列出）。
+
+### 2. 绝对定位的元素也被祖先的 overflow 裁掉，但它的包含块可能在裁剪祖先之外
+严重程度：重要
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/walk.ts:101-105、118-138
+现象：只有 `position: fixed` 重置裁剪与滚动框，`absolute` 不重置。CSS 里 `overflow` 只裁剪包含块链经过该元素的后代：`position: relative` 的外层加一个不定位的 `overflow:hidden` 中间层，里面的 `absolute` 元素不受这层裁剪，也不跟这层滚动。
+为什么是问题：这是“自带定位外壳的下拉、tooltip、popper 挂进 overflow 容器”的典型写法（外层 relative，中间层 hidden/auto 做滚动，菜单 absolute 且包含块是外层）。引擎会把菜单里的所有控件判成 hidden，快照与按文字、按角色定位都找不到它们，而页面上点得到。transform/filter/contain 的祖先把 fixed 变成相对它定位的情况同理（fixed 的整体重置到视口也是错的）。
+如何核实：p1.mjs 第二段：`<div style="position:relative;height:50px"><div style="overflow:hidden;height:20px"><div style="position:absolute;top:30px;left:0"><button id="b">AbsEscapes</button></div></div></div>`：按钮 rect top=30、`elementFromPoint` 命中它，快照没有 AbsEscapes。
+建议改法：保存沿链的“包含块”信息：absolute 元素把裁剪框回退到它的包含块祖先（最近的 position 非 static 或带 transform/filter/contain 的祖先）之前的框，需要在 WalkContext 里按祖先链记各层框的栈；做不到时至少把 absolute 与 fixed 一样视为不受祖先裁剪（宁可多列，被盖住的由命中检查兜住），并在注释写明这是取舍。
+
+### 3. 遍历不是展平树：slot 里的内容不经过 slot 的祖先，层、裁剪都算错
+严重程度：重要
+类别：正确性 / 不变量
+位置：packages/nb-page-agent/src/snapshot/index.ts:199-202（collect）、src/dom.ts:182-186（composedParent）
+现象：`collect` 先走宿主的 shadow root，再把宿主的轻 DOM 子元素当作宿主的直接子元素走（`element.firstElementChild`），`composedParent` 对轻 DOM 子元素也返回 `parentElement`（宿主），都不经过 `<slot>` 以及 slot 在 shadow 里的祖先。模块注释和计划都写“沿组合树”，实际是“shadow 内容 + 轻 DOM 内容并列”。
+为什么是问题：Web Component（Shoelace、Ionic、Lit 系对话框、抽屉、卡片）里被分配进 slot 的内容渲染位置在 slot 的祖先之下，所以：(a) slot 外壳里的 `role="dialog"`、`overflow`、`position:fixed` 都不作用到这些内容：对话框里的按钮被算进 base 层，文本树里不缩进在对话框下，`layer` 字段是 `base`，按层挑行（最上层优先）与引用身份里的层都错；(b) slot 外壳的 overflow 裁剪不生效，被裁掉看不见的 slotted 按钮照样列出（见下条，祖先命中规则把它放过了）。
+如何核实：lab/pkg/p3b.mjs：宿主 shadow 为 `<div role="dialog" style="position:fixed;…"><slot></slot></div>`，轻 DOM 子元素是 `<button>InDialog</button>`。输出 `layers: base > dialog "Shoelace"`，但 `- dialog "Shoelace" [t1.1]` 与 `- button "InDialog" [t1.2]` 同级缩进，元素数组里 InDialog 的 layer 是 `base`。lab/pkg/p3.mjs：shadow 里 `<div style="height:5px;overflow:hidden"><div style="height:40px"></div><slot></slot></div>`，轻 DOM 里的两个按钮 `elementFromPoint` 都点不到，快照却照样列出两个按钮。
+建议改法：遍历时对每个有 shadow root 的宿主，shadow 里的 `<slot>`（`assignedElements({flatten:true})`）处把分配到的元素当作 slot 的子元素访问，不再把宿主的轻 DOM 子元素直接当宿主的子元素；`composedParent` 对已分配的元素返回 `assignedSlot ?? parentElement`；没分配的轻 DOM 子元素不渲染，可以不走。若决定第一版不支持 slot，要在 Spec 的已知限制与包 README 里写明，并让 e2e 有一条断言（现在 e2e 的 shadow 用例没有 slot）。
+
+### 4. 命中检查“最上面的是自己的祖先就算没被盖住”，盖在祖先上的蒙层（伪元素、负 z-index）会让被盖住的元素漏判
+严重程度：重要
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/index.ts:227（`composedContains(top, element)`）
+现象：为了放过 `pointer-events: none` 的元素，祖先在最上面也算没被盖住。但“最上面是祖先”还有一类情形：蒙层是祖先自己的 `::before/::after`（`elementFromPoint` 对伪元素返回其所属元素，即祖先），或元素处于祖先的下层（负 z-index、被祖先背景盖住）。这时元素实际被盖住、点不到，却被列出。
+为什么是问题：加载中遮罩、禁用遮罩常写成容器的 `::after { position:absolute; inset:0 }`，Spec 输出 3 要求“被别的元素完全盖住的不列”，这类按钮会作为可点击元素交给模型，点不到。
+如何核实：lab/pkg/p4.mjs：`.card.loading::after{content:"";position:absolute;inset:0;background:rgba(255,255,255,.8)}` 里放按钮；`button{position:relative;z-index:-1}` 在 `isolation:isolate` 的父里。两个按钮 `elementFromPoint` 命中的都是父元素，快照照样列出 MaskedByAfter 与 NegZ；兄弟 div 蒙层盖住的 Covered 则正确地没列。
+建议改法：祖先在最上面时，只有元素自己 `getComputedStyle(element).pointerEvents === "none"`（或祖先链上有）才算没被盖住；其余情形按被盖住。`pointer-events: none` 的元素本来就点不到，是否列出由 Spec 定，但判据应该是这条而不是“祖先”。要保留“祖先命中”的话，至少排除 `elementsFromPoint` 里元素自己出现在祖先下面的情形：`elementsFromPoint(x,y)` 的顺序里，只有元素自己出现在祖先之前才算可达。补一条 e2e（伪元素蒙层）。
+
+### 5. 按文字定位的“最深匹配”是平方级：命中几百个元素时同步阻塞主线程 2 到 6 秒
+严重程度：重要
+类别：安全与性能（页面主线程阻塞）
+位置：packages/nb-page-agent/src/locate.ts:112-115（searchText 的 deepest）
+现象：`matched` 是所有“可见文字含这段文字”的元素，包含命中文字的每个元素的全部祖先；`deepest = matched.filter((e) => !matched.some((o) => o !== e && composedContains(e, o)))` 对每个元素扫整个 matched 并各走一遍祖先链，是 O(M²·深度)。M 约等于“命中数乘深度”。
+为什么是问题：`text` 是定位的兜底写法，常用短词。页面是同步执行，主线程冻结期间用户界面无响应，调用方的 3 秒（快照）、10 秒（高亮装上）超时也会触发 `window-unresponsive`。
+如何核实：lab/pkg/p9.mjs（作者 perf 夹具，3758 个节点）：`{text:"按钮"}`（250 处命中）1794 ms，`{text:"链接 1"}`（100 处）173 ms，唯一命中 11 ms；lab/pkg/p6.mjs（3509 个节点、500 个按钮嵌 4 层 div）：`{text:"Item"}` 约 4000 ms，`{text:"e"}` 约 6000 ms，`{text:"Item 250", exact:true}` 约 70 ms（机器负载 9 到 10，绝对值偏大，量级和平方增长的趋势不受影响）。按角色找同一页只要 10 到 30 ms，所以慢点确在 deepest。
+建议改法：对每个匹配元素沿 `composedParent` 往上走，遇到已标记的就停，给祖先打“有更深匹配的后代”标记（Set），一遍 O(M)；`out.includes` 同理改 Set。上面提到的 `ambiguous` 只需要 `CANDIDATE_LIMIT` 个候选，匹配完整列表仍要算，但不必再平方。再补一条在大页面上限时的用例（NB_PAGE_AGENT_PERF 那一档）。
+
+### 6. 层判定：绝对定位的弹出外壳不成层；贴边固定的侧栏里的 menu/listbox 被当成弹层
+严重程度：重要
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/walk.ts:106-111、140-146
+现象：menu、listbox 成层的条件是自己 fixed/absolute/打开的 popover，或经过一块“fixed 或打开的 popover、面积小于视口 80%”的外壳。外壳不看 `position:absolute`，却看任何面积小于 80% 的 fixed。
+为什么是问题：两个方向都会错。(a) Popper.js 系（Element Plus、Naive UI、Ant Design 等把外壳 `position:absolute` 挂在 body 上，里面是静态的 `ul[role=listbox]`）的下拉不成层：选项算 base 层，`layers:` 没有它，按层排序（最上层优先）无效；Floating UI 缺省策略也是 absolute。NeuroBook 自己的 nb-ui 用 Reka，外壳是 fixed，所以自己的页面碰不到，第三方与插件页面会碰到。(b) 贴边的 fixed 侧栏、顶栏（面积通常远小于 80%）里常驻的 `role="menu"`（导航菜单、工具栏菜单）整块被当作弹层，`layers: base > menu "Nav"`，里面的项 `layer` 不是 base；再有真弹窗时，“最上层”取的是 DOM 里最后一个有可列元素的层，侧栏菜单可能排在对话框前面。
+如何核实：lab/pkg/p5.mjs。夹具 1：`<div style="position:absolute;left:100px;top:40px;width:160px;z-index:2000"><ul role="listbox" aria-label="Options">…`：输出 `layers: base`，三个元素 layer 都是 base。夹具 2：`<aside style="position:fixed;left:0;top:0;bottom:0;width:240px"><ul role="menu" aria-label="Nav">…</ul></aside>`：输出 `layers: base > menu "Nav"`，项的 layer 是菜单的引用。作者的 e2e 只有“铺满视口的 fixed 外壳”“小的 fixed 外壳”两种夹具，没有 absolute 外壳，也没有“fixed 但本来就是页面常驻的侧栏”。
+建议改法：浮出的判据用“角色与上下文”而不是面积：menu/listbox 是 `aria-expanded`/`aria-haspopup` 的目标（`aria-controls` 或 `aria-owns` 反查）或在 top layer、打开的 popover 里时成层；外壳判断补上 absolute 且挂在 body 直接子级的情形。至少把这条取舍写进注释与 Spec 的已知限制，补两条夹具。
+
+### 7. 失败的 `details` 没有 8 KB 上限：候选里的 target、key 不截断，`DETAILS_BYTE_LIMIT` 没人用
+严重程度：重要
+类别：正确性（违反 Spec 输出 12）
+位置：packages/nb-page-agent/src/locate.ts:48-59（candidateOf）；src/api/index.ts:122（DETAILS_BYTE_LIMIT 只定义没使用）
+现象：Spec 输出 12 要求失败的 `details` 按 JSON 序列化后至多 8 KB（UTF-8）。`candidateOf` 只把名字截到 100 字，`target`、`key` 原样放进候选；候选最多 10 个；没有任何地方量字节数。
+为什么是问题：key 是业务身份（文件路径、标识），页面可以写很长；中文名 100 字就是 300 字节。设置行、文件树的 key 带路径时，10 个候选很容易过 8 KB，宿主会拿到超限的 `details`（接下来由宿主的通道校验拒收或截断，按“通道的失败”换算成别的码，调用方看不到真正的 ambiguous 原因）。
+如何核实：lab/pkg/p11.mjs。12 个按钮，target 120 个中文字符、key 250 个、名字 150 个：`ambiguous` 的 details 序列化后 14777 字节；4 个按钮 key 5000 字符时 20288 字节。
+建议改法：候选的 target、key 与名字都按字符截断（沿用 `truncate`，key 用 `KEY_CHARS`），再在 `failure()` 里按字节量从后往前去掉候选，直到小于 `DETAILS_BYTE_LIMIT`（不够时在 message 里写明省略了几个）；补一条单元或 e2e 用例，断言大量候选时 details 小于 8192 字节。
+
+### 8. 稳定名重找时没有 key 的旧引用会改指到带 key 的另一个元素
+严重程度：重要
+类别：正确性（静默指到别的元素）
+位置：packages/nb-page-agent/src/locate.ts:159
+现象：旧引用的身份 `key === null` 时，重找的选择器只写 `[data-nb-target="…"]`，不限定“没有 key”，所以同 target 的、带任意 key 的元素唯一时也算命中。Spec 输出 4 写的是“稳定名与 key 都相同”。
+为什么是问题：这条路径是“不改页面的调用静默改指”，没有 key 与有 key 是不同的身份，改指后只有 `warnings` 里一行 `rebound` 提示，调用方不看就拿去读/截图/高亮另一个元素。
+如何核实：lab/pkg/p12.mjs：`<button data-nb-target="demo.row">Row</button>` 取引用后换成 `<button data-nb-target="demo.row" data-nb-key="alpha">Other row</button>`，`locate({ref})` 得 ok，指向新元素，warning `rebound: t1.1 -> t1.2`。
+建议改法：重找后再核对 `candidate.getAttribute(KEY_ATTRIBUTE) === issued.key`（含 null 对 null）；或者在选择器里写 `:not([data-nb-key])`。补一条 e2e。
+
+### 9. 引用记录的身份里强持有层根元素：关掉的弹层连同整棵子树不会被回收
+严重程度：重要
+类别：安全与性能（内存）
+位置：packages/nb-page-agent/src/refs.ts:9-18（Identity.layer）、50-53（RefRecord）
+现象：为了对比“同一层”，`Identity.layer` 存的是层根元素本身（强引用），记录至多 20000 条才淘汰，而淘汰只丢“元素已被回收的”记录或最早的记录。层里的元素本身只用 WeakRef 存，但它被同一条记录的强引用链（层根包含它）拉住，WeakRef 永远不会清空。
+为什么是问题：每次对话框、菜单、命令面板打开又关闭、快照取过引用，关掉的整棵 DOM 子树（以及框架挂在元素上的组件实例，Vue 的 `__vueParentComponent`）都留在内存里，直到 20000 条记录写满。设置窗口、命令面板开一晚上的窗口会稳定增长。
+如何核实：lab/pkg/p13.mjs（Chrome 加 `--js-flags=--expose-gc`）：循环 50 次“建一个带 100 个段落的 dialog、取快照、remove”，三次 gc 后 50 个 dialog 全部仍活着；对照组（没经过引擎的 50 个同样大小的游离元素）只剩 1 个。
+建议改法：`Identity.layer` 改存 `WeakRef<Element>`（比较用 `deref()`），`sameLayer` 里“原来的层根已不在页面上”改成 `deref() === undefined || !deref().isConnected`；同时让 `#evict` 在每次发号后按记录里元素是否被回收清理，而不只在超过上限时。补一条用 `--expose-gc` 的 Bun/浏览器用例。
+
+### 10. 截断提示推荐的 scope 区域在元素上限处仍会被截断，提示原样重复
+严重程度：建议
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/index.ts:486-509（truncationHint）
+现象：候选区域只用 token 估算（`sizeOf <= SNAPSHOT_MAX_TOKENS - HINT_TOKENS`）筛，不看元素上限 500。一个有 700 个按钮的区域估算约 5549 token 能过筛，提示要求“用 scope 与不小于它大小的 maxTokens 再快照”，但 scope 内同样撞上 500 的元素上限，再给出同一个区域。
+为什么是问题：Spec 输出 3 写“写出可以用 scope 缩小到的区域”，调用方照做得不到全部内容，提示又原样重复，模型会反复尝试。
+如何核实：lab/pkg/p15.mjs：`<section aria-label="Big">` 里 700 个按钮，`maxTokens:300` 先截断，提示写 `t1.1 region "Big" (678 more, ~5549 tokens)`；按它 `scope` + `maxTokens:8000` 再快照：`truncated:true`，元素 500 个，新提示仍然推荐 `region "Big" (201 more…)`。
+建议改法：候选还要满足“列出的后代总数 <= ELEMENT_LIMIT”（与 token 筛一并用）；都不满足时提示改写成“该区域超过 500 个元素，换更小的 within、用 role/name 定位，或分段”。顺带：`HINT_TOKENS = 120` 是固定预留，提示最长按 5 项算，名字是中文时约 280 token（p16.mjs：`maxTokens:200` 时整个文本估算 354 token）；预算小时可以按实际提示长度重排一轮，或把预留改成按条数估。
+
+### 11. scope 落在弹层里时，表头写成层根的标签名
+严重程度：建议
+类别：正确性（小）
+位置：packages/nb-page-agent/src/snapshot/index.ts:321-329（layersLine）、152（`layerFor(start.layer)`）
+现象：`scope` 指到对话框里的容器时，起始层的 `layer.node` 为 null（层根在 scope 之外，没被访问），表头写 `layers: div`（层根的 localName），而不是 `dialog "Settings"`；元素的 `layer` 字段写的是对话框引用，所以表头与元素数组对不上。
+如何核实：lab/pkg/p10.mjs。快照后对 `navigation "Side"`（在 dialog 里）做 `scope`：输出 `layers: div`。
+建议改法：起始层的 `layer.root` 非空而 `node` 为空时，用 `inspector.role`/`name` 写 `dialog "Settings"`。顺带用例：scope 在弹层里。
+
+### 12. 列表摘要的“能否滚动”取的是第一行的最近滚动祖先，页面里本身不滚的列表也写 can scroll
+严重程度：重要
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/index.ts:284（`scrollDirections(rows[0]!.scroller, document)`）、285（是否写摘要）
+现象：摘要里的 `can scroll up/down/left/right` 用的是第一行的 `scroller`，即祖先里最近的滚动容器；列表本身不滚动、只是处在一个可滚动的页面或面板里时，也被写成 can scroll。条件 `shown.length === rows.length && total <= rows.length && scroll.length === 0` 里 scroll 一非空就写摘要行，所以每个 menu、tablist、table、grid 只要所在面板能滚，都多一行摘要。
+为什么是问题：Spec 输出 3 要求列表类容器写“总数、已渲染的范围、能否滚动”。对模型来说“can scroll down”意味着滚动这个列表会出现更多行；实际上只是整页能滚。tablist、菜单、表格是最常见的，噪声很大，还会诱导模型去滚一个不会增加任何行的区域。（虚拟列表的外层滚动容器常常在 listbox 的祖先上，所以不能简单要求滚动容器是列表自己。）
+如何核实：lab/pkg/p17.mjs：`<main style="height:300px;overflow:auto"><div role="tablist" aria-label="Tabs">三个 tab</div><div style="height:2000px"></div></main>`：输出 `(rows: 3 total, rendered 1-3, shown 1-3, can scroll down)`。
+建议改法：只有当“列表有行在滚动容器的可见框之外”（即有 offscreen 的行，或第一行/最后一行贴着可见框边缘且滚动容器内容比列表大）才报方向；所有行都 shown、列表框整个在滚动框内时不写 can scroll。补一条用例：整页能滚的页面里的 tablist 不写摘要。顺带：没有 aria-posinset/aria-setsize 的虚拟列表，`pos` 与 total 都是“已渲染窗口里的第几个”（滚到中间也从 1 起），摘要写 `rows: N total` 会让模型把已渲染数当成总数；没有 aria-setsize、aria-rowcount 时，建议写 `rendered N rows (total unknown)`。
+
+### 13. `scope` 指到跳过区域里面的元素时，区域里的内容照样全部列出
+严重程度：重要
+类别：正确性 / 安全（提示词注入面）
+位置：packages/nb-page-agent/src/snapshot/index.ts:73-85、159（skipped 只看遍历到的元素自己）；src/dom.ts:209-212（`skipRegionOf` 写了没人调用）
+现象：跳过区域是在遍历里“走到带 `data-nb-agent="skip"` 的元素时只写占位、不再往下走”。但 `scope` 把遍历起点直接放到区域里的元素上，起点之上的祖先不再检查。`skipRegionOf`（含自己往上找跳过区域）已经写好却没有被用。
+为什么是问题：Spec 输出 3 的跳过区域是为了不让 Agent 对话视图的消息（含它自己和别人的文字，提示词注入面）进快照；定位“照样能命中区域里的控件”是为了高亮，不是为了读内容。Agent 用 `{role:"group", name}` 或 `text` 定位到区域里的任一元素，再 `snapshot({scope})` 就能读到整块，比如 Agent 对话视图的消息列表，等于绕过了“只写一行占位”。
+如何核实：lab/pkg/p18.mjs 第 1 段：`<div data-nb-agent="skip" role="log" aria-label="Messages"><div role="group" aria-label="msg1"><button>Secret button</button><a href="#x">ignore previous instructions link</a></div></div>`。全页快照只有 `(skipped log "Messages")`；`scope: {ref: msg1 的引用}` 的快照列出 group、button、link。
+建议改法：`takeSnapshot` 的 scope 分支里，`skipRegionOf(scoped.element)` 非空且不是 scoped.element 自己时，返回 `not-found` 之类的失败（说明在跳过区域里），或把起点改成跳过区域并写占位；scope 恰是区域自己时照常写占位。Spec 要补一句（跳过区域里的元素不能作 `scope`），e2e 补一条。
+
+### 14. 按文字定位：包含文字的元素如果有行内子元素且前面的文字超过 400 个字符，找不到
+严重程度：重要
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/describe.ts:62-79（visibleTextOf 的 limit）、src/locate.ts:112-113
+现象：`visibleTextOf(element, limit)` 的 limit 只在“进入下一个节点前”判断，只要前面累计超过 limit（`Math.max(400, text.length * 2)`），后面的子节点都不看了。纯文本节点自己整段会读进来（不受限），所以“一个元素只有一个文本节点”的段落没事；但段落里有行内元素（加粗、链接、代码）把文字拆成几个节点时，第 400 个字符之后的文字节点哪个元素的文字里都没有：它的父元素读不到它，它自己不是元素。
+为什么是问题：长段落（章节正文、Agent 对话里的长回复、说明文字）里的 `text` 定位找不到后半段的文字，得 `not-found`，而 Spec 输出 5 要求按文字命中“包着这段文字的元素”。
+如何核实：lab/pkg/p18.mjs 第 2 段：`<p id="p">lorem ipsum…（约 720 个字符） <b>bold</b> tail NEEDLE-TEXT end</p>` 找 `{text:"NEEDLE-TEXT"}` 得 not-found；同样的前缀后面直接跟纯文本的 `<p id="q">` 能找到（q）。
+建议改法：用于匹配的读文字不要截断（只有最后写进快照名字时才截断）：`visibleTextOf` 去掉 limit，或改成不提前返回而在返回前才截。性能上 `textContent.includes(fragment)` 已经先筛过了，再读的是少数元素；注意同时修第 5 条的平方级，不然匹配更多元素。
+
+### 15. 测试：20 个变异只被 4 个杀死，命中检查、层、不透明度累乘、裁剪与上限都没有判据覆盖
+严重程度：重要
+类别：测试
+位置：packages/nb-page-agent/e2e/snapshot.e2e.ts、e2e/locate.e2e.ts；src 里没有 refs、walk、locate 的单元测试
+现象：在 lab/pkg（被审 worktree 的副本）里逐个做变异、每个都重建三份产物外的 IIFE 包后跑全部 e2e（lab/pkg/mutate.mjs，输出见下），21 条用例通过且变异存活的有 16 个：
+- 存活：[0] 去掉 label 命中规则；[1] 去掉“祖先在最上面也算没被盖住”；[2] 命中检查只试中心点；[3] 不透明度不累乘（祖先 opacity 对子元素不起作用）；[4][5] fixed 元素不重置裁剪框与滚动框；[6] 去掉“焦点所在区域”这一档的排序；[7] 去掉“看得见的先于 offscreen”这一排序；[9] 滚动框不与外层相交（嵌套滚动容器）；[10] 去掉 aria-modal 成层；[11] 去掉打开的 popover 算浮层；[12] 去掉 overflow: clip；[13] 去掉元素 500 个的上限；[14] 去掉字节上限循环（整个“超过 64 KB 与 256 KB 重排”的路径）；[16] 身份比较不看层；[17] 去掉 within 范围核对（ref 在 within 之外也认）。
+- 被杀死：[8] 去掉“最深匹配”（locate.e2e.ts:104）；[15] 重找不核对同层（locate.e2e.ts:63）；[18] 跳过区域仍列子元素（snapshot.e2e.ts:144）；[19] offscreen 的非列表元素不列（snapshot.e2e.ts:80）。
+为什么是问题：Spec 输出 3“不透明度按祖先链累乘”“完全盖住的不列”“嵌套滚动”“按最上层 > 焦点所在区域 > 其余截断”“元素至多 500 个”“64 KB、256 KB 上限”，输出 4“身份里的层”，这些判据现在都没有会失败的用例；正文里的那几个 bug（第 1、2、4、8 条）也因此没被看到。注意 [4][5] 的存活说明 fixed 夹具里没有祖先 overflow 的情形，[13][14] 说明上限路径从没被走到过。
+如何核实：`cd lab/pkg && node mutate.mjs <序号>`（单个）或不带参数全部（约 10 分钟，机器负载 15 以上时用例仍稳定，存活与杀死的结果与序号一一对应）。
+建议补的判据（都按行为写）：祖先 opacity:0.1 的按钮标 faint；祖先 `overflow:hidden` 里放 `position:fixed` 的按钮仍列出；嵌套 `overflow:auto`（内层比外层大）滚出外层的标 offscreen；被 `pointer-events:none` 的兄弟盖住的仍列出、被带透明背景的兄弟盖住的不列、只盖中心的仍列出（部分遮挡）；label 点到的 sr-only 复选框；600 个按钮得 truncated 并且 `elements.length === 500`；构造 500 个带 250 字符 key 的元素断言 `JSON.stringify` 小于 256 KB（现有的“实际到不了”注释没有用例佐证）；焦点在某个 region 里时先列这个 region；menu、alertdialog、aria-modal、打开的 popover 成层；`scope` 取跳过区域内元素；`stale-ref` 的 `unknown`（记录被淘汰）一支；details 小于 8 KB。refs.ts 的淘汰与前缀校验适合在 `src/refs.test.ts` 里用 bun test 直接测（不需要浏览器）。
+另：snapshot.e2e.ts 里被遮挡用例的“引擎自己的节点”只是一个带标记的普通 div，不是真正的 top layer 里的 shadow 宿主，`topElementAt` 里 `elementsFromPoint` 的跳过分支（真正的节点是 popover=manual 的 shadow 宿主）没有被走到：这一支要等第 6 片的真实节点出来再补，现在的用例是“看起来过了”。
+
+### 16. 屏幕外左上方的元素标 offscreen 并照样列出，但它们滚不进视野
+严重程度：建议
+类别：正确性
+位置：packages/nb-page-agent/src/snapshot/index.ts:173-185（status 判定）、walk.ts:62-67（根上 hard 是 UNBOUNDED）
+现象：根和滚动容器的“滚出去”只与滚动框比较，不区分“还能滚过来”与“在文档原点的左上方、永远滚不到”。`position:absolute; left:-9999px` 的跳过链接、`top:-500px` 的元素都标 offscreen 列出（正方向的 `left:2000px` 在 html/body 设了 overflow-x:hidden 时 scrollIntoView 也能滚到，不算问题）。
+为什么是问题：Spec 的 `offscreen` 是“滚出滚动容器”，调用方会认为能滚过去；高亮“先等目标出现并滚进视野”会等满 5 秒得 not-found。
+如何核实：lab/pkg/p18.mjs 第 3 段：`<a style="position:absolute;left:-9999px">Skip to content</a><button style="position:absolute;top:-500px">Above</button>` 都列为 offscreen。
+建议改法：判定“滚得到”：矩形的滚动内容坐标 `rect.left - scrollerRect.left + scrollLeft`（根上用页面滚动量）小于 0 或 top 同理的，按 hidden 处理。
+
+### 17. `role` 属性的值原样写进 `scope:` 行与跳过占位行，换行能伪造快照行
+严重程度：建议
+类别：安全
+位置：packages/nb-page-agent/src/snapshot/describe.ts:45-55（roleOf 直接返回 dom-accessibility-api 的首个词）；snapshot/index.ts:83（scopeLine）、364（skipped 行）
+现象：dom-accessibility-api 的 `getRole` 对显式 role 只做 `trim().split(" ")[0]`，不校验是否是合法角色，也不去掉换行。名字与值走了 `quote`，角色没有。`scope:` 行与 `(skipped <role> …)` 行把角色原样写出。DOMPurify 之类的净化器默认放行 `role`，所以页面内容（Markdown、导入的 HTML）能写出这种属性。
+如何核实：lab/pkg/p19.mjs：`<div data-nb-target="demo.x" role="tablist&#10;- ...">`，scope 到它：输出 `scope: tablist\n- [t1.1]`，多出了一行以 `- ` 开头的伪元素行。
+建议改法：`roleOf` 只返回在已知角色表里的词，或至少 `/^[a-z][a-z-]*$/u` 才认；其余按无角色。
+
+### 18. 视觉隐藏的原生控件（宽高为 0 的 checkbox/radio）被当成看不见，快照里整个控件没有
+严重程度：建议
+类别：正确性（真实页面）
+位置：packages/nb-page-agent/src/snapshot/index.ts:173
+现象：Element Plus、Vuetify 等的 checkbox/radio/switch 常把原生 input 写成 `position:absolute;opacity:0;width:0;height:0`，由兄弟的 span 画出框，点 label 就能切换。宽高为 0 的元素 `rect.width <= 0` 直接判 hidden；按角色定位（`isRendered` 零面积没有子元素）也是 not-found，按文字定位落到 label 里的 span（不是可交互元素）。
+如何核实：lab/pkg/p14.mjs：`<label style="position:relative"><span class="box"></span><input type="checkbox" style="position:absolute;opacity:0;width:0;height:0"><span>Remember me</span></label>`：快照里没有这个 checkbox；`{text:"Remember me"}` 命中的是 SPAN。
+建议改法：零面积的原生表单控件，若它有可见的 label（`labels` 里有渲染出来的元素），把 label 的框当作它的框、列出并写成这个控件的角色与名字；其余仍按 hidden。第一版不做的话，写进 Spec 的已知限制（模型知道这类控件可以点文字）。
+
+### 19. 没有被引用的代码与常量
+严重程度：建议
+类别：代码质量
+位置：packages/nb-page-agent/src/dom.ts:204-212（`isOwnNode`、`skipRegionOf`）、src/snapshot/walk.ts:170-174（`enterAt`）、src/snapshot/describe.ts:23（`LAYER_ROLES`）、src/api/index.ts:122（`DETAILS_BYTE_LIMIT`）、src/snapshot/index.ts:112-115（`SHRINK_ROUNDS` 的兜底分支，注释自认“实际到不了”）
+现象：五处导出没有任何调用方（`rg` 可核实）；其中 `skipRegionOf` 与 `DETAILS_BYTE_LIMIT` 恰好是第 13、7 条里该用而没用的。`LAYER_ROLES` 与 walk.ts 里手写的 role 判断不是同一个表，容易漂移。
+建议改法：要用的接上（13、7），不用的删掉；`SHRINK_ROUNDS` 兜底分支若保留，要有一条能走到它的用例（第 15 条），否则删。
+
+### 20. 性能测量的口径：夹具 69% 的元素在屏幕外，第一次调用超过预算
+严重程度：建议
+类别：测试 / 文档
+位置：packages/nb-page-agent/e2e/perf.e2e.ts:25-42
+现象：作者的夹具里 500 个可交互元素有 345 个是 offscreen（lab/pkg/p8.mjs 数得），屏幕外的元素不做命中检查（`reachable` 只对 visible 状态的跑）。提交说明写“中位 34 毫秒、第一次 112 毫秒”，预算写“工作台规模 50 毫秒以内”：第一次本来就超了。我在 lab/pkg/p7.mjs 里用高视口让 500 个按钮全部可见：负载 8 到 10 时第一次 277 ms，之后 125、78、60、47、65、57、37、55 ms；作者的夹具在同样负载下中位约 55 ms（p8.mjs：112、46、59、41、58、54、61）。量级一致，没有掩盖严重问题，但“满足 50 毫秒”的结论不成立。
+建议改法：交付说明里写明“第一次 100 ms 以上，稳态约 40 到 60 ms”；工作台的快照多半是被代理在用户开着窗口时的第一次调用（冷缓存），所以第一次的数字更要紧。优化的候选：`inspector.name` 在判断看得见之前就算了（隐藏元素也算无障碍名字，visible 之后再算）；`getComputedStyle` 在 `enter` 与 `visibleTextOf` 里各取一次；`getBoundingClientRect` 对每个候选取一次，与 overflow 容器的取框分开。先按 profile 再动。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- 引用：前缀不对、格式不对直接 stale-ref，不重找；会改页面的调用不重找（locate.e2e.ts:37 与变异 [15] 证实有测）；身份变了的旧引用不会静默指到同一 DOM 元素的新内容（除第 8 条的带 key 改指）；`issue` 对同身份沿用旧号、对新身份发新号，旧号核对不上。
+- 名字与值的转义（引号、换行、双向控制字符、U+2028/2029）、密码框不输出值、`truncate` 不切代理对：读代码与 e2e 一致；`window` 行的路径只在含空白时才加引号（含 U+202E 这类非空白双向字符的路径会原样写出，没单独成条）。
+- 关着的 `<details>` 里的按钮不列（lab/pkg/p18.mjs 第 4 段）；`inert`、`aria-hidden`、`display:none`、`visibility:hidden` 都对。
+- `topElementAt` 跳过引擎自己节点的做法（先 `elementFromPoint`，碰到自己的宿主再 `elementsFromPoint` 找第一个不是自己的，再下钻 shadow）：读代码没有发现逻辑错误；真实的 top layer shadow 宿主没有被测到（见第 15 条末）。
+- 按“最上层 > 焦点所在区域 > 其余”的挑行顺序与“连带祖先”的实现与注释一致；全局的元素与字节上限在正常输入下不会被突破（预算内的文字远小于 64 KB）。
+- 角色加名字的定位在 3500 个节点上 10 到 30 ms，按稳定名的更快。
+- 类型检查（`bun run typecheck`）与 `bun --no-env-file test src`（10 条）通过；`bun run test:e2e` 在 lab 副本里 21 条通过、1 条跳过（perf）。
+
+## 数量
+- 阻断：0
+- 重要：13（第 1、2、3、4、5、6、7、8、9、12、13、14、15 条）
+- 建议：7（第 10、11、16、17、18、19、20 条）
+- 合计 20 条。
+- 最严重的几条：第 5 条（文字定位平方级，几百个命中就冻结主线程 2 到 6 秒）、第 13 条（scope 绕过跳过区域）、第 1、2 条（行内 overflow 与绝对定位的裁剪误判，真实页面上会把可点的控件整片判成看不见）、第 4 条（祖先命中规则放过被伪元素蒙层盖住的元素）、第 7 条（details 超 8 KB 违反 Spec 输出 12）、第 15 条（测试对这些判据几乎没有约束）。

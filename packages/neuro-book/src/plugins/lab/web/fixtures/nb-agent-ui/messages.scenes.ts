@@ -2,10 +2,10 @@
  * “消息”视图的外框与列表（AgentMessages.md、AgentMessagesList.md）。头像是内联的图（产品里是 `nbook.bots` 的头像地址）。
  */
 
-import type {AgentMessages, AgentMessagesList} from "@notnotype/nb-agent-ui/vue";
+import type {AgentMessages, AgentMessagesList, AgentMessagesSegment} from "@notnotype/nb-agent-ui/vue";
 import type {MessagesContactSection} from "@notnotype/nb-agent-ui";
 
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 const now = Date.parse("2026-11-20T10:00:00+00:00");
 const avatar = (fill: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><circle cx='10' cy='10' r='10' fill='${fill}'/><circle cx='7' cy='9' r='1.5' fill='#3a2a4a'/><circle cx='13' cy='9' r='1.5' fill='#3a2a4a'/></svg>`)}`;
@@ -31,25 +31,45 @@ const RECENT = [
     {id: "s1", title: "第三章节奏调整", icon: "i-lucide-feather"},
     {id: "s2", title: "人物卡补全", icon: "i-lucide-feather"},
     {id: "s3", title: "伏笔清单核对", icon: "i-lucide-search"},
+    {id: "s4", title: "开篇三章重写", icon: "i-lucide-feather"},
+    {id: "s5", title: "设定集整理", icon: "i-lucide-feather"},
+    {id: "s6", title: "大纲第二稿", icon: "i-lucide-feather"},
 ];
+/** bot 多到收着时放不下：并成“+N”。 */
+const MANY: MessagesContactSection[] = [{...SECTIONS[0]!, contacts: [...SECTIONS[0]!.contacts, ...["天枢", "天璇", "天玑", "天权", "玉衡"].map((name, index) => ({key: `nbook.bots/extra-${index}`, name, unread: null, activity: "idle" as const, last: null}))]}];
 
 type FrameScene = LabFixtureDefinition<typeof AgentMessages>["scenes"][number];
-const frame = {sections: SECTIONS, selected: {kind: "contact" as const, key: "nbook.bots/lyra"}, recentSessions: RECENT, now, locale: "zh-CN" as const};
+// 场景名以 docked 开头的挂替身侧轨（AgentMessagesFixture.vue），`placement` 由夹具换成侧轨的两个元素；带 -200、-420 的按那个轨宽展开。
+const frame = {placement: {kind: "none" as const}, sections: SECTIONS, selected: {kind: "contact" as const, key: "nbook.bots/lyra"}, recentSessions: RECENT, now, locale: "zh-CN" as const};
+const model = {tab: "bot" as const, botQuery: ""};
+const shut = {...frame, expanded: false};
+const open = {...frame, expanded: true};
 
 export const agentMessagesScenes: FrameScene[] = [
-    {id: "narrow", label: "窄版（右栏默认宽度）：头像列加聊天区，未读点与等你处理的黄点", input: {props: {...frame, layout: "narrow"}, model: {drawerOpen: false, listCollapsed: false, tab: "bot"}}},
-    {id: "narrow-drawer", label: "窄版拉出抽屉：bot 一页", input: {props: {...frame, layout: "narrow"}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
-    {id: "narrow-sessions", label: "窄版抽屉的会话一页", input: {props: {...frame, layout: "narrow", selected: {kind: "session", id: "s1"}}, model: {drawerOpen: true, listCollapsed: false, tab: "sessions"}}},
-    {id: "wide", label: "宽版：列表栏常驻，拖右边的线改宽度、拖窄了收成头像列", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: false, listWidth: 260, tab: "bot"}}},
-    {id: "wide-collapsed", label: "宽版收起列表栏：左边换成头像列，往外拖线展开", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: true, listWidth: 260, tab: "bot"}}},
-    {id: "wide-resized", label: "宽版：列表栏拖宽到 340", input: {props: {...frame, layout: "wide"}, model: {drawerOpen: false, listCollapsed: false, listWidth: 340, tab: "bot"}}},
-    {id: "wide-narrowest-english", label: "宽版英文、列表栏拖到最窄 200、未读三位数：切换行不压到收起按钮", input: {props: {...frame, sections: [{...SECTIONS_EN[0]!, contacts: SECTIONS_EN[0]!.contacts.map((contact, index) => (index === 0 ? {...contact, unread: 128} : contact))}], layout: "wide", locale: "en-US"}, model: {drawerOpen: false, listCollapsed: false, listWidth: 200, tab: "bot"}}},
-    {id: "phone-drawer", label: "390 宽：抽屉", input: {props: {...frame, layout: "narrow"}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
-    {id: "narrow-english", label: "英文界面：长名字与长摘要截断，未读两位数", input: {props: {...frame, sections: SECTIONS_EN, layout: "narrow", locale: "en-US"}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
-    // 浮动窗里自绘头（workbench/views.md 输出 19 的“自绘头”）：宿主给 `windowDrag`，切换行、头像列顶上那一行是窗口的拖动区，抽屉从头下面拉出。头高是宿主经 CSS 变量给的，这里不给，按 `windowDrag` 时的缺省 40（与真实宿主一样，两栏第一行等高）。
-    {id: "own-head-wide", label: "自绘窗口头，宽版：切换行顶到上边、是拖动区", input: {props: {...frame, layout: "wide", windowDrag: true}, model: {drawerOpen: false, listCollapsed: false, listWidth: 260, tab: "bot"}}},
-    {id: "own-head-collapsed", label: "自绘窗口头，宽版收起：头像列顶上那一行与头同高", input: {props: {...frame, layout: "wide", windowDrag: true}, model: {drawerOpen: false, listCollapsed: true, listWidth: 260, tab: "bot"}}},
-    {id: "own-head-narrow-english", label: "自绘窗口头，窄版英文 390 宽：抽屉从头那一行下面拉出", input: {props: {...frame, sections: SECTIONS_EN, layout: "narrow", locale: "en-US", windowDrag: true}, model: {drawerOpen: true, listCollapsed: false, tab: "bot"}}},
+    {id: "docked", label: "停靠在右轨，收着：bot、短线、新对话与最近会话、底段；当前 bot 竖条、未读数字、等你处理的圆点", input: {props: shut, model}},
+    {id: "docked-session", label: "停靠收着，当前是一个会话：方块描边", input: {props: {...shut, selected: {kind: "session", id: "s2"}}, model}},
+    {id: "docked-weak", label: "停靠收着，右栏隐藏或拖到零：当前退成弱描边", input: {props: {...shut, weak: true}, model}},
+    {id: "docked-short", label: "停靠收着、高度不够：bot 并成“+N”，最近会话从末尾截，当前会话仍在", input: {props: {...shut, sections: MANY, selected: {kind: "session", id: "s6"}}, model}},
+    {id: "docked-expanded", label: "停靠展开 300：完整列表的 bot 页", input: {props: open, model}},
+    {id: "docked-expanded-sessions", label: "停靠展开：会话页，“会话历史”按下", input: {props: open, model: {...model, tab: "sessions"}}},
+    {id: "docked-expanded-200", label: "停靠展开到最窄 200", input: {props: open, model}},
+    {id: "docked-expanded-420", label: "停靠展开到最宽 420", input: {props: open, model}},
+    {id: "docked-expanded-390-english", label: "英文 390 宽、展开：长名字与长摘要截断", input: {props: {...open, sections: SECTIONS_EN, locale: "en-US"}, model}},
+    {id: "docked-390-english", label: "英文 390 宽、收着：悬停提示与名称是英文", input: {props: {...shut, sections: SECTIONS_EN, locale: "en-US"}, model}},
+    // 浮动窗（ui/workbench-layout.md 输出 51）：视图段画在视图自己的右边缘。
+    {id: "edge", label: "画在右边缘（浮动窗），收着", input: {props: {...shut, placement: {kind: "edge", width: 48}}, model}},
+    {id: "edge-expanded", label: "画在右边缘（浮动窗），展开 300", input: {props: {...open, placement: {kind: "edge", width: 300}}, model}},
+];
+
+type SegmentScene = LabFixtureDefinition<typeof AgentMessagesSegment>["scenes"][number];
+const segment = {sections: SECTIONS, selected: {kind: "contact" as const, key: "nbook.bots/lyra"}, recentSessions: RECENT, now, locale: "zh-CN" as const};
+// 不给 `targets`：画在自己的位置上（AgentMessagesSegmentFixture.vue 按收着 48、展开 300 给宽）。
+export const agentMessagesSegmentScenes: SegmentScene[] = [
+    {id: "collapsed", label: "收着：bot、短线、新对话与最近会话、底段", input: {props: {...segment, expanded: false}, model}},
+    {id: "collapsed-short", label: "收着、高度不够：“+N”，最近会话从末尾截", input: {props: {...segment, expanded: false, sections: MANY}, model}},
+    {id: "collapsed-waiting-only", label: "收着、没有未读只有等你处理：“全部 bot”上是 warning 圆点", input: {props: {...segment, expanded: false, sections: [{...SECTIONS[0]!, contacts: SECTIONS[0]!.contacts.map((contact) => ({...contact, unread: 0}))}]}, model}},
+    {id: "expanded", label: "展开 300：完整列表", input: {props: {...segment, expanded: true}, model}},
+    {id: "expanded-200-english", label: "英文、展开到最窄 200", input: {props: {...segment, expanded: true, sections: SECTIONS_EN, locale: "en-US"}, model}},
 ];
 
 type ListScene = LabFixtureDefinition<typeof AgentMessagesList>["scenes"][number];

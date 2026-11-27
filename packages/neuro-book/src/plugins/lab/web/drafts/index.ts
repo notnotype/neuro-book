@@ -3,8 +3,6 @@
  * 放草稿组件、同名文档、样本与 `fixtures.ts`（导出这个目录的场景登记 `fixtures`）。新目录放进来就会出现在 Lab 的
  * “drafts”一组里，不用改总登记表。草稿只在开发版里有（Lab 是开发插件），可以引别的插件的界面组件。
  */
-import type {LabFixture} from "../fixtures";
+import {collectLabFixtures, type LabFixture} from "../fixtures/define";
 
-const modules = import.meta.glob<{readonly fixtures: readonly LabFixture[]}>("./*/fixtures.ts", {eager: true});
-
-export const draftFixtures: LabFixture[] = Object.values(modules).flatMap((module) => module.fixtures);
+export const draftFixtures: LabFixture[] = collectLabFixtures(import.meta.glob("./*/fixtures.ts", {eager: true}));

@@ -1,0 +1,108 @@
+### 2. 读入通过的亚像素矩形再浮出时写成 0×0，刷新拒绝整份布局
+严重程度：重要｜类别：正确性／读写不变量
+位置：packages/nb-workbench-layout/src/layout-doc-validate.ts:44–45、220–236；packages/nb-workbench-layout/src/layout-doc.ts:1226、1242；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:570–577。
+现象：`floatRects` 接受任意有限正宽高；命令复用后 `roundFloatRect` 把宽高在 `(0, 0.5)` 内的值取整为 0。提交只查骨架和节点上限，能把非法的实际浮动窗写入 SQLite。
+为什么是问题：输出 39 要局部丢坏项并诊断，不能由一个可选偏好让整个布局刷新后落回默认、进入不可普通保存的 `corrupt` 保护状态。此输入全程是普通 JSON，无需非标准对象。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts fraction`。实测 `0.4×0.4` 读入 `repairs=[]`；浮出时记录和呈现均 `0×0`；另开窗口读到 `unread/corrupt`（`Invalid floating window`）。第 1 条也经同脚本 `multi` 用真实 store 确认：`test.aux` 从 `250×140` 回到缺省 `460×340`，最后一项 `test.side` 才保留 `250×140`。
+建议改法：读入时按写入的同一规则判断记忆项取整后是否合法，坏项局部丢弃并诊断；浮动写入出口也要拒绝取整后非法的矩形，避免把不合校验的窗返回给调用方。
+
+### 1. 多标签窗归位时，只有最后一个标签记住矩形
+严重程度：重要｜类别：正确性
+位置：packages/nb-workbench-layout/src/layout-doc.ts:591–597、1176–1202；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:589–599；packages/nb-workbench-layout/src/layout-doc-float-rects.test.ts:52–58。
+现象：按钮“回到停靠”逐个搬标签；前 N−1 个标签回树时原窗仍存在，`settleFloatRects` 跳过整窗。等最后一个搬走，`original` 已只剩最后一个标签。撕下多标签窗的某个视图拖回树、或经“移动到”回树时同样漏记。有旧矩形则沿用过期值，没旧值则下次居中开窗。
+为什么是问题：输出 39 按视图定义从浮动窗回树的记录时点，并要求同一个窗按钮归位时每个工具视图记同一矩形。现有多标签单测用 `movePanelToEdge` 一次移动整窗，抓不到按钮逐个移动。
+如何核实：以 `{x:40,y:30,width:610,height:420}` 浮出 `m1`，加 `x1`，按 `dockFloat` 的方式依次 `moveTabToEdge`，本次 Bun 实验得到 `m1` 已落树、原窗仍在时 `floatRects` 缺失，全部归位时只剩 `view:x1` 的记录。产品路径可把两个视图合到同一扇窗后点“回到停靠”，再分别浮出。
+建议改法：以标签为单位判断“原来浮动、现在在树”，不要用来源窗是否消失作为前置条件；覆盖按钮归位、单标签拖回以及移到另一个浮动窗三个分支。
+
+### 6. 窄视口再次浮出只露 80px，右上角“回到停靠”被裁掉
+严重程度：重要｜类别：正确性
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:269–282、329–340、575；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:57–61；packages/nb-layout/src/grid-rects.ts:174–186；packages/nb-layout/src/vue/NestedGrid.vue:816–824。
+现象：复用旧位置时仍走给拖动中／已打开窗用的 `keepVisible`，仅夹一段标题；只有有效展开时才另夹横坐标。携带展开意图却因窄视口按收着呈现时，右端按钮也落在裁切之外。
+为什么是问题：主工作区 Spec `3ba51f7d3` 的输出 39 已明确再浮出要像新窗一样整扇夹进树区域；即使按审查开始时的旧文字，只留标题一角也不等于右上角关键按钮可达。不是要求缩窄时继续强行展开。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts narrow-rail`。记录矩形 `(460,220,600,420)`，带展开意图，在 `390×720` 的树区域再浮出得到 `(310,220,390,420)`，右缘为 `700`，仅露 80px；轨按 `tooNarrow` 收起，回到 `1440` 宽又正确展开为 `812`。按钮裁切由右端定位和网格 `overflow: clip` 推得，未跑浏览器。
+建议改法：在命令开窗时用整窗夹取，不用已打开窗的「留一截」规则代替；把是否能展开、展开后的范围以及最终夹取统一在同一套矩形约束里，再保留按需恢复原意图的行为。
+
+### 3. 视图声明提高最小尺寸后，再浮出的窗仍小于有效最小值
+严重程度：重要｜类别：正确性
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:329–340、511–520、570–577；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:39–54、82–93。
+现象：找到记忆项就跳过计算当前最小尺寸；`renderedFloats` 的 `keepVisible` 只按树区域缩小和夹位置，不按声明放大。缩放手柄却继续采用新的约束。
+为什么是问题：输出 6 给出的浮动窗尺寸约束在窗口装得下时不应被旧记忆绕过，且用户第一次动手柄会从违反约束的尺寸跳到边界。不应通过改写记忆值来掩盖呈现问题。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts min`。在 `1440×900` 视口停靠 `250×140` 的窗，再把同一视图的声明最小值换成 `700×420`；重新浮出时呈现和记录仍都是 `250×140`，而手柄的最小值已是 `700×420`。去掉记忆分支时原来的开窗路径至少给当前最小值。
+建议改法：从记录矩形推导一份按当前视图约束与视口有效范围夹取的呈现矩形；侧轨预算与渲染要使用同一份有效基础宽度，不把呈现夹取写回原记忆。
+
+### 7. 同一左上角的记忆项把两扇再开的窗完全叠在一起
+严重程度：重要｜类别：正确性
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:570–577；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:36–54；packages/nb-layout/src/vue/NestedGrid.vue:243–251、281–288。
+现象：记忆命中直接跳过旧的 24px 错开逻辑，也没有检测同一左上角。不必先组多标签窗：让 A、B 分别在没有其他窗时打开并归位，就会自然记下同一个矩形。一起再浮出时上窗完全遮住下窗，指针无法点到下面那扇；焦点导航或 `nbook.view.open` 提升窗层级仍能找回。
+为什么是问题：当前输出 39 明确要求左上角相同才按错开步长挪开；这不是要求所有窗都避免局部重叠。比较原始坐标也不够，两个不同旧位置可能夹到同一个角。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts overlap`，用真实 store 依次浮出和停靠两视图，再一起浮出；两个呈现矩形都是 `(490,280,460,340)`。删掉复用时原逻辑会让第二扇偏移 24px。
+建议改法：按有效的夹取后位置检查已有窗，只碰撞时按现有步长重试；要考虑边缘夹取把偏移推回原位，以及占满可用区域时避免无效循环。
+
+### 8. 当前 Spec 要求读入就修掉不属于文档的键，校验仍以 `view:` 前缀代替成员校验
+严重程度：重要｜类别：正确性／持久化合同
+位置：packages/nb-workbench-layout/src/layout-doc-validate.ts:145–182、216–236；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:356–370；主工作区 docs/specs/ui/workbench-layout.md:233。
+现象：形状校验已经收集全局 `tabKeys`，但 `normalizeFloatRects` 没用它，接受不存在于文档中的 `view:test.aux`，没有修复诊断。在没有触发 `finish` 时，保存、模板复制和纯尺寸写回也可以继续携带此项。显式空对象也不归一，随后 `sameLayoutShape` 将 `{}` 与省略字段视为相同，空操作不可能把它清掉。
+为什么是问题：固定计划明确延期清理，主工作区更新后的输出 39 明确改为读入时丢弃并给诊断；视图声明是否已加载不影响标签是不是已写在这份文档里。与第 4 条同一生命周期问题：按当前合同，先在读入边界修掉孤立项，也就不该在后续无关操作中清理并写盘；不是建议既保留又删除同一项。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts reconcile` 给两条指向不存在标签的记录，读入修复为 `[]`，其中一条被补上的新视图采用。另以 `floatRects: {}` 调 `validateLayoutDoc`，实测返回带原字段的对象；同值激活仍保留该字段，实际改变后的 `finish` 才省略它。
+建议改法：归一化直接复用 `validateLayoutDoc` 已构造的标签集合，拒绝不属于这份文档的工具视图键；空表在读入边界统一省略。只有所有数据已处于规范形时才走原对象快路径。
+
+### 4. 固定计划下，恢复补位和同值操作会提前删掉尚无标签的记忆（并入第 8 条）
+严重程度：重要｜类别：不变量
+位置：packages/nb-workbench-layout/src/layout-doc.ts:599–619；packages/nb-workbench-layout/src/layout-doc-validate.ts:216–236；packages/neuro-book/src/plugins/workbench/web/state/default-tree.ts:153–183；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:900–907。
+现象：读入有意保留 `floatRects` 的孤立项，但 `reconcileViews` 每补一节就走 `finish`，第一节补上时把本轮稍后才补的视图的记忆删掉。另一条路径：对当前已可见的视图执行“打开视图”，本来是原样返回；`activateTab` 顺手删孤立项，形状比较因此返回新文档并触发写盘。`carryDynamicTabs` 的动态标签操作也会调用同一出口，导致放弃恢复时是否保留孤立项取决于有没有编辑器标签要携带。
+为什么是问题：校验接受的有效矩形能否再用，取决于视图枚举顺序和不相关操作；合并结束时标签仍在也救不回来。且违反输出 28 和“状态与转换”的同值不写约定。普通恢复若记录本来就含视图标签，声明尚未到达时标签作为占位会留下，不受此问题影响。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts reconcile`，分别给两个待补视图有效记忆，实测两节都落树但只保留先补的一项；`noop` 场景对已可见的 `test.side` 执行 `revealView`，去掉 `floatRects` 后文档完全相同，SQLite 的布局 revision 仍从 `1` 变成 `3`。
+建议改法：同一次结构操作只清理实际被移除的工具视图键；对读入时已无对应标签的项，由掌握完整声明目录与恢复事务的边界决定何时清，不在每个中间步骤和空操作中全表删除。
+
+### 5. 记忆项一多，切标签等不搬窗的操作也会反复扫描全量标签
+严重程度：重要｜类别：安全与性能
+位置：packages/nb-workbench-layout/src/layout-doc.ts:588–602、610–619、650–658；packages/nb-workbench-layout/src/layout-doc.test.ts:320–326。
+现象：每次 `finish` 都复制记忆表，再对每个键调用 `findTab` 从头找标签；同一步还为两份文档排序记忆键并序列化比较。不删标签、不停靠任何窗的切标签也承担代价。最坏是 `O(记忆数 × 标签数)`，节点／深度限制不限制窗里的标签数。
+为什么是问题：试算、切标签等在主线程同步执行；原有 2000 标签规模用例没有任何记忆项，量不到新增部分。
+如何核实：用 `docOf` 构造校验合法的布局，同一 `activateTab` 输入重复 24 次、去掉前 4 次，对比有无记忆表。在 1 个工具窗 200 个工具视图、编辑组 3000 个动态标签（整条记录约 178 KB）时，中位数约 `2.87 → 19.04 ms`；在 10 个工具窗各 200 个工具视图（约 194 KB）时 `0.84 → 186.79 ms`。这是 Bun 同机微基准，不是浏览器帧耗时。
+建议改法：最多遍历一次面板和标签，索引工具标签及其是否浮动；当本次不改标签归属或成员时不要启动结算；记忆未变时沿用原表，比较先用引用或键值直接判等。
+
+### 10. 满额附近，一个可选矩形就能使整次停靠无法落盘
+严重程度：建议｜类别：持久化边界
+位置：packages/nb-workbench-layout/src/layout-doc.ts:588–619；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:366–370、415–417；packages/neuro-book/src/plugins/workbench/web/state/records.ts:22–32；packages/neuro-book/src/plugins/storage/backend/partition.ts:332–343。
+现象：布局记录和模板仍守 1 MiB 硬上限；结算不预留或比较记忆字段的空间。结构和标签仍合法且能保存时，新增矩形可以单独把记录推过上限。界面已归位，保存正确回报 `too-large`，但重试同一份记录仍不可能保存，刷新恢复旧窗。
+为什么是问题：这是极端容量边界，不是任意大记录绕过存储上限；但可选几何偏好阻止更重要的视图位置持久化。树节点／层数和 16 窗的限制并未限制浮动窗内的工具视图数量。
+如何核实：`bun --no-env-file /tmp/review-t20-impl/audit-store.ts record-limit`。构造可读写且合应用骨架的 16 窗布局，约 3,085 条有效记忆；初始 1,048,334 字节，按钮停靠一个视图后 1,048,605 字节，少这一项则为 1,048,545 字节。实测状态为 `unsaved/too-large`，SQLite 仍有 16 窗，内存只剩 15。
+建议改法：明确接近容量时可选矩形与结构变更的优先级；若决定舍弃超额记忆，按确定规则只舍弃可选项并诊断，模板与实际布局用同一规则；不要提高记录硬上限或把失败伪装成成功。
+
+### 9. 新端到端用例没有证明拖动生效，也没覆盖带展开意图归位后复用调整过的矩形
+严重程度：建议｜类别：测试缺口
+位置：packages/neuro-book/e2e/agent-messages-float.e2e.ts:177–195、241–265；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts:1227–1255；固定计划第 38 行。
+现象：新用例在两次拖手柄之后才取 `adjusted`，只等存盘高度等于这个值。两次拖动若均未生效，缺省矩形也满足后续断言；如果仍能记下缺省值但开窗误用缺省矩形，首次与刷新后的矩形比较仍能通过。既有展开用例用的是未调整过的缺省矩形，新用例与真实存储单测都没把“变过的尺寸”和“展开归位”放在同一场景验证。
+为什么是问题：固定计划要求端到端同时核实尺寸复用和展开状态。单测通过真实存储核实了精确矩形，但没有覆盖拖动、展开和右边缘裁切的组合；两类检查不能互相替代。
+如何核实：静态跟踪测试判据。`floatConversation` 只核对新增一扇窗及一条侧轨；`dragBy` 只发指针事件，删掉两次调用后，该用例剩余断言仍允许全程缺省几何。未执行 e2e 或变异后的用例。
+建议改法：先量初始矩形，断言拖动产生规定方向和非零大小的变化；用具体视图键断言完整收着的记忆矩形，再在有展开意图时归位、刷新、再次浮出，核对呈现宽只加一次差值，并验证窄窗可点到归位按钮。
+
+## 未发现问题的方面
+
+- 记录版本保持 `1`。对照 `a6e6cc018` 的校验代码，旧版不拒绝未知顶层字段；范围内没有改记录版本、记录键、分区或硬上限。未运行旧版应用。
+- 库单测覆盖整窗停靠按各视图记录、并进别的浮动窗不记录、移除视图时清关联项、编辑器标签不记录。实际保存和重读的单视图用例校验了调整后的四个矩形坐标，而不只比宽度。
+- `setFloatRect`、`raiseFloat`、`setFloatRail` 仍走 `finish`；`setSiblingShares` 和纯尺寸写回只改树尺寸，不迁移工具视图或浮动归属；`stripDynamicTabs` 删除的是动态标签，模板保留有工具视图标签的记忆项。`carryDynamicTabs` 的例外限于第 8 条描述的孤立项；未在这些直写路径中发现新的漏记入口。
+- `settleRails` 先结算侧轨意图，不改 `rect`；真实 store 验证带展开意图归位、再浮出时不把 212px 展开差值算两次，且视口重新变宽后恢复展开。窄视口的可达性问题见第 6 条。
+- 普通 JSON 的 `__proto__`、`view:__proto__`、`view:constructor`、`view:prototype` 项被局部剔除并有诊断；保留表原型仍是 `Object.prototype`。拖动无落点直接走松手处的矩形，键盘从拖放候选浮出用默认几何，均不读记忆项；后两项为静态检查。
+
+## 验证与数量
+
+- `packages/nb-workbench-layout`：`bun test`，9 文件，294 通过、0 失败；`bun run typecheck` 通过。
+- `packages/neuro-book`：`bun test src/plugins/workbench/web/state/layout-doc-store.test.ts`，65 通过、0 失败；`bun run typecheck` 到 300 秒超时，未完成。按审查约定未运行 e2e 或开发服务，浏览器可达性及 e2e 变异结论均未实跑。
+- 口径：审查 `a6e6cc018..c5eec6a12`；固定计划与主工作区 Spec `3ba51f7d3` 不同的地方已标出。第 4 条保留计划下的复现，和第 8 条合算一项；编号保留追加时的编号，正文按影响排序。
+- 阻断 0，重要 7，建议 2。
+- 有效发现编号（按影响）：2、1、6、3、7、8、5、10、9。
+
+======== 主 Agent 的处理（2026-11-27） ========
+omp 审的是 a6e6cc018..c5eec6a12；同时 Opus 那轮的修正 3a2b05583 已在另一分支提交。先把 omp 的复现脚本（/tmp/review-t20-impl/audit-store.ts，改成指向修正分支）按场景重跑：multi、narrow-rail、min、overlap、reconcile、noop 六个在 3a2b05583 上都已是对的结果；fraction 仍复现。
+1 多标签归位只记最后一个：同 Opus 第 1 条，3a2b05583 已改（按标签结算）；重跑 multi 两个视图都记、再浮出错开。
+2 亚像素矩形再浮出取整成 0×0、记录读不进来：成立，已改（475f88340）。读入时记住的矩形宽高至少 1（isRememberedRect），坏项丢掉给诊断；库用例加一项，变异（退回 isFloatRect）失败。重跑 fraction：读入丢掉该项，再浮出用缺省矩形，刷新无问题。
+3 最小尺寸变大后再浮出仍小于最小值：同 Opus 第 4 条，3a2b05583 已改；重跑 min 呈现 700×420。
+4 恢复补位与同值操作提前删记忆（并入 8）、8 读入应按文档成员丢键：3a2b05583 已改（读入按“文档里有这个工具视图标签”丢键）；空表 {} 读入时省掉并给诊断（475f88340）。重跑 reconcile、noop：读入即修掉孤立键，同值操作 revision 不变。
+5 性能：同 Opus 第 5 条，3a2b05583 已改成一次建表、没有浮动窗与记录时直接返回；复杂度从 记录数×标签数 降到 标签数。
+6 窄视口再浮出只露 80px：同 Opus 第 2 条，3a2b05583 已改（整窗夹进树区域）；重跑 narrow-rail 窗在 390 宽里整扇可见，变宽后照旧展开。
+7 同一左上角两扇窗叠在一起：同 Opus 第 4 条，3a2b05583 已改（按夹取后的位置检查重合、24px 错开，至多 7 步）；重跑 overlap 第二扇错开 24。
+9 e2e 没证明拖动生效：成立，已改（475f88340），先断言调过之后的矩形是初始矩形左移 120、加宽 120、加高 80。“展开状态加调过的尺寸”组合由 store 用例覆盖（展开着归位记收着的矩形、再浮出加展开宽），e2e 不再加。
+10 记录 1MiB 上限附近一个可选矩形让停靠存不下：不改。键只能是文档里有的工具视图，条数受装着的视图个数限制；要逼近上限得 16 扇窗里塞三千个工具视图，收益与复杂度不对等。
+验证：布局库 295 条、工作台 609 条单测，类型检查，agent-messages-float 15 条、workbench-float 17 条（316 是已知偶发，单独重跑 4/4 过）。合入 master e276e6d37。

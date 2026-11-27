@@ -66,7 +66,7 @@ const onFile = async (event: Event): Promise<void> => {
 <template>
     <div class="scene-image-slot" :data-slot="kind">
         <div class="scene-image-slot__bar">
-            <Button size="sm" :loading="status.shownBusy.value" :disabled="status.busy.value" icon-class="i-lucide-image-plus" v-bind="mark('upload')" @click="choose">
+            <Button variant="primary" size="sm" :loading="status.shownBusy.value" :disabled="status.busy.value" icon-class="i-lucide-image-plus" v-bind="mark('upload')" @click="choose">
                 {{ name === null ? text(kind === "scene" ? "themeEditor.scene.upload" : "themeEditor.scene.working.upload") : text(kind === "scene" ? "themeEditor.scene.replace" : "themeEditor.scene.working.replace") }}
             </Button>
             <Button size="sm" variant="ghost" :disabled="name === null || status.busy.value" :aria-label="text(kind === 'scene' ? 'themeEditor.scene.removeScene' : 'themeEditor.scene.working.remove')" v-bind="mark('remove')" @click="remove">{{ text("themeEditor.scene.remove") }}</Button>

@@ -1,5 +1,5 @@
 /**
- * 名字的合法性：字段 id、元素 id、块 id 要能直接写进 MDX 的成员访问（`panel.魔力`、`[t3]`），所以必须是 JS 的
+ * 名字的合法性：字段 id、元素 id、块 id 要能直接写进式子的成员访问（`panel.魔力`、`[t3]`），所以必须是 JS 的
  * IdentifierName；命名空间还要能作为表达式的根，所以必须是 Identifier（不能是保留字），也不能占用内核的保留名
  * （docs/specs/canon/components.md 输入与前置条件，rendering.md 输出 2）。
  */

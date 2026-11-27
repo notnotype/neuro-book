@@ -14,8 +14,8 @@ import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import type {HostLayer, SettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import type {HostLayer, SettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {defineSetting} from "nbook/shared/settings";

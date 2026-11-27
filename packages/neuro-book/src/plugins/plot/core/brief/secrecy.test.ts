@@ -13,7 +13,7 @@ import {composeBrief, type BriefResult} from "./index";
 
 const SEEDS = Array.from({length: 40}, (_, index) => index + 1);
 const digest = (text: string) => `sha:${String(text.length)}:${text.slice(0, 8)}`;
-const RAW = ["<Ref", "<Image", '{"', "{ref(", "[object Object]"];
+const RAW = ["<Ref", "<Image", "<V ", "<If", '{"', "[object Object]"];
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 const sectionText = (result: BriefResult, part: number, key: string) => result.parts[part]!.sections.find((s) => s.key === key)?.items.map((item) => item.text).join("\n") ?? "";
