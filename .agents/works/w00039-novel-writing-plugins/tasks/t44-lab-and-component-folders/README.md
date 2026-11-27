@@ -33,6 +33,24 @@ canon 的组件按区域分子目录、Lab 左栏跟着目录分组；场景一�
 
 工作位置：worktree `.worktree/w00039-novel-writing-plugins`，分支 `feat/w00039-t44-lab-and-component-folders`（从 master `1e60d53ba` 开）。
 
+实施进展：
+
+- S1（分支 `76b70ff34`）：做了以下几件事。
+  - `define.ts` 收场景类型。`defineLabFixture` 与收集时核对登记形状，错误以 `nb-lab:` 开头，这也是产物门禁的标记。
+  - 新增 `scene-kit.ts`。总表用 glob 收 `plugins/*/web/lab/fixtures.ts`。
+  - 架构测试加三条规则，各带正反例。
+  - `tailwind.product.css` 排除 `plugins/*/web/lab`。Tailwind 4.3.3 认通配，变异确认：去掉这一行时场景里的探针类进了产物 CSS。
+  - 登记门禁的扫描根扩到草稿区与各插件的 `web/lab/`，并新增“每个 `web/lab/` 都有 `fixtures.ts` 且被收到”。
+  - 先搬了 image-viewer、html-preview 两个插件的场景。
+
+  验证：
+  - 全量场景快照与基线逐字相同（287 个组件、1679 个场景）。
+  - typecheck 通过；`bun run build`（含 `check:dist`）通过。
+  - 架构测试 8 条、登记门禁 11 条通过；Lab 与两个插件的 dom 测试 64 条通过。
+  - 变异检查 4 个全部被拦下：加载路径写错、导出名写错、缺 `fixtures.ts`、夹具自建定宽盒子。
+  - `test:affected` 在负载 30 以上时有 7 条超时，单独重跑全过。
+- SDK 修正（分支 `9e43a2934`）：t43、t45 给 nb-ui 加的 `TreeSurface`、`TreeToggleOn`、`PopoverReference` 没登记进插件 SDK 的组件子路径，master 上 `sdk.test.ts` 因此失败。这次补上，并写了变更记录。同一文件里 nb-layout 的 `NestedGrid` 快照不同，来自 w00026，没动。
+
 ## 下一步
 
-按切片 S1 到 S5 串行实施。
+S2：canon 组件分六个子目录。
