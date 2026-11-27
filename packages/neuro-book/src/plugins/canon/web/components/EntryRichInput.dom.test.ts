@@ -3,8 +3,9 @@
  * 只换不同的一段、回声不动、只读、插入过写入前的检查、写不出时不交出。用真实的编辑器、编解码器与内核文法。
  */
 
+import type {Editor} from "@tiptap/core";
 import {flushPromises, mount} from "@vue/test-utils";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
@@ -202,5 +203,231 @@ describe("小块的值（canon/author-ui.md 输出 48）", () => {
         await flushPromises();
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(chips(wrapper, "calc")[0]!.dataset.chipState).toBe("value");
+    });
+});
+
+const key = (target: Element, name: string, init: KeyboardEventInit = {}) => target.dispatchEvent(new KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true, ...init}));
+/** 浮层与列表传送到 body：在整页里找。 */
+const popover = () => document.body.querySelector<HTMLElement>("[data-chip-popover]");
+const field = (name: string) => document.body.querySelector<HTMLInputElement>(`[data-chip-field="${name}"]`)!;
+const action = (name: string) => document.body.querySelector<HTMLButtonElement>(`[data-chip-action="${name}"]`)!;
+const type = (input: HTMLInputElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event("input", {bubbles: true}));
+};
+/** Tiptap 把编辑器挂在编辑区的 DOM 上：测试用它的命令放选区（左右键越过小块先选中它要量布局，happy-dom 里不成，留给 e2e）。 */
+const editorOf = (wrapper: ReturnType<typeof mount>) => (prose(wrapper) as HTMLElement & {editor: Editor}).editor;
+/** 选中第 `index` 个小块（节点选区），再按 Enter 打开浮层（键盘的开法，输出 48）。 */
+async function openChip(wrapper: ReturnType<typeof mount>, index = 0): Promise<void> {
+    const editor = editorOf(wrapper);
+    const positions: number[] = [];
+    editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "canonEntryTag" || node.type.name === "canonEntryIf") positions.push(pos);
+        return true;
+    });
+    // 不用 `commands.focus()`：它在下一帧才聚焦，那时浮层已经开着，焦点回到编辑区会让浮层当作移到外面而关上。
+    editor.view.focus();
+    editor.commands.setNodeSelection(positions[index]!);
+    key(prose(wrapper), "Enter");
+    await flushPromises();
+}
+const openFirstChip = (wrapper: ReturnType<typeof mount>) => openChip(wrapper, 0);
+const options = () => [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].map((item) => item.textContent?.trim() ?? "");
+
+describe("改小块（canon/author-ui.md 输出 48）", () => {
+    it("计算：改式子按“应用”，过了检查才落、一次是一个撤销步；焦点回编辑器、小块仍选中", async () => {
+        const wrapper = show({modelValue: '<V expr="panel.魔力 * 2" /> 之后'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        expect(popover()?.dataset.chipPopover).toBe("calc");
+        expect(field("expr").value).toBe("panel.魔力 * 2");
+        type(field("expr"), "panel.魔力 * 3");
+        await flushPromises();
+        // 还没应用：不交出。
+        expect(emitted(wrapper)).toEqual([]);
+        action("apply").click();
+        await vi.waitFor(() => expect(emitted(wrapper).at(-1)).toBe('<V expr="panel.魔力 * 3" /> 之后'));
+        expect(popover()).toBeNull();
+        expect(document.activeElement).toBe(prose(wrapper));
+        expect(prose(wrapper).querySelector(".ProseMirror-selectednode")?.getAttribute("data-entry-chip")).toBe("calc");
+        key(prose(wrapper), "z", {ctrlKey: true});
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe('<V expr="panel.魔力 * 2" /> 之后');
+    });
+
+    it("写得不对：不落，浮层里写原因，作者打的字留着；改对了再应用就落", async () => {
+        const wrapper = show({modelValue: '<V expr="panel.魔力 * 2" />'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("expr"), "panel.魔力 *");
+        action("apply").click();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-chip-problem]")).not.toBeNull());
+        expect(document.body.querySelector("[data-chip-problem]")!.textContent).toContain("写得不对");
+        expect(field("expr").value).toBe("panel.魔力 *");
+        expect(emitted(wrapper)).toEqual([]);
+        type(field("expr"), 'panel.名字 == "甲"');
+        action("apply").click();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-chip-problem]")!.textContent).toBe("判断与式子里不能有双引号，字符串用单引号"));
+        type(field("expr"), "panel.魔力 * 4");
+        action("apply").click();
+        await vi.waitFor(() => expect(emitted(wrapper).at(-1)).toBe('<V expr="panel.魔力 * 4" />'));
+    });
+
+    it("条件：改一支的文字、加“否则如果”，应用后是一个条件；现在生效的那支标出来", async () => {
+        const source = '<If test="panel.魔力 >= 1000">强<Else />弱</If>';
+        const wrapper = show({modelValue: source, values: {source, values: [{tag: "If", start: 0, result: false, taken: 1}] as unknown as EntryTextValue[]}});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        expect(popover()?.dataset.chipPopover).toBe("if");
+        expect(document.body.querySelector('[data-taken] [data-chip-field^="test"]')).toBeNull();
+        expect(document.body.querySelector('[data-taken] [data-chip-field="branch-1"]')).not.toBeNull();
+        type(field("branch-1"), "弱，还剩 <V of=\"panel.魔力\" />");
+        action("add-branch").click();
+        await flushPromises();
+        type(field("test-1"), "panel.魔力 > 0");
+        type(field("branch-1"), "一般");
+        action("apply").click();
+        await vi.waitFor(() => expect(emitted(wrapper).at(-1)).toBe('<If test="panel.魔力 >= 1000">强<ElseIf test="panel.魔力 > 0" />一般<Else />弱，还剩 <V of="panel.魔力" /></If>'));
+        expect(chips(wrapper).map((chip) => chip.dataset.entryChip)).toEqual(["if"]);
+    });
+
+    it("条件的一支里写了闭标签（会把条件切开）：读不成一个小块，不落", async () => {
+        const wrapper = show({modelValue: '<If test="panel.魔力 > 0">有<Else />没有</If>'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("branch-0"), "有</If>多");
+        action("apply").click();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-chip-problem]")?.textContent).toBe("这样写读不成一个小块，到源文字里改"));
+        expect(emitted(wrapper)).toEqual([]);
+    });
+
+    it("删掉一个小块；Esc 关上浮层、焦点回编辑器且小块仍选中", async () => {
+        const wrapper = show({modelValue: '甲<V of="panel.魔力" />乙', fields});
+        await flushPromises();
+        await openChip(wrapper, 0);
+        expect(popover()?.dataset.chipPopover).toBe("value");
+        expect(document.body.querySelector("[data-chip-value]")?.textContent).toBe("1,200");
+        expect(chips(wrapper, "value")[0]!.getAttribute("aria-expanded")).toBe("true");
+        key(popover()!, "Escape");
+        await vi.waitFor(() => expect(document.activeElement).toBe(prose(wrapper)));
+        expect(popover()).toBeNull();
+        expect(chips(wrapper, "value")[0]!.getAttribute("aria-expanded")).toBe("false");
+        expect(prose(wrapper).querySelector(".ProseMirror-selectednode")?.getAttribute("data-entry-chip")).toBe("value");
+        key(prose(wrapper), "Enter");
+        await flushPromises();
+        action("remove").click();
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe("甲乙");
+    });
+
+    it("撤销、外面换了整篇让小块不在了：浮层关上；有没应用的字时发 discarded", async () => {
+        const wrapper = show({modelValue: '<V expr="panel.魔力 * 2" />'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        await wrapper.setProps({modelValue: "别处改成了这样"});
+        await flushPromises();
+        expect(popover()).toBeNull();
+        expect(wrapper.emitted("discarded")).toBeUndefined();
+        await wrapper.setProps({modelValue: '<V expr="panel.魔力 * 2" />'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("expr"), "panel.魔力 * 5");
+        await wrapper.setProps({readonly: true});
+        await flushPromises();
+        expect(popover()).toBeNull();
+        expect(wrapper.emitted("discarded")).toHaveLength(1);
+    });
+
+});
+
+describe("插入小块：{ 与 @（canon/author-ui.md 输出 48）", () => {
+    const fieldsTwo = [...fields, {path: "character.年龄", label: "年龄", group: "人物", display: null}];
+
+    it("{ 打开字段列表：最前面是条件与计算，后面是本条目的字段；选字段插入取值，马上显示这一页的值", async () => {
+        const wrapper = show({modelValue: "甲", self: "e1", fields: fieldsTwo});
+        await flushPromises();
+        exposed(wrapper).focus("end");
+        key(prose(wrapper), "{");
+        await flushPromises();
+        expect(options()).toEqual([
+            expect.stringContaining("条件"),
+            expect.stringContaining("计算"),
+            expect.stringContaining("数值 · 魔力"),
+            expect.stringContaining("人物 · 年龄"),
+        ]);
+        const search = document.body.querySelector<HTMLInputElement>("[data-chip-menu] input")!;
+        type(search, "魔力");
+        await flushPromises();
+        expect(options()).toEqual([expect.stringContaining("数值 · 魔力")]);
+        key(search, "Enter");
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe('甲<V of="panel.魔力" />');
+        expect(chips(wrapper, "value")[0]!.textContent?.trim()).toBe("1,200");
+        expect(options()).toEqual([]);
+    });
+
+    it("{ 后按 Esc：列表关上，补回一个 {", async () => {
+        const wrapper = show({modelValue: "甲", fields});
+        await flushPromises();
+        exposed(wrapper).focus("end");
+        key(prose(wrapper), "{");
+        await flushPromises();
+        key(document.body.querySelector("[data-chip-menu] input")!, "Escape");
+        await flushPromises();
+        expect(options()).toEqual([]);
+        expect(emitted(wrapper).at(-1)).toBe("甲{");
+    });
+
+    it("{ 里选“计算”：先在浮层里写式子，应用了才插进去", async () => {
+        const wrapper = show({modelValue: "甲", fields});
+        await flushPromises();
+        exposed(wrapper).focus("end");
+        key(prose(wrapper), "{");
+        await flushPromises();
+        const search = document.body.querySelector<HTMLInputElement>("[data-chip-menu] input")!;
+        type(search, "计算");
+        await flushPromises();
+        key(search, "Enter");
+        await flushPromises();
+        expect(popover()?.dataset.chipPopover).toBe("calc");
+        expect(emitted(wrapper)).toEqual([]);
+        type(field("expr"), "panel.魔力 + 1");
+        action("apply").click();
+        await vi.waitFor(() => expect(emitted(wrapper).at(-1)).toBe('甲<V expr="panel.魔力 + 1" />'));
+    });
+
+    it("@ 打开条目列表：按搜索词找，选了插入条目引用；没有找条目的入口时 @ 照字打", async () => {
+        const queries: string[] = [];
+        const find = async (query: string) => {
+            queries.push(query);
+            return {ok: true as const, items: [{id: "e2", name: "星瑾"}, {id: "e3", name: "星瑕"}].filter((item) => item.name.includes(query))};
+        };
+        const wrapper = show({modelValue: "见到", find});
+        await flushPromises();
+        exposed(wrapper).focus("end");
+        key(prose(wrapper), "@");
+        await vi.waitFor(() => expect(options()).toEqual(["星瑾", "星瑕"]));
+        const search = document.body.querySelector<HTMLInputElement>("[data-chip-menu] input")!;
+        type(search, "瑕");
+        await vi.waitFor(() => expect(options()).toEqual(["星瑕"]));
+        key(search, "Enter");
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe('见到<Ref id="e3" />');
+        expect(queries[0]).toBe("");
+
+        const plain = show({modelValue: "见到"});
+        await flushPromises();
+        exposed(plain).focus("end");
+        expect(key(prose(plain), "@")).toBe(true);
+        expect(options()).toEqual([]);
+    });
+
+    it("行内代码里打 { 不弹列表", async () => {
+        const wrapper = show({modelValue: "`代码`", fields});
+        await flushPromises();
+        editorOf(wrapper).commands.setTextSelection(2);
+        key(prose(wrapper), "{");
+        await flushPromises();
+        expect(options()).toEqual([]);
     });
 });
