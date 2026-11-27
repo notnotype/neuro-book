@@ -179,6 +179,12 @@ describe("条件合成一个节点（输出 17；w00055 t03 S1 的探针）", ()
         });
     }
 
+    it("支两头的空白原样写出，不写成实体", () => {
+        const source = '前<If test="panel.a"> 甲 <Else /> 乙 </If>后';
+        const rewritten = codec.write(codec.read(source).doc, codec.read("").map);
+        expect(rewritten.ok && rewritten.text).toBe(source);
+    });
+
     it("套着的、没闭上的条件：内核拒收，富文本不打开（没闭上的不合成）", () => {
         for (const source of ['<If test="panel.a">甲<If test="panel.b">乙</If></If>', '<If test="panel.a">甲']) expect(problemsOf(source)).not.toEqual([]);
         expect(conditionCount(codec.read('<If test="panel.a">甲').doc)).toBe(0);
