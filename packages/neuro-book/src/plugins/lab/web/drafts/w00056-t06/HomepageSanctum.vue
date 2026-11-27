@@ -57,7 +57,9 @@ const props = withDefaults(defineProps<{
     headline?: string;
     /** 一开始是夜还是昼（访客之后可以切换）；缺省夜（开发者第 4 轮定）。 */
     appearance?: "night" | "day";
-}>(), {start: "top", headline: "e3", appearance: "night"});
+    /** 白天的案面：第 15 轮的候选，见 `SanctumScene` 的同名属性；缺省是第 12 轮起的红缎垫。 */
+    dayDesk?: "satin" | "bare" | "velvet";
+}>(), {start: "top", headline: "e3", appearance: "night", dayDesk: "satin"});
 
 const headlineParts = computed(() => (HEADLINES[props.headline] ?? HEADLINES.e3 ?? "").split(/(?<=，)/u));
 
@@ -1917,7 +1919,7 @@ onBeforeUnmount(() => {
     <div ref="page" class="hs" :class="{'hs--narrow': !wide, 'hs--day': !night}" :style="pageStyle" :data-hs-act="act" :data-hs-shown-act="shownAct" :data-hs-switching="switching" :data-hs-beat="rail.beat" :data-hs-phase="rail.phase" :data-hs-phases="phases" :data-hs-landed="landed" :data-hs-night="night" @scroll.passive="onScroll">
         <div class="hs-run">
             <div ref="stage" class="hs-stage">
-                <SanctumScene :progress="dive" :intro="start === 'top'" :desk-ready="deskReady" :night="night" @landed="onLanded">
+                <SanctumScene :progress="dive" :intro="start === 'top'" :desk-ready="deskReady" :night="night" :day-desk="dayDesk" @landed="onLanded">
                     <template #desk>
                         <HomepageDesk :key="deskKey" ref="desk" class="hs-desk" :class="{'is-receded': curtain}" setup="knock" :night="night" :restore="restore" :blobs="blobs" @ready="onDeskReady" @touch="onVisitorTouch" />
                         <Transition name="hs-dusk">

@@ -30,6 +30,8 @@ import PARCHMENT from "./assets/parchment.webp";
 import SATIN from "./assets/silk.webp";
 import VELVET from "./assets/velvet.webp";
 import WALNUT from "./assets/walnut.webp";
+import WALNUT_DUSK from "./assets/walnut-dusk.webp";
+import WALNUT_HAZE from "./assets/walnut-haze.webp";
 
 import {cubicBezier, prefersReducedMotion, SETTLE, timeScale} from "./motion";
 import {deskBox, deskShot, floaterShot, heroShot, landingBox, lightShot, SANCTUM_MIN_WIDTH, SCENE_EFFECTS, smooth} from "./sanctum";
@@ -43,7 +45,12 @@ const props = withDefaults(defineProps<{
     night?: boolean;
     /** 首屏停着时的动静（第 7 轮）；缺省全开。访客要求少动效时一样都没有。 */
     effects?: readonly SceneEffect[];
-}>(), {progress: 0, intro: true, deskReady: true, night: true, effects: () => SCENE_EFFECTS});
+    /**
+     * 白天的案面（第 15 轮的候选，开发者在 v13 上答：工作台下面的红布和书桌很突兀）：`satin` 是第 12 轮起的胡桃木加红缎垫；
+     * `bare` 去掉红布，木案压进藏书阁的暖雾，落地时失焦压暗；`velvet` 红缎换成夜里的哑光暗红丝绒，俯冲时往外铺满。夜里不看它。
+     */
+    dayDesk?: "satin" | "bare" | "velvet";
+}>(), {progress: 0, intro: true, deskReady: true, night: true, effects: () => SCENE_EFFECTS, dayDesk: "satin"});
 
 const emit = defineEmits<{
     (event: "landed", landed: boolean): void;
@@ -935,6 +942,7 @@ const deskHalo = useTemplateRef<HTMLElement>("deskHalo");
 const deskShade = useTemplateRef<HTMLElement>("deskShade");
 const deskSheen = useTemplateRef<HTMLElement>("deskSheen");
 const deskSilk = useTemplateRef<HTMLElement>("deskSilk");
+const deskDusk = useTemplateRef<HTMLElement>("deskDusk");
 const hero = useTemplateRef<HTMLElement>("hero");
 const light = useTemplateRef<HTMLElement>("light");
 const vignette = useTemplateRef<HTMLElement>("vignette");
@@ -1034,6 +1042,8 @@ function applyDeskPaint(shot: ReturnType<typeof deskShot>): void {
     if (deskHalo.value !== null) writeStyle(deskHalo.value, "--sx-halo", fixed(shot.halo));
     // 夜里丝绸垫不画（`display: none`），照样写：切到白天时不用等下一次镜头变化。窄屏不走这里，用登记的初始值 1（落地的窄边）。
     if (deskSilk.value !== null) writeStyle(deskSilk.value, "--sx-silk", fixed(shot.silk));
+    // 案面失焦压暗的那一层跟着丝绸垫同一个进度淡入（`bare`、`velvet` 才画）。
+    if (deskDusk.value !== null) writeStyle(deskDusk.value, "--sx-silk", fixed(shot.silk));
 }
 
 function applyHero(p: number): void {
@@ -1359,7 +1369,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'is-diving': diving, 'sx--narrow': !wide, 'sx--day': !night, 'sx--peek': effectOn('peek'), 'sx--still': still, 'sx--focusing': focused !== null}" :data-sx-relay="relayState" :data-sx-focus="focused ?? 'none'">
+    <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'is-diving': diving, 'sx--narrow': !wide, 'sx--day': !night, [`sx--desk-${dayDesk}`]: true, 'sx--peek': effectOn('peek'), 'sx--still': still, 'sx--focusing': focused !== null}" :data-sx-relay="relayState" :data-sx-focus="focused ?? 'none'">
         <div class="sx-back" :style="{'--sx-library': `url(${LIBRARY})`}" aria-hidden="true"></div>
 
         <!--
@@ -1386,9 +1396,11 @@ onBeforeUnmount(() => {
                     桌布：比桌子大一圈、往外淡进暗里；落地后围着工作台的那一圈都是它。顶光在桌面上落一滩光。
                     白天桌布是胡桃木案面，工作台下面另垫一块丝绸（只在白天画，往里收的进度由镜头写，见 `applyDeskPaint`）。
                 -->
-                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-walnut': `url(${WALNUT})`}" aria-hidden="true"></div>
+                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-walnut': `url(${WALNUT})`, '--sx-walnut-haze': `url(${WALNUT_HAZE})`}" aria-hidden="true">
+                    <div ref="deskDusk" class="sx-cloth__dusk" :style="{'--sx-walnut-dusk': `url(${WALNUT_DUSK})`}"></div>
+                </div>
                 <div class="sx-pool" aria-hidden="true"></div>
-                <div ref="deskSilk" class="sx-silk" :style="{'--sx-satin': `url(${SATIN})`}" aria-hidden="true"></div>
+                <div ref="deskSilk" class="sx-silk" :style="{'--sx-satin': `url(${SATIN})`, '--sx-velvet': `url(${VELVET})`}" aria-hidden="true"></div>
                 <div class="sx-desk">
                     <slot name="desk" />
                 </div>
@@ -2881,6 +2893,89 @@ onBeforeUnmount(() => {
 
 /* 窄屏的工作台离舞台两边只有 12px，垫子的边收到 8px，不伸出画外。 */
 .sx--day.sx--narrow .sx-silk {
+    inset: -8px;
+}
+
+/*
+ * 第 15 轮的两个候选（开发者在 v13 上答：工作台下面的红布和书桌很突兀；@designer 第 15 轮）。突兀在两层贴图又锐又硬、自带的光
+ * 与藏书阁的暖雾不是一处：缎面高饱和、有塑料似的亮光，收成窄边像一道亮红画框；胡桃木纹粗、横平，没有景深。
+ * 两个都把案面压进暖雾：首屏用压过的一张（`walnut-haze.webp`：糊 1.5px、亮度 0.82、对比 0.78、饱和 0.72、暗部抬向暖褐），
+ * 俯冲时淡入失焦压暗的一张（`walnut-dusk.webp`：糊约 6px、亮度 0.45），落地后是一块匀净的暗木底；上沿羽化拉宽到三成，
+ * 不在墙脚划出一道横缝。两张都是从 `walnut.webp` 用脚本压出来的，不另生成；不在大块的变换层上逐帧做模糊（第 11 轮首屏滚动卡过）。
+ */
+.sx-cloth__dusk {
+    display: none;
+}
+
+.sx--day.sx--desk-bare .sx-cloth,
+.sx--day.sx--desk-velvet .sx-cloth {
+    background:
+        radial-gradient(46% 50% at 30% 28%, rgb(255 224 174 / 0.22), transparent 74%),
+        var(--sx-walnut-haze) center / cover,
+        #3a2416;
+    mask-image:
+        linear-gradient(to bottom, transparent 0, #000 32%, #000 88%, transparent 100%),
+        linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
+}
+
+.sx--day.sx--desk-bare .sx-cloth__dusk,
+.sx--day.sx--desk-velvet .sx-cloth__dusk {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(closest-side, rgb(30 18 10 / 0.42), rgb(24 14 8 / 0.62)),
+        var(--sx-walnut-dusk) center / cover;
+    opacity: var(--sx-silk);
+}
+
+/* 候选 A（`bare`）：去掉红布，象牙色的工作台直接坐在木案上，一道细金边定住轮廓，一层深柔影说它压在桌上。 */
+.sx--day.sx--desk-bare .sx-silk {
+    display: none;
+}
+
+.sx--day.sx--desk-bare .sx-desk {
+    box-shadow:
+        0 0 0 1px rgb(198 162 108 / 0.45),
+        0 18px 48px rgb(24 14 8 / 0.48);
+}
+
+.sx--day.sx--desk-bare .sx-carrier.is-landed .sx-desk {
+    box-shadow:
+        0 0 0 1px rgb(198 162 108 / 0.45),
+        0 10px 30px rgb(16 9 5 / 0.45);
+}
+
+/*
+ * 候选 B（`velvet`）：红缎换成夜里那张哑光暗红丝绒，压暗、降饱和，不要硬包边；首屏只比工作台宽出一小圈（左右 6%、上下 7%），
+ * 俯冲时不往里收成画框，而是往外铺开，落地时和夜里一样是一整片丝绒托着工作台。往里 5px 一道很淡的暗金线。
+ */
+.sx--day.sx--desk-velvet .sx-silk {
+    inset:
+        calc(-7% - 27% * var(--sx-silk))
+        calc(-6% - 34% * var(--sx-silk));
+    border: 0;
+    border-radius: 6px;
+    background:
+        radial-gradient(60% 55% at 30% 26%, rgb(255 214 160 / 0.1), transparent 75%),
+        var(--sx-velvet) center / cover,
+        #3c0c14;
+    box-shadow: 0 4px 14px rgb(18 8 4 / 0.4);
+    filter: brightness(0.75) contrast(0.82) saturate(0.78);
+    /* 铺开时上沿与两侧越来越柔：首屏是一块垫子，边是硬的；俯冲到一半它的边横在藏书阁中间，硬边像一块暗屏（第 15 轮第一次截图）。 */
+    mask-image:
+        linear-gradient(to bottom, transparent 0, #000 calc(18% * var(--sx-silk))),
+        linear-gradient(to right, transparent 0, #000 calc(10% * var(--sx-silk)), #000 calc(100% - 10% * var(--sx-silk)), transparent 100%);
+    mask-composite: intersect;
+}
+
+/* 金线跟着丝绒的边往外走，落地时已在画外，不用另外淡掉（`--sx-silk` 登记成不继承，伪元素也读不到它）。 */
+.sx--day.sx--desk-velvet .sx-silk::after {
+    inset: 5px;
+    border-color: rgb(214 178 110 / 0.35);
+}
+
+.sx--day.sx--desk-velvet.sx--narrow .sx-silk {
     inset: -8px;
 }
 

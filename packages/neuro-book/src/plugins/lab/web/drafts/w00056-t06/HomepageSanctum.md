@@ -38,6 +38,7 @@ NeuroBook 文档站首页的原型（w00056 t06 第 10 轮，在第 9 轮上改�
 | `start` | `top`（缺省）从首屏起，演开场；`act-one` 直接落在第一幕开头，一挂上就放 I 的落印；`act-two` 直接落在第二幕，一挂上就放 II 的落印。 |
 | `headline` | 首句的候选 id（`copy.ts` 的 `HEADLINES`），缺省 `e3`。 |
 | `appearance` | 一开始是 `night`（缺省）还是 `day`，之后访客可以切换。 |
+| `dayDesk` | 白天的案面，第 15 轮的候选：`satin`（缺省）、`bare`、`velvet`，交给 `SanctumScene` 的同名属性。 |
 
 没有事件与 slots；attrs 落在根元素上。
 
