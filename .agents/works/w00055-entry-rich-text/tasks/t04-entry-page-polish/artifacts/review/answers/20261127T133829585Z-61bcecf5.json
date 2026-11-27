@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t04-entry-page-polish",
+    "artifactId": "review",
+    "answerId": "20261127T133829585Z-61bcecf5",
+    "artifactVersion": 1,
+    "contentHash": "a0955e5d9bcf97fa725825d181d465b518ee8d83120dad6dc4d29d926e21030d",
+    "submittedAt": "2026-11-27T13:38:27.535Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "head-layout": "columns",
+        "head-avatar": "avatar",
+        "text-empty": "line",
+        "dialog-layout": "sections"
+    },
+    "comments": {
+        "head-avatar": "你这里要注意对齐：底部可以和这个别名这里对齐",
+        "dialog-layout": "可以做宽一点，横屏"
+    },
+    "note": null
+}
