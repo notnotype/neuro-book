@@ -654,7 +654,11 @@
                 "spawn": "派一个子代理去做一件事。",
                 "send": "给自己派的子代理发话或让它继续。",
                 "answer": "回答子代理交给自己的提问。"
-            }
+            },
+            "objectNeedsEval": "要先加入 eval 才用得上",
+            "objectMethod": "{{method}}：{{effect}}",
+            "objectDetail": "{{summary}} 方法：{{methods}}",
+            "listSeparator": "、"
         },
         "create": {
             "title": "新建 Profile",

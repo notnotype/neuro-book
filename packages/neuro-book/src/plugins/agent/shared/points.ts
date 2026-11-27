@@ -12,6 +12,8 @@ import type {ContributionDeclaration, ContributionPointDefinition} from "@notnot
 
 import type {AnyExtension, AnyProfile, ToolEffect, ToolImplementation, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
+import {TextSchema} from "nbook/shared/text";
+
 import type {AgentToolServices} from "./resources";
 
 export const EXTENSIONS_POINT = "agent.extensions";
@@ -185,6 +187,8 @@ export const EvalObjectDeclarationSchema = Type.Object({
     summary: Type.String({minLength: 1}),
     /** 写进 `docs://eval/<名>.md` 的说明（Markdown），排在方法签名之前。 */
     docs: Type.Optional(Type.String()),
+    /** 给人看的一句说明（界面文字）：Profile 页上这个对象那一行用（profile-settings.md 输出 28）；不写时用 `summary`。 */
+    description: Type.Optional(TextSchema),
 }, {additionalProperties: false});
 export type AgentEvalObjectDeclaration = Static<typeof EvalObjectDeclarationSchema>;
 

@@ -654,7 +654,11 @@
                 "spawn": "Spawns a sub-agent to do one task.",
                 "send": "Sends a message to one of its sub-agents, or lets it continue.",
                 "answer": "Answers a question a sub-agent passed to it."
-            }
+            },
+            "objectNeedsEval": "Add eval to use this",
+            "objectMethod": "{{method}}: {{effect}}",
+            "objectDetail": "{{summary}} Methods: {{methods}}",
+            "listSeparator": ", "
         },
         "create": {
             "title": "New profile",

@@ -9,6 +9,8 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import type {CreateSessionOptions, Issuer, JsonValue, RunResult, SessionApi, SessionHeader, SessionIndexEntry, StorageResult, UserInput} from "@notnotype/nb-harness/kernel/contracts";
 import type {SessionHold} from "@notnotype/nb-harness/kit/sessions";
 
+import type {Text} from "@notnotype/nb-ui/text";
+
 import type {AgentProfileDeclaration, AgentToolDeclaration} from "./points";
 
 /** 别的内置插件贡献 Profile 用（跨插件的运行时导入只能指向合同，contributions.md 输出 7）：声明的助手与贡献点 id。 */
@@ -97,6 +99,8 @@ export interface ToolCatalogEntry {
     readonly plugin: string;
     /** 装到所有 Profile 的工具集里（输出 4）。 */
     readonly defaultForAll?: true;
+    /** 全局对象的方法（输出 24、25）：对象名、方法名与对象在界面上的说明；Profile 页把同一对象的方法合成一行（profile-settings.md 输出 28）。 */
+    readonly object?: {readonly name: string; readonly method: string; readonly description: Text};
 }
 
 export type CreateUserProfileResult = {readonly ok: true; readonly key: string; readonly address: string} | {readonly ok: false; readonly code: "invalid-name" | "exists"};

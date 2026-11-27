@@ -45,6 +45,23 @@ describe("哪些对象有效（contributions.md 输出 25）", () => {
     });
 });
 
+describe("工具目录与会话工具集里的对象（profile-settings.md 输出 28、29）", () => {
+    test("目录给有效对象的方法带上对象名、方法名与界面说明；按对象去掉时会话的工具集里没有它的方法", () => {
+        const method = (plugin: string, objectName: string, name: string): {capability: string; id: string; plugin: string; declaration: AgentToolDeclaration} => ({capability: TOOLS_POINT, id: `${plugin}.${name}`, plugin, declaration: {description: name, parameters: {type: "object"}, version: "1", effect: "read", global: {object: objectName, method: name}, defaultForAll: true}});
+        const source = declarations([object("acme.a", "page", {description: {"zh-CN": "看页面", "en-US": "See the page"}}), object("acme.b", "other"), method("acme.a", "page", "look"), method("acme.a", "page", "point"), method("acme.b", "other", "peek")]);
+        const valid = validEvalObjects(source, KERNEL_NAMES, () => undefined);
+        const tools = new AgentTools({declarations: source, evalObjectOf: (name) => valid.get(name), clock: {now: () => 0} as never, activate: async () => true, report: () => undefined, services: () => ({}) as never, catalogChanged: () => undefined});
+        expect(tools.catalog().map((entry) => [entry.id, entry.object])).toEqual([
+            ["acme.a.look", {name: "page", method: "look", description: {"zh-CN": "看页面", "en-US": "See the page"}}],
+            ["acme.a.point", {name: "page", method: "point", description: {"zh-CN": "看页面", "en-US": "See the page"}}],
+            ["acme.b.peek", {name: "other", method: "peek", description: "other 的摘要"}],
+        ]);
+        const ids = (binding?: Parameters<AgentTools["forSession"]>[1]) => tools.forSession({required: [], optional: []}, binding, {}).map((tool) => tool.id);
+        expect(ids()).toEqual(["acme.a.look", "acme.a.point", "acme.b.peek"]);
+        expect(ids({added: [], removed: [], objects: {added: [], removed: ["page"]}})).toEqual(["acme.b.peek"]);
+    });
+});
+
 describe("文档（resources.md 输出 16）", () => {
     test("签名由参数与 returns 生成：对象、数组、可选、枚举、联合、额外属性；认不出的写 unknown", () => {
         expect(tsType({type: "object", properties: {url: {type: "string"}, wait: {enum: ["load", "idle"]}, tags: {type: "array", items: {type: "string"}}, n: {type: "integer"}}, required: ["url"]})).toBe('{url: string; wait?: "load" | "idle"; tags?: string[]; n?: number}');

@@ -17,6 +17,7 @@ export const descriptor: PluginDescriptor = {
         evalObject(`${PAGE_AGENT_PLUGIN}.${UI_OBJECT}`, {
             name: UI_OBJECT,
             summary: "看用户当前的 NeuroBook 窗口（文字快照、截图）、在界面目录里找设置与命令在哪，并高亮控件一步步带用户操作",
+            description: {"zh-CN": "看懂并引导界面：快照、目录、截图、高亮。", "en-US": "See and guide the interface: snapshots, catalog, screenshots, highlights."},
             docs: [
                 "`ui` 操作的是用户此刻在用的那个 NeuroBook 窗口（打开着这个会话所属作品的窗口）。它只看、不点：不会替用户点击、填写或按键。",
                 "",

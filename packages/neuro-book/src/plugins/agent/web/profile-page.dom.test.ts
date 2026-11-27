@@ -51,8 +51,8 @@ const SNAPSHOT = {
     roles: [{id: "main", axis: "gradient", builtin: false, name: "主力", description: "", model: "p/a", status: "ok"}],
 } as unknown as ModelsSnapshot;
 
-/** 脚本化的远程：`profiles` 交回 `listed`，可以按次挂起；记下调用先后。 */
-function fakeRemote(options: {readonly listed?: () => readonly ProfileEntry[]; readonly failList?: () => string | null} = {}) {
+/** 脚本化的远程：`profiles` 交回 `listed`，可以按次挂起；记下调用先后。`catalog` 换掉工具目录。 */
+function fakeRemote(options: {readonly listed?: () => readonly ProfileEntry[]; readonly failList?: () => string | null; readonly catalog?: readonly ToolCatalogEntry[]} = {}) {
     const calls: string[] = [];
     let onEvent: (() => void) | null = null;
     let onResync: (() => void) | null = null;
@@ -67,7 +67,7 @@ function fakeRemote(options: {readonly listed?: () => readonly ProfileEntry[]; r
             const failed = options.failList?.() ?? null;
             return failed === null ? {ok: true as const, value: snapshot} : {ok: false as const, code: failed};
         },
-        toolCatalog: async () => ({ok: true as const, value: TOOLS}),
+        toolCatalog: async () => ({ok: true as const, value: options.catalog ?? TOOLS}),
         createUserProfile: async () => ({ok: true as const, value: {key: "user.new", address: "user://profiles/new.profile.tsx"}}),
         deleteUserProfile: async () => ({ok: true as const, value: {}}),
         events: {
@@ -318,6 +318,27 @@ describe("工具", () => {
         expect(wrapper.find("[data-profile-tool='plot.search']").exists()).toBe(false);
         await waitUntil("两个都写下", () => bindings(settings)["nbook.agent.main"]?.removed.length === 2);
         expect(bindings(settings)["nbook.agent.main"]).toEqual({added: [], removed: ["nbook.agent.edit", "plot.search"]});
+    });
+
+    it("全局对象一行（输出 28、29）：带对象标记；“×”按对象写进 objects.removed，方法的旧条目一并删掉；对话框里按对象加回", async () => {
+        const ui = (method: string): ToolCatalogEntry => ({id: `nbook.page-agent.${method}`, description: method, providerName: `ui_${method}`, effect: "read", plugin: "nbook.page-agent", defaultForAll: true, object: {name: "ui", method, description: "看懂并引导界面"}});
+        const remote = fakeRemote({catalog: [...TOOLS, {id: "nbook.agent.eval", description: "跑代码", providerName: "eval", effect: "exec", plugin: "nbook.agent"}, ui("snapshot"), ui("highlight")], listed: () => [{...MAIN, tools: {required: ["nbook.agent.read"], optional: ["nbook.agent.eval"]}}]});
+        const {wrapper, settings} = open({remote, values: {[agentSettings.settings.toolBindings.key]: {"nbook.agent.main": {added: [], removed: ["nbook.page-agent.snapshot"]}}}});
+        await ready(wrapper);
+        const row = wrapper.get("[data-profile-tool-object='ui']");
+        expect(row.attributes("data-profile-tool")).toBe("object:ui");
+        await row.get("[data-profile-tool-remove]").trigger("click");
+        await waitUntil("按对象写下", () => bindings(settings)["nbook.agent.main"]?.objects?.removed.length === 1 || null);
+        expect(bindings(settings)["nbook.agent.main"]).toEqual({added: [], removed: [], objects: {added: [], removed: ["ui"]}});
+        expect(wrapper.find("[data-profile-tool-object='ui']").exists()).toBe(false);
+
+        await wrapper.get("[data-profile-tools-add]").trigger("click");
+        await waitUntil("对话框", () => addDialog() !== null);
+        click(addDialog().querySelector("[data-add-tool='object:ui'] [data-add-tool-toggle]"));
+        await flushPromises();
+        confirmAdd();
+        await waitUntil("加回后清掉这一项", () => bindings(settings)["nbook.agent.main"] === undefined || null);
+        expect(wrapper.find("[data-profile-tool-object='ui']").exists()).toBe(true);
     });
 
     it("恢复默认删掉这个 key，别的 Profile 不动", async () => {

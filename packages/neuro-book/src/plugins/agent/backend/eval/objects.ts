@@ -11,6 +11,8 @@ import {join} from "node:path";
 
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {EVAL_OBJECTS_POINT} from "../../shared/points";
 import type {AgentEvalObjectDeclaration} from "../../shared/points";
 
@@ -19,6 +21,8 @@ export interface EvalObject {
     readonly plugin: string;
     readonly summary: string;
     readonly docs?: string;
+    /** 界面上的说明（Profile 页的对象行）。 */
+    readonly description?: Text;
 }
 
 /** 一个方法：带 `global` 的工具在文档里的样子。 */
@@ -39,13 +43,13 @@ export interface EvalMethod {
 export function validEvalObjects(declarations: ContributionDeclarations, reserved: readonly string[], report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void): ReadonlyMap<string, EvalObject> {
     const byName = new Map<string, EvalObject[]>();
     for (const descriptor of declarations.list<AgentEvalObjectDeclaration>(EVAL_OBJECTS_POINT)) {
-        const {name, summary, docs} = descriptor.declaration;
+        const {name, summary, docs, description} = descriptor.declaration;
         if (reserved.includes(name) || name in globalThis) {
             report("eval-object-conflict", `the eval object ${name} of ${descriptor.plugin} clashes with a name the kernel already has; it is left out`, {name, plugin: descriptor.plugin});
             continue;
         }
         const list = byName.get(name) ?? [];
-        list.push({name, plugin: descriptor.plugin, summary, ...(docs === undefined ? {} : {docs})});
+        list.push({name, plugin: descriptor.plugin, summary, ...(docs === undefined ? {} : {docs}), ...(description === undefined ? {} : {description})});
         byName.set(name, list);
     }
     const valid = new Map<string, EvalObject>();

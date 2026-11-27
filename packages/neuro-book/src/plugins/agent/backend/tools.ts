@@ -12,12 +12,13 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ToolContext, ToolDeclaration, ToolEffect, ToolImplementation, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import {providerToolName} from "@notnotype/nb-harness/kernel/contracts";
+import type {Text} from "@notnotype/nb-ui/text";
 
 import type {ToolCatalogEntry} from "../shared/contracts";
 import type {EvalMethod} from "./eval/objects";
 import type {CodeTool} from "./eval/tool";
 import {profileToolIds} from "../shared/profile-tools";
-import type {ToolRequirements} from "../shared/profile-tools";
+import type {MethodsOf, ToolBinding, ToolRequirements} from "../shared/profile-tools";
 import {onAgentTool, TOOLS_POINT} from "../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../shared/points";
 import type {AgentToolServices} from "../shared/resources";
@@ -38,7 +39,7 @@ export interface AgentToolsOptions {
      * 全局对象的方法（声明带 `global`）要它的对象有效、且是同一插件登记的（contributions.md 输出 24）；不然不进工具表。
      * 缺省都有效（没有全局对象的测试场地）。
      */
-    readonly evalObjectOf?: (object: string) => {readonly plugin: string} | undefined;
+    readonly evalObjectOf?: (object: string) => {readonly plugin: string; readonly summary: string; readonly description?: Text} | undefined;
     /** 交给工具工厂的会话服务（资源视图与全文保存），按内核给的会话上下文构造。 */
     /** `toolId` 是要构造的工具，资源视图拿它作 `call(ctx)` 的分组缺省标题。 */
     /** `scope`：这一代工具实现的登记范围（贡献它的插件、正在执行的调用、撤回），工具登记任务用。 */
@@ -94,16 +95,41 @@ export class AgentTools {
         return tools;
     }
 
-    /** 工具目录（contributions.md 输出 17）：来自清单声明，不激活提供方。 */
+    /** 工具目录（contributions.md 输出 17）：来自清单声明，不激活提供方。全局对象的方法带上对象（Profile 页合成一行）。 */
     catalog(): readonly ToolCatalogEntry[] {
-        return this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).map((descriptor) => ({
-            id: descriptor.id,
-            description: descriptor.declaration.description,
-            providerName: providerToolName({id: descriptor.id, ...(descriptor.declaration.providerName === undefined ? {} : {providerName: descriptor.declaration.providerName})}),
-            effect: descriptor.declaration.effect,
-            plugin: descriptor.plugin,
-            ...(descriptor.declaration.defaultForAll === true ? {defaultForAll: true as const} : {}),
-        }));
+        return this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT).map((descriptor) => {
+            const object = this.#objectOf(descriptor.plugin, descriptor.declaration);
+            return {
+                id: descriptor.id,
+                description: descriptor.declaration.description,
+                providerName: providerToolName({id: descriptor.id, ...(descriptor.declaration.providerName === undefined ? {} : {providerName: descriptor.declaration.providerName})}),
+                effect: descriptor.declaration.effect,
+                plugin: descriptor.plugin,
+                ...(descriptor.declaration.defaultForAll === true ? {defaultForAll: true as const} : {}),
+                ...(object === undefined ? {} : {object: {name: object.name, method: descriptor.declaration.global!.method, description: object.description ?? object.summary}}),
+            };
+        });
+    }
+
+    /** 全局对象此刻的方法，按对象名；只算对象有效的（同一插件登记的）。 */
+    methodsOf(): MethodsOf {
+        const methods = new Map<string, string[]>();
+        for (const descriptor of this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT)) {
+            const object = this.#objectOf(descriptor.plugin, descriptor.declaration);
+            if (object === undefined) continue;
+            const list = methods.get(object.name) ?? [];
+            list.push(descriptor.id);
+            methods.set(object.name, list);
+        }
+        return (object) => methods.get(object) ?? [];
+    }
+
+    /** 这个方法所属的有效全局对象；不是方法，或对象不是同一插件登记的有效对象时为 undefined。 */
+    #objectOf(plugin: string, declaration: AgentToolDeclaration): {readonly name: string; readonly summary: string; readonly description?: Text} | undefined {
+        const global = declaration.global;
+        if (global === undefined || this.options.evalObjectOf === undefined) return undefined;
+        const object = this.options.evalObjectOf(global.object);
+        return object?.plugin === plugin ? {...object, name: global.object} : undefined;
     }
 
     /**
@@ -111,13 +137,13 @@ export class AgentTools {
      * 不存在的 id 忽略（必需工具缺失由内核判定）。后台会话与 bot 归属的会话没有人在窗口前，去掉声明了 `foreground` 的；
      * 这样去掉的必需工具同样由内核按 `tools-missing` 收口。内核的工具表、eval 的说明与代码里的全局对象都取这一份。
      */
-    forSession(requirements: ToolRequirements, binding: {readonly added: readonly string[]; readonly removed: readonly string[]} | undefined, session: Pick<ToolSessionContext, "background" | "owner">): ToolDeclaration[] {
+    forSession(requirements: ToolRequirements, binding: ToolBinding | undefined, session: Pick<ToolSessionContext, "background" | "owner">): ToolDeclaration[] {
         const all = this.all();
         const declared = this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT);
         const defaultForAll = declared.flatMap((descriptor) => (descriptor.declaration.defaultForAll === true ? [descriptor.id] : []));
         const unattended = session.background === true || session.owner !== undefined;
         const foreground = new Set(unattended ? declared.flatMap((descriptor) => (descriptor.declaration.foreground === true ? [descriptor.id] : [])) : []);
-        return profileToolIds(requirements, defaultForAll, binding).flatMap((id) => {
+        return profileToolIds(requirements, defaultForAll, binding, this.methodsOf()).flatMap((id) => {
             const declaration = all.get(id);
             return declaration === undefined || foreground.has(id) ? [] : [declaration];
         });
