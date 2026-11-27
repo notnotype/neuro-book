@@ -9,7 +9,8 @@
         "bun": ">=1.3.14"
     },
     "exports": {
-        "./package.json": "./package.json"
+        "./package.json": "./package.json",
+        "./testing": "./src/testing/index.ts"
     },
     "scripts": {
         "test": "bun test",

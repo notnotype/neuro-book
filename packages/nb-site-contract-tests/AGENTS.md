@@ -32,7 +32,8 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 
 | 名字 | 用途 |
 |---|---|
-| `useSiteSandbox(purpose)` | 登记 `beforeAll`（建临时根）、`afterEach`（停掉本用例起的、还没停的进程）、`afterAll`（停掉其余的，再删根）；返回沙箱 |
+| `useSiteSandbox(purpose)`（`site.ts`） | 登记 `beforeAll`（建临时根）、`afterEach`（停掉本用例起的、还没停的进程）、`afterAll`（停掉其余的，再删根）；返回沙箱。合同测试从 `site.ts` 导入，它原样转出 `process.ts` 的其余名字 |
+| `createSiteSandbox(purpose)`（`process.ts`） | 同一个沙箱，但不登记钩子：返回的 `open`、`beginTest`、`endTest`、`close` 由调用方在自己测试运行器的钩子里调。`process.ts` 不依赖 `bun:test`、起进程用 `node:child_process`，在 Node 里也能跑 |
 | `sandbox.dataDir()` | 临时根下一个新的空数据目录 |
 | `sandbox.start({dataDir, env, command, timeoutMs})` | 起 `serve`，等到 `site.listening`；进程先退出或超时都立即失败，错误里带已收到的输出。缺省带一个随机的测试控制口令，`env: {NB_SITE_TEST_CONTROL: undefined}` 去掉它 |
 | `sandbox.run(command, {dataDir, env, command, args, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行；`args` 接在子命令之后（`create-admin` 的用户名与邮箱） |
@@ -48,6 +49,10 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `listBackups`、`quickCheck`（`backup.ts`） | 列出名字是备份时间的目录；只读打开副本跑 `quick_check` |
 | `aggregatedDailyReports(dataDir, appVersion)`（`aggregate.ts`） | 统计的库里某个应用版本的每日上报算进聚合的份数；只给相邻版本测试用，见上面允许清单的例外 |
 | `reservePort`、`isListening`、`rawHttp`、`requestJson`、`testControlRequest` | 预留端口与检查有没有人监听；原始套接字请求（测读不出主机名）；按 JSON 读响应。都带截止时刻（缺省 10 秒），到点中断连接并报错 |
+
+### 公开入口 `./testing`
+
+`@notnotype/nb-site-contract-tests/testing`（`src/testing/index.ts`）给别的包的测试复用底座，现在的使用方是官方站前端的真实冒烟（`nb-site-web/e2e/real/`，Playwright 由 Node 跑）。它只转出 `process.ts`、`identity.ts`、`oauth-client.ts`：这几个文件不许导入 `bun:` 模块，相对导入不出这几个文件，由 `src/boundary.test.ts` 检查。`bun:test` 的钩子版、开库的辅助文件与统计的上报样例不进这个入口。使用方只能在测试代码里导入它，浏览器代码不行：边界检查在使用方包里。
 
 子进程的环境只有 `PATH`、指向临时根下空目录的 `HOME` 与 `TMPDIR`，加一套合格的 `NB_SITE_*`；工作目录是临时根。不继承测试进程的环境。
 
