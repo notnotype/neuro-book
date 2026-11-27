@@ -1,0 +1,83 @@
+开发者在开发服务上的实测会话（标题“ui 工具是什么？”，2026-11-27，Profile nbook.agent.main）。
+每行：相对本会话第一条事件的秒数；eval 之间的间隔是模型往返（读结果、想、写下一段代码）。ui 调用的参数与结果只摘要。
+
+    7.7s 用户：ui 工具是什么？
+   11.4s   工具 nbook.agent.read 开始
+   11.4s   工具结束 ok
+   68.2s 用户：那就测试一下。我想知道在哪里能给 NeuroBook 添加表情。你能引导一下吗？
+  110.2s   工具 nbook.agent.eval 开始
+  110.3s     ui.find {"query": "表情"}
+  110.3s       → ok size=53 - section "表情包" nbook.stickers.packs（2 步）
+  110.3s     ui.find {"query": "sticker"}
+  110.3s       → ok size=37 界面目录里没有找到 "sticker"
+  110.3s   工具结束 ok
+  136.8s   工具 nbook.agent.eval 开始（距上一个工具结束 26.5s）
+  136.9s     ui.snapshot {}
+  136.9s       → ok size=4589 window fzp "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  136.9s     ui.highlight {"at": {"target": "workbench.activity", "key": "nbook.settings"}, "until": "click", "step": 1, "total": 2}
+  141.5s       → ok size=16 结局：clicked
+  141.5s   工具结束 ok
+  153.5s   工具 nbook.agent.eval 开始（距上一个工具结束 12.1s）
+  153.6s     ui.snapshot {}
+  153.6s       → ok size=6931 window fzp "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  153.6s   工具结束 ok
+  170.7s   工具 nbook.agent.eval 开始（距上一个工具结束 17.1s）
+  170.7s     ui.highlight {"at": {"target": "settings.section", "key": "nbook.stickers.packs"}, "until": "click", "step": 2, "total": 2}
+  173.9s       → ok size=16 结局：clicked
+  173.9s   工具结束 ok
+  190.7s   工具 nbook.agent.eval 开始（距上一个工具结束 16.8s）
+  190.8s     ui.snapshot {"scope": {"role": "dialog", "name": "设置"}, "includeText": true}
+  190.9s       → ok size=3778 window fzp "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  190.9s   工具结束 ok
+  202.3s   工具 nbook.agent.eval 开始（距上一个工具结束 11.5s）
+  202.4s     ui.highlight {"at": {"ref": "fzp.155"}, "until": "next", "step": 1, "total": 1}
+  214.9s       → ok size=13 结局：next
+  214.9s   工具结束 ok
+  451.2s 用户：能不能一次性就把 highlight 引导做好？现在这个 ui 工具有点慢诶，需要先查后 highlight。给这个 ui 工具提点建议吧，或者给后续用这个工具的其他 agent 经验吧。例如要不要自动获取 snapshot？（是 agent 自己再 eval 最后获取，还是系统自动给）。如果你打开菜单后，我又手动关掉会怎样？有没有一次性就把所有 highlight 步骤都做好的方法？
+  616.0s 用户：那就试一个难一点的。教我如何配置 api key
+  654.8s   工具 nbook.agent.eval 开始
+  654.8s     ui.find {"query": "服务商"}
+  654.9s       → ok size=64 - section "服务商与模型" nbook.models.providers（2 步）
+  654.9s     ui.find {"query": "API"}
+  654.9s       → ok size=216 - section "服务商与模型" nbook.models.providers（2 步）
+  654.9s     ui.snapshot {}
+  654.9s       → ok size=4512 window niz "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  655.0s     ui.highlight {"at": {"target": "workbench.activity", "key": "nbook.settings"}, "until": "click", "step": 1, "total": 2}
+  657.3s       → ok size=16 结局：clicked
+  657.5s     ui.highlight {"at": {"target": "settings.section", "key": "nbook.models.providers"}, "until": "click", "step": 2, "total": 2}
+  659.9s       → ok size=16 结局：clicked
+  660.3s     ui.snapshot {"scope": {"role": "dialog", "name": "设置"}, "includeText": true, "maxTokens": 4000}
+  660.3s       → ok size=3628 window niz "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  660.3s   工具结束 ok
+  696.7s   工具 nbook.agent.eval 开始（距上一个工具结束 36.4s）
+  696.7s     ui.highlight {"at": {"role": "navigation", "name": "服务商", "within": {"role": "dialog", "name": "设置"}}, "until": "next", "step": 1, "total": 5}
+  708.0s       → ok size=13 结局：next
+  708.0s     ui.highlight {"at": {"role": "textbox", "name": "API 密钥", "within": {"role": "dialog", "name": "设置"}}, "until": "next", "step": 2, "total": 5}
+  713.1s       → error size=90 等了 5 秒，目标仍没有出现：没有找到 {"role":"textbox","name":"API 密钥"}
+  713.1s   工具结束 ok
+  736.8s   工具 nbook.agent.eval 开始（距上一个工具结束 23.7s）
+  736.8s     ui.snapshot {"includeText": true}
+  736.9s       → ok size=7934 window niz "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  736.9s   工具结束 ok
+  747.1s   工具 nbook.agent.eval 开始（距上一个工具结束 10.2s）
+  747.1s     ui.snapshot {"scope": {"role": "dialog", "name": "设置"}, "includeText": true, "maxTokens": 4000}
+  747.2s       → ok size=3620 window niz "NeuroBook" /?project=mist-clockwork-city  2048x1017  focused
+  747.2s   工具结束 ok
+  756.6s   工具 nbook.agent.eval 开始（距上一个工具结束 9.4s）
+  756.7s     ui.highlight {"at": {"ref": "niz.146"}, "until": "next", "step": 2, "total": 5}
+  763.6s       → ok size=13 结局：next
+  763.6s     ui.highlight {"at": {"ref": "niz.148"}, "until": "next", "step": 3, "total": 5}
+  768.9s       → ok size=13 结局：next
+  769.0s     ui.highlight {"at": {"ref": "niz.155"}, "until": "next", "step": 4, "total": 5}
+  772.8s       → ok size=13 结局：next
+  772.8s     ui.highlight {"at": {"target": "settings.section", "key": "nbook.models.roles"}, "until": "next", "step": 5, "total": 5}
+  775.6s       → ok size=13 结局：next
+  775.6s   工具结束 ok
+  874.4s 用户：踩到的坑这个是因为我点了添加服务商，弹出了一个对话框。
+---
+我看刚刚还是分成了多个步骤啊，显示打开设置，然后你又去看了一下 snapshot。这个是不是没办法优化成一次的？这是工具的缺陷吗？
+ 1091.6s 用户：那就把本次实验结论以及你的建议整理一下保存到一个文件里
+ 1103.7s   工具 nbook.agent.read 开始
+ 1103.7s   工具结束 ok
+ 1136.0s   工具 nbook.agent.write 开始（距上一个工具结束 32.3s）
+ 1136.0s   工具结束 ok

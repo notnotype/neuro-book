@@ -45,6 +45,9 @@ t16 讨论过、开发者还没表态的推荐（详见 t16 README 的同名小�
 | [t01](tasks/t01-design/README.md) | 设计：核心包与插件的接口、快照与控件名、动作、截图、高亮、光标 | 设计稿第四稿已定，第一批由 t03 实施 |
 | [t02](tasks/t02-ui-actions/README.md) | 第二批：Agent 代替用户操作界面（动作、光标、提示条与停止、确认、拖拽指引） | 未开工 |
 | [t03](tasks/t03-ui-guide/README.md) | 第一批实现：快照、界面目录、截图与引导（`ui` 对象） | 完成，合入 master（3cd37bde2） |
+| [t04](tasks/t04-guide-one-eval/README.md) | 引导一次走完：eval 文档、`not-found` 说明遮挡、真实模型评测场景 | 未开工 |
+| [t05](tasks/t05-guide-wait-targets/README.md) | 引导的等待条件与控件名：`until` 等出现，编辑器、资源管理器、对话输入框的稳定名 | 未开工 |
+| [t06](tasks/t06-guide-flows/README.md) | 流程声明：插件登记多步操作的引导路径，`ui.find` 交回完整步骤 | 未开工，在 t05 之后 |
 
 ## 前置
 
