@@ -76,9 +76,9 @@ owners:
     - `POST /test-control/clock`，请求体 `{"advanceMs": 正整数}`：把模块取到的当前时间往前拨这么多毫秒，回 200 `{"now": 拨过之后的时间}`（Unix 毫秒）。几次拨动累加；只能往前拨。拨动本身不触发定时任务，定时任务仍按真实时间的间隔排。
     - `POST /test-control/jobs/run`，请求体 `{"module": 模块, "job": 任务名}`：立即跑一次这个定时任务，跑完才回 200 `{"status":"done"}`；它正在跑时，等那一次结束再跑；请求一旦受理就照常跑完，调用方断开连接不取消它。没有这个模块或任务回 404 `not_found`；任务出错回 500 `job_failed`，响应体不带错误内容；服务正在停止时回 503 `not_ready`。任务名见各模块的 Spec。
 12. **网页与单页回退（planned）。** 设了前端产物目录时，站点主机名上的 `GET`、`HEAD` 请求，在健康检查、测试控制入口与各模块的接口都没接的情况下才到这里；遥测写入口的主机名上不发网页。
-    - **文件**：路径对应产物目录里的一个文件时发这个文件，`Content-Type` 按扩展名。路径经解码后落到产物目录之外（`..`、编码过的 `%2e%2e`、反斜杠）时回 404，不读目录外的任何文件。
-    - **单页回退**：没有对应文件、最后一段不带扩展名、且路径不等于也不以 `/api/`、`/.well-known/`、`/health/`、`/test-control/` 开头的，回 200 与 `index.html` 的内容，地址不变；带扩展名而没有这个文件的回 404。所以这几个前缀下没人接的地址（例如 [`site.oauth-provider`](oauth-provider.md) 输出 1 说的身份库的其它地址、没设口令时的测试控制入口）仍与没有网页时一样回 404。
-    - **缓存**：`/assets/` 下的文件（文件名带内容哈希）带 `Cache-Control: public, max-age=31536000, immutable`；`index.html`（含回退）与别的文件带 `Cache-Control: no-cache`。
+    - **文件**：路径指的是按 URL 标准规范化之后的路径（点段已消解、反斜杠已当作斜杠，所以 `/../x` 就是 `/x`）。它对应产物目录里的一个普通文件时发这个文件，`Content-Type` 按扩展名；目录不算文件。路径的某一段解码后是 `.`、`..`，或含 `/`、`\`、空字节（只能来自 `..%2f`、`%5c`、`%00` 这类编码在一段里的写法）时回 404，不论拼出来的位置在不在目录里；文件经符号链接落到产物目录之外时同样回 404。不读目录外的任何文件。
+    - **单页回退**：没有对应文件、最后一段不带扩展名、且路径不等于也不以 `/api/`、`/.well-known/`、`/health/`、`/test-control/` 开头的，回 200 与 `index.html` 的内容，地址不变；带扩展名而没有这个文件的回 404。所以这几个前缀下没人接的地址（例如 [`site.oauth-provider`](oauth-provider.md) 输出 1 说的身份库的其它地址、没设口令时的测试控制入口）仍与没有网页时一样回 404，日志的 `module` 也照旧。
+    - **缓存**：`/assets/` 下的文件（前端构建把带内容哈希的产物放在这里）带 `Cache-Control: public, max-age=31536000, immutable`；`index.html`（含回退）与别的文件带 `Cache-Control: no-cache`。
     - **安全头**：回 HTML 时带 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`；所有网页响应带 `X-Content-Type-Options: nosniff` 与 `Referrer-Policy: same-origin`。HSTS 由终结 TLS 的反向代理加。
     - **日志**：每个请求照输出 8 记一行，`module` 是 `web`。
 
@@ -158,7 +158,7 @@ owners:
 3. 服务运行期间执行备份，再用备份的副本单独启动一个服务：账号能登录，副本里找不到原始上报的内容（例如它的上报编号）。
 4. 去掉会话密钥启动：非零码退出，端口不可连，标准错误里没有其它密钥的值。
 5. 测试控制入口：没设口令时两个地址回 404；设了口令，不带或带错口令时回 404，带对时拨时间得到往前走了的 `now`；设了口令而监听地址不是本机回环时以 `config_invalid` 退出、端口不可连。
-6. 网页（planned）：设了前端产物目录启动，`/`、`/account` 回 `index.html` 与安全头，`/assets/` 下的文件带长缓存头；`/api/identity/v1/nope`、`/.well-known/nope`、`/test-control/clock`（没设口令）与 `/x.js` 回 404；`/..%2fpackage.json` 这类路径回 404；遥测写入口的主机名上 `/` 回 404。不设前端产物目录时 `/` 回 404。
+6. 网页（planned）：设了前端产物目录启动，`/`、`/account` 回 `index.html` 与安全头，`/assets/` 下的文件带长缓存头；`/api/identity/nope`（不在任何模块的挂载下）、`/.well-known/nope`、`/test-control/clock`（没设口令）与 `/x.js` 回 404；`/..%2fpackage.json` 这类编码在一段里的分隔符回 404；遥测写入口的主机名上 `/` 回 404。不设前端产物目录时 `/` 回 404。
 
 Smoke：合同测试包里起真实进程的启动与健康检查用例。
 
