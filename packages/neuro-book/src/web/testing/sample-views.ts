@@ -108,9 +108,20 @@ const SampleRailView = defineComponent({
             const body = h("div", {"data-sample-rail": placement.kind, "data-sample-rail-expanded": expanded ? "true" : "false"}, `样例庚：${placement.kind}`);
             if (placement.kind !== "rail" || !(placement.main instanceof HTMLElement) || !(placement.foot instanceof HTMLElement)) return body;
             const items = ["一", "二", "三"].map((name) => h("button", {type: "button", "data-rail-item": "", "data-sample-rail-item": name, "aria-label": `会话${name}`, class: "sample-rail-item"}, name));
+            // 展开收起按钮是视图段自己的（ui/workbench-layout 输出 50 的“三段”）：第一个子元素，收着与展开是同一个元素，收着时才进侧轨的工具条。
+            const toggle = h("button", {
+                key: "toggle",
+                type: "button",
+                "aria-label": "展开",
+                "aria-expanded": expanded ? "true" : "false",
+                "data-rail-toggle": "",
+                "data-rail-item": expanded ? undefined : "",
+                "data-rail-too-narrow": placement.tooNarrow && !expanded ? "" : undefined,
+                onClick: () => void rail?.request(!expanded),
+            }, expanded ? "›" : "‹");
             return [
                 body,
-                h(Teleport, {to: placement.main}, [h("div", {"data-messages-segment": "", "data-messages-segment-state": expanded ? "expanded" : "collapsed"}, [...items, ...(expanded ? [h("div", {"data-sample-rail-list": ""}, "展开")] : [])])]),
+                h(Teleport, {to: placement.main}, [h("div", {"data-messages-segment": "", "data-messages-segment-state": expanded ? "expanded" : "collapsed"}, [toggle, ...items, ...(expanded ? [h("div", {"data-sample-rail-list": ""}, "展开")] : [])])]),
                 h(Teleport, {to: placement.foot}, [h("button", {type: "button", "data-rail-item": "", "data-sample-rail-foot": "", "aria-label": "新对话"}, "+")]),
             ];
         };

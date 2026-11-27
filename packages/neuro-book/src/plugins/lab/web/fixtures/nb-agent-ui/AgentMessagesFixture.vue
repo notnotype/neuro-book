@@ -30,7 +30,7 @@ const mainEl = ref<HTMLElement | null>(null);
 const footEl = ref<HTMLElement | null>(null);
 const placement = computed((): MessagesSegmentPlacement | undefined => {
     if (!docked.value) return undefined;
-    return mainEl.value !== null && footEl.value !== null ? {kind: "rail", main: mainEl.value, foot: footEl.value} : {kind: "none"};
+    return mainEl.value !== null && footEl.value !== null ? {kind: "rail", main: mainEl.value, foot: footEl.value, width: railWidth.value} : {kind: "none"};
 });
 
 const frameRef = ref<InstanceType<typeof AgentMessages> | null>(null);

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 /**
  * “消息”视图借给侧轨的一段（同名 .md）：收着是快切的一列，展开是完整列表；按 `expanded` 换画法，不看宽度。
+ * 展开收起按钮是视图段自己的（docs/specs/ui/workbench-layout.md 输出 50 的“三段”）：中段的第一个子元素，收着时排在头像上面，展开时定位到列表区的右上角，
+ * 两种是同一个元素，焦点跟着它走。展开时底段藏起来，它的两项由列表底部的导航接替。
  *
  * 中段与底段各一个 `Teleport`：给了 `targets` 时送进侧轨的 `main`、`foot`，不给时 `disabled`，按顺序画在组件自己的根里（浮动窗的右边缘、Lab）。
  * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），焦点与滚动位置在搬完后放回去（见下面 `lastFocus`）。
@@ -22,7 +24,7 @@ const props = withDefaults(defineProps<{
     recentSessions: readonly MessagesRecentSession[];
     tab: "bot" | "sessions";
     weak?: boolean;
-    /** 不给 `targets` 时底下的展开按钮给“窗口太窄”：宿主拒了展开请求、仍放不下（同侧轨展开按钮的 `data-rail-too-narrow`）。 */
+    /** 展开按钮给“窗口太窄”：宿主拒了展开请求、仍放不下（`data-rail-too-narrow`）。 */
     tooNarrow?: boolean;
     now: number;
     locale?: AgentLocale;
@@ -37,7 +39,7 @@ const emit = defineEmits<{
     "show-list": [tab: "bot" | "sessions"];
     "retry-contacts": [sectionKey: string];
     "escape-search": [];
-    /** 画在自己的位置上时（浮动窗）底下的展开、收起按钮：右轨上这个按钮是侧轨自己的，浮动窗里由视图画。 */
+    /** 展开收起按钮：宿主转成展开请求（右轨与浮动窗都是）。 */
     "toggle-expanded": [];
 }>();
 
@@ -58,6 +60,8 @@ const currentBot = computed(() => (props.selected?.kind === "contact" ? props.se
 const currentSession = computed(() => (props.selected?.kind === "session" ? props.selected.id : null));
 const fit = computed(() => fitSegment({
     height: extent.value?.height ?? null,
+    // “新对话”与展开按钮。
+    fixed: 2,
     bots: contacts.value,
     sessions: props.recentSessions,
     isCurrentBot: (contact) => contact.key === currentBot.value,
@@ -80,12 +84,8 @@ function contactLabel(contact: MessagesContact): string {
 
 // ─── 底段与展开 ───────────────────────────────────────────────────────────
 
-/** 收着时请求展开并切页；展开着时只切页。 */
+/** 收着时的“+N”与底段两项：请求展开并切到那一页（展开后这些项都不在，切页由列表底部的导航做）。 */
 function openPage(page: "bot" | "sessions"): void {
-    if (props.expanded) {
-        if (props.tab !== page) emit("update:tab", page);
-        return;
-    }
     emit("show-list", page);
 }
 
@@ -150,6 +150,8 @@ watch(() => props.targets, () => {
 }, {flush: "post"});
 
 const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
+const toggleTip = computed(() => (props.expanded ? t("messages.collapse") : props.tooNarrow ? t("messages.tooNarrow") : t("messages.expand")));
+const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
 </script>
 
 <template>
@@ -166,6 +168,25 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
                 :data-messages-segment-state="state"
                 :data-rail-weak="props.weak ? '' : undefined"
             >
+                <!-- 收着与展开是同一个元素（只换类与属性），焦点不经 body；展开时不进侧轨的纵向工具条，是列表区里的普通按钮。 -->
+                <div class="acv-segment__toggle-slot" :class="{'acv-segment__toggle-slot--expanded': props.expanded}">
+                    <Tooltip :text="toggleTip" :side="props.expanded ? 'bottom' : props.tooltipSide">
+                        <button
+                            type="button"
+                            class="acv-segment__item acv-segment__toggle nb-ui-focus-ring"
+                            :aria-label="t('messages.expand')"
+                            :aria-expanded="props.expanded"
+                            :aria-description="tooNarrowShown ? t('messages.tooNarrow') : undefined"
+                            :data-rail-too-narrow="tooNarrowShown ? '' : undefined"
+                            :data-rail-item="props.expanded ? undefined : ''"
+                            data-rail-toggle
+                            data-messages-segment-toggle
+                            @click="emit('toggle-expanded')"
+                        >
+                            <span :class="props.expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="acv-segment__icon" aria-hidden="true" />
+                        </button>
+                    </Tooltip>
+                </div>
                 <template v-if="!props.expanded">
                     <div v-for="contact in fit.bots" :key="contact.key" class="acv-segment__row">
                         <span class="acv-segment__bar" :data-shown="contact.key === currentBot ? '' : undefined" aria-hidden="true" />
@@ -234,13 +255,13 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
             </div>
         </Teleport>
         <Teleport :to="props.targets?.foot ?? 'body'" :disabled="props.targets === null">
-            <div ref="footRef" class="acv-segment__foot" @focusin="onFocusIn" @focusout="onFocusOut">
+            <!-- 展开时整段藏起来（列表底部的导航接替），Teleport 的目标不拆：收起时原地回来。 -->
+            <div ref="footRef" class="acv-segment__foot" :hidden="props.expanded" @focusin="onFocusIn" @focusout="onFocusOut">
                 <Tooltip :text="t('messages.allBots')" :side="props.tooltipSide">
                     <button
                         type="button"
                         class="acv-segment__item nb-ui-focus-ring"
                         :aria-label="t('messages.allBots')"
-                        :aria-pressed="props.expanded && props.tab === 'bot'"
                         data-messages-open="bot"
                         data-rail-item
                         @click="openPage('bot')"
@@ -261,27 +282,11 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
                         type="button"
                         class="acv-segment__item nb-ui-focus-ring"
                         :aria-label="t('messages.history')"
-                        :aria-pressed="props.expanded && props.tab === 'sessions'"
                         data-messages-open="sessions"
                         data-rail-item
                         @click="openPage('sessions')"
                     >
                         <span class="i-lucide-history acv-segment__icon" aria-hidden="true" />
-                    </button>
-                </Tooltip>
-                <Tooltip v-if="props.targets === null" :text="props.expanded ? t('messages.collapse') : props.tooNarrow ? t('messages.tooNarrow') : t('messages.expand')" :side="props.tooltipSide">
-                    <button
-                        type="button"
-                        class="acv-segment__item acv-segment__toggle nb-ui-focus-ring"
-                        :aria-label="t('messages.expand')"
-                        :aria-expanded="props.expanded"
-                        :aria-description="props.tooNarrow && !props.expanded ? t('messages.tooNarrow') : undefined"
-                        :data-rail-too-narrow="props.tooNarrow && !props.expanded ? '' : undefined"
-                        data-messages-segment-toggle
-                        data-rail-item
-                        @click="emit('toggle-expanded')"
-                    >
-                        <span :class="props.expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="acv-segment__icon" aria-hidden="true" />
                     </button>
                 </Tooltip>
             </div>
@@ -318,9 +323,39 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
 }
 
 .acv-segment__main--expanded {
+    position: relative;
     align-items: stretch;
     padding-block: 0;
     overflow: hidden;
+}
+
+.acv-segment__toggle-slot {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: center;
+    width: 100%;
+}
+
+/*
+ * 展开时按钮在列表区右上角，与第一行的搜索框同一条中线（搜索行上内边距 8、框高 28，按钮 26）；
+ * 列表第一行按 `--acv-list-inset-end` 让出它的宽与间距（见下面 `.acv-segment__list`）。
+ */
+.acv-segment__toggle-slot--expanded {
+    position: absolute;
+    top: 9px;
+    right: 8px;
+    z-index: 1;
+    width: auto;
+}
+
+.acv-segment__toggle-slot--expanded .acv-segment__toggle {
+    width: 26px;
+    height: 26px;
+}
+
+.acv-segment__toggle-slot--expanded .acv-segment__icon {
+    width: 16px;
+    height: 16px;
 }
 
 .acv-segment__row {
@@ -371,12 +406,6 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
 }
 
 .acv-segment__item:hover {
-    background: var(--skin-activitybar-hover, var(--bg-hover));
-    color: var(--skin-activitybar-active, var(--text-main));
-}
-
-/* 底段按下：灰底、正文色，同侧轨底段的切换按钮（强调色只给上段的入口）。 */
-.acv-segment__item[aria-pressed="true"] {
     background: var(--skin-activitybar-hover, var(--bg-hover));
     color: var(--skin-activitybar-active, var(--text-main));
 }
@@ -478,6 +507,10 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     background: var(--border-color);
 }
 
+.acv-segment__foot[hidden] {
+    display: none;
+}
+
 .acv-segment__foot {
     display: flex;
     flex: 0 0 auto;
@@ -488,13 +521,14 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     padding-top: 4px;
 }
 
-/* 浮动窗里的展开按钮：同侧轨上的那个，和上面两个按钮同样隔 4px（底段的 gap），贴底留 8px。 */
-.acv-segment__toggle {
-    margin-block-end: 8px;
+/* 画在自己的位置上（浮动窗）时贴底留 8px；送进右轨时底部的余地是侧轨的。 */
+.acv-segment--inline .acv-segment__foot {
+    padding-bottom: 8px;
 }
 
 /* 展开后的列表晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。减少动效时两个时长令牌都是 0，直接显示。 */
 .acv-segment__list {
+    --acv-list-inset-end: 30px;
     display: flex;
     flex-direction: column;
     height: 100%;

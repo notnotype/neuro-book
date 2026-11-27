@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * “消息”视图的列表（同名 .md）：bot、会话两个标签。bot 一页是联系人，会话一页是宿主经插槽给的会话面板。纯受控；bot 页的搜索词宿主不绑时自己记。
+ * “消息”视图的列表（同名 .md）：bot、会话两页，底部是切页的导航（docs/specs/agent/conversation.md 输出 57 的“展开”）。bot 一页是联系人，
+ * 会话一页是宿主经插槽给的会话面板。纯受控；bot 页的搜索词宿主不绑时自己记。
  */
 import {computed, nextTick, ref, watch} from "vue";
 import {Badge, Button, Input} from "@notnotype/nb-ui/components";
@@ -35,6 +36,7 @@ const {t, locale} = provideAgentText(() => props.locale);
 const ids = `acv-messages-${Math.random().toString(36).slice(2, 8)}`;
 
 const unreadTotal = computed(() => props.sections.reduce((sum, section) => sum + section.contacts.reduce((inner, contact) => inner + (contact.unread ?? 0), 0), 0));
+const anyWaiting = computed(() => props.sections.some((section) => section.contacts.some((contact) => contact.activity === "waiting")));
 
 /** 按名字筛（大小写不分）；段的状态照旧画。 */
 const shown = computed(() => {
@@ -43,9 +45,15 @@ const shown = computed(() => {
 });
 const allReady = computed(() => props.sections.every((section) => section.state.kind === "ready"));
 const tabs = computed(() => [
-    {value: "bot" as const, label: t("messages.tabBot"), count: unreadTotal.value, id: `${ids}-tab-bot`, controls: `${ids}-page-bot`},
-    {value: "sessions" as const, label: t("messages.tabSessions"), count: 0, id: `${ids}-tab-sessions`, controls: `${ids}-page-sessions`},
+    {value: "bot" as const, label: t("messages.tabBot"), icon: "i-lucide-bot", id: `${ids}-tab-bot`, controls: `${ids}-page-bot`},
+    {value: "sessions" as const, label: t("messages.tabSessions"), icon: "i-lucide-history", id: `${ids}-tab-sessions`, controls: `${ids}-page-sessions`},
 ]);
+/** 导航项的读屏名：Bot 一项带上未读合计或“等你处理”（角标本身对读屏藏着）。 */
+function navLabel(item: {readonly value: "bot" | "sessions"; readonly label: string}): string | undefined {
+    if (item.value !== "bot") return undefined;
+    if (anyWaiting.value) return t("messages.contactWaiting", {name: item.label});
+    return unreadTotal.value > 0 ? t("messages.contactUnread", {name: item.label, count: unreadTotal.value}) : undefined;
+}
 const tablistRef = ref<HTMLElement | null>(null);
 /** 刚换到的那一页：只有它淡入一次。挂在常驻样式上的话，外框每次显示列表（开抽屉、展开列表栏）当前页都会再淡入。 */
 const entering = ref<"bot" | "sessions" | null>(null);
@@ -103,30 +111,9 @@ function markBroken(src: string): void {
 
 <template>
     <div ref="rootRef" class="acv-messages-list" data-messages-list @keydown="onSearchKeydown">
-        <div class="acv-messages-list__switch" data-messages-switch>
-            <div ref="tablistRef" class="acv-messages-list__tabs" role="tablist" :aria-label="t('messages.list')" @keydown="onTabKeydown">
-                <button
-                    v-for="item in tabs"
-                    :id="item.id"
-                    :key="item.value"
-                    type="button"
-                    role="tab"
-                    class="acv-messages-list__tab nb-ui-focus-ring"
-                    :class="{'is-current': item.value === props.tab}"
-                    :aria-selected="item.value === props.tab"
-                    :aria-controls="item.controls"
-                    :tabindex="item.value === props.tab ? 0 : -1"
-                    :data-messages-tab="item.value"
-                    @click="emit('update:tab', item.value)"
-                >
-                    {{ item.label }}
-                    <Badge v-if="item.count > 0" size="sm" tone="accent">{{ item.count }}</Badge>
-                </button>
-            </div>
-        </div>
         <div v-show="props.tab === 'bot'" :id="`${ids}-page-bot`" class="acv-messages-list__page" :class="{'is-entering': entering === 'bot'}" role="tabpanel" :aria-labelledby="`${ids}-tab-bot`" data-messages-page="bot" @animationend.self="entering = null">
             <div class="acv-messages-list__search">
-                <Input v-model="query" size="sm" :placeholder="t('messages.search')" :aria-label="t('messages.search')" data-messages-search />
+                <Input v-model="query" size="sm" icon-class="i-lucide-search" :placeholder="t('messages.searchHint')" :aria-label="t('messages.search')" data-messages-search />
             </div>
             <div class="acv-messages-list__rows">
                 <template v-for="section in shown" :key="section.key">
@@ -169,6 +156,37 @@ function markBroken(src: string): void {
         <div v-show="props.tab === 'sessions'" :id="`${ids}-page-sessions`" class="acv-messages-list__page" :class="{'is-entering': entering === 'sessions'}" role="tabpanel" :aria-labelledby="`${ids}-tab-sessions`" data-messages-page="sessions" @animationend.self="entering = null">
             <slot name="sessions" />
         </div>
+        <!-- 图标同收着时底段的两项：展开的过渡里那两项移到这里（workbench-layout 输出 50 的“展开时的版式”）。 -->
+        <div ref="tablistRef" class="acv-messages-list__nav" role="tablist" :aria-label="t('messages.list')" data-messages-nav @keydown="onTabKeydown">
+            <button
+                v-for="item in tabs"
+                :id="item.id"
+                :key="item.value"
+                type="button"
+                role="tab"
+                class="acv-messages-list__tab nb-ui-focus-ring"
+                :aria-selected="item.value === props.tab"
+                :aria-controls="item.controls"
+                :tabindex="item.value === props.tab ? 0 : -1"
+                :aria-label="navLabel(item)"
+                :data-messages-tab="item.value"
+                @click="emit('update:tab', item.value)"
+            >
+                <span class="acv-messages-list__tab-icon" aria-hidden="true">
+                    <span :class="item.icon" class="acv-messages-list__glyph" />
+                    <template v-if="item.value === 'bot'">
+                        <span
+                            v-if="unreadTotal > 0"
+                            class="acv-messages-list__summary"
+                            data-messages-summary
+                            :data-messages-summary-waiting="anyWaiting ? '' : undefined"
+                        >{{ unreadTotal > 99 ? "99+" : unreadTotal }}</span>
+                        <span v-else-if="anyWaiting" class="acv-messages-list__summary-dot" data-messages-summary data-messages-summary-waiting />
+                    </template>
+                </span>
+                <span class="acv-messages-list__tab-label">{{ item.label }}</span>
+            </button>
+        </div>
     </div>
 </template>
 
@@ -181,41 +199,31 @@ function markBroken(src: string): void {
     font-size: var(--text-sm);
 }
 
-/* 切换这一行：两个标题式的标签，没有底线。 */
-.acv-messages-list__switch {
+/* 底部导航：两项等分，图标在上、字在下，当前页强调色（只给当前项）。 */
+.acv-messages-list__nav {
     display: flex;
     flex-shrink: 0;
-    align-items: center;
-    gap: 4px;
-    height: 40px;
-    padding: 0 8px 0 14px;
+    align-items: stretch;
+    height: 52px;
+    border-top: var(--border-w) solid var(--border-color);
     user-select: none;
 }
 
-.acv-messages-list__tabs {
-    display: flex;
-    flex: 1;
-    gap: 16px;
-    min-width: 0;
-    /* 放不下时裁掉；留出焦点环的位置。 */
-    overflow: clip;
-    overflow-clip-margin: 4px;
-}
-
 .acv-messages-list__tab {
-    display: inline-flex;
-    flex-shrink: 0;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
     padding: 0;
     border: 0;
     border-radius: var(--radius-control);
     background: none;
     color: var(--text-muted);
     font: inherit;
-    font-size: var(--text-sm);
-    font-weight: 500;
-    line-height: 28px;
+    font-size: var(--text-2xs);
     cursor: pointer;
     transition: color var(--motion-fast);
 }
@@ -224,9 +232,59 @@ function markBroken(src: string): void {
     color: var(--text-secondary);
 }
 
-.acv-messages-list__tab.is-current {
-    color: var(--text-main);
+.acv-messages-list__tab[aria-selected="true"] {
+    color: var(--accent-text);
     font-weight: 600;
+}
+
+.acv-messages-list__tab-icon {
+    position: relative;
+    display: inline-flex;
+}
+
+.acv-messages-list__glyph {
+    width: 18px;
+    height: 18px;
+}
+
+.acv-messages-list__tab-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 未读合计：中性色的小胶囊（强调色只给当前项）；有等你处理时 warning 色、方角，不只靠颜色区分。 */
+.acv-messages-list__summary {
+    position: absolute;
+    top: -5px;
+    left: calc(100% - 4px);
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--text-secondary);
+    color: var(--text-inverse);
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    line-height: 15px;
+    text-align: center;
+}
+
+.acv-messages-list__summary[data-messages-summary-waiting] {
+    border-radius: 4px;
+    background: var(--status-warning);
+}
+
+.acv-messages-list__summary-dot {
+    position: absolute;
+    top: -2px;
+    right: -3px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid var(--panel-surface);
+    border-radius: 50%;
+    background: var(--status-warning);
 }
 
 .acv-messages-list__page {
@@ -249,7 +307,8 @@ function markBroken(src: string): void {
 
 .acv-messages-list__search {
     flex-shrink: 0;
-    padding: 8px 8px 4px;
+    /* 右端让出视图段画在列表区右上角的按钮（`--acv-list-inset-end`，缺省 0）。 */
+    padding: 8px calc(8px + var(--acv-list-inset-end, 0px)) 4px 8px;
 }
 
 .acv-messages-list__rows {
