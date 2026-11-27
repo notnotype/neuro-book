@@ -96,7 +96,7 @@ const tabId = (value: string) => `draft-tab-${value}`;
                                 <h1 class="m-0 text-[length:var(--text-xl)] font-semibold">{{ name }}</h1>
                                 <span v-if="sameAs !== ''" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">是谁：<span class="text-[var(--accent-main)]">{{ sameAs }}</span></span>
                             </div>
-                            <p class="mt-1 text-[length:var(--text-sm)]" :class="summary === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'">{{ summary === "" ? "一句话简介" : summary }}</p>
+                            <p class="mt-1 text-[length:var(--text-sm)]" :class="[summary === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]', props.avatar && filled ? 'truncate' : '']" :title="summary">{{ summary === "" ? "一句话简介" : summary }}</p>
                             <ul class="m-0 mt-2 flex list-none flex-wrap items-center gap-1.5 p-0">
                                 <li v-for="alias in aliases" :key="alias" class="draft-alias">{{ alias }}<span class="i-lucide-x size-3 text-[var(--text-muted)]" aria-hidden="true" /></li>
                                 <li><Button class="-ml-2" size="sm" variant="ghost"><span class="i-lucide-plus size-3.5" aria-hidden="true" />添加别名</Button></li>
@@ -192,9 +192,13 @@ const tabId = (value: string) => `draft-tab-${value}`;
     font-size: var(--text-xs);
     color: var(--text-secondary);
 }
+/*
+ * 头像从名字那一行的顶到别名那一行的底（开发者 2026-11-27）。三行的高度是定的（名字一行、简介单行截断、别名一行），
+ * 所以头像取定高 88 的方形；简介放头像时单行截断，不让它变成两行把别名推到头像下面。
+ */
 .draft-avatar {
-    width: 56px;
-    height: 56px;
+    width: 88px;
+    height: 88px;
     flex-shrink: 0;
     border-radius: var(--radius-panel);
     object-fit: cover;

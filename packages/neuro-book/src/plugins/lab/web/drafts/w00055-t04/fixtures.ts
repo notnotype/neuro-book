@@ -1,10 +1,12 @@
 /**
  * w00055 t04（条目页打磨）第 1 轮静态稿：条目页页头的三种排法与文字分页的空态（`EntryHeadDraft`），新建条目对话框改版
- * （`NewEntryDraftDialog`）。评审板在那个 Task 的 artifacts/review。
+ * （`NewEntryDraftDialog`）。第 2 轮：新建对话框的横版（`NewEntryWideDraftDialog`），页头头像与别名一行对齐。
+ * 评审板在那个 Task 的 artifacts/review。
  */
 import {defineLabFixture} from "../../fixtures/define";
 import type EntryHeadDraft from "./EntryHeadDraft.vue";
 import type NewEntryDraftDialog from "./NewEntryDraftDialog.vue";
+import type NewEntryWideDraftDialog from "./NewEntryWideDraftDialog.vue";
 
 type HeadProps = InstanceType<typeof EntryHeadDraft>["$props"];
 const LAYOUTS = [["current", "现在"], ["columns", "两栏"], ["compact", "压成两行"]] as const;
@@ -41,5 +43,16 @@ export const fixtures = [
             {id: "under-selected", label: "在设定树选中的条目上新建：上级预先填好", input: {props: {start: "plain", name: "学生会", underSelected: true, placeOpen: true}}},
         ],
         load: async () => (await import("./NewEntryDraftDialogFixture.vue")).default as never,
+    }),
+    defineLabFixture<typeof NewEntryWideDraftDialog>({
+        component: "NewEntryWideDraftDialog",
+        scenes: [
+            {id: "r2-plain", label: "横版：从“新建条目”打开", input: {props: {start: "plain"}}},
+            {id: "r2-person", label: "横版：从“新建人物”打开、填了名字", input: {props: {start: "person", name: "星瑾"}}},
+            {id: "r2-customized", label: "横版：动过勾选，恢复默认", input: {props: {start: "person", name: "星瑾", customized: true}}},
+            {id: "r2-place-open", label: "横版：展开位置与出场", input: {props: {start: "person", name: "星瑾", placeOpen: true}}},
+            {id: "r2-same-as", label: "横版：选了本体，上级跟着本体", input: {props: {start: "person", name: "哥哥", placeOpen: true, sameAs: true}}},
+        ],
+        load: async () => (await import("./NewEntryWideDraftDialogFixture.vue")).default as never,
     }),
 ];
