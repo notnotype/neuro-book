@@ -8,7 +8,7 @@
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 
-import {ended, installed, openFixture, startHighlight, stillWaiting} from "./page";
+import {ended, installed, openFixture, settled, startHighlight, stillWaiting} from "./page";
 
 const part = (page: Page, name: string) => page.locator(`[data-nb-page-agent="${name}"]`);
 
@@ -225,6 +225,8 @@ test.describe("压暗与不改页面（输出 10）", () => {
 
         await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
         await installed(page);
+        // 减弱动效时说明框与压暗层仍是淡入：取像素前等它们到终点。
+        await settled(page);
         const callout = (await part(page, "callout").boundingBox())!;
         const calloutPoint = [Math.round(callout.x + callout.width - 6), Math.round(callout.y + callout.height / 2)] as const;
         const plain = {far: await pixel(page, ...far), target: await pixel(page, ...targetPoint), callout: await pixel(page, ...calloutPoint)};
@@ -234,6 +236,7 @@ test.describe("压暗与不改页面（输出 10）", () => {
 
         await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next", dim: true});
         await installed(page);
+        await settled(page);
         const dimCallout = (await part(page, "callout").boundingBox())!;
         expect([dimCallout.x, dimCallout.y]).toEqual([callout.x, callout.y]);
         const dimmed = {far: await pixel(page, ...far), target: await pixel(page, ...targetPoint), callout: await pixel(page, ...calloutPoint)};

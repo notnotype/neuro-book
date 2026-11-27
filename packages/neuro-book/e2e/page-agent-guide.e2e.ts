@@ -14,7 +14,7 @@ import {expect, test} from "@playwright/test";
 import type {Locator, Page} from "@playwright/test";
 import {parse as parseJsonc} from "jsonc-parser";
 
-import {HEIGHT, WIDTH, composer, expectGuideRemoved, guidePart, newSession, openConversation, startEval, startLab} from "./support/page-agent-world";
+import {HEIGHT, WIDTH, composer, expectGuideRemoved, guidePart, guideSettled, newSession, openConversation, startEval, startLab} from "./support/page-agent-world";
 import type {AgentLab, AgentWorld} from "./support/page-agent-world";
 
 let lab: AgentLab;
@@ -460,6 +460,8 @@ return JSON.stringify({outcome: result.outcome, clicked: result.clicked});`, {ti
     const plain = {far: await pixel(page, ...far), target: await pixel(page, ...targetPoint)};
     await openGate(page);
     await expect(guidePart(page, "callout")).toContainText("点这里。");
+    // 减弱动效时说明框与压暗层仍是淡入：取像素前等它们到终点。
+    await guideSettled(page);
     const callout = (await guidePart(page, "callout").boundingBox())!;
     const calloutPoint = [Math.round(callout.x + callout.width - 6), Math.round(callout.y + callout.height / 2)] as const;
     // 说明框要比被压暗的背景亮出一截（它自己不暗）。
@@ -502,6 +504,7 @@ return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
     const plain = {other: await pixel(page, ...otherPoint), target: await pixel(page, ...targetPoint)};
     await openGate(page);
     await expect(guidePart(page, "callout")).toContainText("选这个。");
+    await guideSettled(page);
     const dimmed = {other: await pixel(page, ...otherPoint), target: await pixel(page, ...targetPoint)};
     expect(luminance(dimmed.other)).toBeLessThan(luminance(plain.other) - 20);
     expect(Math.abs(luminance(dimmed.target) - luminance(plain.target))).toBeLessThan(8);
@@ -537,11 +540,11 @@ out.push((await ui.highlight({at: {command: ${JSON.stringify(second)}}, message:
 return JSON.stringify(out);`, {timeout: 120});
     await expect(guidePart(page, "callout")).toContainText("第一个按钮。");
     await expect(zone).toHaveAttribute("data-nb-agent-reveal", "");
-    expect(await opacity()).toBe("1");
+    await expect.poll(opacity).toBe("1");
     await guidePart(page, "next").click();
     await expect(guidePart(page, "callout")).toContainText("第二个按钮。");
     await expect(zone).toHaveAttribute("data-nb-agent-reveal", "");
-    expect(await opacity()).toBe("1");
+    await expect.poll(opacity).toBe("1");
     await guidePart(page, "next").click();
     expect(JSON.parse(await run.result())).toEqual(["next", "next"]);
     await expectGuideRemoved(page);

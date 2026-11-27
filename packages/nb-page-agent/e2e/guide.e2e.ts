@@ -115,16 +115,21 @@ test.describe("说明框（输出 10）", () => {
         expect(await ended(page)).toEqual({outcome: "clicked"});
     });
 
-    test("减弱动效时没有动画与过渡；不减弱时描边框出现有动画", async ({page}) => {
+    test("减弱动效时只淡入淡出：出现的动画只改透明度，透明度的过渡仍在；不减弱时描边框出现带缩放、说明框带位移", async ({page}) => {
         await openFixture(page, `<button id="go" style="margin:200px">保存</button>`);
+        // 引擎节点上此刻在跑的动画改了哪些属性：关键帧里除偏移、缓动与合成方式之外的键。
+        const animated = () => page.evaluate(() => [...new Set([...document.querySelector("[data-nb-page-agent=guide]")!.shadowRoot!.getAnimations()]
+            .flatMap((animation) => (animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))
+            .filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)))].sort());
         await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
         await installed(page);
-        expect(await page.evaluate(() => document.querySelector("[data-nb-page-agent=guide]")!.shadowRoot!.getAnimations().length)).toBeGreaterThan(0);
+        expect(await animated()).toEqual(["opacity", "scale", "translate"]);
         await page.emulateMedia({reducedMotion: "reduce"});
         await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
         await installed(page);
         await expect(part(page, "callout")).toHaveCount(1);
-        expect(await page.evaluate(() => [...document.querySelectorAll("[data-nb-page-agent=guide]")].map((host) => host.shadowRoot!.getAnimations().length))).toEqual([0]);
+        expect(await animated()).toEqual(["opacity"]);
+        expect(await part(page, "callout").evaluate((element) => getComputedStyle(element).transitionDuration)).not.toBe("0s");
     });
 });
 

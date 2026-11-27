@@ -180,6 +180,11 @@ export async function startEval(page: Page, lab: AgentLab, label: string, code: 
 /** 说明框的某个部件（在引擎的 open shadow root 里，Playwright 的 CSS 定位器能穿进去）。 */
 export const guidePart = (page: Page, name: string): Locator => page.locator(`[data-nb-page-agent="${name}"]`);
 
+/** 等引擎节点上的动画与过渡都走完：减弱动效时仍有淡入淡出，取像素之前要等它们到终点。 */
+export async function guideSettled(page: Page): Promise<void> {
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-nb-page-agent=guide]")].every((host) => host.shadowRoot!.getAnimations().length === 0));
+}
+
 /** 页面上一个引擎节点都没有：高亮撤干净了。 */
 export async function expectGuideRemoved(page: Page): Promise<void> {
     await expect.poll(() => page.evaluate(() => document.querySelectorAll("[data-nb-page-agent]").length)).toBe(0);

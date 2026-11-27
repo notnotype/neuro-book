@@ -59,6 +59,11 @@ export async function installed(page: Page): Promise<HighlightInstalled | null> 
     return page.evaluate(() => window.guide!.installed!);
 }
 
+/** 等引擎节点上的动画与过渡都走完：减弱动效时仍有淡入淡出，取像素之前要等它们到终点。 */
+export async function settled(page: Page): Promise<void> {
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-nb-page-agent=guide]")].every((host) => host.shadowRoot!.getAnimations().length === 0));
+}
+
 /** 等最近一次高亮的结局。 */
 export async function ended(page: Page): Promise<HighlightEnd> {
     await page.waitForFunction(() => window.guide?.ended !== undefined);

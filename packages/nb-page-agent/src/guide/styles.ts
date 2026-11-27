@@ -233,12 +233,12 @@ input::placeholder {
     }
 }
 
+/* 减弱动效只收掉位移与缩放，淡入淡出照旧（输出 10；nb-ui 设计语言“六、无障碍”）：出现时换成只改透明度的关键帧。
+   别的过渡本来只改透明度与颜色，不用动。 */
 @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation: none !important;
-        transition: none !important;
+    [data-nb-page-agent="outline"],
+    [data-nb-page-agent="callout"] {
+        animation-name: pa-fade;
     }
 }
 `;
