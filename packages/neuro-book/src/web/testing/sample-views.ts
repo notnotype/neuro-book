@@ -1,11 +1,11 @@
 /**
  * e2e 用的浏览器测试插件 `test.sample-views`（docs/specs/workbench/views.md 的 e2e）：一个浏览器入口贡献六个视图（侧栏
- * 三个、右栏一个、面板两个，各在自己的隐式容器）、编辑器槽的样例内容（docs/specs/ui/workbench-shell.md 非目标第一条）
+ * 三个、右栏一个、面板两个，各在自己的隐式容器；开关打开时右栏另有一个受限视图）、编辑器槽的样例内容（docs/specs/ui/workbench-shell.md 非目标第一条）
  * 与测试命令 `test.sample-views.stop`。开关见
  * `src/shared/testing/sample-views-contract.ts`；它们只在测试外壳里读，产品清单与产品构建不含本插件。
  */
 
-import {defineComponent, h} from "vue";
+import {defineComponent, h, Teleport} from "vue";
 import type {PropType} from "vue";
 import {Type} from "typebox";
 
@@ -13,13 +13,14 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
-import {WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {VIEW_RAIL, viewRailOf, WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewRailBounds} from "nbook/plugins/workbench/shared/contracts";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {EditorAreaContext, EditorAreaImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
-import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
+import {SAMPLE_EDITOR_AREA_ID, SAMPLE_RAIL_BOUNDS, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 const view = (name: string, location: ViewDeclaration["location"], icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
 
@@ -34,6 +35,9 @@ const VIEWS: Readonly<Record<string, ViewDeclaration>> = {
     // 长标题：看面板标签带放不下时的溢出与键盘切换。
     [SAMPLE_VIEW_IDS.zeta]: view("样例己：一个很长的面板视图标题", "panel", "i-lucide-scroll-text", {order: 1, floatable: false}),
 };
+
+/** 开关 `withRail` 打开时另贡献的受限视图（views.md 输出 22）：排在样例丁之后。 */
+const RAIL_VIEW: ViewDeclaration = view("样例庚", "auxiliarybar", "i-lucide-messages-square", {order: 1, confinedTo: "auxiliarybar"});
 
 const MARK_DECLARATION: CommandDeclaration = {
     title: {"zh-CN": "样例的菜单动作", "en-US": "Sample Menu Action"},
@@ -78,7 +82,43 @@ function switchOn(key: string): ReadonlyArray<string> {
     return (globalThis.localStorage?.getItem(key) ?? "").split(",").filter(Boolean);
 }
 
+/** `rail` 视图段的范围：开关里的 JSON，读不出时用缺省。 */
+function railBoundsSwitch(): ViewRailBounds {
+    try {
+        const raw = globalThis.localStorage?.getItem(SAMPLE_VIEWS_SWITCHES.railBounds);
+        return raw === null || raw === undefined ? SAMPLE_RAIL_BOUNDS : {...SAMPLE_RAIL_BOUNDS, ...(JSON.parse(raw) as Partial<ViewRailBounds>)};
+    } catch (error) {
+        console.warn("[test.sample-views] rail-bounds 开关读不出，用缺省", error);
+        return SAMPLE_RAIL_BOUNDS;
+    }
+}
+
+/**
+ * `rail` 视图的视图段（views.md 输出 21）：借到右轨时往 `main` 送三个会话按钮、往 `foot` 送一个按钮，都带 `data-rail-item`；展开时 `main` 里另有一行写着“展开”。
+ * 视图自己的内容写出此刻的借用状态，e2e 经它核对借用、撤回与展开。
+ */
+const SampleRailView = defineComponent({
+    name: "SampleRailView",
+    props: {context: {type: Object as PropType<ViewContext>, required: true}},
+    setup: (props) => {
+        const rail = viewRailOf(props.context);
+        return () => {
+            const placement = rail?.placement.value ?? {kind: "none" as const};
+            const expanded = rail?.expanded.value === true;
+            const body = h("div", {"data-sample-rail": placement.kind, "data-sample-rail-expanded": expanded ? "true" : "false"}, `样例庚：${placement.kind}`);
+            if (placement.kind !== "rail" || !(placement.main instanceof HTMLElement) || !(placement.foot instanceof HTMLElement)) return body;
+            const items = ["一", "二", "三"].map((name) => h("button", {type: "button", "data-rail-item": "", "data-sample-rail-item": name, "aria-label": `会话${name}`, class: "sample-rail-item"}, name));
+            return [
+                body,
+                h(Teleport, {to: placement.main}, [h("div", {"data-messages-segment": "", "data-messages-segment-state": expanded ? "expanded" : "collapsed"}, [...items, ...(expanded ? [h("div", {"data-sample-rail-list": ""}, "展开")] : [])])]),
+                h(Teleport, {to: placement.foot}, [h("button", {type: "button", "data-rail-item": "", "data-sample-rail-foot": "", "aria-label": "新对话"}, "+")]),
+            ];
+        };
+    },
+});
+
 export function createSampleViewsBrowserPlugin(): PluginDefinition {
+    const views: Readonly<Record<string, ViewDeclaration>> = switchOn(SAMPLE_VIEWS_SWITCHES.withRail).includes("1") ? {...VIEWS, [SAMPLE_VIEW_IDS.rail]: RAIL_VIEW} : VIEWS;
     return {
         id: sampleViewsDescriptor.id,
         entries: [{
@@ -87,7 +127,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
             activationEvents: ["onStartup"],
             dependencies: [{key: publicStateKey}, {key: commandServiceKey}],
             contributions: [
-                ...Object.entries(VIEWS).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
+                ...Object.entries(views).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_STOP_COMMAND, declaration: STOP_DECLARATION},
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_MARK_COMMAND, declaration: MARK_DECLARATION},
                 {capability: WORKBENCH_EDITOR_AREA_POINT, id: SAMPLE_EDITOR_AREA_ID, declaration: {order: 0}},
@@ -104,7 +144,14 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                 };
                 globalThis.addEventListener(SAMPLE_VIEWS_RUN_EVENT, run);
                 context.scope.register({kind: "sample-views-run-event", label: `${sampleViewsDescriptor.id} run event`, value: run, release: (listener) => globalThis.removeEventListener(SAMPLE_VIEWS_RUN_EVENT, listener)});
-                const implementation = (viewId: string): ViewImplementation => ({
+                const railImplementation: ViewImplementation & {readonly [VIEW_RAIL]: ViewRailBounds} = {
+                    load: async () => {
+                        if (switchOn(SAMPLE_VIEWS_SWITCHES.failLoad).includes(SAMPLE_VIEW_IDS.rail)) throw new Error(`样例视图 ${SAMPLE_VIEW_IDS.rail} 按开关加载失败`);
+                        return SampleRailView;
+                    },
+                    [VIEW_RAIL]: railBoundsSwitch(),
+                };
+                const implementation = (viewId: string): ViewImplementation => (viewId === SAMPLE_VIEW_IDS.rail ? railImplementation : {
                     load: async () => {
                         if (switchOn(SAMPLE_VIEWS_SWITCHES.failLoad).includes(viewId)) throw new Error(`样例视图 ${viewId} 按开关加载失败`);
                         const view = (await import("./SampleViewsView.vue")).default;
@@ -123,7 +170,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
                 }};
                 const editorArea: EditorAreaImplementation = {load: async () => ({host: SampleEditorHost, group: SampleEditorArea})};
                 return {contributions: {
-                    [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(VIEWS).map((id) => [id, implementation(id)])),
+                    [WORKBENCH_VIEWS_POINT]: Object.fromEntries(Object.keys(views).map((id) => [id, implementation(id)])),
                     [WORKBENCH_EDITOR_AREA_POINT]: {[SAMPLE_EDITOR_AREA_ID]: editorArea},
                     [COMMANDS_POINT]: {[SAMPLE_VIEWS_STOP_COMMAND]: stop, [SAMPLE_VIEWS_MARK_COMMAND]: {run: () => ({ok: true, value: null})}},
                 }};

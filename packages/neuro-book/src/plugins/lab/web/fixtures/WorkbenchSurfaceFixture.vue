@@ -4,6 +4,7 @@
  * 五个视图都没写容器，各是自己的隐式容器（`view:a` 到 `view:e`）：侧栏有 A（当前）、B 两个容器，右栏有 C（当前）、D，底部面板有 E。一个区域只显示当前容器的分节，活动栏一个容器一个入口。
  * 文档、呈现树、有效可见、活动栏的入口与点了做什么都用产品的纯函数算（`state/`），只是不存盘、不接命令系统。按钮做拖放与菜单会提交的那些结构变化；真实的拖动手势在外壳切换时接上。
  * “标题区”场景里右栏的视图 C 接管标题区（docs/specs/workbench/views.md 输出 19），用一段示例内容（新建、Profile 图标与会话标题、更多）演示三列。
+ * 右栏的入口在右栏外侧的右轨上（docs/specs/ui/workbench-layout.md 输出 50），和活动栏同一个组件；“卡片”场景看右栏与右轨相连、隐藏与显示时角接过去。
  */
 import {
     activateTab,
@@ -207,7 +208,7 @@ const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
 ];
 
 /** 点入口（输出 22）：和产品的外壳用同一个判定。焦点的去向是外壳的事，夹具不管。 */
-/** 右栏、底部面板入口条的入口，同活动栏（输出 47）。 */
+/** 右轨、底部面板入口条的入口，同活动栏（输出 47、50）。 */
 function stripEntries(region: PanelName): RegionStripEntry[] {
     const showing = regionVisible(doc.value, region, {removed: collapse.value.removed, maximized: maximized.value}, visible.value);
     return regionEntries(doc.value, region, CATALOG).map((entry) => {
@@ -277,8 +278,11 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                 @gesture-commit="onGestureCommit"
                 @focus-panel="(panel) => (focusedPanel = panel)"
             >
-                <template #activitybar>
-                    <WorkbenchToolStrip label="活动栏" more-label="更多" :entries="entries" :items="STRIP_ITEMS" @select="selectEntry" />
+                <template #activitybar="{joined}">
+                    <WorkbenchToolStrip label="活动栏" more-label="更多" :joined="joined" :entries="entries" :items="STRIP_ITEMS" @select="selectEntry" />
+                </template>
+                <template #rail="{joined}">
+                    <WorkbenchToolStrip label="右栏的侧轨" more-label="更多" region="auxiliarybar" :joined="joined" :entries="stripEntries('auxiliarybar')" @select="(id) => selectRegionEntry('auxiliarybar', id)" />
                 </template>
                 <template #statusbar>
                     <div class="workbench-surface-fixture__status">状态栏</div>
@@ -293,14 +297,13 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                         </template>
                     </WorkbenchPanelHead>
                 </template>
-                <!-- 右栏、底部面板的入口条（输出 47）：当前容器只有一节时那一节的头并在这一行里，同分节的头。 -->
+                <!-- 底部面板的入口条（输出 47）：当前容器只有一节时那一节的头并在这一行里，同分节的头。 -->
                 <template #strip="{region, merged, idPrefix}">
                     <WorkbenchRegionStrip
                         :region="region"
                         :label="`${region} 的视图容器`"
                         more-label="更多"
                         :entries="stripEntries(region)"
-                        :variant="region === 'panel' ? 'titles' : 'icons'"
                         :head-min-width="merged === null ? 0 : 160"
                         @select="(id) => selectRegionEntry(region, id)"
                     >

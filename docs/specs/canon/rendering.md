@@ -71,10 +71,11 @@ owners:
 
 ## 输出与可观察行为
 
-1. **写入时检查。**（planned）写入主文字的一块（新建、整段替换、增块）时检查，不过就拒收，指出块、行与列（[`canon.revisions`](revisions.md) 的 `validation-failed`）。检查之前先去掉开头的 BOM、把换行规范成 LF；存下来的是规范后的原文，活的标签写成规范写法（输出 18）。拒收的情形：
-   - 白名单以外的 Markdown：别的原样 HTML、HTML 注释、脚注、数学（`unsupported-markdown`）；
+1. **写入时检查。**（planned）写入主文字的一块（新建、整段替换、增块）时检查，不过就拒收，指出块、行与列（[`canon.revisions`](revisions.md) 的 `validation-failed`）。检查之前先去掉开头的 BOM（几个都去掉）、把换行规范成 LF；存下来的是规范后的原文，活的标签写成规范写法（输出 18）。拒收的情形：
+   - 白名单以外的 Markdown：别的原样 HTML、HTML 注释、脚注、数学（`unsupported-markdown`）；语法单元树超过 100 层的（一层引用、一层强调各算一层，一级列表算两层：列表与列表项；段落与里面的文字也各占一层，所以约是 98 层引用或 49 级列表）同样拒收（`unsupported-markdown`），存下来的这种旧块渲染时照输出 4 给出错的块：分词与阅读视图都按层递归，界线与运行时的栈深无关；
+   - 一块超过 5 万个字符（按 UTF-16 码元计，即 `String.length`；`block-too-large`）：Markdown 的解析在少数写法上随长度大致按平方变慢（最坏一块约 50 秒），写入排在单写者队列里。上限只管一块，一次请求的块数不设上限：经远程调用时受消息预算约束，刻意构造的最坏请求能占住项目进程十几分钟（已知限制）。作者界面整篇编辑时整篇写进一块，所以这也是作者改过的条目整篇的上限，与输出 16 一次肯渲染的长度相同。只管写入：超过的不解析、直接拒收；渲染不看它，存下来的旧数据照常渲染；
    - 活的标签名字不认、属性不认或缺了必填的属性、`V` 与登记的标签不是自闭合的，或带着装饰（输出 9 的属性与内容）（`unknown-tag`；没登记的标签见输出 19）；
-   - 式子写错、带注释、用了白名单以外的节点或运算符，地址写错（`forbidden-syntax`，行列落在属性值里）；`expr` 一个字段引用都没有（`no-field-expression`）；
+   - 式子写错、带注释、用了白名单以外的节点或运算符、超过 1000 个字符（按 UTF-16 码元计），地址写错（`forbidden-syntax`，行列落在属性值里）；`expr` 一个字段引用都没有（`no-field-expression`）；
    - `If` 没闭合、跨段、被强调切开或套在另一个 `If` 里（`cross-block`）；孤立的 `ElseIf`、`Else`、`</If>`，或内置与登记的标签名后面写了属性却不成标签（例如少了收尾的 `<V of="panel.魔力"`、属性用了单引号或没加引号、`=` 两边有空格），又不在代码里、没转义（`tag-malformed`；落在链接与图片说明里的同样这样判）。别的 `<` 加大写名字（`评级 <A 级`）是文字；
    - 标签落在链接地址、链接标题或图片说明里（前面有转义的也算），或落在 Markdown 会丢掉的地方（例如表格里多出来的单元格）（`tag-not-live`）；表格的某一行比表头多出单元格（`unsupported-markdown`：多出的单元格 Markdown 会丢掉，编辑器把整张表当原样保留）；
    - 一块里 `<` 加大写名字的写法（活的、字面的、不成标签的都算）与标签以外的 U+E000 到 U+F8FF 里不同的字合计超过 6000 个（`too-many-tags`；同一个字出现几次算一个）。
@@ -88,8 +89,8 @@ owners:
    - `!未知` 是未知；`假 && 未知` 是假，`真 && 未知` 是未知；`真 || 未知` 是真，`假 || 未知` 是未知；
    - 条件的判断是未知时，整个条件表达式的结果是未知，不当成假。
    - 运算与函数（planned）：任一操作数或参数是未知，结果是未知；`+ - * / %` 与 `round`、`floor`、`ceil`、`min`、`max`、`abs` 只对数有定义，别的类型得未知（不拼接文字）；除以 0、`percent` 的整体是 0 时得未知。结果不是有限数（溢出）、`%` 的除数是 0 时也得未知；式子里数的字面量要是有限数（`1e309` 拒收，`forbidden-syntax`）。
-6. **读不到的值。** 引用的条目尚未出场、已删除、没有这个字段、命名空间没启用、已去掉或类型不可用时，不让整块失败：作者看到带说明的占位，Agent 看到值为 `null` 并带装饰 `不可用：原因`（planned：写成 `unavailable="原因"`，输出 9）。
-7. **给作者的渲染。**（planned）结果是按块的源文与值表：每块给块 id、源文与值表；值表每项对应一个活的标签，按它在源文里的起点排，项里写标签名与起点（`If` 与各个 `ElseIf` 各一项，`Else`、`</If>` 没有项；没生效的支里的标签照样有项、照样求值）。调用方按本能力的白名单与输出 17 读源文，按标签名与起点对上每一项；对不上的块整块按出错显示并报诊断，不按位置猜。值表每项按标签的种类给：`V` 给地址、条目、显示名、原始值、显示文字，以及未知、不完整的标记，读不到时给原因（输出 6）；`V` 的 `expr` 给原始值与显示文字；`If` 与各个 `ElseIf` 给判断的结果（真、假、未知）与生效的那一支，判断未知时没有生效的支，作者看到“未知”（同值未知的样子）；`Ref` 给当时的名字（删除的写“已删除的条目”）；`Image` 给路径与说明；登记的标签给它的描述（输出 19），没登记的给“需要插件”。值是引用的，显示文字是被引条目当时的名字；值是图片的，给路径与说明。出错的块给纯文本与诊断。显示文字里数加千位分隔，未知显示“未知”；路径与 id 不出现在显示文字里。
+6. **读不到的值。** 引用的条目尚未出场、已删除、没有这个字段、命名空间没启用、已去掉或类型不可用时，不让整块失败：作者看到带说明的占位，Agent 看到值为 `null` 并带装饰 `不可用：原因`（planned：写成 `unavailable="原因"`，输出 9）。（planned）`expr` 与判断的结果按三值逻辑已经确定时（例如 `false && 读不到的`），不标读不到。
+7. **给作者的渲染。**（planned）结果是按块的源文与值表：每块给块 id、源文与值表；值表每项对应一个活的标签，按它在源文里的起点排，项里写标签名与起点（`If` 与各个 `ElseIf` 各一项，`Else`、`</If>` 没有项；没生效的支里的标签照样有项、照样求值）。调用方按本能力的白名单与输出 17 读源文，按标签名与起点对上每一项；对不上的块整块按出错显示，不按位置猜（作者界面与世界服务同版发布，对不上只出现在升级中开着的旧窗口里，不另报诊断）。值表每项按标签的种类给：`V` 给地址、条目、显示名、原始值、显示文字，以及未知、不完整的标记，读不到时给原因（输出 6）；`V` 的 `expr` 给原始值与显示文字；`If` 与各个 `ElseIf` 给判断的结果（真、假、未知）与生效的那一支，判断未知时没有生效的支，作者看到“未知”（同值未知的样子）；`Ref` 给当时的名字（删除的写“已删除的条目”）；`Image` 给路径与说明；登记的标签给它的描述（输出 19），没登记的给“需要插件”。值是引用的，显示文字是被引条目当时的名字；值是图片的，给路径与说明。出错的块给纯文本与诊断。显示文字里数加千位分隔，未知显示“未知”；路径与 id 不出现在显示文字里。
 8. **给 Agent 的渲染（带值写法）。**（planned）结果是按块的文字，每块带块 id，整体带版本与读取位置。每块的文字就是这一块的源文，只给活的标签带上装饰（输出 9）：
    - 取值写成 `<V of="panel.魔力">3110</V>`：值写成 JSON（文字带引号、换行写成 `\n`，数不带，未知是 `null`，图片是 `{"图片": 路径, "说明": 文字}`），值里的 `<` 写成 `\u003c`；计算值写成 `<V expr="…">"40%"</V>`；
    - 条件写成 `<If test="…" value="true">…<ElseIf test="…" value="false" />…<Else />…</If>`：每个判断带结果（`true`、`false`，未知是 `null`）；各支里的标签照常带装饰，别的字照源文给；
@@ -114,11 +115,11 @@ owners:
     - `problems`：这一块有写不干净的地方：`syntax`（块出错，文字是原样源文）、`raw-value`（结果没有纯文字的写法，例如取出的单个列表行）、`quoted-block`（读到另一块的原文，`text[...]`）、`unavailable`（读不到值，输出 6）；`unknown-tag`（块里有没登记的标签，不知道它读了谁，输出 19，planned）；块里有内置或登记的标签名写成的、不成标签的写法（代码里的、转义的也算）时报 `syntax`（读不全它的属性，planned）。有问题的那一处不写文字。
     - 值的写法：字符串、数（千位分隔）、真假（是、否）、未知（“未知”）同输出 7；引用写条目当时的名字；以引用为键的列表写各行条目的名字，用顿号连；作者写的列表写各行的 `label`；字符串列表用顿号连；图片写说明。名字由调用方的 `entryName` 给，不给时用条目当时的名字，删除的、不存在的写“已删除的条目”；读取时给以引用为键的行补的 `label` 不用（调用方可能要改写这个名字）。
     - `<Image>` 标签整个写成它的说明（`alt`，没有就不写）。
-    - 条件（planned）写生效的那一支；判断未知时写“未知”。登记的标签写它的描述（输出 19）。块里有字面的标签（代码里的、转义的）时报 `syntax`（planned）：照原文写会把条目 id 与写法给读者。
-16. **按给的源文字渲染。**（planned）给作者界面在提交之前看结果用（[`canon.author-ui`](author-ui.md) 输出 48）：把调用方给的一段源文字当作这个条目的主文字，在给定的位置与模式上渲染成一块（块 id 固定为 `source`），结构与输出 7 相同（planned：源文与值表）。求值与渲染存下来的块用同一个上下文：不写条目的字段读的是这个条目此刻的数据，引用的名字是当时的名字。不写入、不留痕迹，世界的版本不变；解析的结果也不留（存下来的块的解析结果是留着复用的，这里的源文字每次都不一样）。源文字超过 5 万个字符（按 UTF-16 码元计，即 `String.length`）时不渲染，调用方得到 `too-large`；嵌套深到渲染不了的（几万层引用这类）照出错的块给。源文字过不了写入时的检查（输出 1）时，这一块照输出 4 给纯文本与诊断（行、列按给的源文字算）。条目不存在、那一章或那条线读不到时的结果与渲染存下来的块相同。
+    - 条件（planned）写生效的那一支；判断未知时写“未知”，判断未知是因为读不到值（输出 6）时同取值一样报 `unavailable`、不写文字。登记的标签写它的描述（输出 19）。块里有字面的标签（代码里的、转义的）时报 `syntax`（planned）：照原文写会把条目 id 与写法给读者。
+16. **按给的源文字渲染。**（planned）给作者界面在提交之前看结果用（[`canon.author-ui`](author-ui.md) 输出 48）：把调用方给的一段源文字当作这个条目的主文字，在给定的位置与模式上渲染成一块（块 id 固定为 `source`），结构与输出 7 相同（planned：源文与值表）。求值与渲染存下来的块用同一个上下文：不写条目的字段读的是这个条目此刻的数据，引用的名字是当时的名字。不写入、不留痕迹，世界的版本不变；解析的结果也不留（存下来的块的解析结果是留着复用的，这里的源文字每次都不一样）。源文字超过 5 万个字符（按 UTF-16 码元计，即 `String.length`）时不渲染，调用方得到 `too-large`；嵌套深到渲染不了的（几万层引用这类）照出错的块给。源文字过不了写入时的检查（输出 1，没登记的标签按输出 19 的基线查：条目的主文字里没有的照样拒收）时，这一块照输出 4 给纯文本与诊断（行、列按给的源文字算）。按块长拒收的 `block-too-large` 不在这里报：预览一次肯渲染的长度由上面的 `too-large` 管。条目不存在、那一章或那条线读不到时的结果与渲染存下来的块相同。
 17. **标签的落点。**（planned）正文里（段落、标题、列表、引用、表格的单元格里）的标签是活的；行内代码与代码块里的、前面有转义的是字面的，作者与 Agent 都看到原文。标签的属性值里有 `|` 时不把表格的单元格切开；一行以标签开头时这一行不算 HTML 块；原文里 Unicode 私用区的字照常是文字。
 18. **规范写法。**（planned）存下来的活的标签是规范写法：`<名字 属性="值" … />`，属性顺序照写的、之间一个空格，自闭合写 ` />`；`If` 写成 `<If test="…">…<ElseIf test="…" />…<Else />…</If>`。写入时不是规范写法的按规范写法存。
-19. **登记的标签与没登记的标签。**（planned）插件登记的标签有名字、属性表（哪些是地址、哪些必填）与给模型的描述；作者看到插件画的样子，Agent 看到开闭标签中间的描述，纯文字写描述，`reads` 记属性里的地址与描述读到的字段。没登记的大写名字标签：写入时拒收（`unknown-tag`），除非这个条目当前的主文字里（任一块）已经有规范写法相同的这个标签（插件卸了以后，作者整篇提交、Agent 改别处都还能写）；作者看到“需要插件”的占位，Agent 看到原样的标签，纯文字报 `unknown-tag`。
+19. **登记的标签与没登记的标签。**（planned）插件登记的标签有名字、属性表（哪些是地址、哪些必填）与给模型的描述；作者看到插件画的样子，Agent 看到开闭标签中间的描述，纯文字写描述，`reads` 记属性里的地址与描述读到的字段。没登记的大写名字标签：写入时拒收（`unknown-tag`），除非这个条目的主文字里（初值的任一块，或生效的变更里改它主文字的补丁；不分线）已经有规范写法相同的、自闭合的这个标签（插件卸了以后，作者整篇提交、Agent 改别处都还能写；带内容的写法不放行）；作者看到“需要插件”的占位，Agent 看到原样的标签，纯文字报 `unknown-tag`。
 20. （已删除）
 21. **与章节编辑器读法一致。**（planned）同一段主文字，经章节编辑器的 Markdown 读法（加上条目的标签）读出的活的标签与落点，与本能力相同；编辑器原样写回或整篇重写写出的文字过得了输出 1。
 22. **去值。**（planned）Agent 交回的文字（[`canon.agent-tools`](agent-tools.md) 的写入）在写入之前去掉装饰：带值的 `V` 换回自闭合并去掉 `label`、`incomplete`、`unavailable`；`If`、`ElseIf` 去掉 `value`；`Ref` 去掉 `name`；`Image` 去掉 `path`；登记的标签去掉开闭之间的描述、换回自闭合。只动活的标签，字面的原样保留。去值以后照输出 1 检查。值写在文字里不改字段：交回的值与当时的不同，字段照旧（改值另用写入工具）。对任何一块源文，先按输出 8 渲染再去值，得到的文字与源文逐字相同。
@@ -140,6 +141,7 @@ owners:
 | `unsupported-markdown` | 用了白名单以外的 Markdown（原样 HTML、注释、脚注、数学）（planned） | 改成白名单里的写法 |
 | `tag-malformed` | 内置或登记的标签名后面写了属性却不成标签，或 `ElseIf`、`Else`、`</If>` 孤立（planned） | 写完整，或写成 `\<` |
 | `tag-not-live` | 标签落在链接地址、标题或图片说明里，或落在 Markdown 会丢掉的地方（planned） | 移到正文里；要在链接标题里写这几个字，写成 `&lt;` |
+| `block-too-large` | 一块主文字超过 5 万个字符（planned） | 拆成几块 |
 | `too-many-tags` | 一块里 `<` 加大写名字的写法与私用区里不同的字合计超过 6000 个（planned） | 拆成几块 |
 | `forbidden-syntax` | 用了白名单以外的语法 | 改成引用字段，或转义 |
 | `unknown-tag` | 用了内置以外的标签或属性 | 去掉 |
@@ -173,19 +175,18 @@ Smoke：不适用——本能力没有独立的运行入口，由 [`canon.projec
 
 ## 实现合同
 
-- **公开入口**：`@notnotype/nb-canon`：`parseBlock`、`blockProblem`、`renderEntryForAuthor`、`renderEntryForAgent`、`renderBlockForAuthor`、`renderBlockForAgent`、`splitBlocks`、`evaluate`、`scanAnnotations`、`writeBack`；读取视图 `CanonReadView.renderPlain` 与类型 `PlainBlock`、`PlainProblem`、`PlainOptions`（`@notnotype/nb-canon/schema`）；应用侧 `canonWorldContract` 的 `render`、`writeBack`。
-- **owner 与依赖方向**：渲染与回写全在 `nb-canon`：渲染经引擎只读取值，回写的字段操作走就地改（[`canon.revisions`](revisions.md) 输出 8），最后在真实世界上整体发布一次。依赖 MDX 解析链，不依赖应用包；canon 插件的远程层只转发。
+- **公开入口**：`@notnotype/nb-canon`：`blockProblem`、`analyzeBlock`、`normalizeBlockSource`、`renderEntryForAuthor`、`renderEntryForAgent`、`renderSourceForAuthor`、`renderBlockForAuthor`、`renderBlockForAgent`、`splitBlocks`、`evaluate`；`@notnotype/nb-canon/grammar`：`parseEntryText`、`checkEntryText`、`decorateEntryText`、`stripEntryText`、`canonicalEntryText`；读取视图 `CanonReadView.renderPlain` 与类型 `PlainBlock`、`PlainProblem`、`PlainOptions`（`@notnotype/nb-canon/schema`）；应用侧 `canonWorldContract` 的 `render`（planned：删掉 `writeBack`）。
+- **owner 与依赖方向**：文法在 `nb-canon/grammar`（建在 `nb-markdown/marked` 上，编辑器的条目语法模块用同一份）；按源文的分析与三种渲染在 `nb-canon/render`，经引擎只读取值；写入前的规范化与写入检查在世界的发布里。不依赖应用包；canon 插件的远程层只转发。
 - **关键不变量**：
-  - 白名单以外的写法在写入时拒收并指出块、行、列；`set` 整段替换一块同样检查（输出 1、2）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“`set` 整段替换一块也过白名单”。
+  - 不过检查的写入拒收并指出块、行、列；整篇写入、变更里的整段替换、`editEntries` 的各种写法都先规范化再检查（输出 1、18、19）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 输出 1、3、18：写入时检查与规范写法”“输出 1、18、19（审查补）：规范化与基线的边界”。
   - 未知在比较、逻辑、条件里按三值逻辑传（输出 5）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 输出 5：三值逻辑”。
-  - 读取之后世界前进过，旧文字原样交回不会把别的修订写的值改回去（输出 13）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“别的修订改了值，Agent 把旧文字原样交回：value-conflict，值不被改回去，也不发布”。
-  - 只有按实际模式读到的块能回写（输出 12）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“按计划模式读到的块原样交回：拒收 planned-not-writable，世界不变（输出 12）”。
-  - 一块坏了不影响别的块，交回合法文字后整段替换（输出 4、14）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“一块坏了：作者看到纯文本与诊断，Agent 读到原样源文与出错标记，交回合法文字后整段替换（场景 3、输出 14）”。
-  - 纯文字里写出的每一个名字都在 `mentions`、读到的每一个条目都在 `reads`，写不干净的报 `problems`（输出 15、场景 5）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 输出 15：纯文字的渲染”。
+  - 一块坏了不影响别的块，改别的块照常写（输出 4）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 场景 3、输出 4、14：一块坏了”。
+  - 带值写法去值后与源文逐字相同（输出 22）：`legacy-render.test.ts`（样本每一块、每个位置、两种模式）与 `grammar.test.ts` 的性质测试。
+  - 纯文字里写出的每一个名字都在 `mentions`、读到的每一个条目都在 `reads`（活的与字面的标签、条件的各支都算），写不干净的报 `problems`（输出 15、场景 5）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 输出 15、场景 5：纯文字的渲染”。
 
 ## 证据
 
 - 批准依据：[作者视角的世界引擎内核（第一版）](../../proposals/world-engine-kernel.md)第四部分第 2、5、7 节；[ADR 0038](../../adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)；w00039 t02 第三轮审查的处理（第 8、14、15、21 条，开发者 2026-11-02 定“剩下的细节在写 Spec 时定”）。开发者 2026-11-06 批准晋升为 `implemented`。
-- 实现入口：[`syntax.ts`](../../../packages/nb-canon/src/render/syntax.ts)、[`render.ts`](../../../packages/nb-canon/src/render/render.ts)、[`entry.ts`](../../../packages/nb-canon/src/render/entry.ts)、[`writeback.ts`](../../../packages/nb-canon/src/render/writeback.ts)
-- 合同测试：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)（真实 `World`、真实登记与引擎、真实 MDX 解析，回写发布到真实世界）、[`edits.test.ts`](../../../packages/nb-canon/tests/edits.test.ts)
+- 实现入口：[`syntax.ts`](../../../packages/nb-canon/src/render/syntax.ts)、[`render.ts`](../../../packages/nb-canon/src/render/render.ts)、[`entry.ts`](../../../packages/nb-canon/src/render/entry.ts)
+- 合同测试：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)（真实 `World`、真实登记与引擎、写入经 `World.publish` 与 `editEntries`）、`legacy-render.test.ts`
 - Smoke：不适用——没有独立的运行入口，验收场景由上面的合同测试覆盖。

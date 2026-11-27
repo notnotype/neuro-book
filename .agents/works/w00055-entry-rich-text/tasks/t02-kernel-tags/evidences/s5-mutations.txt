@@ -1,0 +1,14 @@
+w00055 t02 S5 的变异检查（2026-11-26，在提交 f4efdd8ce 上做，每个变异跑 tests/rendering.test.ts、legacy-render.test.ts、worldlines.test.ts，跑完用 git show HEAD 恢复）
+
+脚本：一次性，按字符串替换改一处源码。19 个，17 个第一轮被测出：
+- render.ts 纯文字的静态收集：跳过字面标签、字面标签不报 syntax、判断里的引用不收、Ref 不进 mentions、没登记的不报 unknown-tag
+- render.ts 条件：先遇到未知后面的真支照样生效、判断未知写空、没有一支生效写“未知”、被去掉的支里的标签也写文字、If 不给 value
+- render.ts 作者值表：字面标签也给项、引用字段的显示文字不用当时的名字
+- world.ts：不做写入前的规范化、原样留着的旧块也查
+- syntax.ts：没登记标签没有基线、读不出结构的块放行、预览的源文也进缓存
+
+两个活下来：
+1. “写坏的内置标签报 syntax”那一行删掉不影响：写坏的内置标签落在正文里（含链接、图片说明）写入时就拒收（tag-malformed），存下来的只会在代码里或转义之后，由“字面标签报 syntax”那一行一并报。写不出反例，删掉了这一行，注释写明（94307cd50）。
+2. “列表元素的地址不给 label”没有用例：rel.清单 的显示名改成与 id 不同，补了“字段带 label、列表元素的地址不带”的用例，重跑测出（94307cd50）。
+
+另外查残留：迁移脚本的旧写法判据（旧解析器读得了且有表达式、Ref 或 Image）在 nb-canon、应用的 canon、plot、Lab fixture、perf 脚本共 411 个文件上跑一遍，内核与 plot 里没有要改的旧写法（rendering.test.ts 那一处是故意写的非规范 `<Ref   id="e2"/>`）；应用的三个 dom 测试（EntryTextEditor、entry-page、receipt-page）还是旧写法，归 S6。

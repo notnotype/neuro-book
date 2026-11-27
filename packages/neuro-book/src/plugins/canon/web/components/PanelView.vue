@@ -44,8 +44,8 @@ const selectedCard = (): FieldRow | undefined => props.cards.find((card) => card
 <template>
     <p v-if="props.cards.length === 0" class="py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]" data-panel-view>{{ text("panel.empty") }}</p>
     <div v-else class="flex min-w-0 flex-wrap gap-6 text-[length:var(--text-sm)]" data-panel-view>
-        <div class="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0" role="group" :aria-label="text('panel.cards')">
-            <div v-for="card in props.cards" :key="card.path" class="flex items-start gap-1">
+        <div class="panel-view__cards w-full sm:w-52 sm:shrink-0" :class="props.editing ? 'panel-view__cards--editing' : ''" role="group" :aria-label="text('panel.cards')">
+            <div v-for="card in props.cards" :key="card.path" class="panel-view__card">
                 <button
                     type="button"
                     :aria-pressed="props.selected === card.path"
@@ -63,16 +63,19 @@ const selectedCard = (): FieldRow | undefined => props.cards.find((card) => card
                     </span>
                     <span v-else class="mt-0.5 block font-mono text-[length:var(--text-lg)]" :class="card.unknown || card.incomplete ? 'text-[var(--status-warning)]' : 'text-[var(--text-main)]'">{{ card.display }}</span>
                 </button>
-                <Button
-                    v-if="props.editing && card.editable"
-                    size="sm"
-                    variant="ghost"
-                    :data-edit="card.path"
-                    :disabled="props.editReason !== ''"
-                    :title="props.editReason !== '' ? props.editReason : undefined"
-                    :aria-label="text('edit.label', {label: card.label})"
-                    @click="emit('edit', card.path)"
-                >{{ text("edit.button") }}</Button>
+                <!-- “改”那一格每张卡都留着（不能改的空着）：卡片等宽，按钮上下对齐（nb-ui 界面开发规范“几何、排版与动效”第 6 条）。 -->
+                <span v-if="props.editing" class="flex justify-end">
+                    <Button
+                        v-if="card.editable"
+                        size="sm"
+                        variant="ghost"
+                        :data-edit="card.path"
+                        :disabled="props.editReason !== ''"
+                        :title="props.editReason !== '' ? props.editReason : undefined"
+                        :aria-label="text('edit.label', {label: card.label})"
+                        @click="emit('edit', card.path)"
+                    >{{ text("edit.button") }}</Button>
+                </span>
             </div>
         </div>
         <section v-if="selectedCard() !== undefined" class="min-w-64 flex-1 basis-80">
@@ -82,3 +85,23 @@ const selectedCard = (): FieldRow | undefined => props.cards.find((card) => card
         </section>
     </div>
 </template>
+
+<style scoped>
+/*
+ * 卡片一列、“改”一列定在整组上，每张卡用 subgrid 接过去：“改”那一列按最宽的按钮定宽（英文的 Edit 比“改”宽），各卡仍等宽、按钮上下对齐。
+ */
+.panel-view__cards {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem 0.25rem;
+}
+.panel-view__cards--editing {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+.panel-view__card {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    align-items: start;
+}
+</style>

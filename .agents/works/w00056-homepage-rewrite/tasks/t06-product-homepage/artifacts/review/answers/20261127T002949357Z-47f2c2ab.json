@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T002949357Z-47f2c2ab",
+    "artifactVersion": 7,
+    "contentHash": "620f96b012d6bdca2901229c15a4c7cc99b222dbafc9858d6ca03c82d1eecf0f",
+    "submittedAt": "2026-11-27T00:29:48.381Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "day-r6": "revise",
+        "buttons-r6": "b",
+        "act-one-r7": "ok",
+        "rail-r7": "ruler",
+        "hero-r7": "all"
+    },
+    "comments": {
+        "day-r6": "有问题，白天这里明显不对。",
+        "hero-r7": "首页旁边的东西如果用户能交互，例如点击后稍微放大就好了。还有首页能不能做出那种和鼠标位置、速度有交互的动画。\n"
+    },
+    "note": "工作台演示的时候，虚拟鼠标指针的层级在编辑器行内菜单之下\n---\n演示拖拽的时候，指针移动速度太慢，而且移动我建议是有弧度的。不要像这样是直角的\n---\n字幕放在正下方可能不太显眼\n---\n高亮我觉得可能也不太显眼，需要优化一下，一个优化点就是加上遮罩"
+}

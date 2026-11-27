@@ -1,0 +1,18 @@
+w00055 t02 S6 只读实现审查：94307cd50..cc4930729。审查对象 HEAD 为 `cc493072986f71ee46e11e9105ddfecbf71e1149`。范围：`packages/nb-canon/`、Canon 后端工具、远程合同与相关测试；不审 web/Lab。
+
+### 1. Agent 原样交回旧未知标签会静默规范化并发布修订
+严重程度：重要；类别：正确性、不变量。
+位置：`packages/nb-canon/src/grammar/text.ts:62-74`、`packages/neuro-book/src/plugins/canon/backend/agent-entry-text.ts:8-9`、`packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:422-437,718-732`。
+现象：已存块 `old <Plot  id="x"/>` 中的未知标签按合同作为坏块处理，但 Agent 渲染应把坏块原样交回。当前 `stripAgentText` 无条件调用 `stripEntryText`，把标签规范化成 `old <Plot id="x" />`；`writeBlock` 以这个结果作为 set 值，且 `currentBlock` 的 `source` 也来自同一规范化结果，因此这次差异被当成实际编辑。经真实 `World` 重放旧源文、`renderEntryForAgent` 后交回读取到的原样块并调用 `editEntries`，结果成功发布版本 3（原版本 2），存储源文变为规范化标签。即使用户/Agent 没改块文字，旧标签的空白与斜杠写法也被悄悄改写并留下修订；若同时改了普通文字，改动同样会顺带重写标签。
+核实：复现输入 `old <Plot  id="x"/>`；Agent 可见文本逐字相同，`stripAgentText` 得 `old <Plot id="x" />`；真实内核回写成功、版本递增且存储值已变。`canon.rendering` 输出 4 要求坏块给 Agent 原样源文，输出 8 要求注记以外的源文字逐字相同；S5 对已登记/未知插件标签原样保留的修复已在 `decorateEntryText` 实施，但去值入口仍规范化。
+改法：对非坏块使用带值去除；当块渲染带 `error` 时，读写两侧都以原样源文比较与交回，不对其中未知标签做序列化规范化。加入真实 Agent 工具回归：从旧数据读取含非规范未知标签的块，原样交回不得发布或改变字节；修改周围正文后标签片段仍逐字保留。
+
+## 检查记录
+- 已核对 S5 处理记录中的修复项与复核范围 `94307cd50..7860665c7`；授权绑定、基线补丁、补偿规范化、临时 id 重写、解析深度与长度上限等未发现本轮回归证据。
+- 直接验证 50,001 字符块的内核拒收结果为 `validation-failed / block-too-large`；公开预览入口限制与内核长度合同一致。`stripAgentText` 对超长纯文字不会套用块长度门槛，但 Agent 后续写入经过 `editEntries` 内核校验；未确认独立可观察缺陷。
+- 核对 `canonWorldContract` v2 的 `render`、`renderSource`、`editEntries`、`previewEntries` 及应用调用方；Agent 通过 agent audience 读块、经 `editEntries` 写入，作者预览经 `renderSource`，未发现合同版本或调用方错配。
+- 核对纯文字渲染的 `reads`、`mentions`、`problems` 与 plot gate 的整块扣留路径；相关简报语义与 Spec 一致，未发现已证实缺陷。
+
+验证：`bun run --cwd packages/neuro-book test:bun src/plugins/canon/agent-tools.test.ts`，13 pass、0 fail、169 expect；`bun run --cwd packages/neuro-book test:bun src/plugins/plot/core/brief/gate.test.ts src/plugins/plot/core/brief/brief.test.ts`，85 pass、0 fail、503 expect。最初执行 `bun --cwd packages/neuro-book test src/plugins/canon/agent-tools.test.ts` 进入完整 `test` 脚本，卡在无关的 `plugin-sdk/build-plugin.test.ts` 后超时 180 秒；随后正确缩小到单文件 Bun 命令通过。误将 Agent 测试交给只收 `*.dom.test.ts` 的 Vitest 配置，命令报告 No test files found；没有重跑无关全量套件。未运行全包测试、typecheck、e2e、真实模型或浏览器。
+
+严重程度：阻断 0；重要 1；建议 0。有效发现编号：1。

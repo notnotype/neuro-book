@@ -1,0 +1,168 @@
+# w00033 t03 计划审查（前端部分，Sonnet）。每核实一条追加一条。检出：.worktree/w00033-t03-review（cf89b6a38）
+
+### 1. 说明框挂进弹层子树后，键盘事件会被宿主弹层的处理器截走（命令面板 Enter 会执行命令）
+**严重程度**：阻断　**类别**：正确性
+**位置**：plan“packages/nb-page-agent”的 `src/guide/`（挂进最上层弹层的子树、按钮取消默认）；Spec 输出 10、验收 6
+**现象**：计划只写了 pointerdown、mousedown 取消默认，没有处理键盘。说明框在弹层 DOM 子树里，提问框的 keydown 会冒泡到弹层自己的处理器：
+- 命令面板 `QuickPick.vue:160-196` 的 `onPanelKeydown` 挂在 DialogContent 上：Enter 会 `acceptActive()`，即执行面板里高亮的命令；ArrowUp/Down/Home/End 被 preventDefault 并移动面板高亮；Escape 关面板。
+- nb-ui 下拉（`Select.vue` 用 reka `SelectContent`，role=listbox）：`reka-ui/dist/Select/SelectContentImpl.js:193-216` 的 `handleKeyDown` 没有输入框豁免：任何单字符都 `handleTypeaheadSearch`，匹配到选项就 `ref.focus()` 把焦点抢出提问框；方向键、Home、End 也 `setTimeout(focusFirst)` 加 preventDefault；Tab 被禁。`onItemLeave` 还会在指针离开选项时 `content.focus()`。
+- 下拉菜单 `Menu/MenuContentImpl.js:191-211`：`isKeyDownInTextField` 靠 `event.target.tagName` 判断输入框，但说明框用 shadow root（设计稿与计划都写了 `adoptedStyleSheets`），宿主一侧看到的 `event.target` 被重定向成 shadow host（div），豁免失效，打字触发前缀搜索抢焦点；方向键走 `useArrowNavigation` 照样移走焦点。
+**为什么是问题**：实验 2 只验证了英文字母与鼠标点“问”；样机是否带 shadow root 未记录，实验也没试 Enter、方向键、Select 的 listbox（实验 2 的“下拉”是 DropdownMenu），结论“提问框能输入”不覆盖这些。用户在命令面板里的说明框按 Enter 提问，会直接执行当前高亮命令（产品副作用）。
+**如何核实**：读上述三处源码；在 Lab 的命令面板场景里把一个 shadow root 里的 input 挂进 DialogContent，按 Enter、方向键。
+**建议改法**：在 shadow root 层（说明框容器上，冒泡阶段）对 keydown、keyup、keypress、beforeinput 一律 `stopPropagation`（不拦 window 捕获阶段的快捷键，那条与别的输入框一致）；提问提交的键位在说明框自己处理并检查 `isComposing`；Escape 的行为写进 Spec 输出 10；e2e 加用例：命令面板、Select 打开时，提问框里打字、按 Enter、按方向键，面板的高亮项与焦点不变、没有命令执行（先变异：去掉 stopPropagation 看用例失败）。计划“提问框能输入”的判据要改成这几条。
+
+### 2. 说明框随宿主弹层被摘掉时，高亮还在“等”：不可见却继续计时暂停，没有重挂或结局
+**严重程度**：重要　**类别**：不变量
+**位置**：plan“src/guide/”（挂进最上层弹层子树）、Spec 输出 9（结局表）与输出 11
+**现象**：说明框与描边框是弹层 DOM 的子孙。弹层关闭（Esc、点外面、选中菜单项、下拉选完）时，子树连同说明框一起被摘，而计划的结局只在“目标消失”时判 `gone`。分三种情形：
+- 目标在弹层之外（例如挂靠的是设置窗口，高亮的是活动栏按钮；弹层与目标不是同一层）：目标还在，说明框没了，结局不触发，监听还活着，用户看不到任何提示却要等到 `timeout`（至多 3600 秒），期间 eval 单元时限暂停（输出 11）。
+- “最上层弹层”的选法没写：设置窗口（非模态 `FloatingWindow`，role=dialog）开着时，高亮底层工作台的按钮，说明框会挂进设置窗口；点设置窗口的关闭就带走说明框。层的先后按 z-index 与命中检查才对，按 DOM 顺序不对（`useOverlayLayer.ts` 注释写明层级不能靠 DOM 顺序）。
+- 弹层出场动画期间（Reka Presence 保留元素），说明框随之淡出又不触发 `gone`。Vue 重渲染弹层时若根元素是纯文本子节点（`setElementText`）会清掉外来子节点。
+**为什么是问题**：违反 Spec“高亮只在调用期间存在、结局一定撤掉”的反面：该显示时不显示。
+**如何核实**：读 `Dialog.vue`、`QuickPick.vue` 的 Presence/Portal 结构；在夹具里高亮弹层外的目标，再关弹层。
+**建议改法**：说明框每次重算时检查 `isConnected` 与是否仍在目标所属的最上层（用 `elementsFromPoint` 取目标所在层），变了就重挂到新的最上层；弹层摘掉且目标仍在时，重挂到 body 并保持显示，不静默；Spec 写“挂靠层”规则，不写“当前最上层”；用例：弹层之外的目标 + 关弹层，说明框仍可见。
+
+### 3. 界面目录直接读设置窗口数据源的 `sections()`、`settings()`，目录与窗口真正画出的行对不上
+**严重程度**：重要　**类别**：正确性 / 安全与性能
+**位置**：plan“packages/neuro-book/src/plugins/settings/”、Spec 输出 7“设置”
+**现象**：计划让“数据源的 sections()、settings() 给出一个公开的只读服务键”，目录拼装靠它。但窗口自己不直接用这两个列表：`settings/web/settings-window.ts:290-390` 的 `buildCatalog` 在其上做了落位：
+- `host:"desktop"` 而窗口不在桌面壳里的分区与指向它的设置被丢掉（浏览器窗口左栏实测 16 个节，分区声明 18 个）；
+- 指向 page 分区的设置不画行（`paged`，由页面自己画，没有 `data-settings-row`）；page 分区共 12 个，包括模型、Profile、权限规则、Skill、主题这类用户最常问的页面（实验 6 第六条）；
+- 没有分区或分区不存在的设置落到 id 为 `other` 的“插件设置”节，该节不在 `sections()` 里；
+- page 分区有自己的 `layers`，当前层不支持时左栏项停用（`aria-disabled`），路径里“选层”这一步该选哪一层，Spec 与计划都没写规则；窗口未绑定作品时没有“本作品”单选。
+按现写法 `ui.find("主题色")` 一类会交回指向不存在的 `settings.row` 的路径，highlight 要等 5 秒才 `not-found`；搜“模型服务商”这类页面项则搜不到任何东西，而且 Spec 输出 7 的种类只有 `setting`、`view`、`command`，没有“页面”的位置。
+另外，`window-source.ts:62` 的 `settingsWindowSourceKey` 还带 `edit`、`unset`、`file`（任何已声明项、以核心入口身份写入，文件头注释写明“门面只发给 nbook.settings 自己”）。若直接把这个键公开，违反 Spec 的“不读写设置”，而且给了所有插件写能力；计划的“只读服务键”没说是新建只读门面还是公开原键。
+**如何核实**：读 `settings-window.ts:290-390`、`window-source.ts:35-95`、`SettingsWindow.vue:285-330`。
+**建议改法**：公开的是“窗口落位后的目录”：由 `createSettingsWindow` 的 `catalog` 投影出（节 id、标题、层、每节的行键列表、page 节与 `other` 节的标记），做成新的只读门面服务，不暴露原键；Spec 补“页面”条目（路径止于节）与选层规则（沿用当前层，不支持时给另一层并标明）；用例覆盖 other 节、page 节、桌面隐藏节、未绑定作品。
+
+### 4. 工作台“视图位置服务”只覆盖位置，目录要的视图标题、标题动作、活动栏命令、容器名都读不到；入口标记 `data-tool-view` 并不对所有视图存在
+**严重程度**：重要　**类别**：正确性 / 接口
+**位置**：plan“packages/neuro-book/src/plugins/workbench/”与“web/ 界面目录”；Spec 输出 6（映射表 `data-tool-view` 行）、输出 7“视图”“命令”
+**现象**：
+1. 计划的服务给“视图 id → 所在容器、容器入口的标识（`data-tool-view` 的值）、是否可见”。目录还需要：视图标题（视图按标题搜）、视图声明的 `actions`（决定“哪些命令出现在视图标题栏上”）、`workbench.activitybar-items` 的 `command`（决定活动栏上的命令）、容器标题（入口上的名字“项目”）。这些贡献点只有工作台入口 `receives`，别的插件读不到；计划与 Spec 都没把它们列入服务，设计稿“要先补的上游”里也只写“视图当前位置”。照字面实现后，命令一类（Spec 输出 7 第三条）拼不出来，要回头改服务。
+2. `data-tool-view` 只在入口含一个视图时才有：`WorkbenchToolStrip.vue:164`、`WorkbenchRegionStrip.vue:180` 都是 `:data-tool-view="entry.viewId ?? undefined"`；含多个视图的容器只有 `data-tool-entry`（容器 id，拖动源注释 `layout-drag.ts:4` 写明）。实验 6 只点了资源管理器与剧情两个单视图容器。映射表只翻 `data-tool-view`，用户把两个视图拖进同一容器后，视图的路径起点找不到。右栏、底部面板的入口还带 `data-region-entry`。视图被拖成浮动窗时 `viewSection(...)` 为 null，路径没有定义。
+3. “命令面板的打分函数抽成可调用的函数”没写放在哪。现在在 `workbench/web/commands/command-query.ts`（`matchCommandText`、`searchCommands`）。页面插件的 `web/` 运行时导入它会被 `src/architecture.test.ts:126`（跨插件运行时导入只能指向 `shared/contracts.ts`）拦下。
+**如何核实**：`grep -n "data-tool-view\|data-tool-entry" components/WorkbenchToolStrip.vue components/WorkbenchRegionStrip.vue`；读 `web/plugin.ts:133`（`receives` 列出 views、activitybar-items 等贡献点）。
+**建议改法**：计划把工作台服务写成“界面目录读取”：视图（id、标题、容器 id、容器入口标记、是否可见、标题动作命令 id）、容器（id、标题、入口标记）、活动栏项（id、标题、命令 id）；映射表加 `data-tool-entry` 与 `data-region-entry`，多视图容器的路径写“容器入口 → 视图标签”；打分函数放进 `workbench/shared/contracts.ts`（纯函数，没有 DOM 类型）。
+
+### 5. 新包与应用的接线清单漏了几项，会在第 6 到 8 片收口时才被门禁或开发服务暴露
+**严重程度**：重要　**类别**：代码质量 / 不变量
+**位置**：plan“packages/nb-page-agent（新包）”的登记句，“web/ 懒加载引擎”，切片 6 到 8
+**现象**：计划只列了根 `AGENTS.md`、`packages/AGENTS.md`、`monorepo-boundaries.md` 与包 README。照仓库现有机制还需要：
+1. `src/architecture.test.ts:64-76` 的 `PACKAGE_SIDES`：“抽出新包或给它加子路径时在这里登记”。`nb-page-agent` 主入口（带 DOM）是 `web`，`./api`、`./attrs` 是 `neutral`（后端工具参数与 `shared/contracts.ts` 要引 `./api`）。不登记，前后端引用方向没人拦。
+2. `packages/neuro-book/vite.config.ts:50-74`：`optimizeDeps.noDiscovery: true`，每个第三方包要手工列进 `include`（注释写明漏列的 CommonJS 在开发模式加载失败、漏列子路径开发服务逐个请求几百个模块）。三个新依赖 `dom-accessibility-api`、`@floating-ui/dom`、`@zumer/snapdom`（动态加载的更容易漏）与 TypeBox 子路径都没提；`@floating-ui/dom` 现在经 reka 在树里，但不在 `include` 里。e2e 与 Lab 在这里间歇失败过（AGENTS.md 同条）。
+3. `packages/neuro-book/AGENTS.md:46`：插件浏览器入口在后端 `tsc` 引用链里（`src/plugins/*/plugin.ts` 在 `tsconfig.json` 的 include 里，`lib` 只有 ESNext、没有 DOM），“带 DOM 的部分放进按需加载的 `.vue`”，动态 `import()` 的包源码也会被展开检查。计划把“懒加载引擎”和“跟踪最近一次真实输入、焦点、可见性”都写在 `web/`；引擎入口是带 DOM 的 TS，直接 `import("nb-page-agent")` 会让后端类型检查报找不到 `document`、`Element`。应照 `MarkdownHosted.vue` 的做法放进一个 `.vue` 或 `.d.ts` 门面，窗口里读 `document` 的代码从 `globalThis` 取。
+4. 第三方许可清单（`scripts/pack-app.ts:12,217` 从 Vite 的 license.json 生成 `THIRD-PARTY-NOTICES.md`）：新依赖进前端产物，要核对许可字段（snapdom 的许可证文本是否被收进清单）。
+**如何核实**：读上述四处；`grep -rn "MarkdownHosted" packages/neuro-book/src`。
+**建议改法**：把四项写进切片 6 到 8 的“自跑验证”：`bun test src/architecture.test.ts`（AGENTS.md 要求改浏览器导入后必跑）、`typecheck`（后端 tsconfig）、`build:web`，并把新依赖加进 `vite.config.ts` 的 `optimizeDeps.include`。
+
+### 6. `data-nb-agent="skip"` 标在对话视图与消息视图的根上：输入框、模型与模式选择、会话面板、联系人列表全被屏蔽，Spec 没写“用户问的就是这里的按钮”怎么办
+**严重程度**：重要　**类别**：正确性 / 文档
+**位置**：plan“packages/neuro-book/src/plugins/agent/”最后一条（`ConversationHost.vue`、`MessagesHost.vue` 根元素）；Spec 输出 3“不列”、公开面
+**现象**：
+- `ConversationHost.vue:138-171` 的根是 `AgentConversationView`（含输入框 `AgentConversationComposer`、`AgentStatusBar`、会话抽屉、标题区、`SubagentsEntry` 的停止按钮），同文件还有第二、第三个根（`SkillInitDialog` 等），根上直接写属性对多根组件不生效（Vue 对 fragment 不透传 attrs）。
+- `MessagesHost.vue:128-146` 的根还含 `AgentMessages` 的联系人列表、会话面板、bot 页与 `ContactCover`，不只是对话。Spec 写的是“Agent 自己的对话视图”，实现范围更大。
+- 实验 4 量到的 265 token（空会话占 9% 到 21%）几乎全是输入框与标题区，不是消息；消息很多时才是大头。
+- 用户在对话窗口里问“怎么换模型、怎么切审批模式、怎么新建会话”的概率最高：这些控件在被屏蔽的区域里，`ui.snapshot` 不列、`ui.highlight({role, name})` 命中不到。Spec 没写 skip 只影响快照还是也影响定位，没写失败时给 Agent 什么提示（现在是普通的 `not-found`，模型会去换定位方式反复试）。
+**如何核实**：读两个文件的模板；`nb-agent-ui/src/vue/AgentConversationView.vue` 的 composer 与 status bar 引入。
+**建议改法**：skip 只标消息列表本身（`AgentConversationView` 里放消息的那一块，由 nb-agent-ui 暴露插槽或属性），输入框、状态栏、会话面板不标；若坚持整个屏蔽，Spec 写明 skip 只影响快照列表、不影响 `ui.highlight` 的定位（定位只看 `data-nb-target` 与 `ref`），并让快照在被屏蔽区域处写一行“（对话视图内容未列出，可 scope 到它的控件）”。无论哪种，Spec 加“用户问对话视图里的控件”一条验收。
+
+### 7. Profile 页“一行开关”与现有的工具一节不是同一种控件，计划把一个新行型塞进去却没写它的规则
+**严重程度**：重要　**类别**：正确性 / 文档
+**位置**：plan“agent”里“Profile 页（`web/profile-view.ts`、`profile-page.ts`）把同一对象的方法显示成一行开关”；Spec 目标“Profile 页按对象一行开关”；`docs/specs/agent/profile-settings.md` 输出 10 到 16
+**现象**：现有“工具”一节（`ProfileToolsSection.vue:58-96`）没有开关：每行是名字（`code`）、等级、一句说明与一个“×”（必需的标“必需”，已卸载的在最后一组），另有“添加工具”对话框（搜索、按提供者分组、每行“+”、同名工具替换提示，输出 14、15）和“恢复默认”。绑定按工具 id 存 `added`、`removed`（`shared/profile-tools.ts:30-45`）。计划把 `ui` 的四个方法合成一行，会遇到现有行型没定义的事：
+- 等级列：`ui` 的方法有 read 与 exec（`screenshot`），行上写什么？`toolRow` 里 `danger: tool.effect === "exec"`（`profile-view.ts:298-303`），取最高档会让整行染成危险色；取读又掩盖截图要审批。
+- 名字、说明：行名是 `ui` 还是 `ui.snapshot…`；说明现在取内置的界面文字键（`BUILTIN_TOOL_SUMMARIES`）或声明的第一行（给模型看的英文长句，AGENTS 的“界面不写解释内部处理的话”）；`ui` 需要自己的界面文字键。
+- “×”与“+”：关一个对象 = 把对象名写进新的“被关掉的对象”列表（计划的数据形状），但 `changeToolBinding` 的 added/removed 语义、“恢复默认”、`visibleToolIds` 的同名替换、“数量”计数、已卸载组、`modified` 判断全部按工具 id；这些要再做一套对象版，计划没列，Spec 也只用一句“planned”。
+- 依赖：`ui.*` 是 `global` 工具，只能从 eval 里调（contributions 输出 24）。Profile 里没有 `eval` 却开着 `ui` 行，用户看到“已开启”而模型根本拿不到；行上要不要提示、关掉 `eval` 时 `ui` 行怎样，计划没有。
+- 键盘与 e2e：现有定位 `data-profile-tool='<工具 id>'`（`e2e/agent-profiles.e2e.ts:87,104,125`）；对象行用什么值，`data-profile-tool-remove` 是否沿用，计划没写；写 e2e 的子代理要靠猜。
+**如何核实**：读 `ProfileToolsSection.vue`、`profile-view.ts:294-330、477-505`、`profile-settings.md` 输出 10 到 16。
+**建议改法**：先改 Spec（profile-settings.md）：“对象行”的名字、等级（列出各方法的档位，或写“读、执行”）、说明、×/+/恢复默认/数量/已卸载/必需的规则，和与 `eval` 的依赖；再写计划的 `profile-view.ts` 改法。把“开关”改称“一行（可去掉、可加回）”，与现有控件一致，不另起一个开关控件。
+
+### 8. 悬停显示属性只管 `[data-hover-actions]`，其他悬停才出现的控件仍然看不见或点不到；覆盖规则的特异性也不够
+**严重程度**：建议　**类别**：正确性 / 代码质量
+**位置**：plan“workbench”最后一条；Spec 输出 3“看得见”、“副作用与数据”最后一条（写的是“目标所在的悬停区域”，比计划的实现宽）
+**现象**：
+1. 同类控件不走 `[data-hover-actions]`：
+   - 编辑器标签的关闭按钮：`EditorTabBar.vue:293-308`，非活动、非悬停、非聚焦标签上 `.editor-tab__reveal {visibility: hidden}`。`visibility:hidden` 在 Spec 输出 3 里算看不见，不会列，“关闭这个标签”这类引导定位不到，也无法靠“悬停显示属性”补救。
+   - 子代理行的停止按钮：`SubagentsEntry.vue:366-378`，`opacity:0` 加 `pointer-events:none`，命中检查命中不到，快照把它当被盖住。
+2. 现有隐藏规则的选择器是 `[data-hover-actions-scope]:not(:hover):not(:focus-within):not([data-hover-actions-active]) [data-hover-actions]:not(:has(...)):not(...)`（`hover-actions.css:14`），特异性远高于计划写的 `[data-hover-actions][data-nb-agent-reveal]`，后者盖不过它。要么给原规则加 `:not([data-nb-agent-reveal])`，要么提升特异性；计划只写“加这条”，会得到没有生效的实现。
+3. 引擎是应用无关的核心包，计划却让“页面引擎”去给 `[data-hover-actions]` 加属性，等于核心包知道工作台的标记；w00034 注入外部网页时没有这个标记。属性名也多了一个前缀（`data-nb-agent-reveal`、`data-nb-agent="skip"`、`data-nb-page-agent`、`data-nb-target`），Spec 公开面只列了后两者之一。
+4. 属性由外部加在 Vue 管理的元素上：`WorkbenchPanelHead` 的 `v-if`、拆组重建会让元素换掉，属性丢了，高亮还在，描边框画在原位置但目标又变透明。
+**如何核实**：`grep -rn "visibility: hidden" packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.vue`；读 `hover-actions.css`。
+**建议改法**：核心包提供“显示依赖”钩子：宿主交一个 `reveal(target) → 要加属性的元素列表`，插件的 `web/` 用 `closest("[data-hover-actions]")` 实现，属性名只在这一处与 CSS 里出现；标签关闭按钮与停止按钮二选一：把规则也改成认同一个属性，或 Spec 写明“悬停才出现且不在 `[data-hover-actions]` 里的控件第一批不保证可定位”，不要让 Spec 写成通用承诺；元素重建时由 `MutationObserver` 或每次重算补加属性。
+
+### 9. “测试分工”约定的属性不够黑盒 e2e 观察验收 1 到 7 与输出 3 到 6、9、10，核心包夹具页的“弹层样机”测不到真实弹层的坑
+**严重程度**：重要　**类别**：测试
+**位置**：plan“测试分工”“验收映射”“packages/nb-page-agent 的 e2e/”；Spec 输出 9、10、验收 1、3、6、7
+**现象**：约定只有 `callout`、`next`、`skip`、`ask`、`outline` 五个 `data-nb-page-agent` 值。缺：
+- 当前高亮的是谁：验收 1“每一步高亮的是路径里那个控件”只能比 `outline` 的矩形与控件的矩形（带动画与滚动，易偶发）。需要稳定的 `data-nb-page-agent-target`（引用或稳定名）与步骤号 `data-step`。
+- 提问的提交：`ask` 指输入框还是整块？提交按钮（实验里的“问”）没有值；用 Enter 还是按钮提交也没定（见第 1 条）。
+- 状态：目标滚出时描边框隐藏（输出 9 末句）、说明框因目标不可见而隐藏时“跳过引导”是否仍可点，没有 `data-hidden`/`hidden` 约定；“撤掉”只能数节点。
+- shadow root 开闭：说明框用 shadow root（计划写了 `adoptedStyleSheets`），Playwright 的 CSS 与 `getByRole` 只穿透 open 的；计划没写 `mode: "open"`，Spec 也没写。写成 closed，上述属性全都拿不到。
+- “没有残留”：除 `[data-nb-page-agent]` 的节点数为 0，还有加在页面元素上的 `data-nb-agent-reveal`、adopted 样式表、监听与逐帧循环。节点计数查不到后面几项；可以用 CDP 的 `DOMDebugger.getEventListeners`、`Performance` 计数，但计划没提；变异清单里也没有“结局后观察器仍在”。
+- “焦点与选区不变”可在页面里读 `activeElement` 与 `selectionStart/End`，这一项可观察；但点进提问框后 `document.activeElement` 是 shadow host，断言要写 `shadowRoot.activeElement`，约定里没提。
+2. 核心包夹具页的“弹层样机”是手写的，不含 reka 的 DismissableLayer、FocusScope、Select 的 typeahead、QuickPick 的 keydown，第 1、2 条的问题它都不会暴露；输出 10“点说明框不关弹层”这一类只能在应用里的真实组件上验。计划把输出 10 同时放在“核心夹具测试”与“e2e 场景 6”两处，核心一处会得到假通过。核心包若要自己测，要把 reka-ui 作为 devDependency 引进夹具页，不是手写样机。
+3. 输出 10 “不被小弹层裁切”（DropdownMenu 只有 160×70，实验 2）没有用例；按 `docs/testing/README.md:60` 要用 `elementFromPoint` 取说明框中心，不能靠 `click`；还要先变异。
+**建议改法**：约定里补上述值，写进 Spec 的“可观察状态”；弹层相关用例放应用 e2e，核心夹具页只留与弹层无关的用例。
+
+### 10. 说明框是新界面，计划没有静态稿与外观评审这一步，也没写取色、文字、动效、键盘与无障碍的来源
+**严重程度**：重要　**类别**：文档 / 不变量
+**位置**：plan 切片表第 7 片；“src/guide/”；Spec 输出 10；设计稿“引导”末句“说明框的外观先出静态稿”
+**现象**：设计稿明确写“说明框的外观先出静态稿”，计划的 9 个切片里没有这一步：第 7 片直接实现“描边框与说明框”。按 `.agents/skills/design-review/SKILL.md`，新界面要先出静态稿、请 `@designer` 看，开发者拍板后再写 Spec 与实现；仓库已有两次因没走这步整轮返工的记录。计划的风险只写了“说明框挂进弹层依赖弹层结构”，没有视觉与交互风险。具体缺项：
+1. 取色与排版：说明框在 shadow root 里，nb-ui 的 Tailwind 原子类与 `.nb-ui-focus-ring` 到不了；自定义属性可穿过 shadow 边界，但核心包又要给 w00034 的外部网页用，那里没有 `--panel-surface`、`--accent-main`。计划没定：核心包接受宿主给的一组 CSS 变量加兜底值？还是内置一套？暗色主题、高对比度、焦点环（按钮在 shadow 里，要自己画 `focus-visible`）都没有对应的验证项，设计稿“实验之后还没验证的”第一条（暗色主题）只在第 7 片说“补一条用例”。
+2. 文案：“下一步”“跳过引导”“第 N 步，共 M 步”“提问”占位与错误提示，核心包是纯 TS、不带界面文字；计划没写由谁在什么语言下传入（插件 `web/` 经窗口文字端口），也没在两种语言下检查按钮尺寸。
+3. 键盘与读屏：计划让按钮 `pointerdown` 取消默认、说明框不抢焦点，但没写键盘用户怎么进到“下一步”“跳过引导”“提问”（弹层里 Tab 顺序按 DOM，挂 body 时在末尾；`FocusScope` 会把 Tab 圈在面板里）。没有 `role`、`aria-live`；说明框因目标暂不可见而隐藏时，“跳过引导”是否还在也没写。键盘用户没有路径时，`until: "next"` 的引导走不下去。
+4. 动效：计划只写“减弱动效没有过渡”；出现、换步、目标滚回时的过渡没有（UI 规范“状态变化有动效”）；跟随期间的动效与 `--motion-*` 令牌的关系没写，e2e 缺省减弱动效（`testing/README.md:62`），计划写了另开一份配置，没写这份配置跑哪些用例。
+5. 设计稿已有而计划与 Spec 丢掉的：提问后说明框撤掉时把焦点还给原来的元素（设计稿“不抢焦点”末句）；点说明框空白处也取消默认（实验 2 第 4 条建议“同样取消默认”，计划只写按钮）；popover 的 UA 样式（`position:fixed; inset:0; margin:auto; overflow:auto`，实验 8 说明 overflow 会裁掉）要重置。
+**建议改法**：在第 6 与第 7 片之间加一片：静态稿（Lab 草稿区，亮暗两套，中英两种语言，一个小弹层与一个普通页）+ `@designer` 意见 + 开发者评审，再进第 7 片；Spec 输出 10 补键盘路径与读屏约定。
+
+### 11. “Lab 真实组件场景”按登记规则没有对应的组件，且核心包不能依赖应用的 Lab
+**严重程度**：重要　**类别**：测试 / 不变量
+**位置**：plan 切片 8 的“Lab 真实组件场景”、验收映射输出 3、5、6、“测试分工”第二段；设计稿“测试”（核心与应用测试共用）
+**现象**：
+1. Lab 的场景按组件登记：`defineLabFixture<typeof 组件>({component, scenes, load})`（`lab/web/fixtures/index.ts:444-453` 的 WorkbenchCommandPalette 是例子），组件要有同名 `.md` 与 `.vue` 才进索引，`fixtures/index.dom.test.ts` 对每个可挂载组件检查非空场景（`component-lab.md` 输出 3，第 120 行）；带 `io:` 或 `state:shared-write` 标签的组件不能挂（第 62 行）。计划要一个同时含设置窗口、命令面板、右键菜单、下拉、确认框、虚拟树、悬停动作、拆组编辑器的场景，但没写它登记在哪个组件名下，也没写是新组件（要补 `.md` 与能力标签）还是挂在已有组件（`SettingsWindow`、`WorkbenchCommandPalette` 各有 fixture）下的新场景。“只改测试、辅助函数与 Lab 场景”的子代理拿到的是一条没法照做的任务。
+2. 核心包的测试（切片 6、7，由子代理在 `packages/nb-page-agent/e2e/` 写）用 Lab 场景，意味着包的测试要起 neuro-book 的开发服务：包反向依赖应用，违反“包边界”（`monorepo-boundaries.md`）。计划同一格“输出 3、5、6”写“核心的 Playwright 夹具测试；Lab 真实组件场景”，没说清谁测什么。
+3. Lab 里没有工作台与窗口通道，`ui.find` 的目录拼装、`workbench` 服务不在 Lab 里，Lab 场景只能验引擎对真实组件的行为（快照、定位、说明框挂载），不是“目录”；计划的“输出 7 靠插件 web 的单测加 e2e 场景 1”没问题，但 Lab 门禁 `lab:shot`（`component-lab.md` 第 79 行）会对场景量越界与光晕裁切：顶层 popover 说明框不在舞台里，量到的结果要在场景里排除，计划没写。
+4. 场景在 Lab（开发插件，生产不含，`check:dist`）里引擎要的工作台标记（`data-tool-view` 等）不存在，所以设置路径的映射表在 Lab 里验不了，要在 e2e 里验。
+**如何核实**：读 `component-lab.md` 输出 3、第 62 行、`fixtures/index.ts:444-453`、`fixtures/index.dom.test.ts` 的覆盖门禁。
+**建议改法**：计划写明：核心包的真实组件用例只在应用 e2e（`page-agent.e2e.ts` 与 `lab-*.e2e.ts` 风格的 Lab 页）里；包自己的夹具页只测与具体弹层库无关的规则；Lab 场景作为 `SettingsWindow` 与 `WorkbenchCommandPalette` 现有 fixture 下的新场景（或新增一个带 `.md` 的场景容器组件，标明标签），并写明 `lab:shot` 怎么处理说明框。
+
+### 12. 快照的耗时预算建立在简化的名字算法上，换成 `dom-accessibility-api` 后没有再测；命中检查没写“穿过自己的节点与 shadow root”
+**严重程度**：建议　**类别**：安全与性能 / 正确性
+**位置**：plan“技术选型”首行、“src/snapshot/”（可见性、命中检查、跳过自己的节点）、“验证”；设计稿“大小”“测试”的性能一条
+**现象**：
+1. 实验 4 的 12 到 26 毫秒用的是自己写的“aria-labelledby > aria-label > label > …”的简化名字算法（实验文件自述“没有 dom-accessibility-api 的完整算法”）。`dom-accessibility-api` 的 `computeAccessibleName` 对每个节点遍历子树，并为每个节点调 `getComputedStyle` 与伪元素 `::before`、`::after`（强制样式重算）；Testing Library 的 `getByRole` 在几百个元素上以慢出名。我在审查检出里没有这个包（没装，lab 不装依赖），所以是“从依赖的已知行为推断，未测”。设计稿“测试”一节有“性能：快照 50 毫秒、含上千节点”，计划的“验证”与第 6 片的自跑验证里把它丢了。Spec 的 3 秒窗口超时兜底，但超时得 `window-unresponsive`，用户看到的是“看不懂界面”。
+2. 命中检查用 `elementFromPoint`：说明框、描边框在顶层（popover），它们盖着目标时，目标的中心点命中的是引擎自己的节点。计划只写“快照跳过自己的节点”，没写命中检查要用 `elementsFromPoint` 过滤自己的节点：Spec 输出 9 允许一段代码在高亮等待期间继续调 `ui.snapshot`（设计稿“方法都声明 shared”），此时被说明框盖住的元素会被判成“被盖住”而漏列，还可能把目标本身漏掉。
+3. `document.elementFromPoint` 不穿 shadow root（返回宿主）。计划夹具要覆盖 shadow root，但没写命中检查如何递归 `shadowRoot.elementFromPoint`；同一函数也要认出 `pointer-events: none` 的元素“点不到”（命中检查本来就会跳过它们，如子代理行的停止按钮，是否算“被盖住”要写清楚）。
+4. 名字的跨 shadow 取值：`aria-labelledby` 只在同一 root 内解析（浏览器自己也如此），Vue 组件里常见的是同 root 内引用，问题不大；`<slot>` 展开后的内容该不该算进名字，计划没写，写 e2e 的人没有依据。
+**建议改法**：第 6 片先做一个 500 元素、带 `::before` 文字的夹具量 `computeAccessibleName`，超预算就只对可交互元素与带名容器算名字、其余用 `textContent`；命中检查统一过滤 `data-nb-page-agent` 的节点并递归 shadow root；性能用例放回验证清单。
+
+### 13. 跟随的“动画期间逐帧重算”与“DOM 变化触发”没有限定范围：页面上有常驻动画时永不停止，还会被自己的节点反复触发
+**严重程度**：重要　**类别**：不变量 / 安全与性能
+**位置**：plan“src/guide/”“跟随（ResizeObserver、捕获滚动、DOM 变化、动画期间逐帧）”；设计稿“跟随”
+**现象**：
+1. “有动画在跑时（`getAnimations`）逐帧重算到没有运行中的动画为止”。如果用 `document.getAnimations()`，它含整页所有动画，包括无限循环的：应用里常驻的有编辑器进度条（`EditorGroup.vue:397` `infinite`）、任务视图运行中的转圈（`TasksView.vue:354`）、状态栏条目转圈（`WorkbenchItemStrip.vue:223`）、`animate-spin`（资源树加载、模型行）。引导进行时 Agent 会话正在“等工具”，这些都可能在转，于是每帧重算（`floating-ui` 的 `computePosition`、读多个矩形）要一直跑到高亮结局，等待 5 分钟就是 1.8 万帧布局读取，且 `ResizeObserver` 回调里写样式有触发“ResizeObserver loop”的风险。实验 2 的结论“逐帧重算偏差 0”是在安静页面上量的。
+2. 引擎自己的说明框有过渡与出现动画，也算“运行中的动画”。
+3. “DOM 变化”触发：说明框挂在弹层子树里，若 `MutationObserver` 观察的是 body 或弹层的 subtree 加 attributes，则引擎每次用 CSSOM 改位置（`style` 变化也产生 attribute 记录；严格 CSP 下只能这样改）都会触发观察者，下一帧再改位置，形成每帧循环。
+4. 结局后观察器、监听与帧循环是否全部撤掉，计划的变异清单没有对应一项（第 9 条里的“没有残留”只数节点）。
+**如何核实**：在 Lab 或开发服务里开着任务转圈时 `document.getAnimations().filter(a => a.effect.getComputedTiming().iterations === Infinity).length`；读 `WorkbenchItemStrip.vue:223`。
+**建议改法**：只关心作用于目标的祖先链与所挂弹层子树的动画（`target.getAnimations({subtree: false})` 逐祖先，或按 `ancestor.getAnimations()`）、排除 `iterations === Infinity` 与引擎自己的节点，并设一个上限（例如 1.5 秒）；`MutationObserver` 的回调先过滤掉目标在 `[data-nb-page-agent]` 内的记录，合并到同一帧再算；Spec 输出 9 加“结局后没有观察器与帧循环”，用 CDP 计数验证，变异清单加“结局后观察器仍在”。
+
+### 14. 核心包 e2e 写死 `/usr/bin/google-chrome-stable`，与仓库约定不一致
+**严重程度**：建议　**类别**：测试
+**位置**：plan“packages/nb-page-agent 的 e2e/”末句
+**现象**：仓库的浏览器 e2e 一律用 `channel: "chrome"`、Playwright 由 Node 运行（`docs/testing/README.md:117`，`packages/nb-layout/e2e/playwright.config.ts`），输出目录经 `resolveAgentPlaywrightRoot` 按检出分开（第 229 行）。计划写绝对路径只对 Linux 的这台机器成立，桌面外壳或别的开发者机器上跑不起来；也没写输出目录与 `governance:check` 的 `*.e2e.ts` 规则。
+**建议改法**：照 `nb-layout/e2e/playwright.config.ts` 写配置（`channel: "chrome"`，`outputDir: resolveAgentPlaywrightRoot("nb-page-agent", import.meta.dirname)`），脚本名 `test:e2e`，不写死路径。
+
+---
+## 未发现问题的方面
+- 内核、harness、服务端部分不在本次范围，未审。
+- 技术选型里 snapdom 的选择有实验依据；`@floating-ui/dom` 已在依赖树里，没发现许可问题（未装的 `dom-accessibility-api` 与 `@zumer/snapdom` 的许可未核）。
+- “点了目标”认 `click`、`pointerup` 与键盘 Enter、空格，与实验 3 的事实一致；`missed` 的排除条件与实验一致（只是 `event.target` 在 shadow root 里被重定向，要用 `composedPath`，计划没写，并入第 10、12 条的实现注意）。
+- 设置窗口的标记（`data-settings-tabs` 的 `role=radio`、`data-settings-nav`、`data-settings-row`）、`data-activity-item`、`data-title-action` 在代码里都存在（`SettingsWindow.vue:285-330`、`WorkbenchToolStrip.vue:191`），映射表对这几项成立。
+- `FloatingWindow` 的拖动判定（`useFloatingWindow.ts:146-154`）要求按下处在 `[data-dialog-drag]` 内，说明框直接挂在窗口面板下不会触发窗口拖动，未发现问题。
+
+## 数量
+阻断 1，重要 10，建议 3，共 14 条（无撤回、无收窄）。
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

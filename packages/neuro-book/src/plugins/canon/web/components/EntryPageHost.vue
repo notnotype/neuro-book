@@ -4,30 +4,34 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, provide, shallowReactive, shallowRef, Transition, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, provide, shallowReactive, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
 import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
+import type {PopoverReference} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
+import {fieldsText} from "../../shared/agent-fields";
 import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import {kindPresets} from "../../shared/entry-kinds";
 import type {EntryKind} from "../../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
+import type {EditOpenOptions} from "../in-place-edit";
 import {createImagePicking, provideCanonImageUrl, provideImagePicking} from "../images";
 import type {CanonImages} from "../images";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
-import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionValue} from "../positions";
+import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionLabel, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
@@ -50,10 +54,15 @@ import type {EntryTextBlock, TextAddress} from "./entry-text";
 import type {InsertItem} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
+import ComponentAgentView from "./ComponentAgentView.vue";
+import ComponentRawView from "./ComponentRawView.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
 import {LOOK_PICK_KEY} from "../look-handoff";
-import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
+import AddComponentDialog from "./AddComponentDialog.vue";
+import {checklistGroup} from "./component-checklist";
+import type {ChecklistItem, ChecklistPreset} from "./component-checklist";
+import {componentIcon, EXTRA_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
 import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
 import ElementDialog from "./ElementDialog.vue";
@@ -100,6 +109,8 @@ const props = defineProps<{
     entryKinds?: readonly EntryKind[];
     /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
     images?: CanonImages | null;
+    /** 登记这个设定组类型的插件 id：“添加一组设定”按它分组（输出 38）；不给时都算“插件”。 */
+    componentPlugin?: (type: string) => string | null;
 }>();
 
 const text = useCanonText();
@@ -214,17 +225,17 @@ const leadingTypes = computed(() => {
     const kind = entry.value?.kind?.trim();
     return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
 });
+const iconOf = (type: string): string => componentIcon(props.views, type);
 /**
  * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
  * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。
  */
 const tabs = computed<EntryTab[]>(() => {
     const items: EntryTab[] = [];
-    const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
     const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
-        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title), iconClass: iconOf(type), segment: "own" as const, removable: true}};
+        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title), iconClass: iconOf(type), segment: "own" as const, removable: true, looks: true}};
     });
     for (const tab of data) if (tab.leading) items.push(tab.item);
     // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
@@ -486,6 +497,51 @@ const addableTypes = computed(() => {
     const fits = (type: (typeof addable)[number]): boolean => kind !== "" && (type.kinds ?? []).includes(kind);
     return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
+/**
+ * “添加设定组”对话框（输出 38，`AddComponentDialog`）的各行：登记了的全部类型，标出条目上已经有的（勾着、点了切过去）与去掉过的，
+ * 按登记它的插件分组；“适用于”由列表按 `kinds` 与条目的种类自己分。
+ */
+const checklistItems = computed<ChecklistItem[]>(() => {
+    const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
+    const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
+    return (componentsRead.value?.data?.items ?? []).map((type) => ({
+        value: type.id,
+        label: type.label,
+        iconClass: iconOf(type.id),
+        group: checklistGroup(props.componentPlugin?.(type.id) ?? null),
+        kinds: type.kinds ?? [],
+        present: present.has(type.id),
+        restore: removed.has(type.id),
+    }));
+});
+const entryKind = computed(() => entry.value?.kind?.trim() ?? "");
+/** 这个种类的预设（`canon.entry-kinds`）；里面没登记的类型已去掉，一个也没有的预设不出。 */
+const presets = computed<readonly ChecklistPreset[]>(() => kindPresets(props.entryKinds ?? [], entryKind.value, new Set((componentsRead.value?.data?.items ?? []).map((type) => type.id))));
+const addDialogOpen = shallowRef(false);
+// 开着的时候写不了了（断开、换到计划中的位置、条目被删）：入口跟着没了，对话框也关上，不留一个点了必被拒收的“添加”。
+watch(() => editBlocked.value !== null || view.value?.deleted === true, (blockedNow) => {
+    if (blockedNow) addDialogOpen.value = false;
+});
+/** 开对话框：记下这时条目的版本，加的时候带它（输出 43）。 */
+const openAddDialog = (): void => {
+    openDialog();
+    addDialogOpen.value = true;
+};
+const hostRoot = shallowRef<HTMLElement | null>(null);
+/**
+ * 对话框关上以后（`closed`，焦点已经还给打开前的元素）：加完了最后几组，“＋”跟着没了，焦点落到页面外；这时交给选中的分页，键盘用户
+ * 接着从分页条往下走。
+ */
+const afterAddDialog = (): void => {
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active.isConnected) return;
+    hostRoot.value?.querySelector<HTMLElement>("[role='tab'][aria-selected='true']")?.focus();
+};
+/** 在对话框里点了已经有的那一组，或分页里要切到某一组：切到它的分页。 */
+const showComponent = (type: string): void => {
+    const namespace = Object.entries(view.value?.namespaces ?? {}).find(([, item]) => item.type === type)?.[0];
+    if (namespace !== undefined) state.tab = `${DATA}${namespace}`;
+};
 /** 刚加上、等它出现在读取结果里再切过去的那一组的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
 const pendingTab = shallowRef<string | null>(null);
 watch([pendingTab, namespaces], ([pending, present]) => {
@@ -504,11 +560,29 @@ watch(() => state.tab, (tab) => {
     const namespace = tab?.startsWith(DATA) === true ? tab.slice(DATA.length) : null;
     if (namespace === null || view.value?.namespaces[namespace]?.type !== LOOK_COMPONENT) lookPick.value = false;
 });
-const addComponent = async (type: string): Promise<void> => {
-    const namespace = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
-    // 菜单开着的时候别处已经加上了这一组：内核按这一处的 `id-taken` 拒收，写成作者看得懂的一句。
-    const alreadyAdded = (failure: CanonFailure): Text | null => (failure.code === "validation-failed" && Array.isArray(failure.problems) && (failure.problems[0] as {code?: unknown} | undefined)?.code === "id-taken" ? text("entry.groupAlreadyAdded") : null);
-    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})), "creative", "menu", alreadyAdded)) pendingTab.value = namespace;
+/**
+ * 加几组设定（输出 38）：一次写入、一条修订；对话框里勾的几组与右键菜单里点的一组都走这里。成功后切到第一个有命名空间的新加的
+ * 一组（等它出现在读取结果里）。
+ */
+const addComponents = async (types: readonly string[], from: "dialog" | "menu"): Promise<boolean> => {
+    if (types.length === 0) return false;
+    const quoted = types.map((type) => `“${typeLabel(type)}”`);
+    const title = types.length === 1 ? text("entry.groupAdded", {name: typeLabel(types[0]!)}) : text("entry.groupsAdded", {names: new Intl.ListFormat(port.locale.value, {type: "conjunction"}).format(quoted)});
+    // 打开以后别处已经加上了其中一组：内核按那一项（`ops[i]`）报 `id-taken` 拒收整批，写成作者看得懂、指名是哪一组的一句。
+    const alreadyAdded = (failure: CanonFailure): Text | null => {
+        if (failure.code !== "validation-failed" || !Array.isArray(failure.problems)) return null;
+        const first = failure.problems[0] as {code?: unknown; path?: unknown} | undefined;
+        if (first?.code !== "id-taken") return null;
+        const at = typeof first.path === "string" ? /^ops\[(\d+)\]/u.exec(first.path)?.[1] : undefined;
+        const type = at === undefined ? undefined : types[Number(at)];
+        return type === undefined ? text("entry.groupAlreadyAdded") : text("entry.groupAlreadyAddedNamed", {name: typeLabel(type)});
+    };
+    const ops = types.map((type): EntryOp => ({op: "component", entry: props.id, type, action: "add"}));
+    if (!(await runEntries(ops, port.t(title), "creative", from, alreadyAdded))) return false;
+    const items = componentsRead.value?.data?.items ?? [];
+    pendingTab.value = types.map((type) => items.find((item) => item.id === type)?.namespace ?? null).find((namespace) => namespace !== null) ?? null;
+    if (from === "dialog") addDialogOpen.value = false;
+    return true;
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
 /** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
@@ -846,6 +920,47 @@ const otherFor = (namespace: string, type: string): OtherComponent => {
     if (componentsRead.value?.data !== undefined && registered === undefined) return {status: "unavailable"};
     return {status: "absent"};
 };
+/**
+ * 打开一项的就地改。同一项已经开着时只把焦点放回它的输入框，不重开：重开会换掉写了一半的草稿，成段的文字开着时原文还在、
+ * 点得到（输出 51）。带着值打开的（“换上”某一套）照旧重开。
+ */
+/**
+ * 这一页挂着的就地改编辑器（按路径）：编辑器传送到 body 里，从页面里找不到；同一个条目开在两页、都在改同一项时，要找自己这页的。
+ */
+const inlineEditorElements = new Map<string, HTMLElement>();
+/** 成段文字的编辑浮层至少要这么高才好用（几行输入、意图一行与按钮）。 */
+const PASSAGE_ROOM = 240;
+/**
+ * 成段文字的编辑浮层贴着什么定位（输出 51）：原文下方或上方腾得出 `PASSAGE_ROOM` 时贴整段原文；原文太长、上下都腾不出时，改贴原文
+ * 露在窗口里的第一行，浮层盖住后面几行（原文这时本来就看不全）。浮层跟着滚动重算，每次按当时露出来的那一段算。露出来的那一段是
+ * 条目页所在滚动区去掉吸顶页头（`--entry-page-sticky-top`）以后的部分；滚动区在挂上时找一次。
+ */
+const passageReference = (anchor: HTMLElement): PopoverReference => {
+    const page = anchor.closest<HTMLElement>("[data-entry-page]");
+    let scroller: HTMLElement | null = null;
+    for (let element = page?.parentElement ?? null; element !== null && scroller === null; element = element.parentElement) {
+        const overflow = getComputedStyle(element).overflowY;
+        if (overflow === "auto" || overflow === "scroll") scroller = element;
+    }
+    return {
+        contextElement: anchor,
+        getBoundingClientRect: () => {
+            const rect = anchor.getBoundingClientRect();
+            const box = scroller?.getBoundingClientRect() ?? {top: 0, bottom: window.innerHeight};
+            const top = box.top + (page === null ? 0 : Number.parseFloat(getComputedStyle(page).getPropertyValue("--entry-page-sticky-top")) || 0);
+            if (box.bottom - rect.bottom >= PASSAGE_ROOM || rect.top - top >= PASSAGE_ROOM) return rect;
+            const line = Number.parseFloat(getComputedStyle(anchor).lineHeight) || 30;
+            return new DOMRect(rect.left, Math.min(Math.max(rect.top, top), Math.max(rect.top, rect.bottom - line)), rect.width, line);
+        },
+    };
+};
+const openInline = (path: string, options?: EditOpenOptions): void => {
+    if (options?.inline === true && options.value === undefined && state.edit?.inline === true && state.edit.path === path) {
+        inlineEditorElements.get(path)?.querySelector<HTMLElement>("textarea, input")?.focus();
+        return;
+    }
+    edit.open(path, options);
+};
 /** 就地改的编辑器（`context.FieldEditor`）与值的细节（`context.FieldDetail`），每个命名空间各一个组件定义。 */
 const fieldEditors = new Map<string, Component<FieldEditorProps>>();
 const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
@@ -879,6 +994,26 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                 watch([active, edit.bar], ([on, bar]) => {
                     if (on && bar !== null) shown.value = bar;
                 }, {immediate: true});
+                /**
+                 * 浮层的宽（内容区，不含浮层的内边距），打开时量一次。左缘对齐值的起点，放得下就不往左让、不盖住左边的标签列（输出 51）：
+                 * 短项从值的左缘量到条目页的右缘，夹在 16rem 与 22rem 之间；成段的文字与原文同宽，不窄于 22rem、不越过条目页的右缘。
+                 * 连下限都放不下时才由避让往左挪。
+                 */
+                const popoverWidth = shallowRef<number | null>(null);
+                const reference = computed(() => (inner.layout === "block" && inner.anchor instanceof HTMLElement ? passageReference(inner.anchor) : null));
+                /** 浮层表面两侧的内边距（各 12）与边框（各 1）。 */
+                const POPOVER_PADDING = 26;
+                watch([active, () => inner.anchor], ([on, anchor]) => {
+                    if (!on || !(anchor instanceof HTMLElement)) return;
+                    const page = anchor.closest("[data-entry-page]");
+                    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+                    const box = anchor.getBoundingClientRect();
+                    const room = page === null ? Number.POSITIVE_INFINITY : page.getBoundingClientRect().right - box.left - POPOVER_PADDING;
+                    popoverWidth.value = inner.layout === "block" ? Math.max(Math.min(Math.max(box.width, 22 * rem), room), 16 * rem) : Math.min(22 * rem, Math.max(16 * rem, room));
+                    // 浮层跟着锚走：锚在滚动区外面时浮层也在窗口外。点开时锚就在眼前，这里不动；切走再回来（输出 7：编辑与填的字还在）
+                    // 页面从顶上重新挂上，把锚滚进来，写了一半的编辑跟着回到眼前。
+                    anchor.scrollIntoView?.({block: "nearest"});
+                }, {immediate: true});
                 const content = () => {
                     // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
                     const given = shown.value!;
@@ -888,6 +1023,11 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
                         "data-field-editor": full(),
+                        ref: (element: unknown) => {
+                            if (element instanceof HTMLElement) inlineEditorElements.set(full(), element);
+                            else inlineEditorElements.delete(full());
+                        },
+                        ...(popoverWidth.value !== null ? {style: {width: `${String(popoverWidth.value)}px`}} : {}),
                         onCompositionstart: () => (composing.value = true),
                         onCompositionend: () => (composing.value = false),
                     }, [h(ConfirmBar, {
@@ -906,31 +1046,22 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     })]);
                 };
                 return () => {
-                    if (inner.layout === "block") {
-                        // 编辑层向下长、盖在后面的内容上：打开时整个滚进可见范围（在页面下方打开时，保存不在窗口外）。等下一帧再滚：
-                        // 挂上以后确认条在微任务里给输入框焦点，`focus()` 会打断已经开始的平滑滚动。
-                        const reveal = (element: Element): void => {
-                            const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-                            requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
-                        };
-                        // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
-                        // 成段的文字在原处展开（输出 51）：同一张编辑卡，不浮起来，把下面的内容推开；原文由卡片组件见到
-                        // `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md）。左右各伸出卡片的内边距，输入框里的字与原文对齐。
-                        // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface relative z-[2] -mx-3 p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
-                    }
-                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
-                    // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
+                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。别的都在值的下方，
+                    // 放不下时由避让翻到上方，不与值重叠。避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
+                    // 成段的文字（输出 51）：原文不动，浮层盖在后面的内容上；内容高度封顶在避让算出的可用高度，保存总在窗口里。点外面不收起
+                    // （`update:open(false)` 整个忽略）；Escape 由确认条自己接：组字中不接，接了会 preventDefault，Reka 就不再发关闭。
                     const anchor = inner.anchor as HTMLElement | null;
+                    const passage = inner.layout === "block";
                     return h(Popover, {
                         open: active.value && anchor !== null,
                         anchor,
+                        reference: reference.value,
                         side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,
-                        contentClass: "w-[22rem] max-w-[calc(100vw-32px)] select-text",
+                        contentClass: passage ? "max-w-[calc(100vw-32px)] max-h-[var(--reka-popper-available-height)] overflow-y-auto select-text" : "max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {
-                            if (!open) dismiss();
+                            if (!open && !passage) dismiss();
                         },
                     }, {default: () => (shown.value !== null ? content() : null)});
                 };
@@ -948,7 +1079,7 @@ const headEditor = fieldEditorOf("entry");
 const headAnchors = shallowReactive<{name: HTMLElement | null; summary: HTMLElement | null}>({name: null, summary: null});
 const openHead = (field: "name" | "summary", anchor: HTMLElement): void => {
     headAnchors[field] = anchor;
-    edit.open(`entry.${field}`, {inline: true});
+    openInline(`entry.${field}`, {inline: true});
 };
 const fieldDetails = new Map<string, Component<{readonly path: string}>>();
 const fieldDetailOf = (namespace: string): Component<{readonly path: string}> => {
@@ -993,7 +1124,7 @@ const contextFor = (namespace: string): ComponentViewContext => {
             get blocked() { return editBlocked.value; },
             place,
             origins: (path, cursor) => props.fetchOrigins({entry: props.id, path: `${namespace}.${path}`}, position.value, mode.value, cursor),
-            edit: (path, options) => edit.open(`${namespace}.${path}`, options),
+            edit: (path, options) => openInline(`${namespace}.${path}`, options),
             record: (path, input) => record(`${namespace}.${path}`, input),
             listAdd: (path) => openElement(namespace, path),
             listEdit: (path, element) => openElement(namespace, path, element),
@@ -1071,6 +1202,53 @@ const extraView = computed<{readonly component: Component | null; readonly loadi
     return {component: null, loading: slot.status === "loading", failed: slot.status === "failed" ? slot.reason : null};
 });
 
+/* ---------- 设定组的三种看法（输出 54） ---------- */
+
+type DataLook = "card" | "agent" | "raw";
+/**
+ * 设定组分页看哪一种（用户视图、AI视图、原始视图）；换分页回到用户视图（不记进标签状态：重开页面也是它）。切换的入口在选中的
+ * 分页上（`EntryPage` 的看法菜单，输出 9）。
+ */
+const dataLook = shallowRef<DataLook>("card");
+watch(tab, () => {
+    dataLook.value = "card";
+});
+const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: port.t(text(`entry.views.${value}`))})));
+/**
+ * “AI视图”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
+ * “可以加字段”来自设定组类型列表：还没读到或读失败时写读取中、失败，不拿空列表写出一段与模型所见不同的字。
+ */
+const agentView = computed(() => {
+    const namespace = dataNamespace.value;
+    const types = componentsRead.value?.data?.items;
+    if (dataLook.value !== "agent" || namespace === null || view.value === null) return {text: "", loading: false, failed: null};
+    if (types === undefined) {
+        const failure = componentsRead.value?.error ?? null;
+        return {text: "", loading: failure === null, failed: failure === null ? null : port.t(failureText(failure).text)};
+    }
+    return {text: fieldsText(view.value, entry.value?.declarations ?? {}, types, {namespace}), loading: false, failed: null};
+});
+/** “原始视图”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
+const rawEntry = useWorldRead(world, "object", () => (dataLook.value === "raw" ? {ref: {kind: "entry" as const, id: props.id}} : null));
+const rawChanges = useWorldList(world, "changes", () => (dataLook.value === "raw" && dataNamespace.value !== null ? {filter: {entry: props.id, namespace: dataNamespace.value}} : null), 20);
+const rawView = computed(() => {
+    const namespace = dataNamespace.value ?? "";
+    const stored = rawEntry.value?.data?.object as Entry | null | undefined;
+    const list = rawChanges.state.value;
+    const failure = rawEntry.value?.error ?? list?.error ?? null;
+    const total = list?.data?.total ?? 0;
+    return {
+        initial: stored?.init.data[namespace],
+        // 每条只留落在这个条目这一组下的改动：同一条变更里别的条目、别的组的改动与这一页无关。
+        changes: (list?.items ?? []).map(({change}) => ({...change, patches: change.patches.filter((patch) => patch.at.entry === props.id && patch.at.path.startsWith(`${namespace}.`))})),
+        total,
+        remaining: Math.max(0, total - (list?.items.length ?? 0)),
+        initialLoading: rawEntry.value?.loading ?? true,
+        changesLoading: list?.loading ?? true,
+        failed: failure === null ? null : port.t(failureText(failure).text),
+    };
+});
+
 /** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
 const dataView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
     const namespace = dataNamespace.value;
@@ -1090,7 +1268,7 @@ const setPosition = (value: string): void => {
 </script>
 
 <template>
-    <div class="min-h-full">
+    <div ref="hostRoot" class="min-h-full">
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
@@ -1121,9 +1299,13 @@ const setPosition = (value: string): void => {
             @edit-summary="(anchor: HTMLElement) => openHead('summary', anchor)"
             @aliases="changeAliases"
             @restore="restore()"
+            :looks="dataLooks"
+            :look="dataLook"
+            @update:look="(value: string) => (dataLook = value as DataLook)"
             :addable="addableTypes"
             @add-open="openAddMenu()"
-            @add-component="addComponent"
+            @add-dialog="openAddDialog()"
+            @add-component="(type: string) => addComponents([type], 'menu')"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
@@ -1209,10 +1391,16 @@ const setPosition = (value: string): void => {
                 @more="plot.more()"
             />
             <template v-else-if="dataNamespace !== null">
-                <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
-                <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
-                <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
-                <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                <Transition name="nb-ui-switch" mode="out-in">
+                    <ComponentAgentView v-if="dataLook === 'agent'" v-bind="agentView" :position="positionLabel(position, chapters, text)" @retry="world.retry()" />
+                    <ComponentRawView v-else-if="dataLook === 'raw'" v-bind="rawView" @more="rawChanges.more()" @retry="world.retry()" />
+                    <div v-else>
+                        <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
+                        <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+                        <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                        <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
+                    </div>
+                </Transition>
             </template>
             <template v-else-if="extraTab !== null">
                 <p v-if="extraView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: extraView.failed}) }}</p>
@@ -1287,6 +1475,17 @@ const setPosition = (value: string): void => {
             @search-parent="parentFind.search"
             @search-same-as="sameAsFind.search"
             @confirm="confirmMove()"
+        />
+        <AddComponentDialog
+            v-model:open="addDialogOpen"
+            :items="checklistItems"
+            :kind="entryKind"
+            :presets="presets"
+            :busy="acting"
+            :error="dialogError"
+            @add="(types: readonly string[]) => addComponents(types, 'dialog')"
+            @show="showComponent"
+            @closed="afterAddDialog()"
         />
         <Dialog
             :open="removeOpen"

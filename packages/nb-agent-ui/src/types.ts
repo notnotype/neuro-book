@@ -816,7 +816,7 @@ export type MessagesContactSection = {
     readonly contacts: readonly MessagesContact[];
 };
 
-/** 窄版头像列里的一个最近会话。 */
+/** 消息视图段里的一个最近会话：收着时画成写标题首字的方块。 */
 export type MessagesRecentSession = {
     readonly id: string;
     readonly title: string;

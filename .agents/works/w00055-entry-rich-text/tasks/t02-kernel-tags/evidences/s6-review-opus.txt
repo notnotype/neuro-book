@@ -1,0 +1,137 @@
+# w00055 t02 S6 后端实现审查（Opus）
+审查对象：94307cd50..cc4930729，worktree HEAD 核对为 cc4930729（与被审版本一致）。实验在 /tmp/review-w00055-t02-s6/lab-opus/。
+
+### 1. 单块上限 5 万字只限了“一块”，一次请求的块数没有上限：单写者队列可被一次写入占住几十分钟，注释里“几十秒”的说法不成立（收窄，见第 13 条）
+- 严重程度：重要；类别：安全与性能
+- 位置：packages/nb-canon/src/render/syntax.ts:150-157（MAX_BLOCK_LENGTH 及注释）；world.ts:1438-1472（normalizeRequestText 每块一次解析）；agent-tools.ts（edits 最多 30 项，create/addBlock/set 各一块）
+- 现象：注释写“刻意构造的最坏输入也只占住队列几十秒”。实测（lab-opus/perf.ts，`*a **` 重复，即嵌套强调）：单块 1 万字 1.9 秒、2 万字 8.3 秒、5 万字 49 秒（按平方增长，与注释里的 1 万 1–2 秒、2 万 6 秒吻合）；`> - ` 引用套列表 5 万字 7.2 秒。经公开入口 editEntries（lab-opus/perf2.ts）：一块 1 万字 2.4 秒，四块 1 万字 10.7 秒，按块数线性叠加。一次 editEntries / publish 的块数不设上限（WriteRequest、EntryEdits 没有总长或块数上限；Agent 的 canon_write 最多 30 项，每项 addBlock 一块），所以 30 块 × 5 万字 ≈ 30 × 49 秒 ≈ 25 分钟占住项目进程（世界服务与它的读取在同一个 JS 线程里，读也被挡住）。上限从 1 万提到 5 万后，单块最坏从约 2 秒变成约 49 秒，放大约 25 倍，而 97bfc88f8 引入上限的理由（“一块最坏只占住队列一两秒”）在 5 万下已经不成立，注释改成了“几十秒”却没算块数。
+- 为什么是问题：开发者定的是“一块 5 万字”（整篇编辑写进一块），但注释与提交说明把它当成队列占用的上界；Agent 交回的文字来自模型（可能受作品内容的提示注入影响），按 30 项计没有上界的那部分没人拍过板。
+- 核实：`bun /tmp/review-w00055-t02-s6/lab-opus/perf.ts nestedEm 50000`（49126ms）；`bun .../perf2.ts 10000 4`（10707ms）。
+- 建议改法：加一个请求级的主文字总长上限（例如一次写入新写的主文字合计不超过 5 万或 10 万字，超了 `too-large`/`block-too-large`），或在 Agent 工具里按 edits 合计限长；同时把注释改成按“每块 × 块数”说清上界。若开发者接受现状，至少把“几十秒”改成真实数字并写明块数不设限。
+
+### 2. Agent 工具在服务端进程里先解析整段交回的文字、不看长度：超过 5 万字的也要先解析几遍，最后才被内核以 block-too-large 拒收
+- 严重程度：重要；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-entry-text.ts:9、12-27；agent-tools.ts:422-437（currentBlock、writeBlock）、506（create 的 text）、520（addBlock）
+- 现象：brief 重点 4 问“写入路径上、上限检查之前就解析整块文字的地方”。Agent 工具里有四处：create/addBlock 的 `stripAgentText(edit.text)`；set/replace 写 `text[块]` 时 `writeBlock` 里 `stripAgentText(submitted)`、`changedValueNotes` 里 `valuesOf(submitted)` 与 `valuesOf(current.text)`、`currentBlock` 里再 `stripAgentText(block.text)`。全部走不带缓存的 `parseEntryText`，都在内核的 `MAX_BLOCK_LENGTH` 检查之前，工具的参数 schema 也没有 maxLength（只有 title 有）。实测（lab-opus/perf3.ts）2 万字嵌套强调：strip 9.6 秒、changedValueNotes 11.2 秒；一次 `set text[b1]` 在服务端要解析 submitted 两遍、当前块两遍，再交给项目进程解析一遍。工具跑在服务端进程（经远程调用世界服务），这几秒到几十秒挡住的是整个服务端的事件循环，不只是这部作品。超过上限的文字（例如 20 万字）照样先被完整解析（按平方增长，分钟级），然后内核回 block-too-large。
+- 为什么是问题：内核为“太长的不解析”专门在 normalizeBlockSource、replaceTextTempIds、blockProblem 前面放了长度判断，Agent 这条外部输入的入口却没有同样的闸门；而且解析是重复的（submitted 两遍）。
+- 核实：`bun /tmp/review-w00055-t02-s6/lab-opus/perf3.ts 20000`。
+- 建议改法：在 translate 里对 create/addBlock/set/replace 的文字先比 `MAX_BLOCK_LENGTH`（从 nb-canon 的公开入口导出），超过直接回“这一块太长，拆成几块”；`writeBlock` 里只解析 submitted 一次（strip 与配对值共用一份 `parseEntryText` 结果，例如让 agent-entry-text 收 ParsedEntryText），`currentBlock` 的 source 可由世界服务直接给（render 的 agent 块里带源文或用 textBlocks），不必再 strip 一遍。
+
+### 3. Agent 在主文字里写 `$代号` 引用同一批新建的条目：原样存下、静默成了悬空引用；S5 修的“主文字里的临时 id 换成正式 id”从 Agent 工具走不到
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:506（create 的 text）、520（addBlock）、597-617（set/replace 写 text[块]）；工具说明 agent-tools.ts:102
+- 现象：工具对 entry、parent、after、引用字段、target 里的 `$代号` 都换成 `tmp:代号`（resolveEntry），主文字只做 stripAgentText，不换。内核在 46e03bd08 里加了 replaceRequestTempIds 对主文字里 `V entry`、`Ref id`、`ref('…')` 的换法，理由正是“Agent 一次新建两个互相提到的条目也会存下临时 id”；但 Agent 不知道内部的临时 id 写法是 `tmp:代号`（说明里只写了 `<Ref id="条目 id" />`），它最自然的写法是 `$代号`。用真实工具复现（lab-opus/tool-scene.test.ts 的 DOLLAR 段）：一批里 create key=jin，再 addBlock `妹妹是 <Ref id="$jin" />，也可能是 <Ref id="tmp:jin" />。`，写入成功，存下 `妹妹是 <Ref id="$jin" />，也可能是 <Ref id="e2" />。`；之后 canon_read 读到 `<Ref id="$jin" name="已删除的条目" />`。写入检查不查 Ref 的 id 是否存在（components.md 输出 18 写明不是引用位置），回话里也没有任何提示。
+- 为什么是问题：同一批新建并互相提到是 Agent 建设定时的常见动作（建组织再在人物主文字里提它）；`$代号` 写法在别的参数里被接受，在主文字里却静默写坏，作者看到“已删除的条目”。另外从未存在过的 id 也显示成“已删除的条目”，对 Agent 是误导。
+- 核实：`cd /tmp/review-w00055-t02-s6/lab-opus && bun test ./tool-scene.test.ts -t lab`，看 DOLLAR 与 READ 两行输出。
+- 建议改法：translate 里对写主文字的几处，在 strip 之后用 `rewriteEntryIds(text, (id) => id.startsWith("$") ? keys.get(id.slice(1)) ?? id : id)` 把 `$代号` 换成 `tmp:代号`（与 resolveEntry 同一个代号表；没有的代号回“没有这个代号”），并在工具说明里写一句“同一批新建的条目在主文字里写 `$代号`”；agent-tools.md 输出 7 的位置清单补上主文字的这三处。可选：Ref 指向不存在的条目时给 Agent 的 name 写“没有这个条目”，与“已删除”分开。
+
+### 4. canon_read 的主文字超过 4000 字就截断且没有续读的办法，提示里的“用 field 只读一个字段”对 text[块] 不起作用；照截断的文字 `set text[块]` 会静默删掉后半块；出错的块也不标“出错”
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:389-394（只拼 `[id] text`，丢掉 block.error）、407（clip 4000/6000）
+- 现象：一块主文字现在允许 5 万字（开发者定，作者界面整篇编辑时整篇是一块），带值写法还更长。实测（lab-opus/tool-scene.test.ts 的“长块与出错块”）：建一块 5088 字的主文字，`canon_read show:["text"]` 返回 4042 字，结尾“……（已截断，共 5088 字；用 field 只读一个字段，或分开读 text）”；照提示 `canon_read field:"text[b1]"` 只回了 66 字的条目头与设定组标题，读不到这块文字。工具没有按块或按偏移续读的参数。于是 Agent 想整块改写时只能拿截断的文字 `set text[b1]`，writeBlock 照常去值写入，块的后半段被删掉；回话只说“已写入”。另外渲染给 Agent 的块带 `error`（render.ts:262），canon_read 拼文字时丢掉了，Agent 看不出哪块是出错块、为什么里面的标签没有值（rendering.md 输出 14 要求标“出错”并带诊断）。
+- 为什么是问题：S6 把 `set text[块]` 定为 Agent 改主文字的主路径（整块去值写回），截断与“整块覆盖”放在一起就是一条看起来合理、结果丢文字的路径；虽然能还原，但作者未必发现。截断与丢 error 是 S6 之前就有的，这次的改动让它们直接影响写入。
+- 核实：`cd /tmp/review-w00055-t02-s6/lab-opus && bun test ./tool-scene.test.ts -t 长块`。
+- 建议改法：canon_read 增加只读一块（`block: "b1"`，可带偏移/续读 cursor）的读法，并让截断提示写真实可用的办法；出错的块写成 `[b2]（出错：码 行:列 原因）原文`。写入侧可加一道防线：`set text[块]` 交回的文字比当前块短很多且当前块的带值写法超过读取上限时，回话提醒或要求用 replace。
+
+### 5. 工具已判出“去值后与现在相同”的主文字，只在整批都是这种时才不发布；混在别的改动里照样发出，剧情意图下记成一条整段替换，把这一块从那一章起钉死（收窄，见第 14 条）
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:432-437（writeBlock 标 unchanged 但照样返回 set 操作）、708-720（只在 unchanged === ops.length 时跳过）
+- 现象：工具说明鼓励“改文字照抄带值的写法就行”，Agent 很可能把读到的整块原样带回、同时改一个字段。用真实工具复现（lab-opus/tool-scene.test.ts 的“混合批里没改的主文字”）：`intent:"story"`、`at:{chapter:1}`，edits = [set 人物.性格 "热情"，set text[b1] 原样抄回的带值文字]。写入成功，修订 r4 新建的变更 c1 里有两条补丁：`set character.性格` 与 `{"op":"replaceBlock","at":{"entry":"e1","path":"text[b1]"},"value":"性格 <V of=\"character.性格\" />。"}`；回话的“带来的变化”只列了性格一项，没提这条整段替换。之后作者或 Agent 在“最初”改 b1（replace 性格→脾气，写入成功），最初读到“脾气…”，第 1、2 章读到的仍是“性格…”：那条没人想要的 replaceBlock 让 b1 从第 1 章起不再跟着初值走。设定意图下同样的混合批会把同值的 set 送进 editEntries（这次没有产生多余的操作，靠的是内核对同值的处理，工具这边没有保证）。
+- 为什么是问题：plan 第 15 条与 agent-tools 输出 6 的意图是“交回的块去值后与当前源文相同就算没有改动”；现在只对“整批全是这种”生效，对更常见的混合批不生效，而且剧情意图下的后果是看不见的、长期的（块被钉在某章）。
+- 核实：`cd /tmp/review-w00055-t02-s6/lab-opus && bun test ./tool-scene.test.ts -t 混合批`，看 REV 与三行 AT。
+- 建议改法：writeBlock 判为 unchanged 的项不放进 ops（只保留 notes）；ops 为空时照现在回“没有改动”。补一条用例：剧情意图下“改字段 + 原样交回主文字”只产生字段的补丁。可另议内核 editEntries 在剧情意图下 set 同值时是否该记补丁（brief 范围外，仅提一句）。
+
+### 6. “结果确定时不标读不到”的 If/ElseIf 一侧与“纯文字取第一个未知的判断”没有用例守：两个变异在 nb-canon 全部 836 条测试下都活着
+- 严重程度：建议；类别：测试
+- 位置：packages/nb-canon/src/render/render.ts:215（作者值表的 If/ElseIf：`result.result !== null` 才去掉 unavailable）、render.ts:378（纯文字：`.find(...)` 取第一个未知的判断，决定报 unavailable 还是写“未知”）；tests/rendering.test.ts:724-729 只测了 `V expr` 的 `false && 读不到的`
+- 现象：在仓库外的副本（lab-opus/mut/packages/nb-canon）里做了三个变异：
+  (a) render.ts:215 去掉 `|| result.result !== null`（判断确定为真/假时作者照样看到读不到的原因）：rendering.test.ts 98 条全过，nb-canon 全量 836 条全过；
+  (b) render.ts:378 `.find` 改成 `.findLast`（多个未知的判断时取最后一个）：同样全过；
+  (c) render.ts:253 Agent 的 `value === null` 条件去掉：rendering.test.ts 1 条失败（被测到）。
+  (b) 影响写手简报的扣块：`<If test="ref('e3').entry.name == '阿七'">…<ElseIf test="（读得到但值为空的字段）…" />…</If>`，e3 还没出场时正确结果是报 unavailable、整块扣下；变异后写“未知”、problems 为空，简报照给这一块。Spec 输出 6 的“判断的结果确定时不标读不到”与输出 15 的“决定了未知的那个判断”都只有一半有用例。
+- 核实：在副本里按上面改一处，`bun test`（副本目录内）。
+- 建议改法：rendering.test.ts 的“结果确定时不标读不到”补 `<If test="false && ref('e3').entry.name == 'x'">` 一例（作者值表的 If 项不带 unavailable）；纯文字表驱动里补“第一个判断读不到、后一个判断值为空”和反过来的两例（前者报 unavailable 不写字，后者写“未知”）。
+
+### 7. 预览（renderSource）不按基线查没登记的标签：写入会以 unknown-tag 拒收的源文，预览照常给“需要插件”的值表；plan S6 的第 22 条没有做
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-canon/src/render/entry.ts:51-57（renderSourceForAuthor 只调 renderBlockForAuthor，不带 existing 基线）；render/render.ts:204-206、235-236（analysis.error 不含没登记的标签，照 needsPlugin 给）
+- 现象：plan-v4 切片 S6 写明“预览检查没登记的标签时用条目当前的整个主文字作基线（第 22 条）”，design-review-omp-resolution 第 22 条也写“预览用同一个基线，记进 S6”。rendering.md 输出 16：“源文字过不了写入时的检查（输出 1）时，这一块照输出 4 给纯文本与诊断”。实测（lab-opus/preview.ts，公开入口 renderSourceForAuthor 与 World.publish）：星瑕的主文字里没有 `<Plot … />`，预览源文 `新写的 <Plot id="x" />` 得到 `{"id":"source","source":…,"values":[{"tag":"Plot","start":4,"needsPlugin":true}]}`（不是出错的块）；同一段文字发布得到 `unknown-tag`。即作者在预览里看到“需要插件”的占位、以为能存，提交才被拒；反过来基线里有的标签预览与写入一致，所以只有“新写的没登记标签”这一类不一致。S6 的范围里这一条没有实现，也没有用例（rendering.test.ts 输出 16 那组没有没登记标签的例子）。
+- 为什么是问题：输出 16 的合同是“过不了写入检查的给纯文本与诊断”，预览是作者提交前唯一的检查结果；计划里登记过要做的一条被漏掉，审查处理记录里也没有说明。
+- 核实：`bun /tmp/review-w00055-t02-s6/lab-opus/preview.ts`。
+- 建议改法：renderSourceForAuthor 用与 validate 相同的基线（条目在世界里的初值各块加生效变更里改它主文字的补丁，即 existingTagsOf 的那份，抽成可复用的函数），对 analysis 再跑一次 `blockProblem(source, {existing})`（或只查 excusable 的没登记标签），不过就照输出 4 给出错的块；补一条用例：基线里没有的没登记标签预览给 unknown-tag，基线里有的给 needsPlugin。若有意不做，计划与 Spec 输出 16 要写明预览不查没登记的标签。
+
+### 8. currentBlock 为了一块每次渲染整个条目：一批里每个写主文字的项各渲染一遍；整条目的带值渲染超过远程预算（约 960 KiB）时，这个条目的任何一块都写不了
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:422-429；backend/remote.ts:56、134（render 结果超过 CANON_BUDGET_BYTES 回 too-large）；shared/contracts.ts:40（RPC_MAX_MESSAGE_BYTES − 64 KiB，nb-host 里是 1 MiB）
+- 现象：set/replace 写 `text[块]` 时 currentBlock 调 `render`（audience agent）拿整个条目的全部块，再在服务端挑出一块；一批 30 项改同一条目的不同块就是 30 次整条目渲染（项目进程里求值、编码、过远程）。现在一块可到 5 万字（中文 UTF-8 约 150 KB，带值写法更长），一个条目有六七块满长的块，整条目渲染就超过预算，`render` 回 too-large，currentBlock 把它写成 problem，Agent 对这个条目的哪一块都不能 set/replace（canon_read 的 text 同样读不了）。从代码推断，未实测到预算边界。
+- 为什么是问题：写一块的前置读取不该受条目里别的块大小影响；重复整条目渲染在单写者的项目进程里也是白花的时间。
+- 建议改法：世界服务给 render 加一个可选的 `block` 参数（只渲染那一块，带值写法与源文一起给，顺带去掉 currentBlock 里对 block.text 再 strip 一遍），或在 translate 里按条目缓存一次渲染结果（同一调用内同一位置读一次）。
+- 附带的代码问题：agent-tools.ts:415 原来 translate 的文档注释“模型写的一项换成内核的操作；名字、地址与引用都在这里换成 id。”现在悬在 `Translated` 类型的注释上面，translate 自己没有注释了（与 S5 在 world.ts 修过的 validate 注释错位是同一类），挪回 translate 前面。
+
+### 9. Agent 写主文字的用例只覆盖了实际模式下的正常块：出错的块、addBlock 去值、算出来的值的提示、混合批、读后被改都没测；验收映射点名的“按计划模式读到的值做 find”实际测的是抄错的值
+- 严重程度：建议；类别：测试
+- 位置：packages/neuro-book/src/plugins/canon/agent-tools.test.ts:297-349（S6 新增的两条）；对照 plan-v4 验收映射“`canon.agent-tools` 输出 6 写主文字（整块去值；`replace` 用带值的整个 `V`、半个带值标签、按计划模式读到的值做 `find`；改了值的提示按配对）”
+- 现象：
+  - “按计划模式读到的值做 find”：用例 stale 段是在实际模式下手写了一个不存在的值 `"热情"`，没有用 `canon_read mode:"planned"` 读出的文字，覆盖不到“计划模式下值不同、块的源文也可能不同（计划里的整段替换）”的情形。
+  - currentBlock 对出错的块用原文、不 strip（agent-tools.ts:428）这一支没有用例：把它改成总是 strip，出错块里有非规范写法的标签时 `read` 与存下的不同，内核回 value-conflict，Agent 就改不了这块——这个变异不会被现有用例测出（从代码推断，未在副本里跑应用包的变异）。
+  - addBlock 的去值（agent-tools.ts:520）、`V expr` 的“是算出来的……改它依赖的字段”提示（agent-entry-text.ts:41）、同一地址出现多次的按序配对、第 5 条的混合批、读后作者改了这一块再 set（应回 stale/version-conflict）都没有用例。
+- 为什么是问题：这些是 Spec 输出 6 “写主文字”一句里逐条写出的行为，也是 S6 新代码里分支最多的部分；第 3、5 条的问题正好落在这些没测的路径上。
+- 建议改法：在 agent-tools.test.ts 补：按计划模式读（有一条计划变更改了魔力）后用读到的整个带值 `V` 做 find，回“按实际模式重读”；addBlock 交带值文字存成自闭合；`V expr` 改值得到“改它依赖的字段”；剧情意图的“改字段 + 原样主文字”只有字段的补丁；作者在 Agent 读后改了 b1，Agent 的 set 被拒且回话提到 canon_read。出错块那一支可在 nb-canon 侧用 injected 的旧数据加一条 editEntries 的 set（带 read=原文）测“原样 read 照常写入”。
+
+### 10. `read` 与“没有改动”都拿“去值(带值写法)”当存下的源文：存下的块不是规范写法时（旧数据、卸了插件留下的没登记标签），Agent 对这块的 set/replace 永远 value-conflict（收窄，见第 15 条）
+- 严重程度：建议；类别：正确性
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:428（`source: stripAgentText(block.text)`）、436（`read: current.source`，`value === current.source`）
+- 现象：strip(decorate(源文)) 只在源文是规范写法时逐字等于源文（grammar/text.ts 的前提；decorateEntryText 对没登记的标签照原文，stripEntryText 却把所有活的标签写成规范写法）。rendering.test.ts 专门有“旧块里非规范的没登记标签 Agent 看到原样”的用例，说明内核认为这种存下的块会存在。用公开入口复现（lab-opus/noncanon.ts）：重放注入一块 `魔力 <V  of="panel.魔力"/>。`，renderEntryForAgent 给 `魔力 <V of="panel.魔力">3110</V>。`，按工具的算法 read = `魔力 <V of="panel.魔力" />。`，editEntries 的 `set text[b2]` 回 `{"code":"value-conflict","current":"魔力 <V  of=\"panel.魔力\"/>。"}`。重读也一样，Agent 没有办法改这一块；“没有改动”的判断对这种块也总是假。
+- 为什么是问题：`read` 本意是“读取之后这一块没被别人改”，现在还隐含了“存下的源文是规范写法”这个没写出来的假设；违反时的失败是永久的、回话还会误导 Agent 去重读。
+- 建议改法：currentBlock 的 source 取世界存的源文（`textBlocks`，或让 render 的 agent 块带 `source`），不从带值写法反推；“没有改动”用 `normalizeBlockSource(value) === normalizeBlockSource(source)` 比（nb-canon 已从包入口导出 normalizeBlockSource）。这样也顺带去掉第 2 条里的一遍解析。
+
+### 11. 读取之后这一块被改了：带旧版本的 replace 先在“现在”的文字里找 find，找不到就回“原样抄读到的文字”，盖住了应有的 stale-read
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/canon/backend/agent-tools.ts:609-617（replace 写 text[块]：currentBlock 读现在的文字 → replaceInBlock 失败即返回 bad-edit）、422-429（块被删时回“这个位置上没有块”）
+- 现象：agent-tools.md 输出 6：“读取之后这一块变过时按版本冲突拒收”。工具在 translate 里用现在的世界渲染这一块，find 不在里面时直接回 bad-edit，根本走不到 editEntries 的读取戳核对。用真实工具复现（lab-opus/tool-scene.test.ts 的“预览与读后被改”）：Agent 读 b1（`性格 …，住在学院。`）拿到版本 old；随后另一次写入把“学院”换成“宿舍”；Agent 带 old 做 replace find="学院"：回 `第 1 项（replace）：这一块里找不到 find，原样抄读到的文字。`——它正是原样抄的。同一个 old 版本做 find 还在的 replace 或 set，则正确回 `stale-read：你读过之后世界变了……用 canon_read 重读`。base 上 replace 原样交给内核，内核先核读取戳，所以这是 S6 引入的回退。find 带着装饰时同样会回“值可能变了或是按计划模式读的”，块在读后被删时回“这个位置上没有块”，都不是 Spec 说的版本冲突。
+- 为什么是问题：错误码与提示都把 Agent 引向“我抄错了”，它可能原样重试或乱改 find，而真正需要的是重读；与 set 的行为也不一致。
+- 核实：`cd /tmp/review-w00055-t02-s6/lab-opus && bun test ./tool-scene.test.ts -t 预览与读后`，看 LATE-REPLACE-OLDWORD 一行。
+- 建议改法：currentBlock 拿到的 render 结果带版本与输入摘要；translate 失败（找不到、不唯一、没有这块）时先拿它与 stamp 比：版本或读取输入已变就回与内核同样的 stale-read（或干脆在写主文字的项上先做一次 outcome/读取戳核对再翻译）。补一条用例：读后作者改了 b1，旧版本的 replace find 旧字回 stale-read。
+
+### 12. 主文字里存下的悬空临时 id，会被之后任何一次“新建同名代号 + 改这个条目”的写入悄悄改绑到新条目
+- 严重程度：建议；类别：正确性
+- 位置：packages/nb-canon/src/world/references.ts:284-295（replaceRequestTempIds 对条目 put 的 init.text 每一块都换，不分新写的还是原样留着的）
+- 现象：同一请求里不新建的 `tmp:x` 原样存下（components.md 输出 18 接受）。之后的请求只要新建了 `tmp:x`、又带着这个条目的 put（editEntries 改条目的任何一处——改名字、改字段——都会把整个条目连同全部旧块作为 put 交给 publish），旧块里的 `tmp:x` 就被换成新条目的 id。用真实工具复现（lab-opus/tool-scene.test.ts 的“旧块里的临时 id 被改绑”）：先建“甲”，主文字 `提到 <Ref id="tmp:x" />。`，存下原样；再一批 [create key=x 名“新来的”，set 甲.名字=甲二]，结果“带来的变化”里多了 `e1 text[b1]：提到 <Ref id="tmp:x" />。 → 提到 <Ref id="e2" />。`，Agent 与作者都没想改这一块。临时 id 的代号由 Agent 起（`tmp:代号`），撞名并不难。
+- 为什么是问题：改绑发生在没被请求修改的旧文字上，违反“原样留着的旧文字不经这里改写”（world.ts:473-475 的注释说的是规范化，同一个道理）；回执里虽然列出，但写入者没有要求过这项改动。
+- 建议改法：replaceRequestTempIds 只换与旧世界里同 id 块不同的块（与 normalizeRequestText 同一个“新写的”判定），补丁同理按 unchangedPatches 跳过原样的旧补丁；或者只在 isNew 的条目与新写的块上换。补一条用例：旧块里的 `tmp:x` 在新建 `tmp:x` 的请求里原样留着。
+
+### 13. 单块 5 万字、一次请求的块数只受远程消息预算约束：最坏一次写入占住项目进程约 15 分钟（推算）（第 1 条的数字更正；收窄，取代第 1 条的“25 分钟”）
+- 严重程度：重要；类别：安全与性能
+- 位置：同第 1 条；另 shared/contracts.ts:40（CANON_BUDGET_BYTES = 1 MiB − 64 KiB ≈ 960 KiB，请求也受它约束）
+- 更正：第 1 条按“30 项 × 5 万字”算出的 25 分钟没有考虑远程请求的预算。经远程调用（Agent 工具、作者界面）时一次请求编码后不超过约 960 KiB：最坏写法 `*a **` 是 ASCII，5 万字约 50 KB，一次最多约 19 块，19 × 49 秒 ≈ 15 分钟（推算，未实测整批）；中文最坏写法每字 3 字节，块数更少，但单块的解析时间取决于写法而不是字节数。进程内的调用方（直接调 World.publish / editEntries）不受这个预算限制。实测数字（lab-opus/perf.ts、perf2.ts）是在机器负载约 4 到 11（/proc/loadavg 1 分钟值）下测的：单块 1 万字 1.9 秒、2 万字 8.3 秒、5 万字 49 秒；editEntries 一块 1 万字 2.4 秒、四块 10.7 秒。
+- 结论不变：注释的“刻意构造的最坏输入也只占住队列几十秒”只对一块成立；按请求算是十几分钟，需要请求级的主文字总长上限，或把注释改成真实的上界并交开发者确认。另外 normalizeBlockSource 对非规范写法的块解析两次（规范化前一次、规范化后的新字符串在 blockProblem 里缓存不命中再一次），写了 `tmp:` 且有改动的块还有 rewriteEntryIds 的第三次，“规范化与检查共用一次解析”只对本来就是规范写法的源文成立。
+
+### 14. 第 5 条的定性更正（收窄，见第 5 条）
+- 严重程度：重要；类别：正确性
+- 更正：plan-v4 切片 S6 的原文是“交回的块去值后与当前源文相同、又没有别的改动时不发布，回话照常提示改值用 set”，实现（agent-tools.ts:719 只在 unchanged === ops.length 时不发布）与计划字面一致，第 5 条里“只对整批全是这种生效、违背计划意图”的说法撤回。问题仍成立，但性质是“符合计划字面，计划没考虑混合批”：混合批里原样交回的块照样作为 set 发出，剧情意图下内核记成一条同值的 replaceBlock 补丁，b1 从那一章起不再跟着初值（实测见第 5 条）。建议改法不变：判为 unchanged 的项不进 ops，并在计划或 Spec 输出 6 写明“原样交回的块不算改动，不论同批有没有别的改动”。
+
+### 15. 第 10 条的前提更正（收窄，见第 10 条）
+- 严重程度：建议；类别：正确性
+- 更正：非规范写法的存量块是用重放注入（World.replay 一次改 init.text 的修订）造出来的；现在的写入路径（publish、editEntries）都先规范化，补偿修订恢复的也是当初存下的规范写法，所以只有本分支规范化之前写下的数据或外部导入的旧数据会是这样。第 10 条里“卸了插件留下的没登记标签”作为来源的说法删掉（没登记的标签被放行时也是规范化后存的）。问题与建议改法不变，严重程度维持“建议”。
+
+### 16. 第 7 条的补充核实（经远程服务复现、搜索范围）
+- 严重程度：重要（同第 7 条）；类别：正确性
+- 补充：搜过 packages/nb-canon/src 与 packages/neuro-book/src/plugins/canon 全目录的 `renderSource`：调用链是 web/text-preview.ts:79 → backend/remote.ts:135（只比 RENDER_SOURCE_MAX）→ nb-canon service/service.ts:1163（直接调 renderSourceForAuthor）→ render/entry.ts:51，沿途没有基线或没登记标签的检查；web 下只有 EntryText.vue:110 把 needsPlugin 画成灰字，预览界面也不做这项检查。经真实项目子进程复现（lab-opus/tool-scene.test.ts 的“预览与读后被改”，`author.canon.call("renderSource", {source: '新写的 <Plot id="x" />'})`）：返回 `values:[{"tag":"Plot","start":4,"needsPlugin":true}]`，不是出错的块；同一段文字写入回 unknown-tag（第 7 条的 preview.ts）。所以这一条落在后端（nb-canon 的 renderSourceForAuthor 或 service.renderSource），不是前端的事。
+
+## 按影响排序（报告是按发现先后追加的，这里给出排序）
+正确性与不变量：11（读后被改的 replace 盖住 stale-read）、5/14（混合批里原样交回的块记成 replaceBlock）、3（`$代号` 在主文字里静默悬空）、4（长块读不全、set 截断，出错块不标）、7/16（预览不按基线查没登记标签）；
+安全与性能：13（取代 1：一次请求最坏约 15 分钟，推算）、2（Agent 工具在服务端先解析、不看长度）；
+建议：10/15（read 依赖规范写法的回推，旧数据永久 value-conflict）、12（悬空临时 id 被改绑）、8（currentBlock 每项渲染整个条目、受整条目预算影响；translate 注释错位）、6（两个变异活着）、9（Agent 写主文字的用例缺口）。
+
+## 未发现问题的方面
+- 重点 1（授权与摘要）：grep 了 requestDigestOf、authorizationBinds 的全部调用点（world.ts:339、349、441、466；应用里只有 plot/testing/authorization.ts）。修订摘要与授权都按原样的 `input`/`signed` 算，候选、校验与存下的 ops 用规范化后的；EntryEdits 的 schema 没有 authorizations，editEntries 这条路先 normalizedEdits 再建请求，同一请求 id 重试得到同一份规范化结果、摘要一致；补偿修订跳过规范化、也跳过 validate（world.ts:590）。没有发现别处按规范化后的请求做授权或去重。
+- 重点 2（基线与原样旧补丁）：用 storedChange 的做法（重放注入一条补丁文字是 `<div>旧</div>` 的生效变更，lab-opus/patches.ts）经 World.publish 跑：改状态为 undone、改 kind 为 plan、换安放到 ch5、删掉另一条补丁、换序都照常发布且旧文字原样留着；复制一份旧补丁时第二份被查（unsupported-markdown，patches[2]）；把旧补丁换到别的块或别的条目时被查。normalizeRequestText 与 validate 的“原样”判定一致。唯一的例外见第 12 条（临时 id 替换不看“原样”）。
+- 重点 3（临时 id）：lab-opus/g1.ts 用 replaceTextTempIds：行内代码里、`\<` 转义后、别的属性（`alt="tmp:b"`）、式子字符串里写着的 `ref(\'tmp:b\')`、链接地址、没登记的 `<Foo id="tmp:b" />` 都不换；`V entry`、`Ref id`、`expr`/`test` 里真正的 `ref('tmp:b')`（含 If 与 ElseIf）都换。editEntries 的读回核对用同一份换法。
+- 重点 4（式子深度）：lab-opus/expr.ts 经 World.publish 与三种渲染：990 个左右字符内的 `(` 490 层、`!` 985 层、`min(` 195 层都写得进、渲染正常，不栈溢出；超过 1000 字的拒收 forbidden-syntax。写入路径上 normalizeBlockSource、replaceTextTempIds、blockProblem 都先比长度（第 2 条的 Agent 工具除外）。
+- 重点 5 的几项：只抄了开标签的 `<V of="character.性格">"冷静"。` 去值后原样留下，写入检查回 unknown-tag（“<V> must be self-closing”），拒收符合计划；`find` 落在标签中间（半个带值标签）照常替换（已有用例）；值里有 `|`、`*`、链接、换行、`</V>` 时带值写法去值后逐字回到源文（lab-opus/table.ts，值按 agentJson 转义的前提下）；同一地址出现几次按序配对，同一块里同地址的值相同，配对不会给出错误的“现在是”。
+- 重点 6（远程合同）：搜了 packages/neuro-book/src、scripts 与 packages/dev-panel/src 的 `writeBack`、`"render"`、`renderSource`、`nbook.canon/world`：writeBack 的调用方只剩 nb-canon 内部同名的文字路由（text-blocks.ts，计划保留）；render/renderSource 的调用方只有 agent-tools.ts、EntryPageHost.vue、text-preview.ts，都已换成新形状。docs/specs/canon/project.md 已把 writeBack 标为 planned 删除。合同里 render 的 blocks 仍是 `unknown[]`，形状靠两端各自断言（只记一笔，不单列）。
+- 重点 7（纯文字与简报）：lab-opus/plain.ts 经 renderEntryPlain：`读不到 || '无名'` 写“无名”、problems 为空但 reads 里有 e99；读不到的值作三元式判断、`== null`、`min(读不到, 3)`、`!读不到` 都报 unavailable、不写文字；`If 真 && 读不到`后接 `ElseIf 真` 时整个条件报 unavailable。reads 一律静态收集，简报按 reads 扣块的路径没有因为“结果确定时不标读不到”而漏扣的写法；测试缺口见第 6 条。
+
+## 各级数量
+阻断 0；重要 7（2、3、4、5/14、7/16、11、13 取代 1）；建议 5（6、8、9、10/15、12）。第 1 条收窄为第 13 条，第 5、10 条的定性与前提分别由第 14、15 条更正，第 16 条是第 7 条的补充核实。
+有效发现：2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13

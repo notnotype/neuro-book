@@ -48,7 +48,7 @@ type Emits = {
 - 打开失败：原因与“重试”（`role="alert"`）；不是 UTF-8 文本时只有原因，没有重试（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 37）。
 - 已知二进制（标签的编辑器是 `nbook.editor.binary`）：一行“不能在这里打开”（`data-editor-unavailable="binary"`），不读文件。
 - 标签的编辑器不在了：说明与“用默认编辑器打开”（`data-editor-unavailable="gone"`、`data-editor-reopen-default`）；还没交付：800 ms 内空白，之后一行“正在加载编辑器”（`data-editor-pending`，CSS 动画延迟显示，不用计时器）（输出 40）。
-- 活动标签是页面（`page://<id>`，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 33）：内容区渲染页面组件，自己滚动；组件收到的 `context` 是这个标签自己的那一份（`pages.context(标签)`，带它的参数与 `state`），同一个标签每次是同一个对象，所以切走再回来组件重新挂上、`state` 还在；声明在、实现还没交付时（刷新后恢复、贡献方还没激活）是一行“正在加载页面”（`role="status"`、`aria-busy`），交付后换成页面；声明不在、或交付过又撤回（贡献方停了）时一行“这个页面已经不在了”。页面标签的文字是页面标题。页面的容器可以用程序聚焦（`tabindex="-1"`），不在 Tab 顺序里。
+- 活动标签是页面（`page://<id>`，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 33）：内容区渲染页面组件，自己滚动，滚动条叠在内容上（nb-ui `OverlayScrollbar`，同工作台视图）：不占宽度，内容在要滚与不要滚之间变时宽度不跳。它只画纵向的：页面自己不横向溢出（宽的内容在页面里自己横向滚，例如表格外包一层 `overflow-x-auto`），容器横向溢出时没有滚动条；滑块显示时右缘 10 像素的轨道接指针，要点的控件不贴着右缘放；组件收到的 `context` 是这个标签自己的那一份（`pages.context(标签)`，带它的参数与 `state`），同一个标签每次是同一个对象，所以切走再回来组件重新挂上、`state` 还在；声明在、实现还没交付时（刷新后恢复、贡献方还没激活）是一行“正在加载页面”（`role="status"`、`aria-busy`），交付后换成页面；声明不在、或交付过又撤回（贡献方停了）时一行“这个页面已经不在了”。页面标签的文字是页面标题。页面的容器可以用程序聚焦（`tabindex="-1"`），不在 Tab 顺序里。
 - 其余：这个标签的控件（容器带 `data-editor-kind="<编辑器 id>"`），编辑器已交付、标签在控制器的 `mountedControls` 里才挂；换编辑器时换一个控件。文档还在读取时控件隐藏（`v-show`），内容区空白。
 
 不是组此刻显示的那块内容只留控件：`visible` 为假，由内容层停放；面包屑、进度条、状态条、失败原因与页面都不画（页面合同里没有“不可见”的信号，隐藏了也会继续生效，所以切走就卸载）。

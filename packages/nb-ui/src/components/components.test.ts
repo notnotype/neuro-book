@@ -715,6 +715,50 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
+    it("tabs 的菜单：带 menu 的标签都留箭头格、只有选中的显出；选中的再点或按 ArrowDown 发 menu，没选中的点了只是选中；只有选中的写 aria-haspopup", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "人物", menu: {open: false}}, {value: "b", label: "形象", menu: {open: false}}, {value: "c", label: "文字"}]},
+            attachTo: document.body,
+        });
+        const tabs = () => wrapper.findAll("[role='tab']");
+        expect(tabs().map((tab) => tab.find(".nb-ui-tabs-menu-mark").exists())).toEqual([true, true, false]);
+        expect(tabs().slice(0, 2).map((tab) => tab.get(".nb-ui-tabs-menu-mark").attributes("data-shown"))).toEqual(["", undefined]);
+        expect(tabs().map((tab) => tab.attributes("aria-haspopup"))).toEqual(["menu", undefined, undefined]);
+        expect(tabs()[0]!.attributes("aria-expanded")).toBe("false");
+
+        await tabs()[1]!.trigger("click");
+        expect(wrapper.emitted("update:modelValue")).toEqual([["b"]]);
+        expect(wrapper.emitted("menu")).toBeUndefined();
+        await tabs()[0]!.trigger("click");
+        expect(wrapper.emitted("menu")).toEqual([["a", tabs()[0]!.element]]);
+        expect(wrapper.emitted("update:modelValue")).toEqual([["b"]]);
+        // Enter 在按钮上本来就触发点击：不另挂按键，按一次只发一次。
+        await tabs()[0]!.trigger("keydown", {key: "Enter"});
+        await tabs()[0]!.trigger("keydown", {key: "ArrowDown"});
+        expect(wrapper.emitted("menu")).toHaveLength(2);
+        // 没有菜单的标签上 ArrowDown 什么也不做。
+        await wrapper.setProps({modelValue: "c"});
+        await tabs()[2]!.trigger("keydown", {key: "ArrowDown"});
+        expect(wrapper.emitted("menu")).toHaveLength(2);
+
+        await wrapper.setProps({modelValue: "a", items: [{value: "a", label: "人物", menu: {open: true}}, {value: "b", label: "形象", menu: {open: false}}, {value: "c", label: "文字"}]});
+        expect(tabs()[0]!.attributes("aria-expanded")).toBe("true");
+        expect(tabs()[0]!.find(".nb-ui-tabs-menu-mark").attributes("data-open")).toBe("");
+        wrapper.unmount();
+    });
+
+    it("tabs 的附注：写在标题后、读屏名里与标题隔开；没有附注时标签里没有它的字", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "人物", menu: {open: false}, note: "AI视图"}, {value: "b", label: "形象", menu: {open: false}}]},
+            attachTo: document.body,
+        });
+        const tabs = () => wrapper.findAll("[role='tab']");
+        expect(tabs().map((tab) => tab.text())).toEqual(["人物，AI视图", "形象"]);
+        await wrapper.setProps({items: [{value: "a", label: "人物", menu: {open: false}}, {value: "b", label: "形象", menu: {open: false}}]});
+        expect(tabs().map((tab) => tab.text())).toEqual(["人物", "形象"]);
+        wrapper.unmount();
+    });
+
     it("writes per-tab attrs without overriding the attributes the component owns", () => {
         const wrapper = mount(Tabs, {
             props: {
@@ -1463,6 +1507,33 @@ describe("nb-ui dialog anatomy", () => {
         expect(rows[1]?.attributes("aria-selected")).toBe("false");
         await rows[1]?.trigger("click");
         expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual([["chapter-1", "chapter-2"]]);
+        wrapper.unmount();
+    });
+
+    it("toggleOn arrow: clicking a row only selects it, clicking the arrow only toggles it, arrow keys still expand", async () => {
+        const items = [{id: "star", title: "星瑕", children: [{id: "brother", title: "哥哥"}]}, {id: "plain", title: "星瑾"}];
+        const wrapper = mount(Tree, {props: {items, expanded: [], toggleOn: "arrow"}, attachTo: document.body});
+        const row = () => wrapper.findAll("[role='treeitem']")[0]!;
+        // 点行：选中、发 select，不切换展开。
+        await row().trigger("click");
+        expect(wrapper.emitted("select")?.map(([node]) => (node as {id: string}).id)).toEqual(["star"]);
+        expect(wrapper.emitted("update:expanded")).toBeUndefined();
+        // 点箭头：只切换展开，不选中。
+        await row().get("[data-tree-toggle]").trigger("click");
+        expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([["star"]]);
+        expect(wrapper.emitted("select")).toHaveLength(1);
+        expect(wrapper.emitted("update:modelValue")).toHaveLength(1);
+        // 键盘：右键展开照常。
+        await wrapper.setProps({expanded: []});
+        (row().element as HTMLElement).focus();
+        await row().trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([["star"]]);
+        // 缺省的 row：点行同一次也切换展开，没有单独的箭头目标。
+        const legacy = mount(Tree, {props: {items, expanded: []}});
+        expect(legacy.find("[data-tree-toggle]").exists()).toBe(false);
+        await legacy.findAll("[role='treeitem']")[0]!.trigger("click");
+        expect(legacy.emitted("update:expanded")?.at(-1)).toEqual([["star"]]);
+        legacy.unmount();
         wrapper.unmount();
     });
 

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：引导的说明框与 Profile 的 ui 一行</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 720px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img, .shots img { display: block; width: 100%; height: auto; margin: 0 0 8px; border: 1px solid var(--line); border-radius: 6px; }
+.cand p { margin: 0; font-size: 14px; color: var(--muted); }
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0 0 8px; }
+@media (max-width: 720px) { .shots { grid-template-columns: minmax(0, 1fr); } }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：引导的说明框与 Profile 的 ui 一行</h1>
+
+<section data-nbdev-question="ask-layout" data-nbdev-type="single" data-nbdev-recommend="folded">
+  <h2>说明框里的提问框一直显示，还是平时收成“提问”按钮？</h2>
+  <p class="rec"><strong>推荐 B 收起：每一步少一行，点开后输入框换掉按钮那一行，说明框高度不变，不会盖住更多页面。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="always" data-nbdev-label="A 一直显示">
+      <h3>A 一直显示</h3>
+      <img src="r1/ask-always-activity.webp" alt="设置按钮旁的说明框，提问框一直在">
+      <img src="r1/ask-always-palette.webp" alt="命令面板一项旁的说明框，提问框一直在">
+      <img src="r1/asking-always.webp" alt="正在输入问题">
+      <p>想问随时能打字；每一步都多一行。</p>
+    </div>
+    <div class="cand" data-nbdev-option="folded" data-nbdev-label="B 收成“提问”">
+      <h3>B 收成“提问”</h3>
+      <img src="r1/ask-folded-activity.webp" alt="设置按钮旁的说明框，左下角是“提问”">
+      <img src="r1/ask-folded-palette.webp" alt="命令面板一项旁的说明框，左下角是“提问”">
+      <img src="r1/asking-folded.webp" alt="点开“提问”后输入框换掉按钮行">
+      <p>要多点一下才能问；说明框更短。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="approve-look" data-nbdev-type="confirm" data-nbdev-label="按这一稿实现说明框、描边与 ui 一行">
+  <h2>说明框、描边与 Profile 的 ui 一行按这一稿实现？</h2>
+  <p class="rec"><strong>推荐同意：外框、颜色与按钮都取现有的气泡与按钮，暗色与英文都放得下。</strong></p>
+  <div class="shots">
+    <img src="r1/dark.webp" alt="暗色主题下的描边与说明框">
+    <img src="r1/english.webp" alt="英文界面的说明框">
+    <img src="r1/profile-ui.webp" alt="Profile 工具一节里的 ui 一行">
+    <img src="r1/profile-no-eval.webp" alt="Profile 里没有 eval 时 ui 一行的样子">
+  </div>
+</section>
+
+<section>
+  <h2>直接定，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>定成什么</th></tr></thead>
+    <tbody>
+      <tr><td>描边</td><td>强调色 2px，离目标 3px，外加一圈淡晕；出现时轻轻收一下就停，不一直闪；减弱动效时直接出现</td></tr>
+      <tr><td>很小、很大的目标</td><td>小于 28px 的按 28px 画框；整个面板这种大目标改成框在里面 2px、不加晕</td></tr>
+      <tr><td>说明框</td><td>宽 300px，没有箭头，靠描边与间隙指向目标；“跳过引导”是不显眼的文字按钮，“下一步”是主按钮；最后一步“下一步”写“完成”</td></tr>
+      <tr><td>进度</td><td>“第 1 步，共 3 步”“Step 1 of 3”，只在给了步数时出现</td></tr>
+      <tr><td>提问</td><td>回车发出，Esc 收起并回到原来的焦点；输入法正在组字时回车不发</td></tr>
+      <tr><td>目标滚出视野</td><td>描边先藏起来，说明框停在滚动区里离目标最近的那条边上，仍能跳过或提问；滚回来两者回到目标旁</td></tr>
+      <tr><td>Profile 的 ui 一行</td><td>等级只写最高的“执行”（“读、执行”放不下这一列），悬停的说明里列出四个方法各自的档；仍算进“开着 N 个”</td></tr>
+      <tr><td>Profile 里没有 eval</td><td>ui 这一行照样在，说明换成“要先加入 eval 才用得上”并带警示图标，与页面上别的字段问题一样</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>说明框里有标题、说明、进度、“下一步”（要按下一步的步骤）、“跳过引导”与提问（t01 决定 15、16）</li>
+    <li>不压暗页面、不改页面元素的样式、点说明框不抢焦点；能出现在命令面板、下拉与对话框里（t01 设计稿）</li>
+    <li>ui 在 Profile 页显示成一行，可以去掉、加回（t01 决定 14）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

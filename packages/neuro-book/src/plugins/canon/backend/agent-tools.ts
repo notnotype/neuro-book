@@ -25,8 +25,9 @@ import {canonWorldContract, fromRemote} from "../shared/contracts";
 import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, FoundEntry, RemoteRaw} from "../shared/contracts";
 import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
 import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
+import {fieldsText} from "../shared/agent-fields";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
-import {clip, failureText, fieldsText, impactText, parseStamp, positionText, stampText} from "./agent-text";
+import {clip, failureText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
 export const AGENT_TOOL_IDS = {lookup: "nbook.canon.lookup", tree: "nbook.canon.tree", read: "nbook.canon.read", write: "nbook.canon.write"} as const;
 
@@ -380,7 +381,7 @@ function readTool(services: Services): AgentToolImplementation {
                     if ("problem" in address) return failed("unknown-field", address.problem);
                     field = address.path;
                 }
-                if (show.includes("fields")) parts.push(fieldsText(view, declarations, context.components, field));
+                if (show.includes("fields")) parts.push(fieldsText(view, declarations, context.components, field === undefined ? {} : {field}));
                 if (show.includes("text")) {
                     const rendered = await call("render", {entry: resolved.id, position: context.position, mode, audience: "agent"});
                     if (!rendered.ok) return worldFailed(rendered.failure);

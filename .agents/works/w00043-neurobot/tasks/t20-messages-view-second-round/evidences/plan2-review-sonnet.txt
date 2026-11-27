@@ -1,0 +1,93 @@
+# t20 计划第二部分 设计审查报告（只读，逐条追加）
+
+## 1 [重要][与既有机制矛盾] FLIP 起点不能在视图段的 flush:"pre" watch 里读
+位置：plan“过渡”一节最后一段（量起点在 expanded 变化的同一次更新之前，flush:"pre" 的 watch 里读）。
+现象：expanded 是工作台外壳的 watchEffect 经 control.setExpanded 送进视图的。同一次 flush 里外壳（父）先渲染，WorkbenchToolStrip 的 data-rail-state 已翻成 expanded，网格已改成单列、底段按计划“藏起来”；视图段（后代）的 pre watch 之后才跑，读到的是新版式。收起方向同理：导航起点读到的是已换掉的版式。底段按钮藏起来后 rect 是 0（display:none）。
+为什么是问题：仓库里已有同一教训，AgentMessages.vue 固定聊天区那段注释写明“要固定的宽不在换宽的那一刻量：网格的窗在同一次更新里先改……量到的是新窗宽 − 旧视图段宽，所以平时由 ResizeObserver 记下”。计划的“量起点”照搬了会读到终态的做法，FLIP 的位移会是 0 或乱值，dom 测试（不带外壳）还会过。
+建议：起点在发出请求之前量，不在更新里量。所有触发展开收起的入口（toggle 点击、showList、命令“搜索会话”、导航点击不涉及）经同一个 `requestRail` 包装，在 await request 之前记下两组 rect；或平时用 ResizeObserver 记。不是视图自己发起的变化（刷新恢复、窗口变窄收起）直接到位。计划里写明这一点，并补一条带真外壳的验收（dom 测试不够）。
+
+## 2 [重要][焦点] 展开收起按钮搬进视图后，侧轨的焦点交接落空，展开方向没有交接，两处渲染的按钮是两个节点
+位置：plan“展开收起按钮归视图段”“侧轨”两节；WorkbenchToolStrip.vue 第 151 到 159 行（交接 watch）；Spec 输出 50“焦点与读屏”。
+现象：（a）交接 watch 里写死 `[data-rail-expand]`，计划拿掉这个按钮后查不到，退化成交给按下的入口，而 Spec 说交给展开按钮。计划没提这条代码。（b）这个 watch 只在“展开到收起”或视图段消失时跑，收着到展开方向没有任何交接；以前按钮在侧轨里、点击后节点不换所以焦点留着。现在收着时按钮是 main 的第一项、展开后是列表右上的另一处模板（plan 写“两种位置一样”但位置不同），v-if 切换后节点重建，焦点掉到 body；视图段自己的 lastFocus 只在 targets 变化时恢复。（c）侧轨是工作台通用组件，不应认 `data-messages-segment-toggle`；SDK 之外的内置视图（见第 7 条）也要按同一约定画按钮。
+建议：定义一个通用标记（例如 `data-rail-toggle`），侧轨的交接按它找；视图在展开、收起后自己把焦点交给另一处的按钮（用 nextTick，条件同 lastFocus：焦点原本在按钮上才交）。计划写明两个方向与窗口变窄自动收起的焦点落点，并给 dom 与 e2e 各一条。
+
+## 3 [重要][键盘可达] 侧轨的 roving tabindex 与展开版式不兼容：隐藏的底段项、展开态的按钮、横排入口带的方向键
+位置：WorkbenchToolStrip.vue railItems/syncTabStops/STEPS（约 238 到 295 行）；plan“展开时底段的元素还在，藏起来”“入口带横排”。
+现象：（a）railItems 只排除 disabled 与 aria-hidden 祖先，不看 display:none。计划让底段元素保留但“藏起来”，没写怎么藏；若是 display:none，那两个按钮仍是 data-rail-item，用户刚点过“全部 bot”时 lastItem 就是它，展开后它保持 tabindex=0 而别的项全是 -1，Tab 进不了侧轨（隐藏元素聚焦不了）；方向键步进还会走进隐藏项原地不动。（b）展开态的按钮如果沿用 data-rail-item（浮动窗那个现在就带），syncTabStops 会把它设成 -1：它在列表里，Tab 到不了，只剩方向键。Spec 说展开的列表是视图段自己的区域，不该参加 roving。（c）入口带横排后 STEPS 只有上下方向键，左右键无效，计划只改了拖放轴。
+建议：底段藏起来时同时加 aria-hidden（或 inert），并让 railItems 排除不可见项；展开态的按钮、列表内控件不带 data-rail-item，走正常 Tab；STEPS 按带的轴换键（横排用左右，RTL 不用考虑）；写进计划并给 dom 用例。
+
+## 4 [重要][遗漏] 按钮成为 main 的第一项后，fitSegment 的容量常量没有扣它
+位置：plan“展开收起按钮归视图段”；nb-agent-ui/src/messages-segment-fit.ts（SEGMENT_ITEM_STEP、SEGMENT_DIVIDER、SEGMENT_PADDING 与 AgentMessagesSegment.vue 样式“一起改”）。
+现象：收着时按钮原先在侧轨底部、main 之外，main 的整个 clientHeight 都给 bot 与会话；现在按钮占 main 里约一项半的高度（38 加外边距），但 fit 的 slots 仍按整个高度算。结果放得下的项数多算一个，末尾的会话方块被挤出 main，main 是 overflow-y:auto，于是出现竖向滚动、按钮自己也可能被滚走（它在最前面，向下滚时消失，违背“最上面”）。浮动窗里同理（顶格 inset 在外层 padding 里，不影响这条）。
+建议：fit 的预留加一项按钮（常量与样式同改，文件头注释写了要一起改），或把按钮放在 main 之外、固定在 main 上方不参与滚动；计划选一个并补 fitSegment 单测与“收着时不出现滚动条”的 dom 断言。
+
+## 5 [重要][假设] “导航按列表最终宽度靠右排”在停靠时没有数据来源
+位置：plan“列表”第二条（外层裁切、里层定宽）与“风险”；nb-agent-ui/src/vue/messages/placement.ts；AgentMessages.vue 的 edgeBodyStyle。
+现象：浮动窗的做法能成立，是因为 placement.edge 带 width（最终轨宽）、AgentMessages 把里层定成这个宽。停靠的 placement.rail 只有 main、foot（计划只加 tooNarrow），视图不知道最终宽，而 main 是侧轨网格里一格，宽度随轨宽过渡逐帧变，列表按它拉伸（现有 acv-segment__list 就是 height:100% 拉伸，靠“晚淡入”躲重排）。没有最终宽，导航无法定宽靠右，FLIP 终点会随过渡漂；还有两种锚：右轨向左长（右缘不动），浮动窗视图段向右长（左缘不动），“靠右排”在两种里的参照不同，计划只说“同浮动窗”。
+建议：placement.rail 增加 width（此刻生效的轨宽，工作台已有 segment.width），视图据此把列表里层定宽；写明停靠时锚右缘、浮动时锚聊天一侧。views.md 输出 21 的接口需要同步写（Spec 现在只列 main、foot、tooNarrow）。
+
+## 6 [重要][边界] 搜索行让位后，会话页在最小轨宽 200 下搜索框被挤没
+位置：plan“列表”第三条（两个搜索行读 --acv-list-inset-end）；AgentSessionPanel.vue 第 150 到 168 行；MESSAGES_RAIL_BOUNDS.minimum 仍是 200。
+现象：会话页搜索行已有四个控件：输入框、范围下拉（“项目”文字加箭头，约 60px）、筛选按钮（带计数角标）、新建按钮，间距 6、左右内边距 8。再让出收起按钮的位置（约 38 加边距），200 宽时输入框只剩约 15 到 20px。计划只写“会话面板的搜索框占满剩下的宽（现在只有一截）”，没算下限。以前展开最小 200 的列表宽是 152，也已经很挤，这次再加一个控件。Lab 现有用例专门验 200 与 420 宽（lab-agent-ui.e2e 1094 行附近），说明这个宽度是被当作合同的。
+另：AgentSessionPanel 是 nb-agent-ui 的公开组件，也被项目侧栏的会话区用；变量要写 `var(--acv-list-inset-end, 0px)` 的缺省，并登记进 nb-agent-ui 的 style-tokens.dom.test.ts 的 hostVars 清单（现有 --acv-segment-inset-top 就登记在那里），计划没提。
+建议：要么把最小宽提到 260 左右（改 Spec 的 200–420），要么让会话页搜索行在窄时折行或把范围、筛选收进一个“⋯”；计划里给出 200 宽的预期版式并加 Lab 的 200 宽场景。
+
+## 7 [重要][接口与合同] 按钮归视图后，别的声明了 VIEW_RAIL 的视图没有按钮；合同类型与样例视图没列入改动
+位置：plan“展开收起按钮归视图段”“侧轨”；shared/contracts.ts 的 ViewRailPlacement 与注释“侧轨上的展开按钮是工作台的”；src/web/testing/sample-views.ts 的 SampleRailView；e2e/workbench-side-rail-segment.e2e.ts（19 处用 data-rail-expand）。
+现象：（a）ViewRailPlacement 的 rail 变体类型与那段注释在 shared/contracts.ts，后端 tsc 也读它；计划只列 view-rail.ts，没列合同类型。（b）测试样例视图 SampleRailView 只送三个会话按钮和一个底段按钮，没有展开按钮，侧轨去掉自己的按钮后，workbench-side-rail-segment 整个文件（展开、预算、手柄、焦点交接）都没有办法展开。它在 src/web/testing（产品树），不是子代理能改的 e2e 目录，计划的“测试分工”也没覆盖。（c）这个按钮约定（标记、aria-expanded、调 request）现在只靠消息视图的实现，没有写进 views.md 输出 21 的合同里（Spec 只说“展开、收起按钮由视图画”）。
+建议：计划列出 contracts.ts 与样例视图的改动，样例视图画一个带通用标记（见第 2 条）的按钮；e2e 子代理的“要迁移”里把样例视图加在主会话要做的清单上，别当成纯 e2e 迁移派出去。
+
+## 8 [重要][验收映射] 迁移与验证清单漏了依赖旧版式和 260 的用例、Lab 与 perf 脚本
+位置：plan“测试分工”的“要迁移”与“验证”的 6 个 e2e 文件。
+现象（读代码确认）：
+- e2e/lab-agent-ui.e2e.ts：第 1059 行断言轨宽 260，1094 到 1116 行按“列表宽 = 轨宽 − ENTRY_COLUMN”和顶上 [data-messages-switch] 的切换行断言，1120 行 edge-expanded 宽 260。展开后没有窄列、页签搬到底部，这些都会失败，但文件不在迁移名单也不在 6 个验证文件里。
+- scripts/perf/layout-frames.ts 第 283 行点 [data-rail-expand]。
+- Lab 夹具：AgentMessagesFixture.vue（缺省 260）、messages.scenes.ts（场景标签“展开 260”）、AgentMessagesSegmentFixture.vue、WorkbenchFloatRailHandleFixture（260）都带 260；还有 targets 夹具要能给 tooNarrow、导航要登记场景（AGENTS 规则：新界面登记 Lab 场景），计划没有 Lab 切片。
+- 工作台单测 rail-budget.test.ts 的 212、208、210、259 全由 260 推出；Spec 输出 36 的验收写“请求展开到 260”，计划只说改 Spec 的 views 与 conversation 两处，没说同步这一条与 proposals/workbench-side-rails.md 里的 260。窗口 1100、右栏 400 的验收算例在 300 下会变（要的差值从 212 变 252）。
+- 作者界面 e2e 的“宽版”视口是按 260 选的（agent-messages-rail.e2e 第 68 行，float 第 44 行），多 40px 后可能落到“窗口太窄”，要先量。
+- 约定要求同目录同名 .md 一起改（AgentMessagesSegment.md、AgentMessagesList.md、AgentMessages.md、WorkbenchShell.md、WorkbenchToolStrip 的说明），计划没列。
+建议：补进切片 4 与验证清单；300 的数字由 MESSAGES_RAIL_BOUNDS 一处出，夹具与测试读它，不再各写 260。
+
+## 9 [建议][遗漏] 加载中与冷开隐藏时没有按钮：展开状态可能无法收起，隐藏区域无法从侧轨展开
+位置：plan“展开收起按钮归视图段”；WorkbenchShell.vue railSegment（loading: status === "loading"）、WorkbenchToolStrip 的 skeleton。
+现象：视图段的 placement 只在实例就绪后才借出，Spec 又规定“冷开就隐藏、还没加载的实例不为视图段提前加载”。记录是 expanded 时刷新后，侧轨按展开宽画骨架，但没有视图就没有收起按钮，也没有搜索行，直到加载完成（加载很慢或失败前）用户只能拖手柄；失败时 acceptRailBounds 返回 null，按收着呈现，这条没问题。另外右栏隐藏并冷开时，旧版可以点侧轨的展开按钮，新版必须先点入口把区域揭示出来加载视图。这是行为变化，计划没写，Spec 也没说。
+建议：计划写明“加载中展开态没有收起按钮”是有意接受的，并在验收里写上；或骨架里由工作台画一个禁用的占位按钮，保证位置不跳。冷开隐藏时不能展开也写进说明。
+
+## 10 [建议][别扭] 横排入口带只写了拖放轴，其余按高算与竖排的地方没列
+位置：plan“侧轨”第 3 条；WorkbenchToolStrip.vue measureBand/strip/popupSide；layout-drag.ts 第 520 行。
+现象：（a）measureBand 以 clientHeight 算还能摆几个入口，layoutStrip 用 rowGap；横排要改成按宽与 columnGap，且条目区在 CSS 里是 flex-direction:column，展开时又跨 grid-row 1/3。（b）带“只在有不止一个入口时画”，若用 v-if，onMounted 里一次性 observe(bandEl) 的 ResizeObserver 与 useEntryIndicator 的 band 引用在带重新出现后不会重挂；现有 watch 只处理 mainEl。（c）tooltip 与“更多”菜单的 popupSide 写死朝区域侧（左或右），横排在顶上应朝下，计划没有。（d）layout-drag.ts measureBands 里侧轨分支把 groupEnd 取 row.bottom、merged 取 null，改读轴之后 groupEnd 要按横向取 right。（e）收着到展开时同一个带从竖排变横排，状态一翻就直接换版式，计划只对导航做 FLIP，带没有过渡，收起时窄列在收缩的叶里先竖起来，会有一帧跳变。
+建议：把 (a) 到 (e) 写进“侧轨”一节，横排的验收加“放不下进更多”“切换时不跳”各一条。
+
+## 11 [建议][过渡] 收起时列表在换 DOM 的同一刻就没了，“收起反过来”没法成立
+位置：plan“过渡”第一条；AgentMessagesSegment.vue（expanded 用 v-if/v-else 换整块）。
+现象：收起方向计划写“导航两项的矩形作起点，底段两个按钮从那里移回”，但没写列表怎么退场。视图段按已提交的 expanded 换画法，列表在 expanded 变 false 的那次渲染里就被拆掉，侧轨（或浮动窗）还要走一段宽度过渡，期间留下一块空白，被拆的导航也没有可移动的节点（只有新底段按钮在 FLIP）。Spec 写的是“收起反过来”（列表先淡出），与现有“按已提交的 expanded 换画法，不看过渡中的宽度”的合同不容易同时满足。
+建议：收起时给列表一个只淡出的离场（Transition 或把旧节点留到动画结束，减少动态效果时直接拆），并在计划里写它与“同一个组件按已提交状态换画法”的关系；否则按“直接换”写进 Spec，别写“反过来”。
+
+## 12 [建议][测试标记] 测试分工表缺的标记
+位置：plan“测试分工”表。
+现象：e2e 子代理不读实现，下面几条验收没有可用的标记：（a）导航里 Bot 的未读合计与“等你处理”的 warning 状态：收着时底段用 data-messages-summary / data-messages-summary-waiting，导航的对应标记没写。（b）“搜索行给按钮让位”：需要 [data-messages-search]、[data-panel-search]、[data-messages-list-panel] 这些现有标记，表里没有，也没写按钮与搜索框不重叠的判据。（c）“减少动态效果下直接到位”与“过渡确实发生”：WAAPI 动画没有可观察标记，e2e 只能用 document.getAnimations() 或采样位置，表里没约定；第 1 条的起点问题也要靠它验证。（d）入口带横排只写了 axis=x，拖放的落点指示（横线还是竖线）、更多、tooltip 方向没约定。（e）导航“最终宽度靠右”要有可量的参照（列表区的右缘）。（f）被拒时展开的“窗口太窄”在停靠下也要有 e2e 入口（要量窄视口），表里只有标记没有场景。
+建议：补上这些标记，并写明浮动与停靠各自的断言入口；导航 FLIP 开始时在导航或列表上挂 data-messages-flip（结束移除）供黑盒等待。
+
+## 未发现问题的方面
+- tooNarrow 的来源：state.rail.tooNarrow 已由 WorkbenchShell 送进 railSegment，浮动窗的 window 已带它，把它加进 rail 位置并在 view-rail.ts 的相等比较里加上，路径是通的（只是合同类型文件没列，见第 7 条）。
+- 视图段撤回、加载失败、渲染出错：acceptRailBounds 对这几种返回 null，按收着呈现、不出展开的空列，没有按钮可点是一致的。
+- 预算与 layout-constraints：railBudget、railLimit 只读视图声明的 bounds，300 换进去不需要改算法；已有布局记录里只有用户拖过的宽度才落盘，等于缺省时 layout-doc-store 不写 width（第 803 行），所以旧记录不会把 260 钉死。
+- 浮动窗“顶格”：AgentMessages 的 edge-body 对收着与展开都加 --acv-segment-inset-top，展开后的搜索行与“回到停靠”不会重叠，只要计划保持这个结构。
+- 排序位移按 vertical 分支（layout-drag.ts 第 404 行）已存在，横排拖放的排序不用新写。
+
+## 数量
+阻断 0；重要 8（第 1 到 8 条）；建议 4（第 9 到 12 条）。最严重：第 1 条（FLIP 起点读不到，与 AgentMessages 里已写明的同类教训矛盾）、第 2 与第 3 条（焦点交接与键盘可达），第 5 条（停靠时靠右排缺最终宽）、第 8 条（迁移与验证清单漏 lab-agent-ui、perf 脚本、Lab 夹具与 Spec 输出 36）。
+
+======== 主 Agent 的处理（2026-11-27，计划第二部分第 2 稿） ========
+1 FLIP 起点不能在 pre watch 里量：成立，改成在视图段自己的点击处理里、发请求之前量；命令等别处发起的展开收起不做移动，Spec 输出 50 写明。
+2 焦点交接三处漏洞：成立。按钮收着与展开是同一个元素（main 的第一个子元素，展开时改绝对定位）；通用标记 data-rail-toggle，宿主的交接改认它，收着到展开方向也交接；Spec 输出 50“焦点与读屏”、views 输出 21 写明。
+3 roving 与展开版式：成立。展开时底段容器 hidden；按钮只在收着时带 data-rail-item；横排入口带的方向键用左右（Spec 写明）。
+4 fitSegment 没扣按钮：成立，加保留高度参数。
+5 “按最终宽靠右排”没有数据来源：成立，placement.rail 加 width（Spec views 21）；停靠贴右、浮动贴左。
+6 窄时搜索行挤、变量缺省与登记：成立，会话面板搜索行用容器查询在不到 260 时换行；--acv-list-inset-end 写缺省并登记进 hostVars。
+7 别的 VIEW_RAIL 视图没有按钮、合同没列：成立，测试视图 SampleRailView 画同样标记的按钮；contracts.ts 的 ViewRailPlacement 与注释列入改动。
+8 迁移与验证清单漏项：成立，lab-agent-ui 进迁移与合入前清单，perf 脚本由主会话改，Lab 夹具 260 改 300，同名 .md 列入。rail-budget.test 的数是那几条用例自己给的输入（request 260），算法不依赖缺省宽，不改；Spec 验收 36 同理（场景里明写“请求展开到 260”），不改。宽版视口是否落到“窗口太窄”由 e2e 子代理迁移时按 300 重选。
+9 加载中、冷开隐藏没有按钮：接受，写进 Spec 输出 50 作已知限制（侧轨按收着、只有入口带）。
+10 横排入口带的遗漏：成立，计划写明 v-show、measureBand 按轴、提示朝下、groupEnd 按轴；竖横切换不过渡。
+11 收起时列表 v-if 立刻拆：成立，列表包 Transition 离场淡出；底段从点击时记下的导航矩形 FLIP 回去。
+12 测试标记缺口：成立，测试分工表补上未读汇总、搜索行不被盖住的判据、data-messages-moving；横排带落点指示沿用现有 data-tool-merge 与插入线，不另加；停靠下“窗口太窄”的入口就是 data-rail-toggle 上的 data-rail-too-narrow。

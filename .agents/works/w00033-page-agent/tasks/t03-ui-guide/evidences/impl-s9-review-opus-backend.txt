@@ -1,0 +1,84 @@
+# w00033 t03 后端实现审查（Opus）
+
+审查对象：.worktree/w00033-page-agent，HEAD 9d2327ab5（已核对），范围 8351618c9..9d2327ab5。
+单测：page-agent/backend、agent/shared/profile-tools、eval/objects、workbench/shared/command-query 共 71 条在 HEAD 上全部通过（负载约 10）。
+
+### 1. 后台会话与 bot 会话派出的子会话照样有 `ui`：前台过滤只看本会话的会话头
+
+- 严重程度：重要
+- 类别：正确性 / 文档
+- 位置：packages/neuro-book/src/plugins/agent/backend/tools.ts:144（`unattended = session.background === true || session.owner !== undefined`）；子会话创建 packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts:351-358（只传 `caller`、`project`，不传 background、owner）；nb-harness/src/kernel/api/host.ts:431-432 注明“fork 出来的与子会话没有 owner”。
+- 现象：bot 归属的会话或 `startTask({background: true})` 的会话里调 `nbook.agent.spawn`，子会话的会话头没有 `background` 也没有 `owner`，`forSession` 判成有人在窗口前，`ui` 四个方法（defaultForAll）全部进子会话的工具表、eval 说明与全局对象。子会话继承父会话的 `project`，选窗口时会选中用户正在用的那部作品的窗口，于是 bot 对话里的子代理可以在用户眼前画高亮、截图（截图在询问模式下还会对一个没人看的会话弹审批卡）。
+- 为什么是问题：Spec 的理由是“没有人在窗口前的会话用不上”（toolBase 的注释原话），子会话同样没人看；Spec 字面只写了“会话头的 background / owner”，实现照字面做，但留下了绕过口。
+- 如何核实：读上面三处即可；要跑可在 agent.test.ts 的“输出 4：声明 foreground……”那条里，对 `owned` 会话脚本一次 spawn，看子会话首个请求的 tools 是否含 `test__tools__front`。
+- 建议改法：要么在 Spec 写明“沿 `caller` 链向上，任一祖先是后台或 bot 会话时也算”，`forSession` 按 `caller` 追到根会话的会话头再判；要么子会话创建时把父会话的 `background`、`owner` 归属一并写进子会话头（影响会话列表，代价更大）。这是改合同的选择，交主会话与开发者定。
+
+### 2. 高亮与截图丢掉了 `rebound` 警告：Spec 输出 4、12 要求成功结果的 `warnings` 标明改用了哪个元素
+
+- 严重程度：重要
+- 类别：正确性
+- 位置：packages/neuro-book/src/plugins/page-agent/backend/highlight.ts:37-42（`HighlightReturnsSchema` 没有 `warnings`，`additionalProperties: false`）与 :149-158（`installed` 事件只取 `window`，`event.warnings`、`event.target` 都不用）；shared/contracts.ts:207-212（`capture` 的输出没有 `warnings`）；backend/tools.ts:38-43（`ScreenshotReturnsSchema` 同样没有）。
+- 现象：核心包的定位在引用身份变了而同层唯一同名同 key 元素存在时改用它，并把 `rebound: w1.3 -> w1.7` 写进 `Located.warnings`（nb-page-agent/src/locate.ts:184）；高亮把它放进 `installed.warnings`（nb-page-agent/src/guide/index.ts:210），窗口照发，服务端收到后直接丢弃。截图那边窗口的 `CaptureOutcome`（web/page-side.ts:29-32）与远程合同都没有这个字段，警告在窗口里就没了。快照是唯一把 `warnings` 交给代码的方法。
+- 为什么是问题：Spec 输出 4 写明“本 Spec 的四个方法都是”不改页面的方法，重找成功时“在 `warnings` 标 `rebound`”；输出 12 写“成功结果的警告在 `warnings`”。代码拿旧引用高亮，实际画在另一个元素上却看不到任何提示，后续按 ref 推理会错；文档（plugin.ts 的 docs）也没有说高亮、截图会交回警告。
+- 如何核实：`grep -n warnings packages/neuro-book/src/plugins/page-agent/backend/highlight.ts packages/neuro-book/src/plugins/page-agent/backend/tools.ts` 只在快照的 schema 展开处出现；highlight.test.ts 第 40 行的 `installed` 事件带 `warnings: []`，没有一条测试断言警告被交回。
+- 建议改法：`HighlightReturnsSchema` 加 `warnings: string[]`（与快照同形），`installed` 时记下 `event.warnings` 合进结局的 `details`；`capture` 合同的输出加 `warnings`，窗口一侧从定位结果带上，`ScreenshotReturnsSchema` 同样加。顺带考虑把 `installed.target`（落到唯一可交互后代之后真正画框的元素）也交回，代码才知道高亮落在哪。
+
+### 3. 选窗口时没归类的探测失败一律报成 `no-window`“请用户打开或切回”，原码丢失；`version-changed` 被记成 `not-provided`
+
+- 严重程度：建议
+- 类别：正确性 / 代码质量
+- 位置：packages/neuro-book/src/plugins/page-agent/backend/windows.ts:75-83；callFailure 在同文件 :110-120。
+- 现象：
+  1. 候选的 `info()` 以 `provider-error`（窗口里 `ready` 或 `info` 抛错）、`unavailable`（窗口入口激活失败、链路在派发前断开，cause 为 `disconnected`）、`target-gone`（探测途中窗口关了）、`cancelled`（调用已被停止）失败时，三个计数都不加；全部候选都这样时走到 :83，交回 `no-window`“没有可用的窗口：请用户打开或切回 NeuroBook 窗口”，不带 `cause`。用户明明开着这部作品的窗口，模型却被引导去请用户“打开窗口”；日志里也看不出是窗口出错。
+  2. :82 把 `not-provided` 与 `version-changed` 合计后固定写 `cause: "not-provided"`，Spec 输出 14 要求“原码放在 details.cause”。
+  3. 调用阶段同理：请求或订阅在窗口确认之前链路断开，通道给 `unavailable`（cause `disconnected`，nb-runtime/src/remote/protocol.ts:79-80），callFailure 换成 `window-unresponsive`“稍后重试”；窗口确认之后断开才是 `target-gone` 换成 `window-gone`“重新快照”。两者对用户都是“窗口刷新了”，前者的恢复建议错了（重试会命中刷新后的新页面、旧引用全部 `stale-ref`）。Spec 的表按通道码字面换算，实现照表做，但表没覆盖这个情形。
+- 为什么是问题：失败说明是模型决定下一步的唯一依据；错误的恢复建议会让模型反复请用户开窗口或盲目重试。
+- 如何核实：读代码即可；1 可在 windows.test.ts 里加一个 `info` 抛错的窗口（testWindow 的 info 实现里 throw），看交回的 code 与 message。
+- 建议改法：探测失败里 `provider-error`、`unavailable` 计入“没应答”（与 timeout 一起走 `window-unresponsive`，cause 写原码），`target-gone` 当作这个候选不在；`cancelled` 直接交回取消，不必再算；stale 记下实际的码。callFailure 里 `failure.cause === "disconnected"` 时按 `window-gone` 处理，并把这条写进 Spec 输出 14 的表。
+
+### 4. 插件停止的真实接线与几条高亮收口路径没有测试：现有用例绕过了运行时
+
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/page-agent/backend/highlight.test.ts:199-216（插件停止用 `active.stopAll()` 直接调）；backend/plugin.ts:157-160（`context.signal` 的 abort 监听，作废截图凭证、结算高亮）；`pageAgentBackendPlugin` 只在 page-agent.llm.test.ts 与 server/plugins.ts 里出现。
+- 现象：
+  1. 输出“`nbook.page-agent` 停用或重载时，正在等的高亮以 `window-gone` 结束，计时恢复”只在手工调 `stopAll` 的情形下测过。真实停止时还有两件事同时发生：订阅方（本插件）停止时节点按释放静默结束订阅、之后的事件按迟到丢弃（nb-runtime/src/remote/node.ts:1030、:1059-1066、:457-460，不调 onEnd）；agent 的工具包装在撤回时给 5 秒宽限后以 `unavailable` 截断（agent/backend/tools.ts:286-291）。现在结局正确，靠的是作用域关闭先同步 abort `stopSignal`（nb-runtime/src/lifecycle/scope.ts:551）再撤回贡献这个先后；把 abort 监听挪个位置或换成 `onRelease`，结局就会变成 `unavailable`，单测发现不了。截图 `captures.dispose()` 的接线同样只在 captures.test.ts 里直接调。
+  2. 没测的收口路径：装上之前停止 eval（只测了装上之后）；订阅以 `provider-error` 等非“窗口不在”的原因自己结束（onEnd 的 else 分支，highlight.ts:173）；`installed` 重复到达（highlight.ts:150 的守卫）。这几条变异后（删掉守卫、把 else 分支改成 window-gone）现有用例全过。
+- 为什么是问题：插件停止是 Spec“时序与寿命”里点名的一条，且结果依赖跨包的时序；按仓库规则，这类时序要在真实运行时里测。
+- 如何核实：`grep -rn pageAgentBackendPlugin packages/neuro-book/src --include='*.test.ts'` 只命中 llm 测试；变异检查在仓库外副本里删 highlight.ts:150 一行后跑 `bun test src/plugins/page-agent/backend/highlight.test.ts`（我没做，交主会话）。
+- 建议改法：加一条用真实 `pageAgentBackendPlugin` 装进 settingsWorld 服务端的用例（窗口用 testWindow），高亮装上后停用插件，断言结局 `window-gone` 且等用户收回、窗口那边被退订，同时断言在途截图凭证得 410；另补上面三条路径各一例。
+
+### 5. `ui` 的文档没有列 `invalid-arguments`，而四个方法都会以这个码抛出
+
+- 严重程度：建议
+- 类别：文档
+- 位置：packages/neuro-book/src/plugins/page-agent/plugin.ts:208（失败码清单）；backend/tools.ts:115-116、:130、:135（定位写错、窗口回 `invalid-locator` 都换成 `invalid-arguments`）；各工具的 `errors` 也没有这个码，所以 objectDoc 生成的“details 的形状”表里同样没有。
+- 现象：模型写出 `{command: "x", text: "y"}` 这类定位时，代码里抛 `ToolCallError` 的 `code` 是 `invalid-arguments`，文档的码表里查不到。
+- 为什么是问题：Spec 输出 13 要求文档“列出各方法的失败码”；这是模型最常犯、最该自己改的那类错。
+- 如何核实：`grep -n invalid-arguments packages/neuro-book/src/plugins/page-agent/plugin.ts` 无结果。
+- 建议改法：在 docs 的失败码一句里补“`invalid-arguments`（参数或定位写错，按说明改写再调）”。
+
+### 6. 第 4 条引用的运行时行号更正（不新增问题）
+
+第 4 条里“nb-runtime/src/remote/node.ts:1059-1066”是同实例订阅的收口，与服务端订阅窗口无关；服务端订阅窗口在订阅方释放时走的是 node.ts:457-460 的 `#endLocalSubscription`（对远程订阅只调 `cancel`，不调 onEnd）与 :1030 的“订阅方已停止则丢弃事件”。结论不变。另外第 4 条第 2 点“变异后现有用例全过”是读测试得出的推断，没有实际跑变异。
+
+## 未发现问题的方面
+
+- highlight.ts 的结算：`finish` 只结算一次；装上之前与之后的停止 eval、插件停止（经 stopAll）、窗口断开（订阅以 target-gone 结束）、窗口回 `failed`、`installed` 重复、`outcome` 先于 `installed`、订阅句柄晚于结算到达，结局都与 Spec 输出 9、14 和“时序与寿命”一致；等用户只在装上后报一次，结算时 resolve，harness 另在 callSignal abort 与调用结算时兜底收回；订阅、装上截止与等用户上限两个定时器、abort 监听、stopAll 登记都在 finish 里释放。
+- harness SelfReportedWaits：每个等待恰好一次 true、一次 false；promise 结算、调用被取消、调用结算（含提供方撤回后由包装的 5 秒截断结算、执行抛错）三者先到者收回；eval 的 Deadline 按计数暂停，与嵌套审批的 onWaiting 叠加正确；等用户期间仍持有 shared 锁，之后的 exclusive 排在后面（invoke.test.ts 有用例）。
+- captures.ts：凭证 24 字节随机、放请求头；第一笔 PUT 在第一个 await 前占位；上限按收到的原始 JPEG 字节算并逐块累计；作废（到期、调用结束、插件停止）时取消在途读并回 410；尺寸按文件头核对；错误说明不含服务端路径。
+- nb-runtime router：服务端本地回答实例查询、按 `peer.closed` 过滤、描述冻结；服务端订阅成员时把 disconnected 改报 target-gone，与成员经路由的回答一致，符合 plugin-channel 输出 7、8。
+- profileToolIds / changeToolBinding：本来只有一部分方法时去掉再加回恢复原来那几个；对象之后新增方法跟着对象；对象不认识了时绑定条目保留、不报错；方法级旧条目在动对象时清掉；设置 schema 的 `objects` 可选，旧文件照读，withToolBinding 不动别的 Profile。
+- 前台过滤：内核工具表、eval 说明（sessionDeclarations）与代码里的全局对象（codeTools）都取同一个 forSession（问题只在第 1 条的子会话）。
+- eval 失败详情：只对声明了 `errors` 的码交 `details`，校验形状、按 UTF-8 量 8 KB、超限写明并记诊断。
+- command-query.ts 只是从 web/commands 原样搬到 shared（diff 只改一行导入）。
+- 单测：page-agent/backend 等 71 条、nb-harness invoke 与 approval 72 条在 9d2327ab5 上全部通过。
+
+## 各级数量
+
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：3（第 3、4、5 条）
+- 第 6 条是对第 4 条的更正，不计数。
+
+有效发现：1、2、3、4、5

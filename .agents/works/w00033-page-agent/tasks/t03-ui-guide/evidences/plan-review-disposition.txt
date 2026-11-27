@@ -1,0 +1,84 @@
+w00033 t03 计划审查的处理（第一版计划 plan-v1 与 Spec 草稿，审查检出 cf89b6a38，2026-11-26）
+
+审查者与报告：
+- Opus（后端与跨进程）：plan-review-opus.txt，16 条（重要 8、建议 8）
+- Sonnet（前端）：plan-review-sonnet-frontend.txt，14 条（阻断 1、重要 10、建议 3）
+- Sonnet（从整体看）：plan-review-sonnet-overall.txt，14 条（重要 8、建议 6）
+- omp @review（后端，同 Opus 的说明）：plan-review-omp.txt，24 条（阻断 3、重要 20、建议 1）；审的是第一版，按第二版与当前 Spec 逐条核对，见文末
+
+归类：A 成立要改；B 成立但接受取舍；C 不成立；D 交开发者定（结果见 t03 README 决定）。改到的位置写 Spec 或计划第二版的小节名。
+
+几位都提出的：
+- 说明框没有静态稿（整体 8、前端 10）：A。计划第 2 片出静态稿与评审板，与第 3 到 6 片并行，第 8 片等定稿。
+- 跨插件复用放错位置（整体 1、前端 4 第 3 点）：A。打分函数移进 workbench/shared，读接口都进提供方的 shared/contracts.ts，第 4、6 片验证加 architecture.test.ts。
+- 选窗口不看作品（整体 6、Opus 6）：D，开发者定只选同一作品的窗口（t03 决定 3）。Spec 输出 1、验收 2。
+- 前台标记放在 harness（整体 9、Opus 3、Opus 16）：A。不加 harness 声明，agent 插件在 forProfile 调用处按 background 或 owner 过滤，说明、全局对象、工具表一致；Spec 删掉 no-window 的“或会话在后台”，加验收 9。bot 归属的会话也算没人在看（作者判断：没人会在窗口前，按失败即关处理）。
+- 接线与登记漏项（整体 12、前端 5）：A。计划“page-agent 插件”接线一条与新包登记一条。
+
+Opus：
+- O1 订阅建立不等于装上：A。窗口合同载荷改判别联合 installed、outcome、failed；结局在 subscribe 前建好。
+- O2 waitingForUser 计数收不回：A。invokeNested 在嵌套调用结算时补齐。
+- O4 按对象开关只有关闭方向：A。绑定加 objects 的 added、removed，先展开对象再套方法级；旧版本读新字段写已知限制。
+- O5 timeout 由谁计：A。服务端以注入时钟计，Spec 输出 9。
+- O7 上传凭证收口：A。Spec“状态与转换”加截图状态表；凭证 20 秒；413、410；调用结束后拒收。
+- O8 通道失败码换算：A。Spec 新增输出 14 的换算表。
+- O9 只改 router.ts、测试用 topology()、任何结局都 release：A。
+- O10 plugin-channel 输出 7、8 文字要补：A。计划“Spec 与文档改动”。
+- O11 details 对所有工具放开：A。声明 errors 才交给代码，文档列出失败码与形状。
+- O12 等待占并发名额：A，取建议 (b)：不改锁，写进 harness/runtime.md 与 Spec 输出 11。
+- O13 tsType 换行会断 SDK 场景测试：A。没有说明与缺省时保持单行；第 7 片验证点名 10-eval-object。
+- O14 cancelled 收不到、schema 表达不了字节：A。Spec 输出 9、12 与验收 7。
+- O15 第一次调用含激活与加载：A。浏览器入口随窗口激活、引擎空闲预加载，Spec 输出 15、验收 8。
+
+Sonnet 前端：
+- F1 说明框按键被弹层截走（阻断）：A。说明框宿主截住键盘事件；Spec 输出 10、验收 6；变异检查。
+- F2 弹层关掉时说明框跟着消失：A。每次重算检查并重挂；Spec 输出 10、验收 6。
+- F3 设置目录与窗口画出的行对不上：A。公开窗口落位后的只读门面，不公开带写入口的原键；Spec 输出 7 加“节”一类与选层规则。
+- F4 工作台服务只有位置：A。改成界面目录读取服务；多视图容器的视图标题加稳定名。
+- F6 skip 范围过宽：A。只标消息列表；跳过只影响列出，定位照常；Spec 输出 3。
+- F7 Profile 对象行的规则没写：A。规则随静态稿定稿写进 profile-settings.md；定位属性写进测试分工。
+- F8 悬停显示：A（选择器特异性、核心不认识工作台标记，改成宿主钩子）；B（标签关闭按钮、子代理停止按钮这类不在悬停动作区里的，写进 Spec 非目标，第一批不做）。
+- F9 测试约定不够：A。补属性；弹层用例只放应用 e2e。
+- F11 Lab 场景挂不上、核心不能依赖应用：A。去掉 Lab 场景，真实组件用应用 e2e。
+- F12 名字计算的性能没再量、命中检查要跳过自己的节点：A。第 5 片先量；Spec 输出 3。
+- F13 逐帧跟随没有范围：A。只在目标祖先链有动画时逐帧。
+- F14 浏览器写死路径：A。改 channel: "chrome"。
+
+Sonnet 整体：
+- S2 核心包绑在 NeuroBook 上：A。./api 只放页面概念，宿主注入截图、文字、悬停、主题；截图单独入口。
+- S3 rebound 没限只读：A。Spec 输出 4。
+- S4 定位摊平会撞名：A。方法参数里定位放进 at、of、scope；结局与 until 为开放集合（Spec 输出 9、边界与兼容）。
+- S5 映射表由使用方维护：D，开发者定由拥有者写稳定名（t03 决定 1）。Spec 输出 6。
+- S7 切片：D，开发者定按功能分两轮（t03 决定 2）。计划“切片”。
+- S10 Profile 里写 page-agent 的工具 id：A。改用 defaultForAll，Spec“输入与前置条件”。
+- S11 内核改法范围：部分 C。“项目目标要保留断线重连重建”不成立：服务端自己的上游是进程内的路由、从不重连，项目子进程链路断开即实例结束（plugin-channel 进程间链路第 2 条），服务端订阅项目实例今天同样一直挂着（Opus 9 第 3 点）；两种目标都改报 target-gone，回归用例改为“客户端作订阅方断线重连仍重建”。其余 A：tsType 已打印可选；global 要 object 与 method。
+- S13 可推迟：A（annotate 推迟）；B（side 保留：floating-ui 自带，代价很小；不减弱动效的用例限定在跟随与等待的几条）。
+- S14 测试分工盲区：A。第一段 e2e 改成只写已实现的输出；暗色主题与开发服务点一遍归主会话（第 10 片）。
+
+不成立：S11 的一部分（见上）。
+
+omp（快速审查，报告晚于第二版；逐条换到第二版计划与当前 Spec 核对，成立的改进计划第三版与 Spec）：
+- M1 订阅成功不等于装上、建立中取消不了：部分已由 O1 处理（载荷判别联合）。补 A：订阅开始到 installed 有服务端 10 秒截止；句柄交回前就结算的拿到句柄即 release；窗口对业务失败交 failed 不抛错。Spec 输出 2。
+- M2 停止后 JS 收不到 cancelled、release 不确认撤掉：cancelled 只进日志已由 O14 处理。补 A：Spec“时序与寿命”第 1 条分开窗口交回的结局（先撤再发）与服务端结算的结局（窗口收到退订或断线时撤）。
+- M3 capture 没带 of：A。窗口合同改 capture({token, of?})；of 找不到得 not-found，不改截整窗。Spec 输出 8。annotate 已按 S13 推迟。
+- M4 结束回调里目录仍列出已关的成员、描述可改：A。router.ts 的 instances() 按 peer.closed 过滤，登记时冻结描述（Work 分支 233e0e599，两处各做变异检查）。
+- M5 前台过滤要覆盖 codeTools：第二版已移到 agent 插件，补 A：declarations 与 codeTools 两条路取同一份结果；required 写了 ui 的后台会话按 tools-missing。
+- M6 窗口不送结局没有服务端到期：C，第二版已由 O5 处理（服务端注入时钟计 timeout）；第三版写明从 installed 起计。
+- M7 details 量长度不等于 JSON 校验、异常会丢回信：A。replyOf 失败分支 try 序列化、交 JSON.parse 的副本，不合格只丢 details 并记诊断。
+- M8 普通编辑抹掉 objects：A。changeToolBinding、withToolBinding 保留 objects；objects 只加在工具绑定上。
+- M9 并发调用各自选窗、迟到的覆盖最近窗口：A（简单改法）。同会话选窗口串行、派发时记最近窗口、info 带 signal；Spec 输出 14 改为“没有可用的候选又有超时的”得 window-unresponsive。
+- M10 换窗后再选回原窗口，旧引用仍有效：D。与 t01 决定 3 的“换了窗口旧引用作废”字面不符；严格做要按会话分别发号，与输出 4“同一元素引用不变”冲突。推荐放宽为“引用只在发它的窗口有效”，交开发者定（会话里问）。前缀不是这次加载的直接 stale-ref、不重找（A，Spec 输出 4）。
+- M11 老订阅的迟到退订撤掉新引导：A。一窗一个当前高亮，新订阅到达即把旧的以 replaced 结束；每条只撤自己的。计划核心第二段。
+- M12 提供方抛错时 signal 不触发：内核缺口 B（不在本 Task 修，记为后续）；窗口一侧装了一半出异常时自己收口（A）。
+- M13 上传凭证的占位与读体回收：A。第一笔 PUT 在第一个 await 前占住、作废时取消读取、宿主时钟判到期、三者齐备才交图。
+- M14 整条回复可超 1 MiB：A。每个回复按 JSON 序列化后至多 256 KB；find 的 limit 至多 20、提问至多 2000 字。Spec 输出 12、输入表、输出 9。
+- M15 512 KB 与交给模型的图不是同一份：A。统一 JPEG（适配器不转换），服务端核对文件头与解码尺寸。Spec 输出 8，计划技术选型。
+- M16 凭证在路径里会进诊断：A。凭证放请求头，路径不带凭证。
+- M17 只存关闭的对象推不出已获准的方法：A。必需方法所在的对象行不能去掉；只绑了一部分方法的，关掉再加回恢复原来那几个。
+- M18 bot 也拿到 ui、主创静态提示：C。第二版用 defaultForAll 加 owner 过滤，不在主创写静态提示。
+- M19 default 不执行缺省：A（缺省由业务代码填，测试覆盖省略字段）；签名验收的切片顺序第二版已改（C）。
+- M20 窗口有序退出先报 provider-stopped：C，Spec 输出 14 的换算表已含。
+- M21 screen 判定对象到不了审批模型：A。harness 的审批请求带上扩展判定对象（permissions 输出 20 已承诺），计入长度上限。计划 harness 一节。
+- M22 RemoteAccess 的 contacted 不回收：B。每个窗口实例几十字节，服务端重启清空；写进计划“不做与风险”。
+- M23 第 8 片自验在交付后才写、注入插件代验不了装配：C，第二版的切片与测试分工已改（第 9 片之后跑 page-agent.e2e.ts、真实应用贯通）。
+- M24 切片表的文档落点与构建依赖：C，第 1 片已在 master 提交，包登记已随第 4 片提交。

@@ -8,6 +8,7 @@
 
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry, type MarkType} from "../components/marks";
 import {effectiveFields} from "../components/registry";
+import {parsePath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
 import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
@@ -26,6 +27,11 @@ import type {LineView} from "../lines/set";
 export interface ChangeFilter {
     readonly chapter?: string;
     readonly entry?: string;
+    /**
+     * 只列有改动落在这个命名空间下的（project.md 方法表 `changes`）：给了 `entry` 时只算这个条目上的改动，不给时算任何条目上的。
+     * 只经参与、`involves` 涉及条目而没改它的变更不列。
+     */
+    readonly namespace?: string;
     readonly line?: string;
     readonly kind?: "written" | "plan";
     readonly status?: "active" | "held" | "undone";
@@ -422,6 +428,7 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
         (filter.inView === undefined || table.visible(filter.inView, change.id)) &&
         within(change) &&
         (filter.chapter === undefined || (change.at.kind === "chapter" && change.at.chapter === filter.chapter)) &&
+        (filter.namespace === undefined || touchesNamespace(change, filter.namespace, filter.entry)) &&
         (filter.line === undefined || change.lines.includes(filter.line)) &&
         (filter.kind === undefined || change.kind === filter.kind) &&
         (filter.status === undefined || change.status === filter.status) &&
@@ -431,6 +438,15 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
     if (filter.entry === undefined) sortByPlacement(order, matching);
     if (filter.order === "desc") matching.reverse();
     return matching;
+}
+
+/** `namespace` 筛选（见 `ChangeFilter.namespace`）：变更里有一处改动落在这个命名空间下（给了条目时只看这个条目上的改动）。 */
+function touchesNamespace(change: StoryChange, namespace: string, entry: string | undefined): boolean {
+    return change.patches.some((patch) => {
+        if (entry !== undefined && patch.at.entry !== entry) return false;
+        const parsed = parsePath(patch.at.path);
+        return parsed?.root === "namespace" && parsed.namespace === namespace;
+    });
 }
 
 /** 每条剧情变更涉及的条目（`concerns` 的口径），按变更对象缓存：发布时没改的变更沿用同一个对象，跨版本有效。 */

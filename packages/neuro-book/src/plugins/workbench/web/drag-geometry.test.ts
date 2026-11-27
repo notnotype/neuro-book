@@ -39,14 +39,17 @@ const EXTENT: GridExtent = {width: 1440, height: 900};
 const DOC = defaultLayoutDoc(CATALOG, CONTAINERS);
 const LAYOUT = {extent: EXTENT, projection: layoutProjectionOptions({doc: DOC, catalog: CATALOG, viewportWidth: EXTENT.width}), dpr: 1};
 
-/** 默认布局里每块叶的矩形（投影算的，1440×900）。 */
+/**
+ * 默认布局里每块叶的矩形（1440×900）：活动栏 48、侧栏 340、右栏 400、右轨 48（输出 50），三条缝各 1，编辑区 602；状态栏 22，下面 878 高。
+ * 右栏顶上没有入口条（入口在右轨上），两节各占一半。
+ */
 const LEAVES: Readonly<Record<string, GridDropRect>> = {
     "section:files": {left: 48, top: 0, right: 388, bottom: 439},
     "section:outline": {left: 48, top: 440, right: 388, bottom: 878},
-    g0: {left: 389, top: 0, right: 1039, bottom: 677},
-    "section:terminal": {left: 389, top: 710, right: 1039, bottom: 878},
-    "section:chat": {left: 1040, top: 32, right: 1440, bottom: 455},
-    "section:notes": {left: 1040, top: 456, right: 1440, bottom: 878},
+    g0: {left: 389, top: 0, right: 991, bottom: 677},
+    "section:terminal": {left: 389, top: 710, right: 991, bottom: 878},
+    "section:chat": {left: 992, top: 0, right: 1392, bottom: 439},
+    "section:notes": {left: 992, top: 440, right: 1392, bottom: 878},
 };
 
 function measured(id: string): LayoutDropPanelGeometry {
@@ -64,8 +67,9 @@ const SIDEBAR_BAND: EntryBand = {
     rect: {left: 0, top: 0, right: 48, bottom: 878},
     entries: [{container: PROJECT, start: 8, end: 40}, {container: "view:search", start: 48, end: 80}, {container: "view:marks", start: 88, end: 120}],
 };
-const AUX_BAND: EntryBand = {region: "auxiliarybar", axis: "x", row: {left: 1040, top: 0, right: 1440, bottom: 32}, groupEnd: 1100, merged: null, rect: {left: 1040, top: 0, right: 1440, bottom: 32}, entries: [{container: AUX, start: 1044, end: 1076}]};
-const PANEL_BAND: EntryBand = {region: "panel", axis: "x", row: {left: 389, top: 678, right: 1039, bottom: 710}, groupEnd: 450, merged: "section:terminal", rect: {left: 389, top: 678, right: 450, bottom: 710}, entries: [{container: "view:terminal", start: 393, end: 425}]};
+/** 右轨的入口带（输出 50）：同活动栏竖着排，在右栏外侧。 */
+const AUX_BAND: EntryBand = {region: "auxiliarybar", axis: "y", row: {left: 1392, top: 0, right: 1440, bottom: 878}, groupEnd: 878, merged: null, rect: {left: 1392, top: 0, right: 1440, bottom: 878}, entries: [{container: AUX, start: 8, end: 40}]};
+const PANEL_BAND: EntryBand = {region: "panel", axis: "x", row: {left: 389, top: 678, right: 991, bottom: 710}, groupEnd: 450, merged: "section:terminal", rect: {left: 389, top: 678, right: 450, bottom: 710}, entries: [{container: "view:terminal", start: 393, end: 425}]};
 
 const KEPT: FrozenGeometry = {
     geometry: {panels: Object.keys(LEAVES).map(measured), floats: [], excluded: [], bands: [SIDEBAR_BAND, AUX_BAND, PANEL_BAND], origin: {x: 0, y: 0}},
@@ -105,27 +109,30 @@ describe("来源收起后的判定几何", () => {
         const after = collapse("view:terminal");
         expect(panelOf(after, "g0")).toEqual({
             id: "g0",
-            frame: {left: 393, top: 4, right: 1035, bottom: 873},
-            strip: {left: 405, top: 4, right: 1023, bottom: 32},
-            body: {left: 393, top: 32, right: 1035, bottom: 873},
+            frame: {left: 393, top: 4, right: 987, bottom: 873},
+            strip: {left: 405, top: 4, right: 975, bottom: 32},
+            body: {left: 393, top: 32, right: 987, bottom: 873},
         });
         expect(panelOf(after, "section:terminal")).toBeUndefined();
         expect(after.geometry.bands.map((band) => band.region)).toEqual(["sidebar", "auxiliarybar"]);
     });
 
-    it("右栏的容器剩一节时并进入口条：头是入口这一组之后那一段，正文是整张卡片，外框连上入口条", () => {
+    it("右栏的容器剩一节：剩下那节长满、头跟着上沿走；右轨还在，整条是落点，入口不动（输出 50，没有并进来的头）", () => {
         const after = collapse("view:notes");
         expect(panelOf(after, "section:notes")).toBeUndefined();
         expect(panelOf(after, "section:chat")).toEqual({
             id: "section:chat",
-            frame: {left: 1040, top: 0, right: 1440, bottom: 874},
-            strip: {left: 1100, top: 0, right: 1440, bottom: 32},
-            body: {left: 1044, top: 36, right: 1436, bottom: 874},
+            frame: {left: 996, top: 4, right: 1388, bottom: 874},
+            strip: {left: 1008, top: 4, right: 1376, bottom: 32},
+            body: {left: 996, top: 32, right: 1388, bottom: 874},
         });
-        const band = after.geometry.bands.find((item) => item.region === "auxiliarybar");
-        expect(band?.merged).toBe("section:chat");
-        // 落点那一段只到入口这一组为止。
-        expect(band?.rect).toEqual({left: 1040, top: 0, right: 1100, bottom: 32});
+        expect(after.geometry.bands.find((item) => item.region === "auxiliarybar")).toEqual(AUX_BAND);
+    });
+
+    it("右栏唯一的容器只剩来源：摘掉后右栏空了，右轨不在，不再是落点", () => {
+        const withoutNotes = must(removeTab(DOC, "view:notes"));
+        const after = collapsedGeometry(KEPT, withoutNotes, must(removeTab(withoutNotes, "view:chat")), LAYOUT);
+        expect(after.geometry.bands.map((band) => band.region)).toEqual(["sidebar", "panel"]);
     });
 
     it("来源是它容器唯一的视图：活动栏上它的入口没了，后面的往前补一格（到下一个入口的距离）", () => {

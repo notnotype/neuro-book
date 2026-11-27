@@ -23,7 +23,9 @@ const props = withDefaults(defineProps<{
     rows?: number;
     /** 放在就地改的编辑卡里：建议值嵌在输入框下面，成段的文字按内容长高。默认 false。 */
     inline?: boolean;
-}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, rows: 2, inline: false});
+    /** 成段的文字在原处改（输出 51）：字号、行高与卡片上的原文一样，长到 8 行封顶、再多在框里滚。默认 false。 */
+    prose?: boolean;
+}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, rows: 2, inline: false, prose: false});
 
 const emit = defineEmits<{
     (event: "update:value", value: unknown): void;
@@ -40,7 +42,15 @@ const emit = defineEmits<{
         <EntryPicker v-else-if="props.kind === 'ref'" class="w-72 max-w-full" :aria-label="props.label" :model-value="typeof props.value === 'string' ? props.value : null" :selected-name="props.refName" :results="props.refResults" @search="(query: string) => emit('search-ref', query)" @update:model-value="(value: string | null) => emit('update:value', value)" />
         <ImageInput v-else-if="props.kind === 'image'" class="w-full" :model-value="(props.value as ImageValue | null) ?? null" @update:model-value="(value: ImageValue | null) => emit('update:value', value)" />
         <Input v-else-if="props.rows === 1" class="w-full" size="sm" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
-        <Textarea v-else class="w-full" :rows="props.rows" :autosize="props.inline" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
+        <Textarea v-else class="w-full" :class="props.prose ? 'field-input__prose' : ''" :rows="props.rows" :autosize="props.inline" :max-rows="props.prose ? 8 : 12" :aria-label="props.label" :model-value="String(props.value ?? '')" @update:model-value="(value: string) => emit('update:value', value)" />
         <span v-if="props.unit !== '' && props.kind === 'number'" class="text-[var(--text-muted)]">{{ props.unit }}</span>
     </div>
 </template>
+
+<style scoped>
+/* 与人物、形象卡片上成段的原文同一字号与行高（CharacterCard、LookCard 的 `__passage`），点下去字不跳。 */
+.field-input__prose {
+    font-size: 1rem;
+    line-height: 1.85;
+}
+</style>

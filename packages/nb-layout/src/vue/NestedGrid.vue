@@ -64,6 +64,11 @@ const props = withDefaults(defineProps<{
     lifted?: {readonly key: string} | null;
     /** 宿主的拖动进行中（不论内容拿没拿起）：这期间离开的叶照旧立即消失，不留着缩回去。来源离开是拖动的一部分，留着的外框会被落点判定撞上。 */
     dragging?: boolean;
+    /**
+     * 宿主自己的尺寸手势进行中（网格之外的手柄，例如工作台侧轨的轨宽手柄）：这期间布局的变化跟手、不过渡，手势结束那一次也不过渡，
+     * 同网格自己的分隔线手势预览。
+     */
+    gesturing?: boolean;
     /** 浮动窗（docs/specs/ui/nested-grid.md 输出 101）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-layout-splitter-seam`）。`before`、`after` 是线两侧节点的 id，孩子是分支时就是分支 id（同名 .md 的“分隔线的身份”）。 */
@@ -103,6 +108,7 @@ const props = withDefaults(defineProps<{
     maximized: null,
     lifted: null,
     dragging: false,
+    gesturing: false,
     floats: () => [],
     sashKind: undefined,
     sashStyle: undefined,
@@ -321,7 +327,7 @@ const contentLayer = useContentLayer({
     flying,
     keptSize,
     shape: shapeOf,
-    previewing: () => preview.value !== null,
+    previewing: () => preview.value !== null || props.gesturing,
     measured: () => usableExtent(placementExtent.value),
     obscuredLeaves: () => obscuredLeaves.value,
     outgoingLeaves: () => outgoingLeaves.value,
@@ -463,7 +469,7 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
         rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null),
         extent: placementExtent.value,
         dpr: dpr.value,
-        previewing: preview.value !== null,
+        previewing: preview.value !== null || props.gesturing,
         holding: liftedKey !== null || props.dragging,
         swap: takeSwap(),
         ...(releasing.size === 0 ? {} : {released: releasing}),

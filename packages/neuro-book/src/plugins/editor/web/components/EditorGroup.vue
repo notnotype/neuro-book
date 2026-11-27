@@ -3,7 +3,7 @@
  * 一个标签的内容（同名 .md）：内容层里每个标签一块，空的编辑组一块。标签移到别的组时这块内容不重建，`groupId` 跟着变。面包屑、进度条与状态条只有组此刻显示的那块才画；
  * 其余的只留控件，由内容层停放。提示条与标签条在 `EditorGroupHead`。
  */
-import {Banner, Button, Kbd} from "@notnotype/nb-ui/components";
+import {Banner, Button, Kbd, OverlayScrollbar} from "@notnotype/nb-ui/components";
 import type {BannerTone} from "@notnotype/nb-ui/components";
 import {computed, inject, provide, useTemplateRef} from "vue";
 
@@ -266,12 +266,18 @@ provide(editorToolbarSlotKey, toolbarSlot);
                 <p>{{ failure.text }}</p>
                 <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ t("document.retry") }}</Button>
             </div>
-            <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
-            <div v-if="pageId !== null" ref="pageHost" tabindex="-1" class="absolute inset-0 overflow-auto outline-none" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
-                <component :is="pageComponent" v-if="pageComponent !== null && pageContext !== null" :context="pageContext" />
-                <p v-else-if="lost" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-tab-lost>{{ t("tab.lostBody") }}</p>
-                <p v-else-if="pagePending" role="status" aria-busy="true" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-pending>{{ t("page.loading") }}</p>
-                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
+            <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。滚动条叠在内容上（`OverlayScrollbar`，同工作台视图）：
+                 页面内容会在要滚与不要滚之间来回变（换分页、展开来历），原生滚动条一出现就占宽度、内容整体左移；预留滚动条的位置
+                 （`scrollbar-gutter: stable`）又让每个页面一直少十来像素，剧情表格这类按宽度换版式的页面在两侧栏都开时会掉到窄版
+                 （nb-ui 界面开发规范“滚动条”）。 -->
+            <div v-if="pageId !== null" class="absolute inset-0">
+                <div ref="pageHost" tabindex="-1" class="absolute inset-0 overflow-auto outline-none" :class="showsScene ? 'editor-group__on-scene' : ''" :data-editor-page="pageId">
+                    <component :is="pageComponent" v-if="pageComponent !== null && pageContext !== null" :context="pageContext" />
+                    <p v-else-if="lost" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-tab-lost>{{ t("tab.lostBody") }}</p>
+                    <p v-else-if="pagePending" role="status" aria-busy="true" class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-pending>{{ t("page.loading") }}</p>
+                    <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
+                </div>
+                <OverlayScrollbar :target="pageHost" />
             </div>
             <div v-for="item in controls" v-show="binding !== null" :key="item.editor" class="absolute inset-0" :data-editor-kind="item.editor">
                 <component

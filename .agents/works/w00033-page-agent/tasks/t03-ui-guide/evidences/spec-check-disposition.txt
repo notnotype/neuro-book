@@ -1,0 +1,19 @@
+w00033 t03 晋升前逐条核对的处理（2026-11-27）
+
+核对：Opus 子代理按句子核 page-agent.md 全文与本 Task 在别的 Spec 里加的条目（报告 spec-check-opus.txt，核对版本 d7a43f555）。没实现 0 句；与字面不一致 16 句；没有测试或判不到 23 句；存疑 4 句。
+
+与字面不一致的处理（Spec 主工作区 4c4343898，代码 Work 分支 fab1b2e57）：
+- 输出 12：回复的字节上限没有代码去量，是快照的 token 预算与元素上限保证的。Spec 改成“由预算与元素上限保证”，删掉没人用的 TEXT_BYTE_LIMIT、RESULT_BYTE_LIMIT，两处说“回复前再量一次”的注释改掉。
+- 失败码表与输入一节补 invalid-arguments（定位写错）。
+- 输出 1 补第四条（候选都看不见时取最近有输入的那个，截图与高亮得 window-hidden）；“有焦点的窗口”写明要看得见；“看得见的窗口里最近有输入的那个”。
+- 界面目录把收进“⋯”的标题动作也列成按钮：工作台目录按外壳的上限至多 8 个（加用例）；面板窄时按宽度少放的、叠成标签时要先点标签的，写进“不承诺”。
+- settings-window 输出 24 按实现的字段改写（种类、搜索词、当前层与层的文字；没有“行的设置键”）。
+- 验收 1（代码另插一个带 back 的“下一步”步骤）、6（高亮项不会移到别的项，提问时组件可收起高亮标记）、9（后台会话与 bot 归属的会话）按用例改写。
+- 输出 7 的命令面板入口改为“另标 palette: true”。
+- 较轻的几条：role 加可选 name、within 里不能再嵌 within、调用阶段 not-provided 与 version-changed 换成 no-window 补进表、profile-settings 降级说明改成整张 toolBindings 都不生效、views 输出 23 的容器带成员视图。
+- 摘掉本 Task 在 plugin-channel、profile-settings、contributions、eval、settings-window、views、对话视图里的“（planned）”；eval 输出 8 里“unknown 的说明”那句属 w00032 t21，留着。
+
+没有测试的处理：
+- 补了：后台会话派出的子会话没有前台工具（agent.test.ts，与 bot 会话同一条）。
+- 接受取舍、不补（低风险或要另搭场地，记在这里）：快照与目录 3 秒、截图 15 秒的时限值；palette 的判定与快捷键格式；设置目录里桌面专用节不收、无归属设置在“插件设置”节；目录与说明框文字随界面语言变；同名不同种类分开列；截图途中断开与超时；服务端重启时窗口撤掉高亮；断线重连后引用仍有效；跨窗口的引用；插件停止的接线（见 impl-s9-review-disposition.txt 第 4 条）；选窗口时候选 target-gone；订阅以 provider-stopped 结束；提问展开收起与滚出滚回的过渡；询问模式下 snapshot 不出审批卡；工具层的缺省值（limit 5、timeout 300、maxTokens 3000）；对话视图的模型与模式选择不在 skip 里。
+- 存疑：window-hidden 声明的 details 形状是候选数组、实际不带候选（文档会写成带候选），低影响，留作后续。

@@ -49,7 +49,9 @@ const props = withDefaults(defineProps<{
     variant?: "bar" | "inline";
     /** 文字输入的行数（成段的文字从原文的行数起步）；缺省 2。 */
     rows?: number;
-}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, intentLabels: null, note: null, noteFallback: "", preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false, variant: "bar", rows: 2});
+    /** 填的值与打开时一样（宿主算）：保存不可用，回车也不保存（输出 16）。 */
+    pristine?: boolean;
+}>(), {options: () => [], unit: "", refResults: () => ({kind: "idle"}), refName: undefined, intentLabels: null, note: null, noteFallback: "", preview: null, previewing: false, error: "", recheck: false, saving: false, locked: false, variant: "bar", rows: 2, pristine: false});
 
 const emit = defineEmits<{
     (event: "update:value", value: unknown): void;
@@ -64,7 +66,9 @@ const emit = defineEmits<{
 
 const text = useCanonText();
 const root = ref<HTMLElement | null>(null);
-const canSave = computed(() => props.preview !== null && !props.previewing && !props.saving && !props.locked);
+const canSave = computed(() => props.preview !== null && !props.previewing && !props.saving && !props.locked && !props.pristine);
+/** 预览还在等时按下的保存也发出（宿主等预览回来再定存不存，输出 51）；值没变、保存中、锁着时不发。 */
+const canRequestSave = computed(() => canSave.value || (props.previewing && !props.saving && !props.locked && !props.pristine));
 
 /** 回车就是保存的几种：`inline` 时它们是单行的输入框（短文字、有建议值的文字、数）。 */
 const ENTER_SAVES: ReadonlySet<ConfirmBarKind> = new Set(["text", "suggest", "number"]);
@@ -75,6 +79,11 @@ const intentOptions = computed(() => props.intents.map((intent) => ({
 })));
 /** “发生了什么”只在选着剧情里变了时出：它是这一条剧情变更的文字（输出 16）。 */
 const noteShown = computed(() => props.note !== null && props.intent === "story" && props.intents.includes("story"));
+/**
+ * 编辑卡里能选“从第 N 章起”时，这一行一直占着位置，选“从最初起”时只是藏起来：切换意图时卡片高度不变（输出 16；nb-ui 界面开发规范
+ * “几何、排版与动效”第 4 条，同一组件几种状态的外框不变）。页顶的确认条照旧按需出现。
+ */
+const noteReserved = computed(() => props.variant === "inline" && props.note !== null && props.intents.includes("story"));
 /** 有别的变化才写（宿主在没有别的变化时给空的 `impact`）；多于一条时写第一条与“还有 N 项”，整句在悬停提示里。 */
 const impact = computed(() => props.preview?.impact ?? []);
 const impactText = computed(() => (impact.value.length === 1 ? impact.value[0]! : text("edit.moreImpact", {first: impact.value[0] ?? "", count: impact.value.length - 1})));
@@ -84,9 +93,21 @@ const multiline = computed(() => props.kind === "text" && props.rows > 1);
 const MODIFIER = typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform) ? "⌘" : "Ctrl";
 const saveHint = computed(() => (multiline.value ? `${MODIFIER} ↵` : props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) ? "↵" : ""));
 
+const focusInput = (): void => {
+    root.value?.querySelector<HTMLElement>("input, textarea, [role='combobox'], [role='switch']")?.focus();
+};
+
 onMounted(() => {
-    void nextTick(() => root.value?.querySelector<HTMLElement>("input, textarea, [role='combobox'], [role='switch']")?.focus());
+    void nextTick(focusInput);
 });
+
+/**
+ * 用指针点了意图的一项以后，焦点回到值的输入框（点按钮会把焦点留在分段上，两个输入框看着都像不能填）。只认指针点的：`detail` 为 0
+ * 的 click 是键盘（空格、回车）触发的，用方向键在分段里走时焦点留在原处。
+ */
+const onIntentClick = (event: MouseEvent): void => {
+    if (event.detail > 0) void nextTick(focusInput);
+};
 
 
 const onKeydown = (event: KeyboardEvent): void => {
@@ -99,12 +120,12 @@ const onKeydown = (event: KeyboardEvent): void => {
     // 只认单行的输入框（成段的文字回车照常换行）；建议值的列表接走了这一下（选中高亮的那条）时不保存。
     // 预览还在等（刚填完就按回车）也发出：宿主先等预览回来，没有别的变化才保存（输出 51），不把这一下吞掉。
     // 成段的文字：Ctrl（或 ⌘）加回车保存，回车照常换行。
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && multiline.value && (canSave.value || (props.previewing && !props.saving && !props.locked))) {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && multiline.value && canRequestSave.value) {
         event.preventDefault();
         emit("save");
         return;
     }
-    if (event.key === "Enter" && props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) && !event.defaultPrevented && (event.target as Element | null)?.tagName === "INPUT" && (canSave.value || (props.previewing && !props.saving && !props.locked))) {
+    if (event.key === "Enter" && props.variant === "inline" && props.rows === 1 && ENTER_SAVES.has(props.kind) && !event.defaultPrevented && (event.target as Element | null)?.tagName === "INPUT" && canRequestSave.value) {
         event.preventDefault();
         emit("save");
     }
@@ -123,13 +144,17 @@ const onKeydown = (event: KeyboardEvent): void => {
         @keydown="onKeydown"
     >
         <h3 v-if="props.variant === 'bar'" class="mb-2 font-semibold text-[var(--text-main)]">{{ text("edit.heading", {label: props.label}) }}</h3>
-        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" :rows="props.rows" :inline="props.variant === 'inline'" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
+        <FieldInput :kind="props.kind" :value="props.value" :label="props.label" :options="props.options" :unit="props.unit" :ref-results="props.refResults" :ref-name="props.refName" :rows="props.rows" :inline="props.variant === 'inline'" :prose="props.variant === 'inline' && multiline" @update:value="(value: unknown) => emit('update:value', value)" @search-ref="(query: string) => emit('search-ref', query)" />
         <!-- 页顶的确认条（通用字段表、变更详情页）照旧的排法：意图一行、预览写回哪里与带来的变化、原因，按钮靠右。 -->
         <div v-if="props.variant === 'bar' && intentOptions.length > 1" class="mt-2 flex items-center gap-2" data-edit-intent>
             <span class="text-[var(--text-secondary)]">{{ text("edit.intent") }}</span>
             <SegmentedControl size="sm" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
         </div>
-        <Transition name="nb-ui-switch">
+        <!-- 编辑卡：位置一直留着，选“从最初起”时藏起来（`inert` 让它不进 Tab 顺序与读屏）；`data-edit-note` 只在看得见时有。 -->
+        <div v-if="noteReserved" class="confirm-bar__note mt-2" :class="noteShown ? '' : 'confirm-bar__note--hidden'" :inert="!noteShown" :data-edit-note="noteShown ? '' : undefined" data-edit-note-slot>
+            <Input size="sm" :model-value="props.note ?? ''" :aria-label="text('edit.note')" :placeholder="text('edit.notePlaceholder', {fallback: props.noteFallback})" @update:model-value="(value: string) => emit('update:note', value)" />
+        </div>
+        <Transition v-else name="nb-ui-switch">
             <div v-if="noteShown" class="mt-2" data-edit-note>
                 <Input size="sm" :model-value="props.note ?? ''" :aria-label="text('edit.note')" :placeholder="text('edit.notePlaceholder', {fallback: props.noteFallback})" @update:model-value="(value: string) => emit('update:note', value)" />
             </div>
@@ -163,7 +188,7 @@ const onKeydown = (event: KeyboardEvent): void => {
                 </p>
             </Transition>
             <div class="mt-2 flex flex-wrap items-center gap-1">
-                <div v-if="intentOptions.length > 1" class="min-w-0" data-edit-intent>
+                <div v-if="intentOptions.length > 1" class="min-w-0" data-edit-intent @click="onIntentClick">
                     <SegmentedControl variant="raised" size="xs" :aria-label="text('edit.intent')" :model-value="props.intent" :options="intentOptions" @update:model-value="(value) => emit('update:intent', value as EditIntent)" />
                 </div>
                 <Button v-if="props.error !== '' && props.recheck" size="sm" variant="ghost" @click="emit('recheck')">{{ text("failure.recheck") }}</Button>
@@ -177,6 +202,14 @@ const onKeydown = (event: KeyboardEvent): void => {
 </template>
 
 <style scoped>
+/* “发生了什么”藏起来时占位不变，淡出淡入（`visibility` 在淡出结束时才切换）。 */
+.confirm-bar__note {
+    transition: opacity var(--motion-fast) var(--ease-layout), visibility var(--motion-fast) var(--ease-layout);
+}
+.confirm-bar__note--hidden {
+    opacity: 0;
+    visibility: hidden;
+}
 /* 原因与变化：一条浅底的提示，变化用警告色、原因用危险色的字。 */
 .confirm-bar__notice {
     display: flex;

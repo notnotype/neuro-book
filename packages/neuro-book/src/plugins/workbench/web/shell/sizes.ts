@@ -26,6 +26,8 @@ export const SHELL_DRAG_COLLAPSE_THRESHOLD = 24;
 
 /** ActivityBar 卡片宽（刚性）：38px 按钮加两侧余量。 */
 export const SHELL_ACTIVITYBAR_WIDTH = 48;
+/** 侧轨收着时的卡片宽（docs/specs/ui/workbench-layout.md 输出 50）：同活动栏，左轨就是活动栏。 */
+export const SHELL_RAIL_WIDTH = SHELL_ACTIVITYBAR_WIDTH;
 
 export const SHELL_SIDEBAR_DEFAULT_WIDTH = 340;
 export const SHELL_SIDEBAR_MIN_WIDTH = 160;

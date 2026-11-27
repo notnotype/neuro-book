@@ -16,7 +16,7 @@
 - 自己加的项（`own`）行尾常显“更多”（低对比度，指到这一行变清楚）：菜单“改名”“去掉”，发 `rename`、`remove`。
 - “添加一项资料”（`canAdd` 时）：浮层（受控 `addOpen`）里列 `presets`（点了发 `add-preset`）与 `removed`（“恢复‘某某’”，发 `restore`），下面一栏自己写名字（回车或“添加”发 `add-own`），被拒的原因 `addError` 写在下面。`adding` 时按钮不可用。宿主加好以后调 `clearOwn()` 清掉那一栏。
 - 现在的状态：值是按钮，点了发 `toggle-condition`；`conditionOpen` 时下面浮出细节（`condition-detail` 插槽），不推动后面的内容。它的“第 N 章改过”也是按钮、同样展开细节（语义档的来历就是细节里的起点与各句）。值的位置上也有 `passage-editor` 插槽（细节里的“改起点”）。
-- 每段文字：值是按钮（空着写 `hint`），点了发 `edit`；`passage-editor` 插槽放在这一段原文按钮的后面：插槽里的编辑卡带 `data-editing-in-place` 时原文藏起来，编辑卡在原处展开、把下面推开（输出 51；现在的状态的值与它的插槽同样）。有 `mark` 时标题旁“第 N 章改过”按钮发 `origins(id, 按钮)`。
+- 每段文字：值是按钮（空着写 `hint`），点了发 `edit`；`passage-editor` 插槽放在这一段原文按钮的后面，插槽参数给出原文按钮（`anchor`），宿主的编辑浮层锚在它下方、盖住后面的内容，原文不动（输出 51；现在的状态的值与它的插槽同样）。有 `mark` 时标题旁“第 N 章改过”按钮发 `origins(id, 按钮)`。
 - 立绘那一格加上形象在途（`portraitBusy`）时不可用，被拒的原因（`portraitError`）写在立绘下面。
 - 过渡：资料行加去、细节出现消失、值（短资料、现在的状态、成段的文字）换了按设计语言的动效；减弱动效时不动。
 
@@ -60,7 +60,7 @@ type CharacterCardEmits = {
 
 type CharacterCardSlots = {
     editor?(props: {id: string; anchor: HTMLElement | null}): unknown;
-    "passage-editor"?(props: {id: string}): unknown;
+    "passage-editor"?(props: {id: string; anchor: HTMLElement | null}): unknown;
     "condition-detail"?(props: {id: string}): unknown;
 };
 

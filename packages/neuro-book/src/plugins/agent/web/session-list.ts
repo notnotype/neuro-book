@@ -16,7 +16,7 @@ import type {ActivityItem, agentSessionsContract, ListedSession} from "../shared
 
 export interface SessionListStore {
     readonly items: ComputedRef<readonly AgentSessionListItem[]>;
-    /** 根会话（不含子会话、已归档的），按最近活动排；不受搜索与 Profile 过滤影响（消息视图的头像列）。 */
+    /** 根会话（不含子会话、已归档的），按最近活动排；不受搜索与 Profile 过滤影响。只在列表重取后换对象：消息视图拿它当“面板重取过”的信号，跟着重取最近会话。 */
     readonly roots: ComputedRef<readonly {readonly id: string; readonly title: string; readonly icon?: string}[]>;
     readonly query: Ref<string>;
     readonly scope: Ref<"project" | "all">;
