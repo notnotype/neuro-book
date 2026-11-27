@@ -1,0 +1,176 @@
+w00037 t10 B3、B4 实现审查（Sonnet 5.5，只读）。提交范围 390a14dea..a8d2f4a4c。
+编号按核实先后追加，不按严重程度；文末有按严重程度排的索引。
+
+### 1. 社交注册成功时草稿没人删，草稿只在读的时候才判过期（注册码在 sessionStorage 里留到登出或关标签页）
+严重程度：重要　类别：不变量、合同（计划 3.9、审定 D5）
+位置：src/pages/RegisterPage.vue:322-346（只在进 /register 时读或清）；src/session/sign-out.ts:21；src/host/storage.ts:110-129
+现象：全仓库只有三处删草稿：密码注册成功（RegisterPage:253）、进 /register 不带 social_error（RegisterPage:326）、登出（sign-out.ts:21）。社交注册成功时上游把人带回 `/`（Spec 输出 23），守卫按分派送去 /account，这条路径上没有任何地方碰草稿；用户放弃后不回 /register（在上游页面直接改地址去 /login 或 /、关掉上游页面后另开页）也一样（点浏览器的返回会重新载入 /register，那条路径会清掉，bfcache 恢复时不会，见下一条）。草稿里有注册码（有次数的准入凭据）、用户名、邀请码，从发起那一刻起一直留在 sessionStorage，直到登出、关标签页，或再次打开 /register。
+为什么是问题：计划 3.9 写“注册成功（落到 /）、登出、不带 social_error 进 /register 时删掉”，并且 D5 把“存注册码”的风险论证建立在“读一次就删、10 分钟过期”上（计划 3.9 注册码一条）。10 分钟只在 take 时判，没人 take 就没有过期这回事；放弃的流程里它是一个能在标签页里活几天的、仍然可用的注册码。社交注册成功的账号还在同一个标签页里一直登录着，草稿的 registrationCode 已被扣掉，危害小；放弃的流程里的才是真风险（可用的码）。
+如何核实：`grep -rn "clearSocialRegisterDraft\|takeSocialRegisterDraft" src | grep -v test` 只有上述几处；RegisterPage.dom.test.ts 与 e2e/register.e2e.ts 里没有“社交注册成功后草稿被清掉”或“离开 /register 后草稿过期”的用例（有“不带 social_error 再进 /register 被清”）。
+建议改法：让清理不依赖用户再进 /register。最小做法：startSite 启动时先 take 一次（或 `clearIfExpired`，过期的删掉），并在 `router.afterEach` 里目的地不是 /register 时清掉；或者在 `CurrentAccount` 变成 signed-in 的那一刻清掉（覆盖社交注册成功、密码注册成功、补同意）。补一条 dom 用例：发起 -> 草稿在 -> 以已登录身份落到 /account -> 草稿不在；以及“放弃后到 /login，草稿不在”。
+
+### 2. 发起社交流程后点浏览器的返回，页面从 bfcache 恢复，卡在“发起中”：两枚图标与提交按钮永远不可用（已在真实 Chrome 复现）
+严重程度：重要　类别：正确性、不变量
+位置：src/pages/RegisterPage.vue:265-299（`starting` 成功后不放开）；src/pages/LoginPage.vue:90-101；src/pages/account/SecuritySection.vue:124-141（`busyProvider`）；src/pages/account/LinkDialog.vue:249-264（`starting`）；全站没有 `pageshow`
+现象：三处都假设“`leave(url)` 之后页面随之卸载，所以成功时不再放开”（注释原文）。从上游授权页点浏览器的返回时，Chrome、Firefox、Safari 默认走 bfcache：页面连同 JS 状态原样恢复，`starting`、`busyProvider` 仍是 true，没有任何代码在恢复时重置。注册页整张表单的提交按钮也因 `busy` 不可用；账号页的 LinkDialog 打开着、页脚按钮不可用、`busy` 为真（对话框自己的取消路径也受影响）；SecuritySection 的所有“关联/解除关联”按钮不可用。只有刷新才恢复。
+为什么是问题：“在上游页面点返回”是这个流程里最常见的放弃方式（选错了账号、不想授权了），上游的 `social_cancelled` 只在点了上游页面的取消按钮时才回站点。
+如何核实：我在 /tmp/review-w00037-t10-b4/lab/bfcache.mjs 里用本机 Chrome（`ignoreDefaultArgs: --disable-back-forward-cache`，Playwright 默认把 bfcache 关掉所以 e2e 看不到）对 `vite preview` 的构建产物跑了：注册页填注册码与用户名、勾两项同意、点 GitHub 图标，等地址变成上游页，再 `goBack`。恢复后 `/register` 页上用户名仍是 bob、两枚图标 `disabled` 为 `[true,true]`、sessionStorage 里草稿还在（输出：`{"url":"/register","restored":"navigate","social":[true,true],"username":"bob","draft":true}`）。nb-site-server 计划 3.8 发的 index.html 是 `no-cache` 而不是 `no-store`，所以生产环境同样符合 bfcache 的条件（`no-store` 的主文档在 Chrome 里不进 bfcache，那是巧合不是设计）。
+建议改法：收口成一处。`leave` 之后站点根（`startSite`）监听 `pageshow`，`event.persisted` 为真时把“发起中”放开——最干净的是让 `SiteContext.leave` 返回一个 `Promise`/给一个 `restored` 的 ref，页面在 `await leave()` 之后放开 `starting`；或者让各处的 `starting` 由一个共用的 `useLeaving()` 管理，`pageshow(persisted)` 时统一清。同时 bfcache 恢复时草稿还在、表单还在，行为是对的，只要放开按钮即可。补一条用 `ignoreDefaultArgs` 打开 bfcache 的 e2e 用例，或至少一条 dom 用例（派发 `pageshow` 事件，persisted: true）。
+
+### 3. 目录“钉住”只被滚轮、触摸、按键放开：拖滚动条、自动滚动之后高亮留在被点的那一节
+严重程度：建议　类别：正确性（目录滚动高亮）
+位置：src/pages/account/AccountPage.vue:102-104、123-125、154-160
+现象：`goTo` 与带锚点进入时把 `pinned` 设成那一节，只有 `wheel`、`touchstart`、`keydown` 三种事件会放开。拖拽滚动条、鼠标中键自动滚动、选文字拖到边缘触发的滚动、辅助技术触发的滚动、程序滚动都不放开：`current = pinned ?? spied`，高亮一直是被点的那一节，与看到的内容不符。
+如何核实：/tmp/review-w00037-t10-b4/lab/lab.spec.ts 的 T1：1440 宽点“已登录的设备”（scrollY 711，高亮 sessions），再 `window.scrollTo(0,0)`（等价于拖滚动条回顶）；scrollY 为 0，高亮仍是 sessions（输出：`T1 after scrollTo(0,0): sessions scrollY 0`）。
+建议改法：换一个不依赖输入设备的放开条件：记下 `goTo` 之后“目标位置”，滚动事件里只要 `scrollY` 离目标超过阈值且不是在向目标靠近（或滚动停下 `scrollend` 之后）就放开；或者干脆在 `scrollend`（Chrome 114+、Firefox 109+、Safari 26）之后放开 `pinned`，再由 `spy` 重新判。`spy` 本来在滚到底时已经特判了“最后一节”，钉住只是为了平滑滚动途中不跳，`scrollend` 之后放开即可。
+
+### 4. 360 宽顶部标签行比视口宽，滚到别的节时当前标签留在可视范围外，没有人把它滚进来
+严重程度：重要　类别：正确性、UI 专属（390、360 宽）
+位置：src/pages/account/AccountPage.vue:437-455（`.account-toc` 手机宽）与 `spy`/`current`（没有任何 `scrollIntoView` 作用在标签上）
+现象：四个标签的总宽 382px，360 宽的标签行可视宽 350px（`navScrollWidth` 382、`navClientWidth` 350）。滚到页面底部高亮到“邀请码”时，该标签在 `x 296..370`，右端超出标签行右缘 20px，被裁掉“码”字的一部分；`navScrollLeft` 仍是 0，没有任何代码在高亮变化时把当前标签滚进视野。第五节“已授权的应用”（B7）加上之后，390 宽也会如此。计划 3.12 写“目录变成顶部一排标签”、brief 点名“手机宽顶部标签吸附与高亮”；`e2e/account.e2e.ts:87` 只测 360 宽没有页面级横向溢出，没量当前标签是否可见。
+如何核实：lab.spec.ts T2（360×800）：开始 `navScrollLeft 0`，滚到底后 `{"cur":"invites","itemLeft":296,"itemRight":370,"navRight":350,"navScrollLeft":0,"navScrollWidth":382}`。
+建议改法：`watch(current)` 在手机宽下对当前标签调 `scrollIntoView({inline: "nearest", block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth"})`（只作用在 nav 这个横向滚动容器上，不能让它带动页面纵向滚动：用 `nav.scrollTo({left: ...})` 自己算）。补一条 360 宽的 e2e：滚到底后当前标签的右缘不超过标签行右缘。
+
+### 5. 键盘用户激活目录项后焦点没有进入那一节：下一次 Tab 回到目录的下一项
+严重程度：重要　类别：UI 专属（键盘与读屏）
+位置：src/pages/account/AccountPage.vue:131-137（`goTo`）、233-254（模板里的 `@click.prevent`）；src/pages/account/AccountSection.vue:109
+现象：目录项是 `<a href="#id">`，点击被 `preventDefault`，改用 `scrollIntoView`。浏览器原生的片段跳转会把“顺序焦点起点”移到目标，`scrollIntoView` 不会。激活后按 Tab，焦点去了目录里的下一项，要把整排目录 Tab 完才进得了内容；读屏用户激活链接后也没有“到了哪一节”的反馈（`<section>` 有 `aria-labelledby`，但没有被聚焦，也不是地标之外的任何提示）。
+如何核实：lab.spec.ts T3：聚焦“已登录的设备”目录项，按 Enter，等滚动完，按 Tab：`document.activeElement` 是 `A invites`（目录的下一项），不是“已登录的设备”一节里的第一个控件。
+建议改法：滚动之后把焦点给目标节（给标题 `h2` 加 `tabindex="-1"` 然后 `focus({preventScroll: true})`，`:focus-visible` 不画框或画很淡的）；这样读屏会读出标题，Tab 也接着往节里走。进入时带锚点的路径（`scrollToHash`）不要抢焦点（那是页面加载，不是用户操作）。补一条 e2e 或 dom 用例断言“Enter 之后 `document.activeElement` 在那一节里”。
+
+### 6. “登录与安全”一节与手机宽下每一节的底部有一大块空白（空着的状态行占位），与定稿的图不同
+严重程度：重要　类别：对照定稿、UI 专属
+位置：src/pages/account/AccountSection.vue:142-167（`.account-section__foot` 总是渲染，`margin-top: 16px`，状态行在手机宽高 2 行）；src/components/FormStatus.vue:54-74
+现象：量内容底到卡片底的空白（lab.spec.ts T4）：1440 宽，资料、设备、邀请码三节 20px（就是卡片内边距），“登录与安全”一节 54px（多出的 34px 是没有任何按钮的操作行：16px 外边距加 18px 空状态行）；390 宽四节都是 64–68px，而卡片内边距只有 16px，每节多出约 48px（空状态行两行高 36px 加 12px 间距，状态行占一整行 `flex-basis: 100%`）。定稿 `r3/account.webp`、`r3/account-phone.webp` 里这些节的底部就是内边距，没有空白；实现者的截图（`/tmp/w00037-t10-plan/lab-b4/shots/account-1440-light-email.png`、`account-390-light.png`）里也看得到“登录与安全”下面一大块空。
+为什么是问题：占位是为了“出现与消失不推动别的内容”（计划 3.1、规范第 3 节第 4 条），代价是每节永久多出一块看不出用途的空白；手机宽下 4 节总共多出约 190px，用户要多滚半屏。
+建议改法（不推动内容、也不留空）：状态行别占节底部的一行，放到标题行里，与标题同一行、靠右：标题行本来就有高度（`h2` 的行高 ≥ 状态行的一行高），状态行 `position: absolute`/`flex: 1; text-align: right` 放进去零额外高度；`≤ 560px` 时标题行放不下一整句，把状态行绝对定位在标题行下方压进卡片的内边距里（节的 `padding-bottom` 取内边距加 1 行高，仍比现在小 18px+）。或者保持“在底部操作行左侧”（计划原话），但没有按钮的节（登录与安全）不渲染 foot、把状态行放进标题行；有按钮的节在手机宽下让状态行与按钮同一行（按钮定宽，状态行取剩余宽度、两行高占位在按钮行的高度内，按钮行高度取 max(按钮, 2 行)），而不是 `flex-basis: 100%` 另起一行。无论哪种，e2e 里“已保存出现与消失时各节内容不移动”（account.e2e.ts:156）照样守得住。
+
+### 7. 账号页的 `meta` 不进“都到了才画各节”：meta 晚于三份列表到达时，没开放且没关联的上游那一行消失，下面所有节被拉上去 48px
+严重程度：重要　类别：不变量（布局不跳）、对照计划
+位置：src/pages/account/AccountPage.vue:54-55、56-77（`lists.load` 不等 `meta`）；src/pages/account/SecuritySection.vue:61-65、35-36 注释
+现象：`SecuritySection.rows` 只在 `props.providers` 为 `undefined`（meta 没回来）时把没关联的上游全部列出，meta 回来后把“没开放且没关联”的那行去掉。账号页只等三份列表，meta 是独立请求：页面画出各节时 meta 可能还在路上。`account-lists.ts` 文件头写明了为什么三份列表一起取（“只画出一部分时，后到的一节会把下面的节往下推”），这里 meta 自己就是一个“后到的”。更糟的是 README 说 Google、GitHub 的 OAuth 应用开发者先不配，部署初期两个上游都没开放，所以真实环境里这一条就是常态，不是边角。
+如何核实：lab.spec.ts T6：meta 开放 `{github:true, google:false}`、让 meta 响应晚 1.5 秒；各节出现时“已登录的设备”顶边 803px、上游行 2 行；meta 回来后顶边 755px、上游行 1 行（下面三节整体上移 48px，用户正在读或点的按钮会在手指下移位）。
+建议改法：让 `meta` 与三份列表一起进“页面级的加载”（`Promise.all`，`meta` 失败不挡页面，按“未知”处理，用 `undefined` 列出全部，即现在的行为，但这是少数情况）；或者反过来：meta 没回来时不列没关联的上游行，只列已关联的，回来后淡入，行高度用 `TransitionGroup` 过渡（仍会推）。前一种最简单。补一条 dom 用例：meta 晚到时各节顶边不变。
+
+### 8. “退出其它所有设备”遇到 `rate_limited` 等失败后仍把剩下的逐个发完，最后的文案丢掉倒数
+严重程度：建议　类别：正确性、代码质量（注释与行为相反）
+位置：src/pages/account/SessionsSection.vue:76-108，注释 6-8 行
+现象：注释写“串行地发……一次失败（例如限流）不会连带后面一整批同时撞上”，但循环里失败只是 `failedCount += 1; lastFailure = ...; continue`，之后仍把剩下的会话一个个发完，每一个都再被限流拒绝。结果：6 个其它会话、`Retry-After: 600` 时发出 6 个 DELETE，状态行写“结束了 0 个，6 个没结束”（只有 `failedCount === 1` 才显示失败自己的文案），`rate_limited` 的倒数没有了，用户不知道要等多久；`overloaded`、`unavailable`、网络失败同理（连续对一个坏掉的服务发 N 次请求，每次等超时）。
+如何核实：lab.spec.ts T7：删除接口一律 429，点“退出其它所有设备”，6 个 DELETE 全部发出，状态行“结束了 0 个，6 个没结束”。
+建议改法：除了 `not_found`（算结束）以外的失败，碰到第一个就停：把剩下没发的算作没结束，状态行写“结束了 N 个，M 个没结束”，限流时接着 `feedback.showFailure(failure)` 带倒数（或把倒数放进文案）。这也让注释与行为一致。补一条用例：第 2 个失败后不再发第 3 个。
+
+### 9. 生成邀请码遇到 `rate_limited`：倒数期间“生成邀请码”仍可点；倒数以秒显示最长 3600 秒
+严重程度：建议　类别：正确性（与计划 3.1“倒数完之前提交按钮不可用”不一致）
+位置：src/pages/account/InvitesSection.vue:224-240、295；对照 ProfileSection.vue:209（`!feedback.waiting.value`）
+现象：Spec 输出 19 的生成邀请码按账号每小时 10 次，`Retry-After` 可以长达 3600 秒。`InvitesSection` 的按钮只看 `full || generating`，不看 `feedback.waiting`；倒数期间点它：请求照发（服务端按“被限流的那一次不计入”处理，所以不加重，但白发一次），`feedback.reset()` 又把倒数的状态行抹掉再重来。显示也是“操作太频繁，3000 秒后再试”：超过一分钟的倒数每秒更新一个 4 位数没有意义，也对读屏之外的用户难读。
+如何核实：lab.spec.ts T8：POST 回 429、`Retry-After: 3000`，点一次后状态行“操作太频繁，3000 秒后再试”，按钮 `disabled: false`。同一个计划要求登录页、资料、对话框都按 `feedback.waiting` 禁用，只有这里和 SessionsSection 漏了。
+建议改法：`:disabled="full || generating || feedback.waiting.value"`；`rate_limited` 文案对大于 60 秒的等待换成“N 分钟”（`Math.ceil(seconds / 60)`），每分钟更新一次即可；SessionsSection 的“退出”与“退出其它所有设备”按钮同理。
+
+### 10. 设置密码成功后，关闭中的对话框变成“修改密码”并冒出“当前密码”一格（已在真实 Chrome 复现）
+严重程度：重要　类别：正确性、UI 专属（过渡）
+位置：src/pages/account/SecuritySection.vue:80-85（`onPasswordDone` 先 `account.update` 再由 PasswordDialog `emit("update:open", false)`）；src/pages/account/PasswordDialog.vue:103、111、189
+现象：对话框的标题与“当前密码”一格都取 `props.hasPassword`。没有密码的账号设密码成功时，`onPasswordDone` 先把 `hasPassword` 换成 true，对话框还在淡出，这段时间里标题从“设置密码”变成“修改密码”、多出一格“当前密码”，整个对话框高度也变了，然后才消失。
+如何核实：lab3.spec.ts T13（减弱动效关闭，逐帧取对话框标题与输入框数）：27 帧“设置密码，1 个输入框”，之后 12 帧（约 200ms）“修改密码，2 个输入框”，再消失。
+建议改法：对话框用打开那一刻的 `hasPassword` 快照（`watch(open)` 时记下），或者 `onPasswordDone` 里先关对话框、等 `closed` 事件之后再 `account.update`。补一条 e2e/dom 用例：设密码成功后到对话框卸载为止标题不变。
+
+### 11. 保存资料后，用户输入的值与服务端规范化后的值不一致时，表单一直是“有改动”，保存按钮保持可用
+严重程度：建议　类别：正确性
+位置：src/pages/account/ProfileSection.vue:175-181（`watch(props.me)` 只换“没动过”的格子）、207、252-266
+现象：服务端把邮箱转小写再存（`packages/nb-site-identity/src/me.ts:87`）。用户输入 `Alice.New@Example.COM` 保存，`account.update(result.value)` 换上的是小写邮箱，而草稿仍是大写原文，`drafts.email !== original(me, "email")`，`changed` 不为空：保存按钮仍可用、框里仍是大写，再点一次又“已保存”。
+如何核实：lab2.spec.ts T9（假接口的 `patchMe` 按服务端那样转小写）：保存后 `T9 email box: Alice.New@Example.COM save disabled: false`。现有 dom 用例的假接口原样回写，测不出来。
+建议改法：保存成功后把 `changed` 里每个字段的草稿都重置成 `original(result.value, field)`（服务端回的才是真相）。补用例：假接口转小写，保存后格子显示小写、保存按钮不可用。
+
+### 12. 会话时间：最后使用时间只精确到一小时，页面却写到分钟；设备一行两个绝对时间，与定稿（一个相对时间）不同
+严重程度：建议　类别：对照定稿、正确性（误导的精度）
+位置：src/pages/account/SessionsSection.vue:39-43、129-132；src/locales/zh-CN.json 的 account.sessions.createdAt/lastUsedAt
+现象：Spec 输出 17、`session.ts:246` 明确 `lastUsedAt` 每小时至多更新一次（精确到一小时以内，可以比真实时间早 59 分钟），页面却用 `hour:"2-digit", minute:"2-digit"` 显示“最后使用 2026/11/25 09:00”，好像精确到分钟。每行还有两个绝对时间（“登录于 …”“最后使用 …”），窄屏占三行；定稿 `r3/account.webp` 一行只写一个相对时间（“2 小时前”“11 月 19 日”）。
+为什么是问题：精度比数据真实的精度高，用户据此判断“这台设备刚才是不是我”会判错；多出的一个时间让手机宽下每个设备占三行。
+建议改法：最后使用写相对时间（`Intl.RelativeTimeFormat`，粒度到“小时”，不足一小时写“1 小时内”，超过 2 天换成日期），以注入的 `clock.now()` 为准、不另起计时；登录时间放进 `title` 或第二行的小字里，不与最后使用并排。密码一行写“上次修改于”（定稿）没有字段可用：`MeResponse` 没有密码修改时间，所以“已设置”是对的，不是实现的缺陷；要照定稿就要改合同（先问开发者）。
+
+### 13. 说明文字用 `--text-muted`：账号页行内的说明对比度亮色 3.57:1、暗色 4.22:1，低于 4.5:1
+严重程度：建议　类别：UI 专属（对比度）
+位置：src/styles/account.css:35-40（`.account-rows__meta`）；src/pages/account/InvitesSection.vue:337-341（`.account-invites__quota`）
+现象：`.account-rows__meta` 承载的是内容（上游账号名、设备的登录与使用时间、邀请码的已用次数与到期、“已设置”“没有关联”），不是装饰，14px。量到的前景与卡片底（`--bg-panel`）：亮色 rgb(139,133,123) / rgb(255,252,245) = 3.57；暗色 rgb(145,138,126) / rgb(45,41,37) = 4.22；“还能生成 N 个”同色。同一个页面里目录项用 `--text-secondary` 是 6.26 / 8.90。
+如何核实：lab2.spec.ts T11，取计算样式前景与最近的不透明背景算相对亮度。
+建议改法：行内说明改用 `--text-secondary`（`--text-muted` 留给真正的装饰与占位）；若设计就要这么淡，在 nb-ui 里调 `--text-muted` 令牌而不是这里各用各的。
+
+### 14. 空表单时不可用的提交按钮，字几乎看不见：亮色 1.73:1、暗色 1.77:1（B2 页面，B3 起三页共用同一个按钮样式，留给本次审查的那一项）
+严重程度：建议　类别：UI 专属（暗色对比度）；上游候选
+位置：nb-ui `Button` 的不可用态（`packages/nb-ui/src/components/controls/Button.vue`）；使用处 src/pages/LoginPage.vue:137、RegisterPage.vue:387、ConsentPage.vue（`!canSubmit` 时）
+现象：登录页（以及注册页、同意页，打开时一定是不可用状态）的主按钮打开时就是不可用，用 40% 不透明度叠在页面底上：亮色字 rgb(255,252,245) / 底 rgb(152,199,249) = 1.73；暗色字 rgb(39,36,32) / 底 rgb(30,77,124) = 1.77（暗色里的字是深色，叠在深蓝底上读不出“登录”两个字）。不可用的控件按 WCAG 不要求对比度，但这是每个访客第一眼看到的主操作，看不出写的是什么。
+如何核实：lab2.spec.ts T12：`playwright test` 取 `form button[type=submit]` 的元素截图，统计最多的颜色（底）与离底最远的颜色（字）。
+建议改法：不要靠整体不透明度表示不可用：不可用态用 `--bg-control-disabled`/`--text-muted` 这类固定令牌（字对底 ≥ 3:1，WCAG 对不可用态虽不强制，但文字仍要读得出）。这是 nb-ui 的改动，不在本分支里补丁（不要在站点里给按钮写覆盖）；是否做问开发者。若不做，至少在 `Button.md` 记下这个限制。
+
+### 15. 账号页重复的按钮名字：读屏与语音控制分不清是哪一行
+严重程度：建议　类别：UI 专属（读屏）
+位置：src/pages/account/SessionsSection.vue:135（“退出”）、InvitesSection.vue:288-289（“复制链接”“停用”）、SecuritySection.vue:170-185（“解除关联”“关联”）、AccountPage.vue:223（菜单按钮 `aria-label="账号菜单"` 盖住了可见的用户名）
+现象：每行的按钮可访问名字都是同一个短词，读屏用列出按钮的方式只听到“退出 退出 退出”；语音控制说“点击停用”有歧义。账号菜单按钮可见文字是用户名，`aria-label` 是“账号菜单”，可访问名字不含可见文字（WCAG 2.5.3 Label in Name）。
+建议改法：用 `aria-label="退出 Safari，iOS"`、`"停用 NB-4H8T-X3"`、`"解除关联 GitHub"` 这类“动作加对象”（可见文字是它的前缀，满足 Label in Name）；账号菜单按钮的 `aria-label` 写“账号菜单，alice”或去掉 `aria-label` 改用 `aria-haspopup`/`aria-expanded` 由 DropdownMenu 提供。
+
+### 16. 登录页与注册页：`meta` 晚到时社交图标先画出来、再消失或挪位，页脚被拉上去 86px（部署初期两个上游都没配时这是每次访问的常态）
+严重程度：重要　类别：不变量（布局不跳）、对照计划（3.7 “不是页面上会来回变的状态”）
+位置：src/components/SocialButtons.vue:30、47-48、56（`providers` 为 `undefined` 时两枚都画，meta 回来后 `shown` 变化）；LoginPage.vue:50、139；RegisterPage.vue:97、389
+现象：`providers` 在 meta 回来之前是 `undefined`，两枚图标都画并占住位置（计划 3.1 “稿纸页的 meta 不挡页面”）；meta 回来后把没开放的那枚去掉，两枚都没开放时整行（连“或”）去掉。注释与计划 3.7 都写“这是部署配置决定的，不是页面上会来回变的状态”，但对这个页面的每一次打开，它都是“先出现、再消失”。README 说 OAuth 应用开发者先不配，部署初期两个上游都关着，这就是默认状态。
+如何核实：lab4.spec.ts T14（`meta` 延迟 1200ms，1440×900）：两个上游都没开放：meta 前 `.site-form-alt` 顶边 666px、图标在 x=1049 与 1103；meta 后顶边 580px（上移 86px）、图标没有了。只开放 GitHub：meta 前图标在 1049、1103，meta 后只剩 1076（图标在鼠标下换位置）。这正是 B2 审查第 7 点“状态行推动布局”要消除的那一类，换了一个源头。
+建议改法：反过来画：meta 没回来时这一行折叠成零高（不画），回来后有开放的上游才展开，并且用高度过渡（`grid-template-rows: 0fr → 1fr` 加淡入，用 `--motion-base`）；没开放的上游永远不出现，也就不会出现“先有后无”。有开放上游时卡片长一次，是用户看得到的过渡，不是跳。“meta 取不到时图标不可点”的状态改成同样折叠（取不到时没有可发起的东西），或保留不可点但只在 meta 明确失败（`failed`）后再画，不在 `loading` 时画。补一条 e2e：meta 晚到、两个上游都没开放，`.site-form-alt` 的位置前后不变。
+
+### 17. 社交落点码的边界：用原型上的键查表；空值的 `social_error` 在注册页仍还原草稿
+严重程度：建议　类别：正确性（边界）
+位置：src/pages/RegisterPage.vue:48-57、63-67、333-335（`FIELD_OF_KEY[...]`、`FIELD_OF_SOCIAL_ERROR[socialError]` 对普通对象字面量取值）、322-341
+现象：(a) `social_error` 来自地址，谁都能写；`FIELD_OF_SOCIAL_ERROR["constructor"]`、`["__proto__"]`、`["toString"]` 取到 `Object` 等函数，不是 `undefined`，`markOnMount` 被设成函数，`feedback.mark([fn])` 把一个函数放进 `invalid` 集合（没有可见后果，因为 `querySelector` 找不到名字叫那串函数文字的输入框）。同一份代码里 `failure-text.ts:17` 为同一件事专门用了 `Object.hasOwn` 并注明“码是任意字符串，不能从原型上取到东西”，这里没有照做；`FIELD_OF_KEY[key]` 的 key 来自服务端的 `fields`，同理。(b) Spec 输出 23 写“`error` 为空值时当作没带”。登录页对空值是不显示、只去参数；注册页对空值（`?social_error=`）走“带了”的分支：读出并还原草稿、再去参数，而“当作没带”应当与不带一样删掉草稿。
+如何核实：读代码；(a) 在 node 里 `({a:1})["constructor"]` 得到函数。没有 e2e 验证（无可见后果）。
+建议改法：把两张表改成 `Map` 或查前用 `Object.hasOwn`；`socialError === ""` 时当作 `undefined`（`firstQuery` 里把空串归一成 `undefined`，同时登录页、账号页也用同一个函数，现在三处各写一份读 `social_error` 的代码，可以收成 `readSocialError(route)`）。
+
+### 18. 两个对话框的 `rate_limited` 倒数每秒改一次 `status`，对话框状态行是 polite 的 live region：B2 审查第 7 条修过的“每秒播报”又回来了
+严重程度：重要　类别：UI 专属（读屏）、把已修的问题带回来
+位置：src/pages/account/PasswordDialog.vue:35、101-105；src/pages/account/LinkDialog.vue:236、269-274；对照 form-feedback.ts:80-88（`statusSpoken` 只给了 `FormStatus` 用）；nb-ui `DialogSurface.vue:148-164`
+现象：B2 的修正是“倒数时 live region 里只放一句不带秒数的话，看得见的字对读屏隐藏”（`FormStatus` 的 `spoken`）。两个对话框直接把 `statusText`（含秒数、每秒变一次）交给 nb-ui `Dialog` 的 `status`；`DialogSurface` 的状态行是 `aria-live="polite"` 的一整串字符串（`Dialog.md` 第 51 行“读屏以礼貌方式播报”），没有“看得见的字”与“读屏的字”分开的口子。所以改密码按 `Retry-After` 倒数（Spec 输出 19：每小时 5 次，Retry-After 最长 3600 秒）时，读屏每秒播报一次“操作太频繁，N 秒后再试”，一小时里 3600 次。
+如何核实：读代码；`statusText` 在 `rate_limited` 时每秒由 `clock.every(1000)` 重算（form-feedback.ts:103-116）。对话框里没有 `rate_limited` 的 dom 用例，所以没人守着。
+建议改法：两条路选一：(1) 站点里：对话框的 `status` 在倒数期间给 `statusSpoken`（“操作太频繁，请稍后再试”，不带秒数），倒数的秒数不进对话框（按钮不可用本身就是倒数的可观察结果；超过一分钟的倒数写分钟）；(2) nb-ui：给 `Dialog` 加 `statusSpoken` 属性，规则同 `FormStatus`（上游改动，先问开发者）。无论哪种，补一条 dom 用例：对话框里 `rate_limited` 时 live region 的文字在两次 tick 之间不变。
+
+### 19. 访客入口的 gzip 从 B2 的约 59.3 KB 涨到 120.0 KB：账号页才用的 Dialog、AlertDialog、DropdownMenu、CopyButton 和 75 个 reka-ui 模块进了每个访客都要加载的共用块
+严重程度：重要　类别：不变量（包体积）、回归（B2 审查第 11 条与 README 记的 59.3 KB）
+位置：packages/nb-site-web/src/pages/use-meta.ts 所在的共用块（构建产物里叫 `use-meta-*.js`）；packages/nb-site-web/tests/build.test.ts（只记录入口块体积，没有上限）；vite.config.ts（没有分块配置）
+现象：`bun test tests/build.test.ts` 输出“入口块（含静态导入）gzip 120.00 KB”（README 在 B1、B2 审查修正之后写的是约 59.3 KB，TypeBox 被挪出之后的数字）。拆开看：入口 `index.html` 里 modulepreload 的 `use-meta` 块 raw 175,982 字节、gzip 约 56 KB，用 `vite build --sourcemap` 读它的 `sources`：34 个 nb-ui 模块（包括 `Dialog.vue`、`AlertDialog.vue`、`DialogSurface.vue`、`DropdownMenu.vue`、`MenuLevelPanel.vue`、`CopyButton.vue`、`Badge.vue`、`Spinner.vue`、`useMenuCascade`、`useModalLayer` 等）、75 个 reka-ui 模块、`@floating-ui`、`aria-hidden`、`defu`，还有 9 个 `diff` 包的模块。这些里面登录页、注册页、同意页一个都用不到，只有账号页（B4）的两个对话框、确认框、账号菜单、复制按钮用。
+为什么是问题：登录页是主页，是每个访客打开的第一页；计划 3.10 与 B2 审查第 11 条为了这个预算专门把 TypeBox 挪出入口。B4 一次把它翻倍，而测试只 `console.info` 体积、不断言，所以不报警。
+如何核实：`cd packages/nb-site-web && bun test tests/build.test.ts`；再 `bunx vite build --outDir <tmp> --sourcemap` 后统计 `assets/use-meta-*.js.map` 的 `sources`（我的统计在 /tmp/review-w00037-t10-b4/lab/dist-map，34 个 nb-ui 模块的清单见上）。成因我没有查到根上：rolldown 把“登录页与账号页都用到的”Button、Input 和只有账号页用的 Dialog 等放进了同一个共用块，原因没核实，从产物推断。
+建议改法：(1) 先加断言：入口块 gzip 上限（例如 75 KB，留 B3 社交图标的余量）和“入口块 `sources` 里没有 `reka-ui/.../dialog`、`DropdownMenu`”这类来源断言，用现成的 `fromPackage` 与 `sourcesOf`；(2) 再让构建分对：给 `rolldownOptions.output.advancedChunks`（或 `manualChunks` 等价物）把“只有账号页用的 nb-ui 弹层与 reka-ui”放进账号页自己的块；或者让 `AccountPage` 的 Dialog、AlertDialog、DropdownMenu 用 `defineAsyncComponent` 懒加载（按需，在点开时才需要）。先看是不是 `usePageMeta` 所在的模块被账号页的共用依赖拉到一块——把 `use-meta.ts` 的内容挪到只有稿纸页导入的模块里再看分块有没有变。
+
+### 20. 测试：几处判据没有被测到（变异检查），与几处真实路径只有减弱动效或 Playwright 默认关掉 bfcache 的环境
+严重程度：建议　类别：测试
+位置：src/pages/account/AccountPage.dom.test.ts；e2e/account.e2e.ts:110-134；src/pages/RegisterPage.dom.test.ts
+现象与核实（变异在仓库外副本 /tmp/review-w00037-t10-b4/lab/mut 里做，改一处、跑 `vitest run src/pages/account`，改完恢复）：
+- 被抓到：退出其它设备把当前会话也发 DELETE（2 条失败）；解绑 `last_login_method` 不聚焦“设置密码”；改密码成功后不 `account.update`；加载延时 200ms 改成 1ms。
+- 活下来（31 条全过）：(a) `InvitesSection` 停用回 `not_found` 时去掉 `await props.invites.reload()`（计划写“实现者自定：重取并显示原因”，没有用例）；(b) `SessionsSection.endOne` 里 `not_found` 不当作已结束而当失败（计划写“当作已结束”，只有 `endOthers` 那条路径意外有用例，单个结束没有）；(c) `endOthers` 在第一次失败后 `break`（与第 8 条建议的行为一致，现有用例不反对也不支持，说明“串行、失败后”的行为没有被钉住）。
+- 没有用例：限流（`rate_limited`）在账号页的任何位置（改密码对话框、关联对话框、生成邀请码、退出其它设备、保存资料）；bfcache 恢复（第 2 条）；设置密码后对话框关闭过程中的文案（第 10 条）；服务端把邮箱转小写（第 11 条）；`meta` 晚到的版式（第 7、16 条）；360 宽当前标签可见（第 4 条）。
+- e2e 的目录用例（account.e2e.ts:110）全程在 `reducedMotion: "reduce"` 下，`scrollIntoView` 走 `behavior: "auto"`，而“钉住”这件事就是为平滑滚动途中不跳而加的（AccountPage.vue:7-8 的注释）；平滑滚动路径没有任何用例。去掉 `unpin` 的三个监听器、或把 `pinned` 永远不放开，现有 e2e 是否还过我没有跑变异（e2e 要重建三份产物），从代码推断会过：用例里 `scrollTo(0, 0)` 与滚轮的断言都发生在还没钉住的时候，点目录之后的断言只看被点的那一项。
+建议改法：补 (a)(b) 两条 dom 用例（假接口回 404 `not_found`）；加一个“`rate_limited` 在账号页”的参数化用例；e2e 里补一条 `reducedMotion: "no-preference"` 的目录用例（点目录、滚动途中高亮不跳、非滚轮滚回顶部之后放开，对应第 3 条）。
+
+### 21. 状态行的“原因”是靠字符串前缀约定的暗号（`rule:`、`social:`、`consent-missing`……），三份页面各写各的；`meta` 取不到时社交图标永远不可点且没有重试
+严重程度：建议　类别：代码质量
+位置：RegisterPage.vue:131、139、151、156、181、334；ProfileSection.vue:214、225；PasswordDialog.vue:56、62；LoginPage.vue:111；form-feedback.ts:25-30
+现象：`StatusEntry.reason` 同时是“失败码”“页面自己判出的原因”“动画键”三种东西，页面用 `reason.startsWith("rule:")` 判断“这是规则说明、改了字段就撤掉”，三个文件各写一份 `onEdited`/`checkOnBlur`（逻辑几乎相同：写 `rule:<字段>`、`mark([field], {focus:false})`、改了就清）。这个暗号只靠注释与 grep 维护，新增一节（B7 的“已授权的应用”）或新页面时很容易漏掉其中一半，且 `reason` 字符串被拼成 `social:${任意地址参数}` 进了 Vue 的 `key`。另：`usable = providers !== undefined && …`，`meta` 一次失败后（`failed`）图标永远是灰的，没有提示、没有重试；`meta.ensure()` 只在提交时才会再取。
+建议改法：把“规则说明”收成 `useFormFeedback` 的一等操作：`feedback.setRule(field, textRef)`（写状态行并标红、不聚焦）与 `feedback.clearRule()`（只撤规则那一类），`reason` 里的前缀约定就不需要了；`social:` 那一类直接用固定的 `"social_error"`，不拼地址参数。`meta` 失败时给社交图标行一个重试（点一下重取，或进页 5 秒后自动重取一次）。
+
+### 22. Google 的“G”图是 Figma 导出的 SVG：用 `foreignObject` 里的 CSS conic-gradient 加高斯模糊滤镜，只在 Chrome 实测过
+严重程度：建议　类别：正确性（跨浏览器，未验证）
+位置：src/assets/brands/google-light.svg、google-dark.svg（各约 10.8 KB，原样取自 Google 素材包）；SocialButtons.vue:70-71（用 `<img>` 引入）
+现象：这份 SVG 的彩色部分是一个 `mask`（“G”的形状）下面的 `foreignObject`（里面是 `div` 的 `conic-gradient`）加七个 `filter` 的模糊椭圆。e2e 只在本机 Chrome 里量（`register.e2e.ts:210`：四色像素各 > 3）。`foreignObject` 放在作为图片引入的 SVG 里，在 Safari（WebKit）上历来有限制，我没有 WebKit 环境，没法验证：如果它不渲染，“G”会只剩白底的空按钮。Firefox 同样没验证。
+为什么是问题：Google 的规范是“G 必须用标准的全彩版”，空按钮既违反规范，也让 Safari 与 iOS 用户没有 Google 登录入口的外观。
+如何核实：用 Playwright 的 WebKit（本机没装，`~/.cache/ms-playwright` 不存在）或 Safari 打开 /login，看 Google 按钮里有没有四色“G”。
+建议改法：先在 WebKit 与 Firefox 各看一次；若有问题，换成素材包里同一个“G”的纯路径版（四条圆弧的 `path`，没有 `foreignObject` 与滤镜；Google 的品牌页有这个“Logo”素材，不是整枚按钮的那份），按钮的底与描边仍由 `.social-face--google` 的 CSS 画，与 GitHub 一样；这样亮暗两份图可以合成一份，也少下载约 10 KB。README 同步写明换了素材。
+
+### 未发现问题的方面（仔细检查后）
+- 草稿内容与时序：草稿不含密码（保存点只传 provider、用户名、显示名、邀请码、注册码、同意）；写草稿在 `leave` 之前（dom 用例用 `left[].draft` 快照守着）；读一次就删；超过 10 分钟或存坏的不还原（`storage.dom.test.ts`）。问题只在“没人读时不清”（第 1 条）。
+- 社交发起的门槛：`registrationOpen` 为假、`meta` 取不到、两项同意没勾、规则不合时都不发起；503/403/429 写状态行，429 倒数且按钮不可用（登录页、注册页有用例）。`social_error` 的文案只认合同包的码，其余显示 `social_failed`，不回显（`socialErrorText`）。
+- 账号页流程：关联先要当前密码、没有密码的免；`last_login_method` 的文案与焦点（变异被抓到）；邀请码满 10 个禁用、`invite_code_limit` 重取；`endOthers` 串行、不碰当前会话（变异被抓到）；`CurrentAccount.update` 与进行中取数的先后正确（`generation` 换代，有单测）。
+- 共用部分：`showSuccess` 用 `clock.every` 做一次性计时可以接受：到点第一次就停，被别的状态替换时不清别的，卸载时清理；缺点只是没有 `after`，不是缺陷。`FormStatus` 的 `tone` 与成功色没问题。`site-harness` 的三份列表默认回空：请求仍记进 `requests`，且只覆盖账号页一定会发的三个 GET，不会掩盖别的接口（别的没准备的请求仍进 `unexpected`）。`build.test.ts` 的 `sourcesOf` 对没有 sourcemap 注释的块返回空，不会让断言空过：入口块那一条有“必须认出 vue-router”的正向断言兜底，有注释而读不到 `.map` 仍然抛出。
+- 密码一行写“已设置”：合同 `MeResponse` 没有密码修改时间，写“上次修改于”做不到，见第 12 条末。
+- 有邮箱与没有邮箱的版式相同（e2e 量几何，主会话的运行与我读到的用例一致）；vitest `src/pages` 80 条全过（我重跑）。
+- 图标：读屏名字与 `title` 按页面写“登录/注册”；GitHub 黑白、Google 全彩、底与描边与计划引的规范数值相同；暗色按根属性切换，不用脚本换图。GitHub 官方是否允许把 Invertocat 放进带描边的方块我没核实（README 也写了没核实）。
+
+### 数量
+阻断 0；重要 10（第 1、2、4、5、6、7、10、16、18、19 条）；建议 12（第 3、8、9、11、12、13、14、15、17、20、21、22 条）。共 22 条。
+按影响排序的索引：2、19、6、16、7、1、10、18、5、4（重要）；3、9、8、11、12、13、14、15、17、20、21、22（建议）。
+已在真实 Chrome 或真实构建上复现的：2（bfcache）、3、4、5、6、7、8、9、10、11、13、14、16、19；从代码推断、未验证的：22（WebKit）、17、21，20 里的 e2e 变异。
+有效发现的编号：1-22。
