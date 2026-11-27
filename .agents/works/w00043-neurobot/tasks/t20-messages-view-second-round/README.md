@@ -42,3 +42,4 @@ updated: 2026-11-27
 - 评审板第 3 轮：`nav-structure`（收着窄列照旧、展开后列表底部导航，推荐按这样做）、`list-style`（三个方向，推荐一）、`container-entry`（右栏有别的容器时展开着怎么切，推荐列表顶上一行入口、只在有别的容器时出现）。稿的样式在 `/tmp/t20-r3.css`，截图脚本同上（`draft3`），原图在本地 `shots/r3/`。
 - 评审板第 4 轮：`toggle-place`（展开收起按钮：A 聊天头右端，推荐；B 窄列顶上与列表搜索行右端；C 不设按钮、点 Bot 或会话展开、再点当前页收起），`list-style` 再问一次（第 3 轮没答）。原图在本地 `shots/r4/`，脚本 `draft4`。
 - 评审板第 5 轮：`list-t03`（列表照 t03 第 5 轮的稿、换底部导航去掉页签，列表缺省宽改 300）、`toggle-b`（展开收起按钮按 B 定不定）；第 4 轮的 `list-style`、`toggle-place` 被取代。样本的说明、状态、子代理个数是注入的；原图在本地 `shots/r5/`，脚本 `draft5`。教训：出列表稿前没回看 t03 已定的列表稿与决定（第 3 轮还违反了“会话不按日分组”），白出两轮。
+- 第 5 轮两题都答“行”，设计定稿。Spec（planned）`974b1108d`：workbench-layout 输出 50 的“三段”改（展开按钮归视图段）、加“展开时的版式”，51 的“顶格”；views 输出 21 的 `placement.rail` 加 `tooNarrow`；conversation 输出 57 的收着、展开（缺省 300、底部导航）、浮动。[`plan.md`](plan.md) 第二部分（`388b6af14`）；计划设计审查（前端 Sonnet，说明 `/tmp/review-t20-plan2/brief.md`）在跑。
