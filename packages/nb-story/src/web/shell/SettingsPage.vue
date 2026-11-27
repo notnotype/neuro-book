@@ -389,10 +389,10 @@ function contextText(window: number | null): string {
             />
 
             <Banner v-if="notice" :tone="notice.tone" :message="notice.text" data-testid="settings-notice">
-                <template v-if="notice.conflict" #actions><Button size="sm" @click="load()">重新载入</Button></template>
+                <template v-if="notice.conflict" #actions><Button variant="primary" size="sm" @click="load()">重新载入</Button></template>
             </Banner>
             <div v-if="loaded" class="settings-actions">
-                <Button :disabled="!dirty || saving" data-testid="settings-save" @click="save()">{{ saving ? "保存中…" : "保存" }}</Button>
+                <Button variant="primary" :disabled="!dirty || saving" data-testid="settings-save" @click="save()">{{ saving ? "保存中…" : "保存" }}</Button>
                 <Button variant="secondary" :disabled="dirty || testing || loaded.state !== 'valid'" :title="dirty ? '先保存，测试的是保存下来的配置' : undefined" data-testid="settings-test" @click="test()">{{ testing ? "测试中…" : "测试连接" }}</Button>
                 <span v-if="dirty" class="settings-hint">有没保存的改动；测试连接测的是保存下来的默认模型</span>
             </div>

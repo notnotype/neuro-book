@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
             <label class="plugins-page__label" for="nbook-plugins-path">{{ text('install.pathLabel') }}</label>
             <div class="plugins-page__install-row">
                 <Input id="nbook-plugins-path" ref="pathInput" v-model="path" :placeholder="text('install.pathPlaceholder')" spellcheck="false" data-plugin-path />
-                <Button type="submit" :disabled="blockedFor('preview')" :aria-busy="busy === 'preview' ? 'true' : undefined" data-plugin-install>{{ text('install.start') }}</Button>
+                <Button variant="primary" type="submit" :disabled="blockedFor('preview')" :aria-busy="busy === 'preview' ? 'true' : undefined" data-plugin-install>{{ text('install.start') }}</Button>
             </div>
             <div v-if="folderUpload" class="plugins-page__folder">
                 <span class="plugins-page__muted">{{ text('upload.hint') }}</span>
@@ -692,7 +692,7 @@ onBeforeUnmount(() => {
             </template>
             <template #footer="{cancel}">
                 <Button class="flex-1" variant="secondary" :disabled="busy === 'install'" @click="cancel">{{ text('dialog.cancel') }}</Button>
-                <Button class="flex-1" :loading="busy === 'install'" data-plugin-install-confirm @click="confirmInstall">{{ preview === null ? "" : text(PREVIEW_KEYS[preview.relation].confirm) }}</Button>
+                <Button variant="primary" class="flex-1" :loading="busy === 'install'" data-plugin-install-confirm @click="confirmInstall">{{ preview === null ? "" : text(PREVIEW_KEYS[preview.relation].confirm) }}</Button>
             </template>
         </Dialog>
 

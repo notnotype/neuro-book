@@ -135,7 +135,7 @@ const menuItems = computed(() => [{label: text("entries.createUnder"), iconClass
 <template>
     <div class="min-w-0" @contextmenu="props.creatable && openMenu($event)" @keydown="props.creatable && onKeydown($event)">
         <Banner v-if="props.disconnected" tone="warning" role="status" :message="text('world.disconnected')">
-            <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
+            <template #actions><Button variant="primary" size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
         </Banner>
         <p v-if="rootState === 'loading'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
         <EmptyState

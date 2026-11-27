@@ -66,7 +66,7 @@ const text = useCanonText();
                 <div v-if="props.model.status === 'held'" class="mt-3 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 text-[length:var(--text-sm)]" data-change-held>
                     <div class="flex flex-wrap items-center gap-2">
                         <p class="min-w-0 flex-1 text-[var(--text-secondary)]">{{ props.model.heldReason }}</p>
-                        <Button v-if="props.activation === null" size="sm" :disabled="props.blocked !== ''" :title="props.blocked === '' ? undefined : props.blocked" @click="emit('activate')">{{ text("change.activate") }}</Button>
+                        <Button variant="primary" v-if="props.activation === null" size="sm" :disabled="props.blocked !== ''" :title="props.blocked === '' ? undefined : props.blocked" @click="emit('activate')">{{ text("change.activate") }}</Button>
                     </div>
                     <div v-if="props.activation !== null" class="mt-2" data-change-activation>
                         <p v-if="props.activation.previewing" class="text-[var(--text-muted)]">{{ text("edit.previewing") }}</p>
@@ -76,7 +76,7 @@ const text = useCanonText();
                         <p v-if="props.activation.error !== ''" role="alert" class="mt-1 text-[var(--status-danger)]">{{ props.activation.error }}</p>
                         <div class="mt-2 flex justify-end gap-2">
                             <Button size="sm" variant="ghost" @click="emit('activation-cancel')">{{ text("edit.cancel") }}</Button>
-                            <Button size="sm" :disabled="props.activation.preview === null || props.activation.previewing || props.activation.saving || props.activation.locked" @click="emit('activation-save')">{{ text("change.activate") }}</Button>
+                            <Button variant="primary" size="sm" :disabled="props.activation.preview === null || props.activation.previewing || props.activation.saving || props.activation.locked" @click="emit('activation-save')">{{ text("change.activate") }}</Button>
                         </div>
                     </div>
                 </div>

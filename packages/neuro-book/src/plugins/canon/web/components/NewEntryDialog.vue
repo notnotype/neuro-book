@@ -104,7 +104,7 @@ const entryOptions = computed(() => props.entries.map((entry) => ({value: entry.
         </div>
         <template #footer="{cancel}">
             <Button variant="ghost" :disabled="props.saving" @click="cancel()">{{ text("edit.cancel") }}</Button>
-            <Button :disabled="!ready" @click="emit('confirm')">{{ text("newEntry.confirm") }}</Button>
+            <Button variant="primary" :disabled="!ready" @click="emit('confirm')">{{ text("newEntry.confirm") }}</Button>
         </template>
     </Dialog>
 </template>
