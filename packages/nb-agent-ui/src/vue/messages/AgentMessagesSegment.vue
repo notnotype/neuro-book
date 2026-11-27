@@ -7,7 +7,7 @@
  * 中段与底段各一个 `Teleport`：给了 `targets` 时送进侧轨的 `main`、`foot`，不给时 `disabled`，按顺序画在组件自己的根里（浮动窗的右边缘、Lab）。
  * 两种是同一个实例，换位置时搜索词、当前页这些状态都在；DOM 是被搬过去的（`insertBefore`），焦点与滚动位置在搬完后放回去（见下面 `lastFocus`）。
  */
-import {computed, nextTick, ref, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
 import {useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {Tooltip} from "@notnotype/nb-ui/components";
 
@@ -26,10 +26,12 @@ const props = withDefaults(defineProps<{
     weak?: boolean;
     /** 展开按钮给“窗口太窄”：宿主拒了展开请求、仍放不下（`data-rail-too-narrow`）。 */
     tooNarrow?: boolean;
+    /** 此刻生效的宽（卡片宽）：展开的列表按它排，宽度过渡中内容不跟着挤；不给时列表随外框。 */
+    width?: number | null;
     now: number;
     locale?: AgentLocale;
     tooltipSide?: "left" | "right";
-}>(), {targets: null, weak: false, tooNarrow: false, locale: undefined, tooltipSide: "left"});
+}>(), {targets: null, weak: false, tooNarrow: false, width: null, locale: undefined, tooltipSide: "left"});
 
 const emit = defineEmits<{
     "update:tab": [tab: "bot" | "sessions"];
@@ -86,7 +88,13 @@ function contactLabel(contact: MessagesContact): string {
 
 /** 收着时的“+N”与底段两项：请求展开并切到那一页（展开后这些项都不在，切页由列表底部的导航做）。 */
 function openPage(page: "bot" | "sessions"): void {
+    recordOrigins(true);
     emit("show-list", page);
+}
+
+function onToggle(): void {
+    recordOrigins(!props.expanded);
+    emit("toggle-expanded");
 }
 
 const listRef = ref<InstanceType<typeof AgentMessagesList> | null>(null);
@@ -149,6 +157,122 @@ watch(() => props.targets, () => {
     if (focus?.isConnected === true && insideSegment(focus) && document.activeElement !== focus) focus.focus({preventScroll: true});
 }, {flush: "post"});
 
+// ─── 展开、收起的过渡 ───────────────────────────────────────────────────────
+
+/*
+ * docs/specs/ui/workbench-layout.md 输出 50 的“展开时的版式”：展开时窄列上的项淡出，底段两项与展开按钮移到列表里的位置（FLIP），列表随后淡入；
+ * 收起反过来、更短。终点稳定：列表按最终宽度排（`width`），停靠时贴右（右轨朝左长）、浮动窗贴左（窗朝右长），外层裁切，所以换完 DOM 量到的就是终点。
+ * 起点在点击处理里量（发请求之前）：等 `expanded` 变了再量，同一次更新里外壳已经翻了状态、底段已经藏了。经命令或别处发起的展开收起没有起点，直接换。
+ * 宿主拒了请求（窗口太窄）时 `expanded` 不变，记下的起点留着；过了 ORIGIN_TTL 毫秒就不认，免得下一次别处发起的展开用上很久以前的位置。
+ * 动画进行中根上写 `data-messages-moving`（e2e 的可观察信号）；减少动态效果时时长令牌是 0，不做动画，也不写这个属性。
+ */
+const ORIGIN_TTL = 1000;
+type Mover = "toggle" | "bot" | "sessions";
+let origins: {readonly at: number; readonly expanded: boolean; readonly rects: ReadonlyMap<Mover, DOMRect>} | null = null;
+const toggleRef = ref<HTMLElement | null>(null);
+
+/** 每个会移动的项此刻在哪个元素上：要移动的元素与对齐用的图标（两头图标的中心对上）。 */
+function moverOf(key: Mover, expanded: boolean): {readonly element: HTMLElement; readonly anchor: HTMLElement} | null {
+    if (key === "toggle") return toggleRef.value === null ? null : {element: toggleRef.value, anchor: toggleRef.value};
+    if (!expanded) {
+        const button = footRef.value?.querySelector<HTMLElement>(`[data-messages-open="${key}"]`) ?? null;
+        return button === null ? null : {element: button, anchor: button};
+    }
+    const tab = mainRef.value?.querySelector<HTMLElement>(`[data-messages-nav] [data-messages-tab="${key}"]`) ?? null;
+    const icon = tab?.firstElementChild;
+    return tab === null || !(icon instanceof HTMLElement) ? null : {element: tab, anchor: icon};
+}
+
+function recordOrigins(expanding: boolean): void {
+    const rects = new Map<Mover, DOMRect>();
+    for (const key of ["toggle", "bot", "sessions"] as const) {
+        const mover = moverOf(key, props.expanded);
+        if (mover !== null) rects.set(key, mover.anchor.getBoundingClientRect());
+    }
+    origins = {at: performance.now(), expanded: expanding, rects};
+}
+
+function motionMs(token: string): number {
+    const root = mainRef.value;
+    if (root === null) return 0;
+    const value = getComputedStyle(root).getPropertyValue(token).trim();
+    const number = Number.parseFloat(value);
+    if (!Number.isFinite(number)) return 0;
+    return value.endsWith("ms") ? number : value.endsWith("s") ? number * 1000 : number;
+}
+
+const moving = ref(0);
+const running = new Set<Animation>();
+function track(animation: Animation): void {
+    running.add(animation);
+    moving.value += 1;
+    const done = (): void => {
+        if (!running.delete(animation)) return;
+        moving.value -= 1;
+    };
+    animation.onfinish = done;
+    animation.oncancel = done;
+}
+/** 连点时取消上一次：起点已在点击时按画出来的位置量好（含进行中的位移）。 */
+function cancelMoves(): void {
+    for (const animation of [...running]) animation.cancel();
+}
+
+/** 换完 DOM 之后：焦点在拆掉或藏起来的那一半里时交给按钮（浮动窗里没有侧轨来交接），然后按记下的起点做位移过渡。 */
+watch(() => props.expanded, (expanded) => {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && insideSegment(focused) && focused.closest("[hidden], [data-leaving]") !== null) toggleRef.value?.focus({preventScroll: true});
+    const start = origins;
+    origins = null;
+    if (start === null || start.expanded !== expanded || performance.now() - start.at > ORIGIN_TTL) return;
+    const duration = motionMs("--motion-layout");
+    if (duration <= 0 || typeof Element.prototype.animate !== "function") return;
+    cancelMoves();
+    const easing = (mainRef.value === null ? "" : getComputedStyle(mainRef.value).getPropertyValue("--ease-layout").trim()) || "ease";
+    for (const [key, from] of start.rects) {
+        const mover = moverOf(key, expanded);
+        if (mover === null) continue;
+        const to = mover.anchor.getBoundingClientRect();
+        const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+        const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+        track(mover.element.animate([{transform: `translate(${String(dx)}px, ${String(dy)}px)`}, {transform: "none"}], {duration, easing}));
+    }
+}, {flush: "post"});
+
+/**
+ * 离场的那一半（展开时窄列上的项、收起时的列表）淡出时按离场那一刻的位置绝对定位，不占位：进场的那一半照常排在最终位置。
+ * 写 `data-leaving`，焦点交接按它认（见上面的 watch）。
+ */
+function holdInPlace(element: Element): void {
+    if (!(element instanceof HTMLElement)) return;
+    element.style.position = "absolute";
+    element.style.top = `${String(element.offsetTop)}px`;
+    element.style.left = `${String(element.offsetLeft)}px`;
+    element.style.width = `${String(element.offsetWidth)}px`;
+    element.style.height = `${String(element.offsetHeight)}px`;
+    element.setAttribute("data-leaving", "");
+    if (motionMs("--motion-fast") > 0) moving.value += 1;
+}
+function leaveDone(element: Element): void {
+    if (element instanceof HTMLElement && element.hasAttribute("data-leaving") && motionMs("--motion-fast") > 0) moving.value = Math.max(0, moving.value - 1);
+}
+onBeforeUnmount(cancelMoves);
+
+const listStyle = computed(() => (props.width === null ? undefined : {width: `${String(props.width)}px`}));
+
+/**
+ * 列表页的延后淡入只在列表刚挂上时做：页是 `v-show` 的，挂在常驻样式上的话每次切页（display 从 none 回来）都会重放一遍。
+ * 淡入的动画结束（从页冒上来的 `animationend`）就摘掉。
+ */
+const opening = ref(props.expanded);
+watch(() => props.expanded, (expanded) => {
+    if (expanded) opening.value = true;
+});
+function onListAnimationEnd(event: AnimationEvent): void {
+    if (event.animationName.startsWith("acv-segment-list-in")) opening.value = false;
+}
+
 const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
 const toggleTip = computed(() => (props.expanded ? t("messages.collapse") : props.tooNarrow ? t("messages.tooNarrow") : t("messages.expand")));
 const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
@@ -167,11 +291,13 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
                 data-messages-segment
                 :data-messages-segment-state="state"
                 :data-rail-weak="props.weak ? '' : undefined"
+                :data-messages-moving="moving > 0 ? '' : undefined"
             >
                 <!-- 收着与展开是同一个元素（只换类与属性），焦点不经 body；展开时不进侧轨的纵向工具条，是列表区里的普通按钮。 -->
                 <div class="acv-segment__toggle-slot" :class="{'acv-segment__toggle-slot--expanded': props.expanded}">
                     <Tooltip :text="toggleTip" :side="props.expanded ? 'bottom' : props.tooltipSide">
                         <button
+                            ref="toggleRef"
                             type="button"
                             class="acv-segment__item acv-segment__toggle nb-ui-focus-ring"
                             :aria-label="t('messages.expand')"
@@ -181,13 +307,14 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
                             :data-rail-item="props.expanded ? undefined : ''"
                             data-rail-toggle
                             data-messages-segment-toggle
-                            @click="emit('toggle-expanded')"
+                            @click="onToggle"
                         >
                             <span :class="props.expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="acv-segment__icon" aria-hidden="true" />
                         </button>
                     </Tooltip>
                 </div>
-                <template v-if="!props.expanded">
+                <Transition name="acv-strip" @before-leave="holdInPlace" @after-leave="leaveDone" @leave-cancelled="leaveDone">
+                <div v-if="!props.expanded" class="acv-segment__strip">
                     <div v-for="contact in fit.bots" :key="contact.key" class="acv-segment__row">
                         <span class="acv-segment__bar" :data-shown="contact.key === currentBot ? '' : undefined" aria-hidden="true" />
                         <Tooltip :text="contact.name" :side="props.tooltipSide">
@@ -234,8 +361,10 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
                             >{{ initial(session.title) }}</button>
                         </Tooltip>
                     </div>
-                </template>
-                <div v-else class="acv-segment__list" data-messages-list-panel>
+                </div>
+                </Transition>
+                <Transition name="acv-list" @before-leave="holdInPlace" @after-leave="leaveDone" @leave-cancelled="leaveDone">
+                <div v-if="props.expanded" class="acv-segment__list" :class="{'acv-segment__list--opening': opening}" :style="listStyle" data-messages-list-panel @animationend="onListAnimationEnd">
                     <AgentMessagesList
                         ref="listRef"
                         v-model:bot-query="botQuery"
@@ -252,6 +381,7 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
                         <template #sessions><slot name="sessions" /></template>
                     </AgentMessagesList>
                 </div>
+                </Transition>
             </div>
         </Teleport>
         <Teleport :to="props.targets?.foot ?? 'body'" :disabled="props.targets === null">
@@ -309,6 +439,7 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
 }
 
 .acv-segment__main {
+    position: relative;
     display: flex;
     flex: 1 1 0;
     flex-direction: column;
@@ -322,11 +453,45 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
     scrollbar-width: none;
 }
 
+/* 展开：列表按最终宽度排（`width`），停靠时贴右（右轨朝左长）、画在自己的位置上（浮动窗，窗朝右长）时贴左，宽度过渡中多出的裁掉。 */
 .acv-segment__main--expanded {
-    position: relative;
-    align-items: stretch;
+    align-items: flex-end;
     padding-block: 0;
     overflow: hidden;
+}
+
+.acv-segment--inline .acv-segment__main--expanded {
+    align-items: flex-start;
+}
+
+/* 收着的项：一列，同中段原来的排法（间距、居中），换画法时整块淡出淡入。 */
+.acv-segment__strip {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+}
+
+.acv-strip-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+
+/* 收起时等列表淡出了再回来。 */
+.acv-strip-enter-active {
+    transition: opacity var(--motion-fast) var(--ease-layout) var(--motion-fast);
+}
+
+.acv-strip-enter-from,
+.acv-strip-leave-to,
+.acv-list-leave-to {
+    opacity: 0;
+}
+
+/* 收起比展开短：列表直接淡出，不等宽度。 */
+.acv-list-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .acv-segment__toggle-slot {
@@ -526,13 +691,21 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
     padding-bottom: 8px;
 }
 
-/* 展开后的列表晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。减少动效时两个时长令牌都是 0，直接显示。 */
+/*
+ * 展开后的列表页晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。底部导航不跟着淡入：它是底段两项移过来的，移动的过程中要看得见。
+ * 减少动效时两个时长令牌都是 0，直接显示。
+ */
 .acv-segment__list {
     --acv-list-inset-end: 30px;
     display: flex;
+    flex-shrink: 0;
     flex-direction: column;
+    width: 100%;
     height: 100%;
     min-height: 0;
+}
+
+.acv-segment__list--opening :deep([data-messages-page]) {
     animation: acv-segment-list-in var(--motion-base) var(--motion-layout) both;
 }
 
