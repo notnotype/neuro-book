@@ -1,0 +1,28 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T035515133Z-f8c864b7",
+    "artifactVersion": 9,
+    "contentHash": "e247e44b3a5c152686011729da23bfddca10f8abd99fd2fde23637ec53324f24",
+    "submittedAt": "2026-11-27T03:55:10.778Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "highlight-r9": "ok",
+        "hero-r9": "ok",
+        "elements-r9": [
+            "astrolabe",
+            "threads"
+        ],
+        "day-r9": "revise"
+    },
+    "comments": {
+        "elements-r9": "但是这两样东西没多少动画和交互啊。不仔细看还注意不到",
+        "day-r9": "不对。你这个首拼只有一个项目书桌，其他地方都是灰蒙蒙的一片。是不是少了华丽感。"
+    },
+    "note": "还有我前面那次评审稿提到的那些东西好像都还没改"
+}
