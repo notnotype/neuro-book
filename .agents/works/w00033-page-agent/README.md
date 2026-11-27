@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00033-page-agent
 issueId: null
 status: active
-updated: 2026-11-19
+updated: 2026-11-27
 ---
 
 # Agent 操作 NeuroBook 界面：nb-page-agent 核心包与自操作插件
@@ -42,7 +42,9 @@ t16 讨论过、开发者还没表态的推荐（详见 t16 README 的同名小�
 
 | Task | 内容 | 状态 |
 |---|---|---|
-| [t01](tasks/t01-design/README.md) | 设计：核心包与插件的接口、快照与控件名、动作、截图、高亮、光标 | 未开工 |
+| [t01](tasks/t01-design/README.md) | 设计：核心包与插件的接口、快照与控件名、动作、截图、高亮、光标 | 设计稿第四稿已定，第一批由 t03 实施 |
+| [t02](tasks/t02-ui-actions/README.md) | 第二批：Agent 代替用户操作界面（动作、光标、提示条与停止、确认、拖拽指引） | 未开工 |
+| [t03](tasks/t03-ui-guide/README.md) | 第一批实现：快照、界面目录、截图与引导（`ui` 对象） | 完成，合入 master（3cd37bde2） |
 
 ## 前置
 
