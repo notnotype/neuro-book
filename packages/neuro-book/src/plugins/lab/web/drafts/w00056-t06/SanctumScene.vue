@@ -12,13 +12,17 @@
  *    从字到世界按一条时间线走（时间只在首屏亮着、镜头没推走、没在细看哪张纸时往前走，页面在后台时帧循环自己停），每一步只拨几个开关，
  *    怎么显出来归样式；金尘画在浮尘那张画布上。指针视差、反光与丝带尾巴读同一份带惯性的指针位置，每帧写到各层的 `sx-par` 与几个变量上。
  * 5. 第 8 轮（开发者：首页旁边的东西要能点、要有跟鼠标位置与速度互动的动画）：点一张纸细看，它转正、放大、往前凑，别的压暗，
- *    再点、点别处、按 Esc 或一滚动就放回去（细看到几成由帧循环里的弹簧追，镜头投影时多挪一点、放大一点）；指针的速度另记一份，
- *    划过光束时浮尘被带着走、打个旋、亮一下，丝带被风带着摆；指针停在一张纸上 0.4 秒，纸上的几处细节亮起来。
+ *    再点、点别处、按 Esc 或一滚动就放回去（细看到几成由帧循环里的弹簧追，镜头投影时多挪一点、放大一点）。
+ * 6. 第 9 轮（开发者：跟指针的效果“不太明显，也不太好看”）：第 8 轮的浮尘扰动、停驻唤醒、丝带被风带着摆删了，换成提灯与金丝
+ *    （@designer 第 9 轮）。提灯是一团追着指针的暖光，帧循环里推一个弹簧、写它的变换；照着的纸与书角的受光由几个变量交给样式
+ *    （`--sx-lit` 受光几成，`--sx-lx`、`--sx-ly` 灯在哪个方向，`--sx-focus` 细看到几成），纸的滤镜一条链算出亮边、影子与明暗，
+ *    所以纸上没有滤镜过渡（每帧改值时过渡会一直重启，影子拖在后面）。金丝画在浮尘那张画布上。
  */
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 
 import LEATHER_CORNER from "./assets/leather-corner.webp";
 import LYRA_AVATAR from "./assets/lyra-avatar.webp";
+import OAK from "./assets/oak.webp";
 import PARCHMENT from "./assets/parchment.webp";
 import VELVET from "./assets/velvet.webp";
 
@@ -88,6 +92,8 @@ const FOCUS_LIFT: Readonly<Record<PaperId, {readonly dx: number; readonly dy: nu
 };
 
 const LAYERS = {
+    // 第 9 轮的星盘：最远，右上角一半出画（`astrolabe`）。
+    astrolabe: {floater: {at: {x: 0.965, y: 0.05}, depth: -900, pose: "rotateZ(-8deg)", fade: [0, 360]}, width: 400, height: 400},
     manuscript: {floater: {at: {x: 0.15, y: 0.44}, depth: -620, pose: paperPose("manuscript", 0), fade: [160, 520]}, width: 250, height: 330},
     character: {floater: {at: {x: 0.858, y: 0.38}, depth: -470, pose: paperPose("character", 0), fade: [160, 520]}, width: 230, height: 300},
     map: {floater: {at: {x: 0.2, y: 0.84}, depth: -240, pose: paperPose("map", 0), fade: [160, 520]}, width: 330, height: 236},
@@ -160,6 +166,8 @@ const TIMELINE = [
 // ── 首屏停着时的动静（第 7 轮） ──
 
 const effectOn = (effect: SceneEffect): boolean => !reduced && props.effects.includes(effect);
+/** 静物（星盘、线索丝）只看开没开：少动效时照样画，只是不动。 */
+const featureOn = (effect: SceneEffect): boolean => props.effects.includes(effect);
 
 /**
  * 从字到世界走到哪了：每样东西此刻显出来没有（怎么显、怎么沉回纸里写在样式里）。
@@ -277,13 +285,17 @@ function fly(from: string, to: string, arrive: () => void): void {
     comets.push({from: start, to: end, control, start: relayTime, span: 900 + distance * 0.55, arrive, landed: false});
 }
 
-/** 指针视差：每层挪多远（px，指针到舞台边上时）、纸倾多少度（@designer：不超过 2 度）。近的挪得多。 */
+/**
+ * 指针视差：每层挪多远（px，指针到舞台边上时）、纸倾多少度（@designer：不超过 2 度）。近的挪得多；
+ * 第 9 轮加大到前景约 16px、中景约 7px（@designer：第 8 轮的几个像素看不出来）。
+ */
 const PARALLAX: Readonly<Record<LayerId, {readonly shift: number; readonly tilt: number}>> = {
-    manuscript: {shift: 6, tilt: 1.2},
+    astrolabe: {shift: 4, tilt: 0},
+    manuscript: {shift: 7, tilt: 1.2},
     character: {shift: 8, tilt: 1.5},
-    map: {shift: 11, tilt: 1.8},
-    book: {shift: 18, tilt: 0},
-    ribbon: {shift: 15, tilt: 0},
+    map: {shift: 14, tilt: 1.8},
+    book: {shift: 16, tilt: 0},
+    ribbon: {shift: 16, tilt: 0},
 };
 const parEls: Partial<Record<LayerId, HTMLElement>> = {};
 const setPar = (name: LayerId) => (element: unknown): void => {
@@ -292,7 +304,7 @@ const setPar = (name: LayerId) => (element: unknown): void => {
 };
 const bookGlint = useTemplateRef<HTMLElement>("bookGlint");
 const ribbonTail = useTemplateRef<HTMLElement>("ribbonTail");
-const pointerEffects = computed(() => effectOn("parallax") || effectOn("glint") || effectOn("ribbon"));
+const pointerEffects = computed(() => (["parallax", "lantern", "thread", "glint", "ribbon"] as const).some(effectOn));
 
 /** 指针在哪（舞台中心为 0，四边为 ±1）；`gaze` 带惯性地追它，丝带的尾巴再慢半拍追 `gaze`。 */
 const aim = {x: 0, y: 0};
@@ -300,13 +312,26 @@ const gaze = {x: 0, y: 0, vx: 0, vy: 0};
 const tail = {x: 0, v: 0};
 
 /**
- * 指针在舞台上的位置与速度（舞台坐标；px 与 px/s，平滑过约 50ms）：划过光束时搅动浮尘、风吹丝带（第 8 轮）。
+ * 指针在舞台上的位置与速度（舞台坐标；px 与 px/s，平滑过约 50ms）：提灯追它的位置，金丝看它的速度（第 9 轮）。
  * 时刻取事件自带的时间戳（和 `performance.now()` 同一个钟）：主线程忙时移动事件会攒成一批才送到，按处理的时刻算速度会差得很远
- * （设计语言踩过的坑 87）。
- * 停下以后不再有移动事件，速度由帧循环衰减到零（`stepEffects`）。`fromX`、`fromY` 是上一帧画浮尘时指针在哪：搅动按这一帧扫过的那一段算。
+ * （设计语言踩过的坑 87）。停下以后不再有移动事件，速度由帧循环衰减到零（`stepEffects`）。
+ * `inside`：指针在窗口里（离开窗口时灯熄掉）；`overControl`：停在按钮或链接上（金丝不出，@designer：进交互区隐退）。
  */
-const stir = {x: -1e4, y: -1e4, vx: 0, vy: 0, at: 0, fromX: -1e4, fromY: -1e4};
+const stir = {x: -1e4, y: -1e4, vx: 0, vy: 0, at: 0, inside: false, overControl: false};
 const STIR_MAX_SPEED = 3500;
+/** 最近一小段指针走过的点（舞台坐标与事件时间戳）：金丝沿着它画。只留最近 200ms。 */
+const trail: Array<{readonly x: number; readonly y: number; readonly at: number}> = [];
+
+/**
+ * 提灯（第 9 轮）：一团暖光追着指针（临界阻尼，刚度 70：匀速移动时落后约 0.24 秒，即 2/√70，@designer 要的滞后 240ms；停下后约半秒追上），`glow` 是灯亮了几成：
+ * 指针进来亮起，离开窗口熄掉，镜头推走时跟着收。照得到多远的纸看 `LAMP_REACH`。
+ */
+const lamp = {x: 0, y: 0, vx: 0, vy: 0, glow: 0};
+const LAMP_REACH = 460;
+/** 受光的几层：三张纸、书角与星盘（丝带太细，不算）。 */
+const LIT_LAYERS = ["astrolabe", "manuscript", "character", "map", "book"] as const;
+const lantern = useTemplateRef<HTMLElement>("lantern");
+const lanternGlow = useTemplateRef<HTMLElement>("lanternGlow");
 
 function onPointerMove(event: PointerEvent): void {
     // 只认真的鼠标：第一幕演示的指针是合成的事件，触屏没有悬停。
@@ -331,12 +356,22 @@ function onPointerMove(event: PointerEvent): void {
     } else {
         stir.vx = 0;
         stir.vy = 0;
-        stir.fromX = x;
-        stir.fromY = y;
+        trail.length = 0;
+    }
+    // 第一次看到指针：灯直接落在那里，不从舞台左上角飞过来。
+    if (!stir.inside) {
+        lamp.x = x;
+        lamp.y = y;
+        lamp.vx = 0;
+        lamp.vy = 0;
     }
     stir.x = x;
     stir.y = y;
     stir.at = now;
+    stir.inside = true;
+    stir.overControl = event.target instanceof Element && event.target.closest("a, button") !== null;
+    trail.push({x, y, at: now});
+    while (trail.length > 0 && now - trail[0]!.at > 200) trail.shift();
     if (rendered < 0.2) wake();
 }
 
@@ -345,21 +380,24 @@ function onPointerLeave(event: PointerEvent): void {
     if (event.relatedTarget !== null) return;
     aim.x = 0;
     aim.y = 0;
+    stir.inside = false;
+    trail.length = 0;
     if (rendered < 0.2) wake();
 }
 
-/** 阻尼弹簧：`gaze` 临界阻尼（不回弹，约 0.8 秒追上）；丝带尾巴软一些、略欠阻尼，追上时轻轻多摆一下。 */
+/**
+ * 阻尼弹簧：`gaze` 临界阻尼（不回弹，约半秒追上；第 8 轮约 0.8 秒，@designer 第 9 轮嫌跟手慢）；丝带尾巴软一些、略欠阻尼，
+ * 追上时轻轻多摆一下（第 8 轮另加的“被风带着摆”删了，@designer 第 9 轮：失真）。
+ */
 function stepGaze(dt: number): void {
-    const stiff = 30;
+    const stiff = 60;
     const damp = 2 * Math.sqrt(stiff);
     gaze.vx += (stiff * (aim.x - gaze.x) - damp * gaze.vx) * dt;
     gaze.vy += (stiff * (aim.y - gaze.y) - damp * gaze.vy) * dt;
     gaze.x += gaze.vx * dt;
     gaze.y += gaze.vy * dt;
-    // 风（第 8 轮）：指针横着划得快，丝带的尾巴被带过去；厚丝绸大阻尼，轻晃即停（@designer 第 8 轮）。
     const soft = 11;
-    const wind = Math.max(-1, Math.min(1, stir.vx / 1600));
-    tail.v += (soft * (gaze.x + wind * 0.8 - tail.x) - 1.7 * Math.sqrt(soft) * tail.v) * dt;
+    tail.v += (soft * (gaze.x - tail.x) - 1.7 * Math.sqrt(soft) * tail.v) * dt;
     tail.x += tail.v * dt;
 }
 
@@ -383,6 +421,64 @@ function applyGaze(): void {
     }
 }
 
+/** 提灯追指针一步（真实时间，切成不超过 16ms 的小步），亮几成往目标靠。 */
+function stepLantern(seconds: number): void {
+    const stiff = 70;
+    const damp = 2 * Math.sqrt(stiff);
+    for (let left = Math.min(seconds, 0.25); left > 0; left -= 0.016) {
+        const dt = Math.min(0.016, left);
+        lamp.vx += (stiff * (stir.x - lamp.x) - damp * lamp.vx) * dt;
+        lamp.vy += (stiff * (stir.y - lamp.y) - damp * lamp.vy) * dt;
+        lamp.x += lamp.vx * dt;
+        lamp.y += lamp.vy * dt;
+    }
+    lamp.glow += ((stir.inside ? 1 : 0) - lamp.glow) * (1 - Math.exp(-seconds / 0.25));
+}
+
+/**
+ * 把灯写上去：光斑的位置与拉长（快移时顺着方向拉长到 1.15 倍、横向收一点，停下自己回圆），
+ * 照着的几层写受光几成与灯的方向（先把几层的位置都量完再写，不在读写之间来回逼浏览器排版）。
+ */
+function applyLantern(fade: number): void {
+    const element = root.value;
+    if (element === null || lantern.value === null || lanternGlow.value === null) return;
+    const strength = lamp.glow * fade;
+    lantern.value.style.opacity = fixed(strength);
+    const speed = Math.hypot(lamp.vx, lamp.vy);
+    const stretch = 1 + 0.15 * Math.min(1, speed / 900);
+    const angle = (Math.atan2(lamp.vy, lamp.vx) * 180) / Math.PI;
+    lanternGlow.value.style.transform = `translate3d(${fixed(lamp.x)}px, ${fixed(lamp.y)}px, 0) translate(-50%, -50%) rotate(${fixed(angle)}deg) scale(${fixed(stretch)}, ${fixed(1 / Math.sqrt(stretch))})`;
+    const frame = element.getBoundingClientRect();
+    const zoom = element.offsetWidth > 0 ? frame.width / element.offsetWidth : 1;
+    const centers = LIT_LAYERS.map((name) => {
+        const rect = layerEls[name]?.getBoundingClientRect();
+        return rect === undefined ? null : {x: (rect.left + rect.width / 2 - frame.left) / zoom, y: (rect.top + rect.height / 2 - frame.top) / zoom};
+    });
+    LIT_LAYERS.forEach((name, index) => {
+        const layer = layerEls[name];
+        const center = centers[index];
+        if (layer === undefined || center === null || center === undefined) return;
+        const dx = lamp.x - center.x;
+        const dy = lamp.y - center.y;
+        const distance = Math.hypot(dx, dy) || 1;
+        const lit = Math.max(0, 1 - distance / LAMP_REACH) ** 1.4 * strength;
+        layer.style.setProperty("--sx-lit", fixed(lit));
+        layer.style.setProperty("--sx-lx", fixed((dx / distance) * lit));
+        layer.style.setProperty("--sx-ly", fixed((dy / distance) * lit));
+    });
+}
+
+/** 细看到几成写给样式（纸的影子按它加深，见文件头第 6 条）；没变就不写。 */
+const focusShown: Partial<Record<PaperId, string>> = {};
+function applyFocusVars(): void {
+    for (const name of PAPER_IDS) {
+        const value = fixed(focusAmount[name].x);
+        if (focusShown[name] === value) continue;
+        layerEls[name]?.style.setProperty("--sx-focus", value);
+        focusShown[name] = value;
+    }
+}
+
 /** 每帧：从字到世界的钟按真实时间往前走（只在首屏亮着、镜头没推走、没在细看哪张纸时），指针的那一份追一步再写上去。 */
 function stepEffects(dt: number): void {
     if (effectOn("relay") && lit.value && rendered < 0.08 && focused.value === null) advanceRelay(frameMs);
@@ -392,10 +488,16 @@ function stepEffects(dt: number): void {
         stir.vy *= decay;
     }
     stepFocus(frameMs / 1000);
+    applyFocusVars();
     if (pointerEffects.value) {
         stepGaze(dt);
         applyGaze();
     }
+    if (effectOn("lantern")) {
+        stepLantern(frameMs / 1000);
+        applyLantern(1 - smooth(0, 0.18, rendered));
+    }
+    if (featureOn("threads")) applyThreads(lit.value ? 1 - smooth(0, 0.12, rendered) : 0);
 }
 
 // ── 点纸细看与停驻唤醒（第 8 轮） ──
@@ -465,37 +567,93 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 /**
- * 停驻唤醒：指针停在一张纸上 0.4 秒没怎么动，那张纸上的几处细节亮起来（伏笔的红圈、海岸与航线、人物卡的金框与印），移开才熄
- * （@designer 第 8 轮：快划只搅空气，停驻才唤醒字与器物）。指针在纸上时，靠近指针的那一角微微抬起（`--lift-x`、`--lift-y`）。
+ * 指针在纸上时，靠近指针的那一角微微抬起（`--lift-x`、`--lift-y`，样式里转成倾角）。
+ * 第 8 轮另有“停驻 0.4 秒唤醒纸上细节”，第 9 轮删了（@designer：0.4 秒太慢；提灯照着的纸自己会亮）。
  */
-const awake = ref<PaperId | null>(null);
-const DWELL_MS = 400;
-let dwellTimer = 0;
-let dwellFrom = {x: 0, y: 0};
+/** 指针停在哪张纸上（线索丝亮那一根）。 */
+const hoveredPaper = ref<PaperId | null>(null);
 
-function onPaperMove(name: PaperId, event: PointerEvent): void {
+function onPaperMove(event: PointerEvent): void {
     if (!event.isTrusted || event.pointerType !== "mouse") return;
     const element = event.currentTarget as HTMLElement;
+    const name = element.dataset.sxPaper;
+    if (name !== undefined && isPaperId(name)) hoveredPaper.value = name;
     const rect = element.getBoundingClientRect();
     element.style.setProperty("--lift-x", fixed(Math.max(-1, Math.min(1, ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1))));
     element.style.setProperty("--lift-y", fixed(Math.max(-1, Math.min(1, ((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1))));
-    if (awake.value === name) return;
-    if (dwellTimer !== 0 && Math.hypot(event.clientX - dwellFrom.x, event.clientY - dwellFrom.y) < 4) return;
-    dwellFrom = {x: event.clientX, y: event.clientY};
-    clearTimeout(dwellTimer);
-    dwellTimer = window.setTimeout(() => {
-        dwellTimer = 0;
-        awake.value = name;
-    }, DWELL_MS * timeScale());
 }
 
-function onPaperLeave(name: PaperId, event: PointerEvent): void {
+function onPaperLeave(event: PointerEvent): void {
     const element = event.currentTarget as HTMLElement;
     element.style.setProperty("--lift-x", "0");
     element.style.setProperty("--lift-y", "0");
-    clearTimeout(dwellTimer);
-    dwellTimer = 0;
-    if (awake.value === name) awake.value = null;
+    hoveredPaper.value = null;
+}
+
+const isPaperId = (name: string): name is PaperId => (PAPER_IDS as readonly string[]).includes(name);
+
+// ── 第 9 轮加的两样（开发者问首屏要不要多加点元素，@designer 建议最多两样） ──
+
+/**
+ * 星盘外圈的刻度（每 5 度一道，每 15 度长一点）与网环上几颗星的指针尖，预先算好坐标（星盘的 SVG 以圆心为原点）。
+ * 不画从圆心放射出去的直辐条：画了像船舵。
+ */
+const ASTROLABE_TICKS = Array.from({length: 72}, (_, index) => {
+    const angle = (index * 5 * Math.PI) / 180;
+    const outer = index % 3 === 0 ? 194 : 188;
+    return {key: index, x1: fixed(181 * Math.cos(angle)), y1: fixed(181 * Math.sin(angle)), x2: fixed(outer * Math.cos(angle)), y2: fixed(outer * Math.sin(angle))};
+});
+const ASTROLABE_STARS = [20, 72, 118, 166, 214, 262, 312].map((degrees, index) => {
+    const radius = [150, 132, 156, 140, 150, 128, 152][index]!;
+    const angle = (degrees * Math.PI) / 180;
+    const along = {x: Math.cos(angle), y: Math.sin(angle)};
+    const across = {x: -along.y, y: along.x};
+    const base = radius - 20;
+    const point = (r: number, side: number): string => `${fixed(along.x * r + across.x * side)},${fixed(along.y * r + across.y * side)}`;
+    return {key: degrees, d: `M${point(radius, 0)} L${point(base, 4.5)} Q${point(base - 6, 0)} ${point(base, -4.5)} Z`};
+});
+
+/**
+ * 线索丝：每根从一张纸靠工作台那一侧落到工作台上缘的一处（`end` 是在工作台外框里的比例）。每帧按纸与工作台此刻的外框重算一遍：
+ * 纸在漂、在视差，工作台在开场里亮起来，丝要跟着。路径是一段三次曲线，从纸往下垂、再落到桌上，绕开中间的标题与按钮。
+ */
+const THREAD_ENDS: Readonly<Record<PaperId, {readonly from: {readonly x: number; readonly y: number}; readonly end: {readonly x: number; readonly y: number}}>> = {
+    manuscript: {from: {x: 0.82, y: 0.86}, end: {x: 0.52, y: 0.1}},
+    character: {from: {x: 0.2, y: 0.88}, end: {x: 0.84, y: 0.1}},
+    map: {from: {x: 0.86, y: 0.36}, end: {x: 0.16, y: 0.22}},
+};
+const threadLayer = useTemplateRef<SVGSVGElement>("threadLayer");
+const threadPaths: Partial<Record<PaperId, SVGPathElement[]>> = {};
+const setThread = (name: PaperId, index: number) => (element: unknown): void => {
+    const list = (threadPaths[name] ??= []);
+    if (element instanceof SVGPathElement) list[index] = element;
+};
+/** 亮哪一根：细看着的那张优先，其次是指针停着的那张。 */
+const litThread = computed<PaperId | null>(() => focused.value ?? hoveredPaper.value);
+
+function applyThreads(fade: number): void {
+    const element = root.value;
+    const layer = threadLayer.value;
+    const desk = carrier.value;
+    if (element === null || layer === null || desk === null) return;
+    layer.style.opacity = fixed(fade);
+    if (fade <= 0.01) return;
+    const frame = element.getBoundingClientRect();
+    const zoom = element.offsetWidth > 0 ? frame.width / element.offsetWidth : 1;
+    const toStage = (x: number, y: number): Point => ({x: (x - frame.left) / zoom, y: (y - frame.top) / zoom});
+    const table = desk.getBoundingClientRect();
+    const rects = PAPER_IDS.map((name) => layerEls[name]?.getBoundingClientRect() ?? null);
+    PAPER_IDS.forEach((name, index) => {
+        const rect = rects[index];
+        const paths = threadPaths[name];
+        if (rect === null || rect === undefined || paths === undefined) return;
+        const {from, end} = THREAD_ENDS[name];
+        const start = toStage(rect.left + rect.width * from.x, rect.top + rect.height * from.y);
+        const stop = toStage(table.left + table.width * end.x, table.top + table.height * end.y);
+        const sag = Math.max(60, Math.abs(stop.y - start.y) * 0.6);
+        const d = `M${fixed(start.x)},${fixed(start.y)} C${fixed(start.x)},${fixed(start.y + sag)} ${fixed(stop.x)},${fixed(stop.y - sag * 0.5)} ${fixed(stop.x)},${fixed(stop.y)}`;
+        for (const path of paths) path?.setAttribute("d", d);
+    });
 }
 
 // ── 开场 ──
@@ -657,17 +815,28 @@ interface Mote {
     /** 0 远、1 近：近的大、亮、动得快。 */
     z: number;
     phase: number;
-    /** 被指针搅起来的速度（px/s）与亮度（0 到 1），都会慢慢消掉。 */
+}
+let motes: Mote[] = [];
+
+/**
+ * 金丝（第 9 轮，@designer）：划得快（每秒 450px 以上）时指针身后一道 1.5px 的淡金丝，长 45 到 100px，
+ * 沿 `trail` 记下的最近一段画；再落几粒微屑，350ms 散掉，同时最多 12 粒。慢移与停在按钮、链接上时不出。
+ */
+interface Speck {
+    x: number;
+    y: number;
     vx: number;
     vy: number;
-    glow: number;
+    born: number;
 }
-/** 指针周围多大一圈的浮尘会被搅动（px）。 */
-const STIR_RADIUS = 190;
-/** 被搅亮的浮尘有几粒（亮度过一成五的），写在根上给探针读；最多每 200ms 写一次。 */
-let stirredShown = -1;
-let stirredAt = 0;
-let motes: Mote[] = [];
+const THREAD_SPEED = 450;
+const SPECK_LIFE = 350;
+const SPECK_MAX = 12;
+let specks: Speck[] = [];
+let speckAt = 0;
+/** 金丝画过几帧（累计），写在根上给探针读：快划时它往上涨，慢移与停在按钮上时不动。 */
+let threadDrawn = 0;
+let threadShown = -1;
 let dustOpacity = 1;
 let clock = 0;
 
@@ -677,7 +846,7 @@ function spawn(stage: StageSize, anywhere: boolean): Mote {
     const y = anywhere ? Math.random() * stage.height : stage.height * (0.85 + Math.random() * 0.2);
     const spread = stage.width * (0.1 + 0.28 * (y / stage.height));
     const x = inBeam ? stage.width / 2 + (Math.random() * 2 - 1) * spread : Math.random() * stage.width;
-    return {x, y, z: Math.random(), phase: Math.random() * Math.PI * 2, vx: 0, vy: 0, glow: 0};
+    return {x, y, z: Math.random(), phase: Math.random() * Math.PI * 2};
 }
 
 function dustVisible(): boolean {
@@ -704,15 +873,6 @@ function drawDust(dt: number, speed: number, opacity: number): void {
     const center = {x: stage.width / 2, y: landingBox(stage).top + landingBox(stage).height / 2};
     // 前冲时的径向速度：进度每秒变化量乘一个系数，近的尘飞得更快。
     const rush = Math.max(0, speed) * 1.6;
-    // 指针搅动浮尘（第 8 轮）：只在首屏、跟着真鼠标；少动效时不跑这里。
-    const stirring = pointerEffects.value && rendered < 0.2;
-    const stirSpeed = Math.hypot(stir.vx, stir.vy);
-    // 这一帧指针扫过的那一段：甩得快、掉帧时一帧能走一两百像素，只看落点会漏掉路上的尘。
-    const sweepFrom = {x: stir.fromX, y: stir.fromY};
-    stir.fromX = stir.x;
-    stir.fromY = stir.y;
-    const drag = Math.exp(-dt * 2.2);
-    const fade = Math.exp(-dt * 1.1);
     for (const mote of motes) {
         const lift = (5 + 12 * mote.z) * dt;
         const sway = Math.sin(clock * 0.35 + mote.phase) * (3 + 4 * mote.z) * dt;
@@ -723,22 +883,6 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         const fromY = mote.y;
         mote.x += sway + dx * outward;
         mote.y += -lift + dy * outward;
-        if (stirring && stirSpeed > 1) {
-            const reach = toSegment(mote, sweepFrom, stir);
-            if (reach < STIR_RADIUS) {
-                const fall = (1 - reach / STIR_RADIUS) ** 1.5;
-                const push = fall * (0.4 + 0.6 * mote.z) * dt;
-                // 顺着指针带过去，再加一点绕着它转的分量：划过去的地方留一个小旋，被带起来的尘亮一下、慢慢暗回去。
-                mote.vx += (stir.vx * 4 - stir.vy * 1.4) * push;
-                mote.vy += (stir.vy * 4 + stir.vx * 1.4) * push;
-                mote.glow = Math.max(mote.glow, Math.min(1, stirSpeed / 600) * (0.35 + 0.65 * fall));
-            }
-        }
-        mote.vx *= drag;
-        mote.vy *= drag;
-        mote.glow *= fade;
-        mote.x += mote.vx * dt;
-        mote.y += mote.vy * dt;
         if (mote.y < -10 || mote.x < -20 || mote.x > stage.width + 20 || mote.y > stage.height + 20) {
             Object.assign(mote, spawn(stage, rush > 0.05));
             continue;
@@ -746,8 +890,8 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         const spread = stage.width * (0.1 + 0.28 * (mote.y / stage.height));
         const inBeam = 1 - smooth(spread * 0.55, spread, Math.abs(mote.x - stage.width / 2));
         const twinkle = 0.65 + 0.35 * Math.sin(clock * (0.8 + mote.z) + mote.phase * 3);
-        const alpha = Math.min(1, ((0.08 + 0.5 * inBeam) * twinkle * (0.45 + 0.55 * mote.z) + 0.85 * mote.glow) * tint);
-        const radius = 0.5 + 1.5 * mote.z + 1.4 * mote.glow;
+        const alpha = Math.min(1, (0.08 + 0.5 * inBeam) * twinkle * (0.45 + 0.55 * mote.z) * tint);
+        const radius = 0.5 + 1.5 * mote.z;
         const streak = Math.hypot(mote.x - fromX, mote.y - fromY);
         if (streak > 2.5) {
             context.strokeStyle = props.night ? `rgba(255, 226, 176, ${alpha.toFixed(3)})` : `rgba(255, 250, 236, ${alpha.toFixed(3)})`;
@@ -764,21 +908,56 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         }
     }
     drawComets(context);
-    const now = performance.now();
-    if (now - stirredAt > 200 && root.value !== null) {
-        const stirred = motes.filter((mote) => mote.glow > 0.15).length;
-        if (stirred !== stirredShown) root.value.dataset.sxStirred = String(stirred);
-        stirredShown = stirred;
-        stirredAt = now;
-    }
+    if (effectOn("thread") && rendered < 0.2) drawThread(context, dt);
 }
 
-/** 点到线段的距离。 */
-function toSegment(point: Point, from: Point, to: Point): number {
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / (dx * dx + dy * dy || 1)));
-    return Math.hypot(point.x - (from.x + dx * t), point.y - (from.y + dy * t));
+/** 金丝与微屑（见上面 `Speck` 那段）。夜里叠亮成光，白天底是亮的，换成古铜色正常叠上。 */
+function drawThread(context: CanvasRenderingContext2D, dt: number): void {
+    const now = performance.now();
+    const speed = Math.hypot(stir.vx, stir.vy);
+    // 停下以后速度在一两百毫秒里衰减到门槛以下（`stepEffects`），金丝自己就断了；这里再挡一下太久没动的（掉帧时一帧就隔一两百毫秒）。
+    const fast = stir.inside && !stir.overControl && speed > THREAD_SPEED && now - stir.at < 250;
+    const color = props.night ? "255, 222, 160" : "150, 104, 40";
+    if (fast && trail.length > 1) {
+        // 从指针往回取 100px 以内的一段，越往后越淡。
+        const strength = Math.min(1, (speed - THREAD_SPEED) / 600);
+        let length = 0;
+        context.lineCap = "round";
+        context.lineWidth = 1.5;
+        for (let index = trail.length - 1; index > 0 && length < 100; index -= 1) {
+            const head = trail[index]!;
+            const prev = trail[index - 1]!;
+            const step = Math.hypot(head.x - prev.x, head.y - prev.y);
+            const along = 1 - length / 100;
+            length += step;
+            context.strokeStyle = `rgba(${color}, ${(0.75 * strength * along).toFixed(3)})`;
+            context.beginPath();
+            context.moveTo(head.x, head.y);
+            context.lineTo(prev.x, prev.y);
+            context.stroke();
+        }
+        if (now - speckAt > 45 && specks.length < SPECK_MAX) {
+            speckAt = now;
+            const side = Math.random() < 0.5 ? -1 : 1;
+            specks.push({x: stir.x, y: stir.y, vx: (-stir.vy / speed) * side * 30 - stir.vx * 0.04, vy: (stir.vx / speed) * side * 30 - stir.vy * 0.04 + 12, born: now});
+        }
+        threadDrawn += 1;
+    }
+    specks = specks.filter((speck) => now - speck.born < SPECK_LIFE);
+    for (const speck of specks) {
+        speck.x += speck.vx * dt;
+        speck.y += speck.vy * dt;
+        const age = (now - speck.born) / SPECK_LIFE;
+        context.fillStyle = `rgba(${color}, ${(0.85 * (1 - age)).toFixed(3)})`;
+        context.beginPath();
+        context.arc(speck.x, speck.y, 1.4 * (1 - 0.5 * age), 0, Math.PI * 2);
+        context.fill();
+    }
+    const element = root.value;
+    if (element !== null && threadDrawn !== threadShown) {
+        element.dataset.sxThread = String(threadDrawn);
+        threadShown = threadDrawn;
+    }
 }
 
 const cometEase = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
@@ -887,7 +1066,6 @@ onBeforeUnmount(() => {
     document.removeEventListener("visibilitychange", onVisible);
     document.removeEventListener("pointerdown", onDocumentPointerDown);
     document.removeEventListener("keydown", onKeyDown);
-    clearTimeout(dwellTimer);
     window.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerout", onPointerLeave);
     resize?.disconnect();
@@ -921,7 +1099,7 @@ onBeforeUnmount(() => {
             <div class="sx-enter sx-carrier__enter">
                 <div class="sx-halo" aria-hidden="true"></div>
                 <!-- 桌布：比桌子大一圈、往外淡进暗里；落地后围着工作台的那一圈都是它。顶光在桌面上落一滩光。 -->
-                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-parchment': `url(${PARCHMENT})`}" aria-hidden="true"></div>
+                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-oak': `url(${OAK})`}" aria-hidden="true"></div>
                 <div class="sx-pool" aria-hidden="true"></div>
                 <div class="sx-desk">
                     <slot name="desk" />
@@ -932,6 +1110,49 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
+        <!-- 黄铜星盘（第 9 轮，`astrolabe`）：最远的一层，右上角一半出画、虚焦压暗；网环慢慢转。 -->
+        <div v-if="featureOn('astrolabe')" :ref="setLayer('astrolabe')" class="sx-layer" :style="layerSize('astrolabe')" aria-hidden="true">
+            <div class="sx-enter sx-enter--rise" style="--enter-delay: 60ms">
+                <div :ref="setPar('astrolabe')" class="sx-par">
+                    <svg class="sx-astrolabe" viewBox="-200 -200 400 400" width="400" height="400">
+                        <circle r="178" :fill="url('plate')" />
+                        <g class="sx-astrolabe__engraving">
+                            <circle r="140" />
+                            <circle r="98" />
+                            <circle r="60" />
+                            <g :clip-path="url('plate-clip')">
+                                <circle cy="52" r="44" />
+                                <circle cy="52" r="82" />
+                                <circle cy="52" r="120" />
+                                <circle cy="52" r="158" />
+                            </g>
+                        </g>
+                        <circle r="186" fill="none" :stroke="url('brass')" stroke-width="16" />
+                        <circle r="195" fill="none" stroke="#f0d28c" stroke-opacity="0.5" stroke-width="1" />
+                        <g class="sx-astrolabe__ticks">
+                            <line v-for="tick in ASTROLABE_TICKS" :key="tick.key" :x1="tick.x1" :y1="tick.y1" :x2="tick.x2" :y2="tick.y2" />
+                        </g>
+                        <g class="sx-astrolabe__rete">
+                            <circle cy="-34" r="112" fill="none" :stroke="url('brass')" stroke-width="5" />
+                            <circle r="40" fill="none" :stroke="url('brass')" stroke-width="3" />
+                            <path v-for="star in ASTROLABE_STARS" :key="star.key" :d="star.d" :fill="url('brass')" />
+                        </g>
+                        <rect x="-5" y="-182" width="10" height="364" rx="4" :fill="url('brass')" transform="rotate(28)" />
+                        <circle r="11" :fill="url('brass')" />
+                        <circle r="4" fill="#3a250f" />
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- 线索丝（第 9 轮，`threads`）：每张纸牵一根落到工作台上，压在纸底下；路径每帧重算（`applyThreads`）。 -->
+        <svg v-if="featureOn('threads')" ref="threadLayer" class="sx-threads" aria-hidden="true">
+            <g v-for="name in PAPER_IDS" :key="name" class="sx-thread" :class="{'is-lit': litThread === name}">
+                <path :ref="setThread(name, 0)" class="sx-thread__line" />
+                <path :ref="setThread(name, 1)" class="sx-thread__run" pathLength="1" />
+            </g>
+        </svg>
+
         <!--
             三张羊皮页：手稿、人物卡、地图。远的那张更暗、更虚。每层外面归镜头（每帧写），`sx-enter` 归开场，`sx-par` 归指针视差，
             `sx-peek` 是悬停细看的热区，`sx-bob` 是漂浮，`sx-lean` 是凑近时的前倾。各管各的 transform，互不覆盖。
@@ -939,7 +1160,7 @@ onBeforeUnmount(() => {
         <div :ref="setLayer('manuscript')" class="sx-layer" :class="{'is-focused': focused === 'manuscript'}" :style="layerSize('manuscript')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 500ms">
                 <div :ref="setPar('manuscript')" class="sx-par">
-                    <div class="sx-peek" :class="{'is-awake': awake === 'manuscript'}" data-sx-paper="manuscript" @click="toggleFocus('manuscript')" @pointermove="onPaperMove('manuscript', $event)" @pointerleave="onPaperLeave('manuscript', $event)">
+                    <div class="sx-peek" data-sx-paper="manuscript" @click="toggleFocus('manuscript')" @pointermove="onPaperMove" @pointerleave="onPaperLeave">
                         <div class="sx-bob" style="--bob: 7.5s; --bob-y: -7px">
                             <div class="sx-lean">
                                 <svg class="sx-sheet sx-sheet--far" viewBox="0 0 250 330" width="250" height="330">
@@ -954,8 +1175,6 @@ onBeforeUnmount(() => {
                                     <!-- 从字到世界的第一步与第三步：敲门那一行落墨写出来；再涂一道高亮，红笔圈出“三下”、牵一条线写批注（和第一幕“高亮批注”同一件事）。 -->
                                     <g class="sx-relay" :class="{'is-sinking': relay.sinking}">
                                         <!-- 停驻唤醒：敲门那一行底下一团暖金，伏笔的红圈外一圈金红的光。 -->
-                                        <rect v-if="relay.written" x="20" :y="68 + KNOCK_LINE * 20" width="208" height="15" rx="6" fill="#ffcf7a" class="sx-wake" :filter="url('wake')" />
-                                        <ellipse v-if="relay.noted" :cx="KNOCK_RING_X" :cy="76 + KNOCK_LINE * 20" rx="17" ry="10.5" fill="none" stroke="#ff9a6a" stroke-width="3" class="sx-wake" :filter="url('wake')" :transform="`rotate(-4 ${KNOCK_RING_X} ${76 + KNOCK_LINE * 20})`" />
                                         <rect x="22" :y="66 + KNOCK_LINE * 20" width="204" height="19" rx="2" class="sx-mark" :class="{'is-on': relay.noted}" />
                                         <text x="24" :y="80 + KNOCK_LINE * 20" class="sx-ink sx-write" :class="{'is-on': relay.written}" data-sx-anchor="knock">{{ MANUSCRIPT_LINES[KNOCK_LINE] }}</text>
                                         <rect x="16" :y="67 + KNOCK_LINE * 20" width="12" height="17" class="sx-quill" :class="{'is-on': relay.written}" :fill="url('ink-edge')" />
@@ -977,7 +1196,7 @@ onBeforeUnmount(() => {
         <div :ref="setLayer('character')" class="sx-layer" :class="{'is-focused': focused === 'character'}" :style="layerSize('character')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 620ms">
                 <div :ref="setPar('character')" class="sx-par">
-                    <div class="sx-peek" :class="{'is-awake': awake === 'character'}" data-sx-paper="character" @click="toggleFocus('character')" @pointermove="onPaperMove('character', $event)" @pointerleave="onPaperLeave('character', $event)">
+                    <div class="sx-peek" data-sx-paper="character" @click="toggleFocus('character')" @pointermove="onPaperMove" @pointerleave="onPaperLeave">
                         <div class="sx-bob" style="--bob: 8.6s; --bob-y: 6px">
                             <div class="sx-lean sx-stack">
                                 <!-- 压在人物卡下面的是星璃的便笺：从字到世界的第四步，金尘飞到人物卡上，便笺斜着抽出来一截，露出她那几行字。 -->
@@ -1006,8 +1225,6 @@ onBeforeUnmount(() => {
                                     <rect x="176" y="22" width="30" height="30" rx="3" fill="none" stroke="#9b2232" stroke-width="1.4" />
                                     <text x="191" y="43" text-anchor="middle" class="sx-ink sx-ink--seal">人</text>
                                     <!-- 停驻唤醒：画像的金框与“人”字印各亮一圈。 -->
-                                    <ellipse cx="115" cy="122" rx="48" ry="58" fill="none" stroke="#ffd88a" stroke-width="4" class="sx-wake" :filter="url('wake')" />
-                                    <rect x="176" y="22" width="30" height="30" rx="3" fill="none" stroke="#ff9a6a" stroke-width="3" class="sx-wake" :filter="url('wake')" />
                                     <ellipse cx="115" cy="122" rx="48" ry="58" fill="none" :stroke="url('gold')" stroke-width="2.2" data-sx-anchor="card" />
                                     <ellipse cx="115" cy="122" rx="42" ry="52" fill="#d9c49d" stroke="#a8762f" stroke-width="0.8" />
                                     <path d="M115,92 a17,19 0 1,1 -0.1,0 Z M80,170 q4,-30 35,-34 q31,4 35,34 Z" fill="#6b5644" fill-opacity="0.42" />
@@ -1030,7 +1247,7 @@ onBeforeUnmount(() => {
         <div :ref="setLayer('map')" class="sx-layer" :class="{'is-focused': focused === 'map'}" :style="layerSize('map')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 740ms">
                 <div :ref="setPar('map')" class="sx-par">
-                    <div class="sx-peek" :class="{'is-awake': awake === 'map'}" data-sx-paper="map" @click="toggleFocus('map')" @pointermove="onPaperMove('map', $event)" @pointerleave="onPaperLeave('map', $event)">
+                    <div class="sx-peek" data-sx-paper="map" @click="toggleFocus('map')" @pointermove="onPaperMove" @pointerleave="onPaperLeave">
                         <div class="sx-bob" style="--bob: 9.4s; --bob-y: -5px">
                             <div class="sx-lean sx-stack" :data-face="relay.plot ? 1 : 0" :data-moved="plotMoved ? '' : undefined">
                                 <!-- 压在地图下面的是剧情的时间线：从字到世界的第五步，航线流进时间线，它换到上面，红线把第一章与第五章那两声敲门连起来。 -->
@@ -1062,11 +1279,6 @@ onBeforeUnmount(() => {
                                     </g>
                                     <!-- 从字到世界的第二步：金尘落到这里，海岸线描出来、陆地染上、灰塔升起、红色航线从霜港流向灰塔。 -->
                                     <circle cx="168" cy="136" r="2" fill="none" data-sx-anchor="map" />
-                                    <!-- 停驻唤醒：海岸线与航线描一层金粉的光。 -->
-                                    <g v-if="relay.mapped" class="sx-wake" :filter="url('wake')">
-                                        <path d="M10,150 C40,138 58,162 88,150 S138,116 168,130 S214,172 246,150 S292,112 320,124" fill="none" stroke="#ffd27a" stroke-width="3" />
-                                        <path d="M94,162 C140,104 200,96 246,140" fill="none" stroke="#ff9a6a" stroke-width="2.6" />
-                                    </g>
                                     <g class="sx-relay sx-map-ink" :class="{'is-on': relay.mapped, 'is-sinking': relay.sinking}">
                                         <path d="M10,150 C40,138 58,162 88,150 S138,116 168,130 S214,172 246,150 S292,112 320,124 L320,226 L10,226 Z" fill="#dcc8a2" fill-opacity="0.7" class="sx-land" />
                                         <path d="M10,150 C40,138 58,162 88,150 S138,116 168,130 S214,172 246,150 S292,112 320,124" fill="none" stroke="#4a3626" stroke-width="1.4" pathLength="1" class="sx-coast" />
@@ -1133,6 +1345,10 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
+        <!-- 提灯（第 9 轮）：一团追着指针的暖光，压在纸与书角上、浮尘与标题下面；脚本写光斑的位置（`applyLantern`）。 -->
+        <div v-if="effectOn('lantern')" ref="lantern" class="sx-lantern" aria-hidden="true">
+            <div ref="lanternGlow" class="sx-lantern__glow"></div>
+        </div>
         <canvas ref="dust" class="sx-dust" aria-hidden="true"></canvas>
         <div ref="vignette" class="sx-vignette" aria-hidden="true"></div>
 
@@ -1143,6 +1359,22 @@ onBeforeUnmount(() => {
         <!-- 各层共用的渐变与滤镜：鎏金、皮面、丝绸、纸纹。 -->
         <svg class="sx-defs" width="0" height="0" aria-hidden="true">
             <defs>
+                <!-- 星盘的黄铜（第 9 轮）：比鎏金暗、偏铜，盘面是更暗的青铜。 -->
+                <linearGradient :id="id('brass')" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#f3d89a" />
+                    <stop offset="0.3" stop-color="#b98a45" />
+                    <stop offset="0.55" stop-color="#e6c27e" />
+                    <stop offset="0.8" stop-color="#7a5222" />
+                    <stop offset="1" stop-color="#c79a55" />
+                </linearGradient>
+                <radialGradient :id="id('plate')" cx="0.42" cy="0.38" r="0.7">
+                    <stop offset="0" stop-color="#6a4a26" />
+                    <stop offset="0.7" stop-color="#3b2713" />
+                    <stop offset="1" stop-color="#24170b" />
+                </radialGradient>
+                <clipPath :id="id('plate-clip')">
+                    <circle r="176" />
+                </clipPath>
                 <linearGradient :id="id('gold')" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0" stop-color="#fff3cf" />
                     <stop offset="0.14" stop-color="#e8c27a" />
@@ -1206,10 +1438,6 @@ onBeforeUnmount(() => {
                 </filter>
                 <filter :id="id('shadow')" x="-20%" y="-20%" width="140%" height="140%">
                     <feGaussianBlur stdDeviation="16" />
-                </filter>
-                <!-- 停驻唤醒的柔光：金色的那一笔糊开一点。 -->
-                <filter :id="id('wake')" x="-30%" y="-60%" width="160%" height="220%">
-                    <feGaussianBlur stdDeviation="2.4" />
                 </filter>
             </defs>
         </svg>
@@ -1470,24 +1698,31 @@ onBeforeUnmount(() => {
     }
 }
 
+/*
+ * 纸的滤镜是一条链：先是迎着提灯那一侧的一道亮边（往灯的方向错开 2.5px 的一层暖光），再是影子（往灯的反方向挪，最多 10px；
+ * 细看时加深、拉远），最后是明暗（离光轴远的压暗，被灯照着、被细看时提亮）。几个数都来自层上的变量，脚本每帧写
+ * （`--sx-lit`、`--sx-lx`、`--sx-ly`、`--sx-focus`，见 `applyLantern`、`applyFocusVars`），没写时按 0 算，就是第 8 轮的样子。
+ */
 .sx-sheet {
+    --sx-rim: drop-shadow(calc(var(--sx-lx, 0) * 2.5px) calc(var(--sx-ly, 0) * 2.5px) 0.5px rgb(255 226 176 / calc(var(--sx-lit, 0) * 0.85)));
+    --sx-shadow: drop-shadow(calc(var(--sx-lx, 0) * -10px) calc(22px + var(--sx-focus, 0) * 14px - var(--sx-ly, 0) * 10px) calc(26px + var(--sx-focus, 0) * 14px) rgb(0 0 0 / calc(0.55 + var(--sx-focus, 0) * 0.07)));
     display: block;
     overflow: visible;
-    filter: drop-shadow(0 22px 26px rgb(0 0 0 / 0.55));
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(1 + var(--sx-lit, 0) * 0.15));
 }
 
-/* 离光轴越远越暗：两侧的纸压到七八成亮，远的那张再虚一点。 */
+/* 离光轴越远越暗：两侧的纸压到七八成亮，远的那张再虚一点；细看的那张回到全亮。 */
 .sx-sheet--far {
-    filter: drop-shadow(0 22px 26px rgb(0 0 0 / 0.55)) brightness(0.72) blur(0.7px);
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(0.72 + var(--sx-focus, 0) * 0.28 + var(--sx-lit, 0) * 0.22)) blur(0.7px);
 }
 
 .sx-sheet--mid {
-    filter: drop-shadow(0 22px 26px rgb(0 0 0 / 0.55)) brightness(0.78);
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(0.78 + var(--sx-focus, 0) * 0.22 + var(--sx-lit, 0) * 0.22));
 }
 
 /* 地图离镜头近，落在焦外：略虚、略暗，不和远处的桌子抢。 */
 .sx-sheet--near {
-    filter: drop-shadow(0 22px 26px rgb(0 0 0 / 0.55)) brightness(0.8) blur(0.9px);
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(0.8 + var(--sx-focus, 0) * 0.2 + var(--sx-lit, 0) * 0.22)) blur(0.9px);
 }
 
 .sx-ink {
@@ -1524,10 +1759,14 @@ onBeforeUnmount(() => {
     letter-spacing: 0.6em;
 }
 
-/* 书角是生成的照片（皮面、鎏金包角、刷金的书口），黑底已经抠成透明；离镜头最近，略虚。 */
+/* 书角是生成的照片（皮面、鎏金包角、刷金的书口），黑底已经抠成透明；离镜头最近，略虚。被提灯照着时同纸一样亮边、影子反挪、提亮。 */
 .sx-book {
     display: block;
-    filter: blur(1.4px) drop-shadow(0 30px 40px rgb(0 0 0 / 0.6));
+    filter:
+        blur(1.4px)
+        drop-shadow(calc(var(--sx-lx, 0) * 3px) calc(var(--sx-ly, 0) * 3px) 0.6px rgb(255 214 150 / calc(var(--sx-lit, 0) * 0.7)))
+        drop-shadow(calc(var(--sx-lx, 0) * -10px) calc(30px - var(--sx-ly, 0) * 10px) 40px rgb(0 0 0 / 0.6))
+        brightness(calc(1 + var(--sx-lit, 0) * 0.22));
 }
 
 .sx-sway {
@@ -1561,6 +1800,155 @@ onBeforeUnmount(() => {
     width: 100%;
     height: 100%;
     pointer-events: none;
+}
+
+/*
+ * 提灯（第 9 轮）：外层铺满舞台，按“滤色”叠在下面的纸、书角与桌子上（夜里只提亮、不发灰）；标题那一块用遮罩压到四成，
+ * 灯照到字上会把字洗白（@designer 第 9 轮）。混合与遮罩都放在外层：放在里层的话，里层只和透明的外层混，滤色就没了。
+ * 里层是光斑本身，脚本只写它的变换（`applyLantern`），挪动不重画。
+ */
+.sx-lantern {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    opacity: 0;
+    mix-blend-mode: screen;
+    mask-image: radial-gradient(30% 16% at 50% 12%, rgb(0 0 0 / 0.4) 40%, #000 100%);
+    pointer-events: none;
+}
+
+.sx-lantern__glow {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 420px;
+    height: 420px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgb(255 222 168 / 0.42), rgb(244 198 126 / 0.18) 45%, transparent);
+    will-change: transform;
+}
+
+/*
+ * 星盘（第 9 轮）：虚焦、压暗，像在画外的书架上；被提灯照着时同纸一样提亮（`--sx-lit`）。网环四分钟转一圈，几乎看不出在动，
+ * 停下来看才发现。盘面的刻线是一层很淡的金。
+ */
+.sx-astrolabe {
+    display: block;
+    overflow: visible;
+    filter: blur(2px) drop-shadow(0 18px 30px rgb(0 0 0 / 0.5)) brightness(calc(0.46 + var(--sx-lit, 0) * 0.4));
+}
+
+.sx-astrolabe__engraving {
+    fill: none;
+    stroke: #d8b06a;
+    stroke-opacity: 0.32;
+    stroke-width: 1;
+}
+
+.sx-astrolabe__ticks {
+    stroke: #3a250f;
+    stroke-opacity: 0.75;
+    stroke-width: 1.2;
+}
+
+.sx-astrolabe__rete {
+    animation: sx-astrolabe-turn 240s linear infinite;
+}
+
+@keyframes sx-astrolabe-turn {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/*
+ * 线索丝（第 9 轮）：平时只有一成多，像光里偶尔反一下的一根丝；亮起来时加粗一点、带一圈光，一小段亮光从纸往桌上走。
+ */
+.sx-threads {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.sx-thread__line {
+    fill: none;
+    stroke: rgb(240 201 135);
+    stroke-opacity: 0.13;
+    stroke-width: 1;
+    transition:
+        stroke-opacity 300ms ease,
+        stroke-width 300ms ease;
+}
+
+.sx-thread.is-lit .sx-thread__line {
+    stroke-opacity: 0.6;
+    stroke-width: 1.3;
+    filter: drop-shadow(0 0 3px rgb(240 201 135 / 0.7));
+}
+
+.sx-thread__run {
+    fill: none;
+    stroke: rgb(255 238 200);
+    stroke-dasharray: 0.08 1;
+    stroke-dashoffset: 0.08;
+    stroke-linecap: round;
+    stroke-width: 1.8;
+    opacity: 0;
+    transition: opacity 300ms ease;
+}
+
+.sx-thread.is-lit .sx-thread__run {
+    opacity: 0.9;
+    animation: sx-thread-run 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes sx-thread-run {
+    to {
+        stroke-dashoffset: -1;
+    }
+}
+
+/* 白天的星盘压在导航（深墨的字）后面：提亮、褪色、半透明，盘面不能是一块深色，不然导航的字糊进去。 */
+.sx--day .sx-astrolabe {
+    opacity: 0.5;
+    filter: blur(2px) brightness(calc(1.35 + var(--sx-lit, 0) * 0.1)) saturate(0.6);
+}
+
+.sx--day .sx-thread__line {
+    stroke: rgb(150 108 46);
+    stroke-opacity: 0.18;
+}
+
+.sx--day .sx-thread.is-lit .sx-thread__line {
+    stroke-opacity: 0.6;
+    filter: drop-shadow(0 0 3px rgb(255 244 220 / 0.9));
+}
+
+.sx--day .sx-thread__run {
+    stroke: rgb(120 82 30);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sx-astrolabe__rete,
+    .sx-thread.is-lit .sx-thread__run {
+        animation: none;
+    }
+
+    .sx-thread__run {
+        display: none;
+    }
+}
+
+/* 白天不是灯，是窗光里的一块亮斑：柔光叠上去，暖白。 */
+.sx--day .sx-lantern {
+    mix-blend-mode: soft-light;
+}
+
+.sx--day .sx-lantern__glow {
+    background: radial-gradient(closest-side, rgb(255 248 228 / 0.7), rgb(255 238 204 / 0.3) 45%, transparent);
 }
 
 /* 首屏的字压在一切之上：细看的那张纸凑到最前（`z-index: 2`）时也不盖住标题与按钮。 */
@@ -1833,39 +2221,12 @@ onBeforeUnmount(() => {
     transform: perspective(900px) rotateX(calc(var(--lift-y, 0) * 2deg)) rotateY(calc(var(--lift-x, 0) * -2.5deg));
 }
 
-.sx-sheet {
-    transition: filter 500ms ease;
-}
-
-.sx-layer.is-focused .sx-sheet {
-    filter: drop-shadow(0 36px 40px rgb(0 0 0 / 0.62));
-}
-
 /* 远处的桌子也压一压：压在外层（它的 transform 归镜头，filter 空着）；开场的里层另有自己的过渡，不动它。 */
 .sx--focusing .sx-layer:not(.is-focused) .sx-par,
 .sx--focusing .sx-carrier {
     filter: brightness(0.62) saturate(0.9);
 }
 
-/* 停驻唤醒：几处细节底下的金色柔光淡进来，再慢慢呼吸。 */
-.sx-wake {
-    opacity: 0;
-    transition: opacity 600ms ease;
-}
-
-.sx-peek.is-awake .sx-wake {
-    opacity: 1;
-    animation: sx-wake 2.4s ease-in-out 600ms infinite alternate;
-}
-
-@keyframes sx-wake {
-    from {
-        opacity: 1;
-    }
-    to {
-        opacity: 0.55;
-    }
-}
 
 .sx--peek .sx-peek:hover .sx-card--b {
     --sx-peek: 1;
@@ -1965,12 +2326,12 @@ onBeforeUnmount(() => {
 /*
  * ── 昼：午后的抄经室 ──
  * 底是偏暖的灰石墙（比羊皮纸暗半阶，纸才不糊在底上），左上高窗斜进来一道日光；纸面提亮。
- * 第 8 轮（开发者：白天明显不对）：桌布换成浅色的亚麻（第 7 轮还是丝绒，首屏亮墙中间压着一圈近黑的暗红，像烧出来的洞，
+ * 第 8 轮（开发者：白天明显不对）：桌布不再用夜里的丝绒（首屏亮墙中间压着一圈近黑的暗红，像烧出来的洞，
  * 落地以后整个第一幕也还是夜里的暗绒）；所有的影子统一往右下落、换成低浓度的暖褐（@designer 第 8 轮：同一个窗光）。
- * 亚麻没有生成新的贴图：羊皮纸的照片铺大、压一层浅米色，再叠一层细的经纬线。
+ * 第 9 轮（开发者选了 @designer 首选的旧橡木案）：桌面是生成的橡木照片（`assets/oak.webp`）。原图偏橙，入库前已降饱和约四成半、
+ * 压低木纹对比、提亮，修掉一块黑节疤（@designer 第 9 轮建议漂成冷浅灰，这里留着暖色，和羊皮纸、金与赤红是一家）。
  */
 .sx--day {
-    --sx-weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='5'%3E%3Cpath d='M0 .5H5M0 3H5' stroke='%23866c48' stroke-opacity='.09'/%3E%3Cpath d='M.5 0V5M3 0V5' stroke='%23fffaf0' stroke-opacity='.16'/%3E%3C/svg%3E");
     background: #b9ab93;
 }
 
@@ -2008,11 +2369,10 @@ onBeforeUnmount(() => {
 
 .sx--day .sx-cloth {
     background:
-        radial-gradient(70% 60% at 30% 22%, rgb(255 253 246 / 0.55), transparent 70%),
-        var(--sx-weave),
-        linear-gradient(rgb(240 232 214 / 0.82), rgb(226 214 190 / 0.86)),
-        var(--sx-parchment) center / 760px auto,
-        #e2d5bb;
+        radial-gradient(70% 60% at 30% 22%, rgb(255 251 240 / 0.45), transparent 70%),
+        linear-gradient(rgb(250 242 226 / 0.16), rgb(236 222 198 / 0.22)),
+        var(--sx-oak) center / cover,
+        #d1b18e;
 }
 
 .sx--day .sx-pool {
@@ -2022,7 +2382,8 @@ onBeforeUnmount(() => {
 .sx--day .sx-desk {
     box-shadow:
         0 0 0 1px rgb(168 118 47 / 0.45),
-        16px 22px 44px rgb(64 38 18 / 0.26);
+        0 2px 3px rgb(64 38 18 / 0.16),
+        16px 26px 40px rgb(64 38 18 / 0.22);
 }
 
 /* 首屏压一压远处的桌子：白天的桌子是亮的象牙色，压的是浅的暖灰，不是黑。 */
@@ -2034,24 +2395,23 @@ onBeforeUnmount(() => {
     background: #ddd0b8;
 }
 
+/* 白天的纸两层影（@designer 第 9 轮）：贴身一层浅的定住轮廓，远一层柔的说它悬着；浅木面上单一层影，纸会糊进木纹里。 */
 .sx--day .sx-sheet {
-    filter: drop-shadow(12px 18px 18px rgb(74 48 24 / 0.26));
+    --sx-rim: drop-shadow(calc(var(--sx-lx, 0) * 2.5px) calc(var(--sx-ly, 0) * 2.5px) 0.5px rgb(255 252 240 / calc(var(--sx-lit, 0) * 0.9)));
+    --sx-shadow: drop-shadow(0 2px 3px rgb(74 48 24 / 0.16)) drop-shadow(calc(12px + var(--sx-focus, 0) * 8px - var(--sx-lx, 0) * 10px) calc(22px + var(--sx-focus, 0) * 10px - var(--sx-ly, 0) * 10px) calc(26px + var(--sx-focus, 0) * 8px) rgb(74 48 24 / calc(0.22 + var(--sx-focus, 0) * 0.12)));
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(1 + var(--sx-lit, 0) * 0.06));
 }
 
 .sx--day .sx-sheet--far {
-    filter: drop-shadow(12px 18px 18px rgb(74 48 24 / 0.26)) brightness(0.97) blur(0.6px);
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(0.97 + var(--sx-focus, 0) * 0.03 + var(--sx-lit, 0) * 0.06)) blur(0.6px);
 }
 
 .sx--day .sx-sheet--mid {
-    filter: drop-shadow(12px 18px 18px rgb(74 48 24 / 0.26));
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(1 + var(--sx-lit, 0) * 0.06));
 }
 
 .sx--day .sx-sheet--near {
-    filter: drop-shadow(14px 20px 20px rgb(74 48 24 / 0.26)) blur(0.8px);
-}
-
-.sx--day .sx-layer.is-focused .sx-sheet {
-    filter: drop-shadow(20px 32px 34px rgb(74 48 24 / 0.34));
+    filter: var(--sx-rim) var(--sx-shadow) brightness(calc(1 + var(--sx-lit, 0) * 0.06)) blur(0.8px);
 }
 
 /* 白天细看时别的几层只退半步：压得和夜里一样暗，亮墙上会发灰发脏。 */
@@ -2061,7 +2421,11 @@ onBeforeUnmount(() => {
 }
 
 .sx--day .sx-book {
-    filter: blur(1.4px) drop-shadow(20px 26px 30px rgb(64 38 18 / 0.3));
+    filter:
+        blur(1.4px)
+        drop-shadow(calc(var(--sx-lx, 0) * 3px) calc(var(--sx-ly, 0) * 3px) 0.6px rgb(255 248 230 / calc(var(--sx-lit, 0) * 0.7)))
+        drop-shadow(calc(20px - var(--sx-lx, 0) * 10px) calc(26px - var(--sx-ly, 0) * 10px) 30px rgb(64 38 18 / 0.3))
+        brightness(calc(1 + var(--sx-lit, 0) * 0.1));
 }
 
 .sx--day .sx-ribbon {

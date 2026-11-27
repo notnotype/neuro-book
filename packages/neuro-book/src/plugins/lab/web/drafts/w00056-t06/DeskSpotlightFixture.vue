@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * `DeskSpotlight` 单独看（Lab）：900×560 的一块台面，上面几张象牙色的卡片代表工作台的几块，幕盖在上面。
- * 场景给的是要留亮的几块；“换一处”在两组之间来回切，看亮处怎么挪过去、块数变了怎么先回亮再落光。
+ * 场景给的是要留亮的几块与各自的标记；“换一处”在几组之间轮着切，看亮处怎么挪过去、块数变了怎么先回亮再落光、标记怎么收起与出现。
  * 画布比台面窄时（390 宽）整块台面按比例缩小：亮处与卡片都用台面坐标，一起缩，相对位置不变。
  */
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
@@ -13,10 +13,10 @@ import DeskSpotlight from "./DeskSpotlight.vue";
 
 const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof DeskSpotlight>(() => props.input, []);
-/** 切到另一组：同块数的一组（看挪动）与一块的一组（看先回亮再落光）轮着来。 */
+/** 切到另一组：两块的两组轮着来（场景是一块时看先回亮再落光，两块时看挪动；下划线那组是两行字）。 */
 const ALTERNATES = [
-    {spots: [{left: 620, top: 60, width: 250, height: 460}, {left: 40, top: 24, width: 150, height: 30}], rims: [0]},
-    {spots: [{left: 230, top: 300, width: 360, height: 60}], rims: [0]},
+    {spots: [{left: 620, top: 60, width: 250, height: 460}, {left: 40, top: 24, width: 150, height: 30}], marks: ["slot", "corners"]},
+    {spots: [{left: 242, top: 296, width: 300, height: 14}, {left: 242, top: 336, width: 210, height: 14}], marks: ["underline", "underline"]},
 ] as const;
 const turn = ref(-1);
 const bindings = computed(() => (turn.value < 0 ? subject.bindings.value : {...subject.bindings.value, ...ALTERNATES[turn.value % ALTERNATES.length]}));
@@ -72,7 +72,7 @@ onBeforeUnmount(() => observer?.disconnect());
 }
 
 .dsf--day {
-    background: #ddd0b8;
+    background: #d1b18e;
 }
 
 .dsf__frame {

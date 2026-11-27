@@ -32,7 +32,9 @@ import type {DemoPointer} from "./demo-pointer";
 import {centerOf} from "./desk";
 import type {DeskSnapshot, DeskTarget, Point} from "./desk";
 import DeskSpotlight from "./DeskSpotlight.vue";
-import type {SpotRect} from "./DeskSpotlight.vue";
+import type {SpotMark, SpotRect} from "./DeskSpotlight.vue";
+import GildedMarks from "./GildedMarks.vue";
+import type {GildedMark} from "./GildedMarks.vue";
 import GiltButton from "./GiltButton.vue";
 import {glidePath, glideTime} from "./glide";
 import HomepageDesk from "./HomepageDesk.vue";
@@ -499,27 +501,20 @@ async function markNow(signal: AbortSignal): Promise<void> {
 
 /**
  * 案头聚光（`DeskSpotlight`，第 8 轮，开发者：高亮不显眼，一个改法是加遮罩）：只用在几处要对照着看的时候（@designer：每一拍都开就像新手引导）——
- * 拖动起手时照亮把手与落点（一按下就收）、两处高亮刚涂好、人物浮窗与正文、专心写之前的标签条。`rim` 的那几块内沿描一道细金线。
+ * 拖动起手时照亮把手与落点（一按下就收）、两处高亮刚涂好、人物浮窗与正文、专心写之前的标签条。
+ * 每块亮处的标记（第 9 轮，开发者：金色高亮矩形有点丑）：元素标四角，文字按行标下划线（不再框住整句的外接矩形，没高亮的字也框进去），
+ * 空的落点标落点槽。
  */
 const spots = shallowRef<readonly SpotRect[]>([]);
-const spotRims = shallowRef<readonly number[]>([]);
-function illuminate(items: ReadonlyArray<{readonly rect: DOMRectReadOnly | null; readonly rim?: boolean}>): void {
-    const shown = items.flatMap((item) => (item.rect === null ? [] : [{rect: item.rect, rim: item.rim === true}]));
+const spotMarks = shallowRef<readonly SpotMark[]>([]);
+function illuminate(items: ReadonlyArray<{readonly rect: DOMRectReadOnly | null; readonly mark?: SpotMark}>): void {
+    const shown = items.flatMap((item) => (item.rect === null ? [] : [{rect: item.rect, mark: item.mark ?? "none"}]));
     spots.value = shown.map((item) => rectToStage(item.rect));
-    spotRims.value = shown.flatMap((item, index) => (item.rim ? [index] : []));
+    spotMarks.value = shown.map((item) => item.mark);
 }
 function darken(): void {
     spots.value = [];
-    spotRims.value = [];
-}
-/** 几块矩形合成一块（一句话折成两行时照亮整句）。 */
-function union(rects: readonly DOMRectReadOnly[]): DOMRectReadOnly | null {
-    if (rects.length === 0) return null;
-    const left = Math.min(...rects.map((rect) => rect.left));
-    const top = Math.min(...rects.map((rect) => rect.top));
-    const right = Math.max(...rects.map((rect) => rect.right));
-    const bottom = Math.max(...rects.map((rect) => rect.bottom));
-    return new DOMRectReadOnly(left, top, right - left, bottom - top);
+    spotMarks.value = [];
 }
 /** 一块的右半边：第一章拖过去以后长出新的一组的地方。 */
 function rightHalf(rect: DOMRectReadOnly | null): DOMRectReadOnly | null {
@@ -561,6 +556,16 @@ function conclude(copy: BeatCopy): void {
     stopClock();
 }
 
+/**
+ * 遮罩以外几处自己点题的鎏金标记（第 9 轮，`GildedMarks`；第 8 轮是金线框、金底与金环，开发者嫌“金色高亮矩形有点丑”）：
+ * 星璃开口时她那一栏标四角，第一拍收尾两声敲门按行标下划线（同一批出现，一起掠光），交给访客时第一章的标签标小四角，漾两圈、隔一会儿往右挪。
+ */
+const pageMarks = computed<readonly GildedMark[]>(() => [
+    ...(glow.value === null ? [] : [{id: "lyra", kind: "corners" as const, rect: glow.value}]),
+    ...marks.value.map((rect, index) => ({id: `echo-${index}`, kind: "underline" as const, rect})),
+    ...(ring.value === null ? [] : [{id: "handoff", kind: "corners" as const, rect: ring.value, small: true, ripple: true, nudge: true}]),
+]);
+
 function markRing(name: DeskTarget): void {
     const rect = desk.value?.target(name) ?? null;
     ring.value = rect === null ? null : rectToStage(rect);
@@ -572,7 +577,8 @@ interface Beat {
     readonly copy: BeatCopy | null;
     /**
      * 从开演到说出结论的标称时长（ms，不含之后留着看的那一会儿）：章节条按它估这一段的进度。
-     * 量自第 7 轮在开发服务上连播的一遍（负载约 6，探针记下每一拍开演与补满的时刻）；卡顿时会慢，估到九成二就停着等结论。
+     * 量自第 7 轮在开发服务上连播的一遍（负载约 6，探针记下每一拍开演与补满的时刻），第 9 轮加长聚光的停留后按加的时长补上；
+     * 卡顿时会慢，估到九成二就停着等结论。
      */
     readonly nominal: number;
     /** 从上一拍的终态演到这一拍的终态。 */
@@ -631,7 +637,7 @@ async function whenReadyToPlay(signal: AbortSignal): Promise<void> {
 const BEAT_STEPS: readonly Beat[] = [
     {
         copy: BEATS.knock,
-        nominal: 19600,
+        nominal: 20300,
         async play(signal) {
             await whenReadyToPlay(signal);
             captionTitle.value = ACT_ONE.number;
@@ -646,8 +652,9 @@ const BEAT_STEPS: readonly Beat[] = [
             say(BEATS.knock, "middle");
             await wait(900, signal);
             // 起手：照亮第一章的标签（把手）和它要去的右半边（落点），一按下就收。
-            illuminate([{rect: desk.value?.target("chapter-one-tab") ?? null, rim: true}, {rect: rightHalf(desk.value?.target("first-editor-body") ?? null)}]);
-            await wait(600, signal);
+            illuminate([{rect: desk.value?.target("chapter-one-tab") ?? null, mark: "corners"}, {rect: rightHalf(desk.value?.target("first-editor-body") ?? null)}]);
+            // 聚光淡入要 0.42 秒，动手前再让它完整亮一秒上下：第 8 轮只留 0.6 秒，一闪而过，开发者看着像没有遮罩（第 9 轮）。
+            await wait(1300, signal);
             if (!(await drag("chapter-one-tab", chapterOneDrop, signal, {via: chapterOneVia, before: darken}))) desk.value?.splitRight("chapterOne");
             darken();
             hidePointer();
@@ -677,8 +684,8 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(450, signal);
             await highlight("chapterOne", KNOCK_ECHOES[1], signal);
             await wait(300, signal);
-            // 两处高亮刚涂好：照亮这两句，对照着看（@designer 第 8 轮）。
-            illuminate(KNOCK_ECHOES.map((text) => ({rect: union(desk.value?.textRects(text) ?? []), rim: true})));
+            // 两处高亮刚涂好：照亮这两句，对照着看（@designer 第 8 轮）。按行留亮、按行标下划线，一句折成两行就是两块。
+            illuminate(KNOCK_ECHOES.flatMap((text) => (desk.value?.textRects(text) ?? []).map((rect) => ({rect, mark: "underline" as const}))));
             await wait(1500, signal);
             darken();
             await wait(350, signal);
@@ -708,7 +715,7 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(400, signal);
             conclude(BEATS.alice);
             // 人物浮窗与正文：两块都亮着，窗描一道细金线。
-            illuminate([{rect: desk.value?.target("alice-float") ?? null, rim: true}, {rect: desk.value?.target("first-editor-body") ?? null}]);
+            illuminate([{rect: desk.value?.target("alice-float") ?? null, mark: "corners"}, {rect: desk.value?.target("first-editor-body") ?? null}]);
             await wait(1700, signal);
             darken();
             await wait(500, signal);
@@ -717,13 +724,13 @@ const BEAT_STEPS: readonly Beat[] = [
     },
     {
         copy: BEATS.move,
-        nominal: 6000,
+        nominal: 6700,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.move, "opening");
             await wait(900, signal);
-            illuminate([{rect: desk.value?.target("explorer-entry") ?? null, rim: true}, {rect: desk.value?.target("auxiliary-rail") ?? null, rim: true}]);
-            await wait(700, signal);
+            illuminate([{rect: desk.value?.target("explorer-entry") ?? null, mark: "corners"}, {rect: desk.value?.target("auxiliary-rail") ?? null, mark: "slot"}]);
+            await wait(1400, signal);
             if (!(await drag("explorer-entry", railDrop, signal, {before: darken}))) desk.value?.moveExplorer("auxiliarybar");
             darken();
             hidePointer();
@@ -735,13 +742,13 @@ const BEAT_STEPS: readonly Beat[] = [
     },
     {
         copy: BEATS.focus,
-        nominal: 7400,
+        nominal: 8000,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.focus, "opening");
             await wait(900, signal);
-            illuminate([{rect: desk.value?.target("first-editor-head") ?? null, rim: true}]);
-            await wait(900, signal);
+            illuminate([{rect: desk.value?.target("first-editor-head") ?? null, mark: "corners"}]);
+            await wait(1500, signal);
             darken();
             await doubleTap("editor-head-blank", signal);
             if (desk.value?.isMaximized() !== true) desk.value?.setMaximized(INITIAL_EDITOR_PANEL);
@@ -1129,20 +1136,11 @@ onBeforeUnmount(() => {
                     </template>
                 </SanctumScene>
 
-                <Transition name="hs-fade">
-                    <div v-if="glow !== null" class="hs-glow" :style="{left: px(glow.left - 3), top: px(glow.top - 3), width: px(glow.width + 6), height: px(glow.height + 6)}" aria-hidden="true"></div>
-                </Transition>
-
-                <Transition name="hs-fade">
-                    <div v-if="marks.length > 0" class="hs-marks" aria-hidden="true">
-                        <span v-for="(mark, index) in marks" :key="index" class="hs-mark" :style="{left: px(mark.left - 3), top: px(mark.top - 1), width: px(mark.width + 6), height: px(mark.height + 2)}"></span>
-                    </div>
-                </Transition>
-
-                <div v-if="ring !== null" class="hs-ring" :style="{left: px(ring.left - 6), top: px(ring.top - 5), width: px(ring.width + 12), height: px(ring.height + 10)}" aria-hidden="true"></div>
+                <!-- 鎏金标记：星璃那一栏的四角、两声敲门的下划线、交给访客时标签的小四角（见上面的 `pageMarks`）。 -->
+                <GildedMarks :marks="pageMarks" :day="!night" />
 
                 <!-- 案头聚光：压在工作台上、眉题与章节条下面（DOM 顺序在它们前面）。 -->
-                <DeskSpotlight :spots="spots" :rims="spotRims" :width="size.width" :height="size.height" :night="night" />
+                <DeskSpotlight :spots="spots" :marks="spotMarks" :width="size.width" :height="size.height" :night="night" />
 
                 <!-- 眉题（宽屏）：工作台正上方，这一拍的短标题与一句字幕；换一句时旧的淡出、新的从下面浮上来。 -->
                 <div v-if="wide" class="hs-eyebrow" :style="eyebrowStyle" :class="{'is-shown': captionShown}">
@@ -1491,65 +1489,6 @@ onBeforeUnmount(() => {
 .hs-pointer.is-pressed.is-carrying svg {
     transform: translate3d(0, 1.5px, 0) rotate(-6deg) scale(0.88);
     transition-duration: 180ms;
-}
-
-.hs-glow {
-    position: absolute;
-    border: 1.5px solid rgb(240 201 135 / 0.85);
-    border-radius: 12px;
-    box-shadow:
-        inset 0 0 30px rgb(240 201 135 / 0.16),
-        0 0 28px rgb(240 201 135 / 0.35);
-    pointer-events: none;
-}
-
-/* 两声敲门同时描金：像拿荧光笔各划一道。 */
-.hs-mark {
-    position: absolute;
-    border-radius: 3px;
-    background: rgb(240 201 135 / 0.34);
-    box-shadow: 0 0 14px rgb(240 201 135 / 0.45);
-    animation: hs-mark 600ms var(--hs-ease) both;
-    transform-origin: 0 50%;
-    pointer-events: none;
-}
-
-@keyframes hs-mark {
-    from {
-        transform: scaleX(0);
-    }
-    to {
-        transform: scaleX(1);
-    }
-}
-
-/* 交给访客的金环：亮一些，隔一会儿往右轻轻挪一下，示意这个标签能拖走。 */
-.hs-ring {
-    position: absolute;
-    border: 2px solid var(--hs-gold-light);
-    border-radius: 10px;
-    box-shadow:
-        0 0 0 4px rgb(240 201 135 / 0.22),
-        0 0 26px rgb(240 201 135 / 0.75);
-    animation: hs-nudge 2.6s var(--hs-ease) infinite;
-    pointer-events: none;
-}
-
-@keyframes hs-nudge {
-    0%,
-    55%,
-    100% {
-        opacity: 0.75;
-        transform: translate3d(0, 0, 0);
-    }
-    70% {
-        opacity: 1;
-        transform: translate3d(7px, 0, 0);
-    }
-    85% {
-        opacity: 1;
-        transform: translate3d(0, 0, 0);
-    }
 }
 
 /* 关灯：工作台上压一层夜色，中间一枚小猫标。 */
@@ -1931,31 +1870,18 @@ onBeforeUnmount(() => {
     background: rgb(236 230 218 / 0.8);
 }
 
-/* 金圈与描金在象牙色的桌上要深一档才看得见。 */
-.hs--day .hs-glow,
-.hs--day .hs-ring {
-    border-color: rgb(168 118 47 / 0.95);
-    box-shadow:
-        0 0 0 4px rgb(168 118 47 / 0.16),
-        0 0 22px rgb(168 118 47 / 0.4);
-}
-
-.hs--day .hs-mark {
-    background: rgb(168 118 47 / 0.22);
-    box-shadow: 0 0 12px rgb(168 118 47 / 0.35);
-}
-
 /*
- * 白天的眉题、章节条与字幕压在亮的亚麻桌布上（第 8 轮：白天的第一幕和首屏是同一个白天，不再留一块夜里的暗绒）：
- * 字换深墨，金换古铜（@designer 第 8 轮：浅底上亮金看不出来）。
+ * 白天的眉题、章节条与字幕压在浅暖的旧橡木桌面上（第 8 轮：白天的第一幕和首屏是同一个白天，不再留一块夜里的暗绒；
+ * 第 9 轮桌面从亚麻换成橡木）：字换深墨，金换古铜（@designer 第 8 轮：浅底上亮金看不出来）。木纹比亚麻深半阶、又花，
+ * 还没演到的标题与虚线压得比亚麻上深一些，不然糊进木纹里。
  */
 .hs--day .hs-rail {
     --cr-gold: #8a5c1c;
     --cr-gold-light: #6f4a17;
-    --cr-dim: rgb(138 92 28 / 0.38);
-    --cr-ink: rgb(42 29 18 / 0.52);
+    --cr-dim: rgb(110 70 20 / 0.58);
+    --cr-ink: rgb(42 29 18 / 0.72);
     --cr-glow: rgb(168 118 47 / 0.25);
-    --cr-plate: rgb(255 250 238 / 0.62);
+    --cr-plate: rgb(255 248 232 / 0.72);
     --cr-tip-core: #6f4a17;
 }
 
@@ -2048,11 +1974,6 @@ onBeforeUnmount(() => {
     .hs-hero > *,
     .hs-nav {
         transition: none;
-    }
-
-    .hs-ring,
-    .hs-mark {
-        animation: none;
     }
 
     .hs-pointer svg {
