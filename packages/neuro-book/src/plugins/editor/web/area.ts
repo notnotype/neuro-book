@@ -13,6 +13,7 @@ import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-workbench-layout";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
+import {parseResource} from "nbook/plugins/files/shared/contracts";
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
 import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorTabDropOutcome} from "nbook/plugins/workbench/web/contracts";
@@ -917,6 +918,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
         const request = given.mode === "preview" && !previewEnabled() ? {...given, mode: "permanent" as const} : given;
         if (pageIdOf(address) !== null) return {ok: false, reason: editorText("refusal.pageAddress")};
+        // 浏览器的文件客户端只认 project://、user://：别的方案（Agent 的 session://、profile:// 等）进了编辑组，渲染标签时解析
+        // 地址会抛错、整个编辑区卡死（w00050 t05）。浏览器访问已注册方案（docs/specs/workspace/resources.md）实现之前在入口拒绝。
+        if (!parseResource(address).ok) return {ok: false, reason: editorText("refusal.unsupportedAddress", {address})};
         if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: editorText("refusal.groupClosed")};
         // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
         const target = request.group === "side" ? groups.rightOf(groups.activeGroup.value) : (request.group ?? groups.activeGroup.value);

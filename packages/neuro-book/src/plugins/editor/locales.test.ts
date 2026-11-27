@@ -374,6 +374,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "refusal.cancelled": {"zh-CN": "已取消", "en-US": "Cancelled"},
     "refusal.samePlace": {"zh-CN": "位置没有变化", "en-US": "The position did not change"},
     "refusal.pageAddress": {"zh-CN": "页面用 nbook.editor.open-page 打开", "en-US": "Pages are opened with nbook.editor.open-page"},
+    "refusal.unsupportedAddress": {"zh-CN": "编辑器还打不开 {address}", "en-US": "The editor can't open {address} yet"},
     "refusal.noPreview": {"zh-CN": "活动标签的文件没有预览", "en-US": "The active tab's file has no preview"},
     "refusal.notFileTab": {"zh-CN": "活动的不是文件标签", "en-US": "The active tab is not a file tab"},
     "refusal.pagePin": {"zh-CN": "页面标签不能固定", "en-US": "Page tabs cannot be pinned"},

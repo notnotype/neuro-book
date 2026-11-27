@@ -350,7 +350,10 @@ export const agentBrowserPlugin: PluginDefinition = {
             /** 打开文件的结果不用等，但打不开要留诊断：命令参数不对时这里是唯一的线索。 */
             const openAddress = (address: string): void => {
                 void commands.execute(EDITOR_OPEN_COMMAND, {address, mode: "permanent"}).then((opened) => {
-                    if (!opened.ok) report("open-address-failed", `opening ${address} failed: ${opened.code}`);
+                    if (opened.ok) return;
+                    report("open-address-failed", `opening ${address} failed: ${opened.code}`);
+                    // 用户点了改动标签或链接却什么都没打开：把编辑器给的原因告诉他（例如 Agent 写的 profile:// 还打不开）。
+                    void notifications.notify({tone: "warning", message: opened.reason});
                 });
             };
             /**

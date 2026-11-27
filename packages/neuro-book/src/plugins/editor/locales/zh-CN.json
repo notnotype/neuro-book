@@ -585,6 +585,7 @@
         "cancelled": "已取消",
         "samePlace": "位置没有变化",
         "pageAddress": "页面用 nbook.editor.open-page 打开",
+        "unsupportedAddress": "编辑器还打不开 {{address}}",
         "noPreview": "活动标签的文件没有预览",
         "notFileTab": "活动的不是文件标签",
         "pagePin": "页面标签不能固定",

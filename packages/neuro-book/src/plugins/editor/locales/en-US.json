@@ -588,6 +588,7 @@
         "cancelled": "Cancelled",
         "samePlace": "The position did not change",
         "pageAddress": "Pages are opened with nbook.editor.open-page",
+        "unsupportedAddress": "The editor can't open {{address}} yet",
         "noPreview": "The active tab's file has no preview",
         "notFileTab": "The active tab is not a file tab",
         "pagePin": "Page tabs cannot be pinned",

@@ -135,6 +135,26 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         expect(textBinding(at.area, groupId(at))?.text.value).toBe("B");
     });
 
+    it("浏览器认不出的方案（Agent 的 profile://、sessions://）：拒绝并说明原因，编辑组、活动标签与存盘记录不变，之后照常切换", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        await ready(at);
+        const before = at.area.groups.groups.value.map((group) => group.tabs.map((tab) => tab.address));
+        for (const address of ["profile://memory/master.md", "sessions://s1/home/plan.md"]) {
+            const refused = at.area.open(address, {mode: "permanent"});
+            expect(refused).toMatchObject({ok: false});
+            expect(reasonText(refused)).toBe(`编辑器还打不开 ${address}`);
+            expect(reasonText(refused, "en-US")).toBe(`The editor can't open ${address} yet`);
+        }
+        expect(at.area.groups.groups.value.map((group) => group.tabs.map((tab) => tab.address))).toEqual(before);
+        expect(at.area.groups.activeTab()?.address).toBe("project://b.md");
+        expect(at.opened).toEqual(["project://a.md", "project://b.md"]);
+        at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
+        await ready(at);
+        expect(textBinding(at.area, groupId(at))?.text.value).toBe("A");
+    });
+
     it("preview 连续替换：换下的标签连同视图状态与实例一起释放，切换照常", async () => {
         const at = await world();
         for (let index = 1; index <= 6; index += 1) await writeFile(join(at.scene.project, `p${String(index)}.md`), `P${String(index)}`);
