@@ -424,7 +424,7 @@ export class WorldService {
     }
 
     /**
-     * 条目在这个位置的样子，另带上级链、本体、分组与种类（输出 33）；`withChangedAt` 时每个字段状态带最近一次改动（输出 32）。
+     * 条目在这个位置的样子，另带上级链、本体、分组、种类与出场（输出 33）；`withChangedAt` 时每个字段状态带最近一次改动（输出 32）。
      * 带视图令牌的读取不走这里（`#viewedOn`），所以拿不到这几项：上级与本体会说出马甲是谁。
      */
     entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false, withChangedAt = false) {
@@ -459,7 +459,7 @@ export class WorldService {
             const removed = (stored.init.data[namespace]?.declared ?? []).filter((field) => field.removed === true && type?.fields.some((fixed) => fixed.id === field.id) !== true);
             if (type !== undefined && removed.length > 0) removedFields[namespace] = removed.map((field) => ({id: field.id, label: field.label}));
         }
-        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder, kind: stored.type, declarations, ...(Object.keys(removedFields).length === 0 ? {} : {removedFields})};
+        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder, kind: stored.type, appears: stored.appears ?? null, declarations, ...(Object.keys(removedFields).length === 0 ? {} : {removedFields})};
     }
 
     /** 给每个字段状态补上最近一次改动（输出 32）。引擎给的视图可能与它的快照共用对象，这里只新建要改的那几层。 */

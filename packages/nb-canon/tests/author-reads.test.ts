@@ -234,11 +234,15 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         expect(second.view.namespaces.panel!.fields["存款"]!.changedAt).toEqual({by: "change", id: salary.ref.id, at: (service.object({kind: "change", id: salary.ref.id}).object as StoryChange).at});
         // 不要的时候与要的时候，别的内容一样。
         expect({...second.view.namespaces.panel!.fields["存款"]!, changedAt: undefined}).toEqual({...plain.view.namespaces.panel!.fields["存款"]!, changedAt: undefined});
-        expect(second).toMatchObject({ancestors: [], sameAs: null, folder: "人物", kind: "人物"});
+        expect(second).toMatchObject({ancestors: [], sameAs: null, folder: "人物", kind: "人物", appears: null});
 
         const brother = service.entry(ids.get("brother"), end("ch2"), "actual");
         if (typeof brother === "string") throw new Error(brother);
         expect(brother).toMatchObject({ancestors: [{id: xingxia, name: second.view.name}], sameAs: {id: xingxia, name: second.view.name}, folder: "人物"});
+        // 出场存的原样（安放）：样本里的书从第 1 章出场。
+        const book = service.entry(ids.get("book"), end("ch2"), "actual");
+        if (typeof book === "string") throw new Error(book);
+        expect(book.appears).toMatchObject({kind: "chapter", key: 30});
     });
 
     test("带视图令牌读条目：没有上级、本体与 changedAt", () => {
@@ -247,7 +251,7 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         if (typeof opened === "string" || !("token" in opened)) throw new Error("开不了视图");
         const read = service.viewed(opened.token).entry(ids.get("brother"), undefined);
         if (typeof read === "string" || read.view === null) throw new Error("读不到");
-        expect("ancestors" in read || "sameAs" in read || "folder" in read || "kind" in read).toBe(false);
+        expect("ancestors" in read || "sameAs" in read || "folder" in read || "kind" in read || "appears" in read).toBe(false);
         expect(Object.values(read.view.namespaces).flatMap((data) => Object.values(data.fields)).some((field) => "changedAt" in field)).toBe(false);
     });
 

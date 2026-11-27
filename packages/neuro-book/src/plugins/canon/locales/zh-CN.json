@@ -159,7 +159,11 @@
         "groupAlreadyAdded": "这组设定已经加上了",
         "groupAlreadyAddedNamed": "“{{name}}”这组设定已经加上了",
         "groupsAdded": "加上{{names}}这几组设定",
-        "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次"
+        "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次",
+        "portrait": "看形象",
+        "kindLabel": "种类",
+        "kindNone": "未定",
+        "appearsLabel": "出场"
     },
     "position": {
         "initial": "最初",

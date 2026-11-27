@@ -53,6 +53,29 @@ describe("EntryPage", () => {
         expect(wrapper.find("button[aria-label='更多']").exists()).toBe(true);
     });
 
+    it("页头右栏写种类与出场（没有种类写“未定”）；能写时点了发 move、写不了时不能点；有立绘才画头像，点了发 open-look，这时简介单行截断（输出 6）", async () => {
+        const empty = page({editable: true, kind: "", appears: "一开始就在"});
+        const facts = () => empty.get("[data-entry-facts]").text().replace(/\s+/gu, "");
+        expect(facts()).toBe("种类未定出场一开始就在");
+        expect(empty.find("[data-entry-portrait]").exists()).toBe(false);
+        await empty.get("[data-entry-fact='appears']").trigger("click");
+        await empty.get("[data-entry-fact='kind']").trigger("click");
+        expect(empty.emitted("move")).toHaveLength(2);
+        await empty.setProps({editReason: "先不算计划"});
+        expect((empty.get("[data-entry-fact='kind']").element as HTMLButtonElement).disabled).toBe(true);
+        empty.unmount();
+
+        const reader = page({kind: "人物", appears: "第 2 章开头"});
+        expect(reader.find("[data-entry-fact]").exists()).toBe(false);
+        expect(reader.get("[data-entry-facts]").text().replace(/\s+/gu, "")).toBe("种类人物出场第2章开头");
+        reader.unmount();
+
+        const withPortrait = page({editable: true, kind: "人物", appears: "一开始就在", portrait: {path: "插图/星瑕.png", alt: "立绘"}});
+        await withPortrait.get("[data-entry-portrait]").trigger("click");
+        expect(withPortrait.emitted("open-look")).toHaveLength(1);
+        expect(withPortrait.get("[data-edit='entry.summary'] span").classes()).toContain("truncate");
+    });
+
     it("换分页时内容换成新的一页，过渡的方向跟着列表里的先后：往后切从后方进来，往前切从前方（输出 9）", async () => {
         const tabs = [...base.tabs.slice(0, 1), {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const}, base.tabs[1]!];
         const wrapper = page({tabs, tab: "text"});

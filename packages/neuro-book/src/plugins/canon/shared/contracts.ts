@@ -370,7 +370,7 @@ export interface Page<T> {
 export interface CanonOutputs {
     readonly status: CanonStatus;
     /** 条目存在时另带上级链（从最上面一级到直接上级）、本体与分组（输出 33）；带视图令牌读时没有这三项。 */
-    readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>; readonly ancestors?: readonly EntryName[]; readonly sameAs?: EntryName | null; readonly folder?: string; readonly kind?: string; readonly declarations?: Readonly<Record<string, readonly FieldDeclaration[]>>; readonly removedFields?: Readonly<Record<string, readonly {readonly id: string; readonly label: string}[]>>};
+    readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>; readonly ancestors?: readonly EntryName[]; readonly sameAs?: EntryName | null; readonly folder?: string; readonly kind?: string; readonly appears?: Placement | null; readonly declarations?: Readonly<Record<string, readonly FieldDeclaration[]>>; readonly removedFields?: Readonly<Record<string, readonly {readonly id: string; readonly label: string}[]>>};
     /** 条目不存在或已删除为 null；`inputDigest` 与 `version` 合起来就是写入时带的读取戳，`at` 是解析后的位置（写明线）。 */
     readonly textBlocks: ({readonly version: number; readonly inputDigest: string} & TextBlocksRead) | null;
     /** 给了位置时每项是 `TreeItemAt`；`remaining` 是这一层在这一页之后还会列出几项。 */

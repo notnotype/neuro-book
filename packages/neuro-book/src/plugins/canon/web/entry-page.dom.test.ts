@@ -1705,7 +1705,7 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         expect(wrapper.get("[data-edit='character.身份']").text()).not.toContain("学生");
     });
 
-    it("立绘读自形象：有图时点了切到形象分页；没有形象这一组时点一下就加上形象、切到形象分页并打开立绘的选图（输出 49）", async () => {
+    it("立绘读自形象：有图时点了切到形象分页，页头也有它做头像；没有形象这一组时点一下就加上形象、切到形象分页并打开立绘的选图（输出 6、49）", async () => {
         const {other, open} = await setup();
         const withLook = person("星瑕");
         withLook.init.data.look = structuredClone(LOOK);
@@ -1716,10 +1716,17 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("立绘", () => first.wrapper.find("[data-portrait='image'] [data-canon-image='插图/星瑕.png']").exists());
         await first.wrapper.get("[data-portrait]").trigger("click");
         await waitUntil("切到形象分页", () => first.state.tab === "data:look" && first.wrapper.find("[data-look-card]").exists());
+        // 页头也有这张立绘做头像（输出 6）；右栏写种类与出场；点头像同样切到形象分页。
+        expect(first.wrapper.find("[data-entry-portrait] [data-canon-image='插图/星瑕.png']").exists()).toBe(true);
+        expect(first.wrapper.get("[data-entry-facts]").text()).toContain("一开始就在");
+        first.state.tab = "data:character";
+        await first.wrapper.get("[data-entry-portrait]").trigger("click");
+        await waitUntil("点头像切到形象分页", () => first.state.tab === "data:look");
 
         const second = await open(ids[without.id]!);
         second.state.tab = "data:character";
         await waitUntil("没有形象：添加立绘", () => second.wrapper.find("[data-portrait='absent']").exists());
+        expect(second.wrapper.find("[data-entry-portrait]").exists()).toBe(false);
         await second.wrapper.get("[data-portrait]").trigger("click");
         // 一次到位：加上形象、等它的分页出现后切过去，立绘的选图（锚在立绘上的就地改浮层）已经开着。
         await waitUntil("切到形象分页、选图开着", () => second.state.tab === "data:look" && document.body.querySelector("[data-field-editor='look.立绘']") !== null);

@@ -1292,6 +1292,20 @@ const dataView = computed<{readonly component: Component | null; readonly loadin
 
 const rows = computed(() => positionChapters(chapters.value));
 const notAppeared = computed(() => view.value !== null && !view.value.appeared);
+/** 页头右栏的出场（输出 6）：存的是安放，界面写“一开始就在”或“第 N 章开头”；那一章不在章表里（删掉了）时读不出章号，写“一开始就在”。 */
+const appearsText = computed(() => {
+    const appears = entry.value?.appears ?? null;
+    if (appears === null || appears.kind !== "chapter") return text("newEntry.fromStart");
+    const index = chapters.value.find((chapter) => chapter.id === appears.chapter)?.index;
+    return index === undefined ? text("newEntry.fromStart") : text("newEntry.chapterStart", {index});
+});
+/** 页头的头像（输出 6）：形象这组设定在这个位置上的立绘，有图才给；同人物分页的立绘那一格的读法。 */
+const lookNamespace = computed(() => Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === LOOK_COMPONENT)?.[0] ?? null);
+const portrait = computed(() => {
+    const namespace = lookNamespace.value;
+    const value = namespace === null ? undefined : (view.value!.namespaces[namespace]!.fields["立绘"]?.value as {readonly 图片?: unknown; readonly 说明?: unknown} | null | undefined);
+    return typeof value?.["图片"] === "string" && value["图片"] !== "" ? {path: value["图片"], alt: typeof value["说明"] === "string" ? value["说明"] : ""} : null;
+});
 const setPosition = (value: string): void => {
     state.position = positionFromValue(value) === null ? null : value;
 };
@@ -1304,6 +1318,9 @@ const setPosition = (value: string): void => {
             :name="view?.name ?? ''"
             :summary="view?.summary ?? ''"
             :same-as="entry?.sameAs ?? null"
+            :kind="entry?.kind ?? ''"
+            :appears="appearsText"
+            :portrait="portrait"
             :chapters="rows"
             :position="positionValue(position)"
             :planned="mode === 'planned'"
@@ -1337,6 +1354,7 @@ const setPosition = (value: string): void => {
             @add-component="(type: string) => addComponents([type], 'menu')"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
+            @open-look="lookNamespace !== null && (state.tab = DATA + lookNamespace)"
             @update:line="(value: string) => props.windowLine.set(value)"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"

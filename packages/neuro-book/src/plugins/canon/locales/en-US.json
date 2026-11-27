@@ -159,7 +159,11 @@
         "groupAlreadyAdded": "This settings group is already on the entry",
         "groupAlreadyAddedNamed": "The “{{name}}” group is already on the entry",
         "groupsAdded": "Add the {{names}} groups",
-        "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
+        "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again.",
+        "portrait": "Open look",
+        "kindLabel": "Kind",
+        "kindNone": "Not set",
+        "appearsLabel": "Appears"
     },
     "position": {
         "initial": "Initial state",

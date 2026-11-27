@@ -5,12 +5,14 @@
 import EntryPage from "nbook/plugins/canon/web/components/entry-page/EntryPage.vue";
 
 import {type LabFixtureProps, useLabSubject} from "nbook/plugins/lab/web/scene-kit";
+import {provideSampleImages} from "./canon-images";
 import {provideCanonText} from "./canon-text";
 
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
+provideSampleImages();
 
-const subject = useLabSubject<typeof EntryPage>(() => props.input, ["open-entry", "retry", "delete", "edit-name", "edit-summary", "aliases", "move", "add-component", "remove-component", "restore"]);
+const subject = useLabSubject<typeof EntryPage>(() => props.input, ["open-entry", "retry", "delete", "edit-name", "edit-summary", "aliases", "move", "add-component", "remove-component", "restore", "open-look"]);
 </script>
 
 <template>

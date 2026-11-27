@@ -16,7 +16,7 @@ const tabs = [
     {value: "data:panel", label: "数值", iconClass: "i-lucide-gauge", segment: "own" as const, removable: true},
     {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 4},
 ];
-const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, chapters, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
+const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, chapters, tabs, kind: "人物", appears: "一开始就在"}, model: {position: "2:end", planned: false, tab: "text"}};
 /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
 const IDLE = {kind: "idle"} as const;
 
@@ -44,6 +44,8 @@ export const fixtures: LabFixture[] = [
             {id: "editable", label: "页头可编辑：改名字、简介、别名，更多里有移动与加去设定组", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], removableGroup: "人物"}, model: {...page.model, tab: "data:character"}}},
             {id: "editable-blocked", label: "页头可编辑但算着计划：入口禁用", input: {props: {...page.props, editable: true, editReason: "先不算计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
             {id: "deleted-restorable", label: "已删除、可以恢复", input: {props: {status: "deleted" as const, name: "旧设定", editable: true}, model: {position: "", planned: false, tab: ""}}},
+            {id: "blank", label: "刚新建的普通条目：没有简介、别名、种类，没有章（右栏写“未定”与“一开始就在”）", input: {props: {status: "normal" as const, name: "新条目", summary: "", sameAs: null, chapters: [], tabs: tabs.filter((item) => item.value === "text"), kind: "", appears: "一开始就在", editable: true}, model: {position: "", planned: false, tab: "text"}}},
+            {id: "portrait", label: "有立绘：头像顶齐名字、底齐别名，简介单行截断", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], summary: "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住，魔力还没恢复到能变身的程度", appears: "第 2 章开头", portrait: {path: "插图/星瑕-立绘.png", alt: "星瑕的立绘"}}, model: page.model}},
             {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
             // 看法菜单（输出 9、54）：设定组分页留箭头格，选中的显出；选中的再点开菜单。不在缺省看法时分页上写看法名。
             ...(() => {
