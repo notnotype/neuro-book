@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 设定组的勾选列表（同名 .md，docs/specs/canon/author-ui.md 输出 4、38）：搜索框、预设一排、按组列出的勾选行。焦点一直留在搜索框里，
- * 高亮靠 `aria-activedescendant`（同“添加一组设定”原来的浮层与条目选择器）：中文输入法下打字、Space 打空格都不用把焦点挪来挪去。
+ * 模块的勾选列表（同名 .md，docs/specs/canon/author-ui.md 输出 4、38）：搜索框、模板一排、按组列出的勾选行。焦点一直留在搜索框里，
+ * 高亮靠 `aria-activedescendant`（同“添加模块”原来的浮层与条目选择器）：中文输入法下打字、Space 打空格都不用把焦点挪来挪去。
  */
 import {computed, nextTick, ref, shallowRef, useId, watch} from "vue";
 
@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<{
 }>(), {kind: "", presets: () => [], maxHeight: undefined, fill: false});
 
 const emit = defineEmits<{
-    /** `via`：作者点的是一行还是一个预设（新建对话框据此不把预设算作动过勾选）。 */
+    /** `via`：作者点的是一行还是一个模板（新建对话框据此不把模板算作动过勾选）。 */
     (event: "update:modelValue", value: readonly string[], via: "row" | "preset"): void;
     (event: "present", type: string): void;
     (event: "submit"): void;
@@ -81,7 +81,7 @@ const toggle = (item: ChecklistItem): void => {
     emit("update:modelValue", props.modelValue.includes(item.value) ? props.modelValue.filter((value) => value !== item.value) : [...props.modelValue, item.value], "row");
 };
 const presetUseful = (preset: ChecklistPreset): boolean => withPreset(props.modelValue, preset, props.items).length > props.modelValue.length;
-// 点预设不让焦点离开搜索框（按钮上 `mousedown.prevent`）；用键盘按的，按完把焦点交回搜索框：这个预设随即不可用，焦点不能留在
+// 点模板不让焦点离开搜索框（按钮上 `mousedown.prevent`）；用键盘按的，按完把焦点交回搜索框：这个模板随即不可用，焦点不能留在
 // 一个被禁用的按钮上。
 const applyPreset = (preset: ChecklistPreset): void => {
     emit("update:modelValue", withPreset(props.modelValue, preset, props.items), "preset");
@@ -140,11 +140,11 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
                 @update:model-value="(value: string) => (query = value)"
             />
         </div>
-        <!-- 预设一排随种类出现、消失时收放（新建对话框里换种类），不顶着下面的列表跳。 -->
+        <!-- 模板一排随种类出现、消失时收放（新建对话框里换种类），不顶着下面的列表跳。 -->
         <Transition name="component-checklist-presets">
             <div v-if="props.presets.length > 0" class="component-checklist__presets-wrap">
                 <div class="component-checklist__presets" role="group" :aria-label="text('entry.addGroup.presets')" data-checklist-presets>
-                    <!-- 里面的几组都已勾上或已添加的预设不可用，画成选中的样子（强调色浅底），不画成灰的：灰的读起来像坏了（w00055 t04）。 -->
+                    <!-- 里面的几个模块都已勾上或已添加的模板不可用，画成选中的样子（强调色浅底），不画成灰的：灰的读起来像坏了（w00055 t04）。 -->
                     <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" class="component-checklist__preset" :disabled="!presetUseful(preset)" :aria-pressed="!presetUseful(preset)" :data-preset="preset.id" @mousedown.prevent @click="applyPreset(preset)"><span v-if="!presetUseful(preset)" class="i-lucide-check size-3.5" aria-hidden="true" />{{ preset.label }}</Button>
                 </div>
             </div>

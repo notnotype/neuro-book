@@ -67,9 +67,9 @@ export interface EntriesViewHostOptions {
         readonly notices: CanonNotices;
         /** 登记的条目种类（`canon.entry-kinds`，已并好、排好）；视图挂上时读一次。 */
         readonly kinds: () => readonly EntryKind[];
-        /** 设定组类型的图标（同条目页的分页）；不给时都是 `GROUP_ICON`。 */
+        /** 模块类型的图标（同条目页的分页）；不给时都是 `GROUP_ICON`。 */
         readonly iconOf?: (type: string) => string;
-        /** 登记这个设定组类型的插件 id：勾选列表按它分组；不给时都算“插件”。 */
+        /** 登记这个模块类型的插件 id：勾选列表按它分组；不给时都算“插件”。 */
         readonly componentPlugin?: (type: string) => string | null;
     };
 }
@@ -83,7 +83,7 @@ export function startNewEntry(state: EntriesViewState, parent: string | null, op
     else state.creating.value = emptyDraft(options.nearSelected === true ? (state.near.value ?? {}) : {});
 }
 
-/** 空状态的“新建人物”（author-ui.md 输出 37）：种类预填“人物”、分组跟着种类、勾上这个种类的默认设定组。 */
+/** 空状态的“新建人物”（author-ui.md 输出 37）：种类预填“人物”、分组跟着种类、勾上这个种类的默认模块。 */
 export function startNewPerson(state: EntriesViewState, defaults: Readonly<Record<string, readonly string[]>>): void {
     state.creating.value = {...withKind(emptyDraft(), ENTRY_KINDS.person, defaults), startKind: ENTRY_KINDS.person};
 }
@@ -175,7 +175,7 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 }
             }, {immediate: true});
             onBeforeUnmount(() => componentsRead?.release());
-            // 种类的候选与默认设定组：登记的种类挂上时读一次（只在装插件时变）；默认组只留读到了的类型（输入一节：没登记、不可用的当作没写）。
+            // 种类的候选与默认模块：登记的种类挂上时读一次（只在装插件时变）；默认模块只留读到了的类型（输入一节：没登记、不可用的当作没写）。
             const registered = create?.kinds() ?? [];
             const kindDefaults = computed<Record<string, readonly string[]>>(() => {
                 const available = new Set(components.value.map((type) => type.id));
@@ -190,7 +190,7 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 const types = byKind(next, kind) ?? [];
                 if (types.join("\u0000") !== draft.types.join("\u0000")) state.creating.value = {...draft, types: [...types]};
             });
-            // 勾选列表的各行与每个登记的种类的预设（输出 4）：新建时没有“已添加”。
+            // 勾选列表的各行与每个登记的种类的模板（输出 4）：新建时没有“已添加”。
             const items = computed<ChecklistItem[]>(() => components.value.map((type) => ({
                 value: type.id,
                 label: type.label,

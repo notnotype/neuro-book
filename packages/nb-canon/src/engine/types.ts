@@ -100,7 +100,7 @@ export interface EntryView {
     readonly namespaces: Readonly<Record<string, NamespaceView>>;
     readonly upcoming: readonly UpcomingNamespace[];
     readonly components: readonly string[];
-    /** 去掉过的设定组（数据还在，可以加回来，components.md 输出 7）；没有时不写。 */
+    /** 去掉过的模块（数据还在，可以加回来，components.md 输出 7）；没有时不写。 */
     readonly removedComponents?: readonly {readonly namespace: string; readonly type: string}[];
 }
 

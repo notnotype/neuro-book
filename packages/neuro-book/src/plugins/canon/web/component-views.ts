@@ -24,14 +24,14 @@ export interface ComponentViewImplementation {
 /** 写入的结果：失败的原因由界面自己显示。 */
 export type ViewWriteResult = {readonly ok: true} | {readonly ok: false; readonly reason: Text};
 
-/** 同一条目上另一组设定的只读视图（`context.other` 的 `present`）：改它的字段、看它的来历到它自己的分页去（`showTab`）。 */
+/** 同一条目上另一个模块的只读视图（`context.other` 的 `present`）：改它的字段、看它的来历到它自己的分页去（`showTab`）。 */
 export interface ComponentPeer {
     readonly namespace: string;
     readonly fields: Readonly<Record<string, FieldState>>;
     readonly declarations: readonly FieldDeclaration[];
 }
 
-/** 同一条目上另一组设定此刻的情况（author-ui.md 输入一节的 `other`）。 */
+/** 同一条目上另一个模块此刻的情况（author-ui.md 输入一节的 `other`）。 */
 export type OtherComponent =
     | {readonly status: "present"; readonly peer: ComponentPeer}
     /** 没加过。 */
@@ -101,18 +101,18 @@ export interface ComponentViewContext {
     /*
      * 以下都可以不给：条目页给全，别的宿主（Lab、测试）缺哪一项，界面就退到没有它时的做法（输入一节）。
      */
-    /** 同一条目上另一组设定；只认声明里 `uses` 列了的类型。在渲染或 computed 里读，不要存起来。 */
+    /** 同一条目上另一个模块；只认声明里 `uses` 列了的类型。在渲染或 computed 里读，不要存起来。 */
     other?(type: string): OtherComponent;
-    /** 给这个条目加上（去掉过的是恢复）一组设定。 */
+    /** 给这个条目加上（去掉过的是恢复）一个模块。 */
     addComponent?(type: string): Promise<ViewWriteResult>;
-    /** 切到那一组的分页；没有这个分页时什么也不做。 */
+    /** 切到那个模块的分页；没有这个分页时什么也不做。 */
     showTab?(type: string): void;
-    /** 在这个条目的这一组上新增一个字段、改显示名、去掉、恢复（类型允许实例字段时才有）；`path` 是字段名。 */
+    /** 在这个条目的这个模块上新增一个字段、改显示名、去掉、恢复（类型允许实例字段时才有）；`path` 是字段名。 */
     fieldAdd?(field: FieldDraft): Promise<ViewWriteResult>;
     fieldRename?(path: string, label: string): Promise<ViewWriteResult>;
     fieldRemove?(path: string): Promise<ViewWriteResult>;
     fieldRestore?(path: string): Promise<ViewWriteResult>;
-    /** 这一组上去掉过的字段，给“恢复”用。 */
+    /** 这个模块上去掉过的字段，给“恢复”用。 */
     readonly removedFields?: readonly {readonly id: string; readonly label: string}[];
     /** 这个类型的预设字段（canon.components 输出 24），“添加一项资料”里列。 */
     readonly presets?: readonly FieldDeclaration[];

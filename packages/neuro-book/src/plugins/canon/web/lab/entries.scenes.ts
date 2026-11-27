@@ -64,8 +64,8 @@ export const fixtures: LabFixture[] = [
             ], kindPresets: {人物: [{id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]}, {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]}]}, chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
             return [
                 {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
-                {id: "person", label: "新建人物：勾上人物与形象，有人物的预设，标题写“新建人物”", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"], startKind: "人物"}}}},
-                {id: "customized", label: "动过勾选、与人物的默认不同：设定组那一行右端有“恢复人物的默认”", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person"], typesTouched: true}}}},
+                {id: "person", label: "新建人物：勾上人物与形象，有人物的模板，标题写“新建人物”", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"], startKind: "人物"}}}},
+                {id: "customized", label: "动过勾选、与人物的默认不同：模块那一行右端有“恢复人物的默认”", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person"], typesTouched: true}}}},
                 {id: "same-as", label: "是星瑕的马甲、第 2 章出场：段头写现在的值，展开后上级写“星瑕（跟着本体）”", input: {props: options, model: {open: true, draft: {...draft, name: "哥哥", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"], sameAs: "xingxia", sameAsName: "星瑕", parent: "xingxia", parentName: "星瑕", appears: "2"}}}},
                 {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", kindChosen: "物品", folder: "物品"}}}},
                 {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},

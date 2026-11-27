@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 人物分页（同名 .md，docs/specs/canon/author-ui.md 输出 49、51、52）：把 `context` 折成 `CharacterCard` 的属性，把它的事件翻成
- * 就地改、看来历、加一项这些写入。立绘读自同一条目上的形象这一组（`context.other`）。
+ * 就地改、看来历、加一项这些写入。立绘读自同一条目上的形象模块（`context.other`）。
  */
 import {computed, inject, onBeforeUnmount, shallowRef, watch} from "vue";
 
@@ -59,7 +59,7 @@ const passageOf = (id: string, hint: string): CardPassage => ({id, label: declar
 const condition = computed(() => (declarationOf(CONDITION) === undefined ? null : passageOf(CONDITION, port.t(text("character.hint.condition")))));
 const passages = computed(() => Object.entries(PASSAGES).filter(([id]) => declarationOf(id) !== undefined).map(([id, hint]) => passageOf(id, port.t(text(`character.hint.${hint}`)))));
 
-/** 立绘那一格（输出 49）：按形象这一组的五种情况；宿主不给 `other` 时这一格空着。 */
+/** 立绘那一格（输出 49）：按形象模块的五种情况；宿主不给 `other` 时这一格空着。 */
 const portrait = computed<CardPortrait>(() => {
     const other = context.other?.(LOOK_COMPONENT) ?? {status: "unavailable" as const};
     if (other.status === "present") {

@@ -64,7 +64,7 @@ export const canonProjectPlugin: PluginDefinition = {
             }).catch((error: unknown) => void diagnostics.record({level: "warn", event: "canon.time.settings", message: "接不上作品设置里的历法与词表，用内置的公历与词表", error, source: {plugin: descriptor.id}}));
             // 补交在 activate 返回前完成，所以内置类型在打开世界之前就在登记里。
             const declared = new Map<ContributionHandle<ComponentContribution>, ComponentDeclaration>();
-            // 种类的默认设定组写到没登记的类型（author-ui.md 输入一节）：用到时当作没写；这里核一次，同一处只写一条诊断。
+            // 种类的默认模块写到没登记的类型（author-ui.md 输入一节）：用到时当作没写；这里核一次，同一处只写一条诊断。
             // 世界打开以后才核：启动时登记一条一条地到，中途核会把还没到的内置类型也报出来（内置类型在打开世界之前都已登记）。
             // 之后 Component 类型的登记每变一次核一次，放到微任务里合并；种类的声明在核的时候现读（只多了一条种类声明、类型
             // 登记没变时，要等下一次类型登记变了才核：这只是一条提示的早晚，不另订阅）。世界打不开（被占用、在停）时不核。
@@ -83,17 +83,17 @@ export const canonProjectPlugin: PluginDefinition = {
                         const key = `${kind}\u0000${type}`;
                         if (reported.has(key)) continue;
                         reported.add(key);
-                        diagnostics.record({level: "warn", event: "canon.entry-kinds.missing-component", message: `种类“${kind}”默认带的设定组 ${type} 没有登记，新建时不带它`, data: {kind, type}, source: {plugin: descriptor.id}});
+                        diagnostics.record({level: "warn", event: "canon.entry-kinds.missing-component", message: `种类“${kind}”默认带的模块 ${type} 没有登记，新建时不带它`, data: {kind, type}, source: {plugin: descriptor.id}});
                     }
-                    // 预设的问题另记一种（键带预设 id 与问题，同一处只写一次）：与默认组分开，同一个类型既在默认里又在预设里时两条都写。
+                    // 模板的问题另记一种（键带模板 id 与问题，同一处只写一次）：与默认模块分开，同一个类型既在默认里又在模板里时两条都写。
                     for (const problem of presetProblems(listed, available)) {
                         const key = `preset\u0000${problem.kind}\u0000${problem.preset}\u0000${problem.problem}\u0000${problem.problem === "missing-component" ? problem.type : ""}`;
                         if (reported.has(key)) continue;
                         reported.add(key);
-                        const message = problem.problem === "missing-component" ? `种类“${problem.kind}”的预设 ${problem.preset} 写到的设定组 ${problem.type} 没有登记，勾选时不带它`
-                            : problem.problem === "nothing-usable" ? `种类“${problem.kind}”的预设 ${problem.preset} 写到的设定组都没有登记，不列出`
-                            : problem.problem === "no-label" ? `种类“${problem.kind}”的预设 ${problem.preset} 没有显示名，不列出`
-                            : `种类“${problem.kind}”的预设 ${problem.preset} 有几条登记写了不同的显示名，用先登记的那个`;
+                        const message = problem.problem === "missing-component" ? `种类“${problem.kind}”的模板 ${problem.preset} 写到的模块 ${problem.type} 没有登记，勾选时不带它`
+                            : problem.problem === "nothing-usable" ? `种类“${problem.kind}”的模板 ${problem.preset} 写到的模块都没有登记，不列出`
+                            : problem.problem === "no-label" ? `种类“${problem.kind}”的模板 ${problem.preset} 没有显示名，不列出`
+                            : `种类“${problem.kind}”的模板 ${problem.preset} 有几条登记写了不同的显示名，用先登记的那个`;
                         diagnostics.record({level: "warn", event: "canon.entry-kinds.preset-problem", message, data: {...problem}, source: {plugin: descriptor.id}});
                     }
                 });

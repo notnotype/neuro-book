@@ -36,7 +36,7 @@ const plot = [
     {id: "c1", where: "第 1 章", text: "交了学费", flags: ["undone" as const], patches: ["存款 −800", "状态 → 入学"]},
 ];
 
-/** 设定组的界面与看法（docs/specs/canon/author-ui.md）：场景用星瑕样本里的样子手写。 */
+/** 模块的界面与看法（docs/specs/canon/author-ui.md）：场景用星瑕样本里的样子手写。 */
 export const fixtures: LabFixture[] = [
     defineLabFixture<typeof CharacterCard>({
         component: "CharacterCard",
@@ -63,10 +63,10 @@ export const fixtures: LabFixture[] = [
             return [
                 {id: "filled", label: "填好的人物", input: {props: filled, model: {addOpen: false}}},
                 {id: "empty", label: "刚新建的人物", input: {props: empty, model: {addOpen: false}}},
-                {id: "no-look", label: "没登记形象这一组：立绘那一格不画", input: {props: {...filled, portrait: {status: "unavailable" as const}}, model: {addOpen: false}}},
+                {id: "no-look", label: "没登记形象模块：立绘那一格不画", input: {props: {...filled, portrait: {status: "unavailable" as const}}, model: {addOpen: false}}},
                 {id: "later-look", label: "所选位置上形象还没启用", input: {props: {...filled, portrait: {status: "later" as const, from: "第 3 章"}}, model: {addOpen: false}}},
                 {id: "add-field", label: "添加一项资料", input: {props: filled, model: {addOpen: true}}},
-                {id: "add-refused", label: "自己写的名字被拒", input: {props: {...filled, addError: "这一组里已经有叫“喜好”的一项"}, model: {addOpen: true}}},
+                {id: "add-refused", label: "自己写的名字被拒", input: {props: {...filled, addError: "这个模块里已经有叫“喜好”的一项"}, model: {addOpen: true}}},
                 {id: "condition-open", label: "现在的状态展开着", input: {props: {...filled, conditionOpen: true}, model: {addOpen: false}}},
                 {id: "blocked", label: "写不了：值按钮与“恢复形象”不可用", input: {props: {...filled, editReason: "先不算计划", portrait: {status: "removed" as const}}, model: {addOpen: false}}},
                 {id: "filled-english", label: "英文界面", input: {props: filled, model: {addOpen: false}}},
@@ -151,10 +151,10 @@ export const fixtures: LabFixture[] = [
     defineLabFixture<typeof ComponentAgentView>({
         component: "ComponentAgentView",
         scenes: [
-            {id: "panel", label: "数值：给模型的那一节", input: {props: {position: "第 2 章末尾", text: "【数值】（设定组 panel，可以加字段）\n- 存款 = 900｜数｜单位 元\n- 魔力上限 = 3000｜数\n- 魔力 = 未知｜数（语义档：改起点或记一句）\n- 物品｜列表｜2 项\n  - [wand] 魔杖｜数量=1\n  - [cape] 斗篷｜数量=1"}}},
-            {id: "long-line", label: "很长的一行折行", input: {props: {position: "最初", text: "【人物】（设定组 character）\n- 性格 = 黑发，左眼下有颗痣，平时话少，遇到和妹妹有关的事会突然变得很固执，打工的地方没人知道她是魔法少女，也没人知道她其实是男生变的｜文字"}}},
-            {id: "loading", label: "设定组类型还在读", input: {props: {position: "第 2 章末尾", text: "", loading: true}}},
-            {id: "failed", label: "设定组类型读失败", input: {props: {position: "第 2 章末尾", text: "", failed: "世界已断开"}}},
+            {id: "panel", label: "数值：给模型的那一节", input: {props: {position: "第 2 章末尾", text: "【数值】（模块 panel，可以加字段）\n- 存款 = 900｜数｜单位 元\n- 魔力上限 = 3000｜数\n- 魔力 = 未知｜数（语义档：改起点或记一句）\n- 物品｜列表｜2 项\n  - [wand] 魔杖｜数量=1\n  - [cape] 斗篷｜数量=1"}}},
+            {id: "long-line", label: "很长的一行折行", input: {props: {position: "最初", text: "【人物】（模块 character）\n- 性格 = 黑发，左眼下有颗痣，平时话少，遇到和妹妹有关的事会突然变得很固执，打工的地方没人知道她是魔法少女，也没人知道她其实是男生变的｜文字"}}},
+            {id: "loading", label: "模块类型还在读", input: {props: {position: "第 2 章末尾", text: "", loading: true}}},
+            {id: "failed", label: "模块类型读失败", input: {props: {position: "第 2 章末尾", text: "", failed: "世界已断开"}}},
         ],
         load: async () => (await import("./ComponentAgentViewFixture.vue")).default,
     }),

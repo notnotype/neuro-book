@@ -150,7 +150,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         const revisions = await author.canon.call("revisions", {filter: {entry: xia}});
         expect(revisions.ok && revisions.value.items[0]).toMatchObject({by: {kind: "agent", session: "s1"}, title: "改外观", what: "creative"});
 
-        // 没写 components：人物默认带人物与形象，fields 写到的数值并上（输出 7）；组织没有登记默认的设定组。
+        // 没写 components：人物默认带人物与形象，fields 写到的数值并上（输出 7）；组织没有登记默认的模块。
         await run(AGENT_TOOL_IDS.write, {title: "建星瑾", edits: [{op: "create", name: "星瑾", kind: "人物", declare: {数值: [{label: "战绩"}]}, fields: {"数值.战绩": "三胜"}}]});
         const jin = (await run(AGENT_TOOL_IDS.read, {entry: "星瑾"})).text;
         expect([...jin.matchAll(/^【(.+?)】/gmu)].map((match) => match[1])).toEqual(["人物", "形象", "数值"]);
@@ -159,7 +159,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
-    it("在条目上加自己的字段、改名、去掉、恢复；新建与加设定组时带声明；拒收时回话写得出原因（输出 6、7）", async () => {
+    it("在条目上加自己的字段、改名、去掉、恢复；新建与加模块时带声明；拒收时回话写得出原因（输出 6、7）", async () => {
         const {run, close} = await scene();
         // 新建时就在数值上声明三个字段，给其中一个初值（Agent 写数要带依据，这里给文字的那个）；人物有建议值的字段在读出来时写明“也可以写别的”。
         const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [
@@ -167,7 +167,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         ]});
         expect(created.text).toContain("已写入");
         const read = await run(AGENT_TOOL_IDS.read, {entry: "星瑕"});
-        expect(read.text).toContain("【人物】（设定组 character，可以加字段）");
+        expect(read.text).toContain("【人物】（模块 character，可以加字段）");
         // 写了 components 就照写的：不再套人物的默认（形象）。
         expect(read.text).not.toContain("【形象】");
         expect(read.text).toContain("常见的写法：男、女、不明（也可以写别的）");
@@ -193,7 +193,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         // 拒收的原因能照着改：固定的字段、同名、没有去掉过的字段。
         const fixed = await run(AGENT_TOOL_IDS.write, {title: "去掉性格", version: versionIn(back), edits: [{op: "removeField", entry: "星瑕", field: "人物.性格"}]});
         expect(fixed.status).toBe("error");
-        expect(fixed.text).toContain("设定组固定的字段");
+        expect(fixed.text).toContain("模块固定的字段");
         const duplicate = await run(AGENT_TOOL_IDS.write, {title: "再加一个血统", version: versionIn(back), edits: [{op: "addField", entry: "星瑕", component: "人物", label: "血统"}]});
         expect(duplicate.status).toBe("error");
         expect(duplicate.text).toContain("已经有一个叫这个名字的字段");
@@ -203,17 +203,17 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
-    it("字段操作的边界：数与引用不给初值也加得上；显示名带空格时同一项的初值认得到；写错形状、空的显示名、已有的设定组都回话说清，不悄悄照写；回话写出新条目带了哪几组", async () => {
+    it("字段操作的边界：数与引用不给初值也加得上；显示名带空格时同一项的初值认得到；写错形状、空的显示名、已有的模块都回话说清，不悄悄照写；回话写出新条目带了哪几个模块", async () => {
         const {run, close} = await scene();
         const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [
             {op: "create", key: "xia", name: "星瑕", kind: "人物", declare: {数值: [{label: "身高 (cm)"}]}, fields: {"数值.身高 (cm)": "一米七"}},
             {op: "create", key: "jin", name: "星瑾", kind: "人物", components: []},
         ]});
         expect(created.status).not.toBe("error");
-        // 没写 components 套的是种类的默认，加上 declare 写到的数值；写了 [] 就是一组也不要。
+        // 没写 components 套的是种类的默认，加上 declare 写到的数值；写了 [] 就是一个也不要。
         expect(created.text).toContain("xia → ");
-        expect(created.text).toContain("（设定组：人物、形象、数值）");
-        expect(created.text).toContain("（没有设定组）");
+        expect(created.text).toContain("（模块：人物、形象、数值）");
+        expect(created.text).toContain("（没有模块）");
         const read = await run(AGENT_TOOL_IDS.read, {entry: "星瑕"});
         // 生成的 id 不等于显示名（括号里的），初值照样写进了这一项。
         expect(read.text).toContain("身高 (cm)（身高cm2） = 一米七");
@@ -229,8 +229,8 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
             [[{op: "addField", entry: "星瑕", component: "数值", label: "  "}], "不能是空的"],
             [[{op: "addField", entry: "星瑕", component: "数值", label: "魔力", default: 3}], "不认识“default”"],
             [[{op: "renameField", entry: "星瑕", field: "数值.身高 (cm)", label: ""}], "不能是空的"],
-            [[{op: "addComponent", entry: "星瑕", component: "人物"}], "已经有设定组“人物”"],
-            [[{op: "create", name: "星璃", kind: "人物", components: "人物"}], "components 是设定组名字的列表"],
+            [[{op: "addComponent", entry: "星瑕", component: "人物"}], "已经有模块“人物”"],
+            [[{op: "create", name: "星璃", kind: "人物", components: "人物"}], "components 是模块名字的列表"],
             [[{op: "create", name: "星璃", kind: "人物", declare: [{label: "甲"}]}], "declare 写"],
             [[{op: "create", name: "星璃", kind: "人物", fields: null}], "fields 写"],
             [[{op: "create", name: "星璃", kind: "人物", fields: [["人物.性格", "冷"]]}], "fields 写"],
@@ -246,10 +246,10 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
-    it("fields 写到的设定组都并上；create 的 max 按显示名写的换成 id；addComponent 带 declare；不允许加字段的设定组回话说清（输出 6、7）", async () => {
+    it("fields 写到的模块都并上；create 的 max 按显示名写的换成 id；addComponent 带 declare；不允许加字段的模块回话说清（输出 6、7）", async () => {
         const {run, close} = await scene();
         const groups = (text: string) => [...text.matchAll(/^【(.+?)】/gmu)].map((match) => match[1]);
-        // 两种情况下 fields 写到的设定组都并上：不写 components 时在默认之后，写了时在列出的之后；都不带 declare。
+        // 两种情况下 fields 写到的模块都并上：不写 components 时在默认之后，写了时在列出的之后；都不带 declare。
         // 星璃的上限按显示名写，它生成的 id 与显示名不同：工具不换成 id，内核找不到这个字段、拒收。
         const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [
             {op: "create", name: "星瑕", kind: "人物", fields: {"知识点.规则": "只在夜里"}},
@@ -272,7 +272,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         expect(groups(withPanel.text)).toEqual(["人物", "形象", "数值"]);
         expect(withPanel.text).toContain("- 战绩 = 未知");
 
-        // 知识点这一组不允许条目自己加字段。
+        // 知识点这个模块不允许条目自己加字段。
         const refused = await run(AGENT_TOOL_IDS.write, {title: "加字段", version: versionIn(withPanel), edits: [{op: "addField", entry: "星瑕", component: "知识点", label: "代价"}]});
         expect(refused.status).toBe("error");
         expect(refused.text).toContain("不能在条目上加自己的字段");
@@ -488,7 +488,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         await close();
     }, 60_000);
 
-    it("写错参数时回话给出能照着改的信息：选项、没有的名字、没有的设定组、累出来的数", async () => {
+    it("写错参数时回话给出能照着改的信息：选项、没有的名字、没有的模块、累出来的数", async () => {
         const {run, close} = await scene();
         await run(AGENT_TOOL_IDS.write, {title: "建", edits: [{op: "create", name: "星瑕", kind: "人物", components: ["人物"]}, {op: "create", name: "星瑾", kind: "人物", components: []}]});
         const version = versionIn(await run(AGENT_TOOL_IDS.read, {entry: "星瑕"}));
@@ -501,7 +501,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         const storyOnly = await run(AGENT_TOOL_IDS.write, {title: "x", version, edits: [{op: "add", entry: "星瑕", field: "人物.性格", delta: 1}]});
         expect(storyOnly.status).toBe("error");
         expect(storyOnly.text).toContain("story");
-        // 同一批两个新条目用同一个代号、同一个设定组列两次：整批拒收，一个也不建。
+        // 同一批两个新条目用同一个代号、同一个模块列两次：整批拒收，一个也不建。
         const sameKey = await run(AGENT_TOOL_IDS.write, {title: "x", edits: [{op: "create", key: "k", name: "雾崎", kind: "人物"}, {op: "create", key: "k", name: "雾岛", kind: "人物"}]});
         expect(sameKey).toMatchObject({status: "error", code: "bad-edit"});
         expect(sameKey.text).toContain("代号“k”在这一批里前面已经用过");

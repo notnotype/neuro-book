@@ -43,7 +43,7 @@ const AT = {
 
 const lookup = agentTool(AGENT_TOOL_IDS.lookup, {
     providerName: "canon_lookup",
-    description: "按名字或别名查设定条目，给出 id、种类、启用的设定组与简介。写入前先用它把名字换成 id；没找到时列出名字相近的条目。",
+    description: "按名字或别名查设定条目，给出 id、种类、启用的模块与简介。写入前先用它把名字换成 id；没找到时列出名字相近的条目。",
     parameters: {type: "object", properties: {names: {type: "array", items: {type: "string"}, minItems: 1, maxItems: 20}, at: AT}, required: ["names"], additionalProperties: false},
     version: "1",
     effect: "read",
@@ -67,8 +67,8 @@ const read = agentTool(AGENT_TOOL_IDS.read, {
     providerName: "canon_read",
     description: [
         "读一个设定条目。第一行给出位置与版本（写入时把版本原样带给 canon_write 的 version）。",
-        "show 缺省 [\"fields\"]：每个设定组的字段、值、种类与可取的值；\"text\"：主文字（每块前面方括号里是块 id，标签带着这个位置上的值，见 canon_write）；\"origins\"：field 这个字段的值是怎么来的；\"history\"：最近的修订。",
-        "field 写“设定组.字段”，只读这一个字段（列表读全）；写 \"text[块 id]\" 只读主文字的这一块，长的分页，cursor 续读。",
+        "show 缺省 [\"fields\"]：每个模块的字段、值、种类与可取的值；\"text\"：主文字（每块前面方括号里是块 id，标签带着这个位置上的值，见 canon_write）；\"origins\"：field 这个字段的值是怎么来的；\"history\"：最近的修订。",
+        "field 写“模块.字段”，只读这一个字段（列表读全）；写 \"text[块 id]\" 只读主文字的这一块，长的分页，cursor 续读。",
     ].join("\n"),
     parameters: {
         type: "object",
@@ -90,17 +90,17 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "改设定：一次写入（一条修订）里改几处，全部生效或整批不生效。作者能在改动记录里看到、还原。",
         "version：canon_read 或 canon_lookup 第一行的版本，原样带回；读过之后世界变了会被拒（stale-read），重读再写。只建新条目时可以不给。",
         "intent：\"setting\"（缺省）是改设定，写回给出这个值的那条记录；\"story\" 是在 at 那一章记一条剧情变化（某章发生了什么）。",
-        "entry 写条目 id、名字，或同一批里 create 的 \"$代号\"。field 写“设定组.字段”，列表元素写“设定组.字段[元素].子字段”；设定组、字段、元素写 id 或名字都行。名字、简介、别名用 op 本身或 field \"名字\"/\"简介\"。",
-        "op：create（name、kind、可选 key 代号、parent、folder、summary、aliases、components 设定组列表（不写时用这个种类默认的设定组，例如人物带人物与形象；写 [] 是不要默认）、fields 初值 {\"设定组.字段\": 值}、text 主文字）；",
+        "entry 写条目 id、名字，或同一批里 create 的 \"$代号\"。field 写“模块.字段”，列表元素写“模块.字段[元素].子字段”；模块、字段、元素写 id 或名字都行。名字、简介、别名用 op 本身或 field \"名字\"/\"简介\"。",
+        "op：create（name、kind、可选 key 代号、parent、folder、summary、aliases、components 模块列表（不写时用这个种类默认的模块，例如人物带人物与形象；写 [] 是不要默认）、fields 初值 {\"模块.字段\": 值}、text 主文字）；",
         "set（entry、field、value）；replace（entry、field、find、with，把恰好出现一次的 find 换成 with）；",
         "add（entry、field、delta，只在 story）；note（entry、field、text，语义档记一句，只在 story）；",
         "listAdd（entry、field 列表、value 元素 {子字段: 值}，以条目为键的列表另写 target 条目）；listRemove（entry、field 写到元素）；",
         "aliases（entry、add、remove）；addBlock（entry、text、after 块 id：放在它后面，null 放在最前，不写放在最后）；removeBlock（entry、block）；",
-        "addComponent、removeComponent（entry、component 设定组）；move（entry、parent 上级或 null、after 兄弟或 null、folder、kind）；delete、restore（entry）。",
-        "有的设定组（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 设定组、label 显示名、kind 缺省 text（还有 number、enum、boolean、list、image、ref），可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"设定组\": [声明…]}，addComponent 写 [声明…]。",
+        "addComponent、removeComponent（entry、component 模块）；move（entry、parent 上级或 null、after 兄弟或 null、folder、kind）；delete、restore（entry）。",
+        "有的模块（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 模块、label 显示名、kind 缺省 text（还有 number、enum、boolean、list、image、ref），可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"模块\": [声明…]}，addComponent 写 [声明…]。",
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
         "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
-        "主文字是 Markdown 加标签：<V of=\"设定组.字段\" /> 写本条目字段的值，<V entry=\"条目 id\" of=\"设定组.字段\" /> 写别的条目的；<V expr=\"panel.魔力 >= 1000\" /> 写算出来的值（式子里的字符串用单引号，可用 round、floor、ceil、min、max、abs、percent）；<If test=\"式子\">…<ElseIf test=\"…\" />…<Else />…</If> 按条件写一段之内的文字；<Ref id=\"条目 id\" /> 写条目的名字（同一批 create 的条目在 entry、id、ref('…') 里写 \"$代号\"）；<Image of=\"设定组.图片字段\" alt=\"说明\" /> 或 <Image src=\"路径\" alt=\"说明\" />。要在正文里写 < 加大写字母，写成 \\<。",
+        "主文字是 Markdown 加标签：<V of=\"模块.字段\" /> 写本条目字段的值，<V entry=\"条目 id\" of=\"模块.字段\" /> 写别的条目的；<V expr=\"panel.魔力 >= 1000\" /> 写算出来的值（式子里的字符串用单引号，可用 round、floor、ceil、min、max、abs、percent）；<If test=\"式子\">…<ElseIf test=\"…\" />…<Else />…</If> 按条件写一段之内的文字；<Ref id=\"条目 id\" /> 写条目的名字（同一批 create 的条目在 entry、id、ref('…') 里写 \"$代号\"）；<Image of=\"模块.图片字段\" alt=\"说明\" /> 或 <Image src=\"路径\" alt=\"说明\" />。要在正文里写 < 加大写字母，写成 \\<。",
         "canon_read 读到的标签带着值：<V of=\"panel.魔力\">3110</V>，以及 label、incomplete、unavailable、value、name、path 这些属性。它们只给你看，存下时程序会去掉：set text[块] 整块换掉时照抄带值的写法就行；replace 的 find 是在读到的带值写法里找的，要与读到的一字不差（标签连同属性与中间的值），或者只找标签以外的文字。文字里改了值不会写进字段，改值用 set 写那个字段。canon_read 一页读不全的长块只能用 replace 改局部。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
     ].join("\n"),
@@ -149,7 +149,7 @@ async function withWorld(projects: ProjectsService | null, remote: ActivationCon
     }
 }
 
-/** 一次调用里用到的世界信息：章表、登记的类型、读取位置，以及登记的条目种类（新建时套默认的设定组）。 */
+/** 一次调用里用到的世界信息：章表、登记的类型、读取位置，以及登记的条目种类（新建时套默认的模块）。 */
 interface Context {
     readonly call: Call;
     readonly chapters: CanonOutputs["chapters"];
@@ -240,7 +240,7 @@ function fieldDraftOf(given: unknown, extra: readonly string[] = []): FieldDraft
     if (typeof record.label !== "string" || record.label.trim() === "") return {problem: "字段声明要写 label（显示名，不能是空的）。"};
     if (record.kind !== undefined && !FIELD_KINDS.includes(record.kind as FieldKind)) return {problem: `kind 只能是：${FIELD_KINDS.join("、")}（缺省 text）；enum 要写 options，list 要写 item，ref 可以写 targets。`};
     const unknown = Object.keys(record).find((key) => !DECLARATION_KEYS.includes(key) && !extra.includes(key));
-    if (unknown === "value") return {problem: "声明里不写初值：create 的初值写在 fields 里（\"设定组.字段\": 值）。"};
+    if (unknown === "value") return {problem: "声明里不写初值：create 的初值写在 fields 里（\"模块.字段\": 值）。"};
     if (unknown !== undefined) return {problem: `字段声明里不认识“${unknown}”；能写的有：${DECLARATION_KEYS.join("、")}。`};
     return {kind: "text", ...Object.fromEntries(DECLARATION_KEYS.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]))} as FieldDraft;
 }
@@ -258,7 +258,7 @@ function fieldDrafts(given: unknown): readonly FieldDraft[] | {readonly problem:
 
 /**
  * 新建条目时一组声明的 id：没写的按内核同一个函数（`generateFieldId`）在这里先定好，同一项的 `fields` 初值与 `max` 才认得到它（显示名
- * 带空格、括号时生成的 id 不等于显示名）。`max` 按显示名写的换成这一组里那个字段的 id。
+ * 带空格、括号时生成的 id 不等于显示名）。`max` 按显示名写的换成这个模块里那个字段的 id。
  */
 function withFieldIds(type: ComponentType, drafts: readonly FieldDraft[]): readonly FieldDraft[] {
     const taken = new Set<string>([...type.fields.map((field) => field.id), ...drafts.flatMap((draft) => (draft.id === undefined ? [] : [draft.id]))]);
@@ -333,7 +333,7 @@ function lookupTool(services: Services): AgentToolImplementation {
                         const groups = "view" in entry ? Object.keys(entry.view.namespaces).map((namespace) => context.components.find((type) => type.namespace === namespace)?.label ?? namespace).join("、") : "";
                         const summary = "view" in entry && entry.view.summary !== "" ? `｜${entry.view.summary}` : "";
                         const aliases = "view" in entry && entry.view.aliases.length > 0 ? `（别名：${entry.view.aliases.join("、")}）` : "";
-                        lines.push(`“${name}”：${item.id} ${item.kind}「${item.name}」${aliases}｜设定组：${groups || "无"}${summary}`.slice(0, 160));
+                        lines.push(`“${name}”：${item.id} ${item.kind}「${item.name}」${aliases}｜模块：${groups || "无"}${summary}`.slice(0, 160));
                     }
                 }
                 return {text: clip(`${head(context, version, digest)}\n${lines.join("\n")}`, 3000, "少查几个名字"), details: {version}};
@@ -507,26 +507,26 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         }
         const components: {type: string; fields?: Record<string, unknown>; declare?: FieldDraft[]}[] = [];
         // 写了却不是列表（一个名字、null）：回话指出来，不当成没写去套默认。
-        if (edit.components !== undefined && !Array.isArray(edit.components)) return at("components 是设定组名字的列表，例如 [\"人物\"]；一组也不要就写 []，不写就用这个种类的默认。");
-        if (edit.declare !== undefined && (typeof edit.declare !== "object" || edit.declare === null || Array.isArray(edit.declare))) return at("declare 写 {\"设定组\": [声明…]}。");
-        if (edit.fields !== undefined && (typeof edit.fields !== "object" || edit.fields === null || Array.isArray(edit.fields))) return at("fields 写 {\"设定组.字段\": 值}。");
+        if (edit.components !== undefined && !Array.isArray(edit.components)) return at("components 是模块名字的列表，例如 [\"人物\"]；一个也不要就写 []，不写就用这个种类的默认。");
+        if (edit.declare !== undefined && (typeof edit.declare !== "object" || edit.declare === null || Array.isArray(edit.declare))) return at("declare 写 {\"模块\": [声明…]}。");
+        if (edit.fields !== undefined && (typeof edit.fields !== "object" || edit.fields === null || Array.isArray(edit.fields))) return at("fields 写 {\"模块.字段\": 值}。");
         if (Array.isArray(edit.components)) {
             for (const name of edit.components as string[]) {
                 const type = componentNamed(context.components, String(name));
                 if ("problem" in type) return at(type.problem);
-                if (components.some((component) => component.type === type.id)) return at(`设定组“${name}”列了两次。`);
+                if (components.some((component) => component.type === type.id)) return at(`模块“${name}”列了两次。`);
                 components.push({type: type.id});
             }
         } else {
-            // 没写 components：用这个种类登记的默认设定组（agent-tools.md 输出 7）；写了空列表就是不要默认。
+            // 没写 components：用这个种类登记的默认模块（agent-tools.md 输出 7）；写了空列表就是不要默认。
             for (const type of defaultComponents(context.kinds, edit.kind, new Set(context.components.map((candidate) => candidate.id)))) components.push({type});
         }
-        // `declare`：`{"设定组": [声明…]}`，新建时就在那组设定上声明这个条目自己的字段；没列在 `components` 里的一并启用。
+        // `declare`：`{"模块": [声明…]}`，新建时就在那个模块上声明这个条目自己的字段；没列在 `components` 里的一并启用。
         const declaring = new Map<string, readonly FieldDraft[]>();
         for (const [group, given] of Object.entries((edit.declare ?? {}) as Record<string, unknown>)) {
             const type = componentNamed(context.components, group);
             if ("problem" in type) return at(`declare 的“${group}”：${type.problem}`);
-            if (declaring.has(type.id)) return at(`declare 里设定组“${type.label}”写了两次（用了两个名字），合成一组写。`);
+            if (declaring.has(type.id)) return at(`declare 里模块“${type.label}”写了两次（用了两个名字），合成一个写。`);
             const drafts = fieldDrafts(given);
             if ("problem" in drafts) return at(`declare 的“${group}”：${drafts.problem}`);
             const named = withFieldIds(type, drafts);
@@ -538,7 +538,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             target.declare = [...named];
             declaring.set(type.id, named);
         }
-        // `fields` 写到的设定组没列在 `components` 里时一并启用（agent-tools.md 输出 6）。
+        // `fields` 写到的模块没列在 `components` 里时一并启用（agent-tools.md 输出 6）。
         for (const [path, value] of Object.entries((edit.fields ?? {}) as Record<string, unknown>)) {
             const [group = "", name = ""] = path.split(".");
             const type = componentNamed(context.components, group);
@@ -546,7 +546,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             // 这一项里刚声明的字段也能给初值（它们的 id 在上面已经定好）。
             const declaredHere = (declaring.get(type.id) ?? []) as readonly FieldDeclaration[];
             const field = uniqueNamed([...type.fields, ...declaredHere], name, (candidate) => candidate.id, (candidate) => candidate.label);
-            if ("problem" in field) return at(`初值的字段“${path}”：${field.problem === "none" ? `设定组 ${type.namespace} 里没有字段“${name}”；有：${[...type.fields, ...declaredHere].map((candidate) => candidate.label).join("、")}。` : `“${name}”对应几个字段：${field.candidates.join("、")}，写字段 id。`}`);
+            if ("problem" in field) return at(`初值的字段“${path}”：${field.problem === "none" ? `模块 ${type.namespace} 里没有字段“${name}”；有：${[...type.fields, ...declaredHere].map((candidate) => candidate.label).join("、")}。` : `“${name}”对应几个字段：${field.candidates.join("、")}，写字段 id。`}`);
             const checked = await resolveValue(context, field, value, keys);
             if ("problem" in checked) return at(checked.problem);
             let target = components.find((component) => component.type === type.id);
@@ -579,12 +579,12 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         case "addComponent":
         case "removeComponent": {
             const type = context.components.find((candidate) => candidate.id === edit.component || candidate.label === edit.component || candidate.namespace === edit.component);
-            if (type === undefined) return at(`没有设定组“${String(edit.component)}”；有：${context.components.map((candidate) => candidate.label).join("、")}。`);
-            // 已经在条目上的一组再加：内核报的 id-taken 说不清是哪件事，这里先说明白（这一批新建的条目还读不到）。
+            if (type === undefined) return at(`没有模块“${String(edit.component)}”；有：${context.components.map((candidate) => candidate.label).join("、")}。`);
+            // 已经在条目上的模块再加：内核报的 id-taken 说不清是哪件事，这里先说明白（这一批新建的条目还读不到）。
             if (edit.op === "addComponent" && !id.startsWith("tmp:")) {
                 const read = await entryOf(context, id);
                 if ("problem" in read) return at(read.problem);
-                if (Object.values(read.view.namespaces).some((data) => data.type === type.id)) return at(`这个条目已经有设定组“${type.label}”：改值用 set，加字段用 addField。`);
+                if (Object.values(read.view.namespaces).some((data) => data.type === type.id)) return at(`这个条目已经有模块“${type.label}”：改值用 set，加字段用 addField。`);
             }
             if (edit.op === "removeComponent" || edit.declare === undefined) return {op: {op: "component", entry: id, type: type.id, action: edit.op === "addComponent" ? "add" : "remove"}};
             const drafts = fieldDrafts(edit.declare);
@@ -700,7 +700,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             return {op: {op: "listAdd", at: target, element}};
         }
         case "listRemove":
-            if (!address.path.endsWith("]")) return at("listRemove 的 field 写到元素：设定组.字段[元素]。");
+            if (!address.path.endsWith("]")) return at("listRemove 的 field 写到元素：模块.字段[元素]。");
             return {op: {op: "listRemove", at: target}};
         default:
             return at(`不认识的 op“${edit.op}”。`);
@@ -739,11 +739,11 @@ async function writtenReply(call: Call, written: {readonly revision: string; rea
     const read = await call("revision", {id: written.revision});
     const revision = read.ok ? read.value.revision : null;
     const ids = revision?.idMap ?? {};
-    // 新建的条目带了哪几组设定：没写 components 时套的是种类的默认，模型要看得到套上了什么。
+    // 新建的条目带了哪几个模块：没写 components 时套的是种类的默认，模型要看得到套上了什么。
     const created = Object.entries(ids).map(([tmp, id]) => {
         const key = tmp.startsWith("tmp:") ? tmp.slice("tmp:".length) : tmp;
         const groups = written.groups?.get(tmp);
-        const carried = groups === undefined ? "" : groups.length === 0 ? "（没有设定组）" : `（设定组：${groups.join("、")}）`;
+        const carried = groups === undefined ? "" : groups.length === 0 ? "（没有模块）" : `（模块：${groups.join("、")}）`;
         return `${key.startsWith("#") ? `第 ${key.slice(1)} 项` : key} → ${id}${carried}`;
     });
     const impact = revision === null ? "" : impactText(revision.impact, (entry) => entry);

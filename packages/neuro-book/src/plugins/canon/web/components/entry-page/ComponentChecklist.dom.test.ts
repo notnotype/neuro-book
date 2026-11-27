@@ -1,5 +1,5 @@
 /**
- * ComponentChecklist（同名 .md，docs/specs/canon/author-ui.md 输出 4、38）：按组列出、打字筛、勾与取消、预设、已添加的那一行、键盘。
+ * ComponentChecklist（同名 .md，docs/specs/canon/author-ui.md 输出 4、38）：按组列出、打字筛、勾与取消、模板、已添加的那一行、键盘。
  * 列表的滚动与高亮的底色在 e2e 与 Lab。
  */
 
@@ -120,7 +120,7 @@ describe("ComponentChecklist", () => {
         expect(groups().map(([label]) => label)).toEqual([""]);
         await type("龙");
         expect(options()).toEqual([]);
-        expect(document.querySelector("[data-component-checklist]")?.textContent).toContain("没有叫“龙”的设定组");
+        expect(document.querySelector("[data-component-checklist]")?.textContent).toContain("没有叫“龙”的模块");
     });
 
     it("点一行勾上、再点取消，次序同勾的先后；被筛掉的勾选照旧算；已添加的那一行点了不取消、发 present", async () => {
@@ -143,7 +143,7 @@ describe("ComponentChecklist", () => {
         expect(events.filter(([name]) => name === "update").map(([, via]) => via)).toEqual(["row", "row", "row"]);
     });
 
-    it("预设：把里面还没添加、还没勾的勾上，不取消别的，标明是预设勾的；里面都已添加或已勾时不可用、按下的样子（读屏读作已按下）", async () => {
+    it("模板：把里面还没添加、还没勾的勾上，不取消别的，标明是模板勾的；里面都已添加或已勾时不可用、按下的样子（读屏读作已按下）", async () => {
         const {checked, events} = open({initial: ["a.test.badge"]});
         await flushPromises();
         expect([...document.querySelectorAll("[data-checklist-presets] button")].map((button) => button.textContent?.trim())).toEqual(["基本", "主要角色"]);
@@ -159,10 +159,10 @@ describe("ComponentChecklist", () => {
         await flushPromises();
         expect(checked.value).toEqual(["a.test.badge", "nbook.canon.skills", "nbook.canon.panel", "nbook.plot.knowing"]);
         expect(preset("main").disabled).toBe(true);
-        // 取消一组手选的：预设又能点了。
+        // 取消一个手选的：模板又能点了。
         await click("nbook.plot.knowing");
         expect(preset("main").disabled).toBe(false);
-        // 按下预设不抢搜索框的焦点；用键盘按的（焦点在按钮上），按完焦点回到搜索框，接着能用上下键与回车。
+        // 按下模板不抢搜索框的焦点；用键盘按的（焦点在按钮上），按完焦点回到搜索框，接着能用上下键与回车。
         search().focus();
         const down = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
         preset("main").dispatchEvent(down);

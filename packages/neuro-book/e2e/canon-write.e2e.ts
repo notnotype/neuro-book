@@ -135,7 +135,7 @@ async function setMode(page: Page, mode: "rich" | "source"): Promise<void> {
 }
 
 /**
- * “插入”菜单里插一个字段的值（输出 48）：菜单项可能直接列“设定组 · 字段”，也可能先点“值”再列字段，两种写法都认；
+ * “插入”菜单里插一个字段的值（输出 48）：菜单项可能直接列“模块 · 字段”，也可能先点“值”再列字段，两种写法都认；
  * 菜单没出来之前不数菜单项，免得把“还没画出来”当成“没有‘值’这一项”。
  */
 async function insertValue(page: Page, field: RegExp): Promise<void> {
@@ -184,7 +184,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(activeTabLabel(page)).toHaveText("星瑕");
     await expect(page.locator("[data-notice-bar]")).toContainText("新建“星瑕”");
 
-    // 新建人物带人物与形象两组，先看人物分页（author-ui 输出 4、9、37）；性格未知，点它在原处就地改（输出 51）。
+    // 新建人物带人物与形象两个模块，先看人物分页（author-ui 输出 4、9、37）；性格未知，点它在原处就地改（输出 51）。
     // 空作品里还没有剧情变更：经历与情节不出（author-ui 输出 9）。
     await expect(entryPage(page).getByRole("tab")).toHaveText([/^人物/u, /^形象/u, /^文字/u]);
     await expect(entryPage(page).getByRole("tab", {selected: true})).toHaveText("人物");

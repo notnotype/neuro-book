@@ -220,7 +220,7 @@ describe("回执页", () => {
         expect(third.get("[data-receipt-impact]").text()).not.toContain("notReduced");
     });
 
-    it("条目自己的字段声明的改动写成添加了一项、一项改名、去掉了一项、恢复了一项，不写成“设定组：改了”（输出 20）", async () => {
+    it("条目自己的字段声明的改动写成添加了一项、一项改名、去掉了一项、恢复了一项，不写成“模块：改了”（输出 20）", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;

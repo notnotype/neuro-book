@@ -1,5 +1,5 @@
 /**
- * 给模型看的条目字段（docs/specs/canon/agent-tools.md 的 `canon_read`；作者界面的“AI视图”，author-ui 输出 54）：每个设定组一节、
+ * 给模型看的条目字段（docs/specs/canon/agent-tools.md 的 `canon_read`；作者界面的“AI视图”，author-ui 输出 54）：每个模块一节、
  * 每个字段一行。后端的 Agent 工具与条目页用同一个函数，两边写出来的是同一段字。纯函数，不碰世界；字数上限在这里截。
  */
 
@@ -54,8 +54,8 @@ function kindText(field: FieldDeclaration): string {
 export const LIST_ROWS = 20;
 
 /**
- * 一个条目的字段：每个设定组一节，每个字段一行；列表每个元素一行，最多 `LIST_ROWS` 行。`field` 只写这一个字段（列表写全）；
- * `namespace` 只写这一组，并且不写“以后才启用”“去掉过”的两行（它们说的是整个条目）。
+ * 一个条目的字段：每个模块一节，每个字段一行；列表每个元素一行，最多 `LIST_ROWS` 行。`field` 只写这一个字段（列表写全）；
+ * `namespace` 只写这个模块，并且不写“以后才启用”“去掉过”的两行（它们说的是整个条目）。
  */
 export function fieldsText(view: EntryView, declarations: Readonly<Record<string, readonly FieldDeclaration[]>>, components: readonly ComponentType[], only: {readonly field?: string; readonly namespace?: string} = {}): string {
     const {field} = only;
@@ -64,7 +64,7 @@ export function fieldsText(view: EntryView, declarations: Readonly<Record<string
         if (only.namespace !== undefined && namespace !== only.namespace) continue;
         const type = components.find((candidate) => candidate.namespace === namespace);
         const fields = declarations[namespace] ?? [];
-        lines.push(`【${type?.label ?? namespace}】（设定组 ${namespace}${data.readOnly === undefined ? "" : "，只读"}${type?.instanceFields === true ? "，可以加字段" : ""}）`);
+        lines.push(`【${type?.label ?? namespace}】（模块 ${namespace}${data.readOnly === undefined ? "" : "，只读"}${type?.instanceFields === true ? "，可以加字段" : ""}）`);
         for (const declaration of fields) {
             const path = `${namespace}.${declaration.id}`;
             if (field !== undefined && field !== path) continue;
@@ -86,7 +86,7 @@ export function fieldsText(view: EntryView, declarations: Readonly<Record<string
         }
     }
     if (only.namespace !== undefined) return lines.join("\n");
-    if (view.upcoming.length > 0) lines.push(`以后才启用的设定组：${view.upcoming.map((item) => item.namespace).join("、")}`);
-    if (view.removedComponents !== undefined && view.removedComponents.length > 0) lines.push(`去掉过的设定组（可以再加回来）：${view.removedComponents.map((item) => components.find((candidate) => candidate.id === item.type)?.label ?? item.type).join("、")}`);
+    if (view.upcoming.length > 0) lines.push(`以后才启用的模块：${view.upcoming.map((item) => item.namespace).join("、")}`);
+    if (view.removedComponents !== undefined && view.removedComponents.length > 0) lines.push(`去掉过的模块（可以再加回来）：${view.removedComponents.map((item) => components.find((candidate) => candidate.id === item.type)?.label ?? item.type).join("、")}`);
     return lines.join("\n");
 }

@@ -307,7 +307,7 @@ describe("条目页", () => {
         expect(wrapper.get("[data-card='panel.存款']").text()).toContain("900 元");
     });
 
-    it("设定组分页能换着看（选中的分页再点开看法菜单）：“AI视图”是按“在看”读到的这一组那一节，“原始视图”是初值与改过这一组的变更，分页上写着现在的看法；换分页回到用户视图（输出 9、54）", async () => {
+    it("模块分页能换着看（选中的分页再点开看法菜单）：“AI视图”是按“在看”读到的这个模块那一节，“原始视图”是初值与改过这个模块的变更，分页上写着现在的看法；换分页回到用户视图（输出 9、54）", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -329,7 +329,7 @@ describe("条目页", () => {
         const agent = wrapper.get("[data-agent-text]").text();
         expect(agent).toContain("【数值】");
         expect(agent).toContain("- 存款 = 900");
-        // 只有这一组：人物那一节不在这里。
+        // 只有这个模块：人物那一节不在这里。
         expect(agent).not.toContain("性格");
         expect(wrapper.get("[data-agent-view]").text()).toContain("在看：第 2 章末尾");
 
@@ -339,17 +339,17 @@ describe("条目页", () => {
         expect(wrapper.get("[data-raw-changes]").text()).toContain("领了工资");
         expect(wrapper.get("[data-raw-changes]").text()).toContain("买了书");
 
-        // 换到人物分页回到用户视图，分页上不写看法；人物这一组没有剧情变更改过。
+        // 换到人物分页回到用户视图，分页上不写看法；人物模块没有剧情变更改过。
         state.tab = "data:character";
         await waitUntil("人物的卡片", () => wrapper.find("[data-character-card]").exists());
         expect(wrapper.find("[data-raw-view]").exists()).toBe(false);
         expect(selectedTab().text()).not.toContain("视图");
         await look("原始视图");
-        await waitUntil("人物的原始数据", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("没有剧情变更改过这组设定"));
+        await waitUntil("人物的原始数据", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("没有剧情变更改过这个模块"));
         expect(wrapper.get("[data-raw-initial]").text()).toContain("黑发");
     });
 
-    it("人物条目：种类登记的默认设定组排在“文字”前面、打开时先看人物；“添加设定组”里适用于人物的排在前面，有人物的预设，一次加几组是一条修订（输出 9、38）", async () => {
+    it("人物条目：种类登记的默认模块排在“文字”前面、打开时先看人物；“添加模块”里适用于人物的排在前面，有人物的模板，一次加几个模块是一条修订（输出 9、38）", async () => {
         // 一个不写适用种类的类型，id 排在内置的前面：没有按种类排时它会是下拉里的第一项。
         const badge: PluginDefinition = {id: "a.test", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "a.test.badge", declaration: {label: "徽章", namespace: "badge", version: 1, fields: [{id: "图案", label: "图案", kind: "text"}]}}]};
         const {other, open} = await setup([badge]);
@@ -364,24 +364,24 @@ describe("条目页", () => {
 
         // “＋”里能加的：适用于人物的（形象）在前，其余（徽章）接在后面。
         const addable = () => (wrapper.findComponent(EntryPage).props("addable") as readonly {label: string}[]).map((item) => item.label);
-        await waitUntil("能加的组", () => addable().includes("徽章"));
+        await waitUntil("能加的模块", () => addable().includes("徽章"));
         expect(addable()).toEqual(["形象", "徽章"]);
-        // “添加设定组”对话框：登记了的全部类型，按登记它的插件分组（别的插件的徽章归“插件”），标出条目上已经有的（输出 38）。
+        // “添加模块”对话框：登记了的全部类型，按登记它的插件分组（别的插件的徽章归“插件”），标出条目上已经有的（输出 38）。
         const dialog = () => wrapper.findComponent(AddComponentDialog);
         const listed = () => new Map((dialog().props("items") as readonly ChecklistItem[]).map((entry) => [entry.label, `${entry.group}${entry.present ? " 已有" : ""}${entry.kinds.includes("人物") ? " 适用" : ""}`]));
         await waitUntil("对话框的各项", () => listed().has("徽章"));
         expect(["人物", "形象", "数值", "徽章"].map((label) => listed().get(label))).toEqual(["canon 已有 适用", "canon 适用", "canon 已有 适用", "other"]);
         expect(dialog().props("kind")).toBe("人物");
 
-        // 点“＋”开对话框：人物的两个预设；勾形象与徽章，“添加 2 组”一次写入、一条修订，关上以后切到先勾的形象。
+        // 点“＋”开对话框：人物的两个模板；勾形象与徽章，“添加 2 个”一次写入、一条修订，关上以后切到先勾的形象。
         const body = new DOMWrapper(document.body);
         await wrapper.get("[data-add-component]").trigger("click");
         await waitUntil("对话框", () => body.find("[data-add-component-list]").exists());
         expect(body.findAll("[data-checklist-presets] button").map((button) => button.text())).toEqual(["基本", "主要角色"]);
-        // 写入被拒（打开以后别处已经加上了其中一组，这一页还没读到）：整批不收，按被拒的那一项（这里是第二项）指名，对话框不关、
+        // 写入被拒（打开以后别处已经加上了其中一个模块，这一页还没读到）：整批不收，按被拒的那一项（这里是第二项）指名，对话框不关、
         // 原因写在状态行。界面上已添加的勾不上，这里直接交给宿主一批。
         dialog().vm.$emit("add", ["a.test.badge", "nbook.canon.panel"]);
-        await waitUntil("指名的失败", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("“数值”这组设定已经加上了") === true);
+        await waitUntil("指名的失败", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("“数值”模块已经加上了") === true);
         expect(body.find("[data-add-component-list]").exists()).toBe(true);
         expect(tabs()).toEqual(["人物", "文字", "数值"]);
         // 开着的时候写不了了（换到算上计划）：对话框关上；回来再开。
@@ -395,12 +395,12 @@ describe("条目页", () => {
         await waitUntil("对话框", () => body.find("[data-add-component-list]").exists());
         await body.get("[data-checklist-item='nbook.canon.look']").trigger("click");
         await body.get("[data-checklist-item='a.test.badge']").trigger("click");
-        expect(body.get("[data-add-submit]").text()).toBe("添加 2 组");
+        expect(body.get("[data-add-submit]").text()).toBe("添加 2 个");
         await body.get("[data-add-submit]").trigger("click");
         await waitUntil("切到形象", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "形象");
         expect(tabs()).toEqual(["人物", "形象", "文字", "数值", "徽章"]);
         await waitUntil("对话框关上", () => !body.find("[data-add-component-list]").exists());
-        expect(wrapper.get("[data-notice-bar]").text()).toContain("加上“形象”和“徽章”这几组设定");
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("加上“形象”和“徽章”这几个模块");
         // 能加的都加上了：“＋”没了，焦点交给选中的分页，不掉到页面外。
         expect(wrapper.find("[data-add-component]").exists()).toBe(false);
         await waitUntil("焦点在选中的分页", () => document.activeElement === wrapper.get("[role='tab'][aria-selected='true']").element);
@@ -739,7 +739,7 @@ describe("写入", () => {
         await waitUntil("简介", () => wrapper.get("[data-edit='entry.summary']").text() === "第三魔法学院一年级");
     });
 
-    it("页头的别名、加去一组设定、删除后恢复：都是一次改几处，结果在页上看得到", async () => {
+    it("页头的别名、加去一个模块、删除后恢复：都是一次改几处，结果在页上看得到", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -753,7 +753,7 @@ describe("写入", () => {
         await wrapper.get("[data-entry-aliases] button[aria-label='去掉别名 小瑕']").trigger("click");
         await waitUntil("去掉别名", () => !wrapper.get("[data-entry-aliases]").text().includes("小瑕"));
 
-        // 去掉人物这组设定：分页没了；再从“添加一组设定”加回来，标“恢复”，原来的数据还在。
+        // 去掉人物模块：分页没了；再从“添加模块”加回来，标“恢复”，原来的数据还在。
         state.tab = "data:character";
         await waitUntil("人物分页", () => wrapper.find("[data-edit='character.性格']").exists());
         // “更多”菜单是弹出层，这里直接发它选中后的事件；菜单本身的项在 EntryPage 的组件测试里。
@@ -761,7 +761,7 @@ describe("写入", () => {
         await waitUntil("确认对话框", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("数据会保留") === true);
         [...document.body.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")].find((button) => button.textContent?.trim() === "去掉")!.click();
         await waitUntil("人物分页没了", () => !wrapper.findAll("[role='tab']").some((tab) => tab.text().includes("人物")));
-        // 分页条末尾的“＋”列出能加的组，去掉过的写“恢复”；点一项就加上（输出 38）。菜单是弹出层，这里看交给它的项、直接发它
+        // 分页条末尾的“＋”列出能加的模块，去掉过的写“恢复”；点一项就加上（输出 38）。菜单是弹出层，这里看交给它的项、直接发它
         // 选中后的事件。加上以后等分页出现再切过去。
         const addable = () => wrapper.findComponent(EntryPage).props("addable") as readonly {value: string; label: string}[];
         await waitUntil("能恢复人物", () => addable().some((item) => item.label === "恢复“人物”"));
@@ -952,8 +952,8 @@ describe("写入", () => {
         const id = (await publish(other.canon, [star]))[star.id]!;
         const {wrapper, state} = await open(id);
         await waitUntil("文字分页也在", () => wrapper.findAll("[role='tab']").some((tab) => tab.text() === "文字"));
-        // 没有主文字时缺省先看第一组设定。
-        await waitUntil("缺省是一组设定", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() !== "文字");
+        // 没有主文字时缺省先看第一个模块。
+        await waitUntil("缺省是一个模块", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() !== "文字");
         state.tab = "text";
         await waitUntil("还没有主文字", () => wrapper.find("[data-text-empty]").exists());
         expect(wrapper.get("[data-text-edit]").attributes("aria-label")).toBe("开始写");
@@ -1605,9 +1605,9 @@ describe("专门界面的接口（输出 51 与输入一节的 context）", () =
         expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
     });
 
-    it("context：别的组只认 uses 列了的，没加过、加上以后、去掉以后，没登记的；加一项、重名被拒、改名、去掉以后列在去掉过的里、恢复；切到没有的分页什么也不做", async () => {
+    it("context：别的模块只认 uses 列了的，没加过、加上以后、去掉以后，没登记的；加一项、重名被拒、改名、去掉以后列在去掉过的里、恢复；切到没有的分页什么也不做", async () => {
         const {wrapper, state, other, id} = await badgePage();
-        await waitUntil("别的组", () => wrapper.get("[data-other]").text() === "present|absent|absent|unavailable");
+        await waitUntil("别的模块", () => wrapper.get("[data-other]").text() === "present|absent|absent|unavailable");
         await wrapper.get("[data-add-look]").trigger("click");
         await waitUntil("加上形象", () => wrapper.get("[data-other]").text() === "present|present|absent|unavailable");
         const status = await other.canon.call("status", {});
@@ -1705,12 +1705,12 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         expect(wrapper.get("[data-edit='character.身份']").text()).not.toContain("学生");
     });
 
-    it("立绘读自形象：有图时点了切到形象分页，页头也有它做头像；没有形象这一组时点一下就加上形象、切到形象分页并打开立绘的选图（输出 6、49）", async () => {
+    it("立绘读自形象：有图时点了切到形象分页，页头也有它做头像；没有形象模块时点一下就加上形象、切到形象分页并打开立绘的选图（输出 6、49）", async () => {
         const {other, open} = await setup();
         const withLook = person("星瑕");
         withLook.init.data.look = structuredClone(LOOK);
         const without = person("星瑾");
-        // 有形象这一组、立绘没有图，第 2 章开头出场：页头不画头像，右栏写“第 2 章开头”。
+        // 有形象模块、立绘没有图，第 2 章开头出场：页头不画头像，右栏写“第 2 章开头”。
         const blankLook = person("哥哥", {appears: {kind: "chapter", chapter: "2", key: 0}});
         blankLook.init.data.look = {...structuredClone(LOOK), fields: {...structuredClone(LOOK.fields), 立绘: null}};
         const ids = await publish(other.canon, [withLook, without, blankLook]);
@@ -1770,7 +1770,7 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         await waitUntil("建议值", () => [...document.body.querySelectorAll("[role='option']")].map((option) => option.textContent?.trim()).join("|") === "便装|学院制服");
     });
 
-    it("添加一项资料：点预设“种族”加上一项，是自己加的（行尾有“更多”），预设里不再列它", async () => {
+    it("添加一项资料：点模板“种族”加上一项，是自己加的（行尾有“更多”），模板里不再列它", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -1778,7 +1778,7 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         state.tab = "data:character";
         await waitUntil("人物分页", () => wrapper.find("[data-add-field]").exists());
         await wrapper.get("[data-add-field]").trigger("click");
-        await waitUntil("预设", () => document.body.querySelector("[data-preset='种族']") !== null);
+        await waitUntil("模板", () => document.body.querySelector("[data-preset='种族']") !== null);
         (document.body.querySelector("[data-preset='种族']") as HTMLElement).click();
         await waitUntil("加上了种族", () => wrapper.find("[data-fact='种族'] [data-more='种族']").exists());
         expect(document.body.querySelector("[data-preset='种族']")).toBeNull();

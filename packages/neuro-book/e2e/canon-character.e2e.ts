@@ -92,11 +92,11 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     if (!(await empty.isVisible())) await tree(page).click();
     await expect(empty).toBeVisible();
     await empty.getByRole("button", {name: "新建人物"}).click();
-    // 新建对话框里人物与形象两组已经勾上（输出 4、37）；勾选列表顶上有人物的预设。
+    // 新建对话框里人物与形象两个模块已经勾上（输出 4、37）；勾选列表顶上有人物的模板。
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("option", {name: "人物", exact: true})).toHaveAttribute("aria-selected", "true");
     await expect(dialog.getByRole("option", {name: "形象", exact: true})).toHaveAttribute("aria-selected", "true");
-    await expect(dialog.getByRole("group", {name: "预设"}).getByRole("button", {name: "主要角色"})).toBeEnabled();
+    await expect(dialog.getByRole("group", {name: "模板"}).getByRole("button", {name: "主要角色"})).toBeEnabled();
     await page.locator("[data-new-entry] input").first().fill("星瑾");
     await dialog.getByRole("button", {name: "新建", exact: true}).click();
     await expect(tab(page, "人物")).toHaveAttribute("aria-selected", "true");
@@ -295,7 +295,7 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
     await expect(page.locator("[data-notice-bar]")).toContainText("现在穿的变成 学院制服");
 });
 
-test("输出 9、54 与 38：数值分页再点一下开看法菜单，换成“AI视图”“原始视图”、分页上写着，换分页回到用户视图；“＋”开“添加设定组”对话框：Escape 回到“＋”，有人物的预设，搜到已有的一组回车切过去，勾两组 Ctrl 加回车一次加上、一条修订并切到先勾的", async ({page}) => {
+test("输出 9、54 与 38：数值分页再点一下开看法菜单，换成“AI视图”“原始视图”、分页上写着，换分页回到用户视图；“＋”开“添加模块”对话框：Escape 回到“＋”，有人物的模板，搜到已有的一个模块回车切过去，勾两个模块 Ctrl 加回车一次加上、一条修订并切到先勾的", async ({page}) => {
     await open(page, "book");
     await openEntry(page, "星瑕");
     await selectTab(tab(page, "数值"));
@@ -325,17 +325,17 @@ test("输出 9、54 与 38：数值分页再点一下开看法菜单，换成“
 
     const add = entryPage(page).locator("[data-add-component]").first();
     await add.click();
-    const dialog = page.getByRole("dialog", {name: "添加设定组"});
-    const search = dialog.getByRole("combobox", {name: "搜索设定组"});
+    const dialog = page.getByRole("dialog", {name: "添加模块"});
+    const search = dialog.getByRole("combobox", {name: "搜索模块"});
     await expect(search).toBeFocused();
     await search.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(add).toBeFocused();
 
-    // 星瑕是人物：顶上是人物的预设，“基本”的两组（人物、形象）都已添加，不可用。
+    // 星瑕是人物：顶上是人物的模板，“基本”的两个模块（人物、形象）都已添加，不可用。
     await add.click();
     await expect(search).toBeFocused();
-    await expect(dialog.getByRole("group", {name: "预设"}).getByRole("button", {name: "基本"})).toBeDisabled();
+    await expect(dialog.getByRole("group", {name: "模板"}).getByRole("button", {name: "基本"})).toBeDisabled();
     // 搜到已有的一组：回车切过去并关上。
     await search.fill("形象");
     await expect(dialog.getByRole("option")).toHaveText([/^形象.*已添加$/u]);
@@ -343,17 +343,17 @@ test("输出 9、54 与 38：数值分页再点一下开看法菜单，换成“
     await expect(dialog).toBeHidden();
     await expect(tab(page, "形象")).toHaveAttribute("aria-selected", "true");
 
-    // 勾两组还没有的：主按钮写“添加 2 组”，Ctrl 加回车一次加上、一条修订（提示写两组的名字），关上后切到先勾的那一组。
+    // 勾两个还没有的模块：主按钮写“添加 2 个”，Ctrl 加回车一次加上、一条修订（提示写两个模块的名字），关上后切到先勾的那个模块。
     await add.click();
     const fresh = dialog.locator("[role='option']:not([data-present])");
     const nameOf = async (option: Locator): Promise<string> => ((await option.textContent()) ?? "").trim().replace(/^恢复“(.*)”$/u, "$1");
     const [first, second] = [await nameOf(fresh.nth(0)), await nameOf(fresh.nth(1))];
     await fresh.nth(0).click();
     await fresh.nth(1).click();
-    await expect(dialog.getByRole("button", {name: "添加 2 组"})).toBeEnabled();
+    await expect(dialog.getByRole("button", {name: "添加 2 个"})).toBeEnabled();
     await search.press("Control+Enter");
     await expect(dialog).toBeHidden();
     await expect(entryPage(page).getByRole("tab", {selected: true})).toContainText(first);
     await expect(tab(page, second)).toBeVisible();
-    await expect(page.locator("[data-notice-bar]")).toContainText(`加上“${first}”和“${second}”这几组设定`);
+    await expect(page.locator("[data-notice-bar]")).toContainText(`加上“${first}”和“${second}”这几个模块`);
 });

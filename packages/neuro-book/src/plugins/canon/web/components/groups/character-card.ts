@@ -25,7 +25,7 @@ export interface CardPassage {
     readonly mark?: string;
 }
 
-/** 立绘那一格（输出 49）：按同一条目上形象这一组的情况。 */
+/** 立绘那一格（输出 49）：按同一条目上形象模块的情况。 */
 export type CardPortrait =
     | {readonly status: "image"; readonly path: string; readonly alt: string}
     | {readonly status: "no-image"}
@@ -51,7 +51,7 @@ export interface CardAddable {
 }
 
 /**
- * 形象这组设定里“立绘”字段的值读成一张图：有图时是作品内路径与说明，没有图（未知、空、形状不对）时为 null。人物分页的立绘那一格
+ * 形象模块里“立绘”字段的值读成一张图：有图时是作品内路径与说明，没有图（未知、空、形状不对）时为 null。人物分页的立绘那一格
  * 与条目页页头的头像（输出 6、49）共用这一个读法。
  */
 export function portraitImage(value: unknown): {readonly path: string; readonly alt: string} | null {

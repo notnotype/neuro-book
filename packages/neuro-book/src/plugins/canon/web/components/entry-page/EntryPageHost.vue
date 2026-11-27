@@ -110,11 +110,11 @@ const props = defineProps<{
     sourceInput: Component | null;
     /** 这一页挂着的时候把“提交主文字”交给宿主（标签的保存命令调它，输出 46）；卸载时交 null。 */
     onCommitReady: (commit: (() => Promise<void>) | null) => void;
-    /** 登记的条目种类（`canon.entry-kinds`）：这个条目种类的默认设定组的分页排在“文字”前面（输出 9）。 */
+    /** 登记的条目种类（`canon.entry-kinds`）：这个条目种类的默认模块的分页排在“文字”前面（输出 9）。 */
     entryKinds?: readonly EntryKind[];
     /** 设定里的图片（取图地址、候选、上传，输出 53）；没有时图片只能手填路径、显示成“图片找不到”。 */
     images?: CanonImages | null;
-    /** 登记这个设定组类型的插件 id：“添加一组设定”按它分组（输出 38）；不给时都算“插件”。 */
+    /** 登记这个模块类型的插件 id：“添加模块”按它分组（输出 38）；不给时都算“插件”。 */
     componentPlugin?: (type: string) => string | null;
 }>();
 
@@ -225,14 +225,14 @@ const extraTabs = computed(() => {
         .filter((item) => enabled.has(item.declaration.requires))
         .sort((a, b) => (a.declaration.order ?? 0) - (b.declaration.order ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 });
-/** 这个条目种类登记的默认设定组（类型 id）：它们的分页排在“文字”前面（输出 9），人物打开时先看人物。 */
+/** 这个条目种类登记的默认模块（类型 id）：它们的分页排在“文字”前面（输出 9），人物打开时先看人物。 */
 const leadingTypes = computed(() => {
     const kind = entry.value?.kind?.trim();
     return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
 });
 const iconOf = (type: string): string => componentIcon(props.views, type);
 /**
- * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
+ * 分页（输出 9）：模块与文字一段（默认的模块在文字前面），不对应模块的看法一段（附加分页与“情节”）；每页有图标。条数为 0
  * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。
  */
 const tabs = computed<EntryTab[]>(() => {
@@ -255,7 +255,7 @@ const tabs = computed<EntryTab[]>(() => {
     if (storyStarted.value || (total ?? 0) > 0) items.push({value: "plot", label: text("entry.tabs.plot"), iconClass: PLOT_ICON, segment: "view", ...(total === undefined || total === 0 ? {} : {count: total})});
     return items;
 });
-// 没选过分页时：有主文字先看文字，没有主文字先看第一组设定（空的文字分页不当缺省）。
+// 没选过分页时：有主文字先看文字，没有主文字先看第一个模块（空的文字分页不当缺省）。
 // 条目还没读到、作品里也没有剧情时分页是空的（“情节”不出），这时先按文字。
 const firstTab = computed(() => ((view.value?.text.length ?? 0) === 0 ? tabs.value.find((item) => item.value.startsWith(DATA)) ?? tabs.value[0] : tabs.value[0])?.value ?? "text");
 // 有没提交的主文字稿时先看文字（直接进编辑，输出 45），排在它前面的人物分页这时不当缺省（输出 9）。稿是读完存储才知道的：读到时
@@ -447,7 +447,7 @@ const editHere = computed(() => {
     return dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
 });
 
-/* ---------- 页头的写入：别名、设定组的加去、移动、恢复（canon.revisions 输出 25 的一次改几处） ---------- */
+/* ---------- 页头的写入：别名、模块的加去、移动、恢复（canon.revisions 输出 25 的一次改几处） ---------- */
 
 /** 页头的写入（别名、恢复）与打开对话框前的读取失败的原因，写在页头下面；切到别的分页时清掉。 */
 const actionError = shallowRef("");
@@ -467,7 +467,7 @@ const openDialog = (): void => {
     dialogBase = version();
 };
 /**
- * “＋”与右键菜单里的“添加一组设定”打开时条目的版本（输出 43，同对话框）：点一项加上时带它；菜单开着的时候别处改了这个条目就
+ * “＋”与右键菜单里的“添加模块”打开时条目的版本（输出 43，同对话框）：点一项加上时带它；菜单开着的时候别处改了这个条目就
  * 得到冲突。用过一次就清掉。
  */
 let menuBase: number | null = null;
@@ -504,7 +504,7 @@ const changeAliases = (change: {readonly add?: readonly string[]; readonly remov
 };
 const restore = (): void => void runEntries([{op: "restore", entry: props.id}], port.t(text("entry.restored", {name: view.value?.name ?? ""})), "creative", "head");
 
-// 加一组设定（输出 38）：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个
+// 加一个模块（输出 38）：登记了、有命名空间、这个条目上还没有的类型；去掉过的标“恢复”（读取的 `removedComponents`）。适用于这个
 // 条目种类的（类型的 `kinds` 含它）排在前面，其余照登记的顺序接在后面。分页条末尾的“＋”与右键菜单里点一项就加上。
 const addableTypes = computed(() => {
     const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
@@ -515,7 +515,7 @@ const addableTypes = computed(() => {
     return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
 /**
- * “添加设定组”对话框（输出 38，`AddComponentDialog`）的各行：登记了的全部类型，标出条目上已经有的（勾着、点了切过去）与去掉过的，
+ * “添加模块”对话框（输出 38，`AddComponentDialog`）的各行：登记了的全部类型，标出条目上已经有的（勾着、点了切过去）与去掉过的，
  * 按登记它的插件分组；“适用于”由列表按 `kinds` 与条目的种类自己分。
  */
 const checklistItems = computed<ChecklistItem[]>(() => {
@@ -532,7 +532,7 @@ const checklistItems = computed<ChecklistItem[]>(() => {
     }));
 });
 const entryKind = computed(() => entry.value?.kind?.trim() ?? "");
-/** 这个种类的预设（`canon.entry-kinds`）；里面没登记的类型已去掉，一个也没有的预设不出。 */
+/** 这个种类的模板（`canon.entry-kinds`）；里面没登记的类型已去掉，一个也没有的模板不出。 */
 const presets = computed<readonly ChecklistPreset[]>(() => kindPresets(props.entryKinds ?? [], entryKind.value, new Set((componentsRead.value?.data?.items ?? []).map((type) => type.id))));
 const addDialogOpen = shallowRef(false);
 // 开着的时候写不了了（断开、换到计划中的位置、条目被删）：入口跟着没了，对话框也关上，不留一个点了必被拒收的“添加”。
@@ -546,7 +546,7 @@ const openAddDialog = (): void => {
 };
 const hostRoot = shallowRef<HTMLElement | null>(null);
 /**
- * 对话框关上以后（`closed`，焦点已经还给打开前的元素）：加完了最后几组，“＋”跟着没了，焦点落到页面外；这时交给选中的分页，键盘用户
+ * 对话框关上以后（`closed`，焦点已经还给打开前的元素）：加完了最后几个模块，“＋”跟着没了，焦点落到页面外；这时交给选中的分页，键盘用户
  * 接着从分页条往下走。
  */
 const afterAddDialog = (): void => {
@@ -554,12 +554,12 @@ const afterAddDialog = (): void => {
     if (active !== null && active !== document.body && active.isConnected) return;
     hostRoot.value?.querySelector<HTMLElement>("[role='tab'][aria-selected='true']")?.focus();
 };
-/** 在对话框里点了已经有的那一组，或分页里要切到某一组：切到它的分页。 */
+/** 在对话框里点了已经有的那个模块，或分页里要切到某个模块：切到它的分页。 */
 const showComponent = (type: string): void => {
     const namespace = Object.entries(view.value?.namespaces ?? {}).find(([, item]) => item.type === type)?.[0];
     if (namespace !== undefined) state.tab = `${DATA}${namespace}`;
 };
-/** 刚加上、等它出现在读取结果里再切过去的那一组的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
+/** 刚加上、等它出现在读取结果里再切过去的那个模块的命名空间：写入的结果先于条目的重读回来，马上切会切到一个还不存在的分页。 */
 const pendingTab = shallowRef<string | null>(null);
 watch([pendingTab, namespaces], ([pending, present]) => {
     if (pending !== null && present.includes(pending)) {
@@ -570,7 +570,7 @@ watch([pendingTab, namespaces], ([pending, present]) => {
 // 人物分页的“添加立绘”交给形象分页的一次性标记（输出 49，`look-handoff.ts`）。
 const lookPick = shallowRef(false);
 provide(LOOK_PICK_KEY, lookPick);
-// 作者自己换了分页：等着切过去的那一组不再切（它也许一直不出现，不能等到以后别处加上时突然跳过去）；换到的不是形象分页时，
+// 作者自己换了分页：等着切过去的那个模块不再切（它也许一直不出现，不能等到以后别处加上时突然跳过去）；换到的不是形象分页时，
 // 交接标记也放倒，否则以后作者自己点形象分页会莫名打开选图。
 watch(() => state.tab, (tab) => {
     pendingTab.value = null;
@@ -578,14 +578,14 @@ watch(() => state.tab, (tab) => {
     if (namespace === null || view.value?.namespaces[namespace]?.type !== LOOK_COMPONENT) lookPick.value = false;
 });
 /**
- * 加几组设定（输出 38）：一次写入、一条修订；对话框里勾的几组与右键菜单里点的一组都走这里。成功后切到第一个有命名空间的新加的
- * 一组（等它出现在读取结果里）。
+ * 加几个模块（输出 38）：一次写入、一条修订；对话框里勾的几个模块与右键菜单里点的一个模块都走这里。成功后切到第一个有命名空间的新加的
+ * 模块（等它出现在读取结果里）。
  */
 const addComponents = async (types: readonly string[], from: "dialog" | "menu"): Promise<boolean> => {
     if (types.length === 0) return false;
     const quoted = types.map((type) => `“${typeLabel(type)}”`);
     const title = types.length === 1 ? text("entry.groupAdded", {name: typeLabel(types[0]!)}) : text("entry.groupsAdded", {names: new Intl.ListFormat(port.locale.value, {type: "conjunction"}).format(quoted)});
-    // 打开以后别处已经加上了其中一组：内核按那一项（`ops[i]`）报 `id-taken` 拒收整批，写成作者看得懂、指名是哪一组的一句。
+    // 打开以后别处已经加上了其中一个模块：内核按那一项（`ops[i]`）报 `id-taken` 拒收整批，写成作者看得懂、指名是哪个模块的一句。
     const alreadyAdded = (failure: CanonFailure): Text | null => {
         if (failure.code !== "validation-failed" || !Array.isArray(failure.problems)) return null;
         const first = failure.problems[0] as {code?: unknown; path?: unknown} | undefined;
@@ -868,7 +868,7 @@ const focusEditor = (): void => {
     if (focusFirst) editorRef.value?.focus();
     focusFirst = false;
 };
-/** “插入”里列的写法：本条目各设定组的字段，写成“设定组 · 字段”。 */
+/** “插入”里列的写法：本条目各模块的字段，写成“模块 · 字段”。 */
 const inserts = computed((): InsertItem[] => namespaces.value.flatMap((namespace) => {
     const group = typeLabel(view.value?.namespaces[namespace]?.type ?? "");
     return (entry.value?.declarations?.[namespace] ?? []).map((field) => ({label: `${group} · ${field.label}`, snippet: `<V of="${namespace}.${field.id}" />`}));
@@ -886,7 +886,7 @@ onBeforeUnmount(() => {
     textTab.flush();
     props.onCommitReady(null);
 });
-// 去掉当前数据分页这组设定：先确认，数据留着。
+// 去掉当前数据分页这个模块：先确认，数据留着。
 const removeOpen = shallowRef(false);
 const removableGroup = computed(() => (dataNamespace.value === null ? "" : typeLabel(view.value?.namespaces[dataNamespace.value]?.type ?? "")));
 const confirmRemove = async (): Promise<void> => {
@@ -923,7 +923,7 @@ const fieldLabel = (namespace: string, field: string): string => entry.value?.de
 const dropDraftOn = (namespace: string, field: string): void => {
     if (state.edit?.path === `${namespace}.${field}`) state.edit = null;
 };
-/** 同一条目上别的组的只读视图（`context.other` 的 `present`），每个命名空间一个。 */
+/** 同一条目上别的模块的只读视图（`context.other` 的 `present`），每个命名空间一个。 */
 const peers = new Map<string, ComponentPeer>();
 const peerFor = (namespace: string): ComponentPeer => {
     let found = peers.get(namespace);
@@ -1163,7 +1163,7 @@ const contextFor = (namespace: string): ComponentViewContext => {
             open: props.open,
             other: (type) => otherFor(namespace, type),
             addComponent: (type) => viewWrite([{op: "component", entry: props.id, type, action: "add"}], text("entry.groupAdded", {name: typeLabel(type)})),
-            // 刚加上的那一组可能还没出现在读取结果里（写入的结果先回来）：记下它的命名空间，出现了再切过去（同“＋”）。
+            // 刚加上的那个模块可能还没出现在读取结果里（写入的结果先回来）：记下它的命名空间，出现了再切过去（同“＋”）。
             showTab: (type) => {
                 const target = Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === type)?.[0];
                 if (target !== undefined) state.tab = `${DATA}${target}`;
@@ -1233,11 +1233,11 @@ const extraView = computed<{readonly component: Component | null; readonly loadi
     return {component: null, loading: slot.status === "loading", failed: slot.status === "failed" ? slot.reason : null};
 });
 
-/* ---------- 设定组的三种看法（输出 54） ---------- */
+/* ---------- 模块的三种看法（输出 54） ---------- */
 
 type DataLook = "card" | "agent" | "raw";
 /**
- * 设定组分页看哪一种（用户视图、AI视图、原始视图）；换分页回到用户视图（不记进标签状态：重开页面也是它）。切换的入口在选中的
+ * 模块分页看哪一种（用户视图、AI视图、原始视图）；换分页回到用户视图（不记进标签状态：重开页面也是它）。切换的入口在选中的
  * 分页上（`EntryPage` 的看法菜单，输出 9）。
  */
 const dataLook = shallowRef<DataLook>("card");
@@ -1246,8 +1246,8 @@ watch(tab, () => {
 });
 const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: port.t(text(`entry.views.${value}`))})));
 /**
- * “AI视图”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
- * “可以加字段”来自设定组类型列表：还没读到或读失败时写读取中、失败，不拿空列表写出一段与模型所见不同的字。
+ * “AI视图”：后端 `canon_read` 用的同一个函数写这个模块的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
+ * “可以加字段”来自模块类型列表：还没读到或读失败时写读取中、失败，不拿空列表写出一段与模型所见不同的字。
  */
 const agentView = computed(() => {
     const namespace = dataNamespace.value;
@@ -1259,7 +1259,7 @@ const agentView = computed(() => {
     }
     return {text: fieldsText(view.value, entry.value?.declarations ?? {}, types, {namespace}), loading: false, failed: null};
 });
-/** “原始视图”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
+/** “原始视图”：存下来的条目（取初值）与按这个模块筛的剧情变更；不跟“在看”走，只在看它时读。 */
 const rawEntry = useWorldRead(world, "object", () => (dataLook.value === "raw" ? {ref: {kind: "entry" as const, id: props.id}} : null));
 const rawChanges = useWorldList(world, "changes", () => (dataLook.value === "raw" && dataNamespace.value !== null ? {filter: {entry: props.id, namespace: dataNamespace.value}} : null), 20);
 const rawView = computed(() => {
@@ -1270,7 +1270,7 @@ const rawView = computed(() => {
     const total = list?.data?.total ?? 0;
     return {
         initial: stored?.init.data[namespace],
-        // 每条只留落在这个条目这一组下的改动：同一条变更里别的条目、别的组的改动与这一页无关。
+        // 每条只留落在这个条目这个模块下的改动：同一条变更里别的条目、别的模块的改动与这一页无关。
         changes: (list?.items ?? []).map(({change}) => ({...change, patches: change.patches.filter((patch) => patch.at.entry === props.id && patch.at.path.startsWith(`${namespace}.`))})),
         total,
         remaining: Math.max(0, total - (list?.items.length ?? 0)),
@@ -1303,7 +1303,7 @@ const appearsText = computed(() => {
     const index = appears.kind === "chapter" ? chapters.value.find((chapter) => chapter.id === appears.chapter)?.index : undefined;
     return index === undefined ? place(appears) : text("newEntry.chapterStart", {index});
 });
-/** 页头的头像（输出 6）：形象这组设定在这个位置上的立绘，有图才给（与人物分页的立绘那一格同一个读法 `portraitImage`）。 */
+/** 页头的头像（输出 6）：形象模块在这个位置上的立绘，有图才给（与人物分页的立绘那一格同一个读法 `portraitImage`）。 */
 const lookNamespace = computed(() => Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === LOOK_COMPONENT)?.[0] ?? null);
 const portrait = computed(() => {
     const namespace = lookNamespace.value;

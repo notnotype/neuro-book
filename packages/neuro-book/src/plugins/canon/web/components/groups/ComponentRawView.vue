@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 设定组分页的“原始视图”（同名 .md，docs/specs/canon/author-ui.md 输出 54）：初值里这一组的原样与改过它的剧情变更。读取、
+ * 模块分页的“原始视图”（同名 .md，docs/specs/canon/author-ui.md 输出 54）：初值里这个模块的原样与改过它的剧情变更。读取、
  * 按命名空间裁剪由宿主做，这里只显示；不跟“在看”走。
  */
 import {Button} from "@notnotype/nb-ui/components";
@@ -9,7 +9,7 @@ import JsonViewer from "nbook/ui/JsonViewer.vue";
 import {useCanonText} from "../../text";
 
 const props = defineProps<{
-    /** 初值里这一组的数据；不给（undefined）是初值里没有这一组。 */
+    /** 初值里这个模块的数据；不给（undefined）是初值里没有这个模块。 */
     initial?: unknown;
     changes: readonly unknown[];
     total: number;

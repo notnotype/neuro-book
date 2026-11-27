@@ -64,7 +64,7 @@ export function failureText(failure: {readonly code: string} & Record<string, un
         case "incomplete-field":
             return `${at}incomplete-field：这个字段在这个位置不完整，不能按“改设定”改。改用 intent: "story" 赋一个值。`;
         case "field-unavailable":
-            return `${at}field-unavailable：这个字段在这个位置不可用（设定组没启用、去掉了、只读或类型不在）。先 addComponent，或换个位置。`;
+            return `${at}field-unavailable：这个字段在这个位置不可用（模块没启用、去掉了、只读或类型不在）。先 addComponent，或换个位置。`;
         case "intent-not-allowed":
             return "intent-not-allowed：在最初不能记剧情变化。给 at 一个章，或改用 intent: \"setting\"。";
         case "result-mismatch":
@@ -101,11 +101,11 @@ const PROBLEM_HINTS: Readonly<Record<string, string>> = {
     "constraint-violated": "超出了字段的范围",
     "ref-invalid": "引用的条目不存在、已删除或种类不对",
     "unknown-field": "没有这个字段",
-    "fields-not-declarable": "这组设定不能在条目上加自己的字段",
-    "label-taken": "这组设定里已经有一个叫这个名字的字段，换个名字；要恢复一个去掉过的同名字段，先给现在的那个改名",
-    "field-fixed": "这是设定组固定的字段，不能改名、去掉",
+    "fields-not-declarable": "这个模块不能在条目上加自己的字段",
+    "label-taken": "这个模块里已经有一个叫这个名字的字段，换个名字；要恢复一个去掉过的同名字段，先给现在的那个改名",
+    "field-fixed": "这是模块固定的字段，不能改名、去掉",
     "field-missing": "条目上没有这个自己加的字段，或它已经是这个状态（去掉过的再去掉、没去掉的再恢复）",
     "field-referenced": "还有别的字段拿它当上限，或上限指向的字段不在；先改那个字段",
-    "id-taken": "已经有了：字段的 id 已经用过（不写 id，让系统按名字生成），或这个条目已经有这组设定",
+    "id-taken": "已经有了：字段的 id 已经用过（不写 id，让系统按名字生成），或这个条目已经有这个模块",
     "number-without-basis": "数要写依据，初值这一路给不了：先不写初值（字段是未知），由作者填；剧情里的变化用 intent: \"story\" 记一笔",
 };

@@ -1,6 +1,6 @@
 /**
  * AddComponentDialog（同名 .md，docs/specs/canon/author-ui.md 输出 38）：主按钮写组数、Ctrl 加回车提交、已添加的那一行切过去并关上、
- * 每次打开清空、写入在途与失败、别处加上了勾着的那组。焦点还给入口在宿主的测试里（entry-page.dom.test.ts）。
+ * 每次打开清空、写入在途与失败、别处加上了勾着的那个模块。焦点还给入口在宿主的测试里（entry-page.dom.test.ts）。
  */
 
 import {DOMWrapper, flushPromises, mount, type VueWrapper} from "@vue/test-utils";
@@ -57,10 +57,10 @@ const click = async (value: string): Promise<void> => {
 };
 
 describe("AddComponentDialog", () => {
-    it("标题“添加设定组”、焦点进搜索框；没勾时主按钮写“添加”且不可用，勾了 N 组写“添加 N 组”；点它或 Ctrl 加回车发 add(勾着的)", async () => {
+    it("标题“添加模块”、焦点进搜索框；没勾时主按钮写“添加”且不可用，勾了 N 组写“添加 N 组”；点它或 Ctrl 加回车发 add(勾着的)", async () => {
         const {events} = open();
         await waitUntil("对话框", () => search() !== null);
-        expect(body().get("[role='dialog']").text()).toContain("添加设定组");
+        expect(body().get("[role='dialog']").text()).toContain("添加模块");
         await waitUntil("焦点进搜索框", () => document.activeElement === search());
         expect(submit().textContent?.trim()).toBe("添加");
         expect(submit().disabled).toBe(true);
@@ -69,8 +69,8 @@ describe("AddComponentDialog", () => {
         expect(events).toEqual([]);
         await click("nbook.canon.look");
         await click("nbook.canon.panel");
-        expect(submit().textContent?.trim()).toBe("添加 2 组");
-        expect(submit().getAttribute("aria-label")).toBe("添加 2 组");
+        expect(submit().textContent?.trim()).toBe("添加 2 个");
+        expect(submit().getAttribute("aria-label")).toBe("添加 2 个");
         expect(submit().dataset.shortcut).toMatch(/^(Ctrl|⌘) ↵$/u);
         submit().click();
         keydown({key: "Enter", ctrlKey: true});
@@ -104,19 +104,19 @@ describe("AddComponentDialog", () => {
         expect(events).toEqual([]);
         expect(search()).not.toBeNull();
         state.busy.value = false;
-        state.error.value = "“形象”这组设定已经加上了";
+        state.error.value = "“形象”模块已经加上了";
         await flushPromises();
-        expect(body().get("[role='dialog']").text()).toContain("“形象”这组设定已经加上了");
-        expect(submit().textContent?.trim()).toBe("添加 1 组");
+        expect(body().get("[role='dialog']").text()).toContain("“形象”模块已经加上了");
+        expect(submit().textContent?.trim()).toBe("添加 1 个");
     });
 
-    it("开着的时候勾着的一组在别处加上了（重读回来成了已添加）：从勾选里去掉", async () => {
+    it("开着的时候勾着的一个模块在别处加上了（重读回来成了已添加）：从勾选里去掉", async () => {
         const {state} = open();
         await waitUntil("对话框", () => search() !== null);
         await click("nbook.canon.look");
         await click("nbook.canon.panel");
         state.items.value = [item("nbook.canon.person", "人物", true), item("nbook.canon.look", "形象", true), item("nbook.canon.panel", "数值")];
         await flushPromises();
-        expect(submit().textContent?.trim()).toBe("添加 1 组");
+        expect(submit().textContent?.trim()).toBe("添加 1 个");
     });
 });

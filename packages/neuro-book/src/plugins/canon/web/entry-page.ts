@@ -118,7 +118,7 @@ export interface EntryPageOptions {
     readonly entryKinds?: () => readonly EntryKind[];
     /** 设定里的图片（输出 53）；窗口里没有文件服务时不给。 */
     readonly images?: CanonImages | null;
-    /** 登记这个设定组类型的插件 id（“添加一组设定”按它分组，输出 38）；还没读到声明时为 null。缺省都按 null。 */
+    /** 登记这个模块类型的插件 id（“添加模块”按它分组，输出 38）；还没读到声明时为 null。缺省都按 null。 */
     readonly componentPlugin?: (type: string) => string | null;
 }
 

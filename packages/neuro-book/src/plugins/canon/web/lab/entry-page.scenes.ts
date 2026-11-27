@@ -41,19 +41,19 @@ export const fixtures: LabFixture[] = [
             {id: "failed", label: "读取失败", input: {props: {status: "failed" as const}, model: {position: "", planned: false, tab: ""}}},
             {id: "missing", label: "找不到", input: {props: {status: "missing" as const}, model: {position: "", planned: false, tab: ""}}},
             {id: "deleted", label: "已删除", input: {props: {status: "deleted" as const, name: "旧设定"}, model: {position: "", planned: false, tab: ""}}},
-            {id: "editable", label: "页头可编辑：改名字、简介、别名，更多里有移动与加去设定组", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], removableGroup: "人物"}, model: {...page.model, tab: "data:character"}}},
+            {id: "editable", label: "页头可编辑：改名字、简介、别名，更多里有移动与加去模块", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], removableGroup: "人物"}, model: {...page.model, tab: "data:character"}}},
             {id: "editable-blocked", label: "页头可编辑但算着计划：入口禁用", input: {props: {...page.props, editable: true, editReason: "先不算计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
             {id: "deleted-restorable", label: "已删除、可以恢复", input: {props: {status: "deleted" as const, name: "旧设定", editable: true}, model: {position: "", planned: false, tab: ""}}},
             {id: "blank", label: "刚新建的普通条目：没有简介、别名、种类，没有章（右栏写“未定”与“一开始就在”）", input: {props: {status: "normal" as const, name: "新条目", summary: "", sameAs: null, chapters: [], tabs: tabs.filter((item) => item.value === "text"), kind: "", appears: "一开始就在", editable: true}, model: {position: "", planned: false, tab: "text"}}},
             {id: "portrait", label: "有立绘：头像顶齐名字、底齐别名，简介单行截断", input: {props: {...page.props, editable: true, aliases: ["小瑕", "夜王"], summary: "前蓝星最强的魔法少女，隐退后以哥哥的样子把妹妹接回家住，魔力还没恢复到能变身的程度", appears: "第 2 章开头", portrait: {path: "插图/星瑕-立绘.png", alt: "星瑕的立绘"}}, model: page.model}},
             {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
-            // 看法菜单（输出 9、54）：设定组分页留箭头格，选中的显出；选中的再点开菜单。不在缺省看法时分页上写看法名。
+            // 看法菜单（输出 9、54）：模块分页留箭头格，选中的显出；选中的再点开菜单。不在缺省看法时分页上写看法名。
             ...(() => {
                 const lookTabs = tabs.map((tab) => (tab.removable === true ? {...tab, looks: true} : tab));
                 const looks = [{value: "card", label: "用户视图"}, {value: "agent", label: "AI视图"}, {value: "raw", label: "原始视图"}];
                 const looksEnglish = [{value: "card", label: "User view"}, {value: "agent", label: "AI view"}, {value: "raw", label: "Raw view"}];
                 return [
-                    {id: "looks", label: "看法菜单：选中的设定组分页上有箭头，再点开菜单", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:character", look: "card"}}},
+                    {id: "looks", label: "看法菜单：选中的模块分页上有箭头，再点开菜单", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:character", look: "card"}}},
                     {id: "looks-agent", label: "看法菜单：在 AI视图，分页上写着", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:panel", look: "agent"}}},
                 ];
             })(),
@@ -74,10 +74,10 @@ export const fixtures: LabFixture[] = [
                 {value: "plot", label: "情节", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 12},
             ];
             return [
-                {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
+                {id: "sample", label: "人物：模块、文字与看法两段，末尾“添加模块”", input: {props: {items, canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
                 {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
                 {id: "blocked", label: "写不了：添加不可用", input: {props: {items, canAdd: true, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
-                // 看法：设定组的行留箭头格、选中的显出；看法名单独一格，名字长时标题先截（168 像素一栏）。
+                // 看法：模块的行留箭头格、选中的显出；看法名单独一格，名字长时标题先截（168 像素一栏）。
                 {id: "looks", label: "看法：选中的行写着 AI视图，标题长时先截标题", input: {props: {items: items.map((item) => (item.removable === true ? {...item, looks: true} : item)), canAdd: true, panelId: "lab-panel", menus: true, note: "AI视图"}, model: {modelValue: "data:attitude"}}},
                 {id: "looks-english", label: "看法（英文界面）", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true, looks: true}, {value: "data:attitude", label: "Goals and attitudes", iconClass: "i-lucide-target", segment: "own" as const, removable: true, looks: true}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}], canAdd: true, panelId: "lab-panel", menus: true, note: "Raw view"}, model: {modelValue: "data:attitude"}}},
             ];
@@ -104,7 +104,7 @@ export const fixtures: LabFixture[] = [
             {id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]},
             {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]},
         ];
-        // 三十多个类型：列表封顶，在里面滚，搜索框与预设留在上面。
+        // 三十多个类型：列表封顶，在里面滚，搜索框与模板留在上面。
         const many = [
             ...person,
             ...[["关系", "i-lucide-users"], ["组织架构", "i-lucide-network"], ["势力范围", "i-lucide-flag"], ["地理", "i-lucide-mountain"], ["气候", "i-lucide-cloud-sun"], ["历史", "i-lucide-scroll"], ["货币", "i-lucide-coins"], ["魔法体系", "i-lucide-wand-sparkles"], ["咒语", "i-lucide-book-open"], ["契约", "i-lucide-file-signature"], ["职业", "i-lucide-briefcase"], ["称号", "i-lucide-crown"], ["病症", "i-lucide-heart-pulse"], ["饮食", "i-lucide-utensils"], ["服饰规范", "i-lucide-shirt"], ["节日", "i-lucide-party-popper"], ["语言", "i-lucide-languages"]].map(([label, icon], index) => item(`nbook.canon.extra${String(index)}`, label!, icon!, "canon")),
@@ -124,10 +124,10 @@ export const fixtures: LabFixture[] = [
             defineLabFixture<typeof ComponentChecklist>({
                 component: "ComponentChecklist",
                 scenes: [
-                    {id: "person", label: "人物条目：预设一排，适用的在最前，已添加的勾着，去掉过的写“恢复”", input: {props: {items: person, kind: "人物", presets}, model: {modelValue: []}}},
-                    {id: "checked", label: "勾了两组", input: {props: {items: person, kind: "人物", presets}, model: {modelValue: ["nbook.canon.skills", "nbook.plot.knowing"]}}},
-                    {id: "no-kind", label: "没有种类：没有“适用于”与预设", input: {props: {items: person, kind: ""}, model: {modelValue: []}}},
-                    {id: "many", label: "三十多个设定组：列表封顶、在里面滚", input: {props: {items: many, kind: "人物", presets, maxHeight: "22rem"}, model: {modelValue: []}}},
+                    {id: "person", label: "人物条目：模板一排，适用的在最前，已添加的勾着，去掉过的写“恢复”", input: {props: {items: person, kind: "人物", presets}, model: {modelValue: []}}},
+                    {id: "checked", label: "勾了两个模块", input: {props: {items: person, kind: "人物", presets}, model: {modelValue: ["nbook.canon.skills", "nbook.plot.knowing"]}}},
+                    {id: "no-kind", label: "没有种类：没有“适用于”与模板", input: {props: {items: person, kind: ""}, model: {modelValue: []}}},
+                    {id: "many", label: "三十多个模块：列表封顶、在里面滚", input: {props: {items: many, kind: "人物", presets, maxHeight: "22rem"}, model: {modelValue: []}}},
                     {id: "person-english", label: "英文界面", input: {props: {items: english, kind: "Person", presets: englishPresets}, model: {modelValue: []}}},
                 ],
                 load: async () => (await import("./ComponentChecklistFixture.vue")).default,
@@ -135,9 +135,9 @@ export const fixtures: LabFixture[] = [
             defineLabFixture<typeof AddComponentDialog>({
                 component: "AddComponentDialog",
                 scenes: [
-                    {id: "person", label: "人物条目：预设、按组列出", input: {props: {items: person, kind: "人物", presets}, model: {open: true}}},
-                    {id: "many", label: "三十多个设定组：列表在对话框里滚", input: {props: {items: many, kind: "人物", presets}, model: {open: true}}},
-                    {id: "failed", label: "加的时候别处已经加上了其中一组", input: {props: {items: person, kind: "人物", presets, error: "“技能”这组设定已经加上了"}, model: {open: true}}},
+                    {id: "person", label: "人物条目：模板、按组列出", input: {props: {items: person, kind: "人物", presets}, model: {open: true}}},
+                    {id: "many", label: "三十多个模块：列表在对话框里滚", input: {props: {items: many, kind: "人物", presets}, model: {open: true}}},
+                    {id: "failed", label: "加的时候别处已经加上了其中一个模块", input: {props: {items: person, kind: "人物", presets, error: "“技能”模块已经加上了"}, model: {open: true}}},
                     {id: "person-english", label: "英文界面", input: {props: {items: english, kind: "Person", presets: englishPresets}, model: {open: true}}},
                 ],
                 load: async () => (await import("./AddComponentDialogFixture.vue")).default,
@@ -173,7 +173,7 @@ export const fixtures: LabFixture[] = [
         component: "PageNotices",
         scenes: [
             {id: "sample", label: "刚保存了一次就地改：记在第 3 章", input: {props: {notice: {revision: "r1", title: "改外观", where: "第 3 章"}}}},
-            {id: "no-where", label: "改条目本身：没有位置", input: {props: {notice: {revision: "r1", title: "加上“形象”这组设定"}}}},
+            {id: "no-where", label: "改条目本身：没有位置", input: {props: {notice: {revision: "r1", title: "加上“形象”模块"}}}},
             {id: "with-agent", label: "Agent 也改了（之前还改过两次）", input: {props: {notice: {revision: "r1", title: "改外观", where: "第 3 章"}, agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 2}}}},
             {id: "agent-undone", label: "Agent 那一次已还原", input: {props: {agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 0, undone: true}}}},
             {id: "error", label: "页面自己的写入失败", input: {props: {error: "这个条目在你打开以后被别处改过，重读以后再试一次"}}},

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 条目页的竖排分页（docs/specs/canon/author-ui.md 输出 9；同名 .md）：编辑区够宽时代替页头下面的横排分页，放在内容左边。两段：
- * 设定组与文字（末尾“添加一组设定”），不对应设定组的看法（附加分页与“情节”）。受控：选中哪一页由宿主给，交互时发出。
+ * 模块与文字（末尾“添加模块”），不对应模块的看法（附加分页与“情节”）。受控：选中哪一页由宿主给，交互时发出。
  */
 import {computed, nextTick, ref} from "vue";
 
@@ -11,7 +11,7 @@ import type {EntryTab} from "./entry-tabs";
 const props = withDefaults(defineProps<{
     items: readonly EntryTab[];
     modelValue: string;
-    /** 有能加的设定组、条目可写：出“添加一组设定”。默认 false。 */
+    /** 有能加的模块、条目可写：出“添加模块”。默认 false。 */
     canAdd?: boolean;
     /** 添加不可用的原因；默认空。 */
     addReason?: string;
@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string): void;
-    /** 点了“添加一组设定”：宿主开“添加设定组”的对话框。 */
+    /** 点了“添加模块”：宿主开“添加模块”的对话框。 */
     (event: "add-toggle"): void;
     /** 在一页上右键：宿主给这一页的菜单。 */
     (event: "context", value: string, at: {readonly x: number; readonly y: number}): void;
@@ -44,7 +44,7 @@ const pick = (item: EntryTab, event: MouseEvent): void => {
     if (selected(item) && hasMenu(item)) emit("menu", item.value, event.currentTarget as HTMLElement);
     else emit("update:modelValue", item.value);
 };
-/** 看法一段的第一页，前面有设定组或文字时在它上面画分隔（不另放元素：列表里只有分页，增减的过渡按分页算）。 */
+/** 看法一段的第一页，前面有模块或文字时在它上面画分隔（不另放元素：列表里只有分页，增减的过渡按分页算）。 */
 const segmentStart = computed(() => {
     const at = props.items.findIndex((item) => item.segment === "view");
     return at > 0 ? props.items[at]!.value : null;

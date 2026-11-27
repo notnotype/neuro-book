@@ -1,10 +1,10 @@
 /**
  * 条目的种类（条目的 `type`，一段文字）。两件事放在这里：
  *
- * - 内置的几个词（`ENTRY_KINDS`）：引用字段的 `targets`、设定组的 `kinds` 都按这个词匹配，写在一处，改名时不会一处改了另一处没改；
- * - 贡献点 `canon.entry-kinds`（docs/specs/canon/author-ui.md 输入一节）：登记一个种类默认带哪几组设定、有哪几种有名字的预设。
- *   种类仍然只是条目上的一个词，世界里不存这张表；新建对话框、条目页的分页顺序与 Agent 的新建都经 `defaultComponents` 用默认组，
- *   加设定组与新建条目的勾选列表经 `kindPresets` 用预设。
+ * - 内置的几个词（`ENTRY_KINDS`）：引用字段的 `targets`、模块的 `kinds` 都按这个词匹配，写在一处，改名时不会一处改了另一处没改；
+ * - 贡献点 `canon.entry-kinds`（docs/specs/canon/author-ui.md 输入一节）：登记一个种类默认带哪几个模块、有哪几种有名字的模板。
+ *   种类仍然只是条目上的一个词，世界里不存这张表；新建对话框、条目页的分页顺序与 Agent 的新建都经 `defaultComponents` 用默认模块，
+ *   加模块与新建条目的勾选列表经 `kindPresets` 用模板。
  */
 
 import {Type} from "typebox";
@@ -16,13 +16,13 @@ export const ENTRY_KINDS = {person: "人物", organization: "组织", place: "�
 
 export const CANON_ENTRY_KINDS_POINT = "canon.entry-kinds";
 
-/** 一种有名字的预设：点一下勾上它的几组设定（加设定组与新建条目的勾选列表，author-ui 输出 4、38）。 */
+/** 一种有名字的模板：点一下勾上它的几个模块（加模块与新建条目的勾选列表，author-ui 输出 4、38）。 */
 export const EntryKindPresetSchema = Type.Object({
-    /** 同一个种类里唯一（去掉首尾空白比）；别的插件写同一个 id 是往这个预设里追加设定组。 */
+    /** 同一个种类里唯一（去掉首尾空白比）；别的插件写同一个 id 是往这个模板里追加模块。 */
     id: Type.String({minLength: 1, pattern: "\\S"}),
     /** 显示名（去掉首尾空白）；几条登记都写了时取第一条（内置在前）。 */
     label: Type.Optional(Type.String({minLength: 1, pattern: "\\S"})),
-    /** 这个预设勾上的设定组（类型 id）。 */
+    /** 这个模板勾上的模块（类型 id）。 */
     components: Type.Array(Type.String({minLength: 1}), {minItems: 1}),
 }, {additionalProperties: false});
 
@@ -31,13 +31,13 @@ export type EntryKindPresetDeclaration = Static<typeof EntryKindPresetSchema>;
 export const EntryKindDeclarationSchema = Type.Object({
     /** 存进条目的那个词，例如“人物”。 */
     kind: Type.String({minLength: 1, pattern: "\\S"}),
-    /** 新建这个种类的条目时默认带的设定组（类型 id）。 */
+    /** 新建这个种类的条目时默认带的模块（类型 id）。 */
     components: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     /** 新建对话框里的先后，小的在前。 */
     order: Type.Optional(Type.Number()),
     /** 这个种类的条目页标签的图标：lucide 的类名；几条登记都写了时取内置的那一条（workbench/editor.md 输出 53）。 */
     icon: Type.Optional(Type.String({minLength: 1, pattern: "^i-lucide-[a-z0-9-]+$"})),
-    /** 这个种类的几种有名字的预设；每条登记至多 20 种（几条登记并起来不另封顶）。一种写错，整条登记都不收。 */
+    /** 这个种类的几种有名字的模板；每条登记至多 20 种（几条登记并起来不另封顶）。一种写错，整条登记都不收。 */
     presets: Type.Optional(Type.Array(EntryKindPresetSchema, {maxItems: 20})),
 }, {additionalProperties: false});
 
@@ -51,7 +51,7 @@ export const entryKindsPoint: ContributionPointDefinition<EntryKindDeclaration> 
     schema: EntryKindDeclarationSchema,
 };
 
-/** 一种预设并起来的样子：几条登记里同一个 id 的设定组并起来、去重，内置的在前；显示名取第一条写了的。 */
+/** 一种模板并起来的样子：几条登记里同一个 id 的模块并起来、去重，内置的在前；显示名取第一条写了的。 */
 export interface EntryKindPreset {
     readonly id: string;
     readonly label?: string;
@@ -62,11 +62,11 @@ export interface EntryKindPreset {
 /** 一个种类并起来的登记。 */
 export interface EntryKind {
     readonly kind: string;
-    /** 默认带的设定组（类型 id），内置的在前、去重；还没核对是否登记了。 */
+    /** 默认带的模块（类型 id），内置的在前、去重；还没核对是否登记了。 */
     readonly components: readonly string[];
     readonly order: number;
     readonly icon?: string;
-    /** 有名字的预设，按第一次出现的先后（内置的在前，别的插件按贡献 id）。 */
+    /** 有名字的模板，按第一次出现的先后（内置的在前，别的插件按贡献 id）。 */
     readonly presets: readonly EntryKindPreset[];
 }
 
@@ -74,15 +74,15 @@ export interface EntryKind {
 const BUILTIN_PREFIX = "nbook.canon.";
 
 /**
- * 同一个词的几条登记并成一条（别的插件可以给“人物”追加默认的设定组）：默认组先是内置的、再是别的插件的（按贡献 id，即
+ * 同一个词的几条登记并成一条（别的插件可以给“人物”追加默认的模块）：默认模块先是内置的、再是别的插件的（按贡献 id，即
  * `declarations.list` 给的顺序：它按 id 排，第三方的 id 可能排在内置的前面，人物的默认不能因此跑到后面），并起来、去重；
- * `order` 取最小的，没写算最后。预设按同一个 id 并：设定组并起来、去重，显示名取第一条写了的。结果按 `order`、再按词排。
+ * `order` 取最小的，没写算最后。模板按同一个 id 并：模块并起来、去重，显示名取第一条写了的。结果按 `order`、再按词排。
  */
 export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[]): readonly EntryKind[] {
     return merge(descriptors).map((kind) => ({...kind, presets: kind.presets.map((preset) => ({id: preset.id, ...(preset.label === undefined ? {} : {label: preset.label}), components: preset.components}))}));
 }
 
-/** 并起来的预设，另带几条登记写过的全部显示名（`presetProblems` 据此报写了不同的显示名）。 */
+/** 并起来的模板，另带几条登记写过的全部显示名（`presetProblems` 据此报写了不同的显示名）。 */
 interface MergedPreset {
     readonly id: string;
     readonly label?: string;
@@ -90,7 +90,7 @@ interface MergedPreset {
     readonly components: readonly string[];
 }
 
-/** `mergeEntryKinds` 的并法，预设带着 `labels`；两个出口共用这一处，认“同一个种类、同一个预设”的规则只写一次。 */
+/** `mergeEntryKinds` 的并法，模板带着 `labels`；两个出口共用这一处，认“同一个种类、同一个模板”的规则只写一次。 */
 function merge(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[]): readonly (Omit<EntryKind, "presets"> & {readonly presets: readonly MergedPreset[]})[] {
     const merged = new Map<string, {components: string[]; order: number; icon?: string; presets: {id: string; label?: string; labels: Set<string>; components: string[]}[]}>();
     for (const {declaration} of builtinFirst(descriptors)) {
@@ -132,7 +132,7 @@ function builtinFirst<T extends Pick<ContributionDescriptor<EntryKindDeclaration
 }
 
 /**
- * 新建这个种类的条目时默认带的设定组：没登记的种类没有默认；默认里写到 `available` 之外（没登记、不可用）的类型当作没写，
+ * 新建这个种类的条目时默认带的模块：没登记的种类没有默认；默认里写到 `available` 之外（没登记、不可用）的类型当作没写，
  * 诊断由项目入口在登记变化时写（`missingDefaults`）。`kind` 按去掉首尾空白后的词比。
  */
 export function defaultComponents(kinds: readonly EntryKind[], kind: string, available: ReadonlySet<string>): readonly string[] {
@@ -141,8 +141,8 @@ export function defaultComponents(kinds: readonly EntryKind[], kind: string, ava
 }
 
 /**
- * 这个种类能用的预设（勾选列表顶上的一排，author-ui 输出 4、38）：写到 `available` 之外的类型当作没写；没有显示名、或一组能用的
- * 也没有的预设不给。诊断由项目入口写（`presetProblems`）。
+ * 这个种类能用的模板（勾选列表顶上的一排，author-ui 输出 4、38）：写到 `available` 之外的类型当作没写；没有显示名、或一个能用的
+ * 也没有的模板不给。诊断由项目入口写（`presetProblems`）。
  */
 export function kindPresets(kinds: readonly EntryKind[], kind: string, available: ReadonlySet<string>): readonly {readonly id: string; readonly label: string; readonly components: readonly string[]}[] {
     const found = kinds.find((candidate) => candidate.kind === kind.trim());
@@ -153,7 +153,7 @@ export function kindPresets(kinds: readonly EntryKind[], kind: string, available
 }
 
 /**
- * 预设的问题，一项一条：写到不可用的类型（勾选时不带它）、写到的一组也不可用（整个不列，不再逐个报类型）、并完没有显示名
+ * 模板的问题，一项一条：写到不可用的类型（勾选时不带它）、写到的类型都不可用（整个不列，不再逐个报类型）、并完没有显示名
  * （不列）、几条登记写了不同的显示名（后写的不用）。
  */
 export type PresetProblem =

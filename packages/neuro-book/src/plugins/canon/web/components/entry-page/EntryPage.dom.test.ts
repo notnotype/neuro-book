@@ -138,7 +138,7 @@ describe("EntryPage", () => {
         expect(wrapper.emitted("aliases")).toEqual([[{add: ["夜王"]}], [{add: ["哥哥大人"]}]]);
     });
 
-    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的组时分页条后面有“＋”（在 tablist 外面、标着开对话框），点了发 add-dialog；更多里没有“添加一组设定”", async () => {
+    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的模块时分页条后面有“＋”（在 tablist 外面、标着开对话框），点了发 add-dialog；更多里没有“添加模块”", async () => {
         const wrapper = page({
             editable: true,
             tabs: [
@@ -162,11 +162,11 @@ describe("EntryPage", () => {
         expect(wrapper.emitted("add-open")).toBeUndefined();
         const more = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "delete"))!;
         expect((more.props("items") as {id: string}[]).map((item) => item.id)).not.toContain("add-component");
-        // 没有能加的组时不出“＋”。
+        // 没有能加的模块时不出“＋”。
         expect(page({editable: true}).find("[data-add-component]").exists()).toBe(false);
     });
 
-    it("右键一页先选中它，菜单里有“添加一组设定”（下一级是能加的组，打开时同“＋”发 add-open）；是一组设定时另有“去掉这组设定”", async () => {
+    it("右键一页先选中它，菜单里有“添加模块”（下一级是能加的模块，打开时同“＋”发 add-open）；是一个模块时另有“去掉这个模块”", async () => {
         const wrapper = page({
             editable: true,
             tabs: [
@@ -184,14 +184,14 @@ describe("EntryPage", () => {
         expect(wrapper.emitted("add-open")).toHaveLength(1);
         type Item = {label?: string; separator?: boolean; children?: {label: string; action: () => void}[]; action?: () => void};
         const items = menu().props("items") as Item[];
-        expect(items.map((item) => (item.separator === true ? "|" : item.label))).toEqual(["添加一组设定", "|", "去掉“人物”这组设定"]);
+        expect(items.map((item) => (item.separator === true ? "|" : item.label))).toEqual(["添加模块", "|", "去掉“人物”模块"]);
         items[0]!.children![0]!.action();
         items[2]!.action!();
         expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
         expect(wrapper.emitted("remove-component")).toHaveLength(1);
-        // 文字分页不是一组设定：没有“去掉”。
+        // 文字分页不是一个模块：没有“去掉”。
         await tabOf("text").trigger("contextmenu", {clientX: 5, clientY: 6});
-        expect((menu().props("items") as Item[]).map((item) => item.label)).toEqual(["添加一组设定"]);
+        expect((menu().props("items") as Item[]).map((item) => item.label)).toEqual(["添加模块"]);
     });
 
     it("看法菜单（输出 9、54）：能换看法的分页留箭头格、选中的显出；选中的再点开菜单、再点关上；选了发 update:look，焦点回分页；不在缺省看法时分页上写看法名；右键菜单里也有；换分页关上", async () => {
@@ -263,11 +263,11 @@ describe("EntryPage", () => {
         expect(lookMenu().props("open")).toBe(false);
         expect(tabOf("data:look").text()).not.toContain("视图");
 
-        // 右键一个能换看法的分页：菜单里也有这三项，在“去掉这组设定”之前。
+        // 右键一个能换看法的分页：菜单里也有这三项，在“去掉这个模块”之前。
         await tabOf("data:look").trigger("contextmenu", {clientX: 5, clientY: 6});
         type Item = {label?: string; separator?: boolean; type?: string; checked?: boolean};
         const items = wrapper.findAllComponents(ContextMenu)[0]!.props("items") as Item[];
-        expect(items.map((item) => (item.separator === true ? "|" : `${item.label ?? ""}${item.type === "radio" ? (item.checked === true ? "●" : "○") : ""}`))).toEqual(["用户视图●", "AI视图○", "原始视图○", "|", "去掉“形象”这组设定"]);
+        expect(items.map((item) => (item.separator === true ? "|" : `${item.label ?? ""}${item.type === "radio" ? (item.checked === true ? "●" : "○") : ""}`))).toEqual(["用户视图●", "AI视图○", "原始视图○", "|", "去掉“形象”模块"]);
     });
 
     it("读取中、读取失败、找不到、已删除各只有一句，没有页头控件与分页", () => {

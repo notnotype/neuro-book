@@ -1351,10 +1351,10 @@ function patchShape(field: FieldDeclaration): string {
 }
 
 /**
- * 原样留着、可以不查的补丁的下标（revisions.md 输出 3）：字段被去掉、设定组被去掉或没启用以后，旧变更里对它的补丁不适用；
+ * 原样留着、可以不查的补丁的下标（revisions.md 输出 3）：字段被去掉、模块被去掉或没启用以后，旧变更里对它的补丁不适用；
  * 不放过它们的话这条变更就再也改不了别的地方。几条都满足才算：写入前这条变更已经是已写且生效的、安放（含所在的线）没变
  * （`keptAsWritten`）；这处补丁按内容在旧列表里有一份对得上（多出来的重复照新写的查）；不适用的原因是这三种之一；而且不是
- * 这次对这条变更本身的改动造成的：写入前它就不适用（`before` 给写入前这条变更的结果），或者这次改了它指着的那一组设定
+ * 这次对这条变更本身的改动造成的：写入前它就不适用（`before` 给写入前这条变更的结果），或者这次改了它指着的那个模块
  * （`initChanged`，例如同一批去掉字段）。从同一条变更里拿掉“启用”那处补丁、让后面的补丁落空的，照新写的拒收。
  */
 function toleratedPatches(previous: StoryChange | undefined, change: StoryChange, detail: ChangeResult | undefined, before: () => ChangeResult | undefined, initChanged: (at: Address) => boolean): ReadonlySet<number> {
@@ -1569,13 +1569,13 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
                 problems.push({code: "component-version-unsupported", ref, path: `init.data.${namespace}`, message: "component version differs from the registered type"});
                 continue;
             }
-            // “原样留着”是对同一个类型、同一个版本说的：这次把这一组改记成另一个类型或版本时，声明与值都按新写的整组查。
+            // “原样留着”是对同一个类型、同一个版本说的：这次把这个模块改记成另一个类型或版本时，声明与值都按新写的整组查。
             const kept = old !== undefined && old.type === nsData.type && old.version === nsData.version ? old : undefined;
             const rewritten = declarationProblems(problems, ref, namespace, type, nsData.declared ?? [], kept?.declared ?? []);
             for (const field of effectiveFields(type, nsData.declared)) {
                 const value = nsData.fields[field.id] ?? null;
                 // 只核这次值变了或声明变了的字段（components.md 输出 23）：原样留着的值不合现在的声明时（类型改过字段、还原留下的组合）
-                // 不挡这一组别的修改。
+                // 不挡这个模块别的修改。
                 if (kept !== undefined && !rewritten.has(field.id) && sameJson(kept.fields[field.id] ?? null, value)) continue;
                 const problem = valueProblem(field, value);
                 if (problem !== null) {

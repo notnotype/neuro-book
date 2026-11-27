@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 新建条目的对话框（docs/specs/canon/author-ui.md 输出 4）：横版两栏。左栏是条目本身（名字、种类、“位置与出场”一段），右栏是设定组的
+ * 新建条目的对话框（docs/specs/canon/author-ui.md 输出 4）：横版两栏。左栏是条目本身（名字、种类、“位置与出场”一段），右栏是模块的
  * 勾选列表；窄时上下排。受控：填的东西与各个选项由宿主给（`entries-view.ts`），确认后由宿主发布；结果回来之前对话框不关。
- * 选定种类（点种类的按钮、种类的输入框失焦）时按 `withKind` 套这个种类的默认设定组，打字时不套；勾选列表的“适用于”与预设也只跟着
+ * 选定种类（点种类的按钮、种类的输入框失焦）时按 `withKind` 套这个种类的默认模块，打字时不套；勾选列表的“适用于”与模板也只跟着
  * 选定的种类（草稿的 `kindChosen`）换，打字时列表不跳。
  */
 import {computed, ref, useId} from "vue";
@@ -23,7 +23,7 @@ const props = withDefaults(defineProps<{
     draft: NewEntryDraft;
     /** 种类的候选：登记的在前，已有条目用过的接在后面。 */
     kinds?: readonly string[];
-    /** 登记的种类默认带的设定组（类型 id，只含登记了的类型）；没登记的种类不在里面。 */
+    /** 登记的种类默认带的模块（类型 id，只含登记了的类型）；没登记的种类不在里面。 */
     kindDefaults?: Readonly<Record<string, readonly string[]>>;
     /** 已有的分组：分组一项的候选（也能新写）。 */
     folders?: readonly string[];
@@ -32,7 +32,7 @@ const props = withDefaults(defineProps<{
     sameAsResults?: EntryResults;
     /** 登记的类型：勾选列表的各行（没有“已添加”）。 */
     items?: readonly ChecklistItem[];
-    /** 每个登记的种类的预设（`kindPresets`）；没登记的种类不在里面。 */
+    /** 每个登记的种类的模板（`kindPresets`）；没登记的种类不在里面。 */
     kindPresets?: Readonly<Record<string, readonly ChecklistPreset[]>>;
     /** 章表：出场的选项。 */
     chapters?: readonly {readonly id: string; readonly index: number}[];
@@ -71,12 +71,12 @@ const onNameEnter = (event: KeyboardEvent): void => {
 };
 
 /**
- * 勾选作者动过、又与选定种类的默认不同：出“恢复某某的默认”（没登记默认的种类，默认是一组都不勾）。还没选定种类时没有“某某的默认”
+ * 勾选作者动过、又与选定种类的默认不同：出“恢复某某的默认”（没登记默认的种类，默认是一个都不勾）。还没选定种类时没有“某某的默认”
  * 可言，不出。
  */
 const defaults = computed(() => byKind(props.kindDefaults, props.draft.kindChosen) ?? []);
 const differs = computed(() => props.draft.kindChosen !== "" && props.draft.typesTouched && [...props.draft.types].sort().join(",") !== [...defaults.value].sort().join(","));
-/** 点了“恢复默认”：按钮随即淡出，焦点交给勾选列表的搜索框，不落到 body（同预设按钮按完的去处）。 */
+/** 点了“恢复默认”：按钮随即淡出，焦点交给勾选列表的搜索框，不落到 body（同模板按钮按完的去处）。 */
 const checklist = ref<{focus(): void} | null>(null);
 const restore = (): void => {
     emit("update:draft", restoreDefaults(props.draft, props.kindDefaults));
@@ -212,7 +212,7 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
                                 </Button>
                             </Transition>
                         </div>
-                        <!-- 点预设不算作者动过勾选：之后换种类，勾选照旧跟着种类的默认换（输出 4）。 -->
+                        <!-- 点模板不算作者动过勾选：之后换种类，勾选照旧跟着种类的默认换（输出 4）。 -->
                         <ComponentChecklist
                             ref="checklist"
                             fill

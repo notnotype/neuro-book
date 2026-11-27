@@ -198,7 +198,7 @@ describe("canon.revisions 输出 25：一次改几处", () => {
         ]), "t"));
     });
 
-    test("设定组：加上的字段都是未知；去掉保留数据，再加回来去掉标记；条目读取列出去掉过的", () => {
+    test("模块：加上的字段都是未知；去掉保留数据，再加回来去掉标记；条目读取列出去掉过的", () => {
         const base = world();
         const added = ok(editEntries(base, batch([{op: "component", entry: "e2", type: PERSON.id, action: "add"}]), "t")).world;
         expect(added.data.entries.get("e2")!.init.data.character).toEqual({type: PERSON.id, version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: null}});
@@ -361,7 +361,7 @@ describe("canon.components 输出 4、canon.revisions 输出 25：实例字段�
         expect(problemCode(editEntries(done, batch([{op: "set", at, value: 9}, {op: "fieldRemove", at}], {baseVersion: 3}), "t"))).toBe("duplicate-address");
     });
 
-    test("新加一组设定、新建条目时带上它自己的字段声明；同一批里再给这一组加字段被拒", () => {
+    test("新加一个模块、新建条目时带上它自己的字段声明；同一批里再给这个模块加字段被拒", () => {
         const base = world();
         const removed = ok(editEntries(base, batch([{op: "component", entry: "e1", type: PANEL.id, action: "remove"}]), "t")).world;
         expect(problemCode(editEntries(base, batch([{op: "component", entry: "e2", type: PANEL.id, action: "add"}, {op: "fieldAdd", entry: "e2", namespace: "panel", field: {label: "幸运", kind: "number"}}]), "t"))).toBe("created-in-batch");
@@ -371,13 +371,13 @@ describe("canon.components 输出 4、canon.revisions 输出 25：实例字段�
         const created = ok(editEntries(base, batch([{op: "create", id: "tmp:n", entry: {name: "彗", kind: "人物", components: [{type: PANEL.id, declare: [{label: "战绩", kind: "text"}, {id: "幸运", label: "幸运", kind: "number"}], fields: {战绩: "三胜"}}]}}]), "t"));
         expect(created.world.data.entries.get(created.ids["tmp:n"]!)!.init.data.panel).toMatchObject({declared: [{id: "战绩"}, {id: "幸运"}], fields: {战绩: "三胜", 幸运: null}});
 
-        // 新建的一组里给的 id 撞了固定字段或同一批的另一条、初值写到不是这一组字段的键上：拒收，不把值落到别处。
+        // 新建的模块里给的 id 撞了固定字段或同一批的另一条、初值写到不是这个模块字段的键上：拒收，不把值落到别处。
         const create = (component: Record<string, unknown>) => editEntries(base, batch([{op: "create", id: "tmp:m", entry: {name: "雾", kind: "人物", components: [{type: PANEL.id, ...component}]}} as EntryOp]), "t");
         expect(problemCode(create({declare: [{id: "存款", label: "私房钱", kind: "number"}], fields: {存款: 5}}))).toBe("id-taken");
         expect(problemCode(create({declare: [{id: "幸运", label: "幸运", kind: "number"}, {id: "幸运", label: "运气", kind: "number"}]}))).toBe("id-taken");
         expect(problemCode(create({fields: {运气: "abc"}}))).toBe("unknown-field");
 
-        // 去掉过的一组加回来时带的声明照加（同 fieldAdd），去掉时不能带声明与初值。
+        // 去掉过的模块加回来时带的声明照加（同 fieldAdd），去掉时不能带声明与初值。
         const told = ok(editEntries(base, batch([{op: "fieldAdd", entry: "e1", namespace: "panel", field: {label: "幸运", kind: "number"}}]), "t")).world;
         const gone = ok(editEntries(told, batch([{op: "component", entry: "e1", type: PANEL.id, action: "remove"}], {baseVersion: 3}), "t")).world;
         const back = ok(editEntries(gone, batch([{op: "component", entry: "e1", type: PANEL.id, action: "add", declare: [{label: "运气", kind: "number"}], fields: {运气: 3}}], {baseVersion: 4}), "t")).world;

@@ -207,7 +207,7 @@ describe("设定视图", () => {
         expect(stored.value.object).toMatchObject({type: "物品", folder: "物品", parent: starId, init: {name: "魔杖", data: {panel: {type: "nbook.canon.panel", enabled: true}}}});
     });
 
-    it("空作品里点“新建人物”：种类是人物，勾上人物与形象两组；新建以后条目上启用的是这两组", async () => {
+    it("空作品里点“新建人物”：种类是人物，勾上人物与形象两个模块；新建以后条目上启用的是这两个模块", async () => {
         const {opened, view, other} = await setup();
         const wrapper = view();
         await waitUntil("空状态", () => wrapper.find("[data-entries-empty]").exists());

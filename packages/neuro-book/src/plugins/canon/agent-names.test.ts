@@ -33,17 +33,17 @@ describe("Agent 工具的名字与地址", () => {
         expect(resolve("store.物品[i1].重")).toEqual({problem: expect.stringContaining("甲、乙")});
     });
 
-    it("设定组：条目上两组同名时列出命名空间；写命名空间认得", () => {
+    it("模块：条目上两个模块同名时列出命名空间；写命名空间认得", () => {
         expect(resolve("库存.a")).toEqual({problem: expect.stringContaining("store、other")});
         expect(resolve("other.x")).toMatchObject({path: "other.x"});
     });
 
-    it("新建时的设定组：写类型 id、命名空间认得；两个类型同名时列出两个，不取登记顺序里的第一个", () => {
+    it("新建时的模块：写类型 id、命名空间认得；两个类型同名时列出两个，不取登记顺序里的第一个", () => {
         expect(componentNamed([store, other], "test.other")).toBe(other);
         expect(componentNamed([store, other], "store")).toBe(store);
         const named = componentNamed([store, other], "库存");
         expect(named).toEqual({problem: expect.stringContaining("test.store（store）、test.other（other）")});
         expect(componentNamed([store], "库存")).toBe(store);
-        expect(componentNamed([store], "仓库")).toEqual({problem: expect.stringContaining("没有设定组“仓库”")});
+        expect(componentNamed([store], "仓库")).toEqual({problem: expect.stringContaining("没有模块“仓库”")});
     });
 });

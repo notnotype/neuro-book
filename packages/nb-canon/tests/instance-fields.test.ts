@@ -100,7 +100,7 @@ describe("canon.components 输出 4、22：去掉是打标记，生效的字段"
         expect(fields(restored)).toMatchObject({幸运: 9, 存款: 105});
     });
 
-    test("类型后来加了一个与实例字段同 id 的固定字段：固定的生效，这一组别的修改、去掉这一项、去掉这一组都照收", () => {
+    test("类型后来加了一个与实例字段同 id 的固定字段：固定的生效，这个模块别的修改、去掉这一项、去掉这个模块都照收", () => {
         const start = ok(put(world(), (entry) => {
             declared(entry).push({id: "种族", label: "种族", kind: "text"});
             entry.init.data.panel!.fields.种族 = "精灵";
@@ -209,7 +209,7 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(refused(put(start, (entry) => void (bag(entry).item[0]!.label = "色")))).toEqual(["ok"]);
     });
 
-    test("把一组数据改记成另一个类型或另一个版本时，原样留着的值也按新的声明核", () => {
+    test("把一个模块的数据改记成另一个类型或另一个版本时，原样留着的值也按新的声明核", () => {
         const other: ComponentDeclaration = {...PANEL, id: "test.other-panel", fields: PANEL.fields!.map((field) => (field.id === "存款" ? {id: "存款", label: "存款", kind: "text" as const} : field))};
         const swapped = world().withOptions(options([other, PERSON]));
         expect(refused(put(swapped, (entry) => void (entry.init.data.panel!.type = other.id)))).toEqual(["type-mismatch:init.data.panel.fields.存款"]);
@@ -223,7 +223,7 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(refused(declare(world(), {id: "行囊", label: "行囊", kind: "list", item: [{id: "数量", label: "数量", kind: "number", removed: true} as never]}))).toEqual(["type-mismatch:init.data.panel.declared[行囊].item[0].removed"]);
     });
 
-    test("还原“加上限”留下落空的上限：这一组别的字段照样能改，落空的上限不查", () => {
+    test("还原“加上限”留下落空的上限：这个模块别的字段照样能改，落空的上限不查", () => {
         const withCap = ok(declare(world(), CAP));
         // 上限的值在另一次修订里填：还原“加上限”以后声明没了，值 5 还留在数据里。
         const filled = ok(put(withCap.world, (entry) => void (entry.init.data.panel!.fields.幸运上限 = 5))).world;
@@ -238,7 +238,7 @@ describe("canon.components 输出 23：声明上的规则只查新写或改过�
         expect(fields(record(reverted.world, "ch44", [add("panel.幸运", 100)]).world).幸运).toBe(101);
     });
 
-    test("还原改名留下两项同名：这一组别的字段照样能改", () => {
+    test("还原改名留下两项同名：这个模块别的字段照样能改", () => {
         const start = ok(declare(world(), LUCK)).world;
         const renamed = ok(put(start, (entry) => void (declared(entry)[0]!.label = "运气")));
         const second = ok(declare(renamed.world, {id: "幸运2", label: "幸运", kind: "text"})).world;
@@ -282,7 +282,7 @@ describe("canon.components 输出 24：建议值、适用的种类与预设只�
     test("内核不据此拒收写入：建议外的值、加在别的种类的条目上、与预设不同的声明都照收", () => {
         const base = world([HINTED, PERSON]);
         expect(refused(put(base, (entry) => void (entry.init.data.panel!.fields.性别 = "不明")))).toEqual(["ok"]);
-        // 青云门是组织，这一组只登记了适用于人物。
+        // 青云门是组织，这个模块只登记了适用于人物。
         expect(refused(put(base, (entry) => void (entry.init.data.panel = {type: PANEL.id, version: 1, enabled: true, fields: {存款: 0, 魔力上限: null, 魔力: null, 物品: [], 性别: null}, declared: []}), "e2"))).toEqual(["ok"]);
         expect(refused(declare(base, {...PRESET, kind: "number"}))).toEqual(["ok"]);
     });
@@ -318,7 +318,7 @@ describe("canon.revisions 输出 3：原样留着的补丁不因为不适用拒�
         expect(fields(done).存款).toBe(105);
     });
 
-    test("设定组去掉、关掉以后，旧变更还能改别的地方", () => {
+    test("模块去掉、关掉以后，旧变更还能改别的地方", () => {
         const told = record(world(), "ch44", [add("panel.存款", 5)]);
         const removed = ok(put(told.world, (entry) => void (entry.init.data.panel!.removed = true))).world;
         expect(refused(retitle(removed, told.change))).toEqual(["ok"]);
@@ -351,7 +351,7 @@ describe("canon.revisions 输出 3：原样留着的补丁不因为不适用拒�
         expect(refused(rewrite(base, change, (copy) => void (copy.at = {kind: "chapter", chapter: "ch45", key: 10})))).toEqual(["unknown-field:patches[0]"]);
     });
 
-    test("只放过那三种不适用：设定组的类型没登记了（贡献它的插件停用）时，改旧变更照新写的查", () => {
+    test("只放过那三种不适用：模块的类型没登记了（贡献它的插件停用）时，改旧变更照新写的查", () => {
         const told = record(world(), "ch44", [add("panel.存款", 5)]);
         const unregistered = told.world.withOptions(options([PERSON]));
         expect(refused(retitle(unregistered, told.change))).toEqual(["component-unknown:patches[0]"]);

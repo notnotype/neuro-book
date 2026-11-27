@@ -168,7 +168,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
             {capability: EDITOR_LANGUAGES_POINT, id: ENTRY_LANGUAGE, declaration: ENTRY_LANGUAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
-            // 人物的立绘读自同一条目上的形象这一组（author-ui.md 输出 49）。
+            // 人物的立绘读自同一条目上的形象模块（author-ui.md 输出 49）。
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_COMPONENT, declaration: PERSON_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: LOOK_COMPONENT, declaration: LOOK_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: PANEL_VIEW},

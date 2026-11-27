@@ -10,7 +10,7 @@ export interface NewEntryDraft {
     /** 种类（人物、地点这类词）；新写的也行。 */
     kind: string;
     /**
-     * 选定了的种类（点了种类的按钮、种类的输入框失焦，`withKind`），去掉首尾空白；没选定过是空串。勾选列表的“适用于”与预设跟着它，
+     * 选定了的种类（点了种类的按钮、种类的输入框失焦，`withKind`），去掉首尾空白；没选定过是空串。勾选列表的“适用于”与模板跟着它，
      * 打字时不跟。
      */
     kindChosen: string;
@@ -21,7 +21,7 @@ export interface NewEntryDraft {
     parent: string | null;
     /** 上级条目的名字：选择器与段头的摘要显示用；宿主预填上级时一并给。 */
     parentName: string;
-    /** 设定组：登记的类型 id。作者没动过勾选时跟着种类换成它的默认（`withKind`）。 */
+    /** 模块：登记的类型 id。作者没动过勾选时跟着种类换成它的默认（`withKind`）。 */
     types: string[];
     typesTouched: boolean;
     /** 是谁的马甲（本体）；没有为 null。选了以后上级跟着它。 */
@@ -52,8 +52,8 @@ export function byKind<T>(record: Readonly<Record<string, T>>, kind: string): T 
 
 /**
  * 选定一个种类（点了种类的按钮、种类的输入框失焦，author-ui.md 输出 4）：作者没改过的分组跟着种类，没动过的勾选整组换成这个种类的
- * 默认设定组（`defaults` 按种类给，没登记的种类是空的）。只改这两项，所以在每敲一个字时不用它。选定的还是同一个种类（再点一次、
- * 输入框失焦）时原样返回：点过的预设不算动过勾选，不能被同一个种类的默认冲掉。
+ * 默认模块（`defaults` 按种类给，没登记的种类是空的）。只改这两项，所以在每敲一个字时不用它。选定的还是同一个种类（再点一次、
+ * 输入框失焦）时原样返回：点过的模板不算动过勾选，不能被同一个种类的默认冲掉。
  */
 export function withKind(draft: NewEntryDraft, kind: string, defaults: Readonly<Record<string, readonly string[]>>): NewEntryDraft {
     const chosen = kind.trim();

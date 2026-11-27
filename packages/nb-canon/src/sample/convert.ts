@@ -29,7 +29,7 @@ export interface PrototypeState {
     readonly aliases: readonly string[];
     readonly summary: string;
     readonly text: ReadonlyArray<{readonly id: string; readonly source: string}>;
-    /** `declared` 原型里没有：调用方把样本换成别的类型时，可以给某个条目的某一组带上它自己的字段声明。 */
+    /** `declared` 原型里没有：调用方把样本换成别的类型时，可以给某个条目的某个模块带上它自己的字段声明。 */
     readonly data: Readonly<Record<string, {readonly enabled: boolean; readonly fields: Readonly<Record<string, unknown>>; readonly declared?: readonly FieldDeclaration[]}>>;
 }
 

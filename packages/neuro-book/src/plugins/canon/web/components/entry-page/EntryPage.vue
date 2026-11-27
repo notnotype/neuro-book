@@ -41,9 +41,9 @@ const props = withDefaults(defineProps<{
     disconnected?: boolean;
     /** 世界只读的原因（输出 28）；可以写时为空。 */
     readOnly?: string;
-    /** 分页：设定组与文字一段、看法一段（输出 9）。 */
+    /** 分页：模块与文字一段、看法一段（输出 9）。 */
     tabs?: readonly EntryTab[];
-    /** 能加的设定组（适用的在前，去掉过的写“恢复”）：右键菜单的下一级；空时不出“＋”。默认空。 */
+    /** 能加的模块（适用的在前，去掉过的写“恢复”）：右键菜单的下一级；空时不出“＋”。默认空。 */
     addable?: readonly {readonly value: string; readonly label: string}[];
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
@@ -54,13 +54,13 @@ const props = withDefaults(defineProps<{
     line?: string;
     /** 这一页按自己的位置实际读的线。 */
     resolvedLine?: string;
-    /** 页头的写入入口（名字、简介、别名、移动、加或去设定组、恢复）都出；默认 false。 */
+    /** 页头的写入入口（名字、简介、别名、移动、加或去模块、恢复）都出；默认 false。 */
     editable?: boolean;
     /** 写入入口现在不可用的原因（按计划开着、世界只读、别人独占）：入口禁用、悬停提示是它。默认空（可用）。 */
     editReason?: string;
     /** 读取位置上的别名。 */
     aliases?: readonly string[];
-    /** 当前是一个数据分页时，这组设定的名字：“更多”里多一项“去掉这组设定”。默认空。 */
+    /** 当前是一个数据分页时，这个模块的名字：“更多”里多一项“去掉这个模块”。默认空。 */
     removableGroup?: string;
     /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：“在看”不可用、悬停提示是它。默认空（能换）。 */
     positionLocked?: string;
@@ -68,9 +68,9 @@ const props = withDefaults(defineProps<{
     kind?: string;
     /** 出场，写好的文字（“一开始就在”“第 N 章开头”）：页头右栏写它（输出 6）。默认空。 */
     appears?: string;
-    /** 形象这组设定在这个位置上的立绘：有图时页头左栏最前面放头像（输出 6）；没有时为 null。 */
+    /** 形象模块在这个位置上的立绘：有图时页头左栏最前面放头像（输出 6）；没有时为 null。 */
     portrait?: {readonly path: string; readonly alt: string} | null;
-    /** 设定组分页的几种看法（输出 54），第一个是缺省；空时分页上没有看法菜单。默认空。 */
+    /** 模块分页的几种看法（输出 54），第一个是缺省；空时分页上没有看法菜单。默认空。 */
     looks?: readonly {readonly value: string; readonly label: string}[];
     /** 选中的那一页现在的看法（`looks` 里的值）。默认空串（缺省的那个）。 */
     look?: string;
@@ -90,13 +90,13 @@ const emit = defineEmits<{
     (event: "edit-summary", anchor: HTMLElement): void;
     /** 加一个别名（输入框里回车）或去掉一个（标签上的 ×）。 */
     (event: "aliases", change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void;
-    /** “更多”里的“移动到……”“添加一组设定……”“去掉这组设定”。 */
+    /** “更多”里的“移动到……”“添加模块……”“去掉这个模块”。 */
     (event: "move"): void;
-    /** 选了右键菜单里的一组设定：宿主直接加上（输出 38）。 */
+    /** 选了右键菜单里的一个模块：宿主直接加上（输出 38）。 */
     (event: "add-component", type: string): void;
     /** 右键菜单打开了：宿主记下这时条目的版本，加的时候带它（输出 43）。 */
     (event: "add-open"): void;
-    /** 点了“＋”或竖排的“添加一组设定”：宿主开“添加设定组”的对话框（输出 38，`AddComponentDialog`）。 */
+    /** 点了“＋”或竖排的“添加模块”：宿主开“添加模块”的对话框（输出 38，`AddComponentDialog`）。 */
     (event: "add-dialog"): void;
     (event: "remove-component"): void;
     /** 已删除页上的“恢复”。 */
@@ -182,14 +182,14 @@ const closeLookMenu = (reason: "select" | "escape" | "tab" | "outside"): void =>
 };
 const canAdd = computed(() => props.editable && props.addable.length > 0);
 
-// 右键一页：先选中它，菜单里是“添加一组设定”（下一级列出能加的）与这一页是设定组时的“去掉这组设定”。
+// 右键一页：先选中它，菜单里是“添加模块”（下一级列出能加的）与这一页是模块时的“去掉这个模块”。
 const context = shallowRef<{readonly value: string; readonly x: number; readonly y: number} | null>(null);
 const openContext = (value: string, at: {readonly x: number; readonly y: number}): void => {
     if (!props.editable) return;
     emit("update:tab", value);
     lookMenu.value = null;
     context.value = {value, ...at};
-    // 右键菜单里也有“添加一组设定”：同“＋”，打开时让宿主记下条目的版本。
+    // 右键菜单里也有“添加模块”：同“＋”，打开时让宿主记下条目的版本。
     if (canAdd.value) emit("add-open");
 };
 const onStripContext = (event: MouseEvent): void => {
@@ -346,7 +346,7 @@ watch(rail, async () => {
                 <div class="entry-head mx-auto" :class="column">
                     <div class="entry-head__row">
                         <div class="entry-head__who">
-                            <!-- 头像：形象这组设定的立绘（输出 6），顶齐名字、底齐别名；只显示，点了切到形象分页。 -->
+                            <!-- 头像：形象模块的立绘（输出 6），顶齐名字、底齐别名；只显示，点了切到形象分页。 -->
                             <button v-if="portraitShown" type="button" class="entry-head__portrait" :aria-label="text('entry.portrait')" :title="text('entry.portrait')" data-entry-portrait @click="emit('open-look')">
                                 <CanonImage :path="props.portrait!.path" :alt="props.portrait!.alt" />
                             </button>
@@ -439,7 +439,7 @@ watch(rail, async () => {
                         </div>
                     </div>
                 </div>
-                <!-- 一组设定一个分页，分页会比一行多：放不下时分页条自己横向滚动，每页照旧写名字（触屏上没有悬停提示，只剩图标认不出是哪一页；author-ui 输出 9）。宽时换成内容左边的竖排。 -->
+                <!-- 一个模块一个分页，分页会比一行多：放不下时分页条自己横向滚动，每页照旧写名字（触屏上没有悬停提示，只剩图标认不出是哪一页；author-ui 输出 9）。宽时换成内容左边的竖排。 -->
                 <div v-if="!rail" class="mx-auto mt-3 flex items-end gap-1" :class="column" @contextmenu="onStripContext">
                     <Tabs class="entry-page__tabs min-w-0 flex-[0_1_auto]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" @menu="toggleLookMenu" />
                     <!-- “＋”在分页条外面、紧跟着它：分页条里只能是分页（ARIA 的 tablist）。 -->

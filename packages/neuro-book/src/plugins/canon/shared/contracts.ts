@@ -24,7 +24,7 @@ export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERS
 export {CANON_COMPONENT_VIEWS_POINT} from "./component-views";
 export type {ComponentViewDeclaration} from "./component-views";
 export {CANON_ENTRY_TABS_POINT} from "./entry-tabs";
-// 条目种类的贡献点（author-ui.md 输入一节）：别的插件给一个种类追加默认的设定组时用。
+// 条目种类的贡献点（author-ui.md 输入一节）：别的插件给一个种类追加默认的模块时用。
 export {CANON_ENTRY_KINDS_POINT, ENTRY_KINDS} from "./entry-kinds";
 export type {EntryKindDeclaration} from "./entry-kinds";
 

@@ -1,6 +1,6 @@
 /**
  * EntryPageNav（同名 .md，docs/specs/canon/author-ui.md 输出 9、38）：两段与分隔、图标与条数、选中；方向键移动并选中；右键与
- * “添加一组设定”发出的事件；读屏的角色。
+ * “添加模块”发出的事件；读屏的角色。
  */
 
 import {mount} from "@vue/test-utils";
@@ -75,7 +75,7 @@ describe("EntryPageNav", () => {
         expect(wrapper.emitted("update:modelValue")).toEqual([["extra:experience"], ["plot"], ["plot"], ["text"]]);
     });
 
-    it("右键一页发 context；可以加时最后是“添加一组设定”（标着开对话框），点了发 add-toggle；有原因时不可用、悬停写原因；不能加就不出", async () => {
+    it("右键一页发 context；可以加时最后是“添加模块”（标着开对话框），点了发 add-toggle；有原因时不可用、悬停写原因；不能加就不出", async () => {
         const wrapper = nav({canAdd: true});
         await wrapper.findAll("[role='tab']")[1]!.trigger("contextmenu", {clientX: 10, clientY: 20});
         expect(wrapper.emitted("context")).toEqual([["text", {x: 10, y: 20}]]);

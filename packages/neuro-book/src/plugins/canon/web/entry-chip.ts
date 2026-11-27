@@ -13,7 +13,7 @@ import type {EntryTextValue} from "./components/text/entry-text";
 export type ChipKind = "value" | "calc" | "if" | "ref" | "image" | "raw";
 export type ChipState = "value" | "unknown" | "incomplete" | "pending" | "uncomputed" | "deleted" | "missing-field" | "no-branch";
 
-/** 本条目的一个字段：地址、显示名、所在的设定组、这一页位置上的值（显示文字；未知为 null）。 */
+/** 本条目的一个字段：地址、显示名、所在的模块、这一页位置上的值（显示文字；未知为 null）。 */
 export interface EntryField {
     readonly path: string;
     readonly label: string;

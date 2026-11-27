@@ -26,7 +26,7 @@ export interface CanonNotice {
     /** 这次修订的 id：“查看详情”打开它的回执页，“还原”打开还原它的对话框。 */
     readonly revision: string;
     readonly title: string;
-    /** 这次写回的位置（“最初”“第 3 章”“前史”）：就地改与记一笔给，改条目本身（删除、加一组设定、别名）与正文不给。 */
+    /** 这次写回的位置（“最初”“第 3 章”“前史”）：就地改与记一笔给，改条目本身（删除、加一个模块、别名）与正文不给。 */
     readonly where?: string;
 }
 

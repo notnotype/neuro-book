@@ -6,7 +6,7 @@
  * 或 `world.preview`，都不落库）并在候选上逐项读回核对。只有核对都过的候选才交给世界服务追加日志，所以核对失败时日志、版本、请求
  * id 与事件都不动。
  *
- * 路由只看原世界：同一批里不允许两项改同一处（地址相同或一个是另一个的前缀），这一批新建的东西（条目、设定组、元素）后面的项也不能
+ * 路由只看原世界：同一批里不允许两项改同一处（地址相同或一个是另一个的前缀），这一批新建的东西（条目、模块、元素）后面的项也不能
  * 再改，所以各项的路由互不影响，不用在中间结果上重算来历。
  *
  * 线：读取位置的线 id 一路明确传下去（`resolveLine`），只在构造存下来的安放时省略主线。位置不写线才按那一章讲的线（worldlines 输出
@@ -31,7 +31,7 @@ import type {Problem, World, WriteFailure, WriteResult} from "./world";
 
 /**
  * 这一项会写回哪里（输出 22）：改条目的初值、改某条变更里的第 `patch` 个补丁、在一个安放上新记一条变更，或者改条目对象本身
- * （新建、移动、设定组的加去、删除与恢复）。以后会再加种类，调用方要能处理不认识的 `kind`。
+ * （新建、移动、模块的加去、删除与恢复）。以后会再加种类，调用方要能处理不认识的 `kind`。
  */
 export type EditRoute =
     | {readonly kind: "init"}
@@ -306,7 +306,7 @@ class Draft {
     readonly entries = new Map<string, Entry>();
     readonly changes = new Map<string, StoryChange>();
     readonly created = new Set<string>();
-    /** 这一批新加的设定组（`条目/命名空间`）、字段（`条目/命名空间.字段`）与元素（`条目/命名空间.字段[元素]`）：后面的项不能再改它们。 */
+    /** 这一批新加的模块（`条目/命名空间`）、字段（`条目/命名空间.字段`）与元素（`条目/命名空间.字段[元素]`）：后面的项不能再改它们。 */
     readonly fresh = new Set<string>();
     /** `patchedFieldIds` 按 `条目/命名空间` 算过的结果（这一批里写下的补丁不进世界，结果不会变）。 */
     readonly patched = new Map<string, ReadonlySet<string>>();
@@ -410,7 +410,7 @@ function orderAfter(world: World, draft: Draft, parent: string | null, after: st
 }
 
 /**
- * 照登记的类型建一个设定组的数据：字段先都是未知，`declare` 是这个实例自己的字段声明（新建的实例没有用过的 id），再填上给的初值。
+ * 照登记的类型建一个模块的数据：字段先都是未知，`declare` 是这个实例自己的字段声明（新建的实例没有用过的 id），再填上给的初值。
  * 返回声明了的字段 id（按 `declare` 的顺序），给调用方对回是哪一项。
  */
 function namespaceData(world: World, type: string, fields: Readonly<Record<string, unknown>> | undefined, declare: readonly FieldDraft[] = []): {readonly namespace: string; readonly data: NamespaceData; readonly declaredIds: readonly string[]} | {readonly problem: FieldProblem} | null {
@@ -429,7 +429,7 @@ function namespaceData(world: World, type: string, fields: Readonly<Record<strin
 }
 
 /**
- * 把 `create`、`component` 给的初值填进一组数据：键要是这一组生效的字段（固定的与刚声明的）。写到别的键上的值读不到，多半是 id
+ * 把 `create`、`component` 给的初值填进一个模块的数据：键要是这个模块生效的字段（固定的与刚声明的）。写到别的键上的值读不到，多半是 id
  * 对不上（例如以为新声明的字段叫这个 id），拒收而不是存成没人声明的值。
  */
 function assignFields(type: ComponentType, data: NamespaceData, fields: Readonly<Record<string, unknown>> | undefined): FieldProblem | null {
@@ -459,7 +459,7 @@ function declareField(type: ComponentType, data: NamespaceData, draft: FieldDraf
 
 /**
  * 一个实例上留着数据的字段 id：剧情变更的补丁指过的（初值里的键由 `declareField` 自己看）。生成新 id 时避开，同 `usedElementIds`。
- * 一批里按条目与命名空间各扫一次（`Draft.patched`），同一组上加几项不重复扫全部补丁。
+ * 一批里按条目与命名空间各扫一次（`Draft.patched`），同一个模块上加几项不重复扫全部补丁。
  */
 function patchedFieldIds(world: World, draft: Draft, entryId: string, namespace: string): ReadonlySet<string> {
     const key = `${entryId}/${namespace}`;
@@ -477,7 +477,7 @@ function patchedFieldIds(world: World, draft: Draft, entryId: string, namespace:
     return used;
 }
 
-/** 字段声明的操作指到的实例：条目上有这一组、没去掉，类型登记着。 */
+/** 字段声明的操作指到的实例：条目上有这个模块、没去掉，类型登记着。 */
 function instanceOf(world: World, entry: Entry, namespace: string): {readonly type: ComponentType; readonly data: NamespaceData} | FieldProblem {
     const data = entry.init.data[namespace];
     if (data === undefined || data.removed === true) return {code: "element-missing", message: "the component is not on this entry"};
@@ -825,7 +825,7 @@ export function planEntries(world: World, raw: EntryEdits): EntryPlanned {
                         draft.fresh.add(`${op.entry}/${built.namespace}`);
                         for (const made of built.declaredIds) targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: `${base}.declared[${made}]`, under: true});
                     }
-                    // 这一组上的问题（类型不允许实例字段、初值不合声明）都对回这一项。
+                    // 这个模块上的问题（类型不允许实例字段、初值不合声明）都对回这一项。
                     targets.push({op: index, ref: {kind: "entry", id: op.entry}, path: base, under: true});
                 }
                 routes.push({kind: "entry"});

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * “添加一组设定”的对话框（同名 .md，docs/specs/canon/author-ui.md 输出 38）：`ComponentChecklist` 加页脚。受控：开关、列哪些、
- * 写入在途与失败都由宿主给；勾着的几组是自己的，每次打开清空。
+ * “添加模块”的对话框（同名 .md，docs/specs/canon/author-ui.md 输出 38）：`ComponentChecklist` 加页脚。受控：开关、列哪些、
+ * 写入在途与失败都由宿主给；勾着的几个模块是自己的，每次打开清空。
  */
 import {computed, shallowRef, watch} from "vue";
 
@@ -34,7 +34,7 @@ const checked = shallowRef<readonly string[]>([]);
 watch(() => props.open, (open) => {
     if (open) checked.value = [];
 });
-// 开着的时候别处加上了勾着的一组（加的失败多半就是这个）：重读回来它成了已添加的，从勾选里去掉，再点“添加”不再撞同一处。
+// 开着的时候别处加上了勾着的一个模块（加的失败多半就是这个）：重读回来它成了已添加的，从勾选里去掉，再点“添加”不再撞同一处。
 watch(() => props.items, (items) => {
     const present = new Set(items.filter((item) => item.present).map((item) => item.value));
     if (checked.value.some((type) => present.has(type))) checked.value = checked.value.filter((type) => !present.has(type));

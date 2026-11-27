@@ -94,7 +94,7 @@ export const ComponentDeclarationSchema = Type.Object({
     version: Type.Optional(Type.Integer({minimum: 1})),
     fields: Type.Optional(Type.Array(FieldDeclarationSchema)),
     instanceFields: Type.Optional(Type.Boolean()),
-    /** 这组设定适用的条目种类（条目的 `type`）；只是提示，不限制它加在哪种条目上（components.md 输出 24）。 */
+    /** 这个模块适用的条目种类（条目的 `type`）；只是提示，不限制它加在哪种条目上（components.md 输出 24）。 */
     kinds: Type.Optional(Type.Array(Text)),
     /** 给“添加一项”用的预设字段声明；只在 `instanceFields` 为真时可写（components.md 输出 24）。 */
     presets: Type.Optional(Type.Array(FieldDeclarationSchema)),

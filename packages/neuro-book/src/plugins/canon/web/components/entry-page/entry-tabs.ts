@@ -6,21 +6,21 @@ import type {ComponentViewRegistry} from "../../component-views";
 export interface EntryTab {
     readonly value: string;
     readonly label: string;
-    /** lucide 图标的类名；设定组没声明时宿主给缺省的 `i-lucide-layers`。 */
+    /** lucide 图标的类名；模块没声明时宿主给缺省的 `i-lucide-layers`。 */
     readonly iconClass: string;
     /** 分页名后写的条数；没有或为 0 时不写。 */
     readonly count?: number;
-    /** `own`：设定组与文字（可加可去的那一段）；`view`：不对应设定组的看法（附加分页与“情节”）。 */
+    /** `own`：模块与文字（可加可去的那一段）；`view`：不对应模块的看法（附加分页与“情节”）。 */
     readonly segment: "own" | "view";
-    /** 这一页是一组设定、可以去掉（右键菜单里有“去掉这组设定”）。 */
+    /** 这一页是一个模块、可以去掉（右键菜单里有“去掉这个模块”）。 */
     readonly removable?: boolean;
     /** 这一页能换着看（用户视图、AI视图、原始视图，输出 54）：选中时分页上有箭头、再点开看法菜单（输出 9）。 */
     readonly looks?: boolean;
 }
 
-/** 设定组没声明图标时用的。 */
+/** 模块没声明图标时用的。 */
 export const GROUP_ICON = "i-lucide-layers";
-/** 设定组类型的图标：它的视图声明里写的，没写时是 `GROUP_ICON`。分页、加设定组与新建条目的勾选列表共用。 */
+/** 模块类型的图标：它的视图声明里写的，没写时是 `GROUP_ICON`。分页、加模块与新建条目的勾选列表共用。 */
 export const componentIcon = (views: ComponentViewRegistry, type: string): string => views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
 export const TEXT_ICON = "i-lucide-file-text";
 export const PLOT_ICON = "i-lucide-git-commit-horizontal";

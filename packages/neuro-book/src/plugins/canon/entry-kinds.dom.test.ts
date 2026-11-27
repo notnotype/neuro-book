@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 describe("条目种类的登记", () => {
-    it("同一个词的几条登记：默认组内置的在前（别的插件的贡献 id 排在内置前面时也是）、并起来去重，先后取最小的；没登记的种类没有默认", () => {
+    it("同一个词的几条登记：默认模块内置的在前（别的插件的贡献 id 排在内置前面时也是）、并起来去重，先后取最小的；没登记的种类没有默认", () => {
         // `declarations.list` 按贡献 id 排：“acme.” 的排在 “nbook.canon.” 前面。
         const kinds = mergeEntryKinds([
             {id: "acme.magic.wand", declaration: {kind: "人物", components: ["nbook.canon.look", "x.magic"], order: 9}},
@@ -50,7 +50,7 @@ describe("条目种类的登记", () => {
         expect(defaultComponents(kinds, "城市", available)).toEqual([]);
     });
 
-    it("有名字的预设：同一个 id 的几条登记并起来（内置的在前、去重），显示名取先写的；先后按第一次出现；写到不可用的类型当作没写，没有显示名或一组能用的也没有的不给", () => {
+    it("有名字的模板：同一个 id 的几条登记并起来（内置的在前、去重），显示名取先写的；先后按第一次出现；写到不可用的类型当作没写，没有显示名或一个能用的也没有的不给", () => {
         const descriptors = [
             // 按贡献 id 排在内置前面的别的插件：往“主要角色”里追加，另给一种自己的；显示名写得与内置的不同。
             {id: "acme.magic.person", declaration: {kind: "人物", presets: [{id: "main", label: "主角", components: ["nbook.canon.panel", "x.magic"]}, {id: "acme", label: "魔法使", components: ["x.magic"]}, {id: "nameless", components: ["nbook.canon.person"]}]}},
@@ -66,7 +66,7 @@ describe("条目种类的登记", () => {
             {id: "acme", label: "魔法使", components: ["x.magic"]},
             {id: "nameless", components: ["nbook.canon.person"]},
         ]);
-        // 默认组不受预设影响。
+        // 默认模块不受模板影响。
         expect(defaultComponents(kinds, "人物", new Set(["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel"]))).toEqual(["nbook.canon.person", "nbook.canon.look"]);
         const available = new Set(["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing"]);
         expect(kindPresets(kinds, "人物", available)).toEqual([
@@ -78,7 +78,7 @@ describe("条目种类的登记", () => {
             {kind: "人物", preset: "main", problem: "missing-component", type: "x.magic"},
             {kind: "人物", preset: "main", problem: "missing-component", type: "nbook.plot.attitude"},
             {kind: "人物", preset: "main", problem: "label-conflict"},
-            // 一组能用的也没有：整个不列，报一条，不再逐个报类型。
+            // 一个能用的也没有：整个不列，报一条，不再逐个报类型。
             {kind: "人物", preset: "acme", problem: "nothing-usable"},
             {kind: "人物", preset: "nameless", problem: "no-label"},
         ]);
@@ -92,7 +92,7 @@ describe("条目种类的登记", () => {
         expect(main).toEqual({id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]});
     });
 
-    it("预设的形状：显示名与 id 要有字、至少勾一组、一条登记至多 20 种、不收多余的字段", () => {
+    it("模板的形状：显示名与 id 要有字、至少勾一个模块、一条登记至多 20 种、不收多余的字段", () => {
         const preset = {id: "p", label: "某", components: ["a"]};
         expect(Value.Check(EntryKindDeclarationSchema, {kind: "k", presets: [preset]})).toBe(true);
         const bad: unknown[] = [
@@ -107,7 +107,7 @@ describe("条目种类的登记", () => {
         expect(bad.map((declaration) => Value.Check(EntryKindDeclarationSchema, declaration))).toEqual(bad.map(() => false));
     });
 
-    it("默认里写到没登记的类型、预设的四种问题：项目实例各写一条诊断", async () => {
+    it("默认里写到没登记的类型、模板的四种问题：项目实例各写一条诊断", async () => {
         const held: {diagnostics: DiagnosticsService | null} = {diagnostics: null};
         const magic: PluginDefinition = {
             id: "x.test",
@@ -131,10 +131,10 @@ describe("条目种类的登记", () => {
         const records = () => held.diagnostics?.query({event: "canon.entry-kinds.missing-component"}).records ?? [];
         await waitUntil("写了诊断", () => records().length > 0);
         expect(records().map((record) => record.data)).toEqual([{kind: "法器", type: "x.test.missing"}]);
-        // 预设的问题另记一种，不与默认组的那条合并。
+        // 模板的问题另记一种，不与默认模块的那条合并。
         const presets = () => held.diagnostics?.query({event: "canon.entry-kinds.preset-problem"}).records ?? [];
-        await waitUntil("预设的诊断", () => presets().length > 0);
-        await waitUntil("预设的四种诊断", () => presets().length >= 4);
+        await waitUntil("模板的诊断", () => presets().length > 0);
+        await waitUntil("模板的四种诊断", () => presets().length >= 4);
         expect(presets().map((record) => record.data)).toEqual(expect.arrayContaining([
             {kind: "法器", preset: "full", problem: "missing-component", type: "x.test.missing"},
             {kind: "法器", preset: "gone", problem: "nothing-usable"},

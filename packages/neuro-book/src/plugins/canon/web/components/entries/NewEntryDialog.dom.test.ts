@@ -1,6 +1,6 @@
 /**
  * NewEntryDialog（同名 .md，docs/specs/canon/author-ui.md 输出 4）：名字为空时“新建”不可用；改字段发新的完整草稿；分组跟着
- * 种类，改过分组以后不跟；选定种类时勾上它默认的设定组，动过勾选以后不跟（点预设不算动过）；勾选列表的“适用于”与预设跟着选定的
+ * 种类，改过分组以后不跟；选定种类时勾上它默认的模块，动过勾选以后不跟（点模板不算动过）；勾选列表的“适用于”与模板跟着选定的
  * 种类；选了本体以后上级跟着它；勾选动过又与默认不同时能恢复默认；名字框里回车新建；保存中不能关、按钮不可用。
  */
 
@@ -70,7 +70,7 @@ describe("NewEntryDialog", () => {
         expect(wrapper.emitted("update:draft")?.at(-1)?.[0]).toMatchObject({kind: "人物", folder: "城市", folderTouched: true});
     });
 
-    it("选定种类（点候选、输入框失焦）时勾上它默认的设定组，打字时不勾；动过勾选以后不再跟着种类换", async () => {
+    it("选定种类（点候选、输入框失焦）时勾上它默认的模块，打字时不勾；动过勾选以后不再跟着种类换", async () => {
         const items = [item("t.person", "人物", ["人物"]), item("t.look", "形象", ["人物"]), item("t.panel", "面板")];
         const kindDefaults = {人物: ["t.person", "t.look"]};
         const {wrapper, button, inputs, follow, checked, row} = await choosing({items, kindDefaults});
@@ -101,7 +101,7 @@ describe("NewEntryDialog", () => {
         expect(checked()).toEqual(["人物", "形象", "面板"]);
     });
 
-    it("勾选列表的“适用于”与预设跟着选定的种类换，打字时不换；点预设不算动过勾选，之后换种类照旧换成那个种类的默认；Ctrl 加回车不新建", async () => {
+    it("勾选列表的“适用于”与模板跟着选定的种类换，打字时不换；点模板不算动过勾选，之后换种类照旧换成那个种类的默认；Ctrl 加回车不新建", async () => {
         const items = [item("t.person", "人物", ["人物"]), item("t.look", "形象", ["人物"]), item("t.panel", "面板")];
         const kindPresets = {人物: [{id: "main", label: "主要角色", components: ["t.person", "t.look", "t.panel"]}]};
         const {wrapper, button, inputs, follow, checked, root} = await choosing({items, kindDefaults: {人物: ["t.person"], 地点: []}, kindPresets});
@@ -128,7 +128,7 @@ describe("NewEntryDialog", () => {
         await follow();
         expect(checked()).toEqual(["人物", "形象", "面板"]);
         expect(wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]).toMatchObject({typesTouched: false});
-        // 再选定同一个种类（点它的按钮、种类的输入框失焦）：什么都不换，预设勾上的还在。
+        // 再选定同一个种类（点它的按钮、种类的输入框失焦）：什么都不换，模板勾上的还在。
         const emitted = wrapper.emitted("update:draft")!.length;
         button("人物").click();
         kind.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
@@ -148,7 +148,7 @@ describe("NewEntryDialog", () => {
         expect(wrapper.emitted("confirm")).toBeUndefined();
     });
 
-    it("种类写成 constructor、toString 这类词：没有默认、没有预设，照常选定", async () => {
+    it("种类写成 constructor、toString 这类词：没有默认、没有模板，照常选定", async () => {
         const items = [item("t.person", "人物", ["人物"])];
         const {wrapper, inputs, follow, checked, root} = await choosing({items, kindDefaults: {人物: ["t.person"]}, kindPresets: {人物: [{id: "main", label: "主要角色", components: ["t.person"]}]}});
         const kind = inputs()[1]!;
@@ -191,7 +191,7 @@ describe("NewEntryDialog", () => {
         expect(named.wrapper.emitted("confirm")).toHaveLength(1);
     });
 
-    it("勾选动过、又与选定种类的默认不同时，设定组那一行有“恢复人物的默认”：点了换回默认、之后又跟着种类换；与默认相同时没有", async () => {
+    it("勾选动过、又与选定种类的默认不同时，模块那一行有“恢复人物的默认”：点了换回默认、之后又跟着种类换；与默认相同时没有", async () => {
         const items = [item("t.person", "人物", ["人物"]), item("t.look", "形象", ["人物"]), item("t.panel", "面板")];
         const kindDefaults = {人物: ["t.person", "t.look"]};
         const person = {...emptyDraft(), kind: "人物", kindChosen: "人物", folder: "人物"};
