@@ -12,21 +12,37 @@ import fc from "fast-check";
 import {checkEntryText, parseEntryText} from "@notnotype/nb-canon/grammar";
 import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdown/language";
 
-import {ENTRY_TAG_NODE, entrySyntax} from "./entry-syntax";
+import {Transform} from "@tiptap/pm/transform";
+
+import {conditionCount, documentTags, ENTRY_IF_NODE, entrySyntax} from "./entry-syntax";
+import type {EntryIfBranch} from "./entry-syntax";
 
 const language = createMarkdownLanguage([entrySyntax, coreSyntax], {frontmatter: false});
 const schema = getSchema([...language.extensions]);
 const codec = codecFor(schema, language);
 
-/** 文档里的条目节点（按文档顺序）与原样节点的个数。 */
+/** 文档里的活标签（条件展开）与原样节点的个数。 */
 function nodesOf(doc: PMNode): {tags: string[]; raw: number} {
-    const tags: string[] = [];
     let raw = 0;
     doc.descendants((node) => {
-        if (node.type.name === ENTRY_TAG_NODE) tags.push(node.attrs.source as string);
         if (node.type.name === "rawBlock" || node.type.name === "rawInline") raw += 1;
     });
-    return {tags, raw};
+    return {tags: documentTags(doc), raw};
+}
+
+/** 内核读出的配好对的条件个数。 */
+function kernelConditions(source: string): number {
+    let count = 0;
+    const walk = (tokens: ReadonlyArray<Record<string, unknown>>): void => {
+        for (const token of tokens) {
+            if (token.type === "entryIf") count += 1;
+            for (const key of ["tokens", "items"]) if (Array.isArray(token[key])) walk(token[key] as never);
+            for (const row of [(token.header as unknown[] | undefined) ?? [], ...((token.rows as unknown[][] | undefined) ?? [])]) for (const cell of row as Array<{tokens: never}>) walk(cell.tokens);
+            for (const branch of (token.branches as Array<{tokens: never}> | undefined) ?? []) walk(branch.tokens);
+        }
+    };
+    walk(parseEntryText(source).tokens as never);
+    return count;
 }
 
 const liveOf = (source: string): string[] => parseEntryText(source).tags.filter((tag) => tag.place === "live").map((tag) => source.slice(tag.start, tag.end));
@@ -40,6 +56,8 @@ function roundTrip(source: string) {
     if (!kept.ok || !rewritten.ok) throw new Error(`write failed for ${JSON.stringify(source)}`);
     // 整篇重写以后读回来的文字与原来的相同（字面的标签、转义与表格里的 `|` 都不能变）。
     expect(codec.read(rewritten.text).doc.textContent).toBe(read.doc.textContent);
+    // 编辑器合成的条件与内核配好对的条件一样多（进编辑时的运行时比较就是这一条）。
+    expect(conditionCount(read.doc)).toBe(kernelConditions(source));
     return {nodes: nodesOf(read.doc), kept: kept.text, rewritten: rewritten.text};
 }
 
@@ -115,5 +133,62 @@ describe("编辑器与内核读法一致（输出 21）", () => {
             }),
             {numRuns: 300},
         );
+        // 300 次读写各一遍：负载高时会超过缺省的 5 秒。
+    }, 30_000);
+});
+
+describe("条件合成一个节点（输出 17；w00055 t03 S1 的探针）", () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+        ["段落", '魔力 <V of="panel.魔力" />。<If test="panel.魔力 >= 1000">还能变身。<Else />魔力不够。</If>后面'],
+        ["ElseIf 与各支里的强调、代码、链接、取值、引用", '<If test="panel.a > 1">**强** `码` [链](u) <V of="panel.b" /><ElseIf test="panel.a > 0" />*斜* <Ref id="e2" /><Else /></If>'],
+        ["列表项与引用", '- 项 <If test="panel.a">有<Else />无</If>\n  续\n\n> 引 <If test="panel.a">甲</If>'],
+        ["标题", '# 标题 <If test="panel.a">甲<Else />乙</If>'],
+        ["表格单元格里带 \\| 的支", '| 条件 | 值 |\n|---|---|\n| <If test="panel.a || panel.b">甲 \\| 乙<Else />丙</If> | <V of="panel.c" /> |'],
+        ["一段里两个条件", '<If test="panel.a">一</If>与<If test="panel.b">二<Else />三</If>'],
+        ["支两头有空格、以 - 或 # 开头", '前<If test="panel.a"> - 甲 <Else /># 乙</If>后'],
+        ["整个条件包在加粗里", '前**<If test="panel.a">甲<Else />乙</If>**后'],
+    ];
+    for (const [name, source] of cases) {
+        it(name, () => {
+            expect(problemsOf(source)).toEqual([]);
+            const read = codec.read(source);
+            expect(read.problems).toEqual([]);
+            const conditions: Array<{node: PMNode; at: number}> = [];
+            read.doc.descendants((node, at) => {
+                if (node.type.name === ENTRY_IF_NODE) conditions.push({node, at});
+            });
+            expect(conditions.length).toBe(kernelConditions(source));
+            const kept = codec.write(read.doc, read.map);
+            expect(kept.ok && kept.text).toBe(source);
+            // 改第一个条件的第一支（含表格里要转义的 `|` 与 `*`）：写得出、过内核检查、读回来是同样的字。
+            const {node, at} = conditions[0]!;
+            const branches = (node.attrs.branches as EntryIfBranch[]).map((branch, index) => (index === 0 ? {...branch, content: [{type: "text", text: "甲 | *乙*"}]} : branch));
+            const edited = codec.write(new Transform(read.doc).setNodeMarkup(at, undefined, {...node.attrs, branches}).doc, read.map);
+            if (!edited.ok) throw new Error(`改了一支写不出：${name}`);
+            expect([problemsOf(edited.text), kernelConditions(edited.text)]).toEqual([[], conditions.length]);
+            let reread: PMNode | null = null;
+            codec.read(edited.text).doc.descendants((child) => {
+                if (reread === null && child.type.name === ENTRY_IF_NODE) reread = child;
+            });
+            expect(JSON.stringify(((reread as PMNode | null)?.attrs.branches as EntryIfBranch[] | undefined)?.[0]?.content)).toBe(JSON.stringify([{type: "text", text: "甲 | *乙*"}]));
+        });
+    }
+
+    it("套着的、没闭上的条件：内核拒收，富文本不打开（没闭上的不合成）", () => {
+        for (const source of ['<If test="panel.a">甲<If test="panel.b">乙</If></If>', '<If test="panel.a">甲']) expect(problemsOf(source)).not.toEqual([]);
+        expect(conditionCount(codec.read('<If test="panel.a">甲').doc)).toBe(0);
+    });
+
+    it("条件在富文本里复制粘贴：剪贴板里的整段属性读回同样的条件", () => {
+        const read = codec.read('<If test="panel.a">**甲**<Else />乙</If>');
+        let condition: PMNode | null = null;
+        read.doc.descendants((node) => {
+            if (condition === null && node.type.name === ENTRY_IF_NODE) condition = node;
+        });
+        const spec = schema.nodes[ENTRY_IF_NODE]!.spec;
+        const rendered = spec.toDOM!(condition!) as unknown as [string, Record<string, string>];
+        const element = {getAttribute: (name: string) => rendered[1][name] ?? null} as unknown as HTMLElement;
+        const parsed = (spec.parseDOM![0]!.getAttrs as (element: HTMLElement) => Record<string, unknown>)(element);
+        expect(parsed).toEqual((condition as PMNode | null)?.attrs as Record<string, unknown>);
     });
 });

@@ -8,13 +8,13 @@
 import {
     BUILTIN_TAGS,
     canonicalEntryText,
+    canonicalTag,
     checkEntryText,
     normalizeEntrySource,
     parseAddress,
     parseEntryText,
     parseExpression,
     positionOf,
-    tagText,
     type CheckProblem,
     type EntryIfToken,
     type EntryTag,
@@ -72,7 +72,6 @@ function syntaxProblem(source: string, problem: CheckProblem): SyntaxProblem {
 }
 
 /** 规范写法的一个标签（输出 18、19：没登记的标签按它与条目里已有的比）。 */
-export const canonicalTag = (tag: EntryTag): string => tagText(tag.name, tag.attributes.map((attribute) => [attribute.name, attribute.value] as const), tag.kind === "close" ? "close" : tag.kind === "open" ? "open" : "self");
 
 const attribute = (tag: EntryTag, name: string): string | undefined => tag.attributes.find((candidate) => candidate.name === name)?.value;
 

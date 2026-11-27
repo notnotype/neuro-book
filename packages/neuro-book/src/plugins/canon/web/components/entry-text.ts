@@ -5,6 +5,7 @@
 
 import type {AuthorValue} from "@notnotype/nb-canon";
 import {MAX_NESTING_DEPTH, nestingDepth, parseEntryText} from "@notnotype/nb-canon/grammar";
+import type {ParsedEntryText} from "@notnotype/nb-canon/grammar";
 
 /** 值表的一项（nb-canon 的 `AuthorValue`）。 */
 export type EntryTextValue = AuthorValue;
@@ -43,7 +44,7 @@ export interface LaidOutBlock {
 }
 
 /** 值表里有项的标签：`V`、`If`、`ElseIf`、`Ref`、`Image` 与没登记的；`Else`、闭标签、写坏的、字面的没有。 */
-const hasItem = (name: string, kind: string): boolean => kind !== "close" && kind !== "malformed" && name !== "Else";
+export const hasItem = (name: string, kind: string): boolean => kind !== "close" && kind !== "malformed" && name !== "Else";
 
 /** 块一级、带行号的单元（编辑时的预览跟着光标滚到对应的段落，canon.author-ui 输出 48）。 */
 const LINED = new Set(["paragraph", "heading", "list_item", "blockquote", "code", "hr", "table"]);
@@ -72,6 +73,17 @@ export function layoutBlock(source: string, values: readonly EntryTextValue[]): 
         throw error;
     }
     if (nestingDepth(parsed.tokens) > MAX_NESTING_DEPTH) return {mismatch: `nested more than ${String(MAX_NESTING_DEPTH)} levels deep`};
+    const owned = pairValues(parsed, values);
+    if ("mismatch" in owned) return owned;
+    const tokens = parsed.tokens as unknown as readonly EntryTextToken[];
+    return {tokens, valueOf: (tag) => owned.get(tag), lineOf: linesOf(source, tokens), pressable: pressableIn(tokens, owned)};
+}
+
+/**
+ * 按标签名与起点把值表的每一项对回活的标签（canon.rendering 输出 7）：交回“标签序号 → 值”。每一项都要对上一个活的标签，每个该有项的
+ * 活标签也要有一项；有一处对不上就交回原因，不按位置猜。阅读视图与富文本编辑器（`entry-values.ts`）共用。
+ */
+export function pairValues(parsed: ParsedEntryText, values: readonly EntryTextValue[]): Map<number, EntryTextValue> | {readonly mismatch: string} {
     const byStart = new Map(values.map((value) => [`${value.tag}@${String(value.start)}`, value]));
     const owned = new Map<number, EntryTextValue>();
     for (const [index, tag] of parsed.tags.entries()) {
@@ -81,8 +93,7 @@ export function layoutBlock(source: string, values: readonly EntryTextValue[]): 
         owned.set(index, value);
     }
     if (owned.size !== values.length) return {mismatch: `${String(values.length - owned.size)} values match no tag`};
-    const tokens = parsed.tokens as unknown as readonly EntryTextToken[];
-    return {tokens, valueOf: (tag) => owned.get(tag), lineOf: linesOf(source, tokens), pressable: pressableIn(tokens, owned)};
+    return owned;
 }
 
 /**
