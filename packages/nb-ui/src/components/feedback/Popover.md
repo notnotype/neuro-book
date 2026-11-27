@@ -54,6 +54,8 @@ interface PopoverProps {
     reference?: PopoverReference | null;
     /** 避让时以哪块元素为界；缺省 null（视口）。只在 `avoidCollisions` 时起作用。 */
     collisionBoundary?: Element | readonly Element[] | null;
+    /** 面板的可读名字：面板的角色是对话框，名字写在它自己身上读屏才读得到（写在里面的元素上读不到）；默认不给。 */
+    label?: string;
 }
 
 interface PopoverReference {

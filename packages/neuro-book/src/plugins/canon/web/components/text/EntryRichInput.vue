@@ -279,17 +279,21 @@ function closeChip(discard: boolean): void {
 }
 
 /**
- * 焦点回编辑器，`select` 时 `pos` 处的小块是节点选区（改已有小块时 Esc、应用之后）；新插的按 Esc 取消时不选：插入点后面紧挨着的
- * 别的小块会被选中，接着打的字把它换掉。原语在浮层卸下时把焦点还给锚点（小块不能聚焦，落到 body），那一步排在卸下以后的定时器
- * 里：等这一轮更新做完、再等一个定时器，排在它后面。
+ * 焦点回编辑器，光标放在哪看 `place`：`select` 是 `pos` 处的小块成为节点选区（改已有小块时 Esc、应用之后）；`after` 是光标在它
+ * 后面（新插的应用之后：作者接着往下打，选中的话打的字会把它换掉）；`keep` 不动（新插的按 Esc 取消：插入点后面紧挨着的别的小块
+ * 不该被选中）。原语在浮层卸下时把焦点还给锚点（小块不能聚焦，落到 body），那一步排在卸下以后的定时器里：等这一轮更新做完、再等
+ * 一个定时器，排在它后面。
  */
-function focusChip(pos: number, select = true): void {
+function focusChip(pos: number, place: "select" | "after" | "keep" = "select"): void {
     void nextTick(() =>
         setTimeout(() => {
             if (editor === null) return;
             const {state} = editor.view;
             const node = state.doc.nodeAt(pos);
-            if (select && node !== null && isChip(node)) editor.view.dispatch(state.tr.setSelection(NodeSelection.create(state.doc, pos)));
+            if (place !== "keep" && node !== null && isChip(node)) {
+                const selection = place === "select" ? NodeSelection.create(state.doc, pos) : TextSelection.create(state.doc, pos + node.nodeSize);
+                editor.view.dispatch(state.tr.setSelection(selection));
+            }
             editor.view.focus();
         }, 0),
     );
@@ -299,7 +303,7 @@ function onPopoverOpen(open: boolean): void {
     if (open) return;
     const current = editing.value;
     closeChip(false);
-    if (current !== null && closedByEscape) focusChip(current.at.from, current.node !== null);
+    if (current !== null && closedByEscape) focusChip(current.at.from, current.node === null ? "keep" : "select");
     closedByEscape = false;
 }
 
@@ -347,7 +351,7 @@ async function applyChip(): Promise<void> {
     }
     closeChip(false);
     editor?.view.dispatch(change);
-    focusChip(at.from);
+    focusChip(at.from, current.node === null ? "after" : "select");
 }
 
 function removeChip(): void {
@@ -493,6 +497,9 @@ function choose(id: string): void {
         return;
     }
     menu.value = null;
+    // 新插的：光标落在它后面，接着往下打（选中它的话打的字会把它换掉）；“换一个”换掉的仍选中，同改小块之后。
+    const inserted = change.doc.nodeAt(current.at.from);
+    if (current.replacing === null && inserted !== null) change.setSelection(TextSelection.create(change.doc, current.at.from + inserted.nodeSize));
     editor.view.dispatch(change);
     editor.view.focus();
 }
@@ -879,6 +886,7 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
             :open="editing !== null"
             :anchor="shown?.anchor ?? null"
             :reference="shown?.reference ?? null"
+            :label="editingTitle"
             side="bottom"
             align="start"
             @update:open="onPopoverOpen"
@@ -886,7 +894,6 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
             <form
                 v-if="shown !== null"
                 class="entry-chip-pop__body"
-                :aria-label="editingTitle"
                 :data-chip-popover="shown.draft.kind === 'other' ? (shown.model?.kind ?? 'raw') : shown.draft.kind"
                 @submit.prevent="applyChip"
                 @keydown.esc="markEscape"

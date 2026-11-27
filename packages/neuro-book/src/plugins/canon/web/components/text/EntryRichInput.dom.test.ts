@@ -445,6 +445,11 @@ describe("插入小块：{ 与 @（canon/author-ui.md 输出 48）", () => {
         expect(emitted(wrapper).at(-1)).toBe('甲<V of="panel.魔力" />');
         expect(chips(wrapper, "value")[0]!.textContent?.trim()).toBe("1,200");
         expect(options()).toEqual([]);
+        // 光标在新小块后面：接着打的字接在后面，不把它换掉（同打字：替换选区）。
+        const editor = editorOf(wrapper);
+        editor.view.dispatch(editor.state.tr.insertText("乙"));
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe('甲<V of="panel.魔力" />乙');
     });
 
     it("{ 后按 Esc：列表关上，补回一个 {", async () => {
@@ -475,6 +480,13 @@ describe("插入小块：{ 与 @（canon/author-ui.md 输出 48）", () => {
         type(field("expr"), "panel.魔力 + 1");
         action("apply").click();
         await vi.waitFor(() => expect(emitted(wrapper).at(-1)).toBe('甲<V expr="panel.魔力 + 1" />'));
+        // 应用以后焦点回编辑区、光标在新小块后面（排在原语还焦点之后的那个定时器里）。
+        await vi.waitFor(() => expect(document.activeElement).toBe(prose(wrapper)));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const editor = editorOf(wrapper);
+        editor.view.dispatch(editor.state.tr.insertText("乙"));
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe('甲<V expr="panel.魔力 + 1" />乙');
     });
 
     it("@ 打开条目列表：按搜索词找，选了插入条目引用；没有找条目的入口时 @ 照字打", async () => {

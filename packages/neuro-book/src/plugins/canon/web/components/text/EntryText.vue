@@ -298,12 +298,18 @@ const markEscape = (): void => {
         <section v-for="block in props.blocks" :key="block.id" class="entry-text__block">
             <Block :block="block" />
         </section>
-        <Popover :open="anchor !== null && !collapsed" :anchor="held" :side="side" align="start" @update:open="onPopover">
+        <Popover
+            :open="anchor !== null && !collapsed"
+            :anchor="held"
+            :side="side"
+            align="start"
+            :label="held === null ? undefined : text('origin.dialog', {label: held.dataset.label ?? ''})"
+            @update:open="onPopover"
+        >
             <section
                 v-if="held !== null && heldAddress !== null"
                 class="entry-text__origin"
                 tabindex="0"
-                :aria-label="text('origin.dialog', {label: held.dataset.label ?? ''})"
                 data-origin-popover
                 @keydown.esc="markEscape"
             >

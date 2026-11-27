@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<{
      * 避让时以哪块区域为界（缺省是视口）：浮层不越出这块元素，例如编辑区里的浮层不盖到侧栏上。只在 `avoidCollisions` 时起作用。
      */
     collisionBoundary?: Element | readonly Element[] | null;
+    /** 面板（读屏当作对话框）的可读名字。默认不给。 */
+    label?: string;
 }>(), {
     open: undefined,
     defaultOpen: false,
@@ -56,6 +58,7 @@ const props = withDefaults(defineProps<{
     anchor: undefined,
     reference: null,
     collisionBoundary: null,
+    label: undefined,
 });
 
 /** reka 要的是可变的数组；这里给它一份。 */
@@ -107,6 +110,7 @@ function onCloseAutoFocus(event: Event): void {
                 :avoid-collisions="props.avoidCollisions"
                 :collision-boundary="boundary"
                 :reference="props.reference ?? props.anchor ?? undefined"
+                :aria-label="props.label"
                 :style="{
                     zIndex: popoverZIndex,
                 }"

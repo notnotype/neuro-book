@@ -80,7 +80,7 @@ describe("EntryText", () => {
         await flushPromises();
         await vi.waitFor(() => expect(document.body.querySelector("[data-origin-popover]")).not.toBeNull());
         expect(document.body.querySelector("[data-origin-popover] [data-slot]")?.textContent).toBe("来历 e1 panel.存款");
-        expect(document.body.querySelector("[data-origin-popover]")?.getAttribute("aria-label")).toBe("存款的来历");
+        expect(document.body.querySelector("[data-origin-popover]")?.closest("[role='dialog']")?.getAttribute("aria-label")).toBe("存款的来历");
         // 打开时焦点进浮层（读屏读出它的名字）。
         await vi.waitFor(() => expect(document.activeElement?.closest("[data-origin-popover]")).not.toBeNull());
         expect(wrapper.findAll("[data-value]").map((item) => item.attributes("aria-expanded"))).toEqual(["false", "true"]);
