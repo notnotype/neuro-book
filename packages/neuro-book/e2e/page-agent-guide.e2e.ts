@@ -7,7 +7,7 @@
  * 就让代码先轮询窗口标题等一个暗号（`GATE`），用例设了标题，高亮才开始。
  */
 
-import {readFile, readdir, writeFile} from "node:fs/promises";
+import {readFile, readdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
@@ -624,16 +624,13 @@ test("Profile 设置页输出 28：Profile 的工具里没有 eval 时 ui 这一
 });
 
 test("Profile 设置页输出 29：声明了 defaultTools: false 的 Profile 本来没有 ui，行不列；对话框里加入时写 objects.added", async ({page}) => {
+    // 内置的临时帮手声明了 defaultTools: false（用户级 Profile 没有这个声明）。
     const world = await lab.startWorld("profile-no-default-tools");
     await openProfiles(page, world);
-    await page.locator("[data-profile-create]").click();
-    await page.locator("[data-profile-new] input").fill("bare");
-    await page.getByRole("button", {name: "新建并打开"}).click();
-    await expect(page.locator("[data-profile-detail='user.bare']")).toBeVisible();
-    const file = join(world.stateRoot, "user", "profiles", "bare.profile.tsx");
-    await writeFile(file, (await readFile(file, "utf8")).replace("tools: {", "defaultTools: false,\n    tools: {").replace("我写的 Profile。", "标记已重载。"));
-    // 先等页面读到新文件（描述变了），再看工具一节。
-    await expect(page.locator("[data-profile-detail='user.bare']")).toContainText("标记已重载");
+    await page.locator("[data-profile-rail-item='nbook.agent.adhoc']").click();
+    await expect(page.locator("[data-profile-detail='nbook.agent.adhoc']")).toBeVisible();
+    // 对照：这一节确实列着它的工具，“没有 ui 行”不是整节没画出来。
+    await expect(page.locator("[data-profile-tool='nbook.agent.read']")).toHaveCount(1);
     const row = page.locator("[data-profile-tool-object='ui']");
     await expect(row).toHaveCount(0);
     await page.locator("[data-profile-tools-add]").first().click();
@@ -641,7 +638,7 @@ test("Profile 设置页输出 29：声明了 defaultTools: false 的 Profile 本
     await dialog.locator("[data-add-tool='object:ui'] [data-add-tool-toggle]").click();
     await dialog.getByRole("button", {name: "完成"}).click();
     await expect(row).toHaveCount(1);
-    await expect.poll(async () => (await bindingsOf(world))["user.bare"]?.objects).toEqual({added: ["ui"]});
+    await expect.poll(async () => (await bindingsOf(world))["nbook.agent.adhoc"]?.objects).toEqual({added: ["ui"], removed: []});
 });
 
 test("Profile 设置页输出 29：动对象行时，这个对象的方法在 removed 里的旧条目一并删掉", async ({page}) => {

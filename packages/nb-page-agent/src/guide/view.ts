@@ -84,6 +84,18 @@ function saveFocus(document: Document): SavedFocus {
 }
 
 /**
+ * 选区落在一个可编辑区域里，而焦点不在这个区域上（例如焦点在下拉的一项上，选区还留在对话输入框里）。Chrome 把选区放进可编辑
+ * 区域时会把焦点一并移过去，焦点就离开了原来的元素，弹层还可能因为焦点离开而关掉；所以这样的选区不放回去，那里的光标等它下次
+ * 聚焦时再定。
+ */
+function inOtherEditable(range: Range, focused: Element | null): boolean {
+    const node = range.commonAncestorContainer;
+    const element = node instanceof Element ? node : node.parentElement;
+    if (!(element instanceof HTMLElement) || !element.isContentEditable) return false;
+    return focused === null || !focused.contains(element);
+}
+
+/**
  * 焦点还给原来的元素，文档选区按原样放回去。输入框与文本框自己记着选区，聚焦即恢复；再放文档选区会冲掉它们自己的，所以不放。
  */
 function restoreFocus(document: Document, saved: SavedFocus): void {
@@ -98,7 +110,7 @@ function restoreFocus(document: Document, saved: SavedFocus): void {
     const selection = document.getSelection();
     if (ownSelection || selection === null) return;
     selection.removeAllRanges();
-    for (const range of saved.ranges) selection.addRange(range);
+    for (const range of saved.ranges) if (!inOtherEditable(range, element)) selection.addRange(range);
 }
 
 export class GuideView {
