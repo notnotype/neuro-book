@@ -650,7 +650,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
 
     /** 停在等密码的地方时发 `signal`；之后用同一个用户名再建一次，看前一次有没有留下账号。 */
     async function interruptAtPassword(dataDir: string, username: string, signal: NodeJS.Signals) {
-        const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
+        const child = await sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
         // 被测程序等密码时在标准错误写一行提示；Spec 没规定提示，这里只等“写了一行”，用它确认已经停在读标准输入的地方（迁移做完、
         // 参数校验过了）。没有提示的实现会在这里超时。
         await child.waitForStderr("the password prompt", (line) => line !== "");
@@ -672,7 +672,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         const release = holdWriteLock(dataDir, "identity");
         let result: CommandResult;
         try {
-            const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
+            const child = await sandbox.spawnWithOpenStdin("create-admin", {dataDir, args: [username]});
             await child.waitForStderr("the password prompt", (line) => line !== "");
             await child.write(`${PASSWORDS.interruptedLocked}\n`);
             await child.closeStdin();
@@ -732,7 +732,7 @@ describe("创建管理员（输出 5，失败码 invalid_argument、email_taken�
         const newPasswordAfterReset = await login(site.url, "admin", PASSWORDS.runningReset, {from: from(), jar});
 
         // 重置停在等密码的地方被 SIGTERM 打断：密码还是上一次重置的那个。
-        const child = sandbox.spawnWithOpenStdin("create-admin", {dataDir: running, args: ["admin"]});
+        const child = await sandbox.spawnWithOpenStdin("create-admin", {dataDir: running, args: ["admin"]});
         await child.waitForStderr("the password prompt", (line) => line !== "");
         await child.write(`${PASSWORDS.interruptedReset}\n`);
         child.kill("SIGTERM");

@@ -8,8 +8,8 @@
  *
  * 重置密码成功后同一个对话框换成新密码与复制按钮（输出 4：新密码只出现这一次），正文与底栏的按钮都用 nb-ui 的换内容过渡
  * （`nb-ui-switch`）。这时点遮罩、按 Esc 都不关，只有“完成”关：免得一下误点误按就再也看不到；
- * 关掉以后、内容卸载完（`closed`）才丢掉密码：在淡出的那一下就丢的话，对话框关到一半会变回确认的样子。再打开时是确认的那一步，
- * 页面上任何地方都不再有那个密码。
+ * 关掉以后、内容卸载完（`closed`）才丢掉密码：在淡出的那一下就丢的话，对话框关到一半会变回确认的样子。淡出到一半又打开时
+ * `closed` 不发，所以打开时也丢一次。再打开时是确认的那一步，页面上任何地方都不再有那个密码。
  *
  * `rate_limited` 时状态行倒数，倒数完之前确认不可用；状态行只给不带秒数的那句（`statusSteady`），polite 的 live region 不每秒播报。
  */
@@ -49,11 +49,13 @@ const password = shallowRef<string>();
 const feedback = useFormFeedback<never>(shallowRef(null), clock);
 const {statusSteady} = feedback;
 
-// 每次打开都从确认那一步开始，状态行是空的。
+// 每次打开都从确认那一步开始，状态行是空的。密码在打开时也丢一次：淡出到一半又打开时 `closed` 不发。
 watch(
     () => props.open,
     (open) => {
-        if (open) feedback.reset();
+        if (!open) return;
+        password.value = undefined;
+        feedback.reset();
     },
 );
 

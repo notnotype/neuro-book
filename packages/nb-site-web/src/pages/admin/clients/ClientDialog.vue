@@ -6,7 +6,7 @@
  * - 回调地址写在多行输入框里，一行一个；首尾空白与空行不算。一到五个、每个至多 500 个字符由这里先查（离开时写规则、提交按钮不可用），
  *   按种类的规则（`https`、本机回环等）只有服务端判，不合回 `redirect_uri_invalid`，标红这一项。`validation_failed` 按 `fields` 标红。
  * - 登记成功后同一个对话框换成客户端 id 与密钥（公开客户端只有 id），各带复制，列表由页面重取。密钥只在这一次的回答里（输出 9）：
- *   对话框关掉（淡出结束，`closed`）就丢掉，再打开是空白的表单；显示密钥期间点遮罩、按 Esc 都不关，只有“完成”关，免得没复制就丢了。
+ *   对话框关掉（淡出结束，`closed`）就丢掉，再打开是空白的表单（打开时也丢一次：淡出到一半又打开时 `closed` 不发）；显示密钥期间点遮罩、按 Esc 都不关，只有“完成”关，免得没复制就丢了。
  *   表单换到密钥那一步用 nb-ui 的换内容过渡（`nb-ui-switch`），正文与底栏的按钮一起换。
  * - 改动只发改了的几项；一项都没改时“保存”不可用（合同不收空的改动）。成功后关掉，列表由页面重取。`not_found`（客户端已经不在了）
  *   写状态行并发 `missing`。
@@ -96,11 +96,12 @@ const typeOptions = computed<RadioOption[]>(() =>
     OAUTH_CLIENT_TYPES.map((value) => ({value, label: t(`admin.clients.form.${value}`), description: t(`admin.clients.form.${value}Description`)})),
 );
 
-// 每次打开都从这一次要改的那一项（或空白）开始。
+// 每次打开都从这一次要改的那一项（或空白）开始。上一次的密钥也在这里丢：关到一半又打开时 `closed` 不发。
 watch(
     () => props.open,
     (open) => {
         if (!open) return;
+        created.value = undefined;
         const client = props.client;
         editing.value = client;
         name.value = client?.name ?? "";

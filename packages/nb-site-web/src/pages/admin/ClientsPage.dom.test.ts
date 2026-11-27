@@ -7,10 +7,11 @@
 import {identityPath} from "@notnotype/nb-site-identity-contract/constants";
 import type {CreateOAuthClientRequest, CreateOAuthClientResponse, OAuthClientItem, OAuthClientListResponse, PatchOAuthClientRequest, RotateSecretResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {nextTick} from "vue";
 
 import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, ANCHOR, oauthClient, pageOf} from "../../testing/admin-answers";
-import {cleanUp, clickOverlay, failure, identityUrl, nextTask, pressEscape, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
+import {chooseRightAway, cleanUp, clickOverlay, failure, menuClosed, openMenu, identityUrl, nextTask, pressEscape, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 import adminZhCN from "./locales/zh-CN.json";
 
@@ -77,9 +78,7 @@ function invalidIn(found: HTMLElement): string[] {
 }
 
 async function openRowMenu(harness: Harness, client: OAuthClientItem): Promise<string[]> {
-    const trigger = list(harness).querySelector<HTMLButtonElement>(`[data-site-admin-row-menu="${client.clientId}"]`)!;
-    trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
-    await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
+    await openMenu(list(harness).querySelector<HTMLElement>(`[data-site-admin-row-menu="${client.clientId}"]`)!);
     return [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.textContent?.trim() ?? "");
 }
 
@@ -89,12 +88,12 @@ async function chooseInMenu(harness: Harness, client: OAuthClientItem, label: st
 }
 
 async function dialog(selector: string): Promise<HTMLElement> {
-    await vi.waitFor(() => expect(document.body.querySelector(selector)).not.toBeNull());
+    await vi.waitFor(() => expect(document.body.querySelector(selector)).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
     return document.body.querySelector<HTMLElement>(selector)!;
 }
 
 async function closed(selector: string): Promise<void> {
-    await vi.waitFor(() => expect(document.body.querySelector(selector)).toBeNull());
+    await vi.waitFor(() => expect(document.body.querySelector(selector)).toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
 }
 
 describe("列表", () => {
@@ -131,12 +130,13 @@ describe("列表", () => {
     it("每行菜单：机密客户端有改动、换密钥、停用；公开客户端没有换密钥；已停用的是启用", async () => {
         const harness = await openClients();
         const [confidential, publicClient, disabled] = clients() as [OAuthClientItem, OAuthClientItem, OAuthClientItem];
+        const trigger = (client: OAuthClientItem): HTMLElement => list(harness).querySelector<HTMLElement>(`[data-site-admin-row-menu="${client.clientId}"]`)!;
         expect(await openRowMenu(harness, confidential)).toEqual([text.edit.menu, text.rotate.menu, text.disable.menu]);
         document.body.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
-        await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).toBeNull());
+        await menuClosed(trigger(confidential));
         expect(await openRowMenu(harness, publicClient)).toEqual([text.edit.menu, text.disable.menu]);
         document.body.querySelector('[role="menu"]')!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
-        await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).toBeNull());
+        await menuClosed(trigger(publicClient));
         expect(await openRowMenu(harness, disabled)).toEqual([text.edit.menu, text.rotate.menu, text.enable.menu]);
     });
 });
@@ -187,7 +187,7 @@ describe("登记", () => {
         await vi.waitFor(() => expect(submit(found).disabled).toBe(false));
         submit(found).click();
 
-        await vi.waitFor(() => expect(found.dataset.siteAdminClientStep).toBe("created"));
+        await vi.waitFor(() => expect(found.dataset.siteAdminClientStep).toBe("created"), {timeout: SETTLE_TIMEOUT_MS});
         expect(writes(harness)).toEqual([{method: "POST", path: ADMIN_LIST_URLS.oauthClients, body: {
             name: "书架同步助手",
             redirectUris: ["https://shelf.example.com/callback", "https://shelf.example.com/alt"],
@@ -195,7 +195,7 @@ describe("登记", () => {
             skipConsent: false,
         } satisfies CreateOAuthClientRequest}]);
         // 正文换步骤有过渡（`nb-ui-switch` 的 out-in）：表单先淡出，新内容才进来。
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp"));
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp"), {timeout: SETTLE_TIMEOUT_MS});
         expect(found.querySelector("[data-site-admin-created-secret]")?.textContent).toBe("nbs_new_secret_Xy7Qm2Lp9Kt4");
         expect(found.textContent).toContain(text.register.secretNote);
         expect([...found.querySelectorAll(".nb-copy-button button")].map((element) => element.textContent?.trim())).toEqual([text.credentials.copyId, text.credentials.copySecret]);
@@ -213,7 +213,7 @@ describe("登记", () => {
         typeUris(found, "https://shelf.example.com/callback");
         await vi.waitFor(() => expect(submit(found).disabled).toBe(false));
         submit(found).click();
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-secret]")).not.toBeNull());
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-secret]")).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
 
         // 显示密钥期间 Esc 与点遮罩都不关，只有“完成”关。
         pressEscape(found);
@@ -229,6 +229,27 @@ describe("登记", () => {
         expect(document.body.textContent).not.toContain("nbs_new_secret_Xy7Qm2Lp9Kt4");
     });
 
+    it("点了“完成”马上又点“登记”（上一次还没关完）：也是一张空白的表，页面上哪里都没有上一次的密钥", async () => {
+        const items = clients();
+        const harness = await openClients({[CREATE]: registering(items)}, items);
+        const found = await openRegister(harness);
+        type(nameField(found), "书架同步助手");
+        typeUris(found, "https://shelf.example.com/callback");
+        await vi.waitFor(() => expect(submit(found).disabled).toBe(false));
+        submit(found).click();
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-secret]")).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
+
+        // 两次点击之间只让 Vue 画一次（微任务），不让出事件循环：nb-ui 的 `closed` 排在之后的宏任务里，这时一定还没发。
+        found.querySelector<HTMLButtonElement>("[data-site-admin-client-finish]")!.click();
+        await nextTick();
+        harness.target.querySelector<HTMLButtonElement>("[data-site-admin-client-register]")!.click();
+        await nextTick();
+        const again = document.body.querySelector<HTMLElement>(DIALOG)!;
+        expect(again.dataset.siteAdminClientStep).toBe("form");
+        await vi.waitFor(() => expect(document.body.textContent).not.toContain("nbs_new_secret_Xy7Qm2Lp9Kt4"), {timeout: SETTLE_TIMEOUT_MS});
+        expect([nameField(again).value, urisField(again).value]).toEqual(["", ""]);
+    });
+
     it("公开客户端：选“公开”、勾免确认照选的发；成功后只有客户端 ID，没有密钥", async () => {
         const items = clients();
         const harness = await openClients({[CREATE]: registering(items)}, items);
@@ -241,10 +262,10 @@ describe("登记", () => {
         await vi.waitFor(() => expect(submit(found).disabled).toBe(false));
         submit(found).click();
 
-        await vi.waitFor(() => expect(found.dataset.siteAdminClientStep).toBe("created"));
+        await vi.waitFor(() => expect(found.dataset.siteAdminClientStep).toBe("created"), {timeout: SETTLE_TIMEOUT_MS});
         expect(writes(harness)[0]!.body).toEqual({name: "桌面端", redirectUris: ["http://127.0.0.1/callback"], type: "public", skipConsent: true} satisfies CreateOAuthClientRequest);
         // 正文换步骤有过渡（`nb-ui-switch` 的 out-in）：表单先淡出，新内容才进来。
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp"));
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp"), {timeout: SETTLE_TIMEOUT_MS});
         expect(found.querySelector("[data-site-admin-created-secret]")).toBeNull();
         expect(found.textContent).toContain(text.register.publicNote);
     });
@@ -380,7 +401,7 @@ describe("换密钥", () => {
         expect(writes(harness)).toEqual([]);
 
         found.querySelector<HTMLButtonElement>("[data-site-admin-rotate-confirm]")!.click();
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-rotated-secret]")?.textContent).toBe("nbs_rotated_9fK2mQ7xL4pW8tR1"));
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-rotated-secret]")?.textContent).toBe("nbs_rotated_9fK2mQ7xL4pW8tR1"), {timeout: SETTLE_TIMEOUT_MS});
         expect(found.dataset.siteAdminRotateStep).toBe("secret");
         expect(writes(harness)).toEqual([{method: "POST", path: identityUrl(identityPath.adminOAuthClientRotate(target.clientId)), body: undefined}]);
 
@@ -396,6 +417,21 @@ describe("换密钥", () => {
         const again = await dialog(DIALOG);
         expect(again.dataset.siteAdminRotateStep).toBe("confirm");
         expect(document.body.textContent).not.toContain("nbs_rotated_9fK2mQ7xL4pW8tR1");
+    });
+
+    it("点了“完成”马上又从菜单点“换密钥”（上一次还没关完）：回到确认那一步，页面上哪里都没有上一次的密钥", async () => {
+        const harness = await openClients({[rotateKey(target)]: () => Response.json({clientSecret: "nbs_rotated_9fK2mQ7xL4pW8tR1"} satisfies RotateSecretResponse)});
+        await chooseInMenu(harness, target, text.rotate.menu);
+        const found = await dialog(DIALOG);
+        found.querySelector<HTMLButtonElement>("[data-site-admin-rotate-confirm]")!.click();
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-rotated-secret]")?.textContent).toBe("nbs_rotated_9fK2mQ7xL4pW8tR1"), {timeout: SETTLE_TIMEOUT_MS});
+
+        found.querySelector<HTMLButtonElement>("[data-site-admin-rotate-finish]")!.click();
+        await nextTick();
+        await chooseRightAway(list(harness).querySelector<HTMLElement>(`[data-site-admin-row-menu="${target.clientId}"]`)!, text.rotate.menu);
+        const again = document.body.querySelector<HTMLElement>(DIALOG)!;
+        expect(again.dataset.siteAdminRotateStep).toBe("confirm");
+        await vi.waitFor(() => expect(document.body.textContent).not.toContain("nbs_rotated_9fK2mQ7xL4pW8tR1"), {timeout: SETTLE_TIMEOUT_MS});
     });
 
     it("回 client_public（列表旧了，它其实是公开客户端）：原因写在状态行，对话框留着", async () => {

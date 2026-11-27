@@ -23,7 +23,7 @@ import type {
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 import zhCN from "../../locales/zh-CN.json";
-import {cleanUp, failure, identityUrl, invalidNames, me, settledAt, startAt, statusTextOf, type} from "../../testing/site-harness";
+import {cleanUp, failure, identityUrl, invalidNames, me, openMenu, settledAt, startAt, statusTextOf, type} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 
 const SESSIONS = identityUrl(IDENTITY_PATHS.meSessions);
@@ -1097,9 +1097,7 @@ describe("页面", () => {
                 },
             }),
         });
-        const trigger = page.querySelector<HTMLButtonElement>("[data-site-account-menu]")!;
-        trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).not.toBeNull());
+        await openMenu(page.querySelector<HTMLElement>("[data-site-account-menu]")!);
         const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
         expect(items.map((item) => item.textContent?.trim())).toEqual([text.signOut]);
         items[0]!.click();

@@ -61,11 +61,12 @@ const {statusSteady, fieldError} = feedback;
 
 const canSubmit = computed(() => maxUsesValue.value !== undefined && expiresFits.value && noteFits.value && !submitting.value && !feedback.waiting.value);
 
-// 每次打开都从空白开始。
+// 每次打开都从空白开始。发出的码也在这里丢：`closed` 只在关完时发，关到一半又打开（人点了“完成”马上又点“发放”）时不发。
 watch(
     () => props.open,
     (open) => {
         if (!open) return;
+        issued.value = undefined;
         maxUses.value = "";
         expiresAt.value = null;
         note.value = "";

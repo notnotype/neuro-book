@@ -6,11 +6,12 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
+import {fileURLToPath} from "node:url";
 import {createServer as createHttpServer, type Server} from "node:http";
 import type {AddressInfo} from "node:net";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createServer as createViteServer, type ViteDevServer} from "vite";
+import {createServer as createViteServer, resolveConfig, type ViteDevServer} from "vite";
 
 import {devApiProxy} from "../build/dev-proxy";
 
@@ -69,4 +70,30 @@ describe("开发服务的接口转发", () => {
         expect(() => devApiProxy({NB_SITE_DEV_API: "127.0.0.1:4310", NB_SITE_URL: SITE_URL})).toThrow("NB_SITE_DEV_API");
         expect(() => devApiProxy({NB_SITE_DEV_API: "http://127.0.0.1:4310", NB_SITE_URL: "ftp://site.test"})).toThrow("NB_SITE_URL must be an http or https URL");
     });
+});
+
+describe("包的 vite.config.ts", () => {
+    const CONFIG_FILE = fileURLToPath(new URL("../vite.config.ts", import.meta.url));
+
+    /** 照 shell 里为开发设着变量、却忘了设 `NB_SITE_URL` 的样子读配置；读完把环境复原。 */
+    async function resolveWithDevApi(command: "build" | "serve", isPreview: boolean) {
+        const saved = {api: process.env.NB_SITE_DEV_API, url: process.env.NB_SITE_URL};
+        process.env.NB_SITE_DEV_API = "http://127.0.0.1:4310";
+        delete process.env.NB_SITE_URL;
+        try {
+            return await resolveConfig({configFile: CONFIG_FILE, logLevel: "silent"}, command, "production", "production", isPreview);
+        } finally {
+            if (saved.api === undefined) delete process.env.NB_SITE_DEV_API;
+            else process.env.NB_SITE_DEV_API = saved.api;
+            if (saved.url !== undefined) process.env.NB_SITE_URL = saved.url;
+        }
+    }
+
+    it("只在开发服务里按 NB_SITE_DEV_API 配转发：构建与预览服务不求值（设错了也起得来）、不转发", async () => {
+        await expect(resolveWithDevApi("serve", false)).rejects.toThrow("NB_SITE_URL must be set");
+        const build = await resolveWithDevApi("build", false);
+        expect(build.server.proxy).toBeUndefined();
+        const preview = await resolveWithDevApi("serve", true);
+        expect(preview.preview.proxy).toBeUndefined();
+    }, 30_000);
 });

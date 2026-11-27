@@ -24,15 +24,17 @@ async function sessionCookie(page: Page): Promise<unknown> {
 
 const STORED_SESSION = [{name: SESSION_COOKIE, domain: "site.test", path: "/", secure: true, httpOnly: true, sameSite: "Lax"}];
 
-test("管理员：登录、同意条款后到看板，统计还取不到时各块停在出错的样子、页面不崩；在注册码页发一个码，列表里有它", async ({server, openPage}) => {
+test("管理员：登录、同意条款后到看板，每块都落定、不停在载入中，页面不崩；在注册码页发一个码，列表里有它", async ({server, openPage}) => {
     expect(server.process.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/u);
     const page = await openPage();
     await signInAdmin(page);
 
-    // 统计的查询接口在 t11，现在进程里没有它们：每块都要落在取不到的样子，不停在载入中。
+    // 只看进得去、每块都落定：落成有数据、空还是出错取决于进程里有没有统计的查询接口与数据，不是这条冒烟要量的。
+    // 页面不崩由 `problems` 在用例结束时断言（没有没接住的异常）。
     const panels = page.locator("[data-site-dashboard-panel]");
     await expect(panels.first()).toBeVisible();
-    await expect.poll(async () => [...new Set(await panels.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-site-panel-state"))))]).toEqual(["failed"]);
+    const SETTLED = ["ready", "empty", "failed"];
+    await expect.poll(async () => (await panels.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-site-panel-state")))).filter((state) => state === null || !SETTLED.includes(state))).toEqual([]);
 
     const code = await issueRegistrationCode(page, "real smoke");
     await expect(page.getByRole("row").filter({hasText: code})).toContainText("real smoke");

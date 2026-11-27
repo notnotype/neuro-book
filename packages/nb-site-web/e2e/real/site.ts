@@ -182,7 +182,8 @@ const PROBLEM_MARK = "[nb-site-web real smoke]";
 export const test = base.extend<TestFixtures, WorkerFixtures>({
     realSite: [
         async ({}, use, workerInfo) => {
-            const sandbox = createSiteSandbox(`nb-site-web e2e/real worker ${String(workerInfo.workerIndex)}`);
+            // Playwright 的 worker 自己接住 SIGINT、SIGTERM，等主进程叫它跑完夹具的收尾（下面的 finally）：底座不装那两个信号的兜底。
+            const sandbox = createSiteSandbox(`nb-site-web e2e/real worker ${String(workerInfo.workerIndex)}`, {handleSignals: false});
             await sandbox.open();
             let forwarder: Forwarder | undefined;
             try {
@@ -196,13 +197,15 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         {scope: "worker"},
     ],
 
-    // 覆盖内置的 browser：要先知道转发服务的端口，才能把 `site.test` 解析到它。
+    // 覆盖内置的 browser：要先知道转发服务的端口，才能把 `site.test` 解析到它。浏览器的种类、有没有窗口与别的启动选项照配置
+    // 与命令行（`--headed`、`PWDEBUG`），与内置的一样。
     browser: [
-        async ({playwright, realSite}, use) => {
+        async ({playwright, realSite, channel, headless, launchOptions}, use) => {
             const browser: Browser = await playwright.chromium.launch({
-                channel: "chrome",
-                headless: true,
-                args: ["--no-proxy-server", `--host-resolver-rules=MAP site.test 127.0.0.1:${String(realSite.forwarder.port)}`],
+                ...launchOptions,
+                ...(channel === undefined ? {} : {channel}),
+                headless,
+                args: [...(launchOptions.args ?? []), "--no-proxy-server", `--host-resolver-rules=MAP site.test 127.0.0.1:${String(realSite.forwarder.port)}`],
             });
             try {
                 await use(browser);

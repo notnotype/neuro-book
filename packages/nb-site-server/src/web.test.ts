@@ -6,7 +6,7 @@
  * 没设产物目录的，与只装夹具模块 `beta`（`testing/modules.ts`）的一对（设与不设产物目录）。“与没有网页时一样回 404”拿同一组
  * 模块里没设产物目录的那个进程的回应逐字比。夹具那一对用来看 `.well-known` 这个前缀本身：真的身份库挂着 `/.well-known` 并有
  * 兜底路由，它下面的地址到不了网页，换成没有这个挂载的模块，才看得出网页自己不回退这个前缀。“运行中 index.html 没了”要改动
- * 产物目录，在那条用例里另起一个进程、用它自己的一份产物。
+ * 产物目录，“运行中换了链接的指向”要换链接，这两条用例各自另起一个进程、用自己的一份产物。
  *
  * 路径穿越、编码不合法、重复斜杠这些写法经原始套接字发：`fetch` 在发出之前就按 URL 标准消解了点段与反斜杠，测不到服务端。
  * 服务端的 Bun 同样先规范化 `request.url`，所以 `/../x` 这类写法到 `web.ts` 时已是 `/x`；能到它那里的越界写法是编码在一段里的
@@ -14,7 +14,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, rename, rm, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, realpath, rename, rm, symlink, writeFile} from "node:fs/promises";
 import {connect} from "node:net";
 import {join} from "node:path";
 
@@ -306,6 +306,37 @@ describe("文件（输出 12）", () => {
             });
         }
         expect((await get(moved.url, "/assets/app-abc123.js")).body).toBe(APP_JS);
+    });
+
+    it("NB_SITE_WEB_DIR 是符号链接时只在启动时解开一次：运行中换了指向，仍发启动时那个目录里的文件", async () => {
+        // 部署的做法：`current` 指向某次发布，换版本时原子地换掉链接（建新链接再改名盖过去）。
+        const releases = join(root, "web-releases");
+        const files = {old: {index: "<!doctype html><p>old</p>\n", only: "only-old.js"}, new: {index: "<!doctype html><p>new</p>\n", only: "only-new.js"}} as const;
+        for (const [name, release] of Object.entries(files)) {
+            await mkdir(join(releases, name), {recursive: true});
+            await writeFile(join(releases, name, "index.html"), release.index);
+            await writeFile(join(releases, name, release.only), APP_JS);
+        }
+        const current = join(releases, "current");
+        await symlink(join(releases, "old"), current);
+        await mkdir(join(root, "data-relinked"));
+        const relinked = await startServing({root, script: MAIN_SCRIPT, env: env(join(root, "data-relinked"), {NB_SITE_WEB_DIR: current})});
+        expect((await get(relinked.url, "/account")).body).toBe(files.old.index);
+
+        await symlink(join(releases, "new"), join(releases, "current-next"));
+        await rename(join(releases, "current-next"), current);
+        // 前提：链接确实换了指向，经它找文件已经落到新目录。
+        expect(await realpath(join(current, "index.html"))).toBe(await realpath(join(releases, "new", "index.html")));
+
+        for (const [path, status, body] of [
+            ["/account", 200, files.old.index],
+            ["/index.html", 200, files.old.index],
+            [`/${files.old.only}`, 200, APP_JS],
+            [`/${files.new.only}`, 404, '{"code":"not_found"}'],
+        ] as const) {
+            const got = await get(relinked.url, path);
+            expect({path, status: got.status, body: got.body}).toEqual({path, status, body});
+        }
     });
 });
 

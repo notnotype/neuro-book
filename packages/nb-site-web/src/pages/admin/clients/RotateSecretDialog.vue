@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 给机密客户端换密钥（t10 计划 3.13；`site.oauth-provider` 输出 9）：先说清后果，确认后发请求；成功后同一个对话框换成新密钥与复制按钮，
- * 只显示这一次。照用户页重置密码（`users/UserActionDialog.vue`）的做法：对话框关掉（`closed`）就丢掉密钥，显示密钥期间点遮罩、按 Esc 都不关；
+ * 只显示这一次。照用户页重置密码（`users/UserActionDialog.vue`）的做法：对话框关掉（`closed`）或再打开时丢掉密钥，显示密钥期间点遮罩、按 Esc 都不关；
  * 换到密钥那一步用 nb-ui 的换内容过渡（`nb-ui-switch`）。
  *
  * 失败写页脚的状态行、对话框留着。`not_found`（客户端已经不在了）另发 `missing`；公开客户端回 `client_public`（菜单里本来没有这一项，
@@ -32,10 +32,13 @@ const secret = shallowRef<string>();
 const feedback = useFormFeedback<never>(shallowRef(null), clock);
 const {statusSteady} = feedback;
 
+// 每次打开都从确认那一步开始。密钥除了在 `closed` 时丢，打开时也丢：关到一半又打开时 `closed` 不发。
 watch(
     () => props.open,
     (open) => {
-        if (open) feedback.reset();
+        if (!open) return;
+        secret.value = undefined;
+        feedback.reset();
     },
 );
 

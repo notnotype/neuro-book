@@ -9,6 +9,7 @@
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
 import type {ErrorBody, MeResponse, MetaResponse, PublicProfile, WhoamiResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {expect, vi} from "vitest";
+import {nextTick} from "vue";
 import {createMemoryHistory} from "vue-router";
 
 import {startSite} from "../site";
@@ -219,6 +220,47 @@ export function held(respond: Handler): {readonly handler: Handler; release(): v
             return answered?.bodyUsed === true;
         },
     };
+}
+
+/**
+ * 用键盘打开一个菜单（触发器上按 ArrowDown），等到菜单项画出来。按键放在等待里、菜单没展开（`aria-expanded` 不是 `true`）就重按：
+ * 上一层浮层的关闭收尾排在宏任务里，晚到时会把焦点挪回它自己的触发器，刚开的菜单因此判为焦点移出而收起；只按一次的话
+ * 之后就再也等不到菜单项。展开着时不再按：再按一次是收起。
+ */
+export async function openMenu(trigger: HTMLElement): Promise<void> {
+    await vi.waitFor(() => {
+        if (trigger.getAttribute("aria-expanded") !== "true") trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+        expect(document.body.querySelector('[role="menuitem"]')).not.toBeNull();
+    }, {timeout: SETTLE_TIMEOUT_MS});
+}
+
+/**
+ * 等一个菜单关完：菜单项不在了还不算，reka 卸载之后才在下一个宏任务里摘焦点栈、把焦点还给触发器。等到焦点回到 `trigger`，
+ * 收尾就跑过了，接着开下一层不会被它打断。
+ */
+export async function menuClosed(trigger: HTMLElement): Promise<void> {
+    await vi.waitFor(() => {
+        expect(document.body.querySelector('[role="menuitem"]')).toBeNull();
+        expect(document.activeElement).toBe(trigger);
+    }, {timeout: SETTLE_TIMEOUT_MS});
+}
+
+/**
+ * 打开一个菜单、点下写着 `label` 的那一项，中间不让出事件循环（只等 Vue 重画，都是微任务）：用来走“关掉一层、马上从菜单开下一层”，
+ * 上一层排在宏任务里的关闭收尾（nb-ui 的 `closed`）这时一定还没跑。菜单项要隔几次重画才出来，所以按重画的次数等，不按时长。
+ */
+export async function chooseRightAway(trigger: HTMLElement, label: string): Promise<void> {
+    trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+    for (let flush = 0; flush < 10; flush += 1) {
+        const item = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((candidate) => candidate.textContent?.trim() === label);
+        if (item !== undefined) {
+            item.click();
+            await nextTick();
+            return;
+        }
+        await nextTick();
+    }
+    throw new Error(`菜单没有不让出事件循环就打开，或者里面没有“${label}”`);
 }
 
 /** 在对话框里按 Esc（reka 在 document 上听 keydown，从对话框冒上去）。 */

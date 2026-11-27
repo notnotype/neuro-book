@@ -9,13 +9,15 @@ import {isReleaseBuild, legalDocuments} from "./build/legal-docs";
 /**
  * 官方站前端：根是 src，产物进 dist（不入库）。t10 起由镜像的构建脚本把产物放进镜像，由进程入口发出去。
  * 条款正文在构建时转成 HTML；设了 `NB_SITE_RELEASE=1` 的发布构建不收占位正文（`build/legal-docs.ts`）。
- * 设了 `NB_SITE_DEV_API` 时开发服务把接口转给一个真实的 `nb-site serve`（`build/dev-proxy.ts`，用法见本包 `AGENTS.md`）。
+ * 设了 `NB_SITE_DEV_API` 时开发服务把接口转给一个真实的 `nb-site serve`（`build/dev-proxy.ts`，用法见本包 `AGENTS.md`）。这一项只在
+ * 开发服务里求值：构建与预览服务（浏览器场景用它）不转发，shell 里为开发设着的变量不该让它们起不来或改了它们的行为。
+ * 预览服务的 `preview.proxy` 缺省沿用 `server.proxy`，所以预览时 `server` 里也不放。
  */
-export default defineConfig({
+export default defineConfig(({command, isPreview}) => ({
     root: resolve(import.meta.dirname, "src"),
     base: "/",
     plugins: [legalDocuments({root: resolve(import.meta.dirname, "src", "legal"), release: isReleaseBuild(process.env)}), vue(), tailwindcss()],
-    server: {proxy: devApiProxy(process.env)},
+    server: command === "serve" && isPreview !== true ? {proxy: devApiProxy(process.env)} : {},
     build: {
         outDir: resolve(import.meta.dirname, "dist"),
         emptyOutDir: true,
@@ -40,4 +42,4 @@ export default defineConfig({
             },
         },
     },
-});
+}));

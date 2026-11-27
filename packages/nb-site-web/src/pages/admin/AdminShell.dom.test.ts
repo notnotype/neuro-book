@@ -8,7 +8,7 @@ import {IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 import zhCN from "../../locales/zh-CN.json";
-import {cleanUp, failure, identityUrl, settledAt, startAt} from "../../testing/site-harness";
+import {cleanUp, failure, identityUrl, openMenu, settledAt, startAt} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 import adminZhCN from "./locales/zh-CN.json";
 
@@ -46,10 +46,8 @@ function current(harness: Harness): string[] {
 }
 
 /** 打开左下角的用户菜单，回菜单项。 */
-async function openMenu(harness: Harness): Promise<HTMLElement[]> {
-    const trigger = shell(harness).querySelector<HTMLButtonElement>("[data-site-admin-menu]")!;
-    trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
-    await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).not.toBeNull());
+async function openUserMenu(harness: Harness): Promise<HTMLElement[]> {
+    await openMenu(shell(harness).querySelector<HTMLElement>("[data-site-admin-menu]")!);
     return [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
 }
 
@@ -86,7 +84,7 @@ describe("用户菜单", () => {
         expect(trigger.textContent).toContain("alice");
         expect(trigger.getAttribute("aria-label")).toBe(zhCN.account.menu.replace("{{username}}", "alice"));
 
-        const items = await openMenu(harness);
+        const items = await openUserMenu(harness);
         expect(items.map((item) => item.textContent?.trim())).toEqual([adminZhCN.admin.accountPage, zhCN.account.signOut]);
         items[0]!.click();
         await settledAt(harness, "/account", "account");
@@ -99,7 +97,7 @@ describe("用户菜单", () => {
                 return Response.json({});
             },
         });
-        const items = await openMenu(harness);
+        const items = await openUserMenu(harness);
         items[1]!.click();
 
         await settledAt(harness, "/", "home");
@@ -109,7 +107,7 @@ describe("用户菜单", () => {
 
     it("退出登录没成：留在这一页，菜单上方写原因", async () => {
         const harness = await openAdmin("/admin/users", "admin-users", {[`POST ${LOGOUT}`]: () => failure({error: {code: "unavailable"}}, 503)});
-        const items = await openMenu(harness);
+        const items = await openUserMenu(harness);
         items[1]!.click();
 
         await vi.waitFor(() => expect(shell(harness).querySelector("nav")?.textContent).toContain(zhCN.errors.identity.unavailable));

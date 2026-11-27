@@ -182,11 +182,13 @@ const route = useRoute();
     border-top: 1px solid var(--divider);
 }
 
-/* 表格比列宽时在自己里面横向滚动，页面不跟着滚。 */
+/* 表格比列宽时在自己里面横向滚动，页面不跟着滚。表格里不随正文 `anywhere`：它把单元格的最小内容宽度压成一个字符，
+   表格就先被压扁、词从中间断开，永远用不上自己的滚动条；`normal` 让列按词宽排，宽了才滚。 */
 .legal-body :deep(table) {
     display: block;
     max-width: 100%;
     overflow-x: auto;
+    overflow-wrap: normal;
     margin: 0 0 1em;
     border-collapse: collapse;
     font-size: var(--text-md);

@@ -15,6 +15,7 @@
  * 收口：每个起过的进程（`start`、`run`、`spawnWithOpenStdin`）都登记在这里。用例里起的（`beginTest` 与 `endTest` 之间），在 `endTest`
  * 里停掉；之外起的属于整个文件（几个用例共用），在 `close` 里停掉，之后再删临时根（删目录不等于关了里面的文件）。测试进程退出时（正常结束或未捕获异常）`process.on("exit")`
  * 对还活着的 SIGKILL；测试进程被 `SIGTERM`、`SIGINT` 取消时也先 SIGKILL 它们，再按原信号结束自己（`installExitHook`）。
+ * 信号这一半可以不装（`createSiteSandbox` 的 `handleSignals: false`）：自己按信号做有序收口的测试运行器（Playwright 的 worker）用。
  * 测试进程自己被 SIGKILL 时子进程会留下，是已知限制（w00037 t05 计划第 8 节）。
  *
  * 时限：底座发的每个请求都带截止时刻，到点中断连接并报错；属于某个被测进程的请求，错误里附上它到这时为止的输出。
@@ -180,7 +181,7 @@ export interface OpenStdinProcess {
     /** 到目前为止的整段标准输出与标准错误。 */
     stdout(): string;
     stderr(): string;
-    /** 写进标准输入，不关。 */
+    /** 写进标准输入，不关。命令已经退出、不再读时 reject，错误说明它已退出。 */
     write(text: string): Promise<void>;
     /** 关掉标准输入：命令读到结尾。 */
     closeStdin(): Promise<void>;
@@ -202,10 +203,20 @@ export interface SiteSandbox {
     /** 跑一个会自己退出的命令（`migrate`、`backup`，或预期失败的 `serve`），等它退出；超时后 SIGKILL 并抛错。 */
     run(command: string, options?: RunOptions): Promise<CommandResult>;
     /**
-     * 起一个命令，标准输入保持打开，立即返回，不等它退出。与 `start`、`run` 同一套收口：用例结束时还活着的由 `afterEach`
+     * 起一个命令，标准输入保持打开，进程起来了就 resolve，不等它退出。与 `start`、`run` 同一套收口：用例结束时还活着的由 `afterEach`
      * （`beforeAll` 里起的由 `afterAll`）SIGTERM 停掉。
      */
-    spawnWithOpenStdin(command: string, options?: CommandOptions): OpenStdinProcess;
+    spawnWithOpenStdin(command: string, options?: CommandOptions): Promise<OpenStdinProcess>;
+}
+
+/** `createSiteSandbox` 的选项。 */
+export interface SandboxOptions {
+    /**
+     * 测试进程收到 `SIGTERM`、`SIGINT` 时要不要先 SIGKILL 起过的子进程、再按原信号结束自己（`installExitHook`），缺省要。
+     * 测试运行器自己按信号做有序收口时传 false：Playwright 的 worker 有意忽略这两个信号，等主进程经 IPC 叫它跑完夹具的收尾；
+     * 这里再装一个就会在收尾之前把子进程杀掉，收尾随后报“没按 SIGTERM 停下”，盖住真正的中断原因。进程退出时的兜底照装。
+     */
+    readonly handleSignals?: boolean;
 }
 
 /**
@@ -251,23 +262,28 @@ const CLEANUP_TIMEOUT_MS = 5_000;
 /** 全部文件起过、还活着的子进程，给 `process.on("exit")` 的兜底用。 */
 const alive = new Set<Child>();
 let exitHookInstalled = false;
+let signalHookInstalled = false;
 
 function killAlive(): void {
     for (const child of alive) child.subprocess.kill("SIGKILL");
 }
 
 /**
- * 进程级的兜底，整个测试进程装一次（几个测试文件各调一次 `useSiteSandbox`）。
+ * 进程级的兜底，整个测试进程各装一次（几个测试文件各调一次 `useSiteSandbox`）。
  *
  * - `exit`：只能做同步的事，kill 是同步的，不等它退出。
- * - `SIGTERM`、`SIGINT`：测试被取消时 Bun 按信号的缺省动作直接结束进程，`afterEach`、`afterAll` 与 `exit` 都不跑，子进程会
- *   留下来接着占端口与库锁。处理函数同样只同步地 SIGKILL，不等它们退出：等的话取消要多花时间，而 SIGKILL 不会被拦住。
- *   然后去掉自己并用同一个信号再结束一次，退出方式与没装处理函数时一样，调用方照样看到“被信号结束”。
+ * - `SIGTERM`、`SIGINT`（`signals` 为 true 时）：`bun test` 被取消时按信号的缺省动作直接结束进程，`afterEach`、`afterAll` 与 `exit`
+ *   都不跑，子进程会留下来接着占端口与库锁。处理函数同样只同步地 SIGKILL，不等它们退出：等的话取消要多花时间，而 SIGKILL 不会被拦住。
+ *   然后去掉自己并用同一个信号再结束一次，退出方式与没装处理函数时一样，调用方照样看到“被信号结束”。这一步的前提是进程里
+ *   没有别的处理函数接住这个信号；有的话（Playwright 的 worker）再发的信号被它吞掉，所以那里不装（`SandboxOptions.handleSignals`）。
  */
-function installExitHook(): void {
-    if (exitHookInstalled) return;
-    exitHookInstalled = true;
-    process.on("exit", killAlive);
+function installExitHook(signals: boolean): void {
+    if (!exitHookInstalled) {
+        exitHookInstalled = true;
+        process.on("exit", killAlive);
+    }
+    if (!signals || signalHookInstalled) return;
+    signalHookInstalled = true;
     let cancelling = false;
     const onSignal = (signal: NodeJS.Signals): void => {
         // 去掉处理函数之前又来一个信号时（同一轮事件循环里的 SIGINT 与 SIGTERM）只结束一次。
@@ -457,8 +473,8 @@ function exitCodeOf(code: number | null, signal: NodeJS.Signals | null): number 
  * 建一个沙箱，收口交给调用方按 `ManagedSiteSandbox` 写明的顺序调用；`bun:test` 的合同测试用 `./site` 的 `useSiteSandbox`，
  * 它把这几步挂到钩子上。`purpose` 写进临时根的 owner 标记，传测试文件名。
  */
-export function createSiteSandbox(purpose: string): ManagedSiteSandbox {
-    installExitHook();
+export function createSiteSandbox(purpose: string, options: SandboxOptions = {}): ManagedSiteSandbox {
+    installExitHook(options.handleSignals ?? true);
     let root: string | undefined;
     let home = "";
     let tmp = "";
@@ -492,26 +508,40 @@ export function createSiteSandbox(purpose: string): ManagedSiteSandbox {
         return Object.fromEntries(Object.entries(merged).filter((entry): entry is [string, string] => entry[1] !== undefined));
     };
 
-    const spawn = (args: readonly string[], env: Record<string, string>, command: readonly string[], stdin: StdinMode): Child => {
+    const spawn = async (args: readonly string[], env: Record<string, string>, command: readonly string[], stdin: StdinMode): Promise<Child> => {
         const [program, ...programArgs] = command;
         if (program === undefined) throw new Error("the server command is empty");
         const subprocess = spawnChild(program, [...programArgs, ...args], {cwd: rootOrThrow(), env, stdio: [stdin.kind === "ignore" ? "ignore" : "pipe", "pipe", "pipe"]});
-        // 起不来（程序不存在、没有执行权限）时 Node 不同步抛错，而是在下一轮发 `error`；进程号这时没有。照同步失败报出去，
-        // 不然调用方会一直等一个不存在的进程的输出。监听先挂上：没人监听的 `error` 会让测试进程整个崩掉。
-        let spawnError: Error | undefined;
-        subprocess.once("error", (error) => {
-            spawnError = error;
-        });
-        if (subprocess.pid === undefined) throw new Error(`could not start ${program}`, {cause: spawnError});
-        if (stdin.kind === "text") subprocess.stdin!.end(stdin.text);
         const stdout: string[] = [];
         const stderr: string[] = [];
+        // 起不来（程序不存在、没有执行权限）时 Node 不同步抛错，而是在之后发 `error`，原因只在那里；起来了发 `spawn`。等先到的那个。
+        await new Promise<void>((resolve, reject) => {
+            const onSpawn = (): void => {
+                subprocess.off("error", onError);
+                resolve();
+            };
+            const onError = (error: Error): void => {
+                subprocess.off("spawn", onSpawn);
+                reject(new Error(`could not start ${program} (not found on PATH, or not executable): ${error.message}`, {cause: error}));
+            };
+            subprocess.once("spawn", onSpawn);
+            subprocess.once("error", onError);
+        });
+        // 起来之后的 `error`（发信号失败）没人听会让测试进程整个崩掉；记进它的标准错误，失败时随输出一起报。
+        subprocess.on("error", (error) => stderr.push(`[contract-tests] child process error: ${error.message}`));
+        // 子进程不读标准输入就退出时，还没写进去的部分得到 `EPIPE`（流已经关了时是 `ERR_STREAM_DESTROYED`）：当作它已经退出，
+        // 结果由退出码与输出说明，不是测试进程的错。别的写入错误照样记进它的标准错误。
+        subprocess.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+            if (error.code === "EPIPE" || error.code === "ERR_STREAM_DESTROYED") return;
+            stderr.push(`[contract-tests] writing standard input failed: ${error.message}`);
+        });
+        if (stdin.kind === "text") subprocess.stdin!.end(stdin.text);
         const streams = Promise.all([collectLines(subprocess.stdout!, stdout), collectLines(subprocess.stderr!, stderr)]);
         const exited = new Promise<number>((resolve) => subprocess.once("close", (code, signal) => resolve(exitCodeOf(code, signal))));
         let settle!: (code: number) => void;
         const child: Child = {
             subprocess,
-            pid: subprocess.pid,
+            pid: subprocess.pid!,
             stdin: stdin.kind === "open" ? subprocess.stdin! : undefined,
             stdout,
             stderr,
@@ -658,7 +688,7 @@ export function createSiteSandbox(purpose: string): ManagedSiteSandbox {
         start: async (options = {}) => {
             const env = buildEnv(options, {NB_SITE_TEST_CONTROL: randomSecret()});
             const token = env.NB_SITE_TEST_CONTROL ?? null;
-            const child = spawn(["serve"], env, options.command ?? serverCommand(), {kind: "ignore"});
+            const child = await spawn(["serve"], env, options.command ?? serverCommand(), {kind: "ignore"});
             const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
             let listening: LogLine;
             try {
@@ -683,11 +713,11 @@ export function createSiteSandbox(purpose: string): ManagedSiteSandbox {
             return toProcess(child, listening.url, options, token);
         },
         run: async (command, options = {}) => {
-            const child = spawn([command, ...(options.args ?? [])], buildEnv(options, {}), options.command ?? serverCommand(), options.stdin === undefined ? {kind: "ignore"} : {kind: "text", text: options.stdin});
+            const child = await spawn([command, ...(options.args ?? [])], buildEnv(options, {}), options.command ?? serverCommand(), options.stdin === undefined ? {kind: "ignore"} : {kind: "text", text: options.stdin});
             return commandResult(child, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
         },
-        spawnWithOpenStdin: (command, options = {}) => {
-            const child = spawn([command, ...(options.args ?? [])], buildEnv(options, {}), options.command ?? serverCommand(), {kind: "open"});
+        spawnWithOpenStdin: async (command, options = {}) => {
+            const child = await spawn([command, ...(options.args ?? [])], buildEnv(options, {}), options.command ?? serverCommand(), {kind: "open"});
             const sink = child.stdin!;
             return {
                 pid: child.pid,
@@ -698,7 +728,10 @@ export function createSiteSandbox(purpose: string): ManagedSiteSandbox {
                 stderr: () => child.stderr.join("\n"),
                 write: (text) =>
                     new Promise<void>((resolve, reject) => {
-                        sink.write(text, (error) => (error === undefined || error === null ? resolve() : reject(error)));
+                        sink.write(text, (error) => {
+                            if (error === undefined || error === null) resolve();
+                            else reject(new Error(`${command} no longer reads its standard input (it has exited or closed it)\n${describeOutput(child)}`, {cause: error}));
+                        });
                     }),
                 closeStdin: () =>
                     new Promise<void>((resolve) => {

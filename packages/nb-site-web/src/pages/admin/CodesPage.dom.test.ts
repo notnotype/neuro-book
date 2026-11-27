@@ -7,10 +7,11 @@
 import {identityPath} from "@notnotype/nb-site-identity-contract/constants";
 import type {AdminInviteCodeListResponse, RegistrationCodeFilter, RegistrationCodeItem, RegistrationCodeListResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {nextTick} from "vue";
 
 import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, ANCHOR, codeCounts, inviteCode, pageOf, registrationCode} from "../../testing/admin-answers";
-import {cleanUp, failure, held, identityUrl, invalidNames, leaveField, nextTask, NOW, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
+import {cleanUp, failure, held, identityUrl, invalidNames, leaveField, nextTask, NOW, openMenu, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 import {endOfLocalDay} from "./format";
 import adminZhCN from "./locales/zh-CN.json";
@@ -163,34 +164,37 @@ describe("两份列表与页签", () => {
 });
 
 describe("页码越界", () => {
-    /** 从仪表盘进来，好让“后退”有一个不是越界页的去处。 */
-    async function fromDashboard(path: string): Promise<Harness> {
-        const harness = startAt("/admin", {session: {role: "admin", consentRequired: false}, handlers: {[CODES]: listCodes(() => codes()), [INVITE_LIST]: listInvites}});
-        await settledAt(harness, "/admin", "admin-dashboard");
+    /**
+     * 从审计页进来，好让“后退”有一个不是越界页的去处。不从看板进：看板的块连着 ECharts，这个文件里第一次进时要现编译，
+     * 几个测试文件并行、机器又忙时能超过等页面落定的上限，与这里要看的越界无关。
+     */
+    async function fromElsewhere(path: string): Promise<Harness> {
+        const harness = startAt("/admin/audit", {session: {role: "admin", consentRequired: false}, handlers: {[CODES]: listCodes(() => codes()), [INVITE_LIST]: listInvites}});
+        await settledAt(harness, "/admin/audit", "admin-audit");
         void harness.site.router.push(path);
         return harness;
     }
 
     it("注册码页签的页码超过最后一页：地址换成最后一页（replace），邀请码那份不动；后退不回到越界的那一页", async () => {
-        const harness = await fromDashboard("/admin/codes?page=9");
+        const harness = await fromElsewhere("/admin/codes?page=9");
         await settledAt(harness, "/admin/codes?page=2", "admin-codes");
         await vi.waitFor(() => expect(rows(harness)).toHaveLength(5));
         expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).map((params) => params.page)).toEqual(["9", "2"]);
         expect(queriesOf(harness, ADMIN_LIST_URLS.inviteCodes)).toEqual([{page: "1", pageSize: "20"}]);
 
         harness.site.router.back();
-        await settledAt(harness, "/admin", "admin-dashboard");
+        await settledAt(harness, "/admin/audit", "admin-audit");
     });
 
     it("邀请码页签的页码超过最后一页：地址换成邀请码的第 1 页（replace），注册码那份不动；后退不回到越界的那一页", async () => {
-        const harness = await fromDashboard("/admin/codes?kind=invite&page=9");
+        const harness = await fromElsewhere("/admin/codes?kind=invite&page=9");
         await settledAt(harness, "/admin/codes?kind=invite", "admin-codes");
         await vi.waitFor(() => expect(rows(harness)).toEqual(INVITES.map((item) => item.code)));
         expect(queriesOf(harness, ADMIN_LIST_URLS.inviteCodes).map((params) => params.page)).toEqual(["9", "1"]);
         expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes)).toEqual([{page: "1", pageSize: "20"}]);
 
         harness.site.router.back();
-        await settledAt(harness, "/admin", "admin-dashboard");
+        await settledAt(harness, "/admin/audit", "admin-audit");
     });
 
     it("第 2 页的请求在途时去了用户页，回答才到、而且越界（码少了）：仍停在用户页，不再取注册码", async () => {
@@ -236,14 +240,12 @@ describe("页码越界", () => {
 
 /** 打开某个码那一行的“…”菜单。 */
 async function openRowMenu(harness: Harness, code: string): Promise<HTMLElement[]> {
-    const trigger = list(harness).querySelector<HTMLButtonElement>(`[data-site-admin-row-menu="${code}"]`)!;
-    trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
-    await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
+    await openMenu(list(harness).querySelector<HTMLElement>(`[data-site-admin-row-menu="${code}"]`)!);
     return [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
 }
 
 async function confirmDialog(): Promise<HTMLElement> {
-    await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-confirm]")).not.toBeNull());
+    await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-confirm]")).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
     return document.body.querySelector<HTMLElement>("[data-site-admin-confirm]")!;
 }
 
@@ -267,7 +269,7 @@ describe("停用注册码", () => {
         expect(writes(harness)).toEqual([]);
 
         found.querySelector<HTMLButtonElement>("[data-site-admin-confirm-button]")!.click();
-        await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-confirm]")).toBeNull());
+        await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-confirm]")).toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
         expect(writes(harness)).toEqual([{method: "PATCH", path: identityUrl(identityPath.adminRegistrationCode(2)), body: {disabled: true}}]);
         await vi.waitFor(() => expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes)).toHaveLength(before + 1));
         expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).at(-1)).toEqual({page: "1", pageSize: "20", anchor: ANCHOR});
@@ -309,7 +311,7 @@ describe("发放注册码", () => {
 
     async function openIssue(harness: Harness): Promise<HTMLElement> {
         harness.target.querySelector<HTMLButtonElement>("[data-site-admin-issue]")!.click();
-        await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-issue-dialog]")).not.toBeNull());
+        await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-issue-dialog]")).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
         return document.body.querySelector<HTMLElement>("[data-site-admin-issue-dialog]")!;
     }
 
@@ -340,7 +342,7 @@ describe("发放注册码", () => {
         expect(submit(found).disabled).toBe(false);
         submit(found).click();
 
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-issued-code]")?.textContent).toBe("REG-NEW-CODE"));
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-issued-code]")?.textContent).toBe("REG-NEW-CODE"), {timeout: SETTLE_TIMEOUT_MS});
         expect(writes(harness)).toEqual([{method: "POST", path: ADMIN_LIST_URLS.registrationCodes, body: {maxUses: null}}]);
         expect(found.textContent).toContain(text.issue.doneDescription);
         await vi.waitFor(() => expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes)).toHaveLength(before + 1));
@@ -348,11 +350,30 @@ describe("发放注册码", () => {
         expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).at(-1)).toEqual({page: "1", pageSize: "20"});
 
         found.querySelector<HTMLButtonElement>("[data-site-admin-issue-finish]")!.click();
-        await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-issue-dialog]")).toBeNull());
+        await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-issue-dialog]")).toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
         // 再打开是一张空白的表。
         const again = await openIssue(harness);
         expect(again.dataset.siteAdminIssueStep).toBe("form");
         expect(field(again, "maxUses").value).toBe("");
+    });
+
+    it("点了“完成”马上又点“发放”（上一次还没关完）：也是一张空白的表，对话框里没有上一次的码", async () => {
+        const harness = await openCodes("/admin/codes", {[CREATE]: () => Response.json(ISSUED)});
+        const found = await openIssue(harness);
+        type(field(found, "maxUses"), "3");
+        await vi.waitFor(() => expect(submit(found).disabled).toBe(false));
+        submit(found).click();
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-issued-code]")?.textContent).toBe("REG-NEW-CODE"), {timeout: SETTLE_TIMEOUT_MS});
+
+        // 两次点击之间只让 Vue 画一次（微任务），不让出事件循环：nb-ui 的 `closed` 排在之后的宏任务里，这时一定还没发。
+        found.querySelector<HTMLButtonElement>("[data-site-admin-issue-finish]")!.click();
+        await nextTick();
+        harness.target.querySelector<HTMLButtonElement>("[data-site-admin-issue]")!.click();
+        await nextTick();
+        const again = document.body.querySelector<HTMLElement>("[data-site-admin-issue-dialog]")!;
+        expect(again.dataset.siteAdminIssueStep).toBe("form");
+        await vi.waitFor(() => expect(field(again, "maxUses")?.value).toBe(""), {timeout: SETTLE_TIMEOUT_MS});
+        expect(again.textContent).not.toContain("REG-NEW-CODE");
     });
 
     it("在第 2 页发放：成功后回到第 1 页（push），不带旧基准取，新码在最前", async () => {

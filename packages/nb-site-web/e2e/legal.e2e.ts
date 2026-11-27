@@ -106,6 +106,53 @@ for (const legal of PAGES) {
     }
 }
 
+// 两份占位正文没有长网址也没有表格，上面的 `bodyOverflow` 量不到这两种内容；这里往正文里追加测试自己的一段长网址与一张宽表格再量。
+// 表格的每格都是一个长英文词：列宽按词宽排时，四列合起来远宽于 360 宽的正文列，表格只能在自己里面滚。
+test("/privacy 360 宽：正文里的长网址折行，宽表格在自己里面横向滚动，页面不横向滚动", async ({page}) => {
+    fake = await installFakeIdentity(page);
+    await openLegal(page, "/privacy", "privacy", VIEWPORTS[2], "light");
+    await page.locator("[data-site-legal-body]").evaluate((body) => {
+        const paragraph = document.createElement("p");
+        paragraph.dataset.testLongWord = "";
+        paragraph.textContent = `https://example.invalid/${"a".repeat(200)}`;
+        const table = document.createElement("table");
+        table.dataset.testWideTable = "";
+        for (const words of [["Responsibilities", "Interoperability", "Pseudonymisation", "Telecommunications"], ["Notwithstanding", "Characteristics", "Incomprehensible", "Indemnification"]]) {
+            const row = table.insertRow();
+            for (const word of words) row.insertCell().textContent = word;
+        }
+        body.append(paragraph, table);
+    });
+
+    const measured = await page.evaluate(() => {
+        const body = document.querySelector<HTMLElement>("[data-site-legal-body]")!;
+        const paragraph = document.querySelector<HTMLElement>("[data-test-long-word]")!;
+        const table = document.querySelector<HTMLElement>("[data-test-wide-table]")!;
+        const lineHeight = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
+        window.scrollTo(100, 0);
+        table.scrollLeft = 50;
+        return {
+            pageScrolled: window.scrollX,
+            bodyOverflow: body.scrollWidth - body.clientWidth,
+            wordOverflow: paragraph.scrollWidth - paragraph.clientWidth,
+            wordWrapped: paragraph.getBoundingClientRect().height > lineHeight * 1.5,
+            tableWithinBody: table.getBoundingClientRect().width <= body.clientWidth,
+            tableOverflows: table.scrollWidth > table.clientWidth,
+            tableScrolled: table.scrollLeft,
+        };
+    });
+    expect({pageScrolled: measured.pageScrolled, bodyOverflow: measured.bodyOverflow, wordOverflow: measured.wordOverflow, wordWrapped: measured.wordWrapped, tableWithinBody: measured.tableWithinBody, tableOverflows: measured.tableOverflows})
+        .toEqual({pageScrolled: 0, bodyOverflow: 0, wordOverflow: 0, wordWrapped: true, tableWithinBody: true, tableOverflows: true});
+    expect(measured.tableScrolled).toBeGreaterThan(0);
+    // 表格里的词不从中间断开：每格的文字只占一行。
+    const cellLines = await page.locator("[data-test-wide-table] td").evaluateAll((cells) => cells.map((cell) => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        return range.getClientRects().length;
+    }));
+    expect(cellLines).toEqual(Array.from({length: 8}, () => 1));
+});
+
 test("从登录页底部进两页，站名回到首页", async ({page}) => {
     fake = await installFakeIdentity(page);
     await page.setViewportSize(VIEWPORTS[0]);

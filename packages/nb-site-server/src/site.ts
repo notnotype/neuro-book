@@ -171,3 +171,22 @@ export function createSiteApp(options: SiteAppOptions): Hono<SiteEnv> {
 export function siteFetch(app: Hono<SiteEnv>): (request: Request, server: Server<undefined>) => Response | Promise<Response> {
     return (request, server) => app.fetch(request, {server, request: {module: "site", requestId: randomUUID()}});
 }
+
+/**
+ * 交给 `Bun.serve` 的 `error`（`site.operations` 输出 8 的 `http.response_failed`）。上面根应用的 `onError` 只接得住路由与
+ * 中间件里抛出的、`fetch` 返回之前的错误，并照常记那一行请求日志。这里接的是 `fetch` 之外的：`fetch` 本身没接住的异常，
+ * 与 Bun 在 `fetch` 返回之后生成响应时出的错（例如惰性的 `Bun.file` 响应体到写出时才打开、打不开）。这时请求日志可能已经
+ * 按 `fetch` 的结果记过了，所以另记一行，只带错误类型与错误码：说明里有路径与请求内容。不写这个回调时 Bun 往标准错误打
+ * 几行不是 JSON、带绝对路径的错误说明（容器的日志里与标准输出混在一起，破坏输出 8 的“每行一个 JSON”），客户端拿到它的
+ * 错误页。网页的文件在交出响应之前就读好了（`web.ts`），这里是兜底。
+ */
+export function responseFailed(log: Logger): (error: Error) => Response {
+    return (error) => {
+        const errorCode = (error as {code?: unknown}).code;
+        log.error("http.response_failed", "producing a response failed outside the request handler", {
+            errorType: errorType(error),
+            ...(typeof errorCode === "string" ? {errorCode} : {}),
+        });
+        return Response.json({code: "internal"}, {status: 500});
+    };
+}

@@ -8,10 +8,11 @@
 import {identityPath} from "@notnotype/nb-site-identity-contract/constants";
 import type {AdminUserItem, UserFilter, UserListResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import {nextTick} from "vue";
 
 import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, ANCHOR, adminUser, pageOf, userCounts} from "../../testing/admin-answers";
-import {SETTLE_TIMEOUT_MS, cleanUp, clickOverlay, failure, held, identityUrl, nextTask, pressEscape, settledAt, startAt} from "../../testing/site-harness";
+import {SETTLE_TIMEOUT_MS, chooseRightAway, cleanUp, clickOverlay, failure, held, identityUrl, menuClosed, nextTask, openMenu, pressEscape, settledAt, startAt} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 import adminZhCN from "./locales/zh-CN.json";
 import {SEARCH_PAUSE_MS} from "./use-admin-list";
@@ -59,6 +60,16 @@ async function openUsers(path = "/admin/users", handlers: Readonly<Record<string
     const url = new URL(path, "http://site.invalid");
     await settledAt(harness, `${url.pathname}${url.search}`, "admin-users");
     await vi.waitFor(() => expect(rows(harness).length).toBeGreaterThan(0));
+    return harness;
+}
+
+/**
+ * 先停在审计页，好让“后退”有一个不是用户页的去处。不从看板进：看板的块连着 ECharts，这个文件里第一次进时要现编译，
+ * 几个测试文件并行、机器又忙时能超过等页面落定的上限，与这里要看的地址无关。
+ */
+async function fromElsewhere(): Promise<Harness> {
+    const harness = startAt("/admin/audit", {session: {role: "admin", consentRequired: false}, handlers: {[LIST]: listUsers(() => people())}});
+    await settledAt(harness, "/admin/audit", "admin-audit");
     return harness;
 }
 
@@ -219,8 +230,7 @@ describe("取数与地址", () => {
     });
 
     it("页码超过最后一页：地址换成最后一页（replace），再取一次；后退不回到越界的那一页", async () => {
-        const harness = startAt("/admin", {session: {role: "admin", consentRequired: false}, handlers: {[LIST]: listUsers(() => people())}});
-        await settledAt(harness, "/admin", "admin-dashboard");
+        const harness = await fromElsewhere();
         void harness.site.router.push("/admin/users?page=9");
         await settledAt(harness, "/admin/users?page=3", "admin-users");
         await vi.waitFor(() => expect(rows(harness)).toHaveLength(5));
@@ -228,7 +238,7 @@ describe("取数与地址", () => {
         expect(table(harness).querySelector(".nb-data-table-count")?.textContent).toContain("41");
 
         harness.site.router.back();
-        await settledAt(harness, "/admin", "admin-dashboard");
+        await settledAt(harness, "/admin/audit", "admin-audit");
     });
 
     it("回答缺 total（算不出最后一页）：当作回答不合格，表格区写原因、带重试，地址不改", async () => {
@@ -289,8 +299,7 @@ describe("取数与地址", () => {
 
 describe("搜索", () => {
     it("停 300 毫秒才取一次：连着打的几个字只发一个请求；地址换成搜索词（replace）、回到第 1 页", async () => {
-        const harness = startAt("/admin", {session: {role: "admin", consentRequired: false}, handlers: {[LIST]: listUsers(() => people())}});
-        await settledAt(harness, "/admin", "admin-dashboard");
+        const harness = await fromElsewhere();
         void harness.site.router.push("/admin/users?page=2");
         await settledAt(harness, "/admin/users?page=2", "admin-users");
         await vi.waitFor(() => expect(rows(harness)[0]).toBe("user21"));
@@ -312,9 +321,9 @@ describe("搜索", () => {
         await settledAt(harness, "/admin/users?q=user4", "admin-users");
         await vi.waitFor(() => expect(rows(harness)).toEqual(["user4", "user40", "user41", "user42", "user43", "user44", "user45"]));
         expect(listQueries(harness).slice(before)).toEqual([{page: "1", pageSize: "20", q: "user4"}]);
-        // 搜索词是 replace：后退回到进用户页之前的看板，不是搜索之前的第 2 页。
+        // 搜索词是 replace：后退回到进用户页之前的审计页，不是搜索之前的第 2 页。
         harness.site.router.back();
-        await settledAt(harness, "/admin", "admin-dashboard");
+        await settledAt(harness, "/admin/audit", "admin-audit");
     });
 
     it("搜索词前后的空白不算；只有空白等于不搜；按回车立刻取", async () => {
@@ -364,8 +373,7 @@ describe("搜索", () => {
 async function openRowMenu(harness: Harness, username: string): Promise<HTMLElement[]> {
     const trigger = table(harness).querySelector<HTMLButtonElement>(`[data-site-admin-row-menu="${username}"]`)!;
     expect(trigger.getAttribute("aria-label") ?? trigger.getAttribute("title")).toBe(fill(text.rowActions, {username}));
-    trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
-    await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
+    await openMenu(trigger);
     return [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
 }
 
@@ -380,7 +388,7 @@ function dialog(): HTMLElement {
 }
 
 async function openedDialog(): Promise<HTMLElement> {
-    await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-user-dialog]")).not.toBeNull());
+    await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-user-dialog]")).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
     return dialog();
 }
 
@@ -393,7 +401,7 @@ function dialogTitle(found: HTMLElement): string {
 }
 
 async function closed(): Promise<void> {
-    await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-user-dialog]")).toBeNull());
+    await vi.waitFor(() => expect(document.body.querySelector("[data-site-admin-user-dialog]")).toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
 }
 
 /** 除了读列表以外的请求。 */
@@ -417,7 +425,7 @@ describe("每行的处置", () => {
         const harness = await openUsers();
         expect((await openRowMenu(harness, "user2")).map((item) => item.textContent?.trim())).toEqual([text.actions.resetPassword.menu, text.actions.ban.menu, text.actions.grantAdmin.menu, text.actions.revokeSessions.menu]);
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
-        await vi.waitFor(() => expect(document.body.querySelector('[role="menuitem"]')).toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
+        await menuClosed(table(harness).querySelector<HTMLElement>('[data-site-admin-row-menu="user2"]')!);
 
         const own = await openRowMenu(harness, "alice");
         expect(own.map((item) => ({label: item.textContent?.trim(), disabled: item.hasAttribute("data-disabled") || item.getAttribute("aria-disabled") === "true"}))).toEqual([
@@ -505,7 +513,7 @@ describe("重置密码", () => {
         expect(found.dataset.siteAdminUserDialogStep).toBe("confirm");
         found.querySelector<HTMLButtonElement>("[data-site-admin-user-confirm]")!.click();
 
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-new-password]")?.textContent).toBe("Fresh-Secret-42"));
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-new-password]")?.textContent).toBe("Fresh-Secret-42"), {timeout: SETTLE_TIMEOUT_MS});
         expect(dialogTitle(found)).toBe(fill(text.password.title, {username: "user2"}));
         expect(found.textContent).toContain(text.password.description);
         expect([...found.querySelectorAll("button")].some((button) => (button.getAttribute("aria-label") ?? button.textContent?.trim()) === text.password.copy)).toBe(true);
@@ -522,6 +530,21 @@ describe("重置密码", () => {
         expect(document.body.textContent).not.toContain("Fresh-Secret-42");
     });
 
+    it("点了“完成”马上又从菜单点“重置密码”（上一次还没关完）：回到确认那一步，页面上哪里都没有上一次的密码", async () => {
+        const harness = await openUsers("/admin/users", {[`POST ${RESET}`]: () => Response.json({password: "Fresh-Secret-42"})});
+        menuItem(await openRowMenu(harness, "user2"), text.actions.resetPassword.menu).click();
+        const found = await openedDialog();
+        found.querySelector<HTMLButtonElement>("[data-site-admin-user-confirm]")!.click();
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-new-password]")?.textContent).toBe("Fresh-Secret-42"), {timeout: SETTLE_TIMEOUT_MS});
+
+        found.querySelector<HTMLButtonElement>("[data-site-admin-user-finish]")!.click();
+        await nextTick();
+        await chooseRightAway(table(harness).querySelector<HTMLElement>('[data-site-admin-row-menu="user2"]')!, text.actions.resetPassword.menu);
+        const again = dialog();
+        expect(again.dataset.siteAdminUserDialogStep).toBe("confirm");
+        await vi.waitFor(() => expect(document.body.textContent).not.toContain("Fresh-Secret-42"), {timeout: SETTLE_TIMEOUT_MS});
+    });
+
     it("确认那一步按 Esc、点遮罩照样关；显示新密码时按 Esc、点遮罩都不关，只有“完成”关", async () => {
         const harness = await openUsers("/admin/users", {[`POST ${RESET}`]: () => Response.json({password: "Fresh-Secret-42"})});
         // 先看这两种关法在确认那一步都管用，后面“不关”才不是没按上。
@@ -536,7 +559,7 @@ describe("重置密码", () => {
         menuItem(await openRowMenu(harness, "user2"), text.actions.resetPassword.menu).click();
         const found = await openedDialog();
         found.querySelector<HTMLButtonElement>("[data-site-admin-user-confirm]")!.click();
-        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-new-password]")).not.toBeNull());
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-new-password]")).not.toBeNull(), {timeout: SETTLE_TIMEOUT_MS});
 
         pressEscape(found);
         clickOverlay();
