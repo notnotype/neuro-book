@@ -16,6 +16,8 @@ export interface DeskSnapshot {
     readonly tabs: TabsSnapshot;
     readonly maximized: string | null;
     readonly files?: ReadonlyArray<readonly [string, string]>;
+    /** 贴进作品的图的地址（`project://插图/…`）：字节在页面那一份 `DeskBlobs` 里，重挂时按地址补回文件。 */
+    readonly images?: readonly string[];
     readonly lyra?: readonly MessageView[];
 }
 

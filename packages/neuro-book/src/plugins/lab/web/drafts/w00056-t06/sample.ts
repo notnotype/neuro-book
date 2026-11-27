@@ -96,12 +96,56 @@ const FROST_HARBOR = [
     "",
 ].join("\n");
 
+/** 第二幕“链到设定”那一拍链过去的一页（第 13 轮加；第一幕的作品树里没有它，见 `actTwoFiles`）。七层与第二幕粘贴的剖面图对得上。 */
+const GRAY_TOWER = [
+    "# 灰塔",
+    "",
+    "- 立在霜港城北的礁石上，三百年前制图坊建的测绘塔",
+    "- 七层：门厅、灯油库、钟绳间、量具室、藏图室、观潮台、灯室",
+    "- 塔顶的钟只在国王驾崩时敲（第一章）",
+    "- 第八层只在银钥匙的说法里有（第二章），楼梯的第八圈是画上去的（第三章）",
+    "",
+].join("\n");
+
+/**
+ * 第二幕的第五章：第一幕那半句已经写完，又往下写了一段；正文上方带属性（视角、状态、出场），“章节属性”那一拍改它们。
+ * 后两段里有“霜港”（注音）与“灰塔”（链到设定），“守门人”出场（属性里添上他）。
+ */
+const ACT_TWO_CHAPTER_FIVE = [
+    "---",
+    "视角: 艾莉丝",
+    "状态: 初稿",
+    "出场:",
+    "  - 艾莉丝",
+    "---",
+    "# 第五章 第四下",
+    "",
+    "雨下到后半夜才停。艾莉丝把灰塔的剖面图摊在桌上，第八层的位置还是一片空白。",
+    "",
+    "铜尺压着图的一角。她量过很多遍，七层，一层不多。",
+    "",
+    `${KNOCK_LEAD}门外有人敲门，三下。她屏住气，等那第四下。`,
+    "",
+    "第四下一直没有响。门缝底下塞进来一张纸条，是守门人的字：霜港的钟，今夜停了。",
+    "",
+].join("\n");
+
+/** 第五章与灰塔那一页在作品里的路径。 */
+export const CHAPTER_FIVE_PATH = "正文/第五章 第四下.md";
+export const GRAY_TOWER_PATH = "设定/灰塔.md";
+
+/** 第二幕起头时作品里的文件：在首屏的那一份上换掉第五章、加上灰塔那一页。 */
+export function actTwoFiles(files: ReadonlyArray<readonly [string, string]>): ReadonlyArray<readonly [string, string]> {
+    const replaced = files.map(([path, text]): readonly [string, string] => (path === CHAPTER_FIVE_PATH ? [path, ACT_TWO_CHAPTER_FIVE] : [path, text]));
+    return replaced.some(([path]) => path === GRAY_TOWER_PATH) ? replaced : [...replaced, [GRAY_TOWER_PATH, GRAY_TOWER]];
+}
+
 export const PROJECT_FILES: ReadonlyArray<readonly [string, string]> = [
     ["正文/第一章 霜港的钟.md", CHAPTER_ONE],
     ["正文/第二章 银钥匙.md", CHAPTER_TWO],
     ["正文/第三章 灰塔.md", CHAPTER_THREE],
     ["正文/第四章 雨夜.md", CHAPTER_FOUR],
-    ["正文/第五章 第四下.md", CHAPTER_FIVE],
+    [CHAPTER_FIVE_PATH, CHAPTER_FIVE],
     ["设定/艾莉丝.md", ALICE],
     ["设定/守门人.md", KEEPER],
     ["设定/霜港.md", FROST_HARBOR],

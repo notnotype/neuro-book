@@ -32,6 +32,7 @@ import {ACT_ONE, ACT_TWO, BEATS, BEATS_TWO, HANDOFF, HANDOFF_TWO, HEADLINES, KNO
 import type {BeatCopy} from "./copy";
 import type {DemoPointer} from "./demo-pointer";
 import {centerOf} from "./desk";
+import {createDeskBlobs} from "./desk-blobs";
 import type {DeskSnapshot, DeskTarget, Point} from "./desk";
 import DeskSpotlight from "./DeskSpotlight.vue";
 import type {SpotMark, SpotRect} from "./DeskSpotlight.vue";
@@ -41,7 +42,7 @@ import GiltButton from "./GiltButton.vue";
 import {glidePath, glideTime} from "./glide";
 import HomepageDesk from "./HomepageDesk.vue";
 import {CARRY, frames, Interrupted, prefersReducedMotion, tween, wait} from "./motion";
-import {KNOCK_ASK, KNOCK_LEAD, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply} from "./sample";
+import {actTwoFiles, KNOCK_ASK, KNOCK_LEAD, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply, PROJECT_FILES} from "./sample";
 import type {OpenFile} from "./sample";
 import {deskBox, EYEBROW_BAND, SANCTUM_MIN_WIDTH} from "./sanctum";
 import SanctumScene from "./SanctumScene.vue";
@@ -180,6 +181,8 @@ function rectToStage(rect: DOMRectReadOnly): StageRect {
 
 const desk = useTemplateRef<InstanceType<typeof HomepageDesk>>("desk");
 const deskKey = ref(0);
+/** 贴进作品的图（第二幕“一张插图”）：存在页面这一份里，换幕、关灯重挂工作台都不丢；卸载时收回。 */
+const blobs = createDeskBlobs();
 const restore = shallowRef<DeskSnapshot | null>(null);
 const deskReady = ref(false);
 const landed = ref(false);
@@ -1108,10 +1111,10 @@ function putCaption(state: CaptionState, which: 1 | 2): void {
 /** 换幕时的等待不随某一拍打断（换幕本身排队，见 `switchAct`）。 */
 const SWITCH_SIGNAL = new AbortController().signal;
 
-/** 第二幕起头的样子：首屏存过盘的那一份（片 2 里换成第二幕自己的正文与布局）。 */
+/** 第二幕起头的样子：首屏的布局与标签，第五章换成第二幕的（带属性、又往下写了一段），设定里多一页灰塔（`actTwoFiles`）。 */
 function actTwoStart(): DeskSnapshot {
     if (deskInitial === null) throw new Error("工作台还没挂好，第二幕没有起头的样子");
-    return deskInitial;
+    return {...deskInitial, files: actTwoFiles(deskInitial.files ?? PROJECT_FILES), images: []};
 }
 
 /** 换幕开始：离台那一幕的装饰、指针与交给访客的金环都收掉，压上薄暮（工作台同时微退）。 */
@@ -1288,6 +1291,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
     actOne.dispose();
     actTwo.dispose();
+    blobs.dispose();
     tidy();
     trail?.dispose();
     resize?.disconnect();
@@ -1308,7 +1312,7 @@ onBeforeUnmount(() => {
             <div ref="stage" class="hs-stage">
                 <SanctumScene :progress="dive" :intro="start === 'top'" :desk-ready="deskReady" :night="night" @landed="onLanded">
                     <template #desk>
-                        <HomepageDesk :key="deskKey" ref="desk" class="hs-desk" :class="{'is-receded': curtain}" setup="knock" :night="night" :restore="restore" @ready="onDeskReady" @touch="onVisitorTouch" />
+                        <HomepageDesk :key="deskKey" ref="desk" class="hs-desk" :class="{'is-receded': curtain}" setup="knock" :night="night" :restore="restore" :blobs="blobs" @ready="onDeskReady" @touch="onVisitorTouch" />
                         <Transition name="hs-dusk">
                             <div v-if="lightsOut" class="hs-lights-out" aria-hidden="true">
                                 <NeuroBookMark decorative class="hs-lights-out__mark" />
