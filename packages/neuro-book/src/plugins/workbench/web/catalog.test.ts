@@ -3,7 +3,7 @@
 import {describe, expect, it} from "bun:test";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
-import {floatTab} from "@notnotype/nb-workbench-layout";
+import {floatTab, removeTab} from "@notnotype/nb-workbench-layout";
 import type {LayoutDoc} from "@notnotype/nb-workbench-layout";
 
 import {resolverFor} from "nbook/shared/localized-text";
@@ -58,7 +58,7 @@ function catalog(doc: LayoutDoc | null, locale = "zh-CN") {
 describe("工作台的界面目录（views.md 输出 23）", () => {
     it("视图带标题、所在容器与标题栏上画成按钮的命令：自己的在前、别的插件贡献的在后，收进“⋯”的不算", () => {
         const view = catalog(defaultLayoutDoc(VIEWS, CONTAINERS));
-        expect(view.views.find((entry) => entry.id === "files")).toEqual({id: "files", title: "文件", container: PROJECT, actions: ["acme.files.new", "acme.more.pin"]});
+        expect(view.views.find((entry) => entry.id === "files")).toEqual({id: "files", title: "文件", container: PROJECT, placed: true, actions: ["acme.files.new", "acme.more.pin"]});
         expect(view.views.find((entry) => entry.id === "chat")?.actions).toEqual([]);
     });
 
@@ -80,10 +80,14 @@ describe("工作台的界面目录（views.md 输出 23）", () => {
     it("布局还没建出来时视图没有容器、目录里没有容器；视图浮出去后不在任何容器里", () => {
         const empty = catalog(null);
         expect(empty.containers).toEqual([]);
-        expect(empty.views.every((entry) => entry.container === null)).toBe(true);
+        expect(empty.views.every((entry) => entry.container === null && !entry.placed)).toBe(true);
 
         const floated = floatTab(defaultLayoutDoc(VIEWS, CONTAINERS), {tab: "view:chat", rect: {x: 40, y: 40, width: 320, height: 240}}, createLayoutPolicy());
         if (!floated.ok) throw new Error(`浮出对话视图失败：${floated.message}`);
-        expect(catalog(floated.doc).views.find((entry) => entry.id === "chat")?.container).toBeNull();
+        // 浮动的仍在布局里；关掉的不在。
+        expect(catalog(floated.doc).views.find((entry) => entry.id === "chat")).toMatchObject({container: null, placed: true});
+        const closed = removeTab(defaultLayoutDoc(VIEWS, CONTAINERS), "view:chat");
+        if (!closed.ok) throw new Error(`关掉对话视图失败：${closed.message}`);
+        expect(catalog(closed.doc).views.find((entry) => entry.id === "chat")).toMatchObject({container: null, placed: false});
     });
 });

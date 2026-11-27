@@ -43,6 +43,7 @@ function readCatalog(source: WorkbenchCatalogSource): WorkbenchCatalogView {
             id,
             title: source.text.t(declaration.title),
             container: doc === null ? null : (viewSection(doc, id)?.container ?? null),
+            placed: doc !== null && Object.values(doc.panels).some((panel) => panel.tabs.some((tab) => tab.kind === "view" && tab.viewId === id)),
             // 视图自己的按钮在前、别的插件贡献的在后，同外壳画的顺序（views.md 输出 10、11）。
             actions: [...(declaration.actions ?? []).filter((action) => action.placement !== "menu").map((action) => action.command), ...(contributed.get(id) ?? [])],
         })),

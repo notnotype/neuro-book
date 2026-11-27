@@ -41,7 +41,7 @@ type Props = {
 };
 ```
 
-没有 emits、slots、expose；attrs 落在 FloatingWindow 的面板上。正文根带 `data-settings-window`，左栏条目带 `data-settings-nav`（分区 id），当前项另带 `data-settings-nav-current`，标题被截断（悬停有全名提示）的另带 `data-settings-nav-truncated`，每组的组标题带 `data-settings-nav-label`（`app`、`ai` 或 `plugins`），搜索框带 `data-settings-search`，搜索结果里的页面一组带 `data-settings-page-hits`、每条（整行是按钮）带 `data-settings-page-hit`（分区 id），搜索结果里命中的字带 `data-settings-hit`，没有命中的一句带 `data-settings-no-results`，层警告的按钮带 `data-settings-open-file`，标签分段带 `data-settings-tabs`，层的警告带 `data-settings-layer-notice`（`invalid`、`unavailable` 或 `fixing`），标题区带 `data-settings-heading`、右侧操作的挂载点带 `data-settings-heading-actions`、“‹ 分区标题”带 `data-settings-heading-back`，右边的区域带 `data-settings-section`（分区 id），分区在当前标签下不可用的原因带 `data-settings-unavailable`。
+没有 emits、slots、expose；attrs 落在 FloatingWindow 的面板上。正文根带 `data-settings-window`，左栏条目带 `data-settings-nav`（分区 id），当前项另带 `data-settings-nav-current`，标题被截断（悬停有全名提示）的另带 `data-settings-nav-truncated`，每组的组标题带 `data-settings-nav-label`（`app`、`ai` 或 `plugins`），搜索框带 `data-settings-search`，层切换整组带稳定名 `settings.layers`、左栏的节带 `settings.section` 加分区 id（`data-nb-target`、`data-nb-key`，[`agent/page-agent.md`](../../../../../../../docs/specs/agent/page-agent.md) 输出 6；Agent 的引导按它们找控件，不改名），搜索结果里的页面一组带 `data-settings-page-hits`、每条（整行是按钮）带 `data-settings-page-hit`（分区 id），搜索结果里命中的字带 `data-settings-hit`，没有命中的一句带 `data-settings-no-results`，层警告的按钮带 `data-settings-open-file`，标签分段带 `data-settings-tabs`，层的警告带 `data-settings-layer-notice`（`invalid`、`unavailable` 或 `fixing`），标题区带 `data-settings-heading`、右侧操作的挂载点带 `data-settings-heading-actions`、“‹ 分区标题”带 `data-settings-heading-back`，右边的区域带 `data-settings-section`（分区 id），分区在当前标签下不可用的原因带 `data-settings-unavailable`。
 
 ## 状态
 

@@ -104,6 +104,8 @@ export interface WorkbenchCatalogEntryView {
     readonly title: string;
     /** 此刻所在的容器；浮动或不在布局里时是 null。 */
     readonly container: string | null;
+    /** 在布局里（停靠或浮动）：不在时页面上没有它的标签，点不到它（views.md 输出 23 的“是否在布局里”）。 */
+    readonly placed: boolean;
     /** 标题栏上画成按钮的命令：视图自己声明的与别的插件贡献的，按声明的先后；收进“⋯”的不算。 */
     readonly actions: ReadonlyArray<string>;
 }

@@ -105,6 +105,25 @@ describe("WorkbenchPanelHead 的标题区", () => {
         expect([handle().dataset.nbTarget, handle().dataset.nbKey]).toEqual(["workbench.view", "nbook.agent.conversation"]);
     });
 
+    it("几个视图叠成标签时，每个视图的标签同样带稳定名；编辑器页这类标签没有", async () => {
+        const wrapper = mount(WorkbenchPanelHead, {attachTo: document.body, props: {
+            panelId: "right",
+            label: "右栏",
+            tabs: [TAB, {id: "view:nbook.files.explorer", label: "文件", icon: "i-lucide-files"}, {id: "tab:editor:a.md", label: "a.md", icon: "i-lucide-file"}],
+            active: TAB.id,
+            moreLabel: "更多",
+            idPrefix: "probe",
+        }});
+        mounted.push(wrapper);
+        await waitUntil("画出标签", () => document.querySelectorAll("[role=tab][data-panel-tab]").length === 3);
+        const targets = [...document.querySelectorAll<HTMLElement>("[role=tab][data-panel-tab]")].map((tab) => [tab.dataset.panelTab, tab.dataset.nbTarget ?? null, tab.dataset.nbKey ?? null]);
+        expect(targets).toEqual([
+            ["view:nbook.agent.conversation", "workbench.view", "nbook.agent.conversation"],
+            ["view:nbook.files.explorer", "workbench.view", "nbook.files.explorer"],
+            ["tab:editor:a.md", null, null],
+        ]);
+    });
+
     it("弹出状态写到按钮上；点按钮发 activate", async () => {
         const {viewHead, activated} = mountHead({key: "nbook.agent.conversation:1", popup: {expanded: false}});
         await waitUntil("写上弹出状态", () => handle().getAttribute("aria-haspopup") === "dialog");

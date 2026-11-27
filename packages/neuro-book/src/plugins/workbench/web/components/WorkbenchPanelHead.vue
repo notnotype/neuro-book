@@ -104,7 +104,8 @@ defineSlots<{
 
 const TAB_MAX_WIDTH = 96;
 
-const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon})));
+// 几个视图叠成标签时，标签就是视图的标题：同样写稳定名（输出 6）。
+const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon, attrs: viewTarget(tab.id)})));
 
 const activeTab = computed(() => (props.titleOnly ? (props.tabs.find((tab) => tab.id === props.active) ?? null) : null));
 /** 自绘头优先于接管标题区：宿主不会同时给两样，这里也只认一样。 */

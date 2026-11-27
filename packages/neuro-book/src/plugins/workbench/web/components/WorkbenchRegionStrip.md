@@ -74,7 +74,7 @@ defineEmits<{
 
 插槽：默认插槽是并进来的那一节的头（宿主以面板 id 为 `key`，换了并进来的那一节就是新的头）。
 
-标记：根 `data-region-strip`（区域）；入口这一组 `data-region-entries`（拖动几何量它的末端）；入口 `data-region-entry` 与 `data-tool-entry`（容器 id）、`data-tool-view`、按下的 `data-pressed`、并入高亮的 `data-tool-merge`；外面一层 `data-entry-frame`；“更多” `data-region-more`；按下的块 `data-region-indicator`，显示着 `data-shown`、滑着 `data-sliding`。
+标记：入口带稳定名 `workbench.container` 加容器 id（`data-nb-target`、`data-nb-key`，[`agent/page-agent.md`](../../../../../../../docs/specs/agent/page-agent.md) 输出 6；Agent 的引导按它找入口，不改名）；根 `data-region-strip`（区域）；入口这一组 `data-region-entries`（拖动几何量它的末端）；入口 `data-region-entry` 与 `data-tool-entry`（容器 id）、`data-tool-view`、按下的 `data-pressed`、并入高亮的 `data-tool-merge`；外面一层 `data-entry-frame`；“更多” `data-region-more`；按下的块 `data-region-indicator`，显示着 `data-shown`、滑着 `data-sliding`。
 
 ## 状态
 

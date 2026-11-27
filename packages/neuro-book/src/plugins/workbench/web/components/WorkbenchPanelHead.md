@@ -20,7 +20,7 @@
 - 点标签、方向键、Home、End 发 `activate`，Alt 加方向键发 `reorder`。选中的标签是 Tab 停靠点，其余靠方向键。
 - 标签的右键或菜单键发 `context-menu`（“移动到”由宿主开）。不是标签的地方右键不处理，留给浏览器。
 - 框架按钮点了发 `action`；不可用时禁用，悬停提示是原因。框架按钮里没有“收起”，收起是标题行的事。
-- 动作区带 `data-hover-actions`，框架按钮的容器带 `data-hover-actions="frame"`，两者随鼠标显示的范围由宿主给（`hover-actions.css`）；框架按钮里有按下的（最大化着的还原）时这一组一直显示。收着时悬停范围就是这一行（头带 `data-hover-actions-scope`），展开着时是整张卡片（宿主写）。
+- 动作区带 `data-hover-actions`，框架按钮的容器带 `data-hover-actions="frame"`，两者随鼠标显示的范围由宿主给（`hover-actions.css`）；框架按钮里有按下的（最大化着的还原）时这一组一直显示。收着时悬停范围就是这一行（头带 `data-hover-actions-scope`），展开着时是整张卡片（宿主写）。动作区带 `data-nb-agent-reveal` 时不论悬停都显示（Agent 高亮里面的按钮时由引导写上，[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 25）。视图的标题按钮与叠成标签时视图的标签带稳定名 `workbench.view` 加视图 id（`data-nb-target`、`data-nb-key`，[`agent/page-agent.md`](../../../../../../../docs/specs/agent/page-agent.md) 输出 6），编辑器页这类标签没有。
 - 有 `fold` 时整行是开关：标题按钮铺满标题这一格，标记在按钮里，按钮带 `aria-expanded` 与 `aria-controls`（内容 region 的 id）；点它先把焦点放到按钮上再发 `activate`，切换由宿主做（展开着收起，收着展开）。Enter 是按钮的点击；空格先交给键盘拖动。
 - `titleOnly`（侧栏这一列，别的工具面板只有一个标签时；由外壳按已提交的文档算）时只有活动标签的标题：一个可聚焦的按钮，点了发 `activate`（面板收着时宿主展开），是这个视图的拖动源，名称是标题，`dragHint` 写在描述里。内容区的名称不指向这个按钮，指向一个带 `hidden` 的元素，写活动标签的标题（id 由 `panelTitleDomId` 算）。
 - `titleInEntry`（底部面板并成一行时，入口条的入口写着标题，Spec 输出 47）：不画标题按钮，头里只有视图动作与框架按钮；隐藏的标题元素照旧在。拖动、右键与“焦点落到标题”由宿主交给那个入口。

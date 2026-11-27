@@ -27,8 +27,10 @@ const SETTINGS: SettingsCatalogView = {
 
 const WORKBENCH: WorkbenchCatalogView = {
     views: [
-        {id: "nbook.files.explorer", title: "文件", container: "nbook.project", actions: ["nbook.files.new"]},
-        {id: "nbook.agent.chat", title: "对话", container: null, actions: []},
+        {id: "nbook.files.explorer", title: "文件", container: "nbook.project", placed: true, actions: ["nbook.files.new"]},
+        {id: "nbook.agent.chat", title: "对话", container: null, placed: true, actions: []},
+        // 不在布局里（关掉了）：页面上没有它，目录不收它与它标题栏上的命令。
+        {id: "nbook.canon.timeline", title: "时间线", container: null, placed: false, actions: ["nbook.canon.timeline.zoom"]},
     ],
     containers: [{id: "nbook.project", title: "项目", region: "sidebar", views: ["nbook.files.explorer"]}],
     activityItems: [{id: "nbook.settings", title: "设置", command: TOGGLE_SETTINGS_COMMAND}],
@@ -37,6 +39,7 @@ const WORKBENCH: WorkbenchCatalogView = {
 const COMMANDS: Readonly<Record<string, CatalogCommand>> = {
     [TOGGLE_SETTINGS_COMMAND]: {id: TOGGLE_SETTINGS_COMMAND, title: "打开设置", keybinding: "Ctrl+,", palette: true},
     "nbook.files.new": {id: "nbook.files.new", title: "新建文件", keybinding: null, palette: false},
+    "nbook.canon.timeline.zoom": {id: "nbook.canon.timeline.zoom", title: "放大时间线", keybinding: null, palette: false},
 };
 
 function sources(present: (locator: Locator) => boolean = () => false, settings: SettingsCatalogView = SETTINGS): CatalogSources {
@@ -90,6 +93,7 @@ describe("界面目录（输出 7）", () => {
             {at: {target: "workbench.view", key: "nbook.files.explorer"}, appears: null},
         ]});
         expect(findInCatalog(sources(), "对话", "view", 5)[0]!.path).toEqual([{at: {target: "workbench.view", key: "nbook.agent.chat"}, appears: null}]);
+        expect(findInCatalog(sources(), "时间线", undefined, 5)).toEqual([]);
     });
 
     it("命令只收活动栏与视图标题栏上的，带快捷键与能否从命令面板运行", () => {

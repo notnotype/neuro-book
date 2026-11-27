@@ -96,7 +96,9 @@ function candidates(sources: CatalogSources): Candidate[] {
         const viewSteps = (container: string | null, last: Step): Step[] => (container === null
             ? [last]
             : [{at: target("workbench.container", container), appears: last.at}, last]);
-        for (const view of workbench.views) {
+        // 不在布局里的视图页面上没有它的标签，点不到：不收它与它标题栏上的命令。
+        const placed = workbench.views.filter((view) => view.placed);
+        for (const view of placed) {
             const container = view.container === null ? undefined : containerOf.get(view.container);
             out.push({
                 entry: {kind: "view", title: view.title, id: view.id},
@@ -120,7 +122,7 @@ function candidates(sources: CatalogSources): Candidate[] {
         for (const item of workbench.activityItems) {
             if (item.command !== null) addCommand(item.command, [{at: target("workbench.activity", item.id), appears: null}]);
         }
-        for (const view of workbench.views) {
+        for (const view of placed) {
             for (const action of view.actions) {
                 const button: Step = {at: target(COMMAND_TARGET, action), appears: null};
                 addCommand(action, viewSteps(view.container, button));
