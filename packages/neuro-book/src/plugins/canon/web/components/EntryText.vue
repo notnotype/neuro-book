@@ -1,18 +1,19 @@
 <script setup lang="ts">
 /**
- * 条目的文字分页（docs/specs/canon/author-ui.md 输出 10）。块是世界服务给作者的渲染（canon.rendering 输出 7）：mdast 的语法树，
- * 表达式已经换成算好的 canon 节点。条目 MDX 不许 import、export，节点种类有限，这里自己递归画；认不出的节点画它的子节点或文字。
- * 页面的 h1 是条目名，文字里的标题降一级（`#` 画成 h2）。
+ * 条目的文字分页（docs/specs/canon/author-ui.md 输出 10）。块是世界服务给作者的渲染（canon.rendering 输出 7）：源文加值表。这里对源文
+ * 跑与内核同一份条目文法，按词法单元画，活的标签换成值表里对应的那一项；对不上的块整块按出错显示。条件只画生效的那一支，判断
+ * 未知时写“未知”。页面的 h1 是条目名，文字里的标题降一级（`#` 画成 h2）。
  */
 import {computed, defineComponent, h} from "vue";
 import type {PropType, VNodeChild} from "vue";
+import {decodeHTMLStrict} from "entities";
 
 import "@notnotype/nb-markdown/markdown.css";
 
 import {Button} from "@notnotype/nb-ui/components";
 
-import type {EntryTextBlock, EntryTextNode, TextAddress} from "./entry-text";
-import {addressKey} from "./entry-text";
+import type {EntryTextBlock, EntryTextToken, EntryTextValue, LaidOutBlock, TextAddress} from "./entry-text";
+import {addressKey, layoutBlock} from "./entry-text";
 import {useCanonText} from "../text";
 
 const props = withDefaults(defineProps<{
@@ -47,52 +48,109 @@ defineSlots<{
 
 const text = useCanonText();
 
-function children(node: EntryTextNode): VNodeChild[] {
-    return (node.children ?? []).map(renderNode);
-}
-
 const HEADINGS = ["h2", "h3", "h4", "h5", "h5", "h5"] as const;
 
-/** 块一级的元素带着它在这一块源文字里的行号：预览跟着光标滚到对应的段落时按它找（输出 48）。 */
-const line = (node: EntryTextNode): {"data-source-line"?: number} => (node.position === undefined ? {} : {"data-source-line": node.position.start.line});
+/** HTML 形式的强调（核心语法的 `htmlMark`，标签名小写）画成的元素。 */
+const HTML_MARKS: Readonly<Record<string, string>> = {strong: "strong", b: "strong", em: "em", i: "em", del: "del", s: "del"};
 
-function renderNode(node: EntryTextNode): VNodeChild {
-    switch (node.type) {
-        case "text": return node.value ?? "";
+type VValue = Extract<EntryTextValue, {tag: "V"}>;
+
+/** 块一级的元素带着它在这一块源文字里的行号：预览跟着光标滚到对应的段落时按它找（输出 48）。 */
+const line = (layout: LaidOutBlock, token: EntryTextToken): {"data-source-line"?: number} => {
+    const at = layout.lineOf(token);
+    return at === undefined ? {} : {"data-source-line": at};
+};
+
+const blockList = (layout: LaidOutBlock, list: readonly EntryTextToken[] | undefined): VNodeChild[] => (list ?? []).map((token) => blockToken(layout, token));
+const inlineList = (layout: LaidOutBlock, list: readonly EntryTextToken[] | undefined): VNodeChild[] => (list ?? []).map((token) => inlineToken(layout, token));
+
+function blockToken(layout: LaidOutBlock, token: EntryTextToken): VNodeChild {
+    switch (token.type) {
+        case "space":
+        case "def":
+        case "checkbox":
+            return null;
         // 段落、标题、列表、引用、代码、表格、分隔线的样子来自章节的正文样式（块的根上的 `.nb-markdown`），这里不另写。
-        case "paragraph": return h("p", line(node), children(node));
-        case "heading": return h(HEADINGS[Math.min(Math.max((node.depth ?? 1) - 1, 0), 5)]!, line(node), children(node));
-        case "list": return h(node.ordered === true ? "ol" : "ul", children(node));
-        case "listItem": return h("li", line(node), children(node));
-        case "blockquote": return h("blockquote", line(node), children(node));
-        case "emphasis": return h("em", children(node));
-        case "strong": return h("strong", children(node));
-        case "delete": return h("del", children(node));
-        case "inlineCode": return h("code", node.value ?? "");
-        case "code": return h("pre", line(node), h("code", node.value ?? ""));
-        case "break": return h("br");
-        case "thematicBreak": return h("hr", line(node));
+        case "paragraph": return h("p", line(layout, token), inlineList(layout, token.tokens));
+        case "heading": return h(HEADINGS[Math.min(Math.max((token.depth ?? 1) - 1, 0), 5)]!, line(layout, token), inlineList(layout, token.tokens));
+        case "list": return h(token.ordered === true ? "ol" : "ul", (token.items ?? []).map((item) => h("li", line(layout, item), blockList(layout, item.tokens))));
+        case "blockquote": return h("blockquote", line(layout, token), blockList(layout, token.tokens));
+        case "code": return h("pre", line(layout, token), h("code", token.text ?? ""));
+        case "hr": return h("hr", line(layout, token));
         // 表格比内容列宽时在自己的框里横向滚动，不把页面撑出横向滚动条。
-        case "table": return h("div", {class: "overflow-x-auto", ...line(node)}, h("table", h("tbody", children(node))));
-        case "tableRow": return h("tr", children(node));
-        case "tableCell": return h("td", children(node));
-        case "image": return node.alt ?? "";
-        case "canonValue": return valueNode(node);
-        case "canonComputed": return h("span", {class: "text-[var(--text-secondary)]", title: node.source}, node.display ?? "");
-        case "canonPlaceholder": return h("span", {class: "text-[var(--text-muted)]"}, node.reason ?? "");
-        case "canonRef":
-            if (node.deleted === true) return h("span", {class: "text-[var(--text-muted)]"}, node.name !== undefined && node.name !== "" ? node.name : text("value.deletedRef"));
-            if (!props.interactive) return h("span", {"class": "text-[var(--accent-main)]", "data-ref": node.id}, node.name ?? "");
-            return h("button", {type: "button", class: "text-[var(--accent-main)] hover:underline", onClick: () => emit("entry", node.id!)}, node.name ?? "");
-        case "canonImage": return h("span", {class: "text-[var(--text-muted)]"}, node.caption ?? "");
-        default: return node.children !== undefined ? children(node) : (node.value ?? "");
+        case "table": return h("div", {class: "overflow-x-auto", ...line(layout, token)}, h("table", h("tbody", [token.header ?? [], ...(token.rows ?? [])].map((row) => h("tr", row.map((cell) => h("td", inlineList(layout, cell.tokens))))))));
+        default: return inlineToken(layout, token);
     }
 }
 
-function valueNode(node: EntryTextNode): VNodeChild {
+function inlineToken(layout: LaidOutBlock, token: EntryTextToken): VNodeChild {
+    switch (token.type) {
+        // 正文里的实体（`&lt;`）在词法单元里还是原文，画成它表示的字；转义的字已经是那个字。
+        case "text": return token.tokens !== undefined ? inlineList(layout, token.tokens) : decodeHTMLStrict(token.text ?? token.raw);
+        case "escape": return token.text ?? "";
+        case "strong": return h("strong", inlineList(layout, token.tokens));
+        case "em": return h("em", inlineList(layout, token.tokens));
+        case "del": return h("del", inlineList(layout, token.tokens));
+        // HTML 形式的强调（`<strong>…</strong>` 等，编辑器写回读不回来的强调时用它）：与 Markdown 的写法画成同样的元素。
+        case "htmlMark": return h(HTML_MARKS[String(token.tag)] ?? "span", inlineList(layout, token.tokens));
+        case "codespan": return h("code", token.text ?? "");
+        case "br":
+        case "htmlBreak":
+        case "html":
+            return h("br");
+        // 链接只显示文字，图片写说明。
+        case "link": return inlineList(layout, token.tokens);
+        case "image": return decodeHTMLStrict(token.text ?? "");
+        case "entryTag": return tagNode(layout, typeof token.tag === "number" ? token.tag : -1);
+        case "entryIf": return conditionNode(layout, token);
+        default: return token.tokens !== undefined ? inlineList(layout, token.tokens) : token.raw;
+    }
+}
+
+const muted = (content: string): VNodeChild => h("span", {class: "text-[var(--text-muted)]"}, content);
+
+function tagNode(layout: LaidOutBlock, tag: number): VNodeChild {
+    const value = layout.valueOf(tag);
+    if (value === undefined) return null;
+    if ("needsPlugin" in value) return muted(text("value.needsPlugin"));
+    switch (value.tag) {
+        case "V": return valueNode(value as VValue);
+        case "Ref": {
+            const ref = value as Extract<EntryTextValue, {tag: "Ref"}>;
+            return refNode(ref.id, ref.name, ref.deleted);
+        }
+        case "Image": return muted((value as Extract<EntryTextValue, {tag: "Image"}>).caption);
+        default: return null;
+    }
+}
+
+function refNode(id: string, name: string, deleted: boolean): VNodeChild {
+    if (deleted) return muted(name !== "" ? name : text("value.deletedRef"));
+    if (!props.interactive) return h("span", {"class": "text-[var(--accent-main)]", "data-ref": id}, name);
+    return h("button", {type: "button", class: "text-[var(--accent-main)] hover:underline", onClick: () => emit("entry", id)}, name);
+}
+
+/** 条件：画生效的那一支；没有生效的支时，有判断未知就写“未知”（警告色），都不成立就什么都不画。 */
+function conditionNode(layout: LaidOutBlock, token: EntryTextToken): VNodeChild {
+    const branches = token.branches ?? [];
+    const head = layout.valueOf(branches[0]?.head ?? -1) as Extract<EntryTextValue, {result: unknown}> | undefined;
+    const taken = head?.taken ?? null;
+    if (taken !== null) return inlineList(layout, branches[taken]?.tokens);
+    const unknown = branches.some((branch) => {
+        const value = layout.valueOf(branch.head);
+        return value !== undefined && "result" in value && value.result === null;
+    });
+    return unknown ? h("span", {class: "text-[var(--status-warning)]"}, text("value.unknown")) : null;
+}
+
+function valueNode(node: VValue): VNodeChild {
+    // 读不到的值：带说明的一句（canon.rendering 输出 6）；算出来的值不可点，悬停是式子原文；图片写说明；值是引用的同条目引用。
+    if (node.unavailable !== undefined) return muted(node.unavailable);
+    if (node.expr !== undefined) return h("span", {class: "text-[var(--text-secondary)]", title: node.expr}, node.unknown === true ? text("value.unknown") : node.display);
+    if (node.image !== undefined) return muted(node.image.caption);
     const address: TextAddress = {entry: node.entry ?? props.self, path: node.path ?? ""};
     const key = addressKey(address);
-    const shown = node.unknown === true ? text("value.unknown") : (node.display ?? "");
+    const shown = node.unknown === true ? text("value.unknown") : node.display;
     const mark = address.entry === props.self ? props.marks[address.path] : undefined;
     const warn = node.unknown === true || node.incomplete !== undefined;
     // 不能点时是同样画法的文字，悬停写它是哪个字段。
@@ -116,11 +174,31 @@ function valueNode(node: EntryTextNode): VNodeChild {
     ];
 }
 
-/** 一块里有没有展开着的那个值：来历画在这一块后面。 */
-function contains(node: EntryTextNode, key: string): boolean {
-    if (node.type === "canonValue") return addressKey({entry: node.entry ?? props.self, path: node.path ?? ""}) === key;
-    return (node.children ?? []).some((child) => contains(child, key));
+/**
+ * 每块读好、对好的结果，按块对象留着：块的数据不变（换了内容的块是新对象），父组件为了别的 prop 重画、或找来历画在哪块时不重新分词。
+ */
+type SourceBlock = Extract<EntryTextBlock, {source: string}>;
+const layouts = new WeakMap<SourceBlock, ReturnType<typeof layoutBlock>>();
+function layoutOf(block: SourceBlock): ReturnType<typeof layoutBlock> {
+    let laid = layouts.get(block);
+    if (laid === undefined) {
+        laid = layoutBlock(block.source, block.values);
+        layouts.set(block, laid);
+    }
+    return laid;
 }
+
+/** 一块里有没有画成按钮的这个值（没生效的支里的、读不到的不算）：来历画在这一块后面。 */
+function contains(block: EntryTextBlock, key: string): boolean {
+    if ("error" in block) return false;
+    const laid = layoutOf(block);
+    return !("mismatch" in laid) && laid.pressable.some((value) => addressKey({entry: value.entry ?? props.self, path: value.path}) === key);
+}
+
+const failedBlock = (body: string, reason: string): VNodeChild => h("div", {"class": "my-2", "data-block-error": ""}, [
+    h("p", {class: "whitespace-pre-wrap"}, body),
+    h("p", {class: "text-[length:var(--text-xs)] text-[var(--status-danger)]"}, text("value.blockFailed", {reason})),
+]);
 
 const Block = defineComponent({
     name: "EntryTextBlock",
@@ -128,13 +206,11 @@ const Block = defineComponent({
     setup(blockProps) {
         return () => {
             const block = blockProps.block;
-            if ("error" in block) {
-                return h("div", {"class": "my-2", "data-block-error": ""}, [
-                    h("p", {class: "whitespace-pre-wrap"}, block.text),
-                    h("p", {class: "text-[length:var(--text-xs)] text-[var(--status-danger)]"}, text("value.blockFailed", {reason: block.error.message})),
-                ]);
-            }
-            return h("div", {"class": "nb-markdown", "data-block": block.id}, children(block.tree));
+            if ("error" in block) return failedBlock(block.text, block.error.message);
+            const laid = layoutOf(block);
+            // 值表与源文对不上（前后端的文法不是同一版这类）：整块按出错显示，不按位置猜。
+            if ("mismatch" in laid) return failedBlock(block.source, laid.mismatch);
+            return h("div", {"class": "nb-markdown", "data-block": block.id}, blockList(laid, laid.tokens));
         };
     },
 });
@@ -143,7 +219,7 @@ const Block = defineComponent({
 const originBlock = computed(() => {
     const key = props.open;
     if (key === undefined) return null;
-    return props.blocks.find((block) => !("error" in block) && contains(block.tree, key))?.id ?? null;
+    return props.blocks.find((block) => contains(block, key))?.id ?? null;
 });
 
 const openAddress = (): TextAddress | null => {

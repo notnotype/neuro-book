@@ -83,7 +83,7 @@ describe("author-ui 输出 45、46：状态行", () => {
 
 describe("author-ui 输出 39：输入与“插入”", () => {
     it("打字发 update；内核说写得不对时原因在输入框下面；提交在途时输入框只读、“插入”点不了", async () => {
-        const wrapper = show({inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}]});
+        const wrapper = show({inserts: [{label: "面板 · 魔力", snippet: '<V of="panel.魔力" />'}]});
         await wrapper.get("textarea").setValue("第一段。改了");
         expect(wrapper.emitted("update")).toEqual([["第一段。改了"]]);
         expect(wrapper.find("[data-text-problem]").exists()).toBe(false);
@@ -94,7 +94,7 @@ describe("author-ui 输出 39：输入与“插入”", () => {
     });
 
     it("从“插入”里选一个字段：写法落在光标处、光标到了它后面，照打字一样发 update，焦点回到输入框；条目没有字段时不出“插入”", async () => {
-        const wrapper = show({text: "魔力：点", inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}, {label: "面板 · 存款", snippet: "{panel.存款}"}]});
+        const wrapper = show({text: "魔力：点", inserts: [{label: "面板 · 魔力", snippet: '<V of="panel.魔力" />'}, {label: "面板 · 存款", snippet: '<V of="panel.存款" />'}]});
         // 同真实的宿主：收到 update 就把新的整篇给回来（不给回来的话，受控的输入框会被旧的文字盖回去）。
         await wrapper.setProps({onUpdate: (value: string) => void wrapper.setProps({text: value})});
         const area = wrapper.get("textarea").element as HTMLTextAreaElement;
@@ -109,7 +109,7 @@ describe("author-ui 输出 39：输入与“插入”", () => {
         expect(items.map((item) => item.textContent?.trim())).toEqual(["面板 · 魔力", "面板 · 存款"]);
         items[0]!.click();
         await flushPromises();
-        expect([wrapper.emitted("update"), area.value, area.selectionStart, document.activeElement === area]).toEqual([[["魔力：{panel.魔力}点"]], "魔力：{panel.魔力}点", "魔力：{panel.魔力}".length, true]);
+        expect([wrapper.emitted("update"), area.value, area.selectionStart, document.activeElement === area]).toEqual([[['魔力：<V of="panel.魔力" />点']], '魔力：<V of="panel.魔力" />点', '魔力：<V of="panel.魔力" />'.length, true]);
 
         expect(show({}).find("[data-text-insert]").exists()).toBe(false);
     });
@@ -154,7 +154,7 @@ describe("author-ui 输出 48：预览栏", () => {
     });
 
     it("开着预览照样能打字、能“插入”：改动照常交出去", async () => {
-        const wrapper = withPreview({preview: true, text: "甲", inserts: [{label: "面板 · 魔力", snippet: "{panel.魔力}"}]});
+        const wrapper = withPreview({preview: true, text: "甲", inserts: [{label: "面板 · 魔力", snippet: '<V of="panel.魔力" />'}]});
         const area = wrapper.get("textarea").element as HTMLTextAreaElement;
         area.value = "甲乙";
         area.dispatchEvent(new Event("input", {bubbles: true}));

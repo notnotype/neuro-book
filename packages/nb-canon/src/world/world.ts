@@ -61,8 +61,8 @@ import {effectiveLine, lineOf, lineTable, MAIN_LINE} from "../lines/table";
 import {defaultCarry, forkProblems, keptAsWritten} from "./forks";
 import {lineRuleProblems} from "./line-rules";
 import {linePending, type LinePendingItem} from "../lines/pending";
-import {blockProblem} from "../render/syntax";
-import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext} from "./references";
+import {blockProblem, normalizeBlockSource, unregisteredTags} from "../render/syntax";
+import {marksIn, newReferences, objectItems, referenceProblem, referencesOf, replaceRequestTempIds, type ReferenceContext, type WrittenText} from "./references";
 import {authorizationBinds, checkAuthorizations, fieldsDigest, requestDigest as requestDigestOf, type AuthorizationProblem, type NeededAuthorization, type RevertRequest} from "./authorization";
 import {classifyDecisionWrite, missingFields, revertNeedsSource, type Classified} from "./decisions";
 import {countOccurrences} from "./tellings";
@@ -470,6 +470,13 @@ export class World {
             return {ok: true, world: this, revision: previous.revision, ids: previous.revision.idMap ?? {}, repeated: true};
         }
 
+        // 新写的主文字先规范化（rendering.md 输出 1、18）：在摘要之后做，重试与授权（`#decisionWrites` 收原样的 `signed`）按原样的
+        // 请求比；只动与旧世界不同的块与补丁，原样留着的旧文字不经这里改写（改写了就成了“改过的”，要重新过检查）。补偿修订不做：
+        // 它恢复改前的原值（revisions.md 输出 11），原值不是规范写法也照原样恢复。
+        const signed = input;
+        const newText = writtenTextOf(this, input);
+        if (!compensation) input = normalizeRequestText(input, newText);
+
         // 临时 id 换成正式 id；同一个请求里引用临时 id 的地方一起换。
         const allocator = cloneAllocator(this.index.allocator, []);
         const ids: Record<string, string> = {};
@@ -482,7 +489,7 @@ export class World {
         // 临时 id 只在引用位置上换（components.md 输出 18）；补丁的值是不是引用要看它指到的条目的字段声明，同一请求里
         // 新建的条目按请求里写的临时 id 找。
         const requestEntries = new Map(input.puts.filter((put) => put.ref.kind === "entry" && put.after !== null && typeof put.after === "object").map((put) => [put.ref.id, put.after as Entry]));
-        const request = replaceRequestTempIds(input, ids, {registry: this.options.registry, marks: this.options.marks ?? EMPTY_MARK_REGISTRY, entry: (id) => requestEntries.get(id) ?? this.data.entries.get(id)});
+        const request = replaceRequestTempIds(input, ids, {registry: this.options.registry, marks: this.options.marks ?? EMPTY_MARK_REGISTRY, entry: (id) => requestEntries.get(id) ?? this.data.entries.get(id)}, newText);
 
         const problems: Problem[] = [];
         const conflicts: ConflictDetail[] = [];
@@ -517,7 +524,7 @@ export class World {
         const createdAt = new Map(this.data.createdAt);
         const ops: Op[] = [];
         const changed: {entries: string[]; changes: string[]; checks: string[]} = {entries: [], changes: [], checks: []};
-        const decisions = compensation ? null : this.#decisionWrites(input, request, ids);
+        const decisions = compensation ? null : this.#decisionWrites(signed, request, ids);
         if (decisions !== null && "failure" in decisions) return {ok: false, failure: decisions.failure};
         // 写入以后的条目：同一请求里写的优先（马甲归一要看它的 sameAs）。
         const written = new Map(request.puts.filter((put) => put.ref.kind === "entry" && put.after !== null).map((put) => [put.ref.id, put.after as Entry]));
@@ -1372,9 +1379,145 @@ function toleratedPatches(previous: StoryChange | undefined, change: StoryChange
     return tolerated;
 }
 
+/** 补丁写的主文字：加一块的原文、整段替换一块的新原文；别的补丁没有。形状不对的（由后面的校验报）也没有。 */
+function patchText(patch: Patch): string | undefined {
+    if (patch === null || typeof patch !== "object" || patch.at === null || typeof patch.at !== "object" || typeof patch.at.path !== "string") return undefined;
+    const value = patch.op === "addBlock" ? (patch.value as {source?: unknown} | null)?.source : (patch.op === "replaceBlock" || patch.op === "set") && patch.at.path.startsWith("text[") ? patch.value : undefined;
+    return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * 没登记的标签的基线（rendering.md 输出 19）：一个条目在旧世界里的主文字（初值的块与生效的变更里改它主文字的补丁）里已有的、
+ * 没登记的标签的规范写法。生效的变更不分线、不分套没套上：这里没有读取位置，按“这个条目在某处的主文字里有过”放宽，只对已经
+ * 出现过的规范写法放行。用到才算：补丁按条目分组只做一遍，每个条目的基线算一次。
+ */
+function existingTagsOf(world: World): (entry: string) => ReadonlySet<string> {
+    let found = baselines.get(world);
+    if (found === undefined) {
+        found = baselineOf(world);
+        baselines.set(world, found);
+    }
+    return found;
+}
+
+/** 每个世界版本的基线只算一次：写入的校验与预览（rendering.md 输出 16）各自来问。 */
+const baselines = new WeakMap<World, (entry: string) => ReadonlySet<string>>();
+
+/** 一个条目在这个世界里没登记的标签的基线（`existingTagsOf`）；预览按它查没登记的标签。 */
+export function existingTagsIn(world: World, entry: string): ReadonlySet<string> {
+    return existingTagsOf(world)(entry);
+}
+
+function baselineOf(world: World): (entry: string) => ReadonlySet<string> {
+    const memo = new Map<string, ReadonlySet<string>>();
+    let patched: Map<string, string[]> | undefined;
+    return (entry) => {
+        let found = memo.get(entry);
+        if (found === undefined) {
+            if (patched === undefined) {
+                patched = new Map();
+                for (const change of world.data.changes.values()) {
+                    if (change.status !== "active") continue;
+                    for (const patch of change.patches) {
+                        const source = patchText(patch);
+                        if (source === undefined) continue;
+                        const list = patched.get(patch.at.entry) ?? [];
+                        list.push(source);
+                        patched.set(patch.at.entry, list);
+                    }
+                }
+            }
+            const sources = [...(world.data.entries.get(entry)?.init.text ?? []).map((block) => block.source), ...(patched.get(entry) ?? [])];
+            found = new Set(sources.flatMap(unregisteredTags));
+            memo.set(entry, found);
+        }
+        return found;
+    };
+}
+
+/**
+ * 一条变更的补丁里哪些是原样留着的（按序号）：旧世界里这条变更生效，且有一条内容相同、还没对上别的的旧补丁。按内容对，不按
+ * 序号：在旧补丁前面插一条别的补丁，旧补丁照样算原样留着。旧变更撤回或搁着时不算：重新生效的补丁要查。
+ */
+function unchangedPatches(old: StoryChange | undefined, patches: readonly Patch[]): ReadonlySet<number> {
+    const found = new Set<number>();
+    if (old === undefined || old.status !== "active" || !Array.isArray(old.patches)) return found;
+    const left = old.patches.map((patch) => stableStringify(patch));
+    patches.forEach((patch, index) => {
+        const at = left.indexOf(stableStringify(patch));
+        if (at < 0) return;
+        left.splice(at, 1);
+        found.add(index);
+    });
+    return found;
+}
+
+/**
+ * 请求里哪些主文字是新写的：与旧世界里同 id 的块源文不同的块，与旧变更里没有内容相同的补丁对上的补丁（`unchangedPatches`）。按调用方
+ * 交来的原样请求算一次（规范化之前），规范化与临时 id 的替换按同一份结果判断，原样留着的旧文字两样都不动。按请求里写的 id 查旧世界
+ * （临时 id 查不到，整条都算新写的）。
+ */
+function writtenTextOf(world: World, request: WriteRequest): WrittenText {
+    const blocks = new Map<string, ReadonlySet<unknown>>();
+    const patches = new Map<string, ReadonlySet<number>>();
+    for (const put of request.puts) {
+        if (put.after === null || typeof put.after !== "object") continue;
+        if (put.ref.kind === "entry") {
+            const text = (put.after as Entry).init?.text;
+            if (!Array.isArray(text)) continue;
+            const old = new Map(((world.object(put.ref) as Entry | undefined)?.init.text ?? []).map((block) => [block.id, block.source]));
+            blocks.set(put.ref.id, new Set(text.filter((block) => block !== null && typeof block === "object" && old.get(block.id) !== block.source).map((block) => block.id)));
+        }
+        if (put.ref.kind === "change") {
+            const written = (put.after as StoryChange).patches;
+            if (!Array.isArray(written)) continue;
+            const unchanged = unchangedPatches(world.object(put.ref) as StoryChange | undefined, written);
+            patches.set(put.ref.id, new Set(written.map((_, index) => index).filter((index) => !unchanged.has(index))));
+        }
+    }
+    return {block: (entry, id) => blocks.get(entry)?.has(id) ?? true, patch: (change, index) => patches.get(change)?.has(index) ?? true};
+}
+
+/** 请求里新写的主文字规范化（`writtenTextOf`）。形状不对的原样留给后面的校验报。 */
+function normalizeRequestText(request: WriteRequest, written: WrittenText): WriteRequest {
+    let changed = false;
+    const puts = request.puts.map((put) => {
+        if (put.after === null || typeof put.after !== "object") return put;
+        if (put.ref.kind === "entry") {
+            const entry = put.after as Entry;
+            if (!Array.isArray(entry.init?.text)) return put;
+            const text = entry.init.text.map((block) => {
+                if (block === null || typeof block !== "object" || typeof block.source !== "string" || !written.block(put.ref.id, block.id)) return block;
+                const source = normalizeBlockSource(block.source);
+                return source === block.source ? block : {...block, source};
+            });
+            if (text.every((block, index) => block === entry.init.text[index])) return put;
+            changed = true;
+            return {...put, after: {...entry, init: {...entry.init, text}}};
+        }
+        if (put.ref.kind === "change") {
+            const change = put.after as StoryChange;
+            if (!Array.isArray(change.patches)) return put;
+            const patches = change.patches.map((patch, index) => {
+                const source = patchText(patch);
+                if (source === undefined || !written.patch(put.ref.id, index)) return patch;
+                const normalized = normalizeBlockSource(source);
+                if (normalized === source) return patch;
+                return {...patch, value: (patch.op === "addBlock" ? {...(patch.value as object), source: normalized} : normalized) as never};
+            });
+            if (patches.every((patch, index) => patch === change.patches[index])) return put;
+            changed = true;
+            return {...put, after: {...change, patches}};
+        }
+        return put;
+    });
+    return changed ? {...request, puts} : request;
+}
+
 /** 写入时校验（revisions.md 输出 3、17，model.md 输出 18、23，components.md 输出 3、5、14–16、23）。 */
 function validate(world: World, data: WorldData, lines: LineSet, request: WriteRequest, changed: {entries: string[]; changes: string[]; checks: string[]}): Problem[] {
     const problems: Problem[] = [];
+    const existingTags = existingTagsOf(world);
     const {registry, chapterText} = world.options;
     const strictBasis = request.by.kind === "agent" || request.by.kind === "task";
 
@@ -1456,7 +1599,7 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
         const oldBlocks = new Map(((world.object(ref) as Entry | undefined)?.init.text ?? []).map((block) => [block.id, block.source]));
         for (const block of entry.init.text) {
             if (oldBlocks.get(block.id) === block.source) continue;
-            const problem = blockProblem(block.source);
+            const problem = blockProblem(block.source, {existing: (tag) => existingTags(id).has(tag)});
             if (problem !== null) problems.push({code: problem.code, ref, path: `init.text[${block.id}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
         }
         const previousRetold = (world.object(ref) as Entry | undefined)?.retold ?? {};
@@ -1515,13 +1658,15 @@ function validate(world: World, data: WorldData, lines: LineSet, request: WriteR
             const was = (world.object({kind: "entry", id: at.entry}) as Entry | undefined)?.init.data[parsed.namespace];
             return !sameJson(now, was);
         });
+        const unchanged = unchangedPatches(world.object(ref) as StoryChange | undefined, change.patches);
         for (const [index, patch] of change.patches.entries()) {
             const target = data.entries.get(patch.at.entry);
             if (target === undefined || target.deleted === true) problems.push({code: "entry-missing", ref, path: `patches[${String(index)}]`, message: `entry "${patch.at.entry}" does not exist`});
             if (parsePath(patch.at.path) === null) problems.push({code: "unknown-field", ref, path: `patches[${String(index)}]`, message: `bad address "${patch.at.path}"`});
-            const blockSource = patch.op === "addBlock" ? (patch.value as {source?: unknown} | null)?.source : (patch.op === "replaceBlock" || patch.op === "set") && patch.at.path.startsWith("text[") ? patch.value : undefined;
-            if (typeof blockSource === "string") {
-                const problem = blockProblem(blockSource);
+            const blockSource = patchText(patch);
+            // 原样留着的旧补丁不再查：存下来的旧文字过不了现在的检查（白名单变了）时，不该挡住这条变更别的修改。
+            if (typeof blockSource === "string" && !unchanged.has(index)) {
+                const problem = blockProblem(blockSource, {existing: (tag) => existingTags(patch.at.entry).has(tag)});
                 if (problem !== null) problems.push({code: problem.code, ref, path: `patches[${String(index)}]`, message: `${problem.message} (${String(problem.line)}:${String(problem.column)})`});
             }
             // 原样留着、已经不适用的补丁不再查依据：它没套上，前面的值也不是它当初算依据时的值。

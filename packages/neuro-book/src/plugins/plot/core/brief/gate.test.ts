@@ -67,7 +67,7 @@ describe("brief 输出 16：名字只经关卡（I12 的各条）", () => {
         const butler = w.person("管家");
         const k = w.point("管家是凶手", butler, {保密: "topSecret"});
         const goal = w.goal("毒死男爵", butler, {隐秘: {ref: k}});
-        const thing = withText(w, drafts.thing("tmp:t", "怀表"), [`它和 {ref("${k}").entry.name} 有关。`, `它是 {ref("${goal}").entry.name} 的工具。`, "表盖有划痕。"]);
+        const thing = withText(w, drafts.thing("tmp:t", "怀表"), [`它和 <V entry="${k}" of="entry.name" /> 有关。`, `它是 <V entry="${goal}" of="entry.name" /> 的工具。`, "表盖有划痕。"]);
         w.change(chapter("ch4"), {kind: "plan", text: "拿起怀表", cast: [present(butler)], patches: [setState(thing, "停了")]});
         const result = brief(w, "ch4");
         const appearance = section(result, "appearance");
@@ -135,7 +135,7 @@ describe("brief 输出 16：名字只经关卡（I12 的各条）", () => {
         const hero = w.person("勇者");
         const secret = w.point("园丁是真凶", hero, {保密: "topSecret"});
         const draft = drafts.foreshadow("tmp:fs", "脚印", {答案: {ref: secret}});
-        const fs = withText(w, draft, ["回收时写明 {fs.答案} 留下脚印。"]);
+        const fs = withText(w, draft, ["回收时写明 <V of=\"fs.答案\" /> 留下脚印。"]);
         w.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [present(hero)], told: [told("ch15", [{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "payoff"}])], patches: [{op: "set", at: {entry: fs, path: "fs.重要程度"}, value: "minor"}]});
         const result = brief(w, "ch15");
         expect(section(result, "foreshadow")).toContain(fixed.PAYOFF_BY_OUTLINE);
@@ -148,7 +148,7 @@ describe("brief 输出 16：名字只经关卡（I12 的各条）", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
         const fact = w.point("园丁留下的", hero, {保密: "common"});
-        const fs = withText(w, drafts.foreshadow("tmp:fs", "脚印", {答案: {ref: fact}}), ['回收时写明脚印是{fs.答案}，<Image src="a.png" alt="脚印图" />。']);
+        const fs = withText(w, drafts.foreshadow("tmp:fs", "脚印", {答案: {ref: fact}}), ['回收时写明脚印是<V of="fs.答案" />，<Image src="a.png" alt="脚印图" />。']);
         w.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [present(hero)], told: [told("ch15", [{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "payoff"}])]});
         const text = section(brief(w, "ch15"), "foreshadow");
         expect(text).toContain("回收：回收时写明脚印是园丁留下的，脚印图。");
@@ -224,7 +224,7 @@ describe("brief 输出 16：两轮计划审查的复现", () => {
 
     test("P2 第 2 条：作者文字按条目选出对用马甲的人那一行：那一块扣下", () => {
         const {w, lord, guard, mask} = lordInDisguise();
-        const note = withText(w, drafts.thing("tmp:n", "卫兵的日记"), [`卫兵见到{ref("${guard}").att.态度["${lord}"].称呼}就下跪。`, "日记写到一半。"]);
+        const note = withText(w, drafts.thing("tmp:n", "卫兵的日记"), [`卫兵见到<V entry="${guard}" of="att.态度[${lord}].称呼" />就下跪。`, "日记写到一半。"]);
         w.change(chapter("ch4"), {kind: "plan", text: "灰袍客进了酒馆", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(note, "翻开")]});
         const result = brief(w, "ch4");
         expect(section(result, "appearance")).toContain(fixed.WITHHELD_BLOCK);
@@ -375,10 +375,10 @@ describe("brief 输出 16：实现审查（第一轮）的复现", () => {
         const hero = w.person("勇者");
         const k = w.point("勇者是王子", hero, {保密: "topSecret"});
         const thing = withText(w, drafts.thing("tmp:t", "怀表"), ["表盖有划痕。"]);
-        w.change(chapter("ch4"), {kind: "plan", text: "改怀表", cast: [present(hero)], patches: [{op: "set", at: {entry: thing, path: "text[b1]"}, value: `它和 {ref("${k}").entry.name} 有关，<Ref id="${k}" />。`}]});
+        w.change(chapter("ch4"), {kind: "plan", text: "改怀表", cast: [present(hero)], patches: [{op: "set", at: {entry: thing, path: "text[b1]"}, value: `它和 <V entry="${k}" of="entry.name" /> 有关，<Ref id="${k}" />。`}]});
         const result = brief(w, "ch4");
         expect(section(result, "plan")).toContain(fixed.textChanged("怀表"));
-        for (const raw of ["text[", "<Ref", "{ref(", k]) expect(section(result, "plan")).not.toContain(raw);
+        for (const raw of ["text[", "<Ref", "<V ", k]) expect(section(result, "plan")).not.toContain(raw);
         noLeak(result, "勇者是王子");
     });
 
@@ -388,7 +388,7 @@ describe("brief 输出 16：实现审查（第一轮）的复现", () => {
         const maskDraft = drafts.person("tmp:m", "灰袍客", {sameAs: lord});
         const mask = w.publish([{ref: {kind: "entry", id: "tmp:m"}, after: {...maskDraft, init: {...maskDraft.init, summary: "其实是王爷的化身", text: [{id: "b1", source: "化身的底细。"}]}}}])["tmp:m"]!;
         w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
-        const thing = withText(w, drafts.thing("tmp:t", "怀表"), [`主人：{ref("${mask}").entry.summary}`]);
+        const thing = withText(w, drafts.thing("tmp:t", "怀表"), [`主人：<V entry="${mask}" of="entry.summary" />`]);
         w.change(chapter("ch4"), {kind: "plan", text: "灰袍客拿起怀表", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(thing, "停了")]});
         const result = brief(w, "ch4");
         expect(section(result, "appearance")).toContain(fixed.WITHHELD_BLOCK);
@@ -548,7 +548,7 @@ describe("brief 输出 16：实现审查（第三轮）的复现", () => {
         w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
         const draft = drafts.thing("tmp:t", "玉佩");
         const ext = {type: EXTRA.id, version: 1, enabled: true, fields: {指向: null, 清单: [], 图: null, 关系: [{id: lord, 说法: "夫君"}]}};
-        const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, text: [{id: "b1", source: `<Ref id="${lord}" />的贴身之物，先帝亲赐给弟弟。`}, {id: "b2", source: "主人：{ext.关系}。"}, {id: "b3", source: "玉色温润。"}], data: {...draft.init.data, ext}}}}])["tmp:t"]!;
+        const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, text: [{id: "b1", source: `<Ref id="${lord}" />的贴身之物，先帝亲赐给弟弟。`}, {id: "b2", source: "主人：<V of=\"ext.关系\" />。"}, {id: "b3", source: "玉色温润。"}], data: {...draft.init.data, ext}}}}])["tmp:t"]!;
         w.change(chapter("ch4"), {kind: "plan", text: "玉佩落地", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(thing, "落地")]});
         const result = brief(w, "ch4");
         const appearance = section(result, "appearance");

@@ -73,6 +73,8 @@ export interface EscapeAround {
     readonly place: InlinePlace;
     readonly full: boolean;
     readonly definitions: ReadonlyMap<string, string>;
+    /** 语言的原子转义规则：文字里会被认成原子开头的写法前面加反斜杠（条目的标签）。 */
+    readonly atomEscape?: ((text: string, index: number) => boolean) | null;
 }
 
 /** 行首会被读成块语法的写法：返回要在第几个字符前加反斜杠（相对去掉前导空白后的位置），不需要为 -1。 */
@@ -151,6 +153,12 @@ export function escapeText(text: string, around: EscapeAround): string {
         }
         if (index === trailingAt) {
             out.push(`&#x${(char.codePointAt(0) as number).toString(16).toUpperCase()};`);
+            continue;
+        }
+        // 会被认成原子开头的写法（条目的 `<` 加大写字母）：转义不带哨兵，完全转义一级的试撤撤不掉它。编辑器读回时写坏的标签照样是
+        // 文字，撤掉反斜杠读回不变，但不带编辑器的词法（内核）会把它当成写坏的标签拒收（w00055 t02 S3 审查第 1 条）。
+        if (around.atomEscape?.(text, index) === true) {
+            out.push(`\\${char}`);
             continue;
         }
         if (around.full && ASCII_PUNCTUATION.test(char)) {

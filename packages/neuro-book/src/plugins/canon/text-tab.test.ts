@@ -227,12 +227,12 @@ describe("author-ui 输出 44：提交时别处也改了", () => {
         const desk = tabOf(await scene.window("browser-1"), entry);
         const tab = desk.start();
         await tab.start();
-        tab.update("好感度{+5}");
+        tab.update('好感度 <V of="entry.name"');
         await tab.submit();
-        expect([tab.editing.value, tab.editor.value.text, tab.editor.value.problem.startsWith("写得不对："), scene.sources(entry, at)]).toEqual([true, "好感度{+5}", true, ["甲"]]);
-        tab.update("好感度\\{+5\\}");
+        expect([tab.editing.value, tab.editor.value.text, tab.editor.value.problem.startsWith("写得不对："), scene.sources(entry, at)]).toEqual([true, '好感度 <V of="entry.name"', true, ["甲"]]);
+        tab.update('好感度 \\<V of="entry.name"');
         await tab.submit();
-        expect([tab.editing.value, scene.sources(entry, at)]).toEqual([false, ["好感度\\{+5\\}"]]);
+        expect([tab.editing.value, scene.sources(entry, at)]).toEqual([false, ['好感度 \\<V of="entry.name"']]);
         desk.dispose();
     }), 60_000);
 });

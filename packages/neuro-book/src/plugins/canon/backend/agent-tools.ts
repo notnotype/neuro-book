@@ -14,7 +14,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {agentTool, TOOLS_POINT} from "@notnotype/nb-plugin-sdk/agent";
 import type {AgentToolImplementation} from "@notnotype/nb-plugin-sdk/agent";
 import type {JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-import {generateFieldId} from "@notnotype/nb-canon";
+import {generateFieldId, staleRead} from "@notnotype/nb-canon";
 import type {ComponentType, EntryEdits, EntryOp, EntryView, FieldDeclaration, FieldDraft, FieldKind, ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {projectsKey} from "nbook/shared/projects";
@@ -26,6 +26,7 @@ import type {CanonFailure, CanonInput, CanonMethod, CanonOutputs, CanonResult, F
 import {CANON_ENTRY_KINDS_POINT, defaultComponents, entryKindsPoint, mergeEntryKinds} from "../shared/entry-kinds";
 import type {EntryKind, EntryKindDeclaration} from "../shared/entry-kinds";
 import {fieldsText} from "../shared/agent-fields";
+import {agentBlockText, replaceInBlock} from "./agent-entry-text";
 import {componentNamed, resolveField, uniqueNamed} from "./agent-names";
 import {clip, failureText, impactText, parseStamp, positionText, stampText} from "./agent-text";
 
@@ -66,8 +67,8 @@ const read = agentTool(AGENT_TOOL_IDS.read, {
     providerName: "canon_read",
     description: [
         "读一个设定条目。第一行给出位置与版本（写入时把版本原样带给 canon_write 的 version）。",
-        "show 缺省 [\"fields\"]：每个设定组的字段、值、种类与可取的值；\"text\"：主文字；\"origins\"：field 这个字段的值是怎么来的；\"history\"：最近的修订。",
-        "field 写“设定组.字段”，只读这一个字段（列表读全）。",
+        "show 缺省 [\"fields\"]：每个设定组的字段、值、种类与可取的值；\"text\"：主文字（每块前面方括号里是块 id，标签带着这个位置上的值，见 canon_write）；\"origins\"：field 这个字段的值是怎么来的；\"history\"：最近的修订。",
+        "field 写“设定组.字段”，只读这一个字段（列表读全）；写 \"text[块 id]\" 只读主文字的这一块，长的分页，cursor 续读。",
     ].join("\n"),
     parameters: {
         type: "object",
@@ -75,7 +76,8 @@ const read = agentTool(AGENT_TOOL_IDS.read, {
         required: ["entry"],
         additionalProperties: false,
     },
-    version: "1",
+    // 2：主文字换成标签写法，读到的是带值写法（w00055 t02）。
+    version: "2",
     effect: "read",
     concurrency: "shared",
     group: "设定",
@@ -98,6 +100,8 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "有的设定组（canon_read 里标着“可以加字段”）能在某个条目上加它自己的字段：addField（entry、component 设定组、label 显示名、kind 缺省 text（还有 number、enum、boolean、list、image、ref），可带 unit、min、max、options、suggestions、precision、value 初值）；renameField（entry、field、label）；removeField（entry、field，数据保留）；restoreField（entry、field，恢复去掉过的）。create 与 addComponent 可以带 declare：create 写 {\"设定组\": [声明…]}，addComponent 写 [声明…]。",
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
         "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
+        "主文字是 Markdown 加标签：<V of=\"设定组.字段\" /> 写本条目字段的值，<V entry=\"条目 id\" of=\"设定组.字段\" /> 写别的条目的；<V expr=\"panel.魔力 >= 1000\" /> 写算出来的值（式子里的字符串用单引号，可用 round、floor、ceil、min、max、abs、percent）；<If test=\"式子\">…<ElseIf test=\"…\" />…<Else />…</If> 按条件写一段之内的文字；<Ref id=\"条目 id\" /> 写条目的名字（同一批 create 的条目在 entry、id、ref('…') 里写 \"$代号\"）；<Image of=\"设定组.图片字段\" alt=\"说明\" /> 或 <Image src=\"路径\" alt=\"说明\" />。要在正文里写 < 加大写字母，写成 \\<。",
+        "canon_read 读到的标签带着值：<V of=\"panel.魔力\">3110</V>，以及 label、incomplete、unavailable、value、name、path 这些属性。它们只给你看，存下时程序会去掉：set text[块] 整块换掉时照抄带值的写法就行；replace 的 find 是在读到的带值写法里找的，要与读到的一字不差（标签连同属性与中间的值），或者只找标签以外的文字。文字里改了值不会写进字段，改值用 set 写那个字段。canon_read 一页读不全的长块只能用 replace 改局部。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
     ].join("\n"),
     parameters: {
@@ -114,7 +118,8 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         required: ["title"],
         additionalProperties: false,
     },
-    version: "1",
+    // 2：主文字换成标签写法，交回的文字去值后写入（w00055 t02）。
+    version: "2",
     effect: "write",
     concurrency: "exclusive",
     strict: false,
@@ -359,6 +364,16 @@ function treeTool(services: Services): AgentToolImplementation {
     };
 }
 
+/** 渲染给 Agent 的一块（nb-canon 的 `AgentBlock`）。 */
+interface AgentBlockView {
+    readonly id: string;
+    readonly text: string;
+    readonly error?: {readonly message: string; readonly line?: number; readonly column?: number};
+}
+
+/** 读到的一块：方括号里是块 id；出错的块标出来并带原因（canon.rendering 输出 14），里面的标签没有值。 */
+const blockLine = (block: AgentBlockView): string => `[${block.id}]${block.error === undefined ? "" : `（出错：${block.error.message}，第 ${String(block.error.line ?? 1)} 行；这一块照原文给，标签没有值）`} ${block.text}`;
+
 function readTool(services: Services): AgentToolImplementation {
     return {
         create: (session) => ({
@@ -381,12 +396,34 @@ function readTool(services: Services): AgentToolImplementation {
                     if ("problem" in address) return failed("unknown-field", address.problem);
                     field = address.path;
                 }
+                // 只读主文字的一块（`text[b1]`）：整块分页给，`cursor` 是从第几个字续读（长的块整篇读时会被截断）。
+                if (field?.startsWith("text[") === true) {
+                    const id = field.slice("text[".length, -1);
+                    const rendered = await call("render", {entry: resolved.id, position: context.position, mode, audience: "agent", block: id});
+                    if (!rendered.ok) return worldFailed(rendered.failure);
+                    const block = ((rendered.value?.blocks ?? []) as AgentBlockView[]).find((candidate) => candidate.id === id);
+                    if (block === undefined) return failed("unknown-field", `没有块 ${id}；块 id 见 show: ["text"] 里的方括号。`);
+                    const from = typeof args.cursor === "string" && /^\d+$/u.test(args.cursor) ? Number(args.cursor) : 0;
+                    const page = block.text.slice(from, from + BLOCK_PAGE);
+                    const rest = block.text.length - from - page.length;
+                    parts.push(`${blockLine({...block, text: page})}${rest > 0 ? `\n……（这一块共 ${String(block.text.length)} 字，后面还有 ${String(rest)} 字：cursor "${String(from + page.length)}" 续读。这么长的块用 replace 改局部）` : ""}`);
+                    return {text: parts.join("\n\n"), details: {version: read.value.version, entry: resolved.id}};
+                }
                 if (show.includes("fields")) parts.push(fieldsText(view, declarations, context.components, field === undefined ? {} : {field}));
+                const limit = show.includes("text") && show.length === 1 ? 4000 : 6000;
                 if (show.includes("text")) {
                     const rendered = await call("render", {entry: resolved.id, position: context.position, mode, audience: "agent"});
                     if (!rendered.ok) return worldFailed(rendered.failure);
-                    const blocks = (rendered.value?.blocks ?? []) as Array<{id?: string; text?: string}>;
-                    parts.push(`主文字：\n${blocks.map((block) => `[${block.id ?? ""}] ${block.text ?? ""}`).join("\n") || "（没有主文字）"}`);
+                    const blocks = (rendered.value?.blocks ?? []) as AgentBlockView[];
+                    // 一块要么整块给，要么只写它多长、怎么单独读：不在块中间截断。照截断的文字整段写回（set text[块]）会丢掉没读到的字。
+                    let room = limit - parts.join("\n\n").length - "\n\n主文字：\n".length;
+                    const lines = blocks.map((block) => {
+                        const whole = blockLine(block);
+                        const line = whole.length < room ? whole : `[${block.id}] 这一块共 ${String(block.text.length)} 字，这里放不下：用 field: "text[${block.id}]" 读`;
+                        room -= line.length + 1;
+                        return line;
+                    });
+                    parts.push(`主文字：\n${lines.join("\n") || "（没有主文字）"}`);
                 }
                 if (show.includes("origins")) {
                     if (field === undefined) return failed("unknown-field", "show 含 origins 时要给 field。");
@@ -400,7 +437,7 @@ function readTool(services: Services): AgentToolImplementation {
                     if (!revisions.ok) return worldFailed(revisions.failure);
                     parts.push(`最近的修订：\n${revisions.value.items.map((revision) => `- ${revision.id} 版本 ${String(revision.version)}｜${revision.by.kind === "author" ? "作者" : revision.by.kind === "agent" ? "Agent" : revision.by.kind}｜${revision.title}`).join("\n") || "（没有）"}`);
                 }
-                return {text: clip(parts.join("\n\n"), show.includes("text") && show.length === 1 ? 4000 : 6000, "用 field 只读一个字段，或分开读 text"), details: {version: read.value.version, entry: resolved.id}};
+                return {text: clip(parts.join("\n\n"), limit, show.includes("text") ? "主文字用 field: \"text[块 id]\" 一块一块读" : "用 field 只读一个字段"), details: {version: read.value.version, entry: resolved.id}};
             }),
         }),
     };
@@ -408,8 +445,46 @@ function readTool(services: Services): AgentToolImplementation {
 
 type Edit = Record<string, unknown> & {readonly op: string};
 
+/**
+ * 一项改动换成的操作。写主文字的带着回话里要提的：交回的值与当时不同的几处（`notes`），交回的块与现在存下的相同（`unchanged`：
+ * 不写，agent-tools 输出 6）。
+ */
+type Translated = {readonly op: EntryOp; readonly notes?: readonly string[]; readonly unchanged?: true};
+
+/**
+ * 整段写一块（`set text[块]`）的上限：这一块的带值写法超过它时，canon_read 一页读不全（`BLOCK_PAGE`），照读到的一页整段写回会丢掉后面的
+ * 文字，所以只能用 `replace` 改局部。
+ */
+const BLOCK_PAGE = 8000;
+
+/**
+ * 这一块按实际模式的带值写法、存下的源文与它是不是出错的块（agent-tools 输出 6：`replace` 在带值写法里找，交回的值按它比，`read` 是
+ * 存下的源文）。只渲染这一块。
+ */
+async function currentBlock(context: Context, entry: string, path: string): Promise<{readonly text: string; readonly source: string; readonly broken: boolean} | {readonly problem: string}> {
+    const id = path.slice("text[".length, -1);
+    const rendered = await context.call("render", {entry, position: context.position, mode: "actual", audience: "agent", block: id});
+    if (!rendered.ok) return {problem: failureText(rendered.failure as {code: string} & Record<string, unknown>)};
+    const block = ((rendered.value?.blocks ?? []) as Array<{id?: string; text?: string; source?: string; error?: unknown}>).find((candidate) => candidate.id === id);
+    if (block === undefined || typeof block.text !== "string" || typeof block.source !== "string") return {problem: `这个位置上没有块 ${id}。`};
+    return {text: block.text, source: block.source, broken: block.error !== undefined};
+}
+
+/**
+ * 整段写一块主文字：去值（出错的块读到的就是源文，原样写），按当时的带值写法比出改了的值；与现在存下的相同（规范化以后）标成没有
+ * 改动。`replaced` 是 `replace` 换好的整块：它不受整段写的长度限制。
+ */
+async function writeBlock(context: Context, entry: string, path: string, submitted: string, keys: ReadonlyMap<string, string>, current: Awaited<ReturnType<typeof currentBlock>>, replaced = false): Promise<Translated | {readonly problem: string}> {
+    if ("problem" in current) return current;
+    if (!replaced && current.text.length > BLOCK_PAGE) return {problem: `这一块有 ${String(current.text.length)} 字，canon_read 一页读不全；整段写回会丢掉没读到的部分。改局部用 replace（find 写要换掉的那几句）。`};
+    const written = agentBlockText(submitted, keys, {current: current.text, verbatim: current.broken});
+    if ("problem" in written) return written;
+    const unchanged = written.unchanged === true;
+    return {op: {op: "set", at: {entry, path}, value: written.source, read: current.source}, ...(written.notes.length === 0 ? {} : {notes: written.notes}), ...(unchanged ? {unchanged: true as const} : {})};
+}
+
 /** 模型写的一项换成内核的操作；名字、地址与引用都在这里换成 id。 */
-async function translate(context: Context, edit: Edit, index: number, keys: Map<string, string>): Promise<{readonly op: EntryOp} | {readonly problem: string}> {
+async function translate(context: Context, edit: Edit, index: number, keys: Map<string, string>): Promise<Translated | {readonly problem: string}> {
     const at = (problem: string) => ({problem: `第 ${String(index + 1)} 项（${edit.op}）：${problem}`});
     if (edit.op === "create") {
         if (typeof edit.name !== "string" || typeof edit.kind !== "string") return at("create 要写 name 与 kind。");
@@ -423,6 +498,12 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             const resolved = await resolveEntry(context, edit.parent, keys);
             if ("problem" in resolved) return at(resolved.problem);
             parent = resolved.id;
+        }
+        let text: string | undefined;
+        if (typeof edit.text === "string") {
+            const written = agentBlockText(edit.text, keys);
+            if ("problem" in written) return at(written.problem);
+            text = written.source;
         }
         const components: {type: string; fields?: Record<string, unknown>; declare?: FieldDraft[]}[] = [];
         // 写了却不是列表（一个名字、null）：回话指出来，不当成没写去套默认。
@@ -475,7 +556,7 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             }
             target.fields = {...(target.fields ?? {}), [field.id]: checked.value};
         }
-        return {op: {op: "create", id: tmp, entry: {name: edit.name, kind: edit.kind, parent, ...(typeof edit.folder === "string" ? {folder: edit.folder} : {}), ...(typeof edit.summary === "string" ? {summary: edit.summary} : {}), ...(Array.isArray(edit.aliases) ? {aliases: edit.aliases as string[]} : {}), ...(components.length === 0 ? {} : {components}), ...(typeof edit.text === "string" ? {text: [edit.text]} : {})}}};
+        return {op: {op: "create", id: tmp, entry: {name: edit.name, kind: edit.kind, parent, ...(typeof edit.folder === "string" ? {folder: edit.folder} : {}), ...(typeof edit.summary === "string" ? {summary: edit.summary} : {}), ...(Array.isArray(edit.aliases) ? {aliases: edit.aliases as string[]} : {}), ...(components.length === 0 ? {} : {components}), ...(text === undefined ? {} : {text: [text]})}}};
     }
     if (typeof edit.entry !== "string") return at("要写 entry。");
     const entry = await resolveEntry(context, edit.entry, keys);
@@ -489,7 +570,9 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
             return {op: {op: "aliases", entry: id, ...(Array.isArray(edit.add) ? {add: edit.add as string[]} : {}), ...(Array.isArray(edit.remove) ? {remove: edit.remove as string[]} : {})}};
         case "addBlock":
             if (typeof edit.text !== "string") return at("addBlock 要写 text。");
-            return {op: {op: "addBlock", entry: id, source: edit.text, ...(typeof edit.after === "string" || edit.after === null ? {after: edit.after} : {})}};
+            const written = agentBlockText(edit.text, keys);
+            if ("problem" in written) return at(written.problem);
+            return {op: {op: "addBlock", entry: id, source: written.source, ...(typeof edit.after === "string" || edit.after === null ? {after: edit.after} : {})}};
         case "removeBlock":
             if (typeof edit.block !== "string") return at("removeBlock 要写 block（块 id，canon_read 的 show: [\"text\"] 里方括号中的）。");
             return {op: {op: "removeBlock", at: {entry: id, path: `text[${edit.block}]`}}};
@@ -566,14 +649,27 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
         case "removeField":
             return {op: {op: "fieldRemove", at: target}};
         case "set": {
+            if (address.path.startsWith("text[")) {
+                if (typeof edit.value !== "string") return at("主文字的块写成一段文字。");
+                const written = await writeBlock(context, id, address.path, edit.value, keys, await currentBlock(context, id, address.path));
+                return "problem" in written ? at(written.problem) : written;
+            }
             const declaration = address.item ?? (address.path.includes("[") ? undefined : address.field);
             const checked = await resolveValue(context, declaration, edit.value, keys);
             if ("problem" in checked) return at(checked.problem);
             return {op: {op: "set", at: target, value: checked.value}};
         }
-        case "replace":
+        case "replace": {
             if (typeof edit.find !== "string" || typeof edit.with !== "string") return at("replace 要写 find 与 with。");
-            return {op: {op: "replace", at: target, find: edit.find, with: edit.with}};
+            if (!address.path.startsWith("text[")) return {op: {op: "replace", at: target, find: edit.find, with: edit.with}};
+            // 主文字的块：在读到的带值写法里找与换，整块去值后写回（find 与 with 不单独去值：半个带值标签也能当 find）。
+            const current = await currentBlock(context, id, address.path);
+            if ("problem" in current) return at(current.problem);
+            const replaced = replaceInBlock(current.text, edit.find, edit.with);
+            if ("problem" in replaced) return at(replaced.problem);
+            const written = await writeBlock(context, id, address.path, replaced.text, keys, current, true);
+            return "problem" in written ? at(written.problem) : written;
+        }
         case "add":
             if (typeof edit.delta !== "number") return at("add 要写 delta（数）。");
             return {op: {op: "add", at: target, delta: edit.delta}};
@@ -612,10 +708,34 @@ async function translate(context: Context, edit: Edit, index: number, keys: Map<
 }
 
 /**
+ * 读取戳从 Agent 读过之后变了没有：用内核 `editEntries` 比读取戳的同一个函数（`staleRead`），变了交回 `stale-read`，带上之间的修订。
+ * 修订表按最新在前给，取最近 5 条里版本更新的；取不到时不列修订（回话照样请它重读）。`now` 是这次调用里读到的章表的读取戳。
+ */
+async function staleSince(call: Call, wanted: {readonly version: number; readonly input: string}, now: {readonly version: number; readonly inputDigest: string}): Promise<CanonFailure | null> {
+    if (staleRead(wanted, now, []) === null) return null;
+    const recent = await call("revisions", {limit: 5});
+    return staleRead(wanted, now, recent.ok ? recent.value.items : []);
+}
+
+/** 内核的失败里操作的序号（`op`、`problems[].op`、`ops[N]` 路径）换成第几项：没写的项不在操作里。 */
+function renumbered(failure: CanonFailure, opEdits: readonly number[]): CanonFailure {
+    const edit = (op: number) => opEdits[op] ?? op;
+    const record = failure as unknown as Record<string, unknown>;
+    const problems = Array.isArray(record.problems)
+        ? (record.problems as Array<Record<string, unknown>>).map((problem) => ({
+            ...problem,
+            ...(typeof problem.op === "number" ? {op: edit(problem.op)} : {}),
+            ...(typeof problem.path === "string" ? {path: problem.path.replace(/^ops\[(\d+)\]/u, (_, op: string) => `ops[${String(edit(Number(op)))}]`)} : {}),
+        }))
+        : undefined;
+    return {...record, ...(typeof record.op === "number" ? {op: edit(record.op)} : {}), ...(problems === undefined ? {} : {problems})} as unknown as CanonFailure;
+}
+
+/**
  * 写入成功的回话（输出 11）。新建条目的代号到 id 取自修订的 `idMap`：临时 id 是“tmp:代号”，没写代号的是“#第几项”。
  * 重发同一次调用时没有“后面还有几条记录”（那是写入那一刻算的）。
  */
-async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number; readonly groups?: ReadonlyMap<string, readonly string[]>}): Promise<ToolResult> {
+async function writtenReply(call: Call, written: {readonly revision: string; readonly version: number; readonly repeated: boolean; readonly laterRecords?: number; readonly groups?: ReadonlyMap<string, readonly string[]>; readonly note?: string}): Promise<ToolResult> {
     const read = await call("revision", {id: written.revision});
     const revision = read.ok ? read.value.revision : null;
     const ids = revision?.idMap ?? {};
@@ -628,10 +748,12 @@ async function writtenReply(call: Call, written: {readonly revision: string; rea
     });
     const impact = revision === null ? "" : impactText(revision.impact, (entry) => entry);
     const text = [
-        `已写入：修订 ${written.revision}，版本 ${String(written.version)}${written.repeated ? "（同一次调用重发，返回第一次的结果）" : ""}。`,
+        // 不在这里给新的读取戳：写入之后另查一次状态，两步之间别人的写入会被算成模型读过（staleRead 就拦不住了）。
+        `已写入：修订 ${written.revision}，版本 ${String(written.version)}${written.repeated ? "（同一次调用重发，返回第一次的结果）" : ""}。接着改要先用 canon_read 重读，拿新的版本。`,
         created.length === 0 ? "" : `新建：${created.join("；")}`,
         impact === "" ? "" : `带来的变化：\n${impact}`,
         written.laterRecords !== undefined && written.laterRecords > 0 ? `后面还有 ${String(written.laterRecords)} 条记录改过同一处，看一眼是否也要改。` : "",
+        written.note ?? "",
     ].filter((line) => line !== "").join("\n");
     return {text: clip(text, 1500, "看改动记录"), details: {revision: written.revision, version: written.version, ids: {...ids}}};
 }
@@ -661,13 +783,28 @@ function writeTool(services: Services): AgentToolImplementation {
                 const stamp = typeof args.version === "string" ? parseStamp(args.version) : null;
                 if (typeof args.version === "string" && stamp === null) return failed("bad-version", "version 原样带回 canon_read 第一行的版本，例如 \"12·a1b2c3d4e5f6\"。");
                 if (stamp === null && !edits.every((edit) => edit.op === "create")) return failed("no-version", "要带 version（canon_read 或 canon_lookup 第一行的版本）；只建新条目时可以不给。");
+                // 读过之后世界变了：先回 stale-read，与内核比读取戳的结果相同（只在会带读取戳时比）。不先比的话，主文字的 `replace` 在
+                // 现在的文字里找不到 find，回话会把 Agent 引向“抄错了”，而它要的是重读。
+                if (stamp !== null && stamp.input !== null) {
+                    const stale = await staleSince(call, stamp as {version: number; input: string}, context.chapters);
+                    if (stale !== null) return worldFailed(stale);
+                }
                 const keys = new Map<string, string>();
                 const ops: EntryOp[] = [];
+                // 每个操作是第几项：交回的块与现在相同的不写（不进 ops），内核回话里的操作序号要换回项号。
+                const opEdits: number[] = [];
+                const notes: string[] = [];
                 for (const [index, edit] of edits.entries()) {
                     const translated = await translate(context, edit, index, keys);
                     if ("problem" in translated) return failed("bad-edit", translated.problem);
+                    notes.push(...(translated.notes ?? []));
+                    if (translated.unchanged === true) continue;
                     ops.push(translated.op);
+                    opEdits.push(index);
                 }
+                const valueNote = notes.length === 0 ? "" : `文字里的值不写入：${[...new Set(notes)].join("；")}。`;
+                // 只交回了主文字、去值以后都与现在相同：没有要写的，不发布（不留一条空的修订）。
+                if (ops.length === 0) return {text: ["主文字没有改动：去掉读到的值以后与现在相同，没有写入。", valueNote].filter((line) => line !== "").join("\n"), details: {unchanged: true}};
                 const input: EntryEdits = {
                     requestId,
                     by,
@@ -680,9 +817,9 @@ function writeTool(services: Services): AgentToolImplementation {
                     ops,
                 };
                 const written = await call("editEntries", {input});
-                if (!written.ok) return worldFailed(written.failure);
+                if (!written.ok) return worldFailed(renumbered(written.failure, opEdits));
                 const groups = new Map(ops.flatMap((op) => (op.op === "create" ? [[op.id, (op.entry.components ?? []).map((component) => context.components.find((type) => type.id === component.type)?.label ?? component.type)] as const] : [])));
-                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, groups, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length})});
+                return writtenReply(call, {revision: written.value.revision, version: written.value.version, repeated: written.value.repeated === true, groups, ...(written.value.laterRecords === undefined ? {} : {laterRecords: written.value.laterRecords.length}), ...(valueNote === "" ? {} : {note: valueNote})});
             }),
         }),
     };

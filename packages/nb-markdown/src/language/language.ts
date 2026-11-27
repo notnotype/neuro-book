@@ -6,18 +6,23 @@
  */
 
 import type {AnyExtension} from "@tiptap/core";
-import {Marked} from "marked";
-import type {Lexer, Token} from "marked";
+import type {Lexer, Marked, Token} from "marked";
 
+import {createLexing, type AtomSpan} from "../marked/lexing";
 import type {GluedRules} from "./codec/source";
 import {createRawSyntax} from "./syntax/raw";
-import {lexingInline, openTagAt} from "./syntax/tags";
+import {openTagAt} from "./syntax/tags";
 import type {BlockWriter, InlineWriter, MarkdownSyntax, MarkWriter, ReadResolver, TokenReader} from "./syntax/types";
 
 export interface MarkdownLanguage {
     readonly marked: Marked;
     /** 新的词法器：读入、写回校验与写前准备都用它（行内分词期间记下正在分的文字，见 `syntax/tags.ts` 的 `lexingInline`）。 */
     lexer(): Lexer;
+    /** 读法对一部分文字另分词（`marked/lexing.ts` 的 `Lexing.blockTokens`、`inlineTokens`：照样遮罩原子）。 */
+    blockTokens(lexer: Lexer, src: string): Token[];
+    inlineTokens(lexer: Lexer, src: string): Token[];
+    /** 各模块在一段文字里认出的原子范围（`Lexing.atomSpans`）。 */
+    atomSpans(text: string): AtomSpan[];
     /** 全部语法模块的扩展，按模块顺序；编辑器与测试都用它建 schema。 */
     readonly extensions: ReadonlyArray<AnyExtension>;
     /** 块层与行内的词法单元类型 → 读法（按模块顺序，先试先赢）。 */
@@ -54,21 +59,32 @@ export interface MarkdownLanguage {
     /** 行内方言标签名（各模块的 `inlineTags`）。 */
     readonly inlineTags: ReadonlyArray<string>;
     readonly glued: GluedRules;
+    /** 读入时拆不拆开头的 frontmatter（`createMarkdownLanguage` 的选项，缺省拆）。 */
+    readonly frontmatter: boolean;
+    /** 各模块的原子转义规则合起来（`MarkdownLexing.atomEscape`）；没有时为 null。 */
+    readonly atomEscape: ((text: string, index: number) => boolean) | null;
+}
+
+/** 组装语言的选项。 */
+export interface MarkdownLanguageOptions {
+    /**
+     * 读入时把开头的 `---…---` 当 frontmatter 拆出（缺省是）。条目的主文字不是文件，关掉它：开头的 `---` 照 Markdown 读，与不带编辑器
+     * 的词法（世界引擎内核）读法相同。
+     */
+    readonly frontmatter?: boolean;
 }
 
 /**
- * 组装。原样语法（`syntax/raw`）由这里追加在最后：它要知道全部方言标签，才不会抢走它们。
- *
- * `marked` 的扩展分词规则后登记的先试，所以原样语法的分词规则最先登记（最后试），各语法按列表倒序登记（列表里靠前的先试）。
+ * 组装。原样语法（`syntax/raw`）由这里追加在最后：它要知道全部方言标签，才不会抢走它们。分词的顺序与原子见
+ * `marked/lexing.ts` 的 `createLexing`。
  */
-export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>): MarkdownLanguage {
+export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>, options: MarkdownLanguageOptions = {}): MarkdownLanguage {
     const blockOpens = new Map(syntaxes.flatMap((syntax) => Object.entries(syntax.blockOpens ?? {})));
-    const blockTags = [...blockOpens.keys()];
-    const inlineTags = syntaxes.flatMap((syntax) => syntax.inlineTags ?? []);
+    // 分词（含原样语法的分词规则与原子）由不带编辑器的词法组装；这里的原样语法模块只提供读法与写法。
+    const lexing = createLexing(syntaxes);
+    const {blockTags, inlineTags} = lexing;
     const raw = createRawSyntax({blockTags, inlineTags});
     const all = [...syntaxes, raw];
-    const marked = new Marked({gfm: true});
-    for (const syntax of [...all].reverse()) for (const extension of syntax.marked ?? []) marked.use(extension);
     const table = (pick: (syntax: MarkdownSyntax) => Readonly<Record<string, TokenReader>> | undefined): Map<string, TokenReader[]> => {
         const readers = new Map<string, TokenReader[]>();
         for (const syntax of all) {
@@ -100,16 +116,12 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
             const value = pick(syntax);
             return value === undefined ? [] : [[syntax.name, value] as [string, T]];
         }));
-    const Base = marked.Lexer;
-    // `marked` 的行内分词规则在一段里的每个位置都会被调用；记下正在分的那段文字，`tags.ts` 才能按段记忆位置（见那里的说明）。
-    class TrackingLexer extends Base {
-        override inlineTokens(src: string, tokens: Token[] = []): Token[] {
-            return lexingInline(src, () => super.inlineTokens(src, tokens));
-        }
-    }
     return {
-        marked,
-        lexer: () => new TrackingLexer(marked.defaults),
+        marked: lexing.marked,
+        lexer: () => lexing.lexer(),
+        blockTokens: (lexer, src) => lexing.blockTokens(lexer, src),
+        inlineTokens: (lexer, src) => lexing.inlineTokens(lexer, src),
+        atomSpans: (text) => lexing.atomSpans(text),
         extensions: all.flatMap((syntax) => syntax.extensions),
         readers: table((syntax) => syntax.read),
         inlineReaders: table((syntax) => syntax.readInline),
@@ -129,6 +141,8 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
         verifyWindow: byName((syntax) => syntax.verifyWindow),
         blockTags,
         inlineTags,
+        frontmatter: options.frontmatter !== false,
+        atomEscape: lexing.atomEscape,
         glued: {
             tags: blockTags,
             accepts: (name, source) => {

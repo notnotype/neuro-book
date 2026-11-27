@@ -52,8 +52,7 @@ describe("canon.project 场景 1：星瑕的一周", () => {
             const declared = componentDeclarations(sample).find((type) => type.namespace === namespace)?.fields?.find((item) => item.id === field);
             return `${entry.init.name} · ${declared?.label ?? field}`;
         };
-        // 主文字的块不比：原型的回执不列它们（差异清单）；只要求 Spec 这边确实列了。
-        expect(revisions.some((revision) => revision.impact.values.some((value) => value.at.path.startsWith("text[")))).toBe(true);
+        // 主文字的块不比：原型的回执不列它们（差异清单）。回执列出主文字的改动由 revisions.test.ts 测。
         for (const [index, receipt] of sample.receipts.entries()) {
             const impact = revisions[index]!.impact;
             const fields = impact.values.filter((value) => !value.at.path.startsWith("text["));
