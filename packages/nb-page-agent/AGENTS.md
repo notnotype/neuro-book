@@ -12,6 +12,7 @@
 
 - 布局、命中检查、shadow root 与 `popover` 只有真实浏览器才对：规则测试写在 `e2e/` 的夹具页里（真实 Chrome），不用 happy-dom；`src/` 的 bun 测试只测纯函数。
 - 测试源码里要用双向控制字符、行分隔符这类字符时，用 `String.fromCharCode` 在运行时拼，不直接写进字符串字面量。
+- `test:e2e` 先把 `e2e/bundle.ts` 打包成 `dist/e2e/page-agent.js` 再跑 Playwright。只重跑几条时直接用 `bunx playwright test`，跑的是上次打的包：改过 `src/` 以后（含变异检查的每一处）先重打包，否则跑的是旧代码、变异看起来活下来（w00033 t03 的减弱动效变异就这样假活过一次）。
 
 ## 完成门禁
 

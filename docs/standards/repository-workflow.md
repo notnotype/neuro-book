@@ -27,7 +27,7 @@ Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主
 
 - 通常一个 Work 一条分支、一个 worktree：从本地 `master` 创建 `.worktree/<Work 编号>-<短名>`，分支使用 `{type}/{Work 编号}-{slug}`，例如 `.worktree/w00027-plugin-platform` 与 `feat/w00027-plugin-platform`。Work 的各个 Task 依次在这条分支上提交。开发者明确指定既有 worktree/branch 时沿用该身份并在报告中记录。
 - 验证在 Work 分支上进行：构建、测试、e2e 与开发者试用都对着 Work 分支，不为验证先合入 master。合入 master 的时机由开发者决定。
-- Work 分支落后 master、且 master 改过同一批代码时，先把 master 合进 Work 分支、解完冲突，在合并后的代码上跑类型检查、受影响的测试和 e2e，再合入 master；之后 master 又有新提交时，用 `git merge-tree` 试算，确认不碰相同的包，证据就仍然有效。
+- Work 分支落后 master、且 master 改过同一批代码时，先把 master 合进 Work 分支、解完冲突，在合并后的代码上跑类型检查、受影响的测试和 e2e，再合入 master；之后 master 又有新提交时，用 `git merge-tree` 试算，确认不碰相同的包，证据就仍然有效。Spec 在 master 上、代码在分支上，别的 Work 改了本 Task 实现的 Spec 时代码里不会冲突、试算也看不出来：每次合进 master 前另看 `git diff <上次合进来的 master> master -- <本 Task 的 Spec>`，有改动就按新说法改实现、补用例（w00033 t03：w00057 把 page-agent 输出 10 的“减弱动效时没有过渡”改成“只淡入淡出”，是列 master 改过的文件时才发现的）。
 - 不同 Work 的分支各自并行推进。
 - 同一个 Work 里多个 Agent 并行做几个 Task 时，按是否冲突选位置：改动的文件与合同不重叠（例如一个写前端组件、一个写后端接口）时都在 Work 分支上做，各自路径限定提交；会改同一批文件或同一份合同时，基于 Work 分支另开 worktree `.worktree/<Work 编号>-<Task 编号>-<短名>`（`nbdev worktree new … --from <Work 分支>`），分支 `{type}/{Work 编号}-{Task 编号}-{slug}`，做完合回 Work 分支。Task 有依赖时顺序推进，不为并行而拆 Task。
 - 默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
