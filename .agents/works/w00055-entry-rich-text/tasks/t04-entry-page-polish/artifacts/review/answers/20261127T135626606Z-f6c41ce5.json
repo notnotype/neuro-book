@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t04-entry-page-polish",
+    "artifactId": "review",
+    "answerId": "20261127T135626606Z-f6c41ce5",
+    "artifactVersion": 2,
+    "contentHash": "145ed2e6b7003e4214764bdf2a16d77f2d0e9cb198d7e6d265e897e489c4f820",
+    "submittedAt": "2026-11-27T13:56:23.533Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "dialog-wording": true,
+        "dialog-wide": true
+    },
+    "comments": {
+        "dialog-wording": "这个输入框（特别是右边设定组这里，右下角有很多空白）有点太宽了"
+    },
+    "note": null
+}
