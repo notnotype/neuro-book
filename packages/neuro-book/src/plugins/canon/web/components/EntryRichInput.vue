@@ -139,6 +139,7 @@ onMounted(() => {
     created.on("update", ({transaction}) => {
         if (!quiet && transaction.docChanged) writeOut();
     });
+    hangValues();
     created.view.dom.addEventListener("compositionend", () => {
         if (valuesWaiting) queueMicrotask(hangValues);
     });
@@ -174,6 +175,8 @@ watch(
         sequence = found;
         hangValues();
     },
+    // 挂载时就带着值表（刚点“编辑”，用阅读视图手里的那份当初值）：先记下，编辑器建好以后挂上。
+    {immediate: true},
 );
 
 watch(() => [props.fields, props.marks, props.computing, props.showBranches, props.self], hangValues);
@@ -326,7 +329,7 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
 }
 .entry-rich__mount :deep(.entry-chip--pending) {
     box-shadow: none;
-    outline: 1px dashed var(--border-default);
+    outline: 1px dashed var(--text-muted);
     outline-offset: -1px;
 }
 .entry-rich__mount :deep(.entry-chip--incomplete),

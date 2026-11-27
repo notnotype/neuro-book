@@ -201,9 +201,10 @@ export function conditionView(host: ChipHost): NodeViewConstructor {
                 face.append(part);
             });
             if (taken === null && !host.showBranches()) {
+                // 值还没回来（或整篇太长不算）时不知道哪一支成立：写“条件”，样子同计算中、没有算的小块。
                 const placeholder = document.createElement("span");
-                placeholder.className = "entry-if__placeholder";
-                placeholder.textContent = unknown ? words.unknown : words.noBranch;
+                placeholder.className = head === undefined ? `entry-chip entry-chip--if entry-chip--${dom.dataset.chipState}` : "entry-if__placeholder";
+                placeholder.textContent = head === undefined ? words.condition : unknown ? words.unknown : words.noBranch;
                 face.append(placeholder);
             }
             dom.setAttribute("aria-label", `${words.condition}：${node.attrs.open as string}`);

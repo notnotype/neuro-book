@@ -146,11 +146,13 @@ describe("小块的值（canon/author-ui.md 输出 48）", () => {
     it("还没有值表：本条目的字段马上显示这一页的值，别的条目与计算是“计算中”，条件是“计算中”", async () => {
         const wrapper = show({modelValue: VALUE_SOURCE, self: "e1", fields});
         await flushPromises();
-        expect(chips(wrapper).map((chip) => [chip.dataset.entryChip, chip.dataset.chipState, chip.textContent?.trim()])).toEqual([
+        // 条件里没显示的支也在 DOM 里（隐藏着）：条件只看它的占位。
+        const shown = (chip: HTMLElement) => (chip.dataset.entryChip === "if" ? chip.querySelector(".entry-chip--if")?.textContent : chip.textContent)?.trim();
+        expect(chips(wrapper).map((chip) => [chip.dataset.entryChip, chip.dataset.chipState, shown(chip)])).toEqual([
             ["value", "value", "1,200"],
             ["value", "pending", "panel.好感度"],
             ["calc", "pending", "panel.魔力 * 2"],
-            ["if", "pending", expect.any(String) as unknown as string],
+            ["if", "pending", "条件"],
         ]);
         await wrapper.setProps({computing: false});
         expect(chips(wrapper).map((chip) => chip.dataset.chipState)).toEqual(["value", "uncomputed", "uncomputed", "uncomputed"]);
@@ -173,6 +175,12 @@ describe("小块的值（canon/author-ui.md 输出 48）", () => {
         // 显示全部分支：每支都画。
         await wrapper.setProps({showBranches: true});
         expect([...(chips(wrapper, "if")[0] as HTMLElement).querySelectorAll<HTMLElement>(".entry-if__branch")].filter((branch) => !branch.hidden).length).toBe(2);
+    });
+
+    it("挂载时就带着值表（刚点“编辑”时用阅读视图的那份当初值）：一开始就是值，不先画计算中", async () => {
+        const wrapper = show({modelValue: VALUE_SOURCE, self: "e1", fields, values: {source: VALUE_SOURCE, values: valuesFor(VALUE_SOURCE, 0)}});
+        await flushPromises();
+        expect(chips(wrapper).map((chip) => chip.dataset.chipState)).toEqual(["value", "value", "value", "value"]);
     });
 
     it("值表对不上它说的那一版源文：这一批不用，小块留着原来的样子", async () => {
