@@ -153,13 +153,20 @@ describe("结局与等用户（输出 9、11）", () => {
         two.emit({kind: "failed", code: "ambiguous", detail: {message: "命中 2 个", candidates: [{ref: "w1.1", role: "button", name: "保存"}, {ref: "w1.2", role: "button", name: "保存"}]}});
         expect(await ambiguous).toMatchObject({status: "error", code: "ambiguous", details: {candidates: [{ref: "w1.1"}, {ref: "w1.2"}]}});
 
+        // 没找到时页面说明的层与遮挡（输出 12）原样交回。
+        const covered = start({at: {role: "textbox", name: "API 密钥"}, message: "填密钥", until: "next"});
+        const coveredSub = await subscription(3);
+        const layers = ["base", "dialog \"添加服务商\""];
+        coveredSub.emit({kind: "failed", code: "not-found", detail: {message: "等了 5 秒，目标仍没有出现", layers, covered: {layer: layers[1]!}}});
+        expect(await covered).toMatchObject({status: "error", code: "not-found", details: {layers, covered: {layer: layers[1]}}});
+
         const invalid = start({at: {text: "保存"}, message: "点保存", until: "click"});
-        const three = await subscription(3);
+        const three = await subscription(4);
         three.emit({kind: "failed", code: "invalid-locator", detail: {message: "定位只能给一种主定位"}});
         expect(await invalid).toMatchObject({status: "error", code: "invalid-arguments"});
 
         const broken = start({at: {text: "保存"}, message: "点保存", until: "click"});
-        const four = await subscription(4);
+        const four = await subscription(5);
         four.emit({kind: "failed", code: "guide-failed", detail: {message: "画高亮时出错：文字表坏了"}});
         expect(await broken).toMatchObject({status: "error", code: "window-unresponsive", details: {cause: "guide-failed"}});
         expect(await start({at: {command: "a", text: "b"}, message: "x", until: "click"})).toMatchObject({status: "error", code: "invalid-arguments"});

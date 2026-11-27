@@ -6,7 +6,7 @@
 import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 
-import {ended, installed, openFixture, startHighlight, stillWaiting} from "./page";
+import {ended, installed, locate, openFixture, refOf, snapshot, snapshotOk, startHighlight, stillWaiting} from "./page";
 
 // Playwright 的无头 Chrome 默认带 --hide-scrollbars，页面上没有滚动条；“按在滚动条上不算点错”要真的有滚动条。
 test.use({launchOptions: {ignoreDefaultArgs: ["--hide-scrollbars"]}});
@@ -222,6 +222,73 @@ test.describe("等目标（输出 9）", () => {
         expect(result).toMatchObject({ok: false, code: "ambiguous"});
         if ("code" in result && result.code === "ambiguous") expect(result.details?.candidates).toHaveLength(2);
         await expect(startHighlight(page, {at: {}, message: "这里。", until: "next"})).rejects.toThrow(/定位要给/u);
+    });
+});
+
+/**
+ * 设置窗口里的表单，加一个模拟 nb-ui 模态对话框的“添加服务商”：reka-ui 的模态对话框打开时把它以外的地方都标成
+ * `aria-hidden`，底下的控件按输出 3、5 不算画在页面上。
+ */
+const SETTINGS_FORM = `<main><div role="dialog" aria-label="设置"><label>API 密钥 <input type="password"></label><button>添加服务商</button></div></main>`;
+const COVERED = 'dialog "添加服务商"';
+
+async function openCover(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        document.querySelector("main")!.setAttribute("aria-hidden", "true");
+        document.body.insertAdjacentHTML("beforeend", `<div role="dialog" aria-modal="true" aria-label="添加服务商" style="position:fixed;inset:20px"><button>取消</button></div>`);
+    });
+}
+
+async function closeCover(page: Page, delayMs: number): Promise<void> {
+    await page.evaluate((delay) => setTimeout(() => {
+        document.querySelector("[aria-label=添加服务商]")!.remove();
+        document.querySelector("main")!.removeAttribute("aria-hidden");
+    }, delay), delayMs);
+}
+
+test.describe("没找到时说明层与遮挡（输出 12）", () => {
+    test("目标被上层对话框盖住：等到上限得 not-found，details 写出各层与盖住它的那一层；对话框关掉后接着等就能装上", async ({page}) => {
+        await openFixture(page, SETTINGS_FORM, {targetWaitMs: 1500});
+        await openCover(page);
+        await startHighlight(page, {at: {role: "textbox", name: "API 密钥"}, message: "这里。", until: "next"});
+        expect(await installed(page)).toBeNull();
+        const result = await ended(page);
+        expect(result).toMatchObject({ok: false, code: "not-found", details: {layers: ["base", COVERED], covered: {layer: COVERED}}});
+        if ("code" in result) expect(result.message).toContain(`被上层 ${COVERED} 盖住`);
+
+        await startHighlight(page, {at: {role: "textbox", name: "API 密钥"}, message: "这里。", until: "next"});
+        await closeCover(page, 300);
+        expect(await installed(page)).toMatchObject({target: {role: "textbox", name: "API 密钥"}});
+    });
+
+    test("目标不在页面上：details 只有各层，没有 covered；界面目录用的定位不带说明", async ({page}) => {
+        await openFixture(page, SETTINGS_FORM, {targetWaitMs: 300});
+        await startHighlight(page, {at: {text: "永远不来"}, message: "这里。", until: "next"});
+        const result = await ended(page);
+        expect(result).toMatchObject({ok: false, code: "not-found", details: {layers: ["base", 'dialog "设置"']}});
+        if ("code" in result && result.code === "not-found") expect(result.details).not.toHaveProperty("covered");
+        // 引擎的 locate 缺省不说明（界面目录逐步判断“做完没有”时大多没命中，不为它多查一遍页面）。
+        expect(await locate(page, {text: "永远不来"})).not.toHaveProperty("details");
+        expect(await locate(page, {text: "永远不来"}, {explain: true})).toMatchObject({code: "not-found", details: {layers: ["base", 'dialog "设置"']}});
+    });
+
+    test("引用指的元素被盖住：得 not-found 说明遮挡，不当作引用失效；高亮接着等它露出来", async ({page}) => {
+        await openFixture(page, SETTINGS_FORM, {targetWaitMs: 3000});
+        const ref = refOf(await snapshotOk(page), "textbox", "API 密钥");
+        await openCover(page);
+        expect(await locate(page, {ref})).toMatchObject({ok: false, code: "not-found", details: {covered: {layer: COVERED}}});
+        await startHighlight(page, {at: {ref}, message: "这里。", until: "next"});
+        await closeCover(page, 300);
+        expect(await installed(page)).toMatchObject({target: {ref}});
+    });
+
+    test("within 与 scope 指的容器被盖住时同样说明", async ({page}) => {
+        await openFixture(page, SETTINGS_FORM);
+        await openCover(page);
+        const within = await locate(page, {role: "textbox", name: "API 密钥", within: {role: "dialog", name: "设置"}}, {explain: true});
+        expect(within).toMatchObject({ok: false, code: "not-found", details: {covered: {layer: COVERED}}});
+        if (!within.ok) expect(within.message).toMatch(/^within：/u);
+        expect(await snapshot(page, {scope: {role: "dialog", name: "设置"}})).toMatchObject({ok: false, code: "not-found", details: {covered: {layer: COVERED}}});
     });
 });
 
