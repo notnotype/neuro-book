@@ -38,7 +38,7 @@ updated: 2026-11-24
 
 ## 下一步
 
-B6、B7 的前端审查（Sonnet）进行中；处理完是 B8（服务端发静态文件，先改 Spec，快速审查）。
+B6、B7 的前端审查（Sonnet）与 B8（`nb-site-server` 发网页）同时在跑：B8 只改服务端包，不碰审查看的前端代码。`site.operations` 已按 S15 加了前端产物目录与输出 12（网页与单页回退，planned；不回退的前缀按站点实际的挂载定为 `/api/`、`/.well-known/`、`/health/`、`/test-control/`，计划 3.8 写的 `/oauth2/` 站点里没有；缺 `index.html` 的问题词新加 `no_index`）。B8 交回后走快速审查（Opus 先审，omp `@review` 后台），通过后把输出 12 等条目晋升。
 
 ## 实施进度
 
