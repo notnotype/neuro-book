@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 设定组勾选列表的夹具：注入 canon 的翻译端口（`canon-text.ts`）。各项、种类、预设与勾着的来自场景；点预设、点已添加的那一行、
- * Ctrl 加回车记成事件。
+ * 设定组勾选列表的夹具：注入 canon 的翻译端口（`canon-text.ts`）。各项、种类、预设与勾着的来自场景；点已添加的那一行、Ctrl 加回车
+ * 记成事件。
  */
 import ComponentChecklist from "nbook/plugins/canon/web/components/ComponentChecklist.vue";
 
@@ -11,7 +11,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof ComponentChecklist>(() => props.input, ["preset", "present", "submit"]);
+const subject = useLabSubject<typeof ComponentChecklist>(() => props.input, ["present", "submit"]);
 </script>
 
 <template>

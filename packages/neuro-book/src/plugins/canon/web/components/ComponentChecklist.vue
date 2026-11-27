@@ -23,8 +23,8 @@ const props = withDefaults(defineProps<{
 }>(), {kind: "", presets: () => [], maxHeight: undefined});
 
 const emit = defineEmits<{
-    (event: "update:modelValue", value: readonly string[]): void;
-    (event: "preset", id: string): void;
+    /** `via`：作者点的是一行还是一个预设（新建对话框据此不把预设算作动过勾选）。 */
+    (event: "update:modelValue", value: readonly string[], via: "row" | "preset"): void;
     (event: "present", type: string): void;
     (event: "submit"): void;
 }>();
@@ -76,12 +76,11 @@ const toggle = (item: ChecklistItem): void => {
         emit("present", item.value);
         return;
     }
-    emit("update:modelValue", props.modelValue.includes(item.value) ? props.modelValue.filter((value) => value !== item.value) : [...props.modelValue, item.value]);
+    emit("update:modelValue", props.modelValue.includes(item.value) ? props.modelValue.filter((value) => value !== item.value) : [...props.modelValue, item.value], "row");
 };
 const presetUseful = (preset: ChecklistPreset): boolean => withPreset(props.modelValue, preset, props.items).length > props.modelValue.length;
 const applyPreset = (preset: ChecklistPreset): void => {
-    emit("update:modelValue", withPreset(props.modelValue, preset, props.items));
-    emit("preset", preset.id);
+    emit("update:modelValue", withPreset(props.modelValue, preset, props.items), "preset");
 };
 
 const move = (step: number): void => {
@@ -106,13 +105,20 @@ const onKeydown = (event: KeyboardEvent): void => {
     }
 };
 const activeOption = computed(() => (activeId.value !== null && options.value.some((item) => item.value === activeId.value) ? optionId(activeId.value) : undefined));
+/**
+ * 高亮只在作者正对着列表时画：焦点在搜索框里，或指针在列表上。新建对话框里焦点先在名字上，列表第一行不该一直亮着一块底色；
+ * 高亮记着的那一行不变，焦点回来接着从它走。
+ */
+const searching = shallowRef(false);
+const pointing = shallowRef(false);
+const engaged = computed(() => searching.value || pointing.value);
 
 defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
 </script>
 
 <template>
     <div class="component-checklist" data-component-checklist>
-        <div ref="search" @keydown="onKeydown">
+        <div ref="search" @keydown="onKeydown" @focusin="searching = true" @focusout="searching = false">
             <Input
                 size="sm"
                 :model-value="query"
@@ -129,7 +135,7 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
         <div v-if="props.presets.length > 0" class="component-checklist__presets" role="group" :aria-label="text('entry.addGroup.presets')" data-checklist-presets>
             <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" :disabled="!presetUseful(preset)" :data-preset="preset.id" @click="applyPreset(preset)">{{ preset.label }}</Button>
         </div>
-        <div :id="listId" ref="list" class="component-checklist__list" role="listbox" aria-multiselectable="true" :aria-label="text('entry.addGroup.list')" :style="props.maxHeight === undefined ? undefined : {maxHeight: props.maxHeight}">
+        <div :id="listId" ref="list" class="component-checklist__list" role="listbox" @pointerleave="pointing = false" aria-multiselectable="true" :aria-label="text('entry.addGroup.list')" :style="props.maxHeight === undefined ? undefined : {maxHeight: props.maxHeight}">
             <div v-for="group in groups" :key="group.id" role="group" :aria-label="group.label ?? undefined">
                 <div v-if="group.label !== null" class="nb-ui-menu-label" aria-hidden="true">{{ group.label }}</div>
                 <div
@@ -139,12 +145,12 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
                     role="option"
                     class="nb-ui-menu-item component-checklist__row"
                     :aria-selected="checked(item)"
-                    :data-highlighted="activeId === item.value ? '' : undefined"
+                    :data-highlighted="engaged && activeId === item.value ? '' : undefined"
                     :data-present="item.present ? '' : undefined"
                     :data-checklist-item="item.value"
                     @click="toggle(item)"
                     @mousedown.prevent
-                    @pointermove="activeId = item.value"
+                    @pointermove="activeId = item.value; pointing = true"
                 >
                     <span class="component-checklist__box" :data-checked="checked(item) ? '' : undefined" aria-hidden="true"><span class="i-lucide-check component-checklist__check" /></span>
                     <span :class="item.iconClass" class="size-4 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />

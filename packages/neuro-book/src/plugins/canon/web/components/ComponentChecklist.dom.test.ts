@@ -46,8 +46,10 @@ function open(props: Partial<{items: ChecklistItem[]; kind: string; presets: Che
         kind: props.kind ?? "人物",
         presets: props.presets ?? PRESETS,
         modelValue: checked.value,
-        "onUpdate:modelValue": (value: readonly string[]) => (checked.value = value),
-        onPreset: (id: string) => events.push(["preset", id]),
+        "onUpdate:modelValue": (value: readonly string[], via: string) => {
+            checked.value = value;
+            events.push(["update", via]);
+        },
         onPresent: (type: string) => events.push(["present", type]),
         onSubmit: () => events.push(["submit", null]),
     }));
@@ -78,7 +80,9 @@ const type = async (value: string): Promise<void> => {
     search().dispatchEvent(new Event("input"));
     await flushPromises();
 };
+/** 在搜索框里按一个键（焦点先放进去，像作者在打字）。 */
 const key = async (name: string, init: KeyboardEventInit = {}): Promise<KeyboardEvent> => {
+    if (document.activeElement !== search()) search().focus();
     const event = new KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true, ...init});
     search().dispatchEvent(event);
     await flushPromises();
@@ -104,9 +108,12 @@ describe("ComponentChecklist", () => {
     it("高亮第一项还没添加的，focus() 把焦点放进搜索框；打字只按名字筛（不分大小写、不管空格）、不分组；对不上时写出搜的词", async () => {
         const {handle} = open();
         await flushPromises();
-        handle.value!.focus();
-        expect(document.activeElement).toBe(search());
+        // 焦点还不在列表上：高亮记着第一项还没添加的，但不画。
         expect(search().getAttribute("aria-activedescendant")).toBe(row("nbook.plot.knowing").id);
+        expect(highlighted()).toBe("");
+        handle.value!.focus();
+        await flushPromises();
+        expect(document.activeElement).toBe(search());
         expect(highlighted()).toBe("知道什么");
         await type("物品 栏");
         expect(options()).toEqual(["物品栏"]);
@@ -132,10 +139,11 @@ describe("ComponentChecklist", () => {
         await click("nbook.canon.person");
         expect(checked.value).toEqual(["nbook.canon.skills"]);
         expect(row("nbook.canon.person").getAttribute("aria-selected")).toBe("true");
-        expect(events).toEqual([["present", "nbook.canon.person"]]);
+        expect(events.filter(([name]) => name === "present")).toEqual([["present", "nbook.canon.person"]]);
+        expect(events.filter(([name]) => name === "update").map(([, via]) => via)).toEqual(["row", "row", "row"]);
     });
 
-    it("预设：把里面还没添加、还没勾的勾上，不取消别的，发 preset；里面都已添加或已勾时不可用", async () => {
+    it("预设：把里面还没添加、还没勾的勾上，不取消别的，标明是预设勾的；里面都已添加或已勾时不可用", async () => {
         const {checked, events} = open({initial: ["a.test.badge"]});
         await flushPromises();
         expect([...document.querySelectorAll("[data-checklist-presets] button")].map((button) => button.textContent?.trim())).toEqual(["基本", "主要角色"]);
@@ -143,7 +151,7 @@ describe("ComponentChecklist", () => {
         preset("basic").click();
         await flushPromises();
         expect(checked.value).toEqual(["a.test.badge", "nbook.canon.skills"]);
-        expect(events).toEqual([["preset", "basic"]]);
+        expect(events).toEqual([["update", "preset"]]);
         expect(preset("basic").disabled).toBe(true);
         preset("main").click();
         await flushPromises();
@@ -157,6 +165,8 @@ describe("ComponentChecklist", () => {
     it("键盘：上下键移高亮、到头绕回；Enter 勾或取消高亮的那行，高亮的是已添加的发 present；Ctrl 或 ⌘ 加 Enter 发 submit；组字中的 Enter 不处理", async () => {
         const {checked, events} = open();
         await flushPromises();
+        search().focus();
+        await flushPromises();
         expect(highlighted()).toBe("知道什么");
         await key("ArrowUp");
         expect(highlighted()).toBe("人物已添加");
@@ -166,6 +176,7 @@ describe("ComponentChecklist", () => {
         expect(highlighted()).toBe("人物已添加");
         expect((await key("Enter")).defaultPrevented).toBe(true);
         expect(events).toEqual([["present", "nbook.canon.person"]]);
+        events.length = 0;
         await key("ArrowDown");
         await key("Enter");
         expect(checked.value).toEqual(["nbook.plot.knowing"]);

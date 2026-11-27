@@ -61,7 +61,7 @@ import {LOOK_PICK_KEY} from "../look-handoff";
 import AddComponentDialog from "./AddComponentDialog.vue";
 import {checklistGroup} from "./component-checklist";
 import type {ChecklistItem, ChecklistPreset} from "./component-checklist";
-import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
+import {componentIcon, EXTRA_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
 import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
 import ElementDialog from "./ElementDialog.vue";
@@ -224,8 +224,7 @@ const leadingTypes = computed(() => {
     const kind = entry.value?.kind?.trim();
     return new Set((props.entryKinds ?? []).find((item) => item.kind === kind)?.components ?? []);
 });
-/** 设定组类型的图标：它的视图声明里写的，没写时是通用的设定组图标。分页与“添加一组设定”共用。 */
-const iconOf = (type: string): string => props.views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
+const iconOf = (type: string): string => componentIcon(props.views, type);
 /**
  * 分页（输出 9）：设定组与文字一段（默认的设定组在文字前面），不对应设定组的看法一段（附加分页与“情节”）；每页有图标。条数为 0
  * 时不写；作品里还没有剧情变更时，“情节”与声明了 `needsChanges` 的附加分页不出（空着没用）。

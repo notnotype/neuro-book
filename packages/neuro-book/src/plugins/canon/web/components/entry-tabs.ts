@@ -1,3 +1,5 @@
+import type {ComponentViewRegistry} from "../component-views";
+
 /**
  * 条目页的一个分页（docs/specs/canon/author-ui.md 输出 9）：横排的 `Tabs` 与竖排的 `EntryPageNav` 读同一份，切换排法只换外形。
  */
@@ -18,6 +20,8 @@ export interface EntryTab {
 
 /** 设定组没声明图标时用的。 */
 export const GROUP_ICON = "i-lucide-layers";
+/** 设定组类型的图标：它的视图声明里写的，没写时是 `GROUP_ICON`。分页、加设定组与新建条目的勾选列表共用。 */
+export const componentIcon = (views: ComponentViewRegistry, type: string): string => views.entries().find((item) => item.id === type)?.declaration.icon ?? GROUP_ICON;
 export const TEXT_ICON = "i-lucide-file-text";
 export const PLOT_ICON = "i-lucide-git-commit-horizontal";
 export const EXTRA_ICON = "i-lucide-panel-top";

@@ -2,15 +2,18 @@
 /**
  * 新建条目的对话框（docs/specs/canon/author-ui.md 输出 4）：名字、种类、分组、放在谁下面、启用哪些数据、它是谁的另一个身份、
  * 从哪里出场。受控：填的东西与各个选项由宿主给（`entries-view.ts`），确认后由宿主发布；结果回来之前对话框不关。
- * 选定种类（点种类的按钮、种类的输入框失焦）时按 `withKind` 套这个种类的默认设定组，打字时不套。
+ * 选定种类（点种类的按钮、种类的输入框失焦）时按 `withKind` 套这个种类的默认设定组，打字时不套；勾选列表的“适用于”与预设也只跟着
+ * 选定的种类换，打字时列表不跳。
  */
-import {computed} from "vue";
+import {computed, shallowRef} from "vue";
 
-import {Button, CheckboxGroup, Dialog, Field, Input, Select} from "@notnotype/nb-ui/components";
+import {Button, Dialog, Field, Input, Select} from "@notnotype/nb-ui/components";
 
 import {withKind} from "../new-entry";
 import type {NewEntryDraft} from "../new-entry";
 import {useCanonText} from "../text";
+import ComponentChecklist from "./ComponentChecklist.vue";
+import type {ChecklistItem, ChecklistPreset} from "./component-checklist";
 
 const props = withDefaults(defineProps<{
     open: boolean;
@@ -21,13 +24,15 @@ const props = withDefaults(defineProps<{
     kindDefaults?: Readonly<Record<string, readonly string[]>>;
     /** 可以放在下面的条目（已读到的），也是“另一个身份”的候选。 */
     entries?: readonly {readonly id: string; readonly name: string}[];
-    /** 登记的类型。 */
-    types?: readonly {readonly id: string; readonly label: string}[];
+    /** 登记的类型：勾选列表的各行（没有“已添加”）。 */
+    items?: readonly ChecklistItem[];
+    /** 每个登记的种类的预设（`kindPresets`）；没登记的种类不在里面。 */
+    kindPresets?: Readonly<Record<string, readonly ChecklistPreset[]>>;
     /** 章表：出场位置的选项。 */
     chapters?: readonly {readonly id: string; readonly index: number}[];
     saving?: boolean;
     error?: string;
-}>(), {kinds: () => [], kindDefaults: () => ({}), entries: () => [], types: () => [], chapters: () => [], saving: false, error: ""});
+}>(), {kinds: () => [], kindDefaults: () => ({}), entries: () => [], items: () => [], kindPresets: () => ({}), chapters: () => [], saving: false, error: ""});
 
 const emit = defineEmits<{
     (event: "update:open", value: boolean): void;
@@ -41,7 +46,10 @@ const NONE = "\u0000none";
 const START = "\u0000start";
 
 const patch = (change: Partial<NewEntryDraft>): void => emit("update:draft", {...props.draft, ...change});
+/** 选定了的种类：对话框每次打开都是新挂上的，起点是预填的种类（“新建人物”）。 */
+const chosen = shallowRef(props.draft.kind.trim());
 const chooseKind = (kind: string): void => {
+    chosen.value = kind.trim();
     const next = withKind(props.draft, kind, props.kindDefaults);
     if (next.kind !== props.draft.kind || next.folder !== props.draft.folder || next.types.join("\u0000") !== props.draft.types.join("\u0000")) emit("update:draft", next);
 };
@@ -78,8 +86,15 @@ const entryOptions = computed(() => props.entries.map((entry) => ({value: entry.
             <Field :label="text('newEntry.parent')">
                 <Select :options="[{value: ROOT, label: text('newEntry.root')}, ...entryOptions]" :model-value="props.draft.parent ?? ROOT" @update:model-value="(value: string) => patch({parent: value === ROOT ? null : value})" />
             </Field>
-            <Field v-if="props.types.length > 0" :label="text('newEntry.types')" group>
-                <CheckboxGroup orientation="horizontal" :options="props.types.map((type) => ({value: type.id, label: type.label}))" :model-value="props.draft.types" @update:model-value="(value: string[]) => patch({types: value, typesTouched: true})" />
+            <Field v-if="props.items.length > 0" :label="text('newEntry.types')" group>
+                <!-- 点预设不算作者动过勾选：之后换种类，勾选照旧跟着种类的默认换（输出 4）。列表不封顶，由对话框统一滚。 -->
+                <ComponentChecklist
+                    :items="props.items"
+                    :kind="chosen"
+                    :presets="props.kindPresets[chosen] ?? []"
+                    :model-value="props.draft.types"
+                    @update:model-value="(value: readonly string[], via: 'row' | 'preset') => patch({types: [...value], ...(via === 'preset' ? {} : {typesTouched: true})})"
+                />
             </Field>
             <Field :label="text('newEntry.sameAs')">
                 <!-- 选了本体以后“放在谁下面”缺省变成它（输出 4）；作者之后还能改。 -->
