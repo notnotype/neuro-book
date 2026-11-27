@@ -679,6 +679,7 @@
         "empty": "还没有主文字"
     },
     "textEdit": {
+        "unwritable": "这一处写不出，撤销上一步再改",
         "edit": "编辑",
         "start": "开始写",
         "saved": "已暂存",

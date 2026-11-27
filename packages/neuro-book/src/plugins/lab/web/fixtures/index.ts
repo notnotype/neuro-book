@@ -20,6 +20,7 @@ import type ImageInput from "nbook/plugins/canon/web/components/ImageInput.vue";
 import type MoveDialog from "nbook/plugins/canon/web/components/MoveDialog.vue";
 import type ElementDialog from "nbook/plugins/canon/web/components/ElementDialog.vue";
 import type EntryTextEditor from "nbook/plugins/canon/web/components/EntryTextEditor.vue";
+import type EntryRichInput from "nbook/plugins/canon/web/components/EntryRichInput.vue";
 import type PlainSourceInput from "nbook/plugins/canon/web/components/PlainSourceInput.vue";
 import type TextConflictDialog from "nbook/plugins/canon/web/components/TextConflictDialog.vue";
 import type FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
@@ -2270,6 +2271,16 @@ function canonEntryPageFixtures() {
                 {id: "changed-english", label: "英文界面", input: {props: {items: [{id: "b1", kind: "changed", mine: "Her silver hair is dyed.", theirs: "Her silver hair is natural and rarely styled.", choice: null}, {id: "b2", kind: "gone", mine: "A block I edited.", theirs: null, choice: null}]}, model: {open: true}}},
             ],
             load: async () => (await import("./TextConflictDialogFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryRichInput>({
+            component: "EntryRichInput",
+            scenes: [
+                {id: "text", label: "标题、取值、条件、列表与引用", input: {props: {label: "主文字"}, model: {modelValue: "## 现在\n\n魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>\n\n- 存款 <V of=\"panel.存款\" /> 联邦币\n- 哥哥是 <Ref id=\"e2\" />\n\n> 引用里的 **强调** 与 `代码`。"}}},
+                {id: "empty", label: "空的", input: {props: {label: "主文字"}, model: {modelValue: ""}}},
+                {id: "readonly", label: "只读", input: {props: {label: "主文字", readonly: true}, model: {modelValue: "提交期间不能输入，<V of=\"panel.魔力\" /> 照样显示。"}}},
+                {id: "text-english", label: "英文", input: {props: {label: "Main text"}, model: {modelValue: "A long English line that keeps going so that it has to wrap inside a narrow container, with <V of=\"panel.mana\" /> in the middle."}}},
+            ],
+            load: async () => (await import("./EntryRichInputFixture.vue")).default,
         }),
         defineLabFixture<typeof PlainSourceInput>({
             component: "PlainSourceInput",

@@ -679,6 +679,7 @@
         "empty": "No main text yet"
     },
     "textEdit": {
+        "unwritable": "This change can't be written; undo it and try again",
         "edit": "Edit",
         "start": "Start writing",
         "saved": "Draft saved",
