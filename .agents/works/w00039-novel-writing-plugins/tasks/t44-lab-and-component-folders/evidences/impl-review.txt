@@ -1,0 +1,131 @@
+### 1. Spec 里还有一条指向 canon 旧路径的链接，spec_edits.py 没覆盖
+严重程度：建议（文档链接失效）
+类别：文档与规则
+位置：docs/specs/canon/rendering.md:177（主工作区）；.local/agent/works/w00039-novel-writing-plugins/tasks/t44-lab-and-component-folders/scripts/spec_edits.py
+现象：rendering.md 的“合同测试”写着 `(../../../packages/neuro-book/src/plugins/canon/web/components/EntryText.dom.test.ts)`，S2 之后这个测试在 `canon/web/components/text/EntryText.dom.test.ts`。spec_edits.py 的 EDITS 只列了 component-lab、component-lab-timeline、commands、quick-open 四个文件，没有这一条。
+为什么是问题：合入后 Spec 里的合同测试链接是死链；本 Task 动了 canon 组件目录，却没把对 canon 组件路径的引用扫全。
+如何核实：在主工作区 `grep -rnoE "canon/web/components/[A-Za-z./-]+" docs --include='*.md'` 只命中这一处；`find canon/web/components -name 'EntryText.*'` 在 text/ 下。
+建议改法：把这一条加进 spec_edits.py（换成 components/text/EntryText.dom.test.ts），并在 README/计划里写明“已扫过全部文档对 canon 组件路径的引用”。
+（附：spec_edits.py 其余 13 条旧文各恰好匹配 1 处，我用只读脚本数过。）
+
+### 2. 登记门禁里“组件就是这个插件的”没有被测到
+严重程度：建议
+类别：测试
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.dom.test.ts:83-97；fixtures/index.ts:105（pluginFixtures 是摊平后的数组）
+现象：用例标题写“登记全被总表收到，组件就是这个插件的”，实际只判断 `labComponents` 里该组件的 `groupPath[0]` 属于“有 web/lab/ 的某个插件”（`plugins.has(owner)`）。`pluginFixtures` 是 `collectLabFixtures` 摊平的结果，丢了每条登记来自哪个模块。
+为什么是问题：变异推理——把 workbench 的一条登记挪进 canon 的 fixtures.ts，或把 canon 的某条挪进 network 的 fixtures.ts，owner 仍是“有 web/lab 的插件”，用例照绿；规则“场景放在组件所属插件的 web/lab/”（README 第 0 节、组件规范）因此没有门禁。
+如何核实：在脑中或临时副本里把任意两个插件的 `*Fixtures()` 函数互换，index.dom.test 的这条不会失败。
+建议改法：让 `collectLabFixtures` 或总表同时给出 `{path, fixtures}`（或测试自己按 `import.meta.glob` 的键分组），断言 `labComponents` 里该组件的 `groupPath[0]` 等于该 fixtures.ts 所在的插件目录名。
+
+### 3. check:dist 的 `nb-lab:` 标记只能拦“经登记入口的模块”，不能拦只引了辅助模块的情况；define.ts 的注释说“场景文件都经这里登记”过强
+严重程度：建议
+类别：不变量 / 文档
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/define.ts:46-56；docs/specs/ui/component-lab.md（spec_edits.py 第 2 条改后的“fixture（含各插件 web/lab/ 的场景）”）
+现象：`nb-lab:` 在 1e60d53ba 里只出现在 check-dist.ts 的标记表，代码里没有任何地方产生它（相当于死标记）；这次由 `checkLabFixture`/`collectLabFixtures` 的报错文案补上。但 web/lab/ 里大半文件不登记：canon-text.ts、memory-files.ts、fake-remote.ts、settings-host.ts、*Fixture.vue 等。产品代码若只引了其中一个导出（树摇后只剩那几行），产物里不含 `nb-lab:`，也不含 `plugins/lab/`、`data-lab-`、`--lab-` 等其它标记（例如 memory-files.ts 一个都没有）。
+为什么是问题：门禁的“前提是否成立”——前提只对登记模块成立；真正拦其余文件的只有 architecture.test.ts 的静态规则，而它看不到动态拼接的 import、`src/` 之外的文件（e2e、scripts）、测试文件。Spec 的措辞“构建产物不含……fixture（含各插件 web/lab/ 的场景）”会让读者以为产物门禁覆盖整个目录。
+如何核实：`git grep -n "nb-lab:" 1e60d53ba -- src` 只有 scripts/check-dist.ts；`grep -L "scene-kit\|data-lab-\|--lab-\|nb-lab" src/plugins/*/web/lab/*.ts` 列出的非登记辅助文件（如 explorer/web/lab/memory-files.ts）在产物里没有任何标记。压缩后字符串字面量是否保留我没有真构建验证（未验证），但模板字面量里的固定前缀通常保留。
+建议改法：define.ts 的注释改成“只拦经 checkLabFixture 的登记模块；其余文件靠 architecture.test.ts”，Spec 同步写清；或者给每个 web/lab/ 模块不用加标记、改为让 check:dist 再加一条 `plugins/*/web/lab/` 路径串（构建不带 sourcemap 时没用，所以不推荐），接受现状即可。
+（未实际构建，check:dist 没跑。）
+
+### 4. 目录导入 `./lab` 不会被“只有 Lab 与插件的场景能引用 web/lab/”拦下
+严重程度：建议
+类别：边界
+位置：packages/neuro-book/src/architecture.test.ts:81（`isLabScene` 的正则 `^plugins/[^/]+/web/lab/`）与新增的违规判定
+现象：判定用解析后的目标路径，要求以 `web/lab/` 带斜杠开头。`import "./lab"`、`"./lab/"`、`"nbook/plugins/canon/web/lab"` 解析出的目标是 `plugins/canon/web/lab`（没有尾斜杠），正则不匹配，不报违规。现在 web/lab/ 下没有 index.ts（`find src -path '*web/lab/*' -name 'index.*'` 为空），所以今天无法利用；将来任何人给某个 web/lab/ 加 index.ts，产品代码就能经目录导入绕过，且 `isSceneKit` 也有同样的写法。
+为什么是问题：新规则的卖点是“不能被相对路径、index 省略绕过”（重点 1），这是留下的一个缝；用例表里的反例也都带 `/fixtures`、`/canon-text` 后缀，没覆盖目录形式。
+如何核实：在 `isLabScene` 里代入 `"plugins/canon/web/lab"`，返回 false。
+建议改法：正则改成 `^plugins/[^/]+/web/lab(?:/|$)`，并加一条 `use("plugins/canon/web/entry-page.ts", "./lab")` 的反例。
+
+### 5. 产品插件自己的测试引用 web/lab/ 里的支持模块，与“产品代码不引用 web/lab/”的说法错位
+严重程度：建议
+类别：结构
+位置：src/plugins/settings/window.test.ts:39（settings/web/lab/settings-host）、src/plugins/editor/session.test.ts:18 与 src/plugins/projects/welcome-chapter.test.ts:22（explorer/web/lab/memory-files）、src/plugins/explorer/memory-files.test.ts（测 web/lab 的模块，S3 从 lab/ 挪到 explorer/）
+现象：memory-files.ts 是一个通用的内存 FilesService，settings-host.ts 是内存配置宿主，三个非 Lab 的产品测试依赖它们。以前它们在 Lab 插件目录（开发插件）里，现在放进了各产品插件的 `web/lab/`。architecture.test 的 sourceFiles 排除 `*.test.ts`，所以这些引用不报错；但 README 第 0 节、AGENTS.md、组件规范都写“产品代码不引用任何 web/lab/（只引类型也不行）”。
+为什么是问题：规则字面与现状不一致，读者无法判断测试算不算“产品代码”；这些模块实际是测试支持（该放 `<插件>/testing/`，explorer/testing、settings/testing 已存在，且 sourceFiles 与 `importsTesting` 都对 testing 有现成约定）。以后 web/lab/ 若被当作“可整体删除或不进发布包的开发目录”，产品测试会一起坏。
+如何核实：`grep -rn "web/lab/" src/plugins/{settings,editor,projects}/*.test.ts`。
+建议改法：二选一并写进 README 第 0 节：（a）被产品测试用的模块（memory-files、settings-host）挪到 `<插件>/testing/` 并由 Lab 反向引用；（b）承认“web/lab/ 的支持模块也给产品测试用”，把规则改成“非测试的产品代码不引用”，并在 architecture.test 里让这条规则对测试文件显式放行。
+
+### 6. 搬走的辅助件注释里仍指向旧位置
+严重程度：建议
+类别：文档
+位置：src/plugins/explorer/web/lab/memory-files.ts:5（“见 `plugins/lab/memory-files.test.ts`”）；src/plugins/projects/welcome-chapter.test.ts:3（同一路径）；src/architecture.test.ts:273、313、314（合成用例里的文件名仍是 `plugins/lab/web/fixtures/command-scene/...`，该目录已不存在）
+现象：memory-files.test.ts 已在 S3 挪到 `plugins/explorer/memory-files.test.ts`，注释没跟着改；README 的“后续”说搬走的夹具注释里改了 35 处，漏了这两处。architecture.test 的三条用例用不存在的路径做“文件”，今天仍通过，只因 `plugins/lab/web/fixtures/` 还是场景根，但读者会去找 command-scene。
+如何核实：`grep -rn "plugins/lab/memory-files" src`；`ls src/plugins/lab/web/fixtures | grep command`。
+建议改法：改成新路径；architecture.test 的三条改成 `plugins/workbench/web/lab/lab-command-scene.ts`、`LabCommandSceneLayer.vue`（还能顺便测到新增的 isLabScene 放行）。
+
+### 7. EntryPicker 放在 entries/ 里，用得最多的是 editing/
+严重程度：建议
+类别：结构
+位置：packages/neuro-book/src/plugins/canon/web/components/entries/EntryPicker.vue、entry-picker.ts；引用方 editing/FieldInput.vue、editing/ElementDialog.vue、editing/ConfirmBar.vue（类型）、entry-page/MoveDialog.vue、entry-page/EntryPageHost.vue
+现象：计划（plan.md 第 130 行）把 EntryPicker 归 `entries/`（设定视图）。实际 `entries/` 里没有任何文件引它，editing/ 三处、entry-page/ 两处引它，`entries/` 反过来引 `entry-page/ComponentChecklist`。
+为什么是问题：计划的规则是“辅助件放用它最多的一组”，组件按区域划分是“作者看到的界面区域”。EntryPicker 是输入控件，读者找“引用字段怎么选条目”会先去 editing/。跨组引用是 entry-page→entries、editing→entries、entries→entry-page 三个方向，entries/ 与 entry-page/ 互相引用。
+如何核实：`grep -rn "entry-picker\|EntryPicker" components --include='*.vue' --include='*.ts' | grep -v test`。
+建议改法：把 EntryPicker（及 entry-picker.ts、同名 md 与测试）归 editing/；entries/ 只留 EntryTree、NewEntryDialog；NewEntryDialog 引 ComponentChecklist 可保留。这是个人判断，计划已定的话列为“知情”即可。
+
+### 8. README 第 6 节“-english 后缀是切语言开关”与现存夹具不一致，network 的 `system-english-narrow` 场景实际显示中文
+严重程度：建议（该场景的缺陷在 t44 之前就有，S3 只是搬了；文档规则是 t44 新写的）
+类别：正确性 / 文档
+位置：packages/neuro-book/src/plugins/network/web/lab/NetworkPageFixture.vue:34（`/(?:^|-)english$/u.test(props.scene)`）、network/web/lab/fixtures.ts:29（`system-english-narrow`，标签“390px 宽、英文”）；lab/web/fixtures/README.md 第 6 节“英文与长文字”；editor/web/lab/editor-text.ts:16（`scene === "english"`）
+现象：(1) `system-english-narrow` 不以 `english` 结尾，正则不命中，页面按 zh-CN 渲染，场景标签却写“英文”；与 `-narrow` 同在时 `replace(/-(?:english|narrow)$/u, "")` 也只剥一个后缀。(2) README 第 6 节写“英文场景的 id 以 `-english` 结尾：这个后缀也是夹具切界面语言的开关”，但各插件的 `*-text.ts` 里判定写法有三种：`/(?:^|-)english$/`（多数）、`endsWith("-english")`（canon、plot）、`=== "english"`（editor，只认单独一个 `english`）；workbench 另有 `englishScenes` 名单。editor 里若新增一个 `x-english` 场景会得到中文。(3) 第 6 节写长文字场景 id 为 `long` 或以 `-long` 结尾，现存 `long-title`（RevisionsView）、`long-title-english`（ViewPointPicker）、`mixed-phone-long-english`（tasks）不符合，也没有机检。
+为什么是问题：这条约定的目的是让后面的精简“照规则”做；规则写成了机械的，实际夹具不遵守，后面的人按规则改 id 会改坏语言。S4 只动 canon，canon 的 21 个 `-english` 场景我逐个核过：都以 `-english` 结尾，`canon-text.ts` 的 `endsWith` 与 id 匹配，S4 没有打破这个耦合。
+如何核实：`grep -rn "sceneLocale\|endsWith(\"-english\")" src/plugins/*/web/lab`；network 的 id 与正则见上。
+建议改法：把“切语言”的判定收成一个共用小函数放进 scene-kit（`isEnglishScene(scene)`，规则只写一遍），各 `*-text.ts` 调它；或者至少在 README 把“id 以 -english 结尾”改成“各夹具自己的文本端口按 id 判断，新增场景前读一下对应的 *-text.ts”，并修 `system-english-narrow`（改名 `system-narrow-english`）。
+
+### 9. Lab 剩下的 fixtures/index.ts 与新文件里的杂项：重复导入、悬空注释、没用的排除项、导入风格不一
+严重程度：建议
+类别：代码质量
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:32 与 :34（两行都 `from "./define"`）、:89-90（再导出）、:91-98（两段注释）、:105（glob 的 `"!../../../lab/web/lab/fixtures.ts"`）；各 `nb-ui/*.ts`、`nb-agent-ui/*.scenes.ts`、`nb-layout/index.ts`、`nb-form.ts` 仍 `import type {LabFixture…} from "../index"`；`*/web/lab/fixtures.ts` 的 `function xxxFixtures(){return [...]}` 外壳；跨插件相对导入 9 处
+现象：
+(a) index.ts 对 `./define` 导入了两次（一行取 `collectLabFixtures` 与类型，另一行取 `defineLabFixture`）。
+(b) 第 91-98 行：描述 `data-lab-subject` 的 JSDoc 与“Lab 场景在选择时才加载”的 `//` 注释原来紧贴 `labFixtures`，现在中间插进 `pluginFixtures` 的新 JSDoc，前两段变成不挂在任何声明上的游离注释（TypeScript 只认最后一段 JSDoc）。
+(c) 排除项 `!../../../lab/web/lab/fixtures.ts` 排除的是一个不存在、规则里也不打算有的目录；dom 测试里同样写了 `entry.name !== "lab"`。属于为不存在的情形留的代码。
+(d) define.ts 头注释说“类型也放在这里，场景就不必从总登记表取类型”，但 Lab 自己的分组（nb-ui 5 个文件、nb-agent-ui 7 个、nb-layout、nb-form、`lab-subject.typecheck.ts`）仍从 `../index` 取类型，index.ts 为此保留了两行再导出；写“不必”但实际没迁，二者之间留着一个 index↔分组的类型环。
+(e) 18 个 `*/web/lab/fixtures.ts` 里 16 个是“先建一个 `xxxFixtures()` 函数返回数组，再 `export const fixtures = [...xxxFixtures()]`”：这是原 index.ts 里按插件分函数的写法被脚本原样搬过来，现在一个文件一个插件，外壳没有意义；html-preview、image-viewer、markdown 三个已经是直接 `export const fixtures = [...]`，风格不一。
+(f) 跨插件导入有 9 处写成 `../../../<插件>/web/lab/…` 相对路径（network、projects、web-tools、editor、markdown 的夹具），其余 50 多处写 `nbook/plugins/…`；Lab 的 index.ts、MarkdownDisplayFixture.vue、SettingsRowFixture.vue 也用相对路径。
+为什么是问题：都是读者要多想一步的地方，且 (d) 与注释的声明相反。
+如何核实：见各行号；`grep -rnE 'from "\.\./\.\./\.\./[a-z-]+/' src/plugins/*/web/lab`。
+建议改法：合并两行导入；把游离注释挪回 `labFixtures` 上或删掉；删掉排除项；Lab 分组改从 `../define` 取类型并删掉 index.ts 的再导出（lab-subject.typecheck.ts 改 `./scene-kit`），或把 define.ts 的话改成事实；fixtures.ts 去掉外壳；统一用 `nbook/…`。
+
+### 10. scene-kit 导出面有一大半没有使用者
+严重程度：建议
+类别：代码质量
+位置：packages/neuro-book/src/plugins/lab/web/scene-kit.ts
+现象：导出 26 个名字；我对 `*/web/lab/**` 与 `lab/web/drafts/**` 逐个 grep：`checkLabFixture`、`LabSceneInputSchema`、`LAB_DATA_SINK`、`LAB_INPUT_SINK`、`useLabDataSink`、`LabInputOf`、`LabJsonPropOf`、`LabSlotOf`、`LabSubjectProps`、`LabEventOf`、`LabPropOf`、`SubjectFixtureDefinition`、`SubjectFixtureOptions`、`LabFixtureDefinition`、`LabScene` 这 15 个在插件场景与草稿里使用数为 0。
+为什么是问题：计划把 scene-kit 当成“插件场景用 Lab 的唯一入口”，导出越宽，Lab 以后改内部越要顾及；`checkLabFixture` 这个校验函数给场景用没有意义（登记入口已经调了它），反而像是邀请场景自己登记；README 第 0 节只点名了登记入口、`useLabSubject`、`useLabEventSink`、`LabFixtureControls`、类型几样。
+如何核实：脚本 grep（命令见上），结果可复算。
+建议改法：按实际使用收窄到 `defineLabFixture`、`defineSubjectFixture`、`createSubjectFixture`、`useLabSubject`、`useLabEventSink`、`LAB_EVENT_SINK`、`LAB_LOCALE`、`LabFixtureControls` 与 `LabFixtureProps`/`LabSceneInput`/`LabFixture`；需要时再加。草稿可能要用的，等草稿用到时加。
+
+### 11. `defineSubjectFixture` 经 `checkLabFixture` 的校验没有被测到
+严重程度：建议
+类别：测试
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/subject-fixture.ts:92-93；define.test.ts
+现象：define.test.ts 只测 `defineLabFixture` 与 `collectLabFixtures`。把 subject-fixture.ts 最后一行改回 `return fixture as unknown as LabFixture`（去掉校验），没有任何用例失败：index.dom.test 只在登记已经合法时通过，不会喂坏数据。
+为什么是问题：S1 把“报错带路径、文案有 `nb-lab:`”算作 check:dist 门禁的前提，而 defineSubjectFixture 是三个插件（agent、models、stickers 一带）与 Lab 分组的登记入口；这条路径的校验是新增行为，没有测试。
+如何核实：变异推理，见上；不改文件。
+建议改法：在 define.test.ts 加一条 `defineSubjectFixture({component: "Probe", scenes: [], subject: async () => ({default: {}})} as never)` 缺字段时抛 `nb-lab:`（该文件用 bun test，subject-fixture.ts 引了 vue 但不引 .vue，应能跑）。
+
+（对第 9、11 条的数字更正：核实后，defineSubjectFixture 的插件使用者是 editor、workbench、projects 三个 fixtures.ts，另有 Lab 的 nb-ui 等分组；从 `../index` 取类型的 Lab 文件是 nb-ui 6 个、nb-agent-ui 10 个、nb-layout 1 个、nb-form 1 个；18 个插件 fixtures.ts 里带“xxxFixtures() 外壳”的是 10 个，其余 8 个直接 `export const fixtures = [...]`。结论不变。subject-fixture.dom.test.ts 存在，但只测挂载、事件回写与插槽预设，没有测登记形状的校验，第 11 条仍成立。)
+
+### 12. S3 为过“假盒子”扫描改了两个 agent 夹具的宽度，扫描本身一个 `min()` 就能绕过；README 第 6 节的“每个分支至少一个场景”写成了现状没有做到的硬规则
+严重程度：建议
+类别：测试 / 文档
+位置：agent/web/lab/ContactCoverFixture.vue（`w-[360px] max-w-full` 改 `w-[min(360px,100%)]`）、agent/web/lab/SubagentCardFixture.vue（`w-[390px]`/`w-[640px]` 改 `w-[min(…,100%)]`）；lab/web/fixtures/index.dom.test.ts:138-161；lab/web/fixtures/README.md 第 6 节
+现象：(1) 提交信息与 Task 记录都写了这两处改动，不是隐瞒。但被改的是“搬出子目录后才被扫到”的老写法，改法是换成正则 `\bw-\[[1-9]\d{2,}px\]` 匹配不到的 `w-[min(…)]`：ContactCover 的 `w-[360px] max-w-full` 与 `w-[min(360px,100%)]` 渲染完全相同，改动只为绕过检查；SubagentCard 的 `w-[640px]` 改后窄视口不再出横向溢出，这是行为变化（Task 记录第 67 行也提到“原名单里的 SubagentCard 不再报”），夹具本来声明了 `-narrow` 场景，是想靠固定宽度模拟。(2) README 第 6 节把“组件模板里的每个分支都要有场景走到”写成规则，但 S4 的 evidences 明说“原来就没有场景走到的分支没补”（EntryPage 的 addable 与 wide、ReceiptPage 的 failed、EntryTree/ConfirmBar 等），我核对 ConfirmBar.vue 的 `previewing`（模板第 164、185 行）也没有任何场景给 `previewing: true`。
+为什么是问题：(1) 扫描的意图是“不要自建假视口盒子”，现在的绕法是结构等价的写法，扫描实际只拦字面量；搬动提交里夹带样式改动，也让“纯搬动”的 diff 不再纯。(2) 规则按字面执行会让人把 canon 里已有的缺口当成回归，或者反过来以为“已经全覆盖”。
+如何核实：`git show 2d389fd5b -- packages/neuro-book/src/plugins/agent/web/lab/ContactCoverFixture.vue`；`grep -n "previewing" canon/web/lab/editing.scenes.ts` 无命中。
+建议改法：(1) 在 README 第 1 节写明“需要不超过视口的定宽用 `w-[min(Npx,100%)]`”并让扫描显式认它，或者把扫描的正则放宽到也拦 `min(`；这两个夹具的改动单拆一个提交。(2) 第 6 节加一句“canon 之外的插件与 canon 里记在 evidences 的几处缺口还没有按这条整理，改到那个组件时照规则补”。
+
+## 未发现问题的方面
+- 我实际跑过：`bun test src/architecture.test.ts`（8 条过）；vitest `lab/web/fixtures/index.dom.test.ts`（11 条过）；搬动后的 7 个 bun 测试文件 72 条过（settings/window、explorer/memory-files、editor/session、projects/welcome-chapter、settings/web/lab/memory-layers、workbench/web/lab/editor-commands、lab/web/fixtures/define）；`bun run typecheck`（tsc 加两份 vue-tsc）exit 0；`docs:check`（只报 commands.md 里 spec_edits.py 已覆盖的两条旧链接）。没跑 e2e、`check:dist`、真构建。
+- `tailwind.product.css` 的 `@source not "../plugins/*/web/lab"`：我在 scratch 里用仓库的 @tailwindcss/node 与 oxide 编译一份带通配排除的样例，场景目录里的 `p-[13px]` 不进产物、components 里的 `p-[17px]` 进产物，通配成立。
+- spec_edits.py 的 13 处旧文各恰好匹配主工作区文本 1 处（我用只读脚本数过），改后的措辞与实现一致，除第 3 条的“fixture（含场景）”略宽（见第 3 条）与漏掉 rendering.md（见第 1 条）。
+- 架构测试新规则：相对路径、`nbook/` 别名、带 `.ts` 后缀与 `?query`、`.vue` 的 `<script>` 块、`export … from`、`web/lab` 子目录都能被拦；唯一的缝是目录导入（第 4 条）。动态拼接的 import 与 src 之外的文件不在扫描范围，属于 source-imports.ts 头注释已声明的既有限制。
+- 用 `git show -M -U0` 过滤后，S2 的 139 个搬动文件里除了 import 路径与 `.md` 的 `../` 层数外没有任何内容改动；S3 搬动里除了第 12 条的两处宽度，也没有夹带改动。canon 子目录的归属与计划表逐个对过，没有落单文件；组件索引只扫 `web/components/**`，子目录能被收到。
+- S4：4 处改过的输入核过。EntryTextEditor 的 preview-problem 里 `problem` 的 (7:4) 与 previewNote 的“第 7 行第 4 列”一致；CharacterCard 的 no-look 用 `unavailable`，对应模板 L89 `v-if`，blocked 用 `removed` 走 `restoreLook` 与禁用条件；ConfirmBar 的 inline-passage 三条变化走 `impactText` 的“还有 N 项”。canon 的 21 个 `-english` 场景 id 与 `canon-text.ts` 的 `endsWith` 一致；被删的场景 id 在 e2e、dom 测试、docs/specs/canon 里没有引用；`lab-layout-baseline.ts` 为空。场景数 274 到 222（我的正则口径），差 52，与 evidences 的 261 到 209 一致。
+- `define.ts` 的 `checkLabFixture` 与 `collectLabFixtures` 的逻辑本身没有问题；glob 路径 `../../../*/web/lab/fixtures.ts` 从 `plugins/lab/web/fixtures/` 起算正确；index.ts 没有未使用的导入；`SKILL_PAGE_ENTRIES` 等常量只在一处。
+- 7 个旧路径的再导出是计划里定的，w00056-t06-drafts 里的草稿确实按这些旧路径导入，删除条件写在 Task README“后续”里；没有读者在本仓库里引用它们。
+
+## 各级数量
+阻断 0，重要 0，建议 12（第 1 到 12 条）。本轮没有找到会让现有功能出错的缺陷；最像缺陷的是第 8 条（network 的 `system-english-narrow` 显示中文，t44 之前就有）与第 1 条（合入后 Spec 多一条死链）。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12
