@@ -44,7 +44,7 @@ const GATE = `
 for (let waited = 0; waited < 600; waited += 1) {
     const s = await ui.snapshot({maxTokens: 300});
     if (s.window.title === "GATE") break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100)); // test-lint-allow fixed-wait: 这是交给 eval 的代码里两次读标题之间的间隔，等的是标题这个可观察状态
 }`;
 
 const openGate = (page: Page) => page.evaluate(() => {
@@ -165,7 +165,7 @@ return JSON.stringify({outcome: result.outcome});`);
 test("验收 7：高亮等待中停止 eval，日志里结局为 cancelled、页面上没有描边框与说明框；等用户的时间不计入单元时限", async ({page}) => {
     await ready(page, auto);
     // 对照：时限 2 秒的单元自己睡 3.5 秒会超时，说明下面“等了更久却没超时”是等用户不计时、不是时限没起作用。
-    const control = await startEval(page, lab, "时限对照", "await new Promise((resolve) => setTimeout(resolve, 3500)); return 'done';", {timeout: 2});
+    const control = await startEval(page, lab, "时限对照", "await new Promise((resolve) => setTimeout(resolve, 3500)); return 'done';", {timeout: 2}); // test-lint-allow fixed-wait: 交给 eval 的代码故意睡过时限，睡眠本身是被测的对照
     expect(await control.result()).toContain("超过 2 秒的时限");
 
     // 等用户不计时：时限 4 秒，说明框停留超过它，之后点“下一步”，eval 照常结束、没有超时。
@@ -290,7 +290,7 @@ const LAYERS: readonly LayerCase[] = [
     {
         name: "下拉菜单（审批模式）",
         async open(page) {
-            await page.getByRole("button", {name: /审批模式/u}).click();
+            await page.getByRole("button", {name: /^审批模式/u}).click();
             await expect(page.getByRole("menu")).toBeVisible();
             await page.keyboard.press("ArrowDown");
         },
@@ -381,7 +381,7 @@ test("验收 6（弹层之外的控件）：高亮弹层之外的控件后关掉
     const run = await startEval(page, lab, "高亮弹层外的控件", `${GATE}
 const result = await ui.highlight({at: {target: "workbench.activity", key: "nbook.settings"}, message: "这个按钮在弹层外面。", until: "next"});
 return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
-    await page.getByRole("button", {name: /审批模式/u}).click();
+    await page.getByRole("button", {name: /^审批模式/u}).click();
     await expect(page.getByRole("menu")).toBeVisible();
     await openGate(page);
     await expect(guidePart(page, "callout")).toContainText("这个按钮在弹层外面。");
@@ -568,8 +568,8 @@ test("验收 9：前台会话的 eval 说明列 ui、typeof ui 为 object；bot 
     const foregroundDescription = await lastEvalDescription();
     expect(foregroundDescription).toContain("`ui`");
 
-    // bot 归属的会话（会话头的 owner）：点联系人星璃，同一个输入框发给她。
-    await page.getByRole("navigation", {name: "联系人与最近会话"}).getByRole("button", {name: "星璃"}).click();
+    // bot 归属的会话（会话头的 owner）：点右栏侧轨上的联系人星璃，同一个输入框发给她。
+    await page.locator("[data-rail='auxiliarybar'] [data-strip-contact='nbook.bots/lyra']").click();
     await expect(composer(page)).toBeVisible();
     const bot = await startEval(page, lab, "bot 看 ui", code);
     expect(JSON.parse(await bot.result())).toEqual({type: "undefined"});
