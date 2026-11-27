@@ -15,9 +15,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
-import {useLabEventSink} from "../../lab-event-sink";
-import type {LabFixtureProps} from "../../lab-subject";
-import LabFixtureControls from "../../LabFixtureControls.vue";
+import {LabFixtureControls, useLabEventSink, type LabFixtureProps} from "nbook/plugins/lab/web/scene-kit";
 
 const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();

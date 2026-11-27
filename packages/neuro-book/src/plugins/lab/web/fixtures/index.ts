@@ -1,9 +1,6 @@
-import type {Component} from "vue";
 
 import type ExplorerFeedback from "nbook/plugins/explorer/web/components/ExplorerFeedback.vue";
 import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGroupHead.vue";
-import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
-import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type CodeInput from "nbook/plugins/editor/web/components/CodeInput.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
@@ -167,7 +164,7 @@ import type HighlightBox from "../components/HighlightBox.vue";
 import type MarkdownView from "../components/MarkdownView.vue";
 import type SurfaceTierDemo from "../components/SurfaceTierDemo.vue";
 import type ViewportCanvas from "../components/ViewportCanvas.vue";
-import type {LabInputOf, LabJsonPropOf, LabSlotOf} from "../lab-subject";
+import {collectLabFixtures, type LabFixture} from "./define";
 import {draftFixtures} from "../drafts";
 import {defineLabFixture} from "./define";
 
@@ -259,43 +256,7 @@ const SKILL_PAGE_ENTRIES: readonly SkillEntry[] = [
     {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint", name: "lint", description: "按本书的禁用词表检查选中的章节。", source: "plugin", plugin: {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks", title: null}, location: "skills://someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint/SKILL.md", status: "ready"},
     {id: "builtin.chapter-summary", name: "chapter-summary", description: "给一章写三五句提要，写进章节的元数据。", source: "builtin", location: "skills://builtin.chapter-summary/SKILL.md", status: "ready"},
 ];
-export type LabScene = {
-    id: string;
-    label: string;
-    /** 运行时消费的宽化输入；登记入口负责把它约束到组件类型。 */
-    input?: {props?: Record<string, unknown>; model?: Record<string, unknown>; slots?: Record<string, boolean>};
-};
-
-declare const LAB_FIXTURE_BRAND: unique symbol;
-
-export type LabFixture = {
-    /** 与组件文档同名 */
-    component: string;
-    scenes: LabScene[];
-    /** 没有可登记 JSON 数据 prop 的组件可声明无输入理由；运行期能力仍由 fixture 绑定。 */
-    noInput?: string;
-    /** fixture 为哪些插槽备了预设内容。 */
-    slots?: readonly string[];
-    load: () => Promise<Component>;
-    readonly [LAB_FIXTURE_BRAND]: true;
-};
-
-export type LabFixtureDefinition<C> = {
-    component: string;
-    load: () => Promise<Component>;
-} & (
-    | {
-        noInput?: never;
-        slots?: readonly LabSlotOf<C>[];
-        scenes: Array<{id: string; label: string; input: LabInputOf<C>}>;
-    }
-    | ([LabJsonPropOf<C>] extends [never] ? {
-        noInput: string;
-        slots?: never;
-        scenes: Array<{id: string; label: string; input?: never}>;
-    } : never)
-);
-
+export type {LabFixture, LabFixtureDefinition, LabScene} from "./define";
 export {defineLabFixture} from "./define";
 
 /**
@@ -307,9 +268,16 @@ export {defineLabFixture} from "./define";
  */
 // Lab 场景在选择时才加载：避免一次导入所有产品组件和纯内存 fixture。
 
+/**
+ * 各插件的场景：`plugins/<插件>/web/lab/fixtures.ts` 各自导出 `fixtures`（docs/specs/ui/component-lab.md 的“输入边界”）。
+ * 路径从本目录起算，比组件索引（`../component-index.ts`）多一层。Lab 自己的场景在本目录，不收 `lab/web/lab/`，免得重复。
+ */
+export const pluginFixtures: LabFixture[] = collectLabFixtures(import.meta.glob(["../../../*/web/lab/fixtures.ts", "!../../../lab/web/lab/fixtures.ts"], {eager: true}));
+
 export const labFixtures: LabFixture[] = [
     // 草稿区：每个 Task 一个目录，各自登记（见 ../drafts/index.ts）。
     ...draftFixtures,
+    ...pluginFixtures,
     defineLabFixture<typeof CollapsibleSidePanel>({
         component: "CollapsibleSidePanel", slots: ["default", "actions"],
         scenes: [
@@ -996,34 +964,6 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {open: true, session: 1, anchor: null, media: null, current: "project://卷一/第一章.md"}}},
         ],
         load: async () => (await import("./editor-scene/MarkdownImageCardFixture.vue")).default,
-    }),
-    defineLabFixture<typeof ImageViewer>({
-        component: "ImageViewer",
-        // 字节绑定与图片由夹具生成（这里登记的 binding、host 只占位，夹具换成自己的）；可调的是文件名与界面语言。
-        scenes: (() => {
-            const base = {binding: null, host: {state: null, dispose: null}, readonly: true, visible: true};
-            return [
-                {id: "small", label: "比舞台小的图：原尺寸居中", input: {props: {...base, label: "插图.png", locale: "zh-CN" as const}}},
-                {id: "large", label: "比舞台大的图：适应、点一下 100%", input: {props: {...base, label: "地图.png", locale: "zh-CN" as const}}},
-                {id: "svg", label: "带透明的 SVG：棋盘格", input: {props: {...base, label: "图标.svg", locale: "zh-CN" as const}}},
-                {id: "broken", label: "不是图片：说明与重试", input: {props: {...base, label: "坏图.png", locale: "en-US" as const}}},
-            ];
-        })(),
-        load: async () => (await import("./image-viewer-scene/ImageViewerFixture.vue")).default,
-    }),
-    defineLabFixture<typeof HtmlPreview>({
-        component: "HtmlPreview",
-        // 文本绑定、令牌服务与时钟由夹具给出（这里登记的 binding、host 只占位）；界面语言由场景 id 决定（`-english` 结尾用英文）。
-        scenes: (() => {
-            const base = {binding: null, host: {state: null, dispose: null}, readonly: true, visible: true, label: "index.html"};
-            return [
-                {id: "page", label: "预览一张带脚本的页面", input: {props: base}},
-                {id: "user", label: "不是作品里的文件", input: {props: base}},
-                {id: "denied", label: "令牌申请失败：说明与重试", input: {props: base}},
-                {id: "denied-english", label: "令牌申请失败：英文界面", input: {props: base}},
-            ];
-        })(),
-        load: async () => (await import("./html-preview-scene/HtmlPreviewFixture.vue")).default,
     }),
     defineSubjectFixture<typeof EditorBreadcrumbs>({
         component: "EditorBreadcrumbs",

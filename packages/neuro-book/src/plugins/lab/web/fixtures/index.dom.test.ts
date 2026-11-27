@@ -6,10 +6,17 @@ import {Value} from "typebox/value";
 import {describe, expect, it} from "vitest";
 import {labComponents} from "../component-index";
 import {LabSceneInputSchema} from "../lab-subject";
-import {findLabFixture, labFixtures, type LabFixture} from "./index";
+import {findLabFixture, labFixtures, pluginFixtures, type LabFixture} from "./index";
 import {draftFixtures} from "../drafts";
 
 const fixturesRoot = dirname(fileURLToPath(import.meta.url));
+const pluginsRoot = resolve(fixturesRoot, "../../..");
+/** 各插件的场景目录 `plugins/<插件>/web/lab/`（Lab 自己的不算，它的场景在本目录）。 */
+const pluginSceneRoots = readdirSync(pluginsRoot, {withFileTypes: true})
+    .filter((entry) => entry.isDirectory() && entry.name !== "lab" && existsSync(join(pluginsRoot, entry.name, "web", "lab")))
+    .map((entry) => join(pluginsRoot, entry.name, "web", "lab"));
+/** 放场景模块的所有目录：Lab 的场景、草稿区与各插件的 `web/lab/`。 */
+const sceneRoots = [fixturesRoot, resolve(fixturesRoot, "../drafts"), ...pluginSceneRoots];
 /** 收集 fixture 目录下的模块（含子目录与数据模块），不含测试自身。 */
 function collectFixtureModules(from: string): string[] {
     return readdirSync(from, {withFileTypes: true}).flatMap((entry) => {
@@ -54,7 +61,7 @@ describe("Lab 场景覆盖", () => {
             })
             .map((entry) => entry.name);
 
-        expect(missing, `这些组件可以挂载却没有场景登记：${missing.join("、")}。在 fixtures/index.ts 里为它们登记场景；确实只能在正式界面验证的，按组件规范补阻断标签，而不是留着空档。`).toEqual([]);
+        expect(missing, `这些组件可以挂载却没有场景登记：${missing.join("、")}。在组件所属插件的 web/lab/fixtures.ts 里为它们登记场景（src/ui/ 与各包的组件在 Lab 的 fixtures/ 里登记）；确实只能在正式界面验证的，按组件规范补阻断标签，而不是留着空档。`).toEqual([]);
     });
 
     /**
@@ -73,6 +80,22 @@ describe("Lab 场景覆盖", () => {
         for (const fixture of draftFixtures) expect(labFixtures).toContain(fixture);
     });
 
+    it("每个插件的 web/lab/ 都有 fixtures.ts，登记全被总表收到，组件就是这个插件的", () => {
+        expect(pluginSceneRoots.length).toBeGreaterThan(0);
+        const outsiders: string[] = [];
+        for (const root of pluginSceneRoots) {
+            expect(existsSync(join(root, "fixtures.ts")), `${relative(pluginsRoot, root)} 没有 fixtures.ts`).toBe(true);
+        }
+        const plugins = new Set(pluginSceneRoots.map((root) => relative(pluginsRoot, root).split("/")[0]));
+        for (const fixture of pluginFixtures) {
+            expect(labFixtures).toContain(fixture);
+            const entry = labComponents.find((candidate) => candidate.name === fixture.component);
+            const owner = entry?.groupPath[0];
+            if (owner === undefined || !plugins.has(owner)) outsiders.push(`${fixture.component}（${owner ?? "不在索引里"}）`);
+        }
+        expect(outsiders, "这些登记放在了别的插件的 web/lab/ 里").toEqual([]);
+    });
+
     it("每个组件名只能有一条登记", () => {
         const seen = new Set<string>();
         const duplicated: string[] = [];
@@ -81,7 +104,7 @@ describe("Lab 场景覆盖", () => {
             seen.add(fixture.component);
         }
 
-        expect(duplicated, `这些组件在 fixtures/index.ts 里登记了多份，生效的永远只是第一份：${duplicated.join("、")}。合并成一条登记。`).toEqual([]);
+        expect(duplicated, `这些组件登记了多份，生效的永远只是第一份：${duplicated.join("、")}。合并成一条登记。`).toEqual([]);
     });
 
     it("登记的每个场景都指向索引里真实存在的可挂载组件", () => {
@@ -96,11 +119,11 @@ describe("Lab 场景覆盖", () => {
      * 场景才会看到「场景加载失败」。因此同时检查模块导入路径是否存在。
      */
     it("fixture 模块的相对导入都能在磁盘上解析", () => {
-        const broken = collectFixtureModules(fixturesRoot).flatMap((file) => {
+        const broken = sceneRoots.flatMap(collectFixtureModules).flatMap((file) => {
             const source = readFileSync(file, "utf8");
             return relativeSpecifiers(source)
                 .filter((specifier) => !resolvesOnDisk(dirname(file), specifier))
-                .map((specifier) => `${relative(fixturesRoot, file)} -> ${specifier}`);
+                .map((specifier) => `${relative(pluginsRoot, file)} -> ${specifier}`);
         });
 
         expect(broken, `这些相对导入指向不存在的文件：${broken.join("、")}。Vite 解析失败会让对应场景在 Lab 里报「场景加载失败」。`).toEqual([]);
@@ -113,13 +136,16 @@ describe("Lab 场景覆盖", () => {
      * 单零件组件应充满视口宽度（`w-full`），由 Lab 顶栏或视口手柄调节观察响应式。
      */
     it("fixture 严禁在模板中自建固定宽度假盒子或卡片三件套假外壳", () => {
-        const fixtureFiles = readdirSync(fixturesRoot)
-            .filter((file) => file.endsWith("Fixture.vue") && !file.endsWith(".test.ts"));
+        // Lab 本目录只看顶层（`*-scene/` 等子目录里是带台子的复合场景），插件的 `web/lab/` 整个看。
+        const fixtureFiles = [
+            ...readdirSync(fixturesRoot).map((file) => join(fixturesRoot, file)),
+            ...pluginSceneRoots.flatMap(collectFixtureModules),
+        ].filter((path) => path.endsWith("Fixture.vue"));
 
         const violations: string[] = [];
 
-        for (const file of fixtureFiles) {
-            const filePath = join(fixturesRoot, file);
+        for (const filePath of fixtureFiles) {
+            const file = relative(pluginsRoot, filePath);
             const content = readFileSync(filePath, "utf8");
 
             // 1. 检查假卡片三件套: rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)]
