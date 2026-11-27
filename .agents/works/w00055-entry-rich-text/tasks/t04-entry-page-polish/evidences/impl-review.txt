@@ -1,0 +1,193 @@
+# w00055 t04 实现审查报告（范围 15ad1c2bd..ed9e8b41a）
+
+## F1 [重要][正确性/版式] 右栏 max-height 24rem 封顶，展开“位置与出场”后右下又留出大块空白，收起时左下留空；与“高度跟左栏走”不符
+位置：NewEntryDialog.vue 的 `.new-entry__groups { max-height: 24rem }`（style 段，约 L255），以及文件头注释“左栏展开变高时右栏跟着拉长”。
+现象：grid 默认 stretch，但 max-height 会封住拉伸。我在 /tmp/review-w00055-t04-impl/exp/grid.html 用同样的 grid + flex 结构（右栏列表内容 900px 高）在 headless Chrome 里量：
+  - 左栏收起 280px：行高 384，左栏 280、右栏 384（行高被右栏的封顶值撑起，不是“跟左栏走”，左栏下方空 104px，主会话自己的截图 s1b/NewEntryDialog__customized 里能看到）。
+  - 左栏展开 520px：行高 520，左栏 520、右栏仍 384（右栏下方空 136px）。这正是开发者在评审板第 2 轮指出的“右下角有很多空白”，展开“位置与出场”（四个字段）时原样回来。
+  - 右栏内容少（100px）时：左右都 280，正常。
+为什么是问题：计划写的是“maxHeight 取左栏收起时的高度，展开时跟着变高”，实现是写死 24rem，两个方向都不跟；代码注释说右栏会跟着拉长，实际被同一条规则挡住，注释与行为相反。
+核实：上面的探针；或 Lab 里展开“位置与出场”量 `.new-entry__groups` 与 `.new-entry__self` 的高度差。
+建议改法：让右栏不参与撑高又跟左栏等高。常用做法：`.new-entry__groups { position: relative }`，内层 `.new-entry__groups-inner { position: absolute; inset: 0 }`（右栏不贡献内容高度，行高只由左栏决定，右栏恰好等于左栏高度，列表在里面滚），再给左栏一个 `min-height`（例如 20rem）保证收起时右栏列表还看得下几行；窄时（上下排）把 absolute 去掉、给列表固定 max-height。不要再用 max-height 封顶。
+
+## F2 [重要][可达性/不变量] 选中态的字色用 --accent-main 叠在 14% 的强调色浅底上，对比度不到 4.5:1（nbook 亮 3.98、暗 3.40）
+位置：NewEntryDialog.vue `.new-entry__kind[aria-pressed="true"]`（background: color-mix(accent-main 14%) + color: var(--accent-main)）；ComponentChecklist.vue `.component-checklist__preset[aria-pressed="true"]:disabled`（同一写法）。
+现象：我用 packages/neuro-book/src/ui/theme/color.ts 的 composite/contrast（脚本 /tmp/review-w00055-t04-impl/exp/contrast.ts）对 nbook 两套配色的 --bg-panel 与 --accent-main 算：accent-main 对“14% accent 叠在 panel”：亮 3.98、暗 3.40（macos 两套没算：它们用 spread，脚本没覆盖，但 accent 同是 System Blue 一档，预计同量级）。同一组合改用 --accent-text 是亮 4.99、暗 5.38。
+为什么是问题：设计语言“对比度”一条：文字类对它落的底都要 4.5:1，次要文字没有豁免；项目为这个组合专门有 `--accent-text` 配 `--accent-bg`，contrast-checks.ts 的 TARGETS 也只量这一对（`--accent-text` 在 `--accent-bg` 叠面板上），`--accent-main` 当文字色没人兜底。这两处是新增的颜色组合，机检不会报。“恢复默认”那类小字（13px 常规字重，不属大字 3:1）受影响最大：种类按钮与预设按钮的字都是 sm。
+如何核实：跑上面的脚本；或在 Lab 里用主题编辑器的对比度检查看 nbook-dark 的选中种类按钮。
+建议改法：两处都改成 `background: var(--accent-bg); color: var(--accent-text)`（与项目其它选中态一致），不要自己 color-mix 一个浅底。
+
+## F3 [重要][正确性/文案] 没选定种类时勾了设定组，“恢复默认”按钮写成“恢复的默认”（英文 “Restore  defaults”）；段头摘要同类问题
+位置：NewEntryDialog.vue `differs`（L96 附近：`byKind(kindDefaults, kindChosen) ?? []`，kindChosen 为空串时默认是空组）与模板里 `text('newEntry.restore', {kind: props.draft.kindChosen})`；locales `newEntry.restore` zh “恢复{{kind}}的默认”、en “Restore {{kind}} defaults”。
+现象：打开“新建条目”（startKind 为空，kindChosen 为空），先不选种类、在右栏勾一个设定组：typesTouched 为 true，且与“没登记默认 = 空组”不同，differs 为真，右栏标题行出现“恢复的默认”；点了就把勾全清掉。同样，placeSummary 在 sameAsName/parentName 为空串时写“的马甲”“在下面”（见 F5）。
+为什么是问题：按钮的名字是空缺的，读屏与眼睛都读不出它要恢复成什么；“没种类时的默认”（空组）本来也不是作者理解里的“默认”，这时更该是“清空勾选”或干脆不出。dom 测试只覆盖了种类为“人物”的情况（“恢复人物的默认”），没有覆盖 kindChosen 为空。
+如何核实：mount 一个 kindChosen 为空、types 非空、typesTouched 为 true 的草稿，读 [data-new-entry-restore] 的文字（应得“恢复的默认”）。
+建议改法：kindChosen 为空时不出这个按钮（differs 加 `kindChosen !== ""`），或为空时用另一句（如“全部取消勾选”）；补一条 kindChosen 为空的用例。
+
+## F4 [建议][可达性] 点“恢复某某的默认”后按钮随即消失（v-if），键盘焦点落到 body
+位置：NewEntryDialog.vue 模板 `<Transition name="new-entry-restore"><Button v-if="differs" ...>`。
+现象：用键盘 Tab 到这个按钮、Enter，restoreDefaults 使 differs 变假，按钮在淡出结束后从 DOM 移除，焦点丢到 body（对话框的焦点陷阱会把它拉回对话框首个可聚焦元素，但已不在作者刚才的位置上）。
+为什么是问题：同一份 ComponentChecklist 的预设按钮对这件事有专门处理（applyPreset 完把焦点交回搜索框，注释写明“焦点不能留在一个被禁用的按钮上”）；这里是同类场景却没处理。结果不会弄丢数据，但键盘用户要重新 Tab 找位置。
+如何核实：dom 测试里 focus 该按钮后 click，读 document.activeElement（我没跑，从代码推断）。
+建议改法：点击处理里把焦点移到勾选列表的搜索框（ComponentChecklist 已 defineExpose focus），或改成不消失而是 disabled（不过 disabled 又要说原因，倾向前者）。
+
+## F5 [重要][正确性/联动] 标题栏“新建条目”预填的分组被标成“作者动过”：选中任何有分组的条目后，换种类时分组不再跟着种类走，新条目会悄悄落进被选中条目的分组
+位置：new-entry.ts `emptyDraft`：`folderTouched: folder !== ""`；entries-view.ts `near` 的 `folder: found.item.folder`；NewEntryDialog.vue 里 `shownFolder = folderTouched ? folder : kind`、`patch({kind, ...(folderTouched ? {} : {folder: value})})`、`withKind` 的 `...(draft.folderTouched ? {} : {folder: kind})`。
+现象：条目的 folder 缺省就等于它的种类（newEntryOp 里 `folder: folderTouched ? folder : kind`）。选中“星瑕”（folder “人物”）后点标题栏“新建条目”：草稿 folder=“人物”、folderTouched=true。作者接着点种类“物品”：withKind 因 folderTouched 不改 folder，新条目被建进“人物”分组；段头摘要折叠着、第一段写的是“人物 · 一开始就在”，不展开看不出（展开看分组一栏才知道）。以前的新建（无预填）分组总是跟着种类走。
+为什么是问题：Spec 输出 4 写的是“分组与上级预先填成它的（新建在它同一层）”，意图是同层；但选中项的分组多数只是它种类的默认，不是作者选的。把一个默认值当成“作者动过”，等于让“选中了什么”决定新条目的分组，而作者此时选的是另一个种类。plan 与 Spec 都没有写“预填的分组要不要跟着种类”，这是没写出来的假设。tests（entries-view.dom.test 新增用例）只断言了预填值本身（folder “组织”、folderTouched true），没有断言之后换种类会怎样。
+如何核实：dom 测试里选中一个 folder 与 type 相同的条目，startNewEntry(state,null)，再在对话框点另一个种类按钮，读 state.creating.value.folder。
+建议改法（二选一，请开发者定）：① 预填的分组只在它不等于被选中条目的种类时才标 folderTouched（等于种类就是默认，留给种类跟）——near 里加 `kind`（EntryTreeItem 没有 type，需宿主从 known/列表项取）；② 不预填分组，只预填上级。无论哪种，补一条“预填后换种类”的断言。
+
+## F6 [重要][测试/迁移] e2e canon-write 第 201 行仍断言空态元素的文字是“还没有主文字”，S3 之后这个元素是写着“写点什么…”的按钮
+位置：packages/neuro-book/e2e/canon-write.e2e.ts:201 `await expect(entryPage(page).locator("[data-text-empty]")).toHaveText("还没有主文字");`（提交范围没有改任何 e2e 文件）。
+现象：S3 把能写时的空态改成 `<button data-text-empty data-text-edit aria-label="开始写">写点什么…</button>`，toHaveText 比的是可见文字，得到“写点什么…”，该用例（canon-write 的“作者从空作品起步”）在这一步失败。下一行 `getByRole("button", {name: "开始写"})` 靠 aria-label 仍能点到。
+为什么是问题：plan 的验收映射写了“e2e canon-write.e2e.ts 的‘开始写’一步”，S3 的提交没碰它；主会话收口会跑到，但它是确定会挂的一条，提早改。
+如何核实：grep -n "data-text-empty" packages/neuro-book/e2e/*.ts；或跑 canon-write 这一个用例（我没跑 e2e）。
+建议改法：把 201 行改成 `toHaveText("写点什么…")`（或直接断言 `getByRole("button", {name: "开始写"})` 可见），不要把“还没有主文字”留给能写的作者。
+
+## F7 [建议][需求/测试] “选中的是分组时预先填分组”没有实现，Spec 输出 4 的这句话与 plan 都写了
+位置：entries-view.ts `near` 的 watch（只在 selected 是条目时算位置）；docs/specs/canon/author-ui.md 输出 4 末句“选中的是分组时预先填分组”。
+现象：树里分组行单击是展开收起，不进 `state.selected`（EntryTree 的 selected 只认条目 id，`selected` computed 要求 id 在某层的 items 里），所以“选中的是分组”这个状态不存在，近邻位置恒不会只有分组。plan 关键设计 1 写了这句，实现时无处可挂又没在 Task 记录里说。
+为什么是问题：S4 去掉 planned 标记后，Spec 里留着一句没有对应行为、也没有用例的话（晋升核对会找它）。
+建议改法：要么在 Spec 里删掉这句（树里分组不可选），要么真做（右键或键盘落在分组行上时记一个 near 的 folder-only）；删更简单，符合“窄场景选简单改法”。
+
+## F8 [重要][正确性/输入法] 名字框回车新建只判 event.isComposing，WebKit 上选词那一次 Enter 会直接建条目
+位置：NewEntryDialog.vue `onNameEnter`：`if (event.isComposing || !ready.value) return;`。
+现象：同仓库的做法是 `event.isComposing || event.keyCode === 229`（ComponentChecklist.vue L96-97 注释写明：WebKit 在组字结束后才发选词的那次 Enter，此时 isComposing 已为假；nb-ui SearchSelect 同）。桌面壳是 electrobun（macOS 上是系统 WebKit），名字几乎都是中文，用拼音输入法在名字框里按 Enter 选词，会被当成“新建”，把拼音刚上屏的名字（可能还没改完）直接建出来；条目建出来就是写入一次修订，不是随手能撤的小事。
+为什么是问题：这是本次新增的唯一“回车即提交”入口，恰好落在输入法最常用的框上；dom 测试只测了 `isComposing: true`（Chrome 的行为），没有 keyCode 229 的用例，等于没测 WebKit 路径。
+如何核实：模板里发 `new KeyboardEvent("keydown", {key: "Enter", keyCode: 229})`，当前代码会 emit confirm（从代码推断，我没在 WebKit 上跑）。
+建议改法：抽成同一个判断（`event.isComposing || event.keyCode === 229`），并在测试里加 keyCode 229 的一条；测试里先断言 confirm 没发，再做变异（删掉 229）看它失败。
+
+## F9 [重要][测试] “清掉本体，上级也清掉”写进了测试名却没有断言；pickSameAs 的清空分支与“选本体后上级跟着”之外的联动都没有变异保护
+位置：NewEntryDialog.dom.test.ts 最后一条用例（标题“位置与出场：…；清掉本体，上级也清掉”），其内容只做到“选了星瑕”并断言 sameAs/parent 都是 e1、“跟着本体”出现，之后就结束；NewEntryDialog.vue `pickSameAs` 的 `value === null` 分支（`patch({sameAs:null, sameAsName:"", parent:null, parentName:""})`）。
+现象：把 `pickSameAs` 里 null 分支改成只清 sameAs、不清 parent，这条用例仍然通过（用例从未触发清空）。同样没有覆盖：选了本体、又清掉后，原先预填的上级（右键“在它下面新建”或标题栏同层预填）丢失，这是一个行为决定（见 F10），也没有测试固定它。
+为什么是问题：计划“验收映射”要的是“选了本体上级跟着”，Spec 没写“清掉本体上级也清”；这是实现者自己加的行为，名字里说了却没验。
+如何核实：在仓库外副本把 null 分支的 `parent: null, parentName: ""` 删掉，跑 NewEntryDialog.dom.test.ts，应全绿（我没跑变异，从代码推断）。
+建议改法：用例末尾点 SearchSelect 的清除按钮（aria 里的 clear）再 follow，断言 sameAs/parent 都回到 null、“跟着本体”消失、上级选择器回来。
+
+## F10 [建议][联动] 选了本体再清掉，会把一开始预填的上级一起清掉（只剩“无”）
+位置：NewEntryDialog.vue `pickSameAs`。
+现象：从右键“在学院下面新建”打开，上级预填学院；作者点开“是谁的马甲”选一个本体又反悔点清除：parent 被清成 null，不是回到学院。选本体前的上级值没有记下。
+为什么是问题：作者不会预期“试一下马甲”会弄丢右键带来的上级；Spec 输出 4 只说“选了本体以后这一项写成‘某某（跟着本体）’”，清掉后该回到什么没有写。
+建议改法：简单做法是清掉本体时不动 parent（保持选中本体时那个值）会更怪；要么在 draft 里存一份 `parentBeforeSameAs`；要么接受并把它写进 Spec 的一句话。窄场景，按“选简单改法”可以只在 Spec 记一句已知限制，不加机制。
+
+## F11 [重要][文案一致性] 英文把“马甲”译成 “Alias of”，与同一页的“别名 / Aliases / Add alias”撞词；“设定组”英文写成 “Setting groups”，其余各处是 “settings group”
+位置：locales/en-US.json 的 newEntry.sameAs “Alias of”、newEntry.none “Not an alias”、newEntry.sameAsOf “Alias of {{name}}”、receipt.fields.sameAs “Alias of”、move.notSameAs “Not an alias”；newEntry.types 与 receipt.fields.data 写 “Setting groups”，而 entry.addGroup.search “Search settings groups”、entry.addGroup.title “Add settings groups”、entry.groupAlreadyAdded “This settings group …” 都是 “settings group”。
+现象：条目页头同时出现 `entry.aliases` “Aliases”（别名）与新的 “Alias of …”（马甲）；英文用户在新建对话框里“Alias of”与页头的“Aliases / Add alias”是两个不同的东西，用同一个词。中文因为“别名/马甲”分得开没有这个问题，说明这是翻译时只顾了中文的改名表。另外 “Setting groups” 与 “Add settings groups” 是同一个概念两种写法。
+为什么是问题：brief 重点 5“同一个概念在界面各处叫法是否一致”；英文界面里“Alias”一词承担了两个概念，作者很可能把“Alias of”当成“给它加别名”。
+如何核实：grep -n "lias" locales/en-US.json，看 112-119 行与 313、392、669 行同属一个界面。
+建议改法：马甲换一个不与 alias 撞的词（如 “Persona of / Not a persona”，或沿用改前的 “Another identity of”，改前本就没撞）；“Setting groups” 统一成已有的 “settings group(s)”。同时 receipt.fields.appears en 是 “First appears”，newEntry.appears / entry.appearsLabel 是 “Appears”，也一并对齐。
+
+## F12 [建议][文案/文档遗漏] 旧叫法的残留
+位置：
+  - new-entry.ts:20、:24 注释仍写“（最上面一层）”“启用哪些数据”；
+  - components/entries/EntryPicker.md:8 “新建对话框的上级与另一个身份”；
+  - components/entry-page/MoveDialog.md:8 “从哪里出场、它是谁的另一个身份”；move-dialog.ts:3 注释“null 是最上面一层”；
+  - EntryPage.dom.test.ts 里的样本简介“星瑕的另一个身份”是样本文字，不算。
+现象：locales 与界面已改成“上级条目 / 是谁的马甲 / 设定组”，这些同名 .md 与注释还在用旧叫法；MoveDialog.md 与界面不一致，会让后来的人以为移动对话框里叫“另一个身份”。
+建议改法：逐处改成新叫法（grep “另一个身份|启用哪些数据|启用的数据|最上面一层|放在谁下面|从哪里出场” 在 packages/neuro-book/src 下，排除样本文字和 Lab 样本）；其中 EntryPicker.md、MoveDialog.md 是组件文档，按 ui-development 规范要与实现一致。
+
+## F13 [建议][可点区域] 页头右栏“种类”“出场”两个按钮高约 19px，两行相隔 2px，不满足 24×24，也不满足 24 像素圆的间距例外
+位置：EntryPage.vue `.entry-head__facts`（font-size: var(--text-sm)；gap: 2px 16px）与 `.entry-head__fact`（只有 margin-inline/padding-inline，没有竖向内边距或 min-height）。
+现象：--text-sm 13px，行高 --leading-ui 1.45，按钮高 ≈ 18.9px（按钮继承行高，没有纵向 padding），上下两个按钮中心相距 ≈ 21px < 24。这是按设计语言/开发规范第 5 节第 10 条（指针目标不小于 24×24，lab:shot 会报“目标小于 24×24”）要过的。窄屏（右栏折成一行）时也一样，触屏更明显。
+为什么是问题：新增的可点目标；固定检查第 8 条不过。
+如何核实：Lab 里 `lab:shot` 报告；或量 [data-entry-fact] 的 getBoundingClientRect().height（我没跑，从样式计算）。
+建议改法：`.entry-head__fact { min-height: 24px; display: inline-flex; align-items: center }` 并把 dl 的行距补成 `gap: 0 16px`（行高变 24 后自然不重叠）。
+
+## F14 [建议][可达性/反馈] 放头像时，简介按钮的 title 被换成简介全文，页面只读（blockedReason 非空）时看不到“不能改的原因”
+位置：EntryPage.vue 简介按钮 `:title="portraitShown && props.summary !== '' ? props.summary : blockedReason"`。
+现象：有头像且简介非空时，按钮的 title 恒为简介全文（为了截断时悬停看全文）；这时如果因为世界只读或有未提交的主文字而 `disabled`，悬停读到的是简介而不是原因。设计语言“反馈与等待”要求停用的控件说得出原因；名字按钮、别名按钮、两个种类出场按钮都保持 `title = blockedReason`，只有简介例外。
+如何核实：mount EntryPage 带 portrait、editable、editReason，读 [data-edit="entry.summary"] 的 title（从代码推断）。
+建议改法：停用时 title 优先原因（`blockedReason ?? (portraitShown ? summary : undefined)`），或把“全文”放在 aria-label 里（已有）与 tooltip 之外的位置，不占 title。
+
+## F15 [建议][版式假设] 头像“顶齐名字、底齐别名”只在“名字一行、简介一行、别名一行”时成立，页面对三者折行都没有约束
+位置：EntryPage.vue `.entry-head__portrait`（定高 88）、名字 h1 `break-words`（长名会折成两行）、`<ul … flex-wrap>` 别名（三四个别名就折行）。
+现象：左栏文字高度按 名字(20px×1.45≈29) + 简介(≈19+4) + 别名(8+24) ≈ 84px，与 88 不是同一个数，靠头像 `align-items: flex-start` 恰好差 4px 过关；一旦别名折成两行（常见：左栏文字宽约 300–500px，带 4 个别名）或名字折行，文字比头像高，头像底边就不再对着别名那一行的底，plan 写的“三行高度固定”并没有被任何规则保证（只有简介被截断）。
+为什么是问题：Spec 输出 6 把“底齐别名”写成合同；没有在窄栏、多别名时的 Lab 场景（entry-page.scenes.ts 的头像场景只有 2 个别名）。
+如何核实：Lab 里给头像场景 5 个别名、窄栏宽度截图量底边。
+建议改法：要保证就让头像随文字栏拉伸：`.entry-head__who { align-items: stretch }`，头像 `width:88px; min-height:88px; height:auto; align-self:stretch`（object-fit: cover 本来就能适应）；或限制别名行单行、放不下用“+N”折叠。窄场景可以只加一个 5 别名的 Lab 场景并记为已知限制。
+
+## F16 [建议][测试] 宿主的 appearsText 章节分支、立绘“有形象但没图”分支、页头种类的透传都没有被测到；变异保护弱
+位置：EntryPageHost.vue `appearsText`（chapter 分支、章不在章表分支）与 `portrait`；entry-page.dom.test.ts 新增的断言只有“出场写一开始就在”“有图时头像存在”“没有形象这一组时头像不存在”。
+现象：把 appearsText 改成恒返回 `text("newEntry.fromStart")`、或把 `chapterStart` 的 index 换成别的，宿主测试仍全绿（样本条目没有 appears，EntryPage.dom.test 直接传文字）。形象存在但立绘 `图片` 为空（页头不该画）这一支也没有用例（人物分页有 “no-image” 的已有用例，页头新读法是复制了一份读法，没共用）。
+为什么是问题：plan 验收映射写了“宿主给的种类、出场文字、立绘取自形象这一组”，实际只验了其中一部分。
+如何核实：在仓库外副本把 appearsText 恒返回 fromStart，跑 entry-page.dom.test.ts（我没跑变异）。
+建议改法：宿主用例里建一个 appears 在第 2 章的条目、断言右栏“第 2 章开头”；再建一个形象组有但没图的条目、断言头像不存在。立绘的读法（`图片`/`说明`）与 CharacterView 复制了一份，建议抽到 shared 里共用一个函数（两处读同一个字段，将来改字段名会漏）。
+
+## F17 [建议][Spec] 条目读取多了 `appears`，docs/specs/canon/project.md 输出 33 没写
+位置：docs/specs/canon/project.md 输出 33（“另带 ancestors、sameAs、folder、kind 与 declarations …带视图令牌时这几项都不给”）；改动：nb-canon service.ts 的 entry() 与 shared/contracts.ts 的 CanonOutputs.entry。
+现象：内核读取合同多了一个字段（存的原样安放，可为 prehistory/chapter/unscheduled 且带 line、key），Spec 输出 33 与表格第 56 行都没写；测试已经在 author-reads.test.ts 固定了“带视图令牌时没有”。plan 的 Spec 清单只列了 author-ui。
+为什么是问题：这是跨层合同（Agent 工具、远程客户端都读 entry），实现先于 Spec；晋升核对时找不到对应的句子。
+建议改法：在输出 33 的字段清单里补 `appears`（条目的出场安放，原样；没有时为 null），带视图令牌时同样不给；作者界面把 prehistory/unscheduled 与已不在章表里的章都显示成“一开始就在”这件事（F18）也在 author-ui 输出 6 写一句。
+
+## F18 [建议][正确性/信息准确] 页头“出场”对 prehistory、unscheduled 与章已被删的情况都写“一开始就在”
+位置：EntryPageHost.vue `appearsText`：`appears === null || appears.kind !== "chapter"` → fromStart；章不在章表里（`chapters.find` 为空）也 → fromStart。
+现象：schema 里 appears 是 PlacementSchema 的三种（prehistory / chapter / unscheduled，nb-canon schema.ts L16-20），项目里 `placementLabel`/`chapterLabel`（positions.ts L107-116）对这两种有自己的叫法（“前史”“未安放”）。页头对它们都写“一开始就在”：章被删后条目页的“在看”可能同时标“这时还没出场”，右栏却写“一开始就在”，两处互相矛盾。MoveDialog 的草稿也把非 chapter 折成 null，所以这是既有约定的延伸，不是新坏；但新增的页头第一次把它当“事实”摆出来。
+如何核实：造一个 appears 指向已删除章的条目，读页头右栏与“在看”的标记。
+建议改法：chapter 不在章表时用 `chapterLabel`（“未安放”），非 chapter 用 `placementLabel`；窄场景可只处理“章不在表里”这一种。若不改，Spec 输出 6 要写明这一折叠。
+
+## F19 [建议][文档/动效清单] EntryPage.md 的“状态”没写新增的状态过渡；Lab 里没有“展开位置与出场”的场景
+位置：EntryPage.md（`.entry-head__portrait` 悬停淡到 0.9 走 `--motion-fast`、两处事实按钮悬停浅底走 `--motion-fast`，都没写进“状态”；窄时右栏折行是突变，也没写“不过渡”的理由）；lab/entries.scenes.ts（NewEntryDialog 的 `same-as` 场景标签写“展开后上级写…”，但“位置与出场”的开合是组件内部状态，场景无法预先展开，plan 里写的“展开位置与出场”场景实际没有）。
+现象：固定检查第 3 条要求同名 .md 的“状态”写清楚状态之间怎么过渡或不过渡的理由；Lab 里看不到展开态，F1 的空白正是展开态的问题，正好没人截图。
+建议改法：EntryPage.md 的“状态”补两行；给 NewEntryDialog 加一个 `placeOpen`（或 `defaultPlaceOpen`）的缺省参数，只供 Lab 场景用，或者场景里用 play 步骤点开（若 Lab 支持）。
+
+## F20 [重要][版式/需在 Lab 复核] “在看”挪进 219px 的右栏后，“这时还没出场”的标记几乎没有位置；英文的“在看”也放不下
+位置：EntryPage.vue `.entry-head__where`（width: 240px，border-box，padding-left 20 + 发丝线 1 → 内容宽 219px）里放 `ViewPointPicker`；ViewPointPicker.vue 根是 `flex min-w-0 max-w-full items-center gap-1`（不折行），`.view-point__mark` 是 `min-width:0; white-space:nowrap; padding:0 10px` 的 pill，内部文字 `truncate`。
+现象：主会话自己的截图 /tmp/w55-t04/s2/EntryPage__portrait__1180x400__light.png 里“‹ 在看 第 2 章末尾 ›”这一组量出来约 185–190px；219 − 190 − gap 4 ≈ 25px，留给“这时还没出场”（12px 字，6 个字约 72px + 内边距 20px）的只有 25px，pill 会被压成只剩几像素的“…”。以前“在看”是在别名行靠右、整行都能用，标记可以并排放下。Spec 输出 8 明写“‘在看’左边的标记写‘这时还没出场’（不另起一行）”。英文界面的 390 截图（EntryPage__editable-english）里 “‹ Viewing End of chapter 2 ›” 本身约 235px，已经大于 219px；第 12 章以上更长。lab 里 entry-page.scenes.ts 的 `same-as` 场景同时带了 notAppeared 与 positionGone，但没有主会话的截图记录，plan 要求的“1440、760、390”也没有 notAppeared 的图。
+为什么是问题：新布局把一个宽度有弹性的控件放进了定宽列；“还没出场”是 Spec 要求读得出来的状态，不能只靠 truncate 的 title。
+如何核实：Lab 的 EntryPage `same-as` 场景在 1180 与英文下截图，看标记与“在看”是否被挤、右缘是否溢出页头的 32px 内边距。我没渲染，上面是按截图量出来的估算。
+建议改法：让右栏最后一行允许折行：`.entry-head__view-point` 的容器 `flex-wrap`，标记另起一行（Spec 说不另起一行是在旧版式里，新版式需要改 Spec 或让右栏加宽到 ≥ 300px）；或右栏改成不定宽的 `minmax(240px, max-content)`。至少把 notAppeared 与英文各加一个宽屏场景并截图。
+
+## F21 [重要][正确性/接口] startNewEntry(state, null) 同时代表“标题栏的新建（跟着选中项）”与“右键空白处/分组行的新建（最上面一层）”，后者现在也被选中项预填
+位置：entries-view.ts `startNewEntry`：`parent !== null ? emptyDraft({parent…}) : emptyDraft(state.near.value ?? {})`；EntryTree.vue `menuItems`：`emit("create", menu.value?.parent ?? null)`，`rowIdOf` 对分组行、“再显示”、读取中行与空白处都返回 null（注释写明“按空白处算”）；plugin.ts L352 命令 `newEntry: (parent) => startNewEntry(state, parent)`（命令参数可省）。
+现象：在设定树的空白处或某个分组标题上右键 →“新建”，之前建在最上面一层、分组跟着种类；现在 parent 为 null 走进 near 分支：上级与分组被预填成“树里当前选中的那一项”的（这个选中项可能在屏幕外、是别的分组里的、别的父下面的）。作者右键的是 A 分组标题，对话框却预填了选中项 B 的分组与上级。
+为什么是问题：一个 null 承担两种意图；右键空白/分组本来的意思是“根”，Spec 输出 4 只规定了标题栏的“新建条目”才跟着选中项（“视图标题栏的‘新建条目’在树里选中了一个条目时…”），右键菜单只写了“在它下面新建”（条目行）。dom 测试里没有“右键空白处不预填”的用例（只测了标题栏路径）。
+如何核实：state.selected 设成某个有分组的条目，从 EntryTree 空白处右键选“新建”，读 state.creating.value.folder（我从代码推断，没跑）。
+建议改法：区分入口：给 startNewEntry 一个显式的 `{from: "header" | "row", parent}` 或第二参数 `nearSelected: boolean`；标题栏的按钮才传 true，EntryTree 的右键一律 false；命令的缺省取标题栏语义。补一条“右键空白处不预填”的用例。
+
+## F22 [建议][可达性] 种类按钮与预设按钮的“按下/已选”只靠颜色区分（浅灰底 vs 强调色浅底），没有第二个标记
+位置：NewEntryDialog.vue `.new-entry__kind[aria-pressed="true"]`；ComponentChecklist.vue `.component-checklist__preset[aria-pressed="true"]:disabled`。
+现象：选中与未选中只差一个 14% 强调色底加蓝字（对比度见 F2）。主会话自己的 390 截图（s1b/NewEntryDialog__person__390x760）里“人物”“基本”两个选中项与同排灰按钮靠目测才分得出，色弱或强光下分不出。aria-pressed 给了读屏，但视觉上没有勾、边框或字重的变化。
+为什么是问题：固定检查第 9 条“状态不只靠颜色”，设计语言六、无障碍。
+建议改法：选中的那个加一个 `i-lucide-check` 小图标或 1px 强调色描边；同一个组件库里 nb-ui 的 ToggleGroup/Chips 若已有选中画法，直接复用。
+
+## F23 [建议][四态] 登记的类型还没读到（或读失败）时，横版对话框的右半边整块是空的；以前列表只是不出现
+位置：NewEntryDialog.vue 模板 `v-if="props.items.length > 0"` 包右栏，但 `.new-entry` 的 `grid-template-columns: minmax(0,1fr) minmax(0,1fr)` 恒为两列。
+现象：对话框一打开 `components` 还没读到（entries-view.ts 是对话框开了才读，`items` 先是 []），或读取失败、一个类型也没登记时，左栏只占左半，右半空着，读到后右栏才出现，整个对话框内容的布局跟着一跳；失败时右半永远空。开发者评审板第 2 轮点名的就是“右下角空白”，这里右半整块都空了。
+为什么是问题：Lab 的场景都给了 items，没有场景覆盖“没读到”；设计语言/开发规范 4.1 要求自己显示加载、空、失败的组件覆盖四态。
+如何核实：Lab 里给 NewEntryDialog 的 items 传 []。
+建议改法：items 为空时给右栏一个占位（“正在读取设定组…”/失败原因，用 role="status"），或让 `.new-entry` 在没有右栏时退成单列（`:class` 加 `new-entry--single`）；补一个场景。
+
+## F24 [建议][零碎，合并报告] 三处小问题
+1. NewEntryDialog.vue 模板：`<div class="new-entry-frame">` 与里面的 `<div class="new-entry">` 缩进在同一层（外框没有让出一级），读的人会以为是兄弟；EntryPage.vue 里 `<ul … data-entry-aliases>` 也比同级兄弟少缩进一级（diff 里看得出）。
+2. NewEntryDialog.vue `folderSuggestions` 来自宿主 `known`，只含树里已加载页里的条目的分组；根层超过一页（PAGE）时没读到的分组不在候选里。Spec 写的是“已有分组里选”，与种类候选“只来自树里读到的”同一个限制，但这次 Spec 把“不再只限树里读到的条目”写成了本次的目标，分组一栏却没跟上；可在 Spec 里记为已知限制。
+3. “新建人物”入口（startKind）：作者改选别的种类（点“地点”）后标题仍是“新建人物”，与下面表单的种类不一致；Spec 字面是“从‘新建人物’打开时标题是‘新建人物’”，实现是对的，只是体验上可以改成跟 kindChosen（若不改，在 .md 里写一句）。
+
+---
+
+## 固定检查（十条）
+1. 说明文字：过。新增文字都是标签或状态（“位置与出场”“（跟着本体）”“写点什么…”“恢复某某的默认”）；没有把约束放进说明图标，也没有把内部处理上界面。
+2. 文案：不过（F3：没选种类时按钮是“恢复的默认”；F11：英文“Alias of”与“Aliases”撞词；F12：旧叫法残留在同名 .md 与注释）。按钮都写动作，确认按钮写“新建”“移动”，过。
+3. 动效清单：部分不过（F19：EntryPage.md 没写头像悬停、事实按钮悬停的过渡；窄时折行不过渡没写理由）。NewEntryDialog.md、EntryText.md、ComponentChecklist.md 写了且与实现一致；没有写死时长、没有 transition-all（grep 了新增的 style 块，用的都是 var(--motion-fast|move) 与 var(--ease-layout)）。
+4. 动效行为：过。“恢复默认”用 Transition、没有 appear、过渡中不停用控件；展开收起是 Collapsible（可折返）；没有高频位移动效。
+5. 反馈：过（对话框保存中按钮停用、失败进页脚状态行，沿用旧做法）；选择器的查找中/失败由 EntryPicker 写。F4 是焦点去向，不属本条。
+6. 确认与通知：不适用（没有新确认框；成功仍走原有 notices）。
+7. 分组：过（左栏字段间 12px、右栏标题与列表 6px，组间用发丝线与 32px 栏距；一块区域只有页脚一个 primary；EntryText 空态那一行不是 primary）。
+8. 可点区域：不过（F13：页头“种类”“出场”按钮约 19px 高、行距 2px）；其余（种类按钮 28px、段头 36px、空态一行 ≥ 36px）过。
+9. 可达性：不过（F2：accent-main 字叠 14% 浅底 3.98/3.40；F22：选中态只靠颜色）；焦点不被吸顶区挡：不适用（页头本来就吸顶，这次没有新增会被它挡的 Tab 停靠点）；减弱动效：沿用全局（未发现问题）。
+10. 四态：不过（F23：items 空时右半整块空；F19：没有“展开位置与出场”的场景）。EntryText 空态有能产生内容的按钮，过；会变的数字用 tabular-nums：不适用（新增的文字里没有会变的数字，“第 N 章”是静态文字）。
+
+## 未发现问题的方面
+- `nameIn` 取名：EntryPicker 在 SearchSelect 的 choose 里不再触发 search，选中那一刻 `props.*Results` 仍是当时列表的结果，名字不会变空（我读了 SearchSelect.vue 的 choose/closeMenu）；宿主 `watch(creating)` 补上级名字不会循环（补完 parentName 非空即返回）、也不会覆盖作者改过的草稿（只在 parent 非空且 parentName 为空时动）。
+- `near` 的计算：只读 layers 与选中项，更新时机在 layers 变化时重算，立即执行；没有循环。除 F5、F21 外没有发现问题。
+- 内核：`appears` 只加在 `entry()`，`#viewedOn` 路径没有，author-reads.test.ts 已有两侧断言；契约类型 `appears?: Placement | null` 与 service 返回一致（F17 只是 Spec 没写）。
+- 宿主 `open-look` 的写法与现有 `showTab`/`update:tab` 一致；头像点击没有绕开已有的位置锁（页面里切分页不受位置锁限制）。
+- `new-entry.ts` 草稿形状变化：生产调用方（entries-view.ts、NewEntryDialog.vue、Lab 夹具与场景）都已改；`text-drafts.ts`/`text-draft.test.ts` 的 `emptyDraft` 是另一个同名函数，不受影响。
+- 受控关系：dialog 每次 patch 发完整草稿，宿主写回；没有双份状态（placeOpen 是组件自己的，每次挂上收起，文档已写）。
+
+## 说明与局限
+- 没有跑 e2e、开发服务与全量测试；跑了 NewEntryDialog.dom.test.ts 与 EntryText.dom.test.ts（20 条全过）。F1 用 headless Chrome 对简化的同构 grid 量了高度（/tmp/review-w00055-t04-impl/exp/grid.html）；F2 用 color.ts 的 contrast 算（exp/contrast.ts）。F13、F15、F20 是按样式与主会话已有截图估算，没有真实渲染，标为“需在 Lab 复核”。变异检查没有做（F9、F16 说的是“预计变异存活”，从代码推断）。
+
+## 数量
+阻断 0；重要 10（F1 F2 F3 F5 F6 F8 F9 F11 F20 F21）；建议 14（F4 F7 F10 F12 F13 F14 F15 F16 F17 F18 F19 F22 F23 F24）。共 24 条。
+有效发现的编号：F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24

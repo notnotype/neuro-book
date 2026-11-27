@@ -1,0 +1,19 @@
+w00055 t04 变异检查（2026-11-27，提交 106c6ef80：每条改一处、跑对应 dom 测试，从 HEAD 恢复）
+
+[killed] 没选种类不出恢复默认
+[killed] WebKit 输入法回车
+[killed] 清掉本体上级也清
+[killed] 选本体上级跟着
+[killed] 恢复默认后焦点去搜索框
+[killed] 标题跟着种类
+[killed] 预填只认改过的分组
+[killed] 右键不跟选中项
+[killed] 点头像切形象
+[killed] 停用时先写原因
+[killed] 出场写第 N 章开头
+[killed] 有图才画头像
+[killed] 预设按下态
+[killed] 空态那一行点了进编辑
+survivors: []
+MUTATE-DONE
+exit=0
