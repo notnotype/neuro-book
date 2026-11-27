@@ -24,7 +24,8 @@ owners:
 - 只在悬停时出现、又不在工作台悬停动作区（`[data-hover-actions]`）里的控件（例如未选中标签页的关闭按钮），悬停之前不保证能列出与高亮。
 - 宽高为 0、靠旁边的元素画出外观的原生复选框与单选（点文字切换的那种）不列出，按文字能定位到它的标签。
 - 高亮期间，说明框作为第一个子元素挂在目标所在那一层的根元素里（点它才不会关掉弹层）：那一层里按“第一个子元素”或相邻兄弟写的样式会作用到它的位置上。
-- 提问之前选区在一个可编辑区域里、焦点却在别处时（例如焦点在下拉的一项上，选区留在对话输入框里），收起提问后焦点回到原处，那个可编辑区域里的选区不放回：浏览器把选区放进可编辑区域时会把焦点一并移过去。
+- 提问之前选区在一个可编辑区域里、焦点却不在这个区域上时（例如焦点在下拉的一项上、在包着编辑器的容器上，选区留在编辑器里），收起提问后焦点回到原处，那个可编辑区域里的选区不放回：浏览器把选区放进可编辑区域时会把焦点一并移过去。
+- 底部面板并成一行（标题写在入口上）的视图、浮出去的自绘头视图，标题在页面上没有看得见的控件：`ui.find` 给的视图路径最后一步（`workbench.view`）在这两种布局里找不到。
 
 ## 术语与参与者
 
@@ -38,7 +39,7 @@ owners:
 
 ## 输入与前置条件
 
-`ui` 是所有 Profile 的缺省工具（[`agent/contributions.md`](contributions.md) 输出 4 的 `defaultForAll`，声明了 `defaultTools: false` 的 Profile 不带），在 Profile 页里显示成一行，可以去掉、加回（[`agent/profile-settings.md`](profile-settings.md)）。后台会话（会话头的 `background`）与 bot 归属的会话（会话头的 `owner`）里没有 `ui`：eval 说明不列它，代码里没有这个对象。
+`ui` 是所有 Profile 的缺省工具（[`agent/contributions.md`](contributions.md) 输出 4 的 `defaultForAll`，声明了 `defaultTools: false` 的 Profile 不带），在 Profile 页里显示成一行，可以去掉、加回（[`agent/profile-settings.md`](profile-settings.md)）。后台会话（会话头的 `background`）、bot 归属的会话（会话头的 `owner`）以及它们派出的子会话里没有 `ui`：eval 说明不列它，代码里没有这个对象。
 
 | 方法 | 审批档 | 参数 | 返回 |
 |---|---|---|---|
@@ -71,17 +72,17 @@ owners:
    | 视图与编辑区标题栏上画成按钮的命令 | 工作台 | `command` 加命令 id |
    | 活动栏项 | 工作台 | `workbench.activity` 加项 id |
    | 视图容器的入口（活动栏上段、右栏与底部面板的入口条） | 工作台 | `workbench.container` 加容器 id |
-   | 视图的标题（面板头里的标题按钮） | 工作台 | `workbench.view` 加视图 id |
+   | 视图的标题（面板头里的标题按钮；几个视图叠成标签时是视图的标签） | 工作台 | `workbench.view` 加视图 id |
    | 设置窗口的层切换（整组） | 设置 | `settings.layers` |
    | 设置窗口左栏的节 | 设置 | `settings.section` 加节 id |
    | 设置行 | 设置 | `settings.row` 加设置键 |
 
-   层切换里的单选、几个视图叠成标签时的视图标签，按角色与名字在所在的组里定位（`within`）。
+   层切换里的单选按角色与名字在所在的组里定位（`within`）。
 
 7. **界面目录。** `ui.find` 交回至多 `limit` 条，按与命令面板相同的打分排序，标题与说明用当前界面语言；同名的不同种类分开列。每条有 `kind`、`title`、标识（设置键、节 id、视图 id 或命令 id）与 `path`：
    - 设置：活动栏的设置项 → 层 → 节 → 行；只收设置窗口在这个窗口里实际画出行的设置（只在桌面外壳里显示的节在浏览器窗口里不收，没有归属的设置在“插件设置”节）。层沿用设置窗口当前的层，当前层不支持这项时走另一层；窗口没打开作品时只有用户层。
    - 节：设置窗口左栏的每一节，含由页面自己画的节（例如模型、Profile、主题）；路径止于节。
-   - 视图：它当前所在的视图容器入口 → 视图；按视图标题与容器标题都能搜到。
+   - 视图：它当前所在的视图容器入口 → 视图；按视图标题与容器标题都能搜到。只收在布局里（停靠或浮动）的视图：关掉的视图页面上没有它，点不到，它与它标题栏上的命令都不收。
    - 命令：只收出现在活动栏或视图标题栏上的命令，路径是那个入口；另给快捷键；命令可由用户运行、没有必填参数且此刻可用时，另给“命令面板”入口。
    路径每一步有定位 `at` 与这一步之后页面上会出现什么 `appears`；已经走到路径中途的，从第一个还没完成的步骤给起。
 8. **截图。** 截当前窗口或 `of` 指的控件（`of` 找不到时得 `not-found`，不改截整窗），长边至多 1280 像素，编成 JPEG 后至多 512 KB，作为结果里的一张图片交给模型。审批的判定对象是 `{kind: "screen", value: "window"}` 或 `{kind: "screen", value: "element"}`，按 [`agent/permissions.md`](permissions.md) 判定，结果写明截的是哪个窗口。截图过程中断开、超时或调用被停止，没有图进结果；调用结束之后窗口再交来的图被拒收。
@@ -114,9 +115,10 @@ owners:
     | 阶段 | 通道的结局 | `ui` 的码 |
     |---|---|---|
     | 选窗口 | 候选 `not-provided`、`version-changed` | 跳过这个候选；都被跳过时 `no-window`，说明请用户刷新窗口 |
-    | 选窗口 | 候选 `timeout` | 跳过这个候选；没有可用的候选又有超时的，`window-unresponsive` |
-    | 调用与等待 | `target-gone`、订阅以 `provider-stopped` 或 `target-gone` 结束 | `window-gone` |
-    | 调用与等待 | `timeout`、`provider-error`、`unavailable` | `window-unresponsive` |
+    | 选窗口 | 候选 `timeout`、`provider-error`、`unavailable` 等没应答 | 跳过这个候选；没有可用的候选又有没应答的，`window-unresponsive` |
+    | 选窗口 | 候选 `target-gone`（探测途中关了） | 当作这个候选不在 |
+    | 调用与等待 | `target-gone`、`unavailable` 且原因是断开（窗口确认收到之前断了）、订阅以 `provider-stopped` 或 `target-gone` 结束 | `window-gone` |
+    | 调用与等待 | `timeout`、`provider-error`、其余的 `unavailable` | `window-unresponsive` |
 
 15. **窗口就绪。** 窗口打开后，第一次 `ui` 调用与之后的调用用同样的时限：页面一侧随窗口启动，不在第一次调用时才加载。
 
