@@ -1,0 +1,112 @@
+### 1. 点过预设后，再选一次同一个种类（点同名种类按钮、或种类输入框聚焦后失焦）会把预设整个冲掉
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/canon/web/components/NewEntryDialog.vue（`chooseKind`、种类输入框外层的 `@focusout="chooseKind(props.draft.kind)"`），packages/neuro-book/src/plugins/canon/web/new-entry.ts `withKind`
+- **现象**：S5 决定“点预设不算动过勾选（typesTouched 保持 false）”。`chooseKind` 不比较种类有没有变，直接 `withKind(draft, kind, defaults)`；`withKind` 在 `typesTouched === false` 时把 `types` 整组换成该种类的默认。于是：新建人物（种类预填“人物”）-> 点预设“主要角色”（types 变成预设）-> 再点一次“人物”种类按钮，或者让种类输入框拿到焦点再失焦（Tab 走过去就算）-> types 回到“基本”默认，预设白点。
+- **为什么是问题**：Spec 的意思是“之后换种类，勾选照旧跟着新种类的默认换”，不是“重选同一个种类也重置”。S5 之前这条路无害（没动过勾选时 types 本来就等于默认），预设把 `typesTouched` 留在 false 以后它才变成会丢数据的路径。新测试“点预设不算动过勾选……”只验了换成“地点”，没有验同种类再选。
+- **如何核实**：读两处代码即可；要跑的话在 NewEntryDialog.dom.test.ts 的同一个用例里，点完预设后再 `button("人物").click(); await follow();`，断言 `checked()` 仍是三项，现状会变回 `["人物"]`。
+- **建议改法**：`chooseKind` 在 `kind.trim() === chosen.value` 时只更新 `chosen`（本来也没变）并直接返回，不调用 `withKind`；或让 `withKind` 在种类没变时不动 `types`。补一条同种类再选的用例。
+
+### 2. 点预设按钮后焦点离开搜索框、预设又立刻变成不可用：高亮消失、键盘走不下去，与 Spec 和 .md 写的“焦点一直留在搜索框”不符
+- **严重程度**：重要；**类别**：正确性（键盘与读屏）
+- **位置**：packages/neuro-book/src/plugins/canon/web/components/ComponentChecklist.vue（预设 `Button`、`searching`/`@focusin`/`@focusout` 只挂在搜索框外层、`presetUseful`）；ComponentChecklist.md 第一条“之后焦点一直留在这里”；docs/specs/canon/author-ui.md 输出 38“焦点在它上面，之后一直留在这里”
+- **现象**：行上有 `@mousedown.prevent`（点行不抢焦点），预设按钮没有。鼠标点预设时焦点移到按钮；`applyPreset` 之后 `presetUseful` 立刻为假（预设里的都已勾上），按钮变成 `disabled`，聚焦着的元素被禁用，焦点掉到 body（Chrome 会在下一次焦点修正时把它丢掉，按键不再送给它）。此时 `searching` 为假，`engaged` 只剩 `pointing`，指针不在列表上时高亮底色消失，上下键、Enter、Ctrl+Enter 都不再生效，直到作者再点回搜索框。键盘用户 Tab 到预设再按 Enter 同样落到 body，Dialog 的焦点圈里继续 Tab 从头开始。
+- **为什么是问题**：Spec 写明焦点一直留在搜索框，ComponentChecklist.md 也这么写；组件自己为行做了 `@mousedown.prevent` 说明作者知道这个要求，预设漏了。.dom 测试只断言预设按钮点后 `disabled` 与勾选结果，没有断言点完以后焦点还在搜索框、Ctrl+Enter 还能提交。
+- **如何核实**：dom 测试里 `search().focus()` 后 `preset("basic").click()`（真实点击会先 mousedown 抢焦点，jsdom 不会），或在 Lab 的 ComponentChecklist 场景 person 里点“主要角色”后按 ArrowDown：高亮不动。e2e 不覆盖（canon-character 只断言预设按钮可用、不可用）。本条未在浏览器里实跑，Chrome 对“焦点在被禁用按钮上”的处理细节标为推断，但“mousedown 抢走焦点”是确定的。
+- **建议改法**：预设按钮同行一样 `@mousedown.prevent`，键盘激活（Enter/Space）后在 `applyPreset` 里 `search.value?.querySelector("input")?.focus()`；顺手让 `disabled` 的按钮改用 `aria-disabled` 加不响应点击，避免聚焦元素被禁用。补一条“点完预设、Ctrl+Enter 仍提交”的用例。
+
+### 3. 组字提交的 Enter 在 WebKit（Safari、WKWebView）里会勾上高亮的那一行：只判 `isComposing`，没有判 `keyCode === 229`
+- **严重程度**：建议；**类别**：正确性
+- **位置**：ComponentChecklist.vue `onKeydown` 第一行 `if (event.isComposing) return;`
+- **现象**：WebKit 在 compositionend 之后才发 keydown，`isComposing` 已是 false、`keyCode` 为 229，所以中文输入法在搜索框里按 Enter 选词，会被当成“勾或取消高亮的那一行”，并 `preventDefault`。
+- **为什么是问题**：本仓库 nb-ui 的同类处理都是 `event.isComposing || event.keyCode === 229`（`SearchSelect.vue:192`、`dialog-close.ts:53`、`SidePanel.vue:53`），这个组件是从原 `AddComponentPicker`（同样只判 `isComposing`）抄来的；这次它又被新建条目对话框复用，作者在新建时搜“设定组”也会碰上。brief 点名要看“组字”，现有用例只用 `isComposing: true` 的合成事件，测不到这条。
+- **如何核实**：看上面三处对照；要复现需要 WebKit 与中文输入法，本次未实跑，标为从代码与既有约定推断。
+- **建议改法**：与 SearchSelect 一致，加上 `|| event.keyCode === 229`，用例补一条 `{key: "Enter", keyCode: 229}`。
+
+### 4. 成段文字比可视区高（或离上下缘都不远）时，浮层没有地方放：上下两边都只剩一条缝，高度被封顶成几十像素，S6 的 `scrollIntoView` 还会让它更糟
+- **严重程度**：重要；**类别**：正确性（边界）
+- **位置**：packages/neuro-book/src/plugins/canon/web/components/EntryPageHost.vue `fieldEditorOf` 里 `h(Popover, {side: "bottom", anchor, collisionBoundary, contentClass: "… max-h-[var(--reka-popper-available-height)] overflow-y-auto …"})`，以及 `watch([active, () => inner.anchor])` 里的 `anchor.scrollIntoView?.({block: "nearest"})`；CharacterCard.vue / LookCard.vue 的 `keep(passage.id)` 把整个原文按钮当锚
+- **现象**：锚是整段原文的按钮，高度随字数走（`.character-card__passage` 16px 字、行高 1.85，约 30px 一行；背景、性格写 700 到 1000 字、一行约 45 字就有 15 到 22 行、450 到 660px）。浮层贴着锚的下缘（side bottom），放不下才翻到上缘；两边都放不下时 Reka 的 flip 取“溢出较少的一边”，`size` 中间件给的可用高度就是那一边剩下的那条缝，`max-h` 把浮层压成几十像素（textarea 加意图一行加按钮正常要 340px 上下），里面再滚。更糟的是原文高过滚动区（比如 1080p 窗口里页头与分页吸顶后滚动区约 600 到 700px）时没有一个位置能让上下任何一边放得下：S6 加的 `scrollIntoView({block: "nearest"})` 对“比滚动区高、上缘可见下缘在外”的元素的规则是把上缘对齐滚动区上缘，下缘更在外面，浮层贴在下缘之外，落在窗口外；翻到上缘则上缘紧贴滚动区顶，也没有空间。
+- **为什么是问题**：成段文字就是为长文准备的，原来的编辑卡浮在原处向下长，没有这个问题。现有 e2e 的性格、背景都只有一两行，唯一的“放不下”用例是“原文贴着窗口底边、上面空着”，测不到“上下都没空间”。Spec 输出 51 写“下方放不下时翻到原文上方，与原文不重叠”，对原文自己比窗口高的情况没有出路，也没有写。计划审查第 1 轮没有提这一类。
+- **如何核实**：Lab 或 e2e 里把人物的“背景”写成 1200 字，1440x900 窗口、页头与分页吸顶，点原文，量 `.nb-ui-popover-surface` 的 `boundingBox()` 是否在视口内、高度是否 >= 300；再换成 800 高窗口与 15 行的原文（锚不高过滚动区、但上下各不到 300px）重量一次。本条是从 Reka/floating-ui 的 flip 与 size 行为和锚的尺寸推出的，没有在浏览器里实跑，请主 Agent 用 e2e 或 `nbdev shot` 量一次。
+- **建议改法**：不要用整段原文当参照，用“原文与滚动区相交的那一块”或点击点所在的行带当虚拟参照（Popover 的 `anchor` 现在要 Element，要么扩成接受带 `getBoundingClientRect` 的虚拟参照，要么在原文里放一个绝对定位的零高探针元素跟着点击位置）；至少在锚高过滚动区时改成贴滚动区底边、`side: "top"` 的固定位置。S6 的 `scrollIntoView` 在锚高过滚动区时不要调。补一条长原文的 e2e，并把 Spec 输出 51 补一句这种情况的去处。
+
+### 5. 新建条目里换种类时，预设一排整块凭空出现或消失、列表分组整体重排，没有过渡（界面规范第 6 条）
+- **严重程度**：建议；**类别**：代码质量（界面规范）
+- **位置**：ComponentChecklist.vue 模板里 `<div v-if="props.presets.length > 0" class="component-checklist__presets">`；`groups` 里“适用于<种类>”一组随 `kind` 增减
+- **现象**：加设定组对话框里预设与种类整场不变，没有问题。新建条目对话框里选定种类（点种类按钮、种类输入框失焦）会让 `kind` 与 `presets` 一起变：预设一排 `v-if` 直接插入或拿掉（整个列表连同下面的字段跳 36px 加间隔），“适用于人物”一组出现时它的几行从下面的分组里抽出来、其余整体下移，也是瞬时的。组件 .md 只对“勾与取消”写了过渡，这两处没提。
+- **为什么是问题**：ui-development 第 6 条“出现与消失、展开与收起、换内容都有过渡”，仓库里同类的做法是 `Transition name="nb-ui-switch"` 或 grid 0fr 到 1fr 的收放（本次 Tabs 的附注就是）。Lab 截图是静态的看不出来，e2e 与 dom 测试都不测。
+- **如何核实**：Lab 的 NewEntryDialog“新建人物”场景，点种类按钮在“人物”与“地点”间切；或开发服务上点一遍。
+- **建议改法**：预设一排用同一套 grid 收放（或 `Transition`）；“适用于”分组的增减至少让预设的出现不顶着列表跳。若判断收益不值，就在 .md 的“布局与交互”里写明这两处不过渡并说明理由。
+
+### 6. 两处文档仍写“原始数据”，界面与 Spec 已是“原始视图”
+- **严重程度**：建议；**类别**：文档
+- **位置**：packages/nb-ui/src/components/controls/Tabs.md 第 33 行；packages/nb-ui/docs/ui-development-spec.md 4.2 节新加的那一条
+- **现象**：两处举例都写“用户视图、AI 视图、原始数据”，S2 改名后的三个名字是“用户视图、AI视图、原始视图”（locales 与 Spec 输出 54 一致）。ui-development-spec 那一条还署了开发者决定的日期，读者会以为开发者定的就是这三个字。
+- **如何核实**：`grep -rn "原始数据" packages/nb-ui/src/components/controls/Tabs.md packages/nb-ui/docs/ui-development-spec.md`。
+- **建议改法**：改成“原始视图”。另有几处没动过的注释还写旧名（`ComponentRawView.md` 别名里“原始数据”是有意保留的别名，可以不动；`ComponentViews.dom.test.ts`、两个 Lab 夹具、`agent-fields.ts` 注释里的“给 AI 看”“原始数据”）顺手统一即可。
+
+### 7. 计划写了“`canAdd` 变假时宿主关对话框”，实现没有；偏离也没有记进 Task 当前状态
+- **严重程度**：建议；**类别**：正确性（与计划不一致）
+- **位置**：EntryPageHost.vue `addDialogOpen`（只在 `addComponents` 成功后与对话框自己的 `update:open` 里改）；plan.md “EntryPage.vue …”一节；README.md 当前状态里 S4 的“偏离计划两处”没有它
+- **现象**：对话框开着时若条目被别处删除、位置换到计划中的位置、写入被禁（`editBlocked` 变真）或所有类型都被别处加完，`addDialogOpen` 保持为真，主按钮照样能点。旧浮层是 EntryPage 里 `watch([rail, canAdd])` 自动关的，这一层保护随浮层一起删了。
+- **为什么是问题**：计划明说由宿主关；现在点“添加”会发出一次写入，被后端拒收后在状态行写失败，作者看到一个已经不该能用的入口。窄场景，所以只是建议；但“按计划实现”与“偏离写进记录”两头都没有。
+- **如何核实**：dom 测试里开对话框后把 `editable` 或条目的 `deleted` 换掉，断言对话框关上；现状不会关。
+- **建议改法**：在宿主里 `watch(canAdd, (can) => { if (!can) addDialogOpen.value = false })`（`canAdd` 条件在 EntryPage 里，宿主要用 `editBlocked`、`addableTypes.length` 各算一份，或让 EntryPage 发一个 `add-unavailable` 事件）；或者在 README 里记一笔“不做”。
+
+### 8. “按被拒的那一项指名”的下标映射没有被测到：任何固定返回 `types[0]` 的实现都能通过现有用例；右键菜单路径的措辞也与 Spec 不一致
+- **严重程度**：建议；**类别**：测试
+- **位置**：EntryPageHost.vue `addComponents` 里 `alreadyAdded`（`/^ops\[(\d+)\]/u` 与 `types[Number(at)]`）；entry-page.dom.test.ts 约 388 到 393 行；docs/specs/canon/author-ui.md 输出 38 末尾“要加的那一组别处刚加上时写‘这组设定已经加上了’”（指右键菜单）
+- **现象**：唯一的被拒用例发的是单元素批 `["nbook.canon.look"]`，被拒的下标必为 0，把映射改成 `types[0]`、或把正则整个删掉走 `groupAlreadyAdded` 以外的分支都不会让它失败（后者会失败，但前者不会）。“第二组或第三组是别处刚加上的”这一路——这次改动要解决的主要情形——没有用例。另外右键菜单单加（`from: "menu"`）现在也走同一个 `alreadyAdded`，一组时同样报带名字的“‘形象’这组设定已经加上了”，Spec 写的是不带名字的“这组设定已经加上了”；`groupAlreadyAdded` 这句现在只在路径不带 `ops[i]` 时才会用到，没有用例，等于死文案。
+- **为什么是问题**：下标映射是失败路径上唯一的逻辑；用例设计成它的下标恒为 0，变异检查（把 `types[Number(at)]` 换成 `types[0]`）会活下来。菜单路径的措辞偏离 Spec，作者是否有意没有记录。
+- **如何核实**：在 worktree 之外的副本里把 `types[Number(at)]` 改成 `types[0]`，跑 entry-page.dom.test.ts，应仍然全过。
+- **建议改法**：补一条三组批里第二组被拒的用例（先在别处加上第二组、再发 `add` 三个），断言状态行写的是第二组的名字；决定菜单路径是带名字还是不带，改 Spec 或改实现，并补一条菜单路径的用例（`menuBase` 版本冲突与已加上各一）。
+
+### 9. 勾选列表“指针在列表上才画高亮”（`pointing`/`pointerleave`）没有任何用例，删掉它测试照过
+- **严重程度**：建议；**类别**：测试
+- **位置**：ComponentChecklist.vue `pointing`、`@pointermove`、`@pointerleave`；ComponentChecklist.dom.test.ts；NewEntryDialog.dom.test.ts
+- **现象**：dom 测试只断言“焦点不在时没有高亮、焦点进来才有”，没有 `pointermove`/`pointerleave`。把 `engaged` 里的 `|| pointing.value` 与两个指针事件删掉，所有用例照过；NewEntryDialog 的用例也没有断言“焦点在名字上时列表第一行不亮”（S5 靠 Lab 截图发现并修的那个问题），任何人把 `engaged` 改回恒真都会让这个回归悄悄回来，只有 Lab 截图能看到。
+- **为什么是问题**：S5 的偏离是用这条状态修的，修复本身没有回归保护；.md 里把“鼠标真的移动时高亮跟着指针”写成了合同。
+- **如何核实**：副本里删掉 `|| pointing.value`，跑 ComponentChecklist.dom.test.ts，应全过；再把 `engaged` 改成 `computed(() => true)`，只有第二条用例（“焦点还不在列表上……highlighted() 为空”）会失败，NewEntryDialog 的用例全过。
+- **建议改法**：ComponentChecklist 加一条“`pointermove` 到某一行画高亮并让 aria-activedescendant 跟过去，`pointerleave` 后高亮消失但 activedescendant 不变”的用例；NewEntryDialog 加一条“打开时焦点在名字上，列表里没有 `[data-highlighted]`”。
+
+### 10. 种类是 `chosen` 局部状态，靠“对话框每次打开都是新挂上”维持；宿主在对话框开着时换草稿它不会跟
+- **严重程度**：建议；**类别**：不变量
+- **位置**：NewEntryDialog.vue `const chosen = shallowRef(props.draft.kind.trim())`；entries-view.ts `startNewEntry`、`startNewPerson` 直接改 `state.creating.value`
+- **现象**：`chosen` 只在 setup 里读一次 `draft.kind`。对话框开着时若再触发“新建条目”或“新建人物”（命令、快捷键，或空状态的按钮在别的面板里），`state.creating.value` 换成新草稿，组件不重挂：`draft.kind` 变了（甚至被清空），列表的“适用于”与预设仍按旧的 `chosen`。
+- **为什么是问题**：Task 说明里把“每次打开新挂上”当成前提，代码里没有任何东西保证它（`h(create.dialog, {open: true, …})` 的 key 是缺省的）；两份状态（草稿的 `kind` 与 `chosen`）靠一个没写出来的约定对齐，是 brief 要找的“隐含耦合”。窄场景，影响是列表与预设与表单里写的种类不一致，所以只是建议。
+- **如何核实**：dom 测试里挂上对话框后 `setProps({draft: 另一个种类的草稿})`，断言“适用于”组跟着换；现状不会。
+- **建议改法**：宿主给 `h(create.dialog, {key: 每次新建的序号})`，让“新挂上”成为显式保证；或者 `chosen` 改成由 `draft` 派生的 `computed`，只在 `chooseKind` 与失焦时才把输入的 kind 提交成已选定（用草稿里一个 `kindChosen` 字段）。前者一行。
+
+### 11. `openInline` 用 `document.querySelector` 找输入框，找的是整个文档里第一个同路径编辑器
+- **严重程度**：建议；**类别**：不变量
+- **位置**：EntryPageHost.vue `openInline`：`document.querySelector(`[data-field-editor="${CSS.escape(path)}"] :is(textarea, input)`)?.focus()`
+- **现象**：编辑浮层传送到 body（Popover 的 Portal），所以没法在宿主根里找，作者用了文档级查询。同一个条目在两个编辑组里各开一页（或同一路径的两个宿主）、两边都开着同一项的就地改时，点第二页的原文，焦点会落到第一页的输入框，而不是自己这页的。找不到（`querySelector` 返回 null，比如这一项的编辑器是下拉、图片选择这类没有 textarea/input 的）时静默什么也不做，原文按钮点了没有反应。
+- **为什么是问题**：与“同一路径多份挂上”的计数（`holdInline`）是同一类场景，那里为多份编辑器做了计数，这里没有。窄场景；不是每个宿主都共用 `state.edit`，所以只在两页同时就地改同一项时才错。
+- **如何核实**：dom 测试挂两个同一条目的宿主，在两边都点同一项的原文，看 `document.activeElement` 属于哪个宿主。
+- **建议改法**：让 `FieldEditor` 在挂上时把自己的输入框回调登记到宿主（已有按路径登记的 `holdInline` 可以顺带存一个 `focus()`），`openInline` 用它而不是查文档；找不到时回退到 `edit.open`。
+
+### 12. 小项：`data-add-component-dialog` 标在勾选列表而不是对话框上；Tabs 测量层把附注的“，”也量进去
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：AddComponentDialog.vue 里 `<ComponentChecklist … data-add-component-dialog>`；Tabs.vue 测量层 `<span v-if="item.note" class="nb-ui-tabs-note__text">，{{ item.note }}</span>`
+- **现象**：（a）e2e 与 dom 测试用 `[data-add-component-dialog]` 判“对话框开着/关上”，实际它是勾选列表根上的 attrs（`ComponentChecklist.md` 写“attrs 落在根元素上”），对话框关闭动画期间列表还在，所以这个选择器在关闭过程里仍然命中；AddComponentDialog.md 又写“attrs 不透传”，那个属性是组件自己写在子元素上的。（b）测量层的 `，` 是真字符，宽约 1em，而真实渲染里的间隔是 `padding-left: var(--space-2)` 加 sr-only 的 `，`（不占宽），测量层把两份都量了（`.nb-ui-tabs-note__text` 带 padding），每个带附注的标签多量约 13px（13px 字号时），逐级让位会比实际需要早一点触发。
+- **为什么是问题**：（a）名字与位置对不上，读测试的人会以为是对话框的根；（b）逐级让位的阈值是 Tabs 的核心行为，量宽与实际渲染差了就是一处偏差，虽然偏向保守。
+- **如何核实**：（a）读模板；（b）Lab 的 Tabs“标签上的菜单与附注”场景里给 `adapt` 一个临界宽度，对比有无附注的标签宽度与测量值（未实跑）。
+- **建议改法**：（a）把属性挪到 `Dialog` 内容根（给 `Dialog` 一个 `contentAttrs`，或在包着列表的元素上写），名字改成 `data-add-component-list`；（b）测量层的附注去掉“，”，只留 padding。
+
+## 未发现问题的方面（仔细检查后）
+- nb-ui `Tabs` 的 `menu`：没选中的点了只发 `update:modelValue`，选中的再点或 ArrowDown 才发 `menu`；`aria-haspopup`/`aria-expanded` 只写在选中的带菜单标签上；Enter、Space 不另挂按键、只发一次；`ContextMenu` 的 `anchor` 排除在点外面关之外，同一次点击里“先关再开”的问题经容器捕获阶段的 `props.open` 滞后与 `anchor.contains` 两道都避开了。nb-ui 的 Tabs、ContextMenu 两个测试文件在 worktree 里跑过，123 条全过。
+- 看法菜单 `lookMenu` 与右键菜单互相关闭、换分页与换排法时关、选了、Escape、Tab 后焦点回分页、点外面不抢焦点，与 Spec 输出 9 对得上；竖排 `EntryPageNav` 的 `pick`、`aria-*`、附注与箭头行为与横排一致。
+- `ComponentChecklist` 的分组与筛选、`aria-activedescendant`、已添加行不能取消并发 `present`、`withPreset` 的次序与去重、`via` 区分行与预设、Ctrl/⌘+Enter、组字（`isComposing`）——对照 .md 与用例都对得上；`pointermove` 只在真的移动时触发这一点与 QuickPick 里记的浏览器行为一致，不是问题。ComponentChecklist、AddComponentDialog、NewEntryDialog、EntryPageNav 的 dom 测试与 EntryPage、entry-page、entries-view 的 dom 测试在 worktree 里跑过（19 条与 74 条），全过。
+- `AddComponentDialog`：每次打开清空、开着时别处加上的从勾选里去掉、在途不关且按钮不可用；`addComponents` 的成功后顺序（`pendingTab` 先、关对话框后）与 `afterAddDialog`（焦点已在页内就不动）；右键菜单的单个添加仍走 `menuBase`、用完清掉。
+- `NewEntryDialog` 宿主每次 `v-if` 重新挂上，`chosen` 起点是预填的种类；点预设不置 `typesTouched`；`entries-view.ts` 的 `items`/`kindPresets`/`componentIcon` 的数据流（`kindPresets` 返回值经 `presets` 计算属性原样进界面，没有再变换）。
+- 成段文字浮层：`update:open(false)` 对成段文字忽略、短项照旧收起；Escape 经确认条，组字中不接；`openInline` 同路径只聚焦、带值打开照旧重开；`CharacterCard`/`LookCard` 去掉原处占位后 `keep(id)` 的锚在元素换掉或卸载时置空，不留旧元素；Popover 的 `max-h` 变量与 `collisionBoundary` 接法正确（但锚高于滚动区的情形见第 4 条）。
+- 文案：界面上没有解释系统内部的话；看法名、对话框标题、按钮、英文文案在 zh-CN/en-US 里键一一对应；勾、取消、看法附注、箭头都有过渡（第 5 条列的两处除外）。
+- 合同写法：没有按错误文案做分支（`alreadyAdded` 看 `code` 与 `path`）、没有静默吞错、没有跨包深导入。
+
+## 数量
+- 阻断：0
+- 重要：3（第 1、2、4 条）
+- 建议：9（第 3、5、6、7、8、9、10、11、12 条）
+- 合计：12 条。第 2、3、4、5、12（b）未在浏览器里实跑，已在各条里标明；其余都读代码并对照现有测试得出。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
