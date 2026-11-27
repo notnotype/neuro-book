@@ -532,6 +532,7 @@
         "hono": "^4.12.30",
       },
       "devDependencies": {
+        "@notnotype/nb-site-web": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",

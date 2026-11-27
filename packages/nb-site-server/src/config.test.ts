@@ -3,7 +3,7 @@
  */
 
 import {afterEach, beforeEach, describe, expect, it} from "bun:test";
-import {chmod, mkdir, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -108,6 +108,33 @@ describe("parseSiteConfig", () => {
         if (process.getuid?.() !== 0) expect(problemsOf(validEnv())).toEqual([{name: "NB_SITE_DATA_DIR", problem: "not_writable"}]);
     });
 
+    it("前端产物目录：不设（含空串）时不发网页；设了要是绝对路径、存在的目录、里面有 index.html，记下解开链接之后的路径", async () => {
+        expect(parseSiteConfig(validEnv(), SITE_MODULES)).toMatchObject({ok: true, config: {base: {webDir: null}}});
+        expect(parseSiteConfig({...validEnv(), NB_SITE_WEB_DIR: ""}, SITE_MODULES)).toMatchObject({ok: true, config: {base: {webDir: null}}});
+
+        const web = join(root, "web");
+        await mkdir(web);
+        await writeFile(join(web, "index.html"), "<!doctype html>");
+        const linked = join(root, "web-link");
+        await symlink(web, linked);
+        expect(parseSiteConfig({...validEnv(), NB_SITE_WEB_DIR: linked}, SITE_MODULES)).toMatchObject({ok: true, config: {base: {webDir: await realpath(web)}}});
+
+        const webProblems = (value: string): unknown[] => problemsOf({...validEnv(), NB_SITE_WEB_DIR: value});
+        expect(webProblems("relative/web")).toEqual([{name: "NB_SITE_WEB_DIR", problem: "not_absolute"}]);
+        expect(webProblems(join(root, "absent"))).toEqual([{name: "NB_SITE_WEB_DIR", problem: "not_directory"}]);
+        expect(webProblems(join(web, "index.html"))).toEqual([{name: "NB_SITE_WEB_DIR", problem: "not_directory"}]);
+        const empty = join(root, "empty-web");
+        await mkdir(empty);
+        expect(webProblems(empty)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+        // index.html 是个目录、或是指向不存在之处的链接，都不是能发的那个文件。
+        await mkdir(join(empty, "index.html"));
+        expect(webProblems(empty)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+        const dangling = join(root, "dangling-web");
+        await mkdir(dangling);
+        await symlink(join(root, "nowhere.html"), join(dangling, "index.html"));
+        expect(webProblems(dangling)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+    });
+
     it("会话密钥按字符数算，32 个够、31 个不够", () => {
         expect(parseSiteConfig({...validEnv(), NB_SITE_SESSION_SECRET: "密".repeat(32)}, SITE_MODULES).ok).toBe(true);
         expect(problemsOf({...validEnv(), NB_SITE_SESSION_SECRET: "密".repeat(31)})).toEqual([{name: "NB_SITE_SESSION_SECRET", problem: "too_short"}]);
@@ -180,11 +207,12 @@ describe("parseSiteConfig", () => {
             NB_SITE_SHUTDOWN_TIMEOUT_MS: "SECRET-VALUE",
             NB_SITE_TEST_CONTROL: "SECRET-VALUE",
             NB_SITE_IDENTITY_TERMS_VERSION: "SECRET-VALUE",
+            NB_SITE_WEB_DIR: "SECRET-VALUE-web",
         };
         const failure = configFailure(problemsOf(env));
         const text = JSON.stringify(failure);
         expect(failure.code).toBe("config_invalid");
         expect(text).not.toContain("SECRET-VALUE");
-        expect((failure.fields?.problems as unknown[]).length).toBe(11);
+        expect((failure.fields?.problems as unknown[]).length).toBe(12);
     });
 });

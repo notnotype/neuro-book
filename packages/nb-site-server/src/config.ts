@@ -6,9 +6,9 @@
  * 校验在读写任何数据文件之前做；只 `stat` 与 `access` 数据目录本身。
  */
 
-import {accessSync, constants, statSync} from "node:fs";
+import {accessSync, constants, realpathSync, statSync} from "node:fs";
 import {BlockList, isIP} from "node:net";
-import {isAbsolute} from "node:path";
+import {isAbsolute, join} from "node:path";
 
 import {hostnameKey} from "./hostname";
 import type {CommandFailure, ConfigProblem, SiteModule, SiteSettings} from "./module";
@@ -31,6 +31,11 @@ export interface BaseConfig {
      * 这是秘密：只交给比较口令的那一处，不进日志、失败行与响应。
      */
     readonly testControlToken: string | null;
+    /**
+     * 前端产物目录（`NB_SITE_WEB_DIR`）的真实路径（已解开符号链接）；没设时为 null，`serve` 就不发网页（`site.operations` 输出 12）。
+     * 存真实路径：发文件时按它判断解开链接之后的路径还在不在目录里（`web.ts`）。
+     */
+    readonly webDir: string | null;
 }
 
 export interface SiteConfig {
@@ -42,7 +47,7 @@ export interface SiteConfig {
 export type SiteConfigResult = {readonly ok: true; readonly config: SiteConfig} | {readonly ok: false; readonly problems: readonly ConfigProblem[]};
 
 /** 问题词：取自 `site.operations` 失败与恢复一节的词表。 */
-type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip" | "not_loopback" | "bad_format";
+type Problem = "missing" | "not_https" | "has_path" | "same_host" | "not_absolute" | "not_directory" | "not_writable" | "too_short" | "not_integer" | "out_of_range" | "bad_subnet" | "not_ip" | "not_loopback" | "bad_format" | "no_index";
 
 type Parsed<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly problem: Problem};
 
@@ -84,6 +89,30 @@ function parseDataDir(value: string): Parsed<string> {
         return bad("not_writable");
     }
     return ok(value);
+}
+
+/**
+ * 前端产物目录：绝对路径、已经存在的目录、里面有 `index.html` 这个文件（单页回退要发它）。返回解开符号链接之后的真实路径。
+ * 只看目录与 `index.html` 本身，不读别的文件；读不到（不存在、中间一段不是目录、没有权限）都按 `not_directory` 报，
+ * 这里没有“可写”的要求。
+ */
+function parseWebDir(value: string): Parsed<string> {
+    if (!isAbsolute(value)) return bad("not_absolute");
+    let real: string;
+    try {
+        real = realpathSync(value);
+        if (!statSync(real).isDirectory()) return bad("not_directory");
+    } catch {
+        // 错误对象里带着路径，不往外传；哪一种读不到对部署的人都是“这不是一个能用的目录”。
+        return bad("not_directory");
+    }
+    try {
+        if (!statSync(join(real, "index.html")).isFile()) return bad("no_index");
+    } catch {
+        // 没有这个文件，或它是指向不存在之处的链接。
+        return bad("no_index");
+    }
+    return ok(real);
 }
 
 /** `setTimeout` 能表示的最大延时（2^31 - 1 毫秒）。 */
@@ -179,6 +208,10 @@ export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteC
     if (tokenProblem !== undefined) problems.push({name: "NB_SITE_TEST_CONTROL", problem: tokenProblem});
     // 测试控制入口能改服务看到的时间，只许在本机回环上提供（`site.operations` 的边界一节）；问题记在监听地址上。
     if (rawToken !== undefined && host !== undefined && !isLoopback(host)) problems.push({name: "NB_SITE_HOST", problem: "not_loopback"});
+    // 可选、没有缺省值：没设（含空串）时不发网页，未知地址照旧 404。
+    const rawWebDir = present(env.NB_SITE_WEB_DIR);
+    const webDir = rawWebDir === undefined ? undefined : parseWebDir(rawWebDir);
+    if (webDir?.ok === false) problems.push({name: "NB_SITE_WEB_DIR", problem: webDir.problem});
 
     const moduleConfigs = new Map<string, unknown>();
     for (const module of modules) {
@@ -201,6 +234,7 @@ export function parseSiteConfig(env: Env, modules: readonly SiteModule[]): SiteC
                 backupKeep: backupKeep!,
                 shutdownTimeoutMs: shutdownTimeoutMs!,
                 testControlToken: rawToken ?? null,
+                webDir: webDir?.ok === true ? webDir.value : null,
             },
             modules: moduleConfigs,
         },

@@ -1,6 +1,6 @@
 /**
- * 装配根应用（`site.operations` 的输入一节、输出 3、4、8、11）：请求编号与请求日志 → 读不出主机名的请求回 400 → 两个健康检查
- * 与测试控制入口（设了口令时）→ 按主机名分到站点或写入口的子应用 → 各模块的 mount。
+ * 装配根应用（`site.operations` 的输入一节、输出 3、4、8、11、12）：请求编号与请求日志 → 读不出主机名的请求回 400 → 两个健康检查
+ * 与测试控制入口（设了口令时）→ 按主机名分到站点或写入口的子应用 → 各模块的 mount → 站点上谁都没接的请求交给网页（设了产物目录时）。
  *
  * 两个入口各是一个 Hono 应用，根应用把请求原样交给其中一个的 `fetch`：同一个前缀在两个入口上可以各挂各的模块。
  * 交出去之后根应用的上下文变量就看不到了，所以请求的状态（命中了哪个模块、请求编号）放在随 `fetch` 第二个参数传下去的
@@ -16,6 +16,7 @@ import type {ReadinessReport} from "./health";
 import {hostnameKey} from "./hostname";
 import {errorType, type Logger} from "./log";
 import type {ModuleMount, Surface} from "./module";
+import type {WebHandler} from "./web";
 
 /** 入口经 `fetch` 的第二个参数交给每个请求的东西；`server` 用来取 TCP 对端地址（`client-address.ts`）。 */
 export interface SiteBindings {
@@ -23,7 +24,7 @@ export interface SiteBindings {
     readonly request: RequestState;
 }
 
-/** 一个请求在入口里的状态。`module` 是日志里的 `module`：命中了 mount 就是那个模块，否则是 `site`。 */
+/** 一个请求在入口里的状态。`module` 是日志里的 `module`：命中了 mount 就是那个模块，交给了网页是 `web`，否则是 `site`。 */
 export interface RequestState {
     module: string;
     readonly requestId: string;
@@ -44,6 +45,8 @@ export interface SiteAppOptions {
     readonly log: Logger;
     /** 测试控制入口（`test-control.ts`）；没设口令时不给，`/test-control/*` 就与别的不存在的地址一样落到站点的 404。 */
     readonly testControl?: Hono;
+    /** 网页（`web.ts`）；没设前端产物目录时不给，站点上谁都没接的请求照旧回 404。 */
+    readonly web?: WebHandler;
 }
 
 const NOT_FOUND = {code: "not_found"} as const;
@@ -69,7 +72,14 @@ function surfaceApp(surface: Surface, options: SiteAppOptions): Hono<SiteEnv> {
         app.use(`${mount.prefix}/*`, tag);
         app.route(mount.prefix, mount.app);
     }
-    app.notFound((c) => c.json(NOT_FOUND, 404));
+    // 走到这里说明这个入口上没有路由接这个请求（模块子应用自己的 `notFound` 经 `app.route` 挂进来时不跟着走，见各模块的兜底路由）：
+    // 网页因此排在每个模块之后。写入口上不发网页。
+    app.notFound((c) => {
+        const served = surface === "site" ? options.web?.(c.req.raw) : undefined;
+        if (served === undefined) return c.json(NOT_FOUND, 404);
+        c.env.request.module = "web";
+        return served;
+    });
     app.onError((error, c) => {
         options.log.error("http.unhandled_error", "request handler threw", {requestId: c.env.request.requestId, module: c.env.request.module, errorType: errorType(error)});
         return c.json({code: "internal"}, 500);

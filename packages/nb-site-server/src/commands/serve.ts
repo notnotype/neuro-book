@@ -24,6 +24,7 @@ import {errorType, type Logger} from "../log";
 import type {Clock, CommandFailure, ModuleInstance, SiteModule} from "../module";
 import {createSiteApp, MountError, siteFetch, type MountedModule} from "../site";
 import {createTestControl} from "../test-control";
+import {createWebHandler} from "../web";
 import {closeAll, failed, lockFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
 
 /**
@@ -125,7 +126,14 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
         const mounts: MountedModule[] = created.flatMap(({module, instance}) => instance.mounts.map((mount) => ({module, mount})));
         let app: ReturnType<typeof createSiteApp>;
         try {
-            app = createSiteApp({mounts, telemetryHost: base.telemetryHost, readiness: createReadiness(targets, {log}), log, testControl: testControl?.app});
+            app = createSiteApp({
+                mounts,
+                telemetryHost: base.telemetryHost,
+                readiness: createReadiness(targets, {log}),
+                log,
+                testControl: testControl?.app,
+                web: base.webDir === null ? undefined : createWebHandler(base.webDir),
+            });
         } catch (error) {
             if (!(error instanceof MountError)) throw error;
             return failed(startFailure(error.module, error));

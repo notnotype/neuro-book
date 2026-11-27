@@ -15,7 +15,7 @@
  */
 
 import {beforeAll, describe, expect, it} from "bun:test";
-import {chmod, copyFile, mkdir, readdir} from "node:fs/promises";
+import {chmod, copyFile, mkdir, readdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -29,7 +29,9 @@ import {
     randomSecret,
     rawHttp,
     requestJson,
+    REQUEST_TIMEOUT_MS,
     reservePort,
+    SANDBOX_TELEMETRY_URL,
     testControlRequest,
     useSiteSandbox,
     type CommandResult,
@@ -531,6 +533,77 @@ describe("测试控制入口（输出 11，验收 5）", () => {
         expect(notLoopback.failure?.problems).toContainEqual({name: "NB_SITE_HOST", problem: "not_loopback"});
         expect(events(notLoopback.logs)).not.toContain("site.listening");
         expect(notLoopbackListening).toBe(false);
+    });
+});
+
+describe("网页（输出 12，验收 6）", () => {
+    /** 测试自己造的一份产物：合同测试不依赖前端包，只看被测程序怎样发这个目录里的东西。 */
+    const INDEX_HTML = '<!doctype html><html><head><script type="module" src="/assets/app-abc123.js"></script></head><body></body></html>\n';
+    const APP_JS = "document.title = 'contract';\n";
+    const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'";
+    let withWeb: SiteProcess;
+    let withoutWeb: SiteProcess;
+
+    beforeAll(async () => {
+        const webDir = join(sandbox.root, "web");
+        await mkdir(join(webDir, "assets"), {recursive: true});
+        await writeFile(join(webDir, "index.html"), INDEX_HTML);
+        await writeFile(join(webDir, "assets", "app-abc123.js"), APP_JS);
+        // 产物目录的上一层放一个 package.json：`/..%2fpackage.json` 要是越出了目录，读到的就是它。
+        await writeFile(join(sandbox.root, "package.json"), '{"name":"outside-the-web-dir"}\n');
+        // 都不设测试控制口令：验收 6 要的是“没设口令时”的 /test-control/clock。
+        [withWeb, withoutWeb] = await Promise.all([
+            sandbox.start({dataDir: await sandbox.dataDir(), env: {NB_SITE_WEB_DIR: webDir, NB_SITE_TEST_CONTROL: undefined}}),
+            sandbox.start({dataDir: await sandbox.dataDir(), env: {NB_SITE_TEST_CONTROL: undefined}}),
+        ]);
+    }, SETUP_TIMEOUT_MS);
+
+    async function page(site: SiteProcess, path: string, headers?: Record<string, string>): Promise<{status: number; headers: Headers; body: string}> {
+        const response = await fetch(`${site.url}${path.slice(1)}`, {redirect: "manual", headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)});
+        return {status: response.status, headers: response.headers, body: await response.text()};
+    }
+
+    it("/ 与 /account 回 index.html 的内容与安全头", async () => {
+        for (const path of ["/", "/account"]) {
+            const got = await page(withWeb, path);
+            expect({
+                path,
+                status: got.status,
+                body: got.body,
+                csp: got.headers.get("Content-Security-Policy"),
+                nosniff: got.headers.get("X-Content-Type-Options"),
+                referrer: got.headers.get("Referrer-Policy"),
+                cache: got.headers.get("Cache-Control"),
+            }).toEqual({path, status: 200, body: INDEX_HTML, csp: CSP, nosniff: "nosniff", referrer: "same-origin", cache: "no-cache"});
+        }
+    });
+
+    it("/assets/ 下的文件带长缓存头", async () => {
+        const got = await page(withWeb, "/assets/app-abc123.js");
+        expect({status: got.status, body: got.body, cache: got.headers.get("Cache-Control")}).toEqual({status: 200, body: APP_JS, cache: "public, max-age=31536000, immutable"});
+    });
+
+    it("/api/identity/v1/nope、/api/identity/nope、/.well-known/nope、没设口令时的 /test-control/clock 与 /x.js 回 404", async () => {
+        // /api/identity/v1/nope 由身份库自己的兜底路由回 404，网页回退即使不排除 /api/ 也到不了它；
+        // /api/identity/nope 不在身份库的任何挂载点下，只有排除了 /api/ 才回 404。
+        for (const path of ["/api/identity/v1/nope", "/api/identity/nope", "/.well-known/nope", "/test-control/clock", "/x.js"]) {
+            expect({path, status: (await page(withWeb, path)).status}).toEqual({path, status: 404});
+        }
+    });
+
+    it("/..%2fpackage.json 这类路径回 404，读不到产物目录外的文件", async () => {
+        for (const path of ["/..%2fpackage.json", "/assets/..%2f..%2fpackage.json", "/%2e%2e%2fpackage.json"]) {
+            const got = await page(withWeb, path);
+            expect({path, status: got.status, leaked: got.body.includes("outside-the-web-dir")}).toEqual({path, status: 404, leaked: false});
+        }
+    });
+
+    it("遥测写入口的主机名上 / 回 404", async () => {
+        expect((await page(withWeb, "/", {Host: new URL(SANDBOX_TELEMETRY_URL).host})).status).toBe(404);
+    });
+
+    it("不设前端产物目录时 / 回 404", async () => {
+        expect((await page(withoutWeb, "/")).status).toBe(404);
     });
 });
 

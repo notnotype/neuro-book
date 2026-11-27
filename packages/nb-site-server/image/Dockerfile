@@ -5,6 +5,8 @@
 FROM oven/bun:1.4.4-slim
 WORKDIR /app
 COPY server.js server.js.map ./
+# 官方站的网页（nb-site-web 的构建产物），由 NB_SITE_WEB_DIR 交给进程发；属主是 root、对 bun 用户只读，进程不改它。
+COPY web ./web
 # 数据目录的缺省位置，属于镜像里的 bun 用户（uid 1000）：挂命名卷时 Docker 按镜像里这个目录的属主初始化卷，进程不用 root 也能写。
 # 挂宿主目录时属主由宿主决定，要么让它对 uid 1000 可写，要么用 --user 以宿主目录属主的身份跑。
 RUN mkdir /data && chown bun:bun /data
@@ -14,6 +16,7 @@ RUN mkdir /data && chown bun:bun /data
 ENV NB_SITE_HOST=0.0.0.0 \
     NB_SITE_PORT=8080 \
     NB_SITE_DATA_DIR=/data \
+    NB_SITE_WEB_DIR=/app/web \
     BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 USER bun
 EXPOSE 8080
