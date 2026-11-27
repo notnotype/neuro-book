@@ -318,14 +318,19 @@ describe("贡献", () => {
         expect(endpoint.requests.length).toBe(sent);
     });
 
-    test("输出 4：bot 归属的会话派出的子代理同样没有 foreground 的工具（子会话头不带归属）；前台会话派出的照常有", async () => {
+    test("输出 4：bot 归属的会话与后台会话派出的子代理同样没有 foreground 的工具（子会话头不带这两项）；前台会话派出的照常有", async () => {
         const FRONT = "test.tools.front";
         // 临时帮手没有装到所有 Profile 的工具：用绑定把前台工具加给它，看派出的子会话拿不拿得到。
         const w = await world([profilesPlugin({count: 0}), toolsPlugin({count: 0}, {tools: [{id: ECHO}, {id: FRONT, defaultForAll: true, foreground: true}]})], {"nbook.agent/toolBindings": {[ADHOC_PROFILE]: {added: [FRONT], removed: []}}});
-        const childTools = async (parent: SessionApi, prompt: string): Promise<string[]> => {
+        const childTools = async (parent: SessionApi | "background", prompt: string): Promise<string[]> => {
             const sent = endpoint.requests.length;
             endpoint.scriptFor(prompt, "查完了");
-            await say(parent, "派一个去查");
+            if (parent !== "background") await say(parent, "派一个去查");
+            else {
+                const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: MAIN_PROFILE, input: {text: "派一个去查"}, background: true});
+                if (!started.ok) throw new Error(started.code);
+                await started.result;
+            }
             // 子会话的请求：没有派发工具、带着这次的 prompt（父会话派发之后的请求也带 prompt，但有 agent_spawn）。
             const child = endpoint.requests.slice(sent).find((request) => !request.tools.includes("agent_spawn") && JSON.stringify(request.messages).includes(prompt));
             if (child === undefined) throw new Error("没有看到子会话的请求");
@@ -337,6 +342,8 @@ describe("贡献", () => {
         if (!owned.ok) throw new Error(owned.code);
         endpoint.script({tool: "agent_spawn", args: {profile: ADHOC_PROFILE, prompt: "bot 派的", initial: {role: "核对员"}}}, "好");
         expect(await childTools(owned.value, "bot 派的")).not.toContain("test__tools__front");
+        endpoint.script({tool: "agent_spawn", args: {profile: ADHOC_PROFILE, prompt: "后台派的", initial: {role: "核对员"}}}, "好");
+        expect(await childTools("background", "后台派的")).not.toContain("test__tools__front");
     });
 
     test("输出 4：声明 defaultTools: false 的 Profile 不加装到所有 Profile 的工具，绑定加的照样生效", async () => {

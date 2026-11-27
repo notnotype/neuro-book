@@ -102,8 +102,8 @@ export function takeSnapshot(environment: LocateEnvironment, args: SnapshotArgs)
     if (scopeLine !== null) header.push(scopeLine);
     header.push(layersLine(inspector, collected.layers));
 
-    // 字节上限（输出 12）由预算保证：至多 8000 token，每个估算的 token 至多 4 个 UTF-8 字节，文字远在 64 KB 以内；元素数组是
-    // 同一批行，名字、值与 key 都有字数上限。整个回复的上限由宿主在回复前再量一次。
+    // 字节上限（输出 12）由预算保证，不另量：至多 8000 token，每个估算的 token 至多 4 个 UTF-8 字节，文字远在 64 KB 以内；
+    // 元素数组是同一批行（至多 ELEMENT_LIMIT 个），名字、值与 key 都有字数上限，整个回复远在 256 KB 以内。
     const rendered = render(environment, collected, layerRefs, header, args.maxTokens ?? SNAPSHOT_DEFAULT_TOKENS, active);
     if (rendered.truncated) warnings.push(`truncated: 有 ${String(rendered.omitted)} 个元素超出预算没有列出`);
     return {text: rendered.text, elements: rendered.elements, truncated: rendered.truncated, warnings};

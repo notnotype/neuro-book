@@ -117,12 +117,12 @@ export interface PageFailure {
     readonly details?: PageFailureDetails;
 }
 
-/** 回复里文字、`details` 与整个回复的大小上限（输出 12），按 UTF-8 字节量。 */
-export const TEXT_BYTE_LIMIT = 64 * 1024;
+/**
+ * 失败的 `details` 按 JSON 序列化后的上限（UTF-8 字节，输出 12）与一次快照至多列的元素数。快照文字与整个回复的大小不另量：
+ * token 预算（至多 `SNAPSHOT_MAX_TOKENS`）与这里的元素数已经把它们压在输出 12 的上限之内。
+ */
 export const DETAILS_BYTE_LIMIT = 8 * 1024;
 export const ELEMENT_LIMIT = 500;
-/** 每个回复按 JSON 序列化后的上限：宿主 WebSocket 的单条消息上限是 1 MiB，留出信封与别的字段的余量。 */
-export const RESULT_BYTE_LIMIT = 256 * 1024;
 
 // ---------- 高亮（输出 9、10） ----------
 

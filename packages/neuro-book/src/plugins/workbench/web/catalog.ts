@@ -11,7 +11,7 @@ import type {TextResolver} from "nbook/shared/localized-text";
 import type {WorkbenchCatalog, WorkbenchCatalogView} from "../shared/contracts";
 import type {ActivityBarItemDeclaration} from "../shared/items";
 import type {ViewTitleItemDeclaration} from "../shared/menus";
-import {VIEW_LOCATIONS} from "../shared/views";
+import {VIEW_ACTIONS_MAX, VIEW_LOCATIONS} from "../shared/views";
 import {viewSection} from "./state/containers";
 import type {ContainerCatalog} from "./state/containers";
 import {regionEntries} from "./state/layout-present";
@@ -44,8 +44,9 @@ function readCatalog(source: WorkbenchCatalogSource): WorkbenchCatalogView {
             title: source.text.t(declaration.title),
             container: doc === null ? null : (viewSection(doc, id)?.container ?? null),
             placed: doc !== null && Object.values(doc.panels).some((panel) => panel.tabs.some((tab) => tab.kind === "view" && tab.viewId === id)),
-            // 视图自己的按钮在前、别的插件贡献的在后，同外壳画的顺序（views.md 输出 10、11）。
-            actions: [...(declaration.actions ?? []).filter((action) => action.placement !== "menu").map((action) => action.command), ...(contributed.get(id) ?? [])],
+            // 视图自己的按钮在前、别的插件贡献的在后，同外壳画的顺序（views.md 输出 10、11）；同外壳一样至多 VIEW_ACTIONS_MAX 个，
+            // 再多的进“⋯”，不算按钮。面板窄时外壳按宽度再少放几个，这里不跟（page-agent.md“不承诺”）。
+            actions: [...(declaration.actions ?? []).filter((action) => action.placement !== "menu").map((action) => action.command), ...(contributed.get(id) ?? [])].slice(0, VIEW_ACTIONS_MAX),
         })),
         containers: doc === null ? [] : VIEW_LOCATIONS.flatMap((region) => regionEntries(doc, region, source.views, source.containers).map((entry) => ({
             id: entry.id,

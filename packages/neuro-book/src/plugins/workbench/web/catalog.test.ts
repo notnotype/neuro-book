@@ -62,6 +62,12 @@ describe("工作台的界面目录（views.md 输出 23）", () => {
         expect(view.views.find((entry) => entry.id === "chat")?.actions).toEqual([]);
     });
 
+    it("标题栏上的按钮同外壳一样至多 8 个：再多的进“⋯”，不列", () => {
+        const extra = Array.from({length: 9}, (_, index) => descriptor<ViewTitleItemDeclaration>(`acme.extra.${String(index)}`, {view: "files", command: `acme.extra.${String(index)}`, section: "main", icon: "i-x"}));
+        const view = createWorkbenchCatalog({document: () => defaultLayoutDoc(VIEWS, CONTAINERS), views: VIEWS, containers: CONTAINERS, activityItems: ACTIVITY, viewTitleItems: [...VIEW_TITLE, ...extra], text: resolverFor(() => "zh-CN", workbenchTestText("zh-CN"))}).read();
+        expect(view.views.find((entry) => entry.id === "files")?.actions).toEqual(["acme.files.new", "acme.more.pin", ...Array.from({length: 6}, (_, index) => `acme.extra.${String(index)}`)]);
+    });
+
     it("容器按区域与入口的先后，带标题与成员视图；多个视图的容器列出每一个", () => {
         const doc = defaultLayoutDoc(VIEWS, CONTAINERS);
         const view = catalog(doc);

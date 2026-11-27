@@ -181,8 +181,8 @@ export const CAPTURE_MAX_BYTES = 512 * 1024;
 export const CAPTURE_MAX_EDGE = 1280;
 
 /**
- * 服务端调窗口（`provider: "client"`，只有服务端调）：选窗口时问 `info`，`ui` 的方法各一个；高亮要等用户，是订阅。窗口回复前按 UTF-8 量过大小
- * （核心包的上限），schema 里的字数与条数上限只是兜底。
+ * 服务端调窗口（`provider: "client"`，只有服务端调）：选窗口时问 `info`，`ui` 的方法各一个；高亮要等用户，是订阅。回复的大小由核心包的
+ * 快照预算与元素上限、目录的条数上限保证（输出 12），schema 里的字数与条数上限是兜底。
  */
 export const pageAgentWindowContract = defineRemoteService({
     id: `${PAGE_AGENT_PLUGIN}/window`,
