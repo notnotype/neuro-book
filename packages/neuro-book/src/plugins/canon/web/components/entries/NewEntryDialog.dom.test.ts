@@ -178,9 +178,14 @@ describe("NewEntryDialog", () => {
         expect(empty.root().textContent).toContain("新建条目");
         empty.wrapper.unmount();
 
-        const named = await dialog({...emptyDraft(), name: "星瑾", startKind: "人物"});
+        const named = await dialog({...emptyDraft(), name: "星瑾", startKind: "人物", kind: "人物", kindChosen: "人物"});
         expect(named.root().textContent).toContain("新建人物");
+        // 改选了别的种类：标题回到“新建条目”，不与下面的种类对不上。
+        await named.wrapper.setProps({draft: {...named.wrapper.props("draft"), kind: "地点", kindChosen: "地点"}});
+        expect(named.root().textContent).not.toContain("新建人物");
         named.inputs()[0]!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", isComposing: true, bubbles: true, cancelable: true}));
+        // WebKit 在组字结束后才发选词的那次回车：isComposing 为假、keyCode 是 229。
+        named.inputs()[0]!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", keyCode: 229, bubbles: true, cancelable: true}));
         expect(named.wrapper.emitted("confirm")).toBeUndefined();
         named.inputs()[0]!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         expect(named.wrapper.emitted("confirm")).toHaveLength(1);
@@ -196,10 +201,18 @@ describe("NewEntryDialog", () => {
         expect(restore(same.root)).toBeNull();
         same.wrapper.unmount();
 
+        // 还没选定种类：没有“某某的默认”可言，不出。
+        const kindless = await dialog({...emptyDraft(), types: ["t.panel"], typesTouched: true}, {items, kindDefaults});
+        expect(restore(kindless.root)).toBeNull();
+        kindless.wrapper.unmount();
+
         const changed = await dialog({...person, types: ["t.person"], typesTouched: true}, {items, kindDefaults});
         expect(restore(changed.root)?.textContent?.trim()).toBe("恢复人物的默认");
+        restore(changed.root)!.focus();
         restore(changed.root)!.click();
         expect(changed.wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]).toMatchObject({types: ["t.person", "t.look"], typesTouched: false});
+        // 按钮随即淡出：焦点交给勾选列表的搜索框，不落到 body。
+        expect(document.activeElement).toBe(changed.root().querySelector("[data-component-checklist] input"));
     });
 
     it("位置与出场：收起时段头写现在的值；选了本体，上级跟着它、写“某某（跟着本体）”；清掉本体，上级也清掉", async () => {
@@ -220,5 +233,14 @@ describe("NewEntryDialog", () => {
         expect(summary()).toBe("人物 · 星瑕的马甲 · 第 2 章出场");
         await waitUntil("上级写成跟着本体", () => opened.root().querySelector("[data-new-entry-following]")?.textContent?.trim() === "星瑕（跟着本体）");
         expect(opened.root().querySelector("[data-new-entry-parent] input")).toBeNull();
+
+        // 清掉本体：上级也清掉，上级的选择器回来。
+        const clear = [...opened.root().querySelectorAll<HTMLButtonElement>("[data-new-entry-same-as] button")].find((button) => /清除|清空/u.test(button.getAttribute("aria-label") ?? ""));
+        expect(clear).toBeDefined();
+        clear!.click();
+        await opened.follow();
+        expect(opened.wrapper.props("draft")).toMatchObject({sameAs: null, sameAsName: "", parent: null, parentName: ""});
+        await waitUntil("上级的选择器回来", () => opened.root().querySelector("[data-new-entry-parent] input") !== null);
+        expect(opened.root().querySelector("[data-new-entry-following]")).toBeNull();
     });
 });

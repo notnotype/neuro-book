@@ -60,16 +60,28 @@ const chooseKind = (kind: string): void => {
     if (next !== props.draft) emit("update:draft", next);
 };
 const ready = computed(() => props.draft.name.trim() !== "" && !props.saving);
-/** 名字框里回车即新建（输入法组字时的回车只是选字）。 */
+/**
+ * 名字框里回车即新建。输入法组字时的回车只是选字：Chrome 在组字中发的回车 `isComposing` 为真；WebKit（macOS 上的桌面壳）在组字
+ * 结束后才发选词的那次回车，`isComposing` 已为假、`keyCode` 是 229（同 ComponentChecklist）。
+ */
 const onNameEnter = (event: KeyboardEvent): void => {
-    if (event.isComposing || !ready.value) return;
+    if (event.isComposing || event.keyCode === 229 || !ready.value) return;
     event.preventDefault();
     emit("confirm");
 };
 
-/** 勾选作者动过、又与选定种类的默认不同：出“恢复某某的默认”（没登记默认的种类，默认是一组都不勾）。 */
+/**
+ * 勾选作者动过、又与选定种类的默认不同：出“恢复某某的默认”（没登记默认的种类，默认是一组都不勾）。还没选定种类时没有“某某的默认”
+ * 可言，不出。
+ */
 const defaults = computed(() => byKind(props.kindDefaults, props.draft.kindChosen) ?? []);
-const differs = computed(() => props.draft.typesTouched && [...props.draft.types].sort().join(",") !== [...defaults.value].sort().join(","));
+const differs = computed(() => props.draft.kindChosen !== "" && props.draft.typesTouched && [...props.draft.types].sort().join(",") !== [...defaults.value].sort().join(","));
+/** 点了“恢复默认”：按钮随即淡出，焦点交给勾选列表的搜索框，不落到 body（同预设按钮按完的去处）。 */
+const checklist = ref<{focus(): void} | null>(null);
+const restore = (): void => {
+    emit("update:draft", restoreDefaults(props.draft, props.kindDefaults));
+    checklist.value?.focus();
+};
 
 /* ---------- 位置与出场 ---------- */
 
@@ -103,7 +115,7 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
     <Dialog
         :open="props.open"
         size="lg"
-        :title="props.draft.startKind === '' ? text('newEntry.title') : text('newEntry.titleKind', {kind: props.draft.startKind})"
+        :title="props.draft.startKind !== '' && props.draft.kindChosen === props.draft.startKind ? text('newEntry.titleKind', {kind: props.draft.startKind}) : text('newEntry.title')"
         show-cancel
         :busy="props.saving"
         :status="props.error"
@@ -111,107 +123,108 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
         @update:open="(value: boolean) => emit('update:open', value)"
     >
         <div class="new-entry-frame">
-        <div class="new-entry" data-new-entry>
-            <div class="new-entry__self">
-                <Field :label="text('newEntry.name')" required>
-                    <Input :model-value="props.draft.name" @update:model-value="(value: string) => patch({name: value})" @keydown.enter="onNameEnter" />
-                </Field>
-                <Field :label="text('newEntry.kind')">
-                    <!-- 失焦算选定种类：focusout 会冒泡，挂在外面一层，不靠 Input 透传原生事件。 -->
-                    <div class="flex flex-col gap-2" @focusout="(event: FocusEvent) => (event.target as HTMLElement).tagName === 'INPUT' && chooseKind(props.draft.kind)">
-                        <Input :model-value="props.draft.kind" :placeholder="text('newEntry.kindPlaceholder')" @update:model-value="(value: string) => patch({kind: value, ...(props.draft.folderTouched ? {} : {folder: value})})" />
-                        <div v-if="props.kinds.length > 0" class="flex flex-wrap gap-1.5" role="group" :aria-label="text('newEntry.commonKinds')" data-new-entry-kinds>
-                            <!-- 候选是看得出能点的按钮；选定的那个用强调色浅底（选中、当前是强调色的分工）。 -->
-                            <Button
-                                v-for="kind in props.kinds"
-                                :key="kind"
-                                size="sm"
-                                variant="subtle"
-                                class="new-entry__kind"
-                                :aria-pressed="props.draft.kindChosen === kind"
-                                @click="chooseKind(kind)"
-                            >{{ kind }}</Button>
+            <div class="new-entry" :class="props.items.length === 0 ? 'new-entry--single' : ''" data-new-entry>
+                <div class="new-entry__self">
+                    <Field :label="text('newEntry.name')" required>
+                        <Input :model-value="props.draft.name" @update:model-value="(value: string) => patch({name: value})" @keydown.enter="onNameEnter" />
+                    </Field>
+                    <Field :label="text('newEntry.kind')">
+                        <!-- 失焦算选定种类：focusout 会冒泡，挂在外面一层，不靠 Input 透传原生事件。 -->
+                        <div class="flex flex-col gap-2" @focusout="(event: FocusEvent) => (event.target as HTMLElement).tagName === 'INPUT' && chooseKind(props.draft.kind)">
+                            <Input :model-value="props.draft.kind" :placeholder="text('newEntry.kindPlaceholder')" @update:model-value="(value: string) => patch({kind: value, ...(props.draft.folderTouched ? {} : {folder: value})})" />
+                            <div v-if="props.kinds.length > 0" class="flex flex-wrap gap-1.5" role="group" :aria-label="text('newEntry.commonKinds')" data-new-entry-kinds>
+                                <!-- 候选是看得出能点的按钮；选定的那个用强调色浅底加一个勾（选中、当前是强调色的分工；不只靠颜色）。 -->
+                                <Button
+                                    v-for="kind in props.kinds"
+                                    :key="kind"
+                                    size="sm"
+                                    variant="subtle"
+                                    class="new-entry__kind"
+                                    :aria-pressed="props.draft.kindChosen === kind"
+                                    @click="chooseKind(kind)"
+                                ><span v-if="props.draft.kindChosen === kind" class="i-lucide-check size-3.5" aria-hidden="true" />{{ kind }}</Button>
+                            </div>
                         </div>
+                    </Field>
+                    <div class="new-entry__section">
+                        <Collapsible :open="placeOpen" @update:open="(value: boolean) => (placeOpen = value)">
+                            <template #trigger>
+                                <button type="button" class="new-entry__section-head" data-new-entry-place>
+                                    <span class="i-lucide-chevron-right new-entry__chevron" :data-open="placeOpen ? '' : undefined" aria-hidden="true" />
+                                    <span class="new-entry__section-label">{{ text("newEntry.place") }}</span>
+                                    <span class="new-entry__section-summary" data-new-entry-place-summary>{{ placeSummary }}</span>
+                                </button>
+                            </template>
+                            <div class="new-entry__section-body">
+                                <Field :label="text('newEntry.folder')">
+                                    <SuggestInput
+                                        size="md"
+                                        :model-value="shownFolder"
+                                        :suggestions="folderSuggestions"
+                                        :label="text('newEntry.folder')"
+                                        :placeholder="text('newEntry.noFolder')"
+                                        @update:model-value="(value: string) => patch({folder: value, folderTouched: true})"
+                                    />
+                                </Field>
+                                <Field :label="text('newEntry.sameAs')" data-new-entry-same-as>
+                                    <!-- 选了本体以后上级跟着它（输出 4），下面那一项写成“某某（跟着本体）”。 -->
+                                    <EntryPicker
+                                        :model-value="props.draft.sameAs"
+                                        :selected-name="props.draft.sameAsName"
+                                        :results="props.sameAsResults"
+                                        :placeholder="text('newEntry.none')"
+                                        clearable
+                                        @search="(query: string) => emit('search-same-as', query)"
+                                        @update:model-value="pickSameAs"
+                                    />
+                                </Field>
+                                <Field :label="text('newEntry.parent')" data-new-entry-parent>
+                                    <p v-if="following" class="new-entry__following" data-new-entry-following>
+                                        <span class="i-lucide-link-2 size-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />{{ text("newEntry.followsSameAs", {name: props.draft.sameAsName}) }}
+                                    </p>
+                                    <EntryPicker
+                                        v-else
+                                        :model-value="props.draft.parent"
+                                        :selected-name="props.draft.parentName"
+                                        :results="props.parentResults"
+                                        :placeholder="text('newEntry.root')"
+                                        clearable
+                                        @search="(query: string) => emit('search-parent', query)"
+                                        @update:model-value="(value: string | null) => patch({parent: value, parentName: value === null ? '' : nameIn(props.parentResults, value)})"
+                                    />
+                                </Field>
+                                <Field :label="text('newEntry.appears')">
+                                    <SearchSelect :options="appearsOptions" :model-value="props.draft.appears ?? START" @update:model-value="(value: string) => patch({appears: value === START ? null : value})" />
+                                </Field>
+                            </div>
+                        </Collapsible>
                     </div>
-                </Field>
-                <div class="new-entry__section">
-                    <Collapsible :open="placeOpen" @update:open="(value: boolean) => (placeOpen = value)">
-                        <template #trigger>
-                            <button type="button" class="new-entry__section-head" data-new-entry-place>
-                                <span class="i-lucide-chevron-right new-entry__chevron" :data-open="placeOpen ? '' : undefined" aria-hidden="true" />
-                                <span class="new-entry__section-label">{{ text("newEntry.place") }}</span>
-                                <span class="new-entry__section-summary" data-new-entry-place-summary>{{ placeSummary }}</span>
-                            </button>
-                        </template>
-                        <div class="new-entry__section-body">
-                            <Field :label="text('newEntry.folder')">
-                                <SuggestInput
-                                    size="md"
-                                    :model-value="shownFolder"
-                                    :suggestions="folderSuggestions"
-                                    :label="text('newEntry.folder')"
-                                    :placeholder="text('newEntry.noFolder')"
-                                    @update:model-value="(value: string) => patch({folder: value, folderTouched: true})"
-                                />
-                            </Field>
-                            <Field :label="text('newEntry.sameAs')" data-new-entry-same-as>
-                                <!-- 选了本体以后上级跟着它（输出 4），下面那一项写成“某某（跟着本体）”。 -->
-                                <EntryPicker
-                                    :model-value="props.draft.sameAs"
-                                    :selected-name="props.draft.sameAsName"
-                                    :results="props.sameAsResults"
-                                    :placeholder="text('newEntry.none')"
-                                    clearable
-                                    @search="(query: string) => emit('search-same-as', query)"
-                                    @update:model-value="pickSameAs"
-                                />
-                            </Field>
-                            <Field :label="text('newEntry.parent')" data-new-entry-parent>
-                                <p v-if="following" class="new-entry__following" data-new-entry-following>
-                                    <span class="i-lucide-link-2 size-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />{{ text("newEntry.followsSameAs", {name: props.draft.sameAsName}) }}
-                                </p>
-                                <EntryPicker
-                                    v-else
-                                    :model-value="props.draft.parent"
-                                    :selected-name="props.draft.parentName"
-                                    :results="props.parentResults"
-                                    :placeholder="text('newEntry.root')"
-                                    clearable
-                                    @search="(query: string) => emit('search-parent', query)"
-                                    @update:model-value="(value: string | null) => patch({parent: value, parentName: value === null ? '' : nameIn(props.parentResults, value)})"
-                                />
-                            </Field>
-                            <Field :label="text('newEntry.appears')">
-                                <SearchSelect :options="appearsOptions" :model-value="props.draft.appears ?? START" @update:model-value="(value: string) => patch({appears: value === START ? null : value})" />
-                            </Field>
+                </div>
+                <!-- 右栏不撑高这一行：高度跟左栏走（窄时上下排，按自己的高度），列表在栏里滚，右下不留空白。 -->
+                <div v-if="props.items.length > 0" class="new-entry__groups">
+                    <div class="new-entry__groups-inner" role="group" :aria-labelledby="groupsLabel" data-nb-field-group>
+                        <!-- 标题这一行定高：“恢复某某的默认”只在动过勾选、又与默认不同时出现，淡入淡出，不推动列表。 -->
+                        <div class="new-entry__groups-head">
+                            <span :id="groupsLabel" class="text-[length:var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)]">{{ text("newEntry.types") }}</span>
+                            <Transition name="new-entry-restore">
+                                <Button v-if="differs" size="sm" variant="ghost" data-new-entry-restore @click="restore()">
+                                    <span class="i-lucide-rotate-ccw size-3.5" aria-hidden="true" />{{ text("newEntry.restore", {kind: props.draft.kindChosen}) }}
+                                </Button>
+                            </Transition>
                         </div>
-                    </Collapsible>
+                        <!-- 点预设不算作者动过勾选：之后换种类，勾选照旧跟着种类的默认换（输出 4）。 -->
+                        <ComponentChecklist
+                            ref="checklist"
+                            fill
+                            :items="props.items"
+                            :kind="props.draft.kindChosen"
+                            :presets="byKind(props.kindPresets, props.draft.kindChosen) ?? []"
+                            :model-value="props.draft.types"
+                            @update:model-value="(value: readonly string[], via: 'row' | 'preset') => patch({types: [...value], ...(via === 'preset' ? {} : {typesTouched: true})})"
+                        />
+                    </div>
                 </div>
             </div>
-            <!-- 右栏不撑高这一行：高度跟左栏走（窄时上下排，按自己的高度），列表在栏里滚，右下不留空白。 -->
-            <div v-if="props.items.length > 0" class="new-entry__groups">
-                <div class="new-entry__groups-inner" role="group" :aria-labelledby="groupsLabel" data-nb-field-group>
-                    <!-- 标题这一行定高：“恢复某某的默认”只在动过勾选、又与默认不同时出现，淡入淡出，不推动列表。 -->
-                    <div class="new-entry__groups-head">
-                        <span :id="groupsLabel" class="text-[length:var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)]">{{ text("newEntry.types") }}</span>
-                        <Transition name="new-entry-restore">
-                            <Button v-if="differs" size="sm" variant="ghost" data-new-entry-restore @click="emit('update:draft', restoreDefaults(props.draft, props.kindDefaults))">
-                                <span class="i-lucide-rotate-ccw size-3.5" aria-hidden="true" />{{ text("newEntry.restore", {kind: props.draft.kindChosen}) }}
-                            </Button>
-                        </Transition>
-                    </div>
-                    <!-- 点预设不算作者动过勾选：之后换种类，勾选照旧跟着种类的默认换（输出 4）。 -->
-                    <ComponentChecklist
-                        fill
-                        :items="props.items"
-                        :kind="props.draft.kindChosen"
-                        :presets="byKind(props.kindPresets, props.draft.kindChosen) ?? []"
-                        :model-value="props.draft.types"
-                        @update:model-value="(value: readonly string[], via: 'row' | 'preset') => patch({types: [...value], ...(via === 'preset' ? {} : {typesTouched: true})})"
-                    />
-                </div>
-            </div>
-        </div>
         </div>
         <template #footer="{cancel}">
             <Button variant="ghost" :disabled="props.saving" @click="cancel()">{{ text("edit.cancel") }}</Button>
@@ -222,8 +235,9 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
 
 <style scoped>
 /*
- * 两栏各一半，行高取两栏里高的那个：右栏的勾选列表封顶 24rem、在里面滚，左栏展开“位置与出场”变高时右栏跟着拉长，两边都不留大块空白。
- * 按对话框自己的宽度（容器查询）决定窄时上下排：对话框在窄的编辑区或窗口里都按它自己量。
+ * 两栏各一半。行高只由左栏决定（至少 17rem，收起时右栏的列表也看得下几行）：右栏绝对定位、不参与撑高，正好与左栏等高，列表在
+ * 里面滚；左栏展开“位置与出场”变高时右栏跟着拉长，两边都不留大块空白。没有登记的类型（还没读到、一个也没有）时只有左栏一列。
+ * 按对话框自己的宽度（容器查询）决定窄时上下排：对话框在窄的编辑区或窗口里都按它自己量；上下排时右栏按自己的高度、列表封顶。
  */
 .new-entry-frame {
     container-type: inline-size;
@@ -231,7 +245,12 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
 .new-entry {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(17rem, auto);
     gap: 16px 32px;
+}
+.new-entry--single {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
 }
 .new-entry__self {
     display: flex;
@@ -240,15 +259,13 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
     gap: 12px;
 }
 .new-entry__groups {
-    display: flex;
+    position: relative;
     min-width: 0;
-    max-height: 24rem;
-    flex-direction: column;
 }
 .new-entry__groups-inner {
+    position: absolute;
+    inset: 0;
     display: flex;
-    min-height: 0;
-    flex: 1;
     flex-direction: column;
     gap: 6px;
 }
@@ -262,14 +279,16 @@ const appearsOptions = computed(() => [{value: START, label: text("newEntry.from
 @container (max-width: 560px) {
     .new-entry {
         grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto;
     }
-    .new-entry__groups {
+    .new-entry__groups-inner {
+        position: static;
         max-height: 20rem;
     }
 }
 .new-entry__kind[aria-pressed="true"] {
-    background: color-mix(in srgb, var(--accent-main) 14%, transparent);
-    color: var(--accent-main);
+    background: var(--accent-bg);
+    color: var(--accent-text);
 }
 .new-entry__section {
     border-block: var(--border-w) solid var(--divider);

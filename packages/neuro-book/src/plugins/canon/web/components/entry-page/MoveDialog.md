@@ -5,7 +5,7 @@
 
 # MoveDialog
 
-把一个条目挪到别处、改它在树里的位置与身份（[`canon/author-ui.md`](../../../../../../../../docs/specs/canon/author-ui.md) 的“移动到……”）：上级、分组、种类、在同一层的顺序、从哪里出场、它是谁的另一个身份。确认后宿主发一次改几处的 `place`（只带改了的几项）。受控：填的东西（`MoveDraft`，`move-dialog.ts`）由宿主给，每改一项发新的完整草稿；上级与另一个身份用 `EntryPicker`，搜索词经事件交给宿主、结果经属性传回。
+把一个条目挪到别处、改它在树里的位置与身份（[`canon/author-ui.md`](../../../../../../../../docs/specs/canon/author-ui.md) 的“移动到……”）：上级条目、分组、种类、在同一层的顺序、出场、是谁的马甲。确认后宿主发一次改几处的 `place`（只带改了的几项）。受控：填的东西（`MoveDraft`，`move-dialog.ts`）由宿主给，每改一项发新的完整草稿；上级条目与马甲用 `EntryPicker`，搜索词经事件交给宿主、结果经属性传回。
 
 ## 布局与交互
 
@@ -27,7 +27,7 @@ type MoveDialogProps = {
     /** 要移动的条目：名字写在标题里，id 在两个选择器里排除。 */
     entry: {readonly id: string; readonly name: string};
     draft: MoveDraft;
-    /** 上级、另一个身份两个选择器各自的查找结果（`useEntryFind`）。 */
+    /** 上级条目、是谁的马甲两个选择器各自的查找结果（`useEntryFind`）。 */
     parentResults: EntryResults;
     sameAsResults: EntryResults;
     chapters?: readonly {readonly id: string; readonly index: number}[];

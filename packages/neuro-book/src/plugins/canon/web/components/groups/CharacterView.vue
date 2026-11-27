@@ -15,6 +15,7 @@ import {LOOK_PICK_KEY} from "../../look-handoff";
 import {fieldRows} from "../../rows";
 import {useCanonText} from "../../text";
 import CharacterCard from "./CharacterCard.vue";
+import {portraitImage} from "./character-card";
 import type {CardFact, CardPassage, CardPortrait} from "./character-card";
 
 const props = defineProps<{context: ComponentViewContext}>();
@@ -62,8 +63,8 @@ const passages = computed(() => Object.entries(PASSAGES).filter(([id]) => declar
 const portrait = computed<CardPortrait>(() => {
     const other = context.other?.(LOOK_COMPONENT) ?? {status: "unavailable" as const};
     if (other.status === "present") {
-        const value = other.peer.fields["立绘"]?.value as {readonly 图片?: unknown; readonly 说明?: unknown} | null | undefined;
-        return typeof value?.["图片"] === "string" && value["图片"] !== "" ? {status: "image", path: value["图片"], alt: typeof value["说明"] === "string" ? value["说明"] : ""} : {status: "no-image"};
+        const image = portraitImage(other.peer.fields["立绘"]?.value);
+        return image === null ? {status: "no-image"} : {status: "image", ...image};
     }
     return other.status === "later" ? {status: "later", from: other.from} : {status: other.status};
 });

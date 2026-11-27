@@ -1,6 +1,6 @@
 /** 移动对话框（同名 `MoveDialog.md`）填的东西：受控，宿主给初值、收 `confirm`。 */
 export interface MoveDraft {
-    /** 上级；null 是最上面一层。 */
+    /** 上级条目；null 是没有上级（界面写“无”）。 */
     parent: string | null;
     /** 上级的名字（选择器里显示）。 */
     parentName: string;

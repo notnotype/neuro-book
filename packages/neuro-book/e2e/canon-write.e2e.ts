@@ -173,7 +173,7 @@ async function discardDraft(page: Page): Promise<void> {
 const dirtyLabel = (page: Page) => entryPage(page).locator("[data-text-dirty]");
 const tabDot = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]");
 
-test("作者从空作品起步：空状态里新建人物，条目页上改性格、开始写主文字并用 Ctrl+S 提交、加别名", async ({page}) => {
+test("作者从空作品起步：空状态里新建人物，条目页上改性格、从“写点什么…”开始写主文字并用 Ctrl+S 提交、加别名", async ({page}) => {
     await open(page);
     const empty = page.locator("[data-entries-empty]");
     await showTree(page, empty);
@@ -198,7 +198,7 @@ test("作者从空作品起步：空状态里新建人物，条目页上改性�
     await expect(fieldValue(page, "character.性格")).toHaveText("银白长发");
 
     await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
-    await expect(entryPage(page).locator("[data-text-empty]")).toHaveText("还没有主文字");
+    await expect(entryPage(page).locator("[data-text-empty]")).toHaveText("写点什么…");
     await entryPage(page).getByRole("button", {name: "开始写"}).click();
     // 进来缺省是富文本、一个空的输入框；还没写字时标签没有未保存的圆点（author-ui 输出 39、48）。
     await expect(richInput(page)).toHaveCount(1);

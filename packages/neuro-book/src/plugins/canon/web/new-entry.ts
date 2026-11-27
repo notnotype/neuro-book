@@ -17,11 +17,11 @@ export interface NewEntryDraft {
     /** 分组；作者没改过时跟着种类。 */
     folder: string;
     folderTouched: boolean;
-    /** 上级条目；null 是没有（最上面一层）。 */
+    /** 上级条目；null 是没有上级（界面写“无”）。 */
     parent: string | null;
     /** 上级条目的名字：选择器与段头的摘要显示用；宿主预填上级时一并给。 */
     parentName: string;
-    /** 启用哪些数据：登记的类型 id。作者没动过勾选时跟着种类换成它的默认（`withKind`）。 */
+    /** 设定组：登记的类型 id。作者没动过勾选时跟着种类换成它的默认（`withKind`）。 */
     types: string[];
     typesTouched: boolean;
     /** 是谁的马甲（本体）；没有为 null。选了以后上级跟着它。 */

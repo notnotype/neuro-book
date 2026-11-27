@@ -1710,7 +1710,10 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         const withLook = person("星瑕");
         withLook.init.data.look = structuredClone(LOOK);
         const without = person("星瑾");
-        const ids = await publish(other.canon, [withLook, without]);
+        // 有形象这一组、立绘没有图，第 2 章开头出场：页头不画头像，右栏写“第 2 章开头”。
+        const blankLook = person("哥哥", {appears: {kind: "chapter", chapter: "2", key: 0}});
+        blankLook.init.data.look = {...structuredClone(LOOK), fields: {...structuredClone(LOOK.fields), 立绘: null}};
+        const ids = await publish(other.canon, [withLook, without, blankLook]);
         const first = await open(ids[withLook.id]!);
         first.state.tab = "data:character";
         await waitUntil("立绘", () => first.wrapper.find("[data-portrait='image'] [data-canon-image='插图/星瑕.png']").exists());
@@ -1727,6 +1730,10 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         second.state.tab = "data:character";
         await waitUntil("没有形象：添加立绘", () => second.wrapper.find("[data-portrait='absent']").exists());
         expect(second.wrapper.find("[data-entry-portrait]").exists()).toBe(false);
+
+        const third = await open(ids[blankLook.id]!);
+        await waitUntil("右栏写第 2 章开头", () => third.wrapper.find("[data-entry-facts]").exists() && third.wrapper.get("[data-entry-facts]").text().includes("第 2 章开头"));
+        expect(third.wrapper.find("[data-entry-portrait]").exists()).toBe(false);
         await second.wrapper.get("[data-portrait]").trigger("click");
         // 一次到位：加上形象、等它的分页出现后切过去，立绘的选图（锚在立绘上的就地改浮层）已经开着。
         await waitUntil("切到形象分页、选图开着", () => second.state.tab === "data:look" && document.body.querySelector("[data-field-editor='look.立绘']") !== null);

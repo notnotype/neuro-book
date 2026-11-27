@@ -349,7 +349,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                         [LOOK_COMPONENT]: componentView(() => import("./components/groups/LookView.vue")),
                         [PANEL_TYPE]: componentView(() => import("./components/groups/PanelDataView.vue")),
                     },
-                    [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState), pickLine}),
+                    [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent, {nearSelected: true}), pendingShown: () => pickFirstPending(pendingState), pickLine}),
                 },
             };
         },

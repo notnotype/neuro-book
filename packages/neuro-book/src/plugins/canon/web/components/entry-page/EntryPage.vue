@@ -377,7 +377,7 @@ watch(rail, async () => {
                                     v-if="props.editable"
                                     type="button"
                                     class="entry-editable -mx-1.5 mt-1 flex max-w-[calc(100%_+_0.75rem)] items-center gap-1.5 px-1.5 text-left text-[length:var(--text-sm)]"
-                                    :title="portraitShown && props.summary !== '' ? props.summary : blockedReason"
+                                    :title="blockedReason ?? (portraitShown && props.summary !== '' ? props.summary : undefined)"
                                     :class="props.summary === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'"
                                     :disabled="blockedReason !== undefined"
                                     :aria-label="props.summary === '' ? text('entry.addSummary') : `${text('entry.editSummary')}：${props.summary}`"
@@ -499,8 +499,8 @@ watch(rail, async () => {
  * 一栏时的 760。上限的变化不加过渡：过渡的中途内容列会越过左右分屏的分界，版式在动画中间跳一下。
  */
 /*
- * 页头两栏（输出 6）：左栏弹性，右栏定宽 240、左边一条发丝线；按页头自己的宽度（容器查询）在放不下两栏时把右栏折到下面成一行，
- * 不要竖线。头像 88 见方：名字一行、简介一行（放头像时截断）、别名一行加两处间距正好 88。
+ * 页头两栏（输出 6）：左栏弹性，右栏按内容定宽、左边一条发丝线；按页头自己的宽度（容器查询）在放不下两栏时把右栏折到下面成一行，
+ * 不要竖线（折行是排法的切换，跟着编辑区宽度变，不加过渡，同竖排与横排的分页）。
  */
 .entry-head {
     container-type: inline-size;
@@ -510,16 +510,19 @@ watch(rail, async () => {
     align-items: stretch;
     gap: 8px 32px;
 }
+/* 左栏按自己的文字定高（不被右栏拉高）：头像随它拉伸，顶齐名字、底齐别名。 */
 .entry-head__who {
     display: flex;
     min-width: 0;
     flex: 1;
-    align-items: flex-start;
+    align-self: flex-start;
+    align-items: stretch;
     gap: 16px;
 }
+/* 头像宽 88、至少 88 高，随左栏的文字拉伸：名字或别名折成两行时底边仍齐别名那一行。 */
 .entry-head__portrait {
     width: 88px;
-    height: 88px;
+    min-height: 88px;
     flex-shrink: 0;
     overflow: hidden;
     border-radius: var(--radius-panel);
@@ -528,16 +531,26 @@ watch(rail, async () => {
 .entry-head__portrait:hover {
     opacity: 0.9;
 }
+/* 图片铺满头像框、不参与撑高：头像的高度只跟左栏的文字走，立绘自己的比例不把它撑长。 */
+.entry-head__portrait {
+    position: relative;
+}
+.entry-head__portrait > :deep(*) {
+    position: absolute;
+    inset: 0;
+}
 .entry-head__portrait :deep(img) {
     width: 100%;
     height: 100%;
     object-fit: cover;
     object-position: top;
 }
+/* 右栏按内容定宽（至少 240、至多页头的 45%）：“在看”连同左边的标记（“这时还没出场”）与英文界面的长写法都放得下。 */
 .entry-head__where {
     display: flex;
-    width: 240px;
-    flex-shrink: 0;
+    min-width: 240px;
+    max-width: 45%;
+    flex: 0 1 auto;
     flex-direction: column;
     justify-content: space-between;
     gap: 8px;
@@ -547,7 +560,8 @@ watch(rail, async () => {
 .entry-head__facts {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 2px 16px;
+    align-items: center;
+    gap: 0 16px;
     margin: 0;
     font-size: var(--text-sm);
 }
@@ -559,7 +573,11 @@ watch(rail, async () => {
     margin: 0;
     color: var(--text-main);
 }
+/* 可点区域至少 24 高（开发规范第 5 节第 10 条）。 */
 .entry-head__fact {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
     margin-inline: -4px;
     padding-inline: 4px;
     text-align: left;
@@ -571,8 +589,12 @@ watch(rail, async () => {
     .entry-head__row {
         flex-direction: column;
     }
+    .entry-head__who {
+        align-self: stretch;
+    }
     .entry-head__where {
-        width: auto;
+        max-width: none;
+        min-width: 0;
         flex-direction: row;
         flex-wrap: wrap;
         align-items: center;

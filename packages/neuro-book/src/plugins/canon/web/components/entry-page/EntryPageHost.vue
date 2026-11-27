@@ -74,6 +74,7 @@ import type {ElementField} from "../editing/element-dialog";
 import type {EditIntent} from "../editing/confirm-bar";
 import type {MoveDraft} from "./move-dialog";
 import {foundCandidate, useEntryFind} from "../entries/entry-picker";
+import {portraitImage} from "../groups/character-card";
 import OriginList from "../groups/OriginList.vue";
 import PlotList from "../groups/PlotList.vue";
 
@@ -1292,19 +1293,21 @@ const dataView = computed<{readonly component: Component | null; readonly loadin
 
 const rows = computed(() => positionChapters(chapters.value));
 const notAppeared = computed(() => view.value !== null && !view.value.appeared);
-/** 页头右栏的出场（输出 6）：存的是安放，界面写“一开始就在”或“第 N 章开头”；那一章不在章表里（删掉了）时读不出章号，写“一开始就在”。 */
+/**
+ * 页头右栏的出场（输出 6）：存的是安放。没有时写“一开始就在”，章表里的一章写“第 N 章开头”；前史、未安放与已不在章表里的章照
+ * 安放的叫法写（“前史”“未安放”），不说成“一开始就在”，免得与“在看”上“这时还没出场”的标记对不上。
+ */
 const appearsText = computed(() => {
     const appears = entry.value?.appears ?? null;
-    if (appears === null || appears.kind !== "chapter") return text("newEntry.fromStart");
-    const index = chapters.value.find((chapter) => chapter.id === appears.chapter)?.index;
-    return index === undefined ? text("newEntry.fromStart") : text("newEntry.chapterStart", {index});
+    if (appears === null) return text("newEntry.fromStart");
+    const index = appears.kind === "chapter" ? chapters.value.find((chapter) => chapter.id === appears.chapter)?.index : undefined;
+    return index === undefined ? place(appears) : text("newEntry.chapterStart", {index});
 });
-/** 页头的头像（输出 6）：形象这组设定在这个位置上的立绘，有图才给；同人物分页的立绘那一格的读法。 */
+/** 页头的头像（输出 6）：形象这组设定在这个位置上的立绘，有图才给（与人物分页的立绘那一格同一个读法 `portraitImage`）。 */
 const lookNamespace = computed(() => Object.entries(view.value?.namespaces ?? {}).find(([, data]) => data.type === LOOK_COMPONENT)?.[0] ?? null);
 const portrait = computed(() => {
     const namespace = lookNamespace.value;
-    const value = namespace === null ? undefined : (view.value!.namespaces[namespace]!.fields["立绘"]?.value as {readonly 图片?: unknown; readonly 说明?: unknown} | null | undefined);
-    return typeof value?.["图片"] === "string" && value["图片"] !== "" ? {path: value["图片"], alt: typeof value["说明"] === "string" ? value["说明"] : ""} : null;
+    return namespace === null ? null : portraitImage(view.value!.namespaces[namespace]!.fields["立绘"]?.value);
 });
 const setPosition = (value: string): void => {
     state.position = positionFromValue(value) === null ? null : value;

@@ -74,6 +74,10 @@ describe("EntryPage", () => {
         await withPortrait.get("[data-entry-portrait]").trigger("click");
         expect(withPortrait.emitted("open-look")).toHaveLength(1);
         expect(withPortrait.get("[data-edit='entry.summary'] span").classes()).toContain("truncate");
+        // 截断时悬停看全文；写不了时悬停先写原因。
+        expect(withPortrait.get("[data-edit='entry.summary']").attributes("title")).toBe("星瑕的另一个身份");
+        await withPortrait.setProps({editReason: "先不算计划"});
+        expect(withPortrait.get("[data-edit='entry.summary']").attributes("title")).toBe("先不算计划");
     });
 
     it("换分页时内容换成新的一页，过渡的方向跟着列表里的先后：往后切从后方进来，往前切从前方（输出 9）", async () => {

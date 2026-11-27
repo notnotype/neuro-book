@@ -43,7 +43,10 @@ export interface EntriesViewState {
     readonly selected: ShallowRef<string | undefined>;
     /** 开着的新建条目对话框里填的东西；关着时为 null。 */
     readonly creating: ShallowRef<NewEntryDraft | null>;
-    /** 树里选中的那一项所在的位置（它的上级与分组）：标题栏的“新建条目”预填成它，新建在它同一层（输出 4）。没选中、选中的不在树里时为 null。 */
+    /**
+     * 树里选中的那一项所在的位置（它的上级，与不等于它种类的分组）：标题栏的“新建条目”预填成它，新建在它同一层（输出 4）。没选中、
+     * 选中的不在树里时为 null。
+     */
     readonly near: ShallowRef<NewEntryPlace | null>;
 }
 
@@ -72,11 +75,12 @@ export interface EntriesViewHostOptions {
 }
 
 /**
- * 打开新建条目的对话框（命令与右键菜单用）：给了 `parent`（右键“在它下面新建”）就建在它下面，上级的名字由视图宿主补上；没给（标题栏的
- * “新建条目”）就建在树里选中的那一项同一层（输出 4）。
+ * 打开新建条目的对话框：给了 `parent`（右键“在它下面新建”）就建在它下面，上级的名字由视图宿主补上。没给时看入口：标题栏的“新建
+ * 条目”（命令，`nearSelected`）建在树里选中的那一项同一层（输出 4）；树里右键空白处、分组行与空状态的按钮建在最上面一层。
  */
-export function startNewEntry(state: EntriesViewState, parent: string | null): void {
-    state.creating.value = parent !== null ? emptyDraft({parent: {id: parent, name: ""}}) : emptyDraft(state.near.value ?? {});
+export function startNewEntry(state: EntriesViewState, parent: string | null, options: {readonly nearSelected?: boolean} = {}): void {
+    if (parent !== null) state.creating.value = emptyDraft({parent: {id: parent, name: ""}});
+    else state.creating.value = emptyDraft(options.nearSelected === true ? (state.near.value ?? {}) : {});
 }
 
 /** 空状态的“新建人物”（author-ui.md 输出 37）：种类预填“人物”、分组跟着种类、勾上这个种类的默认设定组。 */
@@ -135,16 +139,22 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 const id = state.selected.value;
                 return id !== undefined && Object.values(layers.value).some((layer) => layer.items.some((item) => item.id === id)) ? id : undefined;
             });
-            // 选中的那一项在哪一层、哪个分组：标题栏的“新建条目”照它预填（startNewEntry）。上级的名字从上一层里读到的那一项取。
-            watch([selected, layers], () => {
+            // 选中的那一项在哪一层、哪个分组：标题栏的“新建条目”照它预填（startNewEntry）。分组等于它种类的是缺省（作者没改过），
+            // 不预填，让新条目的分组照旧跟着新条目的种类；上级的名字从上一层里读到的那一项取。
+            const near = computed<NewEntryPlace | null>(() => {
                 const id = selected.value;
-                const found = id === undefined ? undefined : Object.entries(layers.value).flatMap(([parent, layer]) => layer.items.filter((item) => item.id === id).map((item) => ({parent, item})))[0];
-                if (found === undefined) {
-                    state.near.value = null;
-                    return;
+                if (id === undefined) return null;
+                const all = [...handles.value.values()].flatMap((held) => held.list.state.value.items);
+                for (const [parent, held] of handles.value) {
+                    const item = held.list.state.value.items.find((candidate) => candidate.id === id);
+                    if (item === undefined) continue;
+                    const above = parent === ROOT ? undefined : all.find((candidate) => candidate.id === parent);
+                    return {parent: parent === ROOT ? null : {id: parent, name: above?.nameAt ?? above?.name ?? ""}, ...(item.folder === item.type ? {} : {folder: item.folder})};
                 }
-                const parentItem = found.parent === ROOT ? undefined : Object.values(layers.value).flatMap((layer) => layer.items).find((item) => item.id === found.parent);
-                state.near.value = {parent: found.parent === ROOT ? null : {id: found.parent, name: parentItem?.name ?? ""}, folder: found.item.folder};
+                return null;
+            });
+            watch(near, (place) => {
+                state.near.value = place;
             }, {immediate: true});
 
             /* ---------- 新建条目 ---------- */

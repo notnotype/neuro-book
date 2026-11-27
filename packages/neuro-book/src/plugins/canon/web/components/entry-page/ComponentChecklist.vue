@@ -145,7 +145,7 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
             <div v-if="props.presets.length > 0" class="component-checklist__presets-wrap">
                 <div class="component-checklist__presets" role="group" :aria-label="text('entry.addGroup.presets')" data-checklist-presets>
                     <!-- 里面的几组都已勾上或已添加的预设不可用，画成选中的样子（强调色浅底），不画成灰的：灰的读起来像坏了（w00055 t04）。 -->
-                    <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" class="component-checklist__preset" :disabled="!presetUseful(preset)" :aria-pressed="!presetUseful(preset)" :data-preset="preset.id" @mousedown.prevent @click="applyPreset(preset)">{{ preset.label }}</Button>
+                    <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" class="component-checklist__preset" :disabled="!presetUseful(preset)" :aria-pressed="!presetUseful(preset)" :data-preset="preset.id" @mousedown.prevent @click="applyPreset(preset)"><span v-if="!presetUseful(preset)" class="i-lucide-check size-3.5" aria-hidden="true" />{{ preset.label }}</Button>
                 </div>
             </div>
         </Transition>
@@ -197,8 +197,8 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
     flex: 1;
 }
 .component-checklist__preset[aria-pressed="true"]:disabled {
-    background: color-mix(in srgb, var(--accent-main) 14%, transparent);
-    color: var(--accent-main);
+    background: var(--accent-bg);
+    color: var(--accent-text);
     opacity: 1;
 }
 .component-checklist__presets-wrap {

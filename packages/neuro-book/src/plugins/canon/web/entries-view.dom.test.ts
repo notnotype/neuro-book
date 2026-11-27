@@ -235,23 +235,33 @@ describe("设定视图", () => {
         expect(Object.keys(entry.init.data)).toEqual(["character", "look"]);
     });
 
-    it("标题栏的“新建条目”：树里选中了一项时，预填成它同一层（上级与分组）；没选中时都空着", async () => {
+    it("标题栏的“新建条目”：树里选中了一项时，预填成它同一层（上级，与不等于它种类的分组）；右键空白处、没选中时都空着", async () => {
         const {other, state, view} = await setup();
         const academy = person("学院", {type: "组织", folder: "组织"});
-        const council = person("学生会", {type: "组织", folder: "组织", parent: academy.id});
-        const ids = await publish(other.canon, [academy, council]);
+        const council = person("学生会", {type: "组织", folder: "学院组织", parent: academy.id});
+        const club = person("棋社", {type: "组织", folder: "组织", parent: academy.id});
+        const ids = await publish(other.canon, [academy, council, club]);
         state.expanded.value = ["folder:组织", ids[academy.id]!];
         const wrapper = view();
-        await waitUntil("条目出现", () => rowTexts(wrapper).includes("学生会"));
+        await waitUntil("条目出现", () => rowTexts(wrapper).includes("学生会") && rowTexts(wrapper).includes("棋社"));
 
-        startNewEntry(state, null);
+        startNewEntry(state, null, {nearSelected: true});
         expect(state.creating.value).toMatchObject({parent: null, folder: "", folderTouched: false});
         state.creating.value = null;
 
         state.selected.value = ids[council.id]!;
         await waitUntil("记下选中的那一项的位置", () => state.near.value !== null);
+        startNewEntry(state, null, {nearSelected: true});
+        expect(state.creating.value).toMatchObject({parent: ids[academy.id], parentName: "学院", folder: "学院组织", folderTouched: true});
+        // 树里右键空白处、分组行（不带 nearSelected）：照旧建在最上面一层，不跟着选中项。
         startNewEntry(state, null);
-        expect(state.creating.value).toMatchObject({parent: ids[academy.id], parentName: "学院", folder: "组织", folderTouched: true});
+        expect(state.creating.value).toMatchObject({parent: null, parentName: "", folder: "", folderTouched: false});
+
+        // 选中项的分组就是它种类的缺省：只预填上级，分组留给新条目的种类。
+        state.selected.value = ids[club.id]!;
+        await waitUntil("换了选中项", () => state.near.value !== null && !("folder" in state.near.value));
+        startNewEntry(state, null, {nearSelected: true});
+        expect(state.creating.value).toMatchObject({parent: ids[academy.id], folder: "", folderTouched: false});
     });
 
     it("“人物”这个种类没登记时，空状态里没有“新建人物”", async () => {

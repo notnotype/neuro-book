@@ -49,3 +49,12 @@ export interface CardAddable {
     readonly id: string;
     readonly label: string;
 }
+
+/**
+ * 形象这组设定里“立绘”字段的值读成一张图：有图时是作品内路径与说明，没有图（未知、空、形状不对）时为 null。人物分页的立绘那一格
+ * 与条目页页头的头像（输出 6、49）共用这一个读法。
+ */
+export function portraitImage(value: unknown): {readonly path: string; readonly alt: string} | null {
+    const image = value as {readonly 图片?: unknown; readonly 说明?: unknown} | null | undefined;
+    return typeof image?.["图片"] === "string" && image["图片"] !== "" ? {path: image["图片"], alt: typeof image["说明"] === "string" ? image["说明"] : ""} : null;
+}
