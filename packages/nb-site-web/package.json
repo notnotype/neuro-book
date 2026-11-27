@@ -17,7 +17,9 @@
     },
     "dependencies": {
         "@notnotype/nb-site-identity-contract": "workspace:*",
+        "@notnotype/nb-site-telemetry-contract": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
+        "echarts": "6.1.0",
         "vue": "^3.5.24",
         "vue-router": "^5.1.0"
     },

@@ -5,6 +5,7 @@ import {computed} from "vue";
 import {useRoute} from "vue-router";
 
 import {useSiteText} from "../text";
+import AdminPageHead from "./admin/AdminPageHead.vue";
 
 const t = useSiteText();
 const route = useRoute();
@@ -15,6 +16,10 @@ const title = computed(() => (route.meta.titleKey === undefined ? "" : t(route.m
     <!-- 稿纸页的 `main` 是稿纸的卡片（`App.vue` 套上），这里只是卡片里的内容。 -->
     <div v-if="route.meta.layout === 'paper'" :data-site-page="String(route.name)">
         <h1>{{ title }}</h1>
+    </div>
+    <!-- 管理面板的 `main` 是外壳的内容区（`admin/AdminShell.vue`），这里只是其中的一页。 -->
+    <div v-else-if="route.meta.layout === 'admin'" :data-site-page="String(route.name)">
+        <AdminPageHead :title="title" />
     </div>
     <main v-else class="mx-auto max-w-[680px] px-6 py-16" :data-site-page="String(route.name)">
         <h1 class="text-xl font-semibold leading-tight">{{ title }}</h1>

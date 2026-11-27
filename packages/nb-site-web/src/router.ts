@@ -1,8 +1,11 @@
 /**
  * 路由表与守卫（t10 计划 3.1）。页面按需加载：访客的入口块里只有外壳与登录页（它就是主页，打开站点第一眼就要它），
- * 管理面板、看板（B5 起带 ECharts）点到才取。
+ * 管理面板、看板（带 ECharts）点到才取。
  *
- * 还没做的页面先挂同一个空壳 `ShellPage`，只显示路由的标题；各片做到那一页时换成自己的组件。看板从一开始就是单独的
+ * 管理面板的五页是 `/admin` 这条父路由的子路由：父路由的组件是管理面板的外壳（`admin/AdminShell.vue`，左栏导航与用户菜单），
+ * 单独一个块，五页共用，在它们之间切换时外壳不重建（计划 3.13）。访问级别与版式写在父路由上，子路由的 `meta` 合并它们。
+ *
+ * 还没做的页面先挂同一个空壳 `ShellPage`，只显示路由的标题；各片做到那一页时换成自己的组件。看板是单独的
  * `admin/DashboardPage.vue`：构建测试按它认出看板的块（ECharts 只许在那里）。
  */
 
@@ -63,11 +66,18 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
             {path: "/account", name: "account", component: () => import("./pages/account/AccountPage.vue"), meta: {access: "user", layout: "account", titleKey: "account.title"}},
             // 路径暂定，随 `site.oauth-provider` 的改写定（计划 3.1）。
             {path: "/oauth/consent", name: "oauth-consent", component: shell, meta: {access: "user", layout: "paper", titleKey: "oauthConsent.title"}},
-            {path: "/admin", name: "admin-dashboard", component: () => import("./pages/admin/DashboardPage.vue"), meta: {access: "admin", layout: "admin", titleKey: "admin.dashboard.title"}},
-            {path: "/admin/users", name: "admin-users", component: shell, meta: {access: "admin", layout: "admin", titleKey: "admin.users.title"}},
-            {path: "/admin/codes", name: "admin-codes", component: shell, meta: {access: "admin", layout: "admin", titleKey: "admin.codes.title"}},
-            {path: "/admin/clients", name: "admin-clients", component: shell, meta: {access: "admin", layout: "admin", titleKey: "admin.clients.title"}},
-            {path: "/admin/audit", name: "admin-audit", component: shell, meta: {access: "admin", layout: "admin", titleKey: "admin.audit.title"}},
+            {
+                path: "/admin",
+                component: () => import("./pages/admin/AdminShell.vue"),
+                meta: {access: "admin", layout: "admin"},
+                children: [
+                    {path: "", name: "admin-dashboard", component: () => import("./pages/admin/DashboardPage.vue"), meta: {titleKey: "admin.dashboard.title"}},
+                    {path: "users", name: "admin-users", component: shell, meta: {titleKey: "admin.users.title"}},
+                    {path: "codes", name: "admin-codes", component: shell, meta: {titleKey: "admin.codes.title"}},
+                    {path: "clients", name: "admin-clients", component: shell, meta: {titleKey: "admin.clients.title"}},
+                    {path: "audit", name: "admin-audit", component: shell, meta: {titleKey: "admin.audit.title"}},
+                ],
+            },
             {path: "/privacy", name: "privacy", component: shell, meta: {access: "public", layout: "plain", titleKey: "legal.privacy.title"}},
             {path: "/terms", name: "terms", component: shell, meta: {access: "public", layout: "plain", titleKey: "legal.terms.title"}},
             // `/admin/` 下没有的地址也落到这里，不按管理员守卫：没有的页对谁都是没有。

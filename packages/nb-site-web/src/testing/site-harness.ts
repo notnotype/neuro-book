@@ -12,6 +12,7 @@ import {expect, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
 import {startSite} from "../site";
+import {dashboardBodies, EMPTY_DASHBOARD} from "./dashboard-answers";
 import type {Site} from "../site";
 import {manualClock} from "./manual-clock";
 import type {ManualClock} from "./manual-clock";
@@ -20,6 +21,9 @@ export const identityUrl = (relative: string): string => `${IDENTITY_API_PREFIX}
 
 /** 账号页读的三份列表（`pages/account/account-lists.ts`）。 */
 const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map(identityUrl));
+
+/** 管理员登录之后落在看板上，它一打开就读的那几份（`pages/admin/dashboard/source.ts`）。 */
+const EMPTY_DASHBOARD_BODIES = dashboardBodies(EMPTY_DASHBOARD);
 
 /** 用例里的“现在”。草稿的写入时刻、`Retry-After` 的倒数都从这里算。 */
 export const NOW = Date.parse("2026-11-26T10:00:00Z");
@@ -146,6 +150,9 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
             if (handler !== undefined) return handler(body, server);
             // 登录、注册、补交同意之后都落在账号页，它一打开就读这三份列表。在乎列表内容的用例自己准备处理器，其余的回空列表。
             if (method === "GET" && ACCOUNT_LISTS.has(input)) return Response.json({items: []});
+            // 看板同理：在乎看板数据的用例用 `dashboardHandlers` 准备，其余的回一份还没有上报的看板。
+            const dashboard = method === "GET" ? EMPTY_DASHBOARD_BODIES.get(input) : undefined;
+            if (dashboard !== undefined) return Response.json(dashboard);
             unexpected.push(`${method} ${input}`);
             return failure({error: {code: "not_found"}}, 404);
         },
@@ -153,6 +160,12 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
     started.push(site);
     return {site, target, server, clock, requests, left};
 }
+
+/**
+ * 等页面落定的上限。页面按需加载，第一次进某一页时测试环境要现编译它的块：看板连同 ECharts 与几个图表组件单独跑约 1 秒，
+ * 几个测试文件并行时更久，超过 `vi.waitFor` 缺省的 1 秒。等的仍是路由与页面这两个可观察的状态，到了就往下走。
+ */
+export const SETTLE_TIMEOUT_MS = 5000;
 
 /**
  * 等到路由停在 `fullPath`、页面画出 `page`。vue-router 对查询串另有一套编码，所以比的是解码后的路径与查询参数。
@@ -164,7 +177,7 @@ export async function settledAt({site, target}: Pick<Harness, "site" | "target">
         const route = site.router.currentRoute.value;
         expect({path: route.path, query: route.query}).toEqual(expected);
         expect(target.querySelector(`[data-site-page="${page}"]`)).not.toBeNull();
-    });
+    }, {timeout: SETTLE_TIMEOUT_MS});
 }
 
 /** 像用户那样改一个输入框：写值、发 `input`；`change` 在离开时由 `blur` 之前发（`leaveField`）。 */

@@ -6,6 +6,9 @@
  * - `src/` 的源码（`.ts`、`.vue`，连同将来放在这里的组件测试）：`@notnotype/*` 只许 nb-ui（含子路径）、账号合同包的 `./constants`
  *   与统计合同包（含子路径），第三方包不限；不许 `bun:`、`node:`，它们在浏览器里没有，要到构建或运行时才失败。账号合同包的
  *   入口 `.` 带着全部 schema 与 TypeBox 的运行时，只取一个常量也会整个打进访客的入口块（B2 审查第 11 条，量过）。
+ * - ECharts（连同它的渲染库 ZRender）只许 `src/pages/admin/dashboard/charts/echarts.ts` 在运行时导入，别处只许 `import type`：
+ *   按需导入的清单在那一个文件里，别处一条 `import "echarts"` 就把整包（约 390 KB gzip）带进来，导入了图表模块的页面也会把它带进
+ *   自己的块。体积与“只在看板的块里”另由 `tests/build.test.ts` 量。
  * - `src/` 的样式：`@import` 的包照上一条；`@source` 的相对路径不出本包。样式里的 `@import` 能把别的包的源码带进来。
  * - `tests/`、`e2e/`（Playwright，由 Node 跑）与包根的 `vite.config.ts`、`vitest.config.ts`：跑在 Bun 或 Node 里，另许 `bun:`、`node:`
  *   与测试支持包。
@@ -30,7 +33,14 @@ const BROWSER_WORKSPACE = /^@notnotype\/(?:(?:nb-ui|nb-site-telemetry-contract)(
 const FRONTEND_WORKSPACE = /^@notnotype\/(?:nb-ui|nb-site-identity-contract|nb-site-telemetry-contract)(?:\/|$)/u;
 /** 工作区包与平台内置模块以外的说明符，即第三方包。 */
 const THIRD_PARTY = /^(?!@notnotype\/|bun:|node:)/u;
-const BROWSER_RULE: ImportRule = {packages: [BROWSER_WORKSPACE, THIRD_PARTY], within: PACKAGE_ROOT};
+/** ECharts 与 ZRender（含子路径）。 */
+const ECHARTS = /^(?:echarts|zrender)(?:\/|$)/u;
+/** 浏览器代码里除 ECharts 之外的第三方包。 */
+const BROWSER_THIRD_PARTY = /^(?!@notnotype\/|bun:|node:|(?:echarts|zrender)(?:\/|$))/u;
+const BROWSER_RULE: ImportRule = {packages: [BROWSER_WORKSPACE, BROWSER_THIRD_PARTY], typeOnly: [ECHARTS], within: PACKAGE_ROOT};
+/** 全站唯一在运行时导入 ECharts 的文件。 */
+const ECHARTS_FILE = join(PACKAGE_ROOT, "src", "pages", "admin", "dashboard", "charts", "echarts.ts");
+const ECHARTS_RULE: ImportRule = {...BROWSER_RULE, packages: [...BROWSER_RULE.packages, ECHARTS]};
 const BUN_RULE: ImportRule = {packages: [FRONTEND_WORKSPACE, THIRD_PARTY, /^bun:[a-z]+$/u, /^node:[a-z_/]+$/u, /^@notnotype\/neuro-book-test-support\/[a-z-]+$/u], within: PACKAGE_ROOT};
 
 const RUNTIME_WORKSPACE = ["@notnotype/nb-ui", "@notnotype/nb-site-identity-contract", "@notnotype/nb-site-telemetry-contract"];
@@ -49,10 +59,10 @@ function filesUnder(directory: string, pattern: RegExp): string[] {
         .map((entry) => join(entry.parentPath, entry.name));
 }
 
-/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则，`tests/`、`e2e/` 与两个构建配置照 Bun 的。 */
+/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则（`echarts.ts` 另许 ECharts），`tests/`、`e2e/` 与两个构建配置照 Bun 的。 */
 function scannedFiles(): {readonly file: string; readonly rule: ImportRule}[] {
     return [
-        ...filesUnder("src", /\.(?:ts|vue|css)$/u).map((file) => ({file, rule: BROWSER_RULE})),
+        ...filesUnder("src", /\.(?:ts|vue|css)$/u).map((file) => ({file, rule: file === ECHARTS_FILE ? ECHARTS_RULE : BROWSER_RULE})),
         ...filesUnder("tests", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
         ...filesUnder("e2e", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
         {file: join(PACKAGE_ROOT, "vite.config.ts"), rule: BUN_RULE},
@@ -108,7 +118,7 @@ describe("前端的依赖边界", () => {
         expect(findings()).toEqual([]);
     });
 
-    it("反例：别的工作区包、浏览器代码里的平台内置模块与账号合同包的整包入口、样式里导入别的包都被拦下；nb-ui、合同包允许的入口与第三方包不算", () => {
+    it("反例：别的工作区包、浏览器代码里的平台内置模块与账号合同包的整包入口、图表模块以外导入 ECharts、样式里导入别的包都被拦下；nb-ui、合同包允许的入口与第三方包不算", () => {
         const main = join(PACKAGE_ROOT, "src", "main.ts");
         const blocked = [
             "@notnotype/nb-site-identity",
@@ -126,6 +136,17 @@ describe("前端的依赖边界", () => {
         for (const specifier of ["@notnotype/nb-ui/theme", "@notnotype/nb-site-identity-contract/constants", "@notnotype/nb-site-telemetry-contract", "vue"]) {
             expect({specifier, offending: offendingSpecifiers(main, importStatement(specifier), BROWSER_RULE)}).toEqual({specifier, offending: []});
         }
+
+        // ECharts：别处只许 `import type`，运行时导入（整包、子路径、ZRender、动态导入）都被拦下；`echarts.ts` 自己可以。
+        const page = join(PACKAGE_ROOT, "src", "pages", "admin", "DashboardPage.vue");
+        for (const specifier of ["echarts", "echarts/core", "zrender/lib/zrender"]) {
+            expect({specifier, offending: offendingSpecifiers(page, importStatement(specifier), BROWSER_RULE)}).toEqual({specifier, offending: [specifier]});
+            expect({specifier, offending: offendingSpecifiers(ECHARTS_FILE, importStatement(specifier), ECHARTS_RULE)}).toEqual({specifier, offending: []});
+        }
+        expect(offendingSpecifiers(page, `const lazy = () => import(${JSON.stringify("echarts")});`, BROWSER_RULE)).toEqual(["echarts"]);
+        expect(offendingSpecifiers(page, `import type {ComposeOption} from ${JSON.stringify("echarts/core")};`, BROWSER_RULE)).toEqual([]);
+        expect(offendingSpecifiers(page, importStatement("echarts-for-vue"), BROWSER_RULE)).toEqual([]);
+
         const test = join(PACKAGE_ROOT, "tests", "build.test.ts");
         expect(offendingSpecifiers(test, importStatement("node:fs/promises"), BUN_RULE)).toEqual([]);
         expect(offendingSpecifiers(test, importStatement("@notnotype/nb-site-identity-contract"), BUN_RULE)).toEqual([]);

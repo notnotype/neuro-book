@@ -20,22 +20,25 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 
-/** 看板块 gzip 之后的上限（计划 3.10）：ECharts 按需导入约 178 KB，留一点余量，挡住有人整包导入。 */
+/** 看板块 gzip 之后的上限（计划 3.10）：B5 量到 172.9 KB（几乎都是按需导入的 ECharts），留一点余量，挡住有人整包导入（约 390 KB）。 */
 const DASHBOARD_GZIP_LIMIT = 200 * 1024;
 /**
- * 入口块（含静态导入）gzip 之后的上限。登录页是首页，它的表单、状态行与社交图标都在入口里；2026-11-27 量到 81.2 KB
- * （B2 时约 59.3 KB，B4 把账号页的弹层带进来涨到 120 KB），留一成余量：正常加功能不会撞到，把一整组没用到的组件带进来就会。
+ * 入口块（含静态导入）gzip 之后的上限。登录页是首页，它的表单、状态行与社交图标都在入口里；2026-11-27 量到 81.2 KB，
+ * B5 加上管理面板与看板的文字后 82.8 KB（B2 时约 59.3 KB，B4 把账号页的弹层带进来涨到 120 KB），留一成余量：
+ * 正常加功能不会撞到，把一整组没用到的组件带进来就会。
  * 确实要加大时改这里并写明为什么。
  */
 const ENTRY_GZIP_LIMIT = 90 * 1024;
 /** 看板页在清单里的键（相对 Vite 的根 `src/`）。 */
 const DASHBOARD_SOURCE = "pages/admin/DashboardPage.vue";
+/** 管理面板的外壳：五页共用，单独一个块，也不在入口里（计划 3.13）。 */
+const ADMIN_SHELL_SOURCE = "pages/admin/AdminShell.vue";
 /**
  * 认一个包：块的 sourcemap 里 `sources` 有这个包目录下的文件。按来源认，不在压缩后的代码里找名字（名字会被改掉，也会
  * 出现在别的包的字符串里）。Bun 的工作区把包装在 `node_modules/.bun/<包@版本>/node_modules/<包>/` 下，所以中间可以隔几层。
  */
 const fromPackage = (...names: readonly string[]): RegExp => new RegExp(`(?:^|/)node_modules/(?:.+/node_modules/)?(?:${names.join("|")})/`, "u");
-/** ECharts 与它的渲染库 ZRender。现在还没装 ECharts，这条只是空过；B5 装上后加一条“看板块里有”的正向断言。 */
+/** ECharts 与它的渲染库 ZRender。 */
 const ECHARTS_SOURCE = fromPackage("echarts", "zrender");
 /** 必然在入口块里的包：先用它确认按来源认得出，免得 ECharts 那条因为读不到来源而空过。 */
 const VUE_ROUTER_SOURCE = fromPackage("vue-router");
@@ -47,6 +50,8 @@ const POPUP_SOURCES: readonly RegExp[] = [
     new RegExp(`${fromPackage("reka-ui").source}dist/(?:Dialog|AlertDialog|Menu|DropdownMenu)/`, "u"),
     /\/nb-ui\/src\/components\/(?:feedback\/(?:Dialog|AlertDialog)|popup\/DropdownMenu)\.vue$/u,
 ];
+/** 合同包的 schema 用的 TypeBox：浏览器只用合同包里的常量，产物里不该有它的运行时（`vite.config.ts` 的 `treeshake`）。 */
+const TYPEBOX_SOURCE = fromPackage("typebox");
 /** 一定在入口块里的 nb-ui 组件：先确认认得出 nb-ui 的来源，免得上面那条因为路径写错而空过。 */
 const NB_UI_BUTTON_SOURCE = /\/nb-ui\/src\/components\/[^/]+\/Button\.vue$/u;
 
@@ -161,15 +166,18 @@ describe("vite build", () => {
         expect([...prefixed].filter((value) => !standard.has(value))).toEqual([]);
     });
 
-    test("看板是单独的块；ECharts 只在看板自己的块里；看板块与入口块的 gzip 不超过上限；入口不带对话框与菜单", async () => {
+    test("看板与管理面板外壳是单独的块；ECharts 在看板自己的块里、别的块里没有；看板块与入口块的 gzip 不超过上限；入口不带对话框与菜单；哪个块都不带 TypeBox", async () => {
         const chunks = await manifest();
         const entries = Object.entries(chunks).filter(([, chunk]) => chunk.isEntry === true).map(([key]) => key);
         expect(entries.length).toBe(1);
         const dashboard = chunks[DASHBOARD_SOURCE];
         expect(dashboard?.isDynamicEntry).toBe(true);
 
+        expect(chunks[ADMIN_SHELL_SOURCE]?.isDynamicEntry).toBe(true);
+
         const entryClosure = closure(chunks, entries, {dynamic: false});
         expect(entryClosure.has(DASHBOARD_SOURCE)).toBe(false);
+        expect(entryClosure.has(ADMIN_SHELL_SOURCE)).toBe(false);
         // 看板自己的块：从看板出发静态能到的块里，绕开看板、从入口经任何导入都到不了的那些。与别的页共用的块（管理面板外壳、页面空壳）不算。
         const reachableWithoutDashboard = closure(chunks, entries, {dynamic: true, skip: DASHBOARD_SOURCE});
         const dashboardOnly = [...closure(chunks, [DASHBOARD_SOURCE], {dynamic: false})].filter((key) => !reachableWithoutDashboard.has(key));
@@ -183,12 +191,17 @@ describe("vite build", () => {
         expect(entrySources.filter((source) => POPUP_SOURCES.some((pattern) => pattern.test(source)))).toEqual([]);
 
         const dashboardFiles = new Set(dashboardOnly.map((key) => chunks[key]!.file));
+        const dashboardSources = (await Promise.all([...dashboardFiles].map(sourcesOf))).flat();
+        expect(dashboardSources.some((source) => ECHARTS_SOURCE.test(source))).toBe(true);
         const jsFiles = (await readdir(join(outDir, "assets"))).filter((name) => name.endsWith(".js")).map((name) => `assets/${name}`);
         const withEcharts: string[] = [];
         for (const file of jsFiles) {
             if (!dashboardFiles.has(file) && (await sourcesOf(file)).some((source) => ECHARTS_SOURCE.test(source))) withEcharts.push(file);
         }
         expect(withEcharts).toEqual([]);
+        const withTypebox: string[] = [];
+        for (const file of jsFiles) if ((await sourcesOf(file)).some((source) => TYPEBOX_SOURCE.test(source))) withTypebox.push(file);
+        expect(withTypebox).toEqual([]);
 
         const entryGzip = await gzipBytes(entryFiles);
         const dashboardGzip = await gzipBytes(dashboardFiles);

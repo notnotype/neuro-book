@@ -22,7 +22,9 @@ import {createMemoryHistory} from "vue-router";
 import zhCN from "../locales/zh-CN.json";
 import {startSite} from "../site";
 import type {Site} from "../site";
+import {dashboardBodies, EMPTY_DASHBOARD} from "../testing/dashboard-answers";
 import {manualClock} from "../testing/manual-clock";
+import {SETTLE_TIMEOUT_MS} from "../testing/site-harness";
 import type {ManualClock} from "../testing/manual-clock";
 
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
@@ -32,6 +34,8 @@ const META = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.meta}`;
 const SOCIAL_START = new Map(SOCIAL_PROVIDERS.map((provider) => [`${IDENTITY_API_PREFIX}${identityPath.socialStart(provider)}`, provider]));
 /** 账号页一打开就读的三份列表：登录成功后普通用户落在账号页，这里回空列表。 */
 const ACCOUNT_LISTS = new Set([IDENTITY_PATHS.meSessions, IDENTITY_PATHS.meIdentities, IDENTITY_PATHS.meInviteCodes].map((path) => `${IDENTITY_API_PREFIX}${path}`));
+/** 登录成功后管理员落在看板，它一打开就读的几份：回一份还没有上报的看板。 */
+const DASHBOARD = dashboardBodies(EMPTY_DASHBOARD);
 
 const OPEN_META: MetaResponse = {termsVersion: "2026-11-01", registrationOpen: true, providers: {google: true, github: true}};
 const upstreamUrl = (provider: SocialProvider): string => `https://${provider}.example/authorize?state=s1`;
@@ -135,6 +139,8 @@ function start(path: string, options: ServerOptions = {}): Started {
             }
             if (input === META && init.method === "GET") return server.meta();
             if (ACCOUNT_LISTS.has(input) && init.method === "GET") return Response.json({items: []});
+            const dashboard = init.method === "GET" ? DASHBOARD.get(input) : undefined;
+            if (dashboard !== undefined) return Response.json(dashboard);
             const provider = SOCIAL_START.get(input);
             if (provider !== undefined && init.method === "POST") {
                 const body = JSON.parse(String(init.body)) as SocialStartRequest;
@@ -157,7 +163,7 @@ async function settledAt({site, target}: Started, fullPath: string, page: string
         const route = site.router.currentRoute.value;
         expect({path: route.path, query: route.query}).toEqual(expected);
         expect(target.querySelector(`[data-site-page="${page}"]`)).not.toBeNull();
-    });
+    }, {timeout: SETTLE_TIMEOUT_MS});
 }
 
 interface Form {

@@ -2,6 +2,8 @@
  * 假接口（t10 计划 3.10）：`page.route` 截下页面发往 `/api/` 的请求，按合同的形状回答，数据取 `fixtures/`。
  * 会话像 Cookie 那样记在这里：登录、注册成功时建起，登出时结束，`whoami`、`me` 按它回答。没准备的请求记进 `unexpected`，用例结束时断言为空，
  * 免得页面多发了请求而场景照样通过。各片接上新接口时在 `answer` 里加一支，不另写一份。
+ *
+ * 看板的接口（统计模块的查询接口）按路径连同查询串回答（`dashboard`），只答管理员的会话；数据取 `fixtures/dashboard.ts`。
  */
 
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS, SOCIAL_PROVIDERS, identityPath} from "@notnotype/nb-site-identity-contract";
@@ -20,7 +22,20 @@ import type {
     SocialProvider,
     SocialStartRequest,
 } from "@notnotype/nb-site-identity-contract";
+import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
 import type {Page, Route} from "@playwright/test";
+
+import {DASHBOARD_PATHS} from "../src/pages/admin/dashboard/source";
+import {
+    dashboardActive,
+    dashboardEmpty,
+    dashboardOnline,
+    dashboardProblems,
+    dashboardRetention,
+    dashboardSystems,
+    dashboardToday,
+    dashboardVersions,
+} from "./fixtures/dashboard";
 
 import {
     adminMe,
@@ -76,6 +91,13 @@ export interface FakeIdentity {
     readonly socialStarts: {readonly provider: SocialProvider; readonly body: SocialStartRequest}[];
     /** 账号页发出的改动请求（不含读列表），`方法 路径` 与请求体，按先后。 */
     readonly accountChanges: {readonly request: string; readonly body: unknown}[];
+    /**
+     * 看板的接口的回答，`path` 连同查询串（`/api/telemetry/v1/series/active?days=28`）；回 `undefined` 记为没准备的请求。
+     * 缺省按 `fixtures/dashboard.ts` 回答（`dashboardSucceeds`）。只在管理员的会话里调用：别的会话由假接口先回 401、403。
+     */
+    dashboard: (path: string, fake: FakeIdentity) => FakeAnswer | Promise<FakeAnswer> | undefined;
+    /** 看板发出的请求（路径连同查询串），按先后。 */
+    readonly dashboardRequests: string[];
     /** 没准备的请求（`方法 路径`）。 */
     readonly unexpected: string[];
 }
@@ -127,6 +149,48 @@ export function unlinkSucceeds(): FakeIdentity["unlink"] {
 }
 
 const notFound = {status: 404, body: {error: {code: "not_found"}} satisfies ErrorBody};
+
+/** 看板每条请求的路径与它的回答（数据取 `fixtures/dashboard.ts`）。 */
+export const DASHBOARD_BODIES: ReadonlyMap<string, unknown> = new Map<string, unknown>([
+    [DASHBOARD_PATHS.today, dashboardToday],
+    [DASHBOARD_PATHS.active(7), dashboardActive[7]],
+    [DASHBOARD_PATHS.active(28), dashboardActive[28]],
+    [DASHBOARD_PATHS.active(90), dashboardActive[90]],
+    [DASHBOARD_PATHS.online, dashboardOnline],
+    [DASHBOARD_PATHS.breakdown("version"), dashboardVersions],
+    [DASHBOARD_PATHS.breakdown("os"), dashboardSystems],
+    [DASHBOARD_PATHS.retention, dashboardRetention],
+    [DASHBOARD_PATHS.problems, dashboardProblems],
+]);
+
+/** 还没有任何上报的看板。 */
+export const EMPTY_DASHBOARD_BODIES: ReadonlyMap<string, unknown> = new Map<string, unknown>([
+    [DASHBOARD_PATHS.today, dashboardEmpty.today],
+    [DASHBOARD_PATHS.active(7), dashboardEmpty.active],
+    [DASHBOARD_PATHS.active(28), dashboardEmpty.active],
+    [DASHBOARD_PATHS.active(90), dashboardEmpty.active],
+    [DASHBOARD_PATHS.online, dashboardEmpty.online],
+    [DASHBOARD_PATHS.breakdown("version"), dashboardEmpty.breakdown],
+    [DASHBOARD_PATHS.breakdown("os"), dashboardEmpty.breakdown],
+    [DASHBOARD_PATHS.retention, dashboardEmpty.retention],
+    [DASHBOARD_PATHS.problems, dashboardEmpty.problems],
+]);
+
+/** 看板的接口按 `bodies` 回答；缺省是 `fixtures/dashboard.ts` 的那一份。 */
+export function dashboardSucceeds(bodies: ReadonlyMap<string, unknown> = DASHBOARD_BODIES): FakeIdentity["dashboard"] {
+    return (path) => {
+        const body = bodies.get(path);
+        return body === undefined ? undefined : {status: 200, body};
+    };
+}
+
+/** 看板的接口要在会话之后判断：统计模块先问身份（`site.telemetry-dashboard` 输出 1）。 */
+function answerDashboard(fake: FakeIdentity, path: string): FakeAnswer | Promise<FakeAnswer> | undefined {
+    if (fake.session === undefined) return {status: 401, body: unauthenticated};
+    if (fake.session !== "admin") return {status: 403, body: {error: {code: "forbidden"}} satisfies ErrorBody};
+    fake.dashboardRequests.push(path);
+    return fake.dashboard(path, fake);
+}
 
 /** 路径末尾的数字 id：`prefix` 是 `/me/sessions` 这样不带 id 的那段。 */
 function idAfter(pathname: string, prefix: string): number | undefined {
@@ -224,7 +288,7 @@ function answer(fake: FakeIdentity, method: string, pathname: string, body: unkn
 /** 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。 */
 export async function installFakeIdentity(
     page: Page,
-    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink">> = {},
+    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink" | "dashboard">> = {},
 ): Promise<FakeIdentity> {
     const fake: FakeIdentity = {
         session: initial.session,
@@ -245,16 +309,19 @@ export async function installFakeIdentity(
         consents: [],
         socialStarts: [],
         accountChanges: [],
+        dashboard: initial.dashboard ?? dashboardSucceeds(),
+        dashboardRequests: [],
         unexpected: [],
     };
     await page.route((url) => url.pathname.startsWith("/api/"), async (route: Route) => {
         const request = route.request();
-        const {pathname} = new URL(request.url());
+        const {pathname, search} = new URL(request.url());
         const body = request.postData() === null ? undefined : request.postDataJSON();
         if (request.method() === "GET" && pathname === path(IDENTITY_PATHS.meta) && fake.metaArrives !== undefined) await fake.metaArrives;
-        const reply = answer(fake, request.method(), pathname, body);
+        const dashboard = request.method() === "GET" && pathname.startsWith(`${TELEMETRY_API_PREFIX}/`);
+        const reply = dashboard ? await answerDashboard(fake, `${pathname}${search}`) : answer(fake, request.method(), pathname, body);
         if (reply === undefined) {
-            fake.unexpected.push(`${request.method()} ${pathname}`);
+            fake.unexpected.push(`${request.method()} ${pathname}${search}`);
             await route.fulfill({status: 404, json: {error: {code: "not_found"}} satisfies ErrorBody});
             return;
         }

@@ -2,7 +2,8 @@
  * 失败码的文案覆盖（t10 计划 3.3）：合同包里每个码在站点目录的 `errors.<拥有者>` 下都有一条，服务端新加码时这里先失败，
  * 提醒补文案。目录里没有的码在页面上仍有字可显示（`errors.web.unknown` 附上码），这条断言也在这里。
  *
- * 现在只核账号模块：统计的合同包还没有导出失败码的清单，那份导出后在 `OWNERS` 里加一行（B5）。
+ * 统计模块的合同包还没有导出查询接口的失败码（归 t11），先照 `site.telemetry-dashboard`“失败与恢复”那张表列出四个码；
+ * 合同包导出之后换成它的清单。
  * 目录各语言之间的键对齐由仓库的 `message-catalogs` 检查负责，不在这里重复。
  */
 
@@ -18,6 +19,7 @@ import {SITE_SOURCE_CATALOG, siteRef} from "../src/text";
 /** 每个拥有者要覆盖的码。社交登录落点的码（`?social_error=`）与接口的失败码同在 `errors.identity` 下，有几个两边共用。 */
 const OWNERS: readonly {readonly owner: FailureOwner; readonly codes: readonly string[]}[] = [
     {owner: "identity", codes: [...new Set([...IDENTITY_FAILURE_CODES, ...SOCIAL_ERROR_CODES])]},
+    {owner: "telemetry", codes: ["unauthenticated", "forbidden", "validation_failed", "unavailable"]},
 ];
 
 const translate = (text: Parameters<ReturnType<typeof defaultTextPort>["t"]>[0]): string => defaultTextPort().t(text);

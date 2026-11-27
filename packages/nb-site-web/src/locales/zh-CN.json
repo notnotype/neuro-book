@@ -170,8 +170,93 @@
         "title": "授权确认"
     },
     "admin": {
+        "nav": "管理面板",
+        "accountPage": "账号页",
         "dashboard": {
-            "title": "看板"
+            "title": "看板",
+            "manifest": "清单 v{{version}}",
+            "range": "时间范围",
+            "ranges": {
+                "d7": "近 7 天",
+                "d28": "近 28 天",
+                "d90": "近 90 天"
+            },
+            "today": "今天的数",
+            "figures": {
+                "active": "今日活跃",
+                "fresh": "今日新增",
+                "online": "当前在线",
+                "usage": "使用统计开启"
+            },
+            "change": "较昨日 {{change}}",
+            "noYesterday": "昨日没有上报",
+            "onlineWindow": "最近 {{minutes}} 分钟",
+            "usageNote": "今日上报里",
+            "noValue": "—",
+            "todayReports": "今日上报",
+            "noReports": "没有上报",
+            "emptyToday": "今天还没有上报",
+            "active": {
+                "title": "活跃",
+                "daily": "日活跃",
+                "weekly": "7 日活跃",
+                "monthly": "28 日活跃",
+                "label": "近 {{days}} 天的日活跃、7 日活跃与 28 日活跃",
+                "empty": "这段时间没有上报"
+            },
+            "online": {
+                "title": "在线",
+                "meta": "近 24 小时",
+                "series": "心跳次数",
+                "label": "近 24 小时每 15 分钟的在线心跳次数",
+                "empty": "近 24 小时没有心跳",
+                "hour": "{{hour}} 时"
+            },
+            "versions": {
+                "title": "版本"
+            },
+            "systems": {
+                "title": "系统"
+            },
+            "rest": "少于 5 份",
+            "retention": {
+                "title": "留存",
+                "meta": "按安装所在周",
+                "install": "安装",
+                "fresh": "新增",
+                "week": "第 {{week}} 周",
+                "cohort": "{{date}} 那周",
+                "empty": "还没有满一周的安装"
+            },
+            "errors": {
+                "title": "错误",
+                "meta": "今日 {{count}} 份带使用统计的上报",
+                "code": "错误码",
+                "reports": "份数",
+                "share": "占比",
+                "bins": "次数",
+                "bin1": "1 次",
+                "bin2": "2 到 4",
+                "bin3": "5 到 9",
+                "bin4": "10 到 49",
+                "bin5": "50 以上",
+                "binCount": "{{bin}} {{count}} 份",
+                "binSeparator": "，",
+                "empty": "今天没有错误"
+            },
+            "crashes": {
+                "title": "崩溃",
+                "none": "没有崩溃",
+                "once": "1 次",
+                "few": "2 到 4 次",
+                "many": "5 次以上"
+            },
+            "upgrades": {
+                "title": "升级",
+                "none": "没有升级",
+                "succeeded": "升级成功",
+                "failed": "升级失败"
+            }
         },
         "users": {
             "title": "用户"
@@ -233,6 +318,12 @@
             "network": "连不上服务，请检查网络后再试",
             "malformed": "服务的回答看不懂，请稍后再试",
             "unknown": "出了一个没认出的问题（{{code}}）"
+        },
+        "telemetry": {
+            "unauthenticated": "登录已失效，请重新登录",
+            "forbidden": "只有管理员能看统计",
+            "validation_failed": "查询的范围不对",
+            "unavailable": "统计暂时取不到，请稍后再试"
         }
     }
 }

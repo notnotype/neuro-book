@@ -12,7 +12,9 @@ import {createMemoryHistory} from "vue-router";
 import {SOCIAL_REGISTER_DRAFT_TTL_MS, createSiteStorage} from "./host/storage";
 import zhCN from "./locales/zh-CN.json";
 import {startSite} from "./site";
+import {dashboardBodies, EMPTY_DASHBOARD} from "./testing/dashboard-answers";
 import {manualClock} from "./testing/manual-clock";
+import {SETTLE_TIMEOUT_MS} from "./testing/site-harness";
 import type {Site} from "./site";
 
 /** 用例里的“现在”，也是站点时钟的起点。 */
@@ -53,21 +55,29 @@ function me(role: Role, consentRequired = false): MeResponse {
 interface Server {
     whoami: () => Response;
     me: () => Response;
-    /** 别的接口；缺省回一份空列表（账号页进来时取的三份列表都是这个形状）。 */
+    /** 别的接口；缺省回一份空列表（账号页进来时取的三份列表都是这个形状），看板的几份回还没有上报的看板（`otherwise`）。 */
     other: (input: string) => Response;
+}
+
+const DASHBOARD = dashboardBodies(EMPTY_DASHBOARD);
+
+/** 别的接口的缺省回答：管理员落在看板时它读的几份回还没有上报的看板，其余回空列表。 */
+function otherwise(input: string): Response {
+    const dashboard = DASHBOARD.get(input);
+    return Response.json(dashboard ?? {items: []});
 }
 
 const anonymousServer = (): Server => ({
     whoami: () => Response.json({state: "anonymous"} satisfies WhoamiResponse),
     me: () => Response.json({error: {code: "unauthenticated"}}, {status: 401}),
-    other: () => Response.json({items: []}),
+    other: otherwise,
 });
 
 function signedInServer(role: Role, consentRequired = false): Server {
     return {
         whoami: () => Response.json({state: "authenticated", user: {id: 7, username: "alice", role}} satisfies WhoamiResponse),
         me: () => Response.json(me(role, consentRequired)),
-        other: () => Response.json({items: []}),
+        other: otherwise,
     };
 }
 
@@ -124,7 +134,7 @@ async function settledAt({site, target}: Started, fullPath: string, page: string
         const route = site.router.currentRoute.value;
         expect({path: route.path, query: route.query}).toEqual(expected);
         expect(target.querySelector(`[data-site-page="${page}"]`)).not.toBeNull();
-    });
+    }, {timeout: SETTLE_TIMEOUT_MS});
 }
 
 interface Device {
