@@ -7,7 +7,7 @@
 ## 边界
 
 - 运行时依赖只许 `typebox`，devDependencies 里的工作区包只许测试支持包；由 `nb-site-server/src/architecture.test.ts` 检查。
-- 两个入口：`.` 转出全部；`./constants`（`src/constants.ts`）只转出不导入 TypeBox 的常量与全部类型，给浏览器用，免得只取一个常量也把 schema 与 TypeBox 的运行时打进前端的入口块。常量放在不导入 TypeBox 的文件里（`account-constants.ts`、`failure-codes.ts`、`field-rules.ts`、`path-constants.ts`），带 schema 的同名模块（`account.ts`、`errors.ts`、`fields.ts`、`paths.ts`）转出它们；`src/constants.test.ts` 顺着运行时导入检查。前端要一个还在带 schema 的文件里的常量时，先把它挪进这样的文件。
+- 两个入口：`.` 转出全部；`./constants`（`src/constants.ts`）只转出不导入 TypeBox 的常量与全部类型，给浏览器用，免得只取一个常量也把 schema 与 TypeBox 的运行时打进前端的入口块。常量放在不导入 TypeBox 的文件里（`account-constants.ts`、`admin-constants.ts`、`failure-codes.ts`、`field-rules.ts`、`path-constants.ts`），带 schema 的同名模块（`account.ts`、`admin.ts`、`errors.ts`、`fields.ts`、`paths.ts`）转出它们；`src/constants.test.ts` 顺着运行时导入检查。前端要一个还在带 schema 的文件里的常量时，先把它挪进这样的文件。
 - 只放合同：路径、schema、错误码、字段规则与按规则判断的几个纯函数（`parseUsernameInput`、`isWebUrl`、`codePointLength`）。不放实现（限流、哈希、事务、Spec 里的失败先后），也不放只有账号模块自己用的类型。`src/schema.ts` 是写 schema 的小工具，不从入口转出。
 - 码、字段规则、路径、筛选项与审计动作名与三份 Spec 逐项一致：Spec 里没有的不加。`src/contract.test.ts` 里的期望值是照 Spec 的表手写的，Spec 改了先改那里，再改合同；不要从包里算出期望值。
 - 改这里就是改对外合同：路径或形状变了，前端与合同测试要一起改，并按 Spec 判断是否破坏兼容（码与路径只追加，不改已有码的含义）。

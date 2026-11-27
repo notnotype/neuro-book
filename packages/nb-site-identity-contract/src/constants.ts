@@ -1,5 +1,6 @@
 /**
- * 账号合同里不带 TypeBox 运行时的部分：路径前缀与路径、失败码、`social_error` 的码与参数名、字段规则、角色与上游名，
+ * 账号合同里不带 TypeBox 运行时的部分：路径前缀与路径、失败码、`social_error` 的码与参数名、字段规则、角色与上游名、
+ * 管理列表的筛选项与审计的动作名，
  * 以及全部类型（只作类型转出，编译后不留导入）。官方站前端只从这里导入（`nb-site-web` 的 `tests/boundary.test.ts`）。
  *
  * 为什么另开一个入口：包入口转出的 schema 是模块顶层的 `Type.Object(...)` 调用，打包器判断不了它们没有副作用，只用到一个常量
@@ -10,6 +11,7 @@
  */
 
 export * from "./account-constants";
+export * from "./admin-constants";
 export * from "./failure-codes";
 export * from "./field-rules";
 export * from "./path-constants";
