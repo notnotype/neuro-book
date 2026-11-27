@@ -28,5 +28,5 @@ updated: 2026-11-27
 
 ## 下一步
 
-1. [计划第 3 稿](plan.md)（加了来历浮层）交第二轮设计审查（Sonnet），处理后开工。
+1. 第二轮设计审查（[报告与处理](evidences/design-review-r2.txt)，阻断 0、重要 7、建议 4）已处理，改成[计划第 4 稿](plan.md)；开工第一步是 S1 的条件成组探针。
 2. 开工：Work 分支 `feat/w00055-entry-rich-text` 以合入 t02 后的 master 为起点。
