@@ -35,7 +35,8 @@ import EntryText from "./components/EntryText.vue";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
-import type {AddComponentItem} from "./components/add-component-picker";
+import AddComponentDialog from "./components/AddComponentDialog.vue";
+import type {ChecklistItem} from "./components/component-checklist";
 import {createNotices} from "./notices";
 import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";
@@ -343,7 +344,7 @@ describe("条目页", () => {
         expect(wrapper.get("[data-raw-initial]").text()).toContain("黑发");
     });
 
-    it("人物条目：种类登记的默认设定组排在“文字”前面、打开时先看人物；“添加一组设定”里适用于人物的排在前面（输出 9、38）", async () => {
+    it("人物条目：种类登记的默认设定组排在“文字”前面、打开时先看人物；“添加设定组”里适用于人物的排在前面，有人物的预设，一次加几组是一条修订（输出 9、38）", async () => {
         // 一个不写适用种类的类型，id 排在内置的前面：没有按种类排时它会是下拉里的第一项。
         const badge: PluginDefinition = {id: "a.test", entries: [], contributions: [{capability: CANON_COMPONENTS_POINT, id: "a.test.badge", declaration: {label: "徽章", namespace: "badge", version: 1, fields: [{id: "图案", label: "图案", kind: "text"}]}}]};
         const {other, open} = await setup([badge]);
@@ -360,10 +361,36 @@ describe("条目页", () => {
         const addable = () => (wrapper.findComponent(EntryPage).props("addable") as readonly {label: string}[]).map((item) => item.label);
         await waitUntil("能加的组", () => addable().includes("徽章"));
         expect(addable()).toEqual(["形象", "徽章"]);
-        // “添加一组设定”的浮层：登记了的全部类型，按登记它的插件分组（别的插件的徽章归“插件”），标出条目上已经有的（输出 38）。
-        const picker = () => new Map((wrapper.findComponent(EntryPage).props("pickerItems") as readonly AddComponentItem[]).map((entry) => [entry.label, `${entry.group}${entry.present ? " 已有" : ""}${entry.fits ? " 适用" : ""}`]));
-        await waitUntil("浮层的各项", () => picker().has("徽章"));
-        expect(["人物", "形象", "数值", "徽章"].map((label) => picker().get(label))).toEqual(["canon 已有 适用", "canon 适用", "canon 已有 适用", "other"]);
+        // “添加设定组”对话框：登记了的全部类型，按登记它的插件分组（别的插件的徽章归“插件”），标出条目上已经有的（输出 38）。
+        const dialog = () => wrapper.findComponent(AddComponentDialog);
+        const listed = () => new Map((dialog().props("items") as readonly ChecklistItem[]).map((entry) => [entry.label, `${entry.group}${entry.present ? " 已有" : ""}${entry.kinds.includes("人物") ? " 适用" : ""}`]));
+        await waitUntil("对话框的各项", () => listed().has("徽章"));
+        expect(["人物", "形象", "数值", "徽章"].map((label) => listed().get(label))).toEqual(["canon 已有 适用", "canon 适用", "canon 已有 适用", "other"]);
+        expect(dialog().props("kind")).toBe("人物");
+
+        // 点“＋”开对话框：人物的两个预设；勾形象与徽章，“添加 2 组”一次写入、一条修订，关上以后切到先勾的形象。
+        const body = new DOMWrapper(document.body);
+        await wrapper.get("[data-add-component]").trigger("click");
+        await waitUntil("对话框", () => body.find("[data-add-component-dialog]").exists());
+        expect(body.findAll("[data-checklist-presets] button").map((button) => button.text())).toEqual(["基本", "主要角色"]);
+        await body.get("[data-checklist-item='nbook.canon.look']").trigger("click");
+        await body.get("[data-checklist-item='a.test.badge']").trigger("click");
+        expect(body.get("[data-add-submit]").text()).toBe("添加 2 组");
+        await body.get("[data-add-submit]").trigger("click");
+        await waitUntil("切到形象", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "形象");
+        expect(tabs()).toEqual(["人物", "形象", "文字", "数值", "徽章"]);
+        await waitUntil("对话框关上", () => !body.find("[data-add-component-dialog]").exists());
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("加上“形象”和“徽章”这几组设定");
+        // 能加的都加上了：“＋”没了，焦点交给选中的分页，不掉到页面外。
+        expect(wrapper.find("[data-add-component]").exists()).toBe(false);
+        await waitUntil("焦点在选中的分页", () => document.activeElement === wrapper.get("[role='tab'][aria-selected='true']").element);
+
+        // 写入被拒（打开以后别处已经加上了其中一组，这一页还没读到）：按被拒的那一项指名，对话框不关、原因写在状态行。对话框由宿主开，
+        // 这里直接把它打开（“＋”已经没了）。
+        dialog().vm.$emit("update:open", true);
+        await waitUntil("对话框", () => body.find("[data-add-component-dialog]").exists());
+        dialog().vm.$emit("add", ["nbook.canon.look"]);
+        await waitUntil("指名的失败", () => body.find("[data-add-component-dialog]").exists() && document.body.querySelector("[role='dialog']")?.textContent?.includes("“形象”这组设定已经加上了") === true);
 
         // 种类不是人物的条目：分页照旧，文字在前。
         const item = person("魔杖", {type: "物品"});

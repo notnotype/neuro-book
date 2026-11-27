@@ -75,18 +75,16 @@ describe("EntryPageNav", () => {
         expect(wrapper.emitted("update:modelValue")).toEqual([["extra:experience"], ["plot"], ["plot"], ["text"]]);
     });
 
-    it("右键一页发 context；可以加时最后是“添加一组设定”，点了发 add-toggle（带这个按钮），浮层开着时 aria-expanded；有原因时不可用、悬停写原因；不能加就不出", async () => {
+    it("右键一页发 context；可以加时最后是“添加一组设定”（标着开对话框），点了发 add-toggle；有原因时不可用、悬停写原因；不能加就不出", async () => {
         const wrapper = nav({canAdd: true});
         await wrapper.findAll("[role='tab']")[1]!.trigger("contextmenu", {clientX: 10, clientY: 20});
         expect(wrapper.emitted("context")).toEqual([["text", {x: 10, y: 20}]]);
         const add = wrapper.get("[data-add-component]");
         // 在 tablist 外面：分页列表里只有分页。
         expect(wrapper.get("[role='tablist']").find("[data-add-component]").exists()).toBe(false);
-        expect(add.attributes("aria-expanded")).toBe("false");
+        expect(add.attributes("aria-haspopup")).toBe("dialog");
         await add.trigger("click");
-        expect(wrapper.emitted("add-toggle")).toEqual([[add.element]]);
-        await wrapper.setProps({addOpen: true});
-        expect(add.attributes("aria-expanded")).toBe("true");
+        expect(wrapper.emitted("add-toggle")).toEqual([[]]);
         await wrapper.setProps({addReason: "先不算计划"});
         expect(add.attributes("disabled")).toBeDefined();
         expect(add.attributes("title")).toBe("先不算计划");

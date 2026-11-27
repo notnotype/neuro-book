@@ -13,8 +13,6 @@ const props = withDefaults(defineProps<{
     modelValue: string;
     /** 有能加的设定组、条目可写：出“添加一组设定”。默认 false。 */
     canAdd?: boolean;
-    /** “添加一组设定”的浮层开着（浮层归宿主 `EntryPage`）；默认 false。 */
-    addOpen?: boolean;
     /** 添加不可用的原因；默认空。 */
     addReason?: string;
     /** 分页项的 id 与内容面板的 id（`aria-controls`）。 */
@@ -26,12 +24,12 @@ const props = withDefaults(defineProps<{
     menuOpen?: boolean;
     /** 选中那一行的附注（不在缺省看法时写看法名）；默认空。 */
     note?: string;
-}>(), {canAdd: false, addOpen: false, addReason: "", menus: false, menuOpen: false, note: ""});
+}>(), {canAdd: false, addReason: "", menus: false, menuOpen: false, note: ""});
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string): void;
-    /** 点了“添加一组设定”：宿主把浮层锚在这个按钮上开或关。 */
-    (event: "add-toggle", button: HTMLElement): void;
+    /** 点了“添加一组设定”：宿主开“添加设定组”的对话框。 */
+    (event: "add-toggle"): void;
     /** 在一页上右键：宿主给这一页的菜单。 */
     (event: "context", value: string, at: {readonly x: number; readonly y: number}): void;
     /** 选中的、能换看法的那一行再被点（含 Enter、Space 触发的点击）：宿主把看法菜单贴着这一行开或关。 */
@@ -115,10 +113,9 @@ const onKey = (event: KeyboardEvent): void => {
             class="entry-page-nav__item entry-page-nav__add"
             :disabled="props.addReason !== ''"
             :title="props.addReason !== '' ? props.addReason : undefined"
-            aria-haspopup="listbox"
-            :aria-expanded="props.addOpen"
+            aria-haspopup="dialog"
             data-add-component
-            @click="(event: MouseEvent) => emit('add-toggle', event.currentTarget as HTMLElement)"
+            @click="emit('add-toggle')"
         >
             <span class="i-lucide-plus entry-page-nav__icon" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate">{{ text("entry.addComponentShort") }}</span>

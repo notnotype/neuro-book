@@ -11,8 +11,6 @@ import type {ContextMenuItem, TabsItem} from "@notnotype/nb-ui/components";
 import type {LineOption} from "../../shared/reads";
 import type {PositionChapter} from "../positions";
 import {useCanonText} from "../text";
-import AddComponentPicker from "./AddComponentPicker.vue";
-import type {AddComponentItem} from "./add-component-picker";
 import EntryPageNav from "./EntryPageNav.vue";
 import type {EntryTab} from "./entry-tabs";
 import ViewPointPicker from "./ViewPointPicker.vue";
@@ -46,10 +44,6 @@ const props = withDefaults(defineProps<{
     tabs?: readonly EntryTab[];
     /** 能加的设定组（适用的在前，去掉过的写“恢复”）：右键菜单的下一级；空时不出“＋”。默认空。 */
     addable?: readonly {readonly value: string; readonly label: string}[];
-    /** “添加一组设定”浮层的各项（输出 38，`AddComponentPicker`）：登记了的全部类型。默认空。 */
-    pickerItems?: readonly AddComponentItem[];
-    /** 条目的种类：浮层里“适用于”那一组的名字。默认空串。 */
-    kind?: string;
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
     deletable?: boolean;
@@ -75,7 +69,7 @@ const props = withDefaults(defineProps<{
     looks?: readonly {readonly value: string; readonly label: string}[];
     /** 选中的那一页现在的看法（`looks` 里的值）。默认空串（缺省的那个）。 */
     look?: string;
-}>(), {looks: () => [], look: "", wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], pickerItems: () => [], kind: "", editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {looks: () => [], look: "", wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -93,12 +87,12 @@ const emit = defineEmits<{
     (event: "aliases", change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): void;
     /** “更多”里的“移动到……”“添加一组设定……”“去掉这组设定”。 */
     (event: "move"): void;
-    /** 选了“＋”或右键菜单里的一组设定：宿主直接加上（输出 38）。 */
+    /** 选了右键菜单里的一组设定：宿主直接加上（输出 38）。 */
     (event: "add-component", type: string): void;
-    /** “＋”的浮层或右键菜单打开了：宿主记下这时条目的版本，加的时候带它（输出 43）。 */
+    /** 右键菜单打开了：宿主记下这时条目的版本，加的时候带它（输出 43）。 */
     (event: "add-open"): void;
-    /** 在“添加一组设定”里搜到条目上已经有的一组、选了它：宿主切到它的分页。 */
-    (event: "show-component", type: string): void;
+    /** 点了“＋”或竖排的“添加一组设定”：宿主开“添加设定组”的对话框（输出 38，`AddComponentDialog`）。 */
+    (event: "add-dialog"): void;
     (event: "remove-component"): void;
     /** 已删除页上的“恢复”。 */
     (event: "restore"): void;
@@ -178,24 +172,6 @@ const closeLookMenu = (reason: "select" | "escape" | "tab" | "outside"): void =>
     if (reason !== "outside") void nextTick(() => document.getElementById(tabId(props.tab))?.focus());
 };
 const canAdd = computed(() => props.editable && props.addable.length > 0);
-/**
- * “添加一组设定”的浮层锚在哪个按钮上（横排的“＋”或竖排导航里那一行）；null 时关着。浮层归这一层，两种排法共用一个。打开时发
- * `add-open`；Escape 与选了一项以后焦点回到这个按钮。
- */
-const pickerAnchor = shallowRef<HTMLElement | null>(null);
-const togglePicker = (button: HTMLElement): void => {
-    if (pickerAnchor.value !== null) {
-        pickerAnchor.value = null;
-        return;
-    }
-    pickerAnchor.value = button;
-    emit("add-open");
-};
-const closePicker = (refocus: boolean): void => {
-    const button = pickerAnchor.value;
-    pickerAnchor.value = null;
-    if (refocus) button?.focus();
-};
 
 // 右键一页：先选中它，菜单里是“添加一组设定”（下一级列出能加的）与这一页是设定组时的“去掉这组设定”。
 const context = shallowRef<{readonly value: string; readonly x: number; readonly y: number} | null>(null);
@@ -334,10 +310,6 @@ const alignPanel = (): void => {
     if (gap < 0) scroller.scrollTop += gap;
 };
 
-// 换了排法、加不了了（写不了、没有能加的）：关上，不留一个锚在已经不在的按钮上的浮层。
-watch([rail, canAdd], () => {
-    pickerAnchor.value = null;
-});
 watch([rail, () => props.tab], () => {
     lookMenu.value = null;
 });
@@ -453,10 +425,9 @@ watch(rail, async () => {
                         :disabled="blockedReason !== undefined"
                         :aria-label="text('entry.addComponentShort')"
                         :title="blockedReason ?? text('entry.addComponentShort')"
-                        aria-haspopup="listbox"
-                        :aria-expanded="pickerAnchor !== null"
+                        aria-haspopup="dialog"
                         data-add-component
-                        @click="(event: MouseEvent) => togglePicker(event.currentTarget as HTMLElement)"
+                        @click="emit('add-dialog')"
                     />
                 </div>
                 <div v-else class="h-4" />
@@ -468,7 +439,6 @@ watch(rail, async () => {
                     :items="props.tabs"
                     :model-value="props.tab"
                     :can-add="canAdd"
-                    :add-open="pickerAnchor !== null"
                     :add-reason="blockedReason ?? ''"
                     :tab-id="tabId"
                     :panel-id="PANEL_ID"
@@ -476,7 +446,7 @@ watch(rail, async () => {
                     :menu-open="lookMenu !== null"
                     :note="lookNote"
                     @update:model-value="(value: string) => emit('update:tab', value)"
-                    @add-toggle="togglePicker"
+                    @add-toggle="emit('add-dialog')"
                     @context="openContext"
                     @menu="toggleLookMenu"
                 />
@@ -494,14 +464,6 @@ watch(rail, async () => {
         </template>
         <ContextMenu :open="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @update:open="(open: boolean) => open || (context = null)" />
         <ContextMenu :open="lookMenu !== null" :x="lookMenu?.x ?? 0" :y="lookMenu?.y ?? 0" :items="lookItems" :anchor="lookMenu?.anchor ?? null" @request-close="closeLookMenu" />
-        <AddComponentPicker
-            :anchor="pickerAnchor"
-            :items="props.pickerItems"
-            :kind="props.kind"
-            @add="(type: string) => emit('add-component', type)"
-            @show="(type: string) => emit('show-component', type)"
-            @close="closePicker"
-        />
     </article>
 </template>
 

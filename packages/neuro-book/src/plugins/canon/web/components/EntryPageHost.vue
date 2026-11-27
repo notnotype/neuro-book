@@ -17,6 +17,7 @@ import {fieldsText} from "../../shared/agent-fields";
 import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
 import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
+import {kindPresets} from "../../shared/entry-kinds";
 import type {EntryKind} from "../../shared/entry-kinds";
 import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
@@ -57,8 +58,9 @@ import ComponentRawView from "./ComponentRawView.vue";
 import FieldsDataView from "./FieldsDataView.vue";
 import PageNotices from "./PageNotices.vue";
 import {LOOK_PICK_KEY} from "../look-handoff";
-import {addComponentGroup} from "./add-component-picker";
-import type {AddComponentItem} from "./add-component-picker";
+import AddComponentDialog from "./AddComponentDialog.vue";
+import {checklistGroup} from "./component-checklist";
+import type {ChecklistItem, ChecklistPreset} from "./component-checklist";
 import {EXTRA_ICON, GROUP_ICON, PLOT_ICON, TEXT_ICON} from "./entry-tabs";
 import type {EntryTab} from "./entry-tabs";
 import MoveDialog from "./MoveDialog.vue";
@@ -496,24 +498,42 @@ const addableTypes = computed(() => {
     return [...addable.filter(fits), ...addable.filter((type) => !fits(type))].map((type) => ({value: type.id, label: removed.has(type.id) ? port.t(text("entry.restoreGroup", {name: type.label})) : type.label}));
 });
 /**
- * “添加一组设定”的浮层（输出 38，`AddComponentPicker`）：登记了的全部类型，标出适用于这个种类的、条目上已经有的（搜到时列出、点了
- * 切过去）与去掉过的，按登记它的插件分组。
+ * “添加设定组”对话框（输出 38，`AddComponentDialog`）的各行：登记了的全部类型，标出条目上已经有的（勾着、点了切过去）与去掉过的，
+ * 按登记它的插件分组；“适用于”由列表按 `kinds` 与条目的种类自己分。
  */
-const pickerItems = computed<AddComponentItem[]>(() => {
+const checklistItems = computed<ChecklistItem[]>(() => {
     const present = new Set(Object.values(view.value?.namespaces ?? {}).map((item) => item.type));
     const removed = new Set((view.value?.removedComponents ?? []).map((item) => item.type));
-    const kind = entry.value?.kind?.trim() ?? "";
     return (componentsRead.value?.data?.items ?? []).map((type) => ({
         value: type.id,
         label: type.label,
         iconClass: iconOf(type.id),
-        group: addComponentGroup(props.componentPlugin?.(type.id) ?? null),
-        fits: kind !== "" && (type.kinds ?? []).includes(kind),
+        group: checklistGroup(props.componentPlugin?.(type.id) ?? null),
+        kinds: type.kinds ?? [],
         present: present.has(type.id),
         restore: removed.has(type.id),
     }));
 });
-/** 搜到条目上已经有的那一组、点了它：切到它的分页。 */
+const entryKind = computed(() => entry.value?.kind?.trim() ?? "");
+/** 这个种类的预设（`canon.entry-kinds`）；里面没登记的类型已去掉，一个也没有的预设不出。 */
+const presets = computed<readonly ChecklistPreset[]>(() => kindPresets(props.entryKinds ?? [], entryKind.value, new Set((componentsRead.value?.data?.items ?? []).map((type) => type.id))));
+const addDialogOpen = shallowRef(false);
+/** 开对话框：记下这时条目的版本，加的时候带它（输出 43）。 */
+const openAddDialog = (): void => {
+    openDialog();
+    addDialogOpen.value = true;
+};
+const hostRoot = shallowRef<HTMLElement | null>(null);
+/**
+ * 对话框关上以后（`closed`，焦点已经还给打开前的元素）：加完了最后几组，“＋”跟着没了，焦点落到页面外；这时交给选中的分页，键盘用户
+ * 接着从分页条往下走。
+ */
+const afterAddDialog = (): void => {
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active.isConnected) return;
+    hostRoot.value?.querySelector<HTMLElement>("[role='tab'][aria-selected='true']")?.focus();
+};
+/** 在对话框里点了已经有的那一组，或分页里要切到某一组：切到它的分页。 */
 const showComponent = (type: string): void => {
     const namespace = Object.entries(view.value?.namespaces ?? {}).find(([, item]) => item.type === type)?.[0];
     if (namespace !== undefined) state.tab = `${DATA}${namespace}`;
@@ -536,11 +556,29 @@ watch(() => state.tab, (tab) => {
     const namespace = tab?.startsWith(DATA) === true ? tab.slice(DATA.length) : null;
     if (namespace === null || view.value?.namespaces[namespace]?.type !== LOOK_COMPONENT) lookPick.value = false;
 });
-const addComponent = async (type: string): Promise<void> => {
-    const namespace = componentsRead.value?.data?.items.find((item) => item.id === type)?.namespace ?? null;
-    // 菜单开着的时候别处已经加上了这一组：内核按这一处的 `id-taken` 拒收，写成作者看得懂的一句。
-    const alreadyAdded = (failure: CanonFailure): Text | null => (failure.code === "validation-failed" && Array.isArray(failure.problems) && (failure.problems[0] as {code?: unknown} | undefined)?.code === "id-taken" ? text("entry.groupAlreadyAdded") : null);
-    if (await runEntries([{op: "component", entry: props.id, type, action: "add"}], port.t(text("entry.groupAdded", {name: typeLabel(type)})), "creative", "menu", alreadyAdded)) pendingTab.value = namespace;
+/**
+ * 加几组设定（输出 38）：一次写入、一条修订；对话框里勾的几组与右键菜单里点的一组都走这里。成功后切到第一个有命名空间的新加的
+ * 一组（等它出现在读取结果里）。
+ */
+const addComponents = async (types: readonly string[], from: "dialog" | "menu"): Promise<boolean> => {
+    if (types.length === 0) return false;
+    const quoted = types.map((type) => `“${typeLabel(type)}”`);
+    const title = types.length === 1 ? text("entry.groupAdded", {name: typeLabel(types[0]!)}) : text("entry.groupsAdded", {names: new Intl.ListFormat(port.locale.value, {type: "conjunction"}).format(quoted)});
+    // 打开以后别处已经加上了其中一组：内核按那一项（`ops[i]`）报 `id-taken` 拒收整批，写成作者看得懂、指名是哪一组的一句。
+    const alreadyAdded = (failure: CanonFailure): Text | null => {
+        if (failure.code !== "validation-failed" || !Array.isArray(failure.problems)) return null;
+        const first = failure.problems[0] as {code?: unknown; path?: unknown} | undefined;
+        if (first?.code !== "id-taken") return null;
+        const at = typeof first.path === "string" ? /^ops\[(\d+)\]/u.exec(first.path)?.[1] : undefined;
+        const type = at === undefined ? undefined : types[Number(at)];
+        return type === undefined ? text("entry.groupAlreadyAdded") : text("entry.groupAlreadyAddedNamed", {name: typeLabel(type)});
+    };
+    const ops = types.map((type): EntryOp => ({op: "component", entry: props.id, type, action: "add"}));
+    if (!(await runEntries(ops, port.t(title), "creative", from, alreadyAdded))) return false;
+    const items = componentsRead.value?.data?.items ?? [];
+    pendingTab.value = types.map((type) => items.find((item) => item.id === type)?.namespace ?? null).find((namespace) => namespace !== null) ?? null;
+    if (from === "dialog") addDialogOpen.value = false;
+    return true;
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
 /** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
@@ -1187,7 +1225,7 @@ const setPosition = (value: string): void => {
 </script>
 
 <template>
-    <div class="min-h-full">
+    <div ref="hostRoot" class="min-h-full">
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
@@ -1222,11 +1260,9 @@ const setPosition = (value: string): void => {
             :look="dataLook"
             @update:look="(value: string) => (dataLook = value as DataLook)"
             :addable="addableTypes"
-            :picker-items="pickerItems"
-            :kind="entry?.kind?.trim() ?? ''"
             @add-open="openAddMenu()"
-            @add-component="addComponent"
-            @show-component="showComponent"
+            @add-dialog="openAddDialog()"
+            @add-component="(type: string) => addComponents([type], 'menu')"
             @remove-component="openDialog(); removeOpen = true"
             @move="openMove()"
             @update:line="(value: string) => props.windowLine.set(value)"
@@ -1396,6 +1432,17 @@ const setPosition = (value: string): void => {
             @search-parent="parentFind.search"
             @search-same-as="sameAsFind.search"
             @confirm="confirmMove()"
+        />
+        <AddComponentDialog
+            v-model:open="addDialogOpen"
+            :items="checklistItems"
+            :kind="entryKind"
+            :presets="presets"
+            :busy="acting"
+            :error="dialogError"
+            @add="(types: readonly string[]) => addComponents(types, 'dialog')"
+            @show="showComponent"
+            @closed="afterAddDialog()"
         />
         <Dialog
             :open="removeOpen"
