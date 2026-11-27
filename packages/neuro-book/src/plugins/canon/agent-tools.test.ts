@@ -347,6 +347,11 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         expect([stale.status, stale.text]).toEqual(["error", '第 1 项（replace）：这一块里找不到 find：find 里带着读到的值，值可能变了或是按计划模式读的。按实际模式重读这一块再抄。']);
         const missing = await run(AGENT_TOOL_IDS.write, {title: "找不到", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: "宿舍", with: "家"}]});
         expect(missing.text).toBe("第 1 项（replace）：这一块里找不到 find，原样抄读到的文字。");
+        // 把“存下时去掉值”读成 find 里也去掉（真实模型评测里出现过）：回话说 find 要照读到的抄，或只找标签以外的文字。
+        const stripped = await run(AGENT_TOOL_IDS.write, {title: "去了值找", version, edits: [{op: "replace", entry: xia, field: "text[b1]", find: '<V of="character.性格" />的脾气', with: "的性情"}]});
+        expect([stripped.status, stripped.text]).toEqual(["error", '第 1 项（replace）：这一块里找不到 find：find 是在读到的带值写法里找的，里面的标签要连同属性与中间的值照读到的抄（例如 <V of="panel.魔力">1200</V>），或者只找标签以外的文字。']);
+        // 写入成功的回话不给新的读取戳，请它重读。
+        expect(half.text).toContain("接着改要先用 canon_read 重读，拿新的版本。");
         await close();
     }, 60_000);
 

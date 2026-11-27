@@ -125,15 +125,23 @@ function readBlockText(submitted: string, keys: ReadonlyMap<string, string>, opt
 
 /** 程序加的装饰的写法（canon.rendering 输出 9）：`find` 里有这些多半是从按计划模式读到的文字抄的。 */
 const DECORATED = /<\/V>|\s(?:label|incomplete|unavailable|value|name|path)="/u;
+/** `find` 里有标签的开头：没带装饰时多半是把“写回时去掉值”读成了 `find` 也要去掉（w00055 t02 的真实模型评测，28 次里 3 次）。 */
+const TAG_START = /<\/?[A-Z]/u;
 
 /**
  * `replace` 写到主文字的一块：在这一块按实际模式的带值写法里找 `find`（恰好一次）换成 `with`，交回换好的整块带值写法（再经
  * `agentBlockText` 去值）。`current` 是那一块按实际模式的带值写法。
  */
+function notFound(find: string): string {
+    if (DECORATED.test(find)) return "这一块里找不到 find：find 里带着读到的值，值可能变了或是按计划模式读的。按实际模式重读这一块再抄。";
+    if (TAG_START.test(find)) return "这一块里找不到 find：find 是在读到的带值写法里找的，里面的标签要连同属性与中间的值照读到的抄（例如 <V of=\"panel.魔力\">1200</V>），或者只找标签以外的文字。";
+    return "这一块里找不到 find，原样抄读到的文字。";
+}
+
 export function replaceInBlock(current: string, find: string, replacement: string): {readonly text: string} | {readonly problem: string} {
     if (find === "") return {problem: "find 不能是空的。"};
     const first = current.indexOf(find);
-    if (first < 0) return {problem: DECORATED.test(find) ? "这一块里找不到 find：find 里带着读到的值，值可能变了或是按计划模式读的。按实际模式重读这一块再抄。" : "这一块里找不到 find，原样抄读到的文字。"};
+    if (first < 0) return {problem: notFound(find)};
     if (current.indexOf(find, first + 1) >= 0) return {problem: "find 在这一块里出现了不止一次，多抄几个字让它只出现一次。"};
     return {text: current.slice(0, first) + replacement + current.slice(first + find.length)};
 }

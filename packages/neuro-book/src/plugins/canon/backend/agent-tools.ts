@@ -100,7 +100,7 @@ const write = agentTool(AGENT_TOOL_IDS.write, {
         "这一批新建的东西初值写在建它的那一项里，后面不能再改它。引用字段的值写条目名字或 id。",
         "主文字按块存，一块里可以有几段，分块由你定：create 的 text 是一块，addBlock 加一块。会随剧情变的、带秘密的内容各自单独成块，因为剧情里的文字变化是整块替换，给写手的简报按块决定给不给。",
         "主文字是 Markdown 加标签：<V of=\"设定组.字段\" /> 写本条目字段的值，<V entry=\"条目 id\" of=\"设定组.字段\" /> 写别的条目的；<V expr=\"panel.魔力 >= 1000\" /> 写算出来的值（式子里的字符串用单引号，可用 round、floor、ceil、min、max、abs、percent）；<If test=\"式子\">…<ElseIf test=\"…\" />…<Else />…</If> 按条件写一段之内的文字；<Ref id=\"条目 id\" /> 写条目的名字（同一批 create 的条目在 entry、id、ref('…') 里写 \"$代号\"）；<Image of=\"设定组.图片字段\" alt=\"说明\" /> 或 <Image src=\"路径\" alt=\"说明\" />。要在正文里写 < 加大写字母，写成 \\<。",
-        "canon_read 读到的标签带着值：<V of=\"panel.魔力\">3110</V>，以及 label、incomplete、unavailable、value、name、path 这些属性。它们只给你看，写回时去掉：改文字照抄带值的写法就行，文字里改了值不会写进字段，改值用 set 写那个字段。set text[块] 是整块换掉；canon_read 一页读不全的长块只能用 replace 改局部。",
+        "canon_read 读到的标签带着值：<V of=\"panel.魔力\">3110</V>，以及 label、incomplete、unavailable、value、name、path 这些属性。它们只给你看，存下时程序会去掉：set text[块] 整块换掉时照抄带值的写法就行；replace 的 find 是在读到的带值写法里找的，要与读到的一字不差（标签连同属性与中间的值），或者只找标签以外的文字。文字里改了值不会写进字段，改值用 set 写那个字段。canon_read 一页读不全的长块只能用 replace 改局部。",
         "还原一次修订：不写 edits，写 revert: {revision, withDependents}。",
     ].join("\n"),
     parameters: {
@@ -747,7 +747,8 @@ async function writtenReply(call: Call, written: {readonly revision: string; rea
     });
     const impact = revision === null ? "" : impactText(revision.impact, (entry) => entry);
     const text = [
-        `已写入：修订 ${written.revision}，版本 ${String(written.version)}${written.repeated ? "（同一次调用重发，返回第一次的结果）" : ""}。`,
+        // 不在这里给新的读取戳：写入之后另查一次状态，两步之间别人的写入会被算成模型读过（staleRead 就拦不住了）。
+        `已写入：修订 ${written.revision}，版本 ${String(written.version)}${written.repeated ? "（同一次调用重发，返回第一次的结果）" : ""}。接着改要先用 canon_read 重读，拿新的版本。`,
         created.length === 0 ? "" : `新建：${created.join("；")}`,
         impact === "" ? "" : `带来的变化：\n${impact}`,
         written.laterRecords !== undefined && written.laterRecords > 0 ? `后面还有 ${String(written.laterRecords)} 条记录改过同一处，看一眼是否也要改。` : "",
