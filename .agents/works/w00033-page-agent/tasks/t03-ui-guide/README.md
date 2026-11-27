@@ -78,11 +78,18 @@ updated: 2026-11-27
 - 第 10 片进行中：
   - 真实模型冒烟 `page-agent.llm.test.ts`（9eafb946e、169cc0496）：测试窗口答复目录与高亮，问“在哪改主题，带我去”。第一次只给 eval 时模型读不到 `docs://eval/ui.md`、猜参数；按真实 Profile 加上 read 后连跑两次通过（先读文档、find 一次、按路径三步高亮，带进度与压暗）。
   - 开发服务上点一遍（开发构建、不减弱动效、DeepSeek）：两次都走通（两步与三步），压暗、描边、说明框位置正常，结束后没有残留节点，没有页面报错与 Vue 警告。看到模型先凭摘要猜了 `ui.guide`、参数形状，失败后读文档改对；标题写成“第 1 步”与进度重复。据此 `ui` 的摘要点出四个方法名、`title` 的说明写明进度另外显示（9d2327ab5）。说明框底下的蓝色控件透成色斑，是沿用 nb-ui 浮层的磨砂半透明底，与菜单、下拉一致。
-  - 实现审查（第 3、4、6、7、9 片还没审过）：后端 Opus 与 omp `@review`（后台）审同一份说明，前端 Sonnet；提交 9d2327ab5。
+  - 实现审查（第 3、4、6、7、9 片，提交 9d2327ab5）已处理（[处理记录](evidences/impl-s9-review-disposition.txt)）：后端 Opus 5 条、前端 Sonnet 11 条；omp `@review` 被上游安全过滤拦了一次后额度不足退出，没有报告。修正在 3acca8191、371e5f41b、57e6800c9、9ea8408bd、0d4daa76c、d7a43f555、7e8a71096：
+    - 后台会话与 bot 会话派出的子会话同样没有 `ui`（按派发链判定，主会话直接定：只收紧已定的“没人在窗口前就不给”）；
+    - 高亮与截图交回定位警告 `rebound`；选窗口时页面出错算没应答、确认前断开算 `window-gone`；文档补 `invalid-arguments`；
+    - 焦点在包着编辑器的容器上时收起提问不再把焦点拉进编辑器；叠成标签的视图标签写稳定名；工作台目录的视图带是否在布局里，关掉的视图不进界面目录；
+    - Profile 对象行的读屏名字用 `ui.*`、悬停写“说明。方法：ui.find（读）…”；六个组件的文档补稳定名；悬停显示钩子补一条经真实引擎的 e2e。
+    - 接受取舍：插件停止的真实接线没有测试兜底（新应用还没有停用单个插件的入口，运行中登记的插件其全局对象进不了 eval），先后写进注释；底部面板并成一行与浮出的自绘头视图的标题点不到，写进 Spec“不承诺”；Profile 工具一节的行增减没有过渡，与这一节原有的行一致，记为后续。
+    - 新判据变异检查 10 处（后端 6、前端 4）与核心 1 处、agent 1 处，全部能抓到。Spec 同步改了 page-agent 输入与输出 6、7、14、不承诺，contributions 输出 4，views 输出 23、24（36d06ee03）。
+  - 晋升前逐条核对（Opus）在跑；收口 e2e 等负载降下来再跑（别的会话的 e2e 让 1 分钟负载到 29）。
 
 ## 下一步
 
-1. 处理三份实现审查，修正单独提交；之后逐条核对 Spec（Opus）再晋升 `implemented`。
-2. 收口：`bun run test:affected --since master`；`page-agent.e2e.ts`、`page-agent-guide.e2e.ts`、`agent-profiles.e2e.ts` 各一次；核心包 `test:e2e`；`docs:check`、`governance:check`；合入 master。
-3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）；用户级 Profile 能否声明 `defaultTools`；参数校验失败的说明不列出可选值（`must be equal to constant`），模型只能猜。
-4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。
+1. 收到逐条核对的结果，对不上的修代码或改 Spec，再把 `page-agent.md` 晋升 `implemented`、本 Task 在别的 Spec 里的“（planned）”摘掉，补实现合同与证据。
+2. 收口：`bun run test:affected --since master`；核心包 `test:e2e`；`page-agent.e2e.ts`、`page-agent-guide.e2e.ts`、`agent-profiles.e2e.ts` 各一次；`docs:check`、`governance:check`；合入 master。
+3. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，只暂存自己那一行）。
+4. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条）；agent 的全局对象表只在激活时挑一次，运行中安装或启用的插件的对象要重启才有；用户级 Profile 能否声明 `defaultTools`；参数校验失败的说明不列出可选值（`must be equal to constant`），模型只能猜；Profile 工具一节行增减的过渡。
