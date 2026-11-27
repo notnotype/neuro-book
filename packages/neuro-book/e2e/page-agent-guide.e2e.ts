@@ -7,11 +7,12 @@
  * 就让代码先轮询窗口标题等一个暗号（`GATE`），用例设了标题，高亮才开始。
  */
 
-import {readFile, readdir} from "node:fs/promises";
+import {readFile, readdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
 import type {Locator, Page} from "@playwright/test";
+import {parse as parseJsonc} from "jsonc-parser";
 
 import {HEIGHT, WIDTH, composer, expectGuideRemoved, guidePart, newSession, openConversation, startEval, startLab} from "./support/page-agent-world";
 import type {AgentLab, AgentWorld} from "./support/page-agent-world";
@@ -33,6 +34,8 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({page}) => {
+    // 上一个用例停掉的那一轮没用上的脚本回复，不留给这一个用例。
+    await lab.control("/reset", {});
     await page.setViewportSize({width: WIDTH, height: HEIGHT});
 });
 
@@ -532,4 +535,126 @@ test("验收 9：前台会话的 eval 说明列 ui、typeof ui 为 object；bot 
     expect(botDescription).not.toContain("`ui`");
     // eval 工具本身还在：bot 的说明不是空的。
     expect(botDescription.length).toBeGreaterThan(100);
+});
+
+// ---------- Profile 设置页：全局对象一行（profile-settings.md 输出 28、29） ----------
+
+interface ToolBinding {
+    added?: string[];
+    removed?: string[];
+    objects?: {added?: string[]; removed?: string[]};
+}
+
+const bindingsOf = async (world: AgentWorld) => (parseJsonc(await readFile(join(world.stateRoot, "settings.json"), "utf8")) as Record<string, Record<string, ToolBinding> | undefined>)["nbook.agent/toolBindings"] ?? {};
+
+/** 打开作品和设置窗口的 Profile 分区。 */
+async function openProfiles(page: Page, world: AgentWorld): Promise<void> {
+    await page.goto(new URL("/?project=book", world.server.url).href);
+    await expect(page.locator("[data-explorer-row]").first()).toBeVisible();
+    await expect(async () => {
+        await page.keyboard.press("Control+,");
+        await expect(page.locator("[data-settings-nav-current]")).toBeFocused({timeout: 500});
+    }).toPass();
+    await page.locator("[data-settings-window]").getByRole("button", {name: "Profile", exact: true}).click();
+    await expect(page.locator("[data-profile-rail-item='nbook.agent.main']")).toBeVisible();
+}
+
+/** 工具一节写的“开着 N 个”，与这一节里实际列出的行数（一个对象一行）。 */
+const toolCount = (page: Page) => page.evaluate(() => {
+    const label = [...document.querySelectorAll("*")].find((node) => node.children.length === 0 && /^开着 \d+ 个$/u.test(node.textContent ?? ""));
+    if (label === undefined) throw new Error("没有找到“开着 N 个”");
+    let section: Element | null = label;
+    while (section !== null && section.querySelector("[data-profile-tool]") === null) section = section.parentElement;
+    if (section === null) throw new Error("“开着 N 个”所在的一节里没有工具行");
+    return {shown: Number(/\d+/u.exec(label.textContent!)![0]), rows: section.querySelectorAll("[data-profile-tool]").length};
+});
+
+test("Profile 设置页输出 28、29：ui 是一行、等级写执行、悬停列方法、开着 N 个按对象算；去掉写 objects.removed，在对话框里加回", async ({page}) => {
+    const world = await lab.startWorld("profile-ui");
+    await openProfiles(page, world);
+    const row = page.locator("[data-profile-tool-object='ui']");
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("执行");
+    // 没有警示：Profile 的工具里有 eval。
+    await expect(row.locator("[class*='triangle-alert']")).toHaveCount(0);
+    // 悬停说明：对象的界面说明，加每个方法与等级。
+    await row.locator("[data-grace-area-trigger]").first().hover();
+    await expect(page.getByText(/方法：ui\.find/u).first()).toBeVisible();
+    const tip = page.locator("[role=tooltip]").filter({hasText: "ui.highlight"}).first();
+    await expect(tip).toContainText("看懂并引导界面");
+    for (const method of ["ui.find：读", "ui.highlight：读", "ui.screenshot：执行", "ui.snapshot：读"]) await expect(tip).toContainText(method);
+    await page.mouse.move(2, 2);
+
+    // 计数按对象算：显示的数等于列出的行数，去掉 ui 少 1 而不是少 4（它有 4 个方法）。
+    const before = await toolCount(page);
+    expect(before.shown).toBe(before.rows);
+    await row.locator("[data-profile-tool-remove]").click();
+    await expect(row).toHaveCount(0);
+    await expect.poll(async () => (await bindingsOf(world))["nbook.agent.main"]?.objects?.removed).toEqual(["ui"]);
+    const removed = await toolCount(page);
+    expect(removed.shown).toBe(before.shown - 1);
+    expect(removed.rows).toBe(before.rows - 1);
+
+    // 对话框里加回：从 objects.removed 里删掉，行回来。
+    await page.locator("[data-profile-tools-add]").first().click();
+    const dialog = page.locator("[data-profile-add-tools]");
+    await expect(dialog.locator("[data-add-tool='object:ui']")).toBeVisible();
+    await dialog.locator("[data-add-tool='object:ui'] [data-add-tool-toggle]").click();
+    await dialog.getByRole("button", {name: "完成"}).click();
+    await expect(row).toHaveCount(1);
+    await expect.poll(async () => (await bindingsOf(world))["nbook.agent.main"]?.objects?.removed ?? []).toEqual([]);
+    expect((await toolCount(page)).shown).toBe(before.shown);
+});
+
+test("Profile 设置页输出 28：Profile 的工具里没有 eval 时 ui 这一行照样列出，说明是“要先加入 eval 才用得上”并带警示图标", async ({page}) => {
+    const world = await lab.startWorld("profile-no-eval");
+    await openProfiles(page, world);
+    // 对照：默认的 Profile 有 eval，ui 这一行没有警示。
+    await expect(page.locator("[data-profile-tool-object='ui']")).not.toContainText("要先加入 eval");
+    // 新建的用户 Profile 只有读、grep、glob，没有 eval。
+    await page.locator("[data-profile-create]").click();
+    await page.locator("[data-profile-new] input").fill("no-eval");
+    await page.getByRole("button", {name: "新建并打开"}).click();
+    await expect(page.locator("[data-profile-detail='user.no-eval']")).toBeVisible();
+    await expect(page.locator("[data-profile-tool='nbook.agent.eval']")).toHaveCount(0);
+    const row = page.locator("[data-profile-tool-object='ui']");
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("要先加入 eval 才用得上");
+    await expect(row.locator("[class*='triangle-alert']")).toHaveCount(1);
+});
+
+test("Profile 设置页输出 29：声明了 defaultTools: false 的 Profile 本来没有 ui，行不列；对话框里加入时写 objects.added", async ({page}) => {
+    const world = await lab.startWorld("profile-no-default-tools");
+    await openProfiles(page, world);
+    await page.locator("[data-profile-create]").click();
+    await page.locator("[data-profile-new] input").fill("bare");
+    await page.getByRole("button", {name: "新建并打开"}).click();
+    await expect(page.locator("[data-profile-detail='user.bare']")).toBeVisible();
+    const file = join(world.stateRoot, "user", "profiles", "bare.profile.tsx");
+    await writeFile(file, (await readFile(file, "utf8")).replace("tools: {", "defaultTools: false,\n    tools: {").replace("我写的 Profile。", "标记已重载。"));
+    // 先等页面读到新文件（描述变了），再看工具一节。
+    await expect(page.locator("[data-profile-detail='user.bare']")).toContainText("标记已重载");
+    const row = page.locator("[data-profile-tool-object='ui']");
+    await expect(row).toHaveCount(0);
+    await page.locator("[data-profile-tools-add]").first().click();
+    const dialog = page.locator("[data-profile-add-tools]");
+    await dialog.locator("[data-add-tool='object:ui'] [data-add-tool-toggle]").click();
+    await dialog.getByRole("button", {name: "完成"}).click();
+    await expect(row).toHaveCount(1);
+    await expect.poll(async () => (await bindingsOf(world))["user.bare"]?.objects).toEqual({added: ["ui"]});
+});
+
+test("Profile 设置页输出 29：动对象行时，这个对象的方法在 removed 里的旧条目一并删掉", async ({page}) => {
+    const world = await lab.startWorld("profile-old-entries", {tweak(settings) {
+        settings["nbook.agent/toolBindings"] = {"nbook.agent.main": {removed: ["nbook.page-agent.highlight"]}};
+    }});
+    await openProfiles(page, world);
+    const row = page.locator("[data-profile-tool-object='ui']");
+    await expect(row).toHaveCount(1);
+    // 对照：旧条目在设置里（没有它，下面“删掉了”什么也说明不了）。
+    expect((await bindingsOf(world))["nbook.agent.main"]?.removed).toEqual(["nbook.page-agent.highlight"]);
+    await row.locator("[data-profile-tool-remove]").click();
+    await expect(row).toHaveCount(0);
+    await expect.poll(async () => (await bindingsOf(world))["nbook.agent.main"]?.objects?.removed).toEqual(["ui"]);
+    expect((await bindingsOf(world))["nbook.agent.main"]?.removed ?? []).not.toContain("nbook.page-agent.highlight");
 });
