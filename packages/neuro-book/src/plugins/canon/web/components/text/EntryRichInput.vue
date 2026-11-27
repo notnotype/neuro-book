@@ -643,53 +643,115 @@ watch(
     },
 );
 
-/**
- * 文档里 `pos` 之前那一截写出来的长度，就是它在整篇源文里的偏移（小块按它的原文算，强调按记号算）。截断的那一块按规范写法重写：
- * 作者没改过的块原样，改过的块与交出去的整篇本来就是同一种写法。写出的尾部换行不算；`pos` 在一块开头时算到这一块起点（前面的空行算进去）。
- */
-function offsetBefore(pos: number, whole: string): number | null {
+/** 文档里 `to` 之前那几个顶层块写出来的长度（没改过的块原样，与整篇源文逐字对应）。 */
+function prefixLength(to: number): number | null {
     if (editor === null || codec === null || map === null) return null;
     const {doc} = editor.state;
-    const $pos = doc.resolve(pos);
-    if ($pos.parentOffset === 0) {
-        if ($pos.index(0) === 0) return 0;
-        const before = codec.write(doc.copy(doc.content.cut(0, $pos.before(1))), map);
-        if (!before.ok) return null;
-        return Math.min(before.text.length + /^\s*/u.exec(whole.slice(before.text.length))![0].length, whole.length);
-    }
-    const written = codec.write(doc.cut(0, pos), map);
+    if (to <= 0) return 0;
+    const written = codec.write(doc.copy(doc.content.cut(0, to)), map);
+    return written.ok ? written.text.replace(/\n+$/u, "").length : null;
+}
+
+/** 第 `index` 个顶层块在文档里的起止，与它在整篇源文里的起止（起点算上前面的空行）。 */
+interface BlockSpan {
+    readonly from: number;
+    readonly to: number;
+    readonly start: number;
+    readonly end: number;
+}
+function blockSpan(index: number, whole: string): BlockSpan | null {
+    if (editor === null) return null;
+    const {doc} = editor.state;
+    let from = 0;
+    for (let at = 0; at < index; at += 1) from += doc.child(at).nodeSize;
+    const to = from + doc.child(index).nodeSize;
+    const before = prefixLength(from);
+    const through = index === doc.childCount - 1 ? whole.length : prefixLength(to);
+    if (before === null || through === null) return null;
+    const start = index === 0 ? 0 : before + /^\s*/u.exec(whole.slice(before))![0].length;
+    return {from, to, start, end: Math.max(start, Math.min(through, whole.length))};
+}
+
+/** 把文档里 `pos` 之前那一截写出来的长度；截断处行尾的空白写成字符引用（`&#x20;`），按一个字算。写不出（截出的半张表）时为 null。 */
+function cutLength(pos: number): number | null {
+    if (editor === null || codec === null || map === null) return null;
+    const written = codec.write(editor.state.doc.cut(0, pos), map);
     if (!written.ok) return null;
-    // 截断处的行尾空白写成字符引用（`&#x20;`，免得被当成段尾空白丢掉），在整篇里它是一个字。
-    const text = written.text.replace(/\n+$/u, "").replace(/(?:&#x(?:20|9);)+$/u, (tail) => " ".repeat(tail.split(";").length - 1));
-    return Math.min(text.length, whole.length);
+    return written.text.replace(/\n+$/u, "").replace(/(?:&#x(?:20|9);)+$/u, (tail) => " ".repeat(tail.split(";").length - 1)).length;
+}
+
+/**
+ * 文档里 `pos`（在 `span` 那一块里）之前那一截在整篇源文里的偏移：把它之前的一截写出来量长度，小块按原文、强调按记号算。截在段首时，
+ * 写出来的是上一段（列表项、引用里新的一段连记号带空行都被当作空的去掉了），所以改量“到第一个字之后”再减一。段首是小块、段落是空的
+ * 时按块内的纯文字估；表格里也按纯文字估：截出来的半张表要么写不出，要么按规范写法重写（`| - |` 写成 `| --- |`），长度与原文对不上，
+ * 混着用会不单调。结果夹在这一块的起止之间：块与块之间单调，`positionAt` 的二分靠它。
+ */
+function offsetIn(pos: number, span: BlockSpan, whole: string): number {
+    if (editor === null) return span.start;
+    const {doc} = editor.state;
+    const $pos = doc.resolve(pos);
+    // 顶层的代码块：内容从围栏的下一行起，里面没有转义，按字数对得上。
+    if ($pos.depth === 1 && $pos.parent.type.spec.code === true) {
+        const fence = whole.indexOf("\n", span.start);
+        const body = fence < 0 ? span.start : fence + 1;
+        return Math.min(Math.max(body + $pos.parentOffset, span.start), span.end);
+    }
+    if (pos <= span.from + 1) return span.start;
+    let inTable = false;
+    for (let depth = $pos.depth; depth > 0; depth -= 1) if ($pos.node(depth).type.spec.tableRole !== undefined) inTable = true;
+    let at: number | null;
+    if (inTable) {
+        at = null;
+    } else if ($pos.parentOffset === 0) {
+        const first = $pos.parent.firstChild;
+        const through = first?.isText === true ? cutLength(pos + 1) : null;
+        at = through === null ? null : through - 1;
+    } else {
+        at = cutLength(pos);
+    }
+    if (at === null) at = span.start + doc.textBetween(span.from, pos, "\n", "x").length;
+    return Math.min(Math.max(at, span.start), span.end);
 }
 
 /** 光标在整篇源文里的偏移（切到源文字时光标落在这里）。 */
 function cursorOffset(): number | null {
     if (editor === null || codec === null || map === null) return null;
-    const whole = codec.write(editor.state.doc, map);
-    return whole.ok ? offsetBefore(editor.state.selection.from, whole.text) : null;
+    const {doc, selection} = editor.state;
+    const whole = codec.write(doc, map);
+    if (!whole.ok || doc.childCount === 0) return whole.ok ? 0 : null;
+    const index = Math.min(selection.$from.index(0), doc.childCount - 1);
+    const span = blockSpan(index, whole.text);
+    return span === null ? null : offsetIn(selection.from, span, whole.text);
 }
 
 /**
- * `cursorOffset` 反过来：整篇源文里的偏移落在文档的哪个位置。按位置二分（写出的长度随位置单调不减），每一步写一次前缀；
- * 5 万字时十几次。落到最近的能放光标的地方。
+ * `cursorOffset` 反过来：整篇源文里的偏移落在文档的哪个位置。先按顶层块的起点二分找块，再在块里按位置二分（每步写一次前缀）；
+ * 5 万字时二十来次。落到最近的能放光标的地方。
  */
 function positionAt(offset: number): number | null {
     if (editor === null || codec === null || map === null) return null;
     const {doc} = editor.state;
     const whole = codec.write(doc, map);
-    if (!whole.ok) return null;
+    if (!whole.ok || doc.childCount === 0) return null;
     let low = 0;
-    let high = doc.content.size;
+    let high = doc.childCount - 1;
     while (low < high) {
         const middle = Math.ceil((low + high) / 2);
-        const at = offsetBefore(middle, whole.text);
-        if (at === null) return null;
-        if (at <= offset) low = middle;
+        const span = blockSpan(middle, whole.text);
+        if (span === null) return null;
+        if (span.start <= offset) low = middle;
         else high = middle - 1;
     }
-    return TextSelection.near(doc.resolve(low)).from;
+    const span = blockSpan(low, whole.text);
+    if (span === null) return null;
+    let from = span.from;
+    let to = span.to;
+    while (from < to) {
+        const middle = Math.ceil((from + to) / 2);
+        if (offsetIn(middle, span, whole.text) <= offset) from = middle;
+        else to = middle - 1;
+    }
+    return TextSelection.near(doc.resolve(from)).from;
 }
 
 defineExpose({

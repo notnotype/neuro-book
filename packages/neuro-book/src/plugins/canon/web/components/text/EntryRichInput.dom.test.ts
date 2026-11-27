@@ -113,6 +113,41 @@ describe("富文本输入框的合同", () => {
         }
     });
 
+    it("列表、引用、代码块、表格里：光标偏移随位置不减、不越出整篇，按字放回去读得回原处", async () => {
+        type Offsets = Exposed & {focus(caret: number): void};
+        const cases: ReadonlyArray<{source: string; points: readonly string[]}> = [
+            {source: "- 甲甲\n- 乙乙\n\n后文", points: ["甲甲", "乙乙", "后文"]},
+            {source: "前文\n\n- 甲甲\n- 乙乙\n- 丙丙\n\n后文", points: ["甲甲", "乙乙", "丙丙", "后文"]},
+            {source: "> 引一\n>\n> 引二\n\n后文", points: ["引一", "引二", "后文"]},
+            {source: "前文\n\n```\n甲甲\n乙乙\n```\n\n后文", points: ["甲甲", "乙乙", "后文"]},
+            {source: "前文\n\n| 甲 | 乙 |\n| - | - |\n| 丙 | 丁 |\n\n后文", points: ["前文", "后文"]},
+        ];
+        for (const {source, points} of cases) {
+            const wrapper = show({modelValue: source});
+            await flushPromises();
+            const editor = editorOf(wrapper);
+            let last = 0;
+            // 只走光标放得下的位置（段落里）；节点之间的位置光标到不了。
+            for (let pos = 0; pos <= editor.state.doc.content.size; pos += 1) {
+                if (!editor.state.doc.resolve(pos).parent.inlineContent) continue;
+                editor.commands.setTextSelection(pos);
+                const offset = exposed(wrapper).cursorOffset();
+                expect(offset, `${JSON.stringify(source)} 位置 ${pos}`).not.toBeNull();
+                expect(offset!).toBeGreaterThanOrEqual(last);
+                expect(offset!).toBeLessThanOrEqual(source.length);
+                last = offset!;
+            }
+            for (const point of points) {
+                // 一项的开头与中间一个字的后面。
+                for (const offset of [source.indexOf(point), source.indexOf(point) + 1]) {
+                    (wrapper.vm as unknown as Offsets).focus(offset);
+                    expect(exposed(wrapper).cursorOffset(), `${JSON.stringify(source)} 偏移 ${offset}`).toBe(offset);
+                }
+            }
+            wrapper.unmount();
+        }
+    });
+
     it("没登记的标签：基线里有的插得进，没有的不插", async () => {
         const wrapper = show({modelValue: "状态 <StatusBar />", baseline: new Set(["<StatusBar />"])});
         await flushPromises();
