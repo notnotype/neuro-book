@@ -729,7 +729,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             };
 
             /**
-             * 消息视图：窄版接管面板头的标题区（头写会话，按标题开列表抽屉），宽版交还（conversation.md 输出 44）。计数是各归属插件联系人的未读
+             * 消息视图：停靠时聊天的头接管面板头的标题区，列表在借给右轨的视图段里（conversation.md 输出 44、57）。计数是各归属插件联系人的未读
              * 合计，写在面板头标题后与入口角标上（views.md 输出 17）；视图没打开时照样读。
              */
             const unreadTotal = computed(() => providers.value.reduce((sum, {provider}) => sum + provider.contacts.value.reduce((inner, contact) => inner + (contact.unread ?? 0), 0), 0));
