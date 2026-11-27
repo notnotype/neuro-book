@@ -13,7 +13,7 @@ owners:
 
 条目的主文字是带标签的 Markdown，可以引用本条目与别的条目的字段（`<V of="panel.魔力" />`）。同一份数据给作者看界面、给 Agent 读文字。本能力定义主文字的写法与白名单、按块解析、给作者的渲染结果、给 Agent 的带值写法与交回时的去值、给不回写的读者（例如写手的简报）的纯文字。只解释白名单，不执行代码；Markdown 的读法与章节编辑器相同（[`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 的 core，[ADR 0064](../../adr/0064-entry-text-uses-tags-and-the-chapter-parser.md)）；同样的输入在浏览器里与在项目进程里算出的结果逐字相同。
 
-主文字是标签写法（[ADR 0064](../../adr/0064-entry-text-uses-tags-and-the-chapter-parser.md)）。带（planned）的句子是还没实现的合同：插件登记的标签（登记表、属性表与描述），以及 Component 的 `agentView` 按主文字的写法解释。
+主文字是标签写法（[ADR 0064](../../adr/0064-entry-text-uses-tags-and-the-chapter-parser.md)）。带（planned）的句子是还没实现的合同：插件登记的标签（登记表、属性表与描述），Component 的 `agentView` 按主文字的写法解释，以及跨段的条件（块级 `If`）。
 
 不承诺：
 
