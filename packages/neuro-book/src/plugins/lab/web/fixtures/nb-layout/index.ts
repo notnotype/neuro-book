@@ -9,7 +9,7 @@ import type {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay, FloatW
 import type {TabStrip} from "@notnotype/nb-workbench-layout/vue";
 
 import {defineLabFixture} from "../define";
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {defineSubjectFixture} from "../subject-fixture";
 
 function nbLayoutSubject(name: "DropIndicatorLabel" | "DropSectorsOverlay" | "FloatWindowHandles" | "Splitter"): () => Promise<{default: Component}> {

@@ -8,9 +8,9 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import {createFakeWebRemote} from "nbook/plugins/lab/web/fixtures/web-tools-scene/fake-remote";
-import type {FakeWebRemoteOptions} from "nbook/plugins/lab/web/fixtures/web-tools-scene/fake-remote";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import {createFakeWebRemote} from "nbook/plugins/web-tools/web/lab/fake-remote";
+import type {FakeWebRemoteOptions} from "nbook/plugins/web-tools/web/lab/fake-remote";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";

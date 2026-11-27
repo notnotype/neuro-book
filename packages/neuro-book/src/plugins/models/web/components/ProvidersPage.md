@@ -61,4 +61,4 @@ defineProps<{
 - `state:inject`：文字经宿主注入的翻译端口取。
 - `env:portal`：对话框、下拉与提示传送到 `body`。
 
-数据模块、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身摆出来（场景见 `ModelsPageFixture.vue`）。
+数据模块、`writable` 与 `reportWriteFailure` 都经属性传入，读写走的是这条明面通道，所以页面没有 `io:*` 与 `state:shared-*` 标签，能在 Lab 里用内存里的远程合同替身摆出来（场景见 `models/web/lab/ModelsPageFixture.vue`）。

@@ -2,7 +2,9 @@
  * 包内依赖方向（packages/neuro-book/AGENTS.md 目录约定）：前端代码不引后端与 Bun/Node；后端不引前端；
  * 共用目录、插件描述与产品清单不引任何一侧；跨插件的运行时导入只能指向对方的 `shared/contracts.ts`，类型照旧可以
  * `import type`（docs/adr/0025-service-keys-by-id.md；例外：Lab 的场景可以在运行时引用别的插件的前端与共用代码，用来
- * 挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载）；只有开发监督进程与构建预设（`plugin-platform/build/`，产品代码不引用它）能引 Vite；测试库只在测试里用；
+ * 挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载）。场景放在 Lab 的 `fixtures/`、草稿区与各插件的 `web/lab/`：
+ * 插件的 `web/lab/` 只经 `plugins/lab/web/scene-kit` 用 Lab，除了 Lab 与别的 `web/lab/`，谁都不引 `web/lab/`（类型也不引），
+ * 生产构建才到不了它们（docs/specs/ui/component-lab.md 的“输入边界”）；只有开发监督进程与构建预设（`plugin-platform/build/`，产品代码不引用它）能引 Vite；测试库只在测试里用；
  * 开发清单与开发插件（Lab）只经开发入口引用（后端、项目子进程与前端各一个），前端开发入口只能动态加载，生产构建才不含它们。
  * `src/ui/` 是宿主与插件共用的前端组件，只用前端库与共用代码；`import.meta.glob` 只给 Lab 的组件索引用：
  * 它把扫描到的模块全部带进构建图，用在别处会把整片目录打进产品。
@@ -76,8 +78,12 @@ const isDevelopmentPlugin = (path: string): boolean => path.startsWith("plugins/
 const isPluginContracts = (target: string): boolean => /^(?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+\/shared\/contracts(?:\.ts)?$/u.test(target);
 /** 路径段含 `testing`：本包的测试支持目录，或内核的 `@notnotype/nb-runtime/<机制>/testing` 入口。 */
 const importsTesting = (use: ImportUse, target: string | null): boolean => use.specifier.split("/").includes("testing") || (target !== null && has(target, "testing"));
-/** Lab 的场景与草稿区（界面评审的静态稿）可以引别的插件的界面与共用代码：它们只在开发版里有。 */
-const labSceneMayImport = (file: string, target: string): boolean => (file.startsWith("plugins/lab/web/fixtures/") || file.startsWith("plugins/lab/web/drafts/")) && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
+/** 插件自己的场景目录 `plugins/<插件>/web/lab/`：只在开发版里经 Lab 的总登记表加载。目录本身也算（`import "./lab"` 解析到它的 index）。 */
+const isLabScene = (path: string): boolean => /^plugins\/[^/]+\/web\/lab(?:\/|$)/u.test(path);
+/** 插件场景用 Lab 的唯一入口。 */
+const isSceneKit = (target: string): boolean => target === "plugins/lab/web/scene-kit" || target === "plugins/lab/web/scene-kit.ts";
+/** Lab 的场景、草稿区（界面评审的静态稿）与插件的场景可以引别的插件的界面与共用代码（含别的插件的 `web/lab/`）：它们只在开发版里有。 */
+const labSceneMayImport = (file: string, target: string): boolean => (file.startsWith("plugins/lab/web/fixtures/") || file.startsWith("plugins/lab/web/drafts/") || isLabScene(file)) && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 /**
  * nb-canon 的主入口带着整个内核，`node` 子路径要 `node:fs`：浏览器代码在运行时只能引 `schema` 子路径与条目文法 `grammar`
  * （阅读视图对源文跑同一份文法，canon.rendering 输出 7），别的只引类型。主入口在 Vite 开发模式下曾加载不了（当时的 MDX 解析链里
@@ -141,9 +147,10 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
             found.push(`示例插件只能引用 SDK、宿主共享的包与示例插件：${where}`);
         }
         if (target === "development-manifest" && !DEVELOPMENT_ENTRIES.includes(use.file)) found.push(`只有开发入口能引用开发清单：${where}`);
-        if (target !== null && isDevelopmentPlugin(target) && !isDevelopmentPlugin(use.file) && use.file !== "development-manifest.ts" && !DEVELOPMENT_ENTRIES.includes(use.file)) {
-            found.push(`只有开发入口能引用开发插件：${where}`);
+        if (target !== null && isDevelopmentPlugin(target) && !isDevelopmentPlugin(use.file) && use.file !== "development-manifest.ts" && !DEVELOPMENT_ENTRIES.includes(use.file) && !(isLabScene(use.file) && isSceneKit(target))) {
+            found.push(`只有开发入口能引用开发插件（插件的场景只经 plugins/lab/web/scene-kit）：${where}`);
         }
+        if (target !== null && isLabScene(target) && !isLabScene(use.file) && !isDevelopmentPlugin(use.file)) found.push(`只有 Lab 与插件的场景能引用 web/lab/：${where}`);
         if (use.file.startsWith("ui/") && target !== null && !target.startsWith("ui/") && !target.startsWith("shared/")) found.push(`共享前端组件只能引用 ui/ 与 shared/：${where}`);
         if (target === "web/development-plugins" && !(use.dynamic === true && use.file === "web/main.ts")) found.push(`前端开发入口只能由 web/main.ts 在 import.meta.env.DEV 分支里动态加载：${where}`);
     }
@@ -268,7 +275,8 @@ describe("包内依赖方向", () => {
             {file: "web/mount.ts", specifier: "./development-plugins", typeOnly: false, dynamic: true},
             use("ui/JsonViewer.vue", "nbook/web/host/window"),
             use("ui/JsonViewer.vue", "node:fs"),
-            use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/plugin"),
+            use("plugins/lab/web/fixtures/SettingsRowFixture.vue", "nbook/plugins/commands/plugin"),
+            use("plugins/workbench/web/lab/lab-command-scene.ts", "nbook/plugins/commands/plugin"),
             use("plugins/lab/web/LabShell.vue", "nbook/plugins/workbench/web/commands/keymap"),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/workbench/web/contracts"),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/commands/shared/registry"),
@@ -292,6 +300,13 @@ describe("包内依赖方向", () => {
             use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/web"),
             use("web/host/window.ts", "@notnotype/nb-models/core"),
             use("plugins/files/backend/rooted.ts", "proper-lockfile"),
+            // 插件的场景只经 scene-kit 用 Lab；产品代码（含同一插件、只引类型）不引 web/lab/。
+            use("plugins/canon/web/lab/fixtures.ts", "nbook/plugins/lab/web/lab-subject"),
+            use("plugins/canon/web/lab/ConfirmBarFixture.vue", "../../../lab/web/LabFixtureControls.vue"),
+            use("plugins/canon/web/entry-page.ts", "./lab/fixtures"),
+            use("plugins/canon/web/entry-page.ts", "./lab"),
+            use("plugins/canon/web/entry-page.ts", "./lab/canon-text", true),
+            use("plugins/plot/web/plugin.ts", "nbook/plugins/canon/web/lab/canon-text", true),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -302,8 +317,9 @@ describe("包内依赖方向", () => {
             use("project/development-main.ts", "nbook/development-manifest"),
             use("development-manifest.ts", "./plugins/lab/plugin"),
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
-            use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
-            use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
+            use("plugins/workbench/web/lab/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
+            use("plugins/lab/web/fixtures/SettingsRowFixture.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
+            use("plugins/workbench/web/lab/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-plugin-sdk"),
             use("../plugin-sdk/examples/plugins/skill-pack/skills/word-count/scripts/count.ts", "yaml"),
             use("../plugin-sdk/examples/plugins/snippets/web/plugin.ts", "@notnotype/nb-plugin-sdk/settings/browser"),
@@ -320,6 +336,12 @@ describe("包内依赖方向", () => {
             use("server/start.ts", "@notnotype/nb-host/socket"),
             use("plugins/models/web/models-store.ts", "@notnotype/nb-models/contract"),
             use("plugins/models/backend/plugin.ts", "@notnotype/nb-models/core"),
+            use("plugins/canon/web/lab/fixtures.ts", "nbook/plugins/lab/web/scene-kit"),
+            use("plugins/canon/web/lab/ConfirmBarFixture.vue", "../../../lab/web/scene-kit"),
+            use("plugins/canon/web/lab/fixtures.ts", "../components/ConfirmBar.vue", true),
+            use("plugins/network/web/lab/NetworkPageFixture.vue", "nbook/plugins/models/web/models-store"),
+            use("plugins/editor/web/lab/EditorAreaFixture.vue", "nbook/plugins/explorer/web/lab/memory-files"),
+            use("plugins/lab/web/fixtures/nb-agent-ui/composer-host.ts", "nbook/plugins/prompt/web/lab/menu"),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);

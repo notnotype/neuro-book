@@ -13,7 +13,7 @@ import type {ComputedRef, ShallowRef} from "vue";
 import type {ReadPosition} from "@notnotype/nb-canon/schema";
 
 import type {CanonClient} from "../shared/contracts";
-import type {ConflictChoice, ConflictItem} from "./components/text-conflict-dialog";
+import type {ConflictChoice, ConflictItem} from "./components/text/text-conflict-dialog";
 import {failureText} from "./failures";
 import type {CanonNotices} from "./notices";
 import {hasChanges, SUBMIT_OPS_MAX} from "./text-draft";

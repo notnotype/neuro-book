@@ -14,7 +14,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createApplication} from "nbook/application";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {MarkdownComponents} from "nbook/plugins/markdown/shared/contracts";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";

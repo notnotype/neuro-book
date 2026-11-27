@@ -7,7 +7,7 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
-import {SAMPLE_PROVIDERS} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {SAMPLE_PROVIDERS} from "nbook/plugins/models/web/lab/sample";
 
 import {MODELS_TEXT_NAMESPACE} from "../../shared/text";
 import type {IconCodec} from "../icon-scale";

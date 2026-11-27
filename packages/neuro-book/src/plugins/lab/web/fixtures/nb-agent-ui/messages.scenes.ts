@@ -5,7 +5,7 @@
 import type {AgentMessages, AgentMessagesList, AgentMessagesSegment} from "@notnotype/nb-agent-ui/vue";
 import type {MessagesContactSection} from "@notnotype/nb-agent-ui";
 
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 const now = Date.parse("2026-11-20T10:00:00+00:00");
 const avatar = (fill: string) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><circle cx='10' cy='10' r='10' fill='${fill}'/><circle cx='7' cy='9' r='1.5' fill='#3a2a4a'/><circle cx='13' cy='9' r='1.5' fill='#3a2a4a'/></svg>`)}`;

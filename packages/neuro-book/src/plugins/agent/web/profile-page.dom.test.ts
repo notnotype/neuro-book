@@ -10,7 +10,7 @@ import type {Ref} from "vue";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import type {ModelsSnapshot} from "nbook/plugins/models/shared/contracts";

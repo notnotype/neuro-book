@@ -16,7 +16,7 @@ import type {FieldDeclaration, FieldState, Placement, ReadPosition} from "@notno
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {CanonClient, CanonOutputs, Published} from "../shared/contracts";
-import type {ConfirmBarKind, EditIntent} from "./components/confirm-bar";
+import type {ConfirmBarKind, EditIntent} from "./components/editing/confirm-bar";
 import {namespaceField} from "./entry-heads";
 import {failureText} from "./failures";
 import {impactIsQuiet, impactLines} from "./impact";

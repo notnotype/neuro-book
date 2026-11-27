@@ -64,7 +64,7 @@ owners:
 
 ## 失败与恢复
 
-- 步骤的 `at` 递减、`op` 不受支持或 `args` 无法 JSON 往返：由 `fixtures/index.test.ts` 的登记门禁拦截；运行时遇到同样问题时，时间线控件显示错误并禁止播放，场景其余部分照常显示初始状态。
+- 步骤的 `at` 递减、`op` 不受支持或 `args` 无法 JSON 往返：由 `fixtures/index.dom.test.ts` 的登记门禁拦截；运行时遇到同样问题时，时间线控件显示错误并禁止播放，场景其余部分照常显示初始状态。
 - 归约函数在第 k 步抛错：停在第 k − 1 步的状态并暂停，显示出错的步骤序号与错误信息。
 - `tl` 或 `at` 参数无效：忽略该参数，按默认从 `t = 0` 暂停开始，并给出开发诊断。
 
@@ -82,7 +82,7 @@ owners:
 3. Given 倍速 4×，When 播放，Then 虚拟时间的推进速度为 1× 的 4 倍，步骤按 `at` 顺序应用。
 4. Given 播放中，When 切换场景或点击还原输入，Then 回到 `t = 0` 并暂停，事件日志按 Lab 既有规则清空。
 5. Given 地址带 `tl=<id>&at=<毫秒>`，When 打开 Lab，Then 直接定位到该位置并暂停。
-6. Given 一条 `at` 递减的时间线，When 运行 `fixtures/index.test.ts`，Then 登记门禁报出组件、场景与步骤序号。
+6. Given 一条 `at` 递减的时间线，When 运行 `fixtures/index.dom.test.ts`，Then 登记门禁报出组件、场景与步骤序号。
 7. Given 归约函数在第 k 步抛错，When 播放，Then 停在第 k − 1 步并显示错误。
 8. Given fixture 声明了事件触发的时间线切换，When 组件发出该事件，Then 切换到目标时间线，并以当时的状态为初始状态开始播放。
 

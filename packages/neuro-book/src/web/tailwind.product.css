@@ -1,9 +1,11 @@
 /*
  * 生产构建的样式入口（vite.config.ts 的 `STYLE_ENTRY` 别名指向这里）：完整入口去掉 Lab 与 e2e 外壳的目录。
  * Tailwind 的 `@source` 按目录扫描、不看构建图，不排除的话只在 Lab 里用到的类（连同 `--lab-*` 这类名字）会进可分发产物
- * （ui.component-lab 的产物门禁）。排除写在这一层而不在完整入口里：`@source not` 之后再写的正向 `@source` 加不回来。
+ * （ui.component-lab 的产物门禁）。各插件的场景目录 `web/lab/` 同理，通配写法 Tailwind 4.3 认。排除写在这一层而不在完整入口里：
+ * `@source not` 之后再写的正向 `@source` 加不回来。
  */
 @import "./tailwind.css";
 
 @source not "../plugins/lab";
+@source not "../plugins/*/web/lab";
 @source not "./testing";

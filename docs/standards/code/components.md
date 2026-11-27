@@ -162,12 +162,22 @@ frontmatter 的能力标签和「数据」一节的类型声明都可以与实�
 - 组件索引、登记流程和任何一次重构的进度不属于本规范。
 - 主题相关行为的变化更新主题规范本身，不在组件声明中建立第二处颜色或主题来源。
 
+## 目录
+
+一个插件的界面组件放在 `web/components/`。超过 30 个时，下一次改到这个插件的组件就按作者看到的界面区域分子目录，例如 canon 的 `entries/`、`entry-page/`、`groups/`、`editing/`、`text/`、`revisions/`：
+
+- 同名文档、dom 测试与以组件命名的辅助 `.ts` 跟着组件走；
+- 不以组件命名的辅助件，放进用它最多的那一组；
+- 跨组照常用相对路径引用，不另设共用目录。
+
+Component Lab 的左栏按目录分组，不用另外登记。
+
 ## 验证
 
 组件能否在确定性环境下验证由标签推导：不含 `persist:`、`io:` 且不含 `state:shared-write` 的组件可完整验证；含 `state:shared-read` 的需要预置状态快照；含 `io:` 或 `state:shared-write` 的只能在真实产品界面验证。确定性验证环境见 [`ui/component-lab.md`](../../specs/ui/component-lab.md)。
 
 耦合度与档位由检查报告给出，同一组件重复计算结果一致。界面改动另按 [`frontend.md`](frontend.md) 报告桌面与窄屏影响。
 
-Component Lab 的 fixture 写法见 [`fixtures/README.md`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/README.md)。
+Component Lab 的场景放在组件所属插件的 `web/lab/`，只经 `src/plugins/lab/web/scene-kit.ts` 登记；写法与“每个分支至少一个场景”的规则见 [`fixtures/README.md`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/README.md)。
 
 完成标准：每个受管组件都有同名组件文档，且文档的能力标签与实现一致；公共零件目录耦合度为 0；非宿主组件不含 `state:shared-write` 与 `io:mutate`；需要理由的声明都有理由；应用侧可挂载组件在 Component Lab 有场景登记；桌面（宽度不低于 1440px）与 `390×844` 下核心操作均可完成，无页面级横向滚动、无导致操作无法完成的遮挡、无未声明的布局位移。

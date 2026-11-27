@@ -1,0 +1,271 @@
+# t20 晋升核对报告（逐条追加）
+
+### workbench-layout 输出 50（头句与“在不在”“三段”“落点”）
+路径前缀：E=packages/neuro-book/e2e，L=packages/nb-workbench-layout/src，W=packages/neuro-book/src/plugins/workbench/web
+- [A] 右轨是 body 横向分支里右栏外侧的呈现叶、fixed、两侧缝 0 — 实现 L/layout-project.ts:191-273 — 断言 L/layout-project-rail.test.ts:55-66（bodyOrder 以 RAIL 结尾、宽 48、sashSize("body",3)=0）
+- [B] 保留名单“同时覆盖”节点 id 与 panels 的键 — 实现 L/layout-doc-validate.ts:29、152 — 断言 L/layout-doc-rail.test.ts:89-97 一次同时改了节点 id、ref 与面板键，删掉任一处检查用例照过；缺分开只改节点 id、只改面板键的两条
+- [B] 不进文档与意图回写 — 实现：叶只加在投影里 — 没有断言回写后的文档里没有 rail: 节点（e2e 只比右栏各节点的意图）
+- [A] 在不在：有成员时在、隐藏/拖到零/收走时也在 48、没有成员时不在、显式打开的空右栏没有右轨 — L/layout-project-rail.test.ts:67-86；E/workbench-side-rail.e2e.ts:141、167、181、191、205（rail count 0/1、卡片宽 48）
+- [A] 左轨显隐只看 hiddenBars（照旧） — E/workbench-side-rail.e2e.ts:200（右栏走空后左轨入口仍在）
+- [A] 三段：入口带一个容器一项、点击同上段 — E/workbench-side-rail.e2e.ts:141、223、242、262
+- [B] 入口带“右键同输出 22 的上段” — 实现 W/components/WorkbenchToolStrip.vue:368 — 右轨入口上没有右键或菜单键的断言（右键用例只在活动栏与标签上）
+- [A] 拖动同上段 — E/workbench-side-rail-segment.e2e.ts:664（move-entry、写一次）
+- [A] 展开收起按钮是视图段的、侧轨不画 — W/components/WorkbenchToolStrip.dom.test.ts:110（find("[data-rail-toggle]") 为 false）
+- [A] 视图段独立滚动、放不下整条滚动 — 未见断言 → 应归 [B]（缺：矮视口下底段与当前入口仍可见、聚焦项滚进可见处）
+- [A] 落点只在入口带、沿纵轴；视图段与底段拒收、不开窗 — E/workbench-side-rail.e2e.ts:289、314；E/workbench-side-rail-segment.e2e.ts:786-800（expectNoFeedback、windows 0、零写入）
+- [B] 键盘拿起的候选只停入口带 — 实现 W/drag-keyboard.ts:49（只按 band 出停点）— 没有“键盘 Tab/方向键不停在视图段”的断言
+- [A] 拖动期间侧轨几何冻结 — W/drag-geometry.test.ts:119-129（摘掉来源后 AUX_BAND 原样）
+- 更正上一行：“视图段独立滚动、连入口与底段都放不下时整条侧轨一个滚动区、焦点项先滚进可见处”归 [B]（实现见 WorkbenchToolStrip.vue 样式；e2e、dom 里都没有矮视口下的滚动断言）。lab-agent-ui.e2e.ts:1043 只断言 bot 并成“+N”与会话截尾，那是视图段内部的让位，不是侧轨整条滚动。
+
+### workbench-layout 输出 50（“相连与外观”“展开”“预算”）
+- [A] 相连时相连的两个角不圆、不留缝；隐藏或拖到零时独立圆角卡片、当前入口不按下；卡片宽 48 — E/workbench-side-rail.e2e.ts:141-165（cornerRadii {0,round,round,0}、x 差 ≤1）、:120-131 expectStandalone
+- [A] 接缝短线在内侧 — 实现 W/components/WorkbenchSurface.vue:836 — 断言 E/workbench-containers.e2e.ts:1116（seam "start"）；“上下缩进”没有量，可接受
+- [A] 宽度都是卡片宽 — E/workbench-side-rail-segment.e2e.ts:154-190（卡片宽 toBeCloseTo DEFAULT_WIDTH、aria-valuenow 同值）
+- [A] 展开按容器记在锚上、收起清掉 expanded — E/workbench-side-rail-segment.e2e.ts:154（intentOf {expanded:true}→undefined）、:192；W/state/layout-doc-store.test.ts:1121
+- [A] 正式可选字段、进形状比较 — L/layout-doc-rail.test.ts:100
+- [A] 模板、放弃恢复、动态标签去留保留；浮出带进窗、归位带回 — L/layout-doc-rail.test.ts:147、184；W/state/layout-doc-store.test.ts:1215
+- [B] 重置位置清掉：只测了“视图从别处回到声明的容器”（layout-doc-store.test.ts:1222-1224），“容器回到声明的区域”那一种没有断言
+- [A] 读入只认 expanded=true、width 有限正数，坏值局部当缺省并给诊断 — L/layout-doc-rail.test.ts:47-87
+- [A] 呈现时按声明范围夹取 — W/state/rail-budget.test.ts:38（请求 600→420、120→200）
+- [A] 没有视图段时按收着、记录不改：别的容器、加载失败、交付撤回 — E/workbench-side-rail-segment.e2e.ts:192、745；W/state/layout-doc-store.test.ts:1196
+- [B] “渲染出错”那一种没有断言
+- [B] 加载中保留骨架、厚度不变 — E/workbench-side-rail-segment.e2e.ts:763 没观察到骨架时什么都不断言（用例自己注明），厚度也没量；dom WorkbenchToolStrip.dom.test.ts:121 只查骨架在 main 里
+- [A] 预算公式（D、Se、Sr 与三档、下限、有效最小宽） — W/state/rail-budget.test.ts:20-62（各档 toEqual 精确值）
+- [A] 被拒时 aria-expanded=false、“窗口太窄”、意图不改、窗口变化重算 — E/workbench-side-rail-segment.e2e.ts:211-270（aria-description、intent 不变、零写入）；layout-doc-store.test.ts:1136
+- [A] 只有高度不足时不收轨 — L/layout-project-rail.test.ts:88
+- [A] 最大化时展开、打开对话先退出最大化 — layout-doc-store.test.ts:1204；E/agent-messages-rail.e2e.ts:406
+- [B] “新建对话”先退出最大化没有断言（:395 只测右栏隐藏时）
+- [B] 最大化期间轨宽手柄不可用、不进 Tab：组件层有断言（WorkbenchToolStrip.dom.test.ts:169 handleDisabled→没有手柄），外壳把 maximized 接成 handleDisabled（W/components/WorkbenchShell.vue:235）没有断言
+
+### workbench-layout 输出 50（“展开时的版式”“轨宽手柄”“切换容器”“焦点与读屏”）
+- [A] 展开后没有 48 窄列、整块宽度给列表；入口带不止一个容器时横排在顶上、只有一个容器时不画 — E/workbench-side-rail-segment.e2e.ts:586-634（band-axis x、band 底 ≤ list 顶、list 宽 > 缺省−48、右缘对齐）；E/agent-messages-rail.e2e.ts:582；WorkbenchToolStrip.dom.test.ts:114-118
+- [A] 横排入口带上点击、拖动同收着 — E/workbench-side-rail-segment.e2e.ts:625-633、664-691（move-entry、竖插入线、写一次、仍展开）
+- [B] 横排入口带上“右键同收着时”没有断言
+- [A] 底段的项由视图段画进列表底部的导航 — E/agent-messages-rail.e2e.ts:497
+- [B] 过渡编排：窄列上半先淡出、底段的项移到底部排成横排、列表随后淡入；收起反过来且比展开短；时长曲线取布局过渡 — 实现 packages/nb-agent-ui/src/vue/messages/AgentMessagesSegment.vue — 断言 E/agent-messages-rail.e2e.ts:734 只数“动过几次”（moved>0、标记清掉、减少动态效果时为 0），先后、谁淡谁移、收起更短都没有断言
+- [A] 减少动态效果时直接到位 — 同上 :744（moved()==0）
+- [A] 命令发起的可以不做按钮移动：许可句，没有可失败的行为
+- [A] 加载中或没有借出时没有展开收起按钮、按收着呈现（已知限制） — E/workbench-side-rail-segment.e2e.ts:745-760
+- [A] 轨宽手柄：专用手柄、只改这个容器的轨宽、只由编辑组补偿、触界即停、role/aria、方向键 10、Home 与双击回缺省、跟手、松手一次提交只写轨宽、Esc 取消零写入、收着时没有手柄 — E/workbench-side-rail-segment.e2e.ts:272-371（aria-valuenow、编辑区 −60、sizesOf 不变、intent {expanded,width}）；WorkbenchToolStrip.dom.test.ts:157-197
+- [B] 失去指针捕获、布局版本在手势中变了整场取消 — 实现 W/components/use-rail-handle.ts:117、126 — 没有断言（dom 只测了 Esc）
+- [B] 一帧至多一次预览求解 — 实现 use-rail-handle.ts:80 — 没有“同一帧多次 move 只出一次预览”的断言（dom :180 每次 move 之间都等了一帧）
+- [B] 不触发区域的收起阈值 — 没有断言（拖到下限后没查右栏仍在、没被拖到零）
+- [A] 切换容器：两端同宽原地滚、异宽走布局过渡、底块照常滑 — E/workbench-side-rail-segment.e2e.ts:452、499；E/workbench-containers.e2e.ts:1071
+- [A] 侧轨整条一个 navigation 地标、F6 一站、左轨在左侧栏前、右轨在右栏后；收着时纵向 roving；展开后方向键改左右 — E/workbench-side-rail.e2e.ts:141、344；E/workbench-side-rail-segment.e2e.ts:532、636、694、714
+- [B] 地标“名称写区域”没有断言（只用 getByRole("navigation") 不带 name）
+- [A] 焦点在被收起或搬走的视图段里时交给展开收起按钮或当前入口 — E/workbench-side-rail-segment.e2e.ts:729（toBeFocused 入口）；WorkbenchToolStrip.dom.test.ts:213
+- 本条可判：整条 planned 不能整条去掉；B 项见上。
+
+### workbench-layout 输出 51
+E/agent-messages-float.e2e.ts 简称 F。
+- [A] 单标签浮动窗里视图把视图段画在窗的右边缘 — F:130-153（segment 在 dock 下方、头在左）；E/lab-agent-ui.e2e.ts:1133
+- [A] 顶格只放宿主画的“回到停靠”、不在视图段里、没被盖住 — F:130-151（hitIn、closest("[data-float-rail]") 为 null）
+- [A] 收着时展开按钮排在“回到停靠”下面 — F:246-250（y ≥ dock 底、竖中线差 ≤1）
+- [A] 展开时收起按钮在列表的搜索行里 — F:254-286（同一元素、在列表右四分之一、搜索框与会话页“新建”右缘 ≤ 按钮左缘）；没断言与搜索行同一行（y 重叠），可补
+- [A] 自绘头右端不再为框架按钮留位，聊天头整个在“回到停靠”左边 — F:149-150
+- [B] 视图声明的与贡献的标题动作排在聊天头右端、按聊天头实际宽度预算、放不下进“⋯” — 没有断言（浮动窗里没造窄宽或多动作的场景）
+- [B] “回到停靠”的悬停写出去向 — F:152 只断言 aria-label 或 title 非空，不查写的是去向
+- [A] 记录矩形是收着的；按缺省宽展开往右长、轨宽多出的往左长、拖内侧手柄时右边不动 — F:156-202、382-447（右边差 ≤1、左边 −40、记录 rect 不变）
+- [A] 窗的手柄只结算用户动的边与轴 — F:293-298（左手柄只改 x 与宽、下手柄只改高）
+- [A] 夹取：靠右时呈现往左挪、记录不改；宽度不够按收着、回报窗口太窄 — F:319-349、351-380
+- [A] 浮动窗记录 rail 字段，规则同输出 50 — F:408、466（{expanded,width}、缺省不写 width）；L/layout-doc-rail.test.ts:80、131
+- [A] 轨宽拖动：连续预览、Esc 整场取消、松手一次提交 — F:382-447（Esc 后零写入）
+- [B] 失去捕获或布局版本变了整场取消 — 没有断言（同输出 50）
+- [A] 过渡：窗飞行时只有一份可访问的列表；右栏随之收走时右轨与右栏一起摘掉、编辑区带过渡变宽；右栏还有别的容器时右轨留着 — F:559-593（每帧 segments===1、lists≤1、编辑区有中间值）、F:595-617
+- [A] 浮动窗只改宽度有布局过渡：窗宽过渡到位、聊天区宽逐帧不变、视图段按新宽停在终点 — F:656-693
+- [B] 轨宽手柄的拖动、键盘与双击回缺省不过渡、一次到位 — 手柄用例跑在配置缺省的减少动态效果下（F 的过渡组才开动效），有没有过渡都会过；缺开着动效时手柄改宽的逐帧断言
+- [A] 中断与减少动态效果复用同一个收口 — 内部结构句；减少动态效果下的终态有 F 各用例兜着，不单独断言
+
+### workbench-layout 输出 39 的“记住矩形”（b94f7b36d、3ba51f7d3）
+- [A] 框架按钮“回到停靠”时按视图记下窗的记录矩形 — 实现 L/layout-doc.ts:582-600 — L/layout-doc-float-rects.test.ts:44-51（floatRects {"view:m1": RECT}）；W/state/layout-doc-store.test.ts:1227-1256；F:289-317（再浮出 expectSameBox adjusted、刷新后同）
+- [A] 整窗拖回树里停靠 — L/layout-doc-float-rects.test.ts:44（movePanelToEdge 正是整窗停靠）
+- [B] “并进树里的面板”（拖到树里面板的标签条或中央）没有单独断言；只测了并进别的浮动窗不记（:79）
+- [A] 从多标签窗单独拖一个标签回树里只记这一个 — L/layout-doc-float-rects.test.ts:60-68
+- [A] 记的是收着的矩形、不含侧轨展开差值；再浮出照旧展开、画的窗加展开宽 — W/state/layout-doc-store.test.ts:1282-1292（floatRects 等于展开前 rect、floats()[0].rect.width = rect.width+212）
+- [A] 文档的正式可选字段、进形状比较 — L/layout-doc-float-rects.test.ts:138-143
+- [A] 经命令 nbook.view.float 再浮出用记下的矩形，不按树区域居中 — layout-doc-store.test.ts:1244、1255；F:303
+- [B] 经“移动到”菜单再浮出用记下的矩形 — 没有断言（菜单路径未测）
+- [A] 整个夹进树区域 — layout-doc-store.test.ts:1273-1279（窗口变小后 x+width ≤ 新宽、x ≥ 0）
+- [B] 不小于视图此刻的最小尺寸 — 实现 W/state/layout-constraints.ts:62 — 没有断言（没造“声明的最小比记下的大”）
+- [A] 左上角重合时按错开步长挪开 — layout-doc-store.test.ts:1267-1271（第二扇 x、y 各 +24）
+- [A] 侧轨展开的差值照常加 — 同 :1282-1292
+- [B] 松手没有落点开的窗照旧开在松手处、不用记下的矩形 — 没有断言
+- [A] 窗里几个标签时每个工具视图记同一个矩形 — L/layout-doc-float-rects.test.ts:53-58；layout-doc-store.test.ts:1265
+- [A] 视图从文档里没了，它的项同一次提交清掉 — L/layout-doc-float-rects.test.ts:88-102
+- [A] 读入时坏矩形、键不是这份文档里的工具视图标签的丢掉并给诊断，其余照用 — L/layout-doc-float-rects.test.ts:121-136（repairs 5 条、只剩 view:m1）
+- [A] 编辑器标签不记 — L/layout-doc-float-rects.test.ts:104-110
+
+### workbench-layout 数据格式“浮动窗记住的矩形同样不改版本”（第 304 行）
+- [A] 不改版本（version 仍是 1）— 从代码看 floatRects 没动 version；没有直接断言，但 F:289 刷新后读回、layout-doc-store.test.ts:1250 新会话读回且 recordRepairs 为空可作旁证
+- [B] 没有它的旧版本校验不看多出来的字段、照常读入 — 从代码推断成立（b94f7b36d^ 的 layout-doc-validate.ts 不检查顶层多余键）；没有“校验接受顶层未知字段”的断言守着这条向前兼容
+
+### workbench-layout 输出 1、5、7、10、13、18、19、20、22、26、39 头段、42、45、46、47 里指向侧轨的 planned 括注
+（这些括注都是 dabe9cb6a 加的，42 那句是 ea6e46610 加的；同一行里别的 planned 标记是更早的 Task 的，不在范围。输出 20 第一个括注“只有一个标签的浮动窗，视图可以自绘整个头”与“视图自绘头时‘头上’是…”是更早加的，不在范围。）
+- [A] 1：右轨叶只在呈现里、文档与骨架不变 — 同输出 50 头句；“文档不变”一半归 [B]（同输出 50：没断言回写后文档里没有 rail: 节点）
+- [A] 5：侧轨卡片宽收着 48、展开按视图段声明、叶厚按活动栏算法 — E/workbench-side-rail.e2e.ts:155；E/workbench-side-rail-segment.e2e.ts:172
+- [A] 7：展开多出的宽由编辑组吸收，必要时这次呈现压右栏 — W/state/rail-budget.test.ts:20-31；E/workbench-side-rail-segment.e2e.ts:174、245-247
+- [A] 10：降级前先按收着算展开的侧轨 — 实现 W/state/layout-doc-store.ts:206-219（collapse 用不带预算的选项）— E/workbench-side-rail-segment.e2e.ts:224-237 扫到 700 宽时右栏分节一直量得到（若按展开宽降级，右栏会更早被收走、boxOf 失败）
+- [A] 10：右栏被收走时有成员的右轨留收着的 48 — L/layout-project-rail.test.ts:72-74
+- [A] 13：最大化不盖侧轨 — E/lab-workbench-surface.e2e.ts:351-357；E/workbench-containers.e2e.ts:1746-1753
+- [B] 13：期间轨宽手柄不可用 — 同输出 50：组件层有断言，外壳接线没有
+- [A] 13：在侧轨上打开对话或展开先退出最大化 — E/agent-messages-rail.e2e.ts:406；W/state/layout-doc-store.test.ts:1204
+- [A] 18：右轨在右栏之后 — E/workbench-side-rail.e2e.ts:360；E/workbench-shell.e2e.ts:650
+- [B] 18：左轨在左侧栏之前 — 没有断言 rail:sidebar 排在侧栏分节之前（:359 只比它和右栏的分节）
+- [A] 19：右栏卡片与右轨相连的两个角不圆、接缝短线在内侧、最大化避让按左右两侧算 — E/workbench-side-rail.e2e.ts:161-164；E/workbench-containers.e2e.ts:1116；E/lab-workbench-surface.e2e.ts:357（缝 4）
+- [A] 20：右栏不再有横在卡片顶上的入口条与并进来的头，入口在右轨 — E/workbench-containers.e2e.ts:267；E/workbench-shell.e2e.ts:647（不含 strip:auxiliarybar）
+- [A] 22：活动栏是左侧栏的侧轨（同一个组件、同一套 roving）— E/workbench-side-rail-segment.e2e.ts:694
+- [B] 22：左轨展开这次不开放入口 — 实现 W/components/WorkbenchShell.vue:1170-1184（左轨不传 segment）— 没有断言左轨上没有展开按钮或视图段
+- [A] 26：受限视图的位置限制在所有改归属的提交出口按当下文档判 — 见 views 输出 22 条
+- [A] 39 头段：声明了视图段的视图浮动时见输出 51 — 指引句，内容按输出 51 判
+- [A] 42：右栏切换同侧栏：入口竖排在右轨上、内容竖着滚、排在后面的从下面进来、右轨与短线不动、一直相连 — E/workbench-containers.e2e.ts:1071-1148（railCard 每帧不变、joined、seam "start"、in−out = 卡片高加缝）；E/workbench-side-rail-segment.e2e.ts:452
+- [A] 45：右轨入口带同活动栏上段、沿纵轴量；视图段与底段拒收 — E/workbench-side-rail.e2e.ts:289、314；E/workbench-side-rail-segment.e2e.ts:786
+- [A] 46：右轨入口的拖动同活动栏入口 — E/workbench-containers.e2e.ts:1794、1817、1843
+- [A] 47：右栏的入口条改为右轨，本条只对底部面板 — E/workbench-containers.e2e.ts:267
+
+### workbench-layout 验收 35
+- [A] 展开、收起、拖轨宽、隐藏右栏之后右栏的宽度意图不变，只有轨宽手柄改 rail 的宽 — E/workbench-side-rail-segment.e2e.ts:375-449（intentOfRight 每步 toEqual 起点、intentOf {expanded,width}）
+- [A] 拖右栏与编辑区的分隔线时意图只加上拖动的那一段、预算压掉的那段不写 — 同上 :436-446（region 与当前节各 +30，别的不动）；W/state/rail-budget.test.ts:90-110（压着时拖分隔线）
+- [A] 聊天区宽度在编辑组让得出时不变 — 同上 :402、412、431（section 宽 toBeCloseTo rightWidth）
+- [B] Given 写的是“消息视图停靠在右栏”：用例用的是测试视图样例庚，消息视图没有这一条
+- [B] “只拉高浮动窗”这一步没有做（整条用例没有浮动窗）
+- [B] “最大化编辑组”：用例最大化的是侧栏里的资源管理器（:418），没有最大化编辑组；编辑组是预算里让宽的那一方，最大化它是另一条路径
+- 判断：要么补这三处，要么把 Spec 的 Given/When 改成实际测的样子；目前不能整条去掉 planned。
+
+### workbench-layout 验收 36
+- [A] 1100、400、220、260 的预算结果 — W/state/rail-budget.test.ts:51-62（三档侧栏宽下 toEqual 精确的 width/regionWidth/too-narrow）
+- [A] 窗口窄到连聊天区压到下限也不够时按收着呈现、按钮写“窗口太窄”、窗口变宽后恢复 — E/workbench-side-rail-segment.e2e.ts:211-270；E/agent-messages-rail.e2e.ts:467、484（消息视图）；layout-doc-store.test.ts:1136-1155
+- 说明：e2e 的扫描把聊天下限放到 200、不是 320，320 那一档由纯函数测；合起来可去掉 planned。
+
+### workbench-layout 验收 37
+- [A] 浮出时右栏与右轨一起收走、编辑区带过渡变宽；归位反过来；每帧只有一份视图段、至多一份列表 — F:559-593（rail count 0、每帧 segments===1、lists≤1、编辑区有中间值）
+- [A] 右栏还有别的容器时右轨留着（输出 51 的后半）— F:595-617
+- [B] When 写“点头上的‘浮动’”：用例用命令 nbook.view.float 浮出（F:568），头上的按钮没点过；“回到停靠”是真点的
+- [B] “视图段随窗飞到窗的右边缘”只核了终态（segment 在窗里），中间帧的位置没量
+- [B] “首帧、中间帧、末帧没有跳回”：只断言编辑区宽“有一帧在两端之间”，没有断言逐帧单调、末帧不回跳
+
+### views 输出 19 里的括注“声明了视图段的视图浮动时，‘回到停靠’画在视图段的顶格，自绘头右端不再为框架按钮留位”（dabe9cb6a）
+- [A] — F:130-150（dock 在 [data-float-rail] 那一列、不属于视图段、聊天头右缘 ≤ dock 左缘）。输出 19 里别的 planned（“这段宽度小于下限时不接管”“claim 写 false”“（planned）自绘头”）是更早的，不在范围。
+
+### views 输出 21（视图段）
+W/views 简称 V。
+- [A] 内置视图实现可以声明 VIEW_RAIL（缺省、下限、上限、聊天下限），不加载就能读，形状不合按没声明 — V/registry.test.ts:160-175
+- [B] 标记不经插件 SDK 公开 — 从代码看 VIEW_RAIL 只在内部合同里，没有断言（例如 SDK 入口不导出它的测试）
+- [A] 按实例代际发放、换代收回、旧代际请求一律 revoked — V/view-instances.test.ts:186-212（old.request(true) 为 "revoked"、requested 为空）
+- [B] 旧归属（换了容器、换了位置）的请求被拒 — 实现 W/components/WorkbenchShell.vue:179-189 — 没有断言
+- [A] 条件：停在区域里、实例已就绪才借出 — V/view-instances.test.ts:140；E/workbench-side-rail-segment.e2e.ts:192（换容器后视图段没了）
+- [B] 条件“区域显示的分节恰是它”：当前容器有两节时不借出，没有断言（W/state/layout-doc-store.ts:465 soleRailBounds）
+- [A] 区域隐藏或拖到零时已就绪的实例照样借出 — E/agent-messages-rail.e2e.ts:369-404（右栏隐藏后点右轨里的会话、bot、新对话）
+- [B] 冷开就隐藏、还没加载的实例不为视图段提前加载 — 没有断言
+- [A] 接口：placement 三种（含 width、tooNarrow）、同值不换引用 — V/view-instances.test.ts:158-184
+- [A] data-rail-toggle 收着与展开是同一个元素、宿主据此交接焦点 — F:254-287（evaluate element===other）；E/agent-messages-rail.e2e.ts:616；WorkbenchToolStrip.dom.test.ts:213
+- [A] expanded 是生效的展开状态；位置是 none 时宿主不改它 — 实现 WorkbenchShell.vue:219-220 — F:510-530 归位后列表没卸掉、焦点与词都在，可作旁证
+- [A] request 回报 done、too-narrow、revoked — V/view-instances.test.ts:150-153、207
+- [A] 视图据此切页与聚焦 — E/agent-messages-rail.e2e.ts:223（toBeFocused 搜索框）
+- [B] 请求失效（revoked、too-narrow）后不再聚焦 — 实现 packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:123 — 没有断言被拒后焦点没进搜索框
+- [A] 画法：Teleport 送进位置、收着与展开同一组件、换位置同一个列表与按钮 — packages/nb-agent-ui/src/vue/messages/AgentMessages.dom.test.ts:224
+- [A] 按已提交的 expanded 换画法、不看过渡中的宽度 — F:656-693（视图段左边从第一帧起就在终点）
+- [A] 焦点：换容器时交给入口 — E/workbench-side-rail-segment.e2e.ts:729
+- [A] 焦点随搬动丢的放回视图段原来那一项（浮出、归位） — F:481-530
+- [B] 撤回、窗口变窄收起时的交接，以及“用户自己把焦点挪到了别处时不抢回”，没有断言
+
+### views 输出 22（位置限制，dabe9cb6a、c780fb15c）
+P=W/state/placement.test.ts
+- [A] 内置视图声明可以带 confinedTo；限定区域就是声明区域、不写容器 — W/../shared/views.test.ts:32-39
+- [A] 建树时就能判：默认布局里受限视图在右栏自己的隐式容器一节 — P:85
+- [B] “补位时就能判”没有单独断言（新声明出现、补进布局时落在右栏自己的容器）
+- [B] 插件 SDK 的 view() 不收这个字段 — 实现 packages/neuro-book/src/sdk/workbench-helpers.ts:50（类型上 Omit）— 没有 @ts-expect-error 之类的类型断言
+- [A] 登记时不按发布者拒绝、第三方写进声明只限制它自己 — e2e 的受限视图是 test.sample-views.rail（非保留发布者），声明被收下且限制生效：E/workbench-side-rail-segment.e2e.ts:807-958
+- [A] 只停右栏 — P:94、123、134、153；E/workbench-side-rail.e2e.ts:399；E/workbench-side-rail-segment.e2e.ts:828
+- [A] 只用自己的隐式容器、别的视图进不来 — P:109、134；E/workbench-side-rail.e2e.ts:372；E/workbench-side-rail-segment.e2e.ts:807
+- [A] 浮动时只能是唯一的标签 — P:166-185、187-203；E/workbench-side-rail.e2e.ts:441；E/workbench-side-rail-segment.e2e.ts:865
+- [A] 所有改归属的操作在提交出口判：标签拖放、相邻入口并入、移动到、move-view、整容器移动、整窗停靠、归位 — P:94-203（含整窗停进侧栏被拒、dockFloat 回到右栏自己的容器）；E/workbench-side-rail-segment.e2e.ts:916（move-view 五种直传全拒、记录 toEqual）
+- [A] 候选、预览与提交共用一份规则（试算与提交一致）、违反的零写入 — P:134、153（permitsMoveContainer 与 moveContainer 一致、expectUntouched）；W/commands/view-commands.test.ts:88（菜单读同一份）；E/workbench-side-rail-segment.e2e.ts:940
+- [A] 读入时只把受限视图分离到右栏自己的容器（或单独浮出），其余原样、不写盘 — P:237-265（field.queue 为 0、侧栏原样）
+- [A] 声明目录还没就绪时不按未知限制写回 — P:267（按记录原样显示）；“不写回”这半没有查写盘次数，可补
+- 判断：整条可去掉 planned，补位一句与 SDK 类型一句建议补断言或接受为 B。
+
+### conversation 输出 2 的括注“消息视图的版式改为输出 57…下面一段在它实现前是当前行为”（dabe9cb6a）
+- [A] 宽窄两版、可拖的列表栏、头像列里的“≡”与抽屉去掉，完整列表在展开的视图段里 — 实现 packages/nb-agent-ui/src/vue/messages/AgentMessages.vue（AgentMessages.md:8 写明没有宽窄两版、列表栏与抽屉）— 断言 E/agent-messages-rail.e2e.ts:139-153（按标题 listPanel 为 0、右轨仍收着）、:582（没有窄列）；AgentMessages.dom.test.ts:95（视图里只有聊天区）
+- [D] Spec 字面：括注说“下面一段在它实现前是当前行为”，紧接着的“消息视图（开发者 2026-11-18 定）”整段写的正是被取代的宽窄两版、列表栏、头像列、抽屉、自绘头里的切换行。实现已经是 57 的样子，这段现在是错的。属于 Spec 写多了：晋升时要删掉或改写这一段（连同它里面更早 Task 的 planned 标记），不能只摘掉括注。
+- 顺带（不在 Spec 范围）：packages/neuro-book/src/plugins/agent/web/plugin.ts:732 的注释仍写“窄版接管面板头…按标题开列表抽屉，宽版交还”，nb-agent-ui/src/vue/messages/AgentMessagesList.vue:58 的注释提到“开抽屉、展开列表栏”，都是旧版式的说法。
+
+### conversation 输出 44 的第二个括注（dabe9cb6a、04f9f30d4）
+- [A] 停靠时照旧接管标题区、不再分宽窄两版 — E/agent-messages-rail.e2e.ts:139-153（[data-agent-head] 在内容里隐藏、头在面板头）
+- [A] “新对话”挪进视图段、左列没有“新建” — 同上（[data-header-new] 为 0、newButton 在视图段里可见）
+- [B] 左列“只留返回”：没有断言返回按钮在左列（只断言了没有“新建”）
+- [A] 按标题不再开列表，列表由侧轨展开 — 同上 :146-148
+- [D] 同一句里第一个括注“（planned：只在消息视图的窄版接管，宽版交还，头画在聊天区上方，按标题开的是列表抽屉）”是更早加的（不在本次范围），和第二个括注、和实现都矛盾；正文“按面板头的标题开会话列表，再按一次关掉，Esc 关掉后焦点回到标题”对消息视图也已不成立（只剩编辑区页面的对话头）。晋升时要把第一个括注删掉、正文限定到编辑区页面，属于 Spec 写错，不是代码缺陷。
+
+### conversation 输出 3 的 planned（4e9629dae，会话面板搜索行）
+- [A] 顶部一行只有搜索框与新建按钮、过滤按钮在搜索框里的右端 — E/agent-messages-rail.e2e.ts:674-689（scope 为 0、filter 中心在搜索框竖向范围内、在中线右边、在新建左边）
+- [A] 作品范围收进过滤菜单、是最上面一组单选 — 同上 :691-702（menuitemradio、在“显示已归档”之上）
+- [A] 选“全部作品”计入条数、一次清除回到当前作品 — 同上 :704-717（count "1"→"2"→没有、当前作品 aria-checked）
+- [B] 只在消息视图的会话页测了；输出 2 说同一个组件也在编辑区页面头的下拉里，那里没有断言（同组件，风险小）
+- [D] 同条正文前半句“面板顶部是搜索、作品范围（当前作品、全部作品）、过滤按钮”是旧样子，晋升时要改写成 planned 那句，否则一条里两种说法；输出 57“展开”里“第一行是搜索（会话页的搜索、作用域、筛选、新建照会话面板）”也把作用域列在第一行，按输出 3 新写法作用域已在菜单里，建议改成“照会话面板”。属于 Spec 写多了。
+
+### conversation 输出 57（消息视图的侧轨版式，dabe9cb6a、04f9f30d4、974b1108d）
+R=E/agent-messages-rail.e2e.ts，LA=E/lab-agent-ui.e2e.ts，D=packages/nb-agent-ui/src/vue/messages/AgentMessages.dom.test.ts
+- [A] 只停右栏或单独浮动 — 见 views 输出 22 条（消息视图在 E/workbench-side-rail.e2e.ts:372-520 的受限用例里）
+- [A] 视图里只有聊天，外加借给侧轨的视图段；停靠时头接管面板头、内容里不另画一行头 — D:95-107；R:139-145
+- [A] 收着：bot 一组、当前 bot 竖条与 aria-current、未读数字徽标、等你处理形状不同 — D:110-121（.acv-segment__bar、count "2"、dot 而无 count、aria-label）；R:156、180、200
+- [B] “圆头像”“warning 色”只断言了标记（data-strip-waiting），颜色与形状没量
+- [A] 太多时并成“+N”、当前会话永远占位、其余按最近活动只在末尾增减 — LA:1043-1056、993-1008
+- [A] 方块写标题首字 — D:102（["第","人"]）
+- [B] 方块“悬停与键盘聚焦给全名” — 实现 AgentMessagesSegment.vue:363（Tooltip text=session.title）— 没有断言
+- [A] 当前会话描边；区域隐藏或拖到零时退成弱描边 — D:124-129；LA:1027、1035；R:365、377（真实右栏隐藏时 data-rail-weak）
+- [B] “普通会话不画未读”没有断言
+- [A] 展开按钮在最上面，浮动窗里在“回到停靠”下面 — LA:1018；F:246-250
+- [A] 底段“全部 bot”（汇总徽标：未读合计、有等你处理时另标）与“会话历史” — R:180-221；D:119
+- [A] 展开缺省 300、上限 420 — F:172（视图段宽 300）、F:420（拖过头停在 420）
+- [B] 下限 200 与展开时聊天区下限 320：消息视图真实声明在 packages/neuro-book/src/plugins/agent/web/messages-head.ts:11，没有断言读到的是它（W/state/rail-budget.test.ts:16 用自己写的常量，注释还写着“缺省 260”，已过时）
+- [A] 就是现有的 bot 列表与会话面板、排序与搜索范围照旧；bot 行第二行三种状态、未读 — D:324-334（data-activity="waiting"、"正在回复…"）
+- [B] bot 行“蓝字、黄字、未读在右”只有 data-activity 标记，颜色与位置没断言
+- [A] 会话行照会话面板、按最近活动排、不按日分组 — 复用 AgentSessionPanel（AgentSessionPanel.vue:9），R:306
+- [A] 没有窄列；顶上不再有页签；第一行是搜索、行末是收起按钮；底部是横的 Bot、会话导航 — R:497-533、582、616-672；F:254-287
+- [B] 导航“未读合计用中性色的数字、有等你处理时 warning 色”“当前页强调色”：R:535、556 只断言文字与 data-messages-summary-waiting，颜色没量
+- [B] 展开的过渡里收着时底段的两个按钮移成这条导航 — R:734 只数“动过”，按钮从底段移到导航的轨迹没有断言
+- [A] “全部 bot”“会话历史”展开并切页、聚焦搜索；已展开时点导航只切页；两页搜索词各自保留；Esc 先清空、已空交回输入框、不收起 — R:223-304
+- [A] 最近会话独立查询：新建即出现、归档即消失、不受面板搜索与“显示已归档”影响 — R:306-367
+- [A] 打开走揭示通道：区域隐藏时显示区域、最大化时先退出、打开后焦点给输入框；“搜索会话”等同“会话历史” — R:369-439
+- [B] “在途的打开不在新选择之后覆盖它”与“不经上次的对话位置”没有断言（实现 packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:153 的 seq）
+- [A] “看到”按有效可见、窗口焦点与没有盖层算 — R:180-198（失焦时记未读、拿回焦点清零）
+- [A] 浮动：视图段画在窗右边缘、顶格让给“回到停靠”、展开后的版式同停靠 — F:130-153、254-287
+- [B] 浮动时“头只写标题与动作”：只断言了头整个在“回到停靠”左边，头里有什么没断言
+- [A] 没有打开会话时 Bot 页首屏盖层的按钮等同“全部 bot” — R:441-465
+
+### nested-grid 输出 35 的 planned 括注（16b844f60，宿主手势不过渡）
+- [A] 宿主用 gesturing 告诉网格，期间的布局变化不过渡；之后的程序变化照常过渡 — 实现 packages/nb-layout/src/vue/NestedGrid.vue:330、472；工作台接线 packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:1149（railPreview !== null）— 断言 packages/nb-layout/src/vue/NestedGrid.dom.test.ts:1672-1678（gesturing 为真时 460、420 两次 moving 为 false；对照 300 那次 moving 为 true）
+- [B] “它变回假的那一次”不过渡：用例在变回 false 的那一次发布的是和上一次相同的 420 布局（:1676），没有布局变化，本来就不会过渡，这半句空过；应让变回假的那一次带一个新尺寸（例如松手落账与最后一帧预览差几个像素）再断言 moving 为 false
+- [B] 工作台的接线（拖轨宽时 gesturing 为真、松手那一次不过渡）没有开着动效的断言：E/workbench-side-rail-segment.e2e.ts:272 跑在配置缺省的减少动态效果下
+- 不在范围：04f9f30d4 在 nested-grid 输出 105 加的“宿主用程序改浮动窗宽度走布局过渡”那句，现在的输出 105 已没有 planned 标记（被别的提交晋升过），按派发说明不核。
+
+## 汇总
+验证：跑过相关单测与 dom 测试，全部通过（nb-workbench-layout 侧轨与记住矩形 3 个文件 30 条；neuro-book 预算、位置限制、视图实例、注册表、布局 store、拖动几何 6 个文件 129 条；WorkbenchToolStrip.dom 11 条、AgentMessages.dom 14 条、NestedGrid.dom 的 gesturing 1 条）。没跑 e2e，e2e 的判断按断言内容读出来。没发现 C 类（没实现的）。
+
+可整条去掉 planned：
+- workbench-layout 验收 36
+- workbench-layout 输出 5、7、10、19、20、26、39 头段、42（右栏切换那句）、45、46、47 的侧轨括注
+- views 输出 19 的侧轨括注
+- views 输出 22（两处 B：补位时就能判、SDK view() 不收 confinedTo 的类型，都是小缺口，可接受或补断言）
+- conversation 输出 3 的 planned 句（但见 D：同条前半句要改写）
+- conversation 输出 2 的括注（但见 D：后面那段要删或改写）
+
+要把 planned 挪到具体句子（留 planned 的句子）：
+- workbench-layout 输出 50：保留名单“同时覆盖”节点 id 与面板键；不进文档；入口带右键（收着与展开两处）；视图段独立滚动与整条滚动；键盘拿起只停入口带；重置位置里“容器回到声明的区域”；渲染出错时按收着；加载中骨架与厚度不变；新建对话先退出最大化；最大化期间手柄不可用（外壳接线）；过渡编排（先淡出、移成横排、再淡入、收起更短）；失去捕获与布局版本变化取消；一帧至多一次预览；不触发收起阈值；地标名称写区域
+- workbench-layout 输出 51：标题动作按聊天头宽度预算、放不下进“⋯”；“回到停靠”悬停写去向；失去捕获与版本变化取消；轨宽手柄改宽不过渡
+- workbench-layout 输出 39“记住矩形”：并进树里的面板；经“移动到”菜单再浮出；不小于视图此刻最小尺寸；松手没有落点开的窗不用记下的矩形
+- workbench-layout 数据格式第 304 行：旧版本校验不看多出来的字段（向前兼容没有断言）
+- workbench-layout 输出 1（文档不变）、13（期间手柄不可用）、18（左轨在左侧栏之前）、22（左轨展开这次不开放入口）的括注里对应半句
+- workbench-layout 验收 35：消息视图、只拉高浮动窗、最大化编辑组三处（测的是样例庚、没有浮动窗、最大化的是资源管理器）；要么补用例，要么把 Given/When 改成实测的
+- workbench-layout 验收 37：点头上的“浮动”（用例用的是命令）、视图段中间帧的位置、逐帧没有跳回
+- views 输出 21：标记不经 SDK 公开；旧归属的请求被拒；“区域显示的分节恰是它”；冷开隐藏不提前加载；请求失效后不聚焦；撤回与窗口变窄收起时的焦点交接、不抢回用户挪走的焦点
+- conversation 输出 44 第二个括注：左列只留返回
+- conversation 输出 57：圆头像与 warning 色；方块悬停与聚焦给全名；普通会话不画未读；下限 200 与聊天下限 320 读的是真实声明；bot 行颜色与未读位置；导航颜色与当前页强调色；按钮移成导航的过渡；在途的打开不覆盖新选择、不经上次的对话位置；浮动时头只写标题与动作
+- nested-grid 输出 35：“变回假的那一次”不过渡（用例在那一次没改布局，空过）；工作台接线开着动效时的断言
+
+D 类（实现与 Spec 字面不一致，都更像 Spec 写多了或写错了，不是代码缺陷）：
+1. conversation 输出 2：括注后面“消息视图（开发者 2026-11-18 定）”整段写的是被取代的宽窄两版、列表栏、头像列、抽屉、自绘头切换行；实现已是输出 57。晋升时要删改这一段，只摘括注会留下错的正文。
+2. conversation 输出 44：更早的第一个括注“只在窄版接管、宽版交还、按标题开列表抽屉”与第二个括注、与实现矛盾；正文“按面板头的标题开会话列表”对消息视图已不成立。晋升时删第一个括注、正文限定到编辑区页面。
+3. conversation 输出 3：前半句“面板顶部是搜索、作品范围、过滤按钮”是旧样子，要改写成 planned 那句；输出 57“展开”的“第一行是搜索（会话页的搜索、作用域、筛选、新建照会话面板）”把作用域列在第一行，与输出 3 新写法冲突。
+
+顺带（不在 Spec 范围）：packages/neuro-book/src/plugins/agent/web/plugin.ts:732 与 packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue:58 的注释还在说抽屉与宽窄版；packages/neuro-book/src/plugins/workbench/web/state/rail-budget.test.ts:16 的注释写“缺省 260”，实际声明是 300。

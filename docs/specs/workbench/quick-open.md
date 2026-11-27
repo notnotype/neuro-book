@@ -103,7 +103,7 @@ owners:
 - 面板宿主：`src/plugins/workbench/web/commands/palette-host.ts`（开合、查询、捕获的行号目标、会话 MRU、活动编辑器的接入口；选择模式的 `openPick`、`choosePick` 与关闭完成时结算的 `closed`）；面板自己的文字在插件目录 `src/plugins/workbench/locales/`（键 `palette.*`），由组件经翻译端口取，宿主不管语言。
 - 选择服务：合同与服务键 `quickPickKey` 在 `src/plugins/workbench/shared/contracts.ts`，由工作台浏览器入口经页面槽位（`commands/open-commands.ts` 的 `PaletteSlot.quickPick`）提供；候选匹配 `command-query.ts` 的 `searchPickItems`。
 - 查询：`src/plugins/workbench/web/commands/command-query.ts`（前缀解析、子序列匹配与排序）。
-- 界面宿主：产品 `/` 页上是 `src/plugins/workbench/web/commands/WorkbenchCommandHost.vue`；Component Lab 中由命令场景的局部宿主 `src/plugins/lab/web/fixtures/command-scene/lab-command-scene.ts` 挂载（与场景同寿，负责确认与错误呈现），Lab 外壳不持有面板。
+- 界面宿主：产品 `/` 页上是 `src/plugins/workbench/web/commands/WorkbenchCommandHost.vue`；Component Lab 中由命令场景的局部宿主 `src/plugins/workbench/web/lab/lab-command-scene.ts` 挂载（与场景同寿，负责确认与错误呈现），Lab 外壳不持有面板。
 
 ## 证据
 

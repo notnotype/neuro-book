@@ -55,7 +55,7 @@ function navLabel(item: {readonly value: "bot" | "sessions"; readonly label: str
     return unreadTotal.value > 0 ? t("messages.contactUnread", {name: item.label, count: unreadTotal.value}) : undefined;
 }
 const tablistRef = ref<HTMLElement | null>(null);
-/** 刚换到的那一页：只有它淡入一次。挂在常驻样式上的话，外框每次显示列表（开抽屉、展开列表栏）当前页都会再淡入。 */
+/** 刚换到的那一页：只有它淡入一次。挂在常驻样式上的话，外框每次显示列表（展开侧轨）当前页都会再淡入。 */
 const entering = ref<"bot" | "sessions" | null>(null);
 watch(() => props.tab, (tab) => {
     entering.value = tab;

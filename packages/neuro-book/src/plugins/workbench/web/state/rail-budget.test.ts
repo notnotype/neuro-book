@@ -13,7 +13,7 @@ import {moveContainerTo, regionContainers} from "./containers";
 import {defaultLayoutDoc} from "./default-tree";
 import {createLayoutPolicy, layoutProjectionOptions, railBudget} from "./layout-constraints";
 
-/** 消息视图声明的范围（conversation 输出 57）：缺省 260，200–420，展开时聊天区至少 320。 */
+/** 消息视图声明的范围（conversation 输出 57，值照抄 agent 插件的 messages-head.ts）：缺省 300，200–420，展开时聊天区至少 320。 */
 const MESSAGES = {minimum: 200, maximum: 420, chatMinimum: 320};
 
 describe("预算", () => {

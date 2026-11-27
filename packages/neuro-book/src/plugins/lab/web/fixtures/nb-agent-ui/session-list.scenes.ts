@@ -5,7 +5,7 @@
 import type {AgentSessionListItem} from "@notnotype/nb-agent-ui";
 import type {AgentSessionList, AgentSessionPanel} from "@notnotype/nb-agent-ui/vue";
 import type {AgentSessionChildRows} from "@notnotype/nb-agent-ui/lab";
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 const at = (month: number, day: number, hour = 12, minute = 0, year = 2026) => new Date(year, month - 1, day, hour, minute).getTime();
 const now = at(10, 20, 13, 30);
