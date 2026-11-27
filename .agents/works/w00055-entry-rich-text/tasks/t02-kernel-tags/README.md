@@ -69,7 +69,12 @@ updated: 2026-11-26
 
 ## 下一步
 
-1. 等真实 Agent 的评测（t01 的评测台移到新内核，luna）交回，有产品问题先修；之后合入 master，在 master 上按[晋升核对](evidences/promotion-check.txt)改 Spec 字面、去掉 t02 的（planned）。
+1. 在 master 上按[晋升核对](evidences/promotion-check.txt)改 Spec 字面、去掉 t02 的（planned）（子代理在做），核过后 Task 标完成。
+
+2026-11-27 合入 master（`e0d2a6f4c`）。合入前：
+- 真实模型评测（luna，t01 的评测台移到新内核，14 题各 2 遍，[报告](evidences/agent-eval.txt)）：28 次按判据全过；值没有一次被当成文字改，长块分页读加 replace、`$代号`、读后被改都走对了。两处回话改了（`d5e526cfe`）：`find` 去掉了读到的值时（28 次里 3 次）回话说清标签要照读到的抄或只找标签以外的文字，工具说明把 set 与 replace 分开讲；写入成功后请它重读拿新版本（1 次拿旧版本被自己的写入挡成 stale-read）。改了回话以后没有再用 luna 重跑。
+- master 已领先 351 个提交，先把 master 合进 Work 分支（`5f1c1f5a4`，只有 `agent-tools.ts` 一处冲突：master 把 `fieldsText` 挪进 `shared/agent-fields`）；合并后分支上新加的用例跟着设定组改名（面板 → 数值，`4a8c87e2a`）。
+- 合并后的验证：nb-canon 847 条与类型检查通过；应用类型检查通过；应用 bun（canon、plot、architecture）全过（architecture 在负载 28 以上 5 秒超时、master 上同样，放宽超时 8 条全过，分支起点上原有的那条在 master 已修掉）；vitest（canon 与 Lab 场景）290 条通过；e2e 四个文件 31 条：26 条通过，5 条失败都在 master 上同样失败（`canon-character` 验收 17 年龄浮层与 298 行“勾两组”，`plot-author` 105、124、201 行的保密表、伏笔表窄版；后三条在同一 master 提交的对照 worktree 上复现）。
 
 2026-11-27 开发服务上的走查（样例作品，探针脚本，亮色）：阅读视图的值、引用、嵌套列表、`<strong>` 与 `**粗体**` 都画对了，控制台没有错误；编辑时引用与嵌套列表放在文档中段（前后各二三十段），在其中打字后预览栏滚到那一项（不是滚回顶上，最里层的列表项在栏内）。第一次探针用 Monaco 打字写入，自动缩进把列表后面几十段都缩进了列表项里，量错了对象，改用粘贴写入重测。没在真实页面上看的：同一个值在两块里时来历画在哪块（作者界面提交后只有一块，由 `EntryText.dom.test.ts` 用真实文法覆盖）。看到的已有问题（不是 t02 引入的，转 t03 定）：整篇编辑以后主文字是一块，点开头的值，来历画在整块后面、几十段之外；出错的块写的原因是内核的英文。
 
