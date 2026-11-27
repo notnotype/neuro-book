@@ -5,6 +5,7 @@
  * - `sessionStorage` 而不是 `localStorage`：只在这个标签页里，关掉就没有。
  * - 读写都包 try/catch：隐私模式、存储被禁用、配额满时只是不暂存，打一条 `console.warn`。
  * - 只存一次：读出来就删（`take`）；超过 10 分钟的当没有并删掉，与上游跳转地址的有效期相同（`site.accounts` 的“时序与寿命”）。
+ *   没人来读的不等着：站点启动时删掉过期的（`dropExpiredSocialRegisterDraft`），登录之后删掉（`site.ts`）。
  * - 不存密码，连同关联上游时输入的当前密码（社交注册本来不设密码）。注册码要存（计划第 9 节 D5 的审定）。
  */
 
@@ -49,6 +50,8 @@ export interface SiteStorage {
     takeSocialRegisterDraft(): SocialRegisterDraft | undefined;
     /** 注册成功、登出、不带 `social_error` 进注册页时调用。 */
     clearSocialRegisterDraft(): void;
+    /** 站点启动时调用：过期、存坏了的删掉，还在有效期里的留着（他可能正从上游回来）。 */
+    dropExpiredSocialRegisterDraft(): void;
 }
 
 function isDraft(value: unknown): value is StoredDraft {
@@ -93,6 +96,24 @@ export function createSiteStorage(options: SiteStorageOptions): SiteStorage {
         }
     }
 
+    /** 存着的原文能不能用：解析得出、形状对、在有效期里。不能用的回 `undefined`，存坏了的打一条警告。 */
+    function validDraft(text: string): StoredDraft | undefined {
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(text);
+        } catch (error) {
+            console.warn("注册草稿不是合法 JSON，按没有处理", error);
+            return undefined;
+        }
+        if (!isDraft(parsed)) {
+            console.warn("注册草稿的形状不对，按没有处理");
+            return undefined;
+        }
+        const age = options.now() - parsed.savedAt;
+        if (age < 0 || age > SOCIAL_REGISTER_DRAFT_TTL_MS) return undefined;
+        return parsed;
+    }
+
     return {
         saveSocialRegisterDraft(draft) {
             const stored: StoredDraft = {
@@ -111,24 +132,17 @@ export function createSiteStorage(options: SiteStorageOptions): SiteStorage {
             const text = read(SOCIAL_REGISTER_DRAFT_KEY);
             if (text === null) return undefined;
             remove(SOCIAL_REGISTER_DRAFT_KEY);
-            let parsed: unknown;
-            try {
-                parsed = JSON.parse(text);
-            } catch (error) {
-                console.warn("注册草稿不是合法 JSON，按没有处理", error);
-                return undefined;
-            }
-            if (!isDraft(parsed)) {
-                console.warn("注册草稿的形状不对，按没有处理");
-                return undefined;
-            }
-            const age = options.now() - parsed.savedAt;
-            if (age < 0 || age > SOCIAL_REGISTER_DRAFT_TTL_MS) return undefined;
+            const parsed = validDraft(text);
+            if (parsed === undefined) return undefined;
             const {v: _version, savedAt: _savedAt, ...draft} = parsed;
             return draft;
         },
         clearSocialRegisterDraft() {
             remove(SOCIAL_REGISTER_DRAFT_KEY);
+        },
+        dropExpiredSocialRegisterDraft() {
+            const text = read(SOCIAL_REGISTER_DRAFT_KEY);
+            if (text !== null && validDraft(text) === undefined) remove(SOCIAL_REGISTER_DRAFT_KEY);
         },
     };
 }

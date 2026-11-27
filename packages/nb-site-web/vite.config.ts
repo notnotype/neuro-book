@@ -15,6 +15,12 @@ export default defineConfig({
             // rolldown 在插件耗时占比高时往 stderr 打 `[PLUGIN_TIMINGS]` 的性能建议。它随机器负载出现，构建本身没有问题；
             // 关掉它，`tests/build.test.ts` 的“stderr 为空”才只挡真警告。选项见 rolldown 1.1 的 `InputOptions.checks`。
             checks: {pluginTimings: false},
+            // nb-ui 的 `package.json` 没写 `sideEffects`，rolldown 只能把它的每个源文件都当作有副作用：入口经
+            // `@notnotype/nb-ui/components` 那个汇总出口只用了几个组件，汇总里列出的其余组件（对话框、菜单与它们拉进来的 reka-ui）
+            // 也全被留下，落进入口块（B4 审查第 19 条：访客入口 gzip 从约 59 KB 涨到 120 KB）。nb-ui 的 `.ts` 与 `.vue` 模块导入时
+            // 不做事，在这里声明它们没有副作用，没用到的就摇掉；`.vue?vue&type=style…` 这些样式子模块不在内，用到的组件照样带着样式。
+            // nb-ui 自己声明 `sideEffects` 之后这条可以去掉（上游候选）。`tests/build.test.ts` 的入口上限与来源断言守着它。
+            treeshake: {moduleSideEffects: [{test: /\/nb-ui\/src\/.*\.(?:ts|vue)$/u, sideEffects: false}]},
         },
     },
 });

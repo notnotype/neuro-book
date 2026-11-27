@@ -6,8 +6,8 @@
  *   发 `password-changed` 让账号页重取设备列表。
  * - 上游一行：关联了的写上游账号的名字（输出 24），可以解绑；没关联的写“没有关联”，可以关联。没开放的上游（`meta`）没关联时不列出：
  *   列出来也关联不了；已关联的照样列出，好让他解绑。
- * - 关联：有密码的账号先在 `LinkDialog` 里填当前密码，没有密码的直接发起（输出 15）。上游带着 `social_error` 回来时，账号页把码交给
- *   这一节（`socialError`），写在这一节的状态行。
+ * - 关联：有密码的账号先在 `LinkDialog` 里填当前密码，没有密码的直接发起（输出 15）；离开期间这一节的按钮不可用，从上游点返回、
+ *   页面从往返缓存恢复时放开。上游带着 `social_error` 回来时，账号页把码交给这一节（`socialError`），写在这一节的状态行。
  * - 解绑回 `last_login_method`（输出 16）：状态行写“先设一个密码再解绑”，焦点给密码那一行的按钮，下一步就在那里。回 `not_found`
  *   （那个关联已经不在了，输出 24）：状态行写明，重取列表。
  */
@@ -32,7 +32,7 @@ const ORDER = ["github", "google"] as const satisfies readonly SocialProvider[];
 const props = defineProps<{
     me: MeResponse;
     identities: RemoteList<IdentityItem>;
-    /** `meta` 里各上游是否开放；还没取到时是 `undefined`，这时没关联的上游照样列出。 */
+    /** `meta` 里各上游是否开放；取不到时是 `undefined`，这时没关联的上游照样列出（账号页等 `meta` 回来才画各节）。 */
     providers: MetaResponse["providers"] | undefined;
     /** 从上游回来时地址上的 `social_error`（账号页读出、从地址去掉之后交来）。 */
     socialError: string | undefined;
@@ -67,8 +67,8 @@ const rows = computed<ProviderRow[]>(() =>
 watch(
     () => props.socialError,
     (code) => {
-        if (code === undefined || code === "") return;
-        status.value = {reason: `social:${code}`, text: socialErrorText(code)};
+        if (code === undefined) return;
+        status.value = {reason: "social_error", text: socialErrorText(code)};
     },
     {immediate: true},
 );
@@ -128,12 +128,13 @@ async function link(provider: SocialProvider): Promise<void> {
         linkOpen.value = true;
         return;
     }
-    // 没有密码的账号免填当前密码（输出 15），直接发起。成功就离开，按钮不再放开。
+    // 没有密码的账号免填当前密码（输出 15），直接发起。成功就离开，离开期间按钮不可用。
     busyProvider.value = provider;
     feedback.reset();
     const result = await identity.socialStart(provider, {intent: "link"});
     if (result.ok) {
-        leave(result.value.url);
+        await leave(result.value.url);
+        busyProvider.value = undefined;
         return;
     }
     busyProvider.value = undefined;
@@ -173,6 +174,7 @@ async function link(provider: SocialProvider): Promise<void> {
                         size="sm"
                         :disabled="busyProvider !== undefined"
                         :loading="busyProvider === row.provider"
+                        :aria-label="t('account.security.unlinkNamed', {provider: providerName(row.provider)})"
                         @click="unlink(row.linked)"
                     >{{ t("account.security.unlink") }}</Button>
                     <Button
@@ -181,6 +183,7 @@ async function link(provider: SocialProvider): Promise<void> {
                         size="sm"
                         :disabled="busyProvider !== undefined"
                         :loading="busyProvider === row.provider"
+                        :aria-label="t('account.security.linkNamed', {provider: providerName(row.provider)})"
                         @click="link(row.provider)"
                     >{{ t("account.security.link") }}</Button>
                 </span>

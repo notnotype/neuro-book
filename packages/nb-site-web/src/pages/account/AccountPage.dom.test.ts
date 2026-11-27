@@ -40,6 +40,16 @@ const errors = zhCN.errors.identity;
 
 afterEach(cleanUp);
 
+/** 把文案里的 `{{名字}}` 换成值。 */
+function fill(template: string, values: Readonly<Record<string, string | number>>): string {
+    return template.replace(/\{\{(\w+)\}\}/gu, (_match, key: string) => String(values[key]));
+}
+
+/** 状态行上“做到哪了”加原因的那一句（`form.leadReason`）。 */
+const withLead = (lead: string, reason: string): string => fill(zhCN.form.leadReason, {lead, reason});
+
+const rateLimited = (headers: Record<string, string>): Response => failure({error: {code: "rate_limited"}}, 429, headers);
+
 /** 账号服务里这个人的三份列表；处理器改它，下一次 `GET` 就按改过的回答。 */
 interface AccountData {
     sessions: SessionItem[];
@@ -48,8 +58,10 @@ interface AccountData {
 }
 
 const CURRENT: SessionItem = {id: 1, createdAt: "2026-11-20T08:00:00.000Z", lastUsedAt: "2026-11-26T10:00:00.000Z", browser: "Chrome", os: "Windows", current: true};
-const PHONE: SessionItem = {id: 2, createdAt: "2026-11-19T08:00:00.000Z", lastUsedAt: "2026-11-25T09:00:00.000Z", browser: "Safari", os: "iOS", current: false};
+const PHONE: SessionItem = {id: 2, createdAt: "2026-11-19T08:00:00.000Z", lastUsedAt: "2026-11-26T07:30:00.000Z", browser: "Safari", os: "iOS", current: false};
 const UNKNOWN: SessionItem = {id: 3, createdAt: "2026-11-18T08:00:00.000Z", lastUsedAt: "2026-11-24T09:00:00.000Z", browser: null, os: null, current: false};
+const TABLET: SessionItem = {id: 4, createdAt: "2026-11-17T08:00:00.000Z", lastUsedAt: "2026-11-26T09:20:00.000Z", browser: "Firefox", os: "Android", current: false};
+const OLD_LAPTOP: SessionItem = {id: 5, createdAt: "2025-10-01T08:00:00.000Z", lastUsedAt: "2025-11-24T09:00:00.000Z", browser: "Edge", os: "Windows", current: false};
 const GITHUB: IdentityItem = {id: 21, provider: "github", accountName: "alice-writes", linkedAt: "2026-11-02T00:00:00.000Z"};
 
 function invite(id: number, overrides: Partial<InviteCodeItem> = {}): InviteCodeItem {
@@ -73,7 +85,7 @@ interface OpenOptions {
     readonly data?: Partial<AccountData>;
     /** 在列表的处理器之外再加的；处理器拿到同一份 `data`。 */
     readonly handlers?: (data: AccountData) => Record<string, Handler>;
-    readonly meta?: MetaResponse;
+    readonly meta?: MetaResponse | (() => Response | Promise<Response>);
     readonly path?: string;
 }
 
@@ -226,6 +238,54 @@ describe("登录与安全：密码", () => {
         expect(invalidNames(found)).toEqual(["currentPassword"]);
         await vi.waitFor(() => expect(document.activeElement).toBe(input(found, "currentPassword")));
     });
+
+    it("设好密码后对话框关掉的整个过程里，标题一直是“设置密码”，也不多出当前密码那一格", async () => {
+        const {page} = await openAccount({
+            me: {hasPassword: false},
+            handlers: () => ({[`POST ${PASSWORD}`]: () => Response.json({})}),
+        });
+        const security = section(page, "security");
+        button(security.querySelector("[data-site-account-password]")!, text.security.setPassword).click();
+        const found = await openedDialog();
+        type(input(found, "newPassword"), "new-password-1");
+        await vi.waitFor(() => expect(button(found, text.save).disabled).toBe(false));
+
+        // 每次页面有变化都记下对话框里的样子，直到它没了。
+        const seen: {readonly changing: boolean; readonly currentField: boolean}[] = [];
+        const observer = new MutationObserver(() => {
+            const open = document.body.querySelector('[role="dialog"]');
+            if (open !== null) seen.push({changing: open.textContent?.includes(text.security.changePassword) === true, currentField: open.querySelector('input[name="currentPassword"]') !== null});
+        });
+        observer.observe(document.body, {subtree: true, childList: true, characterData: true, attributes: true});
+        button(found, text.save).click();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="dialog"]')).toBeNull());
+        observer.disconnect();
+
+        expect(statusOf(security)).toBe(text.security.passwordCreated);
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.filter((entry) => entry.changing || entry.currentField)).toEqual([]);
+    });
+
+    it("rate_limited：对话框页脚只写一句不带秒数的话，倒数完之前不能再提交", async () => {
+        const {harness, page} = await openAccount({
+            handlers: () => ({[`POST ${PASSWORD}`]: () => rateLimited({"Retry-After": "5"})}),
+        });
+        button(section(page, "security"), text.security.changePassword).click();
+        const found = await openedDialog();
+        type(input(found, "currentPassword"), "old-password");
+        type(input(found, "newPassword"), "new-password-1");
+        await vi.waitFor(() => expect(button(found, text.save).disabled).toBe(false));
+        button(found, text.save).click();
+
+        await vi.waitFor(() => expect(dialogStatus(found)).toBe(zhCN.form.rateLimitedSpoken));
+        expect(button(found, text.save).disabled).toBe(true);
+        harness.clock.advance(1_000);
+        await Promise.resolve();
+        expect(dialogStatus(found)).toBe(zhCN.form.rateLimitedSpoken);
+        harness.clock.advance(4_000);
+        await vi.waitFor(() => expect(dialogStatus(found)).toBe(""));
+        expect(button(found, text.save).disabled).toBe(false);
+    });
 });
 
 describe("登录与安全：已关联的账号", () => {
@@ -239,6 +299,13 @@ describe("登录与安全：已关联的账号", () => {
         expect(rows[1]!.textContent).toContain(text.security.provider.google);
         expect(rows[1]!.textContent).toContain(text.security.notLinked);
         expect(hasButton(rows[1]!, text.security.link)).toBe(true);
+    });
+
+    it("每行按钮的读屏名字带上是哪个上游", async () => {
+        const {page} = await openAccount();
+        const security = section(page, "security");
+        expect(button(security.querySelector('[data-site-account-identity="github"]')!, text.security.unlink).getAttribute("aria-label")).toBe(fill(text.security.unlinkNamed, {provider: "GitHub"}));
+        expect(button(security.querySelector('[data-site-account-identity="google"]')!, text.security.link).getAttribute("aria-label")).toBe(fill(text.security.linkNamed, {provider: "Google"}));
     });
 
     it("没开放的上游没关联时不列出；关联着的照样列出，好让他解绑", async () => {
@@ -278,6 +345,44 @@ describe("登录与安全：已关联的账号", () => {
         await vi.waitFor(() => expect(dialogStatus(found)).toBe(errors.invalid_credentials));
         expect(invalidNames(found)).toEqual(["currentPassword"]);
         expect(harness.left).toEqual([]);
+    });
+
+    it("关联时回 rate_limited：对话框页脚只写一句不带秒数的话，倒数完之前“继续”不可用", async () => {
+        const {harness, page} = await openAccount({
+            handlers: () => ({[`POST ${socialStartUrl("google")}`]: () => rateLimited({"Retry-After": "3"})}),
+        });
+        button(section(page, "security").querySelector('[data-site-account-identity="google"]')!, text.security.link).click();
+        const found = await openedDialog();
+        type(input(found, "currentPassword"), "my-password");
+        await vi.waitFor(() => expect(button(found, text.security.linkContinue).disabled).toBe(false));
+        button(found, text.security.linkContinue).click();
+
+        await vi.waitFor(() => expect(dialogStatus(found)).toBe(zhCN.form.rateLimitedSpoken));
+        expect(button(found, text.security.linkContinue).disabled).toBe(true);
+        harness.clock.advance(3_000);
+        await vi.waitFor(() => expect(button(found, text.security.linkContinue).disabled).toBe(false));
+        expect(harness.left).toEqual([]);
+    });
+
+    it("没有密码的账号发起关联、离开之后从上游点返回（往返缓存恢复，pageshow 的 persisted 为真）：这一节的按钮又能点了", async () => {
+        const upstream = "https://accounts.google.example/authorize?state=s3";
+        const {harness, page} = await openAccount({
+            me: {hasPassword: false},
+            handlers: () => ({[`POST ${socialStartUrl("google")}`]: () => Response.json({url: upstream} satisfies SocialStartResponse)}),
+        });
+        const security = section(page, "security");
+        const unlinkGithub = button(security.querySelector('[data-site-account-identity="github"]')!, text.security.unlink);
+        button(security.querySelector('[data-site-account-identity="google"]')!, text.security.link).click();
+        await vi.waitFor(() => expect(harness.left.map((entry) => entry.url)).toEqual([upstream]));
+        await vi.waitFor(() => expect(unlinkGithub.disabled).toBe(true));
+
+        window.dispatchEvent(Object.assign(new Event("pageshow"), {persisted: false}));
+        await Promise.resolve();
+        expect(unlinkGithub.disabled).toBe(true);
+
+        window.dispatchEvent(Object.assign(new Event("pageshow"), {persisted: true}));
+        await vi.waitFor(() => expect(unlinkGithub.disabled).toBe(false));
+        expect(button(security.querySelector('[data-site-account-identity="google"]')!, text.security.link).disabled).toBe(false);
     });
 
     it("没有密码的账号关联：不弹对话框，直接发起、不带密码", async () => {
@@ -340,21 +445,42 @@ describe("登录与安全：已关联的账号", () => {
 });
 
 describe("已登录的设备", () => {
-    it("每个会话一行：浏览器与系统、认不出时的说法、“这台设备”、登录与最后使用的时间；这台设备没有“退出”", async () => {
-        const {page} = await openAccount();
+    it("每个会话一行：浏览器与系统、认不出时的说法、“这台设备”；只写一个相对的最后使用时间（到小时），登录时间在悬停提示里；这台设备没有“退出”", async () => {
+        const {page} = await openAccount({data: {sessions: [CURRENT, PHONE, TABLET, UNKNOWN, OLD_LAPTOP]}});
         const rows = [...section(page, "sessions").querySelectorAll<HTMLElement>("[data-site-account-session]")];
         expect(rows.map((row) => row.querySelector("[data-site-account-session-device]")?.textContent)).toEqual([
             "Chrome，Windows",
             "Safari，iOS",
+            "Firefox，Android",
             text.sessions.unknownDevice,
+            "Edge，Windows",
         ]);
-        expect(rows.map((row) => row.hasAttribute("data-site-account-session-current"))).toEqual([true, false, false]);
+        expect(rows.map((row) => row.hasAttribute("data-site-account-session-current"))).toEqual([true, false, false, false, false]);
         expect(rows[0]!.textContent).toContain(text.sessions.current);
         expect(rows.slice(1).every((row) => !row.textContent?.includes(text.sessions.current))).toBe(true);
-        expect(rows.map((row) => row.querySelector("[data-site-account-session-created]")?.getAttribute("datetime"))).toEqual([CURRENT.createdAt, PHONE.createdAt, UNKNOWN.createdAt]);
-        expect(rows.map((row) => row.querySelector("[data-site-account-session-last-used]")?.getAttribute("datetime") ?? null)).toEqual([null, PHONE.lastUsedAt, UNKNOWN.lastUsedAt]);
-        expect(rows[0]!.textContent).toContain(text.sessions.inUse);
-        expect(rows.map((row) => hasButton(row, text.sessions.end))).toEqual([false, true, true]);
+        // 现在是 2026-11-26 10:00（UTC）：两个半小时前、四十分钟前、两天前、去年。
+        const meta = rows.map((row) => row.querySelector<HTMLElement>("[data-site-account-session-created]")!);
+        expect(meta.map((element) => element.textContent?.trim())).toEqual([text.sessions.inUse, "2小时前", text.sessions.withinHour, "11月24日", "2025年11月24日"]);
+        expect(rows.map((row) => row.querySelector("[data-site-account-session-last-used]")?.getAttribute("datetime") ?? null)).toEqual([
+            null,
+            PHONE.lastUsedAt,
+            TABLET.lastUsedAt,
+            UNKNOWN.lastUsedAt,
+            OLD_LAPTOP.lastUsedAt,
+        ]);
+        // 登录时间写到分钟，按浏览器所在的时区。
+        const local = (iso: string): string => {
+            const at = new Date(iso);
+            return `${at.getFullYear()}/${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+        };
+        expect(meta.map((element) => element.getAttribute("title"))).toEqual(
+            [CURRENT, PHONE, TABLET, UNKNOWN, OLD_LAPTOP].map((session) => fill(text.sessions.createdAt, {time: local(session.createdAt)})),
+        );
+        expect(rows.map((row) => hasButton(row, text.sessions.end))).toEqual([false, true, true, true, true]);
+        // 每行的“退出”读屏名字带上是哪台设备。
+        expect(rows.slice(1).map((row) => button(row, text.sessions.end).getAttribute("aria-label"))).toEqual(
+            ["Safari，iOS", "Firefox，Android", text.sessions.unknownDevice, "Edge，Windows"].map((device) => fill(text.sessions.endNamed, {device})),
+        );
     });
 
     it("结束一个会话：发 DELETE、重取列表，那一行没了", async () => {
@@ -373,9 +499,29 @@ describe("已登录的设备", () => {
         expect(actions(harness)).toEqual([{method: "DELETE", path: sessionUrl(PHONE.id), body: undefined}]);
     });
 
-    it("退出其它所有设备：一个一个地发、不碰这台设备；有没结束的写“结束了 N 个，M 个没结束”，完成后重取列表", async () => {
+    it("结束一个会话回 not_found（已经不在了）：当作结束了，重取列表，状态行不写失败", async () => {
+        const {harness, page} = await openAccount({
+            handlers: (data) => ({
+                [`DELETE ${sessionUrl(PHONE.id)}`]: () => {
+                    // 到期了，或在别处被结束了。
+                    data.sessions = data.sessions.filter((session) => session.id !== PHONE.id);
+                    return failure({error: {code: "not_found"}}, 404);
+                },
+            }),
+        });
+        const sessions = section(page, "sessions");
+        const before = gets(harness, SESSIONS);
+        button(sessions.querySelector(`[data-site-account-session="${PHONE.id}"]`)!, text.sessions.end).click();
+
+        await vi.waitFor(() => expect([...sessions.querySelectorAll("[data-site-account-session]")].map((row) => row.getAttribute("data-site-account-session"))).toEqual(["1", "3"]));
+        expect(gets(harness, SESSIONS)).toBe(before + 1);
+        expect(statusOf(sessions)).toBe("");
+    });
+
+    it("退出其它所有设备：一个一个地发、不碰这台设备；第一次失败（not_found 以外）就停，写“结束了 N 个，M 个没结束”与那次的原因，完成后重取列表", async () => {
         const first = gate();
         const {harness, page} = await openAccount({
+            data: {sessions: [CURRENT, PHONE, UNKNOWN, TABLET]},
             handlers: (data) => ({
                 [`DELETE ${sessionUrl(PHONE.id)}`]: async () => {
                     await first.wait;
@@ -391,15 +537,43 @@ describe("已登录的设备", () => {
 
         // 第一个还没完成时，第二个不发。
         await vi.waitFor(() => expect(actions(harness).map((request) => request.path)).toEqual([sessionUrl(PHONE.id)]));
-        await Promise.resolve();
+        for (let turn = 0; turn < 5; turn += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
         expect(actions(harness).map((request) => request.path)).toEqual([sessionUrl(PHONE.id)]);
         first.open();
 
-        await vi.waitFor(() => expect(statusOf(sessions)).toBe(zhCN.account.sessions.partial.replace("{{ended}}", "1").replace("{{failed}}", "1")));
+        // 没结束的两个：失败的那个与没发的那个。
+        await vi.waitFor(() => expect(statusOf(sessions)).toBe(withLead(fill(text.sessions.partial, {ended: 1, failed: 2}), errors.internal)));
         expect(toneOf(sessions)).toBe("danger");
         expect(actions(harness).map((request) => `${request.method} ${request.path}`)).toEqual([`DELETE ${sessionUrl(PHONE.id)}`, `DELETE ${sessionUrl(UNKNOWN.id)}`]);
         expect(gets(harness, SESSIONS)).toBe(before + 1);
+        await vi.waitFor(() => expect([...sessions.querySelectorAll("[data-site-account-session]")].map((row) => row.getAttribute("data-site-account-session"))).toEqual(["1", "3", "4"]));
+    });
+
+    it("退出其它所有设备中途回 rate_limited：停下，写做到哪了与按分钟的倒数；倒数期间这一节的按钮都不可用，过了一分钟改按秒写", async () => {
+        const {harness, page} = await openAccount({
+            handlers: (data) => ({
+                [`DELETE ${sessionUrl(PHONE.id)}`]: () => {
+                    data.sessions = data.sessions.filter((session) => session.id !== PHONE.id);
+                    return Response.json({});
+                },
+                [`DELETE ${sessionUrl(UNKNOWN.id)}`]: () => rateLimited({"Retry-After": "125"}),
+            }),
+        });
+        const sessions = section(page, "sessions");
+        button(sessions, text.sessions.endOthers).click();
+
+        const lead = fill(text.sessions.partial, {ended: 1, failed: 1});
+        await vi.waitFor(() => expect(statusOf(sessions)).toBe(withLead(lead, fill(zhCN.form.rateLimitedMinutes, {minutes: 3}))));
         await vi.waitFor(() => expect([...sessions.querySelectorAll("[data-site-account-session]")].map((row) => row.getAttribute("data-site-account-session"))).toEqual(["1", "3"]));
+        expect(button(sessions, text.sessions.endOthers).disabled).toBe(true);
+        expect(button(sessions.querySelector(`[data-site-account-session="${UNKNOWN.id}"]`)!, text.sessions.end).disabled).toBe(true);
+
+        harness.clock.advance(65_000);
+        await vi.waitFor(() => expect(statusOf(sessions)).toBe(withLead(lead, fill(errors.rate_limited, {seconds: 60}))));
+        harness.clock.advance(60_000);
+        await vi.waitFor(() => expect(statusOf(sessions)).toBe(""));
+        expect(button(sessions, text.sessions.endOthers).disabled).toBe(false);
+        expect(button(sessions.querySelector(`[data-site-account-session="${UNKNOWN.id}"]`)!, text.sessions.end).disabled).toBe(false);
     });
 
     it("退出其它所有设备都成功：写“其它设备都已退出”，3 秒后清掉；只剩这台设备时按钮不可用", async () => {
@@ -469,6 +643,48 @@ describe("邀请码", () => {
 
         await vi.waitFor(() => expect(invites.querySelector('[data-site-account-invite="NB-CODE-32"]')?.textContent).toContain(text.invites.unusable));
         expect(actions(harness)).toEqual([{method: "PATCH", path: inviteUrl(32), body: {disabled: true}}]);
+    });
+
+    it("停用的读屏名字带上是哪个码", async () => {
+        const {page} = await openAccount();
+        const rows = [...section(page, "invites").querySelectorAll<HTMLElement>("[data-site-account-invite]")];
+        expect(rows.map((row) => button(row, text.invites.disable).getAttribute("aria-label"))).toEqual(["NB-CODE-31", "NB-CODE-32"].map((code) => fill(text.invites.disableNamed, {code})));
+    });
+
+    it("停用回 not_found（那个码已经不在了）：状态行写明，重取列表，那一行没了", async () => {
+        const {harness, page} = await openAccount({
+            handlers: (data) => ({
+                [`PATCH ${inviteUrl(32)}`]: () => {
+                    data.invites = data.invites.filter((item) => item.id !== 32);
+                    return failure({error: {code: "not_found"}}, 404);
+                },
+            }),
+        });
+        const invites = section(page, "invites");
+        const before = gets(harness, INVITES);
+        button(invites.querySelector('[data-site-account-invite="NB-CODE-32"]')!, text.invites.disable).click();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull());
+        button(document.body.querySelector('[role="alertdialog"]')!, text.invites.disable).click();
+
+        await vi.waitFor(() => expect(statusOf(invites)).toBe(errors.not_found));
+        await vi.waitFor(() => expect(invites.querySelector('[data-site-account-invite="NB-CODE-32"]')).toBeNull());
+        expect(gets(harness, INVITES)).toBe(before + 1);
+    });
+
+    it("生成回 rate_limited：等一小时写成分钟，倒数期间“生成邀请码”不可用", async () => {
+        const {harness, page} = await openAccount({
+            handlers: () => ({[`POST ${INVITES}`]: () => rateLimited({"Retry-After": "3600"})}),
+        });
+        const invites = section(page, "invites");
+        button(invites, text.invites.generate).click();
+
+        await vi.waitFor(() => expect(statusOf(invites)).toBe(fill(zhCN.form.rateLimitedMinutes, {minutes: 60})));
+        expect(button(invites, text.invites.generate).disabled).toBe(true);
+        harness.clock.advance(60_000);
+        await vi.waitFor(() => expect(statusOf(invites)).toBe(fill(zhCN.form.rateLimitedMinutes, {minutes: 59})));
+        harness.clock.advance(3_540_000);
+        await vi.waitFor(() => expect(statusOf(invites)).toBe(""));
+        expect(button(invites, text.invites.generate).disabled).toBe(false);
     });
 
     it(`有效的码已有 ${INVITE_CODE_ACTIVE_LIMIT} 个：“生成邀请码”不可用，旁边写原因`, async () => {
@@ -548,6 +764,46 @@ describe("资料", () => {
         expect(statusOf(profile)).toBe(text.saved);
         harness.clock.advance(1);
         await vi.waitFor(() => expect(statusOf(profile)).toBe(""));
+    });
+
+    it("服务端把改过的项规范化了（邮箱转小写）：保存后格子里是服务端的值，不再算有改动", async () => {
+        const {harness, page} = await openAccount({
+            handlers: () => ({
+                [`PATCH ${ME}`]: (body, server) => {
+                    const patch = body as PatchMeRequest;
+                    const next: MeResponse = {...me(server.session!), ...(patch.email === undefined ? {} : {email: patch.email.toLowerCase()})};
+                    server.session!.me = next;
+                    return Response.json(next);
+                },
+            }),
+        });
+        const profile = section(page, "profile");
+        const save = profile.querySelector<HTMLButtonElement>("[data-site-account-save]")!;
+        type(input(profile, "email"), "Bob@Example.COM");
+        await vi.waitFor(() => expect(save.disabled).toBe(false));
+        save.click();
+
+        await vi.waitFor(() => expect(statusOf(profile)).toBe(text.saved));
+        expect(actions(harness)).toEqual([{method: "PATCH", path: ME, body: {email: "Bob@Example.COM"} satisfies PatchMeRequest}]);
+        await vi.waitFor(() => expect(input(profile, "email").value).toBe("bob@example.com"));
+        expect(save.disabled).toBe(true);
+    });
+
+    it("保存回 rate_limited：状态行按秒倒数，倒数完之前保存不可用", async () => {
+        const {harness, page} = await openAccount({
+            handlers: () => ({[`PATCH ${ME}`]: () => rateLimited({"Retry-After": "5"})}),
+        });
+        const profile = section(page, "profile");
+        const save = profile.querySelector<HTMLButtonElement>("[data-site-account-save]")!;
+        type(input(profile, "displayName"), "老猫");
+        await vi.waitFor(() => expect(save.disabled).toBe(false));
+        save.click();
+
+        await vi.waitFor(() => expect(statusOf(profile)).toBe(fill(errors.rate_limited, {seconds: 5})));
+        expect(save.disabled).toBe(true);
+        harness.clock.advance(5_000);
+        await vi.waitFor(() => expect(statusOf(profile)).toBe(""));
+        expect(save.disabled).toBe(false);
     });
 
     it("validation_failed：按 fields 标红对应的格子，焦点给第一个", async () => {
@@ -630,6 +886,49 @@ describe("页面", () => {
         items[2]!.click();
         await vi.waitFor(() => expect(harness.site.router.currentRoute.value.hash).toBe("#sessions"));
         expect(items.map((item) => item.getAttribute("aria-current"))).toEqual([null, null, "location", null]);
+        // 焦点进了那一节：给它的标题，读屏读出到了哪一节。
+        expect(document.activeElement).toBe(section(page, "sessions").querySelector("h2"));
+    });
+
+    it("带着锚点进来：不抢焦点", async () => {
+        const {harness} = await openAccount({path: "/account#sessions"});
+        expect(harness.site.router.currentRoute.value.hash).toBe("#sessions");
+        expect(document.activeElement?.closest("[data-site-account-section]") ?? null).toBeNull();
+    });
+
+    it("账号菜单的读屏名字里有用户名", async () => {
+        const {page} = await openAccount();
+        expect(page.querySelector("[data-site-account-menu]")?.getAttribute("aria-label")).toBe(fill(text.menu, {username: "alice"}));
+    });
+
+    it("meta 晚到：列表都到了也等它，回来之后才画各节，没开放的上游这时就不在", async () => {
+        const late = gate();
+        const data = defaultData();
+        const harness = startAt("/account", {
+            session: {role: "user", consentRequired: false},
+            meta: async () => {
+                await late.wait;
+                return Response.json({termsVersion: "2026-11-01", registrationOpen: true, providers: {github: true, google: false}} satisfies MetaResponse);
+            },
+            handlers: listHandlers(data),
+        });
+        await settledAt(harness, "/account", "account");
+        await vi.waitFor(() => expect(gets(harness, INVITES)).toBe(1));
+        // 列表的回答要过几轮任务才处理完，处理完时页面看不出变化（这正是要测的）；让出几轮任务队列，再看仍是“正在载入”、各节没画。
+        for (let turn = 0; turn < 5; turn += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        expect(harness.target.querySelector("[data-site-account-loading]")).not.toBeNull();
+        expect(harness.target.querySelector("[data-site-account-section]")).toBeNull();
+
+        late.open();
+        await vi.waitFor(() => expect(harness.target.querySelector('[data-site-account-section="security"]')).not.toBeNull());
+        const rows = [...harness.target.querySelectorAll("[data-site-account-identity]")].map((row) => row.getAttribute("data-site-account-identity"));
+        expect(rows).toEqual(["github"]);
+    });
+
+    it("meta 取不到：不挡页面，各节照常画出，没关联的上游照样列出", async () => {
+        const {page} = await openAccount({meta: () => failure({error: {code: "unavailable"}}, 503)});
+        const rows = [...section(page, "security").querySelectorAll("[data-site-account-identity]")].map((row) => row.getAttribute("data-site-account-identity"));
+        expect(rows).toEqual(["github", "google"]);
     });
 
     it("列表取不到：同一位置写原因与重试，重试成功后画出各节", async () => {

@@ -5,7 +5,7 @@
  * 统一处理（计划 3.2“按码分支”）在这里接上路由：回调是同步的，跳转放后台；这次调用照常把失败交回页面。
  */
 
-import {createApp} from "vue";
+import {createApp, watch} from "vue";
 import type {App as VueApp} from "vue";
 import type {Router, RouterHistory} from "vue-router";
 
@@ -50,7 +50,7 @@ export interface Site {
     readonly identity: IdentityApi;
     readonly storage: SiteStorage;
     readonly clock: SiteClock;
-    /** 卸载应用、解除对系统明暗的监听。 */
+    /** 卸载应用、解除对系统明暗与 `pageshow` 的监听。 */
     stop(): void;
 }
 
@@ -101,8 +101,30 @@ export function startSite(options: StartSiteOptions): Site {
     const router = createSiteRouter({history: options.history, account, origin: win.location.origin});
     const storage = createSiteStorage({storage: () => win.sessionStorage, now: () => options.clock.now()});
 
+    // 社交注册的草稿（计划 3.9）：过期的在启动时删掉，不等谁来读；当前账号变成已登录（社交注册成功、密码注册成功、登录）时删掉，
+    // 注册码这样的凭据不在标签页里留到登出。从上游带着 `social_error` 回到注册页时账号是匿名的，草稿还在。
+    storage.dropExpiredSocialRegisterDraft();
+    const stopClearingDraft = watch(account.state, (state) => {
+        if (state.kind === "signed-in") storage.clearSocialRegisterDraft();
+    }, {immediate: true});
+
+    // 离开站点之后从往返缓存恢复（`pageshow` 的 `persisted`）：放开所有在等这件事的离开（`SiteContext.leave`）。
+    // 恢复时这些 Promise 都还在等，页面上“正在离开”的按钮靠它们放开。
+    const awaitingReturn = new Set<() => void>();
+    const onPageShow = (event: Event): void => {
+        if ((event as PageTransitionEvent).persisted !== true) return;
+        const returned = [...awaitingReturn];
+        awaitingReturn.clear();
+        for (const resolve of returned) resolve();
+    };
+    win.addEventListener("pageshow", onPageShow);
+    const leave = (url: string): Promise<void> => new Promise<void>((resolve) => {
+        awaitingReturn.add(resolve);
+        options.leave(url);
+    });
+
     const app = createApp(App);
-    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock, leave: options.leave});
+    app.provide(SITE_CONTEXT_KEY, {account, theme, api, identity, storage, clock: options.clock, leave});
     app.use(router);
     app.mount(options.target);
 
@@ -116,6 +138,9 @@ export function startSite(options: StartSiteOptions): Site {
         storage,
         clock: options.clock,
         stop() {
+            stopClearingDraft();
+            win.removeEventListener("pageshow", onPageShow);
+            awaitingReturn.clear();
             app.unmount();
             theme.dispose();
         },

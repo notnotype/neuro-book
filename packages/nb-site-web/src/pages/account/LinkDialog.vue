@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
  * 关联一个上游之前要当前密码的对话框（t10 计划 3.12；`site.accounts` 输出 15）。只给有密码的账号开：没有密码的账号免，由
- * “登录与安全”一节直接发起。发起成功就带浏览器去上游，页面随之离开，所以成功时不再放开按钮；上游带着 `social_error` 回到
- * `/account` 时由账号页显示（计划 3.1 的 `social_error` 表）。
+ * “登录与安全”一节直接发起。发起成功就带浏览器去上游，离开期间按钮不可用；他在上游页点返回、页面从往返缓存恢复时放开
+ * （`SiteContext.leave`）。上游带着 `social_error` 回到 `/account` 时由账号页显示（计划 3.1 的 `social_error` 表）。
  *
- * 密码不对（`invalid_credentials`）、没带（`validation_failed`）标那一格；别的失败（`provider_disabled`、`rate_limited` 等）写在页脚的状态行。
+ * 密码不对（`invalid_credentials`）、没带（`validation_failed`）标那一格；别的失败（`provider_disabled`、`rate_limited` 等）写在页脚的状态行，
+ * 倒数时只写一句不带秒数的话（页脚状态行是 polite 的 live region）。
  */
 
 import {PASSWORD} from "@notnotype/nb-site-identity-contract/constants";
@@ -29,7 +30,7 @@ const currentPassword = shallowRef("");
 const starting = shallowRef(false);
 const form = useTemplateRef<HTMLFormElement>("form");
 const feedback = useFormFeedback<LinkField>(form, clock);
-const {statusText, fieldError} = feedback;
+const {statusSteady, fieldError} = feedback;
 
 const canSubmit = computed(() => currentPassword.value !== "" && !starting.value && !feedback.waiting.value);
 
@@ -48,7 +49,8 @@ async function submit(): Promise<void> {
     feedback.reset();
     const result = await identity.socialStart(props.provider, {intent: "link", currentPassword: currentPassword.value});
     if (result.ok) {
-        leave(result.value.url);
+        await leave(result.value.url);
+        starting.value = false;
         return;
     }
     starting.value = false;
@@ -65,13 +67,13 @@ async function submit(): Promise<void> {
         :open="props.open"
         size="md"
         :title="t('account.security.linkTitle', {provider: t(`account.security.provider.${props.provider}`)})"
-        :status="statusText"
+        :status="statusSteady"
         :busy="starting"
         initial-focus="input"
         data-site-account-link-dialog
         @update:open="emit('update:open', $event)"
     >
-        <form id="account-link-form" ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.unmark()">
+        <form id="account-link-form" ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.onEdited">
             <Field :label="t('account.security.currentPassword')" :error="fieldError('currentPassword')">
                 <Input v-model="currentPassword" name="currentPassword" type="password" autocomplete="current-password" :maxlength="PASSWORD.maxLength" />
             </Field>

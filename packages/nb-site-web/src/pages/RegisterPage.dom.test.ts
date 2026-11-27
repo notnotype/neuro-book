@@ -176,6 +176,23 @@ describe("密码注册", () => {
         await vi.waitFor(() => expect(statusText(form)).toBe(""));
         expect(invalidNames(form.form)).toEqual([]);
     });
+
+    it("规则说明只在改了它说的那一项时撤掉：改别的项时说明与标红都留着", async () => {
+        const harness = await onRegisterPage();
+        const form = formOf(harness);
+        type(form.email, "not-an-email");
+        leaveField(form.email);
+        await vi.waitFor(() => expect(statusText(form)).toBe(zhCN.register.rules.email));
+
+        type(form.username, "alice");
+        await Promise.resolve();
+        expect(statusText(form)).toBe(zhCN.register.rules.email);
+        expect(invalidNames(form.form)).toEqual(["email"]);
+
+        type(form.email, "alice@example.com");
+        await vi.waitFor(() => expect(statusText(form)).toBe(""));
+        expect(invalidNames(form.form)).toEqual([]);
+    });
 });
 
 describe("注册的拒绝落在哪", () => {
@@ -330,6 +347,26 @@ describe("社交注册的发起", () => {
         }
     });
 
+    it("发起后从上游点返回、页面从往返缓存恢复（pageshow 的 persisted 为真）：图标与提交按钮又能点了", async () => {
+        const harness = await onRegisterPage("/register", {handlers: {[START_GITHUB]: toUpstream}});
+        const form = formOf(harness);
+        fillRequired(form);
+        agree(form);
+        await vi.waitFor(() => expect(socialButton(harness.target, "github").disabled).toBe(false));
+        socialButton(harness.target, "github").click();
+        await vi.waitFor(() => expect(harness.left).toHaveLength(1));
+        await vi.waitFor(() => expect(socialButtons(harness.target).map((button) => button.disabled)).toEqual([true, true]));
+        expect(form.submit.disabled).toBe(true);
+
+        window.dispatchEvent(Object.assign(new Event("pageshow"), {persisted: false}));
+        await Promise.resolve();
+        expect(socialButtons(harness.target).map((button) => button.disabled)).toEqual([true, true]);
+
+        window.dispatchEvent(Object.assign(new Event("pageshow"), {persisted: true}));
+        await vi.waitFor(() => expect(socialButtons(harness.target).map((button) => button.disabled)).toEqual([false, false]));
+        expect(form.submit.disabled).toBe(false);
+    });
+
     it("发起回 username_taken：用户名标红，留在注册页", async () => {
         const harness = await onRegisterPage("/register", {handlers: {[START_GITHUB]: () => failure({error: {code: "username_taken"}}, 409)}});
         const form = formOf(harness);
@@ -411,6 +448,28 @@ describe("从上游带着 social_error 回来", () => {
             await settledAt(harness, "/register", "register");
             const expected = (zhCN.errors.identity as Record<string, string>)[code] ?? zhCN.errors.identity.social_failed;
             expect(statusText(formOf(harness))).toBe(expected);
+            cleanUp();
+        }
+    });
+
+    it("带着空的 social_error 进来：当作没带，草稿删掉、表单是空的，状态行不写，参数从地址里去掉", async () => {
+        saveDraft();
+        const harness = startAt("/register?social_error=");
+        await settledAt(harness, "/register", "register");
+        const form = formOf(harness);
+        expect(form.username.value).toBe("");
+        expect(statusText(form)).toBe("");
+        expect(window.sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
+
+    it("码是对象原型上的键名（constructor、toString）：照合同里没有的码处理，不标任何一项", async () => {
+        for (const code of ["constructor", "toString", "__proto__"]) {
+            saveDraft();
+            const harness = startAt(`/register?social_error=${code}`);
+            await settledAt(harness, "/register", "register");
+            const form = formOf(harness);
+            expect({code, text: statusText(form)}).toEqual({code, text: zhCN.errors.identity.social_failed});
+            expect({code, invalid: invalidNames(form.form)}).toEqual({code, invalid: []});
             cleanUp();
         }
     });

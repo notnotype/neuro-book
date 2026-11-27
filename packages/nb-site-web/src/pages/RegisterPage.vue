@@ -16,7 +16,6 @@ import {
     DISPLAY_NAME,
     EMAIL,
     PASSWORD,
-    SOCIAL_ERROR_PARAM,
     USERNAME,
     codePointLength,
     parseUsernameInput,
@@ -34,8 +33,9 @@ import {useSite} from "../context";
 import type {SocialRegisterDraft} from "../host/storage";
 import {enterAfterSignIn} from "../session/enter";
 import {siteRef, useSiteText} from "../text";
-import type {SiteTextKey} from "../text";
 import {useFormFeedback} from "./form-feedback";
+import type {FieldRule} from "./form-feedback";
+import {readSocialError, stripSocialError} from "./social-error";
 import {usePageMeta} from "./use-meta";
 
 /**
@@ -44,7 +44,7 @@ import {usePageMeta} from "./use-meta";
  */
 type RegisterField = "registrationCode" | "username" | "displayName" | "email" | "password" | "inviteCode" | "termsConsent" | "overseasStorage";
 
-/** 请求体的键到页面上的项：条款版本是第一个勾选框给的，其余同名。 */
+/** 请求体的键到页面上的项：条款版本是第一个勾选框给的，其余同名。键来自服务端，查表用 `fieldOf`，不从原型上取到东西。 */
 const FIELD_OF_KEY: Readonly<Record<string, RegisterField>> = {
     registrationCode: "registrationCode",
     username: "username",
@@ -59,12 +59,20 @@ const FIELD_OF_KEY: Readonly<Record<string, RegisterField>> = {
 /** 按表单里的先后，标红时焦点给最靠前的那一项。 */
 const FIELD_ORDER: readonly RegisterField[] = ["registrationCode", "username", "displayName", "email", "password", "inviteCode", "termsConsent", "overseasStorage"];
 
-/** 从上游回来时，哪个码说的是哪一项（输出 13：发起时校验过、回调时已不可用的）。`email_taken` 说的是上游给的邮箱，不是表单里的。 */
+/**
+ * 从上游回来时，哪个码说的是哪一项（输出 13：发起时校验过、回调时已不可用的）。`email_taken` 说的是上游给的邮箱，不是表单里的。
+ * 码来自地址，谁都能写，查表用 `fieldOf`。
+ */
 const FIELD_OF_SOCIAL_ERROR: Readonly<Record<string, RegisterField>> = {
     registration_code_invalid: "registrationCode",
     invite_code_invalid: "inviteCode",
     username_taken: "username",
 };
+
+/** 只认表自己的键：`constructor`、`__proto__` 这样的字符串在普通对象上取得到原型上的东西。 */
+function fieldOf(table: Readonly<Record<string, RegisterField>>, key: string): RegisterField | undefined {
+    return Object.hasOwn(table, key) ? table[key] : undefined;
+}
 
 const EMAIL_RULE = new RegExp(EMAIL.pattern, "u");
 
@@ -82,33 +90,33 @@ const inviteCode = shallowRef("");
 const agreeTerms = shallowRef(false);
 const agreeOverseas = shallowRef(false);
 const submitting = shallowRef(false);
-/** 社交注册的发起：请求在路上，或已拿到上游地址、页面正在离开（离开之后页面就卸载了，所以成功时不再放开）。 */
+/** 社交注册的发起：请求在路上，或已拿到上游地址、页面正在离开；从上游点返回、页面从往返缓存恢复时放开（`SiteContext.leave`）。 */
 const starting = shallowRef(false);
 /** 提交或发起时服务端回了 `registration_closed`：`meta` 取得早，注册可能在那之后关掉。 */
 const closedByServer = shallowRef(false);
 
+/** 各项的规则（取自合同包的字段规则，与服务端同一条）；合规则回 `undefined`，否则回说明规则的那句话。 */
+const RULES: Partial<Record<RegisterField, FieldRule>> = {
+    // 注册码与邀请码的首尾空白由服务端去掉（`RegisterRequest` 的说明），所以只有空白的注册码算没填。
+    registrationCode: () => (registrationCode.value.trim() === "" ? siteRef("register.rules.registrationCode") : undefined),
+    username: () => (parseUsernameInput(username.value) === undefined ? siteRef("register.rules.username") : undefined),
+    // 显示名不去首尾空白（字段规则），留空就是省略。
+    displayName: () => (displayName.value !== "" && codePointLength(displayName.value) > DISPLAY_NAME.maxLength ? siteRef("register.rules.displayName") : undefined),
+    email: () => (EMAIL_RULE.test(email.value) ? undefined : siteRef("register.rules.email")),
+    password: () => {
+        const length = codePointLength(password.value);
+        return length < PASSWORD.minLength || length > PASSWORD.maxLength ? siteRef("register.rules.password") : undefined;
+    },
+};
+
 const form = useTemplateRef<HTMLFormElement>("form");
-const feedback = useFormFeedback<RegisterField>(form, clock);
+const feedback = useFormFeedback<RegisterField>(form, clock, {rules: RULES});
 const {status, statusText, statusSpoken, fieldError, isInvalid} = feedback;
 const meta = usePageMeta(identity);
 
 const closed = computed(() => closedByServer.value || (meta.state.value.kind === "ready" && !meta.state.value.meta.registrationOpen));
 const busy = computed(() => submitting.value || starting.value || feedback.waiting.value);
-const providers = computed(() => (meta.state.value.kind === "ready" ? meta.state.value.meta.providers : undefined));
-
-/** 各项的规则（取自合同包的字段规则，与服务端同一条）；合规则回 `undefined`，否则回说明规则的那句话的键。 */
-const RULES: Partial<Record<RegisterField, () => SiteTextKey | undefined>> = {
-    // 注册码与邀请码的首尾空白由服务端去掉（`RegisterRequest` 的说明），所以只有空白的注册码算没填。
-    registrationCode: () => (registrationCode.value.trim() === "" ? "register.rules.registrationCode" : undefined),
-    username: () => (parseUsernameInput(username.value) === undefined ? "register.rules.username" : undefined),
-    // 显示名不去首尾空白（字段规则），留空就是省略。
-    displayName: () => (displayName.value !== "" && codePointLength(displayName.value) > DISPLAY_NAME.maxLength ? "register.rules.displayName" : undefined),
-    email: () => (EMAIL_RULE.test(email.value) ? undefined : "register.rules.email"),
-    password: () => {
-        const length = codePointLength(password.value);
-        return length < PASSWORD.minLength || length > PASSWORD.maxLength ? "register.rules.password" : undefined;
-    },
-};
+const providers = computed(() => meta.latest.value?.providers);
 
 /** 社交注册不带邮箱与密码（邮箱回调时取上游的，账号没有密码；`SocialStartRequest`）。 */
 const SOCIAL_FIELDS: readonly RegisterField[] = ["registrationCode", "username", "displayName"];
@@ -122,39 +130,18 @@ const agreed = computed(() => agreeTerms.value && agreeOverseas.value);
 const canSubmit = computed(() => !closed.value && !busy.value && agreed.value && brokenRules(PASSWORD_FIELDS).length === 0);
 
 /**
- * 他改了任一项（表单上冒上来的 `input`、`change`），标红就过时了。服务端给的原因留在状态行，下次提交时换掉；页面自己查出的
- * 规则说明跟着撤掉，离开字段时再查。只听他的输入、不 `watch` 这些值：还原草稿、版本变了撤掉勾选这些页面自己写的值不撤标红，
- * 否则从上游回来时刚标上的字段会被还原的赋值撤掉。
- */
-function onEdited(): void {
-    feedback.unmark();
-    if (status.value?.reason.startsWith("rule:") === true) status.value = undefined;
-}
-
-/** 离开一个填了字的输入框时查它的规则：不合就标红、状态行写规则，焦点不拉回来。没填的不说，提交按钮本来就不可用。 */
-function checkOnBlur(field: RegisterField, value: string): void {
-    if (value === "") return;
-    const rule = RULES[field]?.();
-    if (rule === undefined) return;
-    status.value = {reason: `rule:${field}`, text: siteRef(rule)};
-    void feedback.mark([field], {focus: false});
-}
-
-/**
  * 发起社交注册前在页面上查一遍：不合规则的标红、焦点给第一个、状态行写它的规则；规则都过了而没勾同意的，标两个勾选框。
  * 都合格回 `true`。
  */
 function checkBeforeSocial(): boolean {
     const broken = brokenRules(SOCIAL_FIELDS);
-    const first = broken[0];
-    if (first !== undefined) {
-        status.value = {reason: `rule:${first}`, text: siteRef(RULES[first]!()!)};
-        void feedback.mark(broken);
+    const firstRule = broken[0] === undefined ? undefined : RULES[broken[0]]?.();
+    if (firstRule !== undefined) {
+        feedback.showRule(broken, firstRule, {focus: true});
         return false;
     }
     if (!agreed.value) {
-        status.value = {reason: "consent-missing", text: siteRef("register.consentMissing")};
-        void feedback.mark([...(agreeTerms.value ? [] : ["termsConsent" as const]), ...(agreeOverseas.value ? [] : ["overseasStorage" as const])]);
+        feedback.showRule([...(agreeTerms.value ? [] : ["termsConsent" as const]), ...(agreeOverseas.value ? [] : ["overseasStorage" as const])], siteRef("register.consentMissing"), {focus: true});
         return false;
     }
     return true;
@@ -200,7 +187,7 @@ function showFailure(failure: Failure, sentVersion: string): void {
             void feedback.mark(["email"]);
             return;
         case "validation_failed": {
-            const marked = new Set((failure.fields ?? []).flatMap((key) => (FIELD_OF_KEY[key] === undefined ? [] : [FIELD_OF_KEY[key]])));
+            const marked = new Set((failure.fields ?? []).flatMap((key) => fieldOf(FIELD_OF_KEY, key) ?? []));
             void feedback.mark(FIELD_ORDER.filter((field) => marked.has(field)));
             return;
         }
@@ -295,7 +282,9 @@ async function startSocial(provider: SocialProvider): Promise<void> {
         registrationCode: registrationCode.value,
         consent: {termsVersion: version, overseas: agreeOverseas.value},
     });
-    leave(result.value.url);
+    // 从上游点返回、页面原样恢复时：表单与草稿都还在，只要把按钮放开。
+    await leave(result.value.url);
+    starting.value = false;
 }
 
 /** 草稿填回表单。同意只在版本仍是当前版本时勾回去：条款在这期间换了，他同意的是旧版。 */
@@ -316,10 +305,10 @@ function firstQuery(value: unknown): string | undefined {
     return typeof first === "string" ? first : undefined;
 }
 
-// 进页时只看一次地址（计划 3.1“`social_error`”、3.9“什么时候读与清”）：带 `social_error` 时显示它、取出草稿还原（读一次就删），
-// 再把参数从地址里去掉，刷新时不再显示一遍；不带时删掉草稿（上一次没走完的社交注册不该在下一次进来时冒出来）。
-// 去掉参数是同一页面上的跳转，组件不重建，这段不会再跑。
-const socialError = firstQuery(route.query[SOCIAL_ERROR_PARAM]);
+// 进页时只看一次地址（计划 3.1“`social_error`”、3.9“什么时候读与清”）：带 `social_error` 时显示它、取出草稿还原（读一次就删）；
+// 不带（空值也算不带，输出 23）时删掉草稿：上一次没走完的社交注册不该在下一次进来时冒出来。参数都从地址里去掉（`social-error.ts`），
+// 组件不重建，这段不会再跑。
+const socialError = readSocialError(route.query);
 let markOnMount: RegisterField | undefined;
 let restored = false;
 if (socialError === undefined) {
@@ -330,15 +319,10 @@ if (socialError === undefined) {
         restore(draft);
         restored = true;
     }
-    if (socialError !== "") {
-        status.value = {reason: `social:${socialError}`, text: socialErrorText(socialError)};
-        markOnMount = FIELD_OF_SOCIAL_ERROR[socialError];
-    }
-    const {[SOCIAL_ERROR_PARAM]: _shown, ...query} = route.query;
-    router.replace({path: route.path, query, hash: route.hash}).catch((error: unknown) => {
-        console.warn(`没能把 ${SOCIAL_ERROR_PARAM} 从地址里去掉`, error);
-    });
+    status.value = {reason: "social_error", text: socialErrorText(socialError)};
+    markOnMount = fieldOf(FIELD_OF_SOCIAL_ERROR, socialError);
 }
+stripSocialError(route, router);
 
 // 邀请链接预填邀请码（输出 18）；从上游回来、草稿里已有邀请码时以草稿为准。
 const invited = firstQuery(route.query.invite);
@@ -353,22 +337,22 @@ onMounted(() => {
 <template>
     <div :data-site-page="String(route.name)">
         <h1>{{ t("register.title") }}</h1>
-        <form ref="form" class="site-form" novalidate @submit.prevent="submit" @input="onEdited" @change="onEdited">
+        <form ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.onEdited" @change="feedback.onEdited" @focusout="feedback.onLeave">
             <Field :label="t('register.registrationCode')" :error="fieldError('registrationCode')">
-                <Input v-model="registrationCode" name="registrationCode" autocomplete="off" :disabled="closed" @blur="checkOnBlur('registrationCode', registrationCode)" />
+                <Input v-model="registrationCode" name="registrationCode" autocomplete="off" :disabled="closed" />
             </Field>
             <Field :label="t('register.username')" :error="fieldError('username')">
-                <Input v-model="username" name="username" autocomplete="username" :maxlength="USERNAME.maxLength" :disabled="closed" @blur="checkOnBlur('username', username)" />
+                <Input v-model="username" name="username" autocomplete="username" :maxlength="USERNAME.maxLength" :disabled="closed" />
             </Field>
             <!-- 显示名与密码不设 `maxlength`：它数的是 UTF-16 码元，规则数的是码点，表情这类字会被早早截断。超长由规则查出。 -->
             <Field :label="t('register.displayName')" :error="fieldError('displayName')">
-                <Input v-model="displayName" name="displayName" autocomplete="nickname" :disabled="closed" @blur="checkOnBlur('displayName', displayName)" />
+                <Input v-model="displayName" name="displayName" autocomplete="nickname" :disabled="closed" />
             </Field>
             <Field :label="t('register.email')" :error="fieldError('email')">
-                <Input v-model="email" name="email" inputmode="email" autocomplete="email" :maxlength="EMAIL.maxLength" :disabled="closed" @blur="checkOnBlur('email', email)" />
+                <Input v-model="email" name="email" inputmode="email" autocomplete="email" :maxlength="EMAIL.maxLength" :disabled="closed" />
             </Field>
             <Field :label="t('register.password')" :error="fieldError('password')">
-                <Input v-model="password" name="password" type="password" autocomplete="new-password" :disabled="closed" @blur="checkOnBlur('password', password)" />
+                <Input v-model="password" name="password" type="password" autocomplete="new-password" :disabled="closed" />
             </Field>
             <Field :label="t('register.inviteCode')" :error="fieldError('inviteCode')">
                 <Input v-model="inviteCode" name="inviteCode" autocomplete="off" :disabled="closed" />

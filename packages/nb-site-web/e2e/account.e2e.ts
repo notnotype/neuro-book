@@ -178,3 +178,101 @@ for (const viewport of [VIEWPORTS[0], VIEWPORTS[2]]) {
         expect(await layout(page)).toEqual(before);
     });
 }
+
+for (const viewport of VIEWPORTS) {
+    test(`${viewport.name} 宽：状态行空着时，每一节最后看得见的内容到卡片底边只隔着内边距：状态行不另占一行`, async ({page}) => {
+        fake = await installFakeIdentity(page, {session: "user"});
+        await openAccount(page, viewport, "light");
+        const gaps = await page.locator("[data-site-account-section]").evaluateAll((sections) =>
+            sections.map((section) => {
+                // 空着的状态行看不见，不算内容：它要是另起一行，最后看得见的内容在它上面，这一节底下就多出一截空白。
+                const parts = [...section.querySelectorAll<HTMLElement>("button, input, textarea, li, p")]
+                    .filter((element) => element.closest("[data-site-form-status]") === null)
+                    .map((element) => element.getBoundingClientRect())
+                    .filter((rect) => rect.height > 0);
+                const bottom = Math.max(...parts.map((rect) => rect.bottom));
+                const padding = Number.parseFloat(getComputedStyle(section).paddingBottom);
+                return {id: section.getAttribute("data-site-account-section"), gap: section.getBoundingClientRect().bottom - padding - bottom};
+            }),
+        );
+        expect(gaps).toHaveLength(SECTIONS.length);
+        for (const {id, gap} of gaps) {
+            expect.soft(gap, id ?? "").toBeGreaterThanOrEqual(-0.5);
+            expect.soft(gap, id ?? "").toBeLessThanOrEqual(1.5);
+        }
+    });
+}
+
+test("360 宽：滚到最后一节时，目录那一排横着滚，让当前的标签露在里面，页面本身不跟着滚", async ({page}) => {
+    fake = await installFakeIdentity(page, {session: "user"});
+    await openAccount(page, VIEWPORTS[2], "light");
+    const nav = page.locator("[data-site-account-toc]");
+    // 这一档宽度下四个标签放不下一排：这条用例的前提。
+    expect(await nav.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+
+    await page.mouse.move(180, 600);
+    await page.mouse.wheel(0, 100_000);
+    await expect.poll(() => currentTocItem(page)).toBe("invites");
+    const inside = (): Promise<boolean> =>
+        page.evaluate(() => {
+            const bar = document.querySelector("[data-site-account-toc]")?.getBoundingClientRect();
+            const item = document.querySelector('[data-site-account-toc-item="invites"]')?.getBoundingClientRect();
+            return bar !== undefined && item !== undefined && item.left >= bar.left - 0.5 && item.right <= bar.right + 0.5;
+        });
+    await expect.poll(inside).toBe(true);
+    await settled(page);
+    const scrollY = await page.evaluate(() => window.scrollY);
+    expect(scrollY).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 1)).toBe(true);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(() => currentTocItem(page)).toBe("profile");
+    await expect.poll(() => nav.evaluate((element) => element.scrollLeft)).toBe(0);
+});
+
+test.describe("平滑滚动", () => {
+    // 其余场景按减弱动效跑，点目录是瞬时跳过去的；这里要的是平滑滚动经过中间几节的那一段。
+    test.use({contextOptions: {reducedMotion: "no-preference"}});
+
+    for (const [from, to] of [["profile", "sessions"], ["invites", "security"]] as const) {
+        test(`1440 宽：从“${from}”点目录里的“${to}”，平滑滚动的一路上高亮都是“${to}”，停下后还是它；之后再滚，高亮重新跟着走`, async ({page}) => {
+            fake = await installFakeIdentity(page, {session: "user"});
+            await openAccount(page, {width: 1440, height: 600}, "light");
+            if (from === "invites") {
+                await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+                await expect.poll(() => currentTocItem(page)).toBe("invites");
+            }
+            // 从点下去的那一刻起每一帧记下高亮，直到这次滚动结束；只靠结束后的一次读取，看不出半路上闪过别的节。
+            await page.evaluate((id) => {
+                const state = window as unknown as {tocSamples?: Promise<string[]>};
+                state.tocSamples = new Promise<string[]>((resolve) => {
+                    const item = document.querySelector(`[data-site-account-toc-item="${id}"]`);
+                    item?.addEventListener(
+                        "click",
+                        () => {
+                            const seen: string[] = [];
+                            let ended = false;
+                            window.addEventListener("scrollend", () => (ended = true), {once: true});
+                            const sample = (): void => {
+                                seen.push(document.querySelector('[data-site-account-toc-item][aria-current="location"]')?.getAttribute("data-site-account-toc-item") ?? "none");
+                                if (ended) resolve(seen);
+                                else requestAnimationFrame(sample);
+                            };
+                            requestAnimationFrame(sample);
+                        },
+                        {once: true},
+                    );
+                });
+            }, to);
+            await page.locator(`[data-site-account-toc-item="${to}"]`).click();
+            const seen = await page.evaluate(() => (window as unknown as {tocSamples: Promise<string[]>}).tocSamples);
+            expect(seen.length).toBeGreaterThan(3);
+            expect(new Set(seen)).toEqual(new Set([to]));
+            await expect(page.locator(`[data-site-account-section="${to}"] [data-site-account-section-title]`)).toBeFocused();
+            expect(await currentTocItem(page)).toBe(to);
+
+            await page.evaluate(() => window.scrollTo({top: 0, behavior: "instant"}));
+            await expect.poll(() => currentTocItem(page)).toBe("profile");
+        });
+    }
+});

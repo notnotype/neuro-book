@@ -6,6 +6,7 @@
  * - 同时有效的码到了上限（`INVITE_CODE_ACTIVE_LIMIT`）时“生成邀请码”不可用，旁边写原因；没到时写还能生成几个。列表可能是旧的，
  *   服务端仍可能回 `invite_code_limit`：写状态行、重取列表。
  * - 停用不能撤回，先确认。已停用的再停用照样成功（合同），所以回来的那一项直接换上。
+ * - 状态行放在标题行（`statusInHead`）：节底已经有配额说明，两段说明挤在按钮旁边哪段都写不全。
  */
 
 import {INVITE_CODE_ACTIVE_LIMIT} from "@notnotype/nb-site-identity-contract/constants";
@@ -59,7 +60,7 @@ async function reload(): Promise<void> {
 }
 
 async function generate(): Promise<void> {
-    if (generating.value || full.value) return;
+    if (generating.value || full.value || feedback.waiting.value) return;
     generating.value = true;
     feedback.reset();
     try {
@@ -110,6 +111,7 @@ async function disable(): Promise<void> {
         :status-reason="status?.reason"
         :status-spoken="statusSpoken"
         :status-tone="status?.tone === 'success' ? 'success' : 'danger'"
+        status-in-head
     >
         <TransitionGroup name="account-row" tag="ul" class="account-rows">
             <li v-for="item in props.invites.items.value" :key="item.id" :data-site-account-invite="item.code" :data-site-account-invite-usable="item.usable ? 'true' : 'false'">
@@ -123,13 +125,21 @@ async function disable(): Promise<void> {
                 </span>
                 <span v-if="item.usable" class="account-rows__actions">
                     <CopyButton :text="inviteLink(item)" :label="t('account.invites.copy')" data-site-account-invite-copy />
-                    <Button variant="secondary" size="sm" :disabled="disabling !== undefined" :loading="disabling === item.id" data-site-account-invite-disable @click="askDisable(item)">{{ t("account.invites.disable") }}</Button>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        :disabled="disabling !== undefined"
+                        :loading="disabling === item.id"
+                        :aria-label="t('account.invites.disableNamed', {code: item.code})"
+                        data-site-account-invite-disable
+                        @click="askDisable(item)"
+                    >{{ t("account.invites.disable") }}</Button>
                 </span>
             </li>
             <li v-if="props.invites.items.value.length === 0" key="empty" class="account-invites__empty">{{ t("account.invites.empty") }}</li>
         </TransitionGroup>
         <template #actions>
-            <Button variant="secondary" :disabled="full || generating" :loading="generating" aria-describedby="account-invites-quota" data-site-account-invite-generate @click="generate">{{ t("account.invites.generate") }}</Button>
+            <Button variant="secondary" :disabled="full || generating || feedback.waiting.value" :loading="generating" aria-describedby="account-invites-quota" data-site-account-invite-generate @click="generate">{{ t("account.invites.generate") }}</Button>
             <span id="account-invites-quota" class="account-invites__quota" data-site-account-invite-quota>{{
                 full ? t("account.invites.full", {limit: INVITE_CODE_ACTIVE_LIMIT}) : t("account.invites.remaining", {count: INVITE_CODE_ACTIVE_LIMIT - usableCount})
             }}</span>
@@ -149,7 +159,7 @@ async function disable(): Promise<void> {
 
 <style scoped>
 .account-invites__empty {
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-sm);
 }
 
@@ -173,7 +183,7 @@ async function disable(): Promise<void> {
 
 .account-invites__quota {
     min-width: 0;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-sm);
 }
 </style>

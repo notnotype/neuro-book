@@ -9,10 +9,14 @@ import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
+import {SOCIAL_REGISTER_DRAFT_TTL_MS, createSiteStorage} from "./host/storage";
 import zhCN from "./locales/zh-CN.json";
 import {startSite} from "./site";
 import {manualClock} from "./testing/manual-clock";
 import type {Site} from "./site";
+
+/** 用例里的“现在”，也是站点时钟的起点。 */
+const NOW = Date.parse("2026-11-26T10:00:00Z");
 
 const WHOAMI = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.whoami}`;
 const ME = `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.me}`;
@@ -80,6 +84,7 @@ afterEach(() => {
     for (const site of started.splice(0)) site.stop();
     device().prefersColorScheme = "light";
     document.body.replaceChildren();
+    window.sessionStorage.clear();
 });
 
 function start(path: string, server: Server): Started {
@@ -92,7 +97,7 @@ function start(path: string, server: Server): Started {
         target,
         window,
         history,
-        clock: manualClock(Date.parse("2026-11-26T10:00:00Z")),
+        clock: manualClock(NOW),
         leave: (url) => {
             throw new Error(`这里的用例不离开站点，却要去 ${url}`);
         },
@@ -312,5 +317,41 @@ describe("按码统一处理之后的跳转", () => {
         // 接管时第一步是同步发出的重取身份（`whoami`）：请求清单里没有它，就是没接管。`meta` 是注册页进来时自己取的。
         expect(started.requested).toEqual([WHOAMI, META, `${IDENTITY_API_PREFIX}${IDENTITY_PATHS.register}`]);
         expect(started.site.router.currentRoute.value.fullPath).toBe("/register");
+    });
+});
+
+describe("社交注册的草稿", () => {
+    /** 照产品的写法存一份草稿（经 `host/storage.ts`），写入时刻取 `savedAt`；回存储里那个键的原文读法。 */
+    function saveDraft(savedAt: number): () => string | null {
+        createSiteStorage({storage: () => window.sessionStorage, now: () => savedAt}).saveSocialRegisterDraft({
+            provider: "github",
+            username: "alice",
+            displayName: "",
+            inviteCode: "",
+            registrationCode: "REG-1",
+            consent: {termsVersion: "2026-11-01", overseas: true},
+        });
+        const key = window.sessionStorage.key(0)!;
+        return () => window.sessionStorage.getItem(key);
+    }
+
+    it("站点启动时删掉过期的草稿；没过期的留着，等注册页读", async () => {
+        const expired = saveDraft(NOW - SOCIAL_REGISTER_DRAFT_TTL_MS - 1);
+        const first = start("/login", anonymousServer());
+        await settledAt(first, "/login", "login");
+        expect(expired()).toBeNull();
+        first.site.stop();
+
+        const fresh = saveDraft(NOW - 1000);
+        const second = start("/login", anonymousServer());
+        await settledAt(second, "/login", "login");
+        expect(fresh()).not.toBeNull();
+    });
+
+    it("当前账号变成已登录时删掉草稿（社交注册成功回来、或放弃之后改用别的方式登录）", async () => {
+        const draft = saveDraft(NOW - 1000);
+        const signedIn = start("/account", signedInServer("user"));
+        await settledAt(signedIn, "/account", "account");
+        expect(draft()).toBeNull();
     });
 });

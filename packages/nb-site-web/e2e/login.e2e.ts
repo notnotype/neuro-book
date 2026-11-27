@@ -12,7 +12,7 @@ import type {Page} from "@playwright/test";
 
 import {installFakeIdentity, loginFails, loginSucceeds} from "./fake-api";
 import type {FakeIdentity} from "./fake-api";
-import {invalidCredentials, rateLimited} from "./fixtures/identity";
+import {invalidCredentials, meta, rateLimited} from "./fixtures/identity";
 import {box, boxes, onGrid} from "./geometry";
 import type {Box} from "./geometry";
 
@@ -276,4 +276,31 @@ test.describe("真实构建里的主路径", () => {
         await expect(page.locator('[data-site-page="admin-dashboard"]')).toBeVisible();
         expect(fake.logins).toEqual([{identifier: "root", password: "correct horse"}]);
     });
+});
+
+test.describe("meta 晚到", () => {
+    for (const viewport of [VIEWPORTS[0], VIEWPORTS[2]]) {
+        test(`${viewport.name} 宽：两个上游都没开放时，meta 回来前后表单下面的东西都不动`, async ({page}) => {
+            let arrive!: () => void;
+            fake = await installFakeIdentity(page, {
+                meta: {...meta, providers: {github: false, google: false}},
+                metaArrives: new Promise<void>((resolve) => {
+                    arrive = resolve;
+                }),
+            });
+            await openLogin(page, viewport, "light", "/login");
+            // 表单下面：图标那一行的位置、去注册的链接、卡片本身。
+            const below = (): Promise<Box[]> => boxes(page, "[data-site-paper-card], [data-site-social-row], [data-site-paper-card] a[href='/register']");
+            const before = await below();
+            expect(before).toHaveLength(3);
+            await expect(page.locator("[data-site-social]")).toHaveCount(0);
+
+            const answered = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/meta"));
+            arrive();
+            await answered;
+            await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState !== "finished").length)).toBe(0);
+            expect(await below()).toEqual(before);
+            await expect(page.locator("[data-site-social]")).toHaveCount(0);
+        });
+    }
 });

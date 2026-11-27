@@ -20,8 +20,12 @@ export interface SiteContext {
     readonly identity: IdentityApi;
     readonly storage: SiteStorage;
     readonly clock: SiteClock;
-    /** 带浏览器离开站点去这个地址（`StartSiteOptions.leave`）。 */
-    readonly leave: (url: string) => void;
+    /**
+     * 带浏览器离开站点去这个地址（`StartSiteOptions.leave`）。通常页面随之卸载，回来的 Promise 永远不 settle；他在上游页点返回、
+     * 浏览器从往返缓存（bfcache）原样恢复这一页时 resolve。调用方在离开期间把按钮挡住（“正在离开”），`await` 之后放开：恢复的页面
+     * 连同 JS 状态都是离开那一刻的，不放开就一直卡在“发起中”。
+     */
+    readonly leave: (url: string) => Promise<void>;
 }
 
 export const SITE_CONTEXT_KEY: InjectionKey<SiteContext> = Symbol("nb-site.context");

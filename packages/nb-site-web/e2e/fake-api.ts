@@ -61,6 +61,8 @@ export interface FakeIdentity {
     unlink: (id: number, fake: FakeIdentity) => FakeAnswer;
     /** `GET meta` 的回答。 */
     meta: MetaResponse;
+    /** 设了就等它完成再答 `GET meta`：`meta` 晚到的场景。 */
+    metaArrives: Promise<void> | undefined;
     /** 登录请求的回答。缺省是成功，以普通用户登录。 */
     login: (body: LoginRequest, fake: FakeIdentity) => FakeAnswer;
     /** 注册请求的回答。缺省是成功，建起普通用户的会话。 */
@@ -222,7 +224,7 @@ function answer(fake: FakeIdentity, method: string, pathname: string, body: unkn
 /** 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。 */
 export async function installFakeIdentity(
     page: Page,
-    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink">> = {},
+    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink">> = {},
 ): Promise<FakeIdentity> {
     const fake: FakeIdentity = {
         session: initial.session,
@@ -234,6 +236,7 @@ export async function installFakeIdentity(
         patchMe: initial.patchMe ?? patchMeSucceeds(),
         unlink: initial.unlink ?? unlinkSucceeds(),
         meta: initial.meta ?? meta,
+        metaArrives: initial.metaArrives,
         login: initial.login ?? loginSucceeds("user"),
         register: initial.register ?? registerSucceeds(),
         socialStart: initial.socialStart ?? (() => ({status: 200, body: socialStartResponse})),
@@ -248,6 +251,7 @@ export async function installFakeIdentity(
         const request = route.request();
         const {pathname} = new URL(request.url());
         const body = request.postData() === null ? undefined : request.postDataJSON();
+        if (request.method() === "GET" && pathname === path(IDENTITY_PATHS.meta) && fake.metaArrives !== undefined) await fake.metaArrives;
         const reply = answer(fake, request.method(), pathname, body);
         if (reply === undefined) {
             fake.unexpected.push(`${request.method()} ${pathname}`);

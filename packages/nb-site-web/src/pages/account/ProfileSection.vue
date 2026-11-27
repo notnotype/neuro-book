@@ -19,8 +19,8 @@ import type {ShallowRef} from "vue";
 import type {Failure} from "../../http/core";
 import {useSite} from "../../context";
 import {siteRef, useSiteText} from "../../text";
-import type {SiteTextKey} from "../../text";
 import {useFormFeedback} from "../form-feedback";
+import type {FieldRule} from "../form-feedback";
 import AccountSection from "./AccountSection.vue";
 
 type ProfileField = "displayName" | "email" | "website" | "avatarUrl" | "bio";
@@ -57,51 +57,33 @@ watch(
     },
 );
 
+/** 各项的规则；合规则回 `undefined`，否则回说明规则的那句话。 */
+const RULES: Record<ProfileField, FieldRule> = {
+    // 显示名不去首尾空白（字段规则），不能留空。
+    displayName: () => {
+        const length = codePointLength(displayName.value);
+        return length < DISPLAY_NAME.minLength || length > DISPLAY_NAME.maxLength ? siteRef("account.rules.displayName") : undefined;
+    },
+    // 没有邮箱的账号留空就是还没填；有邮箱的不能清空（`PatchMeRequest.email` 不能是 `null`）。
+    email: () => {
+        if (email.value === "") return props.me.email === null ? undefined : siteRef("account.rules.emailRequired");
+        return EMAIL_RULE.test(email.value) ? undefined : siteRef("account.rules.email");
+    },
+    website: () => (website.value === "" || isWebUrl(website.value) ? undefined : siteRef("account.rules.webUrl")),
+    avatarUrl: () => (avatarUrl.value === "" || isWebUrl(avatarUrl.value) ? undefined : siteRef("account.rules.webUrl")),
+    bio: () => (codePointLength(bio.value) > BIO.maxLength ? siteRef("account.rules.bio") : undefined),
+};
+
 const saving = shallowRef(false);
 const form = useTemplateRef<HTMLFormElement>("form");
-const feedback = useFormFeedback<ProfileField>(form, clock);
+const feedback = useFormFeedback<ProfileField>(form, clock, {rules: RULES});
 const {status, statusText, statusSpoken, fieldError} = feedback;
 
 const pendingBadgeShown = computed(() => props.me.emailPending && email.value === "");
 
-/** 各项的规则；合规则回 `undefined`，否则回说明规则的那句话的键。 */
-const RULES: Record<ProfileField, () => SiteTextKey | undefined> = {
-    // 显示名不去首尾空白（字段规则），不能留空。
-    displayName: () => {
-        const length = codePointLength(displayName.value);
-        return length < DISPLAY_NAME.minLength || length > DISPLAY_NAME.maxLength ? "account.rules.displayName" : undefined;
-    },
-    // 没有邮箱的账号留空就是还没填；有邮箱的不能清空（`PatchMeRequest.email` 不能是 `null`）。
-    email: () => {
-        if (email.value === "") return props.me.email === null ? undefined : "account.rules.emailRequired";
-        return EMAIL_RULE.test(email.value) ? undefined : "account.rules.email";
-    },
-    website: () => (website.value === "" || isWebUrl(website.value) ? undefined : "account.rules.webUrl"),
-    avatarUrl: () => (avatarUrl.value === "" || isWebUrl(avatarUrl.value) ? undefined : "account.rules.webUrl"),
-    bio: () => (codePointLength(bio.value) > BIO.maxLength ? "account.rules.bio" : undefined),
-};
-
 const changed = computed(() => FIELDS.filter((field) => drafts[field].value !== original(props.me, field)));
 const broken = computed(() => FIELDS.filter((field) => RULES[field]() !== undefined));
 const canSave = computed(() => changed.value.length > 0 && broken.value.length === 0 && !saving.value && !feedback.waiting.value);
-
-/** 他改了任一项：标红过时了；页面自己查出的规则说明跟着撤掉，服务端给的原因留到下次保存。 */
-function onEdited(): void {
-    feedback.unmark();
-    if (status.value?.reason.startsWith("rule:") === true) status.value = undefined;
-}
-
-/** 离开一个填了字的格子时查它的规则：不合就标红、状态行写规则，焦点不拉回来。 */
-function onFocusOut(event: FocusEvent): void {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
-    const field = FIELDS.find((candidate) => candidate === target.name);
-    if (field === undefined || drafts[field].value === "") return;
-    const rule = RULES[field]();
-    if (rule === undefined) return;
-    status.value = {reason: `rule:${field}`, text: siteRef(rule)};
-    void feedback.mark([field], {focus: false});
-}
 
 /** 请求体：只放改过的项。头像、网站、签名留空是清掉（`null`）；邮箱留空的情形规则已经挡下了。 */
 function patchBody(): PatchMeRequest {
@@ -130,6 +112,7 @@ async function save(): Promise<void> {
     if (!canSave.value) return;
     saving.value = true;
     feedback.reset();
+    const sent = new Map(changed.value.map((field) => [field, drafts[field].value]));
     try {
         const result = await identity.patchMe(patchBody());
         if (!result.ok) {
@@ -137,6 +120,9 @@ async function save(): Promise<void> {
             return;
         }
         account.update(result.value);
+        // 服务端回的才是存下的（邮箱会被转成小写）：发出去的格子换成它，否则格子里仍是原文、表单一直算有改动。请求在路上时
+        // 他又改过的格子留着他写的。
+        for (const [field, value] of sent) if (drafts[field].value === value) drafts[field].value = original(result.value, field);
         feedback.showSuccess("saved", siteRef("account.saved"));
     } finally {
         saving.value = false;
@@ -146,7 +132,7 @@ async function save(): Promise<void> {
 
 <template>
     <AccountSection id="profile" :title="t('account.profile.title')" :status-text="statusText" :status-reason="status?.reason" :status-spoken="statusSpoken" :status-tone="status?.tone === 'success' ? 'success' : 'danger'">
-        <form id="account-profile-form" ref="form" class="account-profile" novalidate @submit.prevent="save" @input="onEdited" @change="onEdited" @focusout="onFocusOut">
+        <form id="account-profile-form" ref="form" class="account-profile" novalidate @submit.prevent="save" @input="feedback.onEdited" @change="feedback.onEdited" @focusout="feedback.onLeave">
             <Field :label="t('account.profile.username')">
                 <Input :model-value="props.me.username" name="username" readonly autocomplete="username" />
             </Field>

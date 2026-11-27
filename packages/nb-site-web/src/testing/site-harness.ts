@@ -62,8 +62,8 @@ export type Handler = (body: unknown, server: Server) => Response | Promise<Resp
 export interface Server {
     /** 浏览器带着的会话；`undefined` 是匿名。 */
     session: Session | undefined;
-    /** `GET meta` 的回答。 */
-    meta: () => Response;
+    /** `GET meta` 的回答；回 `Promise` 的可以让它晚到。 */
+    meta: () => Response | Promise<Response>;
     /** 其余接口，键是 `"POST /api/identity/v1/register"` 这样的写法。 */
     readonly handlers: Map<string, Handler>;
 }
@@ -103,7 +103,7 @@ export function stopKeepingStorage(harness: Harness): void {
 
 export interface StartOptions {
     readonly session?: Session;
-    readonly meta?: MetaResponse | (() => Response);
+    readonly meta?: MetaResponse | (() => Response | Promise<Response>);
     readonly handlers?: Readonly<Record<string, Handler>>;
     /** 时钟的起点；缺省是 `NOW`。 */
     readonly now?: number;
@@ -173,10 +173,11 @@ export function type(input: HTMLInputElement, value: string): void {
     input.dispatchEvent(new Event("input", {bubbles: true}));
 }
 
-/** 离开输入框：浏览器先发 `change`（值改过时）再发 `blur`。 */
+/** 离开输入框：浏览器先发 `change`（值改过时），再发 `blur` 与会冒泡的 `focusout`。 */
 export function leaveField(input: HTMLInputElement): void {
     input.dispatchEvent(new Event("change", {bubbles: true}));
     input.dispatchEvent(new FocusEvent("blur"));
+    input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
 }
 
 /** 状态行上看得见的字：去掉只给读屏的那句。 */

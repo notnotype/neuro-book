@@ -64,7 +64,7 @@ const failure = (body: ErrorBody, status: number, headers?: HeadersInit): Respon
 interface Server {
     session: Role | undefined;
     login: (body: LoginRequest, server: Server) => Response;
-    meta: () => Response;
+    meta: () => Response | Promise<Response>;
     socialStart: (provider: SocialProvider, body: SocialStartRequest) => Response;
 }
 
@@ -392,12 +392,49 @@ describe("社交登录的两枚图标", () => {
         expect(formOf(none).form).not.toBeNull();
     });
 
-    it("meta 取不到时两枚图标都在、不可点，密码登录照常可用", async () => {
+    it("meta 取不到时图标那一行不画，密码登录照常可用", async () => {
         const started = await onLoginPage("/login", {meta: () => failure({error: {code: "unavailable"}}, 503)});
         const form = await fillAndSubmit(started, "alice", "wrong");
-        // 登录的回答到了时 `meta` 早已答完（它先发）：图标这时仍不可点，就不是“还在取”的那一段。
+        // 登录的回答到了时 `meta` 早已答完（它先发）：这时仍没有图标，就不是“还在取”的那一段。
         await vi.waitFor(() => expect(statusText(form)).toBe(zhCN.errors.identity.invalid_credentials));
+        expect(started.target.querySelector("[data-site-social]")).toBeNull();
+        expect(socialButtons(started)).toEqual([]);
+    });
+
+    it("meta 回来之前图标那一行不画；回来后有开放的上游才画出来", async () => {
+        let answer!: (response: Response) => void;
+        const late = new Promise<Response>((resolve) => {
+            answer = resolve;
+        });
+        const started = await onLoginPage("/login", {meta: () => late});
+        expect(started.target.querySelector("[data-site-social]")).toBeNull();
+        expect(started.target.querySelector("[data-site-social-row]")?.classList.contains("is-open")).toBe(false);
+
+        answer(Response.json(OPEN_META));
+        await vi.waitFor(() => expect(socialButtons(started).map((button) => button.dataset.siteSocialProvider)).toEqual(["github", "google"]));
+        expect(started.target.querySelector("[data-site-social-row]")?.classList.contains("is-open")).toBe(true);
+    });
+
+    it("发起后从上游点返回、页面从往返缓存恢复（pageshow 的 persisted 为真）：图标与提交按钮又能点了", async () => {
+        const started = await onLoginPage();
+        const form = formOf(started);
+        type(form.identifier, "alice");
+        type(form.password, "correct horse");
+        await vi.waitFor(() => expect(socialButtons(started)[0]!.disabled).toBe(false));
+        socialButtons(started)[0]!.click();
+        await vi.waitFor(() => expect(started.left).toEqual([upstreamUrl("github")]));
+        // 离开期间不能再点：页面还没换走时连点会发第二次。
+        await vi.waitFor(() => expect(socialButtons(started).map((button) => button.disabled)).toEqual([true, true]));
+        expect(form.submit.disabled).toBe(true);
+
+        // 普通的 `pageshow`（第一次载入）不算回来。
+        window.dispatchEvent(Object.assign(new Event("pageshow"), {persisted: false}));
+        await Promise.resolve();
         expect(socialButtons(started).map((button) => button.disabled)).toEqual([true, true]);
+
+        window.dispatchEvent(Object.assign(new Event("pageshow"), {persisted: true}));
+        await vi.waitFor(() => expect(socialButtons(started).map((button) => button.disabled)).toEqual([false, false]));
+        expect(form.submit.disabled).toBe(false);
     });
 
     it("发起回 unavailable、forbidden_origin、provider_disabled：原因写在状态行，不离开站点，图标还能再点", async () => {

@@ -5,6 +5,7 @@
  *
  * 另外三条（t10 计划 3.10）：`index.html` 里没有内联脚本（内容安全策略的 `script-src` 只许 `'self'`，计划 3.8）；
  * ECharts 只在看板自己的块里，访客与普通用户的入口块不带它；看板块的 gzip 大小有上限，并记下入口块与看板块的大小（计划第 8 节风险 8）。
+ * 入口块也有上限，且不带账号页才用的对话框与菜单（B4 审查第 19 条：nb-ui 的汇总出口把它们带进了入口，`vite.config.ts` 的 `treeshake`）。
  *
  * 构建只跑一次（`beforeAll`），几条测试读同一份产物。构建超过快速类 200 毫秒的预算（要几秒）：测的就是构建本身，没有更快的等价做法。
  */
@@ -21,6 +22,12 @@ const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 
 /** 看板块 gzip 之后的上限（计划 3.10）：ECharts 按需导入约 178 KB，留一点余量，挡住有人整包导入。 */
 const DASHBOARD_GZIP_LIMIT = 200 * 1024;
+/**
+ * 入口块（含静态导入）gzip 之后的上限。登录页是首页，它的表单、状态行与社交图标都在入口里；2026-11-27 量到 81.2 KB
+ * （B2 时约 59.3 KB，B4 把账号页的弹层带进来涨到 120 KB），留一成余量：正常加功能不会撞到，把一整组没用到的组件带进来就会。
+ * 确实要加大时改这里并写明为什么。
+ */
+const ENTRY_GZIP_LIMIT = 90 * 1024;
 /** 看板页在清单里的键（相对 Vite 的根 `src/`）。 */
 const DASHBOARD_SOURCE = "pages/admin/DashboardPage.vue";
 /**
@@ -32,6 +39,16 @@ const fromPackage = (...names: readonly string[]): RegExp => new RegExp(`(?:^|/)
 const ECHARTS_SOURCE = fromPackage("echarts", "zrender");
 /** 必然在入口块里的包：先用它确认按来源认得出，免得 ECharts 那条因为读不到来源而空过。 */
 const VUE_ROUTER_SOURCE = fromPackage("vue-router");
+/**
+ * 访客入口不该带的弹层与菜单：reka-ui 的对话框与菜单，nb-ui 包着它们的组件。只有账号页用，跟着账号页的块走。
+ * nb-ui 是工作区包，来源路径是 `packages/nb-ui/src/…`，不在 `node_modules` 下。
+ */
+const POPUP_SOURCES: readonly RegExp[] = [
+    new RegExp(`${fromPackage("reka-ui").source}dist/(?:Dialog|AlertDialog|Menu|DropdownMenu)/`, "u"),
+    /\/nb-ui\/src\/components\/(?:feedback\/(?:Dialog|AlertDialog)|popup\/DropdownMenu)\.vue$/u,
+];
+/** 一定在入口块里的 nb-ui 组件：先确认认得出 nb-ui 的来源，免得上面那条因为路径写错而空过。 */
+const NB_UI_BUTTON_SOURCE = /\/nb-ui\/src\/components\/[^/]+\/Button\.vue$/u;
 
 /** Vite 清单（`.vite/manifest.json`）里一个块的样子：`imports` 与 `dynamicImports` 是别的块在清单里的键。 */
 interface ManifestChunk {
@@ -144,7 +161,7 @@ describe("vite build", () => {
         expect([...prefixed].filter((value) => !standard.has(value))).toEqual([]);
     });
 
-    test("看板是单独的块；ECharts 只在看板自己的块里；看板块的 gzip 不超过上限", async () => {
+    test("看板是单独的块；ECharts 只在看板自己的块里；看板块与入口块的 gzip 不超过上限；入口不带对话框与菜单", async () => {
         const chunks = await manifest();
         const entries = Object.entries(chunks).filter(([, chunk]) => chunk.isEntry === true).map(([key]) => key);
         expect(entries.length).toBe(1);
@@ -162,6 +179,8 @@ describe("vite build", () => {
         const entryFiles = [...entryClosure].map((key) => chunks[key]!.file);
         const entrySources = (await Promise.all(entryFiles.map(sourcesOf))).flat();
         expect(entrySources.some((source) => VUE_ROUTER_SOURCE.test(source))).toBe(true);
+        expect(entrySources.some((source) => NB_UI_BUTTON_SOURCE.test(source))).toBe(true);
+        expect(entrySources.filter((source) => POPUP_SOURCES.some((pattern) => pattern.test(source)))).toEqual([]);
 
         const dashboardFiles = new Set(dashboardOnly.map((key) => chunks[key]!.file));
         const jsFiles = (await readdir(join(outDir, "assets"))).filter((name) => name.endsWith(".js")).map((name) => `assets/${name}`);
@@ -174,7 +193,8 @@ describe("vite build", () => {
         const entryGzip = await gzipBytes(entryFiles);
         const dashboardGzip = await gzipBytes(dashboardFiles);
         // 体积记在测试输出里（计划第 8 节风险 8）：入口块是访客打开任何一页都要下载的脚本，含它静态导入的块。
-        console.info(`入口块（含静态导入）gzip ${kb(entryGzip)}；看板自己的块 gzip ${kb(dashboardGzip)}（上限 ${kb(DASHBOARD_GZIP_LIMIT)}）`);
+        console.info(`入口块（含静态导入）gzip ${kb(entryGzip)}（上限 ${kb(ENTRY_GZIP_LIMIT)}）；看板自己的块 gzip ${kb(dashboardGzip)}（上限 ${kb(DASHBOARD_GZIP_LIMIT)}）`);
         expect(dashboardGzip).toBeLessThanOrEqual(DASHBOARD_GZIP_LIMIT);
+        expect(entryGzip).toBeLessThanOrEqual(ENTRY_GZIP_LIMIT);
     });
 });

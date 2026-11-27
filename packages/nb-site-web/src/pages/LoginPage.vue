@@ -22,6 +22,7 @@ import {useSite} from "../context";
 import {enterAfterSignIn} from "../session/enter";
 import {siteRef, useSiteText} from "../text";
 import {useFormFeedback} from "./form-feedback";
+import {readSocialError, stripSocialError} from "./social-error";
 import {usePageMeta} from "./use-meta";
 
 type LoginField = "identifier" | "password";
@@ -37,7 +38,7 @@ const t = useSiteText();
 const identifier = shallowRef("");
 const password = shallowRef("");
 const submitting = shallowRef(false);
-/** 社交登录的发起：请求在路上，或已拿到上游地址、页面正在离开。离开之后页面就卸载了，所以成功时不再放开。 */
+/** 社交登录的发起：请求在路上，或已拿到上游地址、页面正在离开；从上游点返回、页面从往返缓存恢复时放开（`SiteContext.leave`）。 */
 const starting = shallowRef(false);
 const form = useTemplateRef<HTMLFormElement>("form");
 const feedback = useFormFeedback<LoginField>(form, clock);
@@ -47,7 +48,7 @@ const meta = usePageMeta(identity);
 const filled = computed(() => identifier.value !== "" && password.value !== "");
 const busy = computed(() => submitting.value || starting.value || feedback.waiting.value);
 const canSubmit = computed(() => filled.value && !busy.value);
-const providers = computed(() => (meta.state.value.kind === "ready" ? meta.state.value.meta.providers : undefined));
+const providers = computed(() => meta.latest.value?.providers);
 
 // 改了任一字段，标红就过时了（原因还留在状态行，下次提交时换掉）。
 watch([identifier, password], () => feedback.unmark());
@@ -93,27 +94,24 @@ async function startSocial(provider: SocialProvider): Promise<void> {
     feedback.reset();
     const result = await identity.socialStart(provider, {intent: "login"});
     if (result.ok) {
-        leave(result.value.url);
+        await leave(result.value.url);
+        starting.value = false;
         return;
     }
     starting.value = false;
     showFailure(result.failure);
 }
 
-// 社交登录没完成时上游把人带回 `/login?social_error=<码>`（`site.accounts` 输出 23）：显示在状态行，再把参数从地址里去掉，
-// 刷新时不再显示一遍。去掉参数是同一页面上的跳转，组件不重建，状态行留着。
+// 社交登录没完成时上游把人带回 `/login?social_error=<码>`（`site.accounts` 输出 23）：显示在状态行，再把参数从地址里去掉
+// （`social-error.ts`）。去掉参数之后组件不重建，状态行留着。
 watch(
     () => route.query[SOCIAL_ERROR_PARAM],
-    (value) => {
-        if (value === undefined) return;
-        const code = (Array.isArray(value) ? value[0] : value) ?? "";
-        if (code !== "") {
-            status.value = {reason: `social:${code}`, text: socialErrorText(code), ...(code === "social_not_registered" ? {action: "register" as const} : {})};
+    () => {
+        const code = readSocialError(route.query);
+        if (code !== undefined) {
+            status.value = {reason: "social_error", text: socialErrorText(code), ...(code === "social_not_registered" ? {action: "register" as const} : {})};
         }
-        const {[SOCIAL_ERROR_PARAM]: _shown, ...query} = route.query;
-        router.replace({path: route.path, query, hash: route.hash}).catch((error: unknown) => {
-            console.warn(`没能把 ${SOCIAL_ERROR_PARAM} 从地址里去掉`, error);
-        });
+        stripSocialError(route, router);
     },
     {immediate: true},
 );

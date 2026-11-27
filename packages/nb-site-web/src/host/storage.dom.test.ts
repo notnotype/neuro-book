@@ -71,6 +71,26 @@ describe("社交注册的草稿", () => {
         expect(storage.takeSocialRegisterDraft()).toBeUndefined();
     });
 
+    it("删过期的：过期与存坏了的删掉，没过期的留着、之后照样读得到", () => {
+        const fresh = setup();
+        fresh.storage.saveSocialRegisterDraft(DRAFT);
+        fresh.advance(SOCIAL_REGISTER_DRAFT_TTL_MS);
+        fresh.storage.dropExpiredSocialRegisterDraft();
+        expect(fresh.storage.takeSocialRegisterDraft()).toEqual(DRAFT);
+
+        const expired = setup();
+        expired.storage.saveSocialRegisterDraft(DRAFT);
+        expired.advance(SOCIAL_REGISTER_DRAFT_TTL_MS + 1);
+        expired.storage.dropExpiredSocialRegisterDraft();
+        expect(window.sessionStorage.length).toBe(0);
+
+        const broken = setup();
+        broken.storage.saveSocialRegisterDraft(DRAFT);
+        window.sessionStorage.setItem(window.sessionStorage.key(0)!, "{不是 JSON");
+        broken.storage.dropExpiredSocialRegisterDraft();
+        expect(window.sessionStorage.length).toBe(0);
+    });
+
     it("清掉之后读不到", () => {
         const {storage} = setup();
         storage.saveSocialRegisterDraft(DRAFT);
@@ -108,5 +128,6 @@ describe("社交注册的草稿", () => {
         expect(() => storage.saveSocialRegisterDraft(DRAFT)).not.toThrow();
         expect(storage.takeSocialRegisterDraft()).toBeUndefined();
         expect(() => storage.clearSocialRegisterDraft()).not.toThrow();
+        expect(() => storage.dropExpiredSocialRegisterDraft()).not.toThrow();
     });
 });

@@ -11,10 +11,11 @@
 
 “或”一行两侧各一条细线，下面两枚图标居中排成一行，间距 16px，GitHub 在左、Google 在右。每枚是 nb-ui `IconButton` 的 `lg`（38×38），里面的“按钮面”填满它的内容区（36×36）：
 
-- Google：素材包里整枚按钮的图（规定的底、描边与全彩“G”），亮暗各一份（`assets/brands/README.md`）。
-- GitHub：照 Google 那枚画同样的圆角、底与描边，中间是 Invertocat，亮色用黑、暗色用白，与“G”同高。
+- 两枚同一种按钮面：Google 规范里的圆角、底与描边（亮色白底 `#747775` 描边，暗色 `#131314` 底 `#8E918F` 描边），由样式画（`assets/brands/README.md`）。
+- Google：中间是标准的全彩“G”（纯路径的图），占按钮面一半高，亮暗共用一份。
+- GitHub：中间是 Invertocat，亮色用黑、暗色用白，与“G”同高。
 
-明暗跟着根元素的 `data-nb-appearance`，由样式换图，不用脚本。
+明暗跟着根元素的 `data-nb-appearance`，由样式换底与 Invertocat，不用脚本。
 
 ## 交互
 
@@ -28,7 +29,7 @@
 defineProps<{
     /** 读屏名字与悬停提示写“用 … 登录”还是“用 … 注册”。 */
     intent: "login" | "register";
-    /** 各上游是否开放（`meta` 的 `providers`）；还不知道（在取、取不到）时不给。 */
+    /** 各上游是否开放（`meta` 的 `providers`）；还不知道（在取、取不到）时不给，整行不画。 */
     providers?: Readonly<Record<SocialProvider, boolean>>;
     /** 整行不可点（注册关闭、限流倒数、正在发起）。默认 false。 */
     disabled?: boolean;
@@ -36,13 +37,14 @@ defineProps<{
 
 defineEmits<{start: [provider: SocialProvider]}>();
 
-// slots：没有。expose：没有。attrs：透传到根元素。
+// slots：没有。expose：没有。attrs：透传到根元素（一直在的外层，`data-site-social-row`）。
 ```
 
 ## 状态
 
-- 还不知道开放情况（`providers` 没给）：两枚都画着、不可点，位置先占着。
-- 知道了：没开放的那枚不画；两个都没开放时“或”与图标整行不画（部署配置决定的，不是页面上会来回变的状态）。
+- 还不知道开放情况（`providers` 没给，`meta` 在取或取不到）：整行不画，零高。先画再撤会让下面的东西先下后上。
+- 知道了、有开放的上游：这一行从零高展开（`grid-template-rows` 0fr 到 1fr）并淡入，时长 `--motion-base`；减弱动效时直接出现。没开放的那枚不画。
+- 两个都没开放：一直零高，下面的东西不动。
 - `disabled`：画着的都不可点。
 
 ## 不支持

@@ -23,4 +23,4 @@ bun run test
 bun run build
 ```
 
-`tests/build.test.ts` 在临时目录里真跑一次 `vite build`（按 `NODE_ENV=production`），并在输出里记下入口块与看板块的 gzip 大小；`bun run build` 把产物写进 `dist/`（不入库），`bun run --cwd packages/nb-site-web preview` 起 Vite 的预览服务看页面（地址在它的输出里）。
+`tests/build.test.ts` 在临时目录里真跑一次 `vite build`（按 `NODE_ENV=production`），在输出里记下入口块与看板块的 gzip 大小，两者都有上限，入口块还不许带账号页才用的对话框与菜单（nb-ui 没声明 `sideEffects`，`vite.config.ts` 替它声明，见那里的注释）；`bun run build` 把产物写进 `dist/`（不入库），`bun run --cwd packages/nb-site-web preview` 起 Vite 的预览服务看页面（地址在它的输出里）。
