@@ -901,3 +901,54 @@ input.nb-ui-native-input[type="number"] {
 :where(button, summary, [role="button"], [role="tab"]) {
     user-select: none;
 }
+
+/*
+ * 减弱动效：位移换淡入淡出（design-language.md“六、无障碍”）。tokens.css 把有位移的时长归零，`--motion-fast`、
+ * `--motion-base` 留给颜色与透明度；这一块把拿这两档做位移、缩放、尺寸的地方统一收掉，组件不用各自判断。
+ *
+ * - 过渡：所有元素只过渡颜色、透明度、阴影与显隐。`!important` 在 components 层里，压得过组件自己的过渡
+ *   （不分层的组件样式、utilities 层的原子类都排在它后面，重要声明按层序是前面的赢）。
+ * - 关键帧：同名的 `@keyframes` 写在这里、只在这个媒体条件下生效，排在原定义之后，取而代之，只留透明度。
+ *   组件 scoped 样式里的关键帧名字带哈希，盖不到，由组件自己在同一媒体条件下收（DialogSurface 等）。
+ * - 转圈、骨架屏这类表示“正在进行”的循环动画不收：它们本身就是状态。
+ */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-property: opacity, color, background-color, border-color, outline-color, box-shadow, fill, stroke, text-decoration-color, visibility !important;
+    }
+
+    /* 子菜单换级时外框的位置与尺寸过渡（上面 `.nb-menu-level` 也是重要声明、选择器更具体），直接到终点。 */
+    .nb-menu-level.nb-menu-level {
+        transition-property: none !important;
+    }
+
+    .nb-ui-side-panel[data-state="open"] {
+        animation-duration: var(--motion-base);
+    }
+
+    @keyframes nb-popover-in {
+        from {
+            opacity: 0;
+        }
+    }
+
+    @keyframes nb-popover-out {
+        to {
+            opacity: 0;
+        }
+    }
+
+    @keyframes nb-ui-side-panel-in {
+        from {
+            opacity: 0;
+        }
+    }
+
+    @keyframes nb-ui-side-panel-out {
+        to {
+            opacity: 0;
+        }
+    }
+}

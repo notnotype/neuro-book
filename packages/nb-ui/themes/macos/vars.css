@@ -139,8 +139,9 @@
         0 4px 12px color-mix(in srgb, var(--shadow-color) 22%, transparent),
         0 40px 88px color-mix(in srgb, var(--shadow-color) 38%, transparent);
 
+    /* 实色的那一圈 2px、取 --focus-outline：没有边框的控件（ghost 按钮、行）只靠它，要对面板 3:1（设计语言“对比度”第 2 条）。 */
     --focus-ring:
-        0 0 0 1px color-mix(in srgb, var(--accent-main) 35%, transparent),
+        0 0 0 2px var(--focus-outline),
         0 0 0 3.5px color-mix(in srgb, var(--accent-main) 18%, transparent),
         0 1px 6px color-mix(in srgb, var(--accent-main) 22%, transparent);
     --focus-outline: color-mix(in srgb, var(--accent-main) 80%, var(--control-outline));

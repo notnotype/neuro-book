@@ -304,7 +304,7 @@ watch([hovered, () => props.drag?.action], ([next, action]) => {
     clearExpand();
     if (waiting === "") return;
     expandFor = waiting;
-    if (motionMs("--motion-base") > 0) expandPending.value = waiting;
+    if (motionMs("--motion-move") > 0) expandPending.value = waiting;
     expandTimer = setTimeout(() => {
         expandTimer = null;
         expandFor = "";
@@ -379,7 +379,7 @@ let glowTimer: ReturnType<typeof setTimeout> | null = null;
 watch(() => props.motion, (note) => {
     if (pendingTimer !== null) clearTimeout(pendingTimer);
     pending = null;
-    if (note == null || motionMs("--motion-base") <= 0) return;
+    if (note == null || motionMs("--motion-move") <= 0) return;
     const indexOf = new Map(props.rows.map((row, index) => [row.id, index]));
     pending = {
         moves: note.moves.map((move) => {
@@ -852,4 +852,13 @@ defineExpose({focus: focusTree});
     --explorer-guide-opacity: 1;
 }
 
+
+/* 减弱动效：拖影只淡入，不缩放（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    @keyframes explorer-ghost-in {
+        from {
+            opacity: 0;
+        }
+    }
+}
 </style>
