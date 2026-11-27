@@ -69,12 +69,12 @@ type ComponentChecklistProps = {
     modelValue: readonly string[];               // 勾着的类型 id（不含已添加的）
     searchable?: boolean;                        // 缺省 true
 };
-emits: update:modelValue(ids), submit()          // submit：Enter 时由对话框决定做什么
+emits: update:modelValue(ids), submit(current: string | null)   // Enter；current 是高亮或聚焦的那一行，由对话框决定做什么
 ```
 
 - 顶上搜索框（焦点进它）；下面一排预设按钮（有预设时），点了把它里面还没添加、没勾的几组勾上，不取消别的；全都已添加或已勾时按钮不可用。
 - 列表按组：“适用于<种类>”、“设定”、“剧情”、“插件”，空的组不出；每行勾选框、图标、名字；已添加的勾着、不可用、行尾写“已添加”；去掉过的写“恢复‘某某’”。打了字只按名字筛、不分组。
-- 键盘：上下键在行之间走（高亮），Space 勾或取消高亮的那一行，Enter 发 `submit`；列表在自己里面滚，走到看不见的行时滚到露出它。
+- 键盘：焦点在搜索框时，Space 照常打字，列表的第一行是高亮行；ArrowDown 把焦点移进列表（落在行的勾选框上，在列表里上下键走行）。焦点在行上时 Space 勾或取消这一行，打字（可打印字符）把焦点送回搜索框接着打，ArrowUp 走过第一行回到搜索框。Enter 在两处都发 `submit(高亮或聚焦的那一行)`。列表在自己里面滚，走到看不见的行时滚到露出它。
 - 列表封顶高度（对话框里约 22rem），超出在里面滚（nb-ui 的滚动条）。
 
 ### `packages/neuro-book/src/plugins/canon/web/components/AddComponentDialog.vue`（新，取代 `AddComponentPicker`）
