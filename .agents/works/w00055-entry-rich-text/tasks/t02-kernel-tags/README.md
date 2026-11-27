@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-kernel-tags
-status: active
-updated: 2026-11-26
+status: done
+updated: 2026-11-27
 ---
 
 # 写法与内核：标签写法、共用解析器、给 Agent 的带值只给看
@@ -69,7 +69,9 @@ updated: 2026-11-26
 
 ## 下一步
 
-1. 在 master 上按[晋升核对](evidences/promotion-check.txt)改 Spec 字面、去掉 t02 的（planned）（子代理在做），核过后 Task 标完成。
+无，本 Task 完成。后续在 [t03](../t03-rich-editor/README.md)（富文本编辑器）与 Work 的后续 Task（标签登记表、默认模板）。
+
+2026-11-27 Spec 晋升（Sonnet 按[晋升核对](evidences/promotion-check.txt)改，主会话抽查）：rendering 去掉 t02 已实现的（planned）、删掉回写那一批条目与失败码（编号留着写“已删除”），字面按核对报告改；还留 planned 的只有登记的标签（t04）、`agentView` 按主文字写法解释、跨段的条件。agent-tools 去掉主文字读写与 `$代号` 子句的 planned（整份状态不动），补两处回话；components 第 133 行、markdown-syntaxes 的原子、author-ui 输出 10、39、48 里与写法有关的子句同样去掉。ADR 0064 里“花括号写法成出错的块”与代码不一致，按 ADR 规则不改正文，由 rendering 的“边界与兼容”写全两种情形。缺测试的几条（核对第 3、18、19、21、28 条）接受现状：工具层面造不出出错的块与非规范的旧块。
 
 2026-11-27 合入 master（`e0d2a6f4c`）。合入前：
 - 真实模型评测（luna，t01 的评测台移到新内核，14 题各 2 遍，[报告](evidences/agent-eval.txt)）：28 次按判据全过；值没有一次被当成文字改，长块分页读加 replace、`$代号`、读后被改都走对了。两处回话改了（`d5e526cfe`）：`find` 去掉了读到的值时（28 次里 3 次）回话说清标签要照读到的抄或只找标签以外的文字，工具说明把 set 与 replace 分开讲；写入成功后请它重读拿新版本（1 次拿旧版本被自己的写入挡成 stale-read）。改了回话以后没有再用 luna 重跑。
