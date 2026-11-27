@@ -389,7 +389,7 @@ function contextText(window: number | null): string {
             />
 
             <Banner v-if="notice" :tone="notice.tone" :message="notice.text" data-testid="settings-notice">
-                <template v-if="notice.conflict" #actions><Button variant="primary" size="sm" @click="load()">重新载入</Button></template>
+                <template v-if="notice.conflict" #actions><Button variant="secondary" size="sm" @click="load()">重新载入</Button></template>
             </Banner>
             <div v-if="loaded" class="settings-actions">
                 <Button variant="primary" :disabled="!dirty || saving" data-testid="settings-save" @click="save()">{{ saving ? "保存中…" : "保存" }}</Button>
