@@ -35,7 +35,7 @@ import type {
     SocialStartRequest,
 } from "@notnotype/nb-site-identity-contract";
 import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
-import type {Page, Route} from "@playwright/test";
+import type {BrowserContext, Page, Route} from "@playwright/test";
 
 import {DASHBOARD_PATHS} from "../src/pages/admin/dashboard/source";
 import {
@@ -472,9 +472,12 @@ function answer(fake: FakeIdentity, method: string, pathname: string, query: URL
     return undefined;
 }
 
-/** 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。 */
+/**
+ * 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。传浏览器上下文时装在整个上下文上，
+ * 页面里点链接新开的标签页（同意页的条款链接）也由同一份假接口回答。
+ */
 export async function installFakeIdentity(
-    page: Page,
+    page: Page | BrowserContext,
     initial: Partial<Pick<
         FakeIdentity,
         "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "grants" | "patchMe" | "unlink"

@@ -3,11 +3,16 @@ import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 import {defineConfig} from "vite";
 
-/** 官方站前端：根是 src，产物进 dist（不入库）。t10 起由镜像的构建脚本把产物放进镜像，由进程入口发出去。 */
+import {isReleaseBuild, legalDocuments} from "./build/legal-docs";
+
+/**
+ * 官方站前端：根是 src，产物进 dist（不入库）。t10 起由镜像的构建脚本把产物放进镜像，由进程入口发出去。
+ * 条款正文在构建时转成 HTML；设了 `NB_SITE_RELEASE=1` 的发布构建不收占位正文（`build/legal-docs.ts`）。
+ */
 export default defineConfig({
     root: resolve(import.meta.dirname, "src"),
     base: "/",
-    plugins: [vue(), tailwindcss()],
+    plugins: [legalDocuments({root: resolve(import.meta.dirname, "src", "legal"), release: isReleaseBuild(process.env)}), vue(), tailwindcss()],
     build: {
         outDir: resolve(import.meta.dirname, "dist"),
         emptyOutDir: true,

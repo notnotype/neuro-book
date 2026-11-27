@@ -10,6 +10,8 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
 import {SOCIAL_REGISTER_DRAFT_TTL_MS, createSiteStorage} from "./host/storage";
+import privacy from "./legal/zh-CN/privacy.md";
+import terms from "./legal/zh-CN/terms.md";
 import zhCN from "./locales/zh-CN.json";
 import {startSite} from "./site";
 import {EMPTY_ADMIN_LISTS} from "./testing/admin-answers";
@@ -244,6 +246,29 @@ describe("没有这一页", () => {
             expect(page.querySelector("h1")?.textContent).toBe(zhCN.notFound.title);
             expect(page.querySelector("a")?.getAttribute("href")).toBe("/");
             expect(page.querySelector("a")?.textContent).toBe(zhCN.notFound.home);
+        }
+    });
+});
+
+describe("公开页", () => {
+    it("隐私政策与服务条款：任何人都能进，画出站名回首页的链接、页名、版本与转好的正文，标签页标题是页名", async () => {
+        const pages = [
+            {path: "/privacy", name: "privacy", title: zhCN.legal.privacy.title, document: privacy},
+            {path: "/terms", name: "terms", title: zhCN.legal.terms.title, document: terms},
+        ];
+        for (const [index, page] of pages.entries()) {
+            const started = start(page.path, index === 0 ? anonymousServer() : signedInServer("user"));
+            await settledAt(started, page.path, page.name);
+            const root = started.target.querySelector(`[data-site-page="${page.name}"]`)!;
+            const home = root.querySelector("header a")!;
+            expect({href: home.getAttribute("href"), text: home.textContent}).toEqual({href: "/", text: zhCN.site.name});
+            expect([...root.querySelectorAll("h1")].map((heading) => heading.textContent)).toEqual([page.title]);
+            const version = root.querySelector("[data-site-legal-version]")!;
+            expect({datetime: version.getAttribute("datetime"), text: version.textContent}).toEqual({datetime: page.document.version, text: zhCN.legal.version.replace("{{version}}", page.document.version)});
+            const body = root.querySelector("[data-site-legal-body]")!;
+            // 正文是构建时转好的 HTML：标题从 h2 起，有段落，没有留下 Markdown 的记号。
+            expect({h2: body.querySelectorAll("h2").length > 0, p: body.querySelectorAll("p").length > 0, markdown: /(?:^|\n)#{1,6}\s/u.test(body.textContent ?? "")}).toEqual({h2: true, p: true, markdown: false});
+            expect(document.title).toBe(zhCN.site.documentTitle.replace("{{page}}", page.title));
         }
     });
 });

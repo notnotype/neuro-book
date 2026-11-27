@@ -8,16 +8,21 @@
  * 入口块也有上限，且不带账号页才用的对话框与菜单（B4 审查第 19 条：nb-ui 的汇总出口把它们带进了入口，`vite.config.ts` 的 `treeshake`），
  * 也不带管理面板的文字目录（B6、B7 审查第 11 条：它跟着管理面板的块走，`src/pages/admin/text.ts`）。
  *
+ * 条款正文（计划 3.11）：两份的版本相同、是 `YYYY-MM-DD`；正文在构建时转成 HTML，Markdown 库不在任何块里，两页各是懒加载的块；
+ * 设了 `NB_SITE_RELEASE=1` 的发布构建遇到占位正文就失败（另起一次构建，见 `build/legal-docs.ts`）。
+ *
  * 构建只跑一次（`beforeAll`），几条测试读同一份产物。构建超过快速类 200 毫秒的预算（要几秒）：测的就是构建本身，没有更快的等价做法。
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {readdir, readFile, rm} from "node:fs/promises";
 import {createRequire} from "node:module";
-import {dirname, join, resolve} from "node:path";
+import {basename, dirname, join, resolve} from "node:path";
 import {gzipSync} from "node:zlib";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {parseLegalDocument} from "../build/legal-docs";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 
@@ -60,6 +65,11 @@ const TYPEBOX_SOURCE = fromPackage("typebox");
  */
 const ADMIN_CATALOG_SOURCE = /(?:^|\/)src\/pages\/admin\/locales\/zh-CN\.json$/u;
 const SITE_CATALOG_SOURCE = /(?:^|\/)src\/locales\/zh-CN\.json$/u;
+/** Markdown 库：条款正文在构建时转成 HTML，浏览器的包里不该有它。 */
+const MARKED_SOURCE = fromPackage("marked");
+/** 两个公开页（计划 3.11），各是懒加载的块。 */
+const LEGAL_PAGE_SOURCES = ["pages/legal/PrivacyPage.vue", "pages/legal/TermsPage.vue"] as const;
+const LEGAL_ROOT = join(PACKAGE_ROOT, "src", "legal");
 /** 一定在入口块里的 nb-ui 组件：先确认认得出 nb-ui 的来源，免得上面那条因为路径写错而空过。 */
 const NB_UI_BUTTON_SOURCE = /\/nb-ui\/src\/components\/[^/]+\/Button\.vue$/u;
 
@@ -75,24 +85,42 @@ interface ManifestChunk {
 let outDir = "";
 let root = "";
 let build: {readonly exitCode: number; readonly stderr: string} | undefined;
+const VITE = join(dirname(createRequire(join(PACKAGE_ROOT, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
+
+/**
+ * 在子进程里跑一次 `vite build`。`release` 决定 `NB_SITE_RELEASE`：外面的环境里设没设都不算数，这里要的是确定的一种。
+ * `bun test` 把 `NODE_ENV` 设成 `test`，子进程继承下来时 Vite 按它打出带开发版 Vue 的产物（入口块大三成多），
+ * 量到的体积与线上不符。这里要的是与 `bun run build` 相同的产物。
+ */
+async function viteBuild(args: readonly string[], release: boolean): Promise<{readonly exitCode: number; readonly stdout: string; readonly stderr: string}> {
+    const {NB_SITE_RELEASE: _ignored, ...env} = process.env;
+    const child = Bun.spawn([process.execPath, VITE, "build", ...args], {
+        cwd: PACKAGE_ROOT,
+        env: {...env, NODE_ENV: "production", ...(release ? {NB_SITE_RELEASE: "1"} : {})},
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [exitCode, stderr, stdout] = await Promise.all([child.exited, new Response(child.stderr).text(), new Response(child.stdout).text()]);
+    return {exitCode, stdout, stderr};
+}
 
 beforeAll(async () => {
     root = await createTestTmpRoot("nb-site-web-build", "nb-site-web vite build");
     outDir = join(root, "dist");
-    const vite = join(dirname(createRequire(join(PACKAGE_ROOT, "package.json")).resolve("vite/package.json")), "bin", "vite.js");
     // `--manifest`：按源文件认出块（看板块是 `DASHBOARD_SOURCE` 的块），不靠文件名里的哈希前缀。
     // `--sourcemap`：按 sourcemap 的 `sources` 认出块里有哪些包。只多出 `.map` 文件与每块末尾一行注释，代码本身与 `bun run build` 相同。
-    const child = Bun.spawn([process.execPath, vite, "build", "--outDir", outDir, "--emptyOutDir", "--manifest", "--sourcemap", "--logLevel", "warn"], {
-        cwd: PACKAGE_ROOT,
-        // `bun test` 把 `NODE_ENV` 设成 `test`，子进程继承下来时 Vite 按它打出带开发版 Vue 的产物（入口块大三成多），
-        // 量到的体积与线上不符。这里要的是与 `bun run build` 相同的产物。
-        env: {...process.env, NODE_ENV: "production"},
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text(), new Response(child.stdout).text()]);
+    const {exitCode, stderr} = await viteBuild(["--outDir", outDir, "--emptyOutDir", "--manifest", "--sourcemap", "--logLevel", "warn"], false);
     build = {exitCode, stderr};
 }, 180_000);
+
+/** `src/legal/<语言>/*.md` 的全部正文，名字从包根起写。 */
+async function legalSources(): Promise<{readonly label: string; readonly source: ReturnType<typeof parseLegalDocument>}[]> {
+    const names = (await readdir(LEGAL_ROOT, {recursive: true})).filter((name) => name.endsWith(".md")).sort();
+    return Promise.all(names.map(async (name) => {
+        const label = `src/legal/${name}`;
+        return {label, source: parseLegalDocument(await readFile(join(LEGAL_ROOT, name), "utf8"), label)};
+    }));
+}
 
 afterAll(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
@@ -223,4 +251,50 @@ describe("vite build", () => {
         expect(dashboardGzip).toBeLessThanOrEqual(DASHBOARD_GZIP_LIMIT);
         expect(entryGzip).toBeLessThanOrEqual(ENTRY_GZIP_LIMIT);
     });
+
+    test("条款两页各是懒加载的块，正文在块里已是 HTML", async () => {
+        const chunks = await manifest();
+        const entries = Object.entries(chunks).filter(([, chunk]) => chunk.isEntry === true).map(([key]) => key);
+        const entryClosure = closure(chunks, entries, {dynamic: false});
+        for (const page of LEGAL_PAGE_SOURCES) {
+            expect({page, lazy: chunks[page]?.isDynamicEntry === true, inEntry: entryClosure.has(page)}).toEqual({page, lazy: true, inEntry: false});
+            // 构建插件把正文转好了：块里有 `<h2>`，没有 front matter 与 `##`。
+            const code = await readFile(join(outDir, chunks[page]!.file), "utf8");
+            expect({page, html: code.includes("<h2>"), markdown: /(?:^|\n)##\s|placeholder:/u.test(code)}).toEqual({page, html: true, markdown: false});
+            const pageFiles = [...closure(chunks, [page], {dynamic: false})].filter((key) => !entryClosure.has(key)).map((key) => chunks[key]!.file);
+            console.info(`${basename(page)} 自己的块 gzip ${kb(await gzipBytes(pageFiles))}`);
+        }
+    });
+
+    test("Markdown 库不在任何块里：条款正文只在构建时转", async () => {
+        // 按来源认得出包（入口那条用例先确认了 vue-router），所以“没有 marked”不是读不到来源而空过。
+        const jsFiles = (await readdir(join(outDir, "assets"))).filter((name) => name.endsWith(".js")).map((name) => `assets/${name}`);
+        const withMarked: string[] = [];
+        for (const file of jsFiles) if ((await sourcesOf(file)).some((source) => MARKED_SOURCE.test(source))) withMarked.push(file);
+        expect(withMarked).toEqual([]);
+    });
+});
+
+describe("条款正文", () => {
+    test("隐私政策与服务条款都在，版本相同，是 YYYY-MM-DD", async () => {
+        const documents = await legalSources();
+        expect(documents.map(({label}) => label)).toEqual(["src/legal/zh-CN/privacy.md", "src/legal/zh-CN/terms.md"]);
+        const versions = new Set(documents.map(({source}) => source.version));
+        expect(versions.size).toBe(1);
+        expect([...versions][0]).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+    });
+
+    test("NB_SITE_RELEASE=1 的发布构建：还有占位正文时失败并列出是哪几份；都定稿了照常构建", async () => {
+        const placeholders = (await legalSources()).filter(({source}) => source.placeholder).map(({label}) => label);
+        const releaseOut = join(root, "release");
+        const result = await viteBuild(["--outDir", releaseOut, "--emptyOutDir", "--logLevel", "warn"], true);
+        const output = `${result.stdout}\n${result.stderr}`;
+        const built = await readFile(join(releaseOut, "index.html"), "utf8").then(() => true, () => false);
+        if (placeholders.length === 0) {
+            expect({exitCode: result.exitCode, built}).toEqual({exitCode: 0, built: true});
+            return;
+        }
+        expect({exitCode: result.exitCode === 0 ? 0 : "failed", built}).toEqual({exitCode: "failed", built: false});
+        for (const label of placeholders) expect(output).toContain(`${label}：发布构建`);
+    }, 180_000);
 });

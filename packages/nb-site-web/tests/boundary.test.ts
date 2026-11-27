@@ -10,8 +10,10 @@
  * - ECharts（连同它的渲染库 ZRender）只许 `src/pages/admin/dashboard/charts/echarts.ts` 在运行时导入，别处只许 `import type`：
  *   按需导入的清单在那一个文件里，别处一条 `import "echarts"` 就把整包（约 390 KB gzip）带进来，导入了图表模块的页面也会把它带进
  *   自己的块。体积与“只在看板的块里”另由 `tests/build.test.ts` 量。
+ * - Markdown 库（`marked`）不许浏览器代码导入：条款正文在构建时由 `build/legal-docs.ts` 转成 HTML，浏览器里不用它（计划 3.11）。
+ *   它是开发依赖，只由构建插件用；产物里有没有它另由 `tests/build.test.ts` 按来源查。
  * - `src/` 的样式：`@import` 的包照上一条；`@source` 的相对路径不出本包。样式里的 `@import` 能把别的包的源码带进来。
- * - `tests/`、`e2e/`（Playwright，由 Node 跑）与包根的 `vite.config.ts`、`vitest.config.ts`：跑在 Bun 或 Node 里，另许 `bun:`、`node:`
+ * - `tests/`、`e2e/`（Playwright，由 Node 跑）、`build/`（构建插件）与包根的 `vite.config.ts`、`vitest.config.ts`：跑在 Bun 或 Node 里，另许 `bun:`、`node:`
  *   与测试支持包。
  * - 相对导入不出本包。
  * - 清单：`dependencies`（及 `peerDependencies`、`optionalDependencies`）里的工作区包只许 nb-ui 与两个合同包，
@@ -36,8 +38,8 @@ const FRONTEND_WORKSPACE = /^@notnotype\/(?:nb-ui|nb-site-identity-contract|nb-s
 const THIRD_PARTY = /^(?!@notnotype\/|bun:|node:)/u;
 /** ECharts 与 ZRender（含子路径）。 */
 const ECHARTS = /^(?:echarts|zrender)(?:\/|$)/u;
-/** 浏览器代码里除 ECharts 之外的第三方包。 */
-const BROWSER_THIRD_PARTY = /^(?!@notnotype\/|bun:|node:|(?:echarts|zrender)(?:\/|$))/u;
+/** 浏览器代码里除 ECharts 与 Markdown 库之外的第三方包。 */
+const BROWSER_THIRD_PARTY = /^(?!@notnotype\/|bun:|node:|(?:echarts|zrender|marked)(?:\/|$))/u;
 const BROWSER_RULE: ImportRule = {packages: [BROWSER_WORKSPACE, BROWSER_THIRD_PARTY], typeOnly: [ECHARTS], within: PACKAGE_ROOT};
 /** 全站唯一在运行时导入 ECharts 的文件。 */
 const ECHARTS_FILE = join(PACKAGE_ROOT, "src", "pages", "admin", "dashboard", "charts", "echarts.ts");
@@ -60,12 +62,13 @@ function filesUnder(directory: string, pattern: RegExp): string[] {
         .map((entry) => join(entry.parentPath, entry.name));
 }
 
-/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则（`echarts.ts` 另许 ECharts），`tests/`、`e2e/` 与两个构建配置照 Bun 的。 */
+/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则（`echarts.ts` 另许 ECharts），`tests/`、`e2e/`、`build/` 与两个构建配置照 Bun 的。 */
 function scannedFiles(): {readonly file: string; readonly rule: ImportRule}[] {
     return [
         ...filesUnder("src", /\.(?:ts|vue|css)$/u).map((file) => ({file, rule: file === ECHARTS_FILE ? ECHARTS_RULE : BROWSER_RULE})),
         ...filesUnder("tests", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
         ...filesUnder("e2e", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
+        ...filesUnder("build", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
         {file: join(PACKAGE_ROOT, "vite.config.ts"), rule: BUN_RULE},
         {file: join(PACKAGE_ROOT, "vitest.config.ts"), rule: BUN_RULE},
     ];
@@ -119,7 +122,7 @@ describe("前端的依赖边界", () => {
         expect(findings()).toEqual([]);
     });
 
-    it("反例：别的工作区包、浏览器代码里的平台内置模块与两个合同包的整包入口、图表模块以外导入 ECharts、样式里导入别的包都被拦下；nb-ui、合同包允许的入口与第三方包不算", () => {
+    it("反例：别的工作区包、浏览器代码里的平台内置模块与两个合同包的整包入口、图表模块以外导入 ECharts、浏览器代码导入 Markdown 库、样式里导入别的包都被拦下；nb-ui、合同包允许的入口与第三方包不算", () => {
         const main = join(PACKAGE_ROOT, "src", "main.ts");
         const blocked = [
             "@notnotype/nb-site-identity",
@@ -149,6 +152,15 @@ describe("前端的依赖边界", () => {
         expect(offendingSpecifiers(page, `const lazy = () => import(${JSON.stringify("echarts")});`, BROWSER_RULE)).toEqual(["echarts"]);
         expect(offendingSpecifiers(page, `import type {ComposeOption} from ${JSON.stringify("echarts/core")};`, BROWSER_RULE)).toEqual([]);
         expect(offendingSpecifiers(page, importStatement("echarts-for-vue"), BROWSER_RULE)).toEqual([]);
+
+        // Markdown 库：浏览器代码不许导入（含子路径与动态导入），构建插件可以。
+        const legalPage = join(PACKAGE_ROOT, "src", "pages", "legal", "LegalPage.vue");
+        for (const specifier of ["marked", "marked/lib/marked.esm.js"]) {
+            expect({specifier, offending: offendingSpecifiers(legalPage, importStatement(specifier), BROWSER_RULE)}).toEqual({specifier, offending: [specifier]});
+        }
+        expect(offendingSpecifiers(legalPage, `const lazy = () => import(${JSON.stringify("marked")});`, BROWSER_RULE)).toEqual(["marked"]);
+        expect(offendingSpecifiers(legalPage, importStatement("marked-highlight-like"), BROWSER_RULE)).toEqual([]);
+        expect(offendingSpecifiers(join(PACKAGE_ROOT, "build", "legal-docs.ts"), importStatement("marked"), BUN_RULE)).toEqual([]);
 
         const test = join(PACKAGE_ROOT, "tests", "build.test.ts");
         expect(offendingSpecifiers(test, importStatement("node:fs/promises"), BUN_RULE)).toEqual([]);

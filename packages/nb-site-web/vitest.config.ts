@@ -8,11 +8,14 @@ import {fileURLToPath} from "node:url";
 import vue from "@vitejs/plugin-vue";
 import {defineConfig} from "vitest/config";
 
+import {legalDocuments} from "./build/legal-docs";
+
 const testSupport = "@notnotype/neuro-book-test-support/vitest";
 
 export default defineConfig({
     root: fileURLToPath(new URL(".", import.meta.url)),
-    plugins: [vue()],
+    // 页面导入的条款正文要同样转成 HTML；组件测试不是发布构建。
+    plugins: [legalDocuments({root: fileURLToPath(new URL("src/legal", import.meta.url)), release: false}), vue()],
     test: {
         environment: "happy-dom",
         // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时不可用，还会盖住 happy-dom 的；关掉它。

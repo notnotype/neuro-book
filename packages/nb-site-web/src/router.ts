@@ -5,7 +5,7 @@
  * 管理面板的五页是 `/admin` 这条父路由的子路由：父路由的组件是管理面板的外壳（`admin/AdminShell.vue`，左栏导航与用户菜单），
  * 单独一个块，五页共用，在它们之间切换时外壳不重建（计划 3.13）。访问级别与版式写在父路由上，子路由的 `meta` 合并它们。
  *
- * 还没做的页面（隐私政策、服务条款）先挂同一个空壳 `ShellPage`，只显示路由的标题。
+ * 隐私政策与服务条款各自一个块，正文随块下载（`pages/legal/`，计划 3.11）。
  * 看板是单独的 `admin/DashboardPage.vue`：构建测试按它认出看板的块（ECharts 只许在那里）。用户、注册码与邀请码、OAuth 客户端、
  * 审计四个列表页各自一个块，共用的取数与表格骨架由打包器拆成它们共用的块。
  */
@@ -44,8 +44,6 @@ declare module "vue-router" {
         publicWith?: string;
     }
 }
-
-const shell = () => import("./pages/ShellPage.vue");
 
 export interface SiteRouterOptions {
     readonly history: RouterHistory;
@@ -101,8 +99,8 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
                     {path: "audit", name: "admin-audit", component: () => import("./pages/admin/AuditPage.vue"), meta: {title: adminRef("admin.audit.title")}},
                 ],
             },
-            {path: "/privacy", name: "privacy", component: shell, meta: {access: "public", layout: "plain", title: siteRef("legal.privacy.title")}},
-            {path: "/terms", name: "terms", component: shell, meta: {access: "public", layout: "plain", title: siteRef("legal.terms.title")}},
+            {path: "/privacy", name: "privacy", component: () => import("./pages/legal/PrivacyPage.vue"), meta: {access: "public", layout: "plain", title: siteRef("legal.privacy.title")}},
+            {path: "/terms", name: "terms", component: () => import("./pages/legal/TermsPage.vue"), meta: {access: "public", layout: "plain", title: siteRef("legal.terms.title")}},
             // `/admin/` 下没有的地址也落到这里，不按管理员守卫：没有的页对谁都是没有。
             {path: "/:rest(.*)*", name: "not-found", component: () => import("./pages/NotFoundPage.vue"), meta: {access: "public", layout: "plain", title: siteRef("notFound.title")}},
         ],

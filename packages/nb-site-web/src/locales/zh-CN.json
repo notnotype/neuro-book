@@ -1,6 +1,7 @@
 {
     "site": {
-        "documentTitle": "{{page}} · NeuroBook"
+        "documentTitle": "{{page}} · NeuroBook",
+        "name": "NeuroBook"
     },
     "shell": {
         "unavailable": "暂时连不上账号服务",
@@ -220,6 +221,7 @@
         }
     },
     "legal": {
+        "version": "{{version}} 版",
         "privacy": {
             "title": "隐私政策"
         },
