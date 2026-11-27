@@ -8,7 +8,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {PAGE_AGENT_PLUGIN, pageAgentWindowContract} from "../shared/contracts";
-import type {HighlightEvent, PageFailureDetail, WindowInfo} from "../shared/contracts";
+import type {FindEntry, FindKind, HighlightEvent, PageFailureDetail, WindowInfo} from "../shared/contracts";
 
 /** 截图的答复：成功时窗口自己报的尺寸，失败时窗口合同里的码。 */
 export type CaptureReply =
@@ -29,12 +29,18 @@ export interface TestWindowState {
     highlights: Array<{readonly filter: HighlightArgs; readonly emit: (event: HighlightEvent) => void; readonly signal: AbortSignal}>;
     /** 收到订阅时当场推的事件（在提供方的 `subscribe` 里同步推，早于订阅确认交回调用方）。 */
     highlightAtOnce?: readonly HighlightEvent[];
+    /** 收到订阅时按参数答复（例如按 `until` 交回 clicked 或 next）；在当场推的事件之后调用。 */
+    onHighlight?: (filter: HighlightArgs, emit: (event: HighlightEvent) => void) => void;
+    /** 目录怎么答；不给时交回空的。 */
+    find?: (input: {readonly query: string; readonly kind?: FindKind; readonly limit: number}) => readonly FindEntry[];
+    /** 收到的目录查询。 */
+    found: Array<{readonly query: string; readonly kind?: FindKind; readonly limit: number}>;
 }
 
 export const windowInfo = (over: Partial<WindowInfo> = {}): WindowInfo => ({name: "a1", title: "NeuroBook", path: "/", width: 1280, height: 800, visible: true, focused: false, lastInputAt: null, ...over});
 
 export function testWindowState(over: Partial<WindowInfo> = {}): TestWindowState {
-    return {info: windowInfo(over), asked: 0, captured: 0, highlights: []};
+    return {info: windowInfo(over), asked: 0, captured: 0, highlights: [], found: []};
 }
 
 export function testWindow(state: TestWindowState): PluginDefinition {
@@ -55,7 +61,10 @@ export function testWindow(state: TestWindowState): PluginDefinition {
                             return call.ok(answer);
                         },
                         snapshot: (_input, call) => call.fail("not-found", {message: "测试窗口不做快照"}),
-                        find: (_input, call) => call.ok({window: state.info, entries: []}),
+                        find: (input, call) => {
+                            state.found.push(input);
+                            return call.ok({window: state.info, entries: [...(state.find?.(input) ?? [])]});
+                        },
                         capture: async (input, call) => {
                             state.captured += 1;
                             if (state.capture === undefined) return call.fail("capture-failed", {message: "测试窗口不截图"});
@@ -76,6 +85,7 @@ export function testWindow(state: TestWindowState): PluginDefinition {
                             subscribe: (filter, sink, call) => {
                                 state.highlights.push({filter, emit: (event) => sink.next(event), signal: call.signal});
                                 for (const event of state.highlightAtOnce ?? []) sink.next(event);
+                                state.onHighlight?.(filter, (event) => sink.next(event));
                             },
                         },
                     },
