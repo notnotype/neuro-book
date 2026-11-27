@@ -19,7 +19,7 @@ import type {Static} from "typebox";
 
 import type {CanonReads} from "./reads";
 
-export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT} from "./components";
+export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT, PERSON_MAIN_PRESET} from "./components";
 // 作者界面的两个贡献点（author-ui.md 输出 12、36）：别的插件交界面时从这里取 id（跨插件只引对方的 shared/contracts.ts）。
 export {CANON_COMPONENT_VIEWS_POINT} from "./component-views";
 export type {ComponentViewDeclaration} from "./component-views";

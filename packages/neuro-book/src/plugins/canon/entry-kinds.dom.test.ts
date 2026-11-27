@@ -15,7 +15,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {BUILTIN_ENTRY_KINDS} from "./shared/components";
-import {CANON_ENTRY_KINDS_POINT, defaultComponents, mergeEntryKinds} from "./shared/entry-kinds";
+import {CANON_ENTRY_KINDS_POINT, defaultComponents, kindPresets, mergeEntryKinds, presetProblems} from "./shared/entry-kinds";
 import {canonNodeWorld} from "./testing/node-world";
 import type {CanonNodeWorld} from "./testing/node-world";
 
@@ -41,17 +41,48 @@ describe("条目种类的登记", () => {
             ...BUILTIN_ENTRY_KINDS,
         ]);
         expect(kinds.map((kind) => kind.kind)).toEqual(["法器", "人物", "组织", "地点", "物品"]);
-        expect(kinds.find((kind) => kind.kind === "人物")).toEqual({kind: "人物", components: ["nbook.canon.person", "nbook.canon.look", "x.magic"], order: 0, icon: "i-lucide-user-round"});
+        expect(kinds.find((kind) => kind.kind === "人物")).toMatchObject({kind: "人物", components: ["nbook.canon.person", "nbook.canon.look", "x.magic"], order: 0, icon: "i-lucide-user-round"});
         const available = new Set(["nbook.canon.person", "nbook.canon.look"]);
         expect(defaultComponents(kinds, " 人物 ", available)).toEqual(["nbook.canon.person", "nbook.canon.look"]);
         expect(defaultComponents(kinds, "城市", available)).toEqual([]);
     });
 
-    it("默认里写到没登记的类型：项目实例写一条诊断，同一处只写一次", async () => {
+    it("有名字的预设：同一个 id 的几条登记并起来（内置的在前、去重），显示名取先写的；先后按第一次出现；写到不可用的类型当作没写，没有显示名或一组能用的也没有的不给", () => {
+        const descriptors = [
+            // 按贡献 id 排在内置前面的别的插件：往“主要角色”里追加，另给一种自己的；显示名写得与内置的不同。
+            {id: "acme.magic.person", declaration: {kind: "人物", presets: [{id: "main", label: "主角", components: ["nbook.canon.panel", "x.magic"]}, {id: "acme", label: "魔法使", components: ["x.magic"]}, {id: "nameless", components: ["nbook.canon.person"]}]}},
+            ...BUILTIN_ENTRY_KINDS,
+            {id: "nbook.plot.person", declaration: {kind: " 人物 ", presets: [{id: " main ", components: ["nbook.plot.knowing", "nbook.plot.attitude"]}]}},
+        ];
+        const kinds = mergeEntryKinds(descriptors);
+        expect(kinds.find((kind) => kind.kind === "人物")?.presets).toEqual([
+            {id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]},
+            {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "x.magic", "nbook.plot.knowing", "nbook.plot.attitude"]},
+            {id: "acme", label: "魔法使", components: ["x.magic"]},
+            {id: "nameless", components: ["nbook.canon.person"]},
+        ]);
+        // 默认组不受预设影响。
+        expect(defaultComponents(kinds, "人物", new Set(["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel"]))).toEqual(["nbook.canon.person", "nbook.canon.look"]);
+        const available = new Set(["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing"]);
+        expect(kindPresets(kinds, "人物", available)).toEqual([
+            {id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]},
+            {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing"]},
+        ]);
+        expect(kindPresets(kinds, "地点", available)).toEqual([]);
+        expect(presetProblems(descriptors, available)).toEqual([
+            {kind: "人物", preset: "main", problem: "missing-component", type: "x.magic"},
+            {kind: "人物", preset: "main", problem: "missing-component", type: "nbook.plot.attitude"},
+            {kind: "人物", preset: "main", problem: "label-conflict"},
+            {kind: "人物", preset: "acme", problem: "missing-component", type: "x.magic"},
+            {kind: "人物", preset: "nameless", problem: "no-label"},
+        ]);
+    });
+
+    it("默认里、预设里写到没登记的类型：项目实例各写一条诊断，同一处只写一次", async () => {
         const held: {diagnostics: DiagnosticsService | null} = {diagnostics: null};
         const magic: PluginDefinition = {
             id: "x.test",
-            contributions: [{capability: CANON_ENTRY_KINDS_POINT, id: "x.test.wand", declaration: {kind: "法器", components: ["x.test.missing", "nbook.canon.panel"]}}],
+            contributions: [{capability: CANON_ENTRY_KINDS_POINT, id: "x.test.wand", declaration: {kind: "法器", components: ["x.test.missing", "nbook.canon.panel"], presets: [{id: "full", label: "全套", components: ["x.test.missing", "nbook.canon.panel"]}]}}],
             entries: [defineEntry({
                 id: "probe",
                 location: "project",
@@ -67,5 +98,9 @@ describe("条目种类的登记", () => {
         const records = () => held.diagnostics?.query({event: "canon.entry-kinds.missing-component"}).records ?? [];
         await waitUntil("写了诊断", () => records().length > 0);
         expect(records().map((record) => record.data)).toEqual([{kind: "法器", type: "x.test.missing"}]);
+        // 预设的问题另记一种，不与默认组的那条合并。
+        const presets = () => held.diagnostics?.query({event: "canon.entry-kinds.preset-problem"}).records ?? [];
+        await waitUntil("预设的诊断", () => presets().length > 0);
+        expect(presets().map((record) => record.data)).toEqual([{kind: "法器", preset: "full", problem: "missing-component", type: "x.test.missing"}]);
     });
 });
