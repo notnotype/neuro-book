@@ -21,6 +21,18 @@ canon 的组件按区域分子目录、Lab 左栏跟着目录分组；场景一�
 2. canon 的组件按计划的六组分子目录。
 3. `ConfirmBar` 留 5 个场景；这次只精简 canon 的场景，别的插件以后改到哪个组件再照规则收。
 
+设计审查（前端，Claude Sonnet）：15 条（阻断 1、重要 7、建议 7），全部成立。按[处理记录](evidences/design-review-resolution.txt)改成[计划](plan.md)第 2 稿：
+
+- 写清开发代码进入产品插件目录的四处边界：架构测试三条规则、Tailwind 排除、产物标记、门禁扫描根。
+- 写清共用支持模块与辅助件的归属。
+- 旧路径给草稿 worktree 留再导出。
+- 拆总表与挪文件改成可重跑的脚本，应对与 w00055 的冲突。
+- 场景快照改为全量 JSON。
+
+“一个状态一个场景”写成“模板里每个分支至少一个场景走到”。照它重选 `ConfirmBar`，是 6 个，开发者批的是 5 个，交付时说明。
+
+工作位置：worktree `.worktree/w00039-novel-writing-plugins`，分支 `feat/w00039-t44-lab-and-component-folders`（从 master `1e60d53ba` 开）。
+
 ## 下一步
 
-开发者确认计划后做设计审查（前端，Sonnet），再按切片 S1 到 S5 实施。
+按切片 S1 到 S5 串行实施。

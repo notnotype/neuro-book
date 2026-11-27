@@ -1,0 +1,180 @@
+# w00039 t44 计划第 1 稿：设计审查报告
+
+审查对象：`.agents/works/w00039-novel-writing-plugins/tasks/t44-lab-and-component-folders/plan.md`。只读；探针放在 `/tmp/t44/review-design/scratch/`（架构判定的副本 `arch-copy.test.ts`、canon 组件名清单）。
+
+### 1. 计划写的架构测试“口子”写不出来：scene-kit 与跨插件各要放行一条，而且“只引 scene-kit 与同插件代码”挡掉了现有一批场景
+**严重程度**：阻断（S1 与 S3 照字面做不出来）　**类别**：依赖的机制与计划不符、接口与合同
+**位置**：plan.md“关键设计 / 场景放在插件自己的目录”的“架构测试”一条；`src/architecture.test.ts` 的 `labSceneMayImport`（第 80 行）、`isDevelopmentPlugin`（第 75 行）与第 139 行的判定
+**现象**：把现有 `violationsOf` 原样抄进副本，加探针用例，结果是：
+- `plugins/canon/web/lab/fixtures.ts → nbook/plugins/lab/web/scene-kit`：命中两条，“跨插件的运行时导入只能指向对方的 shared/contracts.ts”与“只有开发入口能引用开发插件”。计划只提了第一条的口子（`labSceneMayImport`）。第二条按 `plugins/lab/` 前缀认开发插件，`plugins/<p>/web/lab/**` 引 scene-kit 就是“非开发入口引开发插件”，要另开一条例外。
+- 用相对路径 `../../../lab/web/scene-kit` 引也是同样两条。
+- `plugins/plot/web/lab/plot-text.ts → nbook/plugins/canon/web/text`（跨插件、不是 contracts）：命中。现状（文件在 `plugins/lab/web/fixtures/` 里）没有违规。
+**为什么是问题**：计划把规则写成“只许引 scene-kit 加同插件的代码”，但现有场景大量引别的插件的 `web/` 与 `shared/`：`plot-text.ts` 引 canon 的翻译目录；`NetworkPageFixture.vue` 同时引 models、network、settings 三个插件；`ModelsPageFixture.vue`（models+settings）、`SearchSettingsPageFixture.vue`（settings+web-tools）、`MarkdownDisplayFixture.vue`（markdown+stickers）、`editor-scene/EditorAreaFixture.vue`（editor+markdown+workbench）、`command-scene/lab-command-scene.ts`（commands+editor+workbench）、`projects-scene/projects-text.ts`（projects+settings）、`tasks-scene/TasksFixture.vue`（tasks+workbench）等，按“一个文件引到两个以上插件”粗数至少 17 个。照计划的窄规则这些文件全部违规；不收窄、仍放行“引别的插件的 web/shared”，则计划里“只许引 scene-kit 加自己插件”这句话和测试是两回事。S1 的“架构测试规则”一片没有写清到底选哪一种，实施者只能自己定。
+**如何核实**：`cd packages/neuro-book`，把 `src/architecture.test.ts` 复制到别处，把三个相对导入与 `SRC` 改成绝对路径，末尾加用例调用 `violationsOf([{file, specifier, typeOnly:false}])`（见 `/tmp/t44/review-design/scratch/arch-copy.test.ts`）。
+**建议改法**：计划里把规则写成可判定的三条再动手：（a）新增 `isLabScene(file)`＝`plugins/<p>/web/lab/**`，并入 `labSceneMayImport` 的文件判定（沿用“可以引任何插件的 `web|shared`”）；（b）`isDevelopmentPlugin` 的判定对 `plugins/lab/web/scene-kit` 这一个目标对 `isLabScene` 文件放行；（c）新加“除 Lab 与 `web/lab/` 自己的文件外，任何文件（含同一插件的产品代码）不得引 `*/web/lab/`”（类型引用也拦，免得产品代码从场景里取类型）。同时在“每条规则都能拦下对应的违规”的用例表里补正反例，这张表是防判定失效的唯一手段。
+
+### 2. 场景的支持模块被多个插件的场景与 Lab 草稿共用，计划没有归属规则；S3“规则写死的机械搬家”做不到
+**严重程度**：重要　**类别**：遗漏、切片可行性
+**位置**：plan.md“关键设计”（“夹具 `.vue`、样本与场景用的文本端口挪到 `web/lab/`”）、S3 一行与其后“S3 是机械搬家……可以派 coder（Sonnet）”
+**现象**：实测的跨边界使用（grep 导入语句）：
+- `settings-scene/settings-host.ts` 被 `NetworkPageFixture.vue`（network 插件的组件）与 `SearchSettingsPageFixture.vue`（web-tools 插件的组件）引用；
+- `explorer-scene/memory-files` 被 `editor-scene/EditorAreaFixture.vue` 引用；`workbench-scene/workbench-text` 被 `command-scene/LabCommandSceneLayer.vue` 引用；
+- `lab-stickers.ts` 被 `MarkdownDisplayFixture.vue`、`editor-scene/EditorAreaFixture.vue` 与总表共用；
+- `nb-agent-ui/composer-host.ts`（留在 Lab 的包场景）引 `prompt-scene/menu`；
+- `plot-text.ts` 与 `canon-text.ts` 各自注册 canon 的翻译目录；
+- 总表 2876 行里还有顶层常量与函数跨场景用（`PROPERTY_DECLARATIONS`、`PROPERTIES_SAMPLE`、`DISPLAY_REPLY`、`SKILL_PAGE_ENTRIES`，`shelfFixtures()`、`settingsFixtures()`、`canonEntryPageFixtures()`、`firstRunScenes()`、`plotFixtures()` 五个按领域拆出的内部函数；`defineLabFixture`/`defineSubjectFixture` 共 156 处调用）。
+**为什么是问题**：计划只说“夹具与只给它用的样本跟着走”，没写“被两个插件共用的”放哪。搬完后 `editor/web/lab` 要引 `explorer/web/lab/memory-files`，而计划同时要求“除 Lab 以外任何文件不得引 `*/web/lab/`”，这条直接自相矛盾。要么共用件留在 Lab（那么又回到“场景离组件远”的一半），要么给共用件定一个公开位置（例如 `scene-kit` 子路径或一个 `lab-shared/`），要么规则放宽到“任何 `web/lab/` 可以引别的插件的 `web/lab/`”。这是设计选择，不是机械活；让 Sonnet 在 worktree 里“脚本按组件所属插件拆分总表”，它会在上面这些点上各做一个自己的决定，主会话审 diff 时很难看出少了谁的依赖。
+**如何核实**：`cd packages/neuro-book/src/plugins/lab/web/fixtures && grep -rnE 'from "\.\./[a-z-]+-scene/' .`；`grep -rl 'settings-host\|lab-stickers\|memory-files' .`；总表顶层声明 `grep -nE '^(export )?(const|function) ' index.ts`。
+**建议改法**：S1 先产出一张“支持模块 → 使用方 → 归属”表（入库），共用件三选一并写进计划；S3 的脚本只做“机械”的那部分（有唯一归属的夹具 `.vue`、样本），共用件与总表里的内部函数由主会话手拆；S3 不要标成“规则写死”。
+
+### 3. 已入库的 Lab 草稿与在做的草稿 worktree 引用要搬走的场景模块，计划的引用清单里没有它们
+**严重程度**：重要　**类别**：遗漏（迁移、冲突）
+**位置**：plan.md“现状”（“80 个文件引用它们”只数了 canon 与 Lab 的组件引用）、S2 与 S3 的脚本范围
+**现象**：`src/plugins/lab/web/drafts/` 里已入库的 4 个草稿目录（`w00039-t41`、`w00039-t42`、`w00055-t01`、`w00056-t06`）用相对路径引 `../../fixtures/canon-text`、`canon-images`、`define`、`explorer-scene/memory-files`、`editor-scene/lab-editor-menus`、`lab-stickers`、`nb-agent-ui/data`；`w00056-t06` 的草稿 worktree（`.worktree/w00056-t06-drafts`）对这些路径合计有十几处引用（`canon-images` 4、`canon-text` 4、`define` 4、`memory-files` 2、`lab-editor-menus`、`lab-stickers` 各 1）。S3 把 `canon-text.ts`、`canon-images.ts`、`explorer-scene/`、`editor-scene/` 搬进各插件的 `web/lab/`，草稿的这些导入全部断掉；草稿目录是 Lab 的一部分，规则上能引 `web/lab/`，但没有人去改。
+更麻烦的是：w00056 的草稿还在按轮出新稿（最近是第 10 轮），草稿 worktree 之后从 master 合并，t44 合入后它们的导入直接在类型检查与 Lab 加载处报错。
+**为什么是问题**：计划的“验证”只跑 typecheck 与 canon、Lab 的 vitest；主工作区草稿被 S2/S3 的脚本改到就好，但**别的 worktree 里的草稿**不会被脚本改到，合并后才发现。计划“风险”一节只提了 w00055、w00056 改着 canon 与 Lab 的冲突，没提草稿。
+**如何核实**：`grep -rn 'fixtures/' packages/neuro-book/src/plugins/lab/web/drafts`；对 `.worktree/w00056-t06-drafts` 同样执行；`git worktree list | grep drafts` 有二十多个草稿 worktree，多数停在旧写法（`fixtures/drafts/`）。
+**建议改法**：（a）S2/S3 的脚本范围明写“`lab/web/drafts/` 也改”；（b）在 `fixtures/` 里给被草稿用的 6 个模块留一份一版的再导出（或把这些路径定为草稿区的公开入口，放进 scene-kit），降低草稿 worktree 合并时的断裂；（c）合入前通知 w00056 t06、w00055 t01 的草稿先合 master，或在他们的下一轮记录里写迁移说明。
+
+### 4. 生产样式入口只排除了 `plugins/lab`，场景搬进各插件的 `web/lab/` 后，只在场景里用到的原子类会进可分发产物的 CSS
+**严重程度**：重要　**类别**：依赖的机制与计划不符（回归一个已有的门禁设计）
+**位置**：`packages/neuro-book/src/web/tailwind.product.css`（`@source not "../plugins/lab";`）、`vite.config.ts` 头注释、`docs/specs/ui/component-lab.md` 验收 10 与第 85 行；plan.md“关键设计”最后两条与“风险”第二条
+**现象**：Tailwind 按目录扫源码、不看构建图，生产入口 `tailwind.product.css` 专门用 `@source not "../plugins/lab"` 与 `"./testing"` 把 Lab 与测试外壳的类名挡在外面；完整入口里 `@source "../"` 覆盖整个 `src`。场景文件移到 `plugins/<p>/web/lab/` 以后，不在被排除的目录里，它们的类名会被生产构建扫到并进 CSS。粗测：现有夹具 `.vue` 的 class 里出现、而 `src/` 其余非 Lab 源码里没有的字符串有 235 个（含 BEM 名，也有真的原子类：`max-w-[880px]`、`text-[11px]`、`h-72`、`gap-y-1.5`、`leading-[1.95]`、`h-[640px]`、`max-w-[28rem]` 等）。这些都会成为产品 CSS 的多余规则。
+**为什么是问题**：这条机制写在 Spec 验收 10 的产物门禁与 `tailwind.product.css` 的头注释里（“只在那里用到的类不进可分发产物”）。计划的缓解只有“架构测试拦产品代码引用、`check:dist` 查产物”，不覆盖 Tailwind 的目录扫描；`check:dist` 查的 `--lab-` 标记也不会被场景里的普通类名触发，所以构建照过、产物变大，没有任何东西报错。
+**如何核实**：看 `tailwind.product.css`；`bun run build:web` 后在 `dist/web/**/*.css` 里搜 `max-w-\[880px\]` 之类，搬家前后各一次。
+**建议改法**：S1 在 `tailwind.product.css` 里加 `@source not "../plugins/*/web/lab";`（先确认 Tailwind v4 的 `@source not` 接受通配；不接受就按插件逐个列），并给 `check-dist.test.ts` 加一条：在含 `plugins/<p>/web/lab/` 的临时目录里编译生产入口、断言场景独有的类不出现。计划“验证”一节写明用 `bun run build` 前后对比 CSS 字节数。
+
+### 5. “登记门禁不变”不成立：门禁里两项检查只扫 `lab/web/fixtures/` 目录，场景搬走后对它们变成空检查
+**严重程度**：重要　**类别**：验收映射、遗漏
+**位置**：plan.md“关键设计”第二条（“门禁 `fixtures/index.dom.test.ts` 不变”）与“验收映射”；`src/plugins/lab/web/fixtures/index.dom.test.ts` 的 `collectFixtureModules(fixturesRoot)` 与“fixture 严禁在模板中自建固定宽度假盒子”两个用例
+**现象**：
+- “fixture 模块的相对导入都能在磁盘上解析”只遍历 `fixturesRoot`（`lab/web/fixtures/`）。注释写明它防的是“场景模块是运行时才动态 import 的：specifier 写错时上面这些注册表断言照样全绿，只有真人点开场景才看到‘场景加载失败’”。S3 之后 canon 等插件的 `load: () => import("./XFixture.vue")` 与夹具里的相对导入都在 `plugins/<p>/web/lab/`，不再被遍历，S3 搬坏一个路径只有开发者点开才发现。
+- “fixture 严禁自建固定宽度假盒子”用 `readdirSync(fixturesRoot).filter(Fixture.vue)` 只看 `fixtures/` 顶层（不递归）。`fixtures/` 顶层现有 71 个 `*Fixture.vue`（其中 canon 的 37 个），S3 把属于插件的都搬走后，这条检查对它们不再生效，新写的夹具也逃过去。
+- 重复登记与 JSON 往返检查对汇总后的 `labFixtures` 做，搬家后仍有效（这部分计划说对了）。
+- 没有一条检查“每个 `plugins/*/web/lab/` 目录都被总表收到”：`fixtures.ts` 写错文件名、或缺 `export const fixtures`，`Object.values(modules).flatMap((m) => m.fixtures)` 会得到 `[undefined]`（`flatMap` 对非数组原样放入），Lab 在第一次访问 `fixture.component` 时整个报错，错误信息不指向哪个插件。草稿区 `drafts/index.ts` 是同样的写法。
+**为什么是问题**：计划把“门禁”当成现成保障，S3 的主要验证就是这个门禁加“场景清单逐项相同”，而前两项检查在搬完后静默变空。
+**如何核实**：看 `index.dom.test.ts` 第 14–22 行（`collectFixtureModules`）、第 98–108 行（相对导入用例）与第 115 行起的“假盒子”用例；在副本里把一个 canon 夹具的 `import()` 路径改错，现状会被“相对导入”检查拦下，搬走之后不会。
+**建议改法**：S1 先把 `collectFixtureModules` 与“假盒子”两个用例的扫描根改成“`fixtures/` 加所有 `plugins/*/web/lab/`”（路径用 `import.meta.glob` 或 `readdirSync` 从 `plugins/` 起找）；总表收集时校验形状（有 `component`、`scenes`），不对就抛带文件路径的错；加一条“`plugins/*/web/lab/` 存在则必须有 `fixtures.ts` 且被收集”。把这些写进“验收映射”。
+
+### 6. S2、S3、S4 与 w00055 在同一批文件上冲突，计划的缓解（“S2 单独一个提交，Git 认得出改名”）只覆盖 S2
+**严重程度**：重要　**类别**：遗漏（冲突）、切片顺序
+**位置**：plan.md“切片”表与其下 S3 的派发说明、“不做与风险”第一条
+**现象**：`.worktree/w00055-entry-rich-text`（26 个提交，另有一个 t02 agent-eval 分支带同样的改动）相对 master：
+- 改了 `canon/web/components/` 里的 `EntryText.vue`（+180）、`entry-text.ts`（+160）、`EntryTextEditor.md`、`EntryTextEditor.dom.test.ts`、`ImageInput.vue`、`entry-text-editor.ts`，这些在 S2 的 `text/` 与 `editing/` 里；
+- 改了 `lab/web/fixtures/index.ts` 的 6 处（`git diff master...HEAD` 的 hunk 在 12、1036、2001–2261 行），全在 `canonEntryPageFixtures()` 一带；还改了 `EntryTextEditorFixture.vue`（32 行）。
+**为什么是问题**：S2 只改名，Git 的改名识别能处理“文件改了一部分、另一边只改名”。S3 不是改名：把 `index.ts` 里 750 行（`canonEntryPageFixtures()`）切进 `canon/web/lab/fixtures.ts`，Git 没有“块搬家”的识别，w00055 那 6 个 hunk 合入时是“修改/删除”冲突，要人工逐处重放。S4 又要精简 `EntryTextEditor` 的 21 个场景，正是 w00055 在改的那条登记。谁先合入谁受罪，计划没定顺序。
+另外切片表写“S3 可以派 coder 在自己的 worktree 里做”，S3 的输入是 S1 的总表、S2 的新路径（S2 的脚本会改 `index.ts` 里的 49 条类型导入与每个夹具的导入），S4 的输入是 S3 的产物，三者是链，不能并行；计划没写“S3 派出去时主会话不动 canon 与 Lab”，而全局约定本来就是后台在跑时不改 worktree。
+**如何核实**：`git -C .worktree/w00055-entry-rich-text diff master...HEAD --stat -- packages/neuro-book/src/plugins/canon packages/neuro-book/src/plugins/lab`；`... -- .../fixtures/index.ts | grep '^@@'`。
+**建议改法**：先和开发者定 w00055 与 t44 谁先合入。若 t44 先合：w00055 在合 master 前把自己对 `index.ts` 的 canon 场景改动抽成补丁，合入后重放到 `canon/web/lab/fixtures.ts`；或者让 w00055 先合（它的 canon 改动涉及 Spec 与内核，更大），t44 的 S1 再开始。写进计划：S1→S2→S3→S4 严格串行；S3 的 coder 在跑时主会话只读。
+
+### 7. “一种可观察状态一个场景”的规则与样例 `ConfirmBar` 的取舍自相矛盾，“拿掉的由 dom 测试与 e2e 覆盖”的依据不成立
+**严重程度**：重要　**类别**：验收映射、规则可判定性
+**位置**：plan.md“场景一个状态一个”整节（规则句、保留表、“拿掉的 9 个……行为不变”）；`canon/web/components/ConfirmBar.vue` 与 `ConfirmBar.dom.test.ts`
+**现象**：规则写“一个场景对应组件的一种可观察状态（结构、可用与否、反馈不同）”，但被拿掉的几个恰是这三类里的不同状态：
+- `accumulated`：`locked: true`，“保存”按钮不可用（可用与否不同；`number` 里保存是可用的）；
+- `text`：`intents` 只有一个，`ConfirmBar.vue` 第 149 行（bar）与第 191 行（inline）的 `intentOptions.length > 1` 才画意图分段控件，于是整行不画（结构不同；不是“只是文字不同”）；
+- `unknown` 与 `inline-unknown`：多一个“再查一次”按钮（`recheck`，结构不同；`inline-conflict` 没有这个按钮）；
+- `inline-impact`：变化多于一条时收成“还有 N 项”并带悬停提示（结构不同）。
+保留表里 `inline-conflict` 也与 `conflict` 同类，但被留下的是 inline 一个、bar 一个也没有留——bar 版式（`variant: "bar"` 与 inline 是两套模板分支，第 162 行与第 181 行起）只剩 `number` 一个。
+“由 dom 测试与 e2e 覆盖”：dom 测试（happy-dom）覆盖的是 DOM 结构与事件，量不了版面；Lab 场景的价值是被 `lab-scenes` e2e 逐个量溢出、越界、光晕被裁，“还有 N 项”这类收成省略的文字、按钮并排换行正是它要抓的。e2e 里（`canon-author`、`canon-write`、`canon-character`）搜不到 `recheck`、`locked`、“再查一次”、`还有`，只有一处断言“没有 impact”（`canon-character.e2e.ts` 第 120 行）。所以“e2e 覆盖”对这几个状态不成立，真正少掉的是版面门禁对它们的覆盖。
+**为什么是问题**：开发者批的是“ConfirmBar 留 5 个”这个数；具体留哪 5 个是计划自己定的，而且这张表被当成“别的 canon 组件照同一规则”的样板。样板和规则对不上，其余 36 个组件的取舍在审查时就没有依据，Sonnet 或主会话各按自己的理解删。
+**如何核实**：读 `ConfirmBar.vue` 第 149、162、174、181、191、194 行的 `v-if`；`grep -rn 'recheck\|locked\|还有' e2e/canon-*.e2e.ts`。
+**建议改法**：（a）把规则写成可判定的：“组件模板里每个分支（`v-if`/`v-else`、`variant`、禁用条件）至少有一个场景走到；文字与数据不同的合并”，保留表就从分支清单推出；（b）ConfirmBar 的 5 个按这个规则重选，大致是：bar 带预览与二选一、bar 单意图且保存被锁（合 `accumulated`/`text`）、inline 成段文字、inline 冲突带“再查一次”（合 `unknown`）、inline 变化多项收成“还有 N 项”（英文改在其中某个场景里用英文，或单列一个），再核对不超过 5；（c）把“由 dom 测试覆盖”改写成“版面由 `lab-scenes` 对保留的场景量，行为由 dom 测试覆盖”，不提 e2e。
+
+### 8. 计划说“`check:dist` 查产物不含 `web/lab/`”，它实际只查八个字符串；场景文件的泄漏只靠 `data-lab-` 之类的偶然标记拦下
+**严重程度**：建议　**类别**：依赖的机制与计划不符、验收映射
+**位置**：plan.md“关键设计”架构测试一条末句、“验证”一节“`bun run build`（含 `check:dist`：产物不含 `web/lab/`）”、“风险”第二条；`packages/neuro-book/scripts/check-dist.ts` 的 `DEVELOPMENT_MARKERS`
+**现象**：`DEVELOPMENT_MARKERS = ["nbook.lab", "__nbLab", "nb-lab:", "LabShell", "plugins/lab/", "data-lab-", "--lab-", "标签: ["]`，只对 `dist/web` 与 `dist/server` 的文件文本做 `includes`；字符串 `web/lab/` 不在其中（路径也不会出现在压缩后的产物里）。scene-kit 引到的 `define.ts`、`lab-subject.ts`、`lab-event-sink.ts`、`LabFixtureControls.vue` 里没有任何一个标记字符串，只有 `subject-fixture.ts` 的 `"data-lab-subject"` 与每个夹具 `.vue` 模板里的 `data-lab-subject` 属性有。
+**为什么是问题**：现在能拦下场景泄漏，是因为场景 `fixtures.ts` 会 `import()` 夹具 `.vue`、而 `.vue` 带 `data-lab-subject`。一个只用 `defineLabFixture` 加纯数据、没有 `.vue` 夹具的插件场景文件泄漏进产物，门禁不会报。把它当成缓解写进计划，会让以后改 scene-kit 的人（例如去掉 `defineSubjectFixture` 的再导出）无意中拿掉这层偶然的保护。
+**如何核实**：看 `check-dist.ts` 第 17 行；`grep -c 'data-lab-\|nb-lab:\|__nbLab\|--lab-\|nbook.lab\|LabShell' define.ts lab-subject.ts lab-event-sink.ts LabFixtureControls.vue` 全是 0。
+**建议改法**：给 scene-kit 导出一个只为产物门禁存在的常量，例如 `export const LAB_SCENE_KIT = "nb-lab-scene-kit"`，加入 `DEVELOPMENT_MARKERS`，并在 `check-dist.test.ts` 补一条合成产物用例；计划里把“产物不含 `web/lab/`”改成“产物不含 scene-kit 的标记”。
+
+### 9. 总表的 glob 路径照抄了组件索引的写法，少一层 `../`，写错也不会报错
+**严重程度**：建议　**类别**：依赖的机制与计划不符
+**位置**：plan.md“场景收集”一条：`import.meta.glob("../../*/web/lab/fixtures.ts", {eager: true})`
+**现象**：这个路径是从 `lab/web/component-index.ts`（那里 `../../*/web/components/**` 指 `src/plugins/*`）抄的。总表在 `lab/web/fixtures/index.ts`，要多一层：`../../../*/web/lab/fixtures.ts`。按计划写的路径展开成 `plugins/lab/*/web/lab/fixtures.ts`，不匹配任何文件；Vite 的 glob 没匹配到不报错，返回空对象。另外 `*` 会匹配到 Lab 自己（`plugins/lab/web/lab/`）；没有这个目录，现在无事，将来 Lab 自己的场景若也按规则放进去，会和 `fixtures/<来源>/` 重复收。
+**为什么是问题**：能挡住它的只有“每个可挂载组件至少一个场景”那条覆盖门禁，报的是 37 个 canon 组件“没有场景”，信息指向错处。
+**如何核实**：对照 `component-index.ts` 第 22、24 行（文件在 `lab/web/`）与 `drafts/index.ts`（文件在 `lab/web/drafts/`，它的 `./*/fixtures.ts` 是相对自己目录）。
+**建议改法**：计划里直接写对路径，并在总表里断言“glob 至少匹配到一个插件的场景”（有就退出的空检查会让新环境里的空 glob 变成沉默）；排除 `lab` 自己。
+
+### 10. “搬家前后场景清单逐项相同”这条证据的做法没写，按计划写的粒度也比要证明的弱
+**严重程度**：重要　**类别**：验收映射
+**位置**：plan.md“验收映射”第二条、S1 与 S3 的“验证”列
+**现象**：
+- “组件 → 场景 id”只证明登记没丢；S3 的风险是搬动时共用常量、样本、`with*Text` 包装函数（见发现 2）被复制或漏带，场景 id 全在、`input` 里的数据或 `slots`、`label`、`noInput` 却变了，而这条清单看不出。
+- `load` 指向哪个夹具 `.vue`、路径对不对，清单里没有；唯一能拦它的是“相对导入可解析”检查，该检查搬家后不再覆盖（见发现 5）。
+- 做法没写：总表依赖 `import.meta.glob`（`component-index.ts`、`drafts/index.ts`），`bun` 直接导入跑不起来，只能在 Vitest 里导出；计划没说由谁写、放哪、在 S3 之后怎样留下“改前”的那一份来对照（S1 与 S3 各一份“前后”，需要不同的基线）。
+- S3 的“Lab 里点开几个插件的场景看挂得上”是人工抽样；计划自己数的约 1336 个场景（其中 canon 约 350 个）只在 S5 的 `lab-scenes` 才整体挂一遍。
+**为什么是问题**：S3 是全计划最容易出错的一片（总表 2876 行拆成十几份），而它的验收是最弱的一档，错误要拖到 S5 才发现，那时 S4 已经在上面改过场景，难以归因。
+**如何核实**：`labFixtures` 在 `fixtures/index.ts` 里是运行时值；`ls packages/neuro-book/src/plugins/lab/web/drafts/index.ts` 看它也用 glob。
+**建议改法**：S1 开头先写一个 Vitest 导出脚本（放在不入库的临时目录或 `scripts/`），把 `labFixtures` 序列化成排序后的 JSON（`component`、`slots`、`noInput`、每个场景的 `id`、`label`、`input` 全量；输入本来就要求能 JSON 往返），存成基线；S1、S3 后各对同一份基线做 `diff`，必须逐字相同；S3 之后立刻跑一次 `lab-scenes`（或 `nbdev shot` 全量），不留到 S5。
+
+### 11. “场景类型挪到 `define.ts` 免得互相引用”对着一个并不存在的运行时环；scene-kit 的导出清单也不全
+**严重程度**：建议　**类别**：接口与合同
+**位置**：plan.md“场景接口”一条
+**现象**：
+- `fixtures/define.ts` 的头注释写的就是这件事：它只 `import type {LabFixture, LabFixtureDefinition} from "./index"`，类型导入编译后擦除，运行时没有 `index → define → index` 的环；`subject-fixture.ts` 同样只引类型。总表 eager glob 插件的 `fixtures.ts`、插件的 `fixtures.ts` 经 scene-kit 引 `define.ts`，加载顺序上 `define` 只依赖 `lab-subject` 的类型与 Vue，没有读到未初始化登记的路径。挪类型是合理的整理，但不必当作消除环的必需项；写成必需，会让人在 `index.ts` 里删掉 `export {defineLabFixture} from "./define"` 与类型再导出，而草稿区与 `subject-fixture.ts` 现在都靠它（发现 3）。
+- scene-kit 列的导出缺：`LabSceneInput`（现有 17 处，`explorer-text.ts`、`settings-text.ts`、`markdown-text.ts` 这类 `with*Text` 包装要用它）、`LabFixtureDefinition`（9 处；`nb-agent-ui` 的场景文件，留在 Lab，但插件里若有拆出去的场景数组同样要）、`LAB_LOCALE`（3 处，命令场景）、`LabSubjectProps`、`LabSlotOf`、`LabInputOf`；`useLabDataSink` 在 `lab-event-sink.ts`，不在 `lab-subject.ts`。
+**如何核实**：`grep -rhE 'from "(\.\./)+(lab-subject|lab-event-sink|lab-locale|index|define|subject-fixture)"' fixtures` 汇总导入名；读 `define.ts` 头注释。
+**建议改法**：计划把理由改成“让场景只依赖 `define.ts` 与 scene-kit，总表不再是类型的出处”；scene-kit 导出清单以 grep 汇总的导入名为准，先列全再写；保留 `index.ts` 对 `defineLabFixture` 与类型的再导出一个版本，作为迁移期的兼容。
+
+### 12. 分六个子目录时，辅助 `.ts`、测试与跨组依赖的归属没写，“跟着组件走”给不出唯一答案
+**严重程度**：建议　**类别**：遗漏、接口
+**位置**：plan.md“canon 的组件分子目录”表下首句（“辅助 `.ts`、同名 `.md` 与 dom 测试跟着组件走”）与 S2
+**现象**：`canon/web/components/` 里除 49 个 `.vue` 之外还有 12 个 `.ts` 与 29 个 dom 测试。其中几个不属于单个组件：
+- `entry-tabs.ts` 没有同名组件，被 `EntryPage`、`EntryPageNav`、`EntryPageHost` 与 `web/` 根上的 `entries-view.ts`、`entry-page.ts`、`plugin.ts` 用；
+- `entry-picker.ts` 在 `entries/`（EntryPicker）里，却被 `editing/` 的 `FieldInput`、`ElementDialog`、`ConfirmBar` 与 `entry-page/` 的 `MoveDialog`、`EntryPageHost` 引用；
+- `confirm-bar.ts` 被 `web/in-place-edit.ts` 与 `ElementDialog`、`FieldInput`、`EntryPageHost` 引用；
+- `component-checklist.ts` 被 `NewEntryDialog`（`entries/`）、`AddComponentDialog`（`entry-page/`）与 `entries-view.ts` 引用；
+- `ComponentViews.dom.test.ts` 同时测 `ComponentAgentView` 与 `ComponentRawView`（同在 `groups/`，可行），但没有同名组件，脚本按组件名映射会漏掉它。
+`EntryPageHost` 一个组件就引到 `entries/`、`editing/`、`text/` 的辅助。
+**为什么是问题**：分组本身可行（别的插件与文档、e2e、Spec 都没有按路径引这些组件，我逐项查过，见下面“未发现问题”），但挪完会出现 `../entries/entry-picker` 这类跨组引用，一个“按区域分目录”的规则里，辅助件放在被使用最多的区域还是被定义的区域没有说法；脚本要靠一张“旧路径 → 新路径”的表，表只列了 49 个 `.vue`，其余 12 个 `.ts` 与 29 个测试由脚本猜。
+**如何核实**：`cd packages/neuro-book/src/plugins/canon && grep -rlE '/entry-picker"' web`。
+**建议改法**：计划里补一张辅助件与测试的归属表（12 个 `.ts`、29 个测试，一个都不留给脚本推断）；跨组用的辅助件（`entry-picker.ts`、`entry-tabs.ts`、`confirm-bar.ts`、`component-checklist.ts`）要么放在使用方最多的组、要么留在 `components/` 根上，写出理由。
+
+### 13. 文档与规则的改动清单漏了好几处：Spec 的其它段落、AGENTS 的例外句、架构测试头注释、门禁的报错文案与 README 的示例
+**严重程度**：建议　**类别**：遗漏、验收映射
+**位置**：plan.md“Spec 与文档改动”
+**现象**：计划只列了 Spec“输入边界那一句”、`fixtures/README.md`、`components.md`、`AGENTS.md` 的 Component Lab 一条与 design-review SKILL。实测还有这些会变成错的文字：
+- `docs/specs/ui/component-lab.md`：第 43 行（登记门禁 `fixtures/index.test.ts`）、第 120、140 行、第 172 行（“唯一的例外是 Lab 的场景（`web/fixtures/`）”，这句现在要加上 `plugins/<p>/web/lab/`）、第 171 行 owner（“各插件的界面组件在 `web/components/`”，要加场景）、第 173 行（索引边界里“`fixtures/` 登记场景”）与第 84 行草稿区的“与场景相同”；Spec 验收 10 与第 85 行“产物中不含 Lab 模块、fixture”的措辞对应发现 4、8。
+- `docs/specs/ui/component-lab-timeline.md` 第 67、85 行引 `fixtures/index.test.ts`。
+- `packages/neuro-book/AGENTS.md` 第 15 行“例外：Lab 的场景（`src/plugins/lab/web/fixtures/`）可以在运行时引用其它插件……”，以及 `src/architecture.test.ts` 文件头注释的同一句：口子扩到 `plugins/<p>/web/lab/` 后这两处是第一手的规则出处，不改就和代码打架。
+- `fixtures/index.dom.test.ts` 的失败文案“在 fixtures/index.ts 里为它们登记场景”“在 fixtures/index.ts 里登记了多份”，`fixtures/README.md` 第 72、116、174–176 行，`FixtureExampleFixture.vue` 第 9 行注释，`e2e/lab-scenes.e2e.ts` 头注释。
+- 一个只有一处出处的新概念“scene-kit”要在 `docs/standards/code/components.md` 与 README 里各有一句，而不只是“插件组件超过 30 个按区域分子目录”一条。
+**为什么是问题**：`governance:check` 与 `docs:check` 不会报这类“文字过期”；Spec 的合同句错了，后续审查就拿它当依据。
+**如何核实**：`grep -rIn 'fixtures/index' docs packages/neuro-book --include='*.md' --include='*.ts' --include='*.vue' | grep -v legacy`（注意 zsh 里引号要加）。
+**建议改法**：S5 的“规则与文档”一片按上面清单逐条做，并把“grep `fixtures/index` 与 `web/fixtures/` 无残留”写成这一片的验收。
+
+### 14. “英文场景至多一个”的规则碰上场景 id 里编码界面语言的约定，规则没写这条耦合，也没给“长文字场景”的判定
+**严重程度**：建议　**类别**：规则可判定性、隐含耦合
+**位置**：plan.md“场景一个状态一个”规则句、`fixtures/canon-text.ts`、`fixtures/plot-text.ts`
+**现象**：canon 的夹具用场景 id 选语言：`provideCanonText(scene)` 里 `scene.endsWith("-english")` 才注册英文目录（`plot-text.ts`、`explorer-text.ts` 等同）。canon 的 37 个组件里 9 个有两个以上的英文场景（`EntryTextEditor` 3、`EntryPage` 3、`ChangePage` 3，`EntryTree`、`ImageInput`、`PanelView`、`ConfirmBar`、`EntryPageNav`、`ViewPointPicker` 各 2）。规则“至多留一个英文场景”要在这些里挑一个，且被留下的场景 id 必须保留 `-english` 后缀，同时它要负担起这个版式下英文的覆盖（比如 `ConfirmBar` 的英文留的是 inline 的，bar 版式没有英文覆盖）。“长文字场景（看截断）”没有任何现有标识，也没有判定办法，只能靠阅读场景的 `input`。
+**为什么是问题**：第 7 条（固定尺寸里放文字的组件要有英文场景）要的是“每种固定尺寸的版式有一个”，不是“每个组件一个”。按“每个组件至多一个”删，会让带两种版式的组件（`ConfirmBar` 的 bar 与 inline）丢掉一种版式的英文覆盖；也没法机检规则是否被守住。
+**如何核实**：`grep -n 'endsWith("-english")' fixtures/canon-text.ts`；按组件数 `id: "…english"`。
+**建议改法**：规则改成“每种版式（`variant` 或同类的模板分支）至多一个英文场景、一个长文字场景”；长文字场景统一命名后缀（例如 `-long`），让精简表与门禁都能按名字核对；在 `fixtures/README.md` 里同时写明 `-english` 后缀是语言开关。
+
+### 15. “草稿区同样做法”的类比不成立；“不做与风险”两条的缓解各缺一半
+**严重程度**：建议　**类别**：对照参照、上游选择、风险
+**位置**：plan.md“现状”末条与“关键设计”开头；“不做与风险”
+**现象**与判断：
+- “草稿区已经是每个目录自己导出 `fixtures`、Lab 用 `import.meta.glob` 收集，本计划照这个做法。”草稿区在 Lab 插件目录里，整个目录都是开发插件，架构测试的 `isDevelopmentPlugin`、`@source not "../plugins/lab"`、`check:dist` 的标记（含 `plugins/lab/`）、Spec 的“owner：`plugins/lab/`”全部自动适用。本计划是把开发专用代码放进产品插件的目录树，上面这些机制都是按“目录前缀 = 开发代码”设计的，每一条都要补（发现 1、4、8、13）；只借 glob 的写法，没有借到它的边界。这和开发者批准的方向（场景放在各插件自己的 `web/lab/`）不冲突，需要改的是计划对代价的描述，把“架构测试开一个口子”改成“开发代码进入产品插件目录的全部边界清单”。
+- 仓库里已有“产品插件目录里放不进产品的代码”的先例：`web/testing/`（架构测试的 `sourceFiles` 整个跳过、`tsconfig.web.json` 排除、`importsTesting` 禁产品引用、`tailwind.product.css` 排除 `./testing`）。计划没提为什么不复用它的命名与机制，也没说两者的差别（`web/lab/` 要被类型检查与架构测试扫到，所以不能照搬 `testing/` 的“整体跳过”）。同类项目（Storybook 的同目录 `*.stories.*`）也有同一处坑：内容扫描类工具（Tailwind、CSS 清理）要单独排除，打包图本身不会带上。
+- “风险：别的 worktree 改着同一批文件……S2 单独一个提交、只挪不改内容”：只覆盖 S2，见发现 6，还漏了草稿（发现 3）。判断：缓解不足。
+- “风险：插件目录里多了只在开发版用的代码，缓解架构测试加 `check:dist`”：架构测试的口子本身写不出来（发现 1），`check:dist` 只靠偶然标记（发现 8），Tailwind 完全没覆盖（发现 4）。判断：缓解不足。
+- “别的插件的组件这次不分子目录、场景不精简”：判断：合理，且 `workbench` 现有 29 个组件、离“超过 30 个”只差一个，新规则落地后很快会在它身上触发，可以在规则句里先写明“超过 30 个时在下一次碰到它时分”，免得每个新增组件的 Task 都要重新判断。
+**如何核实**：对照 `architecture.test.ts` 的 `sourceFiles`（第 41 行）、`importsTesting`、`tsconfig.web.json` 的 `exclude`、`tailwind.product.css`。
+**建议改法**：计划“关键设计”开头加一节“开发代码进入产品插件目录的边界”，把发现 1、4、8、13 的各处改动列成清单，作为 S1 的验收。
+
+## 未发现问题的方面
+- Vite 把开发代码带进生产入口或别的入口：`web/main.ts` 只在 `import.meta.env.DEV` 分支里动态加载 `development-plugins`，Lab 的 glob 只从那里到达；`vite.e2e.config.ts` 的外壳不含 Lab；`import.meta.glob` 只出现在 `plugins/lab/web/` 的架构测试（`globAllowed`）也不会被插件目录里的新文件破坏。生产图的问题只在 Tailwind 扫描（发现 4），不在模块图。
+- `LabFixture` 类型与总表的运行时环：类型导入被擦除，`define.ts`、`subject-fixture.ts` 现在就是只引类型；总表 eager glob 插件的 `fixtures.ts`，插件文件经 scene-kit 引的模块里没有一个读总表的值，没有读到未初始化登记的路径（见发现 11 对理由措辞的修正）。
+- 别的插件、e2e、Spec、`docs:check` 对 canon 组件路径的引用：别的插件（plot）只引 canon 的 `web/` 根上的文件（`text`、`commands`、`entry-page`、`component-views`），不引 `components/`；e2e 对 canon 组件只靠 `data-*` 属性；`docs/` 与 `docs/specs/` 里没有出现 `canon/web/components` 路径；`docs:check` 的组件文档检查只扫 nb-ui 等包的出口文件；`component-inject-tags` 只对有同名 `.md` 的 `.vue` 生效，夹具没有；`.md` 之间没有同级链接，只有指向 `docs/` 的相对链接（计划已写）。引用 canon 组件路径的只有 Lab 的夹具、已入库草稿和 `.agents/works` 里的历史证据（历史记录不改）。
+- 组件名在 Lab 里的身份：`buildLabIndex` 按路径取名、重名只收一个并告警，分子目录不改文件名；导航 id 是 `group:` 加目录路径，偏好存的是收起的目录 id，新增的 `group:canon/entries` 等没有记录，默认展开，旧偏好里不存在的 id 被忽略；URL `?c=<组件名>&s=<场景 id>` 按组件名，不受目录影响；canon 组件名没有被 e2e、`lab-layout-baseline.ts`（现为空表）或别的测试按场景 id 引用，精简场景不会让它们失败（深链接里的 `s=` 指向被删的场景时，`LabShell.vue` 第 595–600 行回落到该组件的首个场景并设置 `missingScene` 提示，不会白屏）。
+- 开发者三条决定与 t43 原话的覆盖：场景放各插件 `web/lab/`、六组、ConfirmBar 留 5 个、只精简 canon，四项都有；规则写进场景说明与组件规范也在 S5。没有悄悄改变已定项。ConfirmBar 具体留哪 5 个是计划自己的选择，见发现 7。
+
+## 数量
+- 阻断：1（发现 1）
+- 重要：7（发现 2、3、4、5、6、7、10）
+- 建议：7（发现 8、9、11、12、13、14、15）
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15
