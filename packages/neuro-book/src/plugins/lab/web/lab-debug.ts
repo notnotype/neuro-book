@@ -4,7 +4,7 @@
  * 脚本只认这里和 `data-lab-stage` 标记，不认 Lab 外壳的按钮文字或 class：外壳改版时脚本不必跟着改。
  * 接口只读，改状态一律走 URL 参数（见 lab-url.ts），保证同一个 URL 永远是同一个起点。
  */
-import type {LabClippedFocus, LabDebugApi, LabOverflowOffender, LabStageMeasure} from "../shared/debug-api";
+import type {LabClippedFocus, LabDebugApi, LabOverflowOffender, LabSmallTarget, LabStageMeasure} from "../shared/debug-api";
 
 import {ringSelectors} from "./focus-rules";
 import type {RingSelector} from "./focus-rules";
@@ -112,7 +112,7 @@ function solidRingExtent(layers: ReadonlyArray<ShadowLayer>): number {
 
 /**
  * 主题焦点环的外扩量：`--focus-ring` 里不偏移那几圈的扩散量（见 solidRingExtent）。读不到或解析不出时按 3.5px
- * （nbook、macos 两套主题都是 1 与 3.5 两圈，另有一层 1px 偏移 6px 模糊的光，不算）。
+ * （nbook、macos 两套主题都是 2 与 3.5 两圈，另有一层 1px 偏移 6px 模糊的光，不算）。
  */
 export function focusRingExtent(element: Element): number {
     const value = getComputedStyle(element).getPropertyValue("--focus-ring").trim();
@@ -303,6 +303,85 @@ function offendersIn(region: HTMLElement, limit: number): LabOverflowOffender[] 
     return offenders;
 }
 
+/** 指针目标：按钮、链接、能点的角色、复选与单选、拖动把手（nb-ui 开发规范“可点区域与焦点”第 10 条）。 */
+const POINTER_TARGETS = "button, a[href], [role='button'], [role='checkbox'], [role='radio'], [role='switch'], [role='tab'], [role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio'], [role='option'], input[type='checkbox'], input[type='radio'], [data-drag-handle]";
+/** WCAG 2.5.8 的最小目标与间距例外的圆直径，CSS 像素。 */
+const MIN_TARGET = 24;
+
+/** 句子里的行内链接不算（WCAG 2.5.8 的例外）：行内显示、父元素里还有别的文字。 */
+function inlineInText(element: HTMLElement): boolean {
+    if (element.tagName !== "A" || getComputedStyle(element).display !== "inline") return false;
+    const parent = element.parentElement;
+    return parent !== null && (parent.textContent ?? "").trim().length > (element.textContent ?? "").trim().length;
+}
+
+/** 可点区域：元素自己加上点了也算点它的 label（`for` 指向它，或包住它）。 */
+function hitArea(element: HTMLElement): DOMRect {
+    const rects = [element.getBoundingClientRect()];
+    const labels = (element as HTMLInputElement).labels;
+    if (labels !== undefined && labels !== null) for (const label of labels) rects.push(label.getBoundingClientRect());
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const top = Math.min(...rects.map((rect) => rect.top));
+    return new DOMRect(left, top, Math.max(...rects.map((rect) => rect.right)) - left, Math.max(...rects.map((rect) => rect.bottom)) - top);
+}
+
+/**
+ * 可点区域不够 24×24 又不满足间距例外的目标：以它的中心画直径 24 的圆，圆碰到别的目标，或者两个小目标的圆相交。
+ * 套在一起的目标（菜单项里的复选）互相不算。看不见的、`aria-hidden` 里的不算。
+ */
+export function smallTargetsIn(region: HTMLElement, limit: number): LabSmallTarget[] {
+    const targets = [...region.querySelectorAll<HTMLElement>(POINTER_TARGETS)].filter((element) => {
+        const box = element.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && !invisible(element) && element.closest("[aria-hidden='true']") === null && !inlineInText(element);
+    });
+    const areas = targets.map(hitArea);
+    const small = areas.map((area) => area.width < MIN_TARGET - 0.5 || area.height < MIN_TARGET - 0.5);
+    const center = (area: DOMRect) => ({x: area.left + area.width / 2, y: area.top + area.height / 2});
+    const found: LabSmallTarget[] = [];
+    targets.forEach((element, index) => {
+        if (!small[index] || found.length >= limit) return;
+        const c = center(areas[index]!);
+        const crowded = targets.some((other, otherIndex) => {
+            if (otherIndex === index || other.contains(element) || element.contains(other)) return false;
+            const area = areas[otherIndex]!;
+            if (small[otherIndex]) {
+                const d = center(area);
+                if (Math.hypot(c.x - d.x, c.y - d.y) < MIN_TARGET) return true;
+            }
+            const dx = Math.max(area.left - c.x, 0, c.x - area.right);
+            const dy = Math.max(area.top - c.y, 0, c.y - area.bottom);
+            return Math.hypot(dx, dy) < MIN_TARGET / 2;
+        });
+        if (!crowded) return;
+        const described = describeNode(element);
+        found.push({selector: described.selector, componentName: described.componentName, width: Math.round(areas[index]!.width * 10) / 10, height: Math.round(areas[index]!.height * 10) / 10});
+    });
+    return found;
+}
+
+/**
+ * 文字被裁掉的元素：自己直接带着文字，在不滚动的方向上内容比盒子大，又不是有意的截断（单行省略号、行数截断）。
+ * 给“文字间距加大不丢内容”（WCAG 1.4.12）摸底用，只报告。
+ */
+export function clippedTextIn(region: HTMLElement, limit: number): LabOverflowOffender[] {
+    const found: LabOverflowOffender[] = [];
+    for (const element of region.querySelectorAll<HTMLElement>("*")) {
+        if (found.length >= limit) break;
+        if (![...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")) continue;
+        const style = getComputedStyle(element);
+        const hidesX = style.overflowX === "hidden" || style.overflowX === "clip";
+        const hidesY = style.overflowY === "hidden" || style.overflowY === "clip";
+        const overX = hidesX && style.textOverflow !== "ellipsis" ? element.scrollWidth - element.clientWidth : 0;
+        const overY = hidesY && style.webkitLineClamp === "none" ? element.scrollHeight - element.clientHeight : 0;
+        const over = Math.max(overX, overY);
+        if (over > TOLERANCE && !invisible(element)) {
+            const described = describeNode(element);
+            found.push({selector: described.selector, componentName: described.componentName, overflow: Math.round(over)});
+        }
+    }
+    return found;
+}
+
 /**
  * 场景的内容不只在舞台里：对话框、抽屉这类居中浮层传送到同一块画布上的浮层落点（ViewportCanvas 的
  * `data-lab-overlay-root`），下拉、取色面板这类贴着触发器的浮层由 reka 传送到 body。只测舞台的话，这些全都测不到。
@@ -325,6 +404,8 @@ export function measureStage(stage: HTMLElement): LabStageMeasure {
         offenders: regions.flatMap((region) => offendersIn(region, MAX_OFFENDERS)).slice(0, MAX_OFFENDERS),
         clippedFocus: [...regions, ...popovers].flatMap((region) => clippedFocusRings(region, extent, selectors)).slice(0, MAX_OFFENDERS),
         clippedRings: [...regions, ...popovers].flatMap((region) => clippedDrawnRings(region)).slice(0, MAX_OFFENDERS),
+        smallTargets: [...regions, ...popovers].flatMap((region) => smallTargetsIn(region, MAX_OFFENDERS)).slice(0, MAX_OFFENDERS),
+        clippedText: [...regions, ...popovers].flatMap((region) => clippedTextIn(region, MAX_OFFENDERS)).slice(0, MAX_OFFENDERS),
     };
 }
 
