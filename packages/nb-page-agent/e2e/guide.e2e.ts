@@ -151,6 +151,14 @@ test.describe("结局（输出 9）", () => {
         expect(await ended(page)).toEqual({outcome: "clicked"});
     });
 
+    test("目标在抬起指针时就被页面拿走（没有 click）：仍算 clicked", async ({page}) => {
+        await openFixture(page, `<button id="go" style="margin:200px" onpointerup="this.remove()">选我</button>`);
+        await startHighlight(page, {at: {text: "选我"}, message: "点它。", until: "click"});
+        await installed(page);
+        await page.locator("#go").click();
+        expect(await ended(page)).toEqual({outcome: "clicked"});
+    });
+
     test("目标从页面上拿走得 gone；开始新的高亮时旧的得 replaced，页面上只剩新的；宿主取消得 cancelled", async ({page}) => {
         await openFixture(page, `<button id="a" style="margin:200px">甲</button><button id="b">乙</button>`);
         await startHighlight(page, {at: {text: "甲"}, message: "甲。", until: "next"});
@@ -296,6 +304,31 @@ test.describe("焦点、按键与弹层（输出 10）", () => {
     });
 });
 
+test.describe("换层（输出 10）", () => {
+    test("目标所在的层被关掉而目标还在：说明框换到目标现在所在的层继续显示；高亮整个层时点说明框不算点了目标", async ({page}) => {
+        await openFixture(page, `<div id="menu" role="menu" style="position:absolute;left:100px;top:100px;padding:8px"><div id="item" role="menuitem" tabindex="-1">甲</div></div>`);
+        await startHighlight(page, {at: {role: "menuitem", name: "甲"}, message: "选甲。", until: "next"});
+        await installed(page);
+        expect(await page.evaluate(() => document.querySelector("[data-nb-page-agent=guide]")!.parentElement?.id)).toBe("menu");
+        await page.evaluate(() => {
+            document.body.append(document.getElementById("item")!);
+            document.getElementById("menu")!.remove();
+        });
+        await expect.poll(() => page.evaluate(() => document.querySelector("[data-nb-page-agent=guide]")?.parentElement?.localName)).toBe("body");
+        await expect(part(page, "callout")).toBeVisible();
+        expect(await stillWaiting(page)).toBe(true);
+
+        await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<div id="menu2" role="menu" aria-label="菜单" style="position:absolute;left:400px;top:100px;padding:8px"><div role="menuitem">一</div><div role="menuitem">二</div></div>`));
+        await startHighlight(page, {at: {role: "menu", name: "菜单"}, message: "整个菜单。", until: "click"});
+        await installed(page);
+        // 上一次高亮被替换后还在淡出，只看这一次的宿主。
+        expect(await page.evaluate(() => document.querySelector("[data-nb-page-agent=guide]:not([data-closing])")!.parentElement?.id)).toBe("menu2");
+        await expect(part(page, "callout")).toHaveCount(1);
+        await part(page, "callout").locator(".message").click();
+        expect(await stillWaiting(page)).toBe(true);
+    });
+});
+
 test.describe("跟随与滚出视野（输出 9）", () => {
     test("目标挪了描边框跟过去；滚出滚动区域时描边框藏起、说明框停在区域里离目标最近的边上，滚回来再出现", async ({page}) => {
         await page.emulateMedia({reducedMotion: "reduce"});
@@ -329,6 +362,17 @@ test.describe("跟随与滚出视野（输出 9）", () => {
         });
         await expect(part(page, "outline")).not.toHaveAttribute("data-hidden", "");
         await expect(part(page, "dim")).not.toHaveAttribute("data-hidden", "");
+    });
+
+    test("目标在滚动区域外面：先滚进视野再画", async ({page}) => {
+        await openFixture(page, `
+<div id="box" style="position:absolute;left:100px;top:100px;width:300px;height:200px;overflow:auto">
+  <div style="height:2000px"><button style="margin-top:1500px">很远</button></div>
+</div>`);
+        await startHighlight(page, {at: {text: "很远"}, message: "在这里。", until: "next"});
+        await installed(page);
+        expect(await page.evaluate(() => document.getElementById("box")!.scrollTop)).toBeGreaterThan(1200);
+        await expect(part(page, "outline")).not.toHaveAttribute("data-hidden", "");
     });
 });
 
