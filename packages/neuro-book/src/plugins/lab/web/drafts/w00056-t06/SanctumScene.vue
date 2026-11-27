@@ -25,9 +25,9 @@ import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, 
 
 import LEATHER_CORNER from "./assets/leather-corner.webp";
 import LYRA_AVATAR from "./assets/lyra-avatar.webp";
-import OAK from "./assets/oak.webp";
 import PARCHMENT from "./assets/parchment.webp";
 import VELVET from "./assets/velvet.webp";
+import WALNUT from "./assets/walnut.webp";
 
 import {cubicBezier, prefersReducedMotion, SETTLE, timeScale} from "./motion";
 import {deskBox, deskShot, floaterShot, heroShot, landingBox, lightShot, SANCTUM_MIN_WIDTH, SCENE_EFFECTS, smooth} from "./sanctum";
@@ -932,6 +932,7 @@ const carrier = useTemplateRef<HTMLElement>("carrier");
 const deskHalo = useTemplateRef<HTMLElement>("deskHalo");
 const deskShade = useTemplateRef<HTMLElement>("deskShade");
 const deskSheen = useTemplateRef<HTMLElement>("deskSheen");
+const deskSilk = useTemplateRef<HTMLElement>("deskSilk");
 const hero = useTemplateRef<HTMLElement>("hero");
 const light = useTemplateRef<HTMLElement>("light");
 const vignette = useTemplateRef<HTMLElement>("vignette");
@@ -1029,6 +1030,8 @@ function applyDeskPaint(shot: ReturnType<typeof deskShot>): void {
         writeStyle(deskSheen.value, "--sx-sheen-opacity", fixed(shot.sheenOpacity));
     }
     if (deskHalo.value !== null) writeStyle(deskHalo.value, "--sx-halo", fixed(shot.halo));
+    // 夜里丝绸垫不画（`display: none`），照样写：切到白天时不用等下一次镜头变化。窄屏不走这里，用登记的初始值 1（落地的窄边）。
+    if (deskSilk.value !== null) writeStyle(deskSilk.value, "--sx-silk", fixed(shot.silk));
 }
 
 function applyHero(p: number): void {
@@ -1377,9 +1380,13 @@ onBeforeUnmount(() => {
         <div ref="carrier" class="sx-carrier" :class="{'is-landed': isLanded}" :style="carrierBox" data-sx-carrier>
             <div class="sx-enter sx-carrier__enter">
                 <div ref="deskHalo" class="sx-halo" aria-hidden="true"></div>
-                <!-- 桌布：比桌子大一圈、往外淡进暗里；落地后围着工作台的那一圈都是它。顶光在桌面上落一滩光。 -->
-                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-oak': `url(${OAK})`}" aria-hidden="true"></div>
+                <!--
+                    桌布：比桌子大一圈、往外淡进暗里；落地后围着工作台的那一圈都是它。顶光在桌面上落一滩光。
+                    白天桌布是胡桃木案面，工作台下面另垫一块丝绸（只在白天画，往里收的进度由镜头写，见 `applyDeskPaint`）。
+                -->
+                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-walnut': `url(${WALNUT})`}" aria-hidden="true"></div>
                 <div class="sx-pool" aria-hidden="true"></div>
+                <div ref="deskSilk" class="sx-silk" aria-hidden="true"></div>
                 <div class="sx-desk">
                     <slot name="desk" />
                 </div>
@@ -1806,6 +1813,13 @@ onBeforeUnmount(() => {
     initial-value: 0.55;
 }
 
+/* 丝绸垫往里收的进度：初始值是落地的窄边，窄屏不俯冲、不写它，就停在这里。 */
+@property --sx-silk {
+    syntax: "<number>";
+    inherits: false;
+    initial-value: 1;
+}
+
 /* 纸上由受光与细看算出来的两段滤镜：它们跟着上面几个变量每帧变，不登记的话照样继承下去，纸里每个元素都要重算。 */
 @property --sx-rim {
     syntax: "*";
@@ -2006,6 +2020,11 @@ onBeforeUnmount(() => {
     inset: -22% -14% 30%;
     background: radial-gradient(50% 50% at 50% 50%, rgb(243 213 155 / 0.22), transparent 72%);
     pointer-events: none;
+}
+
+/* 工作台下的丝绸垫只在白天画（样式在“昼”一节）。 */
+.sx-silk {
+    display: none;
 }
 
 .sx-desk {
@@ -2748,9 +2767,12 @@ onBeforeUnmount(() => {
  * ── 昼：午后的藏书阁 ──
  * 左上高窗斜进来一道日光；纸面提亮，所有的影子往右下落（@designer 第 8 轮：同一个窗光）。
  * 第 8 轮（开发者：白天明显不对）：桌布不再用夜里那一圈近黑的暗绒（亮墙中间像烧出来的洞）。
- * 第 9 轮（开发者选了旧橡木案）：桌面是生成的橡木照片（`assets/oak.webp`，入库前降了饱和、提了亮、修掉一块黑节疤）。
+ * 第 9 轮（开发者选了旧橡木案）：桌面是生成的橡木照片（入库前降了饱和、提了亮、修掉一块黑节疤；第 11 轮换成胡桃木后删掉）。
  * 第 10 轮（开发者：首屏只有一张桌，其他地方灰蒙蒙一片，少了华丽感）：灰的是墙。墙改成中间暖象牙、往四角沉到深栗褐，
  * 顶上那一条留亮（导航是深墨的字）；桌面把橡木压成深暖的胡桃色，外圈露出酒红丝绒；纸与书角的影子加深。都用现有的素材（@designer 第 10 轮方向一）。
+ * 第 11 轮（开发者：工作台的投影和周围突兀，垫一块红丝绸会不会好些）：突兀的是桌下那一团椭圆的暗（丝绒外圈加桌下的大影），
+ * 在浅墙上拱过工作台的上沿。桌面换成生成的深胡桃木（`assets/walnut.webp`），四边柔化成一块矩形案面，透视下是往远处淡掉的梯形，
+ * 不再拱起；工作台下垫一块深石榴红的丝绸，影子改成贴身的两层短影；桌子背后那圈暖光白天不画（@designer 第 11 轮）。
  */
 .sx--day {
     background: #4a2e20;
@@ -2783,44 +2805,99 @@ onBeforeUnmount(() => {
     background: linear-gradient(rgb(255 253 244 / 0.55), rgb(255 246 220 / 0.14) 55%, transparent 90%);
 }
 
+/* 桌子背后那圈暖光白天不画：亮的象牙色工作台垫在丝绸上就站得住，光环反把它的边照虚（@designer 第 11 轮）。 */
 .sx--day .sx-halo {
-    background: radial-gradient(50% 50% at 50% 50%, rgb(255 244 214 / 0.5), rgb(168 118 47 / 0.12) 55%, transparent 75%);
+    display: none;
 }
 
 /*
- * 白天的桌面：底是酒红丝绒（夜里那张丝绒照片，压得暖一些、亮一些），上面铺一层压成胡桃色的橡木，往外淡掉，露出丝绒的边。
- * 窗光在桌面上落一片暖白。橡木压色用正片叠底：木纹还在，只是整块沉下去。
+ * 白天的桌面：深胡桃木案面，左上的窗光在上面落一片暖。四边柔化（两道线性渐变取交），透视下是往远处淡掉的梯形，
+ * 远边是一条横的柔边，不像夜里那样用径向渐变（白天的墙亮，椭圆的暗会在工作台上沿拱起来）。
+ * 两侧比桌子各宽出四成、上下各三成四：落地时淡掉的那一圈都在画外，眉题与章节条压在实的木面上。
  */
 .sx--day .sx-cloth {
+    inset: -34% -40%;
+    border-radius: 0;
     background:
-        radial-gradient(60% 55% at 50% 42%, rgb(150 40 44 / 0.22), transparent 78%),
-        linear-gradient(rgb(60 10 18 / 0.12), rgb(40 6 12 / 0.32)),
-        var(--sx-velvet) center / cover,
-        #5a1820;
+        radial-gradient(40% 46% at 30% 30%, rgb(255 228 184 / 0.14), transparent 72%),
+        var(--sx-walnut) center / cover,
+        #3c2214;
+    mask-image:
+        linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%),
+        linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
+    mask-composite: intersect;
 }
 
-.sx--day .sx-cloth::before {
+/*
+ * 丝绸垫：深石榴红的素缎，首屏时比工作台左右各宽一成、上下各宽一成二，随俯冲收成落地后的一道窄边（上下 12px、左右 18px）。
+ * 用内缩（inset）收，不用缩放：包边与金线要保持原来的粗细。缎面是左上迎光、右下沉暗的一片同色渐变，
+ * 只在露出来的边上有几处很浅的起伏（明暗差一成以内），不给白亮条；包边 3px 暗红，往里 6px 压一道细暗金线，背光那头淡下去。
+ * 现在只用样式画；@designer 估计要一张生成的缎面照片才不像塑料（评审板上问）。
+ */
+.sx--day .sx-silk {
+    display: block;
+    position: absolute;
+    inset:
+        calc(-12% * (1 - var(--sx-silk)) - 12px * var(--sx-silk))
+        calc(-10% * (1 - var(--sx-silk)) - 18px * var(--sx-silk));
+    border: 3px solid;
+    border-color: #5c1720 #3e0d13 #360b11 #521419;
+    border-radius: 5px;
+    background:
+        radial-gradient(60% 70% at 16% 10%, rgb(255 224 176 / 0.12), transparent 70%),
+        radial-gradient(34% 9% at 34% 100%, rgb(168 64 72 / 0.32), transparent 72%),
+        radial-gradient(22% 7% at 70% 99%, rgb(34 6 10 / 0.34), transparent 72%),
+        radial-gradient(6% 34% at 0% 62%, rgb(34 6 10 / 0.36), transparent 74%),
+        radial-gradient(7% 28% at 100% 28%, rgb(168 64 72 / 0.24), transparent 74%),
+        radial-gradient(26% 7% at 58% 0%, rgb(168 64 72 / 0.2), transparent 72%),
+        linear-gradient(130deg, #8f2b33 0%, #7a2129 26%, #6e1b22 50%, #5c161d 78%, #4a1117 100%);
+    box-shadow:
+        0 4px 12px rgb(18 8 4 / 0.5),
+        inset 0 0 0 1px rgb(30 4 8 / 0.35),
+        inset 0 0 10px rgb(30 4 8 / 0.4);
+    /* 首屏时工作台压着一层暗，垫子跟着暗一点，两样像在同一处光下；不压的话一块亮红抢了标题与按钮。 */
+    filter: brightness(calc(0.84 + 0.16 * var(--sx-silk)));
+    transition: box-shadow 600ms ease;
+}
+
+.sx--day .sx-silk::after {
     content: "";
     position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background:
-        radial-gradient(70% 60% at 32% 20%, rgb(255 236 200 / 0.26), transparent 70%),
-        linear-gradient(rgb(112 64 34 / 0.62), rgb(84 46 24 / 0.7)),
-        var(--sx-oak) center / cover;
-    background-blend-mode: normal, multiply, normal;
-    mask-image: radial-gradient(closest-side, #000 60%, transparent 86%);
+    inset: 3px;
+    border: 1px solid rgb(214 178 110 / 0.42);
+    border-radius: 2px;
+    mask-image: linear-gradient(130deg, #000 30%, rgb(0 0 0 / 0.43));
+}
+
+.sx--day .sx-carrier.is-landed .sx-silk {
+    box-shadow:
+        0 2px 8px rgb(16 8 4 / 0.42),
+        inset 0 0 0 1px rgb(30 4 8 / 0.35),
+        inset 0 0 10px rgb(30 4 8 / 0.4);
+}
+
+/* 窄屏的工作台离舞台两边只有 12px，垫子的边收到 8px，不伸出画外。 */
+.sx--day.sx--narrow .sx-silk {
+    inset: -8px;
 }
 
 .sx--day .sx-pool {
     background: radial-gradient(50% 50% at 50% 50%, rgb(255 250 236 / 0.3), transparent 72%);
 }
 
+/* 工作台压在丝绸上：贴身一层定住轮廓、往下一层短的柔影说它有厚度；落地后收轻，视线交给演示。 */
 .sx--day .sx-desk {
     box-shadow:
         0 0 0 1px rgb(168 118 47 / 0.45),
-        0 2px 3px rgb(64 38 18 / 0.16),
-        16px 26px 40px rgb(64 38 18 / 0.22);
+        0 2px 6px rgb(34 6 10 / 0.45),
+        0 12px 24px -6px rgb(38 8 12 / 0.38);
+    transition: box-shadow 600ms ease;
+}
+
+.sx--day .sx-carrier.is-landed .sx-desk {
+    box-shadow:
+        0 0 0 1px rgb(168 118 47 / 0.45),
+        0 6px 18px rgb(24 6 8 / 0.34);
 }
 
 /* 首屏压一压远处的桌子：白天的桌子是亮的象牙色，压的是浅的暖灰，不是黑。 */
