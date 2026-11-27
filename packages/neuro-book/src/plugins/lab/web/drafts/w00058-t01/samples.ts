@@ -24,7 +24,6 @@ export type DraftRow =
         readonly dim?: boolean;
         readonly selected?: boolean;
     }
-    | {readonly kind: "more"; readonly id: string; readonly depth: number; readonly label: string}
     | {readonly kind: "empty"; readonly id: string; readonly depth: number; readonly label: string};
 
 export type DraftScene = "overview" | "sessions-few" | "temps-empty" | "profiles" | "readonly";
@@ -55,11 +54,11 @@ const currentSession = (selectedPlan: boolean): DraftRow[] => [
     {kind: "entry", id: "s-cur-log", depth: 2, label: "session.jsonl", icon: "json", readonly: true, dim: true},
 ];
 
-const sessions = (count: number, more: number | null, selectedPlan: boolean): DraftRow[] => [
+/** 会话根按服务端给的全列（至多 200 个），不截断、没有“显示更多”（Task README 决定第 6 行）；样本只画前几个。 */
+const sessions = (count: number, selectedPlan: boolean): DraftRow[] => [
     root("sessions", "会话", true),
     ...currentSession(selectedPlan),
     ...RECENT.slice(0, count).map((label, index): DraftRow => ({kind: "entry", id: `s-${String(index)}`, depth: 1, label, icon: "session", expandable: true})),
-    ...(more === null ? [] : [{kind: "more", id: "s-more", depth: 1, label: `显示更多（还有 ${String(more)} 个）`} as const]),
 ];
 
 const AGENT_REST = (profilesOpen: boolean, tempsOpen: "collapsed" | "empty" | "current"): DraftRow[] => [
@@ -97,9 +96,9 @@ export function rowsOf(scene: DraftScene): DraftRow[] {
     const work = [...PROJECT, root("user", "用户资产")];
     switch (scene) {
         case "overview":
-            return [...work, divider("d1"), ...sessions(10, 37, true), ...AGENT_REST(false, "collapsed"), divider("d2"), ...REFERENCE(false)];
+            return [...work, divider("d1"), ...sessions(10, true), ...AGENT_REST(false, "collapsed"), divider("d2"), ...REFERENCE(false)];
         case "sessions-few":
-            return [...work, divider("d1"), ...sessions(3, null, true), ...AGENT_REST(false, "collapsed"), divider("d2"), ...REFERENCE(false)];
+            return [...work, divider("d1"), ...sessions(3, true), ...AGENT_REST(false, "collapsed"), divider("d2"), ...REFERENCE(false)];
         case "temps-empty":
             return [root("project", "雾港钟声"), root("user", "用户资产"), divider("d1"), root("sessions", "会话"), ...AGENT_REST(false, "empty"), divider("d2"), ...REFERENCE(false)];
         case "profiles":

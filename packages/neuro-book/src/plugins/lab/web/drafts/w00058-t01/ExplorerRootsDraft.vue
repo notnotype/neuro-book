@@ -52,10 +52,9 @@ const guides = (depth: number): number[] => Array.from({length: Math.max(0, dept
                 </span>
             </div>
             <div
-                v-else-if="row.kind === 'more' || row.kind === 'empty'"
+                v-else-if="row.kind === 'empty'"
                 class="explorer-draft__row text-xs text-[var(--text-muted)]"
-                :class="row.kind === 'more' ? 'explorer-draft__row--more' : ''"
-                :role="row.kind === 'more' ? 'treeitem' : 'none'"
+                role="none"
                 :style="{paddingLeft: indent(row.depth)}"
             >
                 <span class="explorer-draft__twisty"></span>
@@ -132,14 +131,6 @@ const guides = (depth: number): number[] => Array.from({length: Math.max(0, dept
     font-size: var(--text-xs);
     font-weight: 600;
     letter-spacing: 0.02em;
-}
-
-.explorer-draft__row--more {
-    cursor: pointer;
-}
-
-.explorer-draft__row--more:hover {
-    color: var(--text-main);
 }
 
 .explorer-draft__twisty {

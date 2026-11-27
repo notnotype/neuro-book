@@ -12,7 +12,7 @@ export const fixtures = [
     defineLabFixture<typeof ExplorerRootsDraft>({
         component: "ExplorerRootsDraft",
         scenes: [
-            scene("overview", "整体：跟随到当前会话，最近 10 个加“显示更多”", {scene: "overview"}),
+            scene("overview", "整体：跟随到当前会话", {scene: "overview"}),
             scene("marker-dot", "当前会话：行尾圆点", {scene: "overview", marker: "dot"}),
             scene("marker-icon", "当前会话：会话图标染强调色", {scene: "overview", marker: "icon"}),
             scene("marker-badge", "当前会话：名字后写“当前”", {scene: "overview", marker: "badge"}),
@@ -20,7 +20,7 @@ export const fixtures = [
             scene("profiles", "Profile 笔记与临时文件里的当前项", {scene: "profiles"}),
             scene("readonly-lock", "只读：行尾锁", {scene: "readonly", readonlyMark: "lock"}),
             scene("readonly-text", "只读：名字后写“只读”", {scene: "readonly", readonlyMark: "text"}),
-            scene("sessions-few", "会话只有几个：没有“显示更多”", {scene: "sessions-few"}),
+            scene("sessions-few", "会话只有几个", {scene: "sessions-few"}),
             scene("temps-empty", "临时文件为空", {scene: "temps-empty"}),
         ],
         load: async () => (await import("./ExplorerRootsDraftFixture.vue")).default as never,
