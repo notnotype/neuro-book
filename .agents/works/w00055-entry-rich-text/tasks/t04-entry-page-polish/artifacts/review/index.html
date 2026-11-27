@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：条目页的页头与新建对话框</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cands.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 760px) { .cands, .cands.two { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img { display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; margin: 0 0 8px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cand a, .lab a { font-size: 13px; color: var(--accent); }
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：条目页的页头与新建对话框</h1>
+
+<section data-nbdev-question="head-layout" data-nbdev-type="single" data-nbdev-recommend="columns">
+  <h2>页头用哪种排法？</h2>
+  <p class="rec"><strong>推荐 B 两栏：右边那块空地放上种类与出场，“在看”仍贴着内容；分组与上级已在面包屑里，不再写一遍。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="current" data-nbdev-label="A 现在">
+      <h3>A 现在</h3>
+      <img src="r1/head-current-plain-rail.webp" alt="现在：刚新建的普通条目">
+      <img src="r1/head-current-filled-rail.webp" alt="现在：填好的人物">
+      <a data-nbdev-skip href="http://127.0.0.1:4417/lab?c=EntryHeadDraft&amp;s=current-filled-rail">在 Lab 里打开</a>
+    </div>
+    <div class="cand" data-nbdev-option="columns" data-nbdev-label="B 两栏">
+      <h3>B 两栏</h3>
+      <img src="r1/head-columns-plain-rail.webp" alt="两栏：刚新建的普通条目">
+      <img src="r1/head-columns-filled-rail.webp" alt="两栏：填好的人物">
+      <a data-nbdev-skip href="http://127.0.0.1:4417/lab?c=EntryHeadDraft&amp;s=columns-filled-rail">在 Lab 里打开</a>
+    </div>
+    <div class="cand" data-nbdev-option="compact" data-nbdev-label="C 压成两行">
+      <h3>C 压成两行</h3>
+      <img src="r1/head-compact-plain-rail.webp" alt="压成两行：刚新建的普通条目">
+      <img src="r1/head-compact-filled-rail.webp" alt="压成两行：填好的人物">
+      <a data-nbdev-skip href="http://127.0.0.1:4417/lab?c=EntryHeadDraft&amp;s=compact-filled-rail">在 Lab 里打开</a>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="head-avatar" data-nbdev-type="single" data-nbdev-recommend="avatar">
+  <h2>人物有立绘时，页头放一个小头像吗？</h2>
+  <p class="rec"><strong>推荐放：人物页最先认的是脸；只显示，点了去“形象”分页，不在页头改图。没有立绘、不是人物时那一格不画。</strong></p>
+  <div class="cands two">
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="不放">
+      <h3>不放</h3>
+      <img src="r1/head-columns-filled-rail.webp" alt="两栏，不放头像">
+    </div>
+    <div class="cand" data-nbdev-option="avatar" data-nbdev-label="放">
+      <h3>放</h3>
+      <img src="r1/head-columns-filled-avatar-rail.webp" alt="两栏，立绘做头像">
+      <a data-nbdev-skip href="http://127.0.0.1:4417/lab?c=EntryHeadDraft&amp;s=columns-filled-avatar-rail">在 Lab 里打开</a>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="text-empty" data-nbdev-type="single" data-nbdev-recommend="line">
+  <h2>文字分页还没有主文字时，显示什么？</h2>
+  <p class="rec"><strong>推荐 B 一行淡的占位：空页里最醒目的不该是一颗蓝按钮；整行可点，点了进编辑（阅读与编辑仍然分开）。</strong></p>
+  <div class="cands two">
+    <div class="cand" data-nbdev-option="button" data-nbdev-label="A 现在：一句话加“开始写”">
+      <h3>A 现在：一句话加“开始写”</h3>
+      <img src="r1/head-text-empty-button.webp" alt="一句话加开始写">
+    </div>
+    <div class="cand" data-nbdev-option="line" data-nbdev-label="B 一行淡的占位">
+      <h3>B 一行淡的占位</h3>
+      <img src="r1/head-text-empty-line.webp" alt="一行淡的占位">
+      <a data-nbdev-skip href="http://127.0.0.1:4417/lab?c=EntryHeadDraft&amp;s=text-empty-line">在 Lab 里打开</a>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="dialog-layout" data-nbdev-type="single" data-nbdev-recommend="sections">
+  <h2>新建对话框改成“名字、种类，加两段可展开”吗？</h2>
+  <p class="rec"><strong>推荐 B：常见的新建只要名字和种类，一屏放得下；收起的两段在段头写出现在的值，本体与上级挨着，选了本体上级写明跟着它。</strong></p>
+  <div class="cands two">
+    <div class="cand" data-nbdev-option="current" data-nbdev-label="A 现在">
+      <h3>A 现在</h3>
+      <div class="shots">
+        <img src="r1/dialog-current-empty.webp" alt="现在：刚打开">
+        <img src="r1/dialog-current-person.webp" alt="现在：选了人物">
+      </div>
+    </div>
+    <div class="cand" data-nbdev-option="sections" data-nbdev-label="B 两段可展开">
+      <h3>B 两段可展开</h3>
+      <div class="shots">
+        <img src="r1/dialog-new-plain.webp" alt="新：刚打开">
+        <img src="r1/dialog-new-person.webp" alt="新：新建人物">
+        <img src="r1/dialog-new-groups-customized.webp" alt="新：动过勾选，恢复默认">
+        <img src="r1/dialog-new-place-same-as.webp" alt="新：选了本体，上级跟着">
+      </div>
+      <a data-nbdev-skip href="http://127.0.0.1:4417/lab?c=NewEntryDraftDialog&amp;s=person">在 Lab 里打开</a>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="dialog-wording" data-nbdev-type="confirm" data-nbdev-label="对话框的字段名按表改">
+  <h2>对话框的字段名按下表改？</h2>
+  <p class="rec"><strong>推荐同意：名词对名词，和设定树、页头的叫法一致。</strong></p>
+  <table>
+    <thead><tr><th>现在</th><th>改成</th></tr></thead>
+    <tbody>
+      <tr><td>启用哪些数据</td><td>设定组（收起时写“人物、形象”）</td></tr>
+      <tr><td>放在谁下面 ／ 最上面一层</td><td>上级条目 ／ 无</td></tr>
+      <tr><td>它是谁的另一个身份 ／ 不是</td><td>是谁的马甲 ／ 不是马甲</td></tr>
+      <tr><td>从哪里出场</td><td>出场（选项仍是“一开始就在”“第 N 章开头”）</td></tr>
+      <tr><td>标题“新建条目”</td><td>从“新建人物”打开时写“新建人物”</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>对话框：种类的候选</td><td>做成看得出能点的按钮，选中的用强调色浅底</td></tr>
+      <tr><td>对话框：分组、本体、上级、出场</td><td>能打字搜的下拉（条目、章节多了也找得到）</td></tr>
+      <tr><td>对话框：动过勾选以后</td><td>勾选和种类的默认不同时出“恢复某某的默认”，原来是悄悄不再跟着种类换</td></tr>
+      <tr><td>对话框：名字框里按回车</td><td>直接新建</td></tr>
+      <tr><td>在设定树选中的条目或分组上新建</td><td>上级、分组预先填好</td></tr>
+      <tr><td>页头的“添加别名”</td><td>加号与上面的名字左对齐（现在缩进了一格）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>不采纳</h2>
+  <table>
+    <thead><tr><th>Gemini 的建议</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>页头右栏写分组与上级</td><td>编辑区顶上的面包屑已经写着</td></tr>
+      <tr><td>“在看”挪到名字那一行</td><td>w00039 t42 定在贴着内容的那一行</td></tr>
+      <tr><td>勾选列表排两列、去掉搜索框</td><td>列表和“添加一组设定”对话框共用，设定组多起来要搜</td></tr>
+      <tr><td>对话框加“连续新建”</td><td>等真有成批新建的需要再加</td></tr>
+      <tr><td>人物卡的空值“填写”换成横线</td><td>w00039 t41 定的“填写”；人物分页以后改成设定组模板</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>界面与讨论里叫“设定组”；设定组分页里可改的文字叫“设定组模板”，另做（2026-11-27）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
