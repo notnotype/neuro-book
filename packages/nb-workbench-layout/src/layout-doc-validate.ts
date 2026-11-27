@@ -6,7 +6,7 @@
 import {GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "@notnotype/nb-layout";
 import type {GridFailure, GridSnapshotNode} from "@notnotype/nb-layout";
 import {barOfRef, barRef, LAYOUT_DOC_VERSION, LAYOUT_MAX_FLOATS, panelOfRef, tabKey, treeLeaves} from "./layout-doc";
-import type {LayoutBar, LayoutDoc, LayoutFloat, PanelRecord, RailIntent, TabRef} from "./layout-doc";
+import type {LayoutBar, LayoutDoc, LayoutFloat, LayoutFloatRect, PanelRecord, RailIntent, TabRef} from "./layout-doc";
 import {collidesWithPresentedIds} from "./presented-ids";
 
 /**
@@ -183,7 +183,7 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
 }
 
 /**
- * 形状都对了之后归一侧轨意图（`normalizeRailIntent`）。没有要修的返回原对象；有就只重建碰到的记录，别的子对象原样沿用。
+ * 形状都对了之后归一侧轨意图（`normalizeRailIntent`）与记住的浮动窗矩形（`normalizeFloatRects`）。没有要修的返回原对象；有就只重建碰到的记录，别的子对象原样沿用。
  */
 function normalizeRails(doc: LayoutDoc): LayoutDocValidation {
     const repairs: string[] = [];
@@ -207,6 +207,31 @@ function normalizeRails(doc: LayoutDoc): LayoutDocValidation {
         floats ??= [...doc.floats];
         floats[index] = rail === null ? bare : {...bare, rail};
     }
-    if (panels === null && floats === null) return {ok: true, doc, repairs};
-    return {ok: true, doc: {...doc, ...(panels === null ? {} : {panels}), ...(floats === null ? {} : {floats})}, repairs};
+    const floatRects = doc.floatRects === undefined ? undefined : normalizeFloatRects(doc.floatRects, repairs);
+    if (panels === null && floats === null && floatRects === doc.floatRects) return {ok: true, doc, repairs};
+    const {floatRects: _floatRects, ...rest} = doc;
+    return {ok: true, doc: {...rest, ...(panels === null ? {} : {panels}), ...(floats === null ? {} : {floats}), ...(floatRects === undefined ? {} : {floatRects})}, repairs};
+}
+
+/**
+ * 记住的浮动窗矩形（输出 39 的“记住矩形”）：键只认工具视图的标签键，值只认合法矩形，坏项丢掉、其余照用。标签此刻不在文档里的项不在这里删：
+ * 读入时视图目录可能还没交进来，下一次提交的出口（`settleFloatRects`）会清。没有要修的返回原对象；修完空了是 undefined（整个字段不写）。
+ */
+function normalizeFloatRects(value: unknown, repairs: string[]): Readonly<Record<string, LayoutFloatRect>> | undefined {
+    if (!isObject(value)) {
+        repairs.push("floatRects: not an object");
+        return undefined;
+    }
+    const kept: Record<string, LayoutFloatRect> = {};
+    let changed = false;
+    for (const [key, rect] of Object.entries(value)) {
+        if (!key.startsWith("view:") || key === "view:" || FORBIDDEN_IDS.has(key.slice("view:".length)) || !isFloatRect(rect)) {
+            repairs.push(`floatRects.${key}: ${isFloatRect(rect) ? "not a tool view" : describeValue(rect)}`);
+            changed = true;
+            continue;
+        }
+        kept[key] = rect as LayoutFloatRect;
+    }
+    if (!changed) return value as Readonly<Record<string, LayoutFloatRect>>;
+    return Object.keys(kept).length === 0 ? undefined : kept;
 }

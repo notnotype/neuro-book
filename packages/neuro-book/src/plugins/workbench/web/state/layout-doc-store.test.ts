@@ -1224,6 +1224,37 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(anchorOf(store, "auxiliarybar")?.rail).toBeUndefined();
         });
 
+        it("记住矩形（输出 39）：调过大小的窗归位后再浮出用调过的矩形；存进记录、刷新后再浮出还是它", async () => {
+            const w = await world();
+            const first = await openLayoutDoc(w, "a", "c", false, new Map());
+            first.store.actions.acceptViewContainers(GROUPS);
+            first.store.actions.acceptViewCatalog(VIEWS);
+            first.store.actions.acceptExtent({width: 1440, height: 900});
+            const {store} = first;
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const panel = store.actions.document().floats[0]!.panel;
+            const initial = store.actions.document().floats[0]!.rect;
+            const resized = {x: initial.x - 150, y: initial.y, width: initial.width + 150, height: initial.height + 60};
+            expect(store.actions.resizeFloat(panel, resized, {width: -1, height: 1}).ok).toBe(true);
+            expect(store.actions.document().floats[0]!.rect).toEqual(resized);
+            expect((await store.actions.dockFloat(panel)).ok).toBe(true);
+            expect(store.actions.document().floatRects).toEqual({"view:test.x1": resized});
+
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(store.actions.document().floats[0]!.rect).toEqual(resized);
+            expect((await store.actions.dockFloat(store.actions.document().floats[0]!.panel)).ok).toBe(true);
+            await store.actions.save();
+            await settled(store);
+
+            const second = await openLayoutDoc(w, "b", "c", false, new Map());
+            second.store.actions.acceptViewContainers(GROUPS);
+            second.store.actions.acceptViewCatalog(VIEWS);
+            second.store.actions.acceptExtent({width: 1440, height: 900});
+            expect(second.store.state.recordRepairs).toEqual([]);
+            expect((await second.store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(second.store.actions.document().floats[0]!.rect).toEqual(resized);
+        });
+
         it("浮动窗里的视图段（输出 51）：单标签视图窗有状态；展开写窗上的意图，画出来的窗加宽、只有这一次带 animate；缩放落账只取动的边、减回展开的宽；窗口放不下时被拒、标窗口太窄", async () => {
             const {store} = await railed(1440);
             expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);

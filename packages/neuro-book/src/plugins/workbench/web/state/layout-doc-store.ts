@@ -563,13 +563,16 @@ function defineLayoutDocStore(bound: boolean) {
                 commitFiles: (addresses: ReadonlyArray<string>, action: LayoutDropAction, part: string | undefined): void => {
                     void editorDrag.value?.openFiles(addresses, action, part);
                 },
-                /** 把这个标签浮出来（`nbook.view.float`）：矩形按树区域居中，按窗数错开。 */
+                /**
+                 * 把这个标签浮出来（`nbook.view.float`）：工具视图上次从浮动窗回到树里时记下了窗的矩形就用它（输出 39 的“记住矩形”，呈现照常夹取），
+                 * 否则按树区域居中、按窗数错开。
+                 */
                 floatTab: (key: string): LayoutResult | Promise<LayoutResult> => {
                     const found = findTab(doc.value, key);
                     const record = found === null ? undefined : doc.value.panels[found.panel];
                     if (found === null || record === undefined) return notFound(key);
                     if (doc.value.floats.length >= LAYOUT_MAX_FLOATS) return {ok: false, code: "limit-exceeded", message: "Too many floating windows"};
-                    const rect = defaultFloatRect(extent.value, panelConstraints({role: record.role, tabs: [found.tab], active: key}, null, catalog.value, extent.value?.width ?? 0).minimumSize, doc.value.floats.length);
+                    const rect = doc.value.floatRects?.[key] ?? defaultFloatRect(extent.value, panelConstraints({role: record.role, tabs: [found.tab], active: key}, null, catalog.value, extent.value?.width ?? 0).minimumSize, doc.value.floats.length);
                     const editorTab = editorTabIdOf(key);
                     if (editorTab !== null) return viaEditor(key, (drag) => drag.drop(editorTab, {kind: "float", rect}, undefined, false));
                     return apply((current) => floatTab(current, {tab: key, rect}, policy), {flush: true});
