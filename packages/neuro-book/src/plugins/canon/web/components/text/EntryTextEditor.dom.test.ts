@@ -226,5 +226,30 @@ describe("author-ui 输出 39、48：富文本与源文字", () => {
         await vi.waitFor(() => expect(wrapper.get("[data-rich-input]").element.contains(document.activeElement)).toBe(true));
         items = await open();
         expect(items.map((item) => item.textContent?.replace(/\s+/gu, ""))).toEqual(["值", "计算{", "条件{"]);
+        // 富文本里选“计算”：在光标处开空的浮层，菜单卸下、还完焦点以后浮层还开着，焦点在式子的输入框里。
+        items[1]!.click();
+        const popover = () => document.body.querySelector<HTMLElement>("[data-chip-popover='calc']");
+        await vi.waitFor(() => expect(popover()).not.toBeNull());
+        await vi.waitFor(() => expect(document.body.querySelector("[role='menu']")).toBeNull());
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-chip-field")).toBe("expr"));
+        expect(document.activeElement?.closest("[data-chip-popover]")?.getAttribute("data-chip-popover")).toBe("calc");
+        expect(popover()).not.toBeNull();
+    });
+
+    it("“插入”：光标在行内代码里时各项不可用、写原因", async () => {
+        const wrapper = await controlled({text: "甲 `代码` 乙", inserts: [{label: "数值 · 魔力", snippet: '<V of="panel.魔力" />'}]});
+        const editor = (wrapper.get(".entry-rich__prose").element as HTMLElement & {editor: {view: {focus(): void}; commands: {setTextSelection(pos: number): boolean}}}).editor;
+        editor.view.focus();
+        // “代码”的“代”后面：文档里段落从 1 起，“甲 ”两个字，再一个字进到代码里。
+        editor.commands.setTextSelection(1 + "甲 代".length);
+        const trigger = wrapper.get("[data-text-insert]").element as HTMLElement;
+        trigger.focus();
+        trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+        await flushPromises();
+        await flushPromises();
+        const items = [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")];
+        expect(items.map((item) => [item.getAttribute("aria-disabled") ?? item.getAttribute("data-disabled"), item.getAttribute("aria-description") ?? item.getAttribute("title")])).toEqual(items.map(() => [expect.stringMatching(/^(true|)$/u), "光标在代码里，插不进去"]));
+        expect(items.length).toBeGreaterThan(0);
     });
 });

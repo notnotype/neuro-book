@@ -745,7 +745,8 @@
         "insertValue": "Value",
         "insertCalc": "Calculation",
         "insertIf": "Condition",
-        "insertRef": "Entry"
+        "insertRef": "Entry",
+        "insertInCode": "Can’t insert inside code"
     },
     "chipEdit": {
         "apply": "Apply",

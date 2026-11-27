@@ -292,6 +292,11 @@ const origins = useOriginPagesMap(() => originKeys.value, (key) => {
     return (cursor) => props.fetchOrigins(address, position.value, mode.value, cursor);
 }, originStamp);
 const openOrigin = computed(() => (originAddress.value === null ? undefined : origins.value.get(originAddress.value)?.state.value));
+/** 浮层里画的来历：关上（清掉记下的那一处）以后留着最后一份，随浮层一起淡出；按钮在这期间不起作用（`originAddress` 已空）。 */
+const shownOrigin = shallowRef<typeof openOrigin.value>(undefined);
+watch(openOrigin, (now) => {
+    if (now !== undefined) shownOrigin.value = now;
+}, {immediate: true, flush: "sync"});
 const declarationOf = (address: TextAddress): FieldDeclaration | undefined => {
     if (address.entry !== props.id) return undefined;
     const split = address.path.indexOf(".");
@@ -833,7 +838,8 @@ const richContext = computed((): RichContext => ({
     fields: richFields.value,
     marks: marks.value,
     values: richValues.value,
-    computing: textValues.failure.value === null && textTab.editor.value.text.length <= RENDER_SOURCE_MAX,
+    // 不请求值（冻结稿、已删除的条目）时没有值在路上：没有值的小块画“没有算”，不画“计算中”。
+    computing: valuesWanted.value && textValues.failure.value === null && textTab.editor.value.text.length <= RENDER_SOURCE_MAX,
     find: finder,
     baseline: richBaseline.value,
 }));
@@ -1392,15 +1398,15 @@ const setPosition = (value: string): void => {
             >
                 <template #origin="{address}">
                     <OriginList
-                        v-if="openOrigin !== undefined"
+                        v-if="shownOrigin !== undefined"
                         :caption="text('origin.caption', {label: labelOfAddress(address)})"
-                        :rows="originRows(openOrigin, declarationOf(address), place, text)"
-                        :remaining="openOrigin.remaining"
-                        :loading="openOrigin.loading"
-                        :failed="openOrigin.failed"
-                        :reason="openOrigin.reason"
-                        @more="origins.get(originAddress!)?.more()"
-                        @retry="origins.get(originAddress!)?.retry()"
+                        :rows="originRows(shownOrigin, declarationOf(address), place, text)"
+                        :remaining="shownOrigin.remaining"
+                        :loading="shownOrigin.loading"
+                        :failed="shownOrigin.failed"
+                        :reason="shownOrigin.reason"
+                        @more="originAddress !== null && origins.get(originAddress)?.more()"
+                        @retry="originAddress !== null && origins.get(originAddress)?.retry()"
                         @change="(id: string) => openChangeFromOrigin(id)"
                     />
                 </template>

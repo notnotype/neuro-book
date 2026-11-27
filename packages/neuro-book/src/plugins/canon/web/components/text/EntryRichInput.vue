@@ -65,17 +65,24 @@ const unwritable = ref(false);
 
 let editor: Editor | null = null;
 
+/** 按路径查字段：每个小块重画都要查，按 `fields` 的引用缓存一份。 */
+const fieldMap = computed(() => new Map(props.fields.map((field) => [field.path, field])));
 /** 节点视图向这里要上下文：读的是此刻的属性。 */
 const host: ChipHost = {
     context: (): ChipContext => ({
         self: props.self,
-        fields: new Map(props.fields.map((field) => [field.path, field])),
+        fields: fieldMap.value,
         marks: props.marks,
         computing: props.computing,
         words: {unknown: text("value.unknown"), deletedRef: text("value.deletedRef"), needsPlugin: text("value.needsPlugin")},
     }),
     showBranches: () => props.showBranches,
-    words: () => ({noBranch: text("textEdit.noBranch"), unknown: text("value.unknown"), condition: text("textEdit.condition")}),
+    words: () => ({
+        noBranch: text("textEdit.noBranch"),
+        unknown: text("value.unknown"),
+        condition: text("textEdit.condition"),
+        named: (label: string, value: string) => text("value.label", {label, value}),
+    }),
 };
 /** 最近一次对上的值（按标签原文）：属性变了要重画时用它重新挂。 */
 let sequence: readonly TagValue[] = [];
@@ -139,7 +146,8 @@ interface ChipEditing {
     readonly id: number;
     readonly at: {readonly from: number; readonly to: number};
     readonly node: PMNode | null;
-    readonly anchor: HTMLElement;
+    /** 已有小块的壳（读屏的展开状态写在它上面、Esc 后焦点还给它附近）；新插的没有锚点，只按 `reference` 贴着光标。 */
+    readonly anchor: HTMLElement | null;
     readonly reference: PopoverReference | null;
     /** 这个小块此刻显示的东西（种类、显示名、值）：浮层的标题与全文。 */
     readonly model: ChipModel | null;
@@ -151,6 +159,14 @@ interface ChipEditing {
     readonly applying: boolean;
 }
 const editing = shallowRef<ChipEditing | null>(null);
+/**
+ * 浮层画的是最近一次打开的那个：关上（`editing` 置空）以后内容与定位留到退场动画走完，不剩一个空框淡出。只给模板读；按钮与输入
+ * 的处理都看 `editing`，退场期间点到的不起作用。
+ */
+const shown = shallowRef<ChipEditing | null>(null);
+watch(editing, (now) => {
+    if (now !== null) shown.value = now;
+}, {flush: "sync"});
 let editingId = 0;
 /** 浮层是按 Esc 关的：关上以后焦点回编辑器、小块仍选中。点外面关的焦点留在点的地方。 */
 let closedByEscape = false;
@@ -241,7 +257,8 @@ function openNew(view: EditorView, at: {from: number; to: number}, draft: ChipDr
         id: ++editingId,
         at,
         node: null,
-        anchor: view.dom,
+        // 不拿编辑区当锚点：锚点里的按下不算点外面，作者点到正文别处时浮层就不收起了；编辑区也不该被写上展开状态。
+        anchor: null,
         reference: caretAnchor(view, at.from, () => (editing.value?.id === id ? editing.value.at.from : at.from)),
         model: null,
         taken: null,
@@ -257,21 +274,22 @@ function closeChip(discard: boolean): void {
     const current = editing.value;
     if (current === null) return;
     editing.value = null;
-    current.anchor.setAttribute("aria-expanded", "false");
+    current.anchor?.setAttribute("aria-expanded", "false");
     if (discard && changed(current)) emit("discarded");
 }
 
 /**
- * 焦点回编辑器，`pos` 处的小块是节点选区（Esc 关浮层、应用之后）。原语在浮层卸下时把焦点还给锚点（小块不能聚焦，落到 body），
- * 那一步排在卸下以后的定时器里：等这一轮更新做完、再等一个定时器，排在它后面。
+ * 焦点回编辑器，`select` 时 `pos` 处的小块是节点选区（改已有小块时 Esc、应用之后）；新插的按 Esc 取消时不选：插入点后面紧挨着的
+ * 别的小块会被选中，接着打的字把它换掉。原语在浮层卸下时把焦点还给锚点（小块不能聚焦，落到 body），那一步排在卸下以后的定时器
+ * 里：等这一轮更新做完、再等一个定时器，排在它后面。
  */
-function focusChip(pos: number): void {
+function focusChip(pos: number, select = true): void {
     void nextTick(() =>
         setTimeout(() => {
             if (editor === null) return;
             const {state} = editor.view;
             const node = state.doc.nodeAt(pos);
-            if (node !== null && isChip(node)) editor.view.dispatch(state.tr.setSelection(NodeSelection.create(state.doc, pos)));
+            if (select && node !== null && isChip(node)) editor.view.dispatch(state.tr.setSelection(NodeSelection.create(state.doc, pos)));
             editor.view.focus();
         }, 0),
     );
@@ -281,7 +299,7 @@ function onPopoverOpen(open: boolean): void {
     if (open) return;
     const current = editing.value;
     closeChip(false);
-    if (current !== null && closedByEscape) focusChip(current.at.from);
+    if (current !== null && closedByEscape) focusChip(current.at.from, current.node !== null);
     closedByEscape = false;
 }
 
@@ -393,6 +411,7 @@ interface ChipMenu {
 }
 const menu = shallowRef<ChipMenu | null>(null);
 const menuRef = useTemplateRef<{contains(node: Node | null): boolean}>("menuRef");
+const menuSearch = useTemplateRef<HTMLElement>("menuSearch");
 const query = ref("");
 const activeId = ref<string | null>(null);
 const menuProblem = ref<string | null>(null);
@@ -406,7 +425,9 @@ const ENTRY_PREFIX = "entry:";
 const menuGroups = computed<SuggestionMenuGroup[]>(() => {
     const current = menu.value;
     if (current === null) return [];
-    const words = query.value.trim();
+    // 筛选不分大小写（英文界面里“Mana”筛得到 `panel.mana`）。
+    const words = query.value.trim().toLowerCase();
+    const hits = (...texts: string[]): boolean => words === "" || texts.join("\u0000").toLowerCase().includes(words);
     if (current.what === "ref") {
         const found = entries.results.value;
         const items = found.kind === "done" ? found.items : [];
@@ -416,9 +437,9 @@ const menuGroups = computed<SuggestionMenuGroup[]>(() => {
     const structures = current.replacing !== null ? [] : [
         {id: IF_ITEM, label: text("chipEdit.newIf"), iconClass: "i-lucide-split", words: text("chipEdit.ifWords")},
         {id: CALC_ITEM, label: text("chipEdit.newCalc"), iconClass: "i-lucide-calculator", words: text("chipEdit.calcWords")},
-    ].filter((item) => words === "" || item.words.includes(words) || item.label.includes(words)).map(({words: _words, ...item}) => item);
+    ].filter((item) => hits(item.words, item.label)).map(({words: _words, ...item}) => item);
     const fields = props.fields
-        .filter((field) => words === "" || `${field.group}${field.label}${field.path}`.includes(words))
+        .filter((field) => hits(field.group, field.label, field.path))
         .map((field) => ({id: `${FIELD_PREFIX}${field.path}`, label: `${field.group} · ${field.label}`, hint: field.display ?? text("value.unknown"), iconClass: "i-lucide-hash"}));
     return [...(structures.length === 0 ? [] : [{id: "structures", items: structures}]), ...(fields.length === 0 ? [] : [{id: "fields", items: fields}])];
 });
@@ -438,16 +459,19 @@ function openMenu(next: ChipMenu): void {
     menuProblem.value = null;
     if (next.what === "ref") entries.search("");
     // 列表传送到 body：挂上以后把焦点交给搜索框，接着打的字落进搜索框而不是正文。
-    void nextTick(() => requestAnimationFrame(() => document.querySelector<HTMLInputElement>("[data-chip-menu] input")?.focus()));
+    void nextTick(() => requestAnimationFrame(() => menuSearch.value?.querySelector("input")?.focus()));
 }
 
-/** 关上列表，焦点回编辑器。`literal` 时把打开它的那个字补回正文（作者不想插值，就是要打这个字）。 */
-function closeMenu(literal: boolean): void {
+/**
+ * 关上列表，焦点回编辑器。`literal` 时把打开它的那个字补回正文（作者不想插值，就是要打这个字），`after` 是关上它的那个字（空格），
+ * 一起补上。
+ */
+function closeMenu(literal: boolean, after = ""): void {
     const current = menu.value;
     if (current === null || editor === null) return;
     menu.value = null;
     const chain = editor.chain().focus();
-    if (literal && current.trigger !== null) chain.insertContentAt(current.at, current.trigger);
+    if (literal && current.trigger !== null) chain.insertContentAt(current.at, current.trigger + after);
     chain.run();
 }
 
@@ -483,9 +507,12 @@ function menuKey(event: KeyboardEvent): void {
     } else if (event.key === "Enter" && !event.isComposing && activeId.value !== null) {
         event.preventDefault();
         choose(activeId.value);
-    } else if (event.key === "Escape" || (event.key === " " && query.value === "")) {
+    } else if (event.key === "Escape" && !event.isComposing) {
         event.preventDefault();
         closeMenu(true);
+    } else if (event.key === " " && !event.isComposing && query.value === "") {
+        event.preventDefault();
+        closeMenu(true, " ");
     }
 }
 
@@ -500,7 +527,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", menuOutside, t
 /** “换一个”：关上浮层，在小块上打开同一种列表，选了就换掉它。 */
 function replaceChip(): void {
     const current = editing.value;
-    if (current === null || current.node === null || editor === null) return;
+    if (current === null || current.node === null || current.anchor === null || editor === null) return;
     const what = current.draft.kind === "ref" ? "ref" : "value";
     openMenu({what, at: current.at, anchor: current.anchor, trigger: null, replacing: current.draft});
 }
@@ -546,7 +573,7 @@ function handleClickOn(view: EditorView, _pos: number, node: PMNode, nodePos: nu
 
 /** 浮层的标题。 */
 const editingTitle = computed(() => {
-    const current = editing.value;
+    const current = shown.value;
     if (current === null) return "";
     switch (current.draft.kind) {
         case "value": {
@@ -758,13 +785,15 @@ defineExpose({
     /** `caret` 是文首、文末或整篇源文里的偏移（大致落在同一块里的位置，见 `positionAt`）；不给时不动光标。 */
     focus: (caret?: "start" | "end" | number): void => {
         if (typeof caret === "number") {
-            const pos = positionAt(caret);
-            editor?.commands.focus(pos);
+            // 切换模式时交接光标：两种输入框排版高度不同，滚到光标处会让页面跳（输出 39“页面不滚动”）。
+            editor?.commands.focus(positionAt(caret), {scrollIntoView: false});
             return;
         }
         editor?.commands.focus(caret ?? null);
     },
     cursorOffset,
+    /** 此刻能不能在光标处插入（“插入”菜单据此把项写成不可用）：只读或光标在代码里时不能。 */
+    canInsert: (): boolean => editor !== null && !props.readonly && !inCode(editor.view),
     /**
      * 在光标处插入一段源文（读成节点，有选区时换掉选区）；插入后的整篇过写入前的检查才落。只读、光标在代码里（标签在那里是字面的）
      * 或检查不过时返回假。
@@ -848,29 +877,30 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
 
         <Popover
             :open="editing !== null"
-            :anchor="editing?.anchor ?? null"
-            :reference="editing?.reference ?? null"
+            :anchor="shown?.anchor ?? null"
+            :reference="shown?.reference ?? null"
             side="bottom"
             align="start"
             @update:open="onPopoverOpen"
         >
             <form
-                v-if="editing !== null"
+                v-if="shown !== null"
                 class="entry-chip-pop__body"
-                :data-chip-popover="editing.draft.kind === 'other' ? (editing.model?.kind ?? 'raw') : editing.draft.kind"
+                :aria-label="editingTitle"
+                :data-chip-popover="shown.draft.kind === 'other' ? (shown.model?.kind ?? 'raw') : shown.draft.kind"
                 @submit.prevent="applyChip"
                 @keydown.esc="markEscape"
             >
                 <p class="entry-chip-pop__title">{{ editingTitle }}</p>
 
-                <template v-if="editing.draft.kind === 'value' || editing.draft.kind === 'ref'">
-                    <p class="entry-chip-pop__value" data-chip-value>{{ editing.model?.text }}</p>
-                    <p v-if="editing.model?.changed !== undefined" class="entry-chip-pop__meta">{{ editing.model?.changed }}</p>
+                <template v-if="shown.draft.kind === 'value' || shown.draft.kind === 'ref'">
+                    <p class="entry-chip-pop__value" data-chip-value>{{ shown.model?.text }}</p>
+                    <p v-if="shown.model?.changed !== undefined" class="entry-chip-pop__meta">{{ shown.model?.changed }}</p>
                 </template>
 
-                <template v-else-if="editing.draft.kind === 'calc'">
+                <template v-else-if="shown.draft.kind === 'calc'">
                     <Input
-                        :model-value="attributeOf(editing.draft, 'expr') ?? ''"
+                        :model-value="attributeOf(shown.draft, 'expr') ?? ''"
                         size="sm"
                         :readonly="props.readonly"
                         :aria-label="text('chipEdit.expr')"
@@ -878,11 +908,11 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
                         data-chip-field="expr"
                         @update:model-value="(value: string) => setAttribute('expr', value)"
                     />
-                    <p v-if="editing.model !== null && editing.model.state === 'value'" class="entry-chip-pop__meta">{{ text("chipEdit.result", {value: editing.model.text}) }}</p>
+                    <p v-if="shown.model !== null && shown.model.state === 'value'" class="entry-chip-pop__meta">{{ text("chipEdit.result", {value: shown.model.text}) }}</p>
                 </template>
 
-                <template v-else-if="editing.draft.kind === 'if'">
-                    <div v-for="(branch, index) in editing.draft.branches" :key="index" class="entry-chip-pop__branch" :data-taken="index === editing.taken ? '' : undefined">
+                <template v-else-if="shown.draft.kind === 'if'">
+                    <div v-for="(branch, index) in shown.draft.branches" :key="index" class="entry-chip-pop__branch" :data-taken="index === shown.taken ? '' : undefined">
                         <div class="entry-chip-pop__branch-head">
                             <span class="entry-chip-pop__branch-name">{{ branchName(branch, index) }}</span>
                             <Input
@@ -896,7 +926,7 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
                                 :data-chip-field="`test-${index}`"
                                 @update:model-value="(value: string) => setBranch(index, {test: value})"
                             />
-                            <span v-if="index === editing.taken" class="entry-chip-pop__taken">{{ text("chipEdit.taken") }}</span>
+                            <span v-if="index === shown.taken" class="entry-chip-pop__taken">{{ text("chipEdit.taken") }}</span>
                         </div>
                         <Input
                             :model-value="branch.text"
@@ -910,18 +940,18 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
                     </div>
                 </template>
 
-                <code v-else class="entry-chip-pop__source">{{ editing.draft.source }}</code>
+                <code v-else class="entry-chip-pop__source">{{ shown.draft.source }}</code>
 
                 <Transition name="entry-rich-note">
-                    <p v-if="editing.problem !== null" class="entry-chip-pop__problem" role="alert" data-chip-problem>{{ editing.problem }}</p>
+                    <p v-if="shown.problem !== null" class="entry-chip-pop__problem" role="alert" data-chip-problem>{{ shown.problem }}</p>
                 </Transition>
 
                 <div v-if="!props.readonly" class="entry-chip-pop__actions">
-                    <Button v-if="editing.draft.kind === 'if'" size="sm" variant="ghost" data-chip-action="add-branch" @click="addBranch">{{ text("chipEdit.addBranch") }}</Button>
-                    <Button v-if="(editing.draft.kind === 'value' || editing.draft.kind === 'ref') && (editing.draft.kind === 'value' || props.find !== null)" size="sm" variant="ghost" data-chip-action="replace" @click="replaceChip">{{ text("chipEdit.replace") }}</Button>
-                    <Button v-if="editing.node !== null" size="sm" variant="ghost" data-chip-action="remove" @click="removeChip">{{ text("chipEdit.remove") }}</Button>
+                    <Button v-if="shown.draft.kind === 'if'" size="sm" variant="ghost" data-chip-action="add-branch" @click="addBranch">{{ text("chipEdit.addBranch") }}</Button>
+                    <Button v-if="(shown.draft.kind === 'value' || shown.draft.kind === 'ref') && (shown.draft.kind === 'value' || props.find !== null)" size="sm" variant="ghost" data-chip-action="replace" @click="replaceChip">{{ text("chipEdit.replace") }}</Button>
+                    <Button v-if="shown.node !== null" size="sm" variant="ghost" data-chip-action="remove" @click="removeChip">{{ text("chipEdit.remove") }}</Button>
                     <span class="flex-1" />
-                    <Button v-if="editing.draft.kind === 'if' || editing.draft.kind === 'calc'" size="sm" variant="primary" type="submit" :loading="editing.applying" data-chip-action="apply">{{ text("chipEdit.apply") }}</Button>
+                    <Button v-if="shown.draft.kind === 'if' || shown.draft.kind === 'calc'" size="sm" variant="primary" type="submit" :loading="shown.applying" data-chip-action="apply">{{ text("chipEdit.apply") }}</Button>
                 </div>
             </form>
         </Popover>
@@ -939,7 +969,7 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
             @highlight="(id: string) => (activeId = id)"
         >
             <template #header>
-                <div class="entry-chip-menu__search" data-chip-menu>
+                <div ref="menuSearch" class="entry-chip-menu__search" data-chip-menu>
                     <Input
                         v-model="query"
                         size="sm"
@@ -1040,6 +1070,14 @@ function entryLanguage(): ReturnType<typeof createMarkdownLanguage> {
 .entry-rich__mount :deep(.entry-if--all .entry-if__branch:not(.entry-if__branch--taken)) {
     opacity: 0.5;
     text-decoration: line-through;
+}
+.entry-rich__mount :deep(.entry-if__branch--entering) {
+    animation: entry-if-reveal var(--motion-enter) var(--ease-layout);
+}
+@keyframes entry-if-reveal {
+    from {
+        opacity: 0;
+    }
 }
 .entry-rich__mount :deep(.entry-if--all .entry-if__branch + .entry-if__branch)::before {
     content: " / ";

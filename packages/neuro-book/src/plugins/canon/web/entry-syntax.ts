@@ -28,13 +28,19 @@ export interface EntryIfBranch {
     readonly content: readonly JSONContent[];
 }
 
+/**
+ * 节点的属性只经各自的 `data-*` 属性（`renderHTML`、`parseHTML` 里自己写读）进出剪贴板。Tiptap 缺省把每个属性写成同名的 HTML
+ * 属性、粘贴时再按字符串读回并盖掉 `getAttrs` 的结果：条件的 `branches` 会读成 "[object Object]"，节点视图画不出来。
+ */
+const OWN_ATTRIBUTE = <T>(fallback: T) => ({default: fallback, rendered: false, parseHTML: () => undefined});
+
 export const entryTagNode = Node.create({
     name: ENTRY_TAG_NODE,
     group: "inline",
     inline: true,
     atom: true,
     selectable: true,
-    addAttributes: () => ({source: {default: ""}}),
+    addAttributes: () => ({source: OWN_ATTRIBUTE("")}),
     parseHTML: () => [{tag: "span[data-canon-entry-tag]", getAttrs: (element) => ({source: element.getAttribute("data-source") ?? ""})}],
     renderHTML: ({node, HTMLAttributes}) => ["span", mergeAttributes(HTMLAttributes, {"data-canon-entry-tag": "", "data-source": node.attrs.source as string}), node.attrs.source as string],
 });
@@ -46,7 +52,7 @@ export const entryIfNode = Node.create({
     inline: true,
     atom: true,
     selectable: true,
-    addAttributes: () => ({open: {default: ""}, close: {default: ""}, branches: {default: []}}),
+    addAttributes: () => ({open: OWN_ATTRIBUTE(""), close: OWN_ATTRIBUTE(""), branches: OWN_ATTRIBUTE([])}),
     parseHTML: () => [
         {
             tag: "span[data-canon-entry-if]",

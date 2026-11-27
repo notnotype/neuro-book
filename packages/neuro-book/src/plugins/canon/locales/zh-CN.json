@@ -745,7 +745,8 @@
         "insertValue": "值",
         "insertCalc": "计算",
         "insertIf": "条件",
-        "insertRef": "条目"
+        "insertRef": "条目",
+        "insertInCode": "光标在代码里，插不进去"
     },
     "chipEdit": {
         "apply": "应用",

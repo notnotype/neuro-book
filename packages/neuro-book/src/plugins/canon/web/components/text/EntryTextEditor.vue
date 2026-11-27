@@ -97,6 +97,7 @@ interface SourceInput {
     insert(text: string): boolean;
     cursorOffset(): number | null;
     openInsert?(what: "calc" | "if" | "ref"): boolean;
+    canInsert?(): boolean;
 }
 /**
  * 两种输入框各记各的：切换模式时新的先挂上、旧的后清掉它的 ref，记成一个的话最后会被旧的清成空。按需加载的组件在加载完之前交来的
@@ -183,20 +184,38 @@ const hasConditions = computed(() => mode.value === "rich" && /<If\b/u.test(prop
 const VALUE_GROUP = "#value";
 const STRUCTURES = ["calc", "if", "ref"] as const;
 const structureLabel = (what: (typeof STRUCTURES)[number]): string => text(what === "calc" ? "textEdit.insertCalc" : what === "if" ? "textEdit.insertIf" : "textEdit.insertRef");
+/** 菜单打开时问输入框一次：光标在代码里时（标签在那里是字面的）各项不可用、写原因。 */
+const insertable = shallowRef(true);
+const onInsertMenu = (open: boolean): void => {
+    if (open) insertable.value = current()?.canInsert?.() ?? true;
+};
 const insertItems = computed((): DropdownMenuItemData[] => {
-    const values: DropdownMenuItemData[] = props.inserts.map((item) => ({id: item.snippet, label: item.label}));
+    const blocked = insertable.value ? {} : {disabled: true, title: text("textEdit.insertInCode")};
+    const values: DropdownMenuItemData[] = props.inserts.map((item) => ({id: item.snippet, label: item.label, ...blocked}));
     if (props.rich === null) return values;
     const structures = STRUCTURES
         .filter((what) => what !== "ref" || props.rich?.find !== null || mode.value === "source")
-        .map((what): DropdownMenuItemData => ({id: `#${what}`, label: structureLabel(what), shortcut: what === "ref" ? "@" : "{"}));
-    return [...(values.length === 0 ? [] : [{id: VALUE_GROUP, label: text("textEdit.insertValue"), children: values}]), ...structures];
+        .map((what): DropdownMenuItemData => ({id: `#${what}`, label: structureLabel(what), shortcut: what === "ref" ? "@" : "{", ...blocked}));
+    return [...(values.length === 0 ? [] : [{id: VALUE_GROUP, label: text("textEdit.insertValue"), children: values, ...blocked}]), ...structures];
 });
+/**
+ * 选了一项以后焦点由这里给（输入框，或富文本里新开的浮层、列表），菜单关上时不还给“插入”按钮：还回去的那一下排在菜单卸下以后，
+ * 会让刚开的浮层当作焦点移到外面而关上。没选就关上（Esc）的照常还给按钮。
+ */
+let selected = false;
+const insertMenuProps = {
+    onCloseAutoFocus: (event: Event): void => {
+        if (selected) event.preventDefault();
+        selected = false;
+    },
+};
 /**
  * 菜单开着的时候焦点不在输入框里：输入框记着光标的位置，写入由它自己做（进它的撤销历史、光标落在写法后面），再把焦点还回去。
  * 输入框还没就绪时接在整篇末尾；输入框拒了（检查不过、光标在代码里）就不写。富文本的计算、条件、条目打开浮层或列表，焦点
- * 交给它们，不拉回输入框（拉回会让刚开的浮层当作焦点移到外面而关上）。
+ * 交给它们，不拉回输入框。
  */
 const insert = (id: string): void => {
+    selected = true;
     const structure = STRUCTURES.find((what) => id === `#${what}`);
     if (structure !== undefined && mode.value === "rich") {
         if (current()?.openInsert?.(structure) === true) return;
@@ -272,7 +291,7 @@ defineExpose({focus});
             </div>
             <!-- 左区：插入、模式、显示全部分支。宽处排在右区左边（同一行）；窄处是第二行。 -->
             <div class="text-editor__zone text-editor__zone--tools" data-text-bar-row="2">
-                <DropdownMenu v-if="!props.frozen && insertItems.length > 0" align="start" :items="insertItems" :disabled="locked" @select="insert">
+                <DropdownMenu v-if="!props.frozen && insertItems.length > 0" align="start" :items="insertItems" :disabled="locked" :content-props="insertMenuProps" @select="insert" @update:open="onInsertMenu">
                     <Button size="sm" variant="ghost" :disabled="locked" data-text-insert><span class="i-lucide-plus size-3.5" aria-hidden="true" />{{ text("textEdit.insert") }}</Button>
                 </DropdownMenu>
                 <span v-if="props.rich !== null" class="contents" :data-text-mode="mode">

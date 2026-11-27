@@ -26,8 +26,8 @@ import type {TagValue} from "./entry-values";
 export interface ChipHost {
     context(): ChipContext;
     showBranches(): boolean;
-    /** 条件小块的说明文字：没有一支成立、未知。 */
-    words(): {readonly noBranch: string; readonly unknown: string; readonly condition: string};
+    /** 条件小块的说明文字：没有一支成立、未知；`named` 拼读屏名字（显示名加值，标点随语言）。 */
+    words(): {readonly noBranch: string; readonly unknown: string; readonly condition: string; named(label: string, value: string): string};
 }
 
 export const entryValuesKey = new PluginKey<DecorationSet>("canonEntryValues");
@@ -111,12 +111,12 @@ function shell(): {dom: HTMLElement; face: HTMLElement} {
 }
 
 /** 把小块的样子写到壳与面上：测试与读屏看属性，样子看类名。 */
-function paintChip(dom: HTMLElement, face: HTMLElement, model: ChipModel): void {
+function paintChip(dom: HTMLElement, face: HTMLElement, model: ChipModel, named: (label: string, value: string) => string): void {
     dom.dataset.entryChip = model.kind;
     dom.dataset.chipState = model.state;
     if (model.changed === undefined) delete dom.dataset.chipChanged;
     else dom.dataset.chipChanged = model.changed;
-    dom.setAttribute("aria-label", `${model.label}：${model.text}`);
+    dom.setAttribute("aria-label", named(model.label, model.text));
     dom.title = model.changed === undefined ? model.label : `${model.label}（${model.changed}）`;
     face.className = `entry-chip entry-chip--${model.kind} entry-chip--${model.state}`;
     face.textContent = model.text;
@@ -126,9 +126,11 @@ function paintChip(dom: HTMLElement, face: HTMLElement, model: ChipModel): void 
 export function tagView(host: ChipHost): NodeViewConstructor {
     return (initial, _view, _getPos, decorations): NodeView => {
         const {dom, face} = shell();
+        // 顶层的小块点了（或选中按 Enter）开浮层：读屏当按钮读。条件里各支的小块不单独开，不给。
+        dom.setAttribute("role", "button");
         let node = initial;
         let values = valuesIn(decorations);
-        const paint = (): void => paintChip(dom, face, chipOf(node.attrs.source as string, values[0], host.context()));
+        const paint = (): void => paintChip(dom, face, chipOf(node.attrs.source as string, values[0], host.context()), host.words().named);
         paint();
         return {
             dom,
@@ -146,7 +148,7 @@ export function tagView(host: ChipHost): NodeViewConstructor {
 }
 
 /** 一支的行内内容画成 DOM：文字带强调、代码、删除线；链接只画文字；支里的标签画成小块（值按先后取）。 */
-function paintBranch(target: HTMLElement, content: readonly JSONContent[], take: () => EntryTextValue | undefined, context: ChipContext): void {
+function paintBranch(target: HTMLElement, content: readonly JSONContent[], take: () => EntryTextValue | undefined, context: ChipContext, named: (label: string, value: string) => string): void {
     for (const child of content) {
         if (child.type === "text") {
             let element: Node = document.createTextNode(child.text ?? "");
@@ -161,10 +163,10 @@ function paintBranch(target: HTMLElement, content: readonly JSONContent[], take:
         } else if (child.type === ENTRY_TAG_NODE) {
             const source = String(child.attrs?.source ?? "");
             const {dom, face} = shell();
-            paintChip(dom, face, chipOf(source, tagHasValue(source) ? take() : undefined, context));
+            paintChip(dom, face, chipOf(source, tagHasValue(source) ? take() : undefined, context), named);
             target.append(dom);
         } else if (child.type === "hardBreak") target.append(document.createElement("br"));
-        else if (child.content !== undefined) paintBranch(target, child.content, take, context);
+        else if (child.content !== undefined) paintBranch(target, child.content, take, context, named);
     }
 }
 
@@ -172,10 +174,15 @@ function paintBranch(target: HTMLElement, content: readonly JSONContent[], take:
 export function conditionView(host: ChipHost): NodeViewConstructor {
     return (initial, _view, _getPos, decorations): NodeView => {
         const {dom, face} = shell();
+        dom.setAttribute("role", "button");
         let node = initial;
         let values = valuesIn(decorations);
+        // 上一次画时是不是“显示全部分支”：只有翻开的那一次让没生效的几支淡入，值表到了的重画不重放。
+        let shownAll = host.showBranches();
         const paint = (): void => {
             const context = host.context();
+            const revealing = host.showBranches() && !shownAll;
+            shownAll = host.showBranches();
             const words = host.words();
             const branches = node.attrs.branches as readonly EntryIfBranch[];
             const head = values[0] as Extract<EntryTextValue, {result: unknown}> | undefined;
@@ -193,9 +200,9 @@ export function conditionView(host: ChipHost): NodeViewConstructor {
             branches.forEach((branch, index) => {
                 if (branch.head !== null && /^<ElseIf\b/u.test(branch.head)) cursor += 1;
                 const part = document.createElement("span");
-                part.className = `entry-if__branch${index === taken ? " entry-if__branch--taken" : ""}`;
+                part.className = `entry-if__branch${index === taken ? " entry-if__branch--taken" : revealing ? " entry-if__branch--entering" : ""}`;
                 part.dataset.branch = String(index);
-                paintBranch(part, branch.content, take, context);
+                paintBranch(part, branch.content, take, context, words.named);
                 const shown = host.showBranches() || index === taken;
                 if (!shown) part.hidden = true;
                 face.append(part);
@@ -207,7 +214,7 @@ export function conditionView(host: ChipHost): NodeViewConstructor {
                 placeholder.textContent = head === undefined ? words.condition : unknown ? words.unknown : words.noBranch;
                 face.append(placeholder);
             }
-            dom.setAttribute("aria-label", `${words.condition}：${node.attrs.open as string}`);
+            dom.setAttribute("aria-label", words.named(words.condition, node.attrs.open as string));
             dom.title = node.attrs.open as string;
         };
         paint();

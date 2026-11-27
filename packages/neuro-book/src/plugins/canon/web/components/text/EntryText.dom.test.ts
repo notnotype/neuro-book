@@ -111,6 +111,15 @@ describe("EntryText", () => {
         outside.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
         await vi.waitFor(() => expect(popover()).toBeNull());
         expect(kept.emitted("close")).toBeUndefined();
+        // 收起期间那个值不算展开；再点它：重新展开，不发 value（宿主收到会当作再点一下关上）。
+        const keptValue = kept.findAll("[data-value]")[0]!;
+        expect(keptValue.attributes("aria-expanded")).toBe("false");
+        await keptValue.trigger("click");
+        await vi.waitFor(() => expect(popover()).not.toBeNull());
+        expect(kept.emitted("value")).toBeUndefined();
+        expect(keptValue.attributes("aria-expanded")).toBe("true");
+        kept.unmount();
+        mounted.splice(mounted.indexOf(kept), 1);
         // 重新挂上（切到别的标签再回来）：照记下的打开。
         const again = open(place);
         await vi.waitFor(() => expect(popover()).not.toBeNull());

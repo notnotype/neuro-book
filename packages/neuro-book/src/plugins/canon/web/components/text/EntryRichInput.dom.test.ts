@@ -221,7 +221,13 @@ describe("小块的值（canon/author-ui.md 输出 48）", () => {
         expect(chips(wrapper, "if")[0]!.dataset.chipState).toBe("no-branch");
         // 显示全部分支：每支都画。
         await wrapper.setProps({showBranches: true});
-        expect([...(chips(wrapper, "if")[0] as HTMLElement).querySelectorAll<HTMLElement>(".entry-if__branch")].filter((branch) => !branch.hidden).length).toBe(2);
+        const branches = () => [...(chips(wrapper, "if")[0] as HTMLElement).querySelectorAll<HTMLElement>(".entry-if__branch")];
+        expect(branches().filter((branch) => !branch.hidden).length).toBe(2);
+        // 翻开的这一次没生效的几支淡入；之后值表再到、重画时不重放。
+        expect(branches().map((branch) => branch.classList.contains("entry-if__branch--entering"))).toEqual([true, true]);
+        await wrapper.setProps({values: {source: VALUE_SOURCE, values: valuesFor(VALUE_SOURCE, 0)}});
+        await flushPromises();
+        expect(branches().map((branch) => branch.classList.contains("entry-if__branch--entering"))).toEqual([false, false]);
     });
 
     it("挂载时就带着值表（刚点“编辑”时用阅读视图的那份当初值）：一开始就是值，不先画计算中", async () => {
@@ -504,5 +510,112 @@ describe("插入小块：{ 与 @（canon/author-ui.md 输出 48）", () => {
         key(prose(wrapper), "{");
         await flushPromises();
         expect(options()).toEqual([]);
+    });
+});
+
+describe("插入与改小块的边角（canon/author-ui.md 输出 48）", () => {
+    const search = () => document.body.querySelector<HTMLInputElement>("[data-chip-menu] input")!;
+    const openBrace = async (wrapper: ReturnType<typeof mount>) => {
+        key(prose(wrapper), "{");
+        await flushPromises();
+    };
+
+    it("{ 后按空格：列表关上，补回“{ ”；筛选不分大小写；点到列表外：关上、不补字", async () => {
+        const wrapper = show({modelValue: "甲", fields: [...fields, {path: "panel.mana", label: "Mana", group: "Stats", display: "3"}]});
+        await flushPromises();
+        exposed(wrapper).focus("end");
+        await openBrace(wrapper);
+        key(search(), " ");
+        await flushPromises();
+        // 段末的空格写成字符引用（写出时不被当作行尾空白去掉）。
+        expect([options(), prose(wrapper).textContent, emitted(wrapper).at(-1)]).toEqual([[], "甲{ ", "甲{&#x20;"]);
+        await openBrace(wrapper);
+        type(search(), "MANA");
+        await flushPromises();
+        expect(options()).toEqual([expect.stringContaining("Stats · Mana")]);
+        document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        await flushPromises();
+        expect([options(), emitted(wrapper).at(-1)]).toEqual([[], "甲{&#x20;"]);
+    });
+
+    it("{ 里选“计算”后按 Esc 取消：不选中插入点后面紧挨着的小块；编辑区不带展开状态；点到正文别处浮层收起", async () => {
+        const wrapper = show({modelValue: '甲<V of="panel.魔力" />', fields});
+        await flushPromises();
+        const editor = editorOf(wrapper);
+        editor.view.focus();
+        // “甲”后面、小块前面。
+        editor.commands.setTextSelection(2);
+        const openCalc = async () => {
+            await openBrace(wrapper);
+            type(search(), "计算");
+            await flushPromises();
+            key(search(), "Enter");
+            await vi.waitFor(() => expect(popover()?.dataset.chipPopover).toBe("calc"));
+        };
+        await openCalc();
+        expect(prose(wrapper).hasAttribute("aria-expanded")).toBe(false);
+        key(field("expr"), "Escape");
+        await vi.waitFor(() => expect(document.activeElement).toBe(prose(wrapper)));
+        expect(popover()).toBeNull();
+        // 选中会排在原语还焦点之后：等同样的一个定时器再看。
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect([prose(wrapper).querySelector(".ProseMirror-selectednode"), editor.state.selection.from, emitted(wrapper)]).toEqual([null, 2, []]);
+
+        await openCalc();
+        prose(wrapper).dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        await vi.waitFor(() => expect(popover()).toBeNull());
+        expect(emitted(wrapper)).toEqual([]);
+    });
+
+    it("“换一个”：在小块上打开字段列表（没有条件与计算），选了就换掉它", async () => {
+        const wrapper = show({modelValue: '甲<V entry="e2" of="panel.存款" />', self: "e1", fields: [...fields, {path: "character.年龄", label: "年龄", group: "人物", display: null}]});
+        await flushPromises();
+        await openChip(wrapper, 0);
+        action("replace").click();
+        await vi.waitFor(() => expect(options().length).toBeGreaterThan(0));
+        expect(popover()).toBeNull();
+        expect(options()).toEqual([expect.stringContaining("数值 · 魔力"), expect.stringContaining("人物 · 年龄")]);
+        type(search(), "年龄");
+        await flushPromises();
+        key(search(), "Enter");
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe('甲<V of="character.年龄" />');
+    });
+
+    it("按了“应用”、还没做检查就关上了浮层：这次不落", async () => {
+        const wrapper = show({modelValue: '<V expr="panel.魔力 * 2" />'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("expr"), "panel.魔力 * 3");
+        await flushPromises();
+        action("apply").click();
+        key(field("expr"), "Escape");
+        await vi.waitFor(() => expect(popover()).toBeNull());
+        // 等过“应用”等的那一帧加一个定时器。
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        await flushPromises();
+        expect(emitted(wrapper)).toEqual([]);
+    });
+
+    it("复制一个条件小块粘到别处：写出的是同一段写法；粘进来的纯文字里的 <V 照字写，不读成标签", async () => {
+        const condition = '<If test="panel.魔力 >= 1000">强<Else />弱</If>';
+        const wrapper = show({modelValue: `甲${condition}\n\n乙`, fields});
+        await flushPromises();
+        const editor = editorOf(wrapper);
+        let at = -1;
+        editor.state.doc.descendants((node, pos) => {
+            if (node.type.name === "canonEntryIf") at = pos;
+            return true;
+        });
+        const {dom} = editor.view.serializeForClipboard(editor.state.doc.slice(at, at + editor.state.doc.nodeAt(at)!.nodeSize));
+        editor.view.focus();
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+        editor.view.pasteHTML(dom.innerHTML);
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe(`甲${condition}\n\n乙${condition}`);
+        editor.view.pasteText('<V of="panel.魔力" />');
+        await flushPromises();
+        expect(chips(wrapper, "value")).toEqual([]);
+        expect(emitted(wrapper).at(-1)).toBe(`甲${condition}\n\n乙${condition}\\<V of="panel.魔力" />`);
     });
 });

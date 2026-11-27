@@ -1029,6 +1029,26 @@ describe("写入", () => {
         expect([state.textMode, area(wrapper).value]).toEqual(["source", `她有 <V of="panel.存款" /> 元。`]);
     });
 
+    it("输出 48：不再请求值（条目被删了）时，没有值的小块画“没有算”，不画“计算中”", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        star.init.text = [{id: "b1", source: '她有 <V of="panel.存款" /> 元。'}];
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        state.tab = "text";
+        await startEditing(wrapper);
+        // 稿与阅读视图那一块不同：值只能从请求来。
+        typeInto(area(wrapper), '她有 <V of="panel.存款" /> 元，两倍是 <V expr="panel.存款 * 2" />。');
+        await waitUntil("有改动", () => wrapper.find("[data-text-dirty]").exists());
+        state.textMode = "rich";
+        const calc = () => wrapper.find("[data-rich-input] [data-entry-chip='calc']");
+        await waitUntil("算出来", () => calc().exists() && calc().attributes("data-chip-state") === "value");
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
+        if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
+        await publish(other.canon, [{ref: {kind: "entry", id}, after: {...(stored.value.object as Entry), deleted: true}}]);
+        await waitUntil("没有算", () => calc().exists() && calc().attributes("data-chip-state") === "uncomputed");
+    });
+
     it("别处也改了主文字：提交时出一条对照，选“我的”以后以我的为准、选“现在的”放弃我的；别处改的是这个条目的字段或别的条目时不问，直接发布（验收 16）", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");

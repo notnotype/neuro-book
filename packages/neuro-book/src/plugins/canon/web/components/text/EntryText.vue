@@ -4,7 +4,7 @@
  * 跑与内核同一份条目文法，按词法单元画，活的标签换成值表里对应的那一项；对不上的块整块按出错显示。条件只画生效的那一支，判断
  * 未知时写“未知”。页面的 h1 是条目名，文字里的标题降一级（`#` 画成 h2）。
  */
-import {defineComponent, h, nextTick, onActivated, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {PropType, VNodeChild} from "vue";
 import {decodeHTMLStrict} from "entities";
 
@@ -146,7 +146,8 @@ function valueNode(node: VValue): VNodeChild {
     if (node.image !== undefined) return muted(node.image.caption);
     const address: TextAddress = {entry: node.entry ?? props.self, path: node.path ?? ""};
     const place = placeKey(renderingBlock, node.start, address);
-    const open = props.open === place;
+    // 收起期间（点到了页外）按钮不算展开：再点它只是重新展开，不发 `value`（发了宿主会当作再点一下关上）。
+    const open = props.open === place && !collapsed.value;
     const shown = node.unknown === true ? text("value.unknown") : node.display;
     const mark = address.entry === props.self ? props.marks[address.path] : undefined;
     const warn = node.unknown === true || node.incomplete !== undefined;
@@ -160,7 +161,10 @@ function valueNode(node: VValue): VNodeChild {
             "data-value": `${address.entry}|${address.path}`,
             "data-place": place,
             "data-label": node.label ?? address.path,
-            "onClick": () => emit("value", place),
+            "onClick": () => {
+                if (collapsed.value && props.open === place) collapsed.value = false;
+                else emit("value", place);
+            },
         }, shown),
         node.incomplete === undefined ? null : h("span", {class: "ml-1 text-[length:var(--text-xs)] text-[var(--status-warning)]"}, text("value.incomplete")),
         mark === undefined ? null : h("span", {class: "ml-1 text-[length:var(--text-xs)] text-[var(--text-muted)]"}, mark),
@@ -233,9 +237,6 @@ const press = (event: PointerEvent): void => {
 };
 onMounted(() => document.addEventListener("pointerdown", press, true));
 onBeforeUnmount(() => document.removeEventListener("pointerdown", press, true));
-onActivated(() => {
-    collapsed.value = false;
-});
 
 const findAnchor = (): void => {
     const place = props.open;
@@ -249,7 +250,11 @@ watch(() => props.open, () => {
 });
 watch(() => [props.open, props.blocks], () => void nextTick(findAnchor), {immediate: true});
 
-const openAddress = (): TextAddress | null => (props.open === undefined ? null : placeAddress(props.open));
+/** 浮层里画的那一处：同 `held`，关上以后留着，内容随浮层一起淡出，不先变空。 */
+const heldAddress = shallowRef<TextAddress | null>(null);
+watch(() => props.open, (now) => {
+    if (now !== undefined) heldAddress.value = placeAddress(now);
+}, {immediate: true, flush: "sync"});
 
 /**
  * 浮层的边在打开时按值按钮上下哪边地方大选定，之后内容变高（再显示更早的、重读）不换边：避让只在这一边上挪，免得读回来时整个翻过去。
@@ -295,14 +300,14 @@ const markEscape = (): void => {
         </section>
         <Popover :open="anchor !== null && !collapsed" :anchor="held" :side="side" align="start" @update:open="onPopover">
             <section
-                v-if="anchor !== null && openAddress() !== null"
+                v-if="held !== null && heldAddress !== null"
                 class="entry-text__origin"
                 tabindex="0"
-                :aria-label="text('origin.dialog', {label: anchor.dataset.label ?? ''})"
+                :aria-label="text('origin.dialog', {label: held.dataset.label ?? ''})"
                 data-origin-popover
                 @keydown.esc="markEscape"
             >
-                <slot name="origin" :address="openAddress()!" />
+                <slot name="origin" :address="heldAddress" />
             </section>
         </Popover>
     </div>
