@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00055-entry-rich-text",
+    "taskId": "t04-entry-page-polish",
+    "artifactId": "review",
+    "ackId": "20261127T133905249Z-6b6be8b6",
+    "answers": [
+        "20261127T133829585Z-61bcecf5"
+    ],
+    "through": "20261127T133829585Z-61bcecf5",
+    "included": [
+        ".agents/works/w00055-entry-rich-text/tasks/t04-entry-page-polish/README.md"
+    ],
+    "ackedAt": "2026-11-27T13:39:05.249Z"
+}
