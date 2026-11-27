@@ -813,7 +813,7 @@ Spec 改动清单的处理：
 
 ## B8 实现审查的处理（2026-11-27）
 
-快速审查：一个 Opus 子代理先审 `63d97b3f1`（报告 [`evidences/b8-impl-review-opus.txt`](evidences/b8-impl-review-opus.txt)，11 条：重要 2、建议 9，都在真实进程上核实过），omp `@review` 在后台审同一份说明，回来后另起一节。修正在分支 `feat/w00037-t10-b8fix`（从并入 master 的 `a5e89b3cd` 开），做完并回官方站分支。`site.operations` 输出 12 已照下表收紧（`2eabb33b0`）。
+快速审查：一个 Opus 子代理先审 `63d97b3f1`（报告 [`evidences/b8-impl-review-opus.txt`](evidences/b8-impl-review-opus.txt)，11 条：重要 2、建议 9，都在真实进程上核实过），omp `@review` 在后台审同一份说明：没写出任何条目就退出，上游先判说明有网络安全风险、随后那个渠道额度用完（2026-11-27 11:26）；按规矩不绕、不重试、不换模型续跑，改派一个 Sonnet 审查者在 B8 修正之后审 `63d97b3f1` 与修正的整段，作为第二个模型。修正在分支 `feat/w00037-t10-b8fix`（从并入 master 的 `a5e89b3cd` 开），做完并回官方站分支。`site.operations` 输出 12 已照下表收紧（`2eabb33b0`）。
 
 | 条 | 发现 | 处理 |
 |---|---|---|
