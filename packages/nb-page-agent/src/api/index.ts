@@ -138,7 +138,7 @@ export const GuideSideSchema = Type.Union([Type.Literal("top"), Type.Literal("bo
 export const HighlightArgsSchema = Type.Object({
     at: LocatorSchema,
     message: Type.String({minLength: 1, maxLength: GUIDE_MESSAGE_CHARS, description: "说明框里的话，只作纯文字"}),
-    title: Type.Optional(Type.String({minLength: 1, maxLength: GUIDE_TITLE_CHARS, description: "说明框的标题"})),
+    title: Type.Optional(Type.String({minLength: 1, maxLength: GUIDE_TITLE_CHARS, description: "说明框的标题：这一步做什么；进度由 step、total 另外显示，不用写进标题"})),
     side: Type.Optional(GuideSideSchema),
     until: Type.Union([Type.Literal("click"), Type.Literal("next")], {description: "click：等用户点目标；next：等用户点说明框里的“下一步”"}),
     step: Type.Optional(Type.Integer({minimum: 1, maximum: GUIDE_MAX_STEPS, description: "第几步；与 total 一起给时显示进度，等于 total 时“下一步”写成“完成”"})),
