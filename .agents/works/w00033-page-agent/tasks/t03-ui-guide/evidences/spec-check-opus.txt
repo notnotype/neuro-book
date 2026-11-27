@@ -1,0 +1,184 @@
+# w00033 t03 晋升前逐条核对（Opus）
+
+核对版本：worktree feat/w00033-page-agent HEAD = d7a43f555（与说明里的核对对象一致）。Spec 读主工作区 docs/specs/。
+只读；单测按需跑，未跑 e2e。下文“实现”“测试”位置相对 worktree 根。类别：[没实现]、[不一致]、[没测试]、[存疑]。
+
+### agent/page-agent.md 输入与前置条件
+有 5 句对不上（其余对上：defaultForAll 见 backend/tools.ts:57，e2e/page-agent-guide.e2e.ts:615、669 判行与 defaultTools:false；前台过滤 agent/backend/agent.ts:259、backend/tools.ts:145，agent.test.ts:289、321 判工具表，page-agent-guide.e2e.ts:562 判 bot 会话的说明与 typeof ui；审批档 tools.ts:63/73/83、highlight.ts:49，验收 1、4 的 e2e 判到 find/highlight 不另审批、screenshot 另出卡）。
+1. [没测试] “后台会话……以及它们派出的子会话里没有 ui”：实现按派发链判（agent.ts:259-260，background 集合 agent.ts:232、337），但测试只有 bot 归属会话派出的子会话（agent.test.ts:321）；后台会话派出的子会话没有用例。后台会话自身只判了工具表（agent.test.ts:289）与代码里没对象（eval.test.ts:283，用测试对象 front），“eval 说明不列它”对后台会话没有断言（e2e 只判 bot）。
+2. [不一致] 定位“`role` 加 `name`”：实现 name 可选，只给 role 也合法（nb-page-agent/src/api/index.ts:45-54 只要求 name 必须伴 role；shared/contracts.ts:36 与 ui 文档 plugin.ts 写的是 `{role, name?}`）。Spec 应改成“`role` 加可选 `name`”。
+3. [不一致] “`within` 也是定位”：实现的 within 不能再套 within（api/index.ts:29-36，contracts.ts:35）。Spec 宜写明 within 里不能再嵌 within。
+4. [没测试] 缺省值：find 的 limit 缺省 5（tools.ts:177）、highlight 的 timeout 缺省 300（highlight.ts:91）、服务端给 snapshot 的 maxTokens 缺省 3000（tools.ts:157）都没有经工具层的断言；只有核心夹具判了引擎缺省 3000（nb-page-agent/e2e/spec-outputs.e2e.ts:141），文档测试只判了“缺省 300”这串字（docs.test.ts:37）。
+5. [存疑/低] ui.snapshot 的 read 档：没找到询问模式下 snapshot 不出审批卡的断言（验收 1 只涉及 find 与 highlight）。
+
+### agent/page-agent.md 输出 1（选窗口）
+有 3 句对不上。对上的：候选按作品过滤 backend/windows.ts:286，三条次序 windows.ts:314-316，2 分钟 RECENT_WINDOW_MS，子会话按会话 id 各记一份；断言 backend/windows.test.ts:60（只选本作品、书架会话只选不绑定的）、69（三条次序、切走不跟、2 分钟后改选、转后台不再优先）、86（子会话不继承）、95（串行）；e2e/page-agent.e2e.ts:371（验收 2）。
+1. [不一致] Spec 只列三条，没有符合的就是 no-window；实现另有第四条：候选都看不见时取最近有输入的那个（windows.ts:317-318），快照与目录照常在看不见的窗口上做，截图与高亮再报 window-hidden（tools.ts:202、highlight.ts:90）。windows.test.ts:69 末段把它当行为断言了。失败表 window-hidden 的“选中的窗口看不见”其实依赖这一条。Spec 输出 1 要补这句。
+2. [不一致/低] “有焦点的窗口”：实现要求同时看得见（windows.ts:315），Spec 没写。
+3. [存疑] “看得见、最近有用户输入的窗口”：实现不要求有过输入（lastInputAt 为 null 也会被选中，windows.ts:312、316），Spec 的字面像是要求“最近有输入”。宜写成“看得见的窗口里最近有输入的那个”。
+
+### agent/page-agent.md 输出 2（没有可用的窗口）
+有 2 句对不上。对上的：三种说明 windows.ts:288-290、309，断言 windows.test.ts:60（“没有打开这部作品的窗口”）、116（not-provided→no-window）、e2e/page-agent.e2e.ts:409-410；高亮装上 10 秒 highlight.ts:31、146，断言 highlight.test.ts:143。
+1. [没测试] 快照与目录 3 秒（tools.ts:22、158、178）、截图 15 秒（tools.ts:24、207）没有任何断言判到时限的值或到点得 window-unresponsive。
+2. [没测试] “没有窗口”这一种说明（clients 为空，windows.ts:288）与“窗口要刷新”的说明文字没有断言（windows.test.ts:116 只判 code 与 cause）。
+
+### agent/page-agent.md 输出 3（快照）
+有 1 句对不上（其余对上，实现 nb-page-agent/src/snapshot/{index,walk,describe}.ts，断言都在核心夹具：可见性 spec-outputs.e2e.ts:13、snapshot.e2e.ts:8、170；遮挡与 faint snapshot.e2e.ts:68、179；offscreen 与滚不到的 snapshot.e2e.ts:80、170；shadow 与 slot 89、197；层 104、119、139，被挡住的层只写名字 spec-outputs.e2e.ts:128；列表摘要 snapshot.e2e.ts:220、229，滚动方向 spec-outputs.e2e.ts:97；名字不带状态 spec-outputs.e2e.ts:53；先截断再转义 snapshot.e2e.ts:52、spec-outputs.e2e.ts:78；跳过区域 snapshot.e2e.ts:260、267，定位照样命中 locate.e2e.ts:158；密码框 snapshot.e2e.ts:31；截断次序 snapshot.e2e.ts:250、278）。
+1. [没测试] “对话视图的输入框、模型与模式选择照常列出”：只有 nb-agent-ui/src/vue/AgentConversationView.dom.test.ts:126-129 判消息流带 skip、输入框不在 skip 里面；模型与模式选择不在 skip 里没有断言，也没有在应用里对对话视图做快照、判消息内容不出现而输入框出现的用例。
+
+### agent/page-agent.md 输出 4（引用）
+对上。实现 nb-page-agent/src/refs.ts、locate.ts（mutating 选项）；断言 locate.e2e.ts:8（不变、别的前缀 stale-ref）、20（身份变了 stale-ref 带候选）、37（rebound 与会改页面的不重找）、63（只在另一层不重找）、77；spec-outputs.e2e.ts:176、190（两个同名不重找）、201（scope 重找标 rebound）、215、223；应用侧 rebound 随结果交回 highlight.test.ts:175、tools.ts:43。
+
+### agent/page-agent.md 输出 5（定位）
+对上。实现 locate.ts；断言 locate.e2e.ts:88、99（ambiguous/nth/not-found）、115（within、按文字落到可交互祖先）、123（高亮落到唯一可交互后代，截图与 scope 不落）、158（隐藏与 aria-hidden 副本不算）；spec-outputs.e2e.ts:245、254（最贴近的元素）、259（滚出视野的算）、270、279。
+
+### agent/page-agent.md 输出 6（稳定名）
+对上。实现 nb-page-agent/src/attrs.ts；TitleActions.vue:68、WorkbenchToolStrip.vue:166/194、WorkbenchRegionStrip.vue:182、WorkbenchPanelHead.vue:97（含叠成标签）、SettingsWindow.vue:289/329、SettingsRow.vue:143。断言 attrs.test.ts；TitleActions.dom.test.ts:55-59、WorkbenchToolStrip.dom.test.ts:30、WorkbenchRegionStrip.dom.test.ts:45、WorkbenchPanelHead.dom.test.ts:99-122、SettingsWindow.dom.test.ts:113-117；快照写 target/key spec-outputs.e2e.ts:289，最近带 key 的容器 305，层切换里的单选按角色与名字 314。
+
+### agent/page-agent.md 输出 7（界面目录）
+有 5 句对不上。对上的：实现 page-agent/web/catalog.ts（设置路径 59-69、只收在布局里的视图 100、命令只收活动栏与视图标题栏 122-130、从第一个没完成的步骤给起 50-56、排序 147）；断言 web/catalog.test.ts:50（设置四步与换层）、70（中途给起）、79（节止于节、未绑定只收用户层）、89（视图经容器、按容器标题搜、不在布局的不收）、99（命令路径、快捷键）、114（打分与 limit）。
+1. [不一致/存疑] “命令可由用户运行、没有必填参数且此刻可用时，另给‘命令面板’入口”：实现只给一个布尔 `palette`（contracts.ts:135，web/plugin.ts:43），没有给出命令面板的路径或入口定位。要么 Spec 改成“另标 palette: true”，要么补一条走命令面板的路径。
+2. [没测试] `palette` 的判定（expose.human、runsWithoutArgs、isEnabled，web/plugin.ts:43）与快捷键的格式化（plugin.ts:42）没有测试；catalog.test.ts 里这两项是夹具写死的值。
+3. [没测试] “只收设置窗口在这个窗口里实际画出行的设置（只在桌面外壳里显示的节在浏览器窗口里不收，没有归属的设置在‘插件设置’节）”：实现靠 settings-window.ts:866 的 catalogView 复用窗口自己的 catalog()，但 settings/commands.test.ts:262 只判了外观节与主题一行，桌面专用节不收、无归属设置落在“插件设置”节都没有断言。
+4. [没测试] “标题与说明用当前界面语言”：catalogView 用 text.t 翻译（settings-window.ts:874-881），命令标题 web/plugin.ts:41；没有切换界面语言后目录文字随之变的断言。
+5. [没测试] “同名的不同种类分开列”：catalog.test.ts:114 用的是“文件”（视图）与“新建文件”（命令），不是同名；实现本来不去重，但这句没有被真正判到。
+
+### agent/page-agent.md 输出 8（截图）
+有 2 句对不上（都是测试缺口）。对上的：实现 backend/tools.ts:193-225、captures.ts、web/engine/PageAgentEngine.vue:25-43；断言 tools.test.ts:74（图进结果、尺寸按文件头、写明窗口与 target）、96（判定对象 window/element）、110（停止后传来的图 410、结果无图）、135（失败后凭证作废）、159；captures.test.ts:121（512 KB 与 1280）、137（20 秒到期、调用结束与插件停止作废）；核心 capture.e2e.ts:7；应用 e2e/page-agent.e2e.ts:207（验收 4）。
+1. [没测试] “of 找不到时得 not-found，不改截整窗”：实现在 PageAgentEngine.vue:29-31（定位失败直接交回、不往下截）；tools.test.ts:159 用的是假窗口直接交 not-found，判不到真实引擎“没有改截整窗”。
+2. [没测试] “截图过程中断开、超时……没有图进结果”：停止与失败有用例，窗口断开（target-gone）与 15 秒超时这两条路径没有用例（实现走同一个 finally 作废，tools.ts:219-221，从代码推断成立）。
+
+### agent/page-agent.md 输出 9（高亮与等待）
+对上。实现 nb-page-agent/src/guide/index.ts（等目标 TARGET_WAIT_MS=5000、状态只往前走、结局在撤掉后交出）、view.ts、backend/highlight.ts（timeout 用服务端时钟 157、cancelled 141、window-gone 132-135）。断言：等目标与滚进视野 guide.e2e.ts:198、375；clicked 143、162，spec-guide.e2e.ts:94；next/back/dismissed guide.e2e.ts:132；asked 255、spec-guide.e2e.ts:105（2000 字）；missed 与右键、滚动条、模态遮罩 guide.e2e.ts:388、628，spec-guide.e2e.ts:79；next 时点目标不结束 spec-guide.e2e.ts:66；gone/replaced/cancelled guide.e2e.ts:170；timeout 由服务端时钟 highlight.test.ts:123；window-gone 196；滚出视野描边框与压暗藏起、说明框停边上 guide.e2e.ts:341，spec-guide.e2e.ts:159、195；back 的代码退回 e2e/page-agent-guide.e2e.ts:73。
+
+### agent/page-agent.md 输出 10（说明框）
+有 2 句对不上（测试缺口）。对上的：文字与按钮 guide.e2e.ts:22、spec-guide.e2e.ts:35；提问不改高度 guide.e2e.ts:225；描边框 28×28 与贴边画里面 70；焦点与选区 225、255、spec-guide.e2e.ts:132、292；挂在层里与换层 guide.e2e.ts:286、316、419；按键隔离 271、522、557；压暗只改外观 99、spec-guide.e2e.ts:220；不改页面样式 spec-guide.e2e.ts:246；应用里弹层 e2e/page-agent-guide.e2e.ts:311、379、403。
+1. [没测试] “按钮与进度的文字随界面语言”：应用侧由 web/guide-text.ts 按 TextPort 取文字，核心只测了“宿主给的文字表”（guide.e2e.ts:48）；没有应用里换界面语言后说明框文字跟着变的断言（应用 e2e 都是中文）。
+2. [没测试] “状态变化有过渡（出现、展开与收起提问、目标滚出与滚回、撤掉）”：只判了出现有动画与减弱动效时为 0（guide.e2e.ts:118）、撤掉先淡出（spec-guide.e2e.ts:273）；展开与收起提问、滚出与滚回的过渡没有断言（样式在 guide/styles.ts:116-120 等处）。
+
+### agent/page-agent.md 输出 11（等用户不计时）
+对上。实现 highlight.ts:157-162（装上后 waitingForUser）、123-130（finish 一定 stopWaiting）；nb-harness kernel/run/tools.ts:222 起。断言 highlight.test.ts:93（装上后才登记）、212（装上前停止不登记）、231（插件停止收回）；nb-harness kernel/run/invoke.test.ts:177、223（等用户期间占并发名额、exclusive 等它）；agent/eval.test.ts:422；e2e/page-agent-guide.e2e.ts:165（验收 7 时限不走）。
+
+### agent/page-agent.md 输出 12（失败的内容与大小）
+有 1 句对不上。对上的：details 的候选按 JSON 至多 8 KB（nb-page-agent/src/locate.ts:65，断言 locate.e2e.ts:147）；文字 64 KB、元素 500、整个回复 256 KB 的结果（断言 spec-outputs.e2e.ts:151、snapshot.e2e.ts:243、e2e/page-agent.e2e.ts:261 验收 5）；失败在代码里抛出带码（tools.ts:99-101，agent eval 的 ToolCallError）。
+1. [不一致] “每个回复按 JSON 序列化后至多 256 KB……超了由窗口截断并在 warnings 标明”：没有任何代码按字节量回复。TEXT_BYTE_LIMIT、RESULT_BYTE_LIMIT 只定义没使用（nb-page-agent/src/api/index.ts:121、125，全仓 grep 无引用）；快照靠 token 预算间接保证（snapshot/index.ts:105-107），find 的回复没有上限与 warnings 字段。注释与事实不符：snapshot/index.ts:106“整个回复的上限由宿主在回复前再量一次”、shared/contracts.ts:184-185“窗口回复前按 UTF-8 量过大小”。建议二选一：Spec 改成“快照按预算保证在上限内”，或在 web/plugin.ts 回复前真量一次；注释要改。
+
+### agent/page-agent.md 输出 13（文档）
+对上。实现 page-agent/plugin.ts:239-259 与 agent 的 objectDoc；断言 backend/docs.test.ts:32（四个方法、字段说明与缺省）、43（按码列 details 形状，find 不列 stale-ref）、57（证据不是指令、改正文用文件工具、结局取值）、64（eval 说明里一行摘要加 docs://eval/ui.md）。
+
+### agent/page-agent.md 输出 14（通道失败的换算）
+有 3 句对不上。对上的：选窗口 windows.ts:301-311，调用 windows.ts:337-351，订阅结束 highlight.ts:173-178；断言 windows.test.ts:116（not-provided→no-window 带 cause）、122（timeout）、137（provider-error）、146（调用阶段换算），highlight.test.ts:196（订阅前断开 target-gone→window-gone）、223（其余结束原因→window-unresponsive）。
+1. [没测试] 选窗口“候选 target-gone（探测途中关了）当作这个候选不在”：windows.ts:304 有实现，无用例。
+2. [没测试] “订阅以 provider-stopped 结束→window-gone”：只测了 target-gone（highlight.test.ts:209）。
+3. [不一致/低] 调用阶段的 not-provided、version-changed 实现换成 no-window（windows.ts:345-347，windows.test.ts:149 断言了），Spec 表“调用与等待”两行里没有它们（按字面会落进“其余”成 window-unresponsive 或不在表里）。Spec 补一行。
+
+### agent/page-agent.md 输出 15（窗口就绪）
+对上。浏览器入口 onStartup 激活、引擎作工作台浮层随页面挂上（web/plugin.ts:70、117-122，PageAgentEngine.vue）；断言 e2e/page-agent.e2e.ts:415（验收 8：刚开的窗口在 3 秒时限内交回快照）。
+
+### agent/page-agent.md 状态与转换（状态表与时序与寿命）
+状态表对上：高亮 waiting→shown→closing→closed（guide/index.ts:1-8、110-128），同一窗口至多一个（engine.ts:241-257，guide.e2e.ts:170）；截图凭证（captures.ts 全文，captures.test.ts:68-177，20 秒与插件停止 137）。时序与寿命有 4 句对不上：
+1. [没测试] “服务端重启时……窗口那边的高亮撤掉”：链路关闭时 nb-runtime peer.ts:353-355 中止入站订阅的 signal，窗口侧 web/plugin.ts:208 随之 cancel，从代码推断成立；没有断开服务端（不刷新页面）后页面上没有描边框的用例（验收 3 只测刷新）。
+2. [没测试] “nbook.page-agent 停用或重载时，正在等的高亮以 window-gone 结束，计时恢复”：highlight.test.ts:231 直接调 active.stopAll()；插件 signal→stopAll 的接线与“先于撤回贡献”这条先后（backend/plugin.ts:225-232）没有测试，注释自己写明了。
+3. [没测试] “同一页面加载里，断线重连后（引用）仍有效”：没有断线重连后旧引用仍能用的用例（e2e/page-agent.e2e.ts:179 只测同一次加载与刷新）。
+4. [没测试] “选中的窗口换了，旧窗口的引用在新窗口上得 stale-ref，再换回原窗口时仍有效”：只有核心夹具判不同加载前缀不同（spec-outputs.e2e.ts:223），应用里跨窗口用引用没有用例。
+其余对上：结局在撤掉后交出 guide.e2e.ts:132、spec-guide.e2e.ts:273；刷新得 window-gone 且无残留 page-agent-guide.e2e.ts:151；刷新后旧引用 stale-ref page-agent.e2e.ts:179；“上次用的窗口”只在内存 windows.ts:273、2 分钟 windows.test.ts:69。
+
+（更正上文输出 8 第 1 条：e2e/page-agent.e2e.ts:244-255 在应用里判了 of 找不到得 not-found 且会话里没有多出图片，这句有测试；输出 8 只剩第 2 条一句对不上。）
+
+### agent/page-agent.md 失败与恢复（失败码表）
+有 2 处对不上。对上的：no-window（windows.ts:288-310）、window-hidden（tools.ts:202、highlight.ts:90、web/plugin.ts:194；tools.test.ts:146、highlight.test.ts:188）、window-gone（windows.ts:340-343、highlight.ts:132-135；highlight.test.ts:196，page-agent-guide.e2e.ts:151）、window-unresponsive 含画不出高亮（tools.ts:118-121；highlight.test.ts:143、tools.test.ts:159）、stale-ref/ambiguous/not-found 含等目标超时（guide.e2e.ts:198、locate.e2e.ts:99）。
+1. [不一致] 实现还交回 `invalid-arguments`：定位写错（两种主定位、key 没 target、command 与别的混用）在服务端就报这个码（tools.ts:117、131、136，contracts.ts:44-45），ui 的文档也列了它（plugin.ts:255，docs.test.ts:51 断言），但 page-agent.md 的码表与输入一节都没写“定位写错得 invalid-arguments”。harness/runtime.md 输出 18 的 invalid-arguments 只指参数不合 schema，这里是语义校验，Spec 要补一行。
+2. [存疑/低] window-hidden 在三个工具里声明的 details 形状是候选数组（tools.ts:86、highlight.ts:52 用 CandidatesDetailSchema），实际从不带候选；文档会把它写成 `{candidates: …}`。宜改成不带 details 或 cause。
+
+### agent/page-agent.md 验收 1 到 10 与 Smoke
+有 3 处对不上，其余对上：验收 2 page-agent.e2e.ts:371；验收 3 page-agent.e2e.ts:179 与 page-agent-guide.e2e.ts:151；验收 4 page-agent.e2e.ts:207；验收 5 page-agent.e2e.ts:261；验收 7 page-agent-guide.e2e.ts:165（对照单元证明时限生效、日志 preview 为“结局：cancelled”）；验收 8 page-agent.e2e.ts:415；验收 10 page-agent-guide.e2e.ts:449、484；Smoke page-agent.llm.test.ts 存在（未跑，真实模型）。
+1. [不一致/低] 验收 1 “按路径逐步 ui.highlight……每一步高亮的是路径里那个控件；中间一个要按‘下一步’的步骤点‘上一步’”：用例（page-agent-guide.e2e.ts:89-96）在路径的三步之间插了一步不在路径里的 `{target: "settings.layers"}`，“上一步”点在这一步上；ui.find 交回的路径本身的步数与内容没有断言（只返回 entries 数且没判）。要么 Spec 改写场景（路径三步，另插一步看层），要么用例只走路径并断言路径。
+2. [没测试] 验收 9 写的是“后台会话”，用例改用 bot 归属的会话（page-agent-guide.e2e.ts:562）；后台会话在应用里的 eval 说明与 typeof ui 没有用例（单测见输入一节第 1 条）。Spec 要么改成“后台会话或 bot 归属的会话”，要么补后台会话。
+3. [不一致/存疑] 验收 6 “面板的高亮项不变”：用例在提问期间允许下拉与菜单的高亮项变成 null（page-agent-guide.e2e.ts:347-351，注释“失去焦点时组件自己收起高亮标记”），只要求不变成别的项；Esc 之后才判与开始时相同。Spec 宜写成“不会移到别的项”或说明提问期间组件会收起高亮标记。
+
+### agent/page-agent.md 不承诺（已知限制核对）
+有 2 处实现与写下的限制不一致，其余照写的做：不点不填（四个方法都 effect read/exec、无改页面的方法）；不进 iframe（snapshot/walk.ts:66 把 iframe 当叶子）；截图按 DOM 重画（PageAgentEngine.vue:36 用 capture 包）；说明框挂在层根的第一个子元素（guide.e2e.ts:439）；焦点不在可编辑区域时选区不放回（guide.e2e.ts:605、spec-guide.e2e.ts:292）；底部并行与自绘头视图找不到 workbench.view（PanelHead 才写稳定名）。
+1. [不一致] “界面目录不收菜单（……溢出菜单）里的命令”：工作台目录把视图所有非 menu 的标题动作都列为按钮（workbench/web/catalog.ts:48），而标题行至多 8 个按钮、窄面板还按宽度少放，其余收进“⋯”（ui/menus/title-actions.ts:59、69，titlebar-source.ts:181）。超出的命令会进界面目录，路径指向页面上没有的 `{target: "command"}`，高亮会等 5 秒后 not-found。要么目录按实际画出的按钮收，要么 Spec 写明这条限制。
+2. [存疑] 视图标题栏命令的路径是“容器入口 → 命令按钮”（page-agent/web/catalog.ts:96-98、127-128）：视图与别的视图叠成标签且不是当前标签时，按钮要先点视图标签才出现，路径里缺这一步；视图本身的路径同理只到 workbench.view。没有用例覆盖叠放时的路径。
+
+### runtime/plugin-channel.md 输出 7、8（服务端一侧）与场景 23、24
+对上。实现 nb-runtime/src/remote/router.ts（d230b10c8、233e0e599）；断言 nb-runtime/src/remote/routing.test.ts:992（服务端订阅客户端：断开得 target-gone、提供方 signal 中止、结束回调里目录已不含它、同实例重连后不重建且迟到事件不送达）、1021（订阅项目实例断开得 target-gone）、1033（先释放后断开不调 onEnd）、1049（服务端 instances() 与客户端查到的相同、描述冻结）。客户端作订阅方重连重建沿用场景 8 的既有用例。晋升时去掉四处“（planned）”。
+
+### harness/runtime.md 输出 90（waitingForUser 与 onWaiting）
+对上。实现 nb-harness/src/kernel/run/tools.ts:222-251（SelfReportedWaits：promise 结算、调用取消、调用结算三者先到的收回，成对上报）、kernel/api/tool.ts:130-133；断言 kernel/run/invoke.test.ts:177（结算时收回、永不结算的在调用结算时收回、被取消时收回且只报一次，日志序列精确比对）。
+
+### harness/runtime.md 输出 98（等用户期间仍占并发名额）
+对上。断言 kernel/run/invoke.test.ts:223（等用户的 shared 调用没结束前 exclusive 的写不开始，次序“答 等完 写”）。两条晋升时去掉“（planned）”。
+
+### agent/eval.md 输出 8（ToolCallError.details 只来自声明了 errors 的工具）
+对上（只核本 Task 的那句）。实现 agent/backend/eval/tool.ts:421-450；断言 agent/eval.test.ts:265（声明的码带校验过的 details；形状不符、超过 8 KB 不带并在说明末尾写明、记诊断 eval-error-details-dropped；没声明的码不带）。同条前一句“unknown 的说明写明……”是 t21 留下的 planned（git log -S 指向 b2655ce58），不属本 Task，晋升时别顺手去掉它的标记，除非另核。
+
+### agent/eval.md 输出 14（嵌套工具自报的等待不计时）
+对上。实现 eval/tool.ts:317（onWaiting 计数）、485 起的单元时限；断言 eval.test.ts:422（时限 1 秒、时钟拨 5 秒后答复仍 ok）；应用 e2e/page-agent-guide.e2e.ts:165。
+
+### agent/eval.md 输出 17（文档签名带字段说明与失败码）
+对上。实现 agent/backend/eval/objects.ts（objectDoc）；断言 agent/backend/eval/objects.test.ts:74（带说明或缺省时分行加 JSDoc、注释结束符转义、都没有的仍一行）、114（声明了 errors 的按码列 details 形状，没声明的不写）；page-agent/backend/docs.test.ts:32、43。
+
+### agent/contributions.md 输出 4（对象级绑定、foreground 与派发链）
+有 2 句对不上（测试缺口）。对上的：对象级增减先于方法级、required 删不掉（agent/shared/profile-tools.ts:47-56，断言 shared/profile-tools.test.ts:79-83、backend/eval/objects.test.ts:49-62）；foreground 按会话头与派发链（agent/backend/agent.ts:259-260、backend/tools.ts:145；断言 agent.test.ts:289、321，eval.test.ts:283）；eval 说明与代码里的对象取同一份（agent.ts:267、466）。
+1. [没测试] “之后对象新增的方法跟着对象”：methodsOf 每次现算（profile-tools.ts:51-52 读当前声明），从代码推断成立；没有“绑定写下之后插件新增一个方法，它也被加上或去掉”的用例。
+2. [没测试] “以及它们派出的子会话”中后台会话派出的子会话：只测了 bot 归属会话派出的（agent.test.ts:321），见 page-agent 输入一节第 1 条。
+
+### agent/contributions.md 输出 24（errors、foreground）
+对上。声明 schema agent/shared/points.ts:75（foreground）与 errors；errors 的效果断言 eval.test.ts:265，foreground 断言 agent.test.ts:289。晋升时去掉两处“planned”。
+
+### agent/contributions.md 输出 25（全局对象的 description）
+对上。实现 backend/tools.ts:128-133（object 带 description）；断言 backend/eval/objects.test.ts:49-58（有 description 的用它、没有的用 summary“other 的摘要”）；Profile 页用法见 profile-settings 输出 28。
+
+### agent/profile-settings.md 输出 28（全局对象一行）
+对上。实现 agent/web/profile-view.ts 与 ProfileSettingsPage.vue；断言 web/profile-view.test.ts:217（没有 eval 时照样列出、说明“要先加入 eval 才用得上”、warning 为真；悬停是对象说明加方法与等级）、224（必需、去掉后进候选合成一行、按对象改算有改动）、238（已卸载一组一个对象一行）；web/profile-page.dom.test.ts:323；e2e/page-agent-guide.e2e.ts:615（一行、等级写执行、悬停列方法、开着 N 个按对象算）、652（无 eval 带警示图标）。
+
+### agent/profile-settings.md 输出 29（按对象存绑定）
+对上。实现 shared/profile-tools.ts（changeToolBinding）；断言 shared/profile-tools.test.ts:85（本来有：写 objects.removed、加回删掉；本来没有：写 objects.added）、107（动对象行时删掉方法在 added/removed 的旧条目）；profile-page.dom.test.ts:323-334；e2e/page-agent-guide.e2e.ts:615、669、687。
+
+### agent/profile-settings.md 第 112 行（绑定加 objects 的兼容说明）
+有 1 句对不上。前一句对上：旧版 ToolBindingSchema 是 additionalProperties: false（git show 8351618c9:…/agent/shared/settings.ts:18-21），带 objects 的值在旧版不合 schema。
+1. [不一致/低] “降级前写下的对象绑定在旧版本里不生效”说小了：旧版 ToolBindingsSchema 是整张 Record（同文件 :36），按 settings/configuration.md 输出 4 不合 schema 的键整键丢弃，所以旧版里整个 `nbook.agent/toolBindings`（所有 Profile 的方法级增减）都不生效，不只是对象绑定。宜改成“整项工具绑定在旧版本里不生效”。另：本文状态表“有目录｜输出 1 到 24”没跟上新增的 25 到 29（顺手改）。
+
+### settings/settings-window.md 输出 24（只读目录）
+有 3 句对不上。对上的：服务键 settingsCatalogKey（settings/shared/contracts.ts:75），只读 read()（:71-73），按窗口给（web/plugin.ts:164），窗口是否打开作品 bound，节的 id/标题/是否页面自己画（kind）/支持的层，设置的键/标题/说明/所在节/支持的层（settings-window.ts:866-883）；断言 settings/commands.test.ts:262（外观节 kind list、主题一行在外观节、bound 为真）。
+1. [不一致] 节“行的设置键”：SettingsCatalogSection 没有这个字段（contracts.ts:35-43），改由每条设置的 `section` 反查；节另带了 Spec 没写的 `keywords`（page 节的搜索词）。Spec 要么去掉“行的设置键”，要么实现补上；keywords 要补进 Spec。
+2. [不一致] 目录另带“当前层”`layer` 与层切换的文字 `layerTitles`（contracts.ts:62-65，提交 0072a18b4），page-agent 输出 7 的“沿用设置窗口当前的层”靠它，但本条没写。Spec 补上。
+3. [没测试] “只在桌面外壳里显示的节、没有归属的设置所在的‘插件设置’节、窗口是否打开了作品，都与设置窗口画出的一致”：只断言了 bound 为真这一种（commands.test.ts:262）；桌面专用节不出现、“插件设置”节（OTHER_SECTION_ID，settings-window.ts:366-374）里的设置落位、未绑定窗口都没有断言。
+
+### settings/settings-window.md 输出 25（稳定名）
+对上。SettingsWindow.vue:289、329，SettingsRow.vue:143；断言 SettingsWindow.dom.test.ts:113-117。
+
+### workbench/views.md 输出 23（界面目录读取）
+有 2 句对不上。对上的：服务键 workbenchCatalogKey（workbench/shared/contracts.ts）、按当前布局现算（workbench/web/catalog.ts:30-58）；视图 id/标题/容器/是否在布局/动作、容器 id/标题/区域、活动栏项 id/标题/命令；打分同一处导出 matchCommandText（shared/command-query.ts:82，命令面板 137、192 与 page-agent catalog.ts:142 共用）。断言 workbench/web/catalog.test.ts:59（自己的在前、贡献的在后、menu 不算）、65、75（含界面语言）、80-91（未建布局、浮出、关掉）。
+1. [不一致] “标题栏动作的命令 id”实际是全部非 menu 的动作（catalog.ts:48），不按标题行至多 8 个与按宽度少放的规则（title-actions.ts:59、69）；收进“⋯”的那些也被当成画成按钮的交出去。与 page-agent“不承诺”的“不收溢出菜单”冲突，见那一节第 1 条。
+2. [不一致/低] 容器另带成员视图 `views`（catalog.ts:54，断言 catalog.test.ts:69），本条没写。
+
+### workbench/views.md 输出 24（稳定名）
+对上。见 page-agent 输出 6 那一节（TitleActions 同时用于视图与编辑区标题栏：EditorGroupHead.vue:9、WorkbenchShell.vue:19）。
+
+### workbench/views.md 输出 25（悬停动作的显示）
+对上。workbench/web/components/hover-actions.css:7-15；断言 e2e/lab-workbench-surface.e2e.ts:132（带属性时指针不在也显示，去掉后回到随鼠标）、e2e/page-agent-guide.e2e.ts:517（高亮时写上、同区下一步不断开、结束后撤掉）。
+
+### ui/agent-conversation-view.md 第 488 行（消息流根元素的 data-nb-agent="skip"）
+有 1 句对不上。对上的：AgentConversationView.vue:502；断言 AgentConversationView.dom.test.ts:126-129（流带 skip、输入框不在 skip 里）。
+1. [没测试] “待处理区、状态栏与会话列表不带”：没有断言（dom 测试只判了输入框）。
+
+## 汇总
+
+核对版本 d7a43f555。另跑了 page-agent 后端与目录、profile-tools 的单测：7 个文件 61 条全过（负载 36，没跑别的）。
+- 没实现：0 句。
+- 与字面不一致：16 句。page-agent 输入 2、3；输出 1 第 1、2 条；输出 7 第 1 条；输出 12 第 1 条；输出 14 第 3 条；失败码表第 1 条；验收 1、验收 6；不承诺第 1 条；profile-settings 第 112 行；settings-window 输出 24 第 1、2 条；views 输出 23 第 1、2 条。
+- 没有测试或测试判不到：23 句。page-agent 输入 1、4；输出 2 两条；输出 3；输出 7 第 2 到 5 条；输出 8 第 2 条；输出 10 两条；输出 14 第 1、2 条；时序与寿命 4 条；验收 9；contributions 输出 4 两条（第 2 条与 page-agent 输入 1 是同一个缺口）；settings-window 输出 24 第 3 条；agent-conversation-view 第 488 行。
+- 存疑：4 句。page-agent 输入 5；输出 1 第 3 条；失败码表第 2 条；不承诺第 2 条。
+
+晋升前必须先改的几处：
+1. 输出 12 与代码对不上：回复字节上限没有任何代码去量，TEXT_BYTE_LIMIT、RESULT_BYTE_LIMIT 定义了没用，snapshot/index.ts:106、shared/contracts.ts:184 的注释写的是没做的事。二选一：Spec 写成“快照按预算保证”，或在窗口回复前真量一次；注释无论哪种都要改。
+2. 失败码表补 `invalid-arguments`（定位写错时由服务端报，文档已列出）。
+3. 输出 1 补第四条：都看不见时选最近有输入的窗口，快照与目录照常，截图与高亮报 window-hidden。现在失败表里的 window-hidden 就靠这一条。
+4. 界面目录会把收进“⋯”的标题动作当成按钮交出（workbench/web/catalog.ts:48），与“不承诺：不收溢出菜单”冲突。目录改为按实际画出的按钮收，或者 Spec 写明这条限制（views 输出 23 一并改）。
+5. settings-window 输出 24 的字段与实现对齐：节没有“行的设置键”，另有 keywords；目录另带 layer 与 layerTitles。
+6. 验收 9（后台会话，用例测的是 bot 会话）、验收 1（用例插了一步不在路径里的步骤）、验收 6（提问期间高亮项允许变成 null）：改 Spec 的写法或改用例，二选一。
+7. 输出 7 的“命令面板入口”实际只是布尔 `palette`，Spec 要改写。
+8. 去掉各处的“（planned）”。eval.md 输出 8 里“unknown 的说明……”那句是 t21 的 planned，不属本 Task，不要一起去掉。
+建议补的测试（不挡晋升）：后台会话派出的子会话没有 ui；3 秒与 15 秒时限；插件停止的接线；候选 target-gone；订阅以 provider-stopped 结束。
