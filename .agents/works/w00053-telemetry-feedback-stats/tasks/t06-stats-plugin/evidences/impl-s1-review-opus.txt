@@ -1,0 +1,62 @@
+# w00053 t06 S1 实现审查（Opus，提交 edae00199）
+
+## 1. [重要] 正确性：lifecycle.failure 在真实运行时里永远取不到码，三个机制事件里它那一份是死代码
+- 位置：store.ts:50（MECHANISM_EVENTS 含 "lifecycle.failure"）、store.ts:438（取码）；对照 store.ts:468-477（mechanismObservers.lifecycle.failureRecorded）与 lifecycle/scope.ts:70（summarizeFailure）
+- 现象：lifecycle.failure 记录的 data 只有 {sequence, phase, stage, attempt, resourceId}，没有 reason，也没有 plugin；它的 error 是 summarizeFailure 产出的 FailureError {name, message}，宿主错误的 code 在这一步已经被丢掉。所以三个来源对它全部落空。经真实 createApplication 探针（/tmp/review-w00053-t06-s1/lab/probe/real-runtime.test.ts）：一个 activate 抛 Object.assign(new Error,{code:"ELOCKED"}) 的插件、一个 release 抛 code "EBUSY" 的资源，lifecycle.failure 共 4 条（warn 2、error 2），交到观察者的 2 条全部是 code=undefined、plugin=null；记录里 error 也只剩 {"name":"Error","message":"boom"}。同样，plugins.diagnostic 与 services.diagnostic 的 error 也是 FailureError，第三个来源“错误对象的 code”对所有机制事件都不可能命中，只对业务插件直接 record 的 Error 有效。
+- 为什么是问题：Spec 写“生命周期、服务与插件三类机制事件的 reason”，实现把 lifecycle.failure 列进来，读者会以为释放、关闭失败能按码计数；实际 error 级的 lifecycle.failure（释放与关闭失败，正是“收口停在停止中”的那类）进不了 3.3 的错误码计数（那里只数带 code 的）。设计审查第 2 条要的“内核失败数得到”在这一类上没有做到，而现有用例只用手造的 plugins.diagnostic 记录验证了 reason，lifecycle 那条只测了插件回退为 null，所以测试全绿。
+- 如何核实：跑上面的探针；或读 store.ts:474 与 scope.ts:70-84。
+- 建议改法（交主会话取舍）：要么给 lifecycle.failure 一个码来源（例如 data.stage 映射成 "acquire-failed"/"release-failed"/"close-failed"，写进 Spec 第二来源的定义），要么让 summarizeFailure/FailureError 保留合格的 code（改 lifecycle 合同，影响面大）；至少从 MECHANISM_EVENTS 的注释与 Spec 里把 lifecycle 的“reason”删掉或写明它没有 reason，并在用例里放一条经真实 lifecycle 机制产生的失败，断言它交出的码。
+
+## 2. [重要] 正确性：data.plugin 回退对真实机制记录从不生效；真正缺插件的 services.diagnostic 被记到 runtime 名下
+- 位置：store.ts:437（plugin 回退）、store.ts:486-500（services.diagnostic 的 data 与 source）、store.ts:510-526（plugins.diagnostic）
+- 现象：三个机制事件里只有 plugins.diagnostic 的 data 带 plugin，而它的 source.plugin 与 data.plugin 取自同一个 diagnostic.plugin（source 为 null 时 data 也为 null），所以“来源没有插件就用 data.plugin”这条分支对真实记录永远不会改变结果；lifecycle.failure 与 services.diagnostic 的 data 里没有 plugin。探针里 x.provider 的服务初始化失败：error 级 services.diagnostic，reason=initialization-failed，data.key="x.provider/svc"，data.entryId="plugin:x.provider/main@4:x.provider/svc"，交出的 origin.plugin=null。按计划 3.3 它会记成 "runtime:initialization-failed"，而插件 id 明明可以从 key 前缀得到（registration.ts:95 强制服务键以 "<插件 id>/" 开头）。
+- 为什么是问题：设计审查第 2 条(d) 要的是“机制事件的失败归到插件”，实现只做到字面（data.plugin），对唯一真正缺插件的那类事件没有效果；“来源里没有插件而机制事件的数据里有插件 id 时用它”的用例（diagnostics.test.ts 第 418 行附近）只用手造记录证明分支存在，证明不了行为。
+- 如何核实：跑探针，看 services.diagnostic 那一行；或读 store.ts:486-500。
+- 建议改法：services.diagnostic 的插件从 data.key 按 "<插件>/" 前缀取（或在 mechanismObservers 里直接把它写进 source.plugin，这样查询的 plugin 过滤也受益），并把 Spec 那句改成实际的规则；用例改用真实 createApplication 让一个提供者初始化失败，断言 origin.plugin。若决定不做，至少删掉 data.plugin 这条对真实记录无效的分支或在注释里写明它只服务手造记录。
+
+## 3. [重要] 测试：交付形状冻结、补交途中的重入、交付中嵌套登记与补交途中撤销都没有用例，对应的变异全部存活
+- 位置：diagnostics.test.ts “本机观察” describe；被测代码 store.ts:156-172（replay）、store.ts:390-411（#observe）、store.ts:443-445（freeze）
+- 现象：在仓库外副本（/tmp/review-w00053-t06-s1/lab/repo，脚本 lab/mutate.sh）逐个变异后跑 bun test packages/nb-runtime/src/diagnostics/（基线 27 pass）：
+  - 去掉 observation 的 Object.freeze：27 pass（存活）；去掉 origin 的 Object.freeze：27 pass（存活）。contracts.ts 的注释承诺“对象已冻结，几个观察者共用同一份”，第一个观察者改了 origin.plugin 第二个就会看到改后的值，没有用例守住。
+  - replay 里去掉 `this.#delivering = true`：27 pass（存活）。这时补交途中观察者记的一条会被实时交给所有观察者（包括正在补交的那位），它看到的序号就不再严格递增，store.ts:157 注释的“序号严格递增，按序号去重即可”与 Spec 的“交付途中又产生的记录不再交给观察者”都被破坏。
+  - replay 的 finally 把 `this.#delivering = previous` 改成 `= false`：27 pass（存活）。这对应“观察者在回调里用 replay 登记新观察者”：补交结束后标记被清掉，外层那一轮剩下的交付期间再记的诊断会被交出去，观察者里每次都记一条时直接无限递归。previous 这个设计正是为此写的，却没有用例。
+  - replay 循环里去掉 `!registration.active` 的 break（补交途中撤销自己）：27 pass（存活）。
+  - #observe 循环里去掉 `!this.#accepting()` 的 break（观察者在回调里触发 shutdown）：27 pass（存活）。
+  - 对照：快照遍历（去掉 [...]）与 serializeDiagnosticError 先校验后脱敏两个变异能被拦下（分别 1 条、2 条失败）。
+- 为什么是问题：重点 1 列出的“异常、嵌套登记、补交中途撤销时 #delivering 能否正确恢复”恰好全落在没有用例的分支上；以后有人把 previous 简化成 false（看起来等价），测试不会提醒。
+- 如何核实：bash /tmp/review-w00053-t06-s1/lab/mutate.sh store.ts '<原文>' '<变异>'，脚本跑完自动还原。
+- 建议改法：补 4 条行为用例：(a) 两个观察者，第一个试图改 observation.origin.plugin（严格模式下抛，计入 observerFailures），第二个看到原值，并断言 Object.isFrozen；(b) replay 补交途中观察者记一条，断言它不出现在任何观察者手里、observerReentries 加 1、这位观察者收到的序号严格递增；(c) 观察者在回调里 observe(新的, {replay:true}) 后再 record 一条，断言这一条不交、计入重入，且交付结束后下一条照常交给两者；(d) replay 回调里撤销自己，断言后面的补交与实时记录都不再收到。
+
+## 4. [建议] 安全/不变量：异步观察者的 reject 逃出 #deliver，成为进程级 unhandledRejection；服务端会因此 fatal 停机，observerFailures 不加
+- 位置：store.ts:413-421（#deliver 只 try/catch 同步抛错）；contracts.ts 的 `type DiagnosticObserver = (observation) => void`
+- 现象：`(o) => void` 在 TS 里接受 async 函数，`const o: DiagnosticObserver = async () => { throw … }` 能通过类型检查。探针 /tmp/review-w00053-t06-s1/lab/probe/async-observer.test.ts：record 照常返回 accepted，但 rejection 从 #deliver → #observe → record 的栈上冒成未处理的 rejection（bun test 直接把用例判失败，错误栈指向 store.ts:415），observerFailures 仍为 0。nb-host 的 server/host.ts:93 对 unhandledRejection 走 #fatal → requestStop("fatal:unhandled-rejection")，即整个服务端停机。
+- 为什么是问题：Spec 写“观察者抛错不影响记录调用的结果与各出口，只计入状态里的观察者失败次数”；DiagnosticsService 经 SDK（packages/neuro-book/src/sdk/index.ts:35）交给第三方插件，写成 async 的观察者是很自然的错误，后果从“计一次失败”变成“进程退出”。
+- 如何核实：跑探针；读 server/host.ts:92-93、120-126。
+- 建议改法：#deliver 里看返回值，是 thenable 就挂 `.then(undefined, () => { this.#observerFailures += 1; })`（不 await，仍是同步交付），并在 DiagnosticObserver 的注释里写明返回的 Promise 不被等待、其失败只计数；补一条 async 观察者 reject 的用例。
+
+## 5. [建议] 不变量：登记不随调用方的激活收口，忘了撤销的入口在停用、重载之后仍被同步调用
+- 位置：plugin.ts:70、76-84（诊断服务用 provideService 共享一份，observe 直通 store）；store.ts:150-180
+- 现象：observe 的登记挂在 store 上，只能靠调用方自己把撤销函数登记到 context.scope（测试 diagnostics.test.ts 第 520 行附近就是这样手写的）。没有这样做的插件入口被停用、换代（generation 递增）之后，旧代码里的观察者仍在每条记录的同步栈里执行，并持有旧激活的闭包；内核里已有 provideServicePerConsumer（plugins/plugins.ts:40-45，“release 在该调用方的这次激活结束时调用”）专门解决这类按调用方收口的问题。
+- 为什么是问题：这是本运行时其它订阅类能力（贡献、远程订阅）都由宿主按激活收口的既有约定；observe 是第一个让任意插件代码进入 record() 同步栈的入口，又经 SDK 对第三方开放，漏撤销的代价是“已停用插件的代码继续跑”，测试与类型都提示不出来。
+- 如何核实：读 plugin.ts:60-84 与 plugins/plugins.ts:40-60；写一个激活时 observe 不撤销的插件，停掉它的入口后再 record，观察者仍被调用（从代码推断，未跑）。
+- 建议改法：诊断服务改用 provideServicePerConsumer，门面里的 observe 把登记记在该调用方名下，release 时统一撤销（record/query/status 照旧直通）；这是改上游的做法，代价是门面每个调用方一份。若决定不改，至少在 observe 的注释与 Spec 里写明“调用方负责在激活收口时撤销”。
+
+## 6. [建议] 正确性：唯一的 fatal 级内核记录 application.*-emergency 不带码，必需门禁失败交给观察者时 code 缺省
+- 位置：store.ts:537-548（recordingEmergency 只写 data.detail，消息是中文的 report.reason）；application/bootstrap.ts:295、158、192、248（#emergency 的几处调用）
+- 现象：探针 /tmp/review-w00053-t06-s1/lab/probe/gate.test.ts 加一个必需的 check 门禁，check 抛 code "ECONNREFUSED" 的错误：startup=failed，交给观察者的 fatal 记录只有一条 application.startup-emergency，code=undefined、plugin=null；门禁自己的 "check:…" 原因只在 bootstrap 内部，不进记录。按计划 3.3（只数带 code 的 error/fatal），这类最严重的启动失败数不到。
+- 为什么是问题：设计审查第 2 条(b) 已把 application.*-emergency 列为“不带码的内核事件”之一，修法只覆盖了三个机制事件；Spec 第二来源也没有它。它不是本次提交引入的回归，但 S1 的目标就是让内核失败带码，这一类最该带。
+- 如何核实：跑探针，看 fatal 那一行。
+- 建议改法：recordingEmergency 写 data.code（例如 `${report.stage}-emergency`，或让 EmergencyReport 带一个机器可读的 code 字段，bootstrap 各处给 "required-gate-failed"、"stop-incomplete" 这样的值），Spec 第一来源自然覆盖；或者在 Spec 里明确这类记录不计码、记为已知限制。交主会话决定。
+
+## 7. [建议] 交付形状：来源里的空串插件原样交出，与 data.plugin 回退的“空串当没有”不一致
+- 位置：store.ts:437（`record.origin.plugin ?? (… dataPlugin !== "" …)`）、store.ts:320（#build 不校验 source.plugin）
+- 现象：调用方传 `source: {plugin: ""}` 时 origin.plugin 是 ""，`??` 不回退，观察者拿到 plugin=""（契约写 string | null，注释说“都没有为 null”）；而 data.plugin 那一支明确把 "" 当没有。按计划 3.3 拥有者取 origin.plugin、没有才是 runtime，这条会记成 ":<code>"。从代码推断，未跑。
+- 为什么是问题：同一个投影里两种“没有”的口径；统计侧要再补一次判空才不会出空拥有者。
+- 建议改法：observationOf 里把 "" 归一成 null（`record.origin.plugin || …`，或抽一个 nonEmpty 小函数两处共用），补一条用例。
+
+## 更正与说明
+- 第 5 条里“远程订阅也由宿主按激活收口”没有核实，只核实了贡献撤销（store.ts:559 的 receiver-closed、scope-closed）与 provideServicePerConsumer 的注释。
+- 探针里 x.release 的两条 error 级 lifecycle.failure 发生在停止阶段、观察者已随自己的入口撤销之后，所以“NOT DELIVERED”；这符合计划 3.3“撤销在入口收口时”，不算缺陷，只说明停止期的释放失败本来就进不了计数。
+
+有效发现：1、2、3、4、5、6、7（重要 3 条：1、2、3；建议 4 条：4、5、6、7；无阻断）。
+未发现问题的方面：#observe 的 #delivering 在同步抛错下的恢复（#deliver 吞掉同步异常，finally 兜底）；快照遍历与撤销（变异能被拦下）；attach 补写不交（挂接点在 record 而非 #dispatch，用例可拦）；#accepting() 与 record() 的拒收口径一致（stopping、closed、关闭失败后留在 stopping 三种都不交，挂接前的 creating 照常交）；降级兜底通道上的记录只经 record 交一次，不会经 attach 或 fallback 多交；serializeDiagnosticError 先脱敏再校验（sk-、NBK1 恢复码样式都被拦，变异可拦），JSONL 只是在 error 对象里多一个 code 字段，nb-host 诊断出口 11 条用例与 nb-runtime 类型检查都通过，没找到按严格形状读日志 error 的消费者；交付对象不含 message、data、error、instanceId（用例按键集断言）。
