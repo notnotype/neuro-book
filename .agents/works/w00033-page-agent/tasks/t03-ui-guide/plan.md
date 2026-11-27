@@ -108,7 +108,7 @@
 | 5 | 核心第一段：`./api`、快照、引用、定位、`./attrs`；先量名字计算 | 包的 bun 单测、Playwright 夹具测试、typecheck |
 | 6 | 插件第一段：接线、合同、窗口一侧、选窗口、`snapshot`、`find`、`screenshot` 与上传路由，贯通到真实应用；之后派第一段 e2e | 插件测试（真实服务端与窗口）、`architecture.test.ts`、应用 typecheck、`build:web`、一份主会话手写的最小贯通脚本 |
 | 7 | agent 插件与 harness：失败详情与 `errors`、`tsType`、前台过滤、`waitingForUser`（各自提交） | agent 插件与 nb-harness 受影响的测试、SDK 场景 `10-eval-object`、两边 typecheck |
-| 8 | 核心第二段：说明框（按定稿）、跟随、结局、键盘隔离、截图入口 | 包的 Playwright 夹具测试；变异检查 |
+| 8 | 核心第二段：说明框（按定稿与决定 4 到 7：收起的提问、遮罩、回退）、跟随、结局、键盘隔离、截图入口 | 包的 Playwright 夹具测试；变异检查 |
 | 9 | 插件第二段：高亮订阅与等待、服务端计时、按对象绑定与 Profile 对象行；之后派第二段 e2e | 插件测试、应用 typecheck、三份构建后跑 `page-agent.e2e.ts` 与 `agent-profiles.e2e.ts` |
 | 10 | 真实模型冒烟、开发服务上点一遍、文档收尾、逐条核对 Spec 后晋升 | `test:llm` 跑 `page-agent.llm.test.ts`；`docs:check`、`governance:check` |
 
@@ -158,7 +158,7 @@
   - 第二段（第 9 片之后派）：核心夹具测试（输出 9、10 里与弹层无关的）；应用 e2e 场景 1、3 的高亮部分、6、7、9；Profile 对象行的用例。
 - **双方照的可观察状态**：
   - 快照文本的行格式（Spec 输出 3）。
-  - 引擎自己的节点都带 `data-nb-page-agent`：`callout`、`outline`、`next`、`skip`、`ask`（输入框）、`ask-submit`。说明框带 `data-nb-page-agent-target`（引用或 `target:key`）与 `data-step`；隐藏时带 `data-hidden`。
+  - 引擎自己的节点都带 `data-nb-page-agent`：`callout`、`outline`、`dim`（`dim` 为真时的压暗层）、`next`、`back`、`skip`、`ask-open`（“提问”按钮）、`ask`（输入框）、`ask-submit`、`ask-close`。说明框带 `data-nb-page-agent-target`（引用或 `target:key`）与 `data-step`；提问展开时带 `data-asking`；目标滚出视野时描边框与压暗层带 `data-hidden`。
   - 说明框在 open shadow root 里，焦点在提问框时读 `shadowRoot.activeElement`。
   - 撤掉之后页面上没有 `[data-nb-page-agent]` 节点，也没有 `[data-nb-agent-reveal]` 属性。
   - Profile 对象行 `data-profile-tool-object="ui"`。
