@@ -621,6 +621,16 @@ const railDrop = (): Point | null => {
     const slot = desk.value?.target("auxiliary-rail") ?? null;
     return slot === null ? null : centerOf(slot);
 };
+/**
+ * 路的后半段在右轨里由下往上走：右轨上入口带以外是拒收区，不排布局，缓入缓出末尾放慢的那一段就落在轨上；横穿星璃那一栏时正赶上全程最快。
+ * 不走这条走廊时，往上拱的弧在终点前放慢，正好压在星璃那一栏的顶边上，停过约 150ms，预览先排成“在星璃上面拆一组”再换成搬到右栏
+ * （第 9 轮并进 master 后整幕重演三遍里两遍；负载高、帧率低时指针一步跨过去，看不出来）。
+ */
+const railVia = (): readonly Point[] => {
+    const slot = desk.value?.target("auxiliary-rail") ?? null;
+    const region = desk.value?.target("auxiliarybar") ?? null;
+    return slot === null || region === null ? [] : [{x: slot.left + slot.width / 2, y: region.bottom - 40}];
+};
 
 /** 艾莉丝的窗开在状态栏上方：拉右上角的手柄，收到作品树下面那一块。 */
 async function shrinkAlice(signal: AbortSignal): Promise<void> {
@@ -731,7 +741,7 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(900, signal);
             illuminate([{rect: desk.value?.target("explorer-entry") ?? null, mark: "corners"}, {rect: desk.value?.target("auxiliary-rail") ?? null, mark: "slot"}]);
             await wait(1400, signal);
-            if (!(await drag("explorer-entry", railDrop, signal, {before: darken}))) desk.value?.moveExplorer("auxiliarybar");
+            if (!(await drag("explorer-entry", railDrop, signal, {before: darken, via: railVia}))) desk.value?.moveExplorer("auxiliarybar");
             darken();
             hidePointer();
             await wait(900, signal);
