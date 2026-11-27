@@ -1,0 +1,132 @@
+# w00053 t06 设计审查（Opus）报告：plan.md 副本 /tmp/review-w00053-t06-design/plan.md
+
+## 1. [阻断] 跨进程送数：入口停止时“先送最后一批”在内核里必然以 cancelled 结束
+- 类别：依赖的机制（维度 2）、遗漏（失败路径）
+- 位置：计划 3.2“送数端”最后一句；9“风险”第一条；3.4 release 交当天值
+- 现象：送数端用自己的 context.remote 调 `nbook.stats/record`。内核给入口自己的远程访问绑的是 `attempt.scope.stopSignal`（packages/nb-runtime/src/plugins/host.ts:586）。客户端方法把它和调用的 signal 连起来（remote/node.ts:618），signal 已中止时请求立即按 undispatched 结算成 `cancelled`（node.ts:756、peer.ts:117）。入口一停（含整个运行实例停止，host.ts:612 的注释写明“它与全部子作用域的停止信号同步触发，早于按依赖顺序释放门面”），release 和 onStop 里再发的调用都拿到 cancelled。routing.test.ts:607 已经测了“调用方入口停止时请求以 cancelled 结算”。
+- 影响：项目子进程关项目就是整个实例停止，所以 Spec 输出 8“项目关闭时交出当天到此刻为止的值”和“应用正常退出前已攒的记数被写入”，在项目与窗口两个位置都做不到。每次关项目都会丢掉最后不到 5 秒的批，以及 release 里交出的当天字数。9 节说“S3 先跑探针确认顺序”，可它查的是依赖顺序；信号在依赖顺序之前就触发，探针确认不了这一点。
+- 如何核实：读上面几行；或者照 routing.test.ts:607 写一条“release 里调写方法”的用例。
+- 建议改法：照 storage 的做法（storage/backend/plugin.ts:56 的 `context.remote.on(consumer)`）。送数端按调用方各给一个门面（provideServicePerConsumer），送数时以调用方身份走 `context.remote.on(consumer).use(recordContract)`，入口声明 `remoteDelegates: [recordContract]`。在门面的 release 里送出这个调用方的最后一批。内核保证“代理门面的释放函数运行期间经代理的调用仍可用”（delegation.test.ts:224），projects 的 stats-writer 在 release 里写记录就是靠这一条。顺带的好处：服务端从内核填的 consumer.plugin 得到插件 id，不用信请求体里的插件 id（见第 9 条）。另外还要用探针确认：服务端整体退出时，项目子实例的收口是否早于服务端 stats 入口撤回远程提供项。否则子进程最后一批拿到的是 not-provided。
+
+## 2. [重要] 错误码计数在现有代码里几乎数不到东西，也接不住提案 4.4 要的“内核与启动早期的失败”
+- 类别：与已定设计一致（维度 1）、依赖的机制（维度 2）
+- 位置：计划 3.1“code 的来源”“登记之前的不补交”；3.3
+- 现象：
+  (a) 只认 `data.code`。我扫了 neuro-book、nb-host、nb-runtime 里写字面级别的 error、fatal 记录，约 25 处，只有 2 处带 `data.code`：projects/project/stats-writer.ts:130 `projects.stats.write-rejected`，以及 workbench grid-diagnostics 的 `notify-failed`。带 code 的大多是 warn。
+  (b) 内核的机制事件都不带 `data.code`：diagnostics/store.ts:353 的 `lifecycle.failure`、:366 的 `services.diagnostic`、:390 的 `plugins.diagnostic`、:423 的 `application.*-emergency`。它们的码在 `data.reason`（例如 activation-threw），或在 `error.code` 里，而计划明确不取 error.code。
+  (c) 观察者要等统计入口激活时才登记。在它之前和与它并发激活的插件，激活失败都已经记过了，计划又写了“不补交”。
+  (d) 拥有者取 `origin.plugin`。诊断服务不是按调用方给的门面（diagnostics/plugin.ts:76），plugin 要调用方自己填。上面 error 记录里只有 7 处填了，其余都会算成 `runtime`，比如 server/projects/manager.ts、plugin-platform/backend/inventory.ts。
+- 为什么是问题：提案 4.4 选“在一处观察”，理由正是“覆盖到内核与启动早期的失败”。按计划实现，输出 10 和以后第一阶段遥测唯一的“稳定性”类会接近空集，测试照样能过，因为 S4 是自己造一条带码的错误。
+- 如何核实：`grep -rn -A8 '\.record({' packages/*/src` 后筛 level 与 code；再读 store.ts 第 340 到 432 行。
+- 建议改法：码按顺序取 `data.code`、机制事件的 `data.reason`（只限 lifecycle、services、plugins 三个事件名）、`error.code`（脱敏之后，用同一条正则）。`observe` 加 `{replay: true}`，把登记时还在有界缓冲里的记录按同一形状补交一遍。交付形状加上 `sequence`，好让补交与实时交付去重。Spec 写的“登记之前的记录不补交，可以用查询读到”还成立，只是统计插件不该自己用 query 读 data，那样违反输出 10。拥有者为空时，机制事件用 `source.plugin` 或 `data.plugin`，都没有才记 `runtime`。另外在 S4 里补一条真实运行时的用例：让一个插件激活失败，看 `runtime:activation-threw` 这一类的计数。
+
+## 3. [重要] 模型用量：包在 Agent 的端口外面会漏掉 plot 插件的真实请求；端口上没有 complete；重试按次数计
+- 类别：依赖的机制（维度 2）、接口与合同（维度 3）
+- 位置：计划 3.5
+- 现象：
+  (a) plot 插件的服务端直接拿 `modelsKey` 的 `port()` 发请求（plugins/plot/backend/server.ts:101–102、:78 的 `resolution.call`），带 usage 和 cost，完全不经过 agent.ts:250 包过的 `models`。仪表盘上“按模型的请求数、token 与费用”会少算这一块，用户按它对账会对不上服务商的账单。
+  (b) `ModelPort` 只有 `resolve(query)`，解析结果只有 `call`（nb-harness/src/kernel/api/model.ts:208、:276），没有可包的 `complete`。`complete()` 是内核 session/complete.ts 的函数，同样经 `call` 发出。计划写“call 与 complete 都包”，实现者可能去找一个不存在的接口，或者以为要包两层而重复计数。
+  (c) 内核的重试（run/loop.ts:361、run/model-call.ts:199，次数上限 `modelRetries`）每次都重新调 `resolution.call`。所以一次带 2 次重试才成功的逻辑请求，会记成 3 次请求、2 次失败。适配器内部的多次 HTTP 合在一次 call 里（model/omp.ts:500 的 `requests <= 1`）。计划没定“请求数”数的是 HTTP 尝试、内核调用还是逻辑请求。
+  (d) `usage.complete === false`（流中途中止、首事件超时，omp.ts:460、:485）时 token 是不全的或为 0，计划照样加，也不另记，结果是少算而且看不出来。
+  (e) 外层包在 `traceModelPort` 之外。`recorder.start` 抛错时（port.ts:43）请求根本没发出，外层却会记一次失败。
+- 如何核实：读上面几处；`grep -rn "modelsKey" packages/neuro-book/src/plugins`，plot 是 Agent 以外唯一的消费者。
+- 建议改法：把计数放到唯一的出口，在 `nbook.models` 的 `port()` 里包，或给 port() 加一个由统计接入的观察者。这样 Agent、plot 和以后的消费者都算得到。指标由 models 插件声明，Spec 输出 9 的主语要从“Agent 插件”改掉，这条交开发者确认。如果坚持放在 Agent，至少要在 plot 里补同样的包装。另外要定口径：请求数按 `call` 次数（重试各算一次，与账单一致），失败只数最终失败、或者另设 `model-retries`，二选一写进 Spec。`usage.complete` 为假的另记 `incomplete-usage-requests`。包装放在 trace 里层，紧贴 resolution。
+
+## 4. [重要] 验收映射：真实项目子进程里没有可换的时钟，“ManualClock 23:59 记、00:00 后送达”与“跨过午夜”写不出来
+- 类别：验收映射（维度 6）
+- 位置：计划 6 节的“输出 3、验收 1”与“输出 8、验收 3”两行；7 节“真实进程”
+- 现象：项目子进程的时钟写死成 `systemClock`（packages/neuro-book/src/project/start.ts:147 `{id: "host.clock", key: clockKey, create: () => systemClock}`）。测试入口 project/testing/fixture-entry.ts 只能加故障插件和探针插件，换不了宿主能力。server/testing/projects.ts:145 的 ManualClock 是服务端那一侧的（交给 manager 的 `projectClock`，只管启动、停止超时之类的计时，manager.ts:212），进不了子进程。
+- 为什么是问题：S3、S5 的自跑验证写的是“真实项目子进程”。照现状只能二选一：等真实午夜，或者退回进程内替身。后者正是 7 节说要避免的。这个缺口要等写用例时才会发现，到时候很容易悄悄改成替身，或者把断言放宽。
+- 如何核实：读 start.ts:139–160 和 fixture-entry.ts。
+- 建议改法：S3 之前先加一个只给测试用的接缝，在计划里写清楚。例如 fixture-entry 读 `NBOOK_TEST_PROJECT_CLOCK`，起一个能经测试远程合同推进的手动时钟，作为 `host.clock`，产品入口不受影响。也可以把“归日”拆开：送数端带日期的逻辑用进程内的真实 remote 节点对测（nb-runtime/remote/testing），真实子进程只测“带来的日期原样落到那一天”（23:59 记、把送达拦到 00:00 之后）。后一种不用改宿主，但要在映射表里写明不是同一条用例。
+
+## 5. [重要] 指标声明的可见性已经能定：入口上的声明服务端看不到，“描述级贡献”应当是设计本身，不是后备
+- 类别：依赖的机制（维度 2）、接口与合同
+- 位置：计划 3.2“指标声明”；9 节最后一条风险（S2 开工先探针）
+- 现象：每个运行位置登记的是该位置自己的那份 PluginDefinition，只含本位置的入口，例如 bots 的 backend/plugin.ts 与 web/plugin.ts 各是一份。`definitionAt`（plugin-platform/shared/definitions.ts:27–36）只把描述上的顶层 `contributions` 和 `contributionPoints` 并进每个位置，没写本位置的插件也登记顶层贡献（`pluginsAt` 第 19 行）。所以项目入口、浏览器入口上声明的指标，服务端的 `declarations.list` 看不到；顶层声明三处都看得到。
+- 为什么是问题：项目插件的字数指标、浏览器侧插件的指标，如果按计划默认写在入口上，服务端校验会把它们当“未声明”整批丢掉（3.2“校验”）。计数调用不报错、计数不落盘，也不写诊断，只在 status 详情里有一个数，排查很难。还有两处语义要跟着定：(1) 顶层声明和入口激活无关，Spec 的“声明者被停用后不再接受记数”要换成“插件不在本位置的清单里”，或者改由热插拔判断；(2) 声明校验函数只看单条（plugins.md 输出 23），“标签取值超过上限不生效”可以放进 point 的 validate，“id 不以声明者的插件 id 开头”要靠 `idPrefix: "plugin"`，这两条要分别写清楚。
+- 如何核实：读 definitions.ts:15–37，对照 bots/plugin.ts 的 `contributions`（顶层）和 bots/backend/plugin.ts:47（入口上的）。
+- 建议改法：3.2 直接规定指标一律写在插件描述的顶层 `contributions`，`architecture.test.ts` 或贡献点的校验拒绝写在入口上的 `nbook.stats.metrics`。删掉 9 节这条风险和 S2 的探针。验收映射里给“声明者被停用”补一条用例，或者把它标成 planned。
+
+## 6. [重要] 字数：前一天的值只靠换日回调和关闭时那一次交，崩溃、跨日重开和多日休眠都会丢；“总字数”按项目往后带的口径会一直累加已移出的项目
+- 类别：遗漏（失败路径）、别扭之处
+- 位置：计划 3.4
+- 现象：
+  (a) 项目某天开着、当晚关掉，第二天再打开时，stats-tracker.ts:543 的 `openingToday` 直接把 today 换成新日期，基线取 `initial.words`，不经 `rollover()`，所以 `onDayClosed` 不会触发。前一天的值只能靠 release 时那一次交。这一次在第 1 条之下必定失败，进程被杀或崩溃时也不会执行。可是 `projects.stats` 记录里存着前一天的 `today.date`、`baseline`、`words`（最多每 30 秒落一次盘），现成的数据没有用上。
+  (b) 机器睡过两个午夜：`rollover()` 只交 `today.date` 那一天，中间那天项目是开着的，却成了缺测。Spec 写的是“整天没打开才缺测”。
+  (c) `rollover()` 在首扫完成前取的是 `initial?.words`（stats-tracker.ts:159）。计划写 `added: words - baseline, total: words`，实现时要用 rollover 里的 `current`，不能用 `total`；首扫前 `total` 是 0。
+  (d) 3.4 末尾：“总字数”取每个项目截至那天最后一次交的值相加。读近 30 天时，要往前读所有历史日，才能知道每个项目的“最后一次”（keyed 按日存，没有按项目的索引）。被移出书架或已删除的项目，最后那个总数会永远算进去，曲线只增不减，和用户书架上的总字数对不上。
+- 如何核实：读 stats-tracker.ts:106、156–163、543–547，以及 projects.md 输出 16 的持久化一节。
+- 建议改法：(a) 项目入口激活读到 `initial` 时，如果 `initial.today.date` 不是今天，先交 `daily(initial.today.date, initial.words - initial.today.baseline, …)`。这一步幂等，留最后一次，能兜住崩溃和最后一批失败。(b) 跨多日时，中间各天交 `added: 0` 与当时的总数，或者在 Spec 里写明是已知限制。(d) 总字数改成每天只按当天交过数的项目相加，缺的那几天在视图里画成缺测，不往后带；或者由服务端在写入时维护“各项目最近一次的总数”这一份单独记录，移出项目时清掉。哪种口径交开发者在 S8 设计评审里定，Spec 输出 8 要写清楚。
+
+## 7. [建议] 存储：日期列表和日记录是两条记录，不是原子写，清除后可能留下孤儿日、之后又“复活”；单日 256 KiB 是所有插件共用的预算
+- 类别：遗漏（并发、失败路径）、接口
+- 位置：计划 3.2“存储”“清除”“校验”
+- 现象与理由：
+  (a) 一次落盘要写 `stats.day/<日>` 和 `stats.days` 两条记录，计划没定先后。先写日记录、后写列表时，中途失败或进程被杀，那一天有数却不在列表里：范围读不读它（列表驱动），清除也删不到它。下次同一天再写，`update` 读到这份孤儿值，在上面累加，清除前的数就回来了。先写列表、后写日记录才是安全的顺序：列表里多出的日子读出来是 missing，等于空集。
+  (b) 一天所有插件、所有指标挤在一条记录里，上限 256 KiB。开放标签每个指标每天 50 个，“拥有者:码”最长约 130 字节。几十个指标加上第三方插件声明的指标就可能超限，超了就是 `too-large`。按 3.2“降级”的规则，这会让当天整批丢弃、整个统计进入降级，一个插件的量拖垮所有人的记数，也看不出是谁。
+  (c) 开放标签“每日至多 50 个不同取值”要知道当天已经存了哪些标签。服务端重启后如果只看内存，当天还能再进 50 个。
+  (d) 代价本身不大：服务端的 `open` 只是登记定义（storage/backend/owner.ts:56，同步），读一年是约 365 次 SQLite 单行 select，排在写者队列上能接受。所以“365 次 open”不是问题，问题在上面三条。
+- 如何核实：persistence.md 输出 1、4、8 与 owner.ts:56；计划 3.2 没写写入顺序。
+- 建议改法：写明顺序是先列表、后日记录；清除是先删日记录，最后删列表，失败可以重跑。或者干脆不要列表：范围内的日期可以算出来，“全部”另存一个最早日期，清除时从最早日期逐日删。单日记录按声明者分开，资源 id 写成 `<日>.<插件 id 的短哈希>`，超限只影响一个声明者；也可以在校验层给每个声明者每天定一个字节预算，超了按“丢弃”计数。开放标签上限从当天的记录里恢复，写进计划。
+
+## 8. [建议] 诊断观察者：挂接点写成“#dispatch 之后”有歧义，重入没有防护，统计的送数不该在观察者的调用栈里触发
+- 类别：接口与合同、遗漏（重入）
+- 位置：计划 3.1“交付时机”；3.2 送数端“5 秒或 200 条一送”；3.3
+- 现象与理由：
+  (a) `#dispatch` 不只被 `record()` 调用，`attach()` 补写挂接前缓冲时也逐条调用它（store.ts:203–205）。如果实现者照字面把观察者挂进 `#dispatch`，挂接前缓冲里的记录在 attach 时会再交一遍，违反“登记之前的不补交”，也会重复计数。应该写明挂在 `record()` 里、`#dispatch(record)` 返回之后，并在 S1 里补一条“attach 补写不会触发观察者”的用例。
+  (b) 观察者在 `record()` 的调用栈里同步执行。观察者里间接又记诊断时（统计本身不会，但“同一实例的其它插件可以登记”），会重入 `record()`，在遍历中途再次进入观察者列表。计划只写了“抛错不写诊断”。服务端诊断插件还把 `console.warn`、`console.error` 桥接进记录（Spec 实现合同），观察者里一句 console.error 就会递归。应当遍历列表的快照，并加一层深度保护：重入时只计数或丢弃，不再交付。
+  (c) 送数端满 200 条就送：如果这个判断在 `countLabeled` 里同步发起远程调用，那么一次 error 的诊断记录就会在 `record()` 的调用栈里起一个远程请求（同步路径上的 `remember()`、拒绝分支会记插件诊断，host.ts:593）。送数应当一律排到微任务或计时器里，观察者只改内存里的计数。
+  (d) 3.1 的观察形状里有 `instanceId`，统计用不到。按 ADR 0062 “按能不能认出人分级”，没用到的身份字段不该交出去，可以去掉，或者写明用途。
+- 如何核实：读 store.ts:107–128、175–206。
+- 建议改法：照上面逐条写进 3.1 与 S1 的用例清单。
+
+## 9. [建议] 清除与在途的批、请求体里的插件 id、客户端的 status()
+- 类别：遗漏（并发与跨进程）、接口
+- 位置：计划 3.2“清除”“送数端”“记数服务”
+- 现象与理由：
+  (a) `clear()` 只丢服务端内存里的批。项目、窗口两侧最多 5 秒的批照样会送到，而且带着清除之前的日期，写进刚清空的那些日子。Spec 输出 14 说“清除后仪表盘为空”，用户点完清除，几秒后旧日期又冒出数字。要么服务端记一个清除点，丢弃“发生时刻早于清除点”的记数，这需要送数时带上毫秒时间，而不只是日期；要么在 Spec 里写明清除前在途的少量记数可能留下来。
+  (b) 送数“每条带插件 id”，服务端拿它做“不是声明者记的丢弃”。提供方从 `consumer.plugin` 只能看到 `nbook.stats`，所以是在信请求体。Spec 的信任边界说 owner 检查是防误用，但这里的误用不只来自插件：客户端实现有 bug，或者第三方插件直接调 `nbook.stats/record`，都会记到别人名下。照第 1 条改用代理身份之后，服务端读 `consumer.plugin`，再核对 `via` 是 `nbook.stats`，请求体里不再需要插件 id。
+  (c) 客户端门面的 `status(): "ok" | "degraded"` 是同步的，项目和窗口拿不到服务端的降级状态。计划没写客户端返回什么：本地少计、服务端降级，还是一律 "ok"。Spec 输出 11 说可用状态可查询，要么给客户端一个异步的 `status` 走只读合同，要么写明 `status` 只在服务端有意义。
+- 如何核实：计划 3.2；remote/node.ts:614 的帧里 `$nbConsumer` 由内核填。
+- 建议改法：照上面逐条在 3.2 与 Spec 状态一节写清楚。
+
+## 10. [建议] 开放标签让 `other` 有两种含义；按项目、按服务商的标签是稳定的标识，要给以后的遥测留出不可上报的标记
+- 类别：与已定设计一致（维度 1）、上游选择（维度 8）
+- 位置：计划 3.2“指标声明”；3.4 `projectLabel`；3.5 标签取 `response.model`
+- 现象与理由：
+  (a) Spec 输入与提案 4.4 都只有“列出取值，其余记 other”这一种。开放标签的 `other` 却是“当天第 51 个起的取值”，哪些进 `other` 取决于当天先到的是谁，三处送数的到达顺序还会变。同一个模型今天有名字，明天可能就在 `other` 里，视图和遥测都没法区分这两种 `other`。遥测在上报时还会再把“不在收集清单里的”归进其他（提案 4.4“标签”），三种来源叠在一起。
+  (b) 项目 id 已经能确定不由项目名派生：它是 `randomUUID()` 写进 `.nbook/project.json` 的（projects.md:30，server/projects/registry.ts:134）。计划里“实施时先核对”这一步可以删掉。但它是一个跨天稳定、跟着目录走的标识，服务商 id 又“由名称生成”（models/service.md 输出 5），用户自己起的名字会出现在 `response.model` 里。现在本机存没有问题，可 ADR 0062 按“能不能认出人”分级，以后有人往收集清单里加 `nbook.projects.words-added`，就会把这类标签一起带出去。
+- 如何核实：读 Spec stats/local.md 输入第 1 条与输出 2；提案 4.4“标签”；registry.ts:134；models/service.md:106。
+- 建议改法：开放标签溢出时记到一个单独的保留名（例如 `$overflow`），和列表模式的 `other` 分开，Spec 输出 2 写明两种。声明里加一个 `local: true`（或 `reportable: false`），给标签是项目 id、服务商 id 这类本地标识的指标用。以后的遥测清单测试（提案 4.4“遥测只读”那条应用侧测试）拒绝把这类指标列进清单。这一条交开发者确认，因为它改的是指标声明的公开形状。
+
+## 11. [建议] 验收映射：几条 Spec 判据没有对应用例，验收 4 在真实运行时里没法只让“统计的存储”不可写，导入规则用的是黑名单
+- 类别：验收映射（维度 6）
+- 位置：计划 6 节、3.6
+- 现象与理由：
+  (a) 没映射到的判据：状态一节的“声明者被停用后不再接受记数、数据仍可读”；“应用正常退出前，已攒的记数被写入”（服务端在 release 里写最后一批，客户端见第 1 条，表里都没有）；“指标在登记之前的记数被丢弃”。
+  (b) 验收 4 是“让统计的存储不可写：保存项目、发模型请求都成功”。统计的记录和 `projects.stats`、设置、Agent 等其它插件的 user 记录在同一个 `<状态根>/storage/user.sqlite` 里（persistence.md“落点”）。在真实存储上让它不可写，等于让整个 user 分区不可写，项目入口的 stats-writer、Agent 也会一起降级，这条用例测的就不再是“统计软依赖”。表里 S2 只测统计自己，没有覆盖“保存项目、发模型请求成功”这半句。要选一个只作用于统计记录的故障注入。现成的办法：用超过 `maxBytes` 的值得到 `too-large`，或者 S2 的测试世界换一个只拦 `nbook.stats` owner 的 StorageService 包装（替身要与真实实现对过契约）。然后在同一个运行实例里发一次真实的项目保存和模型请求（模型用测试端口）。
+  (c) 3.6 按黑名单查 `node:net` 这类模块和“带网络的第三方包”，后者没有清单，也就没法机检。现有 architecture.test.ts 对插件平台用的是白名单（`PLATFORM_ALLOWED_PACKAGES`，第 174 行）。stats 目录可以照这个做：只许 `@notnotype/nb-runtime/*`、`typebox`、`vue`、`@notnotype/nb-ui*`、`nbook/shared/*` 和本插件的相对路径，再禁 `fetch`、`WebSocket` 等全局名，并照该文件第 204、258 行的做法，给每条规则配一个“能拦下违规”的反例。`globalThis.fetch`、`Bun.connect`、动态 `import("node:http")` 也要落进规则。
+- 如何核实：对照 Spec stats/local.md“状态与转换”和“验收”与计划 6 节逐行比对；读 architecture.test.ts:165–190。
+- 建议改法：照上面三点补进 6 节和 S2、S3、S7。
+
+## 12. [重要] 输入校验缺失：一个 NaN、Infinity 或乱写的日期就能让当天整条记录写不进去，进入反复降级
+- 类别：遗漏（异常输入）
+- 位置：计划 3.2 记数服务签名、“校验”“降级”
+- 现象：`count(metric, by?)`、`daily(metric, day, value, label?)` 只写了“同步返回、不抛错”，没写 `by`、`value`、`day` 的合法范围。值是一天一条记录的 JSON（3.2“存储”）。累加进 NaN 或 Infinity 后，JSON 编码成 null（persistence.md 要求“JSON 能如实表示”），这一天的整条记录就是 `invalid-value`。按 3.2“降级”，这一批丢掉、进入降级；之后每 5 秒的新批都在同一条坏的内存累加上重来，或者把当天所有插件的数一起丢掉。负数的 `by` 会把计数减成负的；小数让“次数”不再是整数；`day` 写成 `2026-13-40` 或远未来日期，会生成合法的资源 id 和孤儿日（资源 id 规则只查字符集）。经远程送来的批也一样，合同的 schema 如果没有收紧，会把这些值原样带过来。
+- 为什么是问题：Spec 输出 11 的软依赖承诺的是“声明者的业务不受影响”，现在一个声明者的一次误用会让所有声明者当天的数都丢掉。这和 3.2“被丢弃的只计一个内存计数”的思路也不一致。
+- 如何核实：计划 3.2 只给了签名；persistence.md“值必须是 JSON 能如实表示的数据”与失败码 `invalid-value`。
+- 建议改法：门面和远程合同的 schema 都要校验：`by` 是 1 到某个上限的安全整数（缺省 1）；`value` 是有限数，字数类声明成非负整数；`day` 合 `^\d{4}-\d{2}-\d{2}$`，日期真实存在，并且落在“今天前 N 天到今天加 1 天”之内（允许时区与午夜的抖动）。不合格的按“丢弃”计数，不进累加。累加用整数，超过 `Number.MAX_SAFE_INTEGER` 就封顶。S2 补上这几种异常输入的用例。
+
+## 排序说明与未发现问题的方面
+- 按影响排的先后是：1（阻断）；2、3、4、5、6、12（重要）；7、8、9、10、11（建议）。条目按核实的先后追加，所以 12 排在最后，但它属于重要一档。
+- 未发现问题的方面：
+  - `locality: "shared"` 与 user 分区。服务端没有客户端身份，`local` 根本打不开（persistence.md 字段表），数据随状态根，这个选择是对的。
+  - keyed 按日的资源 id `YYYY-MM-DD` 合资源 id 规则。
+  - 按日读一年的代价：服务端 open 只是同步登记，读是单行 select，可以接受。
+  - 可选依赖的收口顺序本身：依赖者先释放，提供者的门面后释放（plugins.md 输出 13）。项目入口 release 时调 `daily` 能进到送数端的门面，问题出在之后的远程送出，见第 1 条。
+  - 远程写请求在帧发出后中断一律 `unknown-outcome`、不自动重试（protocol.ts:64–71）。“结果不明不重放”靠它成立，只要送数端自己也不重试。
+  - 分叉不重复计数：计数挂在 `call` 上，分叉不重新调用模型。
+  - 项目标签用的内部 id 是随机 UUID，不由项目名派生。
+  - `localDate` 挪到 `src/shared/`，正好消除 project 入口导入 `backend/shelf.ts` 的跨位置引用。
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12
