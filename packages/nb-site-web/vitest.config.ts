@@ -18,6 +18,9 @@ export default defineConfig({
         // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时不可用，还会盖住 happy-dom 的；关掉它。
         execArgv: ["--no-experimental-webstorage"],
         include: ["src/**/*.dom.test.ts"],
+        // 单条用例的上限：第一次进按需加载的页面（看板连同 ECharts）要现编译，机器忙时能到好几秒。要大于装置里等页面落定的上限
+        // （`src/testing/site-harness.ts` 的 `SETTLE_TIMEOUT_MS`），等待自己超时才报得出卡在哪。
+        testTimeout: 15_000,
         setupFiles: [testSupport],
         globalSetup: [testSupport],
     },

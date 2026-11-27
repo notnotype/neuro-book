@@ -196,6 +196,9 @@
             "todayReports": "今日上报",
             "noReports": "没有上报",
             "emptyToday": "今天还没有上报",
+            "noUsageReports": "今天没有带使用统计的上报",
+            "retryPanel": "重试：{{panel}}",
+            "failedSummary": "有 {{count}} 块统计取不到",
             "active": {
                 "title": "活跃",
                 "daily": "日活跃",
@@ -208,7 +211,7 @@
                 "title": "在线",
                 "meta": "近 24 小时",
                 "series": "心跳次数",
-                "label": "近 24 小时每 15 分钟的在线心跳次数",
+                "label": "近 24 小时每 {{minutes}} 分钟的在线心跳次数",
                 "empty": "近 24 小时没有心跳",
                 "hour": "{{hour}} 时"
             },

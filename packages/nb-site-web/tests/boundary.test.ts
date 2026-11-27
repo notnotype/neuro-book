@@ -3,9 +3,10 @@
  * 合同包换语言后仍然留着。按白名单检查，规则与理由在本包的 `AGENTS.md`，与合同测试包的 `boundary.test.ts` 同一种写法：
  * 以后新增的模块包、应用包、内核包不在名单上，进前端就失败，不用等谁想起来改禁止名单。
  *
- * - `src/` 的源码（`.ts`、`.vue`，连同将来放在这里的组件测试）：`@notnotype/*` 只许 nb-ui（含子路径）、账号合同包的 `./constants`
- *   与统计合同包（含子路径），第三方包不限；不许 `bun:`、`node:`，它们在浏览器里没有，要到构建或运行时才失败。账号合同包的
- *   入口 `.` 带着全部 schema 与 TypeBox 的运行时，只取一个常量也会整个打进访客的入口块（B2 审查第 11 条，量过）。
+ * - `src/` 的源码（`.ts`、`.vue`，连同将来放在这里的组件测试）：`@notnotype/*` 只许 nb-ui（含子路径）与两个合同包各自的
+ *   `./constants`，第三方包不限；不许 `bun:`、`node:`，它们在浏览器里没有，要到构建或运行时才失败。合同包的入口 `.` 带着全部
+ *   schema 与 TypeBox 的运行时，只取一个常量也会整个打进访客的入口块（账号合同包，B2 审查第 11 条）或看板块（统计合同包，
+ *   B5 审查第 12 条），两处都量过。
  * - ECharts（连同它的渲染库 ZRender）只许 `src/pages/admin/dashboard/charts/echarts.ts` 在运行时导入，别处只许 `import type`：
  *   按需导入的清单在那一个文件里，别处一条 `import "echarts"` 就把整包（约 390 KB gzip）带进来，导入了图表模块的页面也会把它带进
  *   自己的块。体积与“只在看板的块里”另由 `tests/build.test.ts` 量。
@@ -27,8 +28,8 @@ import {offendingSpecifiers, type ImportRule} from "@notnotype/neuro-book-test-s
 
 const PACKAGE_ROOT = join(import.meta.dir, "..");
 
-/** 浏览器代码能导入的工作区包：nb-ui 与统计合同包含子路径，账号合同包只许不带 schema 的 `./constants`。 */
-const BROWSER_WORKSPACE = /^@notnotype\/(?:(?:nb-ui|nb-site-telemetry-contract)(?:\/|$)|nb-site-identity-contract\/constants$)/u;
+/** 浏览器代码能导入的工作区包：nb-ui 含子路径，两个合同包只许不带 schema 的 `./constants`。 */
+const BROWSER_WORKSPACE = /^@notnotype\/(?:nb-ui(?:\/|$)|nb-site-(?:identity|telemetry)-contract\/constants$)/u;
 /** 跑在 Bun 或 Node 里的测试与配置能导入的工作区包（含子路径）：fixture 要用账号合同的 schema 检查形状。 */
 const FRONTEND_WORKSPACE = /^@notnotype\/(?:nb-ui|nb-site-identity-contract|nb-site-telemetry-contract)(?:\/|$)/u;
 /** 工作区包与平台内置模块以外的说明符，即第三方包。 */
@@ -118,7 +119,7 @@ describe("前端的依赖边界", () => {
         expect(findings()).toEqual([]);
     });
 
-    it("反例：别的工作区包、浏览器代码里的平台内置模块与账号合同包的整包入口、图表模块以外导入 ECharts、样式里导入别的包都被拦下；nb-ui、合同包允许的入口与第三方包不算", () => {
+    it("反例：别的工作区包、浏览器代码里的平台内置模块与两个合同包的整包入口、图表模块以外导入 ECharts、样式里导入别的包都被拦下；nb-ui、合同包允许的入口与第三方包不算", () => {
         const main = join(PACKAGE_ROOT, "src", "main.ts");
         const blocked = [
             "@notnotype/nb-site-identity",
@@ -131,9 +132,11 @@ describe("前端的依赖边界", () => {
             "node:fs",
             "@notnotype/nb-site-identity-contract",
             "@notnotype/nb-site-identity-contract/src/fields",
+            "@notnotype/nb-site-telemetry-contract",
+            "@notnotype/nb-site-telemetry-contract/src/ingest",
         ];
         for (const specifier of blocked) expect({specifier, offending: offendingSpecifiers(main, importStatement(specifier), BROWSER_RULE)}).toEqual({specifier, offending: [specifier]});
-        for (const specifier of ["@notnotype/nb-ui/theme", "@notnotype/nb-site-identity-contract/constants", "@notnotype/nb-site-telemetry-contract", "vue"]) {
+        for (const specifier of ["@notnotype/nb-ui/theme", "@notnotype/nb-site-identity-contract/constants", "@notnotype/nb-site-telemetry-contract/constants", "vue"]) {
             expect({specifier, offending: offendingSpecifiers(main, importStatement(specifier), BROWSER_RULE)}).toEqual({specifier, offending: []});
         }
 

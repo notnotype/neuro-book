@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<{rows: readonly ShareBar[]; wide?: boolea
     <ul class="share-bars" :class="{'share-bars--wide': props.wide}">
         <li v-for="row in props.rows" :key="row.key" :data-site-share-bar="row.key">
             <span class="share-bars__name" :title="row.label">{{ row.label }}</span>
-            <span class="share-bars__track" :class="`is-${row.tone}`" aria-hidden="true"><i :style="{width: `${row.share * 100}%`}" /></span>
+            <span class="share-bars__track" :class="`is-${row.tone}`" aria-hidden="true"><i :class="{'is-some': row.share > 0}" :style="{width: `${row.share * 100}%`}" /></span>
             <span class="share-bars__share">{{ formatShare(row.share, locale) }}</span>
         </li>
     </ul>
@@ -68,6 +68,11 @@ const props = withDefaults(defineProps<{rows: readonly ShareBar[]; wide?: boolea
     height: 100%;
     border-radius: inherit;
     transition: width var(--motion-move) var(--ease-layout);
+}
+
+/* 不为 0 的比例再小也留一点颜色：0.04% 的崩溃按比例画不出来，看起来像没有。 */
+.share-bars__track i.is-some {
+    min-width: 2px;
 }
 
 .share-bars__track.is-series i {

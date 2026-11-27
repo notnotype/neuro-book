@@ -11,7 +11,7 @@ import type {LineSeriesOption} from "echarts/charts";
 import type {GridComponentOption, TooltipComponentOption} from "echarts/components";
 import type {ComposeOption} from "echarts/core";
 
-import {dayLabel, dayLabelInterval, isOnlineAxisTick} from "../model";
+import {dayLabel, dayLabelIndices, isolatedPoints, isOnlineAxisTick} from "../model";
 import type {ActiveChart, OnlineChart} from "../model";
 
 /** 看板两张图的配置：只含 `echarts.ts` 引入的几样，写了别的组件的配置类型检查就不过。 */
@@ -23,8 +23,8 @@ export interface ChartTheme {
     readonly font: string;
     /** 线尾名字、提示框里的字。 */
     readonly text: string;
-    /** 坐标轴上的字、指示线。 */
-    readonly muted: string;
+    /** 坐标轴上的字、指示线（`--text-secondary`：11 像素的字用更淡的 `--text-muted` 对面板底不到 4.5:1）。 */
+    readonly axis: string;
     /** 坐标轴线与网格线。 */
     readonly grid: string;
     /** 面板底色：提示框的底。 */
@@ -64,6 +64,8 @@ type TooltipFormatter = Extract<NonNullable<TooltipComponentOption["formatter"]>
 export type TooltipRenderer = (tooltip: Tooltip) => ReturnType<TooltipFormatter>;
 
 const AXIS_FONT_SIZE = 11;
+/** 孤立的点的直径：比两像素的线粗一圈，看得出是一个点；比鼠标停住时那个空心点（8）小。 */
+const ISOLATED_SYMBOL_SIZE = 6;
 
 function valueText(value: number | null | undefined, text: ChartText): string {
     return value === null || value === undefined ? text.noReports : text.count(value);
@@ -81,6 +83,19 @@ export function onlineTooltip(chart: OnlineChart, index: number, theme: ChartThe
     return {title: chart.times[index] ?? "", rows: [{name: text.online, color: theme.series[0], value: valueText(chart.counts[index], text)}]};
 }
 
+/**
+ * 数值轴：份数与心跳次数都是整数，刻度不出现 0.5 这样的小数（数小的头几天 ECharts 会自己取小数间隔），从 0 起。
+ */
+function countAxis(theme: ChartTheme, text: ChartText): NonNullable<ChartOption["yAxis"]> {
+    return {
+        type: "value",
+        min: 0,
+        minInterval: 1,
+        axisLabel: {color: theme.axis, fontSize: AXIS_FONT_SIZE, formatter: (value: number) => text.count(value)},
+        splitLine: {lineStyle: {color: theme.grid}},
+    };
+}
+
 /** ECharts 按坐标轴触发的提示框把这一格的类目下标放在每个参数的 `dataIndex` 上。 */
 function indexOf(params: unknown): number {
     const first: unknown = Array.isArray(params) ? params[0] : params;
@@ -91,7 +106,7 @@ function indexOf(params: unknown): number {
 function tooltipBase(theme: ChartTheme): NonNullable<ChartOption["tooltip"]> {
     return {
         trigger: "axis",
-        axisPointer: {type: "line", lineStyle: {color: theme.muted, type: "solid"}},
+        axisPointer: {type: "line", lineStyle: {color: theme.axis, type: "solid"}},
         backgroundColor: theme.surface,
         borderColor: theme.grid,
         padding: [8, 12],
@@ -100,6 +115,8 @@ function tooltipBase(theme: ChartTheme): NonNullable<ChartOption["tooltip"]> {
 }
 
 export function buildActiveOption(chart: ActiveChart, theme: ChartTheme, text: ChartText, motion: ChartMotion, render: TooltipRenderer): ChartOption {
+    const lines = [chart.daily, chart.weekly, chart.monthly];
+    const labelled = dayLabelIndices(chart.dates.length);
     return {
         animation: motion.animation,
         color: [...theme.series],
@@ -116,25 +133,38 @@ export function buildActiveOption(chart: ActiveChart, theme: ChartTheme, text: C
             boundaryGap: false,
             axisLine: {lineStyle: {color: theme.grid}},
             axisTick: {show: false},
-            axisLabel: {color: theme.muted, fontSize: AXIS_FONT_SIZE, interval: dayLabelInterval(chart.dates.length)},
+            axisLabel: {color: theme.axis, fontSize: AXIS_FONT_SIZE, interval: (index: number) => labelled.has(index)},
         },
-        yAxis: {
-            type: "value",
-            axisLabel: {color: theme.muted, fontSize: AXIS_FONT_SIZE, formatter: (value: number) => text.count(value)},
-            splitLine: {lineStyle: {color: theme.grid}},
-        },
-        series: [chart.daily, chart.weekly, chart.monthly].map((data, series) => ({
-            type: "line",
-            name: text.active[series],
-            data: [...data],
-            // 空值处断开（输出 7 在图上的样子）：缺的天不连线，也不画成 0。
-            connectNulls: false,
-            showSymbol: false,
-            symbolSize: 8,
-            lineStyle: {width: 2},
-            emphasis: {disabled: true},
-            endLabel: {show: true, formatter: "{a}", color: theme.text, fontSize: AXIS_FONT_SIZE, distance: 6},
-        })),
+        yAxis: countAxis(theme, text),
+        series: [
+            ...lines.map((data, series): LineSeriesOption => ({
+                type: "line",
+                name: text.active[series],
+                data: [...data],
+                // 空值处断开（输出 7 在图上的样子）：缺的天不连线，也不画成 0。
+                connectNulls: false,
+                showSymbol: false,
+                symbolSize: 8,
+                lineStyle: {width: 2},
+                emphasis: {disabled: true},
+                endLabel: {show: true, formatter: "{a}", color: theme.text, fontSize: AXIS_FONT_SIZE, distance: 6},
+            })),
+            // 孤立的点（前后都断开的那一天）在上面的线上画不出任何像素，另用一组只有这些点的系列画成实心的点。不并进上面的系列：
+            // 那边 `showSymbol` 一开，每个点都要画；关着时 ECharts 只在鼠标停住时临时画那一格的点，提示框的样子不变。
+            ...lines.map((data, series): LineSeriesOption => ({
+                type: "line",
+                data: isolatedPoints(data),
+                connectNulls: false,
+                showSymbol: true,
+                showAllSymbol: true,
+                symbol: "circle",
+                symbolSize: ISOLATED_SYMBOL_SIZE,
+                itemStyle: {color: theme.series[series]},
+                lineStyle: {width: 0},
+                silent: true,
+                emphasis: {disabled: true},
+            })),
+        ],
     };
 }
 
@@ -156,17 +186,13 @@ export function buildOnlineOption(chart: OnlineChart, theme: ChartTheme, text: C
             axisLine: {lineStyle: {color: theme.grid}},
             axisTick: {show: false},
             axisLabel: {
-                color: theme.muted,
+                color: theme.axis,
                 fontSize: AXIS_FONT_SIZE,
                 interval: (_index: number, time: string) => isOnlineAxisTick(time),
                 formatter: (time: string) => text.hour(Number(time.slice(0, 2))),
             },
         },
-        yAxis: {
-            type: "value",
-            axisLabel: {color: theme.muted, fontSize: AXIS_FONT_SIZE, formatter: (value: number) => text.count(value)},
-            splitLine: {lineStyle: {color: theme.grid}},
-        },
+        yAxis: countAxis(theme, text),
         series: [{
             type: "line",
             name: text.online,

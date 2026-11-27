@@ -50,7 +50,7 @@ const POPUP_SOURCES: readonly RegExp[] = [
     new RegExp(`${fromPackage("reka-ui").source}dist/(?:Dialog|AlertDialog|Menu|DropdownMenu)/`, "u"),
     /\/nb-ui\/src\/components\/(?:feedback\/(?:Dialog|AlertDialog)|popup\/DropdownMenu)\.vue$/u,
 ];
-/** 合同包的 schema 用的 TypeBox：浏览器只用合同包里的常量，产物里不该有它的运行时（`vite.config.ts` 的 `treeshake`）。 */
+/** 合同包的 schema 用的 TypeBox：浏览器只从合同包的 `./constants` 取常量（`tests/boundary.test.ts`），产物里不该有它的运行时。 */
 const TYPEBOX_SOURCE = fromPackage("typebox");
 /** 一定在入口块里的 nb-ui 组件：先确认认得出 nb-ui 的来源，免得上面那条因为路径写错而空过。 */
 const NB_UI_BUTTON_SOURCE = /\/nb-ui\/src\/components\/[^/]+\/Button\.vue$/u;

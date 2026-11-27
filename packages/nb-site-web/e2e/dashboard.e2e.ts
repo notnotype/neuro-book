@@ -2,7 +2,8 @@
  * 管理面板与看板的浏览器场景（t10 计划 3.5、3.13）：构建产物加假接口（`fake-api.ts`，数据在 `fixtures/dashboard.ts`），以管理员的会话
  * 打开 `/admin`，量 happy-dom 量不了的：两张 ECharts 图真的画在 canvas 上、鼠标停上去的提示框、换明暗之后重画、容器变宽之后跟着变、
  * 减弱动效下第一次就画完整；1440 与 1024 两种桌面宽、亮暗两种明暗下没有页面级的横向滚动；面板在加载、没有数据、出错、有数据
- * 四种状态下高度不变；暗色两组图表色对面板底的对比度。面板的状态、请求与地址在 `src/pages/admin/DashboardPage.dom.test.ts`。
+ * 四种状态下高度不变；前后都没有数据的一天画成点；留存的行放得下、版本与错误多了在面板里滚；两种明暗下图表色对面板底的对比度与
+ * 五档红的色相。面板的状态、请求与地址在 `src/pages/admin/DashboardPage.dom.test.ts`。
  */
 
 import {readFileSync} from "node:fs";
@@ -13,11 +14,18 @@ import type {Page} from "@playwright/test";
 import {DASHBOARD_PATHS} from "../src/pages/admin/dashboard/source";
 import {dashboardSucceeds, EMPTY_DASHBOARD_BODIES, fails, installFakeIdentity} from "./fake-api";
 import type {FakeAnswer, FakeIdentity} from "./fake-api";
-import {dashboardActive, MISSING_DAYS, ZERO_DAY} from "./fixtures/dashboard";
+import {dashboardActive, dashboardProblems, LAST_DAY, MISSING_DAYS, ZERO_DAY} from "./fixtures/dashboard";
 import {box, boxes} from "./geometry";
 
 const zhCN = JSON.parse(readFileSync(new URL("../src/locales/zh-CN.json", import.meta.url), "utf8")) as {
-    readonly admin: {readonly dashboard: {readonly noReports: string; readonly active: {readonly daily: string; readonly weekly: string; readonly monthly: string}}};
+    readonly admin: {
+        readonly dashboard: {
+            readonly noReports: string;
+            readonly active: {readonly daily: string; readonly weekly: string; readonly monthly: string};
+            readonly versions: {readonly title: string};
+            readonly errors: {readonly title: string};
+        };
+    };
 };
 
 const PANELS = ["today", "active", "online", "versions", "systems", "retention", "errors", "crashes", "upgrades"] as const;
@@ -217,6 +225,106 @@ test("减弱动效：第一次画出来就是整条线，不从左往右展开",
     expect(first.hits).toBeGreaterThan(0);
 });
 
+/** 活跃图画布上横坐标在 `[from, to)`（相对容器的 CSS 像素）里的一条竖带中，三条序列色各有几个像素。 */
+async function seriesPixels(page: Page, from: number, to: number): Promise<number[]> {
+    return page.locator('[data-site-chart="active"]').evaluate((host, [left, right]) => {
+        const canvas = host.querySelector("canvas")!;
+        const scale = canvas.width / canvas.getBoundingClientRect().width;
+        const style = getComputedStyle(host);
+        const probe = document.createElement("canvas").getContext("2d")!;
+        const rgb = (color: string): number[] => {
+            probe.fillStyle = color;
+            probe.fillRect(0, 0, 1, 1);
+            return [...probe.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+        };
+        const series = [1, 2, 3].map((index) => rgb(style.getPropertyValue(`--site-viz-${index}`).trim()));
+        const x = Math.round(left! * scale);
+        const image = canvas.getContext("2d")!.getImageData(x, 0, Math.max(1, Math.round(right! * scale) - x), canvas.height).data;
+        const hits = series.map(() => 0);
+        for (let offset = 0; offset < image.length; offset += 4) {
+            const pixel = [image[offset]!, image[offset + 1]!, image[offset + 2]!];
+            series.forEach((color, index) => {
+                if (color.every((channel, at) => Math.abs(channel - pixel[at]!) <= 24)) hits[index]! += 1;
+            });
+        }
+        return hits;
+    }, [from, to]);
+}
+
+test("近 28 天只有一天有数（前后都没有）：那一天画成三个线色的点，别处没有线", async ({page}) => {
+    // 第 14 天有数；三条线的数拉开，三个点不叠在一起。
+    const days = dashboardActive[28];
+    const only = new Date(Date.parse(`${days.from}T00:00:00Z`) + 13 * 86_400_000).toISOString().slice(0, 10);
+    const sparse = {from: days.from, to: LAST_DAY, days: [{date: only, daily: 40, weekly: 160, monthly: 300}]};
+    fake = await installFakeIdentity(page, {session: "admin"});
+    const normal = dashboardSucceeds();
+    fake.dashboard = (path, current) => (path === DASHBOARD_PATHS.active(28) ? {status: 200, body: sparse} : normal(path, current));
+    await openDashboard(page, VIEWPORTS[0], "light");
+
+    const host = await box(page, '[data-site-chart="active"]');
+    const plot = host.width - ACTIVE_GRID.left - ACTIVE_GRID.right;
+    const x = ACTIVE_GRID.left + (13 * plot) / 27;
+    const at = await seriesPixels(page, x - 6, x + 6);
+    for (const [index, hits] of at.entries()) expect(hits, `第 ${index + 1} 条线`).toBeGreaterThan(0);
+    // 那一天之外的绘图区里没有序列色：没有线，也没有别的点。
+    const elsewhere = [...(await seriesPixels(page, ACTIVE_GRID.left, x - 8)), ...(await seriesPixels(page, x + 8, host.width - ACTIVE_GRID.right))];
+    expect(elsewhere).toEqual([0, 0, 0, 0, 0, 0]);
+});
+
+test("留存显示最近四个安装周，四行都在面板里，不用滚", async ({page}) => {
+    fake = await installFakeIdentity(page, {session: "admin"});
+    await openDashboard(page, VIEWPORTS[0], "light");
+    const content = page.locator('[data-site-dashboard-panel="retention"] [data-site-panel-content]');
+    await expect(content.locator("tbody tr")).toHaveCount(4);
+    const fits = await content.evaluate((element) => {
+        const bottom = element.getBoundingClientRect().bottom;
+        return {
+            scrolls: element.scrollHeight - element.clientHeight > 1,
+            rowsInside: [...element.querySelectorAll("tbody tr")].every((row) => row.getBoundingClientRect().bottom <= bottom + 0.5),
+            region: element.getAttribute("role"),
+        };
+    });
+    expect(fits).toEqual({scrolls: false, rowsInside: true, region: null});
+});
+
+test("版本与错误多了在面板里滚：滚动区能用键盘聚焦、以面板标题为名，底边有渐隐，滚到底才消失", async ({page}) => {
+    const versions = {rows: Array.from({length: 14}, (_, index) => ({label: `0.${20 - index}.0`, count: 400 - index * 20}))};
+    const problems = {
+        ...dashboardProblems,
+        errors: Array.from({length: 12}, (_, index) => ({owner: "nbook", code: `failure_${index + 1}`, reports: 80 - index * 5, bins: [20, 10, 5, 3, 1]})),
+    };
+    fake = await installFakeIdentity(page, {session: "admin"});
+    const normal = dashboardSucceeds();
+    fake.dashboard = (path, current) => {
+        if (path === DASHBOARD_PATHS.breakdown("version")) return {status: 200, body: versions};
+        if (path === DASHBOARD_PATHS.problems) return {status: 200, body: problems};
+        return normal(path, current);
+    };
+    await openDashboard(page, VIEWPORTS[0], "light");
+
+    // 从时间范围往后按 Tab：依次停在版本、错误两个滚动区，中间放得下的面板（两张图、系统、留存）不停。
+    await page.locator('[data-site-dashboard-range] [aria-checked="true"]').focus();
+    for (const [id, title] of [["versions", zhCN.admin.dashboard.versions.title], ["errors", zhCN.admin.dashboard.errors.title]] as const) {
+        const panel = page.locator(`[data-site-dashboard-panel="${id}"]`);
+        const region = panel.locator("[data-site-panel-content]");
+        await expect(region, id).toHaveAttribute("role", "region");
+        await expect(region, id).toHaveAttribute("tabindex", "0");
+        await expect(region, id).toHaveAttribute("aria-label", title);
+        await expect(panel.locator("[data-site-panel-more]"), id).toBeVisible();
+
+        await page.keyboard.press("Tab");
+        await expect(region, id).toBeFocused();
+        await page.keyboard.press("End");
+        await expect.poll(() => region.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop), {message: id}).toBeLessThanOrEqual(1);
+        await expect(panel.locator("[data-site-panel-more]"), id).toHaveCount(0);
+
+        await page.keyboard.press("Home");
+        await expect(panel.locator("[data-site-panel-more]"), id).toBeVisible();
+    }
+    // 放得下的面板不是滚动区，也不进 Tab 顺序。
+    await expect(page.locator('[data-site-dashboard-panel="systems"] [data-site-panel-content]')).not.toHaveAttribute("tabindex", /.*/u);
+});
+
 test("面板在加载、没有数据、出错、有数据四种状态下高度相同", async ({page}) => {
     const pending: (() => void)[] = [];
     fake = await installFakeIdentity(page, {session: "admin"});
@@ -269,7 +377,7 @@ test("走到空壳页再回来：外壳不动，看板的两张图重新画出�
     expect(fake.dashboardRequests.filter((path) => path === DASHBOARD_PATHS.active(28))).toHaveLength(2);
 });
 
-test.describe("图表色对面板底的对比度", () => {
+test.describe("图表色", () => {
     /** WCAG 的相对亮度对比度，两个颜色都是不透明的 sRGB 分量。 */
     function ratio(a: readonly number[], b: readonly number[]): number {
         const luminance = (rgb: readonly number[]): number => {
@@ -305,9 +413,23 @@ test.describe("图表色对面板底的对比度", () => {
         });
     }
 
-    test("暗色三条序列色都过 3:1；两种明暗下五档红对面板底由弱到强、相邻两档分得开", async ({page}) => {
+    /** sRGB 分量（0 到 255）换成 OKLCH 的彩度与色相（度）。 */
+    function oklch(rgb: readonly number[]): {readonly chroma: number; readonly hue: number} {
+        const [r, g, b] = rgb.map((channel) => {
+            const value = channel / 255;
+            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        }) as [number, number, number];
+        const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+        const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+        const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+        const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+        const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+        return {chroma: Math.hypot(a, bb), hue: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360};
+    }
+
+    test("两种明暗下三条序列色都过 3:1；五档红对面板底由弱到强、相邻两档分得开，都是红色、高档不比低档淡", async ({page}) => {
         fake = await installFakeIdentity(page, {session: "admin"});
-        const measured: Record<string, {series: number[]; ramp: number[]; adjacent: number[]}> = {};
+        const measured: Record<string, {series: number[]; ramp: number[]; adjacent: number[]; tone: {readonly chroma: number; readonly hue: number}[]}> = {};
         for (const scheme of SCHEMES) {
             await openDashboard(page, VIEWPORTS[0], scheme);
             const {panel, series, ramp} = await colors(page);
@@ -316,19 +438,26 @@ test.describe("图表色对面板底的对比度", () => {
                 series: series.map((color) => ratio(color, panel)),
                 ramp: ramp.map((color) => ratio(color, panel)),
                 adjacent: ramp.slice(1).map((color, index) => ratio(color, ramp[index]!)),
+                tone: ramp.map(oklch),
             };
         }
         const round = (values: number[]): number[] => values.map((value) => Math.round(value * 100) / 100);
-        console.info(Object.entries(measured).map(([scheme, {series, ramp, adjacent}]) => `${scheme}：序列色 ${round(series).join("、")}；五档红 ${round(ramp).join("、")}；相邻 ${round(adjacent).join("、")}`).join("\n"));
+        console.info(Object.entries(measured).map(([scheme, {series, ramp, adjacent, tone}]) => [
+            `${scheme}：序列色 ${round(series).join("、")}；五档红 ${round(ramp).join("、")}；相邻 ${round(adjacent).join("、")}`,
+            `  五档红 OKLCH 色相 ${tone.map((value) => value.hue.toFixed(1)).join("、")}；彩度 ${tone.map((value) => value.chroma.toFixed(3)).join("、")}`,
+        ].join("\n")).join("\n"));
 
-        // 图形的下限 3:1（WCAG 1.4.11）。亮色的绿是 t09 定的值，量到约 2.75，不在这条里（见交付说明）。
-        for (const value of measured.dark!.series) expect(value).toBeGreaterThanOrEqual(3);
         for (const scheme of SCHEMES) {
-            const {ramp, adjacent} = measured[scheme]!;
+            const {series, ramp, adjacent, tone} = measured[scheme]!;
+            // 图形的下限 3:1（WCAG 1.4.11）。亮色的绿为此偏离了 t09 定的值，同一色相上压暗了一点（`site.css`）。
+            for (const [index, value] of series.entries()) expect(value, `${scheme} 第 ${index + 1} 条线`).toBeGreaterThanOrEqual(3);
             // 次数越多越醒目：对面板底的对比度逐档变大。
             expect(ramp, scheme).toEqual([...ramp].sort((a, b) => a - b));
             // 相邻两档之间至少差 1.3 倍，看得出是两档。
             for (const value of adjacent) expect(value, scheme).toBeGreaterThanOrEqual(1.3);
+            // 五档都在红色一带（OKLCH 色相 15 到 40 度：再小偏洋红，再大偏橙）；最高一档的彩度不低于最低一档，往亮处走时不褪成粉色。
+            for (const [index, value] of tone.entries()) expect({scheme, index, red: value.hue >= 15 && value.hue <= 40}).toEqual({scheme, index, red: true});
+            expect(tone.at(-1)!.chroma, scheme).toBeGreaterThanOrEqual(tone[0]!.chroma);
         }
     });
 });

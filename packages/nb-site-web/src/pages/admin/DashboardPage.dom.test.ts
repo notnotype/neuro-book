@@ -61,6 +61,40 @@ async function openDashboard(path = "/admin", data: DashboardData = DATA, handle
     return harness;
 }
 
+/** 页面那一处出错的汇总播报（读屏念的那句）。 */
+function summary(harness: Harness): string {
+    return harness.target.querySelector("[data-site-dashboard-summary]")?.textContent?.trim() ?? "";
+}
+
+/** 一块面板里的重试按钮；没有时为 `null`。 */
+function retryButton(harness: Harness, id: PanelId): HTMLButtonElement | null {
+    return panel(harness, id).querySelector<HTMLButtonElement>("[data-site-panel-retry]");
+}
+
+/** 一个先不回答的请求：`release` 之后才给出 `respond()` 的结果。`answered` 在回答的内容被页面读走之后为真。 */
+function held(respond: () => Response): {readonly handler: Handler; release(): void; readonly asked: boolean; readonly answered: boolean} {
+    let release: (() => void) | undefined;
+    let response: Response | undefined;
+    return {
+        handler: () => new Promise<Response>((resolve) => {
+            release = () => {
+                response = respond();
+                resolve(response);
+            };
+        }),
+        release: () => {
+            if (release === undefined) throw new Error("请求还没发出来");
+            release();
+        },
+        get asked() {
+            return release !== undefined;
+        },
+        get answered() {
+            return response?.bodyUsed === true;
+        },
+    };
+}
+
 /** 某条 `GET` 发了几次。 */
 function gets(harness: Harness, path: string): number {
     return harness.requests.filter((request) => request.method === "GET" && request.path === path).length;
@@ -106,8 +140,17 @@ describe("没有数据", () => {
         expect(panel(harness, "active").textContent).toContain(text.active.empty);
         expect(panel(harness, "online").textContent).toContain(text.online.empty);
         expect(panel(harness, "retention").textContent).toContain(text.retention.empty);
-        expect(panel(harness, "errors").textContent).toContain(text.emptyToday);
+        // 错误、崩溃、升级只来自带使用统计的上报：今天一份也没有时写这一句，不写“还没有上报”。
+        for (const id of ["errors", "crashes", "upgrades"] as const) expect({id, text: panel(harness, id).textContent}).toEqual({id, text: expect.stringContaining(text.noUsageReports)});
+        expect(panel(harness, "versions").textContent).toContain(text.emptyToday);
         expect(panel(harness, "active").querySelector("[data-site-chart]")).toBeNull();
+    });
+
+    it("有上报而没有一份带使用统计：版本照常画，错误、崩溃、升级写没有带使用统计的上报", async () => {
+        const harness = await openDashboard("/admin", {...DATA, problems: EMPTY_DASHBOARD.problems});
+        await vi.waitFor(() => expect(states(harness)).toEqual({...allReady, errors: "empty", crashes: "empty", upgrades: "empty"}));
+        expect(panel(harness, "versions").textContent).toContain("0.15.0");
+        for (const id of ["errors", "crashes", "upgrades"] as const) expect({id, text: panel(harness, id).textContent}).toEqual({id, text: expect.stringContaining(text.noUsageReports)});
     });
 
     it("有上报而没有错误：错误一块写今天没有错误，崩溃与升级照常画", async () => {
@@ -137,10 +180,17 @@ describe("加载", () => {
         await vi.waitFor(() => expect(active.getAttribute("data-site-panel-state")).toBe("ready"));
         await vi.waitFor(() => expect(active.querySelector('[role="status"]')).toBeNull());
     });
+
+    it("在线图读屏的概括按数据的分段写", async () => {
+        const harness = await openDashboard("/admin", {...DATA, online: {...DATA.online, segmentMinutes: 30}});
+        await vi.waitFor(() => expect(panel(harness, "online").querySelector("[data-site-chart]")?.getAttribute("aria-label")).toBe(fill(text.online.label, {minutes: 30})));
+        const fifteen = await openDashboard("/admin", {...DATA, online: {...DATA.online, segmentMinutes: 15, segmentCount: 96}});
+        await vi.waitFor(() => expect(panel(fifteen, "online").querySelector("[data-site-chart]")?.getAttribute("aria-label")).toBe(fill(text.online.label, {minutes: 15})));
+    });
 });
 
 describe("出错", () => {
-    it("一块取不到：只有那一块写原因与重试，别的照常；点重试再取，成功后画出来", async () => {
+    it("一块取不到：只有那几块写原因与重试，别的照常；页面一处播报几块取不到；点重试再取，成功后画出来", async () => {
         let up = false;
         const harness = await openDashboard("/admin", DATA, {
             [`GET ${DASHBOARD_PATHS.problems}`]: () => (up ? Response.json(DATA.problems) : failure({error: {code: "unavailable"}}, 503)),
@@ -148,21 +198,57 @@ describe("出错", () => {
         await vi.waitFor(() => expect(states(harness)).toEqual({...allReady, errors: "failed", crashes: "failed", upgrades: "failed"}));
 
         const errors = panel(harness, "errors");
-        expect(errors.querySelector('[role="alert"]')?.textContent).toContain(zhCN.errors.telemetry.unavailable);
+        expect(errors.textContent).toContain(zhCN.errors.telemetry.unavailable);
+        // 错误、崩溃、升级出自同一个请求，三块一起失败：播报一句，不在每块面板里各念一遍。
+        expect(summary(harness)).toBe(fill(text.failedSummary, {count: 3}));
+        expect(harness.target.querySelectorAll('[role="alert"]')).toHaveLength(0);
+        // 三个重试按钮的读屏名字带各自面板的标题。
+        expect((["errors", "crashes", "upgrades"] as const).map((id) => retryButton(harness, id)?.getAttribute("aria-label"))).toEqual(
+            [text.errors.title, text.crashes.title, text.upgrades.title].map((title) => fill(text.retryPanel, {panel: title})),
+        );
         expect(gets(harness, DASHBOARD_PATHS.problems)).toBe(1);
 
         up = true;
-        const retry = [...errors.querySelectorAll("button")].find((button) => button.textContent?.trim() === zhCN.shell.retry);
-        expect(retry).toBeDefined();
-        retry!.click();
+        retryButton(harness, "errors")!.click();
         await vi.waitFor(() => expect(states(harness)).toEqual(allReady));
         expect(gets(harness, DASHBOARD_PATHS.problems)).toBe(2);
+        expect(summary(harness)).toBe("");
+    });
+
+    it("点了重试：原因留着、按钮转圈不可再点，200 毫秒后换成转圈；又失败时按钮恢复", async () => {
+        let retry: ReturnType<typeof held> | undefined;
+        const harness = await openDashboard("/admin", DATA, {
+            [`GET ${DASHBOARD_PATHS.online}`]: (...args) => (retry === undefined ? failure({error: {code: "unavailable"}}, 503) : retry.handler(...args)),
+        });
+        await vi.waitFor(() => expect(panel(harness, "online").getAttribute("data-site-panel-state")).toBe("failed"));
+        expect(summary(harness)).toBe(fill(text.failedSummary, {count: 1}));
+
+        retry = held(() => failure({error: {code: "unavailable"}}, 503));
+        retryButton(harness, "online")!.click();
+        await vi.waitFor(() => expect(retry!.asked).toBe(true));
+        const online = panel(harness, "online");
+        await vi.waitFor(() => expect(online.getAttribute("data-site-panel-state")).toBe("loading"));
+        expect(online.textContent).toContain(zhCN.errors.telemetry.unavailable);
+        expect(retryButton(harness, "online")?.disabled).toBe(true);
+        expect(retryButton(harness, "online")?.getAttribute("aria-busy")).toBe("true");
+        // 重取期间没有“有几块取不到”的说法：结果还没出来。
+        expect(summary(harness)).toBe("");
+
+        harness.clock.advance(200);
+        await vi.waitFor(() => expect(online.querySelector('[role="status"]')).not.toBeNull());
+        await vi.waitFor(() => expect(retryButton(harness, "online")).toBeNull());
+
+        retry.release();
+        await vi.waitFor(() => expect(online.getAttribute("data-site-panel-state")).toBe("failed"));
+        await vi.waitFor(() => expect(retryButton(harness, "online")?.disabled).toBe(false));
+        expect(summary(harness)).toBe(fill(text.failedSummary, {count: 1}));
+        expect(gets(harness, DASHBOARD_PATHS.online)).toBe(2);
     });
 
     it("服务的码目录里没有时也有字可显示：通用文案带上码", async () => {
         const harness = await openDashboard("/admin", DATA, {[`GET ${DASHBOARD_PATHS.online}`]: () => Response.json({error: {code: "query_timeout"}}, {status: 500})});
         await vi.waitFor(() => expect(panel(harness, "online").getAttribute("data-site-panel-state")).toBe("failed"));
-        expect(panel(harness, "online").querySelector('[role="alert"]')?.textContent).toContain(fill(zhCN.errors.web.unknown, {code: "query_timeout"}));
+        expect(panel(harness, "online").textContent).toContain(fill(zhCN.errors.web.unknown, {code: "query_timeout"}));
     });
 });
 
@@ -189,6 +275,49 @@ describe("时间范围", () => {
         rangeButton(harness, 28).click();
         await settledAt(harness, "/admin", "admin-dashboard");
         await vi.waitFor(() => expect(gets(harness, DASHBOARD_PATHS.active(28))).toBe(2));
+    });
+
+    it("重取时上一份图留着，200 毫秒后盖一层遮罩、遮罩下不可操作；新数据到了换上", async () => {
+        const week = held(() => Response.json(DATA.active[7]));
+        const harness = await openDashboard("/admin", DATA, {[`GET ${DASHBOARD_PATHS.active(7)}`]: week.handler});
+        await vi.waitFor(() => expect(states(harness)).toEqual(allReady));
+        const active = panel(harness, "active");
+
+        rangeButton(harness, 7).click();
+        await vi.waitFor(() => expect(week.asked).toBe(true));
+        const content = (): HTMLElement | null => active.querySelector<HTMLElement>("[data-site-panel-content]");
+        expect(active.getAttribute("aria-busy")).toBe("true");
+        expect(active.querySelector('[role="status"]')).toBeNull();
+
+        harness.clock.advance(200);
+        await vi.waitFor(() => expect(active.querySelector('[role="status"]')).not.toBeNull());
+        expect(active.querySelector("[data-site-chart]")?.getAttribute("aria-label")).toBe(fill(text.active.label, {days: 28}));
+        expect(content()?.hasAttribute("inert")).toBe(true);
+
+        week.release();
+        await vi.waitFor(() => expect(active.querySelector("[data-site-chart]")?.getAttribute("aria-label")).toBe(fill(text.active.label, {days: 7})));
+        await vi.waitFor(() => expect(active.querySelector('[role="status"]')).toBeNull());
+        expect(content()?.hasAttribute("inert")).toBe(false);
+    });
+
+    it("连换两次范围：先发的回答晚到时丢掉，图停在后选的范围", async () => {
+        const quarter = held(() => Response.json(DATA.active[90]));
+        const harness = await openDashboard("/admin", DATA, {[`GET ${DASHBOARD_PATHS.active(90)}`]: quarter.handler});
+        await vi.waitFor(() => expect(states(harness)).toEqual(allReady));
+        const label = (): string | null | undefined => panel(harness, "active").querySelector("[data-site-chart]")?.getAttribute("aria-label");
+
+        rangeButton(harness, 90).click();
+        await vi.waitFor(() => expect(quarter.asked).toBe(true));
+        rangeButton(harness, 7).click();
+        await vi.waitFor(() => expect(label()).toBe(fill(text.active.label, {days: 7})));
+
+        // 90 天的回答这时才到：等页面把它读完，再让出一轮事件循环，它若被写回，图此时已换成 90 天。
+        quarter.release();
+        await vi.waitFor(() => expect(quarter.answered).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(label()).toBe(fill(text.active.label, {days: 7}));
+        expect(rangeButton(harness, 7).getAttribute("aria-checked")).toBe("true");
+        expect(panel(harness, "active").getAttribute("aria-busy")).toBe("false");
     });
 
     it("带着范围打开看板：按地址里的范围取；认不出的范围按近 28 天", async () => {

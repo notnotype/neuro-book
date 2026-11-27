@@ -54,7 +54,10 @@ const rows = computed(() => props.problems.errors.map((row) => ({
         </thead>
         <tbody>
             <tr v-for="row in rows" :key="row.key">
-                <th scope="row"><span class="errors__owner">{{ row.owner }}</span>{{ row.code }}</th>
+                <th scope="row">
+                    <!-- 两段之间的空格留在文字里：读屏读成“nbook store_locked”，不连成一个词。 -->
+                    <span class="errors__id"><span class="errors__owner" :title="row.owner">{{ row.owner }}</span> <span class="errors__code" :title="row.code">{{ row.code }}</span></span>
+                </th>
                 <td class="is-num">{{ row.reports }}</td>
                 <td class="is-num">{{ row.share }}</td>
                 <td>
@@ -87,7 +90,7 @@ const rows = computed(() => props.problems.errors.map((row) => ({
 
 .errors thead th {
     height: 24px;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-xs);
 }
 
@@ -107,10 +110,28 @@ const rows = computed(() => props.problems.errors.map((row) => ({
     gap: 12px;
 }
 
+/* 拥有者定宽一列、码占其余：两段各自截断，名字长的拥有者不会盖到码上；截断的全文在 `title` 里。 */
+.errors__id {
+    display: flex;
+    min-width: 0;
+}
+
+.errors__owner,
+.errors__code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .errors__owner {
-    display: inline-block;
+    flex: none;
     width: 56px;
-    color: var(--text-muted);
+    padding-right: 8px;
+    box-sizing: border-box;
+    color: var(--text-secondary);
+}
+
+.errors__code {
+    min-width: 0;
 }
 
 .errors .is-num {

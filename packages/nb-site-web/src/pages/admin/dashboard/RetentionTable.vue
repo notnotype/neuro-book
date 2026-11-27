@@ -1,14 +1,15 @@
 <script setup lang="ts">
 /**
  * 留存（`site.telemetry-dashboard` 输出 3）：每行一个安装周，列是那周的新增与之后第 1、2、4、8 周的留存比例。格子的底色按比例
- * 从浅底往第一格序列色混（照 t09 定稿），还没到的那一周留空格。
+ * 从浅底往第一格序列色混（照 t09 定稿），还没到的那一周留空格。只画最近几个安装周（`model.ts` 的 `RETENTION_SHOWN_WEEKS`），
+ * 行数固定，面板不用在里面滚。
  */
 
 import {computed} from "vue";
 
 import {locale} from "../../../locale";
 import {useSiteText} from "../../../text";
-import {dayLabel, formatCount, formatShare, RETENTION_WEEKS, retentionShare} from "./model";
+import {dayLabel, formatCount, formatShare, RETENTION_WEEKS, retentionShare, shownCohorts} from "./model";
 import type {Retention} from "./model";
 
 const props = defineProps<{retention: Retention}>();
@@ -17,7 +18,7 @@ const t = useSiteText();
 /** 比例为 1 时混进一半的序列色：定稿里的深浅；再深，格子里的字就读不清了。 */
 const HEAT_AT_FULL = 50;
 
-const rows = computed(() => props.retention.cohorts.map((cohort) => ({
+const rows = computed(() => shownCohorts(props.retention).map((cohort) => ({
     week: cohort.week,
     label: t("admin.dashboard.retention.cohort", {date: dayLabel(cohort.week)}),
     fresh: formatCount(cohort.fresh, locale.value),
@@ -56,7 +57,7 @@ const rows = computed(() => props.retention.cohorts.map((cohort) => ({
 }
 
 .retention th {
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-xs);
     font-weight: 400;
     text-align: right;

@@ -24,14 +24,10 @@ export default defineConfig({
             // 也全被留下，落进入口块（B4 审查第 19 条：访客入口 gzip 从约 59 KB 涨到 120 KB）。nb-ui 的 `.ts` 与 `.vue` 模块导入时
             // 不做事，在这里声明它们没有副作用，没用到的就摇掉；`.vue?vue&type=style…` 这些样式子模块不在内，用到的组件照样带着样式。
             // nb-ui 自己声明 `sideEffects` 之后这条可以去掉（上游候选）。`tests/build.test.ts` 的入口上限与来源断言守着它。
-            //
-            // 统计合同包同理：看板只取它的路径前缀，入口 `.` 却还汇总着写入口与收集清单的 schema，顶层的 `Type.Object(…)` 调用让
-            // rolldown 把它们连同 TypeBox 的运行时都留在看板块里（量过：多约 20 KB）。这些模块导入时只建 schema，不做别的。
-            // 合同包像账号合同包那样给浏览器一个不带 schema 的子路径，或自己声明 `sideEffects` 之后这条可以去掉（上游候选）。
+            // 两个合同包不在这里：前端只从它们不带 schema 的 `./constants` 子路径导入（`tests/boundary.test.ts`）。
             treeshake: {
                 moduleSideEffects: [
                     {test: /\/nb-ui\/src\/.*\.(?:ts|vue)$/u, sideEffects: false},
-                    {test: /\/nb-site-telemetry-contract\/src\/.*\.ts$/u, sideEffects: false},
                 ],
             },
         },

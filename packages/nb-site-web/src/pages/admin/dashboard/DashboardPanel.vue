@@ -6,13 +6,18 @@
  * - 加载：超过 200 毫秒才在中央显示 `Spinner`（`slow`）。重取时上一份内容留着，盖一层淡遮罩（与 nb-ui 数据表格同一种做法），
  *   遮罩期间内容 `inert`。
  * - 没有数据：中央一句话；不画内容（图表不建）。
- * - 出错：中央写原因与重试，`role=alert`。
+ * - 出错：中央写原因与重试。点了重试，状态就是加载：原因留着、按钮转圈且不可再点，到 200 毫秒还没回来才换成中央的转圈；
+ *   又失败时按钮恢复。读屏的播报不在面板里：几块面板常一起失败（服务不可用时九块同时），各自 `role=alert` 会把同一句连读几遍，
+ *   页面另有一处汇总（`DashboardPage.vue`）。重试按钮的读屏名字带面板标题，九个按钮分得清。
+ *
+ * 内容比内容区高时（版本多、错误多）在面板里面滚：这时内容区可以用键盘聚焦、以面板标题为名，底边有一道渐隐，滚到底才消失，
+ * 不靠露出半行来提示“下面还有”。
  *
  * 内容区矮（崩溃、升级两块）时状态用紧凑的一行字，放不下 `EmptyState` 那样带圆底图标的版式。
  */
 
 import {Button, EmptyState, Spinner} from "@notnotype/nb-ui/components";
-import {computed} from "vue";
+import {computed, onBeforeUnmount, onUpdated, shallowRef, useTemplateRef, watch} from "vue";
 
 import {useSiteText} from "../../../text";
 
@@ -34,7 +39,7 @@ const props = withDefaults(defineProps<{
     height: number;
     /** 没有数据时的那句话。 */
     emptyText?: string;
-    /** 出错的原因。 */
+    /** 出错的原因；重试时（状态是加载）仍是上一次的原因，按钮转圈。 */
     failureText?: string;
 }>(), {title: undefined, label: undefined, strip: false, slow: false, pending: false, emptyText: "", failureText: ""});
 
@@ -46,15 +51,58 @@ const t = useSiteText();
 const COMPACT_BELOW = 200;
 const compact = computed(() => props.height < COMPACT_BELOW);
 
+/** 面板的名字：标题，四个数那一条没有标题时用 `label`。 */
+const name = computed(() => props.title ?? props.label ?? "");
+
+/** 出错之后点了重试、回答还没到 200 毫秒：原因与按钮留着，按钮转圈。 */
+const retrying = computed(() => props.state === "loading" && !props.slow && props.failureText !== "");
+
 type Layer = "spinner" | "mask" | "empty" | "failed" | null;
 const layer = computed<Layer>(() => {
     switch (props.state) {
-        case "loading": return props.slow ? "spinner" : null;
+        case "loading": return props.slow ? "spinner" : retrying.value ? "failed" : null;
         case "empty": return "empty";
         case "failed": return "failed";
         case "ready": return props.pending && props.slow ? "mask" : null;
     }
 });
+
+// ---- 内容在面板里滚 ----
+
+const content = useTemplateRef<HTMLElement>("content");
+/** 内容比内容区高。 */
+const scrollable = shallowRef(false);
+/** 已滚到底（或不用滚）。 */
+const atEnd = shallowRef(true);
+let observer: ResizeObserver | undefined;
+
+function measure(): void {
+    const element = content.value;
+    if (element === null) {
+        scrollable.value = false;
+        atEnd.value = true;
+        return;
+    }
+    // 差一像素以内算没有多出来：缩放时 scrollHeight 是取整后的值。
+    const overflow = element.scrollHeight - element.clientHeight;
+    scrollable.value = overflow > 1;
+    atEnd.value = element.scrollTop >= overflow - 1;
+}
+
+// 内容区随状态出现与消失；出现时看它与它里面的东西（行数变了的表、横条）的尺寸。
+watch(content, (element) => {
+    observer?.disconnect();
+    observer = undefined;
+    if (element !== null && typeof ResizeObserver !== "undefined") {
+        observer = new ResizeObserver(measure);
+        observer.observe(element);
+        for (const child of element.children) observer.observe(child);
+    }
+    measure();
+}, {flush: "post"});
+
+onUpdated(measure);
+onBeforeUnmount(() => observer?.disconnect());
 </script>
 
 <template>
@@ -69,25 +117,39 @@ const layer = computed<Layer>(() => {
         </header>
         <div class="dashboard-panel__body" :style="{height: `${props.height}px`}" data-site-panel-body>
             <Transition name="dashboard-panel-layer">
-                <div v-if="props.state === 'ready'" class="dashboard-panel__content" :inert="layer === 'mask' || undefined">
+                <div
+                    v-if="props.state === 'ready'"
+                    ref="content"
+                    class="dashboard-panel__content"
+                    :class="{'is-scrollable': scrollable}"
+                    :inert="layer === 'mask' || undefined"
+                    :tabindex="scrollable ? 0 : undefined"
+                    :role="scrollable ? 'region' : undefined"
+                    :aria-label="scrollable ? name : undefined"
+                    data-site-panel-content
+                    @scroll.passive="measure"
+                >
                     <slot />
                 </div>
+            </Transition>
+            <Transition name="dashboard-panel-layer">
+                <div v-if="props.state === 'ready' && scrollable && !atEnd" class="dashboard-panel__more" aria-hidden="true" data-site-panel-more />
             </Transition>
             <Transition name="dashboard-panel-layer">
                 <div v-if="layer" :key="layer" class="dashboard-panel__layer" :class="`is-${layer}`">
                     <Spinner v-if="layer === 'spinner' || layer === 'mask'" />
                     <p v-else-if="layer === 'empty' && compact" class="dashboard-panel__state">{{ props.emptyText }}</p>
                     <EmptyState v-else-if="layer === 'empty'" class="dashboard-panel__state" icon-class="i-lucide-chart-line" :title="props.emptyText" />
-                    <div v-else-if="compact" class="dashboard-panel__state dashboard-panel__failed" role="alert">
+                    <div v-else-if="compact" class="dashboard-panel__state dashboard-panel__failed">
                         <span class="i-lucide-circle-alert dashboard-panel__alert" aria-hidden="true" />
                         <span>{{ props.failureText }}</span>
-                        <Button variant="secondary" size="sm" @click="emit('retry')">{{ t("shell.retry") }}</Button>
+                        <Button variant="secondary" size="sm" :loading="retrying" :aria-label="t('admin.dashboard.retryPanel', {panel: name})" data-site-panel-retry @click="emit('retry')">{{ t("shell.retry") }}</Button>
                     </div>
-                    <div v-else class="dashboard-panel__state" role="alert">
+                    <div v-else class="dashboard-panel__state">
                         <EmptyState :title="props.failureText">
                             <template #icon><span class="i-lucide-circle-alert dashboard-panel__alert h-5 w-5" aria-hidden="true" /></template>
                             <template #action>
-                                <Button variant="secondary" size="sm" @click="emit('retry')">{{ t("shell.retry") }}</Button>
+                                <Button variant="secondary" size="sm" :loading="retrying" :aria-label="t('admin.dashboard.retryPanel', {panel: name})" data-site-panel-retry @click="emit('retry')">{{ t("shell.retry") }}</Button>
                             </template>
                         </EmptyState>
                     </div>
@@ -129,10 +191,35 @@ const layer = computed<Layer>(() => {
     position: relative;
 }
 
-/* 内容比内容区高时（版本多、错误多）在面板里面滚，不撑高面板。 */
+/*
+ * 内容比内容区高时（版本多、错误多）在面板里面滚，不撑高面板。放得下时裁掉而不是 `auto`：Chrome 把能滚的容器放进 Tab 顺序，
+ * 一直 `auto` 时活跃图那块成了一个没有名字的 Tab 停靠点（量到的 `scrollHeight` 与 `clientHeight` 相等，推断是不到一像素的溢出）。
+ * `e2e/dashboard.e2e.ts` 从时间范围按 Tab 断言下一站是版本的滚动区。
+ */
 .dashboard-panel__content {
     height: 100%;
+    overflow: hidden;
+}
+
+.dashboard-panel__content.is-scrollable {
     overflow: auto;
+}
+
+.dashboard-panel__content:focus-visible {
+    outline: 2px solid var(--accent-main);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* 下面还有：底边一道渐隐到面板底色。不挡滚轮与点击。 */
+.dashboard-panel__more {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 28px;
+    background: linear-gradient(to bottom, transparent, var(--bg-panel));
+    pointer-events: none;
 }
 
 .dashboard-panel__layer {

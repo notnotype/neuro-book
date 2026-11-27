@@ -17,7 +17,7 @@ export function readChartTheme(element: HTMLElement): ChartTheme {
     return {
         font: style.fontFamily,
         text: read(style, "--text-main"),
-        muted: read(style, "--text-muted"),
+        axis: read(style, "--text-secondary"),
         grid: read(style, "--border-color"),
         surface: read(style, "--bg-panel"),
         series: [read(style, "--site-viz-1"), read(style, "--site-viz-2"), read(style, "--site-viz-3")],

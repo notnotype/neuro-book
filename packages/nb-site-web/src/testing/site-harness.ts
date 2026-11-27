@@ -150,8 +150,9 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
             if (handler !== undefined) return handler(body, server);
             // 登录、注册、补交同意之后都落在账号页，它一打开就读这三份列表。在乎列表内容的用例自己准备处理器，其余的回空列表。
             if (method === "GET" && ACCOUNT_LISTS.has(input)) return Response.json({items: []});
-            // 看板同理：在乎看板数据的用例用 `dashboardHandlers` 准备，其余的回一份还没有上报的看板。
-            const dashboard = method === "GET" ? EMPTY_DASHBOARD_BODIES.get(input) : undefined;
+            // 看板同理：管理员登录之后落在看板上，在乎看板数据的用例用 `dashboardHandlers` 准备，其余的回一份还没有上报的看板。
+            // 只替管理员的会话回：别的会话不该发这些请求，发了就记进 `unexpected`。
+            const dashboard = method === "GET" && server.session?.role === "admin" ? EMPTY_DASHBOARD_BODIES.get(input) : undefined;
             if (dashboard !== undefined) return Response.json(dashboard);
             unexpected.push(`${method} ${input}`);
             return failure({error: {code: "not_found"}}, 404);
@@ -163,9 +164,11 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
 
 /**
  * 等页面落定的上限。页面按需加载，第一次进某一页时测试环境要现编译它的块：看板连同 ECharts 与几个图表组件单独跑约 1 秒，
- * 几个测试文件并行时更久，超过 `vi.waitFor` 缺省的 1 秒。等的仍是路由与页面这两个可观察的状态，到了就往下走。
+ * 几个测试文件并行、别的进程占着 CPU 时能到好几秒，超过 `vi.waitFor` 缺省的 1 秒。等的仍是路由与页面这两个可观察的状态，
+ * 到了就往下走。要小于单条用例的上限（`vitest.config.ts` 的 `testTimeout`）：用例先被截停的话，报的是“Test timed out”，
+ * 看不到路由停在哪、页面有没有画出来。
  */
-export const SETTLE_TIMEOUT_MS = 5000;
+export const SETTLE_TIMEOUT_MS = 10_000;
 
 /**
  * 等到路由停在 `fullPath`、页面画出 `page`。vue-router 对查询串另有一套编码，所以比的是解码后的路径与查询参数。

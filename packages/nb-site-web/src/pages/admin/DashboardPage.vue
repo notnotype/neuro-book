@@ -7,6 +7,9 @@
  * 时间范围放在地址的 `?range=`（缺省近 28 天不写），只管活跃图：别的面板是“今天”“近 24 小时”或最近几个安装周，换范围不重取它们。
  * 换范围用 `replace`：来回点几次不在历史里留一串。
  *
+ * 出错的读屏播报只在页面这一处（面板里不用 `role=alert`）：等每块都有了结果，写一句“有几块取不到”。几块面板常一起失败，
+ * 各自播报会把同一句连读几遍；重取期间这句清空，又失败时再播一次。
+ *
  * 数据从 `source.ts` 的 `DashboardSource` 取，页面不认识数据从哪来（D8）。本文件是构建测试认看板块的锚点
  * （`tests/build.test.ts` 的 `DASHBOARD_SOURCE`）：图表模块只经这里的子组件导入，ECharts 跟着看板的块走。
  */
@@ -74,10 +77,11 @@ watch(range, () => {
     if (route.name === ROUTE_NAME) active.reload();
 });
 
+/** 有数据时看它空不空；没有数据时，在取就是加载（出错后点了重试也是），不在取而有失败才是出错。 */
 function stateOf<T>(data: PanelData<T>, isEmpty: (value: T) => boolean): PanelState {
     const value = data.value.value;
     if (value !== undefined) return isEmpty(value) ? "empty" : "ready";
-    return data.failure.value === undefined ? "loading" : "failed";
+    return data.pending.value || data.failure.value === undefined ? "loading" : "failed";
 }
 
 function reasonOf<T>(data: PanelData<T>): string {
@@ -155,10 +159,14 @@ const upgradeBars = computed<ShareBar[]>(() => {
     return withShares(UPGRADE_KEYS.map((key) => ({key, count: value.upgrades[key]}))).map((row) => ({key: row.key, label: t(`admin.dashboard.upgrades.${row.key}`), share: row.share, tone: UPGRADE_TONES[row.key]}));
 });
 
-const problemsState = computed(() => stateOf(problems, (value) => value.reports === 0));
-/** 有上报而没有错误时，错误一块写“今天没有错误”；崩溃、升级两块照常画。 */
+/**
+ * 错误、崩溃、升级都只来自打开了使用统计的上报（收集清单使用档的“稳定性”一组）：今天有上报、却没有一份带使用统计时，这三块写
+ * “今天没有带使用统计的上报”，不写“今天还没有上报”，免得与同页版本、系统的数矛盾。崩溃、升级各看自己的合计。
+ * 三块的口径由 t11 对着查询接口的合同再核一遍。
+ */
+const problemsState = computed(() => stateOf(problems, () => false));
 const errorsState = computed<PanelState>(() => (problemsState.value === "ready" && problems.value.value?.errors.length === 0 ? "empty" : problemsState.value));
-const errorsEmptyText = computed(() => t(problemsState.value === "empty" ? "admin.dashboard.emptyToday" : "admin.dashboard.errors.empty"));
+const errorsEmptyText = computed(() => t(problems.value.value?.reports === 0 ? "admin.dashboard.noUsageReports" : "admin.dashboard.errors.empty"));
 const crashTotal = computed(() => {
     const value = problems.value.value;
     return value === undefined ? 0 : CRASH_KEYS.reduce((sum, key) => sum + value.crashes[key], 0);
@@ -176,12 +184,34 @@ function bind<T>(data: PanelData<T>, state: PanelState) {
 }
 
 const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes: 116, upgrades: 87} as const;
+
+// ---- 出错的汇总播报 ----
+
+const panelStates = computed<readonly PanelState[]>(() => [
+    stateOf(today, () => false),
+    stateOf(active, () => false),
+    stateOf(online, () => false),
+    stateOf(versions, () => false),
+    stateOf(systems, () => false),
+    stateOf(retention, () => false),
+    errorsState.value,
+    crashesState.value,
+    upgradesState.value,
+]);
+/** 每块都有了结果才写；有块还在取时为空串，免得失败一块接一块到达时读屏跟着数一遍。 */
+const failedSummary = computed(() => {
+    const states = panelStates.value;
+    const failed = states.filter((state) => state === "failed").length;
+    return failed === 0 || states.includes("loading") ? "" : t("admin.dashboard.failedSummary", {count: failed});
+});
 </script>
 
 <template>
     <div class="dashboard" :data-site-page="ROUTE_NAME">
         <AdminPageHead :title="t('admin.dashboard.title')">
-            <Badge v-if="today.value.value !== undefined" tone="neutral" variant="soft" size="sm">{{ t("admin.dashboard.manifest", {version: today.value.value.manifestVersion}) }}</Badge>
+            <Transition name="dashboard-fade">
+                <Badge v-if="today.value.value !== undefined" tone="neutral" variant="soft" size="sm">{{ t("admin.dashboard.manifest", {version: today.value.value.manifestVersion}) }}</Badge>
+            </Transition>
             <span class="dashboard__fill" />
             <SegmentedControl :model-value="range" :options="rangeOptions" :aria-label="t('admin.dashboard.range')" data-site-dashboard-range @update:model-value="setRange" />
         </AdminPageHead>
@@ -229,7 +259,7 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
                 @retry="online.reload()"
             >
                 <template #head><span class="dashboard-meta">{{ t("admin.dashboard.online.meta") }}</span></template>
-                <TrendChart v-if="onlineOption !== undefined" id="online" :label="t('admin.dashboard.online.label')" :option="onlineOption" />
+                <TrendChart v-if="onlineOption !== undefined" id="online" :label="t('admin.dashboard.online.label', {minutes: online.value.value?.segmentMinutes ?? 0})" :option="onlineOption" />
             </DashboardPanel>
         </div>
 
@@ -291,7 +321,7 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
                     id="crashes"
                     :title="t('admin.dashboard.crashes.title')"
                     :height="PANEL_HEIGHT.crashes"
-                    :empty-text="t('admin.dashboard.emptyToday')"
+                    :empty-text="t('admin.dashboard.noUsageReports')"
                     v-bind="bind(problems, crashesState)"
                     @retry="problems.reload()"
                 >
@@ -303,7 +333,7 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
                     id="upgrades"
                     :title="t('admin.dashboard.upgrades.title')"
                     :height="PANEL_HEIGHT.upgrades"
-                    :empty-text="t('admin.dashboard.emptyToday')"
+                    :empty-text="t('admin.dashboard.noUsageReports')"
                     v-bind="bind(problems, upgradesState)"
                     @retry="problems.reload()"
                 >
@@ -312,6 +342,8 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
                 </DashboardPanel>
             </div>
         </div>
+
+        <p class="sr-only" aria-live="polite" data-site-dashboard-summary>{{ failedSummary }}</p>
     </div>
 </template>
 
@@ -329,6 +361,19 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
 
 .dashboard__fill {
     flex: 1;
+}
+
+.dashboard-fade-enter-active {
+    transition: opacity var(--motion-base) var(--ease-layout);
+}
+
+.dashboard-fade-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-dialog-leave);
+}
+
+.dashboard-fade-enter-from,
+.dashboard-fade-leave-to {
+    opacity: 0;
 }
 
 .dashboard-figures {
@@ -359,7 +404,7 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
 }
 
 .dashboard-figure__note {
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-xs);
 }
 
@@ -387,7 +432,7 @@ const PANEL_HEIGHT = {figures: 80, chart: 230, table: 168, errors: 216, crashes:
 }
 
 .dashboard-meta {
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: var(--text-xs);
     white-space: nowrap;
 }

@@ -17,7 +17,10 @@ export const LOADING_DELAY_MS = 200;
 export interface PanelData<T> {
     /** 最近一次取到的数据；还没取到过、或最近一次失败时为 `undefined`。 */
     readonly value: Readonly<Ref<T | undefined>>;
-    /** 最近一次失败，页面要显示的；统一处理接管了的失败（`handled`）不在这里，那时页面正要被带走。 */
+    /**
+     * 最近一次失败，页面要显示的；统一处理接管了的失败（`handled`）不在这里，那时页面正要被带走。重取期间留着（重试时原因不消失，
+     * 面板据 `pending` 画成加载），回答到了再换。
+     */
     readonly failure: Readonly<Ref<Failure | undefined>>;
     /** 有请求在路上。 */
     readonly pending: Readonly<Ref<boolean>>;
