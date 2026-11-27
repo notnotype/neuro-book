@@ -20,9 +20,12 @@ import {useSite} from "../../context";
 import {failureText} from "../../http/failure-text";
 import {signOut} from "../../session/sign-out";
 import {useSiteText} from "../../text";
-import type {SiteTextKey} from "../../text";
+import {useAdminText} from "./text";
+import type {AdminTextKey} from "./text";
 
-const t = useSiteText();
+const t = useAdminText();
+// 外壳上有几处与站点别处同一句话（退出登录、产品名、账号菜单），用站点目录里的那条，不在管理面板的目录里再抄一份。
+const siteT = useSiteText();
 const port = useText();
 const {account, identity, storage} = useSite();
 const router = useRouter();
@@ -33,14 +36,14 @@ const NAV = [
     {route: "admin-codes", icon: "i-lucide-ticket", title: "admin.codes.title"},
     {route: "admin-clients", icon: "i-lucide-key-round", title: "admin.clients.title"},
     {route: "admin-audit", icon: "i-lucide-scroll-text", title: "admin.audit.title"},
-] as const satisfies readonly {route: string; icon: string; title: SiteTextKey}[];
+] as const satisfies readonly {route: string; icon: string; title: AdminTextKey}[];
 
 const me = computed(() => (account.state.value.kind === "signed-in" ? account.state.value.me : undefined));
 const initial = computed(() => Array.from(me.value?.displayName ?? me.value?.username ?? "")[0] ?? "");
 
 const menuItems = computed<DropdownMenuItemData[]>(() => [
     {id: "account", label: t("admin.accountPage")},
-    {id: "sign-out", label: t("account.signOut")},
+    {id: "sign-out", label: siteT("account.signOut")},
 ]);
 
 const signingOut = shallowRef(false);
@@ -76,7 +79,7 @@ async function onMenu(id: string): Promise<void> {
 <template>
     <div class="admin-shell" data-site-admin-shell>
         <nav class="admin-nav" :aria-label="t('admin.nav')">
-            <div class="admin-brand">{{ t("paper.title") }}</div>
+            <div class="admin-brand">{{ siteT("paper.title") }}</div>
             <RouterLink v-for="item in NAV" :key="item.route" :to="{name: item.route}" class="admin-nav__item nb-ui-focus-ring-inset" :data-site-admin-nav="item.route">
                 <span :class="item.icon" aria-hidden="true" />
                 <span class="admin-nav__label">{{ t(item.title) }}</span>
@@ -84,7 +87,7 @@ async function onMenu(id: string): Promise<void> {
             <div class="admin-nav__foot">
                 <FormStatus :text="signOutStatus === undefined ? '' : port.t(signOutStatus.text)" :reason="signOutStatus?.reason" />
                 <DropdownMenu v-if="me !== undefined" :items="menuItems" side="top" align="start" @select="onMenu">
-                    <Button variant="ghost" class="admin-me" :aria-label="t('account.menu', {username: me.username})" :loading="signingOut" data-site-admin-menu>
+                    <Button variant="ghost" class="admin-me" :aria-label="siteT('account.menu', {username: me.username})" :loading="signingOut" data-site-admin-menu>
                         <span class="admin-avatar" aria-hidden="true">{{ initial }}</span>
                         <span class="admin-me__name">{{ me.username }}</span>
                         <span class="i-lucide-chevrons-up-down admin-me__more" aria-hidden="true" />

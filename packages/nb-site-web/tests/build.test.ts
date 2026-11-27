@@ -5,7 +5,8 @@
  *
  * 另外三条（t10 计划 3.10）：`index.html` 里没有内联脚本（内容安全策略的 `script-src` 只许 `'self'`，计划 3.8）；
  * ECharts 只在看板自己的块里，访客与普通用户的入口块不带它；看板块的 gzip 大小有上限，并记下入口块与看板块的大小（计划第 8 节风险 8）。
- * 入口块也有上限，且不带账号页才用的对话框与菜单（B4 审查第 19 条：nb-ui 的汇总出口把它们带进了入口，`vite.config.ts` 的 `treeshake`）。
+ * 入口块也有上限，且不带账号页才用的对话框与菜单（B4 审查第 19 条：nb-ui 的汇总出口把它们带进了入口，`vite.config.ts` 的 `treeshake`），
+ * 也不带管理面板的文字目录（B6、B7 审查第 11 条：它跟着管理面板的块走，`src/pages/admin/text.ts`）。
  *
  * 构建只跑一次（`beforeAll`），几条测试读同一份产物。构建超过快速类 200 毫秒的预算（要几秒）：测的就是构建本身，没有更快的等价做法。
  */
@@ -24,7 +25,8 @@ const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
 const DASHBOARD_GZIP_LIMIT = 200 * 1024;
 /**
  * 入口块（含静态导入）gzip 之后的上限。登录页是首页，它的表单、状态行与社交图标都在入口里；2026-11-27 量到 81.2 KB，
- * B5 加上管理面板与看板的文字后 82.8 KB（B2 时约 59.3 KB，B4 把账号页的弹层带进来涨到 120 KB），留一成余量：
+ * B5 加上管理面板与看板的文字后 82.8 KB（B2 时约 59.3 KB，B4 把账号页的弹层带进来涨到 120 KB），到 B7 结束时 87.2 KB，
+ * B6、B7 审查第 11 条把管理面板的文字挪出入口后 85.2 KB。留一成余量：
  * 正常加功能不会撞到，把一整组没用到的组件带进来就会。
  * 确实要加大时改这里并写明为什么。
  */
@@ -52,6 +54,12 @@ const POPUP_SOURCES: readonly RegExp[] = [
 ];
 /** 合同包的 schema 用的 TypeBox：浏览器只从合同包的 `./constants` 取常量（`tests/boundary.test.ts`），产物里不该有它的运行时。 */
 const TYPEBOX_SOURCE = fromPackage("typebox");
+/**
+ * 管理面板的文字目录。路由表只对它做类型导入（`src/pages/admin/text-ref.ts`），改成值导入时它就进了入口。站点自己的目录必然在入口里，
+ * 先确认认得出目录文件的来源，免得这条因为读不到 JSON 的来源而空过。
+ */
+const ADMIN_CATALOG_SOURCE = /(?:^|\/)src\/pages\/admin\/locales\/zh-CN\.json$/u;
+const SITE_CATALOG_SOURCE = /(?:^|\/)src\/locales\/zh-CN\.json$/u;
 /** 一定在入口块里的 nb-ui 组件：先确认认得出 nb-ui 的来源，免得上面那条因为路径写错而空过。 */
 const NB_UI_BUTTON_SOURCE = /\/nb-ui\/src\/components\/[^/]+\/Button\.vue$/u;
 
@@ -166,7 +174,7 @@ describe("vite build", () => {
         expect([...prefixed].filter((value) => !standard.has(value))).toEqual([]);
     });
 
-    test("看板与管理面板外壳是单独的块；ECharts 在看板自己的块里、别的块里没有；看板块与入口块的 gzip 不超过上限；入口不带对话框与菜单；哪个块都不带 TypeBox", async () => {
+    test("看板与管理面板外壳是单独的块；ECharts 在看板自己的块里、别的块里没有；看板块与入口块的 gzip 不超过上限；入口不带对话框、菜单与管理面板的文字；哪个块都不带 TypeBox", async () => {
         const chunks = await manifest();
         const entries = Object.entries(chunks).filter(([, chunk]) => chunk.isEntry === true).map(([key]) => key);
         expect(entries.length).toBe(1);
@@ -189,6 +197,11 @@ describe("vite build", () => {
         expect(entrySources.some((source) => VUE_ROUTER_SOURCE.test(source))).toBe(true);
         expect(entrySources.some((source) => NB_UI_BUTTON_SOURCE.test(source))).toBe(true);
         expect(entrySources.filter((source) => POPUP_SOURCES.some((pattern) => pattern.test(source)))).toEqual([]);
+        expect(entrySources.some((source) => SITE_CATALOG_SOURCE.test(source))).toBe(true);
+        expect(entrySources.filter((source) => ADMIN_CATALOG_SOURCE.test(source))).toEqual([]);
+        // 管理面板的外壳一加载就要翻得出（侧栏的页名），目录在外壳静态能到的块里。
+        const adminShellSources = (await Promise.all([...closure(chunks, [ADMIN_SHELL_SOURCE], {dynamic: false})].map((key) => sourcesOf(chunks[key]!.file)))).flat();
+        expect(adminShellSources.some((source) => ADMIN_CATALOG_SOURCE.test(source))).toBe(true);
 
         const dashboardFiles = new Set(dashboardOnly.map((key) => chunks[key]!.file));
         const dashboardSources = (await Promise.all([...dashboardFiles].map(sourcesOf))).flat();

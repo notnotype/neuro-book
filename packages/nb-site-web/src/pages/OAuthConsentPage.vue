@@ -195,11 +195,24 @@ async function decide(accept: boolean): Promise<void> {
             feedback.showFailure(failure);
             return;
         }
+        const protocol = protocolOf(result.value.redirectUrl);
+        if (protocol !== "https:" && protocol !== "http:") {
+            // 服务端按登记的回调地址给出回跳地址，正常不会走到这里；万一给了 `javascript:` 一类，宁可不走。
+            // 诊断只记协议：地址里带着授权码。
+            console.warn("授权确认之后的回跳地址不是 http 或 https，没有离开", protocol);
+            feedback.showFailure({kind: "malformed", status: 200});
+            return;
+        }
         // 页面随之卸载；从往返缓存回来时 resolve，按钮放开（`SiteContext.leave`）。
         await leave(result.value.redirectUrl);
     } finally {
         deciding.value = undefined;
     }
+}
+
+/** 地址的协议（带冒号）；不是合法的绝对地址时回 `undefined`。 */
+function protocolOf(url: string): string | undefined {
+    return URL.canParse(url) ? new URL(url).protocol : undefined;
 }
 
 /** 换一个账号：退出当前的，带着这一页去登录，登录后回来接着确认。 */
@@ -245,7 +258,7 @@ async function switchAccount(): Promise<void> {
             </div>
 
             <div v-else-if="state.kind === 'ready'" key="ready" data-site-oauth-ready>
-                <h1 data-site-oauth-heading>{{ t("oauthConsent.heading", {client: state.info.clientName}) }}</h1>
+                <h1 class="oauth-consent__heading" data-site-oauth-heading>{{ t("oauthConsent.heading", {client: state.info.clientName}) }}</h1>
                 <div v-if="me !== undefined" class="oauth-consent__who">
                     <span class="oauth-consent__avatar" aria-hidden="true">{{ initial }}</span>
                     <span class="oauth-consent__name">{{ me.username }}</span>
@@ -271,6 +284,11 @@ async function switchAccount(): Promise<void> {
 </template>
 
 <style scoped>
+/* 客户端名字可以是一长串不带空格的字（驼峰的包名一类）：不折行的话伸出卡片、被稿纸裁掉，看不全是谁在要授权。 */
+.oauth-consent__heading {
+    overflow-wrap: anywhere;
+}
+
 .oauth-consent__state {
     display: flex;
     flex-direction: column;

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 给机密客户端换密钥（t10 计划 3.13；`site.oauth-provider` 输出 9）：先说清后果，确认后发请求；成功后同一个对话框换成新密钥与复制按钮，
- * 只显示这一次。照用户页重置密码（`users/UserActionDialog.vue`）的做法：对话框关掉（`closed`）就丢掉密钥，显示密钥期间点遮罩不关。
+ * 只显示这一次。照用户页重置密码（`users/UserActionDialog.vue`）的做法：对话框关掉（`closed`）就丢掉密钥，显示密钥期间点遮罩、按 Esc 都不关；
+ * 换到密钥那一步用 nb-ui 的换内容过渡（`nb-ui-switch`）。
  *
  * 失败写页脚的状态行、对话框留着。`not_found`（客户端已经不在了）另发 `missing`；公开客户端回 `client_public`（菜单里本来没有这一项，
  * 列表旧了才会撞上）同样写状态行。
@@ -13,7 +14,7 @@ import {computed, shallowRef, watch} from "vue";
 
 import {useSite} from "../../../context";
 import type {AdminApi} from "../../../http/admin";
-import {useSiteText} from "../../../text";
+import {useAdminText} from "../text";
 import {useFormFeedback} from "../../form-feedback";
 
 const props = defineProps<{open: boolean; api: AdminApi; client?: OAuthClientItem | undefined}>();
@@ -23,7 +24,7 @@ const emit = defineEmits<{
 }>();
 
 const {clock} = useSite();
-const t = useSiteText();
+const t = useAdminText();
 
 const submitting = shallowRef(false);
 /** 换出来的新密钥；有它时对话框显示密钥。 */
@@ -66,25 +67,32 @@ async function confirm(): Promise<void> {
         :status="statusSteady"
         :busy="submitting"
         :close-on-overlay="secret === undefined"
+        :close-on-esc="secret === undefined"
         data-site-admin-rotate-dialog
         :data-site-admin-rotate-step="secret === undefined ? 'confirm' : 'secret'"
         @update:open="emit('update:open', $event)"
         @closed="secret = undefined"
     >
-        <p v-if="secret === undefined" class="admin-rotate__text">{{ t("admin.clients.rotate.description") }}</p>
-        <template v-else>
-            <p class="admin-rotate__text">{{ t("admin.clients.register.secretNote") }}</p>
-            <div class="admin-rotate__secret">
-                <code data-site-admin-rotated-secret>{{ secret }}</code>
-                <CopyButton :text="secret" :label="t('admin.clients.credentials.copySecret')" />
+        <Transition name="nb-ui-switch" mode="out-in">
+            <p v-if="secret === undefined" key="confirm" class="admin-rotate__text">{{ t("admin.clients.rotate.description") }}</p>
+            <div v-else key="secret">
+                <p class="admin-rotate__text">{{ t("admin.clients.register.secretNote") }}</p>
+                <div class="admin-rotate__secret">
+                    <code data-site-admin-rotated-secret>{{ secret }}</code>
+                    <CopyButton :text="secret" :label="t('admin.clients.credentials.copySecret')" />
+                </div>
             </div>
-        </template>
+        </Transition>
         <template #footer="{cancel}">
-            <template v-if="secret === undefined">
-                <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
-                <Button variant="danger" :disabled="feedback.waiting.value" :loading="submitting" data-site-admin-rotate-confirm @click="confirm">{{ t("admin.clients.rotate.confirm") }}</Button>
-            </template>
-            <Button v-else data-site-admin-rotate-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+            <Transition name="nb-ui-switch" mode="out-in">
+                <div v-if="secret === undefined" key="confirm" class="admin-dialog-buttons">
+                    <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
+                    <Button variant="danger" :disabled="feedback.waiting.value" :loading="submitting" data-site-admin-rotate-confirm @click="confirm">{{ t("admin.clients.rotate.confirm") }}</Button>
+                </div>
+                <div v-else key="secret" class="admin-dialog-buttons">
+                    <Button data-site-admin-rotate-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                </div>
+            </Transition>
         </template>
     </Dialog>
 </template>

@@ -102,6 +102,25 @@ describe("确认卡片", () => {
         expect(bodiesOf(harness, DECIDE)).toEqual([{request: REQUEST, accept: false} satisfies OAuthDecisionRequest]);
     });
 
+    it("回来的回跳地址不是 https 或 http（javascript:、data:、不是地址）：不离开，状态行写回答不合格，按钮还能点", async () => {
+        for (const redirectUrl of ["javascript:alert(1)", "data:text/html,hi", "not a url"]) {
+            const harness = await onConsentPage(signedIn({handlers: {[DECIDE]: () => Response.json({redirectUrl} satisfies OAuthDecisionResponse)}}));
+            const card = await ready(harness);
+            button(card, "data-site-oauth-allow").click();
+            await vi.waitFor(() => expect({redirectUrl, status: statusOf(card)}).toEqual({redirectUrl, status: zhCN.errors.web.malformed}));
+            expect(harness.left).toEqual([]);
+            await vi.waitFor(() => expect(button(card, "data-site-oauth-allow").disabled).toBe(false));
+            cleanUp();
+        }
+    });
+
+    it("回跳地址是 http（本机回环上的客户端）：照样离开", async () => {
+        const local = "http://127.0.0.1:8123/callback?code=c1&state=s1";
+        const harness = await onConsentPage(signedIn({handlers: {[DECIDE]: () => Response.json({redirectUrl: local} satisfies OAuthDecisionResponse)}}));
+        button(await ready(harness), "data-site-oauth-allow").click();
+        await vi.waitFor(() => expect(harness.left.map((leave) => leave.url)).toEqual([local]));
+    });
+
     it("提交还没回来：两个按钮都不能点，连点不发第二次", async () => {
         let answer!: (response: Response) => void;
         const harness = await onConsentPage(signedIn({handlers: {[DECIDE]: () => new Promise<Response>((resolve) => {

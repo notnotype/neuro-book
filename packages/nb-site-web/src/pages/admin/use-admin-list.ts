@@ -4,6 +4,9 @@
  * - 状态从地址来（`useListRoute`），换了页码、筛选或搜索就取一次；翻页的基准记在内存里，同一份列表沿用（`list-query.ts`）。
  * - 每次取数领一个序号，回来时不是最新的就丢掉：先发后到的旧结果不会盖掉新的。
  * - 页码超过最后一页时（`site.admin` 输出 10）改到最后一页（`replace`，后退不回到那一页空的），由地址的变化再取一次。
+ *   翻页与越界改页都经 `ListRoute.pager`：已经离开这一页时不导航（离开后才回来的回答不能把人拽回来）。
+ * - 页面卸载时作废在途的取数：回答回来时页面已经不在了，丢掉。
+ * - 回答缺 `items` 或 `total` 不是非负整数时算不出最后一页，当作回答不合格，与取数失败一样给原因、带重试。
  * - 失败给数据表格一句原因（它画在表格区里，带重试）；统一处理接管了的（会话没了、角色刚被改）不显示，人会被带走。
  *
  * 搜索的停顿（`useSearchPause`）也在这里：输入停 300 毫秒才把搜索词写进地址。时间取注入的时钟，组件测试手动推进。
@@ -13,13 +16,13 @@
 import {PAGE} from "@notnotype/nb-site-identity-contract/constants";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, shallowRef, watch} from "vue";
-import type {ComputedRef, ShallowRef} from "vue";
+import type {ComputedRef, ShallowRef, WritableComputedRef} from "vue";
 import {useRoute, useRouter} from "vue-router";
 
 import type {Result} from "../../http/core";
 import {failureText} from "../../http/failure-text";
 import type {SiteClock} from "../../host/clock";
-import {anchorFor, lastPageIfPastEnd, listKey, listQueryOf, readListState, rememberAnchor} from "./list-query";
+import {anchorFor, isListPage, lastPageIfPastEnd, listKey, listQueryOf, readListState, rememberAnchor} from "./list-query";
 import type {AnchorMemory, ListSchema, ListState} from "./list-query";
 
 /** 每页条数（t09 第 12 条）。 */
@@ -33,9 +36,20 @@ export interface ListRoute<Field extends string> {
     readonly state: ComputedRef<ListState<Field> | undefined>;
     /**
      * 换到另一个状态：翻页与换筛选用 `push`（后退回到上一个），搜索与页码越界用 `replace`（打字的每次停顿、
-     * 越界的那一页不留在历史里）。
+     * 越界的那一页不留在历史里）。导航完成（或被取消、被守卫改走）时 settle。
      */
-    go(next: ListState<Field>, mode: "push" | "replace"): void;
+    go(next: ListState<Field>, mode: "push" | "replace"): Promise<void>;
+    /**
+     * 一份列表的翻页：`page` 给数据表格的 `v-model:page`（写入时 `push`），`pastEnd` 给 `useAdminList` 的 `onPastEnd`（`replace`）。
+     * `list` 是这份列表当前显示的状态，缺省是地址里的状态；一页里有几份列表（注册码页的两个页签）时传自己那份，
+     * 不显示的那份回 `undefined`。路由已经离开这一页、或 `list` 回 `undefined` 时两者都不导航。
+     */
+    pager(list?: () => ListState<Field> | undefined): ListPager;
+}
+
+export interface ListPager {
+    readonly page: WritableComputedRef<number>;
+    pastEnd(page: number): Promise<void>;
 }
 
 export function useListRoute<Field extends string>(schema: ListSchema<Field>, routeName: string): ListRoute<Field> {
@@ -43,10 +57,33 @@ export function useListRoute<Field extends string>(schema: ListSchema<Field>, ro
     const router = useRouter();
     // 离开这一页时路由先换、页面后卸载：中间这一下读到的是别的页的查询参数，不能当作这一页的状态去取。
     const state = computed(() => (route.name === routeName ? readListState(schema, route.query) : undefined));
+
+    async function go(next: ListState<Field>, mode: "push" | "replace"): Promise<void> {
+        await router[mode]({name: routeName, query: listQueryOf(schema, next)});
+    }
+
+    /** 这份列表现在能不能导航：还在这一页，而且它是显示着的那份。 */
+    function current(list: () => ListState<Field> | undefined): ListState<Field> | undefined {
+        return state.value === undefined ? undefined : list();
+    }
+
     return {
         state,
-        go(next, mode) {
-            void router[mode]({name: routeName, query: listQueryOf(schema, next)});
+        go,
+        pager(list = () => state.value) {
+            return {
+                page: computed({
+                    get: () => list()?.page ?? 1,
+                    set: (page: number) => {
+                        const shown = current(list);
+                        if (shown !== undefined) void go({...shown, page}, "push");
+                    },
+                }),
+                async pastEnd(page) {
+                    const shown = current(list);
+                    if (shown !== undefined) await go({...shown, page}, "replace");
+                },
+            };
         },
     };
 }
@@ -64,8 +101,11 @@ export interface AdminListOptions<Field extends string, Item, Counts> {
     /** 要取的状态；`undefined` 时不取，留着已有的行（离开这一页，或这份列表不是当前的页签）。 */
     readonly state: () => ListState<Field> | undefined;
     readonly fetch: (state: ListState<Field>, anchor: string | undefined) => Promise<Result<ListResponse<Item, Counts>>>;
-    /** 页码超过了最后一页：改到 `page`。调用方改地址，状态变了以后这里再取一次。 */
-    readonly onPastEnd: (page: number) => void;
+    /**
+     * 页码超过了最后一页：改到 `page`（通常就是 `ListPager.pastEnd`）。调用方改地址，状态变了以后这里再取一次；
+     * settle 之后状态没变（没导航、导航被取消或被改走），就把这次的回答照样显示出来、放下遮罩。
+     */
+    readonly onPastEnd: (page: number) => Promise<void>;
 }
 
 export interface AdminList<Item, Counts> {
@@ -82,6 +122,8 @@ export interface AdminList<Item, Counts> {
      * `fresh` 丢掉基准、以当时为基准重来：新加了一条（发放注册码）时要这样，带着旧基准的列表里没有基准之后建的条目。
      */
     reload(options?: {readonly fresh?: boolean}): Promise<void>;
+    /** 只丢掉基准、不取：接着要换页（发放注册码后回到第 1 页）时用，换页引起的那次取数以当时为基准。 */
+    forgetAnchor(): void;
 }
 
 export function useAdminList<Field extends string, Item, Counts = never>(options: AdminListOptions<Field, Item, Counts>): AdminList<Item, Counts> {
@@ -110,12 +152,20 @@ export function useAdminList<Field extends string, Item, Counts = never>(options
             error.value = port.t(failureText("identity", result.failure));
             return;
         }
+        // 前端不按 schema 校验回答（站点的既定做法），但算最后一页要用的两项不对时，往下走会写出 `page=NaN`、遮罩不撤。
+        if (!isListPage(result.value)) {
+            loading.value = false;
+            error.value = port.t(failureText("identity", {kind: "malformed", status: 200}));
+            return;
+        }
         memory = rememberAnchor(memory, key, result.value.anchor);
         const last = lastPageIfPastEnd(result.value, state.page, ADMIN_PAGE_SIZE);
         if (last !== undefined) {
             // 还在加载：地址改到最后一页之后接着取，表格的遮罩不撤，免得先闪一下空的。
-            options.onPastEnd(last);
-            return;
+            const before = requestKey.value;
+            await options.onPastEnd(last);
+            // 地址变了的话，`requestKey` 的监听已经（或马上就会）领新序号再取，这次的回答作废；没变才轮到这里收尾。
+            if (mine !== sequence || requestKey.value !== before) return;
         }
         rows.value = result.value.items;
         total.value = result.value.total;
@@ -136,6 +186,10 @@ export function useAdminList<Field extends string, Item, Counts = never>(options
         },
         {immediate: true},
     );
+    // 卸载之后回来的回答一律丢掉。只靠“离开后状态是 undefined”挡不住：离开又回到同一页时，旧页面的状态读到的是新地址。
+    onBeforeUnmount(() => {
+        sequence += 1;
+    });
 
     return {
         rows,
@@ -148,14 +202,18 @@ export function useAdminList<Field extends string, Item, Counts = never>(options
             const state = options.state() ?? lastState;
             if (state !== undefined) await load(state);
         },
+        forgetAnchor() {
+            memory = undefined;
+        },
     };
 }
 
 /**
- * 输入停 `SEARCH_PAUSE_MS` 之后才 `apply`（计划 3.13）：每打一个字重新计时。`flush` 立刻做（按回车），`cancel` 丢掉还没到点的。
+ * 输入停 `SEARCH_PAUSE_MS` 之后才 `apply`（计划 3.13）：每打一个字重新计时。`flush` 立刻做，`enter` 是搜索框回车的处理
+ * （输入法组字时的回车是选字，不算），`cancel` 丢掉还没到点的。
  * 时钟只有按间隔重复的计时，到点第一次就停掉（与 `form-feedback.ts` 的成功提示同一种做法）。卸载时停掉。
  */
-export function useSearchPause(clock: SiteClock, apply: (value: string) => void): {schedule(value: string): void; flush(): void; cancel(): void} {
+export function useSearchPause(clock: SiteClock, apply: (value: string) => void): {schedule(value: string): void; flush(): void; enter(event: KeyboardEvent): void; cancel(): void} {
     let stop: (() => void) | undefined;
     let pending: string | undefined;
 
@@ -180,6 +238,11 @@ export function useSearchPause(clock: SiteClock, apply: (value: string) => void)
             stop = clock.every(SEARCH_PAUSE_MS, flush);
         },
         flush,
+        enter(event) {
+            // Safari 组字时按回车发的 keydown 仍是 Enter（keyCode 229）；与 nb-ui `dialog-close.ts` 认组字的判据相同。
+            if (event.isComposing || event.keyCode === 229) return;
+            flush();
+        },
         cancel,
     };
 }

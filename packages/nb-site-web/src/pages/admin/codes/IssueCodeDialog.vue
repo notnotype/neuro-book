@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 发放注册码的对话框（t10 计划 3.13；`site.admin` 输出 7 与输入表的“注册码”一段）：可用次数（不填是不限）、过期日期（不填是不过期）、
- * 备注（至多 200 个字符）。成功后同一个对话框换成发出来的码与复制按钮，列表由页面重取。
+ * 备注（至多 200 个字符）。成功后同一个对话框换成发出来的码与复制按钮（nb-ui 的换内容过渡 `nb-ui-switch`），列表由页面
+ * 回到第 1 页重取。码在列表里一直看得到，不是一次性的秘密：点遮罩、按 Esc 照样关。
  *
  * 校验照稿纸页的做法（`form-feedback.ts`）：次数不是正整数、日期早于今天时提交按钮不可用，离开那一项时状态行写规则；
  * 服务端回 `validation_failed` 时按 `fields` 标红。备注的长度靠输入上限。
@@ -17,7 +18,7 @@ import {computed, shallowRef, useTemplateRef, watch} from "vue";
 import {useSite} from "../../../context";
 import type {AdminApi} from "../../../http/admin";
 import type {Failure} from "../../../http/core";
-import {siteRef, useSiteText} from "../../../text";
+import {adminRef, useAdminText} from "../text";
 import {useFormFeedback} from "../../form-feedback";
 import {endOfLocalDay, localToday} from "../format";
 
@@ -31,7 +32,7 @@ const emit = defineEmits<{
 }>();
 
 const {clock} = useSite();
-const t = useSiteText();
+const t = useAdminText();
 
 const maxUses = shallowRef("");
 const expiresAt = shallowRef<string | null>(null);
@@ -54,7 +55,7 @@ const noteFits = computed(() => codePointLength(note.value) <= REGISTRATION_CODE
 
 const form = useTemplateRef<HTMLFormElement>("form");
 const feedback = useFormFeedback<IssueField>(form, clock, {
-    rules: {maxUses: () => (maxUsesValue.value === undefined ? siteRef("admin.codes.issue.rules.maxUses") : undefined)},
+    rules: {maxUses: () => (maxUsesValue.value === undefined ? adminRef("admin.codes.issue.rules.maxUses") : undefined)},
 });
 const {statusSteady, fieldError} = feedback;
 
@@ -74,7 +75,7 @@ watch(
 
 // 日期不是输入框，`onLeave` 认不出它：选了一个早于今天的日子就当场写规则，改对了就撤。
 watch(expiresFits, (fits) => {
-    if (!fits) feedback.showRule(["expiresAt"], siteRef("admin.codes.issue.rules.expiresAt"));
+    if (!fits) feedback.showRule(["expiresAt"], adminRef("admin.codes.issue.rules.expiresAt"));
     else if (feedback.status.value?.rule?.includes("expiresAt") === true) feedback.reset();
 });
 
@@ -121,30 +122,36 @@ async function submit(): Promise<void> {
         @update:open="emit('update:open', $event)"
         @closed="issued = undefined"
     >
-        <form v-if="issued === undefined" id="admin-issue-form" ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.onEdited" @focusout="feedback.onLeave">
-            <Field :label="t('admin.codes.issue.maxUses')" :error="fieldError('maxUses')">
-                <Input v-model="maxUses" name="maxUses" inputmode="numeric" :placeholder="t('admin.codes.issue.maxUsesPlaceholder')" autocomplete="off" />
-            </Field>
-            <Field :label="t('admin.codes.issue.expiresAt')" :description="t('admin.codes.issue.expiresAtHint')" :error="fieldError('expiresAt')">
-                <DateInput v-model="expiresAt" :aria-label="t('admin.codes.issue.expiresAt')" data-site-admin-issue-expires />
-            </Field>
-            <Field :label="t('admin.codes.issue.note')" :error="fieldError('note')">
-                <Input v-model="note" name="note" :placeholder="t('admin.codes.issue.notePlaceholder')" :maxlength="REGISTRATION_CODE_NOTE.maxLength" autocomplete="off" />
-            </Field>
-        </form>
-        <template v-else>
-            <p class="admin-issue__text">{{ t("admin.codes.issue.doneDescription") }}</p>
-            <div class="admin-issue__code">
-                <code data-site-admin-issued-code>{{ issued.code }}</code>
-                <CopyButton :text="issued.code" />
+        <Transition name="nb-ui-switch" mode="out-in">
+            <form v-if="issued === undefined" key="form" id="admin-issue-form" ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.onEdited" @focusout="feedback.onLeave">
+                <Field :label="t('admin.codes.issue.maxUses')" :error="fieldError('maxUses')">
+                    <Input v-model="maxUses" name="maxUses" inputmode="numeric" :placeholder="t('admin.codes.issue.maxUsesPlaceholder')" autocomplete="off" />
+                </Field>
+                <Field :label="t('admin.codes.issue.expiresAt')" :description="t('admin.codes.issue.expiresAtHint')" :error="fieldError('expiresAt')">
+                    <DateInput v-model="expiresAt" :aria-label="t('admin.codes.issue.expiresAt')" data-site-admin-issue-expires />
+                </Field>
+                <Field :label="t('admin.codes.issue.note')" :error="fieldError('note')">
+                    <Input v-model="note" name="note" :placeholder="t('admin.codes.issue.notePlaceholder')" :maxlength="REGISTRATION_CODE_NOTE.maxLength" autocomplete="off" />
+                </Field>
+            </form>
+            <div v-else key="issued">
+                <p class="admin-issue__text">{{ t("admin.codes.issue.doneDescription") }}</p>
+                <div class="admin-issue__code">
+                    <code data-site-admin-issued-code>{{ issued.code }}</code>
+                    <CopyButton :text="issued.code" />
+                </div>
             </div>
-        </template>
+        </Transition>
         <template #footer="{cancel}">
-            <template v-if="issued === undefined">
-                <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
-                <Button type="submit" form="admin-issue-form" :disabled="!canSubmit" :loading="submitting" data-site-admin-issue-submit>{{ t("admin.codes.issue.submit") }}</Button>
-            </template>
-            <Button v-else data-site-admin-issue-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+            <Transition name="nb-ui-switch" mode="out-in">
+                <div v-if="issued === undefined" key="form" class="admin-dialog-buttons">
+                    <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
+                    <Button type="submit" form="admin-issue-form" :disabled="!canSubmit" :loading="submitting" data-site-admin-issue-submit>{{ t("admin.codes.issue.submit") }}</Button>
+                </div>
+                <div v-else key="issued" class="admin-dialog-buttons">
+                    <Button data-site-admin-issue-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                </div>
+            </Transition>
         </template>
     </Dialog>
 </template>

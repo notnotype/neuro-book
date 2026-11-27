@@ -113,6 +113,11 @@ export function rememberAnchor(memory: AnchorMemory | undefined, key: string, an
     return memory !== undefined && memory.key === key && memory.anchor === anchor ? memory : {key, anchor};
 }
 
+/** 回答里有算最后一页要用的 `items`（数组）与 `total`（非负整数）。 */
+export function isListPage(response: {readonly items: unknown; readonly total: unknown}): boolean {
+    return Array.isArray(response.items) && typeof response.total === "number" && Number.isSafeInteger(response.total) && response.total >= 0;
+}
+
 /**
  * 页码超过了最后一页（`site.admin` 输出 10：`items` 为空而 `total` 不为 0）时，该去的最后一页；没超时回 `undefined`。
  * 页码本来就在最后一页之内却没有行（两次请求之间数据变了）时也回最后一页：表格不该停在一页空的上面。

@@ -11,15 +11,17 @@
  */
 
 import {CONTINUE_PARAM, OAUTH_ERROR_PARAM, OAUTH_PAGES} from "@notnotype/nb-site-identity-contract/constants";
+import type {TextRef} from "@notnotype/nb-ui/text";
 import {createRouter} from "vue-router";
 import type {LocationQueryValue, RouteLocationNormalized, Router, RouterHistory} from "vue-router";
 
 import LoginPage from "./pages/LoginPage.vue";
+import {adminRef} from "./pages/admin/text-ref";
 import {knownAccount} from "./session/account";
 import type {CurrentAccount} from "./session/account";
 import {guard} from "./session/guard";
 import type {Access, GuardTarget} from "./session/guard";
-import type {SiteTextKey} from "./text";
+import {siteRef} from "./text";
 
 declare module "vue-router" {
     interface RouteMeta {
@@ -30,8 +32,8 @@ declare module "vue-router" {
          * 页面只画卡片里的内容；别的版式还由页面自己画。
          */
         layout?: "paper" | "account" | "admin" | "plain";
-        /** 标签页标题用的键。 */
-        titleKey?: SiteTextKey;
+        /** 标签页标题。管理面板的五页取管理面板目录里的字（`pages/admin/text-ref.ts`），别的页取站点目录里的。 */
+        title?: TextRef;
         /** 见 `GuardTarget.signedInWithContinue`。 */
         signedInWithContinue?: boolean;
         /**
@@ -75,34 +77,34 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
     const router = createRouter({
         history: options.history,
         routes: [
-            {path: "/", name: "home", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title"}},
-            {path: "/login", name: "login", component: LoginPage, meta: {access: "guest", layout: "paper", titleKey: "login.title", signedInWithContinue: true}},
-            {path: "/register", name: "register", component: () => import("./pages/RegisterPage.vue"), meta: {access: "guest", layout: "paper", titleKey: "register.title"}},
-            {path: "/consent", name: "consent", component: () => import("./pages/ConsentPage.vue"), meta: {access: "consent", layout: "paper", titleKey: "consent.title"}},
-            {path: "/account", name: "account", component: () => import("./pages/account/AccountPage.vue"), meta: {access: "user", layout: "account", titleKey: "account.title"}},
+            {path: "/", name: "home", component: LoginPage, meta: {access: "guest", layout: "paper", title: siteRef("login.title")}},
+            {path: "/login", name: "login", component: LoginPage, meta: {access: "guest", layout: "paper", title: siteRef("login.title"), signedInWithContinue: true}},
+            {path: "/register", name: "register", component: () => import("./pages/RegisterPage.vue"), meta: {access: "guest", layout: "paper", title: siteRef("register.title")}},
+            {path: "/consent", name: "consent", component: () => import("./pages/ConsentPage.vue"), meta: {access: "consent", layout: "paper", title: siteRef("consent.title")}},
+            {path: "/account", name: "account", component: () => import("./pages/account/AccountPage.vue"), meta: {access: "user", layout: "account", title: siteRef("account.title")}},
             // 路径是 `site.oauth-provider` 输出 3、5 定的（`OAUTH_PAGES.consent`）。
             {
                 path: OAUTH_PAGES.consent,
                 name: "oauth-consent",
                 component: () => import("./pages/OAuthConsentPage.vue"),
-                meta: {access: "user", publicWith: OAUTH_ERROR_PARAM, layout: "paper", titleKey: "oauthConsent.title"},
+                meta: {access: "user", publicWith: OAUTH_ERROR_PARAM, layout: "paper", title: siteRef("oauthConsent.title")},
             },
             {
                 path: "/admin",
                 component: () => import("./pages/admin/AdminShell.vue"),
                 meta: {access: "admin", layout: "admin"},
                 children: [
-                    {path: "", name: "admin-dashboard", component: () => import("./pages/admin/DashboardPage.vue"), meta: {titleKey: "admin.dashboard.title"}},
-                    {path: "users", name: "admin-users", component: () => import("./pages/admin/UsersPage.vue"), meta: {titleKey: "admin.users.title"}},
-                    {path: "codes", name: "admin-codes", component: () => import("./pages/admin/CodesPage.vue"), meta: {titleKey: "admin.codes.title"}},
-                    {path: "clients", name: "admin-clients", component: () => import("./pages/admin/ClientsPage.vue"), meta: {titleKey: "admin.clients.title"}},
-                    {path: "audit", name: "admin-audit", component: () => import("./pages/admin/AuditPage.vue"), meta: {titleKey: "admin.audit.title"}},
+                    {path: "", name: "admin-dashboard", component: () => import("./pages/admin/DashboardPage.vue"), meta: {title: adminRef("admin.dashboard.title")}},
+                    {path: "users", name: "admin-users", component: () => import("./pages/admin/UsersPage.vue"), meta: {title: adminRef("admin.users.title")}},
+                    {path: "codes", name: "admin-codes", component: () => import("./pages/admin/CodesPage.vue"), meta: {title: adminRef("admin.codes.title")}},
+                    {path: "clients", name: "admin-clients", component: () => import("./pages/admin/ClientsPage.vue"), meta: {title: adminRef("admin.clients.title")}},
+                    {path: "audit", name: "admin-audit", component: () => import("./pages/admin/AuditPage.vue"), meta: {title: adminRef("admin.audit.title")}},
                 ],
             },
-            {path: "/privacy", name: "privacy", component: shell, meta: {access: "public", layout: "plain", titleKey: "legal.privacy.title"}},
-            {path: "/terms", name: "terms", component: shell, meta: {access: "public", layout: "plain", titleKey: "legal.terms.title"}},
+            {path: "/privacy", name: "privacy", component: shell, meta: {access: "public", layout: "plain", title: siteRef("legal.privacy.title")}},
+            {path: "/terms", name: "terms", component: shell, meta: {access: "public", layout: "plain", title: siteRef("legal.terms.title")}},
             // `/admin/` 下没有的地址也落到这里，不按管理员守卫：没有的页对谁都是没有。
-            {path: "/:rest(.*)*", name: "not-found", component: () => import("./pages/NotFoundPage.vue"), meta: {access: "public", layout: "plain", titleKey: "notFound.title"}},
+            {path: "/:rest(.*)*", name: "not-found", component: () => import("./pages/NotFoundPage.vue"), meta: {access: "public", layout: "plain", title: siteRef("notFound.title")}},
         ],
     });
 

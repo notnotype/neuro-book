@@ -8,13 +8,13 @@ import {AUDIT_ACTIONS} from "@notnotype/nb-site-identity-contract/constants";
 import type {AuditItem, AuditListResponse} from "@notnotype/nb-site-identity-contract/constants";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
-import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, auditItem, pageOf} from "../../testing/admin-answers";
 import {cleanUp, nextTask, settledAt, startAt} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
+import adminZhCN from "./locales/zh-CN.json";
 import {SEARCH_PAUSE_MS} from "./use-admin-list";
 
-const text = zhCN.admin.audit;
+const text = adminZhCN.admin.audit;
 
 afterEach(cleanUp);
 

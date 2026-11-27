@@ -10,10 +10,11 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 
 import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, ANCHOR, oauthClient, pageOf} from "../../testing/admin-answers";
-import {cleanUp, failure, identityUrl, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
+import {cleanUp, clickOverlay, failure, identityUrl, nextTask, pressEscape, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
+import adminZhCN from "./locales/zh-CN.json";
 
-const text = zhCN.admin.clients;
+const text = adminZhCN.admin.clients;
 const errors = zhCN.errors.identity;
 
 afterEach(cleanUp);
@@ -193,7 +194,8 @@ describe("登记", () => {
             type: "confidential",
             skipConsent: false,
         } satisfies CreateOAuthClientRequest}]);
-        expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp");
+        // 正文换步骤有过渡（`nb-ui-switch` 的 out-in）：表单先淡出，新内容才进来。
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp"));
         expect(found.querySelector("[data-site-admin-created-secret]")?.textContent).toBe("nbs_new_secret_Xy7Qm2Lp9Kt4");
         expect(found.textContent).toContain(text.register.secretNote);
         expect([...found.querySelectorAll(".nb-copy-button button")].map((element) => element.textContent?.trim())).toEqual([text.credentials.copyId, text.credentials.copySecret]);
@@ -213,6 +215,11 @@ describe("登记", () => {
         submit(found).click();
         await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-secret]")).not.toBeNull());
 
+        // 显示密钥期间 Esc 与点遮罩都不关，只有“完成”关。
+        pressEscape(found);
+        clickOverlay();
+        await nextTask();
+        expect(document.body.querySelector(DIALOG)).toBe(found);
         found.querySelector<HTMLButtonElement>("[data-site-admin-client-finish]")!.click();
         await closed(DIALOG);
         expect(document.body.textContent).not.toContain("nbs_new_secret_Xy7Qm2Lp9Kt4");
@@ -236,7 +243,8 @@ describe("登记", () => {
 
         await vi.waitFor(() => expect(found.dataset.siteAdminClientStep).toBe("created"));
         expect(writes(harness)[0]!.body).toEqual({name: "桌面端", redirectUris: ["http://127.0.0.1/callback"], type: "public", skipConsent: true} satisfies CreateOAuthClientRequest);
-        expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp");
+        // 正文换步骤有过渡（`nb-ui-switch` 的 out-in）：表单先淡出，新内容才进来。
+        await vi.waitFor(() => expect(found.querySelector("[data-site-admin-created-client-id]")?.textContent).toBe("newClient0009AbCdEfGhIjKlMnOp"));
         expect(found.querySelector("[data-site-admin-created-secret]")).toBeNull();
         expect(found.textContent).toContain(text.register.publicNote);
     });
@@ -376,6 +384,11 @@ describe("换密钥", () => {
         expect(found.dataset.siteAdminRotateStep).toBe("secret");
         expect(writes(harness)).toEqual([{method: "POST", path: identityUrl(identityPath.adminOAuthClientRotate(target.clientId)), body: undefined}]);
 
+        // 显示新密钥期间 Esc 与点遮罩都不关，只有“完成”关。
+        pressEscape(found);
+        clickOverlay();
+        await nextTask();
+        expect(document.body.querySelector(DIALOG)).toBe(found);
         found.querySelector<HTMLButtonElement>("[data-site-admin-rotate-finish]")!.click();
         await closed(DIALOG);
         expect(document.body.textContent).not.toContain("nbs_rotated_9fK2mQ7xL4pW8tR1");

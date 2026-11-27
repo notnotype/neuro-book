@@ -1,0 +1,372 @@
+{
+    "admin": {
+        "nav": "管理面板",
+        "accountPage": "账号页",
+        "dashboard": {
+            "title": "看板",
+            "manifest": "清单 v{{version}}",
+            "range": "时间范围",
+            "ranges": {
+                "d7": "近 7 天",
+                "d28": "近 28 天",
+                "d90": "近 90 天"
+            },
+            "today": "今天的数",
+            "figures": {
+                "active": "今日活跃",
+                "fresh": "今日新增",
+                "online": "当前在线",
+                "usage": "使用统计开启"
+            },
+            "change": "较昨日 {{change}}",
+            "noYesterday": "昨日没有上报",
+            "onlineWindow": "最近 {{minutes}} 分钟",
+            "usageNote": "今日上报里",
+            "noValue": "—",
+            "todayReports": "今日上报",
+            "noReports": "没有上报",
+            "emptyToday": "今天还没有上报",
+            "noUsageReports": "今天没有带使用统计的上报",
+            "retryPanel": "重试：{{panel}}",
+            "failedSummary": "有 {{count}} 块统计取不到",
+            "active": {
+                "title": "活跃",
+                "daily": "日活跃",
+                "weekly": "7 日活跃",
+                "monthly": "28 日活跃",
+                "label": "近 {{days}} 天的日活跃、7 日活跃与 28 日活跃",
+                "empty": "这段时间没有上报"
+            },
+            "online": {
+                "title": "在线",
+                "meta": "近 24 小时",
+                "series": "心跳次数",
+                "label": "近 24 小时每 {{minutes}} 分钟的在线心跳次数",
+                "empty": "近 24 小时没有心跳",
+                "hour": "{{hour}} 时"
+            },
+            "versions": {
+                "title": "版本"
+            },
+            "systems": {
+                "title": "系统"
+            },
+            "rest": "少于 5 份",
+            "retention": {
+                "title": "留存",
+                "meta": "按安装所在周",
+                "install": "安装",
+                "fresh": "新增",
+                "week": "第 {{week}} 周",
+                "cohort": "{{date}} 那周",
+                "empty": "还没有满一周的安装"
+            },
+            "errors": {
+                "title": "错误",
+                "meta": "今日 {{count}} 份带使用统计的上报",
+                "code": "错误码",
+                "reports": "份数",
+                "share": "占比",
+                "bins": "次数",
+                "bin1": "1 次",
+                "bin2": "2 到 4",
+                "bin3": "5 到 9",
+                "bin4": "10 到 49",
+                "bin5": "50 以上",
+                "binCount": "{{bin}} {{count}} 份",
+                "binSeparator": "，",
+                "empty": "今天没有错误"
+            },
+            "crashes": {
+                "title": "崩溃",
+                "none": "没有崩溃",
+                "once": "1 次",
+                "few": "2 到 4 次",
+                "many": "5 次以上"
+            },
+            "upgrades": {
+                "title": "升级",
+                "none": "没有升级",
+                "succeeded": "升级成功",
+                "failed": "升级失败"
+            }
+        },
+        "list": {
+            "cancel": "取消",
+            "done": "完成"
+        },
+        "users": {
+            "title": "用户",
+            "search": "用户名、显示名或邮箱",
+            "searchLabel": "搜索用户",
+            "filterLabel": "筛选用户",
+            "filters": {
+                "all": "全部",
+                "admin": "管理员",
+                "banned": "已封禁",
+                "email_pending": "邮箱待补"
+            },
+            "columns": {
+                "id": "ID",
+                "username": "用户名",
+                "displayName": "显示名",
+                "email": "邮箱",
+                "state": "状态",
+                "createdAt": "注册",
+                "lastLoginAt": "最后登录"
+            },
+            "admin": "管理员",
+            "emailPending": "待补",
+            "banned": "已封禁",
+            "normal": "正常",
+            "neverSignedIn": "没有登录过",
+            "justNow": "刚刚",
+            "rowActions": "{{username}} 的操作",
+            "selfForbidden": "不能对自己的账号这样做",
+            "empty": "没有符合的用户",
+            "actions": {
+                "resetPassword": {
+                    "menu": "重置密码",
+                    "title": "重置 {{username}} 的密码？",
+                    "description": "会生成一个新密码，只显示这一次。旧密码不能再登录，它已登录的设备与授权给应用的令牌都会失效。",
+                    "confirm": "重置密码"
+                },
+                "ban": {
+                    "menu": "封禁",
+                    "title": "封禁 {{username}}？",
+                    "description": "封禁之后它不能登录，已登录的设备与授权给应用的令牌都会失效。",
+                    "confirm": "封禁"
+                },
+                "unban": {
+                    "menu": "解封",
+                    "title": "解封 {{username}}？",
+                    "description": "解封之后它可以重新登录，封禁前的会话不会恢复。",
+                    "confirm": "解封"
+                },
+                "grantAdmin": {
+                    "menu": "设为管理员",
+                    "title": "把 {{username}} 设为管理员？",
+                    "description": "它已登录的设备都会退出，重新登录后就能进管理面板。",
+                    "confirm": "设为管理员"
+                },
+                "revokeAdmin": {
+                    "menu": "取消管理员",
+                    "title": "取消 {{username}} 的管理员？",
+                    "description": "它已登录的设备都会退出，重新登录后是普通用户。",
+                    "confirm": "取消管理员"
+                },
+                "revokeSessions": {
+                    "menu": "结束全部会话",
+                    "title": "结束 {{username}} 的全部会话？",
+                    "description": "它在所有设备上都会退出，授权给应用的令牌也会失效。",
+                    "confirm": "结束全部会话"
+                }
+            },
+            "password": {
+                "title": "{{username}} 的新密码",
+                "description": "关掉之后就看不到这个密码了，请现在复制并交给本人。",
+                "copy": "复制密码"
+            }
+        },
+        "codes": {
+            "title": "注册码与邀请码",
+            "kinds": "码的种类",
+            "registration": "注册码",
+            "invite": "邀请码",
+            "filterLabel": "筛选注册码",
+            "filters": {
+                "all": "全部",
+                "usable": "可用",
+                "exhausted_or_expired": "用完或过期",
+                "disabled": "已停用"
+            },
+            "columns": {
+                "code": "注册码",
+                "note": "备注",
+                "used": "已用",
+                "expiresAt": "到期",
+                "state": "状态",
+                "createdAt": "发放"
+            },
+            "inviteColumns": {
+                "code": "邀请码",
+                "owner": "主人",
+                "used": "已用",
+                "expiresAt": "到期",
+                "state": "状态",
+                "createdAt": "生成"
+            },
+            "noNote": "没有备注",
+            "usedOf": "{{used}} / {{max}}",
+            "unlimited": "不限",
+            "neverExpires": "不过期",
+            "states": {
+                "usable": "可用",
+                "exhausted": "已用完",
+                "expired": "已过期",
+                "disabled": "已停用"
+            },
+            "noOwner": "找不到主人",
+            "copy": "复制 {{code}}",
+            "rowActions": "{{code}} 的操作",
+            "emptyRegistration": "没有符合的注册码",
+            "emptyInvite": "还没有邀请码",
+            "disable": {
+                "menu": "停用",
+                "title": "停用 {{code}}？",
+                "description": "停用之后不能再用它注册，不能撤回；已经用它注册的账号不受影响。",
+                "confirm": "停用"
+            },
+            "issue": {
+                "open": "发放注册码",
+                "title": "发放注册码",
+                "maxUses": "可用次数",
+                "maxUsesPlaceholder": "不填就是不限",
+                "expiresAt": "过期日期",
+                "expiresAtHint": "不填就是不过期；到这一天结束时失效",
+                "note": "备注",
+                "notePlaceholder": "只有管理员看得到，例如发给了谁",
+                "submit": "发放",
+                "doneTitle": "注册码已发放",
+                "doneDescription": "这个码随时可以在列表里再复制。",
+                "rules": {
+                    "maxUses": "可用次数要是正整数",
+                    "expiresAt": "过期日期不能早于今天"
+                }
+            }
+        },
+        "clients": {
+            "title": "OAuth 客户端",
+            "columns": {
+                "name": "名字",
+                "clientId": "客户端 ID",
+                "type": "种类",
+                "redirectUris": "回调地址",
+                "skipConsent": "免确认",
+                "state": "状态",
+                "createdAt": "登记"
+            },
+            "types": {
+                "confidential": "机密",
+                "public": "公开"
+            },
+            "moreUris": "另有 {{count}} 个",
+            "skipConsentYes": "免确认",
+            "skipConsentNo": "要确认",
+            "states": {
+                "enabled": "可用",
+                "disabled": "已停用"
+            },
+            "copyId": "复制 {{clientId}}",
+            "rowActions": "{{name}} 的操作",
+            "empty": "还没有登记客户端",
+            "form": {
+                "name": "名字",
+                "namePlaceholder": "授权确认页上给用户看的名字",
+                "redirectUris": "回调地址",
+                "redirectUrisHint": "一行一个，至多 {{max}} 个",
+                "type": "种类",
+                "typeHint": "登记后不能改",
+                "confidential": "机密",
+                "confidentialDescription": "有自己的服务端，能保管密钥",
+                "public": "公开",
+                "publicDescription": "桌面或浏览器里的应用，不带密钥",
+                "skipConsent": "免确认（只用于自家的应用）",
+                "rules": {
+                    "name": "名字要 1 到 {{max}} 个字",
+                    "redirectUrisCount": "回调地址要 1 到 {{max}} 个",
+                    "redirectUriLength": "每个回调地址至多 {{max}} 个字符"
+                }
+            },
+            "register": {
+                "open": "登记客户端",
+                "title": "登记客户端",
+                "submit": "登记",
+                "doneTitle": "客户端已登记",
+                "secretNote": "关掉之后就看不到这个密钥了，请现在复制。",
+                "publicNote": "公开客户端没有密钥。"
+            },
+            "edit": {
+                "menu": "改动",
+                "title": "改动 {{name}}",
+                "submit": "保存"
+            },
+            "credentials": {
+                "clientId": "客户端 ID",
+                "secret": "密钥",
+                "copyId": "复制客户端 ID",
+                "copySecret": "复制密钥"
+            },
+            "disable": {
+                "menu": "停用",
+                "title": "停用 {{name}}？",
+                "description": "停用之后它不能再发起登录，它名下的令牌都会失效；再启用时这些令牌也不恢复。",
+                "confirm": "停用"
+            },
+            "enable": {
+                "menu": "启用",
+                "title": "启用 {{name}}？",
+                "description": "启用之后它可以重新发起登录，停用前的令牌不会恢复。",
+                "confirm": "启用"
+            },
+            "rotate": {
+                "menu": "换密钥",
+                "title": "给 {{name}} 换密钥？",
+                "description": "会生成一个新密钥，只显示这一次；旧密钥立即不能用。",
+                "confirm": "换密钥",
+                "doneTitle": "{{name}} 的新密钥"
+            }
+        },
+        "audit": {
+            "title": "审计",
+            "actor": "操作者",
+            "actorPlaceholder": "操作者 ID 或 cli",
+            "actorRule": "操作者写数字 ID，或写 cli 表示命令行",
+            "target": "对象种类",
+            "targetId": "对象 ID",
+            "targetIdRule": "对象 ID 是数字",
+            "action": "动作",
+            "allTargets": "全部对象",
+            "allActions": "全部动作",
+            "targets": {
+                "user": "用户",
+                "registration_code": "注册码",
+                "oauth_client": "OAuth 客户端"
+            },
+            "actions": {
+                "user": {
+                    "ban": "封禁",
+                    "unban": "解封",
+                    "role": "改角色",
+                    "revoke_sessions": "结束全部会话",
+                    "reset_password": "重置密码"
+                },
+                "registration_code": {
+                    "create": "发放注册码",
+                    "disable": "停用注册码"
+                },
+                "admin": {
+                    "cli_upsert": "命令行创建或重置管理员"
+                },
+                "oauth_client": {
+                    "create": "登记 OAuth 客户端",
+                    "update": "改动 OAuth 客户端",
+                    "rotate_secret": "换 OAuth 客户端的密钥"
+                }
+            },
+            "columns": {
+                "createdAt": "时间",
+                "actor": "操作者",
+                "action": "动作",
+                "target": "对象",
+                "params": "参数"
+            },
+            "cli": "命令行",
+            "targetRef": "{{type}} #{{id}}",
+            "noParams": "—",
+            "paramsSeparator": "，",
+            "param": "{{name}}：{{value}}",
+            "empty": "没有符合的审计记录"
+        }
+    }
+}

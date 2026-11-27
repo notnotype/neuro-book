@@ -20,6 +20,7 @@ import {Button, EmptyState, Spinner} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onUpdated, shallowRef, useTemplateRef, watch} from "vue";
 
 import {useSiteText} from "../../../text";
+import {useAdminText} from "../text";
 
 export type PanelState = "loading" | "empty" | "failed" | "ready";
 
@@ -45,7 +46,9 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{retry: []}>();
 
-const t = useSiteText();
+const t = useAdminText();
+// “重试”与站点别处的重试按钮同一句话，用站点目录里的那条。
+const siteT = useSiteText();
 
 /** 低于这个高度放不下 `EmptyState`（圆底图标加上下内边距约 170 像素）。 */
 const COMPACT_BELOW = 200;
@@ -143,13 +146,13 @@ onBeforeUnmount(() => observer?.disconnect());
                     <div v-else-if="compact" class="dashboard-panel__state dashboard-panel__failed">
                         <span class="i-lucide-circle-alert dashboard-panel__alert" aria-hidden="true" />
                         <span>{{ props.failureText }}</span>
-                        <Button variant="secondary" size="sm" :loading="retrying" :aria-label="t('admin.dashboard.retryPanel', {panel: name})" data-site-panel-retry @click="emit('retry')">{{ t("shell.retry") }}</Button>
+                        <Button variant="secondary" size="sm" :loading="retrying" :aria-label="t('admin.dashboard.retryPanel', {panel: name})" data-site-panel-retry @click="emit('retry')">{{ siteT("shell.retry") }}</Button>
                     </div>
                     <div v-else class="dashboard-panel__state">
                         <EmptyState :title="props.failureText">
                             <template #icon><span class="i-lucide-circle-alert dashboard-panel__alert h-5 w-5" aria-hidden="true" /></template>
                             <template #action>
-                                <Button variant="secondary" size="sm" :loading="retrying" :aria-label="t('admin.dashboard.retryPanel', {panel: name})" data-site-panel-retry @click="emit('retry')">{{ t("shell.retry") }}</Button>
+                                <Button variant="secondary" size="sm" :loading="retrying" :aria-label="t('admin.dashboard.retryPanel', {panel: name})" data-site-panel-retry @click="emit('retry')">{{ siteT("shell.retry") }}</Button>
                             </template>
                         </EmptyState>
                     </div>

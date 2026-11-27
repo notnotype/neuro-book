@@ -183,7 +183,7 @@ async function disable(): Promise<void> {
 
 .account-invites__quota {
     min-width: 0;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: var(--text-sm);
 }
 </style>

@@ -17,7 +17,8 @@ import type {FakeAnswer, FakeIdentity} from "./fake-api";
 import {dashboardActive, dashboardProblems, LAST_DAY, MISSING_DAYS, ZERO_DAY} from "./fixtures/dashboard";
 import {box, boxes} from "./geometry";
 
-const zhCN = JSON.parse(readFileSync(new URL("../src/locales/zh-CN.json", import.meta.url), "utf8")) as {
+/** 管理面板的文字在它自己的目录里（`src/pages/admin/text.ts`）。 */
+const zhCN = JSON.parse(readFileSync(new URL("../src/pages/admin/locales/zh-CN.json", import.meta.url), "utf8")) as {
     readonly admin: {
         readonly dashboard: {
             readonly noReports: string;

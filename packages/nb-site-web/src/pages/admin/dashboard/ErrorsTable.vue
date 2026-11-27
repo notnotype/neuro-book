@@ -8,13 +8,13 @@
 import {computed} from "vue";
 
 import {locale} from "../../../locale";
-import {useSiteText} from "../../../text";
-import type {SiteTextKey} from "../../../text";
+import {useAdminText} from "../text";
+import type {AdminTextKey} from "../text";
 import {errorShare, formatCount, formatShare} from "./model";
 import type {Problems} from "./model";
 
 const props = defineProps<{problems: Problems}>();
-const t = useSiteText();
+const t = useAdminText();
 
 const BIN_KEYS = [
     "admin.dashboard.errors.bin1",
@@ -22,7 +22,7 @@ const BIN_KEYS = [
     "admin.dashboard.errors.bin3",
     "admin.dashboard.errors.bin4",
     "admin.dashboard.errors.bin5",
-] as const satisfies readonly SiteTextKey[];
+] as const satisfies readonly AdminTextKey[];
 
 const bins = computed(() => BIN_KEYS.map((key) => t(key)));
 
@@ -90,7 +90,7 @@ const rows = computed(() => props.problems.errors.map((row) => ({
 
 .errors thead th {
     height: 24px;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: var(--text-xs);
 }
 
@@ -127,7 +127,7 @@ const rows = computed(() => props.problems.errors.map((row) => ({
     width: 56px;
     padding-right: 8px;
     box-sizing: border-box;
-    color: var(--text-secondary);
+    color: var(--text-muted);
 }
 
 .errors__code {

@@ -42,8 +42,13 @@ function grantedAt(iso: string): string {
     return t("account.apps.granted", {time: recentTime(iso, now, locale.value, t("account.apps.justNow")) ?? accountDate(iso, now, locale.value)});
 }
 
-function scopes(grant: GrantItem): string {
-    return grant.scopes.map((scope) => t(`account.apps.scopes.${scope}`)).join(t("account.apps.scopeJoin"));
+/**
+ * 范围逐条分开放：窄屏时在两条之间换行，一条之内不断开（“你是哪一个 NeuroBook 账号”整串不换行时 360 宽放不下）。
+ * 分隔符跟在前一条后面，换行不会落在行首的“、”上。
+ */
+function scopeParts(grant: GrantItem): string[] {
+    const join = t("account.apps.scopeJoin");
+    return grant.scopes.map((scope, index) => `${t(`account.apps.scopes.${scope}`)}${index < grant.scopes.length - 1 ? join : ""}`);
 }
 
 async function reload(): Promise<void> {
@@ -94,7 +99,7 @@ async function revoke(): Promise<void> {
             <li v-for="grant in props.grants.items.value" :key="grant.id" :data-site-account-grant="grant.id">
                 <span class="account-rows__main" data-site-account-grant-client>{{ grant.clientName }}</span>
                 <span class="account-rows__meta account-apps__meta">
-                    <span data-site-account-grant-scopes>{{ scopes(grant) }}</span>
+                    <span class="account-apps__scopes" data-site-account-grant-scopes><span v-for="(part, index) in scopeParts(grant)" :key="index">{{ part }}</span></span>
                     <time :datetime="grant.createdAt" :title="timeFormat.format(new Date(grant.createdAt))" data-site-account-grant-time>{{ grantedAt(grant.createdAt) }}</time>
                 </span>
                 <span class="account-rows__actions">
@@ -130,7 +135,7 @@ async function revoke(): Promise<void> {
     font-size: var(--text-sm);
 }
 
-/* 范围与时间两段之间留一个字宽，窄时整段换行，不在一段中间断开（与“邀请码”一节相同）。 */
+/* 范围与时间两段之间留一个字宽，窄时整段换行（与“邀请码”一节相同）；时间不断开，范围只在两条之间断开（`scopeParts`）。 */
 .account-apps__meta {
     display: inline-flex;
     flex-wrap: wrap;
@@ -138,7 +143,8 @@ async function revoke(): Promise<void> {
     column-gap: 1em;
 }
 
-.account-apps__meta > * {
+.account-apps__meta > time,
+.account-apps__scopes > span {
     white-space: nowrap;
 }
 

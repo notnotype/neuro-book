@@ -10,11 +10,12 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 
 import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, ANCHOR, codeCounts, inviteCode, pageOf, registrationCode} from "../../testing/admin-answers";
-import {cleanUp, failure, identityUrl, invalidNames, leaveField, NOW, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
+import {cleanUp, failure, held, identityUrl, invalidNames, leaveField, nextTask, NOW, SETTLE_TIMEOUT_MS, settledAt, startAt, type} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 import {endOfLocalDay} from "./format";
+import adminZhCN from "./locales/zh-CN.json";
 
-const text = zhCN.admin.codes;
+const text = adminZhCN.admin.codes;
 const errors = zhCN.errors.identity;
 
 afterEach(cleanUp);
@@ -121,6 +122,13 @@ describe("两份列表与页签", () => {
         expect(list(harness).querySelector("tbody tr td:nth-child(3)")?.textContent?.trim()).toBe(fill(text.usedOf, {used: 1, max: 5}));
     });
 
+    it("注册码不能用、没停用、没用完，过期时间在浏览器看来还没到（时钟比服务端慢）：写“已过期”，不写“已停用”", async () => {
+        const items = codes();
+        items[0] = registrationCode(1, {usable: false, expiresAt: new Date(NOW + 60_000).toISOString()});
+        const harness = await openCodes("/admin/codes", {}, items);
+        expect(list(harness).querySelector("[data-site-admin-code-state]")?.textContent?.trim()).toBe(text.states.expired);
+    });
+
     it("换到邀请码页签：地址写上 kind=invite（push），表格换成邀请码，不再取一次；后退回到注册码", async () => {
         const harness = await openCodes();
         tab(harness, "invite").click();
@@ -151,6 +159,78 @@ describe("两份列表与页签", () => {
         await vi.waitFor(() => expect(rows(harness)).toHaveLength(3));
         expect(list(harness).dataset.siteAdminList).toBe("invite-codes");
         expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes)).toEqual([{page: "1", pageSize: "20"}]);
+    });
+});
+
+describe("页码越界", () => {
+    /** 从仪表盘进来，好让“后退”有一个不是越界页的去处。 */
+    async function fromDashboard(path: string): Promise<Harness> {
+        const harness = startAt("/admin", {session: {role: "admin", consentRequired: false}, handlers: {[CODES]: listCodes(() => codes()), [INVITE_LIST]: listInvites}});
+        await settledAt(harness, "/admin", "admin-dashboard");
+        void harness.site.router.push(path);
+        return harness;
+    }
+
+    it("注册码页签的页码超过最后一页：地址换成最后一页（replace），邀请码那份不动；后退不回到越界的那一页", async () => {
+        const harness = await fromDashboard("/admin/codes?page=9");
+        await settledAt(harness, "/admin/codes?page=2", "admin-codes");
+        await vi.waitFor(() => expect(rows(harness)).toHaveLength(5));
+        expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).map((params) => params.page)).toEqual(["9", "2"]);
+        expect(queriesOf(harness, ADMIN_LIST_URLS.inviteCodes)).toEqual([{page: "1", pageSize: "20"}]);
+
+        harness.site.router.back();
+        await settledAt(harness, "/admin", "admin-dashboard");
+    });
+
+    it("邀请码页签的页码超过最后一页：地址换成邀请码的第 1 页（replace），注册码那份不动；后退不回到越界的那一页", async () => {
+        const harness = await fromDashboard("/admin/codes?kind=invite&page=9");
+        await settledAt(harness, "/admin/codes?kind=invite", "admin-codes");
+        await vi.waitFor(() => expect(rows(harness)).toEqual(INVITES.map((item) => item.code)));
+        expect(queriesOf(harness, ADMIN_LIST_URLS.inviteCodes).map((params) => params.page)).toEqual(["9", "1"]);
+        expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes)).toEqual([{page: "1", pageSize: "20"}]);
+
+        harness.site.router.back();
+        await settledAt(harness, "/admin", "admin-dashboard");
+    });
+
+    it("第 2 页的请求在途时去了用户页，回答才到、而且越界（码少了）：仍停在用户页，不再取注册码", async () => {
+        const items = codes();
+        const late = held((_body, _server, query) => Response.json({...pageOf([], query), total: 5, counts: codeCounts({all: 5})} satisfies RegistrationCodeListResponse));
+        const harness = await openCodes("/admin/codes", {
+            [CODES]: (body, server, params) => (params.get("page") === "2" ? late.handler(body, server, params) : listCodes(() => items)(body, server, params)),
+        }, items);
+        void harness.site.router.push("/admin/codes?page=2");
+        await vi.waitFor(() => expect(late.asked).toBe(true));
+        void harness.site.router.push("/admin/users");
+        await settledAt(harness, "/admin/users", "admin-users");
+        const before = queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).length;
+
+        late.release();
+        await vi.waitFor(() => expect(late.read).toBe(true));
+        // 读完正文到改地址都只排微任务：让出一轮，拽回去的话这时地址已经换了。
+        await nextTask();
+        expect(harness.site.router.currentRoute.value.fullPath).toBe("/admin/users");
+        expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes)).toHaveLength(before);
+    });
+
+    it("在途时离开又回到注册码页（换了筛选），旧页面的越界回答才到：地址不被旧页面改掉", async () => {
+        const items = codes();
+        const late = held((_body, _server, query) => Response.json({...pageOf([], query), total: 5, counts: codeCounts({all: 5})} satisfies RegistrationCodeListResponse));
+        const harness = await openCodes("/admin/codes", {
+            [CODES]: (body, server, params) => (params.get("page") === "2" ? late.handler(body, server, params) : listCodes(() => items)(body, server, params)),
+        }, items);
+        void harness.site.router.push("/admin/codes?page=2");
+        await vi.waitFor(() => expect(late.asked).toBe(true));
+        void harness.site.router.push("/admin/users");
+        await settledAt(harness, "/admin/users", "admin-users");
+        void harness.site.router.push("/admin/codes?filter=usable");
+        await settledAt(harness, "/admin/codes?filter=usable", "admin-codes");
+        await vi.waitFor(() => expect(rows(harness)).toHaveLength(20));
+
+        late.release();
+        await vi.waitFor(() => expect(late.read).toBe(true));
+        await nextTask();
+        expect(harness.site.router.currentRoute.value.fullPath).toBe("/admin/codes?filter=usable");
     });
 });
 
@@ -273,6 +353,19 @@ describe("发放注册码", () => {
         const again = await openIssue(harness);
         expect(again.dataset.siteAdminIssueStep).toBe("form");
         expect(field(again, "maxUses").value).toBe("");
+    });
+
+    it("在第 2 页发放：成功后回到第 1 页（push），不带旧基准取，新码在最前", async () => {
+        const harness = await openCodes("/admin/codes?page=2", {[CREATE]: () => Response.json(ISSUED)});
+        const found = await openIssue(harness);
+        submit(found).click();
+        await settledAt(harness, "/admin/codes", "admin-codes");
+        await vi.waitFor(() => expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).at(-1)).toEqual({page: "1", pageSize: "20"}));
+        // 回到第 1 页之后只取了这一次：没有先带旧基准取一次第 1 页。
+        expect(queriesOf(harness, ADMIN_LIST_URLS.registrationCodes).map((params) => params.page)).toEqual(["2", "1"]);
+
+        harness.site.router.back();
+        await settledAt(harness, "/admin/codes?page=2", "admin-codes");
     });
 
     it("填了次数、过期日期与备注：照填的发出去，日期是那一天在本地结束的一刻，备注去掉前后空白", async () => {

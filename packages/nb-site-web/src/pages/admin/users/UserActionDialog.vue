@@ -6,7 +6,8 @@
  * 用 `Dialog` 而不是 `AlertDialog`：计划要失败写在对话框里，`AlertDialog` 没有状态行，确认时就先关掉了（reka 的行为）。
  * 破坏性的几项确认按钮用危险色，读屏名字里有对象的用户名（标题与按钮文字都带）。
  *
- * 重置密码成功后同一个对话框换成新密码与复制按钮（输出 4：新密码只出现这一次）。这时点遮罩不关，免得一下误点就再也看不到；
+ * 重置密码成功后同一个对话框换成新密码与复制按钮（输出 4：新密码只出现这一次），正文与底栏的按钮都用 nb-ui 的换内容过渡
+ * （`nb-ui-switch`）。这时点遮罩、按 Esc 都不关，只有“完成”关：免得一下误点误按就再也看不到；
  * 关掉以后、内容卸载完（`closed`）才丢掉密码：在淡出的那一下就丢的话，对话框关到一半会变回确认的样子。再打开时是确认的那一步，
  * 页面上任何地方都不再有那个密码。
  *
@@ -20,8 +21,8 @@ import {computed, shallowRef, watch} from "vue";
 import {useSite} from "../../../context";
 import type {AdminApi} from "../../../http/admin";
 import type {Result} from "../../../http/core";
-import {useSiteText} from "../../../text";
-import type {SiteTextKey} from "../../../text";
+import {useAdminText} from "../text";
+import type {AdminTextKey} from "../text";
 import {useFormFeedback} from "../../form-feedback";
 
 /** 行尾菜单的六项（封禁与解封、设为与取消管理员按当前状态只出现一个）。 */
@@ -37,7 +38,7 @@ const emit = defineEmits<{
 }>();
 
 const {clock} = useSite();
-const t = useSiteText();
+const t = useAdminText();
 
 const DANGER: ReadonlySet<UserAction> = new Set(["resetPassword", "ban", "revokeAdmin", "revokeSessions"]);
 
@@ -56,7 +57,7 @@ watch(
     },
 );
 
-const textKey = (part: "title" | "description" | "confirm"): SiteTextKey => `admin.users.actions.${props.action ?? "ban"}.${part}`;
+const textKey = (part: "title" | "description" | "confirm"): AdminTextKey => `admin.users.actions.${props.action ?? "ban"}.${part}`;
 const username = computed(() => props.user?.username ?? "");
 const title = computed(() => (password.value === undefined ? t(textKey("title"), {username: username.value}) : t("admin.users.password.title", {username: username.value})));
 
@@ -114,33 +115,40 @@ function fail(failure: Parameters<typeof feedback.showFailure>[0]): void {
         :status="statusSteady"
         :busy="submitting"
         :close-on-overlay="password === undefined"
+        :close-on-esc="password === undefined"
         data-site-admin-user-dialog
         :data-site-admin-user-dialog-step="password === undefined ? 'confirm' : 'password'"
         @update:open="emit('update:open', $event)"
         @closed="password = undefined"
     >
-        <template v-if="password === undefined">
-            <p class="admin-dialog__text">{{ t(textKey("description")) }}</p>
-        </template>
-        <template v-else>
-            <p class="admin-dialog__text">{{ t("admin.users.password.description") }}</p>
-            <div class="admin-dialog__secret">
-                <code data-site-admin-new-password>{{ password }}</code>
-                <CopyButton :text="password" :label="t('admin.users.password.copy')" />
+        <Transition name="nb-ui-switch" mode="out-in">
+            <div v-if="password === undefined" key="confirm">
+                <p class="admin-dialog__text">{{ t(textKey("description")) }}</p>
             </div>
-        </template>
+            <div v-else key="password">
+                <p class="admin-dialog__text">{{ t("admin.users.password.description") }}</p>
+                <div class="admin-dialog__secret">
+                    <code data-site-admin-new-password>{{ password }}</code>
+                    <CopyButton :text="password" :label="t('admin.users.password.copy')" />
+                </div>
+            </div>
+        </Transition>
         <template #footer="{cancel}">
-            <template v-if="password === undefined">
-                <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
-                <Button
-                    :variant="props.action !== undefined && DANGER.has(props.action) ? 'danger' : 'primary'"
-                    :disabled="feedback.waiting.value"
-                    :loading="submitting"
-                    data-site-admin-user-confirm
-                    @click="confirm"
-                >{{ t(textKey("confirm")) }}</Button>
-            </template>
-            <Button v-else data-site-admin-user-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+            <Transition name="nb-ui-switch" mode="out-in">
+                <div v-if="password === undefined" key="confirm" class="admin-dialog-buttons">
+                    <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
+                    <Button
+                        :variant="props.action !== undefined && DANGER.has(props.action) ? 'danger' : 'primary'"
+                        :disabled="feedback.waiting.value"
+                        :loading="submitting"
+                        data-site-admin-user-confirm
+                        @click="confirm"
+                    >{{ t(textKey("confirm")) }}</Button>
+                </div>
+                <div v-else key="password" class="admin-dialog-buttons">
+                    <Button data-site-admin-user-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                </div>
+            </Transition>
         </template>
     </Dialog>
 </template>

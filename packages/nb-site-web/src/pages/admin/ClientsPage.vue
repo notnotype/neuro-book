@@ -15,7 +15,7 @@ import {computed, shallowRef} from "vue";
 import {useSite} from "../../context";
 import {createAdminApi} from "../../http/admin";
 import {locale} from "../../locale";
-import {useSiteText} from "../../text";
+import {useAdminText} from "./text";
 import AdminConfirmDialog from "./AdminConfirmDialog.vue";
 import AdminListFrame from "./AdminListFrame.vue";
 import ClientDialog from "./clients/ClientDialog.vue";
@@ -34,25 +34,18 @@ type ClientRow = OAuthClientItem & {readonly state?: undefined; readonly actions
 
 const {api, clock} = useSite();
 const admin = createAdminApi(api);
-const t = useSiteText();
+const t = useAdminText();
 
 const listRoute = useListRoute(SCHEMA, ROUTE_NAME);
 const state = listRoute.state;
+const pager = listRoute.pager();
+const page = pager.page;
 
 const list = useAdminList<never, ClientRow>({
     schema: SCHEMA,
     state: () => state.value,
     fetch: (current, anchor) => admin.listOAuthClients({page: String(current.page), pageSize: String(ADMIN_PAGE_SIZE), ...(anchor === undefined ? {} : {anchor})}),
-    onPastEnd: (page) => {
-        if (state.value !== undefined) listRoute.go({...state.value, page}, "replace");
-    },
-});
-
-const page = computed({
-    get: () => state.value?.page ?? 1,
-    set: (value: number) => {
-        if (state.value !== undefined) listRoute.go({...state.value, page: value}, "push");
-    },
+    onPastEnd: pager.pastEnd,
 });
 
 const columns = computed<TableColumn<ClientRow>[]>(() => [
@@ -217,22 +210,5 @@ function moreUris(client: OAuthClientItem): string | undefined {
 .admin-clients__more {
     flex: none;
     font-size: var(--text-xs);
-}
-
-.admin-code {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-main);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-}
-
-.admin-muted {
-    color: var(--text-secondary);
-}
-
-.admin-num {
-    font-variant-numeric: tabular-nums;
 }
 </style>

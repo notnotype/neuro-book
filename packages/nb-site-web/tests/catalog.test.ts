@@ -4,7 +4,7 @@
  *
  * 统计模块的合同包还没有导出查询接口的失败码（归 t11），先照 `site.telemetry-dashboard`“失败与恢复”那张表列出四个码；
  * 合同包导出之后换成它的清单。
- * 审计页的动作名同理：合同包每个动作名在 `admin.audit.actions` 下都有一条。
+ * 审计页的动作名同理：合同包每个动作名在管理面板目录（`src/pages/admin/text.ts`）的 `admin.audit.actions` 下都有一条。
  * 目录各语言之间的键对齐由仓库的 `message-catalogs` 检查负责，不在这里重复。
  */
 
@@ -14,6 +14,7 @@ import {AUDIT_ACTIONS, AUDIT_TARGET_TYPES, IDENTITY_FAILURE_CODES, SOCIAL_ERROR_
 import {defaultTextPort} from "@notnotype/nb-ui/text-port";
 
 import {codeText, failureText} from "../src/http/failure-text";
+import {ADMIN_SOURCE_CATALOG} from "../src/pages/admin/text";
 import type {FailureOwner} from "../src/http/failure-text";
 import {SITE_SOURCE_CATALOG, siteRef} from "../src/text";
 
@@ -65,7 +66,7 @@ describe("失败码的文案", () => {
 
 describe("审计动作的文案", () => {
     it("合同包里的每个动作名与对象种类在源语言目录里都有文案（审计页的动作列与筛选项按它显示）", () => {
-        const text = SITE_SOURCE_CATALOG.admin.audit;
+        const text = ADMIN_SOURCE_CATALOG.admin.audit;
         const actions = text.actions as unknown as Readonly<Record<string, Readonly<Record<string, unknown>> | undefined>>;
         const label = (name: string): unknown => {
             const [group, verb] = name.split(".") as [string, string];
@@ -74,5 +75,14 @@ describe("审计动作的文案", () => {
         expect(AUDIT_ACTIONS.filter((name) => typeof label(name) !== "string" || label(name) === "")).toEqual([]);
         const targets = text.targets as Readonly<Record<string, unknown>>;
         expect(AUDIT_TARGET_TYPES.filter((type) => typeof targets[type] !== "string" || targets[type] === "")).toEqual([]);
+    });
+});
+
+describe("授权范围的文案", () => {
+    it("openid 在授权确认页与账号页“已授权的应用”里是同一句", () => {
+        const consent = SITE_SOURCE_CATALOG.oauthConsent.scopes;
+        const apps = SITE_SOURCE_CATALOG.account.apps.scopes;
+        expect(Object.keys(apps)).toEqual(Object.keys(consent));
+        expect(apps.openid).toBe(consent.openid);
     });
 });

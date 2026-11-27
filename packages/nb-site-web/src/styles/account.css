@@ -37,8 +37,7 @@
 
     .account-rows__meta {
         margin-left: auto;
-        /* 不用 `--text-muted`：它对面板底只有 3.57，行内说明是要读的字（B4 审查第 13 条）。 */
-        color: var(--text-secondary);
+        color: var(--text-muted);
         font-size: var(--text-sm);
         text-align: right;
     }

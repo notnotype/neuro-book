@@ -17,7 +17,7 @@ import {computed, shallowRef, watch} from "vue";
 import {useSite} from "../../context";
 import {createAdminApi} from "../../http/admin";
 import {locale} from "../../locale";
-import {useSiteText} from "../../text";
+import {useAdminText} from "./text";
 import AdminListFrame from "./AdminListFrame.vue";
 import {fullTime} from "./format";
 import {matching, memberOf, oneOf, withField} from "./list-query";
@@ -42,10 +42,12 @@ const SCHEMA: ListSchema<Field> = {
 
 const {api, clock} = useSite();
 const admin = createAdminApi(api);
-const t = useSiteText();
+const t = useAdminText();
 
 const listRoute = useListRoute(SCHEMA, ROUTE_NAME);
 const state = listRoute.state;
+const pager = listRoute.pager();
+const page = pager.page;
 
 const list = useAdminList<Field, AuditItem>({
     schema: SCHEMA,
@@ -64,16 +66,7 @@ const list = useAdminList<Field, AuditItem>({
             ...(action === ALL ? {} : {action}),
         });
     },
-    onPastEnd: (page) => {
-        if (state.value !== undefined) listRoute.go({...state.value, page}, "replace");
-    },
-});
-
-const page = computed({
-    get: () => state.value?.page ?? 1,
-    set: (value: number) => {
-        if (state.value !== undefined) listRoute.go({...state.value, page: value}, "push");
-    },
+    onPastEnd: pager.pastEnd,
 });
 
 /** 一个要打字的筛选格：框里的字、合不合规则，停下后合规则才写进地址；后退到别的值时框跟着换。 */
@@ -84,7 +77,7 @@ function typedFilter(field: "actorId" | "targetId", pattern: RegExp) {
         const current = state.value;
         const term = value.trim();
         if (current === undefined || term === current.fields[field] || !(term === "" || pattern.test(term))) return;
-        listRoute.go(withField(current, field, term), "replace");
+        void listRoute.go(withField(current, field, term), "replace");
     });
     watch(
         () => state.value?.fields[field],
@@ -120,7 +113,7 @@ function setSelect(field: "targetType" | "action", value: string): void {
     let next = withField(current, field, value);
     // 不选种类时对象 id 没有意义（也发不出去）：一起清掉，框里的字跟着清。
     if (field === "targetType" && value === ALL) next = withField(next, "targetId", "");
-    listRoute.go(next, "push");
+    void listRoute.go(next, "push");
 }
 
 function actionLabel(name: AuditAction): string {
@@ -172,7 +165,7 @@ function paramsText(params: AuditItem["params"]): string {
                             :title="actor.valid.value ? undefined : t('admin.audit.actorRule')"
                             data-site-admin-audit-actor
                             @update:model-value="actor.onInput"
-                            @keydown.enter="actor.pause.flush()"
+                            @keydown.enter="actor.pause.enter"
                         />
                     </div>
                     <div class="admin-audit__target">
@@ -191,7 +184,7 @@ function paramsText(params: AuditItem["params"]): string {
                                 :disabled="targetType === ALL"
                                 data-site-admin-audit-target-id
                                 @update:model-value="targetIdFilter.onInput"
-                                @keydown.enter="targetIdFilter.pause.flush()"
+                                @keydown.enter="targetIdFilter.pause.enter"
                             />
                         </div>
                     </div>
@@ -250,13 +243,5 @@ function paramsText(params: AuditItem["params"]): string {
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-}
-
-.admin-muted {
-    color: var(--text-secondary);
-}
-
-.admin-num {
-    font-variant-numeric: tabular-nums;
 }
 </style>

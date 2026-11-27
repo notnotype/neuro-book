@@ -5,6 +5,7 @@
  *
  * 从授权请求来的人地址上带续接令牌（`session/continue.ts`）：登录请求与社交登录的发起都带上它，“注册”链接把它带到注册页；
  * 登录响应给了继续地址就去那里（`session/enter.ts`）。带令牌的已登录用户也看得到这张表单（授权请求要求重新登录，守卫放行）。
+ * 社交登录没成、上游带 `social_error` 回来时，发起前存下的令牌还原到地址上。
  *
  * 失败的显示照三张稿纸页共用的做法（`form-feedback.ts`）：字段标红并聚焦，原因写在固定位置的状态行；哪个码标哪些字段由这一页定。
  *
@@ -35,7 +36,7 @@ type LoginField = "identifier" | "password";
 const LOGIN_FIELDS: readonly LoginField[] = ["identifier", "password"];
 
 const site = useSite();
-const {identity, clock, leave} = site;
+const {identity, clock, leave, storage} = site;
 const route = useRoute();
 const router = useRouter();
 const t = useSiteText();
@@ -100,8 +101,12 @@ async function startSocial(provider: SocialProvider): Promise<void> {
     if (busy.value) return;
     starting.value = true;
     feedback.reset();
-    const result = await identity.socialStart(provider, {intent: "login", ...continuePart(continueToken.value)});
+    const token = continueToken.value;
+    const result = await identity.socialStart(provider, {intent: "login", ...continuePart(token)});
     if (result.ok) {
+        // 上游带着 `social_error` 回来时地址上没有令牌（回调地址是服务端定的）：先存下，回来时还原（`host/storage.ts`）。
+        if (token === undefined) storage.clearSocialLoginContinue();
+        else storage.saveSocialLoginContinue(token);
         await leave(result.value.url);
         starting.value = false;
         return;
@@ -111,15 +116,20 @@ async function startSocial(provider: SocialProvider): Promise<void> {
 }
 
 // 社交登录没完成时上游把人带回 `/login?social_error=<码>`（`site.accounts` 输出 23）：显示在状态行，再把参数从地址里去掉
-// （`social-error.ts`）。去掉参数之后组件不重建，状态行留着。
+// （`social-error.ts`），同一次替换里把发起前存下的续接令牌写回地址。去掉参数之后组件不重建，状态行留着。
+// 不带 `social_error` 的（空值也算不带）删掉存着的令牌：上一次没走完的社交登录不该在下一次进来时冒出来。
 watch(
     () => route.query[SOCIAL_ERROR_PARAM],
     () => {
         const code = readSocialError(route.query);
-        if (code !== undefined) {
-            status.value = {reason: "social_error", text: socialErrorText(code), ...(code === "social_not_registered" ? {action: "register" as const} : {})};
+        if (code === undefined) {
+            storage.clearSocialLoginContinue();
+            stripSocialError(route, router);
+            return;
         }
-        stripSocialError(route, router);
+        status.value = {reason: "social_error", text: socialErrorText(code), ...(code === "social_not_registered" ? {action: "register" as const} : {})};
+        const stored = storage.takeSocialLoginContinue();
+        stripSocialError(route, router, {add: continueToken.value === undefined ? continuePart(stored) : {}});
     },
     {immediate: true},
 );

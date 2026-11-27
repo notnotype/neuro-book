@@ -2,7 +2,7 @@
  * 管理面板四个列表页的浏览器场景（t10 计划 3.13；t09 第 12 条）：构建产物加假接口（`fake-api.ts`，五张表在 `fixtures/identity.ts`），
  * 以管理员的会话打开，量 happy-dom 量不了的：工具条、表格、页脚三块位置固定，只有表格区滚、页面不滚；最后一页不满时分页条仍在底部；
  * 多于 7 页时分页条 7 格；刷新与后退回到同一页；1440 与 1024 两种桌面宽、亮暗两种明暗下没有页面级的横向滚动；表格出错、对话框的
- * 状态行出现与消失都不推动布局。筛选、搜索、请求与各项处置在各页的组件测试里（`src/pages/admin/*Page.dom.test.ts`）。
+ * 状态行出现与消失都不推动布局；占位的字在亮暗两种明暗下都是 `--text-muted` 的颜色（B6、B7 审查第 4 条）。筛选、搜索、请求与各项处置在各页的组件测试里（`src/pages/admin/*Page.dom.test.ts`）。
  */
 
 import {readFileSync} from "node:fs";
@@ -15,11 +15,14 @@ import type {FakeIdentity} from "./fake-api";
 import {box} from "./geometry";
 
 const zhCN = JSON.parse(readFileSync(new URL("../src/locales/zh-CN.json", import.meta.url), "utf8")) as {
-    readonly admin: {
-        readonly users: {readonly actions: {readonly ban: {readonly menu: string}}; readonly filters: {readonly banned: string}};
-        readonly codes: {readonly issue: {readonly rules: {readonly maxUses: string}}};
-    };
     readonly errors: {readonly identity: {readonly not_found: string; readonly unavailable: string}};
+};
+/** 管理面板的文字在它自己的目录里（`src/pages/admin/text.ts`）。 */
+const adminZhCN = JSON.parse(readFileSync(new URL("../src/pages/admin/locales/zh-CN.json", import.meta.url), "utf8")) as {
+    readonly admin: {
+        readonly users: {readonly actions: {readonly ban: {readonly menu: string}}; readonly filters: {readonly banned: string}; readonly neverSignedIn: string};
+        readonly codes: {readonly issue: {readonly rules: {readonly maxUses: string}}; readonly noNote: string};
+    };
 };
 
 const SCHEMES = ["light", "dark"] as const;
@@ -111,6 +114,31 @@ for (const viewport of VIEWPORTS) {
     });
 }
 
+for (const scheme of SCHEMES) {
+    test(`${scheme}：占位的字（没有登录过、没有备注）是 --text-muted 的颜色，与表格正文分得开`, async ({page}) => {
+        fake = await installFakeIdentity(page, {session: "admin"});
+        for (const {path, list, placeholder} of [
+            {path: "/admin/users", list: "users", placeholder: adminZhCN.admin.users.neverSignedIn},
+            {path: "/admin/codes", list: "registration-codes", placeholder: adminZhCN.admin.codes.noNote},
+        ]) {
+            await openList(page, path, list, VIEWPORTS[0], scheme);
+            const cell = page.locator(`${table(list)} tbody td`).filter({hasText: new RegExp(`^${placeholder}$`, "u")}).first();
+            // 拿同一个单元格里一个只设了 `--text-muted` 的探针作对照：主题的值在亮暗之间会变，照计算值比，不抄色号。
+            const colors = await cell.evaluate((td, text) => {
+                const span = [...td.querySelectorAll("span")].find((element) => element.textContent?.trim() === text)!;
+                const probe = document.createElement("span");
+                probe.style.color = "var(--text-muted)";
+                td.append(probe);
+                const muted = getComputedStyle(probe).color;
+                probe.remove();
+                return {placeholder: getComputedStyle(span).color, muted, row: getComputedStyle(td).color};
+            }, placeholder);
+            expect({path, color: colors.placeholder}).toEqual({path, color: colors.muted});
+            expect(colors.row).not.toBe(colors.muted);
+        }
+    });
+}
+
 test("最后一页不满：分页条、表格区仍在原来的位置", async ({page}) => {
     fake = await installFakeIdentity(page, {session: "admin"});
     await openList(page, "/admin/users", "users");
@@ -158,7 +186,7 @@ test("对话框的状态行出现与消失不推动布局：处置失败、发�
     fake = await installFakeIdentity(page, {session: "admin", admin: (request) => (request.endsWith("/admin/users/5/ban") ? fails(404, {error: {code: "not_found"}})() : undefined)});
     await openList(page, "/admin/users", "users");
     await page.locator('[data-site-admin-row-menu="writer005"]').click();
-    await page.getByRole("menuitem", {name: zhCN.admin.users.actions.ban.menu}).click();
+    await page.getByRole("menuitem", {name: adminZhCN.admin.users.actions.ban.menu}).click();
     const dialog = page.locator("[data-site-admin-user-dialog]");
     await expect(dialog).toBeVisible();
     const before = {dialog: await box(page, "[data-site-admin-user-dialog]"), confirm: await box(page, "[data-site-admin-user-confirm]")};
@@ -175,7 +203,7 @@ test("对话框的状态行出现与消失不推动布局：处置失败、发�
     const empty = {dialog: await box(page, "[data-site-admin-issue-dialog]"), submit: await box(page, "[data-site-admin-issue-submit]")};
     await issue.locator('input[name="maxUses"]').fill("0");
     await issue.locator('input[name="note"]').focus();
-    await expect(issue.locator("[data-dialog-status]")).toHaveText(zhCN.admin.codes.issue.rules.maxUses);
+    await expect(issue.locator("[data-dialog-status]")).toHaveText(adminZhCN.admin.codes.issue.rules.maxUses);
     expect({dialog: await box(page, "[data-site-admin-issue-dialog]"), submit: await box(page, "[data-site-admin-issue-submit]")}).toEqual(empty);
     await issue.locator('input[name="maxUses"]').fill("3");
     await expect(issue.locator("[data-dialog-status]")).toHaveText("");

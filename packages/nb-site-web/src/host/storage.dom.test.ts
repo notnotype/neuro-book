@@ -75,19 +75,19 @@ describe("社交注册的草稿", () => {
         const fresh = setup();
         fresh.storage.saveSocialRegisterDraft(DRAFT);
         fresh.advance(SOCIAL_REGISTER_DRAFT_TTL_MS);
-        fresh.storage.dropExpiredSocialRegisterDraft();
+        fresh.storage.dropExpired();
         expect(fresh.storage.takeSocialRegisterDraft()).toEqual(DRAFT);
 
         const expired = setup();
         expired.storage.saveSocialRegisterDraft(DRAFT);
         expired.advance(SOCIAL_REGISTER_DRAFT_TTL_MS + 1);
-        expired.storage.dropExpiredSocialRegisterDraft();
+        expired.storage.dropExpired();
         expect(window.sessionStorage.length).toBe(0);
 
         const broken = setup();
         broken.storage.saveSocialRegisterDraft(DRAFT);
         window.sessionStorage.setItem(window.sessionStorage.key(0)!, "{不是 JSON");
-        broken.storage.dropExpiredSocialRegisterDraft();
+        broken.storage.dropExpired();
         expect(window.sessionStorage.length).toBe(0);
     });
 
@@ -128,6 +128,49 @@ describe("社交注册的草稿", () => {
         expect(() => storage.saveSocialRegisterDraft(DRAFT)).not.toThrow();
         expect(storage.takeSocialRegisterDraft()).toBeUndefined();
         expect(() => storage.clearSocialRegisterDraft()).not.toThrow();
-        expect(() => storage.dropExpiredSocialRegisterDraft()).not.toThrow();
+        expect(() => storage.dropExpired()).not.toThrow();
+    });
+});
+
+describe("社交登录的续接令牌", () => {
+    it("存进去、读出来是原样；读一次就删", () => {
+        const {storage} = setup();
+        storage.saveSocialLoginContinue("ct_123");
+        expect(storage.takeSocialLoginContinue()).toBe("ct_123");
+        expect(storage.takeSocialLoginContinue()).toBeUndefined();
+        expect(window.sessionStorage.length).toBe(0);
+    });
+
+    it("与注册草稿同样的寿命：到期那一刻还在，过了就没有；启动时删掉过期与存坏了的，没过期的留着", () => {
+        const fresh = setup();
+        fresh.storage.saveSocialLoginContinue("ct_123");
+        fresh.advance(SOCIAL_REGISTER_DRAFT_TTL_MS);
+        fresh.storage.dropExpired();
+        expect(fresh.storage.takeSocialLoginContinue()).toBe("ct_123");
+
+        const expired = setup();
+        expired.storage.saveSocialLoginContinue("ct_123");
+        expired.advance(SOCIAL_REGISTER_DRAFT_TTL_MS + 1);
+        expired.storage.dropExpired();
+        expect(window.sessionStorage.length).toBe(0);
+
+        const broken = setup();
+        broken.storage.saveSocialLoginContinue("ct_123");
+        window.sessionStorage.setItem(window.sessionStorage.key(0)!, JSON.stringify({v: 1, savedAt: 1_000_000, continue: 7}));
+        broken.storage.dropExpired();
+        expect(window.sessionStorage.length).toBe(0);
+    });
+
+    it("与注册草稿互不影响：清掉一样，另一样还在", () => {
+        const {storage} = setup();
+        storage.saveSocialRegisterDraft(DRAFT);
+        storage.saveSocialLoginContinue("ct_123");
+        storage.clearSocialRegisterDraft();
+        expect(storage.takeSocialLoginContinue()).toBe("ct_123");
+        storage.saveSocialLoginContinue("ct_456");
+        storage.saveSocialRegisterDraft(DRAFT);
+        storage.clearSocialLoginContinue();
+        expect(storage.takeSocialLoginContinue()).toBeUndefined();
+        expect(storage.takeSocialRegisterDraft()).toEqual(DRAFT);
     });
 });

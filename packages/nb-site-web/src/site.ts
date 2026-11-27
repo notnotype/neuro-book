@@ -102,11 +102,13 @@ export function startSite(options: StartSiteOptions): Site {
     const router = createSiteRouter({history: options.history, account, origin: win.location.origin});
     const storage = createSiteStorage({storage: () => win.sessionStorage, now: () => options.clock.now()});
 
-    // 社交注册的草稿（计划 3.9）：过期的在启动时删掉，不等谁来读；当前账号变成已登录（社交注册成功、密码注册成功、登录）时删掉，
-    // 注册码这样的凭据不在标签页里留到登出。从上游带着 `social_error` 回到注册页时账号是匿名的，草稿还在。
-    storage.dropExpiredSocialRegisterDraft();
+    // 社交注册的草稿与社交登录的续接令牌（计划 3.9）：过期的在启动时删掉，不等谁来读；当前账号变成已登录（社交注册成功、
+    // 密码注册成功、登录）时删掉，注册码这样的凭据不在标签页里留到登出。从上游带着 `social_error` 回来时账号是匿名的，两样都还在。
+    storage.dropExpired();
     const stopClearingDraft = watch(account.state, (state) => {
-        if (state.kind === "signed-in") storage.clearSocialRegisterDraft();
+        if (state.kind !== "signed-in") return;
+        storage.clearSocialRegisterDraft();
+        storage.clearSocialLoginContinue();
     }, {immediate: true});
 
     // 离开站点之后从往返缓存恢复（`pageshow` 的 `persisted`）：放开所有在等这件事的离开（`SiteContext.leave`）。

@@ -20,7 +20,8 @@ import {useSite} from "./context";
 import {locale} from "./locale";
 import {useSiteText} from "./text";
 
-provideDefaultText(() => locale.value);
+// 路由的标题可能是管理面板目录里的字（`router.ts`），用端口按引用直接翻。
+const port = provideDefaultText(() => locale.value);
 const t = useSiteText();
 const {account} = useSite();
 const route = useRoute();
@@ -39,8 +40,8 @@ watchEffect(() => {
 });
 
 watchEffect(() => {
-    const key = route.meta.titleKey;
-    document.title = key === undefined ? "NeuroBook" : t("site.documentTitle", {page: t(key)});
+    const title = route.meta.title;
+    document.title = title === undefined ? "NeuroBook" : t("site.documentTitle", {page: port.t(title)});
 });
 
 async function retry(): Promise<void> {

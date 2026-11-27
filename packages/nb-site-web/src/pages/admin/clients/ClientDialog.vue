@@ -6,7 +6,8 @@
  * - 回调地址写在多行输入框里，一行一个；首尾空白与空行不算。一到五个、每个至多 500 个字符由这里先查（离开时写规则、提交按钮不可用），
  *   按种类的规则（`https`、本机回环等）只有服务端判，不合回 `redirect_uri_invalid`，标红这一项。`validation_failed` 按 `fields` 标红。
  * - 登记成功后同一个对话框换成客户端 id 与密钥（公开客户端只有 id），各带复制，列表由页面重取。密钥只在这一次的回答里（输出 9）：
- *   对话框关掉（淡出结束，`closed`）就丢掉，再打开是空白的表单；显示密钥期间点遮罩不关，免得没复制就丢了。
+ *   对话框关掉（淡出结束，`closed`）就丢掉，再打开是空白的表单；显示密钥期间点遮罩、按 Esc 都不关，只有“完成”关，免得没复制就丢了。
+ *   表单换到密钥那一步用 nb-ui 的换内容过渡（`nb-ui-switch`），正文与底栏的按钮一起换。
  * - 改动只发改了的几项；一项都没改时“保存”不可用（合同不收空的改动）。成功后关掉，列表由页面重取。`not_found`（客户端已经不在了）
  *   写状态行并发 `missing`。
  */
@@ -20,7 +21,7 @@ import {computed, shallowRef, useTemplateRef, watch} from "vue";
 import {useSite} from "../../../context";
 import type {AdminApi} from "../../../http/admin";
 import type {Failure} from "../../../http/core";
-import {siteRef, useSiteText} from "../../../text";
+import {adminRef, useAdminText} from "../text";
 import {useFormFeedback} from "../../form-feedback";
 
 type ClientField = "name" | "redirectUris" | "type" | "skipConsent";
@@ -36,7 +37,7 @@ const emit = defineEmits<{
 }>();
 
 const {clock} = useSite();
-const t = useSiteText();
+const t = useAdminText();
 
 const name = shallowRef("");
 const redirectText = shallowRef("");
@@ -60,15 +61,15 @@ const urisCountFits = computed(() => redirectUris.value.length >= REDIRECT_URI.m
 const urisLengthFit = computed(() => redirectUris.value.every((uri) => codePointLength(uri) <= REDIRECT_URI.maxLength));
 
 function redirectRule() {
-    if (!urisLengthFit.value) return siteRef("admin.clients.form.rules.redirectUriLength", {max: REDIRECT_URI.maxLength});
-    if (redirectUris.value.length > REDIRECT_URI.maxCount) return siteRef("admin.clients.form.rules.redirectUrisCount", {max: REDIRECT_URI.maxCount});
+    if (!urisLengthFit.value) return adminRef("admin.clients.form.rules.redirectUriLength", {max: REDIRECT_URI.maxLength});
+    if (redirectUris.value.length > REDIRECT_URI.maxCount) return adminRef("admin.clients.form.rules.redirectUrisCount", {max: REDIRECT_URI.maxCount});
     return undefined;
 }
 
 const form = useTemplateRef<HTMLFormElement>("form");
 const feedback = useFormFeedback<ClientField>(form, clock, {
     rules: {
-        name: () => (nameFits.value ? undefined : siteRef("admin.clients.form.rules.name", {max: OAUTH_CLIENT_NAME.maxLength})),
+        name: () => (nameFits.value ? undefined : adminRef("admin.clients.form.rules.name", {max: OAUTH_CLIENT_NAME.maxLength})),
         redirectUris: redirectRule,
     },
 });
@@ -174,49 +175,56 @@ async function submit(): Promise<void> {
         :status="statusSteady"
         :busy="submitting"
         :close-on-overlay="created === undefined"
+        :close-on-esc="created === undefined"
         :initial-focus="created === undefined ? 'input' : undefined"
         data-site-admin-client-dialog
         :data-site-admin-client-step="created === undefined ? 'form' : 'created'"
         @update:open="emit('update:open', $event)"
         @closed="created = undefined"
     >
-        <form v-if="created === undefined" id="admin-client-form" ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.onEdited" @change="feedback.onEdited" @focusout="feedback.onLeave">
-            <Field :label="t('admin.clients.form.name')" :error="fieldError('name')">
-                <Input v-model="name" name="name" :placeholder="t('admin.clients.form.namePlaceholder')" :maxlength="OAUTH_CLIENT_NAME.maxLength" autocomplete="off" />
-            </Field>
-            <Field :label="t('admin.clients.form.redirectUris')" :description="t('admin.clients.form.redirectUrisHint', {max: REDIRECT_URI.maxCount})" :error="fieldError('redirectUris')">
-                <Textarea v-model="redirectText" name="redirectUris" :rows="3" autosize :max-rows="6" spellcheck="false" autocomplete="off" placeholder="https://" />
-            </Field>
-            <Field v-if="editing === undefined" group :label="t('admin.clients.form.type')" :description="t('admin.clients.form.typeHint')" :error="fieldError('type')">
-                <RadioGroup :model-value="type" name="type" :options="typeOptions" data-site-admin-client-type @update:model-value="setType" />
-            </Field>
-            <Checkbox v-model="skipConsent" name="skipConsent" :invalid="feedback.isInvalid('skipConsent')" data-site-admin-client-skip-consent>{{ t("admin.clients.form.skipConsent") }}</Checkbox>
-        </form>
-        <template v-else>
-            <p class="admin-client__text">{{ created.clientSecret === null ? t("admin.clients.register.publicNote") : t("admin.clients.register.secretNote") }}</p>
-            <dl class="admin-client__credentials">
-                <dt>{{ t("admin.clients.credentials.clientId") }}</dt>
-                <dd class="admin-client__secret">
-                    <code data-site-admin-created-client-id>{{ created.client.clientId }}</code>
-                    <CopyButton :text="created.client.clientId" :label="t('admin.clients.credentials.copyId')" />
-                </dd>
-                <template v-if="created.clientSecret !== null">
-                    <dt>{{ t("admin.clients.credentials.secret") }}</dt>
+        <Transition name="nb-ui-switch" mode="out-in">
+            <form v-if="created === undefined" key="form" id="admin-client-form" ref="form" class="site-form" novalidate @submit.prevent="submit" @input="feedback.onEdited" @change="feedback.onEdited" @focusout="feedback.onLeave">
+                <Field :label="t('admin.clients.form.name')" :error="fieldError('name')">
+                    <Input v-model="name" name="name" :placeholder="t('admin.clients.form.namePlaceholder')" :maxlength="OAUTH_CLIENT_NAME.maxLength" autocomplete="off" />
+                </Field>
+                <Field :label="t('admin.clients.form.redirectUris')" :description="t('admin.clients.form.redirectUrisHint', {max: REDIRECT_URI.maxCount})" :error="fieldError('redirectUris')">
+                    <Textarea v-model="redirectText" name="redirectUris" :rows="3" autosize :max-rows="6" spellcheck="false" autocomplete="off" placeholder="https://" />
+                </Field>
+                <Field v-if="editing === undefined" group :label="t('admin.clients.form.type')" :description="t('admin.clients.form.typeHint')" :error="fieldError('type')">
+                    <RadioGroup :model-value="type" name="type" :options="typeOptions" data-site-admin-client-type @update:model-value="setType" />
+                </Field>
+                <Checkbox v-model="skipConsent" name="skipConsent" :invalid="feedback.isInvalid('skipConsent')" data-site-admin-client-skip-consent>{{ t("admin.clients.form.skipConsent") }}</Checkbox>
+            </form>
+            <div v-else key="created">
+                <p class="admin-client__text">{{ created.clientSecret === null ? t("admin.clients.register.publicNote") : t("admin.clients.register.secretNote") }}</p>
+                <dl class="admin-client__credentials">
+                    <dt>{{ t("admin.clients.credentials.clientId") }}</dt>
                     <dd class="admin-client__secret">
-                        <code data-site-admin-created-secret>{{ created.clientSecret }}</code>
-                        <CopyButton :text="created.clientSecret" :label="t('admin.clients.credentials.copySecret')" />
+                        <code data-site-admin-created-client-id>{{ created.client.clientId }}</code>
+                        <CopyButton :text="created.client.clientId" :label="t('admin.clients.credentials.copyId')" />
                     </dd>
-                </template>
-            </dl>
-        </template>
+                    <template v-if="created.clientSecret !== null">
+                        <dt>{{ t("admin.clients.credentials.secret") }}</dt>
+                        <dd class="admin-client__secret">
+                            <code data-site-admin-created-secret>{{ created.clientSecret }}</code>
+                            <CopyButton :text="created.clientSecret" :label="t('admin.clients.credentials.copySecret')" />
+                        </dd>
+                    </template>
+                </dl>
+            </div>
+        </Transition>
         <template #footer="{cancel}">
-            <template v-if="created === undefined">
-                <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
-                <Button type="submit" form="admin-client-form" :disabled="!canSubmit" :loading="submitting" data-site-admin-client-submit>{{
-                    editing === undefined ? t("admin.clients.register.submit") : t("admin.clients.edit.submit")
-                }}</Button>
-            </template>
-            <Button v-else data-site-admin-client-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+            <Transition name="nb-ui-switch" mode="out-in">
+                <div v-if="created === undefined" key="form" class="admin-dialog-buttons">
+                    <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
+                    <Button type="submit" form="admin-client-form" :disabled="!canSubmit" :loading="submitting" data-site-admin-client-submit>{{
+                        editing === undefined ? t("admin.clients.register.submit") : t("admin.clients.edit.submit")
+                    }}</Button>
+                </div>
+                <div v-else key="created" class="admin-dialog-buttons">
+                    <Button data-site-admin-client-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                </div>
+            </Transition>
         </template>
     </Dialog>
 </template>

@@ -11,11 +11,12 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 
 import zhCN from "../../locales/zh-CN.json";
 import {ADMIN_LIST_URLS, ANCHOR, adminUser, pageOf, userCounts} from "../../testing/admin-answers";
-import {SETTLE_TIMEOUT_MS, cleanUp, failure, identityUrl, nextTask, settledAt, startAt} from "../../testing/site-harness";
+import {SETTLE_TIMEOUT_MS, cleanUp, clickOverlay, failure, held, identityUrl, nextTask, pressEscape, settledAt, startAt} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
+import adminZhCN from "./locales/zh-CN.json";
 import {SEARCH_PAUSE_MS} from "./use-admin-list";
 
-const text = zhCN.admin.users;
+const text = adminZhCN.admin.users;
 const errors = zhCN.errors.identity;
 
 afterEach(cleanUp);
@@ -107,28 +108,6 @@ function pageButton(harness: Harness, page: number): HTMLButtonElement {
     const found = [...table(harness).querySelectorAll<HTMLButtonElement>("nav button")].find((button) => button.textContent?.trim() === String(page));
     if (found === undefined) throw new Error(`分页条上没有第 ${page} 页`);
     return found;
-}
-
-/** 一个先不回答的请求：`release` 之后才交给 `respond` 回答。 */
-function held(respond: Handler): {readonly handler: Handler; release(): void; readonly asked: boolean; readonly read: boolean} {
-    let release: (() => void) | undefined;
-    let answered: Response | undefined;
-    return {
-        handler: (body, server, params) => new Promise<Response>((resolve) => {
-            release = () => void Promise.resolve(respond(body, server, params)).then((response) => {
-                answered = response;
-                resolve(response);
-            });
-        }),
-        release: () => release?.(),
-        get asked() {
-            return release !== undefined;
-        },
-        /** 页面开始读这份回答的正文了（接口层 `response.json()`）。之后到用不用它，只隔几个微任务。 */
-        get read() {
-            return answered?.bodyUsed === true;
-        },
-    };
 }
 
 describe("最后登录", () => {
@@ -252,6 +231,28 @@ describe("取数与地址", () => {
         await settledAt(harness, "/admin", "admin-dashboard");
     });
 
+    it("回答缺 total（算不出最后一页）：当作回答不合格，表格区写原因、带重试，地址不改", async () => {
+        let broken = true;
+        const harness = startAt("/admin/users?page=3", {
+            session: {role: "admin", consentRequired: false},
+            handlers: {
+                [LIST]: (body, server, params) => {
+                    if (!broken) return listUsers(() => people())(body, server, params);
+                    const {total: _total, ...rest} = pageOf([], params);
+                    return Response.json({...rest, counts: userCounts({})});
+                },
+            },
+        });
+        await settledAt(harness, "/admin/users?page=3", "admin-users");
+        await vi.waitFor(() => expect(table(harness).querySelector("[role=alert]")?.textContent).toContain(zhCN.errors.web.malformed));
+        expect(table(harness).querySelector(".nb-data-table-body")?.hasAttribute("aria-busy")).toBe(false);
+        expect(query(harness)).toEqual({page: "3"});
+
+        broken = false;
+        table(harness).querySelector<HTMLButtonElement>("[role=alert] button")!.click();
+        await vi.waitFor(() => expect(rows(harness)).toHaveLength(5));
+    });
+
     it("先发后到的回答丢掉：换了筛选之后，上一个筛选的结果晚到也不盖掉", async () => {
         const users = people();
         const late = held(listUsers(() => users));
@@ -329,6 +330,21 @@ describe("搜索", () => {
         await settledAt(harness, "/admin/users", "admin-users");
         await vi.waitFor(() => expect(rows(harness)).toHaveLength(20));
         expect(listQueries(harness).slice(before)).toEqual([{page: "1", pageSize: "20"}]);
+    });
+
+    it("输入法组字时按回车是选字：不立刻取，照常等停顿", async () => {
+        const harness = await openUsers();
+        const before = listQueries(harness).length;
+        typeSearch(harness, "user4");
+        // Chrome 组字时带 isComposing；Safari 组字时的回车 key 仍是 Enter，只能从 keyCode 229 认出。
+        searchInput(harness).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", isComposing: true, bubbles: true}));
+        searchInput(harness).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", keyCode: 229, bubbles: true}));
+        await nextTask();
+        expect(listQueries(harness)).toHaveLength(before);
+        expect(query(harness)).toEqual({});
+
+        harness.clock.advance(SEARCH_PAUSE_MS);
+        await settledAt(harness, "/admin/users?q=user4", "admin-users");
     });
 
     it("后退到别的搜索词时框里的字跟着换", async () => {
@@ -441,7 +457,7 @@ describe("每行的处置", () => {
         const harness = await openUsers();
         menuItem(await openRowMenu(harness, "user2"), text.actions.ban.menu).click();
         const found = await openedDialog();
-        [...found.querySelectorAll("button")].find((button) => button.textContent?.trim() === zhCN.admin.list.cancel)!.click();
+        [...found.querySelectorAll("button")].find((button) => button.textContent?.trim() === adminZhCN.admin.list.cancel)!.click();
         await closed();
         expect(writes(harness)).toEqual([]);
     });
@@ -506,14 +522,29 @@ describe("重置密码", () => {
         expect(document.body.textContent).not.toContain("Fresh-Secret-42");
     });
 
-    it("显示新密码时按 Esc 关掉：密码同样不留", async () => {
+    it("确认那一步按 Esc、点遮罩照样关；显示新密码时按 Esc、点遮罩都不关，只有“完成”关", async () => {
         const harness = await openUsers("/admin/users", {[`POST ${RESET}`]: () => Response.json({password: "Fresh-Secret-42"})});
+        // 先看这两种关法在确认那一步都管用，后面“不关”才不是没按上。
+        menuItem(await openRowMenu(harness, "user2"), text.actions.resetPassword.menu).click();
+        pressEscape(await openedDialog());
+        await closed();
+        menuItem(await openRowMenu(harness, "user2"), text.actions.resetPassword.menu).click();
+        await openedDialog();
+        clickOverlay();
+        await closed();
+
         menuItem(await openRowMenu(harness, "user2"), text.actions.resetPassword.menu).click();
         const found = await openedDialog();
         found.querySelector<HTMLButtonElement>("[data-site-admin-user-confirm]")!.click();
         await vi.waitFor(() => expect(found.querySelector("[data-site-admin-new-password]")).not.toBeNull());
 
-        found.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        pressEscape(found);
+        clickOverlay();
+        await nextTask();
+        expect(document.body.querySelector("[data-site-admin-user-dialog]")).toBe(found);
+        expect(found.querySelector("[data-site-admin-new-password]")?.textContent).toBe("Fresh-Secret-42");
+
+        found.querySelector<HTMLButtonElement>("[data-site-admin-user-finish]")!.click();
         await closed();
         expect(document.body.textContent).not.toContain("Fresh-Secret-42");
     });

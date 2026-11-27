@@ -98,6 +98,8 @@ interface ServerOptions {
     readonly login?: Server["login"];
     readonly meta?: Server["meta"];
     readonly socialStart?: Server["socialStart"];
+    /** 站点启动时的时刻（毫秒）；缺省是 2026-11-26 10:00 UTC。 */
+    readonly now?: number;
 }
 
 const started: Site[] = [];
@@ -106,8 +108,17 @@ const unexpected: string[] = [];
 afterEach(() => {
     for (const site of started.splice(0)) site.stop();
     document.body.replaceChildren();
+    // 社交登录的发起把续接令牌存进 `sessionStorage`：不清的话留给下一条用例。
+    window.sessionStorage.clear();
     expect(unexpected.splice(0)).toEqual([]);
 });
+
+/** 整页离开站点（去上游）：停掉这个站点，`sessionStorage` 留着，像同一个标签页之后再回来。 */
+function leaveSite(page: Started): void {
+    started.splice(started.indexOf(page.site), 1);
+    page.site.stop();
+    page.target.remove();
+}
 
 function start(path: string, options: ServerOptions = {}): Started {
     const target = document.createElement("div");
@@ -123,7 +134,7 @@ function start(path: string, options: ServerOptions = {}): Started {
     const logins: LoginRequest[] = [];
     const starts: Started["starts"][number][] = [];
     const left: string[] = [];
-    const clock = manualClock(Date.parse("2026-11-26T10:00:00Z"));
+    const clock = manualClock(options.now ?? Date.parse("2026-11-26T10:00:00Z"));
     const site = startSite({
         target,
         window,
@@ -536,6 +547,42 @@ describe("登录续接（continue）", () => {
         socialButtons(started)[0]!.click();
         await vi.waitFor(() => expect(started.left).toEqual([upstreamUrl("github")]));
         expect(started.starts).toEqual([{provider: "github", body: {intent: "login", continue: TOKEN}}]);
+    });
+
+    it("从带令牌的登录页走社交登录、上游带 social_error 回来：令牌还原到地址，之后的密码登录与“注册”链接都带着它", async () => {
+        const first = await onLoginPage(`/login?continue=${TOKEN}`);
+        await vi.waitFor(() => expect(socialButtons(first)[0]!.disabled).toBe(false));
+        socialButtons(first)[0]!.click();
+        await vi.waitFor(() => expect(first.left).toEqual([upstreamUrl("github")]));
+        leaveSite(first);
+
+        const back = start("/login?social_error=social_state_invalid", {login: continuedTo(CONTINUE_URL)});
+        await settledAt(back, `/login?continue=${TOKEN}`, "login");
+        expect(statusText(formOf(back))).toBe(zhCN.errors.identity.social_state_invalid);
+        expect(back.target.querySelector(".site-form-alt a")?.getAttribute("href")).toBe(`/register?continue=${TOKEN}`);
+        await fillAndSubmit(back);
+        await vi.waitFor(() => expect(back.logins).toEqual([{identifier: "alice", password: "correct horse", continue: TOKEN}]));
+    });
+
+    it("存着的令牌只还原一次；不带 social_error 进登录页时丢掉；过了 10 分钟回来不还原", async () => {
+        const first = await onLoginPage(`/login?continue=${TOKEN}`);
+        await vi.waitFor(() => expect(socialButtons(first)[0]!.disabled).toBe(false));
+        socialButtons(first)[0]!.click();
+        await vi.waitFor(() => expect(first.left).toEqual([upstreamUrl("github")]));
+        leaveSite(first);
+        const plain = await onLoginPage("/login");
+        leaveSite(plain);
+        const back = start("/login?social_error=social_state_invalid");
+        await settledAt(back, "/login", "login");
+        leaveSite(back);
+
+        const again = await onLoginPage(`/login?continue=${TOKEN}`);
+        await vi.waitFor(() => expect(socialButtons(again)[0]!.disabled).toBe(false));
+        socialButtons(again)[0]!.click();
+        await vi.waitFor(() => expect(again.left).toEqual([upstreamUrl("github")]));
+        leaveSite(again);
+        const late = start("/login?social_error=social_state_invalid", {now: Date.parse("2026-11-26T10:10:01Z")});
+        await settledAt(late, "/login", "login");
     });
 
     it("已登录的人带着令牌来（授权请求要求重新登录）：看得到登录表单；不带令牌时照常被送走", async () => {

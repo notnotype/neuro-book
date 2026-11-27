@@ -73,6 +73,8 @@ export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     // 官方站前端的目录（命名空间 nb-site），见 packages/nb-site-web/src/text.ts。`errors.*` 按拥有者分组，不是一张闭合的码表：
     // 合同包里的码都有文案由 packages/nb-site-web/tests/catalog.test.ts 查，这里不照抄码表。
     {path: "packages/nb-site-web/src/locales", source: "zh-CN"},
+    // 管理面板的目录（命名空间 nb-site-admin）跟着管理面板的块按需加载，见 packages/nb-site-web/src/pages/admin/text.ts。
+    {path: "packages/nb-site-web/src/pages/admin/locales", source: "zh-CN"},
 ];
 
 // 只读的旧应用与历史记录不检查（同 test-conventions.ts）。

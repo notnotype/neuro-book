@@ -3,7 +3,7 @@
  *
  * - 登录续接：从 `/login?continue=…` 登录后，浏览器整页到继续地址（假接口在授权端点回一页 HTML）。
  * - 授权确认页：允许、拒绝之后到客户端的地址（客户端的主机在这里另外接住）；过期的请求是整张说明卡片；1440、390、360 三种宽度、
- *   亮暗两种明暗下不能横向滚动；卡片与登录页的卡片在稿纸上的同一个位置。
+ *   亮暗两种明暗下不能横向滚动；卡片与登录页的卡片在稿纸上的同一个位置；客户端名字是一长串不带空格的字时标题折行（B6、B7 审查第 2 条）。
  * - 客户端页：登记机密客户端后密钥只显示一次，换密钥后显示新的。
  *
  * 各页的逻辑在组件测试里（`OAuthConsentPage.dom.test.ts`、`LoginPage.dom.test.ts`、`admin/ClientsPage.dom.test.ts`）；
@@ -98,6 +98,20 @@ test.describe("授权确认页", () => {
         const card = page.locator('[data-site-oauth-ended="authorization_expired"]');
         await expect(card.locator("h1")).toHaveText(zhCN.oauthConsent.ended.authorization_expired.title);
         await expect(page.locator('[data-site-page="oauth-consent"] button')).toHaveCount(0);
+    });
+
+    test("360 宽、客户端名字是一长串不带空格的字：标题在卡片里折行，自己不溢出", async ({page}) => {
+        // 名字取合同允许的最长（100 个字符），中间没有能折行的地方。只量页面能不能横向滚动看不出来：卡片裁掉了溢出的部分。
+        const clientName = "BookshelfSynchronizationAssistant".repeat(4).slice(0, 100);
+        fake = await installFakeIdentity(page, {session: "user", oauth: (method, _request, body) => (method === "GET" ? {status: 200, body: {...oauthAuthorization, clientName}} : {status: 200, body: body?.accept === true ? oauthAllowed : oauthDenied})});
+        await open(page, CONSENT_PAGE, VIEWPORTS[2]);
+        const heading = page.locator("[data-site-oauth-heading]");
+        await expect(heading).toHaveText(zhCN.oauthConsent.heading.replace("{{client}}", clientName));
+        await settled(page);
+        const size = await heading.evaluate((element) => ({scroll: element.scrollWidth, client: element.clientWidth}));
+        expect(size.scroll).toBeLessThanOrEqual(size.client);
+        const [card, title] = [await box(page, "[data-site-paper-card]"), await box(page, "[data-site-oauth-heading]")];
+        expect(title.x + title.width).toBeLessThanOrEqual(card.x + card.width + 0.5);
     });
 
     for (const viewport of VIEWPORTS) {

@@ -199,6 +199,40 @@ export function nextTask(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** 一个先不回答的请求：`release` 之后才交给 `respond` 回答。 */
+export function held(respond: Handler): {readonly handler: Handler; release(): void; readonly asked: boolean; readonly read: boolean} {
+    let release: (() => void) | undefined;
+    let answered: Response | undefined;
+    return {
+        handler: (body, server, params) => new Promise<Response>((resolve) => {
+            release = () => void Promise.resolve(respond(body, server, params)).then((response) => {
+                answered = response;
+                resolve(response);
+            });
+        }),
+        release: () => release?.(),
+        get asked() {
+            return release !== undefined;
+        },
+        /** 页面开始读这份回答的正文了（接口层 `response.json()`）。之后到用不用它，只隔几个微任务。 */
+        get read() {
+            return answered?.bodyUsed === true;
+        },
+    };
+}
+
+/** 在对话框里按 Esc（reka 在 document 上听 keydown，从对话框冒上去）。 */
+export function pressEscape(found: HTMLElement): void {
+    found.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+}
+
+/** 在最上面那层遮罩上按下、松开主键：nb-ui `Dialog` 认的一次点遮罩。 */
+export function clickOverlay(): void {
+    const overlay = [...document.body.querySelectorAll<HTMLElement>("[data-dialog-overlay]")].at(-1)!;
+    overlay.dispatchEvent(new PointerEvent("pointerdown", {button: 0, bubbles: true}));
+    overlay.dispatchEvent(new PointerEvent("pointerup", {button: 0, bubbles: true}));
+}
+
 /** 像用户那样改一个输入框：写值、发 `input`；`change` 在离开时由 `blur` 之前发（`leaveField`）。 */
 export function type(input: HTMLInputElement, value: string): void {
     input.value = value;

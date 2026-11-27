@@ -12,8 +12,9 @@ import type {DashboardData} from "../../testing/dashboard-answers";
 import {cleanUp, failure, settledAt, startAt} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 import {DASHBOARD_PATHS} from "./dashboard/source";
+import adminZhCN from "./locales/zh-CN.json";
 
-const text = zhCN.admin.dashboard;
+const text = adminZhCN.admin.dashboard;
 
 afterEach(cleanUp);
 

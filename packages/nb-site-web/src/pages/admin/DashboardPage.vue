@@ -23,7 +23,7 @@ import {useRoute, useRouter} from "vue-router";
 import {useSite} from "../../context";
 import {failureText} from "../../http/failure-text";
 import {locale} from "../../locale";
-import {useSiteText} from "../../text";
+import {useAdminText} from "./text";
 import AdminPageHead from "./AdminPageHead.vue";
 import {buildActiveOption, buildOnlineOption} from "./dashboard/charts/options";
 import type {ChartText} from "./dashboard/charts/options";
@@ -43,7 +43,7 @@ import type {PanelData} from "./dashboard/use-panel-data";
 
 const ROUTE_NAME = "admin-dashboard";
 
-const t = useSiteText();
+const t = useAdminText();
 const port = useText();
 const {api, clock} = useSite();
 const route = useRoute();
@@ -404,7 +404,7 @@ const failedSummary = computed(() => {
 }
 
 .dashboard-figure__note {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: var(--text-xs);
 }
 
@@ -432,7 +432,7 @@ const failedSummary = computed(() => {
 }
 
 .dashboard-meta {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: var(--text-xs);
     white-space: nowrap;
 }

@@ -10,17 +10,18 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import zhCN from "../../locales/zh-CN.json";
 import {cleanUp, failure, identityUrl, settledAt, startAt} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
+import adminZhCN from "./locales/zh-CN.json";
 
 const LOGOUT = identityUrl(IDENTITY_PATHS.logout);
 
 afterEach(cleanUp);
 
 const NAV = [
-    {route: "admin-dashboard", path: "/admin", title: zhCN.admin.dashboard.title},
-    {route: "admin-users", path: "/admin/users", title: zhCN.admin.users.title},
-    {route: "admin-codes", path: "/admin/codes", title: zhCN.admin.codes.title},
-    {route: "admin-clients", path: "/admin/clients", title: zhCN.admin.clients.title},
-    {route: "admin-audit", path: "/admin/audit", title: zhCN.admin.audit.title},
+    {route: "admin-dashboard", path: "/admin", title: adminZhCN.admin.dashboard.title},
+    {route: "admin-users", path: "/admin/users", title: adminZhCN.admin.users.title},
+    {route: "admin-codes", path: "/admin/codes", title: adminZhCN.admin.codes.title},
+    {route: "admin-clients", path: "/admin/clients", title: adminZhCN.admin.clients.title},
+    {route: "admin-audit", path: "/admin/audit", title: adminZhCN.admin.audit.title},
 ] as const;
 
 async function openAdmin(path: string, page: string, handlers: Readonly<Record<string, Handler>> = {}): Promise<Harness> {
@@ -57,7 +58,7 @@ describe("导航", () => {
         const harness = await openAdmin("/admin", "admin-dashboard");
         expect(navLinks(harness).map((link) => ({text: link.textContent?.trim(), href: link.getAttribute("href")}))).toEqual(NAV.map(({title, path}) => ({text: title, href: path})));
         expect(current(harness)).toEqual(["admin-dashboard"]);
-        expect(shell(harness).querySelector("nav")?.getAttribute("aria-label")).toBe(zhCN.admin.nav);
+        expect(shell(harness).querySelector("nav")?.getAttribute("aria-label")).toBe(adminZhCN.admin.nav);
     });
 
     it("点到别的页：当前项跟着换，外壳不重建；再回看板", async () => {
@@ -86,7 +87,7 @@ describe("用户菜单", () => {
         expect(trigger.getAttribute("aria-label")).toBe(zhCN.account.menu.replace("{{username}}", "alice"));
 
         const items = await openMenu(harness);
-        expect(items.map((item) => item.textContent?.trim())).toEqual([zhCN.admin.accountPage, zhCN.account.signOut]);
+        expect(items.map((item) => item.textContent?.trim())).toEqual([adminZhCN.admin.accountPage, zhCN.account.signOut]);
         items[0]!.click();
         await settledAt(harness, "/account", "account");
     });

@@ -8,12 +8,12 @@
 import {computed} from "vue";
 
 import {locale} from "../../../locale";
-import {useSiteText} from "../../../text";
+import {useAdminText} from "../text";
 import {dayLabel, formatCount, formatShare, RETENTION_WEEKS, retentionShare, shownCohorts} from "./model";
 import type {Retention} from "./model";
 
 const props = defineProps<{retention: Retention}>();
-const t = useSiteText();
+const t = useAdminText();
 
 /** 比例为 1 时混进一半的序列色：定稿里的深浅；再深，格子里的字就读不清了。 */
 const HEAT_AT_FULL = 50;
@@ -57,7 +57,7 @@ const rows = computed(() => shownCohorts(props.retention).map((cohort) => ({
 }
 
 .retention th {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: var(--text-xs);
     font-weight: 400;
     text-align: right;

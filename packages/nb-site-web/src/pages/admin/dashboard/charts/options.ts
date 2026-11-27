@@ -23,7 +23,7 @@ export interface ChartTheme {
     readonly font: string;
     /** 线尾名字、提示框里的字。 */
     readonly text: string;
-    /** 坐标轴上的字、指示线（`--text-secondary`：11 像素的字用更淡的 `--text-muted` 对面板底不到 4.5:1）。 */
+    /** 坐标轴上的字、指示线（`--text-muted`，与定稿一致）。 */
     readonly axis: string;
     /** 坐标轴线与网格线。 */
     readonly grid: string;

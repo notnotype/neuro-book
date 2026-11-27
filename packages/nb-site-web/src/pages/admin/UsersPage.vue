@@ -19,7 +19,7 @@ import {computed, shallowRef, watch} from "vue";
 import {useSite} from "../../context";
 import {createAdminApi} from "../../http/admin";
 import {locale} from "../../locale";
-import {useSiteText} from "../../text";
+import {useAdminText} from "./text";
 import {recentTime} from "../recent-time";
 import AdminListFrame from "./AdminListFrame.vue";
 import {fullTime, shortDate} from "./format";
@@ -39,10 +39,12 @@ type UserRow = AdminUserItem & {readonly actions?: undefined};
 
 const {api, clock, account} = useSite();
 const admin = createAdminApi(api);
-const t = useSiteText();
+const t = useAdminText();
 
 const listRoute = useListRoute(SCHEMA, ROUTE_NAME);
 const state = listRoute.state;
+const pager = listRoute.pager();
+const page = pager.page;
 
 const list = useAdminList<Field, UserRow, UserListResponse["counts"]>({
     schema: SCHEMA,
@@ -57,16 +59,7 @@ const list = useAdminList<Field, UserRow, UserListResponse["counts"]>({
             ...(filter === "all" ? {} : {filter}),
         });
     },
-    onPastEnd: (page) => {
-        if (state.value !== undefined) listRoute.go({...state.value, page}, "replace");
-    },
-});
-
-const page = computed({
-    get: () => state.value?.page ?? 1,
-    set: (value: number) => {
-        if (state.value !== undefined) listRoute.go({...state.value, page: value}, "push");
-    },
+    onPastEnd: pager.pastEnd,
 });
 
 const numberFormat = computed(() => new Intl.NumberFormat(locale.value));
@@ -80,7 +73,7 @@ const filterOptions = computed(() =>
 
 function setFilter(value: SegmentedControlValue): void {
     if (state.value === undefined || typeof value !== "string" || value === state.value.fields.filter) return;
-    listRoute.go(withField(state.value, "filter", value), "push");
+    void listRoute.go(withField(state.value, "filter", value), "push");
 }
 
 // 搜索框里的字与地址里的搜索词分开：打字时先只改框里的，停下 300 毫秒才写进地址（`replace`）。后退到别的搜索词时框跟着换。
@@ -88,7 +81,7 @@ const searchInput = shallowRef(state.value?.fields.q ?? "");
 const pause = useSearchPause(clock, (value) => {
     const current = state.value;
     const term = searchTerm(value);
-    if (current !== undefined && term !== current.fields.q) listRoute.go(withField(current, "q", term), "replace");
+    if (current !== undefined && term !== current.fields.q) void listRoute.go(withField(current, "q", term), "replace");
 });
 
 watch(
@@ -193,7 +186,7 @@ function rowActionsLabel(user: AdminUserItem): string {
                         :maxlength="LOGIN_IDENTIFIER.maxLength"
                         data-site-admin-search
                         @update:model-value="onSearchInput"
-                        @keydown.enter="pause.flush()"
+                        @keydown.enter="pause.enter"
                     />
                 </div>
             </template>
@@ -238,13 +231,5 @@ function rowActionsLabel(user: AdminUserItem): string {
     gap: 8px;
     color: var(--text-main);
     font-weight: 600;
-}
-
-.admin-muted {
-    color: var(--text-secondary);
-}
-
-.admin-num {
-    font-variant-numeric: tabular-nums;
 }
 </style>

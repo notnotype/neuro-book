@@ -11,7 +11,7 @@ import {shallowRef, watch} from "vue";
 
 import {useSite} from "../../context";
 import type {Result} from "../../http/core";
-import {useSiteText} from "../../text";
+import {useAdminText} from "./text";
 import {useFormFeedback} from "../form-feedback";
 
 const props = defineProps<{
@@ -30,7 +30,7 @@ const emit = defineEmits<{
 }>();
 
 const {clock} = useSite();
-const t = useSiteText();
+const t = useAdminText();
 
 const submitting = shallowRef(false);
 const feedback = useFormFeedback<never>(shallowRef(null), clock);

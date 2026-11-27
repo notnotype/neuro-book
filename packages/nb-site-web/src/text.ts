@@ -3,6 +3,7 @@
  * `uiRef` 与 `useUiText`。官方站没有宿主的翻译引擎，用 nb-ui 缺省端口里的最小实现；以后换引擎只换根上的端口，组件不动。
  *
  * 目录在本模块的顶层登记（导入即登记），不放在 `main.ts`：组件测试不经 `main.ts` 挂载组件，照样要翻得出站点的键。
+ * 管理面板的文字是另一份目录、另一个命名空间（`pages/admin/text.ts`），跟着管理面板的块走，不进入口。
  */
 
 import {registerDefaultCatalog, useText} from "@notnotype/nb-ui/text-port";
@@ -23,8 +24,11 @@ type PluralSuffix = "zero" | "one" | "two" | "few" | "many" | "other";
 
 type WithoutPlural<Key extends string> = Key extends `${infer Base}_${PluralSuffix}` ? Base : Key;
 
-/** 目录推出的键：嵌套对象展开成点号路径，复数形归到不带后缀的键。与 nb-ui `locales/index.ts` 的同名类型相同，那份不导出。 */
-type CatalogKey<Source, Prefix extends string = ""> = {
+/**
+ * 目录推出的键：嵌套对象展开成点号路径，复数形归到不带后缀的键。与 nb-ui `locales/index.ts` 的同名类型相同，那份不导出。
+ * 管理面板的目录（`pages/admin/text-ref.ts`）也用它。
+ */
+export type CatalogKey<Source, Prefix extends string = ""> = {
     [Key in keyof Source & string]: Source[Key] extends string ? WithoutPlural<`${Prefix}${Key}`> : CatalogKey<Source[Key], `${Prefix}${Key}.`>;
 }[keyof Source & string];
 

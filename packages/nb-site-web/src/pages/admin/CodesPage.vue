@@ -17,7 +17,7 @@ import {computed, shallowRef, watch} from "vue";
 import {useSite} from "../../context";
 import {createAdminApi} from "../../http/admin";
 import {locale} from "../../locale";
-import {useSiteText} from "../../text";
+import {useAdminText} from "./text";
 import AdminConfirmDialog from "./AdminConfirmDialog.vue";
 import AdminListFrame from "./AdminListFrame.vue";
 import IssueCodeDialog from "./codes/IssueCodeDialog.vue";
@@ -43,7 +43,7 @@ type InviteRow = AdminInviteCodeItem & {readonly state?: undefined};
 
 const {api, clock} = useSite();
 const admin = createAdminApi(api);
-const t = useSiteText();
+const t = useAdminText();
 
 const listRoute = useListRoute(SCHEMA, ROUTE_NAME);
 const state = listRoute.state;
@@ -62,11 +62,9 @@ watch(
     {immediate: true},
 );
 
-function pastEnd(which: Kind, page: number): void {
-    // 只有当前页签会翻到别的页；另一个页签停在第一页，越不了界。
-    if (kind.value !== which) return;
-    listRoute.go({...(which === "invite" ? inviteState.value : registrationState.value), page}, "replace");
-}
+// 每份列表只在自己的页签显示着时翻页、越界改页；不显示的那份留在内存里，不该改地址。
+const registrationPager = listRoute.pager(() => (kind.value === "registration" ? registrationState.value : undefined));
+const invitePager = listRoute.pager(() => (kind.value === "invite" ? inviteState.value : undefined));
 
 const registrations = useAdminList<Field, CodeRow, RegistrationCodeListResponse["counts"]>({
     schema: SCHEMA,
@@ -75,14 +73,14 @@ const registrations = useAdminList<Field, CodeRow, RegistrationCodeListResponse[
         const filter = memberOf(REGISTRATION_CODE_FILTERS, current.fields.filter, "all");
         return admin.listRegistrationCodes({page: String(current.page), pageSize: String(ADMIN_PAGE_SIZE), ...(anchor === undefined ? {} : {anchor}), ...(filter === "all" ? {} : {filter})});
     },
-    onPastEnd: (page) => pastEnd("registration", page),
+    onPastEnd: registrationPager.pastEnd,
 });
 
 const invites = useAdminList<Field, InviteRow>({
     schema: SCHEMA,
     state: () => (state.value === undefined ? undefined : inviteState.value),
     fetch: (current, anchor) => admin.listInviteCodes({page: String(current.page), pageSize: String(ADMIN_PAGE_SIZE), ...(anchor === undefined ? {} : {anchor})}),
-    onPastEnd: (page) => pastEnd("invite", page),
+    onPastEnd: invitePager.pastEnd,
 });
 
 const numberFormat = computed(() => new Intl.NumberFormat(locale.value));
@@ -98,7 +96,7 @@ const tabs = computed(() =>
 function setKind(value: string): void {
     const next = KINDS.find((candidate) => candidate === value);
     if (next === undefined || next === kind.value) return;
-    listRoute.go(firstPage(next), "push");
+    void listRoute.go(firstPage(next), "push");
 }
 
 const filterOptions = computed(() =>
@@ -110,17 +108,11 @@ const filterOptions = computed(() =>
 
 function setFilter(value: SegmentedControlValue): void {
     if (typeof value !== "string" || value === registrationState.value.fields.filter) return;
-    listRoute.go(withField(registrationState.value, "filter", value), "push");
+    void listRoute.go(withField(registrationState.value, "filter", value), "push");
 }
 
-function pageModel(which: Kind) {
-    return computed({
-        get: () => (which === "invite" ? inviteState.value : registrationState.value).page,
-        set: (page: number) => listRoute.go({...(which === "invite" ? inviteState.value : registrationState.value), page}, "push"),
-    });
-}
-const registrationPage = pageModel("registration");
-const invitePage = pageModel("invite");
+const registrationPage = registrationPager.page;
+const invitePage = invitePager.page;
 
 /** 一个码现在的样子。不能用的码按先停用、再用完、再过期的次序说原因（合同只给“还能不能用”，原因由字段推出）。 */
 type CodeState = "usable" | "exhausted" | "expired" | "disabled";
@@ -129,8 +121,9 @@ function codeState(item: {readonly usable: boolean; readonly usedCount: number; 
     if (item.usable) return "usable";
     if (item.maxUses !== null && item.usedCount >= item.maxUses) return "exhausted";
     if (item.expiresAt !== null && Date.parse(item.expiresAt) <= clock.now()) return "expired";
-    // 邀请码没有“已停用”这个字段：不能用、又没用完没过期的，就是主人停用了。
-    return "disabled";
+    // 邀请码没有“已停用”这个字段：不能用、又没用完没过期的，就是主人停用了。注册码有这个字段、又没停用，
+    // 那就是过期了，只是浏览器的时钟比服务端慢、看起来还没到。
+    return item.disabled === undefined ? "disabled" : "expired";
 }
 
 function usage(item: {readonly usedCount: number; readonly maxUses: number | null}): string {
@@ -161,6 +154,16 @@ function menuItems(item: RegistrationCodeItem): DropdownMenuItemData[] {
 }
 
 const issueOpen = shallowRef(false);
+
+/** 发放成功：新码排在最前，回到第 1 页去看它；以当时为基准重取，带着旧基准的列表里没有它。 */
+function afterIssue(): void {
+    if (registrationPage.value === 1) {
+        void registrations.reload({fresh: true});
+        return;
+    }
+    registrations.forgetAnchor();
+    registrationPage.value = 1;
+}
 
 const disableOpen = shallowRef(false);
 const disabling = shallowRef<RegistrationCodeItem>();
@@ -260,7 +263,7 @@ const disableRun = computed(() => {
                 <time class="admin-muted admin-num" :datetime="row.createdAt" :title="fullTime(row.createdAt, locale)">{{ shortDate(row.createdAt, clock.now()) }}</time>
             </template>
         </DataTable>
-        <IssueCodeDialog v-model:open="issueOpen" :api="admin" @done="registrations.reload({fresh: true})" />
+        <IssueCodeDialog v-model:open="issueOpen" :api="admin" @done="afterIssue" />
         <AdminConfirmDialog
             v-if="disableRun !== undefined"
             v-model:open="disableOpen"
@@ -274,22 +277,3 @@ const disableRun = computed(() => {
         />
     </AdminListFrame>
 </template>
-
-<style scoped>
-.admin-code {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-main);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-}
-
-.admin-muted {
-    color: var(--text-secondary);
-}
-
-.admin-num {
-    font-variant-numeric: tabular-nums;
-}
-</style>
