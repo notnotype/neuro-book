@@ -104,8 +104,18 @@ export const CandidateSchema = Type.Object({
 
 export type Candidate = Static<typeof CandidateSchema>;
 
+/** `not-found` 的 `details` 至多列几层：超出时留 `base` 与最上面的几层。 */
+export const LAYER_LIMIT = 20;
+
+/** 一层的写法与快照表头 `layers:` 相同：`base`，或角色加名字（例如 `dialog "设置"`）。 */
+const LayerLabelSchema = Type.String({maxLength: 256});
+
 export const PageFailureDetailsSchema = Type.Object({
     candidates: Type.Optional(Type.Array(CandidateSchema, {maxItems: 10})),
+    /** `not-found`：此刻画出来的各层，`base` 在前、最上面的在后（输出 12）。 */
+    layers: Type.Optional(Type.Array(LayerLabelSchema, {maxItems: LAYER_LIMIT})),
+    /** `not-found`：目标其实在，被最上面这一层盖住了（例如用户打开了一个对话框）。 */
+    covered: Type.Optional(Type.Object({layer: LayerLabelSchema}, {additionalProperties: false})),
 }, {additionalProperties: false});
 
 export type PageFailureDetails = Static<typeof PageFailureDetailsSchema>;

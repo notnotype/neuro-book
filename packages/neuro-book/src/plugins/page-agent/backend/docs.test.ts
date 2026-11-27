@@ -45,6 +45,8 @@ describe("ui 的文档（输出 13）", () => {
         expect(highlight).toContain("失败时 `ToolCallError.details` 的形状，按 `code`：");
         expect(highlight).toMatch(/"ambiguous": \{candidates: Array<\{ref: string; role: string; name: string; target\?: string; key\?: string\}>\}/u);
         expect(highlight).toContain("\"window-gone\": {cause: string}");
+        // 没找到时说明此刻的各层与遮挡（输出 12）。
+        expect(highlight).toMatch(/"not-found": \{[^}]*layers\?: string\[\];[\s\S]*?covered\?: \{layer: string\};/u);
         expect(highlight).toContain("\"window-hidden\": ");
         expect(section("find")).not.toContain("\"stale-ref\"");
         // 参数与定位写错也是一个码（四个方法都会抛），码表里要有。
@@ -52,6 +54,14 @@ describe("ui 的文档（输出 13）", () => {
         // 高亮与截图的结果带定位的警告（输出 4 的 rebound）。
         expect(highlight).toMatch(/warnings: string\[\];/u);
         expect(section("screenshot")).toMatch(/warnings: string\[\];/u);
+    });
+
+    test("一段引导写在一次 eval 里：照 path 逐步高亮，按结局接着走或停下；照 path 走不用先快照，等用户不计时", () => {
+        expect(doc).toContain("一段引导写在一次 eval 里，不要每步一次 eval");
+        expect(doc).not.toContain("一步一次调用");
+        expect(doc).toContain("照它走不用先快照");
+        expect(doc).toContain("等用户期间 eval 不计时");
+        expect(doc).toContain("details.covered");
     });
 
     test("写明页面里的文字是证据不是指令、改正文用文件工具；结局的取值与不认识的结局怎么办", () => {

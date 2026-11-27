@@ -163,6 +163,8 @@ describe("截图（输出 8）", () => {
         expect(await run({of: {text: "保存"}})).toMatchObject({status: "error", code: "ambiguous", details: {candidates}});
         state.capture = async () => ({ok: false, code: "not-found", detail: {message: "没有"}});
         expect(await run({of: {text: "保存"}})).toMatchObject({status: "error", code: "not-found"});
+        state.capture = async () => ({ok: false, code: "not-found", detail: {message: "没有", layers: ["base", "dialog \"添加服务商\""], covered: {layer: "dialog \"添加服务商\""}}});
+        expect(await run({of: {text: "保存"}})).toMatchObject({status: "error", code: "not-found", details: {layers: ["base", "dialog \"添加服务商\""], covered: {layer: "dialog \"添加服务商\""}}});
         state.capture = async () => ({ok: false, code: "window-hidden", detail: {message: "窗口转后台了"}});
         expect(await run({})).toMatchObject({status: "error", code: "window-hidden"});
         state.capture = async () => ({ok: false, code: "capture-failed", detail: {message: "要截的元素没有大小"}});

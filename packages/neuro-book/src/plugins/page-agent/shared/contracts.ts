@@ -7,7 +7,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {BaseLocatorSchema, CandidateSchema, HighlightArgsSchema, HighlightInstalledSchema, LocatorSchema, PageOutcomeSchema, SnapshotArgsSchema, SnapshotResultSchema} from "@notnotype/nb-page-agent/api";
+import {BaseLocatorSchema, HighlightArgsSchema, HighlightInstalledSchema, LocatorSchema, PageFailureDetailsSchema, PageOutcomeSchema, SnapshotArgsSchema, SnapshotResultSchema} from "@notnotype/nb-page-agent/api";
 import type {BaseLocator, Locator} from "@notnotype/nb-page-agent/api";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
@@ -140,9 +140,10 @@ export type FindEntry = Static<typeof FindEntrySchema>;
 
 // ---------- 页面里的失败（窗口一侧交回） ----------
 
+/** 页面里的失败：说明加核心包的 `details`（候选、层与遮挡）。 */
 export const PageFailureDetailSchema = Type.Object({
     message: Type.String({maxLength: 1024}),
-    candidates: Type.Optional(Type.Array(CandidateSchema, {maxItems: 10})),
+    ...PageFailureDetailsSchema.properties,
 }, {additionalProperties: false});
 
 export type PageFailureDetail = Static<typeof PageFailureDetailSchema>;

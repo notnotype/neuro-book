@@ -25,7 +25,7 @@ export interface PageAgentOptions {
 export interface PageAgent {
     readonly refPrefix: string;
     snapshot(args?: SnapshotArgs): SnapshotResult | PageFailure;
-    /** `mutating` 缺省 false，`settle` 缺省 false（只有高亮的 `at` 要落到唯一的可交互后代）。 */
+    /** `mutating`、`settle`、`explain` 缺省都是 false（只有高亮的 `at` 要落到唯一的可交互后代）。 */
     locate(locator: Locator, options?: Partial<LocateOptions>): Located | PageFailure;
     /** 给一个元素发引用并描述它，例如交回用户点到的那个元素。 */
     describe(element: Element): Candidate;
@@ -42,7 +42,7 @@ export function createPageAgent(options: PageAgentOptions = {}): PageAgent {
     const environment = () => ({inspector: new Inspector(document), refs});
     const guide: GuideEnvironment = {
         document,
-        locate: (locator) => locate(environment(), locator, {mutating: false, settle: true}),
+        locate: (locator, explain) => locate(environment(), locator, {mutating: false, settle: true, explain}),
         describe: (element) => candidateOf(environment(), element),
         inspector: () => new Inspector(document),
     };
@@ -50,7 +50,7 @@ export function createPageAgent(options: PageAgentOptions = {}): PageAgent {
     return {
         refPrefix: refs.prefix,
         snapshot: (args = {}) => takeSnapshot(environment(), args),
-        locate: (locator, locateOptions = {}) => locate(environment(), locator, {mutating: locateOptions.mutating ?? false, settle: locateOptions.settle ?? false}),
+        locate: (locator, locateOptions = {}) => locate(environment(), locator, {mutating: locateOptions.mutating ?? false, settle: locateOptions.settle ?? false, explain: locateOptions.explain ?? false}),
         describe: (element) => candidateOf(environment(), element),
         highlight: (args) => {
             // 写错的定位在动上一次之前就报：这时上一次照常。
