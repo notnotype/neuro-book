@@ -77,16 +77,17 @@ describe("截图（输出 8）", () => {
         state.capture = async (input) => {
             received.push(input);
             expect(await upload(input.token, JPEG_64X40)).toBe(204);
-            return {ok: true, target: input.of === undefined ? "window" : "element", width: 999, height: 999};
+            return {ok: true, target: input.of === undefined ? "window" : "element", width: 999, height: 999, warnings: input.of === undefined ? [] : ["rebound: w1.3 -> w1.7"]};
         };
         const whole = await run({});
         expect(whole.status).toBeUndefined();
         expect(whole.images).toEqual([{data: Buffer.from(JPEG_64X40).toString("base64"), mime: "image/jpeg", width: 64, height: 40}]);
-        expect(whole.details).toMatchObject({window: {name: "w1", title: "NeuroBook"}, target: "window", width: 64, height: 40});
+        expect(whole.details).toMatchObject({window: {name: "w1", title: "NeuroBook"}, target: "window", width: 64, height: 40, warnings: []});
         expect(whole.text).toContain("w1");
 
         const element = await run({of: {role: "button", name: "保存"}});
-        expect(element.details).toMatchObject({target: "element"});
+        // 按 of 定位时窗口交来的警告（输出 4 的 rebound）随结果交回。
+        expect(element.details).toMatchObject({target: "element", warnings: ["rebound: w1.3 -> w1.7"]});
         expect(received[1]!.of).toEqual({role: "button", name: "保存"});
         // 每次截图一个新凭证。
         expect(received[0]!.token).not.toBe(received[1]!.token);

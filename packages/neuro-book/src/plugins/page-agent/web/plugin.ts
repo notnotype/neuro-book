@@ -23,6 +23,7 @@ import {windowTextKey} from "nbook/shared/window-text-key";
 
 import {descriptor} from "../plugin";
 import {CAPTURE_TOKEN_HEADER, CAPTURE_UPLOAD_PATH, pageAgentWindowContract} from "../shared/contracts";
+import type {PageFailureDetail} from "../shared/contracts";
 import {findInCatalog} from "./catalog";
 import type {CatalogCommand} from "./catalog";
 import type {CaptureOutcome, ConnectPage, PageHighlight, PageSide} from "./page-side";
@@ -176,7 +177,7 @@ export const pageAgentWebPlugin: PluginDefinition = {
                             }
                             const failed = await uploadCapture(input.token, outcome.image, call.signal);
                             if (failed !== null) return call.fail("capture-failed", {message: failed});
-                            return call.ok({window: side.info(), target: outcome.target, width: outcome.width, height: outcome.height});
+                            return call.ok({window: side.info(), target: outcome.target, width: outcome.width, height: outcome.height, warnings: [...outcome.warnings]});
                         },
                     },
                     events: {
@@ -187,8 +188,8 @@ export const pageAgentWebPlugin: PluginDefinition = {
                         highlight: {
                             subscribe: async (filter, sink, call) => {
                                 const side = await ready(call.signal);
-                                const fail = (code: "stale-ref" | "ambiguous" | "not-found" | "invalid-locator" | "window-hidden" | "guide-failed", message: string, candidates?: readonly unknown[]): void => {
-                                    sink.next({kind: "failed", code, detail: {message: message.slice(0, 1024), ...(candidates === undefined ? {} : {candidates: candidates as never})}});
+                                const fail = (code: "stale-ref" | "ambiguous" | "not-found" | "invalid-locator" | "window-hidden" | "guide-failed", message: string, candidates?: PageFailureDetail["candidates"]): void => {
+                                    sink.next({kind: "failed", code, detail: {message: message.slice(0, 1024), ...(candidates === undefined ? {} : {candidates})}});
                                 };
                                 if (!side.info().visible) {
                                     fail("window-hidden", "这个窗口现在看不见");

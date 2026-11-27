@@ -172,6 +172,19 @@ describe("结局与等用户（输出 9、11）", () => {
         await waitUntil("窗口那边被退订", () => state.highlights[0]?.signal.aborted);
     });
 
+    it("装上时窗口交来的定位警告（rebound）随结局交回；重复的 installed 只算一次，不再登记一次等用户", async () => {
+        const {start, subscription, waits} = await setup();
+        const pending = start({at: {ref: "w1.3"}, message: "点这里", until: "next"});
+        const sub = await subscription();
+        sub.emit({...installed, warnings: ["rebound: w1.3 -> w1.7"]});
+        await waitUntil("自报开始等用户", () => waits.length === 1);
+        sub.emit({...installed, warnings: []});
+        sub.emit({kind: "outcome", outcome: {outcome: "next"}});
+        expect((await pending).details).toMatchObject({outcome: "next", warnings: ["rebound: w1.3 -> w1.7"]});
+        // 两个事件按顺序处理：第二个 installed 若也算数，结局之前就会多登记一次等用户。
+        expect(waits).toHaveLength(1);
+    });
+
     it("选中的窗口看不见时不订阅，得 window-hidden", async () => {
         const {start, state} = await setup({visible: false});
         expect(await start({at: {text: "保存"}, message: "点保存", until: "click"})).toMatchObject({status: "error", code: "window-hidden"});
@@ -194,6 +207,25 @@ describe("窗口断开、插件停止与停止 eval（输出 14、时序与寿�
         await second.subscription();
         second.window.disconnect();
         expect(await early).toMatchObject({status: "error", code: "window-gone", details: {cause: "target-gone"}});
+    });
+
+    it("画好之前停止 eval：结局 cancelled，窗口那边被退订，没有登记等用户", async () => {
+        const {start, subscription, waits} = await setup();
+        const controller = new AbortController();
+        const stopped = start({at: {text: "保存"}, message: "点保存", until: "click"}, controller.signal);
+        const sub = await subscription();
+        controller.abort();
+        expect((await stopped).details).toMatchObject({outcome: "cancelled"});
+        await waitUntil("窗口那边被退订", () => sub.signal.aborted);
+        expect(waits).toEqual([]);
+    });
+
+    it("订阅因窗口那边出错而结束（不是窗口不在了）：window-unresponsive，原因在 cause", async () => {
+        const {start, state} = await setup();
+        state.onHighlight = () => {
+            throw new Error("页面一侧坏了");
+        };
+        expect(await start({at: {text: "保存"}, message: "点保存", until: "click"})).toMatchObject({status: "error", code: "window-unresponsive", details: {cause: "provider-error"}});
     });
 
     it("插件停止时正在等的高亮以 window-gone 结束，等用户收回；停止 eval 时结局是 cancelled，窗口那边被退订", async () => {

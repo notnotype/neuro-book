@@ -70,16 +70,18 @@ export function createWindowSelector(remote: () => RemoteAccess, now: () => numb
             result: await remote().use(pageAgentWindowContract).at({client: instance.id}).info({}, {signal, timeout: PROBE_TIMEOUT_MS}),
         })));
         const answered: SelectedWindow[] = [];
-        let timedOut = 0;
-        let stale = 0;
+        // 没应答的与要刷新的各记第一个原码，交回时放进 cause（输出 14）。探测途中窗口关了（target-gone）当作这个候选不在。
+        let unresponsive: string | null = null;
+        let stale: string | null = null;
         for (const {id, result} of probes) {
             if (result.ok) answered.push({ok: true, id, info: result.value});
-            else if (result.code === "timeout") timedOut += 1;
-            else if (result.code === "not-provided" || result.code === "version-changed") stale += 1;
+            else if (result.code === "not-provided" || result.code === "version-changed") stale ??= result.code;
+            else if (result.code !== "target-gone" && result.code !== "cancelled") unresponsive ??= result.code;
         }
         if (answered.length === 0) {
-            if (timedOut > 0) return {ok: false, code: "window-unresponsive", message: "打开这部作品的窗口都没有应答，稍后重试", cause: "timeout"};
-            if (stale > 0) return {ok: false, code: "no-window", message: "窗口要刷新：请用户刷新 NeuroBook 窗口", cause: "not-provided"};
+            if (signal.aborted) return {ok: false, code: "window-unresponsive", message: "调用已停止", cause: "cancelled"};
+            if (unresponsive !== null) return {ok: false, code: "window-unresponsive", message: "打开这部作品的窗口都没有应答，稍后重试", cause: unresponsive};
+            if (stale !== null) return {ok: false, code: "no-window", message: "窗口要刷新：请用户刷新 NeuroBook 窗口", cause: stale};
             return {ok: false, code: "no-window", message: "没有可用的窗口：请用户打开或切回 NeuroBook 窗口"};
         }
         const byInput = (a: SelectedWindow, b: SelectedWindow): number => (b.info.lastInputAt ?? -Infinity) - (a.info.lastInputAt ?? -Infinity);
@@ -111,6 +113,10 @@ export function callFailure(failure: RemoteFailure): WindowFailure {
     switch (failure.code) {
         case "target-gone":
             return {ok: false, code: "window-gone", message: "窗口在调用途中断开或刷新了：重新快照，再做这一步", cause: failure.code};
+        case "unavailable":
+            // 窗口确认收到之前链路就断了：对用户同样是窗口刷新或关了，重试会落到刷新后的新页面上。
+            if (failure.cause === "disconnected") return {ok: false, code: "window-gone", message: "窗口在调用途中断开或刷新了：重新快照，再做这一步", cause: failure.code};
+            return {ok: false, code: "window-unresponsive", message: "窗口没有在时限内应答，稍后重试", cause: failure.code};
         case "not-provided":
         case "version-changed":
             return {ok: false, code: "no-window", message: "窗口要刷新：请用户刷新 NeuroBook 窗口", cause: failure.code};

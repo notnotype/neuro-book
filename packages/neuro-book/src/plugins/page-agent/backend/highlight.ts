@@ -39,6 +39,7 @@ const HighlightReturnsSchema = Type.Object({
     outcome: Type.Union(OUTCOMES.map((outcome) => Type.Literal(outcome)), {description: "结局；以后会增加，不认识的当作引导中断"}),
     question: Type.Optional(Type.String({description: "outcome 为 asked 时用户的问题"})),
     clicked: Type.Optional(Type.Object(CandidateSchema.properties, {additionalProperties: false, description: "outcome 为 missed 时用户点到的控件，带引用"})),
+    warnings: Type.Array(Type.String(), {description: "定位时的警告，例如 rebound（引用的元素换了，改用了同名的那个）"}),
 }, {additionalProperties: false});
 
 export const highlightTool = agentTool(HIGHLIGHT_TOOL, {
@@ -93,18 +94,18 @@ export function highlightImplementation(deps: HighlightDeps): AgentToolImplement
     };
 }
 
-function outcomeResult(window: JsonValue, outcome: Outcome, extra: {readonly question?: string; readonly clicked?: JsonValue} = {}): ToolResult {
+function outcomeResult(window: JsonValue, outcome: Outcome, warnings: readonly string[], extra: {readonly question?: string; readonly clicked?: JsonValue} = {}): ToolResult {
     const said = extra.question === undefined ? "" : `：${JSON.stringify(extra.question)}`;
     const clicked = extra.clicked as {role?: string; name?: string} | undefined;
     const where = clicked === undefined ? "" : `（点了 ${clicked.role ?? ""} ${JSON.stringify(clicked.name ?? "")}）`;
-    return {text: `结局：${outcome}${said}${where}`, details: {window, outcome, ...extra} as JsonValue};
+    return {text: `结局：${outcome}${said}${where}`, details: {window, outcome, ...extra, warnings: [...warnings]} as JsonValue};
 }
 
-function pageOutcomeResult(window: JsonValue, outcome: PageOutcome): ToolResult {
+function pageOutcomeResult(window: JsonValue, outcome: PageOutcome, warnings: readonly string[]): ToolResult {
     switch (outcome.outcome) {
-        case "asked": return outcomeResult(window, "asked", {question: outcome.question});
-        case "missed": return outcomeResult(window, "missed", {clicked: outcome.clicked as unknown as JsonValue});
-        default: return outcomeResult(window, outcome.outcome);
+        case "asked": return outcomeResult(window, "asked", warnings, {question: outcome.question});
+        case "missed": return outcomeResult(window, "missed", warnings, {clicked: outcome.clicked as unknown as JsonValue});
+        default: return outcomeResult(window, outcome.outcome, warnings);
     }
 }
 
@@ -113,6 +114,8 @@ function runHighlight(deps: HighlightDeps, selected: SelectedWindow, filter: Hig
         let done = false;
         let installed = false;
         let window = windowSummary(selected.info);
+        /** 装上时窗口交来的定位警告（输出 4 的 `rebound`），随结局交回。 */
+        let warnings: readonly string[] = [];
         let subscription: RemoteSubscription | null = null;
         let stopWaiting: (() => void) | null = null;
         const cleanups: Array<() => void> = [];
@@ -127,15 +130,15 @@ function runHighlight(deps: HighlightDeps, selected: SelectedWindow, filter: Hig
         };
         /** 窗口不在了（断开、刷新、插件停止）：装上之后是结局，之前是失败。 */
         const windowGone = (cause: string): void => {
-            if (installed) finish(outcomeResult(window, "window-gone"));
+            if (installed) finish(outcomeResult(window, "window-gone", warnings));
             else finish(failureResult("window-gone", "窗口在高亮装上之前断开或刷新了：重新快照，再做这一步", {cause}));
         };
 
         if (context.signal.aborted) {
-            finish(outcomeResult(window, "cancelled"));
+            finish(outcomeResult(window, "cancelled", warnings));
             return;
         }
-        const onAbort = (): void => finish(outcomeResult(window, "cancelled"));
+        const onAbort = (): void => finish(outcomeResult(window, "cancelled", warnings));
         context.signal.addEventListener("abort", onAbort, {once: true});
         cleanups.push(() => context.signal.removeEventListener("abort", onAbort));
         cleanups.push(deps.active.add(() => windowGone("provider-stopped")));
@@ -150,7 +153,8 @@ function runHighlight(deps: HighlightDeps, selected: SelectedWindow, filter: Hig
                     if (installed) return;
                     installed = true;
                     window = windowSummary(event.window);
-                    cleanups.push(deps.clock.schedule(() => finish(outcomeResult(window, "timeout")), timeoutMs));
+                    warnings = event.warnings;
+                    cleanups.push(deps.clock.schedule(() => finish(outcomeResult(window, "timeout", warnings)), timeoutMs));
                     // 从装上起等用户（输出 11）：结算时 resolve，eval 的时限从这时起恢复。
                     const waiting = new Promise<void>((resolveWaiting) => {
                         stopWaiting = resolveWaiting;
@@ -159,7 +163,7 @@ function runHighlight(deps: HighlightDeps, selected: SelectedWindow, filter: Hig
                     return;
                 }
                 case "outcome":
-                    finish(pageOutcomeResult(window, event.outcome));
+                    finish(pageOutcomeResult(window, event.outcome, warnings));
                     return;
                 case "failed":
                     finish(windowCallFailure({ok: false, code: event.code, detail: event.detail} as unknown as RemoteFailure<string>));

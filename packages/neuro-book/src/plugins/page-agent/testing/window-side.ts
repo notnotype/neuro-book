@@ -12,7 +12,7 @@ import type {FindEntry, FindKind, HighlightEvent, PageFailureDetail, WindowInfo}
 
 /** 截图的答复：成功时窗口自己报的尺寸，失败时窗口合同里的码。 */
 export type CaptureReply =
-    | {readonly ok: true; readonly target: "window" | "element"; readonly width: number; readonly height: number}
+    | {readonly ok: true; readonly target: "window" | "element"; readonly width: number; readonly height: number; readonly warnings?: readonly string[]}
     | {readonly ok: false; readonly code: "stale-ref" | "ambiguous" | "not-found" | "invalid-locator" | "window-hidden" | "capture-failed"; readonly detail: PageFailureDetail};
 
 export interface TestWindowState {
@@ -69,7 +69,7 @@ export function testWindow(state: TestWindowState): PluginDefinition {
                             state.captured += 1;
                             if (state.capture === undefined) return call.fail("capture-failed", {message: "测试窗口不截图"});
                             const reply = await state.capture(input);
-                            if (reply.ok) return call.ok({window: state.info, target: reply.target, width: reply.width, height: reply.height});
+                            if (reply.ok) return call.ok({window: state.info, target: reply.target, width: reply.width, height: reply.height, warnings: [...(reply.warnings ?? [])]});
                             switch (reply.code) {
                                 case "stale-ref": return call.fail("stale-ref", reply.detail);
                                 case "ambiguous": return call.fail("ambiguous", reply.detail);

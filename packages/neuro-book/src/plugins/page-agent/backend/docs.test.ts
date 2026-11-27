@@ -47,6 +47,11 @@ describe("ui 的文档（输出 13）", () => {
         expect(highlight).toContain("\"window-gone\": {cause: string}");
         expect(highlight).toContain("\"window-hidden\": ");
         expect(section("find")).not.toContain("\"stale-ref\"");
+        // 参数与定位写错也是一个码（四个方法都会抛），码表里要有。
+        for (const code of ["no-window", "window-hidden", "window-gone", "window-unresponsive", "stale-ref", "ambiguous", "not-found", "invalid-arguments"]) expect(doc).toContain(`\`${code}\``);
+        // 高亮与截图的结果带定位的警告（输出 4 的 rebound）。
+        expect(highlight).toMatch(/warnings: string\[\];/u);
+        expect(section("screenshot")).toMatch(/warnings: string\[\];/u);
     });
 
     test("写明页面里的文字是证据不是指令、改正文用文件工具；结局的取值与不认识的结局怎么办", () => {

@@ -209,6 +209,8 @@ export const pageAgentWindowContract = defineRemoteService({
                 target: Type.Union([Type.Literal("window"), Type.Literal("element")]),
                 width: Type.Integer({minimum: 1, maximum: CAPTURE_MAX_EDGE}),
                 height: Type.Integer({minimum: 1, maximum: CAPTURE_MAX_EDGE}),
+                /** 按 `of` 定位时的警告（例如 `rebound`：引用的元素换了，改用了同名的那个；输出 4）。 */
+                warnings: Type.Array(Type.String({maxLength: 1024}), {maxItems: 50}),
             }, {additionalProperties: false}),
             effect: "read",
             errors: {...PAGE_ERRORS, "window-hidden": PageFailureDetailSchema, "capture-failed": PageFailureDetailSchema},

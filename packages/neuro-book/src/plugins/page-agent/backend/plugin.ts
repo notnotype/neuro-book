@@ -34,6 +34,9 @@ export const pageAgentBackendPlugin: PluginDefinition = {
             });
             const highlights = createActiveHighlights();
             // 插件停止时作废全部截图凭证、取消正在读的上传（截图状态表）；正在等的高亮以 window-gone 结束（状态与转换）。
+            // 挂在停止信号上而不是释放回调里：作用域关闭时先同步发停止信号、再撤回贡献，高亮在撤回之前就结算成 window-gone；
+            // 挪到撤回之后，agent 给撤回的工具 5 秒宽限后按 unavailable 截断，结局就不对了。这条先后现在没有测试兜底：运行中
+            // 登记的插件的全局对象进不了 eval（agent 只在激活时挑一次），新应用也还没有停用单个插件的入口。
             context.signal.addEventListener("abort", () => {
                 captures.dispose();
                 highlights.stopAll();

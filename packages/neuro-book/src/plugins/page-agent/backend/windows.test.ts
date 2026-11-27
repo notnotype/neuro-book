@@ -134,8 +134,18 @@ describe("没有可用的窗口与通道失败（输出 2、14）", () => {
         expect(await pending).toMatchObject({ok: false, code: "window-unresponsive", cause: "timeout"});
     });
 
-    it("调用阶段的换算：target-gone 得 window-gone，not-provided 得 no-window，其余得 window-unresponsive，原码在 cause", () => {
+    it("候选的页面一侧出错（provider-error）、又没有别的可用候选：window-unresponsive，原码在 cause，不说请用户打开窗口", async () => {
+        const {selector, states} = await setup({broken: {project: "book"}});
+        const failing = Promise.reject(new Error("页面一侧坏了"));
+        failing.catch(() => undefined);
+        states.broken!.gate = failing;
+        const result = await selector.select({id: "s", project: "P"}, signal());
+        expect(result).toMatchObject({ok: false, code: "window-unresponsive", cause: "provider-error"});
+    });
+
+    it("调用阶段的换算：target-gone 与确认之前断开得 window-gone，not-provided 得 no-window，其余得 window-unresponsive，原码在 cause", () => {
         expect(callFailure({ok: false, code: "target-gone"})).toMatchObject({code: "window-gone", cause: "target-gone"});
+        expect(callFailure({ok: false, code: "unavailable", cause: "disconnected"})).toMatchObject({code: "window-gone", cause: "unavailable"});
         expect(callFailure({ok: false, code: "version-changed"})).toMatchObject({code: "no-window", cause: "version-changed"});
         for (const code of ["timeout", "provider-error", "unavailable"] as const) {
             expect(callFailure({ok: false, code})).toMatchObject({code: "window-unresponsive", cause: code});

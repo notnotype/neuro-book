@@ -27,7 +27,7 @@ export interface PageHighlight {
 
 /** 截图的结果：图由浏览器入口凭服务端给的凭证上传，不经远程调用的结果。 */
 export type CaptureOutcome =
-    | {readonly ok: true; readonly target: "window" | "element"; readonly image: Blob; readonly width: number; readonly height: number}
+    | {readonly ok: true; readonly target: "window" | "element"; readonly image: Blob; readonly width: number; readonly height: number; readonly warnings: readonly string[]}
     | PageFailure
     | {readonly ok: false; readonly code: "window-hidden" | "capture-failed"; readonly message: string};
 

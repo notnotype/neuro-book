@@ -25,15 +25,17 @@ const INPUT_EVENTS = ["keydown", "pointerdown", "wheel"] as const;
 async function captureNow(agent: ReturnType<typeof createPageAgent>, of: Parameters<PageSide["capture"]>[0]): Promise<CaptureOutcome> {
     if (document.visibilityState !== "visible") return {ok: false, code: "window-hidden", message: "这个窗口现在看不见"};
     let target: Element | null = null;
+    let warnings: readonly string[] = [];
     if (of !== undefined) {
         const found = agent.locate(of);
         if (!found.ok) return found;
         target = found.element;
+        warnings = found.warnings;
     }
     try {
         const {capturePage} = await import("@notnotype/nb-page-agent/capture");
         const captured = await capturePage(document, target, {maxEdge: CAPTURE_MAX_EDGE, maxBytes: CAPTURE_MAX_BYTES});
-        return {ok: true, target: target === null ? "window" : "element", image: captured.blob, width: captured.width, height: captured.height};
+        return {ok: true, target: target === null ? "window" : "element", image: captured.blob, width: captured.width, height: captured.height, warnings};
     } catch (error) {
         // 重画、编码失败（例如元素没有大小、缩到最小仍超过上限）都交回 capture-failed，原因写进说明。
         return {ok: false, code: "capture-failed", message: error instanceof Error ? error.message : String(error)};

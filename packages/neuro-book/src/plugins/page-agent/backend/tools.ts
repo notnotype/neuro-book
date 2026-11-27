@@ -40,6 +40,7 @@ const ScreenshotReturnsSchema = Type.Object({
     target: Type.Union([Type.Literal("window"), Type.Literal("element")]),
     width: Type.Integer(),
     height: Type.Integer(),
+    warnings: Type.Array(Type.String(), {description: "按 of 定位时的警告，例如 rebound（引用的元素换了，改用了同名的那个）"}),
 }, {additionalProperties: false});
 
 /**
@@ -208,12 +209,12 @@ export function screenshotImplementation(deps: UiToolDeps): AgentToolImplementat
                     if (!result.ok) return windowCallFailure(result);
                     const image = slot.take();
                     if (image === null) return failureResult("window-unresponsive", "窗口说截好了，服务端没有收到合格的图：稍后重试", {cause: "capture-missing"});
-                    const {window, target} = result.value;
+                    const {window, target, warnings} = result.value;
                     const what = target === "window" ? "窗口" : "控件";
                     return {
                         text: `截了${what}（窗口 ${window.name} ${JSON.stringify(window.title)}，${String(image.width)}×${String(image.height)}）`,
                         images: [{data: Buffer.from(image.bytes).toString("base64"), mime: "image/jpeg", width: image.width, height: image.height}],
-                        details: {window: windowSummary(window), target, width: image.width, height: image.height},
+                        details: {window: windowSummary(window), target, width: image.width, height: image.height, warnings},
                     };
                 } finally {
                     slot.discard();
