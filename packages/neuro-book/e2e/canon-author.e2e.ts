@@ -181,7 +181,7 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
     await expect(row(page, "星瑕")).not.toHaveAttribute("aria-selected", "true");
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
 
-    // 填了一半的就地改：切走再回来，编辑与填的字还在（成段的文字浮在原处，输出 51）。
+    // 填了一半的就地改：切走再回来，编辑与填的字还在、回到眼前（成段的文字在原文下方的浮层里，输出 51）。
     await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     await inlineEditor(page, "character.性格").getByRole("textbox").fill("还没想好");
@@ -189,6 +189,8 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
     await expect(activeTabLabel(page)).toHaveText("星瑾");
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
     await expect(inlineEditor(page, "character.性格").getByRole("textbox")).toHaveValue("还没想好");
+    // 页面从顶上重新挂上，开着的编辑把原文滚进窗口、跟着回到眼前（浮层是固定定位的，测试替作者滚不动它）。
+    await expect(inlineEditor(page, "character.性格").getByRole("button", {name: "取消"})).toBeInViewport();
     await inlineEditor(page, "character.性格").getByRole("button", {name: "取消"}).click();
 
     await page.reload();

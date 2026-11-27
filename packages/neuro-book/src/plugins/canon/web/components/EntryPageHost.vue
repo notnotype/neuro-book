@@ -974,6 +974,9 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     const box = anchor.getBoundingClientRect();
                     const room = page === null ? Number.POSITIVE_INFINITY : page.getBoundingClientRect().right - box.left - POPOVER_PADDING;
                     popoverWidth.value = inner.layout === "block" ? Math.max(Math.min(Math.max(box.width, 22 * rem), room), 16 * rem) : Math.min(22 * rem, Math.max(16 * rem, room));
+                    // 浮层跟着锚走：锚在滚动区外面时浮层也在窗口外。点开时锚就在眼前，这里不动；切走再回来（输出 7：编辑与填的字还在）
+                    // 页面从顶上重新挂上，把锚滚进来，写了一半的编辑跟着回到眼前。
+                    anchor.scrollIntoView?.({block: "nearest"});
                 }, {immediate: true});
                 const content = () => {
                     // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
