@@ -2272,16 +2272,42 @@ function canonEntryPageFixtures() {
             ],
             load: async () => (await import("./TextConflictDialogFixture.vue")).default,
         }),
-        defineLabFixture<typeof EntryRichInput>({
-            component: "EntryRichInput",
-            scenes: [
-                {id: "text", label: "标题、取值、条件、列表与引用", input: {props: {label: "主文字"}, model: {modelValue: "## 现在\n\n魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>\n\n- 存款 <V of=\"panel.存款\" /> 联邦币\n- 哥哥是 <Ref id=\"e2\" />\n\n> 引用里的 **强调** 与 `代码`。"}}},
-                {id: "empty", label: "空的", input: {props: {label: "主文字"}, model: {modelValue: ""}}},
-                {id: "readonly", label: "只读", input: {props: {label: "主文字", readonly: true}, model: {modelValue: "提交期间不能输入，<V of=\"panel.魔力\" /> 照样显示。"}}},
-                {id: "text-english", label: "英文", input: {props: {label: "Main text"}, model: {modelValue: "A long English line that keeps going so that it has to wrap inside a narrow container, with <V of=\"panel.mana\" /> in the middle."}}},
-            ],
-            load: async () => (await import("./EntryRichInputFixture.vue")).default,
-        }),
+        (() => {
+            // 富文本输入框的样本：本条目三个字段、一段带取值、计算、条件、别的条目与引用的主文字，值表照内核的形状按标签起点给。
+            const source = "## 现在\n\n魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />（＝<V expr=\"percent(panel.魔力, panel.魔力上限)\" />），<If test=\"panel.魔力 >= 1000\">还能变身，<V of=\"panel.魔力\" /> 够用。<Else />魔力不够变身。</If>\n\n- 存款 <V of=\"panel.存款\" /> 联邦币\n- 哥哥是 <Ref id=\"e2\" />，对她的好感度 <V entry=\"e2\" of=\"panel.好感度\" />\n\n> 引用里的 **强调** 与 `代码`，还有一个插件的 <StatusBar />。";
+            const at = (needle: string, from = 0) => source.indexOf(needle, from);
+            const ifAt = at("<If");
+            const values = [
+                {tag: "V", start: at("<V of=\"panel.魔力\" />"), path: "panel.魔力", raw: 1200, display: "1,200"},
+                {tag: "V", start: at("<V of=\"panel.魔力上限\" />"), path: "panel.魔力上限", raw: 3000, display: "3,000"},
+                {tag: "V", start: at("<V expr"), expr: "percent(panel.魔力, panel.魔力上限)", raw: 40, display: "40%"},
+                {tag: "If", start: ifAt, result: true, taken: 0},
+                {tag: "V", start: at("<V of=\"panel.魔力\" />", ifAt), path: "panel.魔力", raw: 1200, display: "1,200"},
+                {tag: "V", start: at("<V of=\"panel.存款\" />"), path: "panel.存款", raw: 12345, display: "12,345"},
+                {tag: "Ref", start: at("<Ref"), id: "e2", name: "星瑾", deleted: false},
+                {tag: "V", start: at("<V entry"), entry: "e2", path: "panel.好感度", raw: 40, display: "40"},
+                {tag: "StatusBar", start: at("<StatusBar"), needsPlugin: true},
+            ] as unknown as EntryTextValue[];
+            const fields = [
+                {path: "panel.魔力", label: "魔力", group: "数值", display: "1,200"},
+                {path: "panel.魔力上限", label: "魔力上限", group: "数值", display: "3,000"},
+                {path: "panel.存款", label: "存款", group: "数值", display: "12,345"},
+            ];
+            const base = {label: "主文字", self: "e1", fields, marks: {"panel.存款": "第 3 章改过"}};
+            return defineLabFixture<typeof EntryRichInput>({
+                component: "EntryRichInput",
+                scenes: [
+                    {id: "values", label: "值都到了：取值、计算、条件只画生效的一支、引用、别的条目、插件的标签", input: {props: {...base, values: {source, values}} as never, model: {modelValue: source}}},
+                    {id: "pending", label: "值还没回来：本条目的字段马上有值，别的是计算中", input: {props: base as never, model: {modelValue: source}}},
+                    {id: "uncomputed", label: "整篇太长不算：计算类的小块是没有算", input: {props: {...base, computing: false} as never, model: {modelValue: source}}},
+                    {id: "branches", label: "显示全部分支", input: {props: {...base, values: {source, values}, showBranches: true} as never, model: {modelValue: source}}},
+                    {id: "empty", label: "空的", input: {props: {label: "主文字"}, model: {modelValue: ""}}},
+                    {id: "readonly", label: "只读", input: {props: {...base, values: {source, values}, readonly: true} as never, model: {modelValue: source}}},
+                    {id: "text-english", label: "英文", input: {props: {label: "Main text"}, model: {modelValue: "A long English line that keeps going so that it has to wrap inside a narrow container, with <V of=\"panel.mana\" /> in the middle."}}},
+                ],
+                load: async () => (await import("./EntryRichInputFixture.vue")).default,
+            });
+        })(),
         defineLabFixture<typeof PlainSourceInput>({
             component: "PlainSourceInput",
             scenes: [
