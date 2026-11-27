@@ -65,6 +65,25 @@ describe("EntryText", () => {
         expect(wrapper.get("[data-block='b3']").text()).not.toContain("改过");
     });
 
+    it("没有主文字（输出 39）：能写时是一行淡字“写点什么…”（读屏名“开始写”），点了发 edit；写不了时不能点、悬停写原因；不能写的读者看到“还没有主文字”", async () => {
+        const editable = text({blocks: [], editable: true});
+        const prompt = editable.get("[data-text-empty]");
+        expect(prompt.element.tagName).toBe("BUTTON");
+        expect(prompt.text()).toBe("写点什么…");
+        expect(prompt.attributes("aria-label")).toBe("开始写");
+        expect(editable.text()).not.toContain("还没有主文字");
+        await prompt.trigger("click");
+        expect(editable.emitted("edit")).toHaveLength(1);
+        await editable.setProps({editReason: "先不算计划"});
+        expect((prompt.element as HTMLButtonElement).disabled).toBe(true);
+        expect(prompt.attributes("title")).toBe("先不算计划");
+        editable.unmount();
+
+        const reader = text({blocks: []});
+        expect(reader.get("[data-text-empty]").element.tagName).toBe("P");
+        expect(reader.get("[data-text-empty]").text()).toBe("还没有主文字");
+    });
+
     it("点值发 value（这一处）；开着的那一处贴着浮层，里面是来历插槽，读屏名字是“某某的来历”；同一字段出现两次时只按下被点的那一个", async () => {
         const twice = block("twice", '<V of="panel.存款" /> 又是 <V of="panel.存款" />', [['<V of="panel.存款"', value("panel.存款", "900")], ['<V of="panel.存款"', value("panel.存款", "900")]]);
         const closed = text({blocks: [twice]});

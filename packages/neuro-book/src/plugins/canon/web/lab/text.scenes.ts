@@ -36,7 +36,7 @@ export const fixtures: LabFixture[] = [
             // 开着的是“哪一处”：第一块里存款那个标签（块 b1、起点 12）。
             {id: "open", label: "开着存款的来历：贴着值的浮层", input: {props: {blocks, self: "xingxia", marks, open: "b1@12#xingxia|panel.存款"}}},
             {id: "editable", label: "能改：右上“编辑”", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
-            {id: "empty", label: "还没有主文字：开始写", input: {props: {blocks: [], self: "xingxia", editable: true}}},
+            {id: "empty", label: "还没有主文字：一行“写点什么…”，点了进编辑", input: {props: {blocks: [], self: "xingxia", editable: true}}},
             {id: "blocked", label: "写不了：入口不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先不算计划"}}},
         ],
         load: async () => (await import("./EntryTextFixture.vue")).default,

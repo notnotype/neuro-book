@@ -945,7 +945,7 @@ describe("写入", () => {
         expect(result.ok).toBe(true);
     };
 
-    it("主文字整篇编辑（验收 16）：没有时“开始写”，写两段（中间空一行）、提交成一条修订、世界里是一块；编辑期间位置锁住、标签报告有未提交的内容", async () => {
+    it("主文字整篇编辑（验收 16）：没有时点“写点什么…”（读屏名“开始写”），写两段（中间空一行）、提交成一条修订、世界里是一块；编辑期间位置锁住、标签报告有未提交的内容", async () => {
         const {other, open, page} = await setup();
         const star = person("星瑕");
         star.init.text = [];
@@ -956,7 +956,7 @@ describe("写入", () => {
         await waitUntil("缺省是一组设定", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() !== "文字");
         state.tab = "text";
         await waitUntil("还没有主文字", () => wrapper.find("[data-text-empty]").exists());
-        expect(wrapper.get("[data-text-edit]").text()).toBe("开始写");
+        expect(wrapper.get("[data-text-edit]").attributes("aria-label")).toBe("开始写");
 
         await startEditing(wrapper);
         // 进来是一个空的输入框，还不算有改动：右边是“取消”，状态行没有“有未提交的修改”，标签没有未提交的内容。

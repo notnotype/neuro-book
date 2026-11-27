@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
     marks?: Readonly<Record<string, string>>;
     /** 开着来历的那一处（`placeKey`）；没有时不写。 */
     open?: string;
-    /** 右上出“编辑”（没有主文字时是“开始写”）：进整篇的编辑（输出 39）。 */
+    /** 右上出“编辑”（没有主文字时是一行“写点什么…”）：进整篇的编辑（输出 39）。 */
     editable?: boolean;
     /** 不能进编辑的原因：非空时那个按钮不可用，悬停写原因。 */
     editReason?: string;
@@ -37,7 +37,7 @@ const emit = defineEmits<{
     (event: "close"): void;
     /** 点了一个条目引用。 */
     (event: "entry", id: string): void;
-    /** 点了“编辑”或“开始写”。 */
+    /** 点了“编辑”或空态那一行。 */
     (event: "edit"): void;
 }>();
 
@@ -286,9 +286,25 @@ const markEscape = (): void => {
             组件直接放在先出后进的 `Transition` 里，根是片段时退场收不了尾，换上来的编辑视图一直不出现（生产构建剥掉注释，看不出来）。
         -->
         <!-- 能点的是阅读视图（`data-entry-text`）；不能点的是编辑时的预览，另一个标记：找“回到阅读视图了没有”的地方不该认到它。 -->
-        <div v-if="props.blocks.length === 0" class="my-2 flex flex-col items-start gap-3">
-            <p class="text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
-            <Button v-if="props.editable" variant="primary" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-text-edit @click="emit('edit')">{{ text("textEdit.start") }}</Button>
+        <!--
+            没有主文字（输出 39）：能写时是整行可点的一行淡字“写点什么…”（读屏名“开始写”），点了进编辑，不放一颗主按钮把空页衬得更空；
+            写不了时这一行不能点、悬停写原因；不能写的读者只看到“还没有主文字”。
+        -->
+        <div v-if="props.blocks.length === 0" class="my-2">
+            <button
+                v-if="props.editable"
+                type="button"
+                class="entry-text__empty"
+                :disabled="props.editReason !== ''"
+                :title="props.editReason !== '' ? props.editReason : undefined"
+                :aria-label="text('textEdit.start')"
+                data-text-empty
+                data-text-edit
+                @click="emit('edit')"
+            >
+                <span class="i-lucide-pencil-line size-4 shrink-0" aria-hidden="true" />{{ text("textEdit.prompt") }}
+            </button>
+            <p v-else class="text-[var(--text-muted)]" data-text-empty>{{ text("block.empty") }}</p>
         </div>
         <div v-else-if="props.editable" class="flex justify-end">
             <Button size="sm" variant="ghost" :disabled="props.editReason !== ''" :title="props.editReason !== '' ? props.editReason : undefined" data-text-edit @click="emit('edit')">
@@ -320,6 +336,26 @@ const markEscape = (): void => {
 </template>
 
 <style scoped>
+.entry-text__empty {
+    display: flex;
+    width: calc(100% + 1rem);
+    align-items: center;
+    gap: 0.5rem;
+    margin-inline: -0.5rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-control);
+    color: var(--text-muted);
+    text-align: left;
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
+}
+.entry-text__empty:hover:not(:disabled),
+.entry-text__empty:focus-visible {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+.entry-text__empty:disabled {
+    cursor: not-allowed;
+}
 /*
  * 正文的样子与章节一致（`@notnotype/nb-markdown/markdown.css`）：字号、行距、段距取章节纸面的缺省值（不跟“Markdown 正文”
  * 的设置：那是编辑器插件给章节控件的）。块与块之间同样隔一个段距：段距在块里按正文的字号算，这里照同一个字号算。

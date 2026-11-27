@@ -759,7 +759,8 @@
         "insertCalc": "Calculation",
         "insertIf": "Condition",
         "insertRef": "Entry",
-        "insertInCode": "Can’t insert inside code"
+        "insertInCode": "Can’t insert inside code",
+        "prompt": "Write something…"
     },
     "chipEdit": {
         "apply": "Apply",
