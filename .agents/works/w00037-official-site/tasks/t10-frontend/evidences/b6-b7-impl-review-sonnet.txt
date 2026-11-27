@@ -1,0 +1,135 @@
+### 1. 注册码页：离开页面后才回来的“页码越界”回答会把人拽回注册码页（重要，资源释放与竞态）
+
+位置：`packages/nb-site-web/src/pages/admin/CodesPage.vue:65-69`（`pastEnd`）、`use-admin-list.ts:99-124`（`load` 没有卸载时作废在途请求）。
+
+现象：在注册码页停在第 N 页、请求在途时，点侧栏去用户页。路由先换成 `admin-users`，随后在途的注册码请求回来，回答是 `items` 为空、`total` 大于 0（数据变少了）。`useAdminList.load` 的序号没有被卸载作废，照常走到 `options.onPastEnd(last)`。用户页、审计页、客户端页的 `onPastEnd` 都先查了 `state.value !== undefined`（离开后 `route.name !== routeName`，状态是 `undefined`，不导航），唯独 `CodesPage.pastEnd` 查的是 `kind.value !== which`：`kind` 在状态为 `undefined` 时回落成 `"registration"`，所以注册码那一份的检查通过，接着无条件 `listRoute.go({...registrationState.value, page}, "replace")`，也就是 `router.replace({name: "admin-codes", ...})`。
+
+核实：在 /tmp/review-w00037-t10-b7/lab 的副本里写了探针（`Probe1.dom.test.ts`）：打开 `/admin/codes?page=3`，注册码列表的处理器挂起一个 Promise；`router.push("/admin/users")` 并等页面画出；再放行回答 `{items: [], total: 5, ...}`。结果：最终路由是 `/admin/codes`（断言“仍在 /admin/users”失败），注册码列表还被多取了一次（`calls` 为 2）。用户被拽回刚离开的页面，且是 `replace`，后退键也回不去原来的位置。
+
+为什么是问题：`use-admin-list.ts` 文件头写了“离开页面时在途请求收口”，但实际没有收口：`useAdminList` 没有 `onScopeDispose`/`onBeforeUnmount` 去作废序号。其它三页靠各自的 `state !== undefined` 巧合挡住，注册码页因为多了页签这层回落而漏了。同类问题的对照：`OAuthConsentPage.vue:171-174` 卸载时 `generation++`。触发条件是“请求在途时离开且回答恰好是越界”，概率低，但后果是被强制导航，且根因在共用的取数函数里，以后新增列表页会再踩。
+
+建议改法：`useAdminList` 里 `onBeforeUnmount(() => { sequence++; })`（或 `getCurrentScope() && onScopeDispose`），让卸载后回来的任何回答都被丢掉；`CodesPage.pastEnd` 另加 `state.value === undefined` 的判断，与另三页一致。补一条用例：在途时离开、回答越界，断言路由仍在新页。
+
+### 2. 授权确认页：客户端名字里有一长串不带空格的字时标题被裁掉，用户看不全“是谁在要授权”（重要，版式与安全展示）
+
+位置：`packages/nb-site-web/src/pages/OAuthConsentPage.vue:248`（标题）与 `src/components/PaperSheet.vue:168-174`（卡片里 `h1` 的样式，没有 `overflow-wrap`）。
+
+现象：合同允许客户端名字是 1 到 100 个码点（`OAUTH_CLIENT_NAME`），管理员登记时不限空格。名字里有一段 25 个字符以上的连续拉丁字母或数字（驼峰命名、带版本号的包名一类）时，标题 `“{{client}}”想用你的 NeuroBook 账号登录` 的第一行不换行，伸出卡片右边，被稿纸根元素的 `overflow: clip` 裁掉。
+
+核实：在 lab 副本里构建后用 Playwright 把授权接口的回答换成 `clientName: "MyVeryLongApplicationNameWithoutAnySpacesAtAll0123456789MyVeryLongApplicationName"`、`redirectHost` 换成带端口的长主机名，量 360 与 390 宽、亮暗四种：标题元素 `scrollWidth` 为 1045，`clientWidth` 为 282（360 宽）和 310（390 宽），也就是内容比盒子宽 3 倍多；截图（/tmp/review-w00037-t10-b7/lab/long-360-light.png）里只看得到“MyVeryLongApplicationNam”，名字后半段和收尾的引号都没了。“允许后回到 {host}”那一行没有这个问题（主机名在连字符与点处能折行）。e2e 的“不能横向滚动”只量了 `window.scrollX`，被 `overflow: clip` 挡住就过了，所以没有任何现有测试能发现。
+
+为什么是问题：授权确认页唯一告诉用户“谁在要什么”的就是这个名字；名字被裁掉时用户看不全，仿冒的相近名字更难分辨。同一个名字在账号页“已授权的应用”一行（`account.css:35` 已有 `overflow-wrap: anywhere`）是处理了的，这里漏了。
+
+建议改法：`.oauth-consent` 里给标题加 `overflow-wrap: anywhere`（只给这一页的标题，不动稿纸的其它页）。补一条 e2e：长名字下 `h1.scrollWidth <= h1.clientWidth`（量元素，不量 `window.scrollX`）。
+
+### 3. 注册码页的“页码越界”没有任何测试；删掉 `CodesPage.pastEnd` 里的页签判断，全部用例照过（建议，测试）
+
+位置：`packages/nb-site-web/src/pages/admin/CodesPage.dom.test.ts`（15 条用例，名字里没有“越界”“最后一页”）。
+
+核实：在 lab 副本里把 `pastEnd` 的 `if (kind.value !== which) return;` 整行删掉，`vitest run src/pages/admin/CodesPage.dom.test.ts` 15 条全过（变异活下来）。用户页有“页码超过最后一页：地址换成最后一页（replace）……后退不回到越界的那一页”一条（把用户页的 `replace` 改成 `push` 它会失败，已验证），注册码页两个页签各自的越界（`registration` 与 `invite` 各走自己的状态）没有对应用例；第 1 条发现的缺陷正是在这里。
+
+建议改法：补两条：注册码页签的 `?page=9` 与邀请码页签的 `?kind=invite&page=9` 越界，分别断言地址换成最后一页、另一个页签的状态不变、后退不回到越界页；再补第 1 条的“离开后回来”用例。
+
+### 4. “没有备注”“不过期”“没有登录过”与表格正文同色，读起来像一个真实的值；换回 `--text-muted` 的理由已经被 master 上的配色修正消掉（重要，对照定稿；追到上游选择）
+
+位置：`packages/nb-site-web/src/pages/admin/UsersPage.vue:243`、`CodesPage.vue:288`、`ClientsPage.vue`（`.admin-muted`）、`AuditPage.vue:255`、`:249`（`.admin-audit__params`）；用到它的格子是备注、到期、状态、发放日期、最后登录、注册日期、免确认的“要确认”、审计的参数。
+
+现象：`.admin-muted { color: var(--text-secondary); }`，而 `DataTable` 的表格正文本来就是 `--text-secondary`（实现者自己的量值：`/tmp/w00037-t10-plan/lab-b7/shots/notes.txt` 里 `muted` 与 `cell` 都是 `rgb(87, 83, 75)`）。结果“没有备注”“不过期”这类占位与同列真实的备注、日期一个颜色（看 `/tmp/w00037-t10-plan/lab-b6/shots/codes.png`：备注列里“没有备注”与“第 2 批内测”分不出）。定稿 `r3/codes.webp` 里它们是更浅的灰，靠颜色告诉人“这里没有值”。
+
+为什么是问题、以及上游的情况：实现者改用 `--text-secondary` 的理由是 B4 审查第 13 条（`--text-muted` 对 `--bg-panel` 亮色 3.57:1、暗色 4.22:1，不到 4.5:1）。我核对了：这两个数在这个 worktree 里是对的（`packages/nb-ui/themes/nbook/colorways.ts:98-99` 亮色 `#8b857b`、暗色 `#918a7e`），但 master 上同一个文件已经被 w00057 t01 S2（`251651518`，“内置配色到 WCAG AA——次要文字……调深”）改成亮色 `#666157`（对 `#fffcf5` 为 6.00:1）、暗色 `#a8a195`（对 `#2d2925` 为 5.63:1），`docs/design-language.md` 的“对比度”一节也要求 `--text-muted` 在四种内置组合下都不低于 4.5:1。官方站分支的合并基点是 `a729103ea`，没有带上这个修正。所以这个选择是对一个即将过时的令牌值做的补丁。我没有用 `color-mix` 另造一个灰度：令牌本身在 master 上已经合格，再造一个就是“同一件事各写一份”。
+
+如何核实：`git -C <master> show HEAD:packages/nb-ui/themes/nbook/colorways.ts | grep text-muted`；对比度按 WCAG 相对亮度算（我算的：worktree 亮色 3.57、暗色 4.22；master 亮色 6.01、暗色 5.63）。
+
+建议改法：官方站分支变基到带 w00057 t01 的 master 之后，四处 `.admin-muted` 与 `.admin-audit__params` 改回 `--text-muted`，并顺手把 B4 第 13 条里改成 `--text-secondary` 的账号页说明文字也对一遍。在那之前不要另造色值。把这四份重复的 `.admin-muted` / `.admin-num` / `.admin-code` 规则收进一处（比如 `AdminListFrame` 的 `:deep` 或 `admin/styles.css`），改回时只改一处。
+
+### 5. 授权确认页把服务端给的回跳地址原样交给 `location.assign`，没有任何协议核对；同一批代码对 `continueUrl` 却专门再核一次（建议，安全，纵深防御）
+
+位置：`packages/nb-site-web/src/pages/OAuthConsentPage.vue:199`（`await leave(result.value.redirectUrl)`）、`src/main.ts:16`（`leave` 是 `window.location.assign`）；对照 `src/session/continue.ts:26-35`。
+
+现象：`continueUrl` 合同的 schema 已经拒收 `//host` 与带协议的写法，前端仍然用 `safeNext` 再核一遍，理由写在注释里：“前端不跑 schema 校验，这里再核一次，免得服务端的缺陷变成开放跳转”。`OAuthDecisionResponse.redirectUrl` 的 schema 是 `^https?://`（`oauth.ts:65`），前端同样不跑 schema，但这里没有核对，`javascript:`、`data:` 之类的地址会原样进 `location.assign`。注释写“外部地址不核对”，那是对“主机不是本站”的不核对，没有理由连协议也不核。
+
+核实：从代码推断，没有跑真实服务端；`createOAuthApi.decide` 的返回值是 `core.request<OAuthDecisionResponse>` 的类型断言，没有运行时校验（`http/core.ts` 里没有 schema 检查）。
+
+为什么是问题：回跳地址来自服务端按登记的回调地址拼出，登记时服务端已判 `https` 与本机回环，所以正常情况不会出现。但这是整个页面上唯一把浏览器带去站外的出口，服务端出缺陷（或将来放开自定义协议的回调）时，后果是 `javascript:` 在站点源上执行，而不是“跳去一个错的网站”。成本只有一行。
+
+建议改法：`leave` 之前核 `new URL(redirectUrl).protocol` 是 `https:` 或 `http:`；不合格当作 `unavailable` 写状态行并记一条诊断，与 `continueTarget` 对称。在 `OAuthConsentPage.dom.test.ts` 补一条“回跳地址不是 http(s)：不离开、写状态行”。
+
+### 6. 从 `/login?continue=` 走社交登录失败回来，续接令牌丢了：之后用密码登录、点“去注册”都不再回到授权请求（建议，续接）
+
+位置：`packages/nb-site-web/src/pages/LoginPage.vue:57-59`（令牌只从 `route.query` 读）、`:100-111`（发起社交登录时没有把令牌记到别处）、`:143-153`；对照 `RegisterPage.vue:315-340` 为社交注册做的草稿还原。
+
+现象：Spec `site.accounts` 输出 23 规定社交落点“没完成时带查询参数 `social_error=<码>`”，只带码，不带 `continue`。社交注册页为此把令牌存进草稿、回来时还原；登录页没有对应的处理。所以：授权请求把人带到 `/login?continue=T` → 点 GitHub 图标 → 用户在上游点了取消（`social_cancelled`）或账号没注册（`social_not_registered`）→ 回到 `/login?social_error=…`，地址上的 `continue` 没了。此后他用密码登录，`continueUrl` 不会出现，落在 `/account` 而不是回到发起授权的应用；状态行里“去注册”的链接（`registerLink`）也不带令牌，注册完同样回不去。
+
+核实：从代码推断（令牌只有 `readContinue(route.query)` 一个来源，`startSocial` 之后没有任何存储）。登录页的 dom 用例只覆盖了“令牌在地址上时带到注册页与社交发起”，没有“社交失败回来之后”的用例。
+
+为什么是问题：计划 3.1 与 Spec 说“从这样的登录页改走注册或社交登录时续接不丢”，成功路径由服务端保证（回调到继续地址），失败路径只能由前端保证；取消上游授权是常见操作，令牌 10 分钟有效，丢得很安静。
+
+建议改法：发起社交登录前把令牌写进 `sessionStorage`（与注册草稿同一个存储模块，同样的过期规则），登录页读到 `social_error` 时还原并像注册页那样写回地址；或者在 Spec 与 README 里把“社交失败后续接令牌丢失”写成已知限制。我倾向前者：改动只有登录页与存储模块。
+
+### 7. 一次性显示的秘密：点遮罩不关，但按 Esc 一下就丢；对话框换到“秘密”那一步时高度突然跳（建议，一次性秘密与过渡）
+
+位置：`users/UserActionDialog.vue:110-121`、`clients/ClientDialog.vue:170-182`、`clients/RotateSecretDialog.vue:141-152`、`codes/IssueCodeDialog.vue:112-122`；用例 `UsersPage.dom.test.ts:509-519`。
+
+(a) Esc：四个对话框都只在秘密显示期间把 `close-on-overlay` 设为假，理由是“免得一下误点就再也看不到”。`Esc` 是同样一下的误触，而且 `close-on-esc` 保持默认的真，用例还把“显示新密码时按 Esc 关掉”当作期望行为。重置密码的新密码、登记与换密钥得到的客户端密钥丢了都只能再重置一次、再换一次密钥，不是不可恢复，但代价是旧密钥又失效一次、用户又被迫再登一次。要么与遮罩一致（秘密期间 `:close-on-esc="secret === undefined"`，只有“完成”按钮关闭），要么在注释里写明为什么 Esc 放行。
+
+(b) 过渡：确认步骤换成秘密步骤是 `v-if/v-else` 瞬时替换，没有过渡。我在 lab 副本用 Playwright 量了重置密码：对话框从 163.7px 高跳到 204.9px，`y` 从 368.2 挪到 347.5（居中，所以上边缘动了 20px）。焦点没有丢（reka 把它接到对话框容器上，`document.activeElement` 是 `role=dialog` 的 section，读屏会读出新内容），所以这条只是视觉上的跳动；项目规则要求状态变化有过渡，e2e 里的“状态行出现与消失不推动布局”只量了状态行，没有量步骤切换。
+
+建议改法：(a) 如上。(b) 要么给步骤内容加与 `Dialog` 一致的高度过渡，要么让两步一样高（确认步骤也预留秘密块的高度会显得空，不推荐），要么记为已知限制。优先级低于 (a)。
+
+### 8. 越界处理对形状不对的回答不设防：缺 `total` 时地址写成 `?page=NaN`，加载遮罩永远不撤，也没有重试（建议，边界）
+
+位置：`packages/nb-site-web/src/pages/admin/list-query.ts:305-309`（`lastPageIfPastEnd`）、`use-admin-list.ts:113-119`。
+
+现象：回答里 `items` 为空而 `total` 缺失（或不是数）时，`response.total === 0` 为假，`Math.ceil(undefined / 20)` 是 `NaN`，`NaN === page` 为假，函数回 `NaN`，`useAdminList` 调 `onPastEnd(NaN)`，页面 `router.replace` 写出 `?page=NaN`。`load` 在这条分支上 `return` 时没有把 `loading` 放下，而 `?page=NaN` 读回来仍是第 1 页、`requestKey` 没变，不会再取。
+
+核实：在 lab 副本里写了探针（`Probe2.dom.test.ts`）：用户列表的处理器回 `{items: [], page: 1, pageSize: 20, anchor}`；结果路由停在 `/admin/users?page=NaN`，表格区 `aria-busy="true"` 一直在，请求只发了 1 次。
+
+为什么是问题：这是服务端违反合同时的表现（`total` 在合同里是必有的），前端不跑 schema 校验是整个站点的既定做法，所以优先级不高；但这里的后果是“永远转圈、且地址被写坏”，比出错重试差，而修法只是一行：`Number.isFinite(last)` 为假时当作回答不合格，走 `error` 分支（带重试）。同时 `load` 里 `onPastEnd` 这条分支依赖“路由一定会变”才放下遮罩，路由导航被取消或被守卫改走时（例如这时恰好会话过期）遮罩同样不撤，建议让 `onPastEnd` 之后若 `requestKey` 没变就 `loading.value = false`。
+
+### 9. 三个列表页与客户端页各抄了一份“页码、越界、静音样式”，其中一份抄歪了（建议，代码质量）
+
+位置：`UsersPage.vue:60-70`、`AuditPage.vue:67-77`、`ClientsPage.vue:46-56`（三份逐字相同的 `onPastEnd` 与 `page` 计算属性）；`CodesPage.vue:65-69,116-121`（改写成另一个样子）；四份 `.admin-muted`、`.admin-num`、`.admin-code` 样式（见第 4 条）。
+
+现象与后果：`onPastEnd` 与 `page` 的 getter/setter 在四个页里是同一件事（“当前状态换页码，越界用 `replace`，翻页用 `push`，状态为 `undefined` 时什么都不做”），只有注册码页因为有两份列表被改写，也正是它丢了“状态为 `undefined` 时不做”（第 1 条）。这是“同一件事各写一份”的典型信号：下一个列表页（用户详情的子列表、将来的别的列表）复制哪一份就继承哪一份的行为。
+
+建议改法：把 `onPastEnd` 与翻页（`page` 的 get/set）收进 `useListRoute` 返回的对象（`listRoute.page`、`listRoute.replacePage(page)`），内部统一做“离开页面后不导航”的判断；`useAdminList` 默认 `onPastEnd` 取它。注册码页的两份状态也只需要在这一层传入自己的 `ListState`。样式收进 `AdminListFrame` 或一个 `admin.css`。这是一次小重构，且能同时堵住第 1 条的同类缺陷。
+
+### 10. 几处小的行为与文案问题（合在一条，各自单独都小，建议）
+
+(a) “等 N 个”的写法（`ClientsPage.vue:125-128`、`zh-CN.json` 的 `admin.clients.moreUris`）：显示的数字是“除第一个之外的个数”（`length - 1`），但“A 等 N 个”在中文里通常读成“A 在内共 N 个”。截图里 2 个回调地址写“http://127.0.0.1/callback 等 1 个”，读起来像总共 1 个。建议改成“另有 1 个”或“+1”。`title` 里全部地址用换行连起，没问题。
+
+(b) 范围文案不一致且有内部词（`zh-CN.json`）：账号页“已授权的应用”里 `openid` 是“账号标识”，授权确认页里是“认出你是哪一个 NeuroBook 账号”，同一个范围两个说法；“账号标识”是协议里的词，用户不知道它指什么。定稿的确认页只有“用户名与显示名”“邮箱”两项，实现者在 README 里已把这一项交审查：`openid` 授权请求必须带（Spec 输出 3），所以每张确认卡片都会多这一行，我认为可以留，但两处要用同一句、同一个用户能懂的话（例如两处都写“确认你的 NeuroBook 账号”）。
+
+(c) 处置之后列表回到顶部（`use-admin-list.ts` `reload`、nb-ui `DataTable.vue:126-128`：`rows` 引用一变就 `scrollTop = 0`）：在用户页第 18 行封禁一个账号，成功后重取，表格回到第 1 行，用户要重新滚下去看那一行的新状态。Spec 说“翻页与换筛选”回顶，没说处置之后也要回顶。发放注册码后同理：`reload({fresh: true})` 留在当前页，第 3 页发放时新发的码在第 1 页，列表里看不到它（对话框里有）。建议处置之后的重取在行数相同、id 序列相同时保留旧数组的滚动位置（`DataTable` 加一个“不回顶”的入口，或使用方在重取前后记下并还原 `scrollTop`）；发放成功后回第 1 页。
+
+(d) 注册码状态的兜底（`CodesPage.vue:127-134`）：注册码有显式的 `disabled`，`usable` 为假、没用完、`expiresAt` 在浏览器时钟看来还没到（浏览器时钟比服务端慢）时，函数落到最后一行返回 `"disabled"`，页面写“已停用”，实际是过期。邀请码没有 `disabled` 字段，那一行的推断（“不能用、又没用完没过期的就是主人停用了”）只对邀请码成立；注册码应当在 `disabled !== true` 时落到 `"expired"`。
+
+(e) 搜索框的回车（`UsersPage.vue:196`、`AuditPage.vue:175,194`）：`@keydown.enter` 不看输入法是否在组字（从代码推断，未在浏览器里验证）。Safari 在组字时按回车发的 `keydown` 仍是 `key: "Enter"`（`keyCode` 229），会命中 `.enter` 并立即搜索，把还没成字的拼音发去服务端（多一次请求，随后组字完成的 `input` 又把词写对，结果不会错）；Chrome 此时的 `key` 是 `"Process"`，不受影响。`dialog-close.ts` 的 `onEscapeKeyDown` 已经按 `event.isComposing || keyCode === 229` 处理了同类问题，这里照做即可。优先级最低。
+
+### 11. 入口块余量只剩约 2.8 KB，涨的几乎都是“只有管理员或登录用户才看得到”的文案，它们该跟着各自的页面块走（建议，入口体积）
+
+位置：`packages/nb-site-web/src/text.ts:12`（整个 `locales/zh-CN.json` 静态导入进入口）、`src/locales/zh-CN.json`。
+
+核实：用 `git show <提交>:…/zh-CN.json | gzip -9 | wc -c` 量：B6 之前（`79616c6c8`）目录 gzip 4034 字节，B7 之后（`6878884e7`）6652 字节，B6、B7 两片合计让每个访客的入口多下载约 2.6 KB（README 记的入口 gzip 是 85.22 → 87.22 KB，目录占了其中大头）。按命名空间量 gzip：`admin` 3336、`account` 1357、`oauthConsent` 581，合计约 5.3 KB，都是匿名访客在登录页根本用不到的字。我没有量入口块里还有没有别的该懒加载的组件：构建测试里 `POPUP_SOURCES` 已经断言对话框、菜单没有进入口，nb-ui 的 `sideEffects` 声明也守着。所以“有该懒加载却进了入口的东西”这一问，答案是：组件没有，文案有。
+
+为什么是问题：上限 90 KB，余量 2.8 KB，B8、B9 之后还有别的页面（OAuth 之外的公开页、可能的英文目录）要进来；每次涨都只能靠“改上限并写明为什么”。文案被打进入口是 `text.ts` 只有一份目录的结果，不是某个页面的问题。
+
+建议改法：目录按命名空间拆成几个 JSON（`site`/`login`/`register`/`errors` 等访客要用的留在入口，`admin`、`account`、`oauthConsent` 跟着各自的页面块动态导入，页面第一次挂载前由 `useSiteText` 的注册入口并入端口目录）。这是“改上游”的候选，代价是 `text.ts` 与 `message-catalogs` 检查要认多文件目录，所以不在本片内强求；至少在 README 的“给后面几片”里记下：入口余量主要被目录占着，B8、B9 不要再往 `zh-CN.json` 里加访客用不到的字，或先拆目录。
+
+### 未发现问题的方面（仔细检查后）
+
+- 一次性秘密的清理：四个对话框（重置密码、发放注册码、登记客户端、换密钥）关掉后秘密不留。我在 lab 副本里分别删掉四处 `@closed="… = undefined"`，对应的组件测试都失败（ClientsPage 2 条、CodesPage 1 条、UsersPage 1 条），变异被抓到；请求在途时对话框因 `busy` 关不掉，所以“关掉之后请求才回来”的路径走不到。复制按钮的读屏名区分了“复制密码”“复制密钥”“复制客户端 ID”。
+- 取数的先后与基准：删掉 `use-admin-list.ts` 的序号判断，“先发后到的回答丢掉”那条失败；把越界的 `replace` 改成 `push`，“后退不回到越界页”失败；换筛选、换搜索、刷新时基准的丢弃与沿用由 `tests/admin-lists.test.ts` 的纯函数用例与组件用例覆盖。`listKey` 用 JSON 编码，值里有逗号也不撞。
+- 续接令牌：登录页“注册”链接不带令牌、补交同意请求不带令牌、注册页草稿还原不写回令牌、用过的令牌不从地址去掉，四处变异都被组件测试抓到；`continueTarget` 经 `safeNext`，`//host`、`/\host`、`/.//evil` 一类都被拒。`continue` 的请求体键名与合同一致，关联流程确实不带。
+- 授权确认页的访问规则：把 `publicWith` 判断删掉，访客看 `?error=` 的两条用例失败；带 `request` 的访客先去登录、缺同意先同意各有用例；`error` 参数回显只附“小写字母与下划线”的码，且经 Vue 插值转义，没有注入面。
+- 一些页面行为：用户页对自己不能封禁、不能取消管理员（变异被抓到）；撤销授权回 `not_found` 的状态行与重取（变异被抓到）；`site-harness` 的 `nextTask()` 是让出一轮事件循环（`setTimeout(0)`），不是固定时长，并且删掉被它守着的序号判断时用例确实失败，说明它够用；替身里给管理员会话默认回的空列表只在管理员的 `GET` 且路径恰为那五个列表时生效，别的会话与别的路径仍进 `unexpected`。
+- 合同包重构：`admin-constants.ts`、`oauth-constants.ts` 只被 `./constants` 与同名带 schema 的模块转出，取值与原来逐项相同（对照 diff），`REDIRECT_URI`、`OAUTH_CLIENT_NAME` 等被前端当规则用的值与服务端 schema 用同一份。
+- 对比度、版式的计算：授权确认页 1440、390、360 宽亮暗下除第 2 条外没有横向溢出；确认卡片与登录卡片位置、宽度一致（e2e 已断言）；“允许后回到 {host}”一行在长主机名下能折行。
+- 状态行占位（任务说明点名要看“状态行留大块空白”有没有回来）：授权确认页的状态行为“出错不推动按钮”预留空间，最后一个范围到按钮的距离我量得桌面 40px（预留一行 18px）、手机 58px（预留两行 36px；390 与 360 宽一样）。这与登录卡片的状态行是同一个组件、同一种预留，B4 第 6 条抱怨的是账号页每节底部多出的那块；这里手机宽多出的约 36px 空白是同一类现象，但在一张只有两个按钮的卡片上位置固定、不随状态跳动，我判为可接受，不单列。若开发者在意，可只在这一页把预留收成一行（授权确认的失败文案都很短）。
+- 没有改动仓库文件；lab 里的构建、探针与截图都在 /tmp/review-w00037-t10-b7/lab/；没有残留的后台进程。
+
+### 数量
+
+阻断 0，重要 3（第 1、2、4 条），建议 8（第 3、5、6、7、8、9、10、11 条），撤回 0。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

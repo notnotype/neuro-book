@@ -38,7 +38,7 @@ updated: 2026-11-24
 
 ## 下一步
 
-B6、B7 的前端审查（Sonnet）与 B8（`nb-site-server` 发网页）同时在跑：B8 只改服务端包，不碰审查看的前端代码。`site.operations` 已按 S15 加了前端产物目录与输出 12（网页与单页回退，planned；不回退的前缀按站点实际的挂载定为 `/api/`、`/.well-known/`、`/health/`、`/test-control/`，计划 3.8 写的 `/oauth2/` 站点里没有；缺 `index.html` 的问题词新加 `no_index`）。B8 交回后走快速审查（Opus 先审，omp `@review` 后台），通过后把输出 12 等条目晋升。
+三件事在并行：B6、B7 前端审查的修正（处理表见计划文末“B6、B7 实现审查的处理”）；B8 的快速审查（Opus 与 omp `@review`，在固定于 `63d97b3f1` 的 worktree `.worktree/w00037-t10-b8-review` 上）。修正之前已把 master 并进官方站分支（`a5e89b3cd`，482 个提交，没有冲突），带上 w00057 t01 调深的 `--text-muted`；并入后五个官方站包的测试、构建、浏览器场景 94 条都过。B8 的审查处理完后晋升 `site.operations` 输出 12 等条目；之后是 B9（公开页）、B10（真实冒烟）与收口审查。
 
 ## 实施进度
 
@@ -108,6 +108,11 @@ B7（OAuth 相关）已提交：`f3dc5c727`（身份合同包把 OAuth 的页面
 - 入口 gzip 87.22 KB（上限 90），余量约 2.8 KB；B8、B9 的新页面一律懒加载。
 - 实现者自定、交审查一起看：已授权应用的范围列出 `openid`（文案“账号标识”，定稿没有）；地址上没有 `request` 也没有 `error` 时显示过期卡片；不认识的 `error` 码只在像码时附上；管理面板的空壳 dom 测试删掉，改在看板 e2e 里走到审计页。
 - 交审查判断：“没有备注”等灰字用的 `--text-secondary` 与表格正文同色，定稿里更浅；更浅的 `--text-muted` 对比度可能不够。
+
+B8（`nb-site-server` 发网页）已提交（`63d97b3f1`，13 个文件）：可选的 `NB_SITE_WEB_DIR`（`no_index` 等三种配置失败）；新的 `web.ts` 接站点上各模块都没接的 `GET`、`HEAD`，发文件、单页回退、四个前缀不回退、编码在段里的分隔符与链到目录外的符号链接回 404、两种缓存头、HTML 的内容安全策略；镜像构建带上前端产物，`smoke:image` 核对 `/`；`nb-site-server` 以开发依赖带上前端包，架构检查不许 `src/` 导入它。没用 Hono 的 `serveStatic`（跟随链到目录外的符号链接）。
+- 实现者跑过：两个包的测试与类型检查、`build:image`（含 docker 构建与 `smoke:image`）、`governance:check` 都过；6 条变异都被抓到（“回退不排除 `/api/`”第一次合同测试没抓到：验收 6 写的 `/api/identity/v1/nope` 被身份库自己的兜底先回了 404，补了 `/api/identity/nope`）。真实进程里四页画得出，控制台没有内容安全策略的报错；没有登录与写操作。
+- 实现者报的 Spec 歧义已改进输出 12（`965f1347f`）：路径按 URL 标准规范化之后算（`/../x` 就是 `/x`，回退到 `index.html`），编码在段里的分隔符一律 404，验收 6 换成 `/api/identity/nope`。
+- 给 B10 的：网页响应没有 ETag；`vite dev` 的代理还没做；`/assets/` 长缓存依赖 Vite 缺省的 `assetsDir`；对着真实服务端跑浏览器时 `NB_SITE_URL` 只收 https，写操作没验证。`nb-site-server/AGENTS.md` 的镜像一节要补 `web/`，收口时做。
 - 留存固定显示最近 4 个安装周（常量在视图模型里）；版本与错误超出时在面板里滚，滚动区可聚焦、有名字、底边渐隐。实现者另查出活跃图那块多一个没名字的 Tab 停靠点（内容区一直 `overflow: auto`），改成放得下时 `hidden`。
 - 九块面板出错不再各自 `role=alert`，页面一处汇总播报；重试时按钮转圈不可用。vitest 单条超时设 15 秒。
 - 给 t11：today 面板要合并 `overview`、`series/active` 最后两天、`series/online` 最后一段几个请求，部分失败怎样显示由 t11 定；`DASHBOARD_PATHS` 的查询参数是占位；留存按最近 4 周取；错误、崩溃、升级的口径对着查询合同再核。

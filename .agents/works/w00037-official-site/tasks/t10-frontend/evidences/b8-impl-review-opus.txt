@@ -1,0 +1,146 @@
+# w00037 t10 B8 实现审查（opus，提交 63d97b3f1）
+
+### 1. 四个保留前缀下、路径里任一段编码不合法的地址被网页接走：响应头、Content-Type 与日志 module 都与没有网页时不同
+
+- 严重程度：重要
+- 类别：正确性（违反 Spec 输出 12 “这几个前缀下没人接的地址仍与没有网页时一样回 404，日志的 module 也照旧”）
+- 位置：packages/nb-site-server/src/web.ts:57-64、112-116
+- 现象：`decodeSegments` 对整条路径一起解码，任何一段解码失败就返回 null；第 114 行只在 `segments !== null` 时才比第一段，于是 `/api/%ff`、`/api/nope%zz`、`/test-control/%`、`/health/%c0%af` 这类第一段明明是保留前缀的地址，全落进网页的 404。注释“第一段解码失败的地址不在任何前缀下”说的是第一段，代码判的是整条。
+- 真实进程对照（两个 `main.ts serve` 进程，一个设 `NB_SITE_WEB_DIR`、一个不设，原始套接字发请求）：
+  - 设了网页：`/api/%ff` 回 404，头里多 `X-Content-Type-Options: nosniff`、`Referrer-Policy: same-origin`，`Content-Type: application/json;charset=utf-8`，日志 `"module":"web"`。
+  - 没设网页：同一地址 404，`Content-Type: application/json`，没有那两个头，日志 `"module":"site"`。
+  - `/api/nope%zz`、`/test-control/%`、`/health/%c0%af` 同样不同。`/.well-known/%ff`、`/api/identity/v1/%ff` 由模块的兜底路由接走，不受影响。
+- 为什么是问题：输出 12 明写这四个前缀是“给模块与入口留的地址空间”、没人接时“与没有网页时一样”，并会晋升；web.test.ts 的“四个前缀下没人接的地址与没有网页时一样回 404”只列了合法编码的地址，没覆盖到。影响本身小（都是 404），但它是合同的一句话被违反，且 Content-Type 不同会让逐字比对的合同测试在这类输入上失败。
+- 如何核实：起两个进程，`printf 'GET /api/%%ff HTTP/1.1\r\nHost: site.example\r\nConnection: close\r\n\r\n' | nc 127.0.0.1 <port>`，比较响应头与日志行。
+- 建议改法：先只取第一段原文判断保留前缀（解码第一段失败时再按“不在前缀下”处理），其余段解码失败才走网页的 404；在 web.test.ts 那条“四个前缀”用例里加 `/api/%ff`、`/test-control/%` 两个原始请求，与无网页进程逐字比头与 module。
+
+### 2. 配置校验收下的 `index.html`，运行时可能一律不发：指向目录外的链接通过 `no_index` 检查，启动就绪而所有页面 404
+
+- 严重程度：建议
+- 类别：配置与生命周期 / 正确性
+- 位置：packages/nb-site-server/src/config.ts:99-116（`parseWebDir`），对照 src/web.ts:78-95、123-124
+- 现象：`parseWebDir` 用 `statSync(join(real, "index.html")).isFile()` 判 `no_index`，`statSync` 跟随链接；运行时 `lookup` 先 `realpath` 再要求落在目录里。`index.html` 是指向目录外的符号链接时，配置通过、进程就绪，但 `/`、`/account`、`/index.html` 全回 404。
+- 真实进程：`web/index.html -> ../outside.html` 启动，`/health/ready` 200 ready，`/`、`/index.html`、`/account` 都是 404 `{"code":"not_found"}`，日志里没有 `config_invalid`。
+- 同一类：真实路径只在启动时解开一次。部署若用 `NB_SITE_WEB_DIR=/srv/web/current`（`current` 是指向某次发布的链接）做切换，切换后进程仍发旧目录；旧目录被删后所有页面 404，而就绪检查照旧 ready。镜像里产物烤在 `/app/web`，不受影响，但 Spec 配置表与 `BaseConfig.webDir` 的注释都没写“启动时解开一次、换链接要重启”。
+- 为什么是问题：`no_index` 的含义是“单页回退要发它”，校验与发文件用了两套规则，能出现“校验过了、却一个页面都发不出”的状态，且没有任何诊断。
+- 建议改法：`parseWebDir` 里对 `index.html` 也取 `realpath` 并要求在 `real` 之内（与 `web.ts` 的判断共用一个函数），不在时报 `no_index`；配置表或 `webDir` 注释写明“启动时解开链接，换目录要重启”。运行期目录消失可记为已知限制，不加机制。
+
+### 3. 以空段开头的 `//api/…`、`//.well-known/…` 改为回 200 的 index.html：保留前缀只按第一段比，空段让它失效
+
+- 严重程度：建议
+- 类别：路由与 404 一致性 / Spec 歧义
+- 位置：packages/nb-site-server/src/web.ts:114（`RESERVED_FIRST_SEGMENTS.has(segments[0])`）
+- 现象：Bun 不合并重复的斜杠（实测 `GET //x` 的 `request.url` 是 `http://site.example//x`），Hono 的路由也不合并，所以 `//api/identity/v1/me`、`//api/identity/nope`、`//.well-known/openid-configuration` 不被任何 mount 接；到网页时 `segments[0]` 是空串，不算保留前缀，最后一段不带扩展名，于是回 200 `text/html` 的 index.html。没设网页的进程对同样三个地址回 404 `application/json`。
+- 为什么是问题：按 Spec 字面（“路径不等于也不以 `/api/` 开头”，`//api/` 确实不以它开头）这算合规，但它与“四个前缀是给模块与入口留的地址空间”的用意相反：把基地址写成带尾斜杠再拼 `/api/...` 的客户端，或 OIDC 发现时多拼一个斜杠的客户端，原来得到 JSON 404，现在得到 200 的 HTML，解析失败的报错更难懂。
+- 如何核实：两个真实进程上原始请求 `GET //api/identity/v1/me`，设网页的回 200 HTML、日志 `module: web`；不设的回 404 JSON、`module: site`。
+- 建议改法：二选一并写进 Spec：保留前缀按“第一个非空段”比（`//api/x` 也不回退），或者 Spec 明写重复斜杠不合并、`//api/` 不算前缀。前者改动一行，更贴近用意。
+
+### 4. 变异检查：反斜杠规则、编码不合法的地址、`.well-known` 保留前缀三处改坏后 web.test.ts 全过
+
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/nb-site-server/src/web.test.ts:125-132、178-203；被测 src/web.ts:57-69、24
+- 现象（在仓库外的副本里改 `web.ts`、跑 `bun test src/web.test.ts`，每次 16 条全过）：
+  1. 去掉 `isUnsafeSegment` 里的 `segment.includes("\\")`：存活。用例里带 `%5c` 的只有 `/..%5csecret.txt`，最后一段带 `.txt` 扩展名，没这个文件本来就回 404，测不到“含 `\` 的段一律 404”。Spec 输出 12 写的是“不论拼出来的位置在不在目录里”都 404。
+  2. 把 `decodeSegments` 解码失败时的 `return null` 改成返回一个普通段（等于把 `/%ff` 交给回退）：存活。没有任何用例发编码不合法的地址。
+  3. 从 `RESERVED_FIRST_SEGMENTS` 去掉 `".well-known"`：存活。身份库的 `/.well-known` 子应用有 `app.all("*")` 兜底，`/.well-known`、`/.well-known/nope` 都被模块接走，网页这条规则今天观察不到；以后身份库不再挂 `/.well-known` 或换成逐条路由时，这一条无人守。
+  4. 对照：去掉“落在目录外回 404”那一行时符号链接用例失败，这条是守住的；去掉 `.`/`..` 判断也存活，但那是因为 Bun 先消解了点段，这一支在本机 Bun 1.4.4 上走不到，属于纵深防御，可以不测。
+- 为什么是问题：前两条是 Spec 输出 12 明写的规则，测试名声称覆盖了它们（“编码过的反斜杠……回 404”）却实际靠扩展名规则过；第 1 条在大小写或分隔符不同的文件系统上才有安全意义，镜像是 Linux，所以只记为建议。
+- 建议改法：原始请求补 `/a%5cb`、`/assets%5capp-abc123.js`（不带扩展名或指向真实文件的写法）、`/%ff`、`/x%zz`；第 3 条若要守，可在 `site.ts` 级别用假的 mount 列表（不含 `/.well-known` 的模块）起应用测一次，或在测试注释里写明它由模块的兜底保证、网页这一条不可观察。
+
+### 5. 文件在 stat 之后读不出来时（没有读权限、被删、I/O 错误），客户端拿到 Bun 自己的 500 错误页（镜像里是带绝对路径与栈的开发版页面），日志却记 200，标准输出多出几行非 JSON
+
+- 严重程度：重要
+- 类别：错误路径 / 信息泄露 / 日志合同（输出 8）
+- 位置：packages/nb-site-server/src/web.ts:88-104（`lookup` 只 `realpath` + `stat`，`fileResponse` 交出惰性的 `Bun.file`）；src/commands/serve.ts:150（`Bun.serve` 没设 `development`、没有 `error` 回调）；image/Dockerfile（没设 `NODE_ENV`）
+- 现象：`stat` 不需要读权限，所以 0000 权限的文件照样判成 `file`；真正 `open` 发生在 Hono 已经返回、Bun 往套接字写响应体的时候。这时的异常 Hono 的 `onError` 接不到，入口的日志中间件已经按 200 记过一行。
+- 真实进程（`env -i` 起 `main.ts serve`，与镜像一样没有 `NODE_ENV`；产物目录里放一个 `chmod 000` 的 `assets/locked-1.js`）：
+  - 客户端：`HTTP/1.1 500`、`content-type: text/html`、`Content-Length: 50142` 的 Bun 开发版错误页，正文里有 `EACCES: permission denied, open '/tmp/…/web/assets/locked-1.js'` 与服务端源码目录 `/home/…/packages/nb-site-server`。没有 `X-Request-Id`、`nosniff`。
+  - 日志：先是 `{"event":"http.request","module":"web","path":"/assets/locked-1.js","status":200,…}`，紧跟着 6 行非 JSON 的 `EACCES: permission denied, open '…' / path: … / syscall: "open" / errno: -13 / code: "EACCES"`。
+  - 设 `NODE_ENV=production` 再起：客户端得到 `text/plain` 的 `Something went wrong!`，日志同样记 200 并多出同样的非 JSON 行（含绝对路径）。
+  - 基础镜像 `oven/bun:1.4.4-slim` 的 `Config.Env` 只有 `PATH`、`BUN_RUNTIME_TRANSPILER_CACHE_PATH`、`BUN_INSTALL_BIN`，Dockerfile 也没设 `NODE_ENV`，所以镜像里走的是开发版错误页。
+- 为什么是问题：B8 之前响应体都在 Hono 里生成，异常都进 `onError` 记成 `http.unhandled_error` 并回 `{"code":"internal"}`；B8 是第一条“响应已交出、读盘才失败”的路径。触发条件（构建机 umask 把产物写成 0600、容器里属主 root 而进程是 bun 用户，或 stat 到 open 之间文件被换）不常见，但一旦发生：响应泄露产物与源码的绝对路径、请求日志的状态是假的、输出 8 的“每行一个 JSON”被破坏，部署的人照日志也查不到原因（AGENTS.md 规定错误只记类型）。
+- 如何核实：上面的步骤；`docker image inspect oven/bun:1.4.4-slim --format '{{json .Config.Env}}'`。
+- 建议改法：在返回响应之前把文件打开：用 `node:fs/promises` 的 `open(real, "r")` 拿到句柄后 `fstat` 判普通文件与大小，再把句柄转成流交给 `Response`（或对产物这种小文件直接 `await Bun.file(real).bytes()`，最大的看板块约 520 KB），打开失败按 `missing` 处理并 `log.warn` 一条只带错误码的诊断；与此无关但值得一并做：`Bun.serve` 显式 `development: false` 并给 `error` 回调回 `{"code":"internal"}`、写一行 JSON，免得以后别的惰性响应体再走到 Bun 的缺省错误页。补一条用例：产物目录里放一个没有读权限的文件（root 下跳过），断言 404 或 500 的 JSON 体、日志的 status 与实际一致、标准输出每行可解析为 JSON。
+
+### 6. 开发依赖 `nb-site-web` 让每次改前端都连带跑 `nb-site-server` 与合同测试包的全部测试
+
+- 严重程度：建议
+- 类别：依赖与验证成本
+- 位置：packages/nb-site-server/package.json:35（`"@notnotype/nb-site-web": "workspace:*"`）
+- 现象：`bun run test:affected --package nb-site-web --with-consumers --dry-run` 在本提交上选中 3 项：`nb-site-contract-tests（依赖指定的包）`、`nb-site-server（依赖指定的包）`、`nb-site-web`。父提交上前端包没有消费者。`test:affected` 缺省按改动加上“直接或间接依赖它的包”，CI 的 `check` 作业同样按依赖图选，所以 t10 后续每一片只改 `nb-site-web` 的提交，也会跑起服务进程类的合同测试与 nb-site-server 的子进程用例（web.test.ts 一个文件就起 3 个进程）。
+- 为什么是问题：这条依赖边只是让 `image/build.ts` 用 `import.meta.resolve` 找到前端包的目录，服务端的行为不随前端源码变；真正受前端影响的“镜像里发得出页面”由 `site-image` 作业的 `smoke:image` 守，那个作业不看依赖图、每次都跑。依赖边换来的只有成本。计划 3.8 推荐了这条依赖，但没讨论它对受影响范围的影响（没有记录的理由）。
+- 如何核实：上面的 dry-run；对照 `git show 6878884e7:packages/nb-site-server/package.json` 没有这一项。
+- 建议改法：交主会话取舍。候选：A 保留，接受成本；B 构建脚本按工作区清单（根 `package.json` 的 `workspaces` 加包名）找前端包目录，不建依赖边，白名单照旧不许；C 让 `test-affected` 支持“只为构建脚本声明的开发依赖不传播”，代价是脚本多一种依赖类别。B 最简单，但要改 t05 定下的“经包名解析、不按相对路径找兄弟目录”的写法。
+
+### 7. `build:image` 把前端产物写进 `packages/nb-site-web/dist/` 再拷走：与前端包自己的 `test:e2e`、`build` 共用一个目录
+
+- 严重程度：建议
+- 类别：构建脚本 / 共享状态
+- 位置：packages/nb-site-server/image/build.ts:56-63
+- 现象：脚本在前端包目录里跑 `bun run build`（`vite build`，`emptyOutDir: true`，输出到前端包的 `dist/`），再 `cp` 进 `dist/image/web/`。前端包的 `test:e2e` 是 `vite build && playwright test`，同样先清空再写这个 `dist/`，Playwright 再对着它跑。两边同时跑时（另一个会话在跑前端 e2e、这边打镜像），一方的清空会落在另一方的拷贝或测试中途，结果是镜像里缺文件，或 e2e 测到镜像构建那一次的产物。`build.ts` 的注释说“每次都重新构建网页，不拿上一次留下的 dist/”，用意是避免旧产物，但共享目录本身仍是旧产物与并发覆盖的来源。
+- 为什么是问题：仓库规则要求“e2e 不与主会话的构建同时进行”，但两件事分属两个包，执行者未必意识到打镜像会改前端包的 `dist/`。前端的 `tests/build.test.ts` 已经示范了另一种做法：`vite build --outDir <临时目录> --emptyOutDir`。
+- 建议改法：`Bun.spawn([process.execPath, viteBin, "build", "--outDir", WEB_OUT_DIR, "--emptyOutDir"], {cwd: WEB_PACKAGE_ROOT})`，或 `bun run build -- --outDir … --emptyOutDir`，直接写进构建上下文、去掉 `cp`；不碰前端包的工作目录。
+
+### 8. 包规则与模块边界文档没跟上：依赖表、镜像一节都还是 B8 之前的样子
+
+- 严重程度：建议
+- 类别：文档 / 既有约定
+- 位置：packages/nb-site-server/AGENTS.md:13、17、60、62；docs/modules/monorepo-boundaries.md:33（主工作区 master 同样）
+- 现象：
+  - 依赖表 `nb-site-server` 一行仍是“两个模块包、两个合同包、`nb-flock`”，第 17 行“各包的 devDependencies 都另许测试支持包”，没写本提交放开的“开发依赖另许 `nb-site-web`（只给镜像构建找产物，`src/` 不导入）”；合同测试包那一行写了它的同类例外（“开发依赖另许 `nb-site-server`（只找启动命令）”），入口这一行没有对应写法。
+  - 镜像一节第 60 行说 `build:image` “把 `src/main.ts` 打成单个 `dist/image/server.js` …… 镜像里不装依赖”，没提它现在还跑前端构建、拷进 `dist/image/web/`；第 62 行“环境变量的缺省”列了 HOST、PORT、DATA_DIR 三个，漏了新设的 `NB_SITE_WEB_DIR=/app/web`；`smoke:image` 的核对清单没加“`/` 回镜像里的 index.html”。部署一节没有“HSTS 由反向代理加”的提醒（Spec 输出 12 有，部署的人读的是这里）。
+  - monorepo-boundaries.md 的依赖方向写“入口依赖两个模块包、两个合同包与 `nb-flock`”，同样没提开发依赖。
+- 为什么是问题：AGENTS.md 是七个包共用的规则入口，下一个改白名单或镜像的人按它判断“允许什么”，会把这条开发依赖当成违规，或不知道镜像构建会改前端包的 `dist/`（见第 7 条）。
+- 建议改法：三处各补一句；镜像一节的环境变量缺省加 `NB_SITE_WEB_DIR=/app/web`，部署一节加 HSTS 与（若采纳）压缩由反向代理做的说明。
+
+### 9. 不压缩、不带校验头：首屏传 352 KB（gzip 后 110 KB），`no-cache` 的 index.html 每次都整份重下；Spec 与部署说明都没交代由谁做
+
+- 严重程度：建议
+- 类别：性能 / 文档
+- 位置：packages/nb-site-server/src/web.ts:98-105；docs/specs/site/operations.md 输出 12；packages/nb-site-server/AGENTS.md 部署一节
+- 现象：用当前 nb-site-web 的真实构建（`vite build --outDir` 到实验目录）起真实进程：
+  - 带 `Accept-Encoding: gzip, br` 请求，响应没有 `Content-Encoding`。登录页首屏要的 index.html 加 19 个 `/assets/` 的 js、css 共 351966 字节，逐个 gzip 后 109717 字节。
+  - 响应没有 `ETag`、`Last-Modified`；带 `If-Modified-Since` 回 200 整份。`index.html` 与回退是 `no-cache`（每次都要向服务器确认），没有校验头时确认就等于重下（现在约 2.3 KB，影响小）。
+  - `Range` 请求 Bun 自己处理了（206、`content-range` 正确），这一点没问题。
+- 为什么是问题：输出 12 把“HSTS 由终结 TLS 的反向代理加”写进了合同，压缩与条件请求同样是“要么进程做、要么代理做”的事，却没写。反向代理不开压缩时用户首屏多 3 倍流量；`no-cache` 配上没有校验头，写这个缓存头的用意（每次确认、没变就 304）落空。
+- 建议改法：最省事的是在 Spec 输出 12 与 AGENTS.md 部署一节补一句“压缩由反向代理做”（t13 写 Compose 时照做）；`ETag` 可以按 `size-mtime` 生成并处理 `If-None-Match`，几行代码，或同样写明交给代理。不建议在进程里做压缩。
+
+### 10. 内容安全策略只按 `text/html` 加：`.svg`、`.xhtml` 这类能执行脚本的文档不带；点开头的文件照发
+
+- 严重程度：建议
+- 类别：安全（纵深防御）
+- 位置：packages/nb-site-server/src/web.ts:103
+- 现象（真实进程，产物目录里放了几个文件）：`/x.svg`（`image/svg+xml`，内含 `<script>`）、`/x.xhtml`（`application/xhtml+xml`）回 200，没有 `Content-Security-Policy`；`/page.htm` 是 `text/html`，带了。`/.env` 这类点开头的文件回 200 `application/octet-stream`。
+- 为什么是问题：直接打开同源的 SVG 或 XHTML 时浏览器把它当文档执行，没有策略就等于不受 `script-src 'self'` 与 `frame-ancestors 'none'` 约束。今天产物目录只有构建产物（实测当前构建 69 个文件，非 js 的只有 css、woff2、一个 favicon svg），都可信，所以没有可利用的路径；但这条边界靠“产物里不会有不可信的文件”这个没写出来的假设守着。点开头的文件同理：Vite 会原样拷贝 `publicDir` 里的点文件，将来有人在 `src/public/` 放了 `.something` 就会被发出去。
+- 建议改法：给所有网页响应都带同一份策略（对 js、css、字体无害，浏览器只对文档生效），Spec 输出 12 的“回 HTML 时带”改成“网页响应都带”；点开头的段（`.well-known` 已在保留前缀里）可以直接回 404。两者都是一行改动；若不改，在 `web.ts` 头注释里写明“产物目录里的文件全部可信”这个前提。
+
+### 11. 几处走不到或没用的代码，与尾斜杠把文件当目录发
+
+- 严重程度：建议
+- 类别：代码质量
+- 位置：packages/nb-site-server/src/web.ts:109、120
+- 现象：
+  1. 第 109 行 `const index = join(root, "index.html");` 从未使用（回退走的是第 123 行 `lookup(root, ["index.html"])`）；包的 tsconfig 没开 `noUnusedLocals`，`tsc` 不报。
+  2. 第 120 行 `segments[0] === HASHED_ASSETS_SEGMENT && segments.length > 1`：`/assets` 本身是目录，`lookup` 返回 `missing`，走不到这一支，`segments.length > 1` 永远为真或无关；读者会以为“`/assets` 是文件时不长缓存”是一条要守的规则。
+  3. `node:path` 的 `join` 丢掉末尾的空段，所以 `/assets/app-1.js/`、`/index.html/` 发的就是那个文件：真实进程上 `/assets/app-1.js/` 回 200 `text/javascript`、一年 immutable。Spec 说“路径对应产物目录里的一个普通文件时发这个文件”，带尾斜杠的路径按 URL 语义是目录。没有安全影响，只是同一份文件多一个长缓存的地址，且页面里相对地址会按错误的基准解析。
+- 建议改法：删掉 1；2 改成只比 `segments[0]`，或在注释里说清楚；3 在最后一段为空（路径以 `/` 结尾）时不找文件、直接按回退规则处理。
+
+### 未发现问题的方面
+
+- 路径穿越：本机 Bun 1.4.4 上用原始请求行核实，`/../x`、`/%2e%2e/x`、`/.%2E/x`、`/..\x`、`/a\..\..\x` 到 `request.url` 时都已消解成 `/x`；绝对形式 `GET http://other/../x` 的主机取自 `Host` 头、路径同样消解；`../x`、`x`、`*` 回 400，带空格或制表符的请求行回 505，2 万字符的路径回 431；`%252e%252e` 只解一次、当作文件名；`%00`、`%2f`、`%5c` 编码在段里的写法回 404。`web.ts` 自己的 `.`/`..` 检查在 Bun 不规范化时也会挡住（纵深防御）。目录链接、文件链接指向目录外都回 404，目录外的文件没发出去；`realpath` 与 `stat` 之间被替换只有能写产物目录的人才做得到，不算边界。
+- 路由顺序：健康检查、测试控制入口（有无口令）、两个模块的五个 mount（`/api/identity/v1`、`/api/identity/auth`、`/.well-known`、`/api/telemetry/v1`，写入口的 `/v1`）都先匹配；模块子应用自己的兜底路由接住各自前缀下的全部地址；`/api/identity/nope`、`/api/nope` 这类不在挂载下的地址由保留前缀挡住，响应体、Content-Type、日志 module 与无网页进程逐字相同（编码不合法与空段的两类例外见第 1、3 条）。写入口主机名上不发；`OPTIONS`、`POST` 等回 404 与无网页相同；`HEAD` 只回头部、`Content-Length` 是文件大小。
+- 内容安全策略与真实前端：用当前 nb-site-web 的真实构建起进程，系统 Chrome 打开 `/`、`/login`、`/register`、`/account`（跳到登录）、`/privacy`、`/admin`、`/nope/page`，页面都画出来，没有 `securitypolicyviolation`、控制台报错或请求失败；产物里没有内联脚本，字体与图标都在 `/assets/` 下、类型正确（`font/woff2`、`image/svg+xml`、`text/css`），都带长缓存。前端的表单都是 `@submit.prevent`、跳转用 `location.assign`，`form-action 'self'` 不挡授权后的跳转；身份库只看 `Origin`，`Referrer-Policy: same-origin` 不影响同源请求的 `Origin`。
+- 配置：`not_absolute`、`not_directory`、`no_index` 的判定与用例一致，错误对象里的路径没有外传；`migrate`、`backup`、`create-admin` 也校验它，与 `NB_SITE_HOST` 等只给 `serve` 用的变量的既有做法一致。
+- 镜像与依赖：`bun.lock` 只多了这一条开发依赖；`architecture.test.ts` 的新检查能拦静态导入、动态导入、子路径与相对路径越界，放过 `import.meta.resolve`；`build.ts` 先清 `dist/image/` 再构建，构建失败或没有 index.html 时非零退出；smoke 比对的是拷进构建上下文的那份 index.html。
+- 测试写法：起真实进程、原始套接字发穿越写法、与无网页进程逐字比对、临时根用 `createTestTmpRoot` 并在 `afterAll` 先停进程再删，符合测试 README；去掉“落在目录外回 404”的变异会被符号链接用例抓到。
+- 停止：五个实验进程收到 SIGTERM 后都在几秒内写出 `site.stopped` 退出。
+
+### 数量
+
+- 阻断：0
+- 重要：2（第 1、5 条）
+- 建议：9（第 2、3、4、6、7、8、9、10、11 条）
+- 按影响排序：5、1、2、4、3、6、7、10、8、9、11
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11

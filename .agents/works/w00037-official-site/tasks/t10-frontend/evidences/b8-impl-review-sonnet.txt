@@ -1,0 +1,89 @@
+# w00037 t10 B8 + 修正（63d97b3f1、525ae1d7e）实现审查：sonnet
+
+范围：`git diff 6878884e7 525ae1d7e -- packages/nb-site-server packages/nb-site-contract-tests`，worktree `.worktree/w00037-t10-b8fix`。
+所有现象都在真实进程（`bun src/main.ts serve`，Bun 1.4.4，实验目录 `/tmp/review-w00037-t10-b8/lab-sonnet/`）上复现，不是直接调用内部函数。
+基线：`bun test src/web.test.ts src/config.test.ts src/architecture.test.ts` 64 过、`bun run typecheck` 过；worktree 没有被改动。
+
+### 1. 读不出的原因被一个空 catch 并成“没有这个文件”：目录无权限、`index.html` 运行中消失、符号链接逃逸都没有诊断，就绪检查仍 200
+
+严重程度：建议　类别：可诊断性、与 Spec 不一致
+位置：`packages/nb-site-server/src/web.ts:101-107`（`lookup` 的 catch）、`:160`（`outside` 静默 404）、`:193`（回退时 `index.html` 没有）
+
+现象（真实进程）：
+- `chmod 000 web/sub` 后 `GET /sub/inner.js` 回 404、`GET /sub/other` 回 200 的 `index.html`，日志里没有任何 `web.file_unreadable`，只有普通的 `http.request`。同一个目录里只是文件 `chmod 000`（`/assets/plain.txt`）才有 `web.file_unreadable`（`errorCode: EACCES`）。
+- 运行中把 `index.html` 挪走：`GET /`、`GET /account` 全部回 404 `{"code":"not_found"}`，日志只有 `module: web, status: 404` 的请求行，没有警告；`/health/ready` 仍回 200（就绪检查不看网页）。
+- 经符号链接落到目录外的文件回 404，没有任何诊断。
+
+为什么是问题：
+- Spec 输出 12 写“在发出之前读不出时同样回 404（读不出时另记一行警告，`event` 是 `web.file_unreadable`）”。路径中间的目录读不出（`EACCES`）、`EIO`、`ELOOP` 也是“读不出”，现在 `lookup` 的 catch 把它们和 `ENOENT`、`ENOTDIR` 一起当成 `missing`，对扩展名为空的路径还会静默回退成 200 的 `index.html`。
+- 包规则 `AGENTS.md` 的“网页”一条写“构建机的 umask 把产物写成只有属主可读时，这些文件在容器里回 404，日志里有 `web.file_unreadable`”：对文件成立，对目录权限不成立。
+- 站点的入口页整个没了（部署工具原地替换产物目录、`NB_SITE_WEB_DIR` 指向的链接被换走而旧目录被清理）时，运维从日志与就绪检查里看不出任何异常，只有一片 404。包规则已写明“链接只在启动时解开一次”，但没说出事时的症状。
+
+如何核实：实验目录 `root/web`，起 `serve`，`chmod 000 web/sub; curl /sub/inner.js; mv web/index.html ...; curl /account; tail server.log`。
+
+建议改法：`lookup` 的 catch 里只把 `ENOENT`、`ENOTDIR` 当 `missing`，其余错误码按 `unreadable` 处理（同样回 404、记 `web.file_unreadable`）；`index.html` 回退时找不到（`missing`）也记一条警告（它在启动时校验过存在，运行中没有就是异常）。`outside` 也可以记一条只带“目录外”的警告。不必改就绪检查。
+
+### 2. 启动校验只看 `index.html` 是个文件，不看进程读不读得了它：能起、就绪 200、每个页面都 404
+
+严重程度：建议　类别：配置与生命周期、镜像
+位置：`packages/nb-site-server/src/config.ts:110-120`（`parseWebDir`）、`packages/nb-site-server/image/Dockerfile`（`COPY web ./web`）
+
+现象（真实进程）：`index.html` 设为 `chmod 000` 后启动，`/health/ready` 回 200，`GET /account` 回 404，每个页面请求各记一条 `web.file_unreadable`；进程没有以 `config_invalid` 拒绝。
+
+为什么是问题：镜像里 `COPY web ./web` 不设模式，产物的权限取决于构建机的 umask（包规则里写了这个后果，但只靠“smoke 的 `GET /` 会失败”来兜底）。启动时已经 `realpath`、`stat` 了 `index.html`，再加一次读权限检查成本几乎为零，而且是 Spec 配置表“必须是……里面有 `index.html` 的目录”的自然读法：有但读不了的 `index.html` 对回退等于没有。另外 `no_index` 对 `web/` 目录本身没有搜索权限的情形也会被报成 `no_index`（`realpathSync` 抛 `EACCES`），部署的人看到“没有 index.html”会去找一个其实存在的文件。
+
+如何核实：见上，`web3/index.html` 设 000 后 `NB_SITE_WEB_DIR=…/web3` 启动，`curl /health/ready`、`curl /account`。
+
+建议改法：二选一或都做：`parseWebDir` 里对 `index.html` 加 `accessSync(index, constants.R_OK)`，失败按 `no_index`；Dockerfile 用 `COPY --chmod=u=rwX,go=rX web ./web`（或构建后 `chmod -R a+rX`），不依赖构建机的 umask。
+
+### 3. `Content-Type` 取自解开符号链接之后的真实路径名，不是请求的名字
+
+严重程度：建议　类别：正确性（边界）
+位置：`packages/nb-site-server/src/web.ts:148-150`（`fileResponse(found.path…)` 里 `Bun.file(path).type`）、`:108`（`lookup` 返回的是 `realpath` 的结果）
+
+现象（真实进程）：产物目录里 `style.css -> releases/style-abc123`（目标没有扩展名）时 `GET /style.css` 回 `Content-Type: application/octet-stream`，同时带 `X-Content-Type-Options: nosniff`，浏览器会拒绝把它当样式表；`alias.js -> evil.html` 回 `text/html`。
+
+为什么是问题：Spec 写“`Content-Type` 按扩展名”，指的是请求的路径。部署里“`latest.js -> 带哈希的真实文件`”“当前版本链接”都是常见做法，类型错了又被 `nosniff` 钉死，症状是页面样式或脚本不生效，而日志里一切正常（200）。目录外的链接已经拒绝，这里只涉及目录内的链接。
+
+如何核实：实验目录 `root/web` 里建链接后 `curl -si /style.css | grep -i content-type`。
+
+建议改法：用请求的最后一段取类型（例如 `Bun.file(decoded.at(-1))` 或自己按 `extname` 查），不用 `found.path`。
+
+### 4. `development: false` 与 `error` 回调（`http.response_failed`）没有任何用例，产品自己的响应也走不到它；Spec 输出 8 的那句话只对一种体成立
+
+严重程度：建议　类别：测试、Spec 一致性
+位置：`packages/nb-site-server/src/commands/serve.ts:148-169`；`docs/specs/site/operations.md` 输出 8 最后一句
+
+现象：
+- 整个仓库里（`grep -rn response_failed packages`）只有 `serve.ts` 自己出现这个事件名，没有一个用例让它出现；删掉 `development: false` 与 `error` 两项，所有现有用例照过（从代码与 grep 推断，没有改源码跑变异）。修正之后网页的体是读好的字节，模块的响应也都是 JSON 字节，产品里没有谁会走到这个回调，它是纯兜底。
+- 我在真实 Bun 1.4.4 上单独验证了回调的覆盖面：惰性 `Bun.file` 体打不开（`ENOENT`）时回调被调用、请求方得到 500；流式体在已经发出响应头与首块之后出错时回调不被调用，连接被直接断开（请求方看到 `[ERR]`），没有任何日志行。Spec 写的“响应已经交出、在发送响应体时出的错写一行 `http.response_failed`……请求方得到 500 `internal`”因此只对“体还没开始发”的情形成立。
+
+为什么是问题：包规则与 Spec 都把它当作可观察行为写出来，却没有验证，也没有说明覆盖的范围；将来有模块返回流式体时，读者会以为中途出错也有日志。
+
+如何核实：`/tmp/review-w00037-t10-b8/lab-sonnet/errcb.ts`（`bun errcb.ts`）。
+
+建议改法：二选一：在夹具模块加一个体打不开的路由，补一条用例断言“500 `internal`、有一行 `http.response_failed`、标准输出每行 JSON”；或者把 Spec 与注释里的“发送响应体时”收窄成“体还没开始发送时”。
+
+### 5. 代码质量：`config.ts` 反向依赖 `web.ts`；产品代码的注释里写了审查的条号
+
+严重程度：建议　类别：代码质量
+位置：`packages/nb-site-server/src/config.ts:15`（`import {isInsideDir} from "./web"`）；`web.ts:21`（“B8 实现审查第 5 条”）
+
+现象与理由：配置层被每个命令（`migrate`、`backup`、`create-admin`）加载，现在它为了一个纯路径函数导入了运行时的网页处理模块（连带 `node:fs/promises` 与 `./log` 类型），依赖方向反了；`isInsideDir` 与文件系统无关，放在 `web.ts` 里只是因为最先在那里用。`web.ts` 与 `serve.ts` 的注释里引用审查报告的条号，报告在 `.agents/works` 的证据目录里，条号过一阵就对不上，按仓库的注释规则应写理由而不是出处。
+
+建议改法：把 `isInsideDir` 挪到一个小的路径工具模块（或放在 `config.ts`，`web.ts` 从那里导入）；注释里的条号去掉，保留“为什么先整读再交响应”的理由。
+
+### 未发现问题的方面
+
+逐项核实过，没有发现问题：
+- 路径落到文件的安全：在本机 Bun 1.4.4 上用原始套接字发了 `GET ../x`、`//x`、`///b/c`、绝对形式 `GET http://other/../b`、`%2e%2e`（含大小写与 `.%2e`）、`%252e`、反斜杠、`%00`、`%ff`、`%C0%AF`、`..%2f`、`%5c..%5c`、8000 字符的段、4000 段、6 万字符的路径、非法或带路径的 `Host`。Bun 交来的 `request.url` 把点段与反斜杠规范化（`/a/..%2fb` 不消解，保留 `%2f`），`Host` 非法时 `request.url` 退成只有请求目标且 `URL.parse` 为 null，被入口的 400 挡下，没有能走到文件系统的未规范化路径；`web.ts` 对剩下的 `%2f`、`%5c`、`%00`、点开头的段逐段拒绝。符号链接：文件链接与目录链接指向目录外都回 404，目录内的链接照发。
+- 路由顺序与 404 一致性：健康检查、测试控制入口、身份库三个挂载（`/api/identity`、`/api/identity/auth`、`/.well-known`）与遥测挂载都先匹配；四个前缀下没人接的地址（含 `/api/telemetry/x`，遥测子应用没有兜底路由）回应、状态与日志 `module` 与没有网页时相同；`POST`、`OPTIONS` 回无头部的 404；`Host: ingest.example` 上 `/`、`/foo` 都是 404。
+- 响应头：`HEAD`、回退、404 都带三个安全头，`/assets/` 之外的文件 `no-cache`；Bun 的类型表覆盖 `.svg .woff2 .webmanifest .wasm .map` 等，认不得的扩展名回 `application/octet-stream`；`Range` 现在被忽略，回 200 整份。`Content-Length` 与响应体不一致时 Bun 自己改正，不会挂起。
+- 构建与镜像：`bun run build --outDir <绝对路径>` 在前端包里真实跑通（4.6 秒），前端包的 `dist/` 与 git 状态不受影响；产物里 `index.html` 没有内联脚本，只有 `data:` 图与同源字体；`bun.lock` 在 B8 提交里只多了一行开发依赖；架构检查的规则与四条反例成立（用 `import.meta.resolve` 找包路径不算导入）。
+- 测试：临时目录与环境键照规则（`createTestTmpRoot`、子进程只带给定变量）；穿越与编码用原始套接字发；否定断言都同时断言状态与“没泄露”，会失败；CI 在 ubuntu-latest 上不是 root，`chmod 000` 的用例会跑。
+- 配置校验在 `migrate`、`backup` 上同样生效（无效的 `NB_SITE_WEB_DIR` 让 `backup` 以 `config_invalid` 失败），这与 Spec 输出 1“启动、只迁移、创建管理员、备份在做任何事之前校验配置”一致，按 Spec 不算问题。
+
+### 数量
+
+阻断 0、重要 0、建议 5。
+有效发现的编号：1、2、3、4、5

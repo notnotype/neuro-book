@@ -1,0 +1,143 @@
+# w00055 t03 实现审查报告（范围 a7ac5a357..HEAD，e2e 用例除外）
+# 方法：读源码加对照 Spec 输出 10、11、39、44 到 48 与计划；只做了一项不依赖浏览器的探针（编解码器上量光标偏移，见第 3 条）；没跑测试、e2e、开发服务。
+# 路径都相对 packages/neuro-book/src/plugins/canon/web/components/（下称“组件目录”）。
+
+【1】重要 / 正确性
+位置：text/EntryText.vue 的 collapsed（约 227 行）、valueNode 的 onClick（163 行）与 aria-expanded（158 行）；宿主 entry-page/EntryPageHost.vue:301 的 toggleValue。
+现象：点到条目页外面（标签条、设定树）时浮层只收起，`collapsed=true`，但宿主记下的 `open` 还是那一处。这时作者再点同一个值：onClick 照常发 `value(place)`，宿主的 toggleValue 看到 `state.origin === place` 把它置空，结果什么也没出现（浮层本来就没开）；要点第二下才打开。同时 `aria-expanded` 与 `canon-value-open` 高亮按 `props.open === place` 算，收起期间仍是“展开”，读屏和样式都与实际不符。
+为什么是问题：Spec 输出 11 写“点到页外只收起、记着的那一处留着”，没写要点两下；按钮状态与可见状态不一致。
+核实：dom 测试里 mount EntryText 带 open=place，向页外元素发 pointerdown 等浮层消失，再点该值按钮，断言 emitted("value")，再看宿主收到后 open 变成 undefined、浮层仍不在。现有用例（EntryText.dom.test.ts:89 起）只测了“重新挂上才重开”，没点同一个值。
+建议改法：值按钮的状态用 `open && !collapsed` 算 aria-expanded 与高亮；onClick 里 `if (collapsed.value && props.open === place) { collapsed.value = false; return; }`（把收起的重新展开，不发 value）。补一条上面的 dom 用例，变异：删掉这行判断应当失败。
+
+【2】重要 / 正确性
+位置：entry-page/EntryPageHost.vue:804（valuesWanted）、826（richValues）、836（computing）；text-values.ts 里 `input()===null` 的分支（把 failure 置回 null）。
+现象：`computing = failure === null && 文字长度 <= 上限`。稿冻结（开始编辑时的块不在了，`frozen`）或条目已删除时 `valuesWanted` 为假，值请求不发，`failure` 恒为 null，于是 `computing` 恒为真：这两种只读稿按富文本画时，除了“本条目的字段”以外所有小块（别的条目的字段、计算、条目引用、条件）永远是虚线框的“计算中”，不会变成“没有算”。richValues 的兜底只在“稿恰好等于阅读视图那一块”时给值，冻结稿多半不等。
+为什么是问题：计划“编辑视图”一节写明 frozen 与已删除的稿“按记下的模式画（富文本只读时……没有值时画‘没有算’）”；Spec 输出 48 把“计算中”定义为值在路上，这里没有任何请求在路上，显示是错的。没有任何测试覆盖冻结稿加富文本（entry-page.dom.test.ts 里没有 frozen 与小块状态的组合）。
+核实：entry-page.dom.test.ts 里造一个 frozen 的稿（块读不出），mode 为 rich，读 `[data-chip-state]`，现在是 pending，应为 uncomputed。
+建议改法：`computing` 在 `valuesWanted` 为假时取 false（`valuesWanted.value && failure === null && 未超长`）。顺带：valuesWanted 只看 `state.textMode`，稿读不进富文本这一次落在源文字时（EntryTextEditor 的 forced）仍然每次停顿发一次 renderSource，要么把“实际模式”上报宿主，要么接受浪费（建议级）。
+
+【3】重要 / 正确性
+位置：text/EntryRichInput.vue 的 offsetBefore（650 行起，尤其 `$pos.parentOffset === 0` 那个分支）、cursorOffset（668）、positionAt（678）。
+现象（已在真实编解码器上跑过，脚本思路：用 entrySyntax 加 coreSyntax 的语言读一篇源文，复刻 offsetBefore 对每个位置求值；没用编辑器与 DOM）：
+ a. 不单调。`parentOffset === 0` 时无论嵌多深都算“最外层块的起点”。列表、引用里第二项起的段首（parentOffset 为 0）返回整个列表的起点，比它前面一项末尾的值小。源文 "- 甲甲\n- 乙乙\n- 丙丙\n- 丁丁"：位置 8、9、14、15 返回 0，而位置 5 到 7 返回 4，位置 11 到 13 返回 9。列表是首块时 `$pos.index(0) === 0` 直接返回 0，光标在第 N 项开头（敲完 Enter 的常见位置）切到源文字就落在全文开头。
+ b. 二分靠单调：positionAt 把这些 0 当“<= 目标”，把 low 推过头。实测 "前文\n\n- 甲甲\n- 乙乙\n- 丙丙\n- 丁丁\n\n后文"，源文偏移 16（丙丙）切回富文本落在位置 19（丁丁的段首），再读回偏移是 4；列表为首块、偏移 17（丁丁）落在位置 21，读回 0。
+ c. 表格里 `doc.cut` 出来的半截表写不出：位置 17 到 19、29 到 31 返回 null（实测）。cursorOffset 返回 null 时 EntryTextEditor.switchMode 退成不放光标；但 positionAt 只要二分里碰到一个 null 就整个返回 null，`commands.focus(null)` 等于保留旧选区，源文字里光标在表格或表格之后的人切回富文本，光标留在旧位置，没有任何提示。
+为什么是问题：Spec 输出 48“切换模式时光标落在同一段的大致位置”；列表与表格在条目主文字里是常见写法；现有两条 dom 用例（EntryRichInput.dom.test.ts:96、105）只含段落与小块。
+建议改法：嵌套的段首不要走“最外层块起点”的特例，只在 `$pos.depth === 1` 时用（或统一用 `doc.cut(0,pos)` 写出后剥掉末尾的空列表记号）；二分前把写不出的位置当作“沿用上一个能写出的值”而不是整体放弃（或改成按块边界二分，再在块内按纯文字偏移走）。补用例：首块与非首块的列表、引用、表格各来回一次（offset -> pos -> offset 差不超过同一块）。变异：把特例改成不分深度应当被这些用例抓住。
+开销：positionAt 是 1 次整篇写出加约 log2(文档大小) 次前缀写出；5 万字文档大小约 5 万，约 16 次，按 README 的 7.5 毫秒中位数估计一百多毫秒，只在切换时发生，可接受（推算，未在浏览器量）。
+
+【4】重要 / 正确性
+位置：text/EntryRichInput.vue 的 focusChip（268）与 onPopoverOpen（280）。
+现象：focusChip(pos) 在 `doc.nodeAt(pos)` 是小块时把它选成节点选区。“新插入”（`{` 选“条件”“计算”，或“插入”菜单）的浮层，at.from 是插入点而不是某个小块；若插入点紧挨着后面有一个已有小块（例如在两个小块之间、或段首小块前面打 `{`），按 Esc 取消时 nodeAt(插入点) 就是那个邻居，它被选中，接着打的字把它替换掉。应用成功那条路没问题（插入点就是新小块）。
+为什么是问题：Esc 取消一次插入不该动别的小块；替换后只能靠撤销。
+核实：dom 用例：文档 `甲<V of="…"/>`，光标放在“甲”与小块之间，按 `{` 选“计算”，浮层里按 Esc，断言选区不是 NodeSelection（现在是）。
+建议改法：focusChip 只在 `current.node !== null`（改的是已有小块）时选节点；新插入的 Esc 只 `editor.view.focus()` 回到原光标。onPopoverOpen 里按 `current.node === null` 分开调用。
+
+【5】重要 / 测试加正确性风险
+位置：text/EntryTextEditor.vue 的 insert（199 行起）与 text/EntryRichInput.vue 导出的 openInsert。
+现象：openInsert 在 dom 与 e2e 里都没有用例（grep openInsert 在 src、e2e 只在 .md 与 .vue 里出现；canon-write.e2e.ts 只有插入“值”的 insertValue）。EntryTextEditor.dom.test.ts:197 那条只测了菜单项的文字与源文字模式里写进模板。
+风险：富文本里选“计算”“条件”时，DropdownMenu（nb-ui/popup/DropdownMenu.vue）没有拦 close-auto-focus，reka 的菜单卸下后在定时器里把焦点还给触发按钮；这时新开的小块浮层（reka Popover，非模态）已经拿到焦点，焦点移回触发按钮会被当作“焦点移到外面”而关上浮层。作者在 `insert()` 的注释里写了“拉回输入框会让刚开的浮层关上”，但没提菜单自己也会还焦点；同一机制他在 focusChip 的注释里已经遇到过（原语还焦点排在卸下以后的定时器里）。“条目”走 openMenu，焦点靠 nextTick 加 rAF 晚于定时器，大概率没事。这条是从代码推断，没在浏览器里验证。
+核实：真实浏览器里点“插入”选“条件”，看浮层是否停留、输入框是否有焦点；再用键盘（方向键加 Enter）选一次。
+建议改法：补一条 e2e（插入菜单选“条件”后浮层仍在、能打字、应用后进文档），变异删掉 openInsert 里的 openNew 应当失败；若浮层被关，给 DropdownMenu 的 contentProps 传 onCloseAutoFocus 阻止还焦点，或把 openInsert 挪到 nextTick 加 setTimeout 之后。
+
+【6】重要 / Spec 偏离
+位置：text/EntryTextEditor.vue 的 insertItems（189 行起）、insert（199 起）；text/EntryRichInput.vue 的 insert 与 openInsert 对 inCode 的判断。
+现象：Spec 输出 48 写“光标在行内代码或代码块里时这些入口都不可用”，计划写“菜单项写原因”。实现里“插入”菜单项不看光标位置，永远可点；点了以后输入框在代码里返回 false，EntryTextEditor.insert 不看返回值，只是 `nextTick(() => focus())`。作者看到的是点了没反应，没有任何说明。`{`、`@` 在代码里照字面打这一半是对的。
+核实：dom 用例：富文本里光标放进行内代码，“插入”里选一个字段，断言菜单项禁用或有原因文字；现在没有。
+建议改法：二选一：(a) 输入框暴露 `canInsert()`（光标位置与只读），菜单开着时按它给项 disabled 并在项上写原因（DropdownMenuItemData 有无 disabled 与说明字段要看 nb-ui）；(b) 退一步，insert 返回 false 时在状态行写一句（复用 discarded 那一类的短提示）。无论哪种都补用例。
+
+【7】建议 / 正确性
+位置：text/EntryRichInput.vue:482 到 489（menuKey 的 Escape、空格分支），closeMenu（约 453 行）。
+现象：a. `{` 后立刻按空格会 closeMenu(true) 把 `{` 补回正文，但空格被 preventDefault 吞掉，作者想写的“{ ”变成“{”。想写文字里的花括号加空格的人每次要多打一个空格。b. Escape 与空格分支没有判 `event.isComposing`（Enter 分支有）。在 Firefox、Safari 里输入法组字时 keydown 的 key 可能就是 " " 或 "Escape"，组字被打断并关掉列表；Chrome 里组字时 key 是 "Process"，不受影响，桌面版（Chromium）下基本不触发，所以只是建议。
+核实：a. dom 用例：按 `{`、再在搜索框按空格，断言正文是 "{ "（现状是 "{"）。现有“{ 后按 Esc 补回一个 {”（EntryRichInput.dom.test.ts:409）只覆盖 Esc。
+建议改法：补回时按触发键加空格：空格分支调用 closeMenu 时带上要补的文字（`closeMenu(true, " ")`）；两个分支都加 `!event.isComposing`。
+
+【8】建议 / Spec 偏离（页面滚动）
+位置：text/EntryRichInput.vue:700、703（defineExpose.focus 里的 `editor?.commands.focus(pos)`、`focus(caret ?? null)`）。
+现象：Tiptap 的 `commands.focus` 默认 `scrollIntoView: true`（node_modules/@tiptap/core/src/commands/focus.ts：在下一帧调 `editor.commands.scrollIntoView()`）。Spec 输出 48 写“切换模式时光标落在同一段的大致位置，页面不滚动”。从源文字切到富文本时（switchMode 后新输入框挂上，flushFocus 调 focus(偏移)），页面会滚到光标处；两种输入框排版高度不同，光标在视口外时页面会跳。Monaco 一侧的 placeCaret 不滚动，两边不一致。同一个入口也用在“点编辑后焦点进输入框”，那里滚动无妨。
+核实：e2e：长条目里把页面滚到离光标很远处，点分段控件切模式，断言 scrollTop 不变。
+建议改法：带偏移或来自切换的 focus 传 `{scrollIntoView: false}`（`commands.focus(pos, {scrollIntoView: false})`）。
+
+【9】建议 / 界面与无障碍
+位置：text/EntryRichInput.vue:237 到 249（openNew 的 `anchor: view.dom`）与 260（closeChip 的 `aria-expanded`）。
+现象：a. 新插入的浮层把 view.dom 当锚点，nb-ui Popover 的 onInteractOutside 会把落在锚点里的按下与焦点移动都拦掉（Popover.vue 里 `anchor.contains(target)` 就 preventDefault），所以浮层开着时点编辑区别处不会收起（已有小块的浮层锚在小块上，点编辑区别处会收起，两种行为不一致）；光标换了位置而浮层还在，应用时仍插在旧位置。b. closeChip 对所有浮层执行 `current.anchor.setAttribute("aria-expanded","false")`，新插入的锚点是编辑区根节点（contenteditable 的 div），于是编辑区被写上 aria-expanded=false，读屏会读成“已折叠”。已有小块锚是无 role 的 span，aria-haspopup、aria-expanded 在无 role 的 span 上不成立，读屏多半忽略（建议给小块壳 role="button"）。
+核实：a. dom 用例：`{` 选“计算”后对编辑区别处发 pointerdown，断言浮层关上。b. 看 `[contenteditable]` 的属性。
+建议改法：新插入的用 `anchor: null` 加 `reference`（虚拟矩形）；Popover 只在 `anchor` 给了才拦，不给时点编辑区会收起，Esc 后的焦点回编辑区本来就由 focusChip 做。aria-expanded 只对 node 不为空的（已有小块）写。
+
+【10】建议 / 界面
+位置：text/EntryRichInput.vue 模板里 Popover 的 `<form v-if="editing !== null">`（约 797 行）与 `:anchor="editing?.anchor ?? null"`；text/EntryText.vue 的 `<section v-if="anchor !== null && openAddress() !== null">`；entry-chip-views.ts 的 paintChip（约 109 行）。
+现象（从代码推断，未在浏览器看）：
+ a. 关浮层时内容与锚点同一帧被去掉（v-if 变假、`anchor` 变 null），reka 的退场动画（nb-ui-popover-motion）里只剩一个空壳在淡出，且小块浮层此时没有定位参照；EntryText 的 `held` 只保住了“还焦点”，内容照样立刻没了。违反“状态变化要过渡”，看起来是内容突然消失、空框再淡出。
+ b. 小块浮层的 form 没有可读名字：标题在一个 `<p>` 里，没有 aria-labelledby 或 aria-label，读屏读“对话框”。EntryText 的浮层给了 aria-label，两处不一致。
+ c. paintChip 的 aria-label 写成 `${label}：${text}`（全角冒号写死），英文界面也是中文标点；aria-label 落在没有 role 的 span 上，多数读屏不读。计划写“小块带 aria-label（种类、字段名、值、状态）”，实现没有状态，也没有种类。
+建议改法：a. 退场期间保留最后一帧的内容（用一个 `shown` 快照，退场结束再清）或让内容不随 `editing` 立刻消失；b. 给 form 加 `:aria-label="editingTitle"`；c. 壳加 `role="button"`、`aria-haspopup="dialog"`，label 用 i18n 的带占位文字，状态（未知、不完整、计算中）进 label。
+
+【11】建议 / 界面（计划里写了、实现里没有）
+位置：entry-chip-views.ts 的 conditionView.paint（`face.replaceChildren()`、`part.hidden = true`）；text/EntryTextEditor.vue 的 showBranches 开关；EntryPageHost.vue 的 `update:showBranches`。
+现象：计划“动效”与“条件小块怎么画”写了：显示全部分支的展开收起有过渡，开关翻转时以光标所在段落为锚点保持它在视口里的位置。实现里翻转是整块重画加 `hidden` 切换，没有过渡（hidden 是 display:none，也没法过渡），也没有任何保持视口位置的代码（grep scrollIntoView、anchor 在这几处没有）。小块从“计算中”到值也只有颜色过渡，文字是直接换。含大量条件的长文翻开关时，光标所在段会被推走。
+建议改法：要么在计划里把这两项记为“不做”并说明，要么实现：翻转前记光标所在块的 `getBoundingClientRect().top`，翻转后补一次 `scrollBy` 差值；各支用 grid-template-rows 0fr 到 1fr 做展开。如果只记为不做，也要改 EntryTextEditor.md 与计划。
+
+【12】建议 / 测试（缺口与建议的变异检查，由主 Agent 做）
+读测试得到的、没被任何 dom 或纯函数用例覆盖的行为（e2e 不在范围，已核对 canon-write.e2e.ts 里没有第 1 到 4 项）：
+ 1. “换一个”整条路径（replaceChip 到 openMenu 的 replacing 分支到 choose 里保留其它属性）：grep "replace" 在两个测试文件里没有这个动作。变异：把 `kept` 改成空数组，应当有用例失败。
+ 2. 列表开着时点列表外（menuOutside 的 document pointerdown 捕获）关上、不补字：没有用例。变异：删掉 onMounted 里的 addEventListener。
+ 3. applyChip 在 nextPaint 等待期间浮层被关掉或换成别的小块（`editing.value?.id !== current.id` 的守卫）：没有用例。做法：点“应用”后不等，立刻发 Esc 或外面换整篇，断言文档没有被改。变异：删掉这行判断，大概率活下来。
+ 4. 复制粘贴：计划验收映射写“复制粘贴……（EntryRichInput 的 dom 测试）”，现在只有一条用粘贴造“写不出”的用例（EntryRichInput.dom.test.ts:124）。没有“富文本里复制条件小块、粘到另一段，写出的源文一致”，也没有“粘进含 `<V` 的纯文字，写成 `\<V`”。
+ 5. 键盘越过小块与 Enter 开浮层：Enter 开有用例（openChip 辅助函数用 setNodeSelection），左右键靠 e2e（happy-dom 量不了布局，作者已说明）。
+ 6. 冻结稿与已删除条目的富文本小块状态（见第 2 条）、openInsert（第 5 条）、新插入浮层按 Esc 后的选区（第 4 条）、点值后收起再点同一个值（第 1 条）、`{` 后空格（第 7 条）。
+ 7. EntryTextEditor：`forced === "rejected"` 时 props.problem 变成别的内容（例如 wholeStory）也会把富文本切到源文字（watch(props.problem) 只判非空），用例只覆盖内核拒收一种。
+已有用例质量：用 vi.waitFor 等可观察状态，没有固定时长的等待（EntryRichInput.dom.test.ts:215 的 `setTimeout(resolve, 0)` 只是让微任务跑完，可以接受），没有 mock 或 spy；组字用合成的组字事件，真实 Chrome 的 compositionend 顺序没测到（PM 的处理函数先于组件的监听，当前顺序正确）。
+
+【13】建议 / 代码质量（小项合并）
+ a. EntryRichInput.vue:441 用 `document.querySelector("[data-chip-menu] input")` 找搜索框，全页取第一个；拆分编辑组里两个条目同时开着列表（或上一个列表还在退场）时会聚焦到别人的框。改成 SuggestionMenu 的 header 槽里给 Input 一个 ref。
+ b. host.context()（EntryRichInput.vue:69 到 76）每次被调用都 `new Map(props.fields.map(...))`，每个小块每次重画一次；hangValues 让所有小块按新装饰整体重画（装饰的 spec.values 每次是新数组，PM 判为不相等），n 个小块乘 m 个字段。上千小块、几百字段时每次值表到达是百万级分配。按 fields 的引用缓存一个 Map（computed）即可。
+ c. menuGroups（EntryRichInput.vue:406 起）的筛选用大小写敏感的 includes，英文界面里“Mana”筛不到 path 为 `panel.mana` 的字段；条件与计算的关键词放在 locale 里拼成一个串（ifWords、calcWords）再 includes，也是大小写敏感。统一 toLowerCase。
+ d. EntryTextEditor.vue 的 hasConditions 用 `/<If\b/u.test(props.text)` 判断“有没有条件”：写成字面（`\<If`、代码块里的 `<If`）也会出“显示全部分支”开关，而开关翻了没有任何东西变。改成读编辑器里的条件个数（richProblem 已经算过 conditionCount）。
+ e. EntryText.vue 的 onActivated（7 行导入、236 行）：代码库里没有 KeepAlive（git grep KeepAlive 在 packages 下除 legacy 外无匹配），页面标签切走再回来是重新挂上（EditorGroup.md 第 51 行），所以这个钩子永远不触发，是死代码；收起标志重新挂上时本来就是 false。删掉，或记明为什么留。
+ f. choose（字段、条目选中）与 removeChip 同步做整篇写入前检查（plan 估计 7.5 万字约 0.4 到 1 秒），只有“应用”有进行中的显示；列表里选字段、删小块在长文里会无反馈地卡一下。
+
+【12 的更正】上面“e2e 不在范围，已核对 canon-write.e2e.ts 里没有第 1 到 4 项”只对本分支 HEAD 成立：e2e 第二段（小块浮层、`{`、`@`、来历浮层页外收起）在另一个 worktree 里写，合进来以后可能补上；第 1 到 4 项仍建议有 dom 一层的用例（happy-dom 里能做，更快更稳），不要只依赖 e2e。
+
+【14】建议 / 性能（推算，未量）
+位置：text/EntryRichInput.vue 的 writeOut（约 128 行）与 `created.on("update")`。
+现象：每次文档变化整篇 `codec.write`，写出被接受后再发一个程序事务回填写法（`quietly(accept)`）。README 量过 5 万字、50 段（happy-dom，负载 13）：中位 7.5 毫秒、九成 16.7 毫秒，已经贴着一帧。Spec 输出 47 的上限是约 1 MiB（条目页能读出的最大主文字），富文本没有对 5 万字以上的文字退化：按线性推算 30 万字每键约 45 毫秒、1 MiB 约 150 毫秒，在浏览器里还要加上浏览器自己的布局。值表在超过 5 万字时已经不请求，但写出照旧每键一次。
+建议：要么在计划“不做与风险”里写明“超过 N 字时富文本不保证流畅”，要么把 writeOut 改成停顿时交出（plan S3 写了这个后备）并在超过阈值（例如 10 万字）时自动落在源文字、写原因。需要的话由主 Agent 在真实浏览器里造 30 万字的条目量一次按键耗时。
+
+【Spec 有、实现与测试都没有的项】（已排除第 1 到 14 条里写过的）
+ 1. 输出 48 “插入”菜单里的“图片”：实现没有，README 已记为待定（要选图对话框），Spec 仍标 planned 且写了五项；晋升前要么改 Spec 要么做完。
+ 2. 输出 48 “从外面粘进来的含标签的纯文字按文字处理，不读成标签”：实现靠 ProseMirror 默认的纯文字粘贴加写出时转义，没有专门的代码，也没有测试（见第 12 条第 4 项）。另外粘贴 HTML 时 entryTagNode.parseHTML 认 `span[data-canon-entry-tag]` 的 data-source 属性，不校验它是不是一个合法标签；写出时有 codec 的读回校验兜底（EntryRichInput.dom.test.ts:124 那条），所以只会落到“写不出”的提示，不会写坏，记一笔。
+ 3. 输出 48 “光标在行内代码或代码块里时这些入口都不可用”：只做了 `{`、`@`，没做菜单（第 6 条）。
+ 4. 输出 39“页面不滚动”（第 8 条）；计划“显示全部分支”的过渡与位置锚定（第 11 条）。
+
+【9 的补充】建议 / 正确性
+在第 9 条 a 的状态里（新插入的浮层开着、作者点了编辑区别处、焦点回到编辑区），再按 Esc：EntryTextEditor 的 onKeydown 挂在 .text-editor 的 DOM 上（冒泡阶段，先于 reka 挂在 window 上的 Esc 处理），此时 `defaultPrevented` 为假、没有未提交的内容就发 cancel，整个编辑退出；浮层只是顺带被关。第 9 条改成点编辑区会收起之后这条自然消失。
+
+== 未发现问题的方面（仔细检查后没有发现）==
+ - EntryText 的 `renderingBlock`：它不是模块变量，是 `<script setup>` 里的闭包变量，每个组件实例一份；Block 的渲染函数同步执行、在 finally 里复位，位置键取块 id 加标签起点没有串块的路径。
+ - 宿主 richContext 的各字段引用：fields、marks、baseline 各是独立的 computed，每次按键重算的只有外层对象与 computing 这个原始值，EntryRichInput 里 `watch([...])` 的触发条件是五个 prop 真的变了才触发，不会每键整篇重对值；richValues 兜底只在第一次请求回来之前新建对象，且 EntryRichInput 对 null 保留上一份。
+ - applyChip 里先关浮层再发事务、followChip 把“锚着的小块换了”当作丢弃的顺序，与注释一致；id 守卫能挡住等待期间被换掉的那一个（缺的是测试，见第 12 条）。
+ - Popover 的 Esc 顺序：form 上的 keydown（markEscape）在冒泡阶段先于 reka 挂在 window 上的 Esc 监听，`closedByEscape` 的读写顺序正确；Button 的默认 type 是 "button"，浮层里“换一个”“删掉”不会提交表单。
+ - 来历浮层与值按钮：锚点按钮上的按下被 Popover 拦掉（onInteractOutside），点另一个值是先 close 再 value，能换过去；`pressed` 在 document 捕获阶段记，页内页外的分辨在“按下后关闭”这条主路径上正确（边缘：键盘关闭沿用上一次指针位置，只影响“清掉还是收起”，两种都可接受）。
+ - 监听与计时器的释放：document 上两个 pointerdown 监听（EntryRichInput 的 menuOutside、EntryText 的 press）都在 beforeUnmount 移除；源文字检查的计时器在卸载与模式变化时清；编辑器在 beforeUnmount 销毁并置空，之后 focusChip 的定时器有判空。
+ - 去掉预览：grep 预览、interactive、data-source-line、lineOf、text-preview、wide 在 canon 下的非测试代码里没有残留（页头自己的 `wide` 属性与 reads-service 里的透传是别的页面在用，EntryPage 已不传）；文案键 textEdit.preview* 在两份 locale 里都已删除；代码里 `text("…")` 的字面键在 zh-CN 与 en-US 里都能查到。
+ - 没发现按错误文案做分支、静默吞错误的 catch（entry-syntax.ts 里 parseHTML 那个 catch 返回 false 并有注释）、跨包深导入。
+
+== 数量 ==
+阻断 0；重要 6（第 1、2、3、4、5、6 条）；建议 8（第 7、8、9、10、11、12、13、14 条，另有第 9 条补充与“Spec 有、实现与测试都没有的项”清单）。
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14
+
+== 处理（主会话，2026-11-27）==
+1 成立，改：收起期间值按钮不算展开，再点同一个只重新展开、不发 value；补用例、变异测出。
+2 成立，改：computing 只在请求值时为真；补“条目被删了以后计算小块是没有算”的用例、变异测出。
+3 成立，改：偏移按顶层块算（先找块，块内写出前缀量长度）；嵌套段首量到第一个字之后减一；顶层代码块按围栏下一行起的字数；表格里按单元格纯文字估；随位置不减。补列表（首块与非首块）、引用、代码块、表格的单调与往返用例。
+4 成立，改：新插的浮层 Esc 取消时不选节点；补用例。
+5 成立（dom 测试里复现：菜单关上时还焦点给“插入”按钮，刚开的浮层随之关上）。改：选了一项以后菜单不还焦点；补用例。
+6 成立，改（a）：输入框外露 canInsert，菜单打开时问一次，光标在代码里各项不可用、写原因；补用例。
+7 成立，改：空格补回“{ ”，Esc 与空格都判 isComposing；补用例。
+8 成立，改：带偏移的 focus 不滚动。
+9 成立，改：新插的浮层不给锚点（只按光标定位），点正文别处收起；展开状态只写在已有小块上；补用例。第 9 条补充随之消失。
+10 成立，改：a 浮层与来历浮层退场期间留着最后一份内容（来历的宿主同样留最后一份）；b 浮层表单的可读名字是标题；c 顶层小块的壳 role=button，可读名字用文案模板（标点随语言）。状态进可读名字没做：显示的文字已经是“未知”“计算中”的样子说明，读屏读得到值本身。
+11 部分改：翻开“显示全部分支”时没生效的几支淡入（只翻开那一次，减弱动效时为 0）；视口位置交给浏览器自带的滚动锚定，不另补滚动，写进组件说明。
+12 1 到 4 补了用例（“换一个”、点列表外、应用等待期间被关掉、复制条件小块与粘贴纯文字）。复制粘贴的用例测出一个缺陷：Tiptap 缺省把节点属性写成同名 HTML 属性、粘贴时按字符串读回盖掉 getAttrs，条件的 branches 读成字符串、节点视图抛错；改成属性只经各自的 data-* 进出。第 7 项（拒收以外的问题也切源文字）不改：props.problem 只在提交被拒时有字（内核说写得不对，或文字里有随剧情变的段落、这里改不了）；后一种切到源文字、光标在文首，没有坏处。
+13 a、b、c、e 改。d 不改：字面写的 <If 只在少见写法里误出开关，开关翻了没有坏处；改成读编辑器的条件个数要把编辑器状态往外传，收益小。f 不改：选字段、删小块的检查与“应用”同一份，长文里卡顿在计划的已知限制里。
+14 不改，记为已知限制（计划“不做与风险”）：超过 5 万字时富文本不保证每键流畅，作者可切源文字。
