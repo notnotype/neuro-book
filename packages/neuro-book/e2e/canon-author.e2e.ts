@@ -66,6 +66,10 @@ const crumbs = (page: Page) => page.locator("[data-editor-page-breadcrumbs] [dat
 const activeTabLabel = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]");
 /** 文字分页里带值写法的一个值（按地址）。 */
 const value = (page: Page, path: string) => entryPage(page).locator(`[data-value$="|${path}"]`).first();
+/** 文字分页里同一个字段的所有值（按地址；同一字段在正文里出现几次就有几个）。 */
+const values = (page: Page, path: string) => entryPage(page).locator(`[data-value$="|${path}"]`);
+/** 文字分页里点值弹出的来历浮层（author-ui 输出 11）：传送到 body，不在条目页里。 */
+const originPopover = (page: Page) => page.locator("[data-origin-popover]");
 /** 人物、形象分页里一项的值（输出 49、50：值本身是按钮）。 */
 const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-edit="${path}"]`);
 /** 专门界面里就地改的编辑器（输出 51）：短项在浮层里（传送到页面根上），成段的文字浮在原处。 */
@@ -143,7 +147,11 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
 
     await choosePosition(page, /第 2 章末尾/u);
     await value(page, "panel.存款").click();
-    const origins = entryPage(page).locator("[data-origin-list]");
+    // 文字分页里来历是贴着值弹出的浮层（输出 11），值按钮写它开着。
+    await expect(value(page, "panel.存款")).toHaveAttribute("aria-expanded", "true");
+    const popover = originPopover(page);
+    await expect(popover).toBeVisible();
+    const origins = popover.locator("[data-origin-list]");
     await expect(origins).toBeVisible();
     await expect(origins.locator("[data-origin-row]").last()).toContainText("最初");
     // 估计的那笔：依据写“估计”，用警告色。
@@ -166,14 +174,18 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
     await textTab(page);
     await choosePosition(page, /第 1 章末尾/u);
     await value(page, "panel.存款").click();
-    await expect(entryPage(page).locator("[data-origin-list]")).toBeVisible();
+    await expect(originPopover(page).locator("[data-origin-list]")).toBeVisible();
 
     await openEntry(page, "星瑾");
+    // 星瑾的页没有展开的来历：浮层是星瑕那一页的，随它收起。
+    await expect(originPopover(page)).toHaveCount(0);
     await expect(positionSelect(page)).toHaveText(/第 3 章末尾/u);
     await choosePosition(page, /第 2 章末尾/u);
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
     await expect(positionSelect(page)).toHaveText(/第 1 章末尾/u);
-    await expect(entryPage(page).locator("[data-origin-list]")).toBeVisible();
+    // 回到星瑕的页：按记下的那一处重新打开来历浮层（输出 11、验收 2）。
+    await expect(originPopover(page).locator("[data-origin-list]")).toBeVisible();
+    await expect(value(page, "panel.存款")).toHaveAttribute("aria-expanded", "true");
     // 设定树跟着切过来的条目页选中。
     await expect(row(page, "星瑕")).toHaveAttribute("aria-selected", "true");
     await page.locator("[data-editor-tab]", {hasText: "星瑾"}).click();
@@ -621,4 +633,120 @@ test("验收 5：状态栏“待处理 1”点进去选中那一条；改这一�
     await expect(statusBar(page)).toContainText("星瑕");
     await expect(pendingItem(page)).toHaveCount(0);
     await expect(panelEntry(page, "nbook.canon.pending")).not.toContainText("1");
+});
+
+test("验收 11：文字分页里点值，来历浮层打开时焦点进浮层；按 Escape 关上，焦点回到那个值", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await textTab(page);
+    const button = value(page, "panel.存款");
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    await button.click();
+    const popover = originPopover(page);
+    await expect(popover).toBeVisible();
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+    // 打开时焦点进了浮层（浮层传送到 body，焦点由浮层自己管）。
+    await expect.poll(() => popover.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(popover).toHaveCount(0);
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    await expect(button).toBeFocused();
+
+    // 再点又开，再点同一个值是收起（焦点留在值上）。
+    await button.click();
+    await expect(popover).toBeVisible();
+    await button.click();
+    await expect(popover).toHaveCount(0);
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+});
+
+test("验收 11：同一个字段在正文里出现两次时，只有被点的那一个按下、打开浮层；点另一处换过去，同一时间只开一个", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await textTab(page);
+    // 样本里存款在正文里只出现一次：编辑主文字，在末尾再插一个存款的值（富文本里“插入”的“值”）、提交，让同一字段出现两次。
+    await expect(values(page, "panel.存款")).toHaveCount(1);
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    const editable = entryPage(page).locator("[data-rich-input][contenteditable=\"true\"], [data-rich-input] [contenteditable=\"true\"]").first();
+    await expect(editable).toBeVisible();
+    await editable.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("再说一遍，存款是");
+    // 正文里本来就有带数字的取值小块：先记下个数，等它多一个才算插进去了，再等菜单收起，才去点“提交”。
+    const valueChips = entryPage(page).locator("[data-rich-input] [data-entry-chip=\"value\"]");
+    const chipsBefore = await valueChips.count();
+    await entryPage(page).locator("[data-text-insert]").click();
+    await expect(page.getByRole("menuitem").first()).toBeVisible();
+    const group = page.getByRole("menuitem", {name: "值", exact: true});
+    if ((await group.count()) > 0) await group.click();
+    await page.getByRole("menuitem", {name: /存款$/u}).click();
+    await expect(valueChips).toHaveCount(chipsBefore + 1);
+    // 标题栏的菜单条（文件、编辑、视图、帮助）本身就有四个 menuitem，所以看弹出的 menu 收起，不数 menuitem。
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toContainText("再说一遍，存款是");
+    const same = values(page, "panel.存款");
+    await expect(same).toHaveCount(2);
+
+    // 点第二个：只有它按下，第一个没按下；浮层只有一个。
+    await same.nth(1).click();
+    await expect(originPopover(page)).toHaveCount(1);
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+    // 点第一个：换过去，同一时间只开一个。
+    await same.nth(0).click();
+    await expect(originPopover(page)).toHaveCount(1);
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "true");
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Escape");
+    await expect(originPopover(page)).toHaveCount(0);
+    await expect(same.nth(0)).toBeFocused();
+});
+
+test("验收 11、2：开着的来历浮层按“哪一处”记：点标签条上别的标签再切回来，照记下的那一处重新打开；在页面里点别处关上，切走再回来不再打开", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await textTab(page);
+    // 前一条用例让存款在正文里出现了两次。
+    const same = values(page, "panel.存款");
+    await expect(same).toHaveCount(2);
+    await same.nth(1).click();
+    await expect(originPopover(page).locator("[data-origin-list]")).toBeVisible();
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+
+    // 点标签条上别的标签：星瑕那一页的浮层随它收起（点到条目页外面只收起）。
+    await openEntry(page, "星瑾");
+    await expect(originPopover(page)).toHaveCount(0);
+    // 切回来：照记下的那一处（第二个）打开，不是第一个。
+    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
+    await expect(activeTabLabel(page)).toHaveText("星瑕");
+    await expect(originPopover(page).locator("[data-origin-list]")).toBeVisible();
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+
+    // 在页面里点别处：关上，记下的那一处清掉。
+    await entryPage(page).locator("h1").click();
+    await expect(originPopover(page)).toHaveCount(0);
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "false");
+    // 切走再回来不再打开：先等回来的页面挂好（值按钮都在），再看浮层。
+    await page.locator("[data-editor-tab]", {hasText: "星瑾"}).click();
+    await expect(activeTabLabel(page)).toHaveText("星瑾");
+    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
+    await expect(activeTabLabel(page)).toHaveText("星瑕");
+    await expect(same).toHaveCount(2);
+    await expect(same.nth(1)).toBeVisible();
+    await expect(originPopover(page)).toHaveCount(0);
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "false");
+});
+
+test("验收 30：来历浮层是对话框，读屏读出“某某的来历”（对话框的可访问名是“存款的来历”）", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await textTab(page);
+    await value(page, "panel.存款").click();
+    await expect(originPopover(page)).toBeVisible();
+    await expect(page.getByRole("dialog", {name: "存款的来历"})).toBeVisible();
 });

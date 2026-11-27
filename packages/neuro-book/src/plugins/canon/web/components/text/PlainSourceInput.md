@@ -25,8 +25,8 @@ type Emits = {
 };
 
 type Exposed = {
-    /** 把焦点放进输入框；`caret` 把光标放到文首或文末，不给时不动光标。 */
-    focus(caret?: "start" | "end"): void;
+    /** 把焦点放进输入框；`caret` 把光标放到文首、文末或整篇里的偏移（超出的按文末），不给时不动光标。 */
+    focus(caret?: "start" | "end" | number): void;
     /** 光标在文字里的偏移。 */
     cursorOffset(): number | null;
     /** 在光标处写入一段文字（有选区时换掉选区），光标落在它后面，照打字一样交出 `update:modelValue`；只读时不做，返回 false。 */
