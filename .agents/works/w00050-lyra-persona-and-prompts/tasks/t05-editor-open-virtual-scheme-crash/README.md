@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-editor-open-virtual-scheme-crash
-status: planned
-updated: 2026-11-17
+status: done
+updated: 2026-11-27
 ---
 
 # 修复点击对话文件改动打开 profile:// 等非工作区方案时编辑器抛错卡死
