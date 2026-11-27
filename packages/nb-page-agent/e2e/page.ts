@@ -6,8 +6,8 @@ import path from "node:path";
 
 import type {Page} from "@playwright/test";
 
-import type {Locator, PageFailure, SnapshotArgs, SnapshotResult} from "../src/api";
-import type {PageAgent, PageAgentOptions} from "../src/index";
+import type {HighlightArgs, HighlightInstalled, Locator, PageFailure, SnapshotArgs, SnapshotResult} from "../src/api";
+import type {HighlightEnd, HighlightHandle, PageAgent, PageAgentOptions} from "../src/index";
 import type {capturePage} from "../src/capture";
 import type {LocateOptions} from "../src/locate";
 
@@ -15,6 +15,8 @@ declare global {
     interface Window {
         nbPageAgent: {createPageAgent(options?: PageAgentOptions): PageAgent; capturePage: typeof capturePage};
         agent: PageAgent;
+        /** 最近一次高亮：句柄、装上的结果与结局（还没有时为 undefined）。 */
+        guide?: {handle: HighlightHandle; installed?: HighlightInstalled | null; ended?: HighlightEnd};
     }
 }
 
@@ -23,15 +25,52 @@ const BUNDLE = path.join(import.meta.dirname, "..", "dist", "e2e", "page-agent.j
 export interface FixtureOptions {
     readonly head?: string;
     readonly prefix?: string;
+    /** 等目标出现的上限（毫秒）；缺省用引擎的 5 秒。 */
+    readonly targetWaitMs?: number;
 }
 
 export async function openFixture(page: Page, body: string, options: FixtureOptions = {}): Promise<void> {
     await page.setContent(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>夹具</title>
 <style>body{margin:0;font:14px/1.4 sans-serif}</style>${options.head ?? ""}</head><body>${body}</body></html>`);
     await page.addScriptTag({path: BUNDLE});
-    await page.evaluate((prefix) => {
-        window.agent = window.nbPageAgent.createPageAgent({refPrefix: prefix});
-    }, options.prefix ?? "t1");
+    await page.evaluate(([prefix, targetWaitMs]) => {
+        window.agent = window.nbPageAgent.createPageAgent({refPrefix: prefix, ...(targetWaitMs === null ? {} : {guide: {targetWaitMs}})});
+    }, [options.prefix ?? "t1", options.targetWaitMs ?? null] as const);
+}
+
+/** 开始高亮，句柄与结果记在 `window.guide`；写错的定位让这一步抛错。 */
+export async function startHighlight(page: Page, args: HighlightArgs): Promise<void> {
+    await page.evaluate((input) => {
+        const handle = window.agent.highlight(input);
+        const guide: NonNullable<Window["guide"]> = {handle};
+        window.guide = guide;
+        void handle.installed.then((value) => {
+            guide.installed = value;
+        });
+        void handle.outcome.then((value) => {
+            guide.ended = value;
+        });
+    }, args);
+}
+
+/** 等最近一次高亮装上（或没装上就结束，得 null）。 */
+export async function installed(page: Page): Promise<HighlightInstalled | null> {
+    await page.waitForFunction(() => window.guide?.installed !== undefined);
+    return page.evaluate(() => window.guide!.installed!);
+}
+
+/** 等最近一次高亮的结局。 */
+export async function ended(page: Page): Promise<HighlightEnd> {
+    await page.waitForFunction(() => window.guide?.ended !== undefined);
+    return page.evaluate(() => window.guide!.ended!);
+}
+
+/**
+ * 最近一次高亮还在等用户：没有结局，也没有在淡出（结束之后要等淡出完才交出结局，只看结局会把淡出中的当成还在等）。
+ */
+export function stillWaiting(page: Page): Promise<boolean> {
+    return page.evaluate(() => window.guide !== undefined && window.guide.ended === undefined
+        && document.querySelector("[data-nb-page-agent=guide]:not([data-closing])") !== null);
 }
 
 export function snapshot(page: Page, args: SnapshotArgs = {}): Promise<SnapshotResult | PageFailure> {

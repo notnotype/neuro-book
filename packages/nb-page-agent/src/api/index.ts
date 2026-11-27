@@ -123,3 +123,54 @@ export const DETAILS_BYTE_LIMIT = 8 * 1024;
 export const ELEMENT_LIMIT = 500;
 /** 每个回复按 JSON 序列化后的上限：宿主 WebSocket 的单条消息上限是 1 MiB，留出信封与别的字段的余量。 */
 export const RESULT_BYTE_LIMIT = 256 * 1024;
+
+// ---------- 高亮（输出 9、10） ----------
+
+export const GUIDE_MESSAGE_CHARS = 1000;
+export const GUIDE_TITLE_CHARS = 120;
+export const GUIDE_MAX_STEPS = 99;
+/** 提问至多这么多字（按 UTF-16 码元数，与输入框的 `maxlength` 一致）。 */
+export const QUESTION_MAX_CHARS = 2000;
+
+export const GuideSideSchema = Type.Union([Type.Literal("top"), Type.Literal("bottom"), Type.Literal("left"), Type.Literal("right")], {description: "说明框放在目标的哪一边，放不下时换一边；缺省先下后上"});
+
+/** 页面一侧的高亮参数；宿主另加自己的定位写法与 `timeout`。 */
+export const HighlightArgsSchema = Type.Object({
+    at: LocatorSchema,
+    message: Type.String({minLength: 1, maxLength: GUIDE_MESSAGE_CHARS, description: "说明框里的话，只作纯文字"}),
+    title: Type.Optional(Type.String({minLength: 1, maxLength: GUIDE_TITLE_CHARS, description: "说明框的标题"})),
+    side: Type.Optional(GuideSideSchema),
+    until: Type.Union([Type.Literal("click"), Type.Literal("next")], {description: "click：等用户点目标；next：等用户点说明框里的“下一步”"}),
+    step: Type.Optional(Type.Integer({minimum: 1, maximum: GUIDE_MAX_STEPS, description: "第几步；与 total 一起给时显示进度，等于 total 时“下一步”写成“完成”"})),
+    total: Type.Optional(Type.Integer({minimum: 1, maximum: GUIDE_MAX_STEPS, description: "一共几步"})),
+    back: Type.Optional(Type.Boolean({description: "until 为 next 时显示“上一步”，点了结局是 back，由代码退回上一步重新高亮；缺省 false"})),
+    dim: Type.Optional(Type.Boolean({description: "压暗目标以外的地方，只改外观、页面照常能点；缺省 false"})),
+}, {additionalProperties: false});
+
+export type GuideSide = Static<typeof GuideSideSchema>;
+export type HighlightArgs = Static<typeof HighlightArgsSchema>;
+
+/**
+ * 页面交回的结局（输出 9）。`timeout`、`window-gone`、`cancelled` 由宿主结算，不在这里。
+ * `missed` 的 `clicked` 是点到的那个元素（升到包着它的可交互元素），带引用，调用方可以拿来再定位。
+ */
+export const PageOutcomeSchema = Type.Union([
+    Type.Object({outcome: Type.Literal("clicked")}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("next")}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("back")}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("asked"), question: Type.String({maxLength: QUESTION_MAX_CHARS})}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("missed"), clicked: CandidateSchema}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("dismissed")}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("gone")}, {additionalProperties: false}),
+    Type.Object({outcome: Type.Literal("replaced")}, {additionalProperties: false}),
+]);
+
+export type PageOutcome = Static<typeof PageOutcomeSchema>;
+
+/** 高亮装上了：画出来的是哪个元素（落到唯一可交互后代之后的那个）。 */
+export const HighlightInstalledSchema = Type.Object({
+    target: CandidateSchema,
+    warnings: Type.Array(Type.String({maxLength: 1024}), {maxItems: 50}),
+}, {additionalProperties: false});
+
+export type HighlightInstalled = Static<typeof HighlightInstalledSchema>;
