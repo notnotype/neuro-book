@@ -96,7 +96,7 @@ const loadingText = computed(() => text("spinner.loading"));
 
 /**
  * 翻页加载时旧行被遮罩盖着，这时行不可交互：键盘也走不到被盖住的行内按钮。
- * 加载完、遮罩还在停最短时长时，底下已经是新行，不再挡操作（设计语言“动效的行为”第 2 条的同一个道理）。
+ * 加载完、遮罩还在停最短时长时，底下已经是新行，不再挡操作：行不 inert，遮罩也让指针穿过去（`is-settled`）。
  */
 const rowsInert = computed(() => layer.value === "mask" && props.loading);
 
@@ -117,14 +117,15 @@ watch(() => props.rows, () => {
  * pre 在换内容之前记下焦点在哪，post 在换完之后判断。焦点原本不在表格区里时不动焦点。
  */
 let focusBefore: {element: Element; inLayer: boolean} | null = null;
-watch([layer, tableRows], () => {
+// rowsInert 也列进来：遮罩停着、行可操作时又开始加载，层与行都没变，行却变成 inert。
+watch([layer, tableRows, rowsInert], () => {
     const body = bodyRef.value;
     const active = document.activeElement;
     focusBefore = body && active && active !== body && body.contains(active)
         ? {element: active, inLayer: active.closest(".nb-data-table-layer") !== null}
         : null;
 }, {flush: "pre"});
-watch([layer, tableRows], ([nextLayer], [previousLayer]) => {
+watch([layer, tableRows, rowsInert], ([nextLayer], [previousLayer]) => {
     const before = focusBefore;
     focusBefore = null;
     if (!before) return;
@@ -158,7 +159,7 @@ watch([layer, tableRows], ([nextLayer], [previousLayer]) => {
                 </template>
             </Table>
             <Transition name="nb-data-table-layer">
-                <div v-if="layer" :key="layer" class="nb-data-table-layer" :class="`is-${layer}`">
+                <div v-if="layer" :key="layer" class="nb-data-table-layer" :class="[`is-${layer}`, {'is-settled': layer === 'mask' && !rowsInert}]">
                     <div v-if="layer === 'error'" role="alert" class="nb-data-table-state">
                         <EmptyState :title="props.error">
                             <template #icon><span class="i-lucide-circle-alert h-5 w-5 text-[var(--status-danger)]" aria-hidden="true" /></template>
@@ -272,8 +273,10 @@ watch([layer, tableRows], ([nextLayer], [previousLayer]) => {
     margin: auto;
 }
 
-/* 居中的状态不挡住表头与滚动条，只有里面的内容可点；遮罩整块挡住，加载期间点不到旧行。 */
-.nb-data-table-layer:not(.is-mask) {
+/* 居中的状态不挡住表头与滚动条，只有里面的内容可点；遮罩整块挡住，加载期间点不到旧行。加载完、遮罩还在停最短时长
+   （is-settled）时底下已是新行，指针穿过去，与键盘一致。 */
+.nb-data-table-layer:not(.is-mask),
+.nb-data-table-layer.is-settled {
     pointer-events: none;
 }
 

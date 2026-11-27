@@ -493,7 +493,7 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     margin-block-end: 8px;
 }
 
-/* 展开后的列表晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。减少动效时两个时长令牌都是 0，直接显示。 */
+/* 展开后的列表晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。减少动效时宽度过渡是 0、不用等，列表直接淡入。 */
 .acv-segment__list {
     display: flex;
     flex-direction: column;

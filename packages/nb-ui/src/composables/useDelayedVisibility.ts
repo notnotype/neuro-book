@@ -8,7 +8,8 @@ import type {Ref, WatchSource} from "vue";
  * - 一旦显示，至少停留 `minVisible` 再隐藏：300ms 左右的请求不闪一下就没了。
  * - `delay` 之内 `source` 变回假，始终不显示。
  *
- * 时间经 `timers` 注入，测试传手动的实现；缺省用全局的计时器。
+ * 时间经 `timers` 注入，测试传手动的实现；缺省用全局的计时器。`delay` 为 0 时也经一次计时器，不在同一个调用栈里显示。
+ * 在组件或 `effectScope` 里调用时，作用域结束会清掉计时器；在作用域外调用，调用方自己负责在不用时停掉 `source` 的变化。
  */
 export interface VisibilityTimers {
     now(): number;

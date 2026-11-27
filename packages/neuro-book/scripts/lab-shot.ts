@@ -63,6 +63,8 @@ export type ShotResult = {
     viewport: string;
     colorway: string | null;
     media: LabMedia | null;
+    /** 模拟的偏好在页面里确实生效（`matchMedia` 为真）；没模拟时为 null。 */
+    mediaMatched: boolean | null;
     file: string;
     measure: LabStageMeasure | null;
     /** `--text-spacing` 时：注入 WCAG 1.4.12 的四项间距之后的越界元素与被裁掉的文字；只报告。 */
@@ -217,6 +219,7 @@ async function shoot(page: Page, options: ShotOptions, scene: string, viewport: 
         });
     }
     await openLab(page, labUrl(options, scene, viewport, colorway), options.component, scene);
+    const mediaMatched = media === null ? null : await page.evaluate((feature) => matchMedia(`(${feature}: reduce)`).matches, MEDIA_FEATURE[media]);
     const loadError = await page.evaluate(() => window.__nbLab?.state().loadError ?? "");
     if (loadError !== "") {
         throw new Error(`${options.component}/${scene} 加载失败：${loadError}`);
@@ -241,10 +244,15 @@ async function shoot(page: Page, options: ShotOptions, scene: string, viewport: 
         // 等两帧：样式生效、版面重排之后再量。
         await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
         const spaced = await page.evaluate(() => window.__nbLab?.measure() ?? null);
-        textSpacing = spaced === null ? null : {offenders: spaced.offenders, clippedText: spaced.clippedText};
+        // 只报加大间距之后新出现的：原本就越界、被裁的已经在 measure 里报过。
+        const before = new Set([...(measure?.offenders ?? []), ...(measure?.clippedText ?? [])].map((entry) => entry.selector));
+        textSpacing = spaced === null ? null : {
+            offenders: spaced.offenders.filter((entry) => !before.has(entry.selector)),
+            clippedText: spaced.clippedText.filter((entry) => !before.has(entry.selector)),
+        };
         await page.locator("[data-lab-stage]").screenshot({path: join(options.out, `${name}__text-spacing.png`)});
     }
-    return {component: options.component, scene, viewport, colorway, media, file, measure, textSpacing};
+    return {component: options.component, scene, viewport, colorway, media, mediaMatched, file, measure, textSpacing};
 }
 
 function list(value: string): string[] {

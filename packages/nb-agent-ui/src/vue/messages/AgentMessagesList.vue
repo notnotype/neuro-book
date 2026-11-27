@@ -236,7 +236,7 @@ function markBroken(src: string): void {
     min-height: 0;
 }
 
-/* 换页时新的一页淡入；减少动效时时长令牌是 0。 */
+/* 换页时新的一页淡入（只有透明度，减少动效时照常）。 */
 .acv-messages-list__page.is-entering {
     animation: acv-messages-list-page-in var(--motion-base);
 }

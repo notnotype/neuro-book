@@ -315,11 +315,25 @@ function inlineInText(element: HTMLElement): boolean {
     return parent !== null && (parent.textContent ?? "").trim().length > (element.textContent ?? "").trim().length;
 }
 
-/** 可点区域：元素自己加上点了也算点它的 label（`for` 指向它，或包住它）。 */
+/** 两个矩形相接或重叠（容 1 像素）。 */
+function touching(a: DOMRect, b: DOMRect): boolean {
+    return a.left <= b.right + TOLERANCE && b.left <= a.right + TOLERANCE && a.top <= b.bottom + TOLERANCE && b.top <= a.bottom + TOLERANCE;
+}
+
+/**
+ * 可点区域：元素自己加上点了也算点它的 label（`for` 指向它，或包住它）。只并进与控件相接或重叠的 label：中间隔着空白时
+ * 并集会把空白也算进去，可点区域被高估、中心也落在空白里。
+ */
 function hitArea(element: HTMLElement): DOMRect {
-    const rects = [element.getBoundingClientRect()];
+    const own = element.getBoundingClientRect();
+    const rects = [own];
     const labels = (element as HTMLInputElement).labels;
-    if (labels !== undefined && labels !== null) for (const label of labels) rects.push(label.getBoundingClientRect());
+    if (labels !== undefined && labels !== null) {
+        for (const label of labels) {
+            const rect = label.getBoundingClientRect();
+            if (touching(own, rect)) rects.push(rect);
+        }
+    }
     const left = Math.min(...rects.map((rect) => rect.left));
     const top = Math.min(...rects.map((rect) => rect.top));
     return new DOMRect(left, top, Math.max(...rects.map((rect) => rect.right)) - left, Math.max(...rects.map((rect) => rect.bottom)) - top);
@@ -327,12 +341,14 @@ function hitArea(element: HTMLElement): DOMRect {
 
 /**
  * 可点区域不够 24×24 又不满足间距例外的目标：以它的中心画直径 24 的圆，圆碰到别的目标，或者两个小目标的圆相交。
- * 套在一起的目标（菜单项里的复选）互相不算。看不见的、`aria-hidden` 里的不算。
+ * 套在一起的目标（菜单项里的复选）互相不算。看不见的、`aria-hidden` 里的、停用的不算（WCAG 2.5.8 不管不可用的控件）。
+ * “看不见”只看元素自己：悬停才显出来的按钮组（祖先透明）照样算，悬停时它们就是目标。
  */
 export function smallTargetsIn(region: HTMLElement, limit: number): LabSmallTarget[] {
     const targets = [...region.querySelectorAll<HTMLElement>(POINTER_TARGETS)].filter((element) => {
         const box = element.getBoundingClientRect();
-        return box.width > 0 && box.height > 0 && !invisible(element) && element.closest("[aria-hidden='true']") === null && !inlineInText(element);
+        const disabled = element.matches(":disabled") || element.getAttribute("aria-disabled") === "true";
+        return box.width > 0 && box.height > 0 && !disabled && !invisible(element) && element.closest("[aria-hidden='true']") === null && !inlineInText(element);
     });
     const areas = targets.map(hitArea);
     const small = areas.map((area) => area.width < MIN_TARGET - 0.5 || area.height < MIN_TARGET - 0.5);
@@ -360,14 +376,15 @@ export function smallTargetsIn(region: HTMLElement, limit: number): LabSmallTarg
 }
 
 /**
- * 文字被裁掉的元素：自己直接带着文字，在不滚动的方向上内容比盒子大，又不是有意的截断（单行省略号、行数截断）。
- * 给“文字间距加大不丢内容”（WCAG 1.4.12）摸底用，只报告。
+ * 文字被裁掉的元素：在不滚动的方向上裁切（`overflow: hidden` 或 `clip`）、里面有文字、内容比盒子大，又不是有意的截断
+ * （单行省略号、行数截断）。裁文字的常是外面的壳（固定高度的按钮、徽标），文字在里面的 span 里，所以按裁切的容器查，
+ * 不要求文字是它的直接子节点。给“文字间距加大不丢内容”（WCAG 1.4.12）摸底用，只报告。
  */
 export function clippedTextIn(region: HTMLElement, limit: number): LabOverflowOffender[] {
     const found: LabOverflowOffender[] = [];
     for (const element of region.querySelectorAll<HTMLElement>("*")) {
         if (found.length >= limit) break;
-        if (![...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "")) continue;
+        if ((element.textContent ?? "").trim() === "" || element.closest("[aria-hidden='true']") !== null) continue;
         const style = getComputedStyle(element);
         const hidesX = style.overflowX === "hidden" || style.overflowX === "clip";
         const hidesY = style.overflowY === "hidden" || style.overflowY === "clip";

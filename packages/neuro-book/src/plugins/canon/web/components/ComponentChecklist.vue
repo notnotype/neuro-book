@@ -261,4 +261,12 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
     font-size: var(--text-sm);
     color: var(--text-muted);
 }
+
+/* 减弱动效：勾直接出现在原尺寸，只淡入（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .component-checklist__check,
+    .component-checklist__box[data-checked] .component-checklist__check {
+        transform: none;
+    }
+}
 </style>

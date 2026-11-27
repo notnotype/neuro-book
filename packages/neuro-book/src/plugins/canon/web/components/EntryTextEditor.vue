@@ -382,4 +382,12 @@ defineExpose({focus});
     grid-template-rows: 0fr;
     opacity: 0;
 }
+
+/* 减弱动效：圆点不缩放，只淡入淡出（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .text-editor-dot-enter-from,
+    .text-editor-dot-leave-to {
+        transform: none;
+    }
+}
 </style>

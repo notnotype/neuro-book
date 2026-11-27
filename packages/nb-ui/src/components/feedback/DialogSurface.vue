@@ -209,7 +209,7 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
 /*
  * 入场：有来处的（用户点按钮或菜单项打开的）从来处长出来，关闭时收回去；没有来处的（快捷键、命令面板、程序打开）原地缩放淡入。
  * 起点、时长与曲线由宿主经 `--nb-dialog-from-x/y/scale`、`--nb-dialog-enter-*`、`--nb-dialog-leave-*` 写在面板上（useDialogOrigin，规则见
- * dialog-origin.ts），没写就是原地。系统要求减少动态效果时这些时长令牌都是 0，动画不播，第一帧就是终点。
+ * dialog-origin.ts），没写就是原地。系统要求减少动态效果时不从来处长出来、不缩放，原地淡入淡出（文件末尾的媒体块）。
  * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
  */
 .nb-dialog[data-state="open"] {

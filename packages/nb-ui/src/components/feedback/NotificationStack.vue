@@ -245,4 +245,12 @@ function dismiss(item: NotificationItem): void {
     opacity: 0;
     transform: translateY(8px);
 }
+
+/* 减弱动效：不滑入滑出，只淡入淡出（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-notice-enter-from,
+    .nb-notice-leave-to {
+        transform: none;
+    }
+}
 </style>

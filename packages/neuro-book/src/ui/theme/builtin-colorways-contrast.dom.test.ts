@@ -37,12 +37,17 @@ describe("内置配色的对比度", () => {
         });
 
         it(`${id}：焦点外框对面板不低于 3`, () => {
-            // `--focus-outline` 是强调色与控件描边的混色（tokens.css）；描边按配色的 `--border-color`，与 tokens.css 的回退一致。
+            // 两套主题的 vars.css 都写：`--control-outline: color-mix(in srgb, var(--text-main) 16%, transparent)`，
+            // `--focus-outline: color-mix(in srgb, var(--accent-main) 80%, var(--control-outline))`。color-mix 按预乘 alpha 混，
+            // 结果再叠在面板上。主题改了这两行，这里跟着改。
             const panel = solid(colors, "--bg-panel");
             const accent = solid(colors, "--accent-main");
-            const border = composite(solid(colors, "--border-color"), panel);
-            const outline = {r: accent.r * 0.8 + border.r * 0.2, g: accent.g * 0.8 + border.g * 0.2, b: accent.b * 0.8 + border.b * 0.2, a: 1};
-            expect(contrast(outline, panel)).toBeGreaterThanOrEqual(3);
+            const text = solid(colors, "--text-main");
+            const outlineAlpha = 0.16;
+            const alpha = 0.8 + 0.2 * outlineAlpha;
+            const channel = (a: number, t: number) => (0.8 * a + 0.2 * outlineAlpha * t) / alpha;
+            const focusOutline = {r: channel(accent.r, text.r), g: channel(accent.g, text.g), b: channel(accent.b, text.b), a: alpha};
+            expect(contrast(composite(focusOutline, panel), panel)).toBeGreaterThanOrEqual(3);
         });
     }
 });

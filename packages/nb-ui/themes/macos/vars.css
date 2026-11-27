@@ -166,7 +166,7 @@
 }
 
 /*
- * 减少动效：库只把三个时长归零（`src/tokens.css`，带 !important），它不知道 --glass-lift 存在。
+ * 减少动效：库只把有位移的时长归零（`src/tokens.css`，带 !important），它不知道 --glass-lift 存在。
  * 主题自己新增的动效变量必须由主题自己关掉——这是「新增变量」这个能力的配套义务。
  */
 @media (prefers-reduced-motion: reduce) {

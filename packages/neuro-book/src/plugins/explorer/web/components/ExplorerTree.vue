@@ -321,7 +321,10 @@ watch(gestureState, (next) => {
     else emit("drag-hover", next.drop?.over ?? null);
 }, {flush: "sync"});
 
-/** 主题的动画时长（毫秒）；系统减少动态效果时为 0，没有布局的环境也当 0。 */
+/**
+ * 主题的动画时长（毫秒），没有布局的环境当 0。系统减少动态效果时只有 `--motion-move` 是 0（`--motion-fast`、`--motion-base`
+ * 留给颜色与透明度，nb-ui 设计语言“六、无障碍”），所以“放不放这些动画”一律看 `--motion-move`。
+ */
 function motionMs(name: "--motion-base" | "--motion-fast" | "--motion-move"): number {
     const element = root.value;
     if (element === null) return 0;
@@ -333,7 +336,7 @@ function motionMs(name: "--motion-base" | "--motion-fast" | "--motion-move"): nu
  * 过渡窗口（docs/specs/workbench/files-explorer.md 的“动画”）：树是虚拟列表，滚动时窗口两端也有行进出，不能一律做进出
  * 动画。只在展开的目录变了、或认出了宿主预告的结构变化之后的一个 `--motion-move` 里打 `data-motion`，样式只在这时让新出现
  * 的行从上方滑下并淡入、离开的行反向、其余行的位置跟着过渡。watch 在渲染之前跑，标记与新行同一次渲染出现，进场的过渡才有
- * 起点。系统减少动态效果时时长是 0，不打。
+ * 起点。系统减少动态效果时 `--motion-move` 是 0，不打。
  */
 const moving = ref(false);
 let movingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -489,7 +492,8 @@ function flyBack(at: {readonly x: number; readonly y: number}): void {
     const from = ghostAt(at);
     const duration = motionMs("--motion-base");
     const first = props.drag?.sources[0];
-    if (from === null || duration <= 0 || root.value === null || first === undefined) return;
+    // 飞回是位移：系统减少动态效果时不飞，拖影随拖动收场直接卸载（看 `--motion-move`，见 motionMs）。
+    if (from === null || motionMs("--motion-move") <= 0 || root.value === null || first === undefined) return;
     const element = root.value.querySelector<HTMLElement>(`[data-explorer-row="${CSS.escape(first)}"]`);
     const rect = element?.getBoundingClientRect();
     const depth = props.rows.find((row) => row.id === first)?.depth ?? 0;

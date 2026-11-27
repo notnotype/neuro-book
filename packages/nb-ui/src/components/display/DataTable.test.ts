@@ -205,6 +205,17 @@ describe("DataTable 的加载", () => {
 
         await wrapper.setProps({rows: chapters(4), loading: false});
         expect(tableRoot().hasAttribute("inert")).toBe(false);
+        // 遮罩还在停最短时长，但已不挡指针：指针与键盘一样能碰到新行。
+        expect(wrapper.get(".nb-data-table-layer.is-mask").classes()).toContain("is-settled");
+
+        // 停留期里焦点进了新行的按钮，又开始加载：层与行都没变，行变成 inert，焦点接到表格区，不掉回 body。
+        const newButton = wrapper.get(".more").element as HTMLButtonElement;
+        newButton.focus();
+        expect(document.activeElement).toBe(newButton);
+        await wrapper.setProps({page: 5, loading: true});
+        expect(tableRoot().hasAttribute("inert")).toBe(true);
+        expect(wrapper.get(".nb-data-table-layer.is-mask").classes()).not.toContain("is-settled");
+        expect(document.activeElement).toBe(wrapper.get(".nb-data-table-body").element);
     });
 });
 
