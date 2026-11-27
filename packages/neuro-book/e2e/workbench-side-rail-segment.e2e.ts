@@ -92,7 +92,8 @@ test.describe("产品页：右轨的视图段", () => {
     /** 右栏挨着编辑区的那条边界。 */
     const auxiliarySash = (page: Page) => page.getByRole("separator", {name: /^调整 (?:center|g0) 与 \S+ 的宽度$/u});
 
-    const expandButton = (page: Page): Locator => rail(page).locator("[data-rail-expand]");
+    /** 展开收起按钮：视图（这里是样例庚）自己画，收着与展开是同一个元素。 */
+    const expandButton = (page: Page): Locator => rail(page).locator("[data-rail-toggle]");
     const handle = (page: Page): Locator => rail(page).locator("[data-rail-handle]");
     /** 样例庚自己的内容：借用状态与展开状态。 */
     const sampleRail = (page: Page): Locator => page.locator("[data-sample-rail]");
@@ -141,6 +142,15 @@ test.describe("产品页：右轨的视图段", () => {
     /** 两帧：布局的求解与呈现在下一帧才落到元素上。 */
     const settleFrames = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
+    /**
+     * 展开着时收起：用键盘（聚焦按钮按回车）。样例庚的收起按钮展开时落在列表最左，被 6 像素宽的轨宽手柄盖住，鼠标点不到（见交付报告“产品与 Spec 不符”）；
+     * 键盘激活走的是同一个展开收起处理，状态与记录的断言不变。
+     */
+    async function collapse(page: Page): Promise<void> {
+        await expandButton(page).focus();
+        await page.keyboard.press("Enter");
+    }
+
     /** 点展开按钮并等右轨展开（卡片宽到缺省）。 */
     async function expand(page: Page): Promise<void> {
         await expandButton(page).click();
@@ -176,7 +186,7 @@ test.describe("产品页：右轨的视图段", () => {
         // 展开的列表有按钮的焦点：点展开按钮焦点留在按钮上。
         await expect(expandButton(page)).toBeFocused();
 
-        await expandButton(page).click();
+        await collapse(page);
         await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
         await expect(expandButton(page)).toHaveAttribute("aria-expanded", "false");
         await expect(sampleRail(page)).toHaveAttribute("data-sample-rail-expanded", "false");
@@ -253,7 +263,7 @@ test.describe("产品页：右轨的视图段", () => {
         // 一旦给不出就不再回来（随窗口变窄单调）。
         const firstRefused = rows.findIndex((row) => row.state === "collapsed");
         expect(rows.slice(firstRefused).every((row) => row.state === "collapsed"), log).toBe(true);
-        await expect(expandButton(page)).toHaveAttribute("aria-description", "窗口太窄");
+        // 按钮上的“窗口太窄”文字由视图自己写：样例庚只带 data-rail-too-narrow，没写 aria-description；有文字的断言在 agent-messages-rail 与 agent-messages-float 的“窗口太窄”用例里。
         // 布局记录里的意图不因预算改变，期间零写入。
         expect(await intentOf(page)).toEqual(intent);
         expect(await layoutWrites(page, database())).toBe(writes);
@@ -421,7 +431,7 @@ test.describe("产品页：右轨的视图段", () => {
         await expect(toggleMaximize).toHaveAttribute("aria-pressed", "false");
         await unchanged("最大化");
 
-        await expandButton(page).click();
+        await collapse(page);
         await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
         // 收起只清掉 expanded；轨宽是用户拖出来的，照记。
         await expect.poll(async () => (await intentOf(page))).toEqual({width: DEFAULT_WIDTH + 40});
@@ -527,8 +537,8 @@ test.describe("产品页：右轨的视图段", () => {
         await expect.poll(() => railWidth(page), {timeout: 10_000}).toBeCloseTo(DEFAULT_WIDTH, 0);
     });
 
-    // 覆盖 ui/workbench-layout 输出 50“焦点与读屏”、输出 22：右轨整条是一个 Tab 停靠（roving tabindex），上下方向键、Home、End 在条里走：入口、视图段的各项、底段、展开按钮按这个顺序。
-    test("键盘：右轨整条一个 Tab 停靠，方向键、Home、End 在入口、视图段各项、底段、展开按钮之间走（输出 50）", async ({page}) => {
+    // 覆盖 ui/workbench-layout 输出 50“焦点与读屏”、输出 22：右轨整条是一个 Tab 停靠（roving tabindex），上下方向键、Home、End 在条里走：入口、展开按钮（视图段的第一项）、视图段的各项、底段按这个顺序。
+    test("键盘：右轨整条一个 Tab 停靠，方向键、Home、End 在入口、展开按钮、视图段各项、底段之间走（输出 50）", async ({page}) => {
         await open(page);
         const items = rail(page).locator("[data-rail-item]");
         const total = await items.count();
@@ -542,7 +552,7 @@ test.describe("产品页：右轨的视图段", () => {
         const nameOf = (): Promise<string> => page.evaluate(() => {
             const element = document.activeElement as HTMLElement | null;
             if (element === null) return "none";
-            return element.dataset.toolEntry ?? (element.dataset.sampleRailItem !== undefined ? `item:${element.dataset.sampleRailItem}` : element.hasAttribute("data-sample-rail-foot") ? "foot" : element.hasAttribute("data-rail-expand") ? "expand" : element.hasAttribute("data-rail-handle") ? "handle" : element.tagName);
+            return element.dataset.toolEntry ?? (element.dataset.sampleRailItem !== undefined ? `item:${element.dataset.sampleRailItem}` : element.hasAttribute("data-sample-rail-foot") ? "foot" : element.hasAttribute("data-rail-toggle") ? "expand" : element.hasAttribute("data-rail-handle") ? "handle" : element.tagName);
         });
         await stop.focus();
         await page.keyboard.press("Home");
@@ -553,13 +563,13 @@ test.describe("产品页：右轨的视图段", () => {
             await page.keyboard.press("ArrowDown");
             visited.push(await nameOf());
         }
-        expect(visited, JSON.stringify(visited)).toEqual([...(await railEntries(page).evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")!))), "item:一", "item:二", "item:三", "foot", "expand"]);
+        expect(visited, JSON.stringify(visited)).toEqual([...(await railEntries(page).evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")!))), "expand", "item:一", "item:二", "item:三", "foot"]);
         await page.keyboard.press("Home");
         expect(await nameOf()).toBe(first);
         await page.keyboard.press("End");
-        expect(await nameOf()).toBe("expand");
-        await page.keyboard.press("ArrowUp");
         expect(await nameOf()).toBe("foot");
+        await page.keyboard.press("ArrowUp");
+        expect(await nameOf()).toBe("item:三");
         // 停靠项跟着焦点走：整条仍只有一个 `tabindex=0`。
         await expect(rail(page).locator('[data-rail-item][tabindex="0"]')).toHaveCount(1);
 
@@ -568,7 +578,125 @@ test.describe("产品页：右轨的视图段", () => {
         expect(await focusStop(page)).not.toBe("rail:auxiliarybar");
         await page.keyboard.press("Shift+Tab");
         expect(await focusStop(page)).toBe("rail:auxiliarybar");
-        expect(await nameOf()).toBe("foot");
+        expect(await nameOf()).toBe("item:三");
+    });
+
+    /** 入口带里各入口的容器 id，从左到右（竖排时从上到下）。 */
+    const railEntryIds = (page: Page): Promise<string[]> => railEntries(page).evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")!));
+
+    /** 入口带里相邻两个入口之间的空位中点（横排时在横轴上量，输出 50“展开时的版式”）。 */
+    async function gapBetweenX(left: Locator, right: Locator): Promise<Point> {
+        const [a, b] = [await boxOf(left), await boxOf(right)];
+        return {x: (a.x + a.width + b.x) / 2, y: a.y + a.height / 2};
+    }
+
+    // 覆盖 ui/workbench-layout 输出 50“展开时的版式”：右栏有不止一个容器时，展开后侧轨没有窄列，入口带横排在顶上（`data-tool-band-axis="x"`，收着是 "y"），
+    // 整块宽度都给视图段；底段（视图段收着时的项）不可见、不可聚焦；点另一个入口切容器，切回来仍是展开。
+    test("展开时的版式：入口带横排在顶上、轴是 x，没有窄列，底段不可见且聚焦不进；点另一个入口切容器，切回样例庚仍展开（输出 50）", async ({page}) => {
+        await open(page);
+        const band = rail(page).locator("[data-tool-band]");
+        await expect(band).toBeVisible();
+        await expect(band).toHaveAttribute("data-tool-band-axis", "y");
+        await expect(railSegment(page, "foot")).toBeVisible();
+        const ids = await railEntries(page).evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")!));
+        expect(ids.length).toBeGreaterThanOrEqual(3);
+        // 收着：入口纵排（同一条竖中线、从上到下）。
+        const column = await Promise.all((await railEntries(page).all()).map(boxOf));
+        for (const [index, box] of column.entries()) {
+            expect(Math.abs(box.x - column[0]!.x), "收着时入口纵排").toBeLessThanOrEqual(1);
+            if (index > 0) expect(box.y).toBeGreaterThan(column[index - 1]!.y);
+        }
+
+        await expand(page);
+        await expect(band).toBeVisible();
+        await expect(band).toHaveAttribute("data-tool-band-axis", "x");
+        const row = await Promise.all((await railEntries(page).all()).map(boxOf));
+        expect(row.length).toBe(ids.length);
+        for (const [index, box] of row.entries()) {
+            expect(Math.abs(box.y - row[0]!.y), "展开时入口横排：同一行").toBeLessThanOrEqual(1);
+            if (index > 0) expect(box.x, "从左到右、顺序不变").toBeGreaterThan(row[index - 1]!.x);
+        }
+        // 入口带在列表顶上；整块宽度都给视图段（没有 48 的窄列）。
+        const [bandBox, listBox, railBox] = [await boxOf(band), await boxOf(page.locator("[data-sample-rail-list]")), await boxOf(rail(page))];
+        expect(bandBox.y + bandBox.height).toBeLessThanOrEqual(listBox.y + 1);
+        expect(listBox.width).toBeGreaterThan(DEFAULT_WIDTH - COLLAPSED_WIDTH + 8);
+        expect(Math.abs(railBox.x + railBox.width - (listBox.x + listBox.width))).toBeLessThanOrEqual(2);
+        // 底段不可见、不可 Tab：藏起来的元素聚焦不上。
+        await expect(railSegment(page, "foot")).toBeHidden();
+        await expect(rail(page).locator("[data-sample-rail-foot]")).toBeHidden();
+        expect(await rail(page).locator("[data-sample-rail-foot]").evaluate((element) => {
+            (element as HTMLElement).focus();
+            return document.activeElement === element;
+        })).toBe(false);
+
+        // 点另一个入口切容器：样例丁没有视图段，右轨按收着呈现（入口带回到竖排）。
+        await pressEntry(page, railEntryOfView(page, D));
+        await expect(railEntryOfView(page, D)).toHaveAttribute("aria-pressed", "true");
+        await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+        await expect(band).toHaveAttribute("data-tool-band-axis", "y");
+        // 切回样例庚：仍是展开、入口带又横排。
+        await pressEntry(page, railEntryOfView(page, RAIL));
+        await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+        await expect(band).toBeVisible();
+        await expect(band).toHaveAttribute("data-tool-band-axis", "x");
+    });
+
+    // 覆盖 ui/workbench-layout 输出 50“焦点与读屏”（展开后入口带横排，方向键改左右）：入口带里左右方向键走，Home、End 到头尾。
+    test("展开时入口带的键盘：左右方向键在横排的入口之间走，Home、End 到头尾（输出 50）", async ({page}) => {
+        await open(page);
+        await expand(page);
+        const entries = railEntries(page);
+        const total = await entries.count();
+        expect(total).toBeGreaterThanOrEqual(3);
+        await entries.first().focus();
+        await expect(entries.first()).toBeFocused();
+        await page.keyboard.press("ArrowRight");
+        await expect(entries.nth(1)).toBeFocused();
+        await page.keyboard.press("ArrowRight");
+        await expect(entries.nth(2)).toBeFocused();
+        await page.keyboard.press("ArrowLeft");
+        await expect(entries.nth(1)).toBeFocused();
+        // 展开时展开按钮不在 roving 里（不带 data-rail-item），底段不可见，轨宽手柄是整条里最后一项：End 到它，不是入口带的最后一个入口。
+        await page.keyboard.press("End");
+        await expect(handle(page)).toBeFocused();
+        // 手柄自己吃 Home（回缺省宽），所以从入口上按 Home 回到第一个入口。
+        await entries.nth(total - 1).focus();
+        await page.keyboard.press("Home");
+        await expect(entries.first()).toBeFocused();
+        // 入口带自己的两端：最后一个入口按右方向键不越过去，再按左方向键回到前一个。
+        await entries.nth(total - 1).focus();
+        await page.keyboard.press("ArrowLeft");
+        await expect(entries.nth(total - 2)).toBeFocused();
+    });
+
+    // 覆盖 ui/workbench-layout 输出 50“落点”“展开时的版式”：横排的入口带同样是落点，沿横轴量；拖一个入口换序：落在两个入口之间（竖线），放下只写一次，展开着的右轨不收。
+    test("在横排的入口带上拖入口换序：落点沿横轴、插入线是竖线，预览里零写入，放下写一次，右轨仍展开（输出 50）", async ({page}) => {
+        await open(page);
+        await expand(page);
+        const before = await railEntryIds(page);
+        expect(before.length).toBeGreaterThanOrEqual(3);
+        const last = before.length - 1;
+        expect(before[last]).toBe(RAIL_CONTAINER);
+        const writes = await settledWrites(page, database());
+
+        // 把最后一个（样例庚）拖到第一、二个入口之间。
+        await pickUp(page, railEntryOfView(page, RAIL));
+        await moveTo(page, await gapBetweenX(railEntries(page).nth(0), railEntries(page).nth(1)));
+        // 同一条入口带里换序是 move-entry（跨区域搬容器才是 move-container）。
+        await expect(dropFeedback(page)).toHaveAttribute("data-drop-kind", "move-entry");
+        const bar = (await page.locator("[data-drop-feedback-line]").boundingBox())!;
+        expect(bar.height, "横排时插入线是竖线").toBeGreaterThan(bar.width);
+        expect(await layoutWrites(page, database())).toBe(writes);
+        await release(page);
+
+        await expect.poll(() => railEntryIds(page)).toEqual([before[0], RAIL_CONTAINER, ...before.slice(1, last)]);
+        await expect.poll(() => layoutWrites(page, database())).toBe(writes + 1);
+        await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+        await expect(rail(page).locator("[data-tool-band]")).toHaveAttribute("data-tool-band-axis", "x");
+        await expect(railEntryOfView(page, RAIL)).toHaveAttribute("aria-pressed", "true");
+        // 换序之后入口仍横排、新的次序从左到右。
+        const row = await Promise.all((await railEntries(page).all()).map(boxOf));
+        for (const [index, box] of row.entries()) if (index > 0) expect(box.x).toBeGreaterThan(row[index - 1]!.x);
     });
 
     // 覆盖 ui/workbench-layout 输出 22、50“焦点与读屏”：左轨（活动栏）同一个模型：整条一个 Tab 停靠，不再每个入口一个。

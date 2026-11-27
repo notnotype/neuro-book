@@ -20,7 +20,7 @@ import {localModelSettings} from "nbook/plugins/agent/testing/endpoint";
 
 import {PACKAGE_ROOT, startProductServer, track} from "./fixtures";
 import type {ProcessHandle, ProductServer} from "./fixtures";
-import {rail, railSegment, savedDoc, sectionOf} from "./support/side-rail";
+import {boxOf, rail, railSegment, savedDoc, sectionOf} from "./support/side-rail";
 
 let tmp = "";
 let server: ProductServer;
@@ -65,7 +65,7 @@ test.afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-// 作者界面的宽版：右栏展开到 260 之后编辑区与聊天区都放得下。
+// 作者界面的宽版：右栏展开到 300 之后编辑区与聊天区都放得下。
 test.use({viewport: {width: 1440, height: 900}});
 
 const CONVERSATION_VIEW = "nbook.agent.conversation";
@@ -81,12 +81,19 @@ const sessions = (page: Page) => rail(page).locator("[data-strip-session]");
 const newButton = (page: Page) => rail(page).locator("[data-messages-new-session]");
 const openButton = (page: Page, tab: "bot" | "sessions") => railSegment(page, "foot").locator(`[data-messages-open="${tab}"]`);
 const summary = (page: Page) => railSegment(page, "foot").locator("[data-messages-summary]");
-const expandButton = (page: Page) => rail(page).locator("[data-rail-expand]");
+/** 展开收起按钮：视图画的，收着与展开是同一个元素（输出 50、57）。 */
+const expandButton = (page: Page) => rail(page).locator("[data-rail-toggle]");
+/** 展开时列表底部的导航：取代了顶上的页签行。 */
+const nav = (page: Page) => page.locator("[data-messages-nav]");
+const navTab = (page: Page, tab: "bot" | "sessions") => nav(page).locator(`[data-messages-tab="${tab}"]`);
+const navSummary = (page: Page) => nav(page).locator("[data-messages-summary]");
 const listPanel = (page: Page) => page.locator("[data-messages-list-panel]");
 const botPage = (page: Page) => page.locator("[data-messages-page=bot]");
 const sessionsPage = (page: Page) => page.locator("[data-messages-page=sessions]");
 const botSearch = (page: Page) => botPage(page).getByRole("textbox");
-const sessionsSearch = (page: Page) => sessionsPage(page).locator("[data-panel-search]");
+/** 会话页的搜索：`data-panel-search` 是搜索框的外框（里面有过滤按钮），输入框在里面。 */
+const sessionsSearchBox = (page: Page) => sessionsPage(page).locator("[data-panel-search]");
+const sessionsSearch = (page: Page) => sessionsSearchBox(page).locator("input");
 const regionToggle = (page: Page) => page.locator('[data-titlebar-layout="auxiliarybar"]');
 
 async function openWorkbench(page: Page): Promise<void> {
@@ -152,12 +159,13 @@ test("收着：bot、新对话、最近会话与底段；当前是 bot 时她 ar
     await expect(contact(page)).toHaveAttribute("aria-current", "true");
     await expect(rail(page).locator("[data-strip-session][aria-current]")).toHaveCount(0);
     await expect(newButton(page)).toBeVisible();
-    await expect(openButton(page, "bot")).toHaveAttribute("aria-pressed", "false");
-    await expect(openButton(page, "sessions")).toHaveAttribute("aria-pressed", "false");
+    // 底段的两项只是打开列表的按钮：没有按下态（页签的选中在展开后的底部导航上）。
+    await expect(openButton(page, "bot")).not.toHaveAttribute("aria-pressed");
+    await expect(openButton(page, "sessions")).not.toHaveAttribute("aria-pressed");
     await expect(expandButton(page)).toHaveAttribute("aria-expanded", "false");
-    const items = rail(page).locator("[data-strip-contact], [data-strip-session], [data-messages-new-session], [data-messages-open]");
-    expect(await items.count()).toBeGreaterThanOrEqual(4);
-    await expect(rail(page).locator("[data-strip-contact]:not([data-rail-item]), [data-strip-session]:not([data-rail-item]), [data-messages-new-session]:not([data-rail-item]), [data-messages-open]:not([data-rail-item])")).toHaveCount(0);
+    const items = rail(page).locator("[data-strip-contact], [data-strip-session], [data-messages-new-session], [data-messages-open], [data-rail-toggle]");
+    expect(await items.count()).toBeGreaterThanOrEqual(5);
+    await expect(rail(page).locator("[data-strip-contact]:not([data-rail-item]), [data-strip-session]:not([data-rail-item]), [data-messages-new-session]:not([data-rail-item]), [data-messages-open]:not([data-rail-item]), [data-rail-toggle]:not([data-rail-item])")).toHaveCount(0);
 
     const id = await createSession(page, "雨夜整理");
     await expect(contact(page)).not.toHaveAttribute("aria-current");
@@ -211,8 +219,8 @@ test("等你处理：星璃等批准时，她的头像带 data-strip-waiting，�
     await expect(summary(page)).toHaveCount(0);
 });
 
-// 覆盖 conversation.md 输出 57“展开”：收着时点底段“全部 bot”展开右轨、切到 bot 页、聚焦这一页的搜索；展开后按钮按下。
-test("收着时点“全部 bot”：展开右轨、切到 bot 页、聚焦搜索框，按钮按下", async ({page}) => {
+// 覆盖 conversation.md 输出 57“展开”：收着时点底段“全部 bot”展开右轨、切到 bot 页、聚焦这一页的搜索；展开后底部导航的 Bot 项被选中，底段不再可见。
+test("收着时点“全部 bot”：展开右轨、切到 bot 页、聚焦搜索框，底部导航的 Bot 项被选中", async ({page}) => {
     await openWorkbench(page);
     await openButton(page, "bot").click();
     await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
@@ -220,20 +228,23 @@ test("收着时点“全部 bot”：展开右轨、切到 bot 页、聚焦搜�
     await expect(listPanel(page)).toBeVisible();
     await expect(botPage(page)).toBeVisible();
     await expect(botSearch(page)).toBeFocused();
-    await expect(openButton(page, "bot")).toHaveAttribute("aria-pressed", "true");
-    await expect(openButton(page, "sessions")).toHaveAttribute("aria-pressed", "false");
+    await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "true");
+    await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "false");
     await expect(expandButton(page)).toHaveAttribute("aria-expanded", "true");
+    // 展开时底段（视图段收着时的项）看不见，页上没有第二处点得到的“全部 bot”。
+    await expect(openButton(page, "bot")).toBeHidden();
 });
 
-// 覆盖 conversation.md 输出 57“展开”：已展开时点另一个按钮只切页、按钮按下换过去，不聚焦搜索框；收着时点“会话历史”展开到会话页并聚焦会话页的搜索。
-test("展开着时点另一个按钮只切页、不聚焦搜索；收起后点“会话历史”展开到会话页并聚焦搜索", async ({page}) => {
+// 覆盖 conversation.md 输出 57“展开”：已展开时点底部导航的另一项只切页、选中换过去，不聚焦搜索框；收着时点“会话历史”展开到会话页并聚焦会话页的搜索。
+test("展开着时点导航的另一项只切页、不聚焦搜索；收起后点“会话历史”展开到会话页并聚焦搜索", async ({page}) => {
     await openWorkbench(page);
     await openButton(page, "bot").click();
     await expect(botSearch(page)).toBeFocused();
-    await openButton(page, "sessions").click();
+    await navTab(page, "sessions").click();
     await expect(sessionsPage(page)).toBeVisible();
-    await expect(openButton(page, "sessions")).toHaveAttribute("aria-pressed", "true");
-    await expect(openButton(page, "bot")).toHaveAttribute("aria-pressed", "false");
+    await expect(botPage(page)).toBeHidden();
+    await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "true");
+    await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "false");
     await expect(sessionsSearch(page)).not.toBeFocused();
     await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
 
@@ -276,7 +287,7 @@ test("收起再展开：bot 页与会话页各自的搜索词还在", async ({pa
     await openButton(page, "bot").click();
     await expect(botSearch(page)).toBeFocused();
     await page.keyboard.type("星璃");
-    await openButton(page, "sessions").click();
+    await navTab(page, "sessions").click();
     await sessionsSearch(page).click();
     await page.keyboard.type("雨夜");
     await expect(sessionsSearch(page)).toHaveValue("雨夜");
@@ -286,7 +297,7 @@ test("收起再展开：bot 页与会话页各自的搜索词还在", async ({pa
     await openButton(page, "bot").click();
     await expect(botPage(page)).toBeVisible();
     await expect(botSearch(page)).toHaveValue("星璃");
-    await openButton(page, "sessions").click();
+    await navTab(page, "sessions").click();
     await expect(sessionsSearch(page)).toHaveValue("雨夜");
 });
 
@@ -415,7 +426,7 @@ test("命令“搜索会话”：展开右轨到会话页并聚焦搜索；右�
     await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
     await expect(sessionsPage(page)).toBeVisible();
     await expect(sessionsSearch(page)).toBeFocused();
-    await expect(openButton(page, "sessions")).toHaveAttribute("aria-pressed", "true");
+    await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "true");
 
     await expandButton(page).click();
     await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
@@ -445,7 +456,7 @@ test("没有打开会话、停在 bot 页：右轨收着时首屏盖层的按钮
         await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
         await expect(botPage(page)).toBeVisible();
         await expect(botSearch(page)).toBeFocused();
-        await expect(openButton(page, "bot")).toHaveAttribute("aria-pressed", "true");
+        await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "true");
     } finally {
         expect(await fresh.stop()).toBe(0);
         await rm(root, {recursive: true, force: true});
@@ -461,7 +472,7 @@ test("窗口太窄：点“全部 bot”不展开（预算拒绝），按钮不�
     await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
     await expect(segment(page)).toHaveAttribute("data-messages-segment-state", "collapsed");
     await expect(listPanel(page)).toHaveCount(0);
-    await expect(openButton(page, "bot")).toHaveAttribute("aria-pressed", "false");
+    await expect(navTab(page, "bot")).toHaveCount(0);
     expect(JSON.stringify((await savedDoc(page, join(tmp, "state", "storage", "user.sqlite")))?.panels.auxiliarybar?.rail ?? {})).not.toContain("expanded");
     // 窗口变宽之后可以展开。
     await page.setViewportSize({width: 1440, height: 900});
@@ -469,11 +480,239 @@ test("窗口太窄：点“全部 bot”不展开（预算拒绝），按钮不�
     await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
 });
 
-// 覆盖 ui/workbench-layout.md 输出 50“预算”（被拒时按钮悬停与读屏给“窗口太窄”）：点“全部 bot”被拒后，右轨展开按钮带 data-rail-too-narrow。
-test("窗口太窄：点“全部 bot”被拒后，右轨展开按钮带 data-rail-too-narrow 并写“窗口太窄”", async ({page}) => {
+// 覆盖 ui/workbench-layout.md 输出 50“预算”（被拒时按钮悬停与读屏给“窗口太窄”）：点“全部 bot”被拒后，视图画的展开按钮带 data-rail-too-narrow。
+test("窗口太窄：点“全部 bot”被拒后，展开按钮带 data-rail-too-narrow 并写“窗口太窄”", async ({page}) => {
     await page.setViewportSize({width: 1100, height: 900});
     await openWorkbench(page);
     await openButton(page, "bot").click();
     await expect(expandButton(page)).toHaveAttribute("data-rail-too-narrow", /.*/u);
     await expect(expandButton(page)).toHaveAttribute("aria-description", "窗口太窄");
+});
+
+/** 这一点上最上面的元素在不在 `selector` 里：判断“没被盖住”，不靠 click（Playwright 会先滚进裁切它的容器再点）。 */
+const hitIn = (page: Page, at: {x: number; y: number}, selector: string): Promise<boolean> =>
+    page.evaluate(({at, selector}) => document.elementFromPoint(at.x, at.y)?.closest(selector) != null, {at, selector});
+
+// 覆盖 conversation.md 输出 57“展开”：列表顶上没有页签行，底部是导航，Bot、会话两项是 tab，当前页被选中；点另一项切页，方向键与 Home、End 换页。
+test("底部导航：展开后列表底部是 Bot、会话两个 tab，顶上没有页签行；点另一项切页，方向键换页", async ({page}) => {
+    await openWorkbench(page);
+    await openButton(page, "bot").click();
+    await expect(botPage(page)).toBeVisible();
+    await expect(page.locator("[data-messages-switch]")).toHaveCount(0);
+    await expect(nav(page).getByRole("tab")).toHaveCount(2);
+    await expect(navTab(page, "bot")).toHaveAttribute("role", "tab");
+    await expect(navTab(page, "sessions")).toHaveAttribute("role", "tab");
+    await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "true");
+    await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "false");
+    // 导航在列表的底部：页在它上面，它的下缘就是列表的下缘。
+    const [list, navBox, pageBox] = [await boxOf(listPanel(page)), await boxOf(nav(page)), await boxOf(botPage(page))];
+    expect(pageBox.y + pageBox.height).toBeLessThanOrEqual(navBox.y + 1);
+    expect(Math.abs(navBox.y + navBox.height - (list.y + list.height))).toBeLessThanOrEqual(2);
+    expect(navBox.x).toBeGreaterThanOrEqual(list.x - 1);
+    expect(navBox.x + navBox.width).toBeLessThanOrEqual(list.x + list.width + 1);
+
+    await navTab(page, "sessions").click();
+    await expect(sessionsPage(page)).toBeVisible();
+    await expect(botPage(page)).toBeHidden();
+    await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "true");
+    await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "false");
+    // 导航跟着页走，不随页换位置。
+    expect(Math.abs((await boxOf(nav(page))).y - navBox.y)).toBeLessThanOrEqual(1);
+
+    // 方向键换页（焦点跟着选中的 tab）。
+    await navTab(page, "sessions").focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "true");
+    await expect(botPage(page)).toBeVisible();
+    await expect(navTab(page, "bot")).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(navTab(page, "sessions")).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Home");
+    await expect(navTab(page, "bot")).toHaveAttribute("aria-selected", "true");
+});
+
+// 覆盖 conversation.md 输出 57“展开”（汇总徽标：中性色数字，有等你处理时带 data-messages-summary-waiting）：展开后 Bot 项上写未读合计；拿回焦点清零。
+test("导航上的未读合计：窗口失焦时到的回复让 Bot 项写 1、不带等你处理的标记，拿回焦点后清零", async ({page}) => {
+    await openWorkbench(page);
+    await openLyra(page);
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await script("导航上看的回复。");
+    await input(page).click();
+    await page.keyboard.type("在吗");
+    await page.keyboard.press("Enter");
+    await expect(chat(page).getByText("导航上看的回复。")).toBeVisible();
+    await openButton(page, "bot").click();
+    await expect(navTab(page, "bot")).toBeVisible();
+    await expect(navSummary(page)).toHaveText("1");
+    await expect(navSummary(page)).not.toHaveAttribute("data-messages-summary-waiting");
+    // 合计在 Bot 项上，不在会话项上。
+    await expect(navTab(page, "bot").locator("[data-messages-summary]")).toHaveCount(1);
+    await expect(navTab(page, "sessions").locator("[data-messages-summary]")).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(navSummary(page)).toHaveCount(0);
+});
+
+// 覆盖 conversation.md 输出 57“展开”：星璃等批准时，展开后导航 Bot 项上的合计带 data-messages-summary-waiting；批完后消失。
+test("导航上等你处理：星璃等批准时，Bot 项的汇总带 data-messages-summary-waiting；批完后消失", async ({page}) => {
+    await openWorkbench(page);
+    await openLyra(page);
+    await script({tool: "write", args: {path: "session://草稿.md", content: "内容"}}, "好的。");
+    await input(page).click();
+    await page.keyboard.type("写个草稿");
+    await page.keyboard.press("Enter");
+    await expect(chat(page).locator("[data-agent-dock]")).toBeVisible();
+    try {
+        // 切到一个普通会话：等你处理的是星璃的主对话，不是当前这一个。
+        await createSession(page, "另一段会话");
+        await openButton(page, "bot").click();
+        await expect(navSummary(page)).toHaveAttribute("data-messages-summary-waiting", /.*/u);
+        await expandButton(page).click();
+        await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+    } finally {
+        await openLyra(page);
+        await chat(page).locator("[data-approval-decision='deny']").click();
+    }
+    await openButton(page, "bot").click();
+    await expect(navTab(page, "bot")).toBeVisible();
+    await expect(navSummary(page)).toHaveCount(0);
+});
+
+// 覆盖 ui/workbench-layout.md 输出 50“展开时的版式”、conversation.md 输出 57“展开”：右栏只有消息一个容器时，展开后入口带不可见（收着时在、轴是竖的），收起后回来；
+// 底段（视图段收着时的项）展开时不可见、也聚焦不进去。
+test("展开时的版式（右栏只有消息）：入口带不可见、底段不可见且不可聚焦，没有窄列；收起后入口带回来", async ({page}) => {
+    await openWorkbench(page);
+    const band = rail(page).locator("[data-tool-band]");
+    await expect(band).toBeVisible();
+    await expect(band).toHaveAttribute("data-tool-band-axis", "y");
+    await expect(railSegment(page, "foot")).toBeVisible();
+    const collapsedWidth = (await boxOf(rail(page))).width;
+
+    await openButton(page, "bot").click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+    await expect(band).toBeHidden();
+    await expect(railSegment(page, "foot")).toBeHidden();
+    await expect(openButton(page, "bot")).toBeHidden();
+    await expect(openButton(page, "sessions")).toBeHidden();
+    // 不可 Tab：藏起来的元素聚焦不上。
+    expect(await openButton(page, "bot").evaluate((element) => {
+        (element as HTMLElement).focus();
+        return document.activeElement === element;
+    })).toBe(false);
+    // 没有 48 宽的窄列：列表从轨的左缘起，按钮之外一整块都是它。
+    const [railBox, listBox] = [await boxOf(rail(page)), await boxOf(listPanel(page))];
+    expect(railBox.width).toBeGreaterThan(collapsedWidth + 200);
+    expect(railBox.x + railBox.width - (listBox.x + listBox.width)).toBeLessThanOrEqual(2);
+    expect(listBox.x - railBox.x).toBeLessThanOrEqual(2);
+
+    await expandButton(page).click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(band).toBeVisible();
+    await expect(band).toHaveAttribute("data-tool-band-axis", "y");
+    await expect(railSegment(page, "foot")).toBeVisible();
+});
+
+// 覆盖 ui/workbench-layout.md 输出 50“三段”“展开时的版式”、conversation.md 输出 57“收着”“展开”：展开收起按钮收着时是视图段中段的第一项（带 data-rail-item）；
+// 展开后是同一个元素、在列表右上角、不带 data-rail-item，焦点留在它上面，Tab 可达；列表第一行（两页的搜索行）不被它盖住。
+test("展开收起按钮：收着时是中段第一项；展开后是同一个元素、在列表右上角、焦点留着，搜索行不被它盖住", async ({page}) => {
+    await openWorkbench(page);
+    const toggle = expandButton(page);
+    await expect(toggle).toHaveCount(1);
+    await expect(toggle).toHaveAttribute("data-messages-segment-toggle", /.*/u);
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // 收着：在中段里、中段第一个入侧轨工具条的项。
+    await expect(railSegment(page, "main").locator("[data-rail-toggle]")).toHaveCount(1);
+    await expect(toggle).toHaveAttribute("data-rail-item", /.*/u);
+    expect(await railSegment(page, "main").locator("[data-rail-item]").first().evaluate((element) => element.hasAttribute("data-rail-toggle"))).toBe(true);
+    const node = await toggle.elementHandle();
+
+    await toggle.click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // 同一个元素，焦点留在它上面；展开后它是列表区里的普通按钮（不进侧轨的纵向工具条）、Tab 可达。
+    expect(await toggle.evaluate((element, other) => element === other, node)).toBe(true);
+    await expect(toggle).toBeFocused();
+    await expect(toggle).not.toHaveAttribute("data-rail-item");
+    await expect(toggle).not.toHaveAttribute("tabindex", "-1");
+    // 按钮只展开、不指定页：先选定 bot 页再量。
+    await navTab(page, "bot").click();
+    // 在列表区的右上角。
+    await expect(botPage(page)).toBeVisible();
+    const list = await boxOf(listPanel(page));
+    const at = await boxOf(toggle);
+    expect(at.x).toBeGreaterThanOrEqual(list.x);
+    expect(at.x + at.width).toBeLessThanOrEqual(list.x + list.width + 1);
+    expect(at.x + at.width / 2).toBeGreaterThan(list.x + list.width * 0.75);
+    expect(at.y).toBeGreaterThanOrEqual(list.y - 1);
+    expect(at.y + at.height).toBeLessThanOrEqual(list.y + 64);
+    const center = {x: at.x + at.width / 2, y: at.y + at.height / 2};
+    // 搜索行不被它盖住：按钮中心上最上面的是按钮，搜索框右缘不超过按钮左缘（两页都是）。
+    expect(await hitIn(page, center, "[data-rail-toggle]")).toBe(true);
+    expect((await boxOf(botSearch(page))).x + (await boxOf(botSearch(page))).width).toBeLessThanOrEqual(at.x + 0.5);
+    await navTab(page, "sessions").click();
+    await expect(sessionsPage(page)).toBeVisible();
+    expect(await toggle.evaluate((element, other) => element === other, node)).toBe(true);
+    expect(await hitIn(page, center, "[data-rail-toggle]")).toBe(true);
+    for (const row of [sessionsSearchBox(page), sessionsPage(page).locator("[data-panel-create]")]) {
+        const box = await boxOf(row);
+        expect(box.x + box.width).toBeLessThanOrEqual(at.x + 0.5);
+    }
+    // 对照：判据会失败——按钮左边那一点上最上面的不是按钮。
+    expect(await hitIn(page, {x: at.x - 40, y: center.y}, "[data-rail-toggle]")).toBe(false);
+
+    // 再点收起：还是同一个元素，焦点在它上面，回到中段第一项。
+    await toggle.click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(await toggle.evaluate((element, other) => element === other, node)).toBe(true);
+    await expect(toggle).toBeFocused();
+    await expect(toggle).toHaveAttribute("data-rail-item", /.*/u);
+    expect(await railSegment(page, "main").locator("[data-rail-item]").first().evaluate((element) => element.hasAttribute("data-rail-toggle"))).toBe(true);
+});
+
+// 覆盖 agent/conversation.md 输出 3 的 planned 部分：会话面板顶上一行只有搜索框（提示“搜索”）与新建，过滤按钮在搜索框里的右端，没有作品范围按钮；
+// 范围是过滤菜单最上面一组单选，“全部作品”计入过滤按钮上的条数，“清除过滤条件”回到当前作品。
+test("会话面板的搜索行：只有搜索与新建，过滤按钮在搜索框里；范围在过滤菜单里，选“全部作品”条数加一，清除后回到当前作品", async ({page}) => {
+    await openWorkbench(page);
+    await openButton(page, "sessions").click();
+    await expect(sessionsPage(page)).toBeVisible();
+    const filter = sessionsPage(page).locator("[data-panel-filter]");
+    const count = sessionsPage(page).locator("[data-panel-filter-count]");
+    await expect(sessionsSearch(page)).toHaveAttribute("placeholder", "搜索");
+    await expect(sessionsPage(page).locator("[data-panel-create]")).toBeVisible();
+    await expect(sessionsPage(page).locator("[data-panel-scope]")).toHaveCount(0);
+    // 过滤按钮在搜索框里的右端：垂直上在搜索框的范围内，水平上在搜索框中线的右边、新建按钮的左边。
+    const [search, filterBox, create] = [await boxOf(sessionsSearchBox(page)), await boxOf(filter), await boxOf(sessionsPage(page).locator("[data-panel-create]"))];
+    expect(filterBox.y + filterBox.height / 2).toBeGreaterThanOrEqual(search.y);
+    expect(filterBox.y + filterBox.height / 2).toBeLessThanOrEqual(search.y + search.height);
+    expect(filterBox.x + filterBox.width / 2).toBeGreaterThan(search.x + search.width / 2);
+    expect(filterBox.x + filterBox.width).toBeLessThanOrEqual(create.x + 1);
+    await expect(count).toHaveCount(0);
+
+    const scope = (name: "当前作品" | "全部作品") => page.getByRole("menuitemradio", {name});
+    /** 菜单点完一项可能收起：没开着就再点过滤按钮。 */
+    const menu = async (): Promise<void> => {
+        if (!await scope("全部作品").isVisible()) await filter.click();
+        await expect(scope("全部作品")).toBeVisible();
+    };
+    await menu();
+    await expect(scope("当前作品")).toHaveAttribute("aria-checked", "true");
+    await expect(scope("全部作品")).toHaveAttribute("aria-checked", "false");
+    // 范围在菜单最上面：两个单选都在“显示已归档”的上面。
+    const archived = page.getByRole("menuitemcheckbox", {name: "显示已归档"});
+    expect((await boxOf(scope("全部作品"))).y).toBeLessThan((await boxOf(archived)).y);
+
+    await scope("全部作品").click();
+    await expect(count).toHaveText("1");
+    await menu();
+    await expect(scope("全部作品")).toHaveAttribute("aria-checked", "true");
+    await expect(scope("当前作品")).toHaveAttribute("aria-checked", "false");
+    await archived.click();
+    await expect(count).toHaveText("2");
+
+    await menu();
+    await page.getByRole("menuitem", {name: "清除过滤条件"}).click();
+    await expect(count).toHaveCount(0);
+    await menu();
+    await expect(scope("当前作品")).toHaveAttribute("aria-checked", "true");
+    await expect(archived).toHaveAttribute("aria-checked", "false");
 });
