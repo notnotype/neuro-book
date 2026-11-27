@@ -148,6 +148,22 @@ describe("NewEntryDialog", () => {
         expect(wrapper.emitted("confirm")).toBeUndefined();
     });
 
+    it("种类写成 constructor、toString 这类词：没有默认、没有预设，照常选定", async () => {
+        const items = [item("t.person", "人物", ["人物"])];
+        const {wrapper, inputs, follow, checked, root} = await choosing({items, kindDefaults: {人物: ["t.person"]}, kindPresets: {人物: [{id: "main", label: "主要角色", components: ["t.person"]}]}});
+        const kind = inputs()[1]!;
+        for (const word of ["constructor", "toString", "__proto__"]) {
+            kind.value = word;
+            kind.dispatchEvent(new Event("input", {bubbles: true}));
+            await follow();
+            kind.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+            await follow();
+            expect(wrapper.props("draft")).toMatchObject({kindChosen: word, types: []});
+            expect(root().querySelector("[data-checklist-presets]")).toBeNull();
+            expect(checked()).toEqual([]);
+        }
+    });
+
     it("保存中：按钮不可用；原因写在对话框里", async () => {
         const {button, root} = await dialog({...emptyDraft(null), name: "魔杖"}, {saving: true, error: "这次改动没有成功"});
         expect(button("新建").disabled).toBe(true);
