@@ -57,7 +57,7 @@
 
 ## Context
 
-评审板五轮定下（Task README 决定 2 到 7）：收着时窄列照旧；展开后没有窄列，整块给列表；列表照 t03 第 5 轮的稿（bot 的 IM 行、会话面板的行，按最近活动排、不分组），顶上不再有页签，底部是横的导航 Bot｜会话；展开收起按钮收着时在窄列最上面、展开后在列表搜索行右端；右栏有别的容器时展开的列表顶上一行入口；列表缺省宽 300。
+评审板六轮定下（Task README 决定 2 到 8）：收着时窄列照旧；展开后没有窄列，整块给列表；列表照 t03 第 5 轮的稿（bot 的 IM 行、会话面板的行，按最近活动排、不分组），顶上不再有页签，底部是横的导航 Bot｜会话；展开收起按钮收着时在窄列最上面、展开后在列表搜索行右端；右栏有别的容器时展开的列表顶上一行入口；列表缺省宽 300。
 
 合同（planned，`974b1108d`）：[`ui/workbench-layout.md`](../../../../../docs/specs/ui/workbench-layout.md) 输出 50 的“三段”“展开时的版式”、输出 51 的“顶格”；[`workbench/views.md`](../../../../../docs/specs/workbench/views.md) 输出 21 的 `placement`；[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 57 的“收着”“展开”“浮动”。
 
@@ -84,7 +84,7 @@
 
 - 页签挪到底部成横的导航 `data-messages-nav`：两项沿用 `data-messages-tab`、`role="tab"`，图标在上、字在下，当前页强调色；Bot 项的未读合计沿用 `data-messages-summary`（中性色数字，有等你处理时 warning 色，`data-messages-summary-waiting`）。方向键、Home、End 照旧。
 - 列表区第一行读 `--acv-list-inset-end`（`var(--acv-list-inset-end, 0px)`，登记进 `style-tokens.dom.test.ts` 的 `hostVars`）作右内边距，给按钮让位；浮动窗里“回到停靠”在视图段顶格（edge-body 的 `padding-top`），不和搜索行同一行，不用另算。
-- 会话面板的搜索行窄时换行：容器查询，列表宽不到 260 时搜索框独占第一行，作用域、筛选、新建排第二行；搜索框占满剩下的宽。bot 页搜索框提示改成“搜索”。行的样子不改。
+- 会话面板的搜索行按第 6 轮 A（决定 8，conversation 输出 3 的 planned 部分）：一行是 `Input`（`icon-class` 放大镜，提示“搜索”）加新建 `IconButton`（`i-lucide-square-pen`）；过滤按钮（`i-lucide-sliders-horizontal`，带条数）放进 `Input` 的 `suffix` 插槽，菜单最上面一组单选是作品范围，下面是 Profile 与显示已归档；“全部作品”计入条数，清除时回到当前作品。组件事件不变（`update:scope` 照旧），只是从菜单发出。搜索框占满剩下的宽；草稿里 220 宽不挤，不再做窄时换行。bot 页搜索框提示改成“搜索”。行的样子不改。
 
 ### 过渡：`AgentMessagesSegment.vue`
 
@@ -126,7 +126,7 @@ e2e 子代理按下面的标记写，不读实现：
 
 ## 切片
 
-1. 视图段与列表：同一个按钮的两种位置、`fitSegment` 扣格、底段只剩两项并在展开时 `hidden`；`placement.rail.width/tooNarrow` 与合同；底部导航、搜索行让位与窄时换行；测试视图的按钮；dom 测试（按钮两种位置是同一个元素、导航的键盘与未读分档、`--acv-list-inset-end` 登记）。
+1. 视图段与列表：同一个按钮的两种位置、`fitSegment` 扣格、底段只剩两项并在展开时 `hidden`；`placement.rail.width/tooNarrow` 与合同；底部导航、搜索行让位、会话面板的搜索行按 A（范围进过滤菜单）；测试视图的按钮；dom 测试（按钮两种位置是同一个元素、导航的键盘与未读分档、`--acv-list-inset-end` 登记）。
 2. 侧轨：拿掉自己的按钮、焦点交接改认 `data-rail-toggle`、展开时一列与横排入口带（`v-show`、按轴量、提示朝下、左右方向键）、拖放轴；宿主接线与 300；同名说明与 Lab 夹具；工作台 dom 测试。
 3. 过渡：FLIP 与淡入淡出；开发服务真实页面上放慢看（design-language 坑 84 的做法）。
 4. e2e（子代理）：第 A 段迁移现有用例与辅助函数，第 B 段新行为（导航、按钮两种位置、横排入口带的点击与拖放、减少动态效果下直接到位）。
