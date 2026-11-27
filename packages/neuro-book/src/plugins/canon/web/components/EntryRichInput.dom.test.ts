@@ -340,6 +340,18 @@ describe("改小块（canon/author-ui.md 输出 48）", () => {
         expect(wrapper.emitted("discarded")).toHaveLength(1);
     });
 
+    it("外面换了整篇、只改了别的段落：小块还在，浮层照样关上、没应用的字丢弃", async () => {
+        const wrapper = show({modelValue: '<V expr="panel.魔力 * 2" />\n\n第二段。'});
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("expr"), "panel.魔力 * 7");
+        await wrapper.setProps({modelValue: '<V expr="panel.魔力 * 2" />\n\n别处改的第二段。'});
+        await flushPromises();
+        expect(chips(wrapper, "calc")).toHaveLength(1);
+        expect(popover()).toBeNull();
+        expect(wrapper.emitted("discarded")).toHaveLength(1);
+    });
+
     it("撤销让锚着的小块不在了：浮层关上，没应用的字丢弃", async () => {
         const wrapper = show({modelValue: "甲"});
         await flushPromises();
