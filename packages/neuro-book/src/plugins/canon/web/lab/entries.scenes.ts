@@ -51,9 +51,11 @@ export const fixtures: LabFixture[] = [
     defineLabFixture<typeof NewEntryDialog>({
         component: "NewEntryDialog",
         scenes: (() => {
-            const draft = {name: "", kind: "", kindChosen: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], typesTouched: false, sameAs: null as string | null, appears: null as string | null};
+            const draft = {name: "", kind: "", kindChosen: "", folder: "", folderTouched: false, parent: null as string | null, parentName: "", types: [] as string[], typesTouched: false, sameAs: null as string | null, sameAsName: "", appears: null as string | null, startKind: ""};
+            // 上级条目、是谁的马甲的查找结果（真实的是 `findEntries`）：两个候选，一个按别名命中。
+            const found = {kind: "done" as const, query: "", items: [{id: "xingxia", name: "星瑕", kind: "人物", note: "别名：小瑕"}, {id: "academy", name: "第三魔法学院", kind: "组织"}]};
             // 种类的候选：登记的人物、组织、地点、物品在前，用过的“魔法”接在后面；点“人物”勾上人物与形象。
-            const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], items: [
+            const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, folders: ["人物", "组织", "地点"], parentResults: found, sameAsResults: found, items: [
                 {value: "nbook.canon.person", label: "人物", iconClass: "i-lucide-user-round", group: "canon" as const, kinds: ["人物"], present: false, restore: false},
                 {value: "nbook.canon.look", label: "形象", iconClass: "i-lucide-shirt", group: "canon" as const, kinds: ["人物"], present: false, restore: false},
                 {value: "nbook.canon.panel", label: "数值", iconClass: "i-lucide-gauge", group: "canon" as const, kinds: [], present: false, restore: false},
@@ -62,7 +64,9 @@ export const fixtures: LabFixture[] = [
             ], kindPresets: {人物: [{id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]}, {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]}]}, chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
             return [
                 {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
-                {id: "person", label: "新建人物：勾上人物与形象，有人物的预设", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"]}}}},
+                {id: "person", label: "新建人物：勾上人物与形象，有人物的预设，标题写“新建人物”", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"], startKind: "人物"}}}},
+                {id: "customized", label: "动过勾选、与人物的默认不同：设定组那一行右端有“恢复人物的默认”", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person"], typesTouched: true}}}},
+                {id: "same-as", label: "是星瑕的马甲、第 2 章出场：段头写现在的值，展开后上级写“星瑕（跟着本体）”", input: {props: options, model: {open: true, draft: {...draft, name: "哥哥", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"], sameAs: "xingxia", sameAsName: "星瑕", parent: "xingxia", parentName: "星瑕", appears: "2"}}}},
                 {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", kindChosen: "物品", folder: "物品"}}}},
                 {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},
             ];

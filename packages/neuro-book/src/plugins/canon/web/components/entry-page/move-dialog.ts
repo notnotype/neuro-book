@@ -10,7 +10,7 @@ export interface MoveDraft {
     order: "keep" | "first";
     /** 从哪一章开头出场；null 是一开始就在。 */
     appears: string | null;
-    /** 它是谁的另一个身份；null 是不是。 */
+    /** 是谁的马甲（本体）；null 是不是马甲。 */
     sameAs: string | null;
     sameAsName: string;
 }

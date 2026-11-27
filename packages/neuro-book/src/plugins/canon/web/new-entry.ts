@@ -17,19 +17,32 @@ export interface NewEntryDraft {
     /** 分组；作者没改过时跟着种类。 */
     folder: string;
     folderTouched: boolean;
-    /** 放在谁下面；null 是最上面一层。 */
+    /** 上级条目；null 是没有（最上面一层）。 */
     parent: string | null;
+    /** 上级条目的名字：选择器与段头的摘要显示用；宿主预填上级时一并给。 */
+    parentName: string;
     /** 启用哪些数据：登记的类型 id。作者没动过勾选时跟着种类换成它的默认（`withKind`）。 */
     types: string[];
     typesTouched: boolean;
-    /** 它是谁的另一个身份；没有为 null。 */
+    /** 是谁的马甲（本体）；没有为 null。选了以后上级跟着它。 */
     sameAs: string | null;
-    /** 从哪里出场：null 是一开始就在，否则是那一章的开头。 */
+    sameAsName: string;
+    /** 出场：null 是一开始就在，否则是那一章的开头。 */
     appears: string | null;
+    /** 从“新建某某”（例如“新建人物”）打开时的种类：对话框标题写“新建某某”；从“新建条目”打开时是空串。 */
+    startKind: string;
 }
 
-export function emptyDraft(parent: string | null): NewEntryDraft {
-    return {name: "", kind: "", kindChosen: "", folder: "", folderTouched: false, parent, types: [], typesTouched: false, sameAs: null, appears: null};
+/** 预填的位置：上级（带名字）与分组。 */
+export interface NewEntryPlace {
+    readonly parent?: {readonly id: string; readonly name: string} | null;
+    readonly folder?: string;
+}
+
+/** 空草稿；`place` 是预填的上级与分组（右键“在它下面新建”、在树里选中了一项时的“新建条目”）。 */
+export function emptyDraft(place: NewEntryPlace = {}): NewEntryDraft {
+    const folder = place.folder ?? "";
+    return {name: "", kind: "", kindChosen: "", folder, folderTouched: folder !== "", parent: place.parent?.id ?? null, parentName: place.parent?.name ?? "", types: [], typesTouched: false, sameAs: null, sameAsName: "", appears: null, startKind: ""};
 }
 
 /** 按种类取一项：种类是作者写的任意一个词（可能正好是 `constructor` 这类），只认表里自己的键。 */
@@ -52,6 +65,11 @@ export function withKind(draft: NewEntryDraft, kind: string, defaults: Readonly<
         ...(draft.folderTouched ? {} : {folder: kind}),
         ...(draft.typesTouched ? {} : {types: [...(byKind(defaults, chosen) ?? [])]}),
     };
+}
+
+/** “恢复某某的默认”（输出 4）：勾选换回选定种类的默认，之后又跟着种类换。 */
+export function restoreDefaults(draft: NewEntryDraft, defaults: Readonly<Record<string, readonly string[]>>): NewEntryDraft {
+    return {...draft, types: [...(byKind(defaults, draft.kindChosen) ?? [])], typesTouched: false};
 }
 
 /**

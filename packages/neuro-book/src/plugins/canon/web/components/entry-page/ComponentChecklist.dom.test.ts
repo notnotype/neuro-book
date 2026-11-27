@@ -143,7 +143,7 @@ describe("ComponentChecklist", () => {
         expect(events.filter(([name]) => name === "update").map(([, via]) => via)).toEqual(["row", "row", "row"]);
     });
 
-    it("预设：把里面还没添加、还没勾的勾上，不取消别的，标明是预设勾的；里面都已添加或已勾时不可用", async () => {
+    it("预设：把里面还没添加、还没勾的勾上，不取消别的，标明是预设勾的；里面都已添加或已勾时不可用、按下的样子（读屏读作已按下）", async () => {
         const {checked, events} = open({initial: ["a.test.badge"]});
         await flushPromises();
         expect([...document.querySelectorAll("[data-checklist-presets] button")].map((button) => button.textContent?.trim())).toEqual(["基本", "主要角色"]);
@@ -153,6 +153,8 @@ describe("ComponentChecklist", () => {
         expect(checked.value).toEqual(["a.test.badge", "nbook.canon.skills"]);
         expect(events).toEqual([["update", "preset"]]);
         expect(preset("basic").disabled).toBe(true);
+        expect(preset("basic").getAttribute("aria-pressed")).toBe("true");
+        expect(preset("main").getAttribute("aria-pressed")).toBe("false");
         preset("main").click();
         await flushPromises();
         expect(checked.value).toEqual(["a.test.badge", "nbook.canon.skills", "nbook.canon.panel", "nbook.plot.knowing"]);

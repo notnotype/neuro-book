@@ -20,7 +20,9 @@ const props = withDefaults(defineProps<{
     modelValue: readonly string[];
     /** 列表封顶的高度（CSS 长度）；不给时不封顶。 */
     maxHeight?: string;
-}>(), {kind: "", presets: () => [], maxHeight: undefined});
+    /** 撑满父元素的高度、列表在里面滚（父元素是定高的弹性列，例如新建对话框的右栏）。默认 false。 */
+    fill?: boolean;
+}>(), {kind: "", presets: () => [], maxHeight: undefined, fill: false});
 
 const emit = defineEmits<{
     /** `via`：作者点的是一行还是一个预设（新建对话框据此不把预设算作动过勾选）。 */
@@ -123,7 +125,7 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
 </script>
 
 <template>
-    <div class="component-checklist" data-component-checklist>
+    <div class="component-checklist" :class="props.fill ? 'component-checklist--fill' : ''" data-component-checklist>
         <div ref="search" @keydown="onKeydown" @focusin="searching = true" @focusout="searching = false">
             <Input
                 size="sm"
@@ -142,7 +144,8 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
         <Transition name="component-checklist-presets">
             <div v-if="props.presets.length > 0" class="component-checklist__presets-wrap">
                 <div class="component-checklist__presets" role="group" :aria-label="text('entry.addGroup.presets')" data-checklist-presets>
-                    <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" :disabled="!presetUseful(preset)" :data-preset="preset.id" @mousedown.prevent @click="applyPreset(preset)">{{ preset.label }}</Button>
+                    <!-- 里面的几组都已勾上或已添加的预设不可用，画成选中的样子（强调色浅底），不画成灰的：灰的读起来像坏了（w00055 t04）。 -->
+                    <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" class="component-checklist__preset" :disabled="!presetUseful(preset)" :aria-pressed="!presetUseful(preset)" :data-preset="preset.id" @mousedown.prevent @click="applyPreset(preset)">{{ preset.label }}</Button>
                 </div>
             </div>
         </Transition>
@@ -184,6 +187,19 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
     flex-direction: column;
     gap: 0.625rem;
     min-width: 0;
+}
+.component-checklist--fill {
+    min-height: 0;
+    flex: 1;
+}
+.component-checklist--fill .component-checklist__list {
+    min-height: 0;
+    flex: 1;
+}
+.component-checklist__preset[aria-pressed="true"]:disabled {
+    background: color-mix(in srgb, var(--accent-main) 14%, transparent);
+    color: var(--accent-main);
+    opacity: 1;
 }
 .component-checklist__presets-wrap {
     display: grid;

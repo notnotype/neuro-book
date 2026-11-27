@@ -144,7 +144,7 @@ function plain(value: unknown, text: CanonBoundText): string {
     return text("receipt.complex");
 }
 
-/** 值写不出来的几种改动（启用的数据、初值的依据、认不出的键）：只写“改了”。 */
+/** 值写不出来的几种改动（设定组、初值的依据、认不出的键）：只写“改了”。 */
 const unshown = (label: string, text: CanonBoundText): ReceiptField => ({label, before: "", after: text("receipt.changed")});
 
 const ENTRY_FIELD = /^init\.data\.([^.[\]#]+)\.fields\.([^.[\]#]+)/u;

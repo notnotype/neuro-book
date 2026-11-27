@@ -180,6 +180,8 @@ describe("设定视图", () => {
 
         startNewEntry(state, starId);
         await waitUntil("对话框", () => document.body.querySelector("[data-new-entry]") !== null);
+        // 右键只给了上级的 id：名字由宿主从读到的条目里补上，段头写出来。
+        await waitUntil("上级的名字补上", () => document.body.querySelector("[data-new-entry-place-summary]")?.textContent?.includes("在星瑕下面") ?? false);
         const dialog = (): Element => document.body.querySelector("[role='dialog']")!;
         const create = (): HTMLButtonElement => [...dialog().querySelectorAll("button")].find((button) => button.textContent?.trim() === "新建")!;
         expect(create().disabled).toBe(true);
@@ -217,6 +219,7 @@ describe("设定视图", () => {
         await waitUntil("人物与形象勾上", () => document.body.querySelector("[data-new-entry]") !== null && checked().sort().join("|") === ["人物", "形象"].sort().join("|"));
         const [name, kind] = [...dialog().querySelectorAll("input")] as HTMLInputElement[];
         expect(kind!.value).toBe("人物");
+        expect(dialog().textContent).toContain("新建人物");
         // 种类的候选：登记的四个在前。
         expect([...dialog().querySelectorAll("[data-new-entry-kinds] button")].map((button) => button.textContent?.trim())).toEqual(["人物", "组织", "地点", "物品"]);
         name!.value = "星瑾";
@@ -230,6 +233,25 @@ describe("设定视图", () => {
         const entry = stored.value.object as Entry;
         expect(entry).toMatchObject({type: "人物", folder: "人物", init: {name: "星瑾"}});
         expect(Object.keys(entry.init.data)).toEqual(["character", "look"]);
+    });
+
+    it("标题栏的“新建条目”：树里选中了一项时，预填成它同一层（上级与分组）；没选中时都空着", async () => {
+        const {other, state, view} = await setup();
+        const academy = person("学院", {type: "组织", folder: "组织"});
+        const council = person("学生会", {type: "组织", folder: "组织", parent: academy.id});
+        const ids = await publish(other.canon, [academy, council]);
+        state.expanded.value = ["folder:组织", ids[academy.id]!];
+        const wrapper = view();
+        await waitUntil("条目出现", () => rowTexts(wrapper).includes("学生会"));
+
+        startNewEntry(state, null);
+        expect(state.creating.value).toMatchObject({parent: null, folder: "", folderTouched: false});
+        state.creating.value = null;
+
+        state.selected.value = ids[council.id]!;
+        await waitUntil("记下选中的那一项的位置", () => state.near.value !== null);
+        startNewEntry(state, null);
+        expect(state.creating.value).toMatchObject({parent: ids[academy.id], parentName: "学院", folder: "组织", folderTouched: true});
     });
 
     it("“人物”这个种类没登记时，空状态里没有“新建人物”", async () => {

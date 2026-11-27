@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     /** 列表嵌在输入框下面（编辑卡里）；默认 false（弹出）。 */
     inline?: boolean;
-}>(), {placeholder: "", inline: false});
+    /** 输入框的尺寸：编辑卡里是紧凑的 `sm`，表单里与别的字段同高用 `md`。默认 `sm`。 */
+    size?: "sm" | "md";
+}>(), {placeholder: "", inline: false, size: "sm"});
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string): void;
@@ -108,7 +110,7 @@ const onFocusout = (event: FocusEvent): void => {
 <template>
     <div ref="root" class="min-w-0 w-full" data-suggest-input @focusin="onFocusin" @focusout="onFocusout" @keydown="onKeydown">
         <Input
-            size="sm"
+            :size="props.size"
             :model-value="props.modelValue"
             :aria-label="props.label"
             :placeholder="props.placeholder"

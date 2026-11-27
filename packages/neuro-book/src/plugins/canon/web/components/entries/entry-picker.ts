@@ -5,6 +5,8 @@
 
 import {onScopeDispose, shallowRef, type ShallowRef} from "vue";
 
+import type {FoundEntry} from "../../../shared/contracts";
+
 /** 一个候选条目。 */
 export interface EntryCandidate {
     readonly id: string;
@@ -27,6 +29,18 @@ export type EntryResults =
     | {readonly kind: "searching"}
     | {readonly kind: "done"; readonly query: string; readonly items: readonly EntryCandidate[]}
     | {readonly kind: "failed"; readonly reason: string};
+
+/** 候选右侧说明用的两句话（按显示语言给）。 */
+export interface CandidateWords {
+    readonly alias: (alias: string) => string;
+    readonly unappeared: string;
+}
+
+/** `findEntries` 查到的一项换成候选：按别名命中的、还没出场的各有一句说明，两句都在时并排写。 */
+export function foundCandidate(item: FoundEntry, words: CandidateWords): EntryCandidate {
+    const notes = [...(item.matchedAlias === undefined ? [] : [words.alias(item.matchedAlias)]), ...(item.appeared ? [] : [words.unappeared])];
+    return {id: item.id, name: item.name, kind: item.kind, ...(notes.length === 0 ? {} : {note: notes.join(" · ")})};
+}
 
 /** 打字停这么久再查。 */
 export const ENTRY_FIND_DEBOUNCE_MS = 200;

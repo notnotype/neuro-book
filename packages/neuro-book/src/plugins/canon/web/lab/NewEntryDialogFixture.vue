@@ -10,7 +10,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof NewEntryDialog>(() => props.input, ["confirm"]);
+const subject = useLabSubject<typeof NewEntryDialog>(() => props.input, ["confirm", "search-parent", "search-same-as"]);
 </script>
 
 <template>

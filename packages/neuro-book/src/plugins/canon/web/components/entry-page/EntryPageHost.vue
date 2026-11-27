@@ -73,7 +73,7 @@ import ElementDialog from "../editing/ElementDialog.vue";
 import type {ElementField} from "../editing/element-dialog";
 import type {EditIntent} from "../editing/confirm-bar";
 import type {MoveDraft} from "./move-dialog";
-import {useEntryFind} from "../entries/entry-picker";
+import {foundCandidate, useEntryFind} from "../entries/entry-picker";
 import OriginList from "../groups/OriginList.vue";
 import PlotList from "../groups/PlotList.vue";
 
@@ -602,11 +602,7 @@ const addComponents = async (types: readonly string[], from: "dialog" | "menu"):
 };
 // 移动到……：打开时按 id 读一次原始条目（种类、上级、出场不在条目读取里），确认时只带改了的几项（`place`）。
 /** 条目选择器的查找（`findEntries`）；`kinds` 是引用字段声明的 `targets`，空的不筛。 */
-/** 查到的一项换成选择器的候选：按别名命中的、还没出场的各有一句说明，两句都在时并排写。 */
-const candidateOf = (item: FoundEntry) => {
-    const notes = [...(item.matchedAlias === undefined ? [] : [port.t(text("entryPicker.alias", {alias: item.matchedAlias}))]), ...(item.appeared ? [] : [port.t(text("entries.unappeared"))])];
-    return {id: item.id, name: item.name, kind: item.kind, ...(notes.length === 0 ? {} : {note: notes.join(" · ")})};
-};
+const candidateOf = (item: FoundEntry) => foundCandidate(item, {alias: (alias) => port.t(text("entryPicker.alias", {alias})), unappeared: port.t(text("entries.unappeared"))});
 const finderFor = (kinds: readonly string[]) => (query: string) => props.client.call("findEntries", {query, position: position.value, limit: 20, ...(kinds.length === 0 ? {} : {kinds: [...kinds]})}).then((found) => (found.ok ? {ok: true as const, items: found.value.items.map(candidateOf)} : {ok: false as const, reason: port.t(failureText(found.failure).text)}));
 const finder = finderFor([]);
 const parentFind = useEntryFind(() => finder);

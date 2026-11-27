@@ -29,6 +29,8 @@ type SuggestInputProps = {
     placeholder?: string;
     /** 列表嵌在输入框下面（编辑卡里）；缺省 false（弹出）。 */
     inline?: boolean;
+    /** 输入框的尺寸：编辑卡里是紧凑的 `sm`，表单里与别的字段同高用 `md`（新建条目对话框的分组）。缺省 `sm`。 */
+    size?: "sm" | "md";
 };
 
 type SuggestInputEmits = {

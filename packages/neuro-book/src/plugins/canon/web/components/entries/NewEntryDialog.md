@@ -9,37 +9,47 @@
 
 ## 布局与交互
 
-nb-ui 的 `Dialog`（中号），一列字段：
+nb-ui 的 `Dialog`（`lg`，720 宽），正文两栏，按对话框自己的宽度（容器查询，560 以下）上下排。行高取两栏里高的那个：右栏封顶 24rem（上下排时 20rem）、列表在里面滚，左栏展开“位置与出场”变高时右栏跟着拉长。标题：草稿的 `startKind` 有值（“新建人物”入口）时写“新建<种类>”，否则“新建条目”。
 
-- 名字（必填）；为空时“新建”不可用。
-- 种类：可以新写，下面一排候选（登记的种类在前，已有条目用过的接在后面），点了填进去。点候选或输入框失焦算选定种类：作者还没动过“启用哪些数据”的勾选时，勾选整组换成这个种类的默认设定组（`kindDefaults`，没登记的种类是空的）；打字时不换。
-- 分组：作者没改过时跟着种类。
-- 放在谁下面：“最上面一层”与已读到的条目。
-- 启用哪些数据：登记的类型，用 `ComponentChecklist`（搜索框、预设一排、按组列出的勾选行；不封顶，由对话框统一滚）。列表的“适用于<种类>”一组与预设（`kindPresets`）跟着选定的种类（草稿的 `kindChosen`）换，打字时不换。点行勾或取消算作者动过，之后不再跟着种类换（草稿的 `typesTouched`）；点预设不算，之后选定别的种类，勾选照旧换成那个种类的默认；再选定同一个种类什么都不换。Ctrl 加回车在这里不做什么（新建要先填名字，主按钮另点）。
-- 它是谁的另一个身份：“不是”与已读到的条目；选了以后“放在谁下面”变成那个条目。
-- 从哪里出场：“一开始就在”与每一章的开头。
+左栏是条目本身：
 
-每改一个字段发一次 `update:draft`（新的完整草稿）；“新建”发 `confirm`；取消、Escape、点遮罩发 `update:open(false)`（保存中不发）。
+- 名字（必填）；为空时“新建”不可用。在名字框里按回车等于点“新建”（输入法组字时的回车不算，名字为空时不新建）。
+- 种类：可以新写，下面一排常用种类的按钮（登记的种类在前，已有条目用过的接在后面），选定的那个是按下的样子（`aria-pressed`，强调色浅底）。点按钮或输入框失焦算选定种类：作者还没动过勾选时，勾选整组换成这个种类的默认设定组（`kindDefaults`，没登记的种类是空的）；打字时不换。
+- “位置与出场”一段（nb-ui 的 `Collapsible`，缺省收起，高度与透明度有过渡）：段头整行可点，右边单行截断写现在的值（分组或“不分组”、“某某的马甲”或“在某某下面”、出场），里面依次：
+  - 分组（`SuggestInput`，候选是作品里已有的分组，也能新写）：作者没改过时跟着种类。
+  - 是谁的马甲（`EntryPicker`，缺省“不是马甲”）：选了以后上级变成那个条目；清掉时上级一起清掉。
+  - 上级条目（`EntryPicker`，缺省“无”）：选了本体以后这一项换成一行“某某（跟着本体）”，不给框。
+  - 出场（`SearchSelect`）：“一开始就在”与每一章的开头。
+
+  两个条目选择器按名字与别名在整个世界里找：打开、打字时发 `search-parent`、`search-same-as`，宿主经 `useEntryFind` 查，结果从 `parentResults`、`sameAsResults` 回来；选中时从这一次的结果里取名字写进草稿（段头与“跟着本体”要写名字）。
+
+右栏是“设定组”：标题一行定高，勾选作者动过（`typesTouched`）又与选定种类的默认不同时，右端淡入“恢复<种类>的默认”，点了换回默认并清掉 `typesTouched`（之后又跟着种类换）；下面是撑满右栏的 `ComponentChecklist`（`fill`：搜索框、预设一排、按组列出的勾选行，没有“已添加”）。列表的“适用于<种类>”一组与预设跟着选定的种类（草稿的 `kindChosen`）换，打字时不换；点行勾算作者动过，点预设不算。Ctrl 加回车在这里不做什么。
+
+页脚：“取消”与主按钮“新建”；失败的原因写在页脚左边的状态行（`Dialog` 的 `status`），按钮与正文都不动。每改一个字段发一次 `update:draft`（新的完整草稿）；“新建”发 `confirm`；取消、Escape、点遮罩发 `update:open(false)`（保存中不发）。
 
 ## 数据
 
 ```ts
 type NewEntryDialogProps = {
     open: boolean;
-    draft: NewEntryDraft;
+    draft: NewEntryDraft; // new-entry.ts：名字、种类、分组、上级与名字、设定组、马甲与名字、出场、startKind
     /** 种类的候选：登记的在前，用过的在后。 */
     kinds?: readonly string[];
     /** 登记的种类默认带的设定组（类型 id）；没登记的种类不在里面。 */
     kindDefaults?: Readonly<Record<string, readonly string[]>>;
-    entries?: readonly {readonly id: string; readonly name: string}[];
+    /** 作品里已有的分组。 */
+    folders?: readonly string[];
+    /** 两个条目选择器的查找结果；默认没查过。 */
+    parentResults?: EntryResults;
+    sameAsResults?: EntryResults;
     /** 登记的类型：勾选列表的各行（没有“已添加”）。 */
     items?: readonly ChecklistItem[];
     /** 每个登记的种类的预设；没登记的种类不在里面。 */
     kindPresets?: Readonly<Record<string, readonly ChecklistPreset[]>>;
-    // ChecklistItem、ChecklistPreset 见 component-checklist.ts。
+    // ChecklistItem、ChecklistPreset 见 component-checklist.ts；EntryResults 见 entry-picker.ts。
     chapters?: readonly {readonly id: string; readonly index: number}[];
     saving?: boolean;
-    /** 失败的原因（`role="alert"`）；默认空。 */
+    /** 失败的原因，写在页脚的状态行；默认空。 */
     error?: string;
 };
 
@@ -47,8 +57,16 @@ type NewEntryDialogEmits = {
     (event: "update:open", value: boolean): void;
     (event: "update:draft", value: NewEntryDraft): void;
     (event: "confirm"): void;
+    (event: "search-parent", query: string): void;
+    (event: "search-same-as", query: string): void;
 };
 ```
+
+## 状态
+
+- “位置与出场”的开合是组件自己的状态，每次挂上都收起；开合走 `Collapsible` 的高度与透明度过渡（`--motion-move`），箭头转 90 度（`--motion-fast`）。
+- “恢复默认”出现与消失淡入淡出（`--motion-fast`），在定高的标题行里，不推动列表。
+- 种类按钮的按下样子、段头的浅底换色走 `--motion-fast`。
 
 ## 隐藏通道理由
 

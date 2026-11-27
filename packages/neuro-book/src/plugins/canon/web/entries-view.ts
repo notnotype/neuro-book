@@ -19,8 +19,9 @@ import type {ChecklistItem, ChecklistPreset} from "./components/entry-page/compo
 import type {EntryTreeItem, EntryTreeLayer} from "./components/entries/entry-tree";
 import {GROUP_ICON} from "./components/entry-page/entry-tabs";
 import {failureText} from "./failures";
+import {foundCandidate, useEntryFind} from "./components/entries/entry-picker";
 import {byKind, emptyDraft, newEntryOp, withKind} from "./new-entry";
-import type {NewEntryDraft} from "./new-entry";
+import type {NewEntryDraft, NewEntryPlace} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
 import {defaultComponents, ENTRY_KINDS, kindPresets} from "../shared/entry-kinds";
@@ -42,10 +43,12 @@ export interface EntriesViewState {
     readonly selected: ShallowRef<string | undefined>;
     /** 开着的新建条目对话框里填的东西；关着时为 null。 */
     readonly creating: ShallowRef<NewEntryDraft | null>;
+    /** 树里选中的那一项所在的位置（它的上级与分组）：标题栏的“新建条目”预填成它，新建在它同一层（输出 4）。没选中、选中的不在树里时为 null。 */
+    readonly near: ShallowRef<NewEntryPlace | null>;
 }
 
 export function entriesViewState(): EntriesViewState {
-    return {expanded: shallowRef([]), selected: shallowRef(undefined), creating: shallowRef(null)};
+    return {expanded: shallowRef([]), selected: shallowRef(undefined), creating: shallowRef(null), near: shallowRef(null)};
 }
 
 export interface EntriesViewHostOptions {
@@ -68,14 +71,17 @@ export interface EntriesViewHostOptions {
     };
 }
 
-/** 打开新建条目的对话框（命令与右键菜单用）。 */
+/**
+ * 打开新建条目的对话框（命令与右键菜单用）：给了 `parent`（右键“在它下面新建”）就建在它下面，上级的名字由视图宿主补上；没给（标题栏的
+ * “新建条目”）就建在树里选中的那一项同一层（输出 4）。
+ */
 export function startNewEntry(state: EntriesViewState, parent: string | null): void {
-    state.creating.value = emptyDraft(parent);
+    state.creating.value = parent !== null ? emptyDraft({parent: {id: parent, name: ""}}) : emptyDraft(state.near.value ?? {});
 }
 
 /** 空状态的“新建人物”（author-ui.md 输出 37）：种类预填“人物”、分组跟着种类、勾上这个种类的默认设定组。 */
 export function startNewPerson(state: EntriesViewState, defaults: Readonly<Record<string, readonly string[]>>): void {
-    state.creating.value = withKind(emptyDraft(null), ENTRY_KINDS.person, defaults);
+    state.creating.value = {...withKind(emptyDraft(), ENTRY_KINDS.person, defaults), startKind: ENTRY_KINDS.person};
 }
 
 export function createEntriesViewHost(tree: Component, options: EntriesViewHostOptions): Component {
@@ -129,6 +135,17 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 const id = state.selected.value;
                 return id !== undefined && Object.values(layers.value).some((layer) => layer.items.some((item) => item.id === id)) ? id : undefined;
             });
+            // 选中的那一项在哪一层、哪个分组：标题栏的“新建条目”照它预填（startNewEntry）。上级的名字从上一层里读到的那一项取。
+            watch([selected, layers], () => {
+                const id = selected.value;
+                const found = id === undefined ? undefined : Object.entries(layers.value).flatMap(([parent, layer]) => layer.items.filter((item) => item.id === id).map((item) => ({parent, item})))[0];
+                if (found === undefined) {
+                    state.near.value = null;
+                    return;
+                }
+                const parentItem = found.parent === ROOT ? undefined : Object.values(layers.value).flatMap((layer) => layer.items).find((item) => item.id === found.parent);
+                state.near.value = {parent: found.parent === ROOT ? null : {id: found.parent, name: parentItem?.name ?? ""}, folder: found.item.folder};
+            }, {immediate: true});
 
             /* ---------- 新建条目 ---------- */
 
@@ -179,8 +196,20 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
             });
             const saving = shallowRef(false);
             const error = shallowRef("");
-            /** 已读到的条目：放在谁下面、另一个身份的候选，以及用过的种类。 */
+            /** 已读到的条目：用过的种类与分组的候选，右键新建时上级的名字。 */
             const known = computed(() => [...handles.value.values()].flatMap((held) => held.list.state.value.items).filter((item) => !item.deleted));
+            // 右键“在它下面新建”只给了上级的 id：名字从读到的条目里补上（对话框的上级一项与段头要写名字）。
+            watch(() => state.creating.value, (draft) => {
+                if (draft === null || draft.parent === null || draft.parentName !== "") return;
+                const found = known.value.find((item) => item.id === draft.parent);
+                if (found !== undefined) state.creating.value = {...draft, parentName: found.nameAt ?? found.name};
+            }, {immediate: true});
+            // 上级条目、是谁的马甲按名字与别名在整个世界里找（同移动对话框），不只限树里读到的条目。
+            const finder = (query: string) => (create === undefined ? Promise.resolve({ok: true as const, items: []}) : create.call("findEntries", {query, position: position.value, limit: 20}).then((found) => (found.ok
+                ? {ok: true as const, items: found.value.items.map((item) => foundCandidate(item, {alias: (alias) => port.t(text("entryPicker.alias", {alias})), unappeared: port.t(text("entries.unappeared"))}))}
+                : {ok: false as const, reason: port.t(failureText(found.failure).text)})));
+            const parentFind = useEntryFind(() => finder);
+            const sameAsFind = useEntryFind(() => finder);
             const confirm = async (): Promise<void> => {
                 const draft = state.creating.value;
                 if (create === undefined || draft === null || saving.value) return;
@@ -238,7 +267,11 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                     draft: state.creating.value,
                     kinds: [...new Set([...registered.map((kind) => kind.kind), ...known.value.map((item) => item.type).filter((kind) => kind !== "")])],
                     kindDefaults: kindDefaults.value,
-                    entries: known.value.map((item) => ({id: item.id, name: item.nameAt ?? item.name})),
+                    folders: [...new Set(known.value.map((item) => item.folder).filter((folder) => folder !== ""))],
+                    parentResults: parentFind.results.value,
+                    sameAsResults: sameAsFind.results.value,
+                    onSearchParent: parentFind.search,
+                    onSearchSameAs: sameAsFind.search,
                     items: items.value,
                     kindPresets: presets.value,
                     chapters: chapters.value?.data?.items ?? [],

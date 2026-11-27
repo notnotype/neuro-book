@@ -1,5 +1,5 @@
 /**
- * MoveDialog（同名 .md）：改分组、种类、顺序与出场各发新的完整草稿；“移动”发 confirm；失败的原因写在对话框里。上级与另一个身份的
+ * MoveDialog（同名 .md）：改分组、种类、顺序与出场各发新的完整草稿；“移动”发 confirm；失败的原因写在对话框里。上级与马甲的
  * 选择器在 EntryPicker 的测试里，宿主里的整条路在 entry-page.dom.test.ts。
  */
 
