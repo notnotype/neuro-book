@@ -35,8 +35,9 @@ updated: 2026-11-17
 
 ## 当前状态
 
-2026-11-17 经 nbdev 新建（`planned`），已完成根因定位，待创建修复分支实现并补回归测试。
+2026-11-27 由 [w00058 t01](../../../w00058-agent-resources-in-workbench/tasks/t01-resources-design/README.md) 接手：
 
-## 下一步
+- 修复要点 1 已完成并合入 master（`d95b0daea`、`8af62d6bc`）：`area.ts` 的 `open()` 在入口拒绝浏览器认不出的地址并说明原因，对话里点到这类地址时弹出原因；`area.test.ts` 有对应用例。
+- 修复要点 2（能打开 `profile://`、`session://` 的文件）并入 w00058 t01 的计划：实现浏览器访问已注册方案后，从对话里打开写入当时的全局地址。
 
-- 在 `editor/web/area.ts` 补齐 `parseResource` 入口校验与单元测试，并打通或妥善处理 `agent-file-changes__chip` 点击 `profile://` 地址的行为。
+本 Task 不再单独推进。
