@@ -32,4 +32,4 @@ updated: 2026-11-27
 ## 下一步
 
 1. 第 2 轮（2026-11-27）：`NewEntryWideDraftDialog` 横版、页头头像 88 见方；[评审板](artifacts/review/index.html) v2 两题都同意（见决定）。
-2. 定稿后改 Spec（author-ui 输出 4、7、9）、写计划再实施。
+2. [实施计划](plan.md)已写（2026-11-27），等开发者确认后按切片实施。
