@@ -1,0 +1,89 @@
+## 1. 停止阶段已经取消统计端的远程冲刷
+
+计划 3.2、3.9 要求窗口与项目实例在入口停止时把最后一批送到服务端，但入口 `remote` 门面绑定 `attempt.scope.stopSignal`（`packages/nb-runtime/src/plugins/host.ts:572-588`），而停止会先 abort 作用域，再执行 release/onStop（同文件 1102-1105；`packages/nb-runtime/src/lifecycle/scope.ts:543-552,760-783`）。服务端同时先停远程接纳、再 drain 在途调用（`packages/nb-host/src/server/start.ts:328-384`；NeuroBook 先调用 `projects.stopAdmission()`，`packages/neuro-book/src/server/start.ts:178-181`）。因此清理钩子中用普通远程门面送尾批，可能在派发前被取消/拒绝，已派发写请求中断则是 `unknown-outcome`。当前顺序不能保证“正常退出写入最后一批”。项目字数的 release 也必须先完成 `onDayClosed` 记数，再由 client release 冲刷，不能仅靠笼统的“依赖逆序”假设。
+
+建议把有界排空安排在 abort 与停止接纳之前，或定义仅供清理使用、寿命明确且有界的发送能力；不得重放 `unknown-outcome`。S3 应用真实窗口和项目宿主停止场景验证接纳状态、尾批到达与 deadline 后少计处理。
+
+## 2. 错误码观察会漏掉主要的运行时失败
+
+计划 3.1、3.3 只从脱敏后的 `data.code` 取码，并规定观察者登记前不补交。现有机制诊断并不统一使用这个字段：`mechanismObservers` 把 lifecycle failure 的 `stage/phase/resourceId`、services/plugins 的 `stage/reason` 放入 `data`，紧急启动报告只有 `data.detail`（`packages/nb-runtime/src/diagnostics/store.ts:340-429`）；错误对象序列化只保留 name/message/stack/cause，不保留 `Error.code`（`diagnostics/redaction.ts:66-85`）。而统计观察者要等统计插件入口激活后才登记，启动早期缓冲记录不会补交。故计划规定的稳定性指标会系统性漏掉服务装配、插件激活、生命周期与早期启动失败，S4 的“各位置带码诊断”用例不能证明这些路径已覆盖。
+
+需给稳定码一个统一、结构化且不依赖自由文本的来源，并定义入口激活前诊断如何交给统计；否则将统计承诺限定为“激活后且明确写入 `data.code` 的诊断”，并更新 Spec 与验收。
+
+## 3. 模型埋点只包 Agent，不覆盖模型服务的其它调用方
+
+计划 3.5 仅在 Agent 装配处把 `models.port()` 包成 `countModelPort`（`packages/neuro-book/src/plugins/agent/backend/agent.ts:250-254`）。但 `nbook.plot` 的服务端入口也直接取 `modelsKey`、调用 `port()`，并在 `plotModelImplementation` 中直接 `resolution.call()`（`packages/neuro-book/src/plugins/plot/backend/server.ts:98-103,62-79`），不经过 Agent 包装。Spec `stats.local` 输出 9 明确要求凡经模型服务的调用都计入，包括 Agent 与别的插件。故 Plot 的模型请求不会进入统计，按 Agent 调用点包装违反既定覆盖合同。
+
+把计数包装放在共享模型服务/端口边界，或逐个纳入全部模型服务调用方并加 Plot 的消费级验收；不要以 Agent-only 用例代表“模型服务”覆盖。
+
+## 4. 用量不完整没有对应指标
+
+Spec `stats.local` 输出 9 要计“用量不全”请求；计划 3.5 列了失败数与 `unpriced-requests`，没有 `incomplete-requests` 或等价计数。`Usage.complete` 专门表示取消或可能漏计服务商层重试（`packages/nb-harness/src/kernel/api/model.ts:28-37`）；适配器也会在 HTTP 尝试多于一次时返回 `complete: false`，即使有正常回复（`packages/nb-harness/src/kernel/model/omp.ts:493-501`）。这不是失败数或单价未知数的子集，成功但部分计量的调用会静默漏掉 Spec 所需统计。
+
+增加按每次逻辑调用计数的用量不完整指标，并在 S6 覆盖一次 `stopReason: stop`、`usage.complete: false` 的响应；不要只用失败响应验收。
+
+## 5. 字数只处理最近一个换日，不能恢复未交日或补齐休眠跨日
+
+Spec `stats.local` 输出 8 要在重开时补交上次打开日未交的值，且运行跨过多个午夜时中间日记零净增与当时总字数。计划 3.4 只要求在 `rollover()` 交出“刚结束那一天”，未列重开补交或多日跳过验收。现有 tracker 的 `openingToday()` 会在存档日期非今天时直接用 `initial.words` 建立今天基线（`packages/neuro-book/src/plugins/projects/project/stats-tracker.ts:542-547`）；`rollover()` 也只把 `today.date` 改成当前日（同文件 156-162）。因此旧日期被抛弃，多次午夜只结算最后一个旧日。S5 当前映射的“跨过午夜”单日场景抓不到这两个边界。
+
+在接入 `onDayClosed` 时保留旧快照日期/基线，重开先补交未交的上次日期；多日跳过按 Spec 明确生成中间日。S5 增加崩溃后次日重开与一次跨过至少两个午夜的确定性测试。
+
+## 6. 开放标签溢出值与 Spec 的保留标签冲突
+
+计划 3.2 把开放标签每日超过 50 个不同值的后续计数归到 `other`；Spec 输出 2 明确要求保留标签 `$overflow`，并与 `other` 区分：`other` 表示封闭名单外，`$overflow` 表示开放标签超过上限。复用 `other` 会把实际模型/项目/错误码标签为 `other` 的数据也合并，且只读结果无法说明是越界还是用户/插件真实取值。
+
+按 `$overflow` 落盘，拒绝或保留该字符串作为真实开放标签的规则也需定清，并验收真实 `other`、第 50 个标签和第 51 个新标签三者不混淆。
+
+## 7. “清除全部”返回后数据仍可能重现
+
+计划 3.2 的 `clear()` 只丢服务端待写批并删已知日期；窗口/项目 client 各自缓冲 5 秒或 200 条，计划没有清除协议让它们停止、作废或换代。Spec `stats.local` 状态与转换第 72 行明确允许清除时已缓冲、之后送达的一批留下，但输出 14 又写清除后仪表盘为空。按当前计划实现后，清除完成后客户端旧批到达会重新创建统计数据，界面不能兑现“清除全部”的通常含义。
+
+产品合同需二选一：用清除代次/屏障拒收清除前批次以保证清空，或明确告知并验收清除后可能重现近期数据；同时统一 Spec 输出 14 与第 72 行。仅测空闲 client 下的清除不足以验证。
+
+## 8. 按日索引会在默认记录上限处永久失效
+
+计划 3.2 的 `stats.days` 是未指定 `maxBytes` 的 Storage 记录，因此使用默认 64 KiB 上限（`packages/neuro-book/src/shared/storage.ts:13-15,56-65`）。计划又要求按日长期保留并用这个单一有序日期列表做范围读取和清除。JSON 日期列表约每个日期 13 字节，约 5,000 个有数据日（约 14 年）即会超过默认上限；Storage 拒绝保存后，新增日可能已写入 `stats.day`、但日期索引未更新，范围读取漏掉新日，清除枚举也不完整。该失败边界与“长期保留”不相容，且计划的写失败处理会丢批，未覆盖索引自身容量。
+
+为 `stats.days` 明确设置受 Storage 上限允许的容量并验收临界值，或采用按月/年分区索引，避免单个随时间单调增长的 64 KiB 记录。
+
+## 9. 每日数据记录总量没有上界
+
+`stats.day` 计划固定 `maxBytes: 256 KiB`，但记录把所有已声明指标及其标签放进同一个日对象；指标贡献可来自任意插件，计划只限制单指标开放标签数，不限制一个实例登记的指标总数。达到记录上限后 Storage 返回 `too-large`，计划把它当写失败进入降级并丢掉整批；少数高基数插件会使当日其它所有指标一起丢失，且之后同一日继续写仍超限。
+
+给单日指标/标签总量定义并验证上限，或改成按指标分记录/批量分片；S2 应覆盖逼近上限时的跨指标隔离，确保一个指标膨胀不会静默丢掉全日数据。
+
+## 10. 验收要求真实子进程手动推进时钟，但测试宿主无法注入
+
+计划 6 把 23:59 记数、00:00 后送达的归日验证及字数跨午夜验证都映射为“真实项目子进程 + ManualClock”。产品项目入口把 `clockKey` 固定提供为 `systemClock`（`packages/neuro-book/src/project/start.ts:139-149`）；测试 fixture 入口也只注入故障、remote-probe、canon-probe 与 running-work 插件，没有 clock override（`packages/neuro-book/src/project/testing/fixture-entry.ts:20-31`）。`projectHarness` 的 `ManualClock` 是服务端宿主能力，注释也限定它管理启动/停止时序，不会进入子进程（`packages/neuro-book/src/server/testing/projects.ts:121-127,145-167`）。因此计划指定的真实进程中无法确定性推进“本机日”；要么等待真实午夜，要么测试替身，和计划禁止替身的原则冲突。
+
+在 S3 前增加只在 fixture 入口启用的子进程 clock 注入/远程推进机制；或拆分验收：进程内真实 remote 节点测试时钟与延迟，真实子进程只验证收到的日期原样落盘，并明确两者不是同一场景。
+
+## 11. 总字数延续口径与 Spec 相反，并有“已移除项目仍计入”问题
+
+计划 3.4 写视图总字数取“每个项目截至那天最后一次交的总数之和”，这会把未在当天交数的项目旧总数一直向后沿用；Spec 输出 8 明确说每天总字数只相加当天交过数的项目，不把别的日子的总数往后带。按日 keyed 储存要实现计划算法还需向前扫描每项目最后日期；项目移出书架后没有清理或排除规则，最后快照会永久留在“总字数”中。该口径既不符合 Spec，也会让下降/归零无法反映。
+
+采用 Spec 的每日已交项目相加口径，或把产品口径变更提给开发者并明确项目移出后的处理；近 30 天只读范围应能得到一致结果，不应隐式带入范围外历史。
+
+
+## 12. 诊断来源身份由调用方自报，缺 source.plugin 会把错误归到 runtime
+
+计划 3.3 按 `origin.plugin` 形成“拥有者:错误码”，无来源写 `runtime`。但现有 `DiagnosticsService.record` 的 `source` 是调用方可选字段，不由内核盖章（`packages/nb-runtime/src/diagnostics/contracts.ts:11-30`；`diagnostics/plugin.ts:75-81`）。不少宿主或领域诊断没有 `source.plugin`，即使 `data.code` 可取也会被合并成 `runtime:<code>`，失去实际拥有者。更重要的是，记录者可以错误填写别的 plugin，观测输出会把码归错。
+
+需明确这项指标统计的是诊断记录声明的来源，而非运行时认证的 owner；对系统机制事件从结构化字段推导来源插件，普通诊断缺失时归 `runtime`。S4 应包含一条缺 source 与一条 mechanism diagnostic 的验证，不能只靠测试造出的 `source.plugin`。
+
+## 13. 贡献点跨运行位置的可见性有现成机制支持，不构成计划风险
+
+已核实：NeuroBook 每个宿主按清单将顶层描述级 `contributions` 并入本位置定义；没有本位置入口的插件仍登记这些顶层声明（`packages/neuro-book/src/plugin-platform/shared/definitions.ts:18-34`）。服务端、项目、浏览器分别经 `manifestServerPlugins`、`manifestProjectPlugins`、`browserPluginDefinitions` 装配。内核 `declarations.list` 只查询当前 `PluginHost` 实例里的存活贡献（`packages/nb-runtime/src/plugins/host.ts:285-304`），因此每个实例都要从 manifest 登记同一顶层声明，不存在跨进程共享目录；这与 `plugin-manifest.md` 输出 11 的合同一致。
+
+计划已规定指标放插件描述的顶层贡献，足以满足服务端校验。建议删掉第 9 节“探针确认、若不可见则改描述级贡献”的未决风险，直接把声明位置写成强约束并验收三个宿主各自可查询；入口级声明不可替代顶层声明。
+
+## 排序说明与未发现问题的方面
+
+- 最高影响：1（正常关闭时尾批远程发送受取消/停止接纳影响）、2（稳定性指标漏计主要错误）、3（模型服务请求覆盖不完整）、5（字数重开与多日遗漏）、7（清除后旧批重现）。其次：4、6、8、9、10、11、12；13 是已证伪的计划风险，不是缺陷。
+- Storage 的 `user/shared/keyed` 按本机日使用方式成立：服务端可访问 user 分区；`StorageService.open` 经远程门面做描述登记并缓存 SQLite partition，不是每次 open 新建数据库；按一年逐日读取约 365 条记录是明确、有限的工作量。真正的存储风险是 `stats.days` 与单日记录的容量、写入顺序和清除一致性，不是 open 次数。
+- `declarations.list` 仅限单个运行实例，但顶层声明由三个宿主分别登记，架构与 Spec 一致。
+- 请求记录关闭不影响内核 ModelPort 调用；Agent 外包端口仍会覆盖 Agent 各种 purpose 的 `call`，分叉不会重放请求；然而计划所称“call 与 complete 都包”与真实接口不符：ModelPort 仅 `resolve`，解析结果仅 `call`，Harness `complete()` 是内核路径，仍通过 call 发请求（`packages/nb-harness/src/kernel/session/complete.ts:22-60`）。因此要保证完整覆盖，埋点应位于共用模型端口边界。
+- Storage 以同一 user 分区事务与条件 revision 保护并发写；单写者队列是计划自己的责任。开放标签预算必须从落盘当日数据恢复，不能只在服务端内存计数，否则服务端重启后当日会重复放行 50 个值。
+- 模型记录包装顺序尚须明确：当前 `traceModelPort` 仅在有会话 meta 且记录器 enabled 时启动记录；`complete()` 不带 meta，因此不产生请求记录，但仍走 ModelPort。计数应在模型调用被接受后围绕真实 `resolution.call`，不要把记录器启动异常误算成已发模型失败。
+- 未被计划映射覆盖的 Spec 判据：登记前记数丢弃、声明者移除后拒绝新记数但旧数可读、清除后为空/里程碑状态、模型请求重试逐次计数、存储降级时真实业务照常成功、不联网规则的违规反例与动态导入、异常输入（计数 NaN/Infinity、非法/过期日期、越界标签）的隔离处理。S7 当前黑名单文字扫描也不能证明第三方包、动态导入或 `globalThis.fetch`/`Bun.connect` 未绕过。
+- 没有运行测试、类型检查、e2e、开发服务或真实进程验证；本任务是计划审查，结论来自静态合同与源码对照。

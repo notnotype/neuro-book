@@ -63,11 +63,11 @@ interface StatsService {
 
 **服务端入口**（`backend/`）：
 - 攒批：内存里按“本机日、声明者、指标、标签”累加，5 秒写一次、停止时写最后一次；一个写者队列，写、清除、读都排在它上面。
-- 存储：每天每个声明者一条记录 `stats.day`（keyed，资源 id `YYYY-MM-DD.<声明者 id 的短哈希>`，`maxBytes` 256 KiB），值 `{v: 1, plugin, counters: {[metric]: {[label]: n}}, daily: {[metric]: {[label]: n}}}`（不带标签的用标签 `""`）；一条 `stats.meta`（不 keyed）`{v: 1, earliest: LocalDay | null, plugins: string[]}`，记最早的日期与写过数的声明者。写入顺序：先 `stats.meta`（需要时），再各条日记录；读时日期范围由 `earliest` 与今天算出，逐日逐声明者读，没有的是缺测。一个声明者超限只影响它自己那一条（`too-large` 按“丢弃”计，记一条诊断）。
+- 存储：每天每个声明者一条记录 `stats.day`（keyed，资源 id `YYYY-MM-DD.<声明者 id 的短哈希>`，`maxBytes` 256 KiB），值 `{v: 1, plugin, counters: {[metric]: {[label]: n}}, daily: {[metric]: {[label]: n}}}`（不带标签的用标签 `""`）；一条 `stats.meta`（不 keyed）`{v: 1, earliest: LocalDay | null, plugins: string[], clearedAt: number | null}`，记最早的日期、写过数的声明者与上次清除的时刻。写入顺序：先 `stats.meta`（需要时），再各条日记录；读时日期范围由 `earliest` 与今天算出，逐日逐声明者读，没有的是缺测。一个声明者超限只影响它自己那一条（`too-large` 按“丢弃”计，记一条诊断）。
 - 合并：日记录用 `update` 合并，计数相加、每日数值覆盖；开放标签的上限在合并时对照记录里已有的取值检查，所以重启后照样成立；超出的记到保留标签 `$overflow`，列表模式下没列出的记到 `other`，两者分开。
 - 降级：存储打不开或写失败（`too-large` 除外）时进入降级，这一批丢弃，记一条诊断；下一次写成功回到可用。
 - 只读服务 `statsReadKey`：`range(from, to, metrics?)`、`day(day)`、`status()`（可用或降级，加丢弃与少计的计数）；只读已落盘的。远程合同 `nbook.stats/read`（provider server、callers browser）给视图用；业务码 `metric_unknown`、`stats_unavailable`。
-- 清除：`clear()` 在写者队列上丢掉内存里的批，从 `earliest` 到今天逐日删各声明者的记录，最后删 `stats.meta`；中途失败可以重跑。清除前已经在项目与窗口里攒着、随后送到的那一小批（至多 5 秒）会留下，Spec 写明。远程合同 `nbook.stats/admin`（callers browser）。
+- 清除：`clear()` 在写者队列上丢掉内存里的批，先把 `stats.meta` 写成 `{earliest: null, plugins: [], clearedAt: <此刻毫秒>}`（中途失败可以重跑），再从原来的 `earliest` 到今天逐日删各声明者的记录。清除屏障：送数端的每一批带它开始攒的时刻 `startedAt`，服务端拒收 `startedAt` 早于 `clearedAt` 的整批（计入丢弃），服务端自己内存里的批同样处理；所以清除后不会冒出清除前的数（omp 审查第 7 条）。远程合同 `nbook.stats/admin`（callers browser）。
 
 **送数端**（项目与窗口的入口，`client/`）：
 - 每个调用方一个门面，本地攒批；5 秒或 200 条由计时器送出（不在记数调用的栈里同步发起远程请求）。送经 `context.remote.on(consumer).use(recordContract)`，入口声明 `remoteDelegates: [recordContract]`；服务端从 `consumer.plugin` 得到插件 id 并核对 `via` 是 `nbook.stats`，请求体里不带插件 id。
@@ -144,10 +144,11 @@ interface StatsService {
 | 输出 3、验收 1 | 拆成两条：S3 用进程内真实的远程节点（`nb-runtime` 的 remote 测试底座）与 `ManualClock`，23:59 记、拦到 00:00 之后送达，读到在前一天；真实项目子进程里只测“带来的日期原样落到那一天”（子进程的时钟是系统时钟，不加测试接缝） |
 | 输出 8、验收 3 | S5：跨午夜交前一天；激活时补交；跨两个午夜中间那天净增为零；某天不开项目，那天缺测、前后不变 |
 | 输出 9、验收 2 | S6：关掉 `requestTrace` 后经 Agent 发请求，用量照常增加；plot 的请求也计入；重试各算一次；用量不全另计；分叉后不重复 |
-| 输出 10 | S4：让一个插件激活失败，读到 `runtime:activation-threw` 一类的计数（真实运行时）；带 `data.code`、带 `error.code` 的各一条；不带码与非错误级的不计；统计入口激活前的记录经补交计到 |
+| 输出 10 | S4：让一个插件激活失败，读到 `runtime:activation-threw` 一类的计数（真实运行时）；带 `data.code`、带 `error.code` 的各一条；不带码与非错误级的不计；没有来源的记作 `runtime`；统计入口激活前的记录经补交计到 |
 | 输出 11、验收 4，失败码 `stats_unavailable` | S2：用只拦 `nbook.stats` 的存储包装（替身与真实实现对过契约）让统计写失败，同一运行实例里真实的项目保存与模型请求（测试端口）都成功，统计状态降级，只读报 `stats_unavailable` |
 | 输出 12 | S3：送数的回应被拦下（`unknown-outcome`），服务端只收到一次 |
 | 输出 13、14 | S8：dom 测试与 e2e |
+| 清除屏障（状态与转换） | S2：服务端内存里清除前的批被丢弃；S3：送数端清除前开始攒、清除后才送到的批被拒收 |
 | 输出 15、验收 5 | S7：导入白名单与全局名规则（每条带反例）；验收 5 的“禁止出网的环境”由它代替，运行期不另测（已知限制） |
 | 时序：登记前的记数丢弃；声明者停用后不收、数据可读 | S2 |
 | 时序：正常退出前写入 | S2：服务端停止时写最后一批；S3：项目与窗口的门面释放时送最后一批（真实子进程） |
@@ -170,7 +171,8 @@ interface StatsService {
 
 - 不做：耗时分布、里程碑、提供方类别标签、遥测与上报、第三方插件的自定义卡片。
 - 风险：服务端整体退出时项目子进程的最后一批，S3 先跑探针。
-- 风险：错误码的覆盖取决于各处记录带不带码；这次只做三个来源，没带码的错误记录不计（不在各处补码，那是各插件自己的事）。
+- 风险：错误码的覆盖取决于各处记录带不带码；这次只做三个来源，没带码的错误记录不计（不在各处补码，那是各插件自己的事）。拥有者是记录自报的来源，诊断不核实（Spec 输出 10 写明）。
+- 风险：一个声明者一天的数超过 256 KiB 时，它那一天写不进去（`too-large`），别的声明者不受影响；第一阶段的指标量远小于这个数，不再细分。
 
 ## 10. 设计审查的处理（Opus 第一轮，2026-11-27）
 
@@ -190,3 +192,15 @@ interface StatsService {
 | 10 两种 `other`、本机标识标签 | `$overflow` 与 `other` 分开；声明加 `local`（3.2） |
 | 11 验收映射的缺口、故障注入、黑名单 | 补映射；只拦统计的存储包装；导入改白名单（第 6 节、3.6） |
 | 12 输入不校验 | 门面与合同两处校验、封顶（3.2） |
+
+## 11. omp 设计审查的处理（审的是第一稿，2026-11-27）
+
+报告：`evidences/design-review-omp.txt`。13 条按第二稿核对：
+
+| 条 | 处理 |
+|---|---|
+| 1 到 6、8、10、11 | 与 Opus 第 1 到 7 条重合，第二稿已处理（日期列表已去掉，第 8 条不再适用） |
+| 7 清除后旧批重现 | 成立，改：清除屏障（`clearedAt` 与每批的 `startedAt`），Spec 状态一节改成拒收（3.2） |
+| 9 单日记录总量 | 第二稿已按声明者分记录；剩下“一个声明者自己超限”记为风险（第 9 节） |
+| 12 来源自报 | 成立，Spec 输出 10 写明是记录声明的来源；S4 补一条缺来源与一条机制事件的用例 |
+| 13 声明可见性 | 证实第二稿的做法，不是问题 |
