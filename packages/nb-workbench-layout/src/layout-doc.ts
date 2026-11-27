@@ -83,6 +83,11 @@ export interface LayoutDoc {
     readonly floats: ReadonlyArray<LayoutFloat>;
     readonly hiddenBars: ReadonlyArray<LayoutBar>;
     readonly currentEditor: string | null;
+    /**
+     * 工具视图上次从浮动窗回到树里时窗的记录矩形（输出 39 的“记住矩形”），键是标签键 `view:<视图 id>`；再经“浮动”浮出时用它。
+     * 按视图记、不记在分节或锚上：视图在区域、容器之间搬来搬去时不丢。由 `finish` 的 `settleFloatRects` 写与清，操作自己不碰。
+     */
+    readonly floatRects?: Readonly<Record<string, LayoutFloatRect>>;
 }
 
 export type LayoutFailureCode = "not-found" | "rejected" | "limit-exceeded";
@@ -131,6 +136,7 @@ type MutableDoc = {
     floats: LayoutFloat[];
     hiddenBars: LayoutBar[];
     currentEditor: string | null;
+    floatRects?: Record<string, LayoutFloatRect>;
 };
 
 /**
@@ -448,11 +454,13 @@ export function sameTreeShape(left: LayoutDoc, right: LayoutDoc): boolean {
 /** 侧轨意图的比较形：键序与没写的字段不影响结果。 */
 const railIntentKey = (intent: RailIntent | undefined): unknown => (intent === undefined ? null : [intent.expanded === true, intent.width ?? null]);
 const railKey = (rail: Readonly<Record<string, RailIntent>> | undefined): unknown => (rail === undefined ? [] : Object.keys(rail).sort().map((container) => [container, railIntentKey(rail[container])]));
-const floatKey = (float: LayoutFloat): unknown => [float.panel, float.rect.x, float.rect.y, float.rect.width, float.rect.height, railIntentKey(float.rail)];
+const rectKey = (rect: LayoutFloatRect): unknown => [rect.x, rect.y, rect.width, rect.height];
+const floatKey = (float: LayoutFloat): unknown => [float.panel, rectKey(float.rect), railIntentKey(float.rail)];
+const floatRectsKey = (rects: LayoutDoc["floatRects"]): unknown => (rects === undefined ? [] : Object.keys(rects).sort().map((key) => [key, rectKey(rects[key] as LayoutFloatRect)]));
 
 /**
  * 结果和现状一样吗：结构、方向、叶序、标签、活动标签、显隐与收起，分节的归属、区域的入口顺序与当前容器（输出 28），浮动窗的次序与矩形，
- * 锚与浮动窗上的侧轨意图（输出 50）。不比尺寸意图：摘出再放回，比例舍入后不会相等；也不比分支 id。当前容器没写和 null 是一回事；入口顺序没写和空的不是一回事（`isContainerAnchor`）。
+ * 锚与浮动窗上的侧轨意图（输出 50），记住的浮动窗矩形（输出 39）。不比尺寸意图：摘出再放回，比例舍入后不会相等；也不比分支 id。当前容器没写和 null 是一回事；入口顺序没写和空的不是一回事（`isContainerAnchor`）。
  */
 export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
     if (!sameTreeShape(left, right) || JSON.stringify(left.floats.map(floatKey)) !== JSON.stringify(right.floats.map(floatKey))) return false;
@@ -462,7 +470,8 @@ export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
     const record = (panel: PanelRecord): unknown => [panel.name ?? null, panel.tabs.map(tabKey), panel.active, panel.hidden === true, panel.collapsed === true, panel.container ?? null, panel.entries ?? null, panel.activeContainer ?? null, railKey(panel.rail)];
     return leftIds.every((id) => JSON.stringify(record(left.panels[id] as PanelRecord)) === JSON.stringify(record(right.panels[id] as PanelRecord)))
         && JSON.stringify([...left.hiddenBars].sort()) === JSON.stringify([...right.hiddenBars].sort())
-        && left.currentEditor === right.currentEditor;
+        && left.currentEditor === right.currentEditor
+        && JSON.stringify(floatRectsKey(left.floatRects)) === JSON.stringify(floatRectsKey(right.floatRects));
 }
 
 /**
@@ -569,6 +578,34 @@ function settleRails(original: LayoutDoc, next: MutableDoc): void {
     }
 }
 
+/**
+ * 浮动窗记住的矩形（输出 39 的“记住矩形”）跟着结构操作结算，放在出口，归位、拖回停靠、并进树里的面板走的都是这一条：
+ *
+ * - 按标签判：一个工具视图标签在 `original` 里在浮动窗里、在 `next` 里落在树里，就记下那扇窗的记录矩形（收着的，不含侧轨展开的差值）。
+ *   不看窗还在不在：“回到停靠”是一个标签一次提交地搬（工作台的 `dockFloat`），前几个搬走时窗还在；从多标签窗单独拖一个回树里也算。
+ *   并进别的浮动窗、被关掉的不记。编辑器标签不记：它们是动态的，浮出与归位走编辑器区。
+ * - 然后清掉 `next` 里已经没有这个标签的键（视图被停用、卸载），清空了整个字段不写：记录不随装过的视图个数涨。
+ *
+ * 拖动预览的每个候选落点都要过这里，所以标签所在的面板先建一张表再查，不逐个 `findTab`（那样是记录数乘以标签数）。
+ */
+function settleFloatRects(original: LayoutDoc, next: MutableDoc): void {
+    if (original.floats.length === 0 && next.floatRects === undefined) return;
+    const doc = asDoc(next);
+    const home = new Map<string, string>();
+    for (const [id, panel] of Object.entries(next.panels)) for (const tab of panel.tabs) home.set(tabKey(tab), id);
+    const rects: Record<string, LayoutFloatRect> = {...next.floatRects};
+    for (const float of original.floats) {
+        for (const tab of original.panels[float.panel]?.tabs ?? []) {
+            if (tab.kind !== "view") continue;
+            const landed = home.get(tabKey(tab));
+            if (landed !== undefined && !isFloating(doc, landed)) rects[tabKey(tab)] = {...float.rect};
+        }
+    }
+    for (const key of Object.keys(rects)) if (!home.has(key)) delete rects[key];
+    if (Object.keys(rects).length > 0) next.floatRects = rects;
+    else delete next.floatRects;
+}
+
 /** 改到一半的文档过规范形：占不占份额按这份文档当前的显隐与收起判。 */
 const normalizeDoc = (next: MutableDoc): void => {
     next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
@@ -580,6 +617,7 @@ function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
     hideEmptiedRegions(original, next);
     expandWhereAxisChanged(original, next);
     settleRails(original, next);
+    settleFloatRects(original, next);
     const scale = countScale(next.tree.root);
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `${String(scale.nodes)} nodes, ${String(scale.depth)} levels deep`);
     const doc = asDoc(next);

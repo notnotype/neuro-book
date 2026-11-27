@@ -238,6 +238,36 @@ test("收着的一列按钮中线对齐：右轨的入口、头像、底段与�
     for (const x of floating) expect(Math.abs(x - floating[0]!), `浮动窗：${floating.join(", ")}`).toBeLessThanOrEqual(1);
 });
 
+// 覆盖 ui/workbench-layout 输出 39 的“记住矩形”：窗拉宽、拖低之后点“回到停靠”，再浮出是调过的矩形，刷新后再浮出还是它。
+test("记住矩形：调过的窗归位后再浮出，位置与大小是调过的；刷新后再浮出还是它（输出 39）", async ({page}) => {
+    await open(page);
+    const id = await floatConversation(page);
+    const chrome = chromeOf(page, id);
+    const initial = await windowBox(page, id);
+    await dragBy(page, await centerOf(chrome.locator('[data-float-handle="left"]')), -120, 0);
+    await dragBy(page, await centerOf(chrome.locator('[data-float-handle="bottom"]')), 0, 80);
+    const adjusted = await windowBox(page, id);
+    // 拖动真的改了矩形：不然缺省矩形也满足后面的断言。
+    expectSameBox(adjusted, {x: initial.x - 120, y: initial.y, width: initial.width + 120, height: initial.height + 80}, "调过之后");
+    await expect.poll(async () => ((await floatRecord(page)).rect as {height?: number} | undefined)?.height).toBe(Math.round(adjusted.height));
+
+    const win = await windowBox(page, id);
+    await page.mouse.move(win.x + 60, win.y + 60);
+    await dockButton(page, id).click();
+    await expect(page.locator("[data-float-chrome]")).toHaveCount(0);
+    const again = await floatConversation(page);
+    expectSameBox(await windowBox(page, again), adjusted, "再浮出");
+
+    await page.mouse.move(win.x + 60, win.y + 60);
+    await dockButton(page, again).click();
+    await expect(page.locator("[data-float-chrome]")).toHaveCount(0);
+    await expect.poll(async () => JSON.stringify((await saved(page))?.floatRects ?? null)).toContain(`"width":${Math.round(adjusted.width)}`);
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+    const reloaded = await floatConversation(page);
+    expectSameBox(await windowBox(page, reloaded), adjusted, "刷新后再浮出");
+});
+
 // 覆盖 ui/workbench-layout 输出 51“矩形”（夹取）：窗贴着屏幕右边时展开，呈现位置整体往左挪、右边不出界、记录位置不改；收起后回到原来的位置。
 test("靠右夹取：窗拖到贴屏幕右边再展开，整体往左挪、右边不出界，记录矩形不改；收起后回到原位（输出 51）", async ({page}) => {
     await open(page);

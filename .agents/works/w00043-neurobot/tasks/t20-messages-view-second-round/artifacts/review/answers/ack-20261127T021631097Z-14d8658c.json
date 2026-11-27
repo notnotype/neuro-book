@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "ackId": "20261127T021631097Z-14d8658c",
+    "answers": [
+        "20261127T021602754Z-3622f426"
+    ],
+    "through": "20261127T021602754Z-3622f426",
+    "included": [
+        ".agents/works/w00043-neurobot/tasks/t20-messages-view-second-round/README.md"
+    ],
+    "ackedAt": "2026-11-27T02:16:31.097Z"
+}

@@ -68,6 +68,7 @@ const VALUES: ReadonlyArray<string> = [
     "setContainerEntries",
     "setContainerRail",
     "setCurrentEditor",
+    "setFloatRail",
     "setFloatRect",
     "setPanelCollapsed",
     "setPanelHidden",

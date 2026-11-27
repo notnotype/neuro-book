@@ -1,0 +1,122 @@
+# w00037 t10 B5 前端实现审查报告（Sonnet）  提交 5cf878865
+
+### 1. 活跃图里孤立的一天（前后都没有上报）完全画不出来；只有一天数据时整张图是空的
+严重程度：重要　类别：正确性（边界）
+位置：packages/nb-site-web/src/pages/admin/dashboard/charts/options.ts（buildActiveOption 里 series 的 `connectNulls: false` 加 `showSymbol: false`，约 130-141 行）
+现象：缺的天是 null、线断开（输出 7 的要求），同时关了数据点标记。某一天有数、前后一天都没有时，这一天的线段长度为 0，什么也不画。上线头几天只有一天上报时，面板状态是 ready、有 aria-label、有图例，但绘图区一条线都没有；之后每周只有零星几天有上报的安装也一样，孤立的天在图上消失，只有鼠标停上去提示框才有数。
+如何核实：在 /tmp/review-w00037-t10-b5/lab/ssr.mjs 里用 ECharts 6.1.0 的 SSR（SVG）渲染与 options.ts 同样的配置（category 轴、boundaryGap:false、connectNulls:false、showSymbol:false）：
+  data [null,null,5,null,null] 的线路径只有 "M286 12"；
+  data [4,null,5,null,6] 的线路径是 "M48 76M286 44M524 12"，全是零长度；
+  data [null,5,6,null,null] 才是 "M167 44L286 12"（相邻两天才有线）。
+零长度路径在 SVG 与 Canvas 里都不出任何像素（默认 butt 线头）。e2e 夹具的 MISSING_DAYS 缺的都是连续几天、两侧有邻居，所以场景测试看不到这个情况；tests/dashboard.test.ts 只测配置里 data 与 connectNulls，不测“画得出来”。在线图用 step:"end"，孤立段会被画成水平线，不受影响。
+为什么是问题：这正是上线初期与稀疏数据的常态，且“有数据但看不到”比“没有数据”更容易误导管理员。
+建议改法：孤立点单独给标记：series.symbolSize 写成按 params.dataIndex 判断前后是否为 null 的函数（孤立才返回 6，其余 0），showSymbol 改 true；或对孤立点另加一条只画点的 scatter 式系列。补一条 bun test：用同一份配置判定“每个非空点要么与邻点连线要么有标记”，再补一个孤立天的 e2e 夹具（像素断言可复用减弱动效那条的取点办法）。
+
+### 2. 数值轴没有 minInterval，数据小时刻度出现 0.5、0.2、1.5 这样的“半个人”
+严重程度：重要　类别：正确性
+位置：charts/options.ts buildActiveOption 与 buildOnlineOption 的 yAxis（约 123-126、167-170 行）
+现象：份数与心跳次数都是整数，但 yAxis 没写 `minInterval: 1`。最大值很小时 ECharts 自己取小数刻度，再经 `text.count` 照样写出来。
+如何核实：同一份 SSR 实验（ssr.mjs）：data [0,1,2,1,0] 的纵轴标签是 0、0.5、1、1.5、2；data [1,1,1] 是 0、0.2、0.4、0.6、0.8、1。正是只有几份上报的头几天会出现。
+为什么是问题：“0.5 份上报”“0.2 次心跳”在界面上读不通，管理员会怀疑数据口径。
+建议改法：两张图的 yAxis 都加 `minInterval: 1`（顺手可加 `min: 0`），并在 options 的 bun test 里断言。
+
+### 3. 出错面板点“重试”没有任何反馈：失败状态一直留到回答回来
+严重程度：重要　类别：状态一致性、UI 反馈
+位置：dashboard/use-panel-data.ts reload()（约 47-70 行）；dashboard/DashboardPanel.vue layer 的计算（约 50-57 行）
+现象：reload() 开头只把 pending 置真、slow 置假，不清 failure；面板状态由 stateOf() 判（value 为空且 failure 非空就是 "failed"），所以重取期间状态仍是 failed。layer 对 "failed" 不看 pending/slow：不转圈、按钮也没有 loading 或禁用。结果：点重试之后原因文字与按钮原样不动，直到回答回来；回来仍失败时画面与点之前完全一样，用户分不清是没点上还是又失败了。网络慢（连不上要等超时）时更明显，还可以连点多次重复发请求（旧的被代数丢掉，白发）。崩溃、错误、升级三块共用一份 problems，三个重试按钮都会触发同一份重取。
+如何核实：读代码即可确认（failure 只在 .then 里赋值）；组件测试“一块取不到”那条只断言点重试后的最终结果（allReady）与请求次数，中间态没有断言。
+为什么是问题：B2、B4 审查里“布局随状态跳动、状态没反馈”同类的毛病又带回来；计划 3.5 写的是“加载：200ms 后在面板中央显示 Spinner”，没有排除重试。
+建议改法：reload() 里同时清 failure（或在 stateOf 里 pending 时把 failed 视为 loading），让 slow 后转圈；或者 DashboardPanel 在 failed 且 pending 时把重试按钮置 loading/disabled。补一条 dom 测试：失败后点重试，请求未回时面板状态不是 failed（或按钮 disabled）。
+
+### 4. “先发后到的旧结果丢掉”没有任何测试；变异检查活下来
+严重程度：重要　类别：测试
+位置：dashboard/use-panel-data.ts 的 `if (current !== generation) return;`；src/pages/admin/DashboardPage.dom.test.ts
+现象：我在仓库外的副本（/tmp/review-w00037-t10-b5/lab/pkg/packages/nb-site-web）里把这行改成 `void current;`，整份 DashboardPage.dom.test.ts 仍是 8 条全过。测试里唯一晚到的回答是“加载”那条的单个请求；“时间范围”那条每次点完都等地址落定、请求发出就继续，没有“先发 28 天、没回来就点 7 天、再让 28 天的回答后到”的场景。卸载后到的结果不写回（onBeforeUnmount 里 generation += 1）、handled 失败（页面正被带走，value 与 failure 都空）、遮罩（ready 且 pending 且 slow 时 content 变 inert、盖一层）也都没有断言（grep mask、inert、handled、generation 在 dashboard 的测试里零命中）。
+为什么是问题：这是计划 3.5 与重点 1 明确列出的合同（“快速连换范围时先发后到的旧结果丢掉”“换时间范围时旧图留着加遮罩”），现在的实现正确与否全靠读代码。
+建议改法：在 DashboardPage.dom.test.ts 加两条：(1) 28 天的回答挂起，点 7 天，7 天的回答先到、再放 28 天的，断言图的 aria-label 与请求仍是 7 天；(2) 换范围的回答挂起并推进手动时钟 200ms，断言旧内容还在、面板有遮罩（[role=status] 与 inert）。时钟是手动的，不需要等真实时间。
+
+### 5. 在线图的读屏概括写死“每 15 分钟”，数据却是每 30 分钟一段
+严重程度：建议（文字与数据不一致）　类别：正确性、读屏
+位置：src/locales/zh-CN.json admin.dashboard.online.label（“近 24 小时每 15 分钟的在线心跳次数”）；DashboardPage.vue 约 232 行把它直接给 TrendChart 的 aria-label
+现象：model.ts 的 OnlineSeries 带 segmentMinutes，e2e 夹具与组件测试的数据都是 30、48 段，页面读屏文字却写 15 分钟，没有取 segmentMinutes。段长由服务端的聚合决定（Spec 输出 4 没写段长），写死会在 t11 接上真数据后悄悄错。
+建议改法：文案里留参数 {{minutes}}，页面传 online.value.value?.segmentMinutes；或者去掉具体的数，写“近 24 小时的在线心跳次数”。
+
+### 6. 留存、版本、错误三块内容多于固定高度时，最后一行被切一半，面板内滚动没有任何提示也够不着
+严重程度：重要　类别：版式与状态、键盘与读屏
+位置：DashboardPage.vue PANEL_HEIGHT（table: 168、errors: 216）；dashboard/DashboardPanel.vue .dashboard-panel__content { overflow: auto }；RetentionTable.vue、ErrorsTable.vue、ShareBars.vue
+现象：定稿只有 4 行，实现的夹具与默认数据给 6 个安装周。实现者自己的截图 /tmp/w00037-t10-plan/lab-b5/shots/dashboard-1440-light.png 里留存面板第 5 行（“10-30 那周”）被切掉上半截，第 6 行看不到，没有滚动条（截图环境是叠加式滚动条，macOS 与触摸板上同样不显示）。留存每行占 28px 加 3px 间距，表头约 30px，168px 的内容区放得下 4 行半。版本面板 5 行（4 个版本加“少于 5 份”）刚好填满，第 6 个版本就开始滚；错误面板每行 30px，216 的内容区在表头 24px 之后放 6 行，第 7 个错误码开始滚。管理员最关心的往往正是“更多的错误码”。
+为什么是问题：重点 3 要求判断；这三块的行数由服务端数据决定（Spec 没有规定留存给几个安装周、错误给几行），固定高度加 overflow:auto 的结果是：看起来像排版错了的半行；滚动区不是可键盘聚焦的区域（Chrome 130 以上无可聚焦子元素的滚动容器会自己进 Tab 序，但没有名字；Safari、Firefox 不会），只用键盘的人看不到被切掉的行。
+建议改法：(1) 留存：模型里定一个显示的行数（常量，与 168px 配套，如最近 4 个安装周），t11 的查询按这个数请求，页面不再依赖“服务端给几行”；(2) 版本与错误：保留面板内滚动，但给滚动容器 tabindex="0"、role="region"、aria-label（面板标题），并在底边加淡出遮罩或最后一行露半截的提示以外的明确提示（例如底部渐隐）；(3) 补 e2e：默认夹具行数超出时断言最后一个可见行没有被切一半（取每行 getBoundingClientRect 对内容区边界）。
+
+### 7. 组件测试等页面落定的上限 5 秒等于 vitest 默认的单条用例超时 5 秒；冷启动会整条超时，且失败信息变成“Test timed out”
+严重程度：建议（测试稳定性）　类别：测试
+位置：src/testing/site-harness.ts SETTLE_TIMEOUT_MS（约 164-168 行）、vitest.config.ts（没有设 testTimeout）
+现象：看板路由是按需加载，第一次进页面时测试环境要现编译看板连同 ECharts 与图表组件。作者把 vi.waitFor 的上限从 1 秒放到 5 秒，但 vitest 的 testTimeout 缺省也是 5000 毫秒，用例本身在 5 秒时先被截停，waitFor 永远等不到自己的超时，原来的断言差异（路由停在哪、页面有没有 data-site-page）也看不到。我在仓库外的冷副本里（没有 vite 缓存、负载约 8 到 10）跑 DashboardPage.dom.test.ts：第一条用例 “每块面板都画出来” 以 “Test timed out in 5000ms” 失败（5116 ms），其余 7 条过；同一份源码在 worktree 里有缓存时 8 条全过、总共 3.4 秒。同时有别的会话占着 CPU 时同样的事会在 CI 与首次运行里出现。
+建议改法：二选一：在 vitest.config.ts 设 testTimeout（如 15000）并让 SETTLE_TIMEOUT_MS 小于它；或在 harness 里于第一次 startAt 之前 await 预热两个按需加载的模块（import("../pages/admin/DashboardPage.vue")），让编译成本不落在某条用例的计时里。放宽等待本身没有掩盖问题：等的仍是路由与 data-site-page 两个可观察状态。
+
+### 8. 错误、崩溃、升级三块在“没有带使用统计的上报”时一律写“今天还没有上报”，与上面同页的数相矛盾
+严重程度：建议　类别：正确性（文案与口径）；部分为推断
+位置：DashboardPage.vue problemsState、errorsEmptyText、crashesState、upgradesState（约 158-171 行）；zh-CN.json admin.dashboard.emptyToday
+现象：problems.reports 按 model.ts 与 errors.meta 的定义是“今天带使用统计的上报份数”，页面用 reports === 0 判整份 problems 为 empty，三块都写 emptyToday（“今天还没有上报”）。使用统计是用户可关的（今日上报里开启比例几十个百分点），某天上报很多、却恰好没有一份开了使用统计，或服务端把当天的聚合还没算进错误表时，同一页的“今日活跃 1,248”“版本 0.15.0 65%”与这三块“今天还没有上报”并排出现。崩溃、升级是否也只来自使用档，Spec 没写（推断：与错误同一次 errors 回答，同一口径）；如果崩溃与升级不要求使用统计，这里还会把有数据的崩溃块藏成“没有数据”。
+建议改法：empty 的判据与文案分开：reports === 0 写“今天没有带使用统计的上报”，与“今天没有上报”区分；崩溃与升级的状态只看各自的合计，不借 problems.reports。口径由 t11 对着合同定，这里至少把文案写准。
+
+### 9. 暗色五档红的方向与 t09 第 15 条原意：方向可辩护，但最高档变成粉色、而且没有测试能挡住“变成粉色”
+严重程度：建议　类别：颜色
+位置：src/styles/site.css 暗色 --site-seq-1 到 --site-seq-5（#a3322d、#c84540、#e0625c、#ec8a84、#f6b9b4）；e2e/dashboard.e2e.ts 最后一条
+现象：t09 第 15 条：“同一种红由浅到深五档”，开发者的要求是“红色可能更加让我有危机感”，只在亮色面板底上验过。实现者把暗色反过来（次数多的更亮），对面板底对比度 2.10、3.01、4.17、5.86、8.60（我用同样的面板底 #2d2925 重算一致；亮色 2.01、2.87、4.16、6.07、9.20）。方向在深色底上有先例（深底上“更多”更亮，也是 GitHub 贡献图的读法），我认为可以接受，并且比原来的同一组（在深底上 50 次以上那档几乎消失）好。问题在两点：(1) 最高档 #f6b9b4 已经是粉色（约等于亮色里的最浅档 #f0a09c），“50 次以上”在暗色里读成“淡淡的粉”，与“危机感”相反，同一个档在亮色里是最深的暗红；序列的明度单调了，饱和度却在高端掉光。(2) 最低档（出现最多的“1 次”档，面板里面积最大）在暗色是最深的红，2.10:1 低于图形的 3:1，横条里最大的一块反而最不显眼，只靠与相邻档的差别。e2e 只断言“对比度逐档变大且相邻至少差 1.3 倍”，粉色或灰色的序列也能过，抓不到色相丢失。
+建议改法：暗色改成明度与彩度一起升：低档保持暗红，高档取饱和的亮红（如 #ff6b61 一类，对暗色面板底约 6 以上），不要走向粉；e2e 再加一条：五档在 OKLCH 或 HSL 里色相落在红区且最高档的彩度不低于最低档。若开发者认为暗色里粉红可接受，应在 t09 记一笔。我没有改 t09 的结论，仅指出该决定需要开发者确认（t09 第 15 条只验了亮色）。
+
+### 10. 亮色“绿线”对面板底 2.75:1，且橙与绿互相只有 1.14:1；对比度测试只量暗色，亮色没有守卫
+严重程度：建议　类别：颜色、读屏
+位置：src/styles/site.css 亮色 --site-viz-1 到 3（#2a78d6、#eb6834、#1baf7a）；e2e/dashboard.e2e.ts 对比度那条（“亮色的绿是 t09 定的值，不在这条里”）
+现象：我用面板底 #fffcf5 重算：蓝 4.31、橙 3.12、绿 2.75（暗色 3.97、3.72、4.24）。绿线 2px 低于 WCAG 1.4.11 的 3:1，这是 t09 定的颜色，我不改结论。另外三条线互相：蓝橙 1.38、橙绿 1.14、蓝绿 1.57，橙与绿的明度几乎相同，红绿色盲者在线交叉、重叠处只靠颜色分不出；线尾名字（endLabel）与图例补了文字，但交叉处与提示框里的色块仍然只靠颜色。亮色的值现在没有任何测试：以后有人改亮色序列色，e2e 不报。
+建议改法：保留 t09 的值，但（a）让 e2e 对亮色也记录并锁定当前值（如 expect(绿).toBeGreaterThanOrEqual(2.7)），变了就要有人确认；（b）让三条线在明度之外有第二个区分：日活跃实线、7 日、28 日不同的线型（如 28 日略粗或点划），代价是一行配置。需要开发者确认的是 (b) 是否值得，别的不阻塞。
+
+### 11. 后端不可用时九块面板同时出现九个 role="alert"，同一句话被读屏连报九遍
+严重程度：建议　类别：读屏、与 B2、B4 的“读屏重复播报”同类
+位置：dashboard/DashboardPanel.vue 出错分支（两处 role="alert"，约 81、86 行）
+现象：每块面板各自取数、各自出错。服务不可用时九块面板的失败层几乎同时挂上，每层都是 role="alert" 且文案相同（“统计暂时取不到，请稍后再试”）；错误、崩溃、升级三块还共用同一份 problems，同一次失败写三遍。读屏用户进页面听到连续九遍。九个“重试”按钮也是九个相同名字的按钮，没有区别是哪一块（按钮没有 aria-label，也没有 aria-describedby 指向面板标题）。
+建议改法：面板内改 role="status"（或不带 role），页面级用一个 aria-live 区域汇总一次（“有 N 块统计取不到”）；重试按钮的可访问名字带上面板标题（aria-label="重试：{标题}"）。
+
+### 12. 统计合同包靠消费方 vite.config.ts 的 moduleSideEffects 整个包标成无副作用：与账号合同包的 ./constants 子路径是两种做法，且这条规则把包里将来的有副作用模块也一并摇掉
+严重程度：建议　类别：不变量、与既有约定的一致性
+位置：packages/nb-site-web/vite.config.ts treeshake.moduleSideEffects 新增的 /nb-site-telemetry-contract\/src\/.*\.ts$/；packages/nb-site-telemetry-contract/package.json（exports 只有 "."，没有 sideEffects）；plan.md 第 742 行（B 段审查第 11 条的处理：“先试合同包 sideEffects: false，不够再加只放常量的子路径”）
+现象：计划写的顺序是先让合同包自己声明 sideEffects: false，再不行加子路径。实现者两样都没做（合同包不在本任务范围），改成在 web 的构建配置里按路径正则把统计合同包的每个 .ts 声明为无副作用。后果：(1) 这是 web 单方面替别的包断言“导入时只建 schema，不做别的”，包里以后若有真有副作用的模块（例如向 TypeBox 注册自定义格式 FormatRegistry.Set，或写全局表），构建会静默摇掉它，而 web 的测试只检查“产物里没有 TypeBox”，查不到“该有的副作用丢了”；(2) 与账号合同包的子路径方案并存，边界测试里还要分别写两套规则（统计包“含子路径”、账号包只许 ./constants）；(3) 以 `/nb-site-telemetry-contract/src/` 这个目录名作路径锚点，包目录改名、改成发布后装在 node_modules 下的布局时规则静默失效，只有 build.test.ts 里 TypeBox 的断言会失败，报的是“有 TypeBox”而不是规则的路径变了。(4) t11 的适配器若用合同包的 schema 做运行时校验（计划 3.2 现在说不做），TypeBox 会合法地进入看板块，“哪个块都不许带 TypeBox”这条断言要重写，而不是只放宽。
+断言本身守得住：按 sourcemap 的 sources 认包（fromPackage 的正则对 bun 的嵌套 node_modules 布局也认得出），前面先断言 vue-router 一定在入口块里、ECharts 一定在看板块里来防空过，我没找到空过的路径；我跑了 tests/boundary.test.ts、tests/catalog.test.ts、tests/dashboard.test.ts 22 条全过，vue-tsc 无错。
+建议改法：给统计合同包加一个只导出常量的子路径（./constants，与账号合同包一致），web 只从那里导入，vite.config.ts 里这条规则就可以去掉；若暂不动合同包，在这条规则旁写明“替合同包声明”的责任人与去掉的条件（现在已写“上游候选”），并在 telemetry 合同包的 AGENTS.md 里加一行：不许往 src 里加有副作用的模块。chunkSizeWarningLimit 调到 600 可以：看板块原始大小 523 kB，只有约 14% 余量，ECharts 升级或多引一个组件就会触发警告，build.test 断言 stderr 为空会因此失败，这个“警报”效果是有意的，保持。
+
+### 13. source.ts 的接缝：注释说“按 Spec 的路径取”，参数与回答的形状却与 Spec 的接口表对不上；t11 要拆的不只是适配器
+严重程度：建议　类别：给 t11 的接缝、与 Spec 口径
+位置：dashboard/source.ts（DASHBOARD_PATHS、DashboardSource.today）；dashboard/model.ts DashboardToday；docs/specs/site/telemetry-dashboard.md 输入表
+现象：对照主工作区的 Spec：
+- series/active 的参数是“起止日期（至多 400 天）”，页面发 `?days=28`；errors 的参数是“起止日期、可选的应用版本”，页面不带任何参数；series/retention 要“起止的安装周”，页面不带参数；breakdown 要“日期、维度”，页面只带维度。这些参数名与默认值是实现者自己定的，没有出处，不是 Spec 的路径加查询形状。
+- overview 的回答是“当天、近 7 天、近 28 天的活跃数与新增，开启比例”，没有“较昨日”“当前在线”“清单版本”；DashboardToday 把这三样当作 overview 一次回答里的字段，source.ts 里 today() 的注释也写“今天的四个数与清单版本（overview）”。计划 3.5 写明 t11 从 series/active 最后两天算较昨日、从 series/online 最后一段取当前在线，所以 t11 的 today() 要发三个请求并合并成一个 Result，三个请求里一个失败时“今天的数”这一块怎么显示（全失败？还是缺项显示“—”）现在没有约定。
+- 页面与假接口、组件测试的默认回答都从同一个 DASHBOARD_PATHS 取路径，路径写错（比如与 Spec 的 `series/online` 不一致）两边一起错，没有任何测试把路径钉在 Spec 上。
+为什么是问题：这些不是 B5 的缺陷（D8 把查询归 t11），但 source.ts、model.ts 的注释把当前形状说成“按 Spec”，下一个读者会据此省掉对照 Spec 的一步；今天一块面板=一个请求的假设（usePanelData 的单个 load、一个 failure）在 t11 里不成立。
+建议改法：注释里去掉“按 Spec 的路径”的说法，改写“路径取自接口表，查询参数是占位”；DashboardToday 里把 overview 取不到的三个字段（activeChange、freshChange、online、onlineWindowMinutes、manifestVersion）单独标出，并在 t11 的 Task 记录里写明 today 面板要合并三个请求及部分失败的处理；加一条 bun test 把 DASHBOARD_PATHS 的路径与 Spec 接口表的路径（TELEMETRY_API_PREFIX 后的 overview、series/active、series/online、series/retention、breakdown、errors）对上。
+
+### 14. 几处小的细节问题（各自单独都小，合在一条）
+严重程度：建议　类别：正确性、读屏、UI
+(a) 占比四舍五入到 0%：formatShare(4/10000) 得 "0%"（我跑了 model.ts）。崩溃、升级失败这类“出了事”的行份数少但不为 0 时，百分数写“0%”、横条宽度 0.04% 也画不出来（ShareBars 里 width 就是 share*100%），读起来像没有崩溃。建议：非 0 而不足 0.1% 写“<0.1%”，横条非 0 时给 min-width 2px。位置 model.ts formatShare、ShareBars.vue。
+(b) 错误表的“拥有者”与“错误码”在同一个 th 里，owner 是 inline-block 的 span，DOM 文本里两者之间没有空白，读屏读成“nbookstore_locked”（ErrorsTable.vue 约 57 行）；owner 列宽固定 56px、overflow 可见，比 56px 宽的拥有者名（等宽 12px 下超过约 7 个字符，如 “telemetry”）会盖到错误码上（推断，夹具里的 nbook、agent、story 都在 56px 以内）；错误码超出列宽时被省略号截断，没有 title（ShareBars 的名字有）。建议：owner 与 code 之间留空白或用 aria-label 合并，两者各自截断、都加 title。
+(c) 活跃图 90 天时横轴末尾那天不标：dayLabelInterval(90) 得 29，标 0、30、60 三个，最后一天（11-26）没有标签，与 28 天、7 天“首尾加中间两处”不一致。tests/dashboard.test.ts “横轴大约标四个日期”里用与实现同一个公式算 [4,4,3]，把这个不一致写进了期望值（测的是实现，不是图上标了什么）。建议：改用 ECharts 的 axisLabel.showMaxLabel 或按下标算均分后的四个位置。
+(d) 标题旁的“清单 v1”徽章在 today 取到才出现、没有过渡（DashboardPage.vue 约 184 行）：位置靠 dashboard__fill 撑着、范围切换器不会跳，但其它地方的状态变化都有过渡，这里是硬出现。今天的数取不到时徽章消失，用户看不到当前清单版本，可接受；只提示不一致。
+(e) 轴文字、“较昨日”、面板副标题用 --text-muted 在 11 到 12px 的字上：亮色对面板底 3.57:1（暗色 4.22:1），低于 4.5:1。这是 nbook 主题的 token，不是本片引入，只在看板上字号最小、占比最大，记一笔。
+(f) 测试替身：testing/site-harness.ts 的 startAt 在兜底里对所有用例回看板的空数据（EMPTY_DASHBOARD_BODIES），而不是只给落在 /admin 的用例显式开启。页面以后少发某个请求，所有用例都不会察觉；新增路径则仍会被 unexpected 抓到（路径取自同一个 DASHBOARD_PATHS）。影响有限，建议兜底只在 session 是 admin 时生效。
+
+## 补充说明
+第 6 条建议改法里“并在底边加淡出遮罩或最后一行露半截的提示以外的明确提示”一句写得绕，意思是：滚动区底边要有明确的“下面还有”的提示（渐隐或滚动条常显），不能只靠露出半行。
+
+## 未发现问题的方面
+- 图表生命周期：卸载时 dispose、断开 ResizeObserver、取消未跑的 rAF、移除减弱动效监听都在 onBeforeUnmount 里；零尺寸时不建图、观察器第一次报尺寸才建；换明暗的重画与 data-chart-appearance 的写入顺序正确（host/theme.ts 先改根元素属性再改 ref，等一帧是多余但无害）。路由离开再回来是新组件新图，e2e 覆盖并断言重取。
+- 减弱动效的 e2e：我在副本里把 animation 改成恒为 true，重建后该用例失败（first.hits 为 0），说明这条真能失败。
+- 时间范围：认不出、写了多个的值都回缺省；缺省不写地址；离开看板时 range 回缺省不会触发重取（route.name 守卫）。
+- 视图模型：缺天空值、零是 0（tests/dashboard.test.ts 与 e2e 的提示框都有断言）；非法日期得到零格不抛。
+- 外壳：父路由加子路由，aria-current 只在精确匹配的那一项，外壳不重建有测试；内容区自己滚、1440 与 1024 都没有页面级横向溢出（e2e）。1024 宽（内容区不到 880px）变成一列：我认为是可接受的取舍，管理面板只做桌面宽，截图 walk/4-1024.png 里版面完整。
+- 体积：看板块 523 kB（gzip 177 KB，我在副本里重建量到 177.01；报告里的 172.88 与我机器上差几 KB，限额 200 仍有余量）。在线图 step:"end" 对孤立段正确（我用 SSR 验证，画成水平段）；在线图横轴标签在 UTC 偏移是半点的时区也能标出（Asia/Kolkata 实测 4 个）；只有 +5:45 配 30 分钟一段这类组合才一个都没有（Asia/Kathmandu 实测 0 个），可忽略，未列为问题。
+- tsc：vue-tsc --noEmit 无错；bun test 三个文件 22 条通过；DashboardPage.dom.test.ts 在有缓存的 worktree 里 8 条通过。
+
+## 数量
+阻断 0；重要 5（第 1、2、3、4、6 条）；建议 9（第 5、7、8、9、10、11、12、13、14 条）。共 14 条。
+
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14

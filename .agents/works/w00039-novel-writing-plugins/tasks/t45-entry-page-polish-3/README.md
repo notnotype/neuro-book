@@ -37,6 +37,13 @@ updated: 2026-11-27
 
 实施：分支 `feat/w00039-t45-entry-page-polish-3`，worktree `.worktree/w00039-novel-writing-plugins`。
 
+- S0：e2e 换分页改用 `selectTab`（已选中就不点）。
+- S1：成段文字的编辑改成原文下方的浮层（与短项同一个 `Popover`，放不下时翻到上方、高度封顶）；开着时再点原文只回到输入框。Spec 输出 51。
+- S2：看法改名“用户视图、AI视图、原始视图”，挪到选中的设定组分页上（再点开菜单，非缺省的写在分页上）；nb-ui `Tabs` 加 `menu` 与 `note`、`ContextMenu` 加 `radio` 与 `anchor`。附注原先打算一直留一格、收起时照着旧字收，dom 测试发现旧字留在读屏名里，改成 Vue 的 `Transition`（收完拿掉）；附注不加“·”，只用弱色。顺手修了 t43 原始视图 Lab 场景的 JSON 往返（`initial: undefined`）。Spec 输出 9、54。
+- S3：条目种类的有名字的预设（并法、诊断 `canon.entry-kinds.preset-problem`），内置人物“基本”“主要角色”，剧情插件追加知情、态度（经 canon 的 `shared/contracts.ts` 引用，架构测试要求）。Spec 输入一节。
+- S4：`ComponentChecklist` 与 `AddComponentDialog` 取代加设定组的浮层；“添加 N 组”一次写入、一条修订（标题把几组的名字按语言连起来，计划写的是“N 组”，改成名字，修订历史里看得出加了什么）；被拒按 `ops[i]` 指名；别处加上了勾着的一组时从勾选里去掉。偏离计划两处：已添加的行不标 `aria-disabled`（点了要切过去，是能操作的）；加完最后几组“＋”没了，关上后焦点交给选中的分页（dom 测试发现焦点掉到 body）。Spec 输出 38。
+- S5：新建条目的“启用哪些数据”用同一个勾选列表；预设经 `update:modelValue` 的第二个参数区分（原计划的 `preset` 事件与 `update:modelValue` 同步先后发，宿主的草稿还没更新，第二次补丁会盖掉勾选）。Lab 截图发现新建对话框里焦点在名字上时列表第一行一直亮着，高亮改成只在焦点在搜索框里或指针在列表上时画。勾选列表去掉 `autofocus`（新建时焦点该在名字上），初始焦点由对话框给。Spec 输出 4。
+
 ## 下一步
 
 按 [plan.md](plan.md) 的 S0 到 S6 实施。

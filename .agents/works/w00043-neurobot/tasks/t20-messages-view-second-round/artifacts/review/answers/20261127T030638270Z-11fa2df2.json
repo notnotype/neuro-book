@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "answerId": "20261127T030638270Z-11fa2df2",
+    "artifactVersion": 5,
+    "contentHash": "446c2d1fc98f5150058139d23c38a18103aaea3a5b4f02629e7d718115a770b0",
+    "submittedAt": "2026-11-27T03:06:34.556Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "list-t03": "ok",
+        "toggle-b": "ok"
+    },
+    "comments": {},
+    "note": null
+}
