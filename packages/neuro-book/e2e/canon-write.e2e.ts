@@ -145,6 +145,31 @@ async function insertValue(page: Page, field: RegExp): Promise<void> {
     if ((await group.count()) > 0) await group.click();
     await page.getByRole("menuitem", {name: field}).click();
 }
+/** 小块的浮层（传送到 body，不在条目页里）：`kind` 同 `data-entry-chip`。里面的输入框与按钮按 `data-chip-field`、`data-chip-action` 找。 */
+const chipPopover = (page: Page, kind: string) => page.locator(`[data-chip-popover="${kind}"]`);
+const chipField = (page: Page, kind: string, field: string) => chipPopover(page, kind).locator(`[data-chip-field="${field}"]`);
+const chipAction = (page: Page, kind: string, action: string) => chipPopover(page, kind).locator(`[data-chip-action="${action}"]`);
+/** `{`、`@` 弹出的列表顶上的搜索框所在的块。 */
+const chipMenu = (page: Page) => page.locator("[data-chip-menu]");
+/** 源文字输入框里的整篇文字：Monaco 把空格画成不换行空格，换回普通空格再比。 */
+const sourceNormalized = (page: Page) => sourceText(page).evaluate((element) => (element as HTMLElement).innerText.replaceAll(String.fromCharCode(0xa0), " "));
+/** 进到星瑕的编辑，焦点在富文本里、光标在文末新起的一段。 */
+async function editStarFlaw(page: Page): Promise<void> {
+    await open(page);
+    await openEntry(page, "人物", "星瑕");
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    await focusRich(page);
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("Enter");
+}
+/** 不留稿：放弃，回到阅读视图。 */
+async function discardDraft(page: Page): Promise<void> {
+    await entryPage(page).locator("[data-text-discard]").click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "放弃", exact: true}).click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
+    await expect(tabDot(page)).toHaveCount(0);
+}
 const dirtyLabel = (page: Page) => entryPage(page).locator("[data-text-dirty]");
 const tabDot = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"][data-editor-tab-dirty]");
 
@@ -287,11 +312,13 @@ test("进编辑不改版面（author-ui 输出 39、48）：没有预览栏，�
     const layout = async () => {
         const tabs = entryPage(page).getByRole("tab");
         const [first, second, panel, list] = [
-            (await tabs.nth(0).boundingBox())!,
-            (await tabs.nth(1).boundingBox())!,
-            (await entryPage(page).locator("[role='tabpanel']").boundingBox())!,
-            (await entryPage(page).getByRole("tablist").first().boundingBox())!,
+            await tabs.nth(0).boundingBox(),
+            await tabs.nth(1).boundingBox(),
+            await entryPage(page).locator("[role='tabpanel']").boundingBox(),
+            await entryPage(page).getByRole("tablist").first().boundingBox(),
         ];
+        // 宽度刚变、版面还在重排时量不到：交回 null，调用方继续等。
+        if (first === null || second === null || panel === null || list === null) return null;
         return {vertical: second.y > first.y + first.height / 2, panelWidth: Math.round(panel.width), listX: Math.round(list.x), listWidth: Math.round(list.width)};
     };
     const reading = new Map<number, Awaited<ReturnType<typeof layout>>>();
@@ -301,7 +328,7 @@ test("进编辑不改版面（author-ui 输出 39、48）：没有预览栏，�
         let last = await layout();
         await expect.poll(async () => {
             const now = await layout();
-            const same = JSON.stringify(now) === JSON.stringify(last);
+            const same = now !== null && JSON.stringify(now) === JSON.stringify(last);
             last = now;
             return same;
         }).toBe(true);
@@ -321,8 +348,8 @@ test("进编辑不改版面（author-ui 输出 39、48）：没有预览栏，�
     await expect(entryPage(page).locator("[data-text-preview]")).toHaveCount(0);
     await expect.poll(layout).toEqual(reading.get(widths.at(-1)!));
 
-    // 没有改动：取消回到阅读视图，不问。
-    await entryPage(page).locator("[data-text-discard]").click();
+    // 没有改动：按钮写“取消”（没有东西可丢时不叫“放弃”），回到阅读视图，不问。
+    await entryPage(page).locator("[data-text-cancel]").click();
     await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
     await expect(tabDot(page)).toHaveCount(0);
 });
@@ -424,13 +451,14 @@ test("状态行（author-ui 输出 32、39）：切换模式时右区的放弃�
     await frames();
     expect(await spots()).toEqual(rich);
 
-    // 宽屏时左区的“插入”与右区的“提交”在同一行。
+    // 宽屏时左区的“插入”与右区的“提交”在同一行（状态行按自己的宽度换行，1440 视口两侧侧栏都开时内容列放不下，用 1920）。
+    await page.setViewportSize({width: 1920, height: 900});
     const centerY = async (locator: Locator) => {
         const box = (await locator.boundingBox())!;
         return box.y + box.height / 2;
     };
     const insert = entryPage(page).locator("[data-text-insert]");
-    expect(Math.abs((await centerY(insert)) - (await centerY(submit)))).toBeLessThan(8);
+    await expect.poll(async () => Math.abs((await centerY(insert)) - (await centerY(submit)))).toBeLessThan(8);
 
     // 390 宽：固定两行。
     await page.setViewportSize({width: 390, height: 844});
@@ -454,6 +482,189 @@ test("状态行（author-ui 输出 32、39）：切换模式时右区的放弃�
     await page.getByRole("alertdialog").getByRole("button", {name: "放弃", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
     await expect(tabDot(page)).toHaveCount(0);
+});
+
+test("计算小块（author-ui 输出 48）：用 { 插一个计算，点它改式子、应用以后值变了；写坏式子应用不落、写原因、输入框里的字还在", async ({page}) => {
+    await editStarFlaw(page);
+    await page.keyboard.type("算一个：");
+    await expect(chip(page, "calc")).toHaveCount(0);
+    await page.keyboard.type("{");
+    await expect(chipMenu(page)).toBeVisible();
+    await page.getByRole("option", {name: /计算/u}).click();
+    // 新插的计算先在浮层里写，应用以后才进文档。
+    const popover = chipPopover(page, "calc");
+    await expect(popover).toBeVisible();
+    await expect(chip(page, "calc")).toHaveCount(0);
+    await chipField(page, "calc", "expr").fill("character.性格 == '银白长发' ? 1 : 2");
+    await chipAction(page, "calc", "apply").click();
+    await expect(popover).toHaveCount(0);
+    const calc = chip(page, "calc");
+    await expect(calc).toHaveCount(1);
+    await expect(calc).toHaveAttribute("data-chip-state", "value");
+    await expect(calc).toContainText("1");
+
+    // 点小块开浮层，改式子、应用：小块的值变了。
+    await calc.click();
+    await expect(popover).toBeVisible();
+    await expect(calc).toHaveAttribute("aria-expanded", "true");
+    const expr = chipField(page, "calc", "expr");
+    await expect(expr).toHaveValue("character.性格 == '银白长发' ? 1 : 2");
+    await expr.fill("character.性格 == '银白长发' ? 3 : 4");
+    await chipAction(page, "calc", "apply").click();
+    await expect(popover).toHaveCount(0);
+    await expect(calc).toHaveAttribute("data-chip-state", "value");
+    await expect(calc).toContainText("3");
+
+    // 写坏式子：应用不落，浮层不关、写原因，输入框里的字还在，小块还是 3。
+    await calc.click();
+    await expect(popover).toBeVisible();
+    await expr.fill("character.性格 == ");
+    await chipAction(page, "calc", "apply").click();
+    const problem = popover.locator("[data-chip-problem]");
+    await expect(problem).toBeVisible();
+    await expect(problem).not.toHaveText("");
+    await expect(popover).toBeVisible();
+    await expect(expr).toHaveValue("character.性格 == ");
+    await expect(calc).toContainText("3");
+    // 自己关上浮层（Esc）：没应用的字丢掉，文档里还是应用过的那一版。
+    await page.keyboard.press("Escape");
+    await expect(popover).toHaveCount(0);
+    await expect(calc).toContainText("3");
+    await setMode(page, "source");
+    await expect.poll(() => sourceNormalized(page)).toContain(`<V expr="character.性格 == '银白长发' ? 3 : 4" />`);
+    expect(await sourceNormalized(page)).not.toContain("character.性格 == \" />");
+    await discardDraft(page);
+});
+
+test("条件小块（author-ui 输出 48）：用 { 插一个条件，点它改一支的文字、加“否则如果”，应用以后切到源文字看整篇写法是一行", async ({page}) => {
+    await editStarFlaw(page);
+    await page.keyboard.type("{");
+    await expect(chipMenu(page)).toBeVisible();
+    await page.getByRole("option", {name: /条件/u}).click();
+    const popover = chipPopover(page, "if");
+    await expect(popover).toBeVisible();
+    // 新条件是“如果”加“否则”两支，判断写在第 0 支。
+    await expect(chipField(page, "if", "test-0")).toBeVisible();
+    await expect(chipField(page, "if", "branch-0")).toBeVisible();
+    await expect(chipField(page, "if", "branch-1")).toBeVisible();
+    await expect(chipField(page, "if", "test-1")).toHaveCount(0);
+    await chipField(page, "if", "test-0").fill("1 == 1");
+    await chipField(page, "if", "branch-0").fill("甲");
+    await chipField(page, "if", "branch-1").fill("乙");
+    await chipAction(page, "if", "apply").click();
+    await expect(popover).toHaveCount(0);
+    const condition = chip(page, "if");
+    await expect(condition).toHaveCount(1);
+    // 判断成立：生效的是第 0 支，正文里只画这一支。
+    await expect(condition).toHaveAttribute("data-chip-state", "value");
+    await expect(condition).toHaveAttribute("data-chip-branch", "0");
+    // 没生效的支在 DOM 里但是隐藏的：按看得见的字（innerText）判断。
+    await expect(condition).toContainText("甲", {useInnerText: true});
+    await expect(condition).not.toContainText("乙", {useInnerText: true});
+
+    // 点开改：第 0 支的文字、加一个“否则如果”（加在“否则”之前，原来的“否则”成了第 2 支）。
+    await condition.click();
+    await expect(popover).toBeVisible();
+    await expect(chipField(page, "if", "branch-0")).toHaveValue("甲");
+    await chipField(page, "if", "branch-0").fill("丙");
+    await chipAction(page, "if", "add-branch").click();
+    await expect(chipField(page, "if", "test-1")).toBeVisible();
+    await expect(chipField(page, "if", "branch-2")).toHaveValue("乙");
+    await chipField(page, "if", "test-1").fill("1 == 2");
+    await chipField(page, "if", "branch-1").fill("丁");
+    await chipAction(page, "if", "apply").click();
+    await expect(popover).toHaveCount(0);
+    await expect(condition).toHaveCount(1);
+    await expect(condition).toContainText("丙", {useInnerText: true});
+
+    // 切到源文字：整个条件在一行里。判断写得短、视口放宽，一行排得下（输入框会自动折行，折开的两段是两个视觉行）。
+    await page.setViewportSize({width: 1920, height: 900});
+    await setMode(page, "source");
+    const written = `<If test="1 == 1">丙<ElseIf test="1 == 2" />丁<Else />乙</If>`;
+    await expect.poll(() => sourceNormalized(page)).toContain(written);
+    // 同一行：包含开标签的那一行也含闭标签。
+    const lines = textSource(page).locator(".view-line");
+    await expect(lines.filter({hasText: "<If test="})).toHaveCount(1);
+    expect(await lines.filter({hasText: "<If test="}).first().evaluate((element) => (element as HTMLElement).innerText.replaceAll(String.fromCharCode(0xa0), " "))).toContain("</If>");
+    await discardDraft(page);
+});
+
+test("键盘（author-ui 输出 30、48）：光标在取值小块前面按右方向键选中它，Enter 开浮层，Escape 关上、焦点回到编辑区、小块仍选中", async ({page}) => {
+    await open(page);
+    await openEntry(page, "人物", "星瑕");
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
+    await entryPage(page).getByRole("button", {name: "编辑", exact: true}).click();
+    await focusRich(page);
+    // 最后一段是“她的样子是”加取值小块加“。”：到段首，右移五个字停在小块前面。
+    await expect(chip(page, "value")).toHaveCount(1);
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("Home");
+    const selected = richInput(page).locator(".ProseMirror-selectednode");
+    await expect(selected).toHaveCount(0);
+    for (let step = 0; step < 5; step += 1) await page.keyboard.press("ArrowRight");
+    // 还没越过小块：它没被选中。再按一下：先选中它，不是直接跨过去。
+    await expect(selected).toHaveCount(0);
+    await page.keyboard.press("ArrowRight");
+    await expect(selected).toHaveCount(1);
+    await expect(selected).toHaveAttribute("data-entry-chip", "value");
+
+    await page.keyboard.press("Enter");
+    const popover = chipPopover(page, "value");
+    await expect(popover).toBeVisible();
+    await expect(chip(page, "value")).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Escape");
+    await expect(popover).toHaveCount(0);
+    await expect(chip(page, "value")).toHaveAttribute("aria-expanded", "false");
+    // 焦点回到编辑区，小块仍是选中的。
+    await expect.poll(() => richInput(page).evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect(selected).toHaveCount(1);
+    // 没有改动：按钮是“取消”，直接回到阅读视图。
+    await entryPage(page).locator("[data-text-cancel]").click();
+    await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
+    await expect(tabDot(page)).toHaveCount(0);
+});
+
+test("{ 与 @（author-ui 输出 48）：{ 弹字段列表，打字筛到一个、回车插入取值小块；{ 再 Esc 补回一个字面的 {；@ 弹条目列表，选一个插入条目引用", async ({page}) => {
+    await editStarFlaw(page);
+    await page.keyboard.type("插字段：");
+    const valuesBefore = await chip(page, "value").count();
+    await page.keyboard.type("{");
+    await expect(chipMenu(page)).toBeVisible();
+    // 列表弹出以后焦点交给顶上的搜索框，接着打的字落在那里、不进正文。
+    await expect(chipMenu(page).locator("input")).toBeFocused();
+    await page.keyboard.type("性格");
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    await expect(chipMenu(page)).toHaveCount(0);
+    await expect(chip(page, "value")).toHaveCount(valuesBefore + 1);
+    await expect(chip(page, "value").last()).toContainText("银白长发");
+    await expect(richEditable(page)).not.toContainText("性格");
+
+    // 插进来的小块此刻是选中的（接着打字会替掉它，见本文件最后一条）：右移一下，光标落在它后面。
+    await page.keyboard.press("ArrowRight");
+    // 再打一个 {，按 Esc：列表关上，正文里多一个字面的 {，焦点回到编辑区，没有多出小块。
+    await expect(richEditable(page)).not.toContainText("{");
+    await page.keyboard.type("{");
+    await expect(chipMenu(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(chipMenu(page)).toHaveCount(0);
+    await expect(richEditable(page)).toContainText("{");
+    await expect(chip(page, "value")).toHaveCount(valuesBefore + 1);
+    await expect.poll(() => richInput(page).evaluate((element) => element.contains(document.activeElement))).toBe(true);
+
+    // @：条目列表，打字找到星瑕，选了插入条目引用。
+    await expect(chip(page, "ref")).toHaveCount(0);
+    await page.keyboard.type("@");
+    await expect(chipMenu(page)).toBeVisible();
+    await expect(chipMenu(page).locator("input")).toBeFocused();
+    await page.keyboard.type("星瑕");
+    const option = page.getByRole("option", {name: /星瑕/u}).first();
+    await expect(option).toBeVisible();
+    await option.click();
+    await expect(chipMenu(page)).toHaveCount(0);
+    await expect(chip(page, "ref")).toHaveCount(1);
+    await expect(chip(page, "ref")).toContainText("星瑕");
+    await discardDraft(page);
 });
 
 test("别处也改了主文字（验收 16）：另一个窗口先提交，这边提交时出对照；选“现在的”就照别处的那一版", async ({page, browser}) => {
@@ -626,4 +837,21 @@ test("稿开始的那一章被删以后刷新（输出 46）：页面照常读�
     await expect(entryPage(page).locator("[data-entry-text]")).toBeVisible();
     await expect(entryPage(page).locator("[data-entry-text]")).not.toContainText("（第 1 章里改的）");
     await expect(tabDot(page)).toHaveCount(0);
+});
+
+test("{ 插入以后接着打字（author-ui 输出 48）：刚插的取值小块留着，打的字跟在它后面，同“插入”菜单插入以后一样", async ({page}) => {
+    await editStarFlaw(page);
+    await page.keyboard.type("先写：");
+    const before = await chip(page, "value").count();
+    await page.keyboard.type("{");
+    await expect(chipMenu(page).locator("input")).toBeFocused();
+    await page.keyboard.type("性格");
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    await expect(chip(page, "value")).toHaveCount(before + 1);
+    // 不挪光标直接打字：小块还在，字在它后面。
+    await page.keyboard.type("再写");
+    await expect(richEditable(page)).toContainText("再写");
+    await expect(chip(page, "value")).toHaveCount(before + 1);
+    await discardDraft(page);
 });
