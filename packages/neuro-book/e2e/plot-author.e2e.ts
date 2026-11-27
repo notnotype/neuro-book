@@ -15,6 +15,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PACKAGE_ROOT, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
+import {selectTab} from "./support/entry-page";
 
 test.describe.configure({mode: "serial"});
 // 宽屏：编辑区要宽过 640 像素才画成表格（输出 6）；1280 宽时侧栏与右侧面板开着，编辑区不到 640。窄的版式由验收 6 量。
@@ -146,7 +147,7 @@ test("验收 3：星瑾的条目页有知道什么、目标与态度、经历；
     await open(page);
     await openEntry(page, "星瑾", ["人物"]);
     for (const name of ["知道什么", "目标与态度", "经历"]) await expect(entryTab(page, name)).toBeVisible();
-    await entryTab(page, "知道什么").click();
+    await selectTab(entryTab(page, "知道什么"));
     const knowing = entryPage(page).locator("[data-knowing-view]");
     await expect(knowing.locator("[data-knowing-row]", {hasText: "那几年哥哥是被软禁"})).toContainText("信错了");
     await expect(knowing.locator("[data-knowing-row]", {hasText: "那几年哥哥是被软禁"})).toContainText("哥哥那几年不想回家，也不想管她");
@@ -156,7 +157,7 @@ test("验收 3：星瑾的条目页有知道什么、目标与态度、经历；
     await viewPoint(page).click();
     await viewMenu(page).getByRole("radio", {name: /第 1 章末尾/u}).click();
     await expect(viewMenu(page)).toHaveCount(0);
-    await entryTab(page, "经历").click();
+    await selectTab(entryTab(page, "经历"));
     const experience = entryPage(page).locator("[data-experience]");
     await expect(experience.locator("[data-experience-item]").first()).toBeVisible();
     await expect(experience.locator("h3")).toHaveText(["第 1 章", "前史"]);
@@ -165,7 +166,7 @@ test("验收 3：星瑾的条目页有知道什么、目标与态度、经历；
 test("验收 4：秘密“那几年哥哥是被软禁”的条目页有谁知道：顶上写保密，读者写怀疑与从哪一段起，和它有关的里有到期的决策且不可点", async ({page}) => {
     await open(page);
     await openEntry(page, "那几年哥哥是被软禁", ["人物", "星瑕"]);
-    await entryTab(page, "谁知道").click();
+    await selectTab(entryTab(page, "谁知道"));
     const view = entryPage(page).locator("[data-point-view]");
     await expect(view.getByText("保密", {exact: true}).first()).toBeVisible();
     await expect(view.locator("[data-point-reader]")).toHaveText(/^怀疑，从第 2 章第 10 段起：/u);
@@ -210,7 +211,7 @@ test("验收 5：状态栏选回溯线，状态栏写线名，谁知道什么与
 
     // 星瑾的“知道什么”：子线上听星瑕说了；换回按章节自动，回到信错了，同样不闪占位。
     await openEntry(page, "星瑾", ["人物"]);
-    await entryTab(page, "知道什么").click();
+    await selectTab(entryTab(page, "知道什么"));
     const row = entryPage(page).locator("[data-knowing-row]", {hasText: "那几年哥哥是被软禁"});
     await expect(row).toContainText("听星瑕说");
     busy = await watchBusy(page);
@@ -316,10 +317,10 @@ test("验收 6：390 与 600 像素宽时三张表与四个分页都没有横向
     const panel = entryPage(page).getByRole("tabpanel");
     await openEntry(page, "星瑾", ["人物"]);
     for (const tab of ["知道什么", "目标与态度", "经历"]) {
-        await entryTab(page, tab).click();
+        await selectTab(entryTab(page, tab));
         await narrow(panel);
     }
     await openEntry(page, "那几年哥哥是被软禁", ["人物", "星瑕"]);
-    await entryTab(page, "谁知道").click();
+    await selectTab(entryTab(page, "谁知道"));
     await narrow(panel);
 });

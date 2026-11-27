@@ -17,6 +17,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PACKAGE_ROOT, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
+import {selectTab} from "./support/entry-page";
 
 test.describe.configure({mode: "serial"});
 // 作者界面在 1280 宽时编辑区不到 640 像素，条目页落到窄版。
@@ -215,7 +216,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(card.locator("[data-fact]").last()).toHaveAttribute("data-fact", "种族");
 
     // 形象分页：立绘的编辑卡里上传一张图，存进作品的图片文件夹，保存以后人物分页的立绘是这张图（输出 53）。
-    await tab(page, "形象").click();
+    await selectTab(tab(page, "形象"));
     await valueOf(page, "look.立绘").click();
     const portrait = editorOf(page, "look.立绘");
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
@@ -225,7 +226,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(portrait.locator("[data-edit-intent]")).toHaveCount(0);
     await portrait.getByRole("button", {name: "保存"}).click();
     await expect(entryPage(page).locator("[data-look-card] [data-canon-image='插图/星瑾.png']")).toHaveAttribute("data-image-state", "loaded");
-    await tab(page, "人物").click();
+    await selectTab(tab(page, "人物"));
     await expect(card.locator("[data-portrait='image'] [data-canon-image='插图/星瑾.png']")).toBeVisible();
 });
 
@@ -233,7 +234,7 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
     await open(page, "book");
     await openEntry(page, "星瑕");
     await expect(positionSelect(page)).toHaveText(/第 3 章末尾/u);
-    await tab(page, "形象").click();
+    await selectTab(tab(page, "形象"));
     const look = entryPage(page).locator("[data-look-card]");
     await look.locator("[data-outfit-add]").click();
     const dialog = page.getByRole("dialog");
@@ -258,7 +259,7 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
 test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，换分页回到卡片；“添加一组设定”是带搜索的浮层，Escape 回到“＋”、Tab 从“＋”往下走，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
     await open(page, "book");
     await openEntry(page, "星瑕");
-    await tab(page, "数值").click();
+    await selectTab(tab(page, "数值"));
     const looks = entryPage(page).locator("[data-data-look]");
     await looks.getByRole("radio", {name: "给 AI 看"}).click();
     const agent = entryPage(page).locator("[data-agent-text]");
@@ -269,7 +270,7 @@ test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，
     await expect(entryPage(page).locator("[data-raw-head]")).toHaveText("存下来的原样，不随“在看”变");
     await expect(entryPage(page).locator("[data-raw-initial]")).toContainText("存款");
     await expect(entryPage(page).locator("[data-raw-changes]")).toContainText(/剧情变更（[1-9]\d* 条）/u);
-    await tab(page, "人物").click();
+    await selectTab(tab(page, "人物"));
     await expect(entryPage(page).locator("[data-character-card]")).toBeVisible();
     await expect(looks.getByRole("radio", {name: "卡片"})).toHaveAttribute("aria-checked", "true");
 
