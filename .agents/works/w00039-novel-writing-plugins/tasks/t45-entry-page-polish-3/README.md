@@ -37,6 +37,11 @@ updated: 2026-11-27
 
 实施：分支 `feat/w00039-t45-entry-page-polish-3`，worktree `.worktree/w00039-novel-writing-plugins`。
 
+- S0：e2e 换分页改用 `selectTab`（已选中就不点）。
+- S1：成段文字的编辑改成原文下方的浮层（与短项同一个 `Popover`，放不下时翻到上方、高度封顶）；开着时再点原文只回到输入框。Spec 输出 51。
+- S2：看法改名“用户视图、AI视图、原始视图”，挪到选中的设定组分页上（再点开菜单，非缺省的写在分页上）；nb-ui `Tabs` 加 `menu` 与 `note`、`ContextMenu` 加 `radio` 与 `anchor`。附注原先打算一直留一格、收起时照着旧字收，dom 测试发现旧字留在读屏名里，改成 Vue 的 `Transition`（收完拿掉）；附注不加“·”，只用弱色。顺手修了 t43 原始视图 Lab 场景的 JSON 往返（`initial: undefined`）。Spec 输出 9、54。
+- S3：条目种类的有名字的预设（并法、诊断 `canon.entry-kinds.preset-problem`），内置人物“基本”“主要角色”，剧情插件追加知情、态度（经 canon 的 `shared/contracts.ts` 引用，架构测试要求）。Spec 输入一节。
+
 ## 下一步
 
 按 [plan.md](plan.md) 的 S0 到 S6 实施。
