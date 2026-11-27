@@ -233,7 +233,7 @@ const tabs = computed<EntryTab[]>(() => {
     const data = namespaces.value.map((namespace) => {
         const type = view.value!.namespaces[namespace]!.type;
         const slot = props.views.view(type);
-        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title), iconClass: iconOf(type), segment: "own" as const, removable: true}};
+        return {leading: leadingTypes.value.has(type), item: {value: `${DATA}${namespace}`, label: slot.status === "none" ? typeLabel(type) : port.t(slot.title), iconClass: iconOf(type), segment: "own" as const, removable: true, looks: true}};
     });
     for (const tab of data) if (tab.leading) items.push(tab.item);
     // 能写的条目总有文字分页，空时写“还没有主文字”与“加一段”（输出 9）。
@@ -1124,14 +1124,17 @@ const extraView = computed<{readonly component: Component | null; readonly loadi
 /* ---------- 设定组的三种看法（输出 54） ---------- */
 
 type DataLook = "card" | "agent" | "raw";
-/** 设定组分页看哪一种；换分页回到卡片（不记进标签状态：重开页面也是卡片）。 */
+/**
+ * 设定组分页看哪一种（用户视图、AI视图、原始视图）；换分页回到用户视图（不记进标签状态：重开页面也是它）。切换的入口在选中的
+ * 分页上（`EntryPage` 的看法菜单，输出 9）。
+ */
 const dataLook = shallowRef<DataLook>("card");
 watch(tab, () => {
     dataLook.value = "card";
 });
-const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: text(`entry.views.${value}`), testId: `data-look-${value}`})));
+const dataLooks = computed(() => (["card", "agent", "raw"] as const).map((value) => ({value, label: port.t(text(`entry.views.${value}`))})));
 /**
- * “给 AI 看”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
+ * “AI视图”：后端 `canon_read` 用的同一个函数写这一组的那一节；条目视图是按“在看”的位置与模式读到的那份。节头的显示名与
  * “可以加字段”来自设定组类型列表：还没读到或读失败时写读取中、失败，不拿空列表写出一段与模型所见不同的字。
  */
 const agentView = computed(() => {
@@ -1144,7 +1147,7 @@ const agentView = computed(() => {
     }
     return {text: fieldsText(view.value, entry.value?.declarations ?? {}, types, {namespace}), loading: false, failed: null};
 });
-/** “原始数据”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
+/** “原始视图”：存下来的条目（取初值）与按这一组筛的剧情变更；不跟“在看”走，只在看它时读。 */
 const rawEntry = useWorldRead(world, "object", () => (dataLook.value === "raw" ? {ref: {kind: "entry" as const, id: props.id}} : null));
 const rawChanges = useWorldList(world, "changes", () => (dataLook.value === "raw" && dataNamespace.value !== null ? {filter: {entry: props.id, namespace: dataNamespace.value}} : null), 20);
 const rawView = computed(() => {
@@ -1215,6 +1218,9 @@ const setPosition = (value: string): void => {
             @edit-summary="(anchor: HTMLElement) => openHead('summary', anchor)"
             @aliases="changeAliases"
             @restore="restore()"
+            :looks="dataLooks"
+            :look="dataLook"
+            @update:look="(value: string) => (dataLook = value as DataLook)"
             :addable="addableTypes"
             :picker-items="pickerItems"
             :kind="entry?.kind?.trim() ?? ''"
@@ -1306,9 +1312,6 @@ const setPosition = (value: string): void => {
                 @more="plot.more()"
             />
             <template v-else-if="dataNamespace !== null">
-                <div class="mb-3 flex justify-end">
-                    <SegmentedControl size="xs" :aria-label="text('entry.views.label')" :options="dataLooks" :model-value="dataLook" data-data-look @update:model-value="(value) => (dataLook = value as DataLook)" />
-                </div>
                 <Transition name="nb-ui-switch" mode="out-in">
                     <ComponentAgentView v-if="dataLook === 'agent'" v-bind="agentView" :position="positionLabel(position, chapters, text)" @retry="world.retry()" />
                     <ComponentRawView v-else-if="dataLook === 'raw'" v-bind="rawView" @more="rawChanges.more()" @retry="world.retry()" />

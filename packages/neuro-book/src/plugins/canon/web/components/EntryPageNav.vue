@@ -20,7 +20,13 @@ const props = withDefaults(defineProps<{
     /** 分页项的 id 与内容面板的 id（`aria-controls`）。 */
     tabId: (value: string) => string;
     panelId: string;
-}>(), {canAdd: false, addOpen: false, addReason: ""});
+    /** 有几种看法可换（输出 9、54）：带 `looks` 的行留箭头格，选中的那一行再点发 `menu`。默认 false。 */
+    menus?: boolean;
+    /** 看法菜单开着（归宿主 `EntryPage`）：选中那一行的箭头转半圈、`aria-expanded`。默认 false。 */
+    menuOpen?: boolean;
+    /** 选中那一行的附注（不在缺省看法时写看法名）；默认空。 */
+    note?: string;
+}>(), {canAdd: false, addOpen: false, addReason: "", menus: false, menuOpen: false, note: ""});
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string): void;
@@ -28,9 +34,18 @@ const emit = defineEmits<{
     (event: "add-toggle", button: HTMLElement): void;
     /** 在一页上右键：宿主给这一页的菜单。 */
     (event: "context", value: string, at: {readonly x: number; readonly y: number}): void;
+    /** 选中的、能换看法的那一行再被点（含 Enter、Space 触发的点击）：宿主把看法菜单贴着这一行开或关。 */
+    (event: "menu", value: string, row: HTMLElement): void;
 }>();
 
 const text = useCanonText();
+const hasMenu = (item: EntryTab): boolean => props.menus && item.looks === true;
+const selected = (item: EntryTab): boolean => item.value === props.modelValue;
+/** 第一次点是选中，选中以后再点才是看法菜单（同横排 `Tabs` 的 `menu`）。 */
+const pick = (item: EntryTab, event: MouseEvent): void => {
+    if (selected(item) && hasMenu(item)) emit("menu", item.value, event.currentTarget as HTMLElement);
+    else emit("update:modelValue", item.value);
+};
 /** 看法一段的第一页，前面有设定组或文字时在它上面画分隔（不另放元素：列表里只有分页，增减的过渡按分页算）。 */
 const segmentStart = computed(() => {
     const at = props.items.findIndex((item) => item.segment === "view");
@@ -80,12 +95,17 @@ const onKey = (event: KeyboardEvent): void => {
                     :aria-controls="props.panelId"
                     :tabindex="item.value === props.modelValue ? 0 : -1"
                     :data-tab-value="item.value"
-                    @click="emit('update:modelValue', item.value)"
+                    :aria-haspopup="selected(item) && hasMenu(item) ? 'menu' : undefined"
+                    :aria-expanded="selected(item) && hasMenu(item) ? props.menuOpen : undefined"
+                    @click="(event: MouseEvent) => pick(item, event)"
                     @contextmenu.prevent="(event: MouseEvent) => emit('context', item.value, {x: event.clientX, y: event.clientY})"
                 >
                     <span :class="item.iconClass" class="entry-page-nav__icon" aria-hidden="true" />
                     <span class="min-w-0 flex-1 truncate">{{ item.label }}</span>
+                    <!-- 看法名不进标题：标题先截，看法名留着（它在的唯一理由就是告诉作者这一页不在缺省的看法）。 -->
+                    <Transition name="entry-page-nav-note"><span v-if="hasMenu(item) && selected(item) && props.note !== ''" class="entry-page-nav__note"><span class="entry-page-nav__note-text"><span class="sr-only">，</span>{{ props.note }}</span></span></Transition>
                     <span v-if="item.count !== undefined" class="entry-page-nav__count">{{ item.count }}</span>
+                    <span v-if="hasMenu(item)" class="entry-page-nav__menu i-lucide-chevron-down" :data-shown="selected(item) ? '' : undefined" :data-open="selected(item) && props.menuOpen ? '' : undefined" aria-hidden="true" />
                 </button>
             </TransitionGroup>
         </div>
@@ -158,6 +178,46 @@ const onKey = (event: KeyboardEvent): void => {
 }
 .entry-page-nav__add {
     color: var(--text-muted);
+}
+/* 看法名：出现时宽度从 0 过渡到字宽（grid 0fr 到 1fr），消失时反过来，同横排 `Tabs` 的附注。不收缩，标题先截。与标题的间隔
+   在它自己的内边距里（抵掉行的 gap），收着时一起收掉。 */
+.entry-page-nav__note {
+    display: inline-grid;
+    flex-shrink: 0;
+    grid-template-columns: 1fr;
+    margin-left: -8px;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 400;
+}
+.entry-page-nav-note-enter-active,
+.entry-page-nav-note-leave-active {
+    transition: grid-template-columns var(--motion-base) var(--ease-layout), opacity var(--motion-base) var(--ease-layout);
+}
+.entry-page-nav-note-enter-from,
+.entry-page-nav-note-leave-to {
+    grid-template-columns: 0fr;
+    opacity: 0;
+}
+.entry-page-nav__note-text {
+    min-width: 0;
+    overflow: hidden;
+    padding-left: 8px;
+    white-space: nowrap;
+}
+/* 看法菜单的箭头：能换看法的行总留这一格，选中时显出，菜单开着时转半圈。 */
+.entry-page-nav__menu {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-layout), transform var(--motion-fast) var(--ease-layout);
+}
+.entry-page-nav__menu[data-shown] {
+    opacity: 0.7;
+}
+.entry-page-nav__menu[data-open] {
+    transform: rotate(180deg);
 }
 /* 两段之间的分隔画在看法的第一页上面。 */
 .entry-page-nav__item[data-segment-start] {

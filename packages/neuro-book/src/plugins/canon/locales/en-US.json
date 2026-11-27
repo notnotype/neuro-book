@@ -128,10 +128,9 @@
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
         "fieldRestored": "Restored “{{label}}” on {{name}}",
         "views": {
-            "label": "View this group as",
-            "card": "Cards",
-            "agent": "As the AI sees it",
-            "raw": "Raw data",
+            "card": "User view",
+            "agent": "AI view",
+            "raw": "Raw view",
             "agentPosition": "Viewing: {{position}}",
             "rawHead": "As stored; doesn’t follow the viewing position",
             "initial": "Initial value",

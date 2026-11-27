@@ -30,6 +30,25 @@ const nav = (props: Record<string, unknown> = {}) => {
 };
 
 describe("EntryPageNav", () => {
+    it("看法菜单（输出 9、54）：能换看法的行留箭头格、选中的显出；选中的再点发 menu，没选中的点了只是选中；看法名写在标题后、与标题分开", async () => {
+        const items = [{...ITEMS[0]!, looks: true}, {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own" as const, removable: true, looks: true}, ITEMS[1]!];
+        const wrapper = nav({items, menus: true, note: "AI视图"});
+        const tabs = () => wrapper.findAll("[role='tab']");
+        expect(tabs().map((tab) => tab.find(".entry-page-nav__menu").exists())).toEqual([true, true, false]);
+        expect(tabs().slice(0, 2).map((tab) => tab.get(".entry-page-nav__menu").attributes("data-shown") ?? null)).toEqual(["", null]);
+        expect(tabs().map((tab) => tab.attributes("aria-haspopup") ?? null)).toEqual(["menu", null, null]);
+        // 看法名只写在选中的那一行，标题之外单独一格（标题截断时它留着）。
+        expect(tabs().map((tab) => tab.text())).toEqual(["人物，AI视图", "形象", "文字"]);
+        expect(tabs()[0]!.get(".entry-page-nav__note").classes()).not.toContain("truncate");
+        await tabs()[1]!.trigger("click");
+        expect(wrapper.emitted("update:modelValue")).toEqual([["data:look"]]);
+        await tabs()[0]!.trigger("click");
+        expect(wrapper.emitted("menu")).toEqual([["data:character", tabs()[0]!.element]]);
+        await wrapper.setProps({menuOpen: true, note: ""});
+        expect(tabs()[0]!.attributes("aria-expanded")).toBe("true");
+        expect(tabs()[0]!.text()).toBe("人物");
+    });
+
     it("竖排的 tablist，两段之间一条分隔；每页有图标，条数写在行尾；选中的一页 aria-selected、可以 Tab 到", () => {
         const wrapper = nav();
         const list = wrapper.get("[role='tablist']");

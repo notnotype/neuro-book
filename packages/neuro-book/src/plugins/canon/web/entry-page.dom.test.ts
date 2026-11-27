@@ -301,7 +301,7 @@ describe("条目页", () => {
         expect(wrapper.get("[data-card='panel.存款']").text()).toContain("900 元");
     });
 
-    it("设定组分页能换着看：“给 AI 看”是按“在看”读到的这一组那一节，“原始数据”是初值与改过这一组的变更；换分页回到卡片（输出 54）", async () => {
+    it("设定组分页能换着看（选中的分页再点开看法菜单）：“AI视图”是按“在看”读到的这一组那一节，“原始视图”是初值与改过这一组的变更，分页上写着现在的看法；换分页回到用户视图（输出 9、54）", async () => {
         const {other, open} = await setup();
         const star = person("星瑕");
         const id = (await publish(other.canon, [star]))[star.id]!;
@@ -309,12 +309,17 @@ describe("条目页", () => {
         const {wrapper, state} = await open(id);
         state.tab = "data:panel";
         await waitUntil("数值的卡片", () => wrapper.find("[data-card='panel.存款']").exists());
-        const look = async (value: "card" | "agent" | "raw"): Promise<void> => {
-            await wrapper.get(`[data-testid='data-look-${value}']`).trigger("click");
+        const selectedTab = () => wrapper.get("[role='tab'][aria-selected='true']");
+        const look = async (label: "用户视图" | "AI视图" | "原始视图"): Promise<void> => {
+            await selectedTab().trigger("click");
+            await waitUntil("看法菜单", () => document.body.querySelector("[role='menuitemradio']") !== null);
+            [...document.body.querySelectorAll<HTMLElement>("[role='menuitemradio']")].find((item) => item.textContent?.trim() === label)!.click();
+            await waitUntil("菜单收起", () => document.body.querySelector("[role='menuitemradio']") === null);
         };
 
-        await look("agent");
-        await waitUntil("给 AI 看", () => wrapper.find("[data-agent-text]").exists());
+        await look("AI视图");
+        await waitUntil("AI视图", () => wrapper.find("[data-agent-text]").exists());
+        expect(selectedTab().text()).toContain("AI视图");
         const agent = wrapper.get("[data-agent-text]").text();
         expect(agent).toContain("【数值】");
         expect(agent).toContain("- 存款 = 900");
@@ -322,17 +327,18 @@ describe("条目页", () => {
         expect(agent).not.toContain("性格");
         expect(wrapper.get("[data-agent-view]").text()).toContain("在看：第 2 章末尾");
 
-        await look("raw");
-        await waitUntil("原始数据", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("剧情变更（2 条）"));
+        await look("原始视图");
+        await waitUntil("原始视图", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("剧情变更（2 条）"));
         expect(wrapper.get("[data-raw-initial]").text()).toContain("1000");
         expect(wrapper.get("[data-raw-changes]").text()).toContain("领了工资");
         expect(wrapper.get("[data-raw-changes]").text()).toContain("买了书");
 
-        // 换到人物分页回到卡片；人物这一组没有剧情变更改过。
+        // 换到人物分页回到用户视图，分页上不写看法；人物这一组没有剧情变更改过。
         state.tab = "data:character";
         await waitUntil("人物的卡片", () => wrapper.find("[data-character-card]").exists());
         expect(wrapper.find("[data-raw-view]").exists()).toBe(false);
-        await look("raw");
+        expect(selectedTab().text()).not.toContain("视图");
+        await look("原始视图");
         await waitUntil("人物的原始数据", () => wrapper.find("[data-raw-changes]").exists() && wrapper.get("[data-raw-changes]").text().includes("没有剧情变更改过这组设定"));
         expect(wrapper.get("[data-raw-initial]").text()).toContain("黑发");
     });

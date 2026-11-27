@@ -128,10 +128,9 @@
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
         "fieldRestored": "恢复了{{name}}的“{{label}}”",
         "views": {
-            "label": "这一组怎么看",
-            "card": "卡片",
-            "agent": "给 AI 看",
-            "raw": "原始数据",
+            "card": "用户视图",
+            "agent": "AI视图",
+            "raw": "原始视图",
             "agentPosition": "在看：{{position}}",
             "rawHead": "存下来的原样，不随“在看”变",
             "initial": "初值",

@@ -18,6 +18,7 @@
 
 - 点一行发 `update:modelValue`；上下方向键在全部分页之间移动并选中（两端绕回），`Home`、`End` 到头尾，焦点跟到新选中的一行（同 nb-ui `Tabs` 的自动激活）。只有选中的一行 `tabindex="0"`。
 - 右键一行发 `context`（带视口坐标），菜单由宿主画。
+- 看法菜单（输出 9）：`menus` 为真时，能换看法的行（`EntryTab.looks`）行尾留一格向下的箭头，选中的那一行显出（`menuOpen` 时转半圈、`aria-expanded`）；选中的那一行再点发 `menu`（带这一行，菜单由宿主画），没选中的点了照旧只是选中。`note` 非空时选中的那一行在标题后写它（弱色、单独一格不截断，标题先截；出现与消失时宽度有过渡）。
 - 点“添加一组设定”发 `add-toggle`（带这个按钮，宿主把浮层锚在它上面开或关）；浮层开着时它是 `aria-expanded="true"`；`addReason` 非空时不可用、悬停写原因。
 - 读屏：`role="tablist"`、`aria-orientation="vertical"`，每行 `role="tab"`、`aria-selected`、`aria-controls` 指向内容面板。
 
@@ -38,12 +39,20 @@ type EntryPageNavProps = {
     tabId: (value: string) => string;
     /** 内容面板的 id。 */
     panelId: string;
+    /** 有几种看法可换：能换看法的行留箭头格；缺省 false。 */
+    menus?: boolean;
+    /** 看法菜单开着（菜单归宿主）；缺省 false。 */
+    menuOpen?: boolean;
+    /** 选中那一行的看法名（不在缺省看法时）；缺省空串。 */
+    note?: string;
 };
 type EntryPageNavEmits = {
     (event: "update:modelValue", value: string): void;
     /** 点了“添加一组设定”：宿主把浮层锚在这个按钮上开或关。 */
     (event: "add-toggle", button: HTMLElement): void;
     (event: "context", value: string, at: {readonly x: number; readonly y: number}): void;
+    /** 选中的、能换看法的那一行再被点：宿主把看法菜单贴着这一行开或关。 */
+    (event: "menu", value: string, row: HTMLElement): void;
 };
 ```
 

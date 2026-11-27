@@ -2306,6 +2306,17 @@ function canonEntryPageFixtures() {
                 {id: "deleted-restorable", label: "已删除、可以恢复", input: {props: {status: "deleted" as const, name: "旧设定", editable: true}, model: {position: "", planned: false, tab: ""}}},
                 {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
                 {id: "sample-english", label: "英文界面", input: page},
+                // 看法菜单（输出 9、54）：设定组分页留箭头格，选中的显出；选中的再点开菜单。不在缺省看法时分页上写看法名。
+                ...(() => {
+                    const lookTabs = tabs.map((tab) => (tab.removable === true ? {...tab, looks: true} : tab));
+                    const looks = [{value: "card", label: "用户视图"}, {value: "agent", label: "AI视图"}, {value: "raw", label: "原始视图"}];
+                    const looksEnglish = [{value: "card", label: "User view"}, {value: "agent", label: "AI view"}, {value: "raw", label: "Raw view"}];
+                    return [
+                        {id: "looks", label: "看法菜单：选中的设定组分页上有箭头，再点开菜单", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:character", look: "card"}}},
+                        {id: "looks-agent", label: "看法菜单：在 AI视图，分页上写着", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:panel", look: "agent"}}},
+                        {id: "looks-english", label: "看法菜单（英文界面）", input: {props: {...page.props, editable: true, tabs: lookTabs, looks: looksEnglish}, model: {...page.model, tab: "data:character", look: "raw"}}},
+                    ];
+                })(),
             ],
             load: async () => (await import("./EntryPageFixture.vue")).default,
         }),
@@ -2369,6 +2380,9 @@ function canonEntryPageFixtures() {
                     {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
                     {id: "blocked", label: "写不了：添加不可用", input: {props: {items, canAdd: true, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
                     {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], canAdd: true, panelId: "lab-panel"}, model: {modelValue: "text"}}},
+                    // 看法：设定组的行留箭头格、选中的显出；看法名单独一格，名字长时标题先截（168 像素一栏）。
+                    {id: "looks", label: "看法：选中的行写着 AI视图，标题长时先截标题", input: {props: {items: items.map((item) => (item.removable === true ? {...item, looks: true} : item)), canAdd: true, panelId: "lab-panel", menus: true, note: "AI视图"}, model: {modelValue: "data:attitude"}}},
+                    {id: "looks-english", label: "看法（英文界面）", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true, looks: true}, {value: "data:attitude", label: "Goals and attitudes", iconClass: "i-lucide-target", segment: "own" as const, removable: true, looks: true}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}], canAdd: true, panelId: "lab-panel", menus: true, note: "Raw view"}, model: {modelValue: "data:attitude"}}},
                 ];
             })(),
             load: async () => (await import("./EntryPageNavFixture.vue")).default,
@@ -2433,9 +2447,9 @@ function canonEntryPageFixtures() {
                 return [
                     {id: "panel", label: "数值：初值与两条变更", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
                     {id: "more", label: "变更多于一页：再显示", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
-                    {id: "added-by-change", label: "初值里没有、也没有变更", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
-                    {id: "loading", label: "读取中", input: {props: {initial: undefined, changes: [], total: 0, remaining: 0, initialLoading: true, changesLoading: true, failed: null}}},
-                    {id: "changes-first", label: "变更先读回来、初值还在读", input: {props: {initial: undefined, changes, total: 2, remaining: 0, initialLoading: true, changesLoading: false, failed: null}}},
+                    {id: "added-by-change", label: "初值里没有、也没有变更", input: {props: {changes: [], total: 0, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
+                    {id: "loading", label: "读取中", input: {props: {changes: [], total: 0, remaining: 0, initialLoading: true, changesLoading: true, failed: null}}},
+                    {id: "changes-first", label: "变更先读回来、初值还在读", input: {props: {changes, total: 2, remaining: 0, initialLoading: true, changesLoading: false, failed: null}}},
                     {id: "failed", label: "读失败", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: "世界已断开"}}},
                     {id: "panel-english", label: "英文界面", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
                 ];

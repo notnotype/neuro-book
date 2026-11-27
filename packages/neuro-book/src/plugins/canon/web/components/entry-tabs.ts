@@ -12,6 +12,8 @@ export interface EntryTab {
     readonly segment: "own" | "view";
     /** 这一页是一组设定、可以去掉（右键菜单里有“去掉这组设定”）。 */
     readonly removable?: boolean;
+    /** 这一页能换着看（用户视图、AI视图、原始视图，输出 54）：选中时分页上有箭头、再点开看法菜单（输出 9）。 */
+    readonly looks?: boolean;
 }
 
 /** 设定组没声明图标时用的。 */

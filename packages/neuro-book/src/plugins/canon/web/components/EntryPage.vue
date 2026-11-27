@@ -71,7 +71,11 @@ const props = withDefaults(defineProps<{
     positionLocked?: string;
     /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
     wide?: boolean;
-}>(), {wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], pickerItems: () => [], kind: "", editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+    /** 设定组分页的几种看法（输出 54），第一个是缺省；空时分页上没有看法菜单。默认空。 */
+    looks?: readonly {readonly value: string; readonly label: string}[];
+    /** 选中的那一页现在的看法（`looks` 里的值）。默认空串（缺省的那个）。 */
+    look?: string;
+}>(), {looks: () => [], look: "", wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], pickerItems: () => [], kind: "", editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -98,6 +102,8 @@ const emit = defineEmits<{
     (event: "remove-component"): void;
     /** 已删除页上的“恢复”。 */
     (event: "restore"): void;
+    /** 在看法菜单（选中的分页上的箭头，或分页的右键菜单）里选了一种看法。 */
+    (event: "update:look", value: string): void;
 }>();
 
 defineSlots<{
@@ -130,7 +136,7 @@ const onMenu = (id: string): void => {
 
 /* ---------- 分页：横排或竖排、“＋”、右键菜单（输出 9、38） ---------- */
 
-/** 横排的项：第一个看法前画一条分隔（`data-segment-start`）。 */
+/** 横排的项：第一个看法前画一条分隔（`data-segment-start`）；能换看法的带菜单，选中的那一页不在缺省看法时写看法名。 */
 const tabItems = computed<TabsItem[]>(() => {
     const firstView = props.tabs.findIndex((item) => item.segment === "view");
     return props.tabs.map((item, index) => ({
@@ -141,8 +147,36 @@ const tabItems = computed<TabsItem[]>(() => {
         controls: PANEL_ID,
         ...(item.count === undefined ? {} : {count: item.count}),
         ...(index === firstView && index > 0 ? {attrs: {"data-segment-start": ""}} : {}),
+        ...(hasLooks(item) ? {menu: {open: lookMenu.value?.value === item.value}} : {}),
+        ...(hasLooks(item) && item.value === props.tab && lookNote.value !== "" ? {note: lookNote.value} : {}),
     }));
 });
+
+/* ---------- 看法菜单（输出 9、54） ---------- */
+
+const hasLooks = (item: EntryTab): boolean => item.looks === true && props.looks.length > 0;
+/** 不在缺省看法（第一个）时写在分页上的看法名。 */
+const lookNote = computed(() => (props.look === "" || props.look === props.looks[0]?.value ? "" : (props.looks.find((item) => item.value === props.look)?.label ?? "")));
+/**
+ * 看法菜单：贴着选中的分页（横排的标签或竖排那一行）开，归这一层，两种排法共用一个；与右键菜单各自一份状态，开一个时关另一个。
+ * 菜单开着再点同一页是关（`ContextMenu` 的 `anchor` 不把这一下当成点外面）。换了选中的分页、换了排法时关上：锚已经不是它了。
+ */
+const lookMenu = shallowRef<{readonly value: string; readonly anchor: HTMLElement; readonly x: number; readonly y: number} | null>(null);
+const toggleLookMenu = (value: string, anchor: HTMLElement): void => {
+    if (lookMenu.value !== null) {
+        lookMenu.value = null;
+        return;
+    }
+    context.value = null;
+    const box = anchor.getBoundingClientRect();
+    lookMenu.value = {value, anchor, x: box.left, y: box.bottom + 4};
+};
+const lookItems = computed<ContextMenuItem[]>(() => props.looks.map((item) => ({label: item.label, type: "radio" as const, checked: item.value === (props.look === "" ? props.looks[0]?.value : props.look), action: () => emit("update:look", item.value)})));
+/** 选了、Escape、Tab 关上时焦点回到选中的分页；点外面关上时焦点已经随作者落到别处，不抢回。 */
+const closeLookMenu = (reason: "select" | "escape" | "tab" | "outside"): void => {
+    lookMenu.value = null;
+    if (reason !== "outside") void nextTick(() => document.getElementById(tabId(props.tab))?.focus());
+};
 const canAdd = computed(() => props.editable && props.addable.length > 0);
 /**
  * “添加一组设定”的浮层锚在哪个按钮上（横排的“＋”或竖排导航里那一行）；null 时关着。浮层归这一层，两种排法共用一个。打开时发
@@ -168,6 +202,7 @@ const context = shallowRef<{readonly value: string; readonly x: number; readonly
 const openContext = (value: string, at: {readonly x: number; readonly y: number}): void => {
     if (!props.editable) return;
     emit("update:tab", value);
+    lookMenu.value = null;
     context.value = {value, ...at};
     // 右键菜单里也有“添加一组设定”：同“＋”，打开时让宿主记下条目的版本。
     if (canAdd.value) emit("add-open");
@@ -183,6 +218,7 @@ const contextItems = computed<ContextMenuItem[]>(() => {
     const disabled = blockedReason.value !== undefined;
     return [
         ...(canAdd.value ? [{label: text("entry.addComponentShort"), iconClass: "i-lucide-plus", disabled, ...(disabled ? {title: blockedReason.value} : {}), children: props.addable.map((item) => ({label: item.label, action: () => emit("add-component", item.value)}))}] : []),
+        ...(target !== undefined && hasLooks(target) ? [...(canAdd.value ? [{separator: true}] : []), ...lookItems.value] : []),
         ...(target?.removable === true ? [{separator: true}, {label: text("entry.removeComponent", {name: target.label}), iconClass: "i-lucide-minus", disabled, ...(disabled ? {title: blockedReason.value} : {}), action: () => emit("remove-component")}] : []),
     ];
 });
@@ -302,6 +338,9 @@ const alignPanel = (): void => {
 watch([rail, canAdd], () => {
     pickerAnchor.value = null;
 });
+watch([rail, () => props.tab], () => {
+    lookMenu.value = null;
+});
 // 两种排法是两套元素：焦点在分页上时直接换会落到 body，换完把焦点放到新那套的选中项上（同一页，按 id 找）。
 watch(rail, async () => {
     const focused = document.activeElement;
@@ -404,7 +443,7 @@ watch(rail, async () => {
                 </div>
                 <!-- 一组设定一个分页，分页会比一行多：放不下时分页条自己横向滚动，每页照旧写名字（触屏上没有悬停提示，只剩图标认不出是哪一页；author-ui 输出 9）。宽时换成内容左边的竖排。 -->
                 <div v-if="!rail" class="mx-auto mt-3 flex items-end gap-1" :class="column" @contextmenu="onStripContext">
-                    <Tabs class="entry-page__tabs min-w-0 flex-[0_1_auto]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                    <Tabs class="entry-page__tabs min-w-0 flex-[0_1_auto]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="tabItems" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" @menu="toggleLookMenu" />
                     <!-- “＋”在分页条外面、紧跟着它：分页条里只能是分页（ARIA 的 tablist）。 -->
                     <IconButton
                         v-if="canAdd"
@@ -433,9 +472,13 @@ watch(rail, async () => {
                     :add-reason="blockedReason ?? ''"
                     :tab-id="tabId"
                     :panel-id="PANEL_ID"
+                    :menus="props.looks.length > 0"
+                    :menu-open="lookMenu !== null"
+                    :note="lookNote"
                     @update:model-value="(value: string) => emit('update:tab', value)"
                     @add-toggle="togglePicker"
                     @context="openContext"
+                    @menu="toggleLookMenu"
                 />
                 <div class="min-w-0">
                     <slot name="bar" />
@@ -450,6 +493,7 @@ watch(rail, async () => {
             </div>
         </template>
         <ContextMenu :open="context !== null" :x="context?.x ?? 0" :y="context?.y ?? 0" :items="contextItems" @update:open="(open: boolean) => open || (context = null)" />
+        <ContextMenu :open="lookMenu !== null" :x="lookMenu?.x ?? 0" :y="lookMenu?.y ?? 0" :items="lookItems" :anchor="lookMenu?.anchor ?? null" @request-close="closeLookMenu" />
         <AddComponentPicker
             :anchor="pickerAnchor"
             :items="props.pickerItems"

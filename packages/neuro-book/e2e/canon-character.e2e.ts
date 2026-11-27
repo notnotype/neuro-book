@@ -85,7 +85,7 @@ async function openEntry(page: Page, name: string): Promise<void> {
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在编辑卡里改、别的内容与保存按钮不动、看着最初时没有意图一行；成段的文字浮在原处、盖住下一节而下一节不动，贴着底边打开时整个滚进可见范围；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在编辑卡里改、别的内容与保存按钮不动、看着最初时没有意图一行；成段的文字在原文下方的浮层里、盖住下一节而下一节不动，贴着底边打开时翻到原文上方、保存在窗口里；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -274,23 +274,33 @@ test("验收 17 的后一半：衣柜里加一套“学院制服”，在第 3 �
     await expect(page.locator("[data-notice-bar]")).toContainText("现在穿的变成 学院制服");
 });
 
-test("输出 54 与 38：数值分页换成“给 AI 看”“原始数据”，换分页回到卡片；“添加一组设定”是带搜索的浮层，Escape 回到“＋”、Tab 从“＋”往下走，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
+test("输出 9、54 与 38：数值分页再点一下开看法菜单，换成“AI视图”“原始视图”、分页上写着，换分页回到用户视图；“添加一组设定”是带搜索的浮层，Escape 回到“＋”、Tab 从“＋”往下走，搜到已有的一组切过去，选一个没有的加上并切过去", async ({page}) => {
     await open(page, "book");
     await openEntry(page, "星瑕");
     await selectTab(tab(page, "数值"));
-    const looks = entryPage(page).locator("[data-data-look]");
-    await looks.getByRole("radio", {name: "给 AI 看"}).click();
+    // 选中的分页再点一下开看法菜单；选了以后菜单收起、焦点回到分页，分页上写着现在的看法。
+    const chooseLook = async (name: string): Promise<void> => {
+        await tab(page, "数值").click();
+        await page.getByRole("menuitemradio", {name}).click();
+        await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+        await expect(tab(page, "数值")).toBeFocused();
+    };
+    await chooseLook("AI视图");
+    await expect(tab(page, "数值")).toContainText("AI视图");
     const agent = entryPage(page).locator("[data-agent-text]");
     await expect(agent).toContainText("【数值】");
     await expect(agent).toContainText("- 存款 = ");
     await expect(entryPage(page).locator("[data-agent-view]")).toContainText("在看：第 3 章末尾");
-    await looks.getByRole("radio", {name: "原始数据"}).click();
+    await chooseLook("原始视图");
+    await expect(tab(page, "数值")).toContainText("原始视图");
     await expect(entryPage(page).locator("[data-raw-head]")).toHaveText("存下来的原样，不随“在看”变");
     await expect(entryPage(page).locator("[data-raw-initial]")).toContainText("存款");
     await expect(entryPage(page).locator("[data-raw-changes]")).toContainText(/剧情变更（[1-9]\d* 条）/u);
     await selectTab(tab(page, "人物"));
     await expect(entryPage(page).locator("[data-character-card]")).toBeVisible();
-    await expect(looks.getByRole("radio", {name: "卡片"})).toHaveAttribute("aria-checked", "true");
+    await expect(tab(page, "人物")).not.toContainText("视图");
+    await selectTab(tab(page, "数值"));
+    await expect(tab(page, "数值")).not.toContainText("视图");
 
     const add = entryPage(page).locator("[data-add-component]").first();
     await add.click();
