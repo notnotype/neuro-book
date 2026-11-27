@@ -33,6 +33,54 @@ canon 的组件按区域分子目录、Lab 左栏跟着目录分组；场景一�
 
 工作位置：worktree `.worktree/w00039-novel-writing-plugins`，分支 `feat/w00039-t44-lab-and-component-folders`（从 master `1e60d53ba` 开）。
 
+实施进展：
+
+- S1（分支 `76b70ff34`）：做了以下几件事。
+  - `define.ts` 收场景类型。`defineLabFixture` 与收集时核对登记形状，错误以 `nb-lab:` 开头，这也是产物门禁的标记。
+  - 新增 `scene-kit.ts`。总表用 glob 收 `plugins/*/web/lab/fixtures.ts`。
+  - 架构测试加三条规则，各带正反例。
+  - `tailwind.product.css` 排除 `plugins/*/web/lab`。Tailwind 4.3.3 认通配，变异确认：去掉这一行时场景里的探针类进了产物 CSS。
+  - 登记门禁的扫描根扩到草稿区与各插件的 `web/lab/`，并新增“每个 `web/lab/` 都有 `fixtures.ts` 且被收到”。
+  - 先搬了 image-viewer、html-preview 两个插件的场景。
+
+  验证：
+  - 全量场景快照与基线逐字相同（287 个组件、1679 个场景）。
+  - typecheck 通过；`bun run build`（含 `check:dist`）通过。
+  - 架构测试 8 条、登记门禁 11 条通过；Lab 与两个插件的 dom 测试 64 条通过。
+  - 变异检查 4 个全部被拦下：加载路径写错、导出名写错、缺 `fixtures.ts`、夹具自建定宽盒子。
+  - `test:affected` 在负载 30 以上时有 7 条超时，单独重跑全过。
+- SDK 修正（分支 `9e43a2934`）：t43、t45 给 nb-ui 加的 `TreeSurface`、`TreeToggleOn`、`PopoverReference` 没登记进插件 SDK 的组件子路径，master 上 `sdk.test.ts` 因此失败。这次补上，并写了变更记录。同一文件里 nb-layout 的 `NestedGrid` 快照不同，来自 w00026，没动。
+
+- S2（分支 `0e5af524a`）：canon 的 49 个组件分进六个子目录，只挪不改内容。139 个文件（组件、同名文档、dom 测试、辅助件）按计划的路径表挪，脚本改写了 426 处引用与文档链接。场景快照逐字相同。typecheck、canon/plot/Lab 的 dom 测试 327 条与 bun 测试 552 条、`docs:check`、`governance:check` 通过。
+- S3（分支 `2d389fd5b`）：各插件的场景搬进自己的 `web/lab/`。
+  - 总表 2876 行按语法树逐条拆进 21 个插件的 `fixtures.ts`，剩 Lab 自己、`src/ui/` 与各包的场景，570 行。canon 按六组分成 `*.scenes.ts` 再合成一张。
+  - 116 个夹具与支持模块跟着归属走。几个插件共用的放进它模拟的那个插件，例如设置宿主进 settings、书架样本进 projects、表情包进 stickers。
+  - 搬出来的 81 个文件改成只经 scene-kit 用 Lab。
+  - 拆开后原来的杂烩函数 `shelfFixtures` 在八个插件里改按插件命名。
+  - 给草稿 worktree 留了 7 个旧路径的再导出（见“后续”）。
+  - agent 的两个夹具定宽改成 `min(…, 100%)`：搬出子目录后被“假盒子”检查查到。
+  - 验证：
+    - 场景快照逐字相同；typecheck、架构测试、登记门禁通过。
+    - 引到被挪模块的 30 个产品测试里，`ProvidersPage` 的协议检测一条偶发失败：单独跑 3 次过 2 次，负载 30。它依赖的假远端是原样改名，归为原有的时序偶发。
+- S3 后的 `lab-scenes`（临时滤掉原有的 ThemeEditor 404，跑完恢复）：
+  - 第一次在负载 25 时整页加载超过 15 秒等不到就绪。探针确认没有页面错误，属于已知的冷启动怕负载。
+  - 负载 13 时跑到版面比对，报出的问题大多在 11-25 的原有名单里，原名单里的 SubagentCard 因定宽改成 `min()` 不再报。
+  - 名单外有两组：
+    - canon 的 ComponentChecklist、AddComponentDialog、NewEntryDialog：预设按钮的焦点光晕被裁，是 t45 留下的（余地 3px，焦点环外扩 3.5px），修正 `d73889c09`。
+    - nb-agent-ui 的 AgentMessagesList、AgentMessagesSegment：w00043 t20 这两天改的会话列表带来的，与本 Task 无关。
+- S4（分支 `da1c33b0c`）：canon 的场景按“每个分支至少一个场景”精简，261 个留 209 个，ConfirmBar 14 留 6。
+  - Sonnet 子代理逐个组件对模板分支出了去留表，主会话审过后多留三个基线或整页场景，输入只改了 4 处保住覆盖所必需的，见[精简表](evidences/scene-pruning.txt)。
+  - 原来就没有场景走到的分支这次不补，表里列着。
+  - 快照对比：正好少了表里的 52 个、改了那 4 处，其余不变。
+- S5（分支 `f1b47e50d`、`d02e10ee2`、`c068b2939`）：
+  - 改了这些文档：`fixtures/README.md`（场景放在哪里、scene-kit、支持模块的归属、场景数量的规则与 `-english`、`-long` 后缀）、组件规范（超过 30 个按区域分子目录）、应用 AGENTS 的 Lab 例外与登记位置、design-review 的草稿写法。
+  - 搬走的夹具注释里的旧路径改了 35 处。
+  - Spec 的四个文件（`ui/component-lab`、`ui/component-lab-timeline`、`workbench/commands`、`workbench/quick-open`）合入时在主工作区改。
+
+## 后续
+
+- 删掉 `lab/web/fixtures/` 里 7 个旧路径的再导出文件（`canon-text.ts`、`canon-images.ts`、`lab-stickers.ts`、`explorer-scene/memory-files.ts`、`editor-scene/lab-editor-menus.ts`、`agent-scene/profile-samples.ts`、`agent-scene/agent-page-text.ts`）。等还在出稿的草稿 worktree（w00056 t06 等）合了 master、改成新路径之后删。
+
 ## 下一步
 
-按切片 S1 到 S5 串行实施。
+收口：`lab-scenes` 复跑、e2e `lab`、`lab-nb-ui`、生产构建，开发服务上看 Lab 左栏，Sonnet 前端实现审查，合入。

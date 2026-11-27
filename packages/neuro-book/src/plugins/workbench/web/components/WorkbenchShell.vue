@@ -213,7 +213,8 @@ watchEffect(() => {
             continue;
         }
         const borrowing = viewId === owner && elements !== null && railSegment.value !== null;
-        control.setPlacement(borrowing ? {kind: "rail", main: elements.main, foot: elements.foot} : {kind: "none"});
+        const rail = state.value.rail;
+        control.setPlacement(borrowing && rail !== null ? {kind: "rail", main: elements.main, foot: elements.foot, width: rail.width, tooNarrow: rail.tooNarrow} : {kind: "none"});
         // 没有地方时展开状态不动：从浮动窗归位的中途（窗拆了、右轨的元素下一次渲染才挂上）有一刻是 none，翻成 false 的话展开的列表卸掉又重建，焦点跟着丢（views 输出 21）。
         if (borrowing) control.setExpanded(expanded);
     }
@@ -226,14 +227,13 @@ const railSegment = computed((): ToolStripSegment | null => {
     const status = instances.instances.get(rail.viewId)?.status;
     return {
         expanded: rail.expanded,
-        tooNarrow: rail.tooNarrow,
         loading: status === "loading",
         width: rail.expanded ? rail.width : rail.requested,
         // 手柄触界即停在预算给得出的地方（`limit`）：拖过去的那段落账就是意图比呈现宽（输出 50 的“轨宽手柄”）。
         bounds: {minimum: rail.bounds.minimum, maximum: Math.max(rail.bounds.minimum, Math.min(rail.bounds.maximum, rail.limit ?? rail.bounds.maximum)), width: rail.bounds.width},
         revision: layoutStructureKey(doc.value),
         handleDisabled: state.value.maximized !== null,
-        labels: {expand: message("shell.rail.expand"), collapse: message("shell.rail.collapse"), tooNarrow: message("shell.rail.tooNarrow"), handle: message("shell.rail.handle")},
+        labels: {handle: message("shell.rail.handle")},
     };
 });
 
@@ -250,12 +250,6 @@ const floatRailHandles = computed(() => {
     }
     return handles;
 });
-
-function toggleRailSegment(): void {
-    const rail = state.value.rail;
-    if (rail === null) return;
-    props.layout.actions.requestRailExpanded(rail.container, !rail.expanded);
-}
 
 function commitRailWidth(width: number): void {
     const rail = state.value.rail;
@@ -1205,7 +1199,6 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @select="(id) => selectRegionEntry('auxiliarybar', id)"
                         @context-menu="openContainerMenu"
                         @segment-elements="setRailElements"
-                        @toggle-segment="toggleRailSegment"
                         @segment-width-preview="(width) => layout.actions.previewRailWidth(width)"
                         @segment-width-commit="commitRailWidth"
                     />

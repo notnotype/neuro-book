@@ -324,15 +324,14 @@ describe("canon.project：世界服务在项目子进程里", () => {
         if (!created.ok) throw new Error(JSON.stringify(created.failure));
         const [entry, other] = [created.value.ids["tmp:a"]!, created.value.ids["tmp:b"]!];
 
-        const rendered = await author.canon.call("renderSource", {entry, source: `# 学院\n\n院长是 <Ref id="${other}" />。`, mode: "actual"});
+        const source = `# 学院\n\n院长是 <Ref id="${other}" />。`;
+        const rendered = await author.canon.call("renderSource", {entry, source, mode: "actual"});
         if (!rendered.ok || rendered.value === null) throw new Error("读不到渲染");
         expect([rendered.value.version, rendered.value.mode, rendered.value.blocks.length]).toEqual([created.value.version, "actual", 1]);
-        const block = rendered.value.blocks[0] as {id: string; tree: {children: Array<{type: string; children: Array<Record<string, unknown>>}>}};
-        expect([block.id, block.tree.children.map((node) => node.type)]).toEqual(["source", ["heading", "paragraph"]]);
-        expect(block.tree.children[1]!.children.filter((node) => node.type !== "text")).toEqual([{type: "canonRef", id: other, name: "星瑾", deleted: false}]);
+        expect(rendered.value.blocks[0]).toEqual({id: "source", source, values: [{tag: "Ref", start: source.indexOf("<Ref"), id: other, name: "星瑾", deleted: false}]});
 
-        const broken = await author.canon.call("renderSource", {entry, source: "一段\n\n他说{+5}", mode: "actual"});
-        expect(broken.ok && broken.value?.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "no-field-expression", line: 3}), text: "一段\n\n他说{+5}"}]);
+        const broken = await author.canon.call("renderSource", {entry, source: '一段\n\n院长是 <V of="entry.name"', mode: "actual"});
+        expect(broken.ok && broken.value?.blocks).toEqual([{id: "source", error: expect.objectContaining({code: "tag-malformed", line: 3, column: 5}), text: '一段\n\n院长是 <V of="entry.name"'}]);
         expect(await author.canon.call("renderSource", {entry: "e999", source: "字", mode: "actual"})).toEqual({ok: true, value: null});
         // 太长的不渲染：正好到上限的照常，多一个字符就拒。
         expect((await author.canon.call("renderSource", {entry, source: "字".repeat(RENDER_SOURCE_MAX), mode: "actual"})).ok).toBe(true);
@@ -340,7 +339,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
 
         // 嵌套深到栈溢出的（几万层引用）：照出错的块给，不是说不清原因的内部错误。
         const deep = await author.canon.call("renderSource", {entry, source: "> ".repeat(RENDER_SOURCE_MAX / 2), mode: "actual"});
-        expect(deep.ok && deep.value?.blocks).toEqual([expect.objectContaining({id: "source", error: expect.objectContaining({code: "mdx-invalid"})})]);
+        expect(deep.ok && deep.value?.blocks).toEqual([expect.objectContaining({id: "source", error: expect.objectContaining({code: "unsupported-markdown"})})]);
 
         // 只读：存下来的主文字与世界的版本都没变。
         const after = await author.canon.call("textBlocks", {id: entry});
@@ -472,9 +471,10 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(page.value.items.length).toBeLessThan(3);
         expect(page.value.cursor).toBeDefined();
 
-        // 渲染给作者的语法树比源文大得多：源文在预算内，渲染结果超过预算。粗体之间留空格：连写的 `**粗****粗**…`
-        // 在 micromark 里解析时间按平方增长（1 万个约 3 秒）。
-        const bold = await publish(window.canon, person("粗", {text: [{id: "b1", source: "**粗** ".repeat(30_000)}]}));
+        // 渲染给作者的结果比源文大：每个取值在值表里有一项（地址、原始值、显示文字），约是它在源文里的四倍。三十块、每块 450 个取值
+        // （约 9500 字），源文约 280 KiB，在预算内，渲染结果超过预算。
+        const many = Array.from({length: 30}, (_, index) => ({id: `b${String(index + 1)}`, source: '<V of="entry.name" />'.repeat(450)}));
+        const bold = await publish(window.canon, person("粗", {text: many}));
         if (!bold.ok) throw new Error(bold.failure.code);
         const id = Object.values(bold.value.ids)[0]!;
         expect(await window.canon.call("render", {entry: id, position: {kind: "initial"}, mode: "actual", audience: "author"})).toEqual({ok: false, failure: {code: "too-large"}});

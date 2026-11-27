@@ -192,7 +192,7 @@ describe("回执页", () => {
         const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
         if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
         const entry = stored.value.object as Entry;
-        const renamed = await publishWith(other.canon, [{...entry, init: {...entry.init, name: "星瑕二", summary: "新简介", aliases: ["小瑕"], text: [{id: "b1", source: "她很有钱，有 {panel.存款} 元。"}]}}], "改名字");
+        const renamed = await publishWith(other.canon, [{...entry, init: {...entry.init, name: "星瑕二", summary: "新简介", aliases: ["小瑕"], text: [{id: "b1", source: '她很有钱，有 <V of="panel.存款" /> 元。'}]}}], "改名字");
         const receipt = await open(renamed.revision);
         await waitUntil("回执", () => receipt.find("[data-receipt-item]").exists() && receipt.get("[data-receipt-impact]").text().includes("星瑕二"));
         const fields = [...receipt.get("[data-receipt-section='modify']").element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent?.replace(/\s+/gu, " ").trim() ?? ""}`);

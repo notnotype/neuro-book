@@ -102,6 +102,8 @@ export interface DeskShot {
     readonly sheenOpacity: number;
     /** 桌子背后那圈暖光：越近越亮，落地后托住象牙色的工作台，不让它硬生生嵌在黑里。 */
     readonly halo: number;
+    /** 白天工作台下那块丝绸垫往里收到哪：0 是首屏四周宽出一圈，1 是落地后只露一道窄边（第 11 轮）。 */
+    readonly silk: number;
     readonly landed: boolean;
 }
 
@@ -119,6 +121,7 @@ export function deskShot(stage: StageSize, progress: number): DeskShot {
         sheen: round(smooth(0.42, 0.95, p)),
         sheenOpacity: round(sheenOpacity),
         halo: round(lerp(0.55, 1, smooth(0.3, 1, p))),
+        silk: round(smooth(0.2, 0.96, p)),
         landed,
     };
 }

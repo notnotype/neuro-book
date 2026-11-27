@@ -67,9 +67,9 @@
     "devDependencies": {
         "@iconify-json/catppuccin": "^1.2.17",
         "@iconify-json/lucide": "^1.2.95",
-        "@lobehub/icons-static-svg": "1.104.0",
         "@iconify/tailwind4": "^1.2.3",
         "@iconify/utils": "3.1.4",
+        "@lobehub/icons-static-svg": "1.104.0",
         "@notnotype/nb-agent-ui": "workspace:*",
         "@notnotype/nb-layout": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
@@ -84,6 +84,7 @@
         "@vitejs/plugin-vue": "^6.0.7",
         "@vue/test-utils": "^2.4.11",
         "dompurify": "^3.3.3",
+        "fast-check": "4.10.2",
         "happy-dom": "^20.11.2",
         "json-editor-vue": "^0.18.1",
         "marked": "17.0.6",

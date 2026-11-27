@@ -48,14 +48,12 @@ export interface ToolStripItem {
 }
 
 /**
- * 当前容器借来的视图段（docs/specs/ui/workbench-layout.md 输出 50 的“三段”“展开”“轨宽手柄”）：有它时条里多出视图段的两个位置（`main` 在中间独立滚动、`foot` 在底段）、
- * 展开按钮，展开时还有轨宽手柄。宽度都是卡片宽。
+ * 当前容器借来的视图段（docs/specs/ui/workbench-layout.md 输出 50 的“三段”“展开”“轨宽手柄”）：有它时条里多出视图段的两个位置（`main` 在中间独立滚动、`foot` 在底段），
+ * 展开时还有轨宽手柄。展开收起按钮是视图画的（`data-rail-toggle`），侧轨不画。宽度都是卡片宽。
  */
 export interface ToolStripSegment {
     /** 此刻生效的展开状态（被预算拒绝时是 false）。 */
     readonly expanded: boolean;
-    /** 意图是展开、窗口太窄给不出：按钮写“窗口太窄”。 */
-    readonly tooNarrow: boolean;
     /** 视图还在加载：`main` 里画骨架，厚度不变、不带动画。 */
     readonly loading: boolean;
     /** 此刻生效的卡片宽：手柄的数值。 */
@@ -65,7 +63,7 @@ export interface ToolStripSegment {
     readonly revision: unknown;
     /** 手柄不可用（别的面板最大化着）：不进 Tab、拖不动。 */
     readonly handleDisabled: boolean;
-    readonly labels: {readonly expand: string; readonly collapse: string; readonly tooNarrow: string; readonly handle: string};
+    readonly labels: {readonly handle: string};
 }
 
 defineOptions({name: "WorkbenchToolStrip"});
@@ -97,6 +95,14 @@ const props = withDefaults(defineProps<{
 /** 提示与菜单开在侧轨外侧：左轨往右开，右轨往左开，不压到窗口边外。 */
 const popupSide = computed(() => (props.region === "sidebar" ? "right" : "left"));
 
+/**
+ * 入口带的方向（输出 50 的“展开时的版式”）：收着是纵向一列；展开时没有窄列，入口横排在顶上一行（`data-tool-band-axis`，拖动的落点按它量），
+ * 只有一个容器时不画（`v-show`：条目区上挂着 `ResizeObserver` 与按下的块，不能拆）。入口的提示与菜单横排时朝下开。
+ */
+const bandAxis = computed(() => (props.segment?.expanded === true ? "x" : "y"));
+const bandShown = computed(() => bandAxis.value === "y" || props.entries.length > 1);
+const entrySide = computed(() => (bandAxis.value === "x" ? "bottom" : popupSide.value));
+
 const emit = defineEmits<{
     (event: "select", id: string): void;
     (event: "run-item", id: string): void;
@@ -104,8 +110,6 @@ const emit = defineEmits<{
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
     /** 视图段的两个位置挂上或拆掉（拆掉时都是 null）：宿主转给视图（`ViewRail.placement`）。 */
     (event: "segment-elements", main: HTMLElement | null, foot: HTMLElement | null): void;
-    /** 点展开按钮。 */
-    (event: "toggle-segment"): void;
     /** 轨宽手柄拖动中的宽；null 是撤回预览。宿主按它重算呈现，不写文档。 */
     (event: "segment-width-preview", width: number | null): void;
     /** 轨宽手柄落账（松手、键盘、双击）。 */
@@ -117,13 +121,6 @@ const footEl = ref<HTMLElement | null>(null);
 // 位置挂上、拆掉都告诉宿主：视图按它 `Teleport`，拆掉之前宿主先把视图段的位置改成 `none`（同一次更新里，`flush: "sync"` 之前的 watchEffect 已经跑完）。
 watch([mainEl, footEl], ([main, foot]) => emit("segment-elements", main, foot), {flush: "post", immediate: true});
 onBeforeUnmount(() => emit("segment-elements", null, null));
-
-const segmentText = computed(() => {
-    const segment = props.segment;
-    if (segment === null) return "";
-    if (segment.tooNarrow) return segment.labels.tooNarrow;
-    return segment.expanded ? segment.labels.collapse : segment.labels.expand;
-});
 
 /** 手柄在侧轨朝区域的那一边：右轨在左边。 */
 const handle = useRailHandle({
@@ -137,25 +134,29 @@ const handle = useRailHandle({
 });
 
 /**
- * 焦点交接（输出 50 的“焦点与读屏”）：焦点在视图段里、视图段被收起或拆掉，焦点所在的元素因此没了（视图换画法拆掉了它、整段拆掉），焦点掉到 body 时，
- * 交给展开按钮，没有按钮时交给按下的入口；还在的元素照旧留着焦点。“焦点在视图段里”按 focusin、focusout 记：元素被拆掉时浏览器不一定发 focusout，
- * 所以这个标记会留着，正好说明焦点是从这里丢的。焦点明确去了视图段外面（`relatedTarget` 在外）时清掉。
+ * 焦点交接（输出 50 的“焦点与读屏”）：焦点在视图段里（中段或底段），视图段展开、收起或拆掉，焦点所在的元素因此没了（视图换画法拆掉了它、
+ * 整段拆掉）或藏起来了（展开时底段 `hidden`），交给视图段的展开收起按钮（`data-rail-toggle`，两种状态是同一个元素），没有时交给按下的入口；
+ * 还看得见的元素照旧留着焦点。藏起来的元素浏览器要到下一次渲染才把焦点挪走，所以按“焦点在 body 或在 `hidden` 里”判。
+ * “焦点在视图段里”按 focusin、focusout 记：元素被拆掉时浏览器不一定发 focusout，所以这个标记会留着，正好说明焦点是从这里丢的。
+ * 焦点明确去了视图段外面（`relatedTarget` 在外）时清掉。
  */
 let segmentFocused = false;
+const inSegment = (node: Node): boolean => (mainEl.value?.contains(node) ?? false) || (footEl.value?.contains(node) ?? false);
 function onSegmentFocusIn(): void {
     segmentFocused = true;
 }
 function onSegmentFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget;
-    if (next instanceof Node && !(mainEl.value?.contains(next) ?? false)) segmentFocused = false;
+    if (next instanceof Node && !inSegment(next)) segmentFocused = false;
 }
-watch(() => [props.segment?.expanded, props.segment === null], ([expanded, gone], [wasExpanded]) => {
-    if (!segmentFocused || (expanded === true && gone !== true) || (wasExpanded !== true && gone !== true)) return;
+// 比字符串：getter 返回新数组的话，拖轨宽时 `segment` 每帧换新对象，回调跟着每帧跑。
+watch(() => (props.segment === null ? "gone" : String(props.segment.expanded)), () => {
+    if (!segmentFocused) return;
     void nextTick(() => {
         const focused = document.activeElement;
-        if (focused !== null && focused !== document.body) return;
+        if (focused !== null && focused !== document.body && focused.closest("[hidden]") === null) return;
         segmentFocused = false;
-        const target = navEl.value?.querySelector<HTMLElement>("[data-rail-expand]") ?? navEl.value?.querySelector<HTMLElement>("[data-tool-entry][aria-pressed='true']") ?? null;
+        const target = navEl.value?.querySelector<HTMLElement>("[data-rail-toggle]") ?? navEl.value?.querySelector<HTMLElement>("[data-tool-entry][aria-pressed='true']") ?? null;
         target?.focus({preventScroll: true});
     });
 });
@@ -185,9 +186,11 @@ function measureBand(): void {
     const band = bandEl.value;
     if (band === null) return;
     const style = getComputedStyle(band);
-    const yielded = props.segment !== null && props.segment.expanded !== true ? mainEl.value?.clientHeight ?? 0 : 0;
-    const height = band.clientHeight + yielded - (Number.parseFloat(style.paddingTop) || 0) - (Number.parseFloat(style.paddingBottom) || 0);
-    available.value = height > 0 ? height : null;
+    // 横排（展开）时量宽：条目区占满侧轨的宽；纵排时量高，收着有视图段时加上 `main` 能让出的高。
+    const room = bandAxis.value === "x"
+        ? band.clientWidth - (Number.parseFloat(style.paddingLeft) || 0) - (Number.parseFloat(style.paddingRight) || 0)
+        : band.clientHeight + (props.segment !== null ? mainEl.value?.clientHeight ?? 0 : 0) - (Number.parseFloat(style.paddingTop) || 0) - (Number.parseFloat(style.paddingBottom) || 0);
+    available.value = room > 0 ? room : null;
 }
 
 let observer: ResizeObserver | null = null;
@@ -209,7 +212,8 @@ onBeforeUnmount(() => observer?.disconnect());
 const strip = computed(() => {
     const room = available.value;
     if (room === null || bandEl.value === null) return {shown: props.entries.map((entry) => entry.id), hidden: [] as string[]};
-    const gap = Number.parseFloat(getComputedStyle(bandEl.value).rowGap) || 0;
+    const style = getComputedStyle(bandEl.value);
+    const gap = Number.parseFloat(bandAxis.value === "x" ? style.columnGap : style.rowGap) || 0;
     return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
 });
 const sameItems = <T,>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean => a.length === b.length && a.every((item, index) => item === b[index]);
@@ -245,10 +249,14 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 const navEl = ref<HTMLElement | null>(null);
 let lastItem: HTMLElement | null = null;
 
+/**
+ * 看不见的不算：只有一个容器时藏起来的入口带（`v-show`）、展开时藏起来的底段（侧轨自己藏的，不靠视图写 `hidden`），以及视图自己藏起来的项（`hidden`）。
+ */
 function railItems(): HTMLElement[] {
     const root = navEl.value;
     if (root === null) return [];
-    return [...root.querySelectorAll<HTMLElement>("[data-rail-item]")].filter((element) => !element.hasAttribute("disabled") && element.closest("[aria-hidden='true']") === null);
+    const hiddenParts = [bandShown.value ? null : bandEl.value, props.segment?.expanded === true ? footEl.value : null];
+    return [...root.querySelectorAll<HTMLElement>("[data-rail-item]")].filter((element) => !element.hasAttribute("disabled") && element.closest("[aria-hidden='true'], [hidden]") === null && !hiddenParts.some((part) => part?.contains(element) === true));
 }
 
 function syncTabStops(): void {
@@ -270,15 +278,18 @@ function onFocusIn(event: FocusEvent): void {
     syncTabStops();
 }
 
-const STEPS: Readonly<Record<string, (index: number, count: number) => number>> = {
-    ArrowDown: (index, count) => Math.min(count - 1, index + 1),
-    ArrowUp: (index) => Math.max(0, index - 1),
-    Home: () => 0,
-    End: (_index, count) => count - 1,
+type Step = (index: number, count: number) => number;
+const next: Step = (index, count) => Math.min(count - 1, index + 1);
+const previous: Step = (index) => Math.max(0, index - 1);
+const ends: Readonly<Record<string, Step>> = {Home: () => 0, End: (_index, count) => count - 1};
+/** 收着是纵向工具条，上下走；展开后入口横排，改成左右（输出 50 的“焦点与读屏”）。 */
+const STEPS: Readonly<Record<"x" | "y", Readonly<Record<string, Step>>>> = {
+    y: {ArrowDown: next, ArrowUp: previous, ...ends},
+    x: {ArrowRight: next, ArrowLeft: previous, ...ends},
 };
 
 function onKeydown(event: KeyboardEvent): void {
-    const step = STEPS[event.key];
+    const step = STEPS[bandAxis.value][event.key];
     const item = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>("[data-rail-item]") : null;
     // 项自己已经处理过的键不再走：“更多”的触发器在 ArrowDown 上打开菜单并 `preventDefault`，这里再挪焦点就和菜单抢。
     if (step === undefined || item === null || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -289,13 +300,22 @@ function onKeydown(event: KeyboardEvent): void {
     items[step(index, items.length)]?.focus();
 }
 
+/**
+ * 条里的项增删时重排；视图把一项移出工具条（摘掉 `data-rail-item`，例如展开收起按钮展开后成了列表里的普通按钮）时，把这里写过的 `tabindex` 一并摘掉，
+ * 不然它停在 -1，Tab 进不去。只看 `data-rail-item` 一个属性：`tabindex` 是这里自己写的，看它会循环。
+ */
+function onMutations(records: readonly MutationRecord[]): void {
+    for (const record of records) {
+        if (record.type === "attributes" && record.target instanceof HTMLElement && !record.target.hasAttribute("data-rail-item")) record.target.removeAttribute("tabindex");
+    }
+    syncTabStops();
+}
 let mutations: MutationObserver | null = null;
 onMounted(() => {
     syncTabStops();
     if (typeof MutationObserver !== "function" || navEl.value === null) return;
-    mutations = new MutationObserver(syncTabStops);
-    // 只看增删：`tabindex` 是这里自己写的，看属性会循环。
-    mutations.observe(navEl.value, {childList: true, subtree: true});
+    mutations = new MutationObserver(onMutations);
+    mutations.observe(navEl.value, {childList: true, subtree: true, attributes: true, attributeFilter: ["data-rail-item"]});
 });
 onBeforeUnmount(() => mutations?.disconnect());
 // 按下的入口换了、入口收进“更多”：增删看不到，等这一轮渲染完再排。
@@ -316,7 +336,7 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
         @focusin="onFocusIn"
         @keydown="onKeydown"
     >
-        <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
+        <div v-show="bandShown" ref="bandEl" class="workbench-tool-strip__entries" data-tool-band :data-tool-band-axis="bandAxis">
             <span
                 ref="indicatorEl"
                 class="workbench-tool-strip__indicator"
@@ -331,7 +351,7 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
                 <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" data-entry-frame :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
-                    <Tooltip :text="entry.tooltip" :side="popupSide">
+                    <Tooltip :text="entry.tooltip" :side="entrySide">
                         <IconButton
                             size="lg"
                             :icon-class="entry.icon ?? PLACEHOLDER_ICON"
@@ -353,7 +373,7 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
                     <Badge v-if="entry.count != null" size="sm" tone="accent" class="workbench-tool-strip__count" aria-hidden="true" :data-tool-count="entry.id">{{ entryCountText(entry.count) }}</Badge>
                 </div>
             </TransitionGroup>
-            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" :side="popupSide" align="end" @select="(id: string) => emit('select', id)">
+            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" :side="entrySide" align="end" @select="(id: string) => emit('select', id)">
                 <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-tool-strip__item" data-tool-more data-rail-item />
             </DropdownMenu>
         </div>
@@ -362,21 +382,7 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
             <div ref="mainEl" class="workbench-tool-strip__segment" data-rail-segment="main" data-drop-refuse @focusin="onSegmentFocusIn" @focusout="onSegmentFocusOut">
                 <div v-if="segment.loading" class="workbench-tool-strip__skeleton" data-rail-loading aria-hidden="true"></div>
             </div>
-            <div ref="footEl" class="workbench-tool-strip__segment-foot" data-rail-segment="foot" data-drop-refuse></div>
-            <Tooltip :text="segmentText" :side="popupSide">
-                <IconButton
-                    size="lg"
-                    :icon-class="segment.expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'"
-                    :aria-label="segment.labels.expand"
-                    :aria-description="segment.tooNarrow ? segment.labels.tooNarrow : undefined"
-                    :aria-expanded="segment.expanded"
-                    :data-rail-too-narrow="segment.tooNarrow ? '' : undefined"
-                    data-rail-expand
-                    data-rail-item
-                    class="workbench-tool-strip__item workbench-tool-strip__expand"
-                    @click="emit('toggle-segment')"
-                />
-            </Tooltip>
+            <div ref="footEl" class="workbench-tool-strip__segment-foot" data-rail-segment="foot" data-drop-refuse @focusin="onSegmentFocusIn" @focusout="onSegmentFocusOut"></div>
             <div
                 v-if="segment.expanded && !segment.handleDisabled"
                 class="workbench-tool-strip__handle"
@@ -591,8 +597,8 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
 }
 
 /*
- * 有视图段时（输出 50 的“三段”）：入口带按内容高，视图段的 `main` 吃掉中间剩下的高度、自己滚动，底段与展开按钮贴底。
- * 展开时侧轨是两栏：左边 48 一列不动（入口、底段、展开按钮留在原位），`main` 在右边一栏占满整高，宽是轨宽减 48。
+ * 有视图段时（输出 50 的“三段”）：入口带按内容高，视图段的 `main` 吃掉中间剩下的高度、自己滚动，底段贴底。
+ * 展开时（输出 50 的“展开时的版式”）没有窄列：一列，入口带横排在顶上（只有一个容器时不画），`main` 占满剩下的，底段藏起来（它的项由视图画进列表底部）。
  */
 .workbench-tool-strip[data-rail-segment-host] > .workbench-tool-strip__entries {
     flex: 0 1 auto;
@@ -624,63 +630,39 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
     display: none;
 }
 
-/*
- * 收着时各段贴窗口外缘排（上面 `align-items`），入口带与视图段是 48 宽、按钮在里面居中；展开按钮自己是 38 宽的一项，
- * 左右各让出 5px 才和它们在同一条中线上（展开时网格那一列居中，两边相等的外边距不影响）。
- */
-.workbench-tool-strip .workbench-tool-strip__expand {
-    margin-block: var(--space-2);
-    margin-inline: 5px;
-}
-
 .workbench-tool-strip[data-rail-state="expanded"] {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
-    justify-items: center;
+    padding-block: 0;
 }
 
+/* 横排的入口带：一行，左起排，放不下的收进“更多”；上下各留 4px 给焦点光环，底下一条细线和列表分开。 */
 .workbench-tool-strip[data-rail-state="expanded"] > .workbench-tool-strip__entries {
-    /* 跨到下面空着的 `1fr` 一行：条目区量自己的高就是能摆入口的高（见脚本里的 `measureBand`）。入口照常从上往下排。 */
-    grid-row: 1 / 3;
-    grid-column: 1;
-    align-self: stretch;
-    max-height: 100%;
+    grid-row: 1;
+    flex-direction: row;
+    align-items: center;
+    padding-block: var(--space-1);
+    padding-inline: var(--space-2);
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-bottom: var(--border-w) solid var(--border-color);
 }
 
 .workbench-tool-strip[data-rail-state="expanded"] > .workbench-tool-strip__segment {
-    grid-row: 1 / -1;
-    grid-column: 2;
+    grid-row: 2;
     align-self: stretch;
     align-items: stretch;
     height: 100%;
 }
 
 .workbench-tool-strip[data-rail-state="expanded"] > .workbench-tool-strip__segment-foot {
+    display: none;
+}
+
+.workbench-tool-strip[data-rail-state="expanded"] > .workbench-tool-strip__footer {
     grid-row: 3;
-    grid-column: 1;
-}
-
-.workbench-tool-strip[data-rail-state="expanded"] > .workbench-tool-strip__expand,
-.workbench-tool-strip[data-rail-state="expanded"] > :has(> .workbench-tool-strip__expand) {
-    grid-row: 4;
-    grid-column: 1;
-}
-
-/* 右轨的两栏镜像：48 一列贴窗口外缘（右边），`main` 朝区域长出去（左边）。 */
-.workbench-tool-strip--auxiliarybar[data-rail-state="expanded"] {
-    grid-template-columns: minmax(0, 1fr) 48px;
-}
-
-.workbench-tool-strip--auxiliarybar[data-rail-state="expanded"] > .workbench-tool-strip__entries,
-.workbench-tool-strip--auxiliarybar[data-rail-state="expanded"] > .workbench-tool-strip__segment-foot,
-.workbench-tool-strip--auxiliarybar[data-rail-state="expanded"] > .workbench-tool-strip__expand {
-    grid-column: 2;
-}
-
-.workbench-tool-strip--auxiliarybar[data-rail-state="expanded"] > .workbench-tool-strip__segment {
-    grid-column: 1;
 }
 
 /* 加载中的骨架：稳定尺寸、不带动画，宽跟着 `main`。 */

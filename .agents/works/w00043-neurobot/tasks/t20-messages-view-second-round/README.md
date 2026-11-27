@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t20-messages-view-second-round
-status: active
+status: done
 updated: 2026-11-27
 ---
 
@@ -46,4 +46,7 @@ updated: 2026-11-27
 - 第 5 轮两题都答“行”，设计定稿。Spec（planned）`974b1108d`：workbench-layout 输出 50 的“三段”改（展开按钮归视图段）、加“展开时的版式”，51 的“顶格”；views 输出 21 的 `placement.rail` 加 `tooNarrow`；conversation 输出 57 的收着、展开（缺省 300、底部导航）、浮动。[`plan.md`](plan.md) 第二部分（`388b6af14`）；计划设计审查（前端 Sonnet，说明 `/tmp/review-t20-plan2/brief.md`）在跑。
 - 评审板第 6 轮：`toolbar`（会话面板搜索行：现在／A 范围收进过滤菜单，推荐／B 范围单独一行／C 范围做搜索框前缀），各画 300 与约 220 宽；草稿在草稿 worktree 的 `AgentSessionPanel.vue`（按根元素 `data-t6` 切换），原图在本地 `shots/r5/`（`list-*`、`narrow-*`），脚本 `draft6`。答 A；Spec 输出 3 与计划第二部分随之改。
 - 开发者确认计划第二部分（2026-11-27 会话里“没问题”）。Work 分支先快进到 master（`c41ff201e`），三片实现：`b0a719f00`（展开收起按钮归视图段、列表底部导航、会话面板搜索行按 A、`placement.rail` 加 `width` 与 `tooNarrow`）、`0e6f7373b`（侧轨展开时一列、入口带横排与 `data-tool-band-axis`、拖动按轴量、缺省宽 300、删掉不用的三个文案键）、`7263ba27d`（展开收起的 FLIP 过渡与 `data-messages-moving`）。验证：nb-agent-ui 单测与 dom 全过，工作台与 agent 的 bun 单测 1245 条过，vitest 只有 Lab 场景往返测试的 ComponentRawView 三场景失败（master 上原有）；两包类型检查过；新 dom 测试做了 5 处变异都被抓到。开发服务真实页面（不减弱动效、放慢 10 倍）点了展开与收起：列表宽 300 与侧轨对齐、按钮与搜索框同一条中线、过渡顺序对，没有报错。计划里 `--acv-list-inset-end` 要登记 `hostVars`：变量在视图段自己的样式里声明，样式测试认得，不用登记。
-- e2e 交 Sonnet 子代理（worktree `.worktree/w00043-t20-e2e`，分支 `w00043-t20/e2e`，说明 `/tmp/t20-e2e/brief.md`）：第一段迁移现有用例与辅助函数、补新行为；过渡与减少动态效果的用例等第二段。
+- e2e 第一段交 Sonnet 子代理（分支 `w00043-t20/e2e`，`f575f33ef`）：五个文件迁移到 `[data-rail-toggle]`、底部导航、缺省 300，补导航切页与未读、按钮同一元素与不盖搜索行、横排入口带的显示与键盘与拖动换序、浮动窗按钮对齐、会话面板范围在过滤菜单里。它报的样例庚两处缺口（展开后按钮被轨宽手柄盖住、被拒时没写“窗口太窄”）在测试视图里补上（`sample-views.ts`），用例改回鼠标点击、恢复那条断言；第二段（过渡与减少动态效果，同一个监听前后两半，避免否定断言空过）主会话自己写（`900d1729b`）。
+- 实现审查（前端 Sonnet，说明 `/tmp/review-w00043-t20-impl2/brief.md`）10 条，处理见 [`evidences/impl2-review-sonnet.txt`](evidences/impl2-review-sonnet.txt)，修正 `89e2cafdf`。“拖轨宽时每帧重渲染”一条用性能对照判：拖轨宽每帧写入 3.98 对改动前 6.12、样式重算 0.92 对 1.71，没有回归；展开收起每帧重算 2.73 升到 3.66，是 FLIP 的代价（[`evidences/perf-layout-frames.txt`](evidences/perf-layout-frames.txt)，基线 `c41ff201e`，负载约 20）。
+- 收口 e2e 7 个文件 203 条：196 过，7 条失败都在 `lab-agent-ui`：572 是已知原有；其余 6 条都挂在等 `labState.ready`。在基线与分支上交替单独跑 140、635 两轮，基线每轮挂一条、分支两轮都过，归环境（负载 15–33 下 Lab 冷启动），记录见 [`evidences/e2e-closeout.txt`](evidences/e2e-closeout.txt)。并进 master 后两包类型检查与侧轨、消息视图、会话面板单测通过。
+- **第二部分已合入 master（`dd9b25dce`）**，t20 完成。

@@ -25,6 +25,14 @@ const coreFiles = readdirSync(SOURCE_ROOT, {withFileTypes: true}).filter((entry)
 /** 纯 TS 子路径 `./prompt-text` 的入口与它引到的文件（服务端认 `$` 标签用）：与纯 TS 入口同样的规则。 */
 const promptTextFiles = ["text.ts", "prompt-text.ts", "prompt-selection.ts", "prompt-editor.types.ts"].map((name) => join(SOURCE_ROOT, "prompt", name));
 
+/**
+ * 纯 TS 子路径 `./marked`（不带编辑器的词法，世界引擎内核在后端与浏览器里都引它）：`src/marked/` 下的文件，加上它们引到的
+ * `language/syntax/tags.ts`（只引 `markdown-dialect.ts`）。运行时只许引 `marked`、`marked-cjk-friendly`、`entities`。
+ */
+const MARKED_ROOT = join(SOURCE_ROOT, "marked");
+const markedFiles = [...readdirSync(MARKED_ROOT).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).map((name) => join(MARKED_ROOT, name)), join(SOURCE_ROOT, "language", "syntax", "tags.ts")];
+const marked: ImportRule = {packages: [/^marked$/u, /^marked-cjk-friendly$/u, /^entities$/u], within: SOURCE_ROOT};
+
 /** `@notnotype/nb-ui/text` 是文字值的纯数据层（docs/specs/ui/i18n.md），没有外部依赖、不引 Vue 与 DOM。 */
 const core: ImportRule = {packages: [/^entities$/u, /^@notnotype\/nb-ui\/text$/u], typeOnly: [/^@tiptap\//u, /^marked$/u], within: SOURCE_ROOT};
 
@@ -54,6 +62,12 @@ describe("包的导入", () => {
         expect(scanImports(promptTextFiles, core)).toEqual([]);
         const allowed = (target: string): boolean => (dirname(target) === SOURCE_ROOT && !(existsSync(target) && statSync(target).isDirectory())) || promptTextFiles.includes(`${target}.ts`) || promptTextFiles.includes(target);
         expect(relativeImportsOutside(promptTextFiles, allowed)).toEqual([]);
+    });
+
+    it("纯 TS 子路径 marked 只引 marked、marked-cjk-friendly、entities，相对导入只到 src/marked、src 根上的文件与 tags.ts", () => {
+        expect(scanImports(markedFiles, marked)).toEqual([]);
+        const allowed = (target: string): boolean => markedFiles.includes(`${target}.ts`) || markedFiles.includes(target) || (dirname(target) === SOURCE_ROOT && !(existsSync(target) && statSync(target).isDirectory()));
+        expect(relativeImportsOutside(markedFiles, allowed)).toEqual([]);
     });
 
     it("全包只引 package.json 里声明的包与本包的文件（宿主源码与插件内核都不在声明里），开发依赖只许 import type", () => {

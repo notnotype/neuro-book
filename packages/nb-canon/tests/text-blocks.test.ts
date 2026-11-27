@@ -231,7 +231,7 @@ describe("canon.revisions 输出 25：主文字的块", () => {
         try {
             ok(await scene.edit("story", end("ch2"), [{op: "addBlock", entry: scene.entry, source: "X", after: "b1"}]));
             const [version, lines] = [scene.world.status().version, await logLines(scene.root)];
-            const bad = "没闭合的 {表达式";
+            const bad = "没写完的 <V of=\"panel.a\" 标签";
             // 第 0 项合法，第 1 项加进初值的块不合法。
             const intoInit = failure(await scene.edit("creative", end("ch3"), [{op: "set", at: scene.at("b2"), value: "B 改"}, {op: "addBlock", entry: scene.entry, source: bad, after: "b2"}]));
             expect(intoInit.code).toBe("validation-failed");

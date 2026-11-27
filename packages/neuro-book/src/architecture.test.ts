@@ -79,8 +79,9 @@ const importsTesting = (use: ImportUse, target: string | null): boolean => use.s
 /** Lab 的场景与草稿区（界面评审的静态稿）可以引别的插件的界面与共用代码：它们只在开发版里有。 */
 const labSceneMayImport = (file: string, target: string): boolean => (file.startsWith("plugins/lab/web/fixtures/") || file.startsWith("plugins/lab/web/drafts/")) && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 /**
- * nb-canon 的主入口带着渲染链（MDX 解析与它的依赖），`node` 子路径要 `node:fs`：浏览器代码在运行时只能引 `schema` 子路径，
- * 别的只引类型。主入口在 Vite 开发模式下加载不了（依赖里的 CommonJS 包没有缺省导出），引了它整个窗口起不来（t31 S5 时踩到）。
+ * nb-canon 的主入口带着整个内核，`node` 子路径要 `node:fs`：浏览器代码在运行时只能引 `schema` 子路径与条目文法 `grammar`
+ * （阅读视图对源文跑同一份文法，canon.rendering 输出 7），别的只引类型。主入口在 Vite 开发模式下曾加载不了（当时的 MDX 解析链里
+ * 有没有缺省导出的 CommonJS 包），引了它整个窗口起不来（t31 S5 时踩到）。
  */
 const isCanonKernelEntry = (specifier: string): boolean => specifier === "@notnotype/nb-canon" || specifier === "@notnotype/nb-canon/node";
 const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
@@ -311,6 +312,7 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
             use("plugins/canon/web/rows.ts", "@notnotype/nb-canon", true),
             use("plugins/canon/web/rows.ts", "@notnotype/nb-canon/schema"),
+            use("plugins/canon/web/components/entry-text.ts", "@notnotype/nb-canon/grammar"),
             use("plugins/canon/backend/remote.ts", "@notnotype/nb-canon"),
             use("plugins/files/backend/rooted.ts", "@notnotype/nb-file-lock"),
             use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/socket"),

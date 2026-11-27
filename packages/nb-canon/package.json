@@ -9,30 +9,25 @@
         ".": "./src/index.ts",
         "./schema": "./src/schema.ts",
         "./node": "./src/node/index.ts",
-        "./sample": "./src/sample/index.ts"
+        "./sample": "./src/sample/index.ts",
+        "./grammar": "./src/grammar/index.ts"
     },
     "scripts": {
         "test": "bun test",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
         "acorn": "^8.15.0",
-        "mdast-util-from-markdown": "^2.1.0",
-        "mdast-util-gfm-strikethrough": "^2.0.1",
-        "mdast-util-gfm-table": "^2.0.0",
-        "mdast-util-mdx": "^3.0.0",
-        "micromark": "^4.0.3",
-        "micromark-extension-cjk-friendly": "^2.0.2",
-        "micromark-extension-gfm-strikethrough": "^2.1.0",
-        "micromark-extension-gfm-table": "^2.1.2",
-        "micromark-extension-mdxjs": "^3.0.0",
+        "marked": "17.0.6",
         "typebox": "^1.3.6"
     },
     "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@types/bun": "^1.3.14",
         "@types/node": "^26.1.0",
+        "fast-check": "4.10.2",
         "typescript": "^6.0.3"
     }
 }

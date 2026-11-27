@@ -5,8 +5,9 @@
 
 import type {AnyExtension, JSONContent} from "@tiptap/core";
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
-import type {MarkedExtension, Token, Tokens} from "marked";
+import type {Token, Tokens} from "marked";
 
+import type {AtomSpan, MarkdownLexing} from "../../marked/lexing";
 import type {OpenTag} from "./tags";
 
 /** 读入时交给读法的上下文。 */
@@ -27,6 +28,8 @@ export interface ReadContext {
      */
     lexBlocks(src: string): Token[];
     lexInline(src: string): Token[];
+    /** 语言里各模块在一段文字里认出的原子范围（原子里的 `|` 不切表格的单元格）。 */
+    atomSpans(text: string): ReadonlyArray<AtomSpan>;
 }
 
 /**
@@ -77,6 +80,10 @@ export interface WriteContext {
      * 文字用它。
      */
     escape(text: string, place?: InlinePlace): string;
+    /** 语言里各模块的原子转义规则（`MarkdownLexing.atomEscape`）合起来；没有时为 null 或不给。 */
+    readonly atomEscape?: ((text: string, index: number) => boolean) | null;
+    /** 语言里各模块在一段文字里认出的原子范围：表格里写出的 `|` 落在原子里的不转义（原子不切单元格）。没有时不给。 */
+    readonly atomSpans?: (text: string) => ReadonlyArray<AtomSpan>;
 }
 
 /** 编解码器给写前准备的工具。 */
@@ -137,24 +144,17 @@ export interface MarkWriter {
     readonly textOnly?: boolean;
 }
 
-/** 一种语法。 */
-export interface MarkdownSyntax {
-    readonly name: string;
+/**
+ * 一种语法。`marked` 一侧的部分（名字、分词规则、块级与行内标签、原子与转义规则）是 `MarkdownLexing`（`./marked`），不带编辑器的
+ * 词法用同一份；这里加 schema、读法与写法。
+ */
+export interface MarkdownSyntax extends MarkdownLexing {
     /** schema、命令、键位与节点视图（Tiptap 扩展）。扩展自带的 `markdownTokenizer` 不会被登记，分词规则只来自 `marked`。 */
     readonly extensions: ReadonlyArray<AnyExtension>;
     /** 块层的词法单元类型 → 读法。同一类型有多个模块认领时，先列出的模块先试。 */
     readonly read?: Readonly<Record<string, TokenReader>>;
     /** 行内的词法单元类型 → 读法（`text`、`html` 这类类型名在块层与行内都会出现，所以分两张表）。 */
     readonly readInline?: Readonly<Record<string, TokenReader>>;
-    /** 登记进编解码器自己的 `Marked` 实例的扩展（分词规则、对内置分词的覆盖）。 */
-    readonly marked?: ReadonlyArray<MarkedExtension>;
-    /**
-     * 块级方言标签名 → 认不认这个开标签（与这个模块的块分词规则用同一个判断）。宽容写法判断“行尾的开标签”、HTML 兜底的排除
-     * 名单都从这里取。
-     */
-    readonly blockOpens?: Readonly<Record<string, (open: OpenTag) => boolean>>;
-    /** 行内方言标签名（HTML 兜底不抢的名单）。 */
-    readonly inlineTags?: ReadonlyArray<string>;
     /**
      * 读入时推导出来、写不回去的属性（节点类型 → 属性名）：读回校验不比较它们，写回被接受后按读回的值回填。例如正文单元格的
      * `align`：GFM 只有列级对齐，读入时每个单元格取所在列的对齐。

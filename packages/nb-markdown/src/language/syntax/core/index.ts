@@ -18,10 +18,9 @@ import {Paragraph} from "@tiptap/extension-paragraph";
 import {TableCell, TableHeader, TableKit} from "@tiptap/extension-table";
 import {StarterKit} from "@tiptap/starter-kit";
 import {decodeHTMLStrict} from "entities";
-import type {MarkedExtension, Token, Tokens} from "marked";
-import markedCjkFriendly from "marked-cjk-friendly";
+import type {Token, Tokens} from "marked";
 
-import {closeInline, nextMatch} from "../tags";
+import {cellCount, coreLexing, isBreakOnlyHtml} from "../../../marked/core";
 import {CODE_EXCLUSIVE} from "../types";
 import type {MarkdownSyntax, ReadContext, TokenReader} from "../types";
 import {coreWriters} from "./write";
@@ -79,16 +78,6 @@ const MarkdownLink = Link.extend({inclusive: () => false});
 const SingleParagraphCell = TableCell.extend({content: "paragraph"});
 const SingleParagraphHeader = TableHeader.extend({content: "paragraph"});
 
-/** 删除线只认两个波浪线（输出 7）：单个 `~` 交回成普通文字。 */
-const doubleTildeOnly: MarkedExtension = {
-    tokenizer: {
-        del(src: string) {
-            if (src.startsWith("~") && !src.startsWith("~~")) return {type: "text", raw: "~", text: "~"} as unknown as Tokens.Del;
-            return false;
-        },
-    },
-};
-
 const text = (value: string): JSONContent => ({type: "text", text: value});
 
 /** 文字单元：实体按 HTML5 表解码一次（含数字实体）；段内的换行读成带写法的硬换行（输出 5）。 */
@@ -125,41 +114,6 @@ function plainText(tokens: ReadonlyArray<Token>): string {
 
 /** 行内 HTML 能读的标签（输出 25）：标签名 → 标记类型。 */
 const HTML_MARKS: Readonly<Record<string, string>> = {strong: "bold", b: "bold", em: "italic", i: "italic", del: "strike", s: "strike"};
-const HTML_MARK_OPEN = /^<(strong|b|em|i|del|s)\s*>/iu;
-const HTML_BREAK = /^<br\s*\/?>/iu;
-
-/**
- * HTML 形式的强调与换行（输出 25）整体认领成一个单元：`<strong>…</strong>` 连同里面的行内内容，`<br>`。配不上对的标签不认领，
- * 交给原样语法读成原样片段。行内内容用 `inlineTokens`：行内分词发生在全篇块分词之后，这时引用定义已经收齐。
- */
-const htmlInline: MarkedExtension = {
-    extensions: [
-        {
-            name: "htmlMark",
-            level: "inline",
-            start: (src: string) => nextMatch(src, /<(?:strong|b|em|i|del|s)\s*>/giu),
-            tokenizer(src: string) {
-                const open = HTML_MARK_OPEN.exec(src);
-                if (open === null) return undefined;
-                const tag = (open[1] as string).toLowerCase();
-                // 配对与方言标签用同一个扫描（跳过转义、行内代码与别的标签）；里面是空的不认领（没有文字可以带这个标记，读成原样
-                // 片段保住原文）。
-                const close = closeInline(src, tag, open[0].length);
-                if (close === null || close.start === open[0].length) return undefined;
-                return {type: "htmlMark", raw: src.slice(0, close.end), tag, tokens: this.lexer.inlineTokens(src.slice(open[0].length, close.start))};
-            },
-        },
-        {
-            name: "htmlBreak",
-            level: "inline",
-            start: (src: string) => nextMatch(src, /<br\s*\/?>/giu),
-            tokenizer(src: string) {
-                const matched = HTML_BREAK.exec(src);
-                return matched === null ? undefined : {type: "htmlBreak", raw: matched[0]};
-            },
-        },
-    ],
-};
 
 /** 强调符号：`**`、`__`、`*`、`_` 的第一个字符。 */
 const emphasisMarker = (raw: string): string => (raw.startsWith("_") ? "_" : "*");
@@ -319,12 +273,9 @@ const readList: TokenReader = (token, context) => {
     });
 };
 
-/** 一行里只有 `<br>`：`marked` 把它当成 HTML 块，其实是只有换行的一段（只有硬换行的段落就这样写出）。 */
-const ONLY_BREAKS = /^(?:[ \t]*<br\s*\/?>)+[ \t]*\n*$/iu;
-
 const blockReaders: Readonly<Record<string, TokenReader>> = {
     html: (token) => {
-        if (!ONLY_BREAKS.test(token.raw)) return null;
+        if (!isBreakOnlyHtml(token.raw)) return null;
         const count = token.raw.match(/<br/giu)?.length ?? 0;
         return [{type: "paragraph", content: Array.from({length: count}, () => ({type: "hardBreak", attrs: {markdown: "br"}}))}];
     },
@@ -350,7 +301,7 @@ const blockReaders: Readonly<Record<string, TokenReader>> = {
         const table = token as Tokens.Table;
         // 某一行的单元格比表头多：GFM 丢掉多出的（包括行内代码里没转义的 `|` 切出来的），编辑器表达不了，整张表是原样块
         // （方言 Spec 输出 9），不然改过这张表，多出的字就从文件里没了。
-        if (table.raw.split("\n").slice(2).some((line) => cellCount(line) > table.header.length)) return [context.raw(token, false)];
+        if (table.raw.split("\n").slice(2).some((line) => cellCount(line, context.atomSpans(line)) > table.header.length)) return [context.raw(token, false)];
         const cell = (type: string, value: Tokens.TableCell, align: string | null): JSONContent => ({type, attrs: {align}, content: [{type: "paragraph", content: context.inline(value.tokens)}]});
         return [{
             type: "table",
@@ -367,17 +318,6 @@ const blockReaders: Readonly<Record<string, TokenReader>> = {
     },
 };
 
-/** 表格一行的单元格数，按 GFM 的切法：没转义的 `|` 分隔，行首行尾的 `|` 不算。 */
-function cellCount(line: string): number {
-    const row = line.trim();
-    if (row === "") return 0;
-    let count = 1;
-    for (let index = 0; index < row.length; index += 1) {
-        if (row[index] === "\\") index += 1;
-        else if (row[index] === "|" && index !== 0 && index !== row.length - 1) count += 1;
-    }
-    return count;
-}
 
 /**
  * 页面上的链接元素保留哪些地址：Tiptap 默认只留 `http:` 这类常见方案与相对地址，别的写成空 `href`。作品里的文件
@@ -413,9 +353,8 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
 ];
 
 export const coreSyntax: MarkdownSyntax = {
-    name: "core",
+    ...coreLexing,
     extensions: coreExtensions,
-    marked: [markedCjkFriendly(), doubleTildeOnly, htmlInline],
     read: blockReaders,
     readInline: inlineReaders,
     writeBlock: coreWriters.blocks,

@@ -116,7 +116,10 @@ export function glidePath(from: Point, to: Point, via: readonly Point[] = []): G
     };
 }
 
-/** 指针走这么长的路要多久（ms）：短的路不至于一闪而过，长的路封顶（@designer 第 8 轮：一次拖动 0.7 到 1.0 秒）。 */
+/**
+ * 指针走这么长的路要多久（ms）：短的路不至于一闪而过，长的路封顶。第 8 轮照 @designer 定在一次拖动 0.5 到 0.95 秒，
+ * 开发者第 11 轮说太快（第 7 轮嫌慢），第 12 轮放慢到 0.7 到 1.3 秒，滑到来源上的那一段也跟着放慢一些。
+ */
 export function glideTime(length: number, kind: "reach" | "drag"): number {
-    return kind === "drag" ? Math.min(950, Math.max(520, 300 + length * 0.9)) : Math.min(620, Math.max(280, 200 + length * 0.55));
+    return kind === "drag" ? Math.min(1300, Math.max(700, 380 + length * 1.05)) : Math.min(760, Math.max(340, 240 + length * 0.68));
 }

@@ -155,13 +155,13 @@ export function secrecyBook(seed: number): SecrecyBook {
         const target = targets();
         switch (random(9)) {
             case 0: return `<Ref id="${target}" />出现过。`;
-            case 1: return `它和{ref("${target}").entry.name}有关。`;
-            case 2: return "指向{ext.指向}。";
-            case 3: return "清单：{ext.清单}。";
-            case 4: return "图：{ext.图}。";
+            case 1: return `它和<V entry="${target}" of="entry.name" />有关。`;
+            case 2: return "指向<V of=\"ext.指向\" />。";
+            case 3: return "清单：<V of=\"ext.清单\" />。";
+            case 4: return "图：<V of=\"ext.图\" />。";
             case 5: return '<Image src="a.png" alt="一张旧图" />。';
-            case 6: return `态度：{ref("${pick(persons)}").att.态度["${pick(persons)}"].态度}。`;
-            case 7: return self === null ? "表盖有划痕。" : `{ref("${self}").text[b1]}`;
+            case 6: return `态度：<V entry="${pick(persons)}" of="att.态度[${pick(persons)}].态度" />。`;
+            case 7: return self === null ? "表盖有划痕。" : `<V entry="${self}" of="text[b1]" />`;
             default: return "表盖有划痕。";
         }
     };

@@ -131,7 +131,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             revision: (input) => withWorld((service) => denied(service, input.view, "revision") ?? within(service.revision(input.id))),
             chapters: (input) => withWorld((service) => read(input.view === undefined ? service.chapters() : service.viewed(own(input.view)).chapters())),
             components: () => withWorld((service) => within(service.components())),
-            render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(own(input.view)).render(input.entry, input.position, input.mode, input.audience))),
+            render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience, input.block) : service.viewed(own(input.view)).render(input.entry, input.position, input.mode, input.audience, input.block))),
             renderSource: (input) => withWorld((service) => (input.source.length > RENDER_SOURCE_MAX ? fail({code: "too-large"}) : read(service.renderSource(input.entry, input.source, position(service, input.position), input.mode)))),
             preview: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "preview");
@@ -165,7 +165,6 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 const result = service.previewEdit(input.input);
                 return result.ok ? within({route: result.route, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : editFailure(result.failure as CanonFailure);
             }),
-            writeBack: ({token, view, ...input}) => withWorld(async (service) => denied(service, view, "writeBack") ?? published(await service.writeBack(input, token))),
             revert: ({token, view, revision, withDependents, ...meta}) => withWorld(async (service) => denied(service, view, "revert") ?? published(await service.revert(revision, withDependents, meta, token))),
             openView: (input) => withWorld((service) => {
                 const opened = service.openView(input);

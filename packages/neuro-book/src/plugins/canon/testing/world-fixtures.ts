@@ -34,7 +34,7 @@ export function person(name: string, extra: Partial<Entry> = {}, money = 1000): 
     return {
         id: `tmp:${nextId()}`, type: "nbook.canon.person", parent: null, folder: "人物", order: sequence,
         init: {
-            name, aliases: [], summary: `${name}的简介`, text: [{id: "b1", source: "她有 {panel.存款} 元。"}],
+            name, aliases: [], summary: `${name}的简介`, text: [{id: "b1", source: "她有 <V of=\"panel.存款\" /> 元。"}],
             data: {
                 character: {type: "nbook.canon.person", version: 1, enabled: true, fields: {性格: "黑发", 身份: null, 现在的状态: null}},
                 panel: {type: "nbook.canon.panel", version: 1, enabled: true, fields: {存款: money}, declared: [{id: "存款", label: "存款", kind: "number", unit: "元"}]},

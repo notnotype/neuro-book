@@ -50,7 +50,7 @@ export const agentMessagesScenes: FrameScene[] = [
     {id: "docked-session", label: "停靠收着，当前是一个会话：方块描边", input: {props: {...shut, selected: {kind: "session", id: "s2"}}, model}},
     {id: "docked-weak", label: "停靠收着，右栏隐藏或拖到零：当前退成弱描边", input: {props: {...shut, weak: true}, model}},
     {id: "docked-short", label: "停靠收着、高度不够：bot 并成“+N”，最近会话从末尾截，当前会话仍在", input: {props: {...shut, sections: MANY, selected: {kind: "session", id: "s6"}}, model}},
-    {id: "docked-expanded", label: "停靠展开 260：完整列表的 bot 页", input: {props: open, model}},
+    {id: "docked-expanded", label: "停靠展开 300：完整列表的 bot 页", input: {props: open, model}},
     {id: "docked-expanded-sessions", label: "停靠展开：会话页，“会话历史”按下", input: {props: open, model: {...model, tab: "sessions"}}},
     {id: "docked-expanded-200", label: "停靠展开到最窄 200", input: {props: open, model}},
     {id: "docked-expanded-420", label: "停靠展开到最宽 420", input: {props: open, model}},
@@ -58,17 +58,17 @@ export const agentMessagesScenes: FrameScene[] = [
     {id: "docked-390-english", label: "英文 390 宽、收着：悬停提示与名称是英文", input: {props: {...shut, sections: SECTIONS_EN, locale: "en-US"}, model}},
     // 浮动窗（ui/workbench-layout.md 输出 51）：视图段画在视图自己的右边缘。
     {id: "edge", label: "画在右边缘（浮动窗），收着", input: {props: {...shut, placement: {kind: "edge", width: 48}}, model}},
-    {id: "edge-expanded", label: "画在右边缘（浮动窗），展开 260", input: {props: {...open, placement: {kind: "edge", width: 260}}, model}},
+    {id: "edge-expanded", label: "画在右边缘（浮动窗），展开 300", input: {props: {...open, placement: {kind: "edge", width: 300}}, model}},
 ];
 
 type SegmentScene = LabFixtureDefinition<typeof AgentMessagesSegment>["scenes"][number];
 const segment = {sections: SECTIONS, selected: {kind: "contact" as const, key: "nbook.bots/lyra"}, recentSessions: RECENT, now, locale: "zh-CN" as const};
-// 不给 `targets`：画在自己的位置上（AgentMessagesSegmentFixture.vue 按收着 48、展开 260 给宽）。
+// 不给 `targets`：画在自己的位置上（AgentMessagesSegmentFixture.vue 按收着 48、展开 300 给宽）。
 export const agentMessagesSegmentScenes: SegmentScene[] = [
     {id: "collapsed", label: "收着：bot、短线、新对话与最近会话、底段", input: {props: {...segment, expanded: false}, model}},
     {id: "collapsed-short", label: "收着、高度不够：“+N”，最近会话从末尾截", input: {props: {...segment, expanded: false, sections: MANY}, model}},
     {id: "collapsed-waiting-only", label: "收着、没有未读只有等你处理：“全部 bot”上是 warning 圆点", input: {props: {...segment, expanded: false, sections: [{...SECTIONS[0]!, contacts: SECTIONS[0]!.contacts.map((contact) => ({...contact, unread: 0}))}]}, model}},
-    {id: "expanded", label: "展开 260：完整列表", input: {props: {...segment, expanded: true}, model}},
+    {id: "expanded", label: "展开 300：完整列表", input: {props: {...segment, expanded: true}, model}},
     {id: "expanded-200-english", label: "英文、展开到最窄 200", input: {props: {...segment, expanded: true, sections: SECTIONS_EN, locale: "en-US"}, model}},
 ];
 

@@ -5,7 +5,7 @@
  */
 import {computed, onMounted, ref} from "vue";
 
-// 走不带引擎的子路径：根入口带着 MDX 解析链，Lab 的开发服务里会把 CommonJS 的依赖原样交给浏览器。
+// 只要路径的规则：走 schema 子路径，不把整个内核带进这个组件。
 import {assetPathProblem} from "@notnotype/nb-canon/schema";
 import {Button, Input} from "@notnotype/nb-ui/components";
 

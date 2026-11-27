@@ -183,6 +183,7 @@
         "label": "{{label}}：{{value}}",
         "blockFailed": "这一块没有渲染出来：{{reason}}",
         "deletedRef": "已删除的条目",
+        "needsPlugin": "需要插件",
         "listSeparator": "、",
         "yes": "是",
         "no": "否",
