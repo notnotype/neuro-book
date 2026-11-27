@@ -716,3 +716,53 @@ test("会话面板的搜索行：只有搜索与新建，过滤按钮在搜索�
     await expect(scope("当前作品")).toHaveAttribute("aria-checked", "true");
     await expect(archived).toHaveAttribute("aria-checked", "false");
 });
+
+/** 从现在起视图段根上 `data-messages-moving` 被加上的次数（MutationObserver 不漏同一个任务里加了又去掉的）。 */
+async function watchMoving(page: Page): Promise<() => Promise<number>> {
+    await page.evaluate(() => {
+        const store = globalThis as unknown as {__movingAdded: number};
+        store.__movingAdded = 0;
+        new MutationObserver((records) => {
+            for (const record of records) if (record.oldValue === null && (record.target as Element).hasAttribute("data-messages-segment")) store.__movingAdded += 1;
+        }).observe(document.body, {attributes: true, subtree: true, attributeFilter: ["data-messages-moving"], attributeOldValue: true});
+    });
+    return () => page.evaluate(() => (globalThis as unknown as {__movingAdded: number}).__movingAdded);
+}
+
+// 覆盖 conversation.md 输出 57“展开”的过渡与 ui-development 的“状态变化有动效”：点按钮展开、收起时视图段在动（`data-messages-moving`），动完清掉；
+// 减少动态效果时从不出现、直接到位。同一个监听先在减少动效下走一遍，再开回动效走一遍：后一半证明监听抓得到，前一半的“零次”才不是空过。
+test("展开收起的过渡：动效开着时视图段在动、动完清掉，连点也收得住；减少动态效果时从不出现", async ({page}) => {
+    await openWorkbench(page);
+    const moved = await watchMoving(page);
+    await openButton(page, "bot").click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+    await expect(botPage(page)).toBeVisible();
+    await expandButton(page).click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(openButton(page, "bot")).toBeVisible();
+    await expect(listPanel(page)).toHaveCount(0);
+    expect(await moved(), "减少动态效果时不动").toBe(0);
+
+    await page.emulateMedia({reducedMotion: "no-preference"});
+    await openButton(page, "bot").click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+    await expect.poll(moved, {message: "展开时在动"}).toBeGreaterThan(0);
+    await expect(segment(page)).not.toHaveAttribute("data-messages-moving");
+    const afterExpand = await moved();
+    await expandButton(page).click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+    await expect.poll(moved, {message: "收起时在动"}).toBeGreaterThan(afterExpand);
+    await expect(segment(page)).not.toHaveAttribute("data-messages-moving");
+    await expect(listPanel(page)).toHaveCount(0);
+    await expect(openButton(page, "bot")).toBeVisible();
+
+    // 连点：展开刚开始就收起，取消上一次、从当前位置回去；最后收着，标记清掉，离场的列表也拿掉。
+    await expandButton(page).click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "expanded");
+    await expandButton(page).click();
+    await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
+    await expect(segment(page)).not.toHaveAttribute("data-messages-moving");
+    await expect(listPanel(page)).toHaveCount(0);
+    await expect(expandButton(page)).toHaveAttribute("aria-expanded", "false");
+    await expect(expandButton(page)).toBeFocused();
+});

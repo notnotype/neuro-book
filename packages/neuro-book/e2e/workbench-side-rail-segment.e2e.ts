@@ -142,15 +142,6 @@ test.describe("产品页：右轨的视图段", () => {
     /** 两帧：布局的求解与呈现在下一帧才落到元素上。 */
     const settleFrames = (page: Page): Promise<unknown> => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-    /**
-     * 展开着时收起：用键盘（聚焦按钮按回车）。样例庚的收起按钮展开时落在列表最左，被 6 像素宽的轨宽手柄盖住，鼠标点不到（见交付报告“产品与 Spec 不符”）；
-     * 键盘激活走的是同一个展开收起处理，状态与记录的断言不变。
-     */
-    async function collapse(page: Page): Promise<void> {
-        await expandButton(page).focus();
-        await page.keyboard.press("Enter");
-    }
-
     /** 点展开按钮并等右轨展开（卡片宽到缺省）。 */
     async function expand(page: Page): Promise<void> {
         await expandButton(page).click();
@@ -186,7 +177,7 @@ test.describe("产品页：右轨的视图段", () => {
         // 展开的列表有按钮的焦点：点展开按钮焦点留在按钮上。
         await expect(expandButton(page)).toBeFocused();
 
-        await collapse(page);
+        await expandButton(page).click();
         await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
         await expect(expandButton(page)).toHaveAttribute("aria-expanded", "false");
         await expect(sampleRail(page)).toHaveAttribute("data-sample-rail-expanded", "false");
@@ -263,7 +254,7 @@ test.describe("产品页：右轨的视图段", () => {
         // 一旦给不出就不再回来（随窗口变窄单调）。
         const firstRefused = rows.findIndex((row) => row.state === "collapsed");
         expect(rows.slice(firstRefused).every((row) => row.state === "collapsed"), log).toBe(true);
-        // 按钮上的“窗口太窄”文字由视图自己写：样例庚只带 data-rail-too-narrow，没写 aria-description；有文字的断言在 agent-messages-rail 与 agent-messages-float 的“窗口太窄”用例里。
+        await expect(expandButton(page)).toHaveAttribute("aria-description", "窗口太窄");
         // 布局记录里的意图不因预算改变，期间零写入。
         expect(await intentOf(page)).toEqual(intent);
         expect(await layoutWrites(page, database())).toBe(writes);
@@ -431,7 +422,7 @@ test.describe("产品页：右轨的视图段", () => {
         await expect(toggleMaximize).toHaveAttribute("aria-pressed", "false");
         await unchanged("最大化");
 
-        await collapse(page);
+        await expandButton(page).click();
         await expect(rail(page)).toHaveAttribute("data-rail-state", "collapsed");
         // 收起只清掉 expanded；轨宽是用户拖出来的，照记。
         await expect.poll(async () => (await intentOf(page))).toEqual({width: DEFAULT_WIDTH + 40});
