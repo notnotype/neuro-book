@@ -13,7 +13,7 @@ import {join} from "node:path";
 import {expect, test} from "@playwright/test";
 import type {Locator, Page} from "@playwright/test";
 
-import {HEIGHT, WIDTH, expectGuideRemoved, guidePart, newSession, openConversation, startEval, startLab} from "./support/page-agent-world";
+import {HEIGHT, WIDTH, composer, expectGuideRemoved, guidePart, newSession, openConversation, startEval, startLab} from "./support/page-agent-world";
 import type {AgentLab, AgentWorld} from "./support/page-agent-world";
 
 let lab: AgentLab;
@@ -503,4 +503,33 @@ return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
     await expectGuideRemoved(page);
     await expect(listbox).toBeVisible();
     expect(Math.abs(luminance(await pixel(page, ...otherPoint)) - luminance(plain.other))).toBeLessThan(4);
+});
+
+// ---------- 验收 9：后台与 bot 的会话没有 ui ----------
+
+/** 最近一次“以工具结果结尾”的请求里 eval 的说明：模型这一轮看到的 eval 说明。 */
+async function lastEvalDescription(): Promise<string> {
+    const request = (await lab.requests()).findLast((item) => item.messages.at(-1)?.role === "tool");
+    return request?.descriptions["eval"] ?? "";
+}
+
+test("验收 9：前台会话的 eval 说明列 ui、typeof ui 为 object；bot 归属的会话里说明不列 ui、typeof ui 为 undefined", async ({page}) => {
+    await ready(page, auto);
+    const code = `return JSON.stringify({type: typeof ui});`;
+    // 对照：前台会话有 ui（没有这一步，下面的“没有”可能只是 eval 的说明与对象本来就不带）。
+    const foreground = await startEval(page, lab, "前台看 ui", code);
+    expect(JSON.parse(await foreground.result())).toEqual({type: "object"});
+    const foregroundDescription = await lastEvalDescription();
+    expect(foregroundDescription).toContain("`ui`");
+
+    // bot 归属的会话（会话头的 owner）：点联系人星璃，同一个输入框发给她。
+    await page.getByRole("navigation", {name: "联系人与最近会话"}).getByRole("button", {name: "星璃"}).click();
+    await expect(composer(page)).toBeVisible();
+    const bot = await startEval(page, lab, "bot 看 ui", code);
+    expect(JSON.parse(await bot.result())).toEqual({type: "undefined"});
+    const botDescription = await lastEvalDescription();
+    expect(botDescription).not.toBe(foregroundDescription);
+    expect(botDescription).not.toContain("`ui`");
+    // eval 工具本身还在：bot 的说明不是空的。
+    expect(botDescription.length).toBeGreaterThan(100);
 });
