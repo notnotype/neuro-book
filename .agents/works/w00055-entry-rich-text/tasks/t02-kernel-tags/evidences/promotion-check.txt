@@ -1,0 +1,90 @@
+# w00055 t02 Spec 晋升前逐条核对（只读）
+实现 worktree .worktree/w00055-entry-rich-text，HEAD 4eabd2f98；Spec 读主工作区 master。实验脚本在 /tmp/review-w00055-t02-promote/exp/（a、b、c 三个，真实 grammar 与编解码器，没有替身）。代码位置以 worktree 根为准。
+
+## 一、rendering.md：白名单、写入检查、落点、规范写法（输出 1、2、3、17、18、21）
+
+已核：白名单表各行、标签写法段、式子节点表、根名字解析顺序；输出 1 各条拒收（unsupported-markdown 含 100 层、block-too-large 5 万、unknown-tag、forbidden-syntax 含 1000 字与 1e309、no-field-expression、cross-block、tag-malformed 含近似写法与链接里写坏的、tag-not-live、表格多出单元格、too-many-tags 含私用区同字算一个）；输出 2、3、17、18、21；“读法变化”清单逐项（exp/b 实测 a < b、自动链接、缩进代码、单个 ~、任务项、行首标签、<B>/<BR>）。
+
+1. 【与字面不一致，Spec 写多了】输出 1“标签落在链接地址、链接标题或图片说明里（前面有转义的也算）”：链接标题里转义的照拒（grammar.test“链接标题里转义的完整标签也算标签”），图片说明里转义的不拒。exp/a：`![\<V of="panel.a" />](x.png)` 落点 escaped、检查无问题。exp/c 用真实编解码器验证它原样写回与整篇重写都不变、仍是 escaped，没有读法分歧。代码：packages/nb-canon/src/grammar/parse.ts:125-127（只有 entryTag 才看 image 祖先，转义的落在 text/escape 单元里）。建议改 Spec：图片说明里只拒活的标签，转义的照字面。
+2. 【Spec 缺】`Else` 后面还有 `ElseIf`、或有两个 `Else`：代码报 tag-malformed（parse.ts:201；exp/a 两个 Else 也是这个码；grammar.test“Else 之后还有 ElseIf”有断言）。输出 1 与失败码表的 tag-malformed 都没列这一种，建议补上。
+3. 【没有测试，低】输出 1“指出块、行与列”：rendering.test 的 `rejected` 只比码与 path；行列只在预览（输出 16）与 grammar.test 的 positionOf 上断言。发布路径的 message 带“(行:列)”（packages/nb-canon/src/world/world.ts:1603、1670），没有断言。可补一条，或接受由预览的断言代表。
+
+## 二、rendering.md：求值与三种渲染（输出 4 到 9、11、14、16、22）
+
+已核：输出 4、5（含运算与函数各句，grammar.test 表驱动）、6（含“结果确定时不标读不到”）、7（V、expr、If/ElseIf、Ref、Image、没登记的、千位分隔、对不上整块出错）、8 的取值、条件、Ref、Image of、出错的块、11、14、16（含 too-large 在应用侧 remote.ts:135 与 canon.test.ts:337-338）。
+
+4. 【与字面不一致，Spec 写错】输出 22 末句“对任何一块源文，先按输出 8 渲染再去值，得到的文字与源文逐字相同”：只对规范写法的源文成立。带值写法把活的标签都写成规范写法（grammar/text.ts:51-60），非规范的旧块（补偿修订会原样恢复非规范文字，rendering.test“补偿修订照原样恢复改前的文字”）去值后是规范写法，不等于源文；rendering.test:772 的用例正是按“规范化以后相同”断言的。同理输出 8“装饰以外的字与源文逐字相同”对非规范的标签本身不成立。建议 Spec 改成“对规范写法的源文……逐字相同；不是规范写法的，去值后与源文的规范写法相同”。
+5. 【Spec 缺】输出 8、9 只说值里的 `<` 写成 `<`、属性值里 `& " < >` 写成实体；代码另把反引号也转义：值里写成 JSON 的 ```（grammar/tags.ts:155），属性值与描述里写成 `&#96;`（tags.ts:144），理由是 lexTags 的配对遇到反引号就不配（tags.ts:101-106）。这是去值往返成立的前提，Spec 应补上。
+6. 【措辞】输出 7 说 `If` 与各个 `ElseIf` 给“判断的结果与生效的那一支”：生效的支（`taken`）只在 `If` 那一项上，`ElseIf` 项没有（render/render.ts:217）。建议写明“生效的支写在 `If` 那一项”。
+7. 【Spec 旧字未清】输出 6 正文仍写“Agent 看到值为 null 并带装饰 `不可用：原因`”，后面括号才是新写法；输出 14 写“（不换注记）”。晋升时删掉旧说法。
+8. 【未实现，属 t04】输出 7“登记的标签给它的描述”、输出 8“登记的标签在开闭标签中间写它的描述”、输出 22“登记的标签去掉描述”：内核没有登记表，`stripEntryText` 的 `registered` 参数没有调用方传（应用侧 agent-entry-text.ts:99 不传）。这几句要另标 planned（t04），不能随 t02 去掉标记。
+
+## 三、rendering.md：纯文字、没登记的标签、输入（输出 15、19，输入与前置条件）
+
+已核：输出 15 的 reads（活的、字面的、条件各支，entry 与 ref）、mentions（字面的 Ref 也算）、raw-value、quoted-block、unavailable、unknown-tag、条件写生效支与“未知”、Image 写 alt、entryName；场景 5 各块（rendering.test:544-566 逐行断言）。输出 19 没登记标签的部分（拒收、基线含生效变更不含撤回的、只认自闭合、作者“需要插件”、Agent 原样、纯文字 unknown-tag）。
+
+9. 【与字面不一致，代码缺陷，建议在 t03 之前改】输出 15 只对两类报 syntax：“字面的标签”与“内置或登记的标签名写成的、不成标签的写法（代码里的、转义的也算）”；白名单下又说“别的 `<` 加大写名字（`评级 <A 级`）是文字”。代码对代码里与转义的每个候选都报 syntax，不看名字（render/render.ts:359）。exp/a 实测：`评级 \<A 级`、`` `<A 级` ``、`` `List<T>` `` 都得 problems ["syntax"]。而编辑器写出文字里的 `<A` 时一律转义成 `\<A`（entry-syntax.test“编辑器里文字里的 `<A`……写出来带转义”；exp/c：`![评级 <A 级](x.png)` 整篇重写后成了 `\<A`）。plot 的简报见到任何 problem 就扣下这一块（plot/core/brief/gate.ts:339）。t03 的富文本编辑器上线后，作者写过“<A 级”这类字的块会被简报整块扣下，不泄密但丢内容。建议：只对内置、登记的名字，或真正成标签的（kind 不是 malformed）报 syntax；或 Spec 改成“代码里、转义的 `<` 加大写名字一律报 syntax”并写明代价。现有测试里没有一条断言非内置名的转义写法不报。
+10. 【与字面不一致，Spec 写错】输出 15“有问题的那一处不写文字”：字面的标签照原文写进 text（rendering.test:563-565 断言 text 含 `<V entry="e2" …/>` 原文）。建议 Spec 写明“字面的标签照原文写、报 syntax，由调用方扣下”。
+11. 【措辞】quoted-block 按全部标签静态收（render.ts:348），没生效的支里、代码里的 `text[…]` 也报；Spec 说“读到另一块的原文”。偏严、安全，建议 Spec 写成“块里有引另一块原文的写法”。出错的块 reads、mentions 为空只报 syntax（render.ts:366，rendering.test:579 有断言），Spec 的“（planned）按块里全部的标签算”宜注明出错的块例外。
+12. 【未实现】输入与前置条件“也用于 Component 的 agentView……地址的根是那个命名空间（planned）”与“边界与兼容”最后一句：worktree 与 master 里 agentView 只存在登记表里（nb-canon/src/components/registry.ts:23、39、99，core/schema.ts:101），没有任何渲染或检查它的代码，也没有测试。这条不能随 t02 晋升，保持 planned 或删掉。
+13. 【未实现，属 t04】输出 19 前半句（插件登记的标签的属性表、描述、`reads` 记属性里的地址、作者看到插件画的样子）与纯文字“登记的标签写它的描述”：只有检查里的 `registered` 名字集合（grammar/check.ts:12-15），没有登记表。输出 19 要拆开：没登记的部分可晋升，登记的部分留 planned。
+
+## 四、rendering.md：要删的旧合同、失败码表、场景、实现合同
+
+“（planned：删除）”逐条：输入里的“回写”、输出 10、12、13、14 末句、场景 2、4、码 mdx-invalid、computed-edited、annotation-mismatch、conflicting-values、planned-not-writable、line-required：旧行为都已去掉。writeback.ts 整个删了；nb-canon/src 与应用 canon 插件的非测试代码里搜不到这些码与 writeBack、micromark、mdxjs；canonWorldContract 删了 writeBack 并升版本（shared/contracts.ts:292）；出错的块经工具整段写回时原样写（agent-entry-text.ts:95-96）。world/text-blocks.ts 的 writeBack 是改设定的写回路由，计划写明保留，不是旧合同。
+已核：场景 1、3、5、6、7（rendering.test 同名 describe）；失败码表新增的几行。
+
+14. 【Spec 漏删】失败码表的 `needs-handling（planned）` 只出现在输出 13（回写拒收）里，13 删了它就没有出处，一起删。“状态与转换”的“回写的结局与写入请求相同”、“副作用与数据”的“回写成功时发布一次修订”没标删除，描述的是已删的行为，一起删。
+15. 【措辞】失败码表 `unknown-tag` 写“用了内置以外的标签或属性”，现在还管：缺必填属性、属性重复、`entry`/`id` 为空、`V` 不自闭合或带内容、写了装饰属性（grammar/check.ts:98-163）；`cross-block` 的“块不闭合或跨块”是旧说法。按输出 1 改。
+16. 【与 ADR 不一致】ADR 0064“后果”写“已存的花括号写法在换写法以后是出错的块”；Spec“边界与兼容”写“旧的花括号写法在新写法里是普通文字”。代码与 Spec 一致：`{panel.x}` 是文字，只有 `<Image src={…} />` 这类旧属性写法因像写坏的标签而成出错的块。建议在 ADR 补一句更正，或 Spec 写全两种情形。
+17. 【实现合同与代码不符，低】公开入口列了 `@notnotype/nb-canon` 的 `renderSourceForAuthor`，nb-canon/src/index.ts:44-46 没有导出它（只经 service 用）。要么导出，要么从列表里去掉；`MAX_BLOCK_LENGTH` 导出了却没列。
+18. 【没有测试，低】场景 3“Agent 读到原样源文与出错标记，交回合法文字后被整段替换”：rendering.test 的交回走的是作者整篇写入；Agent 工具一侧只有 agent-entry-text.test 的单元断言（原样写），没有经工具的端到端断言（canon_read 的“出错”行，agent-tools.ts:374，也没有断言）。
+
+## 五、agent-tools.md（与 t02 有关的 planned：术语“块”，输出 5、6、7）
+
+已核：术语“块”的两处 planned（addBlock 的 after: null 放最前：agent-tools.test:282 有断言；工具说明里写明何时另起一块：agent-tools.ts:101）；输出 5 的 text（值在标签中间，agent-tools.test:299-311）、field: "text[块 id]" 一页 8000 字与 cursor（:446-452）、整篇读不在块中间截断（:458-469，含 5088 字与两块 3000 字两例）；输出 6 写主文字：create/addBlock/set 去值（:299-320、:426-430）、replace 在带值写法里找（整个 V、半个标签，:327-342）、find 带装饰找不到时请它重读（:344-345）、改了值的提示（:315、计算值 :383）、没有改动不发布（:318-320）；细则五条：原样交回不写且不占项号（:362-376）、先比读取戳（:385-386）、set 的读取值是存下的源文（agent-tools.ts:480、agent-entry-text.test:13）、超过一页 set 拒收（:440-445）、10 万字与去值后 5 万字（:462-466）；输出 7 的 $代号（:417-430、作者手写的 $foo 原样 :388-392）。代码：backend/agent-tools.ts:398-438、472-482、650-670、780-806；backend/agent-entry-text.ts。
+
+19. 【没有测试，低】输出 5“出错的块标‘出错’并带原因”：canon_read 的出错行（agent-tools.ts:374）没有任何断言；工具里 set 一个出错的块走 verbatim（agent-tools.ts:480 的 current.broken）也只有 agent-entry-text 的单元断言，没有经工具的。
+20. 【与字面不一致，Spec 宜改】输出 7“换成同一批前面 create 的条目”：create 自己的 text 里写自己的 `$代号` 也认（agent-tools.ts:493-495 先登记代号再读 text；agent-tools.test:411 正是这样写的 `<Ref id="$xia" />`）。建议 Spec 写“前面或这一项 create 的”。
+21. 【没有测试，低】输出 6“工具说明里写出每种标签的写法与例子”：说明里有（agent-tools.ts:102-103），没有断言说明内容；按“低风险不为有测试而加测试”可以接受。
+22. 【措辞】输出 6“读取之后这一块变过时按版本冲突拒收”：实际是读取戳先回 stale-read（细则第二条），`read` 只挡解析到发布之间的变化，回 value-conflict（nb-canon/src/world/entry-edits.ts:616）。建议主句改成“按读取戳或版本拒收（同输出 9）”。
+（更正第五节“已核”里 agent-tools.test.ts 的行号，以此为准：after: null 282-297；带值读与去值、改值提示、没有改动 299-325；replace 整个 V 与半个标签 327-343、带装饰找不到 346-347；不占项号 362-380；先比读取戳 386-388；作者手写 $foo 389-395；计算值提示 384；$代号 407-430；分页 432-438；超过一页 set 拒收 439-440；整篇读不截断 444-458；太长 460-466。）
+
+## 六、components.md、markdown-syntaxes.md、author-ui.md
+
+已核：components 第 133 行主文字里的临时 id（world/references.ts:333-344 的 replaceTextTempIds 只换新写的块与补丁；rendering.test:670-770 覆盖发布、editEntries 与它的预览、旧块不改绑、补丁一侧、超长不解析）；markdown-syntaxes 第 51 行原子的各句（nb-markdown/src/marked/lexing.ts，lexing.test 全部、language-options.test 的转义与表格 `|`、boundary.test 的 ./marked 边界）；author-ui 输出 10“条件只画生效的那一支，判断未知写‘未知’”（EntryText.vue:133-143，EntryText.dom.test:131）、出错的块（:74）；输出 39 的“插入”写 `<V of="命名空间.字段" />`（EntryPageHost.vue:769，e2e canon-write.e2e.ts:151 起）；输出 48 的预览走 renderSource 与 5 万字不发请求（text-preview.test:209）、标签与式子着色（entry-language.test:44-89）。
+
+23. 【未实现】components 第 55 行 agentView“写法同条目的主文字（planned：标签写法），按 rendering 的白名单解释”：见第 12 条，没有任何代码解释 agentView。不能去掉标记。
+24. 【Spec 缺，低】markdown-syntaxes 第 51 行没写两种失败：模块给的原子范围重叠或跨行时分词抛错（lexing.test:117-120、169-173；lexAtoms 在遮罩前拒绝跨行范围）。建议补一句“范围重叠或跨行时分词失败，不读错”。
+25. 【Spec 旧字未清】author-ui 输出 39 的“插入”括号里还留着 `{命名空间.字段}`；输出 48 的着色仍写“花括号里的字段名、字符串、数与运算符”与“没写完的花括号或标签只影响它所在的那一段”。代码已不给花括号着色（entry-language.test:74“不是写法的地方不着色：……花括号”）。晋升时删掉花括号的说法。
+26. 【Spec 缺，低】entry-language.ts:5-6 记了一个已知不同：四个空格开头的缩进代码块里的标签照标签着色（内核按代码）。输出 48 只说“认不出的字照正文画”，可补成已知限制。
+27. 【说明】author-ui 输出 39、48 整条的“（planned）”与第 20、21 行、场景 16 属整篇编辑与预览本身，不是 t02 的写法改动；本次只核了里面与写法有关的子句。插入的写法只经 e2e 断言（dom 测试里 snippet 由测试自己给），宿主生成 snippet 的那一行没有单元断言，可接受。
+
+## 七、计划“不做”的几项在 Spec 里分开了没有
+
+- 块级 If：rendering“不承诺”写了“跨段的条件：If 只在一段之内”，输出 1 拒收跨段（cross-block），分开了。
+- 登记的标签与登记表（t04）：没分开。白名单表的“登记的标签”一行、术语“登记的标签”、输出 7/8/15/22 里登记标签的半句、输出 19 前半句，都和 t02 做完的句子同在一个“（planned）”下。晋升前要把这些句子单独标成 planned（t04），见第 8、13 条。
+- 富文本（t03）、默认模板（t05）：rendering 与 agent-tools 里没有对应条目；author-ui 的整篇编辑与预览不受影响。
+- 另外：计划验收映射里 agent-tools 的“按计划模式读到的值做 find”，测试用的是“值变了”（agent-tools.test:346-347），走的是同一条 DECORATED 判断（agent-entry-text.ts:127-136），可接受。
+
+## 结论
+
+本次核对没有跑 nb-canon、应用的测试套件（负载 19 到 31），只跑了三个探针（exp/a、b、c）；现有测试是否全绿以实现方的验证为准。
+
+- rendering.md：t02 写法部分大体可以去掉 planned。先改代码（或改 Spec 并写明代价）的只有第 9 条（纯文字对代码里、转义的非内置 `<大写名` 报 syntax，t03 编辑器写出 `\<A` 以后简报会扣块）。去掉标记前要改 Spec 字面的：第 1、2、4、5、6、7、10、11、14、15、16、17 条。保持 planned 的：第 8、12、13 条（登记标签归 t04，agentView 没有实现）。“（planned：删除）”的条目全部可以删。
+- agent-tools.md（整份 planned）：与 t02 有关的 planned 子句全部已实现、有测试，可以去掉这些子句的标记；第 20、22 条改字面，第 19 条可补一条经工具的断言。整份要不要晋升 implemented 另看其它输出，不在本次范围。
+- components.md：第 133 行可以去掉 planned；第 55 行 agentView 不能（第 23 条）。
+- markdown-syntaxes.md 第 51 行：可以去掉 planned，建议顺手补第 24 条。
+- author-ui.md：输出 10 的条件子句、输出 39 的插入写法、输出 48 的标签着色可以去掉 planned，同时删花括号的旧字（第 25 条）；输出 39、48 整条的 planned 不归 t02。
+- 最要紧的几条：第 9 条（代码，影响简报）；第 12、23 条（agentView 没实现，Spec 却像已覆盖）；第 4 条（“任何一块源文”去值往返的字面对非规范旧块不成立）；第 8、13 条（登记标签的句子没和 t02 分开）。
+
+## 八、复核与更正（交回前补读断言后追加）
+
+补读了第六节与第五节引用的测试正文，逐句对过断言：lexing.test.ts 全部（无原子时与编辑器 core 逐字相同、表格 `|`、去前缀、行首原子不算 HTML 块、私用区字、嵌套分词各查各的、lex() 之外另分词照样遮罩、lex() 中另分词抛出、同一私用区字同一占位且定义表键还原、跨行与重叠抛错、落点：模块认领/代码/链接地址与标题/图片说明/定义/转义/多出的单元格为空、上限与私用区占名额）；language-options.test 71-94（转义规则写出 `\<A` 读回同文、原子里的 `|` 不切单元格且重写不转义）；EntryText.dom.test 54-154（值按钮与警告色、来历插槽、引用、出错块文字与原因、预览画法、行号、Markdown 各写法、来历只画在画出值的块后、深嵌套、条件三种情形、字面标签与实体、对不上整块出错）；entry-language.test 44-93；text-preview.test 的写法改动（写坏的标签有问题、too-large 不发请求）；agent-entry-text.test 全部。第五、六节“已核”的各句都有对应断言，不改结论。
+
+28. 【没有测试】agent-tools 细则第三条“存下的源文不是规范写法时也写得进去”：agent-entry-text.test:13 测的是出错的块原样写，不是这一句。代码上 set 的 `read` 用存下的源文（agent-tools.ts:480），但没有经工具对非规范旧块做 set 并断言写入成功（不报 value-conflict）的用例。前面第五节把这条算作已核，更正为没有测试。
+29. 【与字面不一致，Spec 宜改】输出 1 说标签“落在 Markdown 会丢掉的地方（例如表格里多出来的单元格）”报 tag-not-live。exp/d 实测 `| a |\n|---|\n| x | <V of="panel.a" /> |`：问题依次是 unsupported-markdown（偏移 0，表头）与 tag-not-live（偏移 18），写入与预览取第一个，作者看到的是 unsupported-markdown。表格多出单元格总先报 unsupported-markdown，tag-not-live 的这个例子到不了第一位。建议 Spec 去掉这个例子，或写明“同时报，先报整张表的”。
+更正第 9 条：`` `List<T>` `` 里的 `<T>` 是完整的标签写法，按 Spec 术语算代码里的字面标签，报 syntax 合字面，不算不一致；与字面不一致的只是不成标签、又不是内置或登记名的写法（`\<A 级`、`` `<A 级` ``）。“t03 上线后简报扣块”是从代码推断（编辑器写出 `\<A` 有测试；简报扣块按 gate.ts:339 推断），没有跑过简报。
+第 12、23 条的范围与依据：在 worktree 的 packages/nb-canon/src 与 packages/neuro-book/src、以及 master 上的同两处按词 agentView 搜。命中：类型声明字段只在 nb-canon/src/components/registry.ts:23、39、99 与 core/schema.ts:101（存下、透传）；master 的 EntryPageHost.vue:1221 的 `agentView` 是“AI视图”的局部 computed，内容来自 fieldsText，不读类型声明的字段；ComponentViews.dom.test.ts:24 是测试里的辅助函数名。所以“没有代码解释类型声明里的 agentView 文字”在这个范围内成立。
+第 14 条的依据：needs-handling 在 docs/specs/canon/ 下只出现在 rendering.md 第 110 行（输出 13）与第 153 行（失败码表）；nb-canon/src 与应用 canon 插件里搜不到。建议照旧。
+更正结论里 agent-tools 一段：与 t02 有关的 planned 子句都已实现；有测试的除第 19、21、28 条所列几句外都有。

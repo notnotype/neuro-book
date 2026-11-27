@@ -3,7 +3,7 @@
  * 留着最近一次读得出来的样子。
  *
  * 不走窗口的读取层（`world.ts`）：那一层按输入合并读取，并留着最近不用的几十个。这里作者每停顿一次就是一份新的整篇，留下来
- * 的全是再也用不到的整篇与语法树。所以直接调用，只认最后发出的那一次。
+ * 的全是再也用不到的整篇与值表。所以直接调用，只认最后发出的那一次。
  */
 
 import {onScopeDispose, shallowRef, watch} from "vue";
@@ -44,14 +44,14 @@ export interface TextPreviewOptions {
 
 export interface TextPreview {
     /** 最近一次读得出来的那一块；还没读到过、条目读不到时为 null。 */
-    readonly block: Readonly<ShallowRef<Extract<EntryTextBlock, {tree: unknown}> | null>>;
+    readonly block: Readonly<ShallowRef<Extract<EntryTextBlock, {values: unknown}> | null>>;
     /** 此刻的源文字写得不对（这时 `block` 是上一次的）；读得出来为 null。 */
     readonly problem: Readonly<ShallowRef<PreviewProblem | null>>;
     /** 读取本身失败的原因码（连接断着、结果超过一次读取的预算）；读到了为 null。 */
     readonly failure: Readonly<ShallowRef<string | null>>;
 }
 
-type Rendered = Extract<EntryTextBlock, {tree: unknown}>;
+type Rendered = Extract<EntryTextBlock, {values: unknown}>;
 
 export function useTextPreview(options: TextPreviewOptions): TextPreview {
     const schedule = options.schedule ?? ((run: () => void, ms: number) => {

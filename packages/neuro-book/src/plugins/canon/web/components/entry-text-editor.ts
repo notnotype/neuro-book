@@ -5,6 +5,6 @@
 /** “插入”菜单里的一项：选了在光标处写入 `snippet`。 */
 export interface InsertItem {
     readonly label: string;
-    /** 写进源文字的写法，例如 `{panel.魔力}`；同一个菜单里不重复。 */
+    /** 写进源文字的写法，例如 `<V of="panel.魔力" />`；同一个菜单里不重复。 */
     readonly snippet: string;
 }
