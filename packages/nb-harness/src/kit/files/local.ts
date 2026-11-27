@@ -150,7 +150,8 @@ export function localFiles(options: LocalFilesOptions): LocalFiles {
         if (!found.ok) return found;
         if (found.value.kind !== "directory") return fail("not-a-directory", `${address} is not a directory`);
         try {
-            const entries = await readdir(found.value.path, {withFileTypes: true});
+            // readdir 的次序随文件系统而变（ext4 按哈希、btrfs 按索引）：按名字的码点排，同一个目录在哪台机器上列出来都一样。
+            const entries = (await readdir(found.value.path, {withFileTypes: true})).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
             return {ok: true, value: {entries: entries.map((entry) => ({name: entry.name, kind: entry.isFile() ? "file" : entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "link" : "other"}))}};
         } catch (error) {
             return failureOf(error, address);

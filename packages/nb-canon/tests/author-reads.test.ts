@@ -242,7 +242,7 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         // 出场存的原样（安放）：样本里的书从第 1 章出场。
         const book = service.entry(ids.get("book"), end("ch2"), "actual");
         if (typeof book === "string") throw new Error(book);
-        expect(book.appears).toMatchObject({kind: "chapter", key: 30});
+        expect(book).toMatchObject({appears: {kind: "chapter", key: 30}});
     });
 
     test("带视图令牌读条目：没有上级、本体与 changedAt", () => {
