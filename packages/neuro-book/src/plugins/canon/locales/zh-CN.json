@@ -679,6 +679,8 @@
         "empty": "还没有主文字"
     },
     "textEdit": {
+        "noBranch": "条件：没有一支成立",
+        "condition": "条件",
         "unwritable": "这一处写不出，撤销上一步再改",
         "edit": "编辑",
         "start": "开始写",

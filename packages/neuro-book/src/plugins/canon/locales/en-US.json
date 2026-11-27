@@ -679,6 +679,8 @@
         "empty": "No main text yet"
     },
     "textEdit": {
+        "noBranch": "Condition: no branch applies",
+        "condition": "Condition",
         "unwritable": "This change can't be written; undo it and try again",
         "edit": "Edit",
         "start": "Start writing",

@@ -28,7 +28,7 @@ export interface EntryIfBranch {
     readonly content: readonly JSONContent[];
 }
 
-const entryTagNode = Node.create({
+export const entryTagNode = Node.create({
     name: ENTRY_TAG_NODE,
     group: "inline",
     inline: true,
@@ -40,7 +40,7 @@ const entryTagNode = Node.create({
 });
 
 /** 剪贴板里的条件带着整段属性，在富文本之内复制粘贴原样（属性是 JSON）。 */
-const entryIfNode = Node.create({
+export const entryIfNode = Node.create({
     name: ENTRY_IF_NODE,
     group: "inline",
     inline: true,
