@@ -3,6 +3,10 @@
  * 以管理员的会话打开，量 happy-dom 量不了的：工具条、表格、页脚三块位置固定，只有表格区滚、页面不滚；最后一页不满时分页条仍在底部；
  * 多于 7 页时分页条 7 格；刷新与后退回到同一页；1440 与 1024 两种桌面宽、亮暗两种明暗下没有页面级的横向滚动；表格出错、对话框的
  * 状态行出现与消失都不推动布局；占位的字在亮暗两种明暗下都是 `--text-muted` 的颜色（B6、B7 审查第 4 条）。筛选、搜索、请求与各项处置在各页的组件测试里（`src/pages/admin/*Page.dom.test.ts`）。
+ *
+ * 外壳（`AdminShell.vue`，开发者 2026-11-27 看演示后的两处修正与“外观”）：左下角的账号菜单与按钮同宽、左右边缘对齐；宽窗口里看板与
+ * 四个列表页在内容区水平居中，1280 宽时不横向溢出；在菜单里选暗色后整站换成暗色、看板的图按暗色重画，刷新后仍是暗色，选回跟随系统
+ * 按系统的明暗。菜单里有哪几项、勾的是哪一项在 `AdminShell.dom.test.ts`。
  */
 
 import {readFileSync} from "node:fs";
@@ -16,6 +20,7 @@ import {box} from "./geometry";
 
 const zhCN = JSON.parse(readFileSync(new URL("../src/locales/zh-CN.json", import.meta.url), "utf8")) as {
     readonly errors: {readonly identity: {readonly not_found: string; readonly unavailable: string}};
+    readonly account: {readonly appearance: {readonly title: string; readonly system: string; readonly light: string; readonly dark: string}};
 };
 /** 管理面板的文字在它自己的目录里（`src/pages/admin/text.ts`）。 */
 const adminZhCN = JSON.parse(readFileSync(new URL("../src/pages/admin/locales/zh-CN.json", import.meta.url), "utf8")) as {
@@ -208,4 +213,96 @@ test("对话框的状态行出现与消失不推动布局：处置失败、发�
     await issue.locator('input[name="maxUses"]').fill("3");
     await expect(issue.locator("[data-dialog-status]")).toHaveText("");
     expect({dialog: await box(page, "[data-site-admin-issue-dialog]"), submit: await box(page, "[data-site-admin-issue-submit]")}).toEqual(empty);
+});
+
+test.describe("外壳", () => {
+    const MENU_TRIGGER = "[data-site-admin-menu]";
+
+    /** 点开左下角的账号菜单，等菜单浮层（reka 的菜单内容，`role="menu"` 的第一块）画出来。 */
+    async function openShellMenu(page: Page): Promise<void> {
+        await page.locator(MENU_TRIGGER).click();
+        await expect(page.getByRole("menuitem", {name: zhCN.account.appearance.title})).toBeVisible();
+    }
+
+    /** 在账号菜单的“外观”子菜单里选一项，等菜单收起。 */
+    async function chooseAppearance(page: Page, label: string): Promise<void> {
+        await openShellMenu(page);
+        await page.getByRole("menuitem", {name: zhCN.account.appearance.title}).click();
+        await page.getByRole("menuitemradio", {name: label}).click();
+        await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+    }
+
+    test("1440 宽：左下角的账号菜单与按钮同宽、左右边缘对齐", async ({page}) => {
+        fake = await installFakeIdentity(page, {session: "admin"});
+        await openList(page, "/admin/users", "users");
+        await openShellMenu(page);
+        const menu = page.locator('[role="menu"]').first();
+        // 宽度取 reka 写在菜单浮层上的触发器宽度：先确认它在这个元素上有值，不是退回了缺省宽度碰巧相等。
+        const triggerWidth = await menu.evaluate((element) => getComputedStyle(element).getPropertyValue("--reka-dropdown-menu-trigger-width").trim());
+        expect(triggerWidth).toMatch(/^\d+(?:\.\d+)?px$/u);
+        const trigger = await page.locator(MENU_TRIGGER).boundingBox();
+        const surface = await menu.boundingBox();
+        const edges = {left: Math.abs(surface!.x - trigger!.x), right: Math.abs(surface!.x + surface!.width - (trigger!.x + trigger!.width))};
+        expect(edges.left, JSON.stringify({trigger, surface})).toBeLessThanOrEqual(1);
+        expect(edges.right, JSON.stringify({trigger, surface})).toBeLessThanOrEqual(1);
+    });
+
+    test("1920 宽：看板与四个列表页在内容区里水平居中；1280 宽时占满内容区，不横向溢出", async ({page}) => {
+        fake = await installFakeIdentity(page, {session: "admin"});
+        // 每一页等到内容画出来再量：看板等它的页面根，列表等第一行。
+        const pages = [{path: "/admin", ready: '[data-site-page="admin-dashboard"]'}, ...PAGES.map(({path, list}) => ({path, ready: `${table(list)} tbody tr`}))];
+        for (const viewport of [{width: 1920, height: 1080}, {width: 1280, height: 800}]) {
+            await page.setViewportSize(viewport);
+            for (const {path, ready} of pages) {
+                await page.goto(path);
+                await expect(page.locator(ready).first()).toBeVisible();
+                // 内容区的可用宽度不含它自己的滚动条（看板比内容区高，内容区出竖向滚动条）。
+                const gaps = await page.evaluate(() => {
+                    const main = document.querySelector<HTMLElement>(".admin-main")!;
+                    const content = document.querySelector<HTMLElement>(".admin-main__page")!.getBoundingClientRect();
+                    const area = main.getBoundingClientRect();
+                    return {
+                        left: content.left - area.left,
+                        right: area.left + main.clientWidth - content.right,
+                        width: content.width,
+                        mainX: Math.max(0, main.scrollWidth - main.clientWidth),
+                        pageX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+                    };
+                });
+                const label = `${viewport.width} ${path}`;
+                expect({label, mainX: gaps.mainX, pageX: gaps.pageX}).toEqual({label, mainX: 0, pageX: 0});
+                if (viewport.width === 1920) {
+                    expect({label, width: gaps.width}).toEqual({label, width: 1280});
+                    expect(Math.abs(gaps.left - gaps.right), `${label} ${JSON.stringify(gaps)}`).toBeLessThanOrEqual(1);
+                    expect(gaps.left, label).toBeGreaterThan(0);
+                } else {
+                    expect({label, left: Math.round(gaps.left), right: Math.round(gaps.right)}).toEqual({label, left: 0, right: 0});
+                }
+            }
+        }
+    });
+
+    test("外观：系统是亮色时选暗色，整站换成暗色、看板的图按暗色重画，刷新后仍是暗色；选回跟随系统按系统的亮色", async ({page}) => {
+        fake = await installFakeIdentity(page, {session: "admin"});
+        await page.setViewportSize(VIEWPORTS[0]);
+        await page.emulateMedia({colorScheme: "light"});
+        await page.goto("/admin");
+        const html = page.locator("html");
+        await expect(html).toHaveAttribute("data-nb-appearance", "light");
+        await expect(page.locator('[data-site-chart="active"]')).toHaveAttribute("data-chart-appearance", "light");
+
+        await chooseAppearance(page, zhCN.account.appearance.dark);
+        await expect(html).toHaveAttribute("data-nb-appearance", "dark");
+        await expect(page.locator('[data-site-chart="active"]')).toHaveAttribute("data-chart-appearance", "dark");
+        expect(await html.evaluate((element) => getComputedStyle(element).colorScheme)).toBe("dark");
+
+        await page.reload();
+        await expect(page.locator('[data-site-chart="active"]')).toHaveAttribute("data-chart-appearance", "dark");
+        await expect(html).toHaveAttribute("data-nb-appearance", "dark");
+
+        await chooseAppearance(page, zhCN.account.appearance.system);
+        await expect(html).toHaveAttribute("data-nb-appearance", "light");
+        await expect(page.locator('[data-site-chart="active"]')).toHaveAttribute("data-chart-appearance", "light");
+        expect(await html.evaluate((element) => getComputedStyle(element).colorScheme)).toBe("light");
+    });
 });

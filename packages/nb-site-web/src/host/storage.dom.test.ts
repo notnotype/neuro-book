@@ -1,10 +1,10 @@
 /**
- * 浏览器端的存储（t10 计划 3.9）：用 happy-dom 真的 `sessionStorage`，时刻由测试给定。
+ * 浏览器端的存储（t10 计划 3.9）：用 happy-dom 真的 `sessionStorage` 与 `localStorage`，时刻由测试给定。
  */
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {createSiteStorage, SOCIAL_REGISTER_DRAFT_TTL_MS} from "./storage";
+import {APPEARANCE_KEY, createSiteStorage, SOCIAL_REGISTER_DRAFT_TTL_MS} from "./storage";
 import type {SocialRegisterDraft} from "./storage";
 
 const DRAFT: SocialRegisterDraft = {
@@ -18,7 +18,7 @@ const DRAFT: SocialRegisterDraft = {
 
 function setup(start = 1_000_000) {
     let now = start;
-    const storage = createSiteStorage({storage: () => window.sessionStorage, now: () => now});
+    const storage = createSiteStorage({storage: () => window.sessionStorage, preferences: () => window.localStorage, now: () => now});
     return {
         storage,
         advance(ms: number) {
@@ -32,7 +32,13 @@ function setup(start = 1_000_000) {
 
 afterEach(() => {
     window.sessionStorage.clear();
+    window.localStorage.clear();
 });
+
+/** 取存储本身就抛：存储被禁用时浏览器的样子。 */
+const disabled = (): Storage => {
+    throw new DOMException("The operation is insecure.", "SecurityError");
+};
 
 describe("社交注册的草稿", () => {
     it("存下的草稿原样读回，只存在 sessionStorage 的一个键里", () => {
@@ -119,12 +125,7 @@ describe("社交注册的草稿", () => {
     });
 
     it("存储不可用（取存储本身就抛）时存、读、清都不抛，读到的是没有", () => {
-        const storage = createSiteStorage({
-            storage: () => {
-                throw new DOMException("The operation is insecure.", "SecurityError");
-            },
-            now: () => 0,
-        });
+        const storage = createSiteStorage({storage: disabled, preferences: disabled, now: () => 0});
         expect(() => storage.saveSocialRegisterDraft(DRAFT)).not.toThrow();
         expect(storage.takeSocialRegisterDraft()).toBeUndefined();
         expect(() => storage.clearSocialRegisterDraft()).not.toThrow();
@@ -172,5 +173,45 @@ describe("社交登录的续接令牌", () => {
         storage.clearSocialLoginContinue();
         expect(storage.takeSocialLoginContinue()).toBeUndefined();
         expect(storage.takeSocialRegisterDraft()).toEqual(DRAFT);
+    });
+});
+
+describe("明暗（外观）", () => {
+    it("存下的选择原样读回，存在 localStorage 里（跨标签页、跨会话），不在 sessionStorage 里；后存的盖掉先存的", () => {
+        const {storage} = setup();
+        expect(storage.readAppearance()).toBeUndefined();
+        storage.saveAppearance("dark");
+        expect(window.localStorage.getItem(APPEARANCE_KEY)).toBe("dark");
+        expect(window.sessionStorage.length).toBe(0);
+        expect(storage.readAppearance()).toBe("dark");
+        // 另一份存储对象（下一次打开站点）读到的是同一项。
+        expect(setup().storage.readAppearance()).toBe("dark");
+        storage.saveAppearance("system");
+        expect(storage.readAppearance()).toBe("system");
+    });
+
+    it("存的不是三个值之一（旧格式、手改坏了）的当没有", () => {
+        const {storage} = setup();
+        for (const text of ["", "Dark", "auto", JSON.stringify("dark")]) {
+            window.localStorage.setItem(APPEARANCE_KEY, text);
+            expect({text, appearance: storage.readAppearance()}).toEqual({text, appearance: undefined});
+        }
+    });
+
+    it("登出、草稿过期的清理不碰它", () => {
+        const {storage, advance} = setup();
+        storage.saveAppearance("light");
+        storage.saveSocialRegisterDraft(DRAFT);
+        storage.clearSocialRegisterDraft();
+        storage.clearSocialLoginContinue();
+        advance(SOCIAL_REGISTER_DRAFT_TTL_MS + 1);
+        storage.dropExpired();
+        expect(storage.readAppearance()).toBe("light");
+    });
+
+    it("存储不可用时存、读都不抛，读到的是没有", () => {
+        const storage = createSiteStorage({storage: () => window.sessionStorage, preferences: disabled, now: () => 0});
+        expect(() => storage.saveAppearance("dark")).not.toThrow();
+        expect(storage.readAppearance()).toBeUndefined();
     });
 });

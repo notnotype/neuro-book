@@ -1,9 +1,13 @@
 /**
  * 浏览器端的存储（t10 计划 3.9；frontend.md“客户端持久化与存储分层”）：官方站只有两样东西要跨过去上游的整页跳转：
  * 社交注册跳去上游之前表单里填的内容（上游带着 `social_error` 回来时还原表单），与社交登录跳去上游之前登录页地址上的续接令牌
- * （`session/continue.ts`；回来时还原到地址，之后的密码登录与“去注册”照样回到授权请求）。本模块是站点里唯一碰 `sessionStorage` 的地方。
+ * （`session/continue.ts`；回来时还原到地址，之后的密码登录与“去注册”照样回到授权请求）。另有一样界面偏好：用户选的明暗
+ * （“外观”，`host/theme.ts`）。本模块是站点里唯一碰 `sessionStorage` 与 `localStorage` 的地方；例外是首帧脚本
+ * `public/appearance.js`，它在应用之前跑、导入不了本模块，照同一个键（`APPEARANCE_KEY`）只读明暗这一项。
  *
- * - `sessionStorage` 而不是 `localStorage`：只在这个标签页里，关掉就没有。
+ * - 两样跳转要用的东西用 `sessionStorage` 而不是 `localStorage`：只在这个标签页里，关掉就没有。
+ * - 明暗用 `localStorage`：它是跨标签页、跨会话都该保留的界面偏好，不是敏感数据；只存 `system`、`light`、`dark` 三个值之一，
+ *   读到别的值当没有（跟随系统）。
  * - 读写都包 try/catch：隐私模式、存储被禁用、配额满时只是不暂存，打一条 `console.warn`。
  * - 只存一次：读出来就删（`take`）；超过 10 分钟的当没有并删掉，与上游跳转地址的有效期相同（`site.accounts` 的“时序与寿命”）。
  *   没人来读的不等着：站点启动时删掉过期的（`dropExpired`），登录之后删掉（`site.ts`）。
@@ -13,9 +17,14 @@
 import {SOCIAL_PROVIDERS} from "@notnotype/nb-site-identity-contract/constants";
 import type {SocialProvider} from "@notnotype/nb-site-identity-contract/constants";
 
+import {isAppearance} from "./theme";
+import type {Appearance} from "./theme";
+
 const PREFIX = "nb-site.";
 const SOCIAL_REGISTER_DRAFT_KEY = `${PREFIX}social-register-draft`;
 const SOCIAL_LOGIN_CONTINUE_KEY = `${PREFIX}social-login-continue`;
+/** 用户选的明暗在 `localStorage` 里的键。首帧脚本 `public/appearance.js` 照抄了这个字面量，改名时两处一起改（`site.dom.test.ts` 守着）。 */
+export const APPEARANCE_KEY = `${PREFIX}appearance`;
 
 /** 草稿与续接令牌的寿命：上游跳转地址的有效期（`site.accounts` 的“时序与寿命”）。 */
 export const SOCIAL_REGISTER_DRAFT_TTL_MS = 10 * 60 * 1000;
@@ -50,6 +59,8 @@ export interface SiteStorageOptions {
      * 所以给函数，在 try 里取。
      */
     readonly storage: () => Storage;
+    /** 取跨会话的存储，只放明暗这一项。产品里是 `() => window.localStorage`，同样给函数、在 try 里取。 */
+    readonly preferences: () => Storage;
     readonly now: () => number;
 }
 
@@ -68,6 +79,10 @@ export interface SiteStorage {
     clearSocialLoginContinue(): void;
     /** 站点启动时调用：两样东西里过期、存坏了的删掉，还在有效期里的留着（他可能正从上游回来）。 */
     dropExpired(): void;
+    /** 存下的明暗；没存过、存的不是三个值之一、存储不可用时回 `undefined`（由调用方当作跟随系统）。 */
+    readAppearance(): Appearance | undefined;
+    /** 用户在“外观”里选了一项之后调用；选“跟随系统”也存下，与没存过一样生效。 */
+    saveAppearance(appearance: Appearance): void;
 }
 
 function isDraft(value: unknown): value is StoredDraft {
@@ -94,18 +109,18 @@ function isStoredContinue(value: unknown): value is StoredContinue {
 }
 
 export function createSiteStorage(options: SiteStorageOptions): SiteStorage {
-    function read(key: string): string | null {
+    function read(key: string, storage = options.storage): string | null {
         try {
-            return options.storage().getItem(key);
+            return storage().getItem(key);
         } catch (error) {
             console.warn(`读不了浏览器存储 ${key}，按没有处理`, error);
             return null;
         }
     }
 
-    function write(key: string, value: string): void {
+    function write(key: string, value: string, storage = options.storage): void {
         try {
-            options.storage().setItem(key, value);
+            storage().setItem(key, value);
         } catch (error) {
             console.warn(`存不了浏览器存储 ${key}，这次不暂存`, error);
         }
@@ -191,6 +206,16 @@ export function createSiteStorage(options: SiteStorageOptions): SiteStorage {
         dropExpired() {
             dropIfInvalid(SOCIAL_REGISTER_DRAFT_KEY, validDraft);
             dropIfInvalid(SOCIAL_LOGIN_CONTINUE_KEY, validContinue);
+        },
+        readAppearance() {
+            const text = read(APPEARANCE_KEY, options.preferences);
+            if (text === null) return undefined;
+            if (isAppearance(text)) return text;
+            console.warn(`存下的明暗 ${JSON.stringify(text)} 不是认得的值，按跟随系统处理`);
+            return undefined;
+        },
+        saveAppearance(appearance) {
+            write(APPEARANCE_KEY, appearance, options.preferences);
         },
     };
 }

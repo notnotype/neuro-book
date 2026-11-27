@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 账号页（t10 计划 3.12；t09 第 3、8、11 条：一页到底、左边目录、没有横幅；两种账号版式相同）。顶上是站名与账号菜单（管理面板、
- * 退出登录），下面左边是目录、右边是五节。
+ * 外观、退出登录），下面左边是目录、右边是五节。
  *
  * - 页面级的加载（计划 3.1）：四份列表（`account-lists.ts`）与 `meta` 都回来了才画各节；超过 200 毫秒才显示“正在载入”，列表失败时
  *   同一位置写原因与重试。`meta` 决定“登录与安全”列出哪几个上游，晚到时那几行会消失、把下面的节往上拉，所以一起等；它失败不挡页面，
@@ -27,6 +27,7 @@ import {useSite} from "../../context";
 import {signOut} from "../../session/sign-out";
 import {useSiteText} from "../../text";
 import type {SiteTextKey} from "../../text";
+import {appearanceMenuItem, selectedAppearance} from "../appearance-menu";
 import {readSocialError, stripSocialError} from "../social-error";
 import {usePageMeta} from "../use-meta";
 import {useAccountLists} from "./account-lists";
@@ -49,7 +50,7 @@ const SECTIONS: readonly {readonly id: SectionId; readonly title: SiteTextKey}[]
 /** 超过这么久还没取到才显示“正在载入”（计划 3.1“页面级的加载”）：快的时候不闪一下。 */
 const LOADING_DELAY_MS = 200;
 
-const {identity, account, clock, storage} = useSite();
+const {identity, account, clock, storage, theme} = useSite();
 const route = useRoute();
 const router = useRouter();
 const t = useSiteText();
@@ -244,12 +245,18 @@ const signOutStatus = shallowRef<{readonly reason: string; readonly text: TextRe
 
 const menuItems = computed<DropdownMenuItemData[]>(() => [
     ...(me.value?.role === "admin" ? [{id: "admin", label: t("account.admin")}] : []),
+    appearanceMenuItem(t, theme.appearance.value),
     {id: "sign-out", label: t("account.signOut")},
 ]);
 
 const initial = computed(() => Array.from(me.value?.displayName ?? me.value?.username ?? "")[0] ?? "");
 
 async function onMenu(id: string): Promise<void> {
+    const appearance = selectedAppearance(id);
+    if (appearance !== undefined) {
+        theme.setAppearance(appearance);
+        return;
+    }
     if (id === "admin") {
         await router.push("/admin");
         return;

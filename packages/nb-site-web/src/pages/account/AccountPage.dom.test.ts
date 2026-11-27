@@ -23,7 +23,8 @@ import type {
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 import zhCN from "../../locales/zh-CN.json";
-import {cleanUp, failure, identityUrl, invalidNames, me, openMenu, settledAt, startAt, statusTextOf, type} from "../../testing/site-harness";
+import {APPEARANCE_KEY} from "../../host/storage";
+import {cleanUp, failure, identityUrl, invalidNames, me, menuClosed, openMenu, openSubmenu, radioStates, settledAt, startAt, statusTextOf, type} from "../../testing/site-harness";
 import type {Handler, Harness} from "../../testing/site-harness";
 
 const SESSIONS = identityUrl(IDENTITY_PATHS.meSessions);
@@ -1099,11 +1100,38 @@ describe("页面", () => {
         });
         await openMenu(page.querySelector<HTMLElement>("[data-site-account-menu]")!);
         const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
-        expect(items.map((item) => item.textContent?.trim())).toEqual([text.signOut]);
-        items[0]!.click();
+        expect(items.map((item) => item.textContent?.trim())).toEqual([text.appearance.title, text.signOut]);
+        items[1]!.click();
 
         await settledAt(harness, "/", "home");
         expect(actions(harness)).toEqual([{method: "POST", path: LOGOUT, body: undefined}]);
         expect(harness.site.account.state.value).toEqual({kind: "anonymous"});
+    });
+
+    it("管理员的菜单：管理面板、外观、退出登录", async () => {
+        const harness = startAt("/account", {session: {role: "admin", consentRequired: false}});
+        await settledAt(harness, "/account", "account");
+        await openMenu(harness.target.querySelector<HTMLElement>("[data-site-account-menu]")!);
+        const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+        expect(items.map((item) => item.textContent?.trim())).toEqual([text.admin, text.appearance.title, text.signOut]);
+    });
+
+    it("外观：选暗色后整站换成暗色并存下，再打开时暗色打勾；留在账号页", async () => {
+        const {harness, page} = await openAccount();
+        const trigger = page.querySelector<HTMLElement>("[data-site-account-menu]")!;
+        const radios = await openSubmenu(trigger, text.appearance.title);
+        expect(radioStates(radios)).toEqual([
+            {label: text.appearance.system, checked: true},
+            {label: text.appearance.light, checked: false},
+            {label: text.appearance.dark, checked: false},
+        ]);
+        radios[2]!.click();
+        await menuClosed(trigger);
+
+        expect(document.documentElement.dataset.nbAppearance).toBe("dark");
+        expect(window.localStorage.getItem(APPEARANCE_KEY)).toBe("dark");
+        expect(radioStates(await openSubmenu(trigger, text.appearance.title)).map((radio) => radio.checked)).toEqual([false, false, true]);
+        expect(harness.site.router.currentRoute.value.path).toBe("/account");
+        expect(actions(harness)).toEqual([]);
     });
 });

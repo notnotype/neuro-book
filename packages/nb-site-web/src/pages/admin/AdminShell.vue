@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 管理面板的外壳（t10 计划 3.13 第一条；照 t09 定稿 `SiteAdminShellDraft`）：左栏 216 像素的导航，左下角当前用户的菜单（账号页、
- * 退出登录），右边是这一页。看板与四个列表页共用它，它是 `/admin` 这条父路由的组件，自己单独一个块（`router.ts`）。
+ * 外观、退出登录），右边是这一页。看板与四个列表页共用它，它是 `/admin` 这条父路由的组件，自己单独一个块（`router.ts`）。
  *
  * 外壳占满窗口的高度，自己不滚：滚的是右边的内容区。所以内容区有确定的高度，列表页（B6）让数据表格占满它
  * （`.admin-main__page` 是纵向的弹性盒，页面根元素设 `flex: 1` 即可）；看板比它高，在内容区里往下滚。
@@ -18,6 +18,7 @@ import {RouterLink, RouterView, useRouter} from "vue-router";
 import FormStatus from "../../components/FormStatus.vue";
 import {useSite} from "../../context";
 import {failureText} from "../../http/failure-text";
+import {appearanceMenuItem, selectedAppearance} from "../appearance-menu";
 import {signOut} from "../../session/sign-out";
 import {useSiteText} from "../../text";
 import {useAdminText} from "./text";
@@ -27,7 +28,7 @@ const t = useAdminText();
 // 外壳上有几处与站点别处同一句话（退出登录、产品名、账号菜单），用站点目录里的那条，不在管理面板的目录里再抄一份。
 const siteT = useSiteText();
 const port = useText();
-const {account, identity, storage} = useSite();
+const {account, identity, storage, theme} = useSite();
 const router = useRouter();
 
 const NAV = [
@@ -43,13 +44,25 @@ const initial = computed(() => Array.from(me.value?.displayName ?? me.value?.use
 
 const menuItems = computed<DropdownMenuItemData[]>(() => [
     {id: "account", label: t("admin.accountPage")},
+    appearanceMenuItem(siteT, theme.appearance.value),
     {id: "sign-out", label: siteT("account.signOut")},
 ]);
+
+/**
+ * 菜单与触发按钮同宽、左右边缘对齐（开发者 2026-11-27）：宽度取 reka 写在菜单浮层上的触发器宽度。级联的“外观”子菜单是另一块面板，
+ * 不受它影响，照 nb-ui 的缺省宽度。
+ */
+const MENU_STYLE = {width: "var(--reka-dropdown-menu-trigger-width)"};
 
 const signingOut = shallowRef(false);
 const signOutStatus = shallowRef<{readonly reason: string; readonly text: TextRef}>();
 
 async function onMenu(id: string): Promise<void> {
+    const appearance = selectedAppearance(id);
+    if (appearance !== undefined) {
+        theme.setAppearance(appearance);
+        return;
+    }
     if (id === "account") {
         await router.push("/account");
         return;
@@ -86,7 +99,7 @@ async function onMenu(id: string): Promise<void> {
             </RouterLink>
             <div class="admin-nav__foot">
                 <FormStatus :text="signOutStatus === undefined ? '' : port.t(signOutStatus.text)" :reason="signOutStatus?.reason" />
-                <DropdownMenu v-if="me !== undefined" :items="menuItems" side="top" align="start" @select="onMenu">
+                <DropdownMenu v-if="me !== undefined" :items="menuItems" side="top" align="start" :popover-style="MENU_STYLE" @select="onMenu">
                     <Button variant="ghost" class="admin-me" :aria-label="siteT('account.menu', {username: me.username})" :loading="signingOut" data-site-admin-menu>
                         <span class="admin-avatar" aria-hidden="true">{{ initial }}</span>
                         <span class="admin-me__name">{{ me.username }}</span>
@@ -202,7 +215,10 @@ async function onMenu(id: string): Promise<void> {
     font-weight: 600;
 }
 
-/* 内容区：占满右边的高度，自己滚；页面最宽 1280 像素，宽窗口里靠左（照定稿）。 */
+/*
+ * 内容区：占满右边的高度，自己滚；页面最宽 1280 像素。宽窗口里在内容区水平居中：定稿是靠左，开发者 2026-11-27 看演示后改为居中
+ * （右侧留一大片空白）。窗口不够宽时页面占满内容区，与靠左时一样。
+ */
 .admin-main {
     min-width: 0;
     min-height: 0;
@@ -215,6 +231,7 @@ async function onMenu(id: string): Promise<void> {
     box-sizing: border-box;
     min-height: 100%;
     max-width: 1280px;
+    margin-inline: auto;
     padding: 14px 20px 20px 6px;
 }
 </style>
