@@ -16,7 +16,7 @@ import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 import {useLabEventSink} from "../lab-event-sink";
 import {mountStickerDisplayStyle} from "nbook/plugins/stickers/web/display-style";
 
-import {LAB_STICKER_PACK, labStickers} from "../../../stickers/web/lab/lab-stickers";
+import {LAB_STICKER_PACK, labStickers} from "nbook/plugins/stickers/web/lab/lab-stickers";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 

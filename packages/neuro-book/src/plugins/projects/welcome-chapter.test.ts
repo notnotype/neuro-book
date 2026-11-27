@@ -1,6 +1,6 @@
 /**
  * 欢迎页的新建章节（docs/specs/workbench/bookshelf.md 输出 19）：内存文件适配器（与真实 Files 对过契约，
- * `plugins/lab/memory-files.test.ts`）加真实内核的命令服务。按已有名字避让、以正式标签打开；编辑器的打开命令不在时，
+ * `plugins/explorer/memory-files.test.ts`）加真实内核的命令服务。按已有名字避让、以正式标签打开；编辑器的打开命令不在时，
  * 文件照样建好，原因写出来。
  */
 

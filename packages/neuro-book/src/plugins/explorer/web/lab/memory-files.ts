@@ -2,7 +2,7 @@
  * 资源管理器 Lab 场景的内存文件适配器（docs/specs/workbench/files-explorer.md 验收 13、docs/specs/ui/component-lab.md 的
  * 受控接缝）：实现资源管理器实际调用的全部 `FilesService` 方法——列出、监视、`identify`、单项操作、三种批量与取消——
  * 操作真正改变场景里的数据，并按 Files 合同的形状推送变化；编辑器区的场景另用正文的读取与按基线保存（基线是正文的
- * SHA-256，保存换掉目录项身份并回报前后令牌，与真实实现一致）。与真实实现的形状对照见 `plugins/lab/memory-files.test.ts`。
+ * SHA-256，保存换掉目录项身份并回报前后令牌，与真实实现一致）。与真实实现的形状对照见 `plugins/explorer/memory-files.test.ts`。
  *
  * 内容文件夹的清单按层记（每个内容层一份有序条目），与真实实现“一份 `content.xml` 里的嵌套条目”在列出结果上等价；
  * 清单错误用 `brokenManifests` 声明。批量的走法由 `next` 决定一次（正常、第二项失败、结果未知、慢速可取消），用来在

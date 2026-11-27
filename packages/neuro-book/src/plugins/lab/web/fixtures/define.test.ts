@@ -1,5 +1,6 @@
 import {describe, expect, it} from "bun:test";
 import {collectLabFixtures, defineLabFixture} from "./define";
+import {defineSubjectFixture} from "./subject-fixture";
 
 const load = async () => ({});
 
@@ -9,6 +10,12 @@ describe("场景登记的形状", () => {
         expect(() => defineLabFixture({component: "Probe", scenes: []} as never)).toThrow(/^nb-lab: defineLabFixture .*Probe/u);
         expect(() => defineLabFixture({component: "Probe", load} as never)).toThrow(/^nb-lab: /u);
         expect(defineLabFixture({component: "Probe", scenes: [], load} as never).component).toBe("Probe");
+    });
+
+    it("透传夹具的登记同样核对：没有组件名时报错", () => {
+        const subject = async () => ({default: {}});
+        expect(() => defineSubjectFixture({component: "", scenes: [], subject} as never)).toThrow(/^nb-lab: defineSubjectFixture /u);
+        expect(typeof defineSubjectFixture({component: "Probe", scenes: [], subject} as never).load).toBe("function");
     });
 
     it("收集时模块没导出 fixtures 数组、或里面有坏登记，报出是哪个文件", () => {

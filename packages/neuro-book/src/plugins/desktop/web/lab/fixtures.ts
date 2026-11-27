@@ -41,16 +41,11 @@ function firstRunScenes() {
     ];
 }
 
-function desktopFixtures(): LabFixture[] {
-    return [
-        defineLabFixture<typeof FirstRunWizard>({
-            component: "FirstRunWizard",
-            scenes: firstRunScenes(),
-            load: async () => withDesktopText(createSubjectFixture<typeof FirstRunWizard>((await import("nbook/plugins/desktop/web/components/FirstRunWizard.vue")).default, {events: ["change", "open-place", "next", "back", "skip", "finish"], class: ""})),
-        }),
-    ];
-}
 
 export const fixtures: LabFixture[] = [
-    ...desktopFixtures(),
+    defineLabFixture<typeof FirstRunWizard>({
+        component: "FirstRunWizard",
+        scenes: firstRunScenes(),
+        load: async () => withDesktopText(createSubjectFixture<typeof FirstRunWizard>((await import("nbook/plugins/desktop/web/components/FirstRunWizard.vue")).default, {events: ["change", "open-place", "next", "back", "skip", "finish"], class: ""})),
+    }),
 ];

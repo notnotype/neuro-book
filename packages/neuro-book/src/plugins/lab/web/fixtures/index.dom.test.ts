@@ -6,14 +6,15 @@ import {Value} from "typebox/value";
 import {describe, expect, it} from "vitest";
 import {labComponents} from "../component-index";
 import {LabSceneInputSchema} from "../lab-subject";
-import {findLabFixture, labFixtures, pluginFixtures, type LabFixture} from "./index";
+import type {LabFixture} from "./define";
+import {findLabFixture, labFixtures} from "./index";
 import {draftFixtures} from "../drafts";
 
 const fixturesRoot = dirname(fileURLToPath(import.meta.url));
 const pluginsRoot = resolve(fixturesRoot, "../../..");
-/** 各插件的场景目录 `plugins/<插件>/web/lab/`（Lab 自己的不算，它的场景在本目录）。 */
+/** 各插件的场景目录 `plugins/<插件>/web/lab/`（Lab 自己的场景在本目录，不放 `web/lab/`）。 */
 const pluginSceneRoots = readdirSync(pluginsRoot, {withFileTypes: true})
-    .filter((entry) => entry.isDirectory() && entry.name !== "lab" && existsSync(join(pluginsRoot, entry.name, "web", "lab")))
+    .filter((entry) => entry.isDirectory() && existsSync(join(pluginsRoot, entry.name, "web", "lab")))
     .map((entry) => join(pluginsRoot, entry.name, "web", "lab"));
 /** 放场景模块的所有目录：Lab 的场景、草稿区与各插件的 `web/lab/`。 */
 const sceneRoots = [fixturesRoot, resolve(fixturesRoot, "../drafts"), ...pluginSceneRoots];
@@ -82,18 +83,19 @@ describe("Lab 场景覆盖", () => {
 
     it("每个插件的 web/lab/ 都有 fixtures.ts，登记全被总表收到，组件就是这个插件的", () => {
         expect(pluginSceneRoots.length).toBeGreaterThan(0);
+        // 按文件分开收，才知道每条登记出自哪个插件的 web/lab/。
+        const modules = import.meta.glob<{readonly fixtures: readonly LabFixture[]}>("../../../*/web/lab/fixtures.ts", {eager: true});
+        const pluginOfModule = (path: string): string => path.split("/")[3]!;
+        expect(Object.keys(modules).map(pluginOfModule).sort()).toEqual(pluginSceneRoots.map((root) => relative(pluginsRoot, root).split("/")[0]).sort());
         const outsiders: string[] = [];
-        for (const root of pluginSceneRoots) {
-            expect(existsSync(join(root, "fixtures.ts")), `${relative(pluginsRoot, root)} 没有 fixtures.ts`).toBe(true);
+        for (const [path, module] of Object.entries(modules)) {
+            for (const fixture of module.fixtures) {
+                expect(labFixtures).toContain(fixture);
+                const owner = labComponents.find((candidate) => candidate.name === fixture.component)?.groupPath[0];
+                if (owner !== pluginOfModule(path)) outsiders.push(`${fixture.component}（组件在 ${owner ?? "索引外"}，登记在 ${pluginOfModule(path)}）`);
+            }
         }
-        const plugins = new Set(pluginSceneRoots.map((root) => relative(pluginsRoot, root).split("/")[0]));
-        for (const fixture of pluginFixtures) {
-            expect(labFixtures).toContain(fixture);
-            const entry = labComponents.find((candidate) => candidate.name === fixture.component);
-            const owner = entry?.groupPath[0];
-            if (owner === undefined || !plugins.has(owner)) outsiders.push(`${fixture.component}（${owner ?? "不在索引里"}）`);
-        }
-        expect(outsiders, "这些登记放在了别的插件的 web/lab/ 里").toEqual([]);
+        expect(outsiders, "这些登记不在组件所属插件的 web/lab/ 里").toEqual([]);
     });
 
     it("每个组件名只能有一条登记", () => {

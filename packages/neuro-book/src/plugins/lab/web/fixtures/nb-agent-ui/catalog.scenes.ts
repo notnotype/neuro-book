@@ -1,6 +1,6 @@
 import type {AgentModelCatalog} from "@notnotype/nb-agent-ui/vue";
 import type {CatalogModelView, CatalogProviderView} from "@notnotype/nb-agent-ui";
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 type Scene = LabFixtureDefinition<typeof AgentModelCatalog>["scenes"][number];
 

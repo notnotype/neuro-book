@@ -3,46 +3,10 @@ import type EntryTree from "nbook/plugins/canon/web/components/entries/EntryTree
 import type EntryPicker from "nbook/plugins/canon/web/components/entries/EntryPicker.vue";
 import type NewEntryDialog from "nbook/plugins/canon/web/components/entries/NewEntryDialog.vue";
 
-/** 设定视图的组件（docs/specs/canon/author-ui.md）：场景用星瑕样本里的样子手写。 */
-function entriesFixtures() {
-    /** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
-    const IDLE = {kind: "idle"} as const;
-    return [
-        defineLabFixture<typeof EntryPicker>({
-            component: "EntryPicker",
-            scenes: [
-                {id: "picked", label: "选了一个（当前值不在这一批结果里时显示给的名字）", input: {props: {results: IDLE, selectedName: "星瑕"}, model: {modelValue: "e1"}}},
-                {id: "exclude", label: "已在列表里的灰掉", input: {props: {results: IDLE, exclude: ["e1", "e2"], excludeReason: "已在列表里"}, model: {modelValue: null}}},
-                {id: "create", label: "可以就地新建知识点：打一个没有的名字", input: {props: {results: IDLE, createKind: "知识点"}, model: {modelValue: null}}},
-                {id: "failed", label: "查找失败", input: {props: {results: IDLE}, model: {modelValue: null}}},
-                {id: "picked-english", label: "英文界面", input: {props: {results: IDLE, selectedName: "星瑕", createKind: "知识点"}, model: {modelValue: "e1"}}},
-            ],
-            load: async () => (await import("./EntryPickerFixture.vue")).default,
-        }),
-        defineLabFixture<typeof NewEntryDialog>({
-            component: "NewEntryDialog",
-            scenes: (() => {
-                const draft = {name: "", kind: "", kindChosen: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], typesTouched: false, sameAs: null as string | null, appears: null as string | null};
-                // 种类的候选：登记的人物、组织、地点、物品在前，用过的“魔法”接在后面；点“人物”勾上人物与形象。
-                const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], items: [
-                    {value: "nbook.canon.person", label: "人物", iconClass: "i-lucide-user-round", group: "canon" as const, kinds: ["人物"], present: false, restore: false},
-                    {value: "nbook.canon.look", label: "形象", iconClass: "i-lucide-shirt", group: "canon" as const, kinds: ["人物"], present: false, restore: false},
-                    {value: "nbook.canon.panel", label: "数值", iconClass: "i-lucide-gauge", group: "canon" as const, kinds: [], present: false, restore: false},
-                    {value: "nbook.plot.knowing", label: "知道什么", iconClass: "i-lucide-key-round", group: "plot" as const, kinds: ["人物"], present: false, restore: false},
-                    {value: "nbook.plot.attitude", label: "目标与态度", iconClass: "i-lucide-target", group: "plot" as const, kinds: ["人物"], present: false, restore: false},
-                ], kindPresets: {人物: [{id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]}, {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]}]}, chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
-                return [
-                    {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
-                    {id: "person", label: "新建人物：勾上人物与形象，有人物的预设", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"]}}}},
-                    {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", kindChosen: "物品", folder: "物品"}}}},
-                    {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},
-                ];
-            })(),
-            load: async () => (await import("./NewEntryDialogFixture.vue")).default,
-        }),
-    ];
-}
+/** 条目选择器的场景只给占位的查找状态：夹具自己当宿主，按真实的去抖查找换掉它（`EntryPickerFixture.vue`）。 */
+const IDLE = {kind: "idle"} as const;
 
+/** 设定视图的组件（docs/specs/canon/author-ui.md）：场景用星瑕样本里的样子手写。 */
 export const fixtures: LabFixture[] = [
     defineLabFixture<typeof EntryTree>({
         component: "EntryTree",
@@ -73,5 +37,36 @@ export const fixtures: LabFixture[] = [
         })(),
         load: async () => (await import("./EntryTreeFixture.vue")).default,
     }),
-    ...entriesFixtures(),
+    defineLabFixture<typeof EntryPicker>({
+        component: "EntryPicker",
+        scenes: [
+            {id: "picked", label: "选了一个（当前值不在这一批结果里时显示给的名字）", input: {props: {results: IDLE, selectedName: "星瑕"}, model: {modelValue: "e1"}}},
+            {id: "exclude", label: "已在列表里的灰掉", input: {props: {results: IDLE, exclude: ["e1", "e2"], excludeReason: "已在列表里"}, model: {modelValue: null}}},
+            {id: "create", label: "可以就地新建知识点：打一个没有的名字", input: {props: {results: IDLE, createKind: "知识点"}, model: {modelValue: null}}},
+            {id: "failed", label: "查找失败", input: {props: {results: IDLE}, model: {modelValue: null}}},
+            {id: "picked-english", label: "英文界面", input: {props: {results: IDLE, selectedName: "星瑕", createKind: "知识点"}, model: {modelValue: "e1"}}},
+        ],
+        load: async () => (await import("./EntryPickerFixture.vue")).default,
+    }),
+    defineLabFixture<typeof NewEntryDialog>({
+        component: "NewEntryDialog",
+        scenes: (() => {
+            const draft = {name: "", kind: "", kindChosen: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], typesTouched: false, sameAs: null as string | null, appears: null as string | null};
+            // 种类的候选：登记的人物、组织、地点、物品在前，用过的“魔法”接在后面；点“人物”勾上人物与形象。
+            const options = {kinds: ["人物", "组织", "地点", "物品", "魔法"], kindDefaults: {人物: ["nbook.canon.person", "nbook.canon.look"], 组织: [], 地点: [], 物品: []}, entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], items: [
+                {value: "nbook.canon.person", label: "人物", iconClass: "i-lucide-user-round", group: "canon" as const, kinds: ["人物"], present: false, restore: false},
+                {value: "nbook.canon.look", label: "形象", iconClass: "i-lucide-shirt", group: "canon" as const, kinds: ["人物"], present: false, restore: false},
+                {value: "nbook.canon.panel", label: "数值", iconClass: "i-lucide-gauge", group: "canon" as const, kinds: [], present: false, restore: false},
+                {value: "nbook.plot.knowing", label: "知道什么", iconClass: "i-lucide-key-round", group: "plot" as const, kinds: ["人物"], present: false, restore: false},
+                {value: "nbook.plot.attitude", label: "目标与态度", iconClass: "i-lucide-target", group: "plot" as const, kinds: ["人物"], present: false, restore: false},
+            ], kindPresets: {人物: [{id: "basic", label: "基本", components: ["nbook.canon.person", "nbook.canon.look"]}, {id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]}]}, chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
+            return [
+                {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
+                {id: "person", label: "新建人物：勾上人物与形象，有人物的预设", input: {props: options, model: {open: true, draft: {...draft, name: "星瑾", kind: "人物", kindChosen: "人物", folder: "人物", types: ["nbook.canon.person", "nbook.canon.look"]}}}},
+                {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", kindChosen: "物品", folder: "物品"}}}},
+                {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},
+            ];
+        })(),
+        load: async () => (await import("./NewEntryDialogFixture.vue")).default,
+    }),
 ];

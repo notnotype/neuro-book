@@ -22,10 +22,10 @@ import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {LabFixtureControls, type LabFixtureProps, useLabEventSink} from "nbook/plugins/lab/web/scene-kit";
-import {createFakeModelsRemote} from "../../../models/web/lab/fake-remote";
-import {SAMPLE_CATALOG, SAMPLE_SNAPSHOT} from "../../../models/web/lab/sample";
+import {createFakeModelsRemote} from "nbook/plugins/models/web/lab/fake-remote";
+import {SAMPLE_CATALOG, SAMPLE_SNAPSHOT} from "nbook/plugins/models/web/lab/sample";
 import {createFakeNetworkRemote} from "./fake-remote";
-import {createSettingsHost} from "../../../settings/web/lab/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 
 const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();

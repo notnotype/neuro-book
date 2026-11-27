@@ -3,7 +3,7 @@
  * 组件文档与实现在 nb-ui 包里，经它的公开入口 `@notnotype/nb-ui/lab-sources` 进组件索引。
  */
 
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {controlsFixtures} from "./controls";
 import {displayFixtures} from "./display";
 import {feedbackFixtures} from "./feedback";

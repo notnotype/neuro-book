@@ -29,19 +29,18 @@ import type HighlightBox from "../components/HighlightBox.vue";
 import type MarkdownView from "../components/MarkdownView.vue";
 import type SurfaceTierDemo from "../components/SurfaceTierDemo.vue";
 import type ViewportCanvas from "../components/ViewportCanvas.vue";
-import {collectLabFixtures, type LabFixture} from "./define";
+import {collectLabFixtures, defineLabFixture, type LabFixture} from "./define";
 import {draftFixtures} from "../drafts";
-import {defineLabFixture} from "./define";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withNbookMarkdownHost} from "./markdown-host";
 import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
 import {nbLayoutFixtures} from "./nb-layout";
-import {LAB_STICKER_TEXT} from "../../../stickers/web/lab/lab-stickers";
+import {LAB_STICKER_TEXT} from "nbook/plugins/stickers/web/lab/lab-stickers";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
-import {rowDemoSettings, sceneThemeSetting, snippetsSettings} from "../../../settings/web/lab/scene-settings";
+import {rowDemoSettings, sceneThemeSetting, snippetsSettings} from "nbook/plugins/settings/web/lab/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
 /** `declared` 开头的几个场景里的属性声明（输出 59、60）：键只在那些场景里出现，别的属性面板场景不受影响。 */
@@ -86,24 +85,13 @@ const DISPLAY_REPLY = [
     "",
     "参考：[写作手册](https://example.com/guide)。",
 ].join("\n");
-export type {LabFixture, LabFixtureDefinition, LabScene} from "./define";
-export {defineLabFixture} from "./define";
-
-/**
- * fixture 在被检视的那个零件上加 `data-lab-subject`，Lab 据此画常亮描边。
- *
- * 没有它 Lab 分不出哪块是零件、哪块是 fixture 自己搭的台子——多数 fixture 都带工具栏
- * 和说明文字。零件是单根节点时直接写在标签上即可，Vue 会把它落到根 DOM 节点。
- * 不标也能检查，只是无法把复合 fixture 的主要零件作为优先定位目标。
- */
-// Lab 场景在选择时才加载：避免一次导入所有产品组件和纯内存 fixture。
-
 /**
  * 各插件的场景：`plugins/<插件>/web/lab/fixtures.ts` 各自导出 `fixtures`（docs/specs/ui/component-lab.md 的“输入边界”）。
- * 路径从本目录起算，比组件索引（`../component-index.ts`）多一层。Lab 自己的场景在本目录，不收 `lab/web/lab/`，免得重复。
+ * 路径从本目录起算，比组件索引（`../component-index.ts`）多一层。登记只是数据，组件与夹具在选中场景时才由 `load` 加载。
  */
-export const pluginFixtures: LabFixture[] = collectLabFixtures(import.meta.glob(["../../../*/web/lab/fixtures.ts", "!../../../lab/web/lab/fixtures.ts"], {eager: true}));
+const pluginFixtures: LabFixture[] = collectLabFixtures(import.meta.glob("../../../*/web/lab/fixtures.ts", {eager: true}));
 
+/** 全部场景登记：草稿区、各插件，以及 `src/ui/`、各包与 Lab 自己的组件（本目录）。 */
 export const labFixtures: LabFixture[] = [
     // 草稿区：每个 Task 一个目录，各自登记（见 ../drafts/index.ts）。
     ...draftFixtures,

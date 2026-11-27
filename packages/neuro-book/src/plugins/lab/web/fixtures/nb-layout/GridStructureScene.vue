@@ -9,7 +9,7 @@ import {createGrid} from "@notnotype/nb-layout";
 import type {Grid, GridBranch, GridNode} from "@notnotype/nb-layout";
 import {NestedGrid, useGridHost} from "@notnotype/nb-layout/vue";
 
-import GridStructureLeaf from "../../../../workbench/web/lab/GridStructureLeaf.vue";
+import GridStructureLeaf from "nbook/plugins/workbench/web/lab/GridStructureLeaf.vue";
 import {createInstanceCounter, moveFocusOnF6} from "./scene-support";
 
 const createInitial = (): Grid<string> => createGrid<string>({

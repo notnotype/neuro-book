@@ -78,8 +78,8 @@ const isDevelopmentPlugin = (path: string): boolean => path.startsWith("plugins/
 const isPluginContracts = (target: string): boolean => /^(?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+\/shared\/contracts(?:\.ts)?$/u.test(target);
 /** 路径段含 `testing`：本包的测试支持目录，或内核的 `@notnotype/nb-runtime/<机制>/testing` 入口。 */
 const importsTesting = (use: ImportUse, target: string | null): boolean => use.specifier.split("/").includes("testing") || (target !== null && has(target, "testing"));
-/** 插件自己的场景目录 `plugins/<插件>/web/lab/`：只在开发版里经 Lab 的总登记表加载。 */
-const isLabScene = (path: string): boolean => /^plugins\/[^/]+\/web\/lab\//u.test(path);
+/** 插件自己的场景目录 `plugins/<插件>/web/lab/`：只在开发版里经 Lab 的总登记表加载。目录本身也算（`import "./lab"` 解析到它的 index）。 */
+const isLabScene = (path: string): boolean => /^plugins\/[^/]+\/web\/lab(?:\/|$)/u.test(path);
 /** 插件场景用 Lab 的唯一入口。 */
 const isSceneKit = (target: string): boolean => target === "plugins/lab/web/scene-kit" || target === "plugins/lab/web/scene-kit.ts";
 /** Lab 的场景、草稿区（界面评审的静态稿）与插件的场景可以引别的插件的界面与共用代码（含别的插件的 `web/lab/`）：它们只在开发版里有。 */
@@ -271,7 +271,8 @@ describe("包内依赖方向", () => {
             {file: "web/mount.ts", specifier: "./development-plugins", typeOnly: false, dynamic: true},
             use("ui/JsonViewer.vue", "nbook/web/host/window"),
             use("ui/JsonViewer.vue", "node:fs"),
-            use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/plugin"),
+            use("plugins/lab/web/fixtures/SettingsRowFixture.vue", "nbook/plugins/commands/plugin"),
+            use("plugins/workbench/web/lab/lab-command-scene.ts", "nbook/plugins/commands/plugin"),
             use("plugins/lab/web/LabShell.vue", "nbook/plugins/workbench/web/commands/keymap"),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/workbench/web/contracts"),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/commands/shared/registry"),
@@ -299,6 +300,7 @@ describe("包内依赖方向", () => {
             use("plugins/canon/web/lab/fixtures.ts", "nbook/plugins/lab/web/lab-subject"),
             use("plugins/canon/web/lab/ConfirmBarFixture.vue", "../../../lab/web/LabFixtureControls.vue"),
             use("plugins/canon/web/entry-page.ts", "./lab/fixtures"),
+            use("plugins/canon/web/entry-page.ts", "./lab"),
             use("plugins/canon/web/entry-page.ts", "./lab/canon-text", true),
             use("plugins/plot/web/plugin.ts", "nbook/plugins/canon/web/lab/canon-text", true),
         ];
@@ -311,8 +313,9 @@ describe("包内依赖方向", () => {
             use("project/development-main.ts", "nbook/development-manifest"),
             use("development-manifest.ts", "./plugins/lab/plugin"),
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
-            use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
-            use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
+            use("plugins/workbench/web/lab/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
+            use("plugins/lab/web/fixtures/SettingsRowFixture.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
+            use("plugins/workbench/web/lab/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-plugin-sdk"),
             use("../plugin-sdk/examples/plugins/skill-pack/skills/word-count/scripts/count.ts", "yaml"),
             use("../plugin-sdk/examples/plugins/snippets/web/plugin.ts", "@notnotype/nb-plugin-sdk/settings/browser"),

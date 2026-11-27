@@ -45,7 +45,8 @@ export type LabFixtureDefinition<C> = {
 
 /**
  * 登记的形状不对时抛的错以 `nb-lab:` 开头。这句文案还是产物门禁的标记（`scripts/check-dist.ts` 的 `DEVELOPMENT_MARKERS`）：
- * 场景文件都经这里登记，误进生产产物时会带着这段文案，被门禁查出来。只返回参数的函数会被压缩器内联掉，留不下标记。
+ * 各插件的 `web/lab/fixtures.ts` 都经这里登记，误进生产产物时会带着这段文案，被门禁查出来。只返回参数的函数会被压缩器
+ * 内联掉，留不下标记。只被场景引用的支持模块（样本、内存替身、文本端口）不带标记，产品代码引不到它们靠架构测试守住。
  */
 export function checkLabFixture(value: unknown, where: string): LabFixture {
     const candidate = value as Partial<LabFixture> | null;

@@ -14,7 +14,7 @@ import type {MarkdownMedia} from "nbook/plugins/markdown/web/media";
 import MarkdownImageCard from "nbook/plugins/markdown/web/components/menus/MarkdownImageCard.vue";
 
 import {type LabFixtureProps, useLabEventSink, useLabSubject} from "nbook/plugins/lab/web/scene-kit";
-import {provideEditorText} from "../../../editor/web/lab/editor-text";
+import {provideEditorText} from "nbook/plugins/editor/web/lab/editor-text";
 
 const props = defineProps<LabFixtureProps>();
 /** 场景输入里的 `open`、`session`、`current` 传给卡片；`anchor`、`menus`、`media` 是运行期的东西，由夹具按场景给（登记里的 `anchor`、`media` 占位为 null）。 */

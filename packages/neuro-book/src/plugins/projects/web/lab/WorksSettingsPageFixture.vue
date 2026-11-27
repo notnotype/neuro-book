@@ -13,8 +13,8 @@ import type {LibraryInfo} from "nbook/plugins/projects/web/shelf-page";
 
 import {LabFixtureControls, type LabFixtureProps, useLabEventSink, useLabSubject} from "nbook/plugins/lab/web/scene-kit";
 import {LAB_DEFAULT_LIBRARY, labPathPickerSource} from "./path-picker-source";
-import {createSettingsHost} from "../../../settings/web/lab/settings-host";
-import type {HostLayer} from "../../../settings/web/lab/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import type {HostLayer} from "nbook/plugins/settings/web/lab/settings-host";
 
 const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();

@@ -16,7 +16,7 @@ import SearchSettingsPage from "nbook/plugins/web-tools/web/components/SearchSet
 import {createSearchStore} from "nbook/plugins/web-tools/web/search-store";
 
 import {LabFixtureControls, type LabFixtureProps, useLabEventSink} from "nbook/plugins/lab/web/scene-kit";
-import {createSettingsHost} from "../../../settings/web/lab/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import {createFakeWebRemote} from "./fake-remote";
 
 const props = defineProps<LabFixtureProps>();

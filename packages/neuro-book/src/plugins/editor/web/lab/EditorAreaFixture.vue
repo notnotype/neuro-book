@@ -34,8 +34,8 @@ import {CODE_EDITOR, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor
 import {editorText} from "nbook/plugins/editor/shared/text";
 
 import {LabFixtureControls, type LabFixtureProps, useLabEventSink} from "nbook/plugins/lab/web/scene-kit";
-import {createMemoryFiles} from "../../../explorer/web/lab/memory-files";
-import {LAB_STICKER_TEXT, labStickers} from "../../../stickers/web/lab/lab-stickers";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
+import {LAB_STICKER_TEXT, labStickers} from "nbook/plugins/stickers/web/lab/lab-stickers";
 import {provideEditorText} from "./editor-text";
 import {createLabEditorMenus} from "./lab-editor-menus";
 
