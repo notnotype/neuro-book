@@ -22,6 +22,7 @@ import {createMemoryHistory} from "vue-router";
 import zhCN from "../locales/zh-CN.json";
 import {startSite} from "../site";
 import type {Site} from "../site";
+import {EMPTY_ADMIN_LISTS} from "../testing/admin-answers";
 import {dashboardBodies, EMPTY_DASHBOARD} from "../testing/dashboard-answers";
 import {manualClock} from "../testing/manual-clock";
 import {SETTLE_TIMEOUT_MS} from "../testing/site-harness";
@@ -141,6 +142,9 @@ function start(path: string, options: ServerOptions = {}): Started {
             if (ACCOUNT_LISTS.has(input) && init.method === "GET") return Response.json({items: []});
             const dashboard = init.method === "GET" ? DASHBOARD.get(input) : undefined;
             if (dashboard !== undefined) return Response.json(dashboard);
+            // 登录之后去 `next` 指的管理面板列表页（审计）：那一页回一页空的。
+            const adminList = init.method === "GET" ? EMPTY_ADMIN_LISTS.get(new URL(input, "http://site.invalid").pathname) : undefined;
+            if (adminList !== undefined) return Response.json(adminList);
             const provider = SOCIAL_START.get(input);
             if (provider !== undefined && init.method === "POST") {
                 const body = JSON.parse(String(init.body)) as SocialStartRequest;

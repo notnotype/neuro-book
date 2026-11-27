@@ -12,6 +12,7 @@ import {createMemoryHistory} from "vue-router";
 import {SOCIAL_REGISTER_DRAFT_TTL_MS, createSiteStorage} from "./host/storage";
 import zhCN from "./locales/zh-CN.json";
 import {startSite} from "./site";
+import {EMPTY_ADMIN_LISTS} from "./testing/admin-answers";
 import {dashboardBodies, EMPTY_DASHBOARD} from "./testing/dashboard-answers";
 import {manualClock} from "./testing/manual-clock";
 import {SETTLE_TIMEOUT_MS} from "./testing/site-harness";
@@ -55,16 +56,22 @@ function me(role: Role, consentRequired = false): MeResponse {
 interface Server {
     whoami: () => Response;
     me: () => Response;
-    /** 别的接口；缺省回一份空列表（账号页进来时取的三份列表都是这个形状），看板的几份回还没有上报的看板（`otherwise`）。 */
+    /**
+     * 别的接口；缺省回一份空列表（账号页进来时取的三份列表都是这个形状），看板的几份回还没有上报的看板，管理面板的列表回一页空的
+     * （`otherwise`）。
+     */
     other: (input: string) => Response;
 }
 
 const DASHBOARD = dashboardBodies(EMPTY_DASHBOARD);
 
-/** 别的接口的缺省回答：管理员落在看板时它读的几份回还没有上报的看板，其余回空列表。 */
+/**
+ * 别的接口的缺省回答：管理员落在看板时它读的几份回还没有上报的看板，落在管理面板的列表页时那一页回一页空的（带着分页参数，
+ * 按不带查询串的路径认），其余回空列表。
+ */
 function otherwise(input: string): Response {
     const dashboard = DASHBOARD.get(input);
-    return Response.json(dashboard ?? {items: []});
+    return Response.json(dashboard ?? EMPTY_ADMIN_LISTS.get(new URL(input, "http://site.invalid").pathname) ?? {items: []});
 }
 
 const anonymousServer = (): Server => ({
@@ -294,7 +301,8 @@ describe("按码统一处理之后的跳转", () => {
         const result = await started.site.api.request({method: "GET", path: ADMIN_USERS});
         expect(result).toEqual({ok: false, failure: {kind: "code", status: 403, code: "forbidden", handled: true}});
         await settledAt(started, "/account", "account");
-        expect(withoutAccountPage(started.requested)).toEqual([WHOAMI, ME, ADMIN_USERS, WHOAMI, ME]);
+        // 第三个是用户页一打开就取的第 1 页，第四个是上面这次请求。
+        expect(withoutAccountPage(started.requested)).toEqual([WHOAMI, ME, `${ADMIN_USERS}?page=1&pageSize=20`, ADMIN_USERS, WHOAMI, ME]);
     });
 
     it("某个请求回 unauthenticated：当作匿名，带着当前地址去登录", async () => {

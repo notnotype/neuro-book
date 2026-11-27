@@ -12,6 +12,7 @@ import {expect, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
 import {startSite} from "../site";
+import {EMPTY_ADMIN_LISTS} from "./admin-answers";
 import {dashboardBodies, EMPTY_DASHBOARD} from "./dashboard-answers";
 import type {Site} from "../site";
 import {manualClock} from "./manual-clock";
@@ -60,15 +61,18 @@ export interface Request {
     readonly body: unknown;
 }
 
-/** 某个 `方法 路径` 的回答。`server` 是同一个账号服务：成功的注册、登录、补交同意在这里改会话，像 `Set-Cookie` 那样。 */
-export type Handler = (body: unknown, server: Server) => Response | Promise<Response>;
+/**
+ * 某个 `方法 路径` 的回答。`server` 是同一个账号服务：成功的注册、登录、补交同意在这里改会话，像 `Set-Cookie` 那样。
+ * `query` 是请求的查询参数：管理面板的列表按它分页、筛选，处理器的键只写路径不写查询串。
+ */
+export type Handler = (body: unknown, server: Server, query: URLSearchParams) => Response | Promise<Response>;
 
 export interface Server {
     /** 浏览器带着的会话；`undefined` 是匿名。 */
     session: Session | undefined;
     /** `GET meta` 的回答；回 `Promise` 的可以让它晚到。 */
     meta: () => Response | Promise<Response>;
-    /** 其余接口，键是 `"POST /api/identity/v1/register"` 这样的写法。 */
+    /** 其余接口，键是 `"POST /api/identity/v1/register"` 这样的写法；带查询串的请求先找连查询串的键，没有再找只写路径的。 */
     readonly handlers: Map<string, Handler>;
 }
 
@@ -146,14 +150,18 @@ export function startAt(path: string, options: StartOptions = {}): Harness {
             const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
             requests.push({method, path: input, body});
             if (method === "GET" && input === identityUrl(IDENTITY_PATHS.meta)) return server.meta();
-            const handler = server.handlers.get(`${method} ${input}`);
-            if (handler !== undefined) return handler(body, server);
+            const url = new URL(input, "http://site.invalid");
+            const handler = server.handlers.get(`${method} ${input}`) ?? server.handlers.get(`${method} ${url.pathname}`);
+            if (handler !== undefined) return handler(body, server, url.searchParams);
             // 登录、注册、补交同意之后都落在账号页，它一打开就读这三份列表。在乎列表内容的用例自己准备处理器，其余的回空列表。
             if (method === "GET" && ACCOUNT_LISTS.has(input)) return Response.json({items: []});
             // 看板同理：管理员登录之后落在看板上，在乎看板数据的用例用 `dashboardHandlers` 准备，其余的回一份还没有上报的看板。
             // 只替管理员的会话回：别的会话不该发这些请求，发了就记进 `unexpected`。
             const dashboard = method === "GET" && server.session?.role === "admin" ? EMPTY_DASHBOARD_BODIES.get(input) : undefined;
             if (dashboard !== undefined) return Response.json(dashboard);
+            // 管理面板的几个列表同理：在乎列表的用例自己准备，其余的回一页空的。
+            const adminList = method === "GET" && server.session?.role === "admin" ? EMPTY_ADMIN_LISTS.get(url.pathname) : undefined;
+            if (adminList !== undefined) return Response.json(adminList);
             unexpected.push(`${method} ${input}`);
             return failure({error: {code: "not_found"}}, 404);
         },
@@ -181,6 +189,14 @@ export async function settledAt({site, target}: Pick<Harness, "site" | "target">
         expect({path: route.path, query: route.query}).toEqual(expected);
         expect(target.querySelector(`[data-site-page="${page}"]`)).not.toBeNull();
     }, {timeout: SETTLE_TIMEOUT_MS});
+}
+
+/**
+ * 让出一轮事件循环。装置里的路由导航、注入的 `fetch` 与之后的重画都只排微任务，这之后已经跑完：断言“还没有导航、还没有取”
+ * 之前先等它，不然只是导航还没来得及发生（vue-router 的导航是异步的，连着几次 `replace` 还会互相取消，只剩最后一次）。
+ */
+export function nextTask(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** 像用户那样改一个输入框：写值、发 `input`；`change` 在离开时由 `blur` 之前发（`leaveField`）。 */

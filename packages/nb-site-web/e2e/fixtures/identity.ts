@@ -1,10 +1,14 @@
 /**
  * 假接口回答的账号模块数据（t10 计划 3.10“假接口的数据”）。每份用合同类型 `satisfies` 写，写错形状时类型检查失败；
  * `tests/e2e-fixtures.test.ts` 再用合同的 schema 把 `IDENTITY_FIXTURES` 里的每份过一遍 `Value.Check`（类型查不出的：用户名、
- * 时间的格式这类 pattern）。形状由合同保证，行为由真实冒烟（B10）保证。
+ * 时间的格式这类 pattern）。形状由合同保证，行为由真实冒烟（B10）保证。管理面板的几份是整张表的条目，`fake-api.ts` 按查询参数从里面切页。
  */
 
 import {
+    AdminInviteCodeItem,
+    AdminUserItem,
+    AUDIT_ACTIONS,
+    AuditItem,
     ConsentResponse,
     ErrorBody,
     IdentityListResponse,
@@ -13,10 +17,13 @@ import {
     MeResponse,
     MetaResponse,
     RegisterResponse,
+    RegistrationCodeItem,
+    ResetPasswordResponse,
     SessionListResponse,
     SocialStartResponse,
     WhoamiResponse,
 } from "@notnotype/nb-site-identity-contract";
+import {Type} from "typebox";
 import type {TSchema} from "typebox";
 
 export const anonymousWhoami = {state: "anonymous"} satisfies WhoamiResponse;
@@ -97,6 +104,82 @@ export const invalidCredentials = {error: {code: "invalid_credentials"}} satisfi
 export const rateLimited = {error: {code: "rate_limited"}} satisfies ErrorBody;
 export const unauthenticated = {error: {code: "unauthenticated"}} satisfies ErrorBody;
 
+/**
+ * 管理面板的账号列表（`fake-api.ts` 按查询参数从里面切页、筛选、搜索）：150 个，8 页，多于 7 页时分页条是 7 格（t09 第 12 条），
+ * 最后一页 10 条。第 1 个是当前登录的管理员 root（`adminMe`），另有 2 个管理员；每 7 个里一个已封禁，每 11 个里一个邮箱待补。
+ */
+export const adminUserItems = Array.from({length: 150}, (_, index): AdminUserItem => {
+    const id = index + 1;
+    if (id === adminMe.id) return {id, username: adminMe.username, displayName: adminMe.displayName, email: adminMe.email, emailPending: false, role: "admin", banned: false, createdAt: adminMe.createdAt, lastLoginAt: "2026-11-26T09:00:00.000Z"};
+    const pending = id % 11 === 0;
+    return {
+        id,
+        username: `writer${String(id).padStart(3, "0")}`,
+        displayName: `作者 ${id}`,
+        email: pending ? null : `writer${id}@example.com`,
+        emailPending: pending,
+        role: id === 2 || id === 3 ? "admin" : "user",
+        banned: id % 7 === 0,
+        createdAt: new Date(Date.UTC(2026, 9, 1 + (id % 50), 8)).toISOString(),
+        lastLoginAt: id % 13 === 0 ? null : new Date(Date.UTC(2026, 10, 1 + (id % 25), 8)).toISOString(),
+    };
+}) satisfies AdminUserItem[];
+
+/** 注册码：45 个，3 页。每 9 个里一个已停用，每 10 个里一个已用完，带备注的是一半。 */
+export const registrationCodeItems = Array.from({length: 45}, (_, index): RegistrationCodeItem => {
+    const id = index + 1;
+    const disabled = id % 9 === 0;
+    const exhausted = id % 10 === 0;
+    return {
+        id,
+        code: `NB-REG-${String(1000 + id)}`,
+        maxUses: id % 3 === 0 ? null : 5,
+        usedCount: exhausted ? 5 : id % 4,
+        expiresAt: id % 4 === 0 ? "2027-03-31T15:59:59.999Z" : null,
+        note: id % 2 === 0 ? `第 ${id} 批内测` : null,
+        disabled,
+        usable: !disabled && !exhausted,
+        createdAt: new Date(Date.UTC(2026, 10, 1 + (id % 25), 8)).toISOString(),
+        createdBy: id % 5 === 0 ? null : {id: adminMe.id, username: adminMe.username},
+    };
+}) satisfies RegistrationCodeItem[];
+
+/** 全站的邀请码：12 个，一页；有一个找不到主人。 */
+export const adminInviteCodeItems = Array.from({length: 12}, (_, index): AdminInviteCodeItem => {
+    const id = index + 1;
+    return {
+        id,
+        code: `NB-INV-${String(2000 + id)}`,
+        createdAt: new Date(Date.UTC(2026, 10, 1 + id, 8)).toISOString(),
+        usedCount: id % 3,
+        maxUses: null,
+        expiresAt: null,
+        usable: id % 5 !== 0,
+        owner: id === 4 ? null : {id: 10 + id, username: `writer${String(10 + id).padStart(3, "0")}`},
+    };
+}) satisfies AdminInviteCodeItem[];
+
+/** 审计记录：60 条，3 页，动作轮着来；每 8 条里一条是命令行做的。 */
+export const auditItems = Array.from({length: 60}, (_, index): AuditItem => {
+    const id = 60 - index;
+    const action = AUDIT_ACTIONS[index % AUDIT_ACTIONS.length]!;
+    const targetType = action.startsWith("registration_code") ? "registration_code" : action.startsWith("oauth_client") ? "oauth_client" : "user";
+    return {
+        id,
+        createdAt: new Date(Date.UTC(2026, 10, 26, 9, 0) - index * 3_600_000).toISOString(),
+        actor: index % 8 === 0 ? null : {id: adminMe.id, username: adminMe.username},
+        action,
+        target: {type: targetType, id: 10 + (index % 20)},
+        params: action === "user.role" ? {from: "user", to: "admin"} : action === "user.revoke_sessions" ? {sessions: 3} : action === "registration_code.create" ? {maxUses: 5, expiresAt: null} : {},
+    };
+}) satisfies AuditItem[];
+
+/** 重置密码成功：新密码只在这一次回答里。 */
+export const resetPasswordResponse = {password: "Kq7-vT2m-Rw9x"} satisfies ResetPasswordResponse;
+
+export const notFound = {error: {code: "not_found"}} satisfies ErrorBody;
+export const selfForbidden = {error: {code: "self_forbidden"}} satisfies ErrorBody;
+
 /** 合同 schema 的检查清单：上面每一份都要在这里。 */
 export const IDENTITY_FIXTURES: readonly {readonly name: string; readonly schema: TSchema; readonly value: unknown}[] = [
     {name: "anonymousWhoami", schema: WhoamiResponse, value: anonymousWhoami},
@@ -117,4 +200,11 @@ export const IDENTITY_FIXTURES: readonly {readonly name: string; readonly schema
     {name: "invalidCredentials", schema: ErrorBody, value: invalidCredentials},
     {name: "rateLimited", schema: ErrorBody, value: rateLimited},
     {name: "unauthenticated", schema: ErrorBody, value: unauthenticated},
+    {name: "adminUserItems", schema: Type.Array(AdminUserItem), value: adminUserItems},
+    {name: "registrationCodeItems", schema: Type.Array(RegistrationCodeItem), value: registrationCodeItems},
+    {name: "adminInviteCodeItems", schema: Type.Array(AdminInviteCodeItem), value: adminInviteCodeItems},
+    {name: "auditItems", schema: Type.Array(AuditItem), value: auditItems},
+    {name: "resetPasswordResponse", schema: ResetPasswordResponse, value: resetPasswordResponse},
+    {name: "notFound", schema: ErrorBody, value: notFound},
+    {name: "selfForbidden", schema: ErrorBody, value: selfForbidden},
 ];

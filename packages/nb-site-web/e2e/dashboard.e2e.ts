@@ -367,8 +367,8 @@ test("走到空壳页再回来：外壳不动，看板的两张图重新画出�
     await openDashboard(page, VIEWPORTS[0], "light");
     const nav = await box(page, "[data-site-admin-shell] > nav");
 
-    await page.locator('[data-site-admin-nav="admin-users"]').click();
-    await expect(page.locator('[data-site-page="admin-users"]')).toBeVisible();
+    await page.locator('[data-site-admin-nav="admin-clients"]').click();
+    await expect(page.locator('[data-site-page="admin-clients"]')).toBeVisible();
     expect(await box(page, "[data-site-admin-shell] > nav")).toEqual(nav);
 
     await page.locator('[data-site-admin-nav="admin-dashboard"]').click();

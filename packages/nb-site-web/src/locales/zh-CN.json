@@ -261,17 +261,202 @@
                 "failed": "升级失败"
             }
         },
+        "list": {
+            "cancel": "取消",
+            "done": "完成"
+        },
         "users": {
-            "title": "用户"
+            "title": "用户",
+            "search": "用户名、显示名或邮箱",
+            "searchLabel": "搜索用户",
+            "filterLabel": "筛选用户",
+            "filters": {
+                "all": "全部",
+                "admin": "管理员",
+                "banned": "已封禁",
+                "email_pending": "邮箱待补"
+            },
+            "columns": {
+                "id": "ID",
+                "username": "用户名",
+                "displayName": "显示名",
+                "email": "邮箱",
+                "state": "状态",
+                "createdAt": "注册",
+                "lastLoginAt": "最后登录"
+            },
+            "admin": "管理员",
+            "emailPending": "待补",
+            "banned": "已封禁",
+            "normal": "正常",
+            "neverSignedIn": "没有登录过",
+            "rowActions": "{{username}} 的操作",
+            "selfForbidden": "不能对自己的账号这样做",
+            "empty": "没有符合的用户",
+            "actions": {
+                "resetPassword": {
+                    "menu": "重置密码",
+                    "title": "重置 {{username}} 的密码？",
+                    "description": "会生成一个新密码，只显示这一次。旧密码不能再登录，它已登录的设备与授权给应用的令牌都会失效。",
+                    "confirm": "重置密码"
+                },
+                "ban": {
+                    "menu": "封禁",
+                    "title": "封禁 {{username}}？",
+                    "description": "封禁之后它不能登录，已登录的设备与授权给应用的令牌都会失效。",
+                    "confirm": "封禁"
+                },
+                "unban": {
+                    "menu": "解封",
+                    "title": "解封 {{username}}？",
+                    "description": "解封之后它可以重新登录，封禁前的会话不会恢复。",
+                    "confirm": "解封"
+                },
+                "grantAdmin": {
+                    "menu": "设为管理员",
+                    "title": "把 {{username}} 设为管理员？",
+                    "description": "它已登录的设备都会退出，重新登录后就能进管理面板。",
+                    "confirm": "设为管理员"
+                },
+                "revokeAdmin": {
+                    "menu": "取消管理员",
+                    "title": "取消 {{username}} 的管理员？",
+                    "description": "它已登录的设备都会退出，重新登录后是普通用户。",
+                    "confirm": "取消管理员"
+                },
+                "revokeSessions": {
+                    "menu": "结束全部会话",
+                    "title": "结束 {{username}} 的全部会话？",
+                    "description": "它在所有设备上都会退出，授权给应用的令牌也会失效。",
+                    "confirm": "结束全部会话"
+                }
+            },
+            "password": {
+                "title": "{{username}} 的新密码",
+                "description": "关掉之后就看不到这个密码了，请现在复制并交给本人。",
+                "copy": "复制密码"
+            }
         },
         "codes": {
-            "title": "注册码与邀请码"
+            "title": "注册码与邀请码",
+            "kinds": "码的种类",
+            "registration": "注册码",
+            "invite": "邀请码",
+            "filterLabel": "筛选注册码",
+            "filters": {
+                "all": "全部",
+                "usable": "可用",
+                "exhausted_or_expired": "用完或过期",
+                "disabled": "已停用"
+            },
+            "columns": {
+                "code": "注册码",
+                "note": "备注",
+                "used": "已用",
+                "expiresAt": "到期",
+                "state": "状态",
+                "createdAt": "发放"
+            },
+            "inviteColumns": {
+                "code": "邀请码",
+                "owner": "主人",
+                "used": "已用",
+                "expiresAt": "到期",
+                "state": "状态",
+                "createdAt": "生成"
+            },
+            "noNote": "没有备注",
+            "usedOf": "{{used}} / {{max}}",
+            "unlimited": "不限",
+            "neverExpires": "不过期",
+            "states": {
+                "usable": "可用",
+                "exhausted": "已用完",
+                "expired": "已过期",
+                "disabled": "已停用"
+            },
+            "noOwner": "找不到主人",
+            "copy": "复制 {{code}}",
+            "rowActions": "{{code}} 的操作",
+            "emptyRegistration": "没有符合的注册码",
+            "emptyInvite": "还没有邀请码",
+            "disable": {
+                "menu": "停用",
+                "title": "停用 {{code}}？",
+                "description": "停用之后不能再用它注册，不能撤回；已经用它注册的账号不受影响。",
+                "confirm": "停用"
+            },
+            "issue": {
+                "open": "发放注册码",
+                "title": "发放注册码",
+                "maxUses": "可用次数",
+                "maxUsesPlaceholder": "不填就是不限",
+                "expiresAt": "过期日期",
+                "expiresAtHint": "不填就是不过期；到这一天结束时失效",
+                "note": "备注",
+                "notePlaceholder": "只有管理员看得到，例如发给了谁",
+                "submit": "发放",
+                "doneTitle": "注册码已发放",
+                "doneDescription": "这个码随时可以在列表里再复制。",
+                "rules": {
+                    "maxUses": "可用次数要是正整数",
+                    "expiresAt": "过期日期不能早于今天"
+                }
+            }
         },
         "clients": {
             "title": "OAuth 客户端"
         },
         "audit": {
-            "title": "审计"
+            "title": "审计",
+            "actor": "操作者",
+            "actorPlaceholder": "操作者 ID 或 cli",
+            "actorRule": "操作者写数字 ID，或写 cli 表示命令行",
+            "target": "对象种类",
+            "targetId": "对象 ID",
+            "targetIdRule": "对象 ID 是数字",
+            "action": "动作",
+            "allTargets": "全部对象",
+            "allActions": "全部动作",
+            "targets": {
+                "user": "用户",
+                "registration_code": "注册码",
+                "oauth_client": "OAuth 客户端"
+            },
+            "actions": {
+                "user": {
+                    "ban": "封禁",
+                    "unban": "解封",
+                    "role": "改角色",
+                    "revoke_sessions": "结束全部会话",
+                    "reset_password": "重置密码"
+                },
+                "registration_code": {
+                    "create": "发放注册码",
+                    "disable": "停用注册码"
+                },
+                "admin": {
+                    "cli_upsert": "命令行创建或重置管理员"
+                },
+                "oauth_client": {
+                    "create": "登记 OAuth 客户端",
+                    "update": "改动 OAuth 客户端",
+                    "rotate_secret": "换 OAuth 客户端的密钥"
+                }
+            },
+            "columns": {
+                "createdAt": "时间",
+                "actor": "操作者",
+                "action": "动作",
+                "target": "对象",
+                "params": "参数"
+            },
+            "cli": "命令行",
+            "targetRef": "{{type}} #{{id}}",
+            "noParams": "—",
+            "paramsSeparator": "，",
+            "param": "{{name}}：{{value}}",
+            "empty": "没有符合的审计记录"
         }
     },
     "legal": {

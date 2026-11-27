@@ -4,10 +4,14 @@
  * 免得页面多发了请求而场景照样通过。各片接上新接口时在 `answer` 里加一支，不另写一份。
  *
  * 看板的接口（统计模块的查询接口）按路径连同查询串回答（`dashboard`），只答管理员的会话；数据取 `fixtures/dashboard.ts`。
+ * 管理接口（`site.admin`）也只答管理员的会话：四个列表按查询参数从整张表里筛、切页，处置改表里的那一条，下一次 `GET` 按改过的回答。
  */
 
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS, SOCIAL_PROVIDERS, identityPath} from "@notnotype/nb-site-identity-contract";
 import type {
+    AdminInviteCodeItem,
+    AdminUserItem,
+    AuditItem,
     ConsentRequest,
     ConsentResponse,
     ErrorBody,
@@ -18,6 +22,7 @@ import type {
     MetaResponse,
     PatchMeRequest,
     RegisterRequest,
+    RegistrationCodeItem,
     SessionItem,
     SocialProvider,
     SocialStartRequest,
@@ -38,12 +43,18 @@ import {
 } from "./fixtures/dashboard";
 
 import {
+    adminInviteCodeItems,
     adminMe,
+    adminUserItems,
     anonymousWhoami,
+    auditItems,
     identityList,
     inviteCodeList,
     meta,
     registerResponse,
+    registrationCodeItems,
+    resetPasswordResponse,
+    selfForbidden,
     sessionList,
     socialStartResponse,
     unauthenticated,
@@ -98,6 +109,17 @@ export interface FakeIdentity {
     dashboard: (path: string, fake: FakeIdentity) => FakeAnswer | Promise<FakeAnswer> | undefined;
     /** 看板发出的请求（路径连同查询串），按先后。 */
     readonly dashboardRequests: string[];
+    /** 管理面板的四张表；处置与发放跟着改。缺省是 `fixtures/identity.ts` 的那几份的副本。 */
+    adminUsers: AdminUserItem[];
+    registrationCodes: RegistrationCodeItem[];
+    adminInvites: AdminInviteCodeItem[];
+    audit: AuditItem[];
+    /**
+     * 管理接口的回答先问它（`request` 是 `方法 路径`，不带查询串）：回 `undefined` 时照表回答。用例在这里让某个处置失败、让列表晚到。
+     */
+    admin: (request: string, fake: FakeIdentity) => FakeAnswer | Promise<FakeAnswer> | undefined;
+    /** 管理接口收到的请求（`方法 路径` 连同查询串）与请求体，按先后。 */
+    readonly adminRequests: {readonly request: string; readonly body: unknown}[];
     /** 没准备的请求（`方法 路径`）。 */
     readonly unexpected: string[];
 }
@@ -190,6 +212,105 @@ function answerDashboard(fake: FakeIdentity, path: string): FakeAnswer | Promise
     if (fake.session !== "admin") return {status: 403, body: {error: {code: "forbidden"}} satisfies ErrorBody};
     fake.dashboardRequests.push(path);
     return fake.dashboard(path, fake);
+}
+
+/** 列表的一页（`site.admin` 分页参数表之后一段）：按 `page`、`pageSize` 切，带回请求的基准，没带时给一个。 */
+function pageOf<Item>(items: readonly Item[], query: URLSearchParams): {items: Item[]; total: number; page: number; pageSize: number; anchor: string} {
+    const page = Number(query.get("page") ?? 1);
+    const pageSize = Number(query.get("pageSize") ?? 20);
+    return {items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length, page, pageSize, anchor: query.get("anchor") ?? "t1764151200000"};
+}
+
+const USER_FILTERS: Readonly<Record<string, (user: AdminUserItem) => boolean>> = {
+    all: () => true,
+    admin: (user) => user.role === "admin",
+    banned: (user) => user.banned,
+    email_pending: (user) => user.emailPending,
+};
+
+const CODE_FILTERS: Readonly<Record<string, (item: RegistrationCodeItem) => boolean>> = {
+    all: () => true,
+    usable: (item) => item.usable,
+    exhausted_or_expired: (item) => !item.disabled && !item.usable,
+    disabled: (item) => item.disabled,
+};
+
+function countsOf<Item>(items: readonly Item[], filters: Readonly<Record<string, (item: Item) => boolean>>): Record<string, number> {
+    return Object.fromEntries(Object.entries(filters).map(([name, matches]) => [name, items.filter(matches).length]));
+}
+
+/** 管理接口（`site.admin` 的接口表）。不是管理接口时回 `undefined`。 */
+async function answerAdmin(fake: FakeIdentity, method: string, pathname: string, query: URLSearchParams, body: unknown): Promise<FakeAnswer | undefined> {
+    if (!pathname.startsWith(path("/admin/"))) return undefined;
+    if (fake.session === undefined) return {status: 401, body: unauthenticated};
+    if (fake.session !== "admin") return {status: 403, body: {error: {code: "forbidden"}} satisfies ErrorBody};
+    const request = `${method} ${pathname}`;
+    const search = query.toString();
+    fake.adminRequests.push({request: search === "" ? request : `${request}?${search}`, body});
+    const override = await fake.admin(request, fake);
+    if (override !== undefined) return override;
+
+    if (method === "GET" && pathname === path(IDENTITY_PATHS.adminUsers)) {
+        const q = query.get("q")?.toLowerCase() ?? "";
+        const searched = fake.adminUsers.filter((user) => q === "" || [user.username, user.displayName, user.email ?? ""].some((value) => value.toLowerCase().startsWith(q)));
+        const matches = USER_FILTERS[query.get("filter") ?? "all"] ?? USER_FILTERS.all!;
+        return {status: 200, body: {...pageOf(searched.filter(matches), query), counts: countsOf(searched, USER_FILTERS)}};
+    }
+    if (method === "GET" && pathname === path(IDENTITY_PATHS.adminRegistrationCodes)) {
+        const matches = CODE_FILTERS[query.get("filter") ?? "all"] ?? CODE_FILTERS.all!;
+        return {status: 200, body: {...pageOf(fake.registrationCodes.filter(matches), query), counts: countsOf(fake.registrationCodes, CODE_FILTERS)}};
+    }
+    if (method === "GET" && pathname === path(IDENTITY_PATHS.adminInviteCodes)) return {status: 200, body: pageOf(fake.adminInvites, query)};
+    if (method === "GET" && pathname === path(IDENTITY_PATHS.adminAudit)) {
+        const actor = query.get("actorId");
+        const matches = (item: AuditItem): boolean =>
+            (actor === null || (actor === "cli" ? item.actor === null : item.actor?.id === Number(actor)))
+            && (query.get("targetType") === null || item.target.type === query.get("targetType"))
+            && (query.get("targetId") === null || item.target.id === Number(query.get("targetId")))
+            && (query.get("action") === null || item.action === query.get("action"));
+        return {status: 200, body: pageOf(fake.audit.filter(matches), query)};
+    }
+
+    const userAction = new RegExp(`^${path("/admin/users")}/(\\d+)/([a-z-]+)$`, "u").exec(pathname);
+    if (method === "POST" && userAction !== null) {
+        const id = Number(userAction[1]);
+        const index = fake.adminUsers.findIndex((user) => user.id === id);
+        if (index < 0) return notFound;
+        const action = userAction[2];
+        if ((action === "ban" || action === "role") && id === adminMe.id) return {status: 409, body: selfForbidden};
+        if (action === "reset-password") return {status: 200, body: resetPasswordResponse};
+        const user = fake.adminUsers[index]!;
+        const changed: AdminUserItem = action === "ban" ? {...user, banned: true} : action === "unban" ? {...user, banned: false} : action === "role" ? {...user, role: (body as {role: AdminUserItem["role"]}).role} : user;
+        fake.adminUsers[index] = changed;
+        return {status: 200, body: changed};
+    }
+    if (method === "POST" && pathname === path(IDENTITY_PATHS.adminRegistrationCodes)) {
+        const request = body as {maxUses: number | null; expiresAt?: string | null; note?: string};
+        const id = Math.max(0, ...fake.registrationCodes.map((item) => item.id)) + 1;
+        const created: RegistrationCodeItem = {
+            id,
+            code: `NB-REG-NEW-${id}`,
+            maxUses: request.maxUses,
+            usedCount: 0,
+            expiresAt: request.expiresAt ?? null,
+            note: request.note ?? null,
+            disabled: false,
+            usable: true,
+            createdAt: new Date().toISOString(),
+            createdBy: {id: adminMe.id, username: adminMe.username},
+        };
+        fake.registrationCodes = [created, ...fake.registrationCodes];
+        return {status: 200, body: created};
+    }
+    const codeId = idAfter(pathname, IDENTITY_PATHS.adminRegistrationCodes);
+    if (method === "PATCH" && codeId !== undefined) {
+        const index = fake.registrationCodes.findIndex((item) => item.id === codeId);
+        if (index < 0) return notFound;
+        const disabled = {...fake.registrationCodes[index]!, disabled: true, usable: false};
+        fake.registrationCodes[index] = disabled;
+        return {status: 200, body: disabled};
+    }
+    return undefined;
 }
 
 /** 路径末尾的数字 id：`prefix` 是 `/me/sessions` 这样不带 id 的那段。 */
@@ -288,7 +409,7 @@ function answer(fake: FakeIdentity, method: string, pathname: string, body: unkn
 /** 给这一页装上假接口。要在 `page.goto` 之前调用：第一个请求（`whoami`）在页面一加载就发出。 */
 export async function installFakeIdentity(
     page: Page,
-    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink" | "dashboard">> = {},
+    initial: Partial<Pick<FakeIdentity, "session" | "consentRequired" | "me" | "meta" | "metaArrives" | "login" | "register" | "socialStart" | "sessions" | "identities" | "invites" | "patchMe" | "unlink" | "dashboard" | "adminUsers" | "registrationCodes" | "adminInvites" | "audit" | "admin">> = {},
 ): Promise<FakeIdentity> {
     const fake: FakeIdentity = {
         session: initial.session,
@@ -311,6 +432,12 @@ export async function installFakeIdentity(
         accountChanges: [],
         dashboard: initial.dashboard ?? dashboardSucceeds(),
         dashboardRequests: [],
+        adminUsers: initial.adminUsers ?? [...adminUserItems],
+        registrationCodes: initial.registrationCodes ?? [...registrationCodeItems],
+        adminInvites: initial.adminInvites ?? [...adminInviteCodeItems],
+        audit: initial.audit ?? [...auditItems],
+        admin: initial.admin ?? (() => undefined),
+        adminRequests: [],
         unexpected: [],
     };
     await page.route((url) => url.pathname.startsWith("/api/"), async (route: Route) => {
@@ -319,7 +446,9 @@ export async function installFakeIdentity(
         const body = request.postData() === null ? undefined : request.postDataJSON();
         if (request.method() === "GET" && pathname === path(IDENTITY_PATHS.meta) && fake.metaArrives !== undefined) await fake.metaArrives;
         const dashboard = request.method() === "GET" && pathname.startsWith(`${TELEMETRY_API_PREFIX}/`);
-        const reply = dashboard ? await answerDashboard(fake, `${pathname}${search}`) : answer(fake, request.method(), pathname, body);
+        const reply = dashboard
+            ? await answerDashboard(fake, `${pathname}${search}`)
+            : ((await answerAdmin(fake, request.method(), pathname, new URLSearchParams(search), body)) ?? answer(fake, request.method(), pathname, body));
         if (reply === undefined) {
             fake.unexpected.push(`${request.method()} ${pathname}${search}`);
             await route.fulfill({status: 404, json: {error: {code: "not_found"}} satisfies ErrorBody});

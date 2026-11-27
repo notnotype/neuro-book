@@ -5,8 +5,9 @@
  * 管理面板的五页是 `/admin` 这条父路由的子路由：父路由的组件是管理面板的外壳（`admin/AdminShell.vue`，左栏导航与用户菜单），
  * 单独一个块，五页共用，在它们之间切换时外壳不重建（计划 3.13）。访问级别与版式写在父路由上，子路由的 `meta` 合并它们。
  *
- * 还没做的页面先挂同一个空壳 `ShellPage`，只显示路由的标题；各片做到那一页时换成自己的组件。看板是单独的
- * `admin/DashboardPage.vue`：构建测试按它认出看板的块（ECharts 只许在那里）。
+ * 还没做的页面先挂同一个空壳 `ShellPage`，只显示路由的标题；各片做到那一页时换成自己的组件（OAuth 客户端页还是空壳，归 B7）。
+ * 看板是单独的 `admin/DashboardPage.vue`：构建测试按它认出看板的块（ECharts 只许在那里）。用户、注册码与邀请码、审计三个列表页
+ * 各自一个块，共用的取数与表格骨架由打包器拆成它们共用的块。
  */
 
 import {createRouter} from "vue-router";
@@ -72,10 +73,10 @@ export function createSiteRouter(options: SiteRouterOptions): Router {
                 meta: {access: "admin", layout: "admin"},
                 children: [
                     {path: "", name: "admin-dashboard", component: () => import("./pages/admin/DashboardPage.vue"), meta: {titleKey: "admin.dashboard.title"}},
-                    {path: "users", name: "admin-users", component: shell, meta: {titleKey: "admin.users.title"}},
-                    {path: "codes", name: "admin-codes", component: shell, meta: {titleKey: "admin.codes.title"}},
+                    {path: "users", name: "admin-users", component: () => import("./pages/admin/UsersPage.vue"), meta: {titleKey: "admin.users.title"}},
+                    {path: "codes", name: "admin-codes", component: () => import("./pages/admin/CodesPage.vue"), meta: {titleKey: "admin.codes.title"}},
                     {path: "clients", name: "admin-clients", component: shell, meta: {titleKey: "admin.clients.title"}},
-                    {path: "audit", name: "admin-audit", component: shell, meta: {titleKey: "admin.audit.title"}},
+                    {path: "audit", name: "admin-audit", component: () => import("./pages/admin/AuditPage.vue"), meta: {titleKey: "admin.audit.title"}},
                 ],
             },
             {path: "/privacy", name: "privacy", component: shell, meta: {access: "public", layout: "plain", titleKey: "legal.privacy.title"}},

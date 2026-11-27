@@ -78,9 +78,9 @@ describe("导航", () => {
     });
 
     it("空壳页也写着自己的页名", async () => {
-        const harness = await openAdmin("/admin/codes", "admin-codes");
-        expect(harness.target.querySelector('[data-site-page="admin-codes"] h1')?.textContent).toBe(zhCN.admin.codes.title);
-        expect(current(harness)).toEqual(["admin-codes"]);
+        const harness = await openAdmin("/admin/clients", "admin-clients");
+        expect(harness.target.querySelector('[data-site-page="admin-clients"] h1')?.textContent).toBe(zhCN.admin.clients.title);
+        expect(current(harness)).toEqual(["admin-clients"]);
     });
 });
 
