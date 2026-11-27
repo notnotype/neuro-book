@@ -146,10 +146,10 @@ async function submit(): Promise<void> {
             <Transition name="nb-ui-switch" mode="out-in">
                 <div v-if="issued === undefined" key="form" class="admin-dialog-buttons">
                     <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("admin.list.cancel") }}</Button>
-                    <Button type="submit" form="admin-issue-form" :disabled="!canSubmit" :loading="submitting" data-site-admin-issue-submit>{{ t("admin.codes.issue.submit") }}</Button>
+                    <Button variant="primary" type="submit" form="admin-issue-form" :disabled="!canSubmit" :loading="submitting" data-site-admin-issue-submit>{{ t("admin.codes.issue.submit") }}</Button>
                 </div>
                 <div v-else key="issued" class="admin-dialog-buttons">
-                    <Button data-site-admin-issue-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                    <Button variant="primary" data-site-admin-issue-finish @click="cancel">{{ t("admin.list.done") }}</Button>
                 </div>
             </Transition>
         </template>

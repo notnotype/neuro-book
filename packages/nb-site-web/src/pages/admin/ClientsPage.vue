@@ -137,7 +137,7 @@ function moreUris(client: OAuthClientItem): string | undefined {
             @retry="list.reload()"
         >
             <template #actions>
-                <Button size="sm" data-site-admin-client-register @click="openRegister">{{ t("admin.clients.register.open") }}</Button>
+                <Button variant="primary" size="sm" data-site-admin-client-register @click="openRegister">{{ t("admin.clients.register.open") }}</Button>
             </template>
             <template #cell-name="{row}">
                 <span class="admin-clients__name" :data-site-admin-client-row="row.clientId">{{ row.name }}</span>

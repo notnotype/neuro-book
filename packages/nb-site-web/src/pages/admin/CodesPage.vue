@@ -204,7 +204,7 @@ const disableRun = computed(() => {
                 <SegmentedControl :model-value="registrationState.fields.filter" :options="filterOptions" :aria-label="t('admin.codes.filterLabel')" data-site-admin-filter @update:model-value="setFilter" />
             </template>
             <template #actions>
-                <Button size="sm" data-site-admin-issue @click="issueOpen = true">{{ t("admin.codes.issue.open") }}</Button>
+                <Button variant="primary" size="sm" data-site-admin-issue @click="issueOpen = true">{{ t("admin.codes.issue.open") }}</Button>
             </template>
             <template #cell-code="{row}">
                 <span class="admin-code">{{ row.code }}<CopyButton :text="row.code" :label="t('admin.codes.copy', {code: row.code})" icon-only /></span>

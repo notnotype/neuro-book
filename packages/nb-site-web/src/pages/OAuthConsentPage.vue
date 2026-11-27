@@ -274,7 +274,7 @@ async function switchAccount(): Promise<void> {
                     <FormStatus class="site-form-status" :text="statusText" :spoken="statusSpoken" :reason="status?.reason" />
                     <div class="oauth-consent__actions">
                         <Button variant="secondary" block :disabled="busy" :loading="deciding === 'deny'" data-site-oauth-deny @click="decide(false)">{{ t("oauthConsent.deny") }}</Button>
-                        <Button block :disabled="busy" :loading="deciding === 'allow'" data-site-oauth-allow @click="decide(true)">{{ t("oauthConsent.allow") }}</Button>
+                        <Button variant="primary" block :disabled="busy" :loading="deciding === 'allow'" data-site-oauth-allow @click="decide(true)">{{ t("oauthConsent.allow") }}</Button>
                     </div>
                 </div>
                 <p class="site-form-alt" data-site-oauth-return>{{ t("oauthConsent.returnTo", {host: state.info.redirectHost}) }}</p>

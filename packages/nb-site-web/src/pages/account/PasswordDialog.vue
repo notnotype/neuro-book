@@ -117,7 +117,7 @@ async function submit(): Promise<void> {
         </form>
         <template #footer="{cancel}">
             <Button variant="secondary" :disabled="submitting" @click="cancel">{{ t("account.cancel") }}</Button>
-            <Button type="submit" form="account-password-form" :disabled="!canSubmit" :loading="submitting">{{ t("account.save") }}</Button>
+            <Button variant="primary" type="submit" form="account-password-form" :disabled="!canSubmit" :loading="submitting">{{ t("account.save") }}</Button>
         </template>
     </Dialog>
 </template>

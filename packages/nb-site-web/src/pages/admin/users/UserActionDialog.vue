@@ -146,7 +146,7 @@ function fail(failure: Parameters<typeof feedback.showFailure>[0]): void {
                     >{{ t(textKey("confirm")) }}</Button>
                 </div>
                 <div v-else key="password" class="admin-dialog-buttons">
-                    <Button data-site-admin-user-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                    <Button variant="primary" data-site-admin-user-finish @click="cancel">{{ t("admin.list.done") }}</Button>
                 </div>
             </Transition>
         </template>

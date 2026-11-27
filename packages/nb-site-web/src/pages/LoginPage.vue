@@ -150,7 +150,7 @@ watch(
                     <RouterLink :to="registerLink" class="site-link">{{ t("login.goRegister") }}</RouterLink>
                 </template>
             </FormStatus>
-            <Button type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("login.submit") }}</Button>
+            <Button variant="primary" type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("login.submit") }}</Button>
         </form>
         <SocialButtons intent="login" :providers="providers" :disabled="busy" @start="startSocial" />
         <p class="site-form-alt">

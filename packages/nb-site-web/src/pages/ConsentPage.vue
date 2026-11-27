@@ -135,7 +135,7 @@ async function leaveAccount(): Promise<void> {
                 <Checkbox v-model="agreeOverseas" name="overseasStorage" :invalid="isInvalid('overseasStorage')">{{ t("form.agreeOverseas") }}</Checkbox>
             </div>
             <FormStatus class="site-form-status" :text="statusText" :spoken="statusSpoken" :reason="status?.reason" />
-            <Button type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("consent.submit") }}</Button>
+            <Button variant="primary" type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("consent.submit") }}</Button>
         </form>
         <Button class="consent-sign-out" variant="ghost" block :disabled="busy" :loading="signingOut" @click="leaveAccount">{{ t("consent.signOut") }}</Button>
     </div>

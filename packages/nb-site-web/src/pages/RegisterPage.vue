@@ -384,7 +384,7 @@ onMounted(() => {
                 </Checkbox>
             </div>
             <FormStatus class="site-form-status" :text="statusText" :spoken="statusSpoken" :reason="status?.reason" />
-            <Button type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("register.submit") }}</Button>
+            <Button variant="primary" type="submit" block :disabled="!canSubmit" :loading="submitting">{{ t("register.submit") }}</Button>
         </form>
         <SocialButtons intent="register" :providers="providers" :disabled="closed || busy" @start="startSocial" />
         <p class="site-form-alt">

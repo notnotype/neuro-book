@@ -90,7 +90,7 @@ async function confirm(): Promise<void> {
                     <Button variant="danger" :disabled="feedback.waiting.value" :loading="submitting" data-site-admin-rotate-confirm @click="confirm">{{ t("admin.clients.rotate.confirm") }}</Button>
                 </div>
                 <div v-else key="secret" class="admin-dialog-buttons">
-                    <Button data-site-admin-rotate-finish @click="cancel">{{ t("admin.list.done") }}</Button>
+                    <Button variant="primary" data-site-admin-rotate-finish @click="cancel">{{ t("admin.list.done") }}</Button>
                 </div>
             </Transition>
         </template>

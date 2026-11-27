@@ -80,7 +80,7 @@ async function submit(): Promise<void> {
         </form>
         <template #footer="{cancel}">
             <Button variant="secondary" :disabled="starting" @click="cancel">{{ t("account.cancel") }}</Button>
-            <Button type="submit" form="account-link-form" :disabled="!canSubmit" :loading="starting">{{ t("account.security.linkContinue") }}</Button>
+            <Button variant="primary" type="submit" form="account-link-form" :disabled="!canSubmit" :loading="starting">{{ t("account.security.linkContinue") }}</Button>
         </template>
     </Dialog>
 </template>

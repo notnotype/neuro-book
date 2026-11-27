@@ -158,7 +158,7 @@ async function save(): Promise<void> {
             </Field>
         </form>
         <template #actions>
-            <Button type="submit" form="account-profile-form" :disabled="!canSave" :loading="saving" data-site-account-save>{{ t("account.save") }}</Button>
+            <Button variant="primary" type="submit" form="account-profile-form" :disabled="!canSave" :loading="saving" data-site-account-save>{{ t("account.save") }}</Button>
         </template>
     </AccountSection>
 </template>
