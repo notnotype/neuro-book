@@ -1,0 +1,46 @@
+# LY-1 摸底：Lab 场景里竖排容器的相邻子元素间距（2026-11-27，worktree 开发服务，1440×1000，亮色）
+
+方括号里是上下内边距。设置窗口：行距 16（行的上下内边距 8+8）、组距 32；模型服务商详情：字段距 8、标签到输入框 4、组距 24；网络页同设置窗口。
+
+
+=== settings-user
+
+=== settings-other
+
+=== provider-detail
+  div.provider-detail.w-full  gaps=[24]  items=section.provider-detail__group, section.provider-detail__group
+    section.provider-detail__group  gaps=[4]  items=h3.provider-detail__title, div.provider-detail__form
+      div.provider-detail__form  gaps=[8,8,8]  items=div.provider-detail__field, div.provider-detail__field, div.provider-detail__field, div.w-full
+        div.provider-detail__field  gaps=[4]  items=div.provider-detail__field-head, input.nb-ui-native-input.w-full
+        div.provider-detail__field  gaps=[4]  items=div.provider-detail__field-head, input.nb-ui-native-input.w-full
+        div.provider-detail__field  gaps=[4]  items=div.provider-detail__field-head, div.provider-detail__inline
+    section.provider-detail__group  gaps=[4,4,6]  items=div.provider-detail__title.provider-detail__title--actions, div.provider-detail__source, label.provider-detail__follow, section.provider-detail__series
+      section.provider-detail__series  gaps=[0]  items=button.provider-detail__series-title.nb-ui-focus-ring, ul.provider-detail__models
+        ul.provider-detail__models  gaps=[0]  items=li.model-row, li.model-row
+
+=== network-page
+      div.network-page  gaps=[24]  items=section.network-page__group, section.network-page__group
+        section.network-page__group  gaps=[4,0]  items=h3.network-page__title, div.settings-row, div.w-full
+          div.settings-row  gaps=[0]  items=div.settings-row__main, div.settings-row__below
+        section.network-page__group  gaps=[4,0]  items=h3.network-page__title, div.settings-row, div.settings-action-row
+              div.settings-action-row__text  gaps=[2]  items=div.settings-action-row__title, p.settings-action-row__description
+
+=== settings-user
+div.settings-window__column[p12/16]  gaps=[24]  items=header.settings-section-heading, div.settings-list-section
+  div.settings-list-section  gaps=[24]  items=section.settings-list-section__group, section.settings-list-section__group
+    section.settings-list-section__group  gaps=[4,0]  items=h3.settings-list-section__group-title[p0/6], div.settings-row[p8/8], div.settings-row[p8/8]
+          div.settings-row__text  gaps=[2]  items=div.settings-row__title, p.settings-row__description
+      div.settings-row[p8/8]  gaps=[6]  items=div.settings-row__main, p.settings-row__override
+    section.settings-list-section__group  gaps=[4]  items=h3.settings-list-section__group-title[p0/6], div.settings-row[p8/8]
+
+=== settings-other
+div.settings-window__column[p12/16]  gaps=[24]  items=header.settings-section-heading, div.settings-list-section
+    section.settings-list-section__group  gaps=[4,0,0,0,0,0,0]  items=h3.settings-list-section__group-title[p0/6], div.settings-row[p8/8], div.settings-row[p8/8], div.settings-row[p8/8] …
+          div.settings-row__text  gaps=[2]  items=div.settings-row__title, p.settings-row__description
+      div.settings-row[p8/8]  gaps=[6]  items=div.settings-row__main, p.settings-row__override
+          div.settings-row__text  gaps=[2]  items=div.settings-row__title, p.settings-row__description
+                    div.flex.flex-col  gaps=[0]  items=button.flex.h-3.5, button.flex.h-3.5
+          div.settings-row__text  gaps=[2]  items=div.settings-row__title, p.settings-row__description
+      div.settings-row.settings-row--wide[p8/8]  gaps=[8]  items=div.settings-row__main, div.settings-row__wide
+                  div.nb-form-list  gaps=[8]  items=ol.nb-form-list__items, div
+                    ol.nb-form-list__items  gaps=[6,6]  items=li.nb-form-list__item, li.nb-form-list__item, li.nb-form-list__item

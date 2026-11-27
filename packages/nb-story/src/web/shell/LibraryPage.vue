@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
         <div class="mx-auto flex max-w-[720px] flex-col gap-4 p-4 sm:p-6">
             <div class="flex items-center gap-2">
                 <h1 class="flex items-center gap-2 text-[length:var(--text-lg)] font-[var(--weight-strong)]"><span class="i-lucide-library text-[var(--accent-text)]" />书架</h1>
-                <Button class="ml-auto" size="sm" icon-class="i-lucide-file-plus" data-testid="go-import" @click="router.push('/import')">导入原文</Button>
+                <Button variant="primary" class="ml-auto" size="sm" icon-class="i-lucide-file-plus" data-testid="go-import" @click="router.push('/import')">导入原文</Button>
                 <Button size="sm" variant="secondary" icon-class="i-lucide-settings" data-testid="go-settings" @click="router.push('/settings')">设置</Button>
                 <ThemeMenu />
             </div>

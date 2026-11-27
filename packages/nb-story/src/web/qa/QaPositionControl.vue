@@ -39,7 +39,7 @@ function confirm(): void {
             <Select v-model="picked" size="sm" :options="options" aria-label="章" data-testid="qa-position-chapter" />
             <div class="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" @click="open = false">取消</Button>
-                <Button size="sm" :disabled="same" data-testid="qa-position-confirm" @click="confirm">确定</Button>
+                <Button variant="primary" size="sm" :disabled="same" data-testid="qa-position-confirm" @click="confirm">确定</Button>
             </div>
         </div>
     </Popover>

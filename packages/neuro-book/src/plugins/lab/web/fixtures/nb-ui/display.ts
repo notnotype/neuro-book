@@ -88,7 +88,7 @@ export const displayFixtures: LabFixture[] = [
     defineSubjectFixture<typeof EmptyState>({
         component: "EmptyState",
         class: "w-full",
-        slotPresets: {action: () => h(NbButton, {size: "sm", iconClass: "i-lucide-plus"}, () => "新建作品")},
+        slotPresets: {action: () => h(NbButton, {variant: "primary", size: "sm", iconClass: "i-lucide-plus"}, () => "新建作品")},
         scenes: [
             {id: "default", label: "图标、标题与操作", input: {props: {iconClass: "i-lucide-book-open", title: "书架上还没有作品", description: "新建一部作品，或把已有的目录加入书架。"}, slots: {action: true}}},
             {id: "plain", label: "只有说明", input: {props: {description: "没有匹配的结果"}, slots: {action: false}}},

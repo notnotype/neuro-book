@@ -39,7 +39,7 @@ const text = useCanonText();
         </div>
         <template #footer="{cancel}">
             <Button variant="ghost" :disabled="props.saving" @click="cancel()">{{ text("pending.breakExclusive.cancel") }}</Button>
-            <Button :disabled="props.saving" @click="emit('confirm')">{{ text("pending.breakExclusive.confirm") }}</Button>
+            <Button variant="primary" :disabled="props.saving" @click="emit('confirm')">{{ text("pending.breakExclusive.confirm") }}</Button>
         </template>
     </Dialog>
 </template>

@@ -235,7 +235,7 @@ const confirm = async (write: () => Promise<{readonly ok: boolean; readonly reas
             </form>
             <template #footer="{cancel}">
                 <Button variant="ghost" :disabled="busy" @click="cancel()">{{ text("edit.cancel") }}</Button>
-                <Button :disabled="!canRename" @click="submitRename">{{ text("card.rename") }}</Button>
+                <Button variant="primary" :disabled="!canRename" @click="submitRename">{{ text("card.rename") }}</Button>
             </template>
         </Dialog>
         <Dialog :open="removing !== null" size="sm" :title="text('card.removeTitle', {label: removing?.label ?? ''})" show-cancel :busy="busy" @update:open="(open: boolean) => { if (!open) removing = null; }">

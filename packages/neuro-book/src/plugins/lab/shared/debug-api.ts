@@ -33,6 +33,17 @@ export type LabClippedFocus = {
     gap: number;
 };
 
+/**
+ * 可点区域小于 24×24、又不满足间距例外的目标（WCAG 2.5.8，nb-ui 开发规范“可点区域与焦点”第 10 条）。只报告，不算失败。
+ */
+export type LabSmallTarget = {
+    selector: string;
+    componentName: string;
+    /** 可点区域（含关联的 label）的宽高，像素。 */
+    width: number;
+    height: number;
+};
+
 export type LabStageMeasure = {
     /** 舞台在视口中的位置与大小，截图按它裁剪。 */
     box: {x: number; y: number; width: number; height: number};
@@ -50,6 +61,10 @@ export type LabStageMeasure = {
     clippedFocus: LabClippedFocus[];
     /** 现在就画着的外扩环（不偏移的外阴影的扩散量或 outline，例如色块的选中环）会被祖先裁掉一截的元素，最多 20 个；范围同上。 */
     clippedRings: LabClippedFocus[];
+    /** 可点区域不够 24×24、以中心画直径 24 的圆又碰到别的目标的元素，最多 20 个；只报告。 */
+    smallTargets: LabSmallTarget[];
+    /** 文字被裁掉的元素：不滚动的方向上内容比盒子大，且不是单行省略号截断，最多 20 个；只报告（文字间距加大后看它）。 */
+    clippedText: LabOverflowOffender[];
 };
 
 export type LabDebugApi = {

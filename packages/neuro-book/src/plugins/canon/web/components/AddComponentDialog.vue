@@ -77,7 +77,7 @@ const show = (type: string): void => {
         />
         <template #footer="{cancel}">
             <Button variant="ghost" :disabled="props.busy" @click="cancel()">{{ text("edit.cancel") }}</Button>
-            <Button class="add-component-dialog__submit" :disabled="checked.length === 0 || props.busy" :aria-label="submitLabel" :data-shortcut="SHORTCUT" data-add-submit @click="submit">{{ submitLabel }}</Button>
+            <Button variant="primary" class="add-component-dialog__submit" :disabled="checked.length === 0 || props.busy" :aria-label="submitLabel" :data-shortcut="SHORTCUT" data-add-submit @click="submit">{{ submitLabel }}</Button>
         </template>
     </Dialog>
 </template>

@@ -74,7 +74,7 @@ const failure = computed(() => list.state.value?.error ?? null);
                 <p v-if="groups.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("goals.empty") }}</p>
                 <section v-for="group in groups" :key="group.holder" class="mb-6" data-goal-group>
                     <h2 class="flex items-center gap-2 text-[length:var(--text-base)] font-semibold">
-                        <button type="button" class="i-lucide-chevron-down size-4 text-[var(--text-muted)] transition-transform" :class="collapsed(group.holder) ? '-rotate-90' : ''" :aria-expanded="!collapsed(group.holder)" :aria-label="text(collapsed(group.holder) ? 'goals.expand' : 'goals.collapse', {name: nameOf(group.holder)})" @click="toggle(group.holder)" />
+                        <button type="button" class="i-lucide-chevron-down size-4 text-[var(--text-muted)] transition-transform motion-reduce:transition-none" :class="collapsed(group.holder) ? '-rotate-90' : ''" :aria-expanded="!collapsed(group.holder)" :aria-label="text(collapsed(group.holder) ? 'goals.expand' : 'goals.collapse', {name: nameOf(group.holder)})" @click="toggle(group.holder)" />
                         <button type="button" class="text-[var(--accent-main)] hover:underline" @click="props.open(group.holder)">{{ nameOf(group.holder) }}</button>
                     </h2>
                     <GoalGroup v-if="!collapsed(group.holder)" class="mt-2" :goals="group.goals" :attitudes="group.attitudes" :names="names" :chapters="chapters" @open="props.open" />

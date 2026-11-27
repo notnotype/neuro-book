@@ -180,7 +180,7 @@ async function resume(): Promise<void> {
                     <span class="ml-auto" />
                     <Button v-if="status.committed > 0" size="sm" variant="secondary" icon-class="i-lucide-book-open" data-testid="ingest-open-book" @click="router.push(`/book/${encodeURIComponent(status.id)}`)">打开书（读到第 {{ status.committed }} 章）</Button>
                     <Button v-if="status.state === 'running' && status.runner === 'serve'" size="sm" variant="secondary" icon-class="i-lucide-square" :disabled="stopping" data-testid="ingest-stop" @click="stop">{{ stopping ? "正在停止" : "停止" }}</Button>
-                    <Button v-else-if="status.state === 'stopped'" size="sm" icon-class="i-lucide-play" :disabled="resuming" data-testid="ingest-resume" @click="resume">继续</Button>
+                    <Button variant="primary" v-else-if="status.state === 'stopped'" size="sm" icon-class="i-lucide-play" :disabled="resuming" data-testid="ingest-resume" @click="resume">继续</Button>
                 </div>
                 <p v-if="actionError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="ingest-action-error">{{ actionError }}</p>
 

@@ -106,7 +106,7 @@ function handleUpdate(value: unknown): void {
                     ]"
                 >
                     <RadioGroupIndicator
-                        class="flex items-center justify-center transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
+                        class="flex items-center justify-center transition-transform motion-reduce:transition-none [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
                     >
                         <span
                             class="block rounded-full bg-[var(--text-inverse)] shadow-sm"

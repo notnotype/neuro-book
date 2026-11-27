@@ -38,7 +38,7 @@ async function install(agent: AgentId, force: boolean): Promise<void> {
             <li v-for="agent in AGENTS" :key="agent.id" class="flex flex-col gap-1 rounded-[var(--radius-control)] border border-[var(--divider)] px-3 py-2" :data-agent="agent.id">
                 <div class="flex items-center gap-3">
                     <div class="min-w-0 flex-1"><b>{{ agent.label }}</b> <code class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ agent.where }}</code></div>
-                    <Button size="sm" :disabled="busy !== null" :data-testid="`skill-install-${agent.id}`" @click="install(agent.id, false)">{{ busy === agent.id ? "安装中…" : "安装 / 更新" }}</Button>
+                    <Button variant="primary" size="sm" :disabled="busy !== null" :data-testid="`skill-install-${agent.id}`" @click="install(agent.id, false)">{{ busy === agent.id ? "安装中…" : "安装 / 更新" }}</Button>
                 </div>
                 <p v-if="results[agent.id]" class="text-[length:var(--text-sm)]" :class="results[agent.id]!.ok ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'" :data-testid="`skill-result-${agent.id}`">{{ results[agent.id]!.text }}</p>
                 <div v-if="results[agent.id]?.needsForce"><Button size="sm" variant="secondary" :disabled="busy !== null" :data-testid="`skill-force-${agent.id}`" @click="install(agent.id, true)">换成随包的内容</Button></div>

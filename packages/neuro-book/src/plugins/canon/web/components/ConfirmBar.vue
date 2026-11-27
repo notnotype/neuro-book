@@ -175,7 +175,7 @@ const onKeydown = (event: KeyboardEvent): void => {
             </p>
             <div class="mt-3 flex justify-end gap-2">
                 <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
-                <Button size="sm" :disabled="!canSave" @click="emit('save')">{{ text("edit.save") }}</Button>
+                <Button variant="primary" size="sm" :disabled="!canSave" @click="emit('save')">{{ text("edit.save") }}</Button>
             </div>
         </template>
         <template v-else>
@@ -195,7 +195,7 @@ const onKeydown = (event: KeyboardEvent): void => {
                 <span class="flex-1" />
                 <Button size="sm" variant="ghost" @click="emit('cancel')">{{ text("edit.cancel") }}</Button>
                 <!-- 快捷键提示画在伪元素里；伪元素的字会算进读屏名，所以读屏名另写成“保存”。 -->
-                <Button class="confirm-bar__save" size="sm" :disabled="!canSave" :aria-label="text('edit.save')" :data-shortcut="saveHint === '' ? undefined : saveHint" @click="emit('save')">{{ text("edit.save") }}</Button>
+                <Button variant="primary" class="confirm-bar__save" size="sm" :disabled="!canSave" :aria-label="text('edit.save')" :data-shortcut="saveHint === '' ? undefined : saveHint" @click="emit('save')">{{ text("edit.save") }}</Button>
             </div>
         </template>
     </section>

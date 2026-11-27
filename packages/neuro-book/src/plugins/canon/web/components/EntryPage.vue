@@ -289,7 +289,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
 
 /**
  * 换分页的过渡（输出 9）：旧内容淡出，新内容从切换方向那一边挪进来 12 像素并淡入，不补间高度。往后切（列表里靠后的一页）从后方进来，
- * 往前切从前方；横排时沿横轴，竖排（`rail`）时沿纵轴。时长取令牌：减弱动效时令牌是 0，直接换。方向在换内容之前定（`flush: "pre"`）。
+ * 往前切从前方；横排时沿横轴，竖排（`rail`）时沿纵轴。时长取令牌；减弱动效时不挪，只淡入淡出（下面的媒体块）。方向在换内容之前定（`flush: "pre"`）。
  */
 const tabShift = shallowRef({x: 0, y: 0});
 watch(() => props.tab, (now, before) => {
@@ -331,7 +331,7 @@ watch(rail, async () => {
         <div v-else-if="props.status === 'deleted'" class="mx-auto max-w-[760px] px-8 py-6">
             <h1 class="text-[length:var(--text-xl)] font-semibold text-[var(--text-secondary)]">{{ props.name }}</h1>
             <p class="mt-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleted") }}</p>
-            <Button v-if="props.editable" class="mt-3" size="sm" :disabled="blockedReason !== undefined" :title="blockedReason" data-entry-restore @click="emit('restore')">{{ text("entry.restore") }}</Button>
+            <Button variant="primary" v-if="props.editable" class="mt-3" size="sm" :disabled="blockedReason !== undefined" :title="blockedReason" data-entry-restore @click="emit('restore')">{{ text("entry.restore") }}</Button>
             <slot name="deleted" />
         </div>
         <template v-else>
@@ -489,7 +489,7 @@ watch(rail, async () => {
     grid-template-columns: 168px minmax(0, 1fr);
     column-gap: 32px;
 }
-/* 换分页（输出 9）：退场只淡出，进场从切换方向那一边挪进来并淡入；减弱动效时令牌为 0，没有过渡（Vue 的 Transition 仍隔两帧才换上，同 nb-ui-switch）。 */
+/* 换分页（输出 9）：退场只淡出，进场从切换方向那一边挪进来并淡入；减弱动效时只淡入淡出、不挪（Vue 的 Transition 仍隔两帧才换上，同 nb-ui-switch）。 */
 .entry-page-tab-leave-active {
     transition: opacity var(--motion-fast) var(--ease-dialog-leave);
 }

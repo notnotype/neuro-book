@@ -85,11 +85,14 @@ describe("nb-ui design tokens", () => {
         }
     });
 
-    it("zeroes motion durations under prefers-reduced-motion", () => {
+    it("减弱动效时有位移的时长归零，颜色与透明度用的几档留着（design-language.md 第六节）", () => {
         const css = readTokensCss();
-        const reducedBlock = css.slice(css.indexOf("prefers-reduced-motion"));
+        const reducedBlock = css.slice(css.indexOf("@media (prefers-reduced-motion"));
 
-        for (const token of ["--motion-fast", "--motion-base", "--motion-enter", "--motion-move", "--motion-layout", "--motion-dialog", "--motion-dialog-leave", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out"]) {
+        for (const token of ["--motion-fast", "--motion-base", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out"]) {
+            expect(reducedBlock, `${token} 是给颜色与透明度的，减弱动效时不归零`).not.toContain(`${token}:`);
+        }
+        for (const token of ["--motion-enter", "--motion-move", "--motion-layout", "--motion-dialog", "--motion-dialog-leave"]) {
             // !important 是必需的：这一段是 :root（0,1,0），任意主题都写在 :root[data-nb-theme]（0,2,0）里，
             // 特异性天然更低；主题又来自第三方、选择器还能再往上加，靠特异性或顺序都没有稳赢的写法。
             expect(reducedBlock, `${token} 未在 reduced-motion 下归零并压过主题`).toContain(`${token}: 0ms !important`);

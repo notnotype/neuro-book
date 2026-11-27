@@ -58,8 +58,8 @@ export const NB_LAYOUT_THEME_VARS: readonly NbLayoutThemeVar[] = [
     bridged("--nb-layout-card-radius", "--layout-card-radius", "10px", true),
     bridged("--nb-layout-card-shadow", "--layout-card-shadow", `0 18px 48px rgb(0 0 0 / 34%), 0 0 0 1px ${DIVIDER}`, true),
 
-    // 焦点环（`vue/global.css` 的 `nb-layout-focus-ring`）。
-    bridged("--nb-layout-focus-ring", "--focus-ring", "0 0 0 1px color-mix(in srgb, Highlight 35%, transparent), 0 0 0 3.5px color-mix(in srgb, Highlight 18%, transparent)", true),
+    // 焦点环（`vue/global.css` 的 `nb-layout-focus-ring`）。回退值同 nb-ui：实色 2px、外面一圈淡晕，总外扩 3.5px（对比度 3:1，nb-ui 设计语言“对比度”）。
+    bridged("--nb-layout-focus-ring", "--focus-ring", "0 0 0 2px Highlight, 0 0 0 3.5px color-mix(in srgb, Highlight 18%, transparent)", true),
     bridged("--nb-layout-focus-outline", "--focus-outline", "Highlight", true),
 
     // 两个落点浮层的整页层级：数值与 nb-ui 的层级登记表（`NB_Z_INDEX.dropSectors`、`dropFeedback`）相同。

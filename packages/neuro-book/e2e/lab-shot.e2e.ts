@@ -13,6 +13,9 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import type {LabDebugApi, LabStageMeasure} from "nbook/plugins/lab/shared/debug-api";
 
+import {failedShots} from "../scripts/lab-shot";
+import type {ShotResult} from "../scripts/lab-shot";
+
 import {PACKAGE_ROOT, startDevSession} from "./fixtures";
 import type {DevSession} from "./fixtures";
 
@@ -235,4 +238,107 @@ test("lab:shot：正常的场景截图并写报告，以 0 退出；舞台有越
     expect(bad.code, bad.output).toBe(1);
     const badReport = JSON.parse(await readFile(join(badDir, "report.json"), "utf8")) as ReportEntry[];
     expect(badReport[0]?.measure?.offenders.length).toBeGreaterThan(0);
+});
+
+test("measure 报出可点区域小于 24×24 又挤着别的目标的元素：够大的、离得够远的、label 补够的、句子里的链接不算（只报告）", async ({page}) => {
+    await page.goto(`${dev.pageUrl}lab?c=SkillChip&s=skill`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
+    const reported = await page.evaluate(() => {
+        const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
+        const box = Object.assign(document.createElement("div"), {style: "position: relative; height: 200px"});
+        const at = (left: number, top: number, size: number, name: string) => {
+            // 选择器路径按 id 取，测量结果里认得出是哪一个；场景自己原有的目标不带这个前缀。
+            const button = Object.assign(document.createElement("button"), {id: `probe-${name}`, style: `position: absolute; left: ${left}px; top: ${top}px; width: ${size}px; height: ${size}px; padding: 0; border: 0`});
+            box.append(button);
+        };
+        at(0, 0, 14, "crowded-a");
+        at(16, 0, 14, "crowded-b");
+        at(100, 0, 14, "alone");
+        at(0, 100, 24, "big");
+        at(26, 100, 24, "big-neighbour");
+        // 14×14 的复选框，label 把可点区域补到 24 以上。
+        const label = Object.assign(document.createElement("label"), {style: "position: absolute; left: 0; top: 150px; display: inline-flex; gap: 4px; height: 28px; align-items: center"});
+        label.append(Object.assign(document.createElement("input"), {id: "probe-labelled", type: "checkbox", style: "width: 14px; height: 14px; margin: 0"}), "收进书架");
+        box.append(label);
+        const sentence = Object.assign(document.createElement("p"), {style: "position: absolute; left: 160px; top: 0"});
+        sentence.append("详见", Object.assign(document.createElement("a"), {id: "probe-inline", href: "#", textContent: "说明"}), "一节");
+        box.append(sentence);
+        stage.append(box);
+        const measure = (window as unknown as {__nbLab: LabDebugApi}).__nbLab.measure();
+        box.remove();
+        return measure?.smallTargets.map((target) => /#probe-[\w-]+/u.exec(target.selector)?.[0]).filter((id) => id !== undefined).sort() ?? null;
+    });
+    expect(reported).toEqual(["#probe-crowded-a", "#probe-crowded-b"]);
+});
+
+test("lab:shot --media、--text-spacing：按偏好各截一组，报告写上偏好与加大文字间距后的量法；只报告的几项不改退出码", async () => {
+    const dir = join(tmp, "shot-media");
+    const run = await labShot(["-c", "SkillChip", "-s", "skill", "--vp", "phone", "--media", "reduced-motion,reduced-transparency", "--text-spacing", "--out", dir]);
+    expect(run.code, run.output).toBe(0);
+    const report = JSON.parse(await readFile(join(dir, "report.json"), "utf8")) as Array<ReportEntry & {media: string | null; mediaMatched: boolean | null; textSpacing: {clippedText: unknown[]} | null}>;
+    expect(report.map((entry) => entry.media)).toEqual(["reduced-motion", "reduced-transparency"]);
+    // 偏好在页面里真的生效，不只是写进了报告。
+    expect(report.map((entry) => entry.mediaMatched)).toEqual([true, true]);
+    for (const entry of report) {
+        expect(existsSync(entry.file)).toBe(true);
+        expect(entry.file).toContain(entry.media ?? "");
+        expect(Array.isArray(entry.textSpacing?.clippedText)).toBe(true);
+        expect(Array.isArray(entry.measure?.smallTargets)).toBe(true);
+    }
+});
+
+test("只报告的几项（太小太挤的目标、被裁的文字、加大文字间距后的问题）不算失败；越界照旧算失败", () => {
+    const measure = {box: {x: 0, y: 0, width: 100, height: 100}, overflowX: 0, offenders: [], clippedFocus: [], clippedRings: [], smallTargets: [], clippedText: []};
+    const base: ShotResult = {component: "SkillChip", scene: "skill", viewport: "phone", colorway: null, media: null, mediaMatched: null, file: "", measure, textSpacing: null, problems: []};
+    const entry = {selector: "button#probe", componentName: "Probe", overflow: 3};
+    const reportOnly: ShotResult = {
+        ...base,
+        measure: {...measure, smallTargets: [{selector: "button#probe", componentName: "Probe", width: 14, height: 14}], clippedText: [entry]},
+        textSpacing: {offenders: [entry], clippedText: [entry]},
+    };
+    expect(failedShots([reportOnly])).toEqual([]);
+    expect(failedShots([{...base, measure: {...measure, offenders: [entry]}}])).toHaveLength(1);
+});
+
+test("减弱动效：位移换淡入淡出——浮层入场只剩透明度，按下缩放收掉，几项时长不同的过渡里透明度照常，对话框不从来处长出来（nb-ui 设计语言“六、无障碍”）", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await page.goto(`${dev.pageUrl}lab?c=Dialog&s=default`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {__nbLab?: LabDebugApi}).__nbLab?.state().ready ?? false)).toBe(true);
+    const probe = await page.evaluate(() => {
+        const stage = document.querySelector("[data-lab-stage]") as HTMLElement;
+        const popover = Object.assign(document.createElement("div"), {className: "nb-ui-popover-motion"});
+        popover.dataset.state = "open";
+        // 按下、悬停的缩放原子类（类名里带 scale-）：减弱动效时值收成 none。用行内的 scale 造出缩放，不依赖 Tailwind 扫没扫到这个类。
+        const pressed = Object.assign(document.createElement("div"), {className: "probe-scale-down", style: "scale: 0.5"});
+        // 几项时长不同的过渡：位移那项归零，透明度那项照常（不能因为改了属性列表而错配）。
+        const mixed = Object.assign(document.createElement("div"), {style: "transition: grid-template-rows var(--motion-move), opacity var(--motion-fast)"});
+        stage.append(popover, pressed, mixed);
+        const animation = popover.getAnimations()[0];
+        const keyframes = animation?.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [];
+        const root = getComputedStyle(document.documentElement);
+        const dialog = document.querySelector(".nb-dialog");
+        const result = {
+            popoverAnimated: animation !== undefined,
+            popoverProperties: [...new Set(keyframes.flatMap((frame) => Object.keys(frame).filter((key) => !["offset", "easing", "composite", "computedOffset"].includes(key))))],
+            pressedScale: getComputedStyle(pressed).scale,
+            mixedProperty: getComputedStyle(mixed).transitionProperty,
+            mixedDuration: getComputedStyle(mixed).transitionDuration,
+            fast: root.getPropertyValue("--motion-fast").trim(),
+            move: root.getPropertyValue("--motion-move").trim(),
+            dialogScale: dialog === null ? null : getComputedStyle(dialog).getPropertyValue("--nb-dialog-from-scale").trim(),
+        };
+        popover.remove();
+        pressed.remove();
+        mixed.remove();
+        return result;
+    });
+    expect(probe.popoverAnimated).toBe(true);
+    expect(probe.popoverProperties).toEqual(["opacity"]);
+    expect(probe.pressedScale).toBe("none");
+    expect(probe.mixedProperty).toBe("grid-template-rows, opacity");
+    expect(probe.mixedDuration.split(", ")[0]).toBe("0s");
+    expect(probe.mixedDuration.split(", ")[1]).not.toBe("0s");
+    expect(probe.fast).not.toBe("0ms");
+    expect(probe.move).toBe("0ms");
+    expect(probe.dialogScale).toBe("1");
 });

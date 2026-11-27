@@ -333,8 +333,8 @@ watch(currentContent, (state, before) => {
                 <span class="i-lucide-search ard__find-icon" aria-hidden="true"></span>
                 <span class="ard__find-query">{{ search }}</span>
                 <span class="ard__find-count" aria-live="polite">{{ hits === null ? "…" : hits.length === 0 ? t("requests.find.none") : t("requests.find.position", {current: current + 1, total: hits.length}) }}</span>
-                <IconButton size="2xs" icon-class="i-lucide-chevron-up" :aria-label="t('requests.find.previous')" :title="t('requests.find.previous')" :disabled="(hits?.length ?? 0) === 0" data-request-find-previous @click="step(-1)" />
-                <IconButton size="2xs" icon-class="i-lucide-chevron-down" :aria-label="t('requests.find.next')" :title="t('requests.find.next')" :disabled="(hits?.length ?? 0) === 0" data-request-find-next @click="step(1)" />
+                <IconButton size="xs" icon-class="i-lucide-chevron-up" :aria-label="t('requests.find.previous')" :title="t('requests.find.previous')" :disabled="(hits?.length ?? 0) === 0" data-request-find-previous @click="step(-1)" />
+                <IconButton size="xs" icon-class="i-lucide-chevron-down" :aria-label="t('requests.find.next')" :title="t('requests.find.next')" :disabled="(hits?.length ?? 0) === 0" data-request-find-next @click="step(1)" />
                 <span class="ard__find-pages">
                     <button v-for="page in (['messages', 'system', 'tools'] as const)" :key="page" type="button" class="ard__find-page" :disabled="pageCounts[page] === 0" :data-request-find-page="page" @click="jumpToPage(page)">{{ t(`requests.tabs.${page}`) }} {{ pageCounts[page] }}</button>
                     <button v-if="pageCounts.error > 0" type="button" class="ard__find-page" data-request-find-page="error" @click="jumpToPage('error')">{{ t("requests.hit.error") }} {{ pageCounts.error }}</button>

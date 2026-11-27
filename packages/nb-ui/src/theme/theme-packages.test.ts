@@ -153,7 +153,7 @@ describe("shipped theme packages", () => {
      * 所以这里必须验配色表本身，验 CSS 是验不到的。
      */
     describe("nbook colourway invariants", () => {
-        /** sRGB 加权亮度。只用来比大小，不做对比度判定，所以不做 gamma 线性化 */
+        /** sRGB 加权亮度。只用来比大小，不做对比度判定（对比度在应用的 builtin-colorways-contrast.dom.test.ts），所以不做 gamma 线性化 */
         function luminance(hex: string): number {
             const value = Number.parseInt(hex.slice(1), 16);
             return (0.2126 * ((value >> 16) & 255) + 0.7152 * ((value >> 8) & 255) + 0.0722 * (value & 255)) / 255;

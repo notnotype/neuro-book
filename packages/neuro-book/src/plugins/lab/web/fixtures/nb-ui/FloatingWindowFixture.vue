@@ -26,7 +26,7 @@ const headerless = (): boolean => props.scene === "headerless";
         </template>
         <template v-if="subject.slots.value.footer" #footer>
             <Button variant="secondary" @click="subject.write('model', 'open', false)">取消</Button>
-            <Button @click="subject.write('model', 'open', false)">创建</Button>
+            <Button variant="primary" @click="subject.write('model', 'open', false)">创建</Button>
         </template>
     </FloatingWindow>
     <LabFixtureControls>

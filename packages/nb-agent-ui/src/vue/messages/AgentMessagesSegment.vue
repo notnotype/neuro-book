@@ -704,7 +704,7 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
 
 /*
  * 展开后的列表页晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。底部导航不跟着淡入：它是底段两项移过来的，移动的过程中要看得见。
- * 减少动效时两个时长令牌都是 0，直接显示。
+ * 减少动效时宽度过渡是 0、不用等，列表页直接淡入。
  */
 .acv-segment__list {
     --acv-list-inset-end: 30px;

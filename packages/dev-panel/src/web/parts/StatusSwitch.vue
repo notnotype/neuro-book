@@ -71,7 +71,7 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
             </div>
             <template v-if="choice">
                 <span>把 {{ subject }} 改成{{ statusLabel(choice) }}？</span>
-                <Button size="sm" :loading="pending" @click="confirm(choice)">确认</Button>
+                <Button variant="primary" size="sm" :loading="pending" @click="confirm(choice)">确认</Button>
                 <span class="nbdev-secondary" v-if="slow">在等别的写入完成…</span>
             </template>
             <Button size="sm" variant="ghost" :disabled="pending" @click="cancel">取消</Button>
