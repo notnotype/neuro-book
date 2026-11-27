@@ -382,7 +382,7 @@ describe("社交注册的发起", () => {
 
 /** 照产品的写法存一份草稿（经 `host/storage.ts`，时刻取 `savedAt`），像上一次跳去上游之前那样。 */
 function saveDraft(draft: Partial<SocialRegisterDraft> = {}, savedAt = NOW): void {
-    createSiteStorage({storage: () => window.sessionStorage, now: () => savedAt}).saveSocialRegisterDraft({
+    createSiteStorage({storage: () => window.sessionStorage, preferences: () => window.localStorage, now: () => savedAt}).saveSocialRegisterDraft({
         provider: "github",
         username: "Alice_01",
         displayName: "爱丽丝",

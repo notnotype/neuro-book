@@ -9,7 +9,8 @@ import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {createMemoryHistory} from "vue-router";
 
-import {SOCIAL_REGISTER_DRAFT_TTL_MS, createSiteStorage} from "./host/storage";
+import {APPEARANCE_KEY, SOCIAL_REGISTER_DRAFT_TTL_MS, createSiteStorage} from "./host/storage";
+import firstFrameScript from "./public/appearance.js?raw";
 import privacy from "./legal/zh-CN/privacy.md";
 import terms from "./legal/zh-CN/terms.md";
 import zhCN from "./locales/zh-CN.json";
@@ -104,6 +105,7 @@ afterEach(() => {
     device().prefersColorScheme = "light";
     document.body.replaceChildren();
     window.sessionStorage.clear();
+    window.localStorage.clear();
 });
 
 function start(path: string, server: Server): Started {
@@ -195,6 +197,74 @@ describe("主题与明暗的接线", () => {
         site.theme.setAppearance("system");
         expect(root().dataset.nbAppearance).toBe("dark");
         expect(root().style.getPropertyValue("--bg-main")).toBe(colorwayBg("nbook-dark"));
+    });
+
+    it("按存下的外观启动：存了暗色时系统是亮色也是暗色；存了跟随系统、没存过或存坏了时按系统", async () => {
+        for (const {stored, expected} of [
+            {stored: "dark", expected: "dark"},
+            {stored: "light", expected: "light"},
+            {stored: "system", expected: "light"},
+            {stored: null, expected: "light"},
+            {stored: "sepia", expected: "light"},
+        ] as const) {
+            if (stored === null) window.localStorage.removeItem(APPEARANCE_KEY);
+            else window.localStorage.setItem(APPEARANCE_KEY, stored);
+            const {site} = start("/login", anonymousServer());
+            expect({stored, appearance: root().dataset.nbAppearance, colorScheme: root().style.colorScheme}).toEqual({stored, appearance: expected, colorScheme: expected});
+            site.stop();
+            started.splice(started.indexOf(site), 1);
+        }
+
+        window.localStorage.setItem(APPEARANCE_KEY, "light");
+        start("/login", anonymousServer());
+        setSystemScheme("dark");
+        expect(root().dataset.nbAppearance).toBe("light");
+    });
+
+    it("选了外观就存下，下一次启动照着它；选回跟随系统也存下", () => {
+        const first = start("/login", anonymousServer());
+        first.site.theme.setAppearance("dark");
+        expect(window.localStorage.getItem(APPEARANCE_KEY)).toBe("dark");
+        first.site.stop();
+        started.splice(started.indexOf(first.site), 1);
+
+        const second = start("/login", anonymousServer());
+        expect(second.site.theme.appearance.value).toBe("dark");
+        expect(root().dataset.nbAppearance).toBe("dark");
+        second.site.theme.setAppearance("system");
+        expect(window.localStorage.getItem(APPEARANCE_KEY)).toBe("system");
+        expect(root().dataset.nbAppearance).toBe("light");
+        expect(root().style.colorScheme).toBe("light");
+    });
+
+    it("首帧脚本（public/appearance.js）照站点存的同一项写根元素；跟随系统、没存过、存坏了、存储不可用时什么都不写", () => {
+        /** 在应用启动之前的样子：根元素上还没有明暗。脚本按产品里的写法读 `window.localStorage`，这里把窗口交给它，好换成禁用了存储的。 */
+        const run = (win: {readonly localStorage: Storage}): {appearance: string | undefined; colorScheme: string} => {
+            delete root().dataset.nbAppearance;
+            root().style.colorScheme = "";
+            new Function("window", "document", firstFrameScript)(win, document);
+            return {appearance: root().dataset.nbAppearance, colorScheme: root().style.colorScheme};
+        };
+        const storage = createSiteStorage({storage: () => window.sessionStorage, preferences: () => window.localStorage, now: () => NOW});
+
+        storage.saveAppearance("dark");
+        expect(run(window)).toEqual({appearance: "dark", colorScheme: "dark"});
+        storage.saveAppearance("light");
+        expect(run(window)).toEqual({appearance: "light", colorScheme: "light"});
+
+        const untouched = {appearance: undefined, colorScheme: ""};
+        storage.saveAppearance("system");
+        expect(run(window)).toEqual(untouched);
+        window.localStorage.setItem(APPEARANCE_KEY, "sepia");
+        expect(run(window)).toEqual(untouched);
+        window.localStorage.clear();
+        expect(run(window)).toEqual(untouched);
+        const disabled = {
+            get localStorage(): Storage {
+                throw new DOMException("The operation is insecure.", "SecurityError");
+            },
+        };
+        expect(run(disabled)).toEqual(untouched);
     });
 
     it("停掉站点后不再跟着系统换", () => {
@@ -366,7 +436,7 @@ describe("按码统一处理之后的跳转", () => {
 describe("社交注册的草稿", () => {
     /** 照产品的写法存一份草稿（经 `host/storage.ts`），写入时刻取 `savedAt`；回存储里那个键的原文读法。 */
     function saveDraft(savedAt: number): () => string | null {
-        createSiteStorage({storage: () => window.sessionStorage, now: () => savedAt}).saveSocialRegisterDraft({
+        createSiteStorage({storage: () => window.sessionStorage, preferences: () => window.localStorage, now: () => savedAt}).saveSocialRegisterDraft({
             provider: "github",
             username: "alice",
             displayName: "",

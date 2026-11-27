@@ -88,6 +88,12 @@
         "menu": "{{username}}，账号菜单",
         "admin": "管理面板",
         "signOut": "退出登录",
+        "appearance": {
+            "title": "外观",
+            "system": "跟随系统",
+            "light": "亮色",
+            "dark": "暗色"
+        },
         "loading": "正在载入",
         "loadFailed": "没能载入账号的内容",
         "retry": "重试",

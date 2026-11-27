@@ -3,7 +3,8 @@
  * nb-ui 不发预编译的 CSS，它的样式由本包的 Tailwind 编译（`src/app.css`）；接法坏了（漏了 nb-ui 的入口、主题模块没带进来、站点的源码没被扫到）
  * 只有真构建一次才看得出来。主题在运行期有没有写到根元素上，由 `src/site.dom.test.ts` 管。
  *
- * 另外三条（t10 计划 3.10）：`index.html` 里没有内联脚本（内容安全策略的 `script-src` 只许 `'self'`，计划 3.8）；
+ * 另外三条（t10 计划 3.10）：`index.html` 里没有内联脚本（内容安全策略的 `script-src` 只许 `'self'`，计划 3.8），首帧的明暗脚本是
+ * `<head>` 里的外部同步脚本；
  * ECharts 只在看板自己的块里，访客与普通用户的入口块不带它；看板块的 gzip 大小有上限，并记下入口块与看板块的大小（计划第 8 节风险 8）。
  * 入口块也有上限，且不带账号页才用的对话框与菜单（B4 审查第 19 条：nb-ui 的汇总出口把它们带进了入口，`vite.config.ts` 的 `treeshake`），
  * 也不带管理面板的文字目录（B6、B7 审查第 11 条：它跟着管理面板的块走，`src/pages/admin/text.ts`）。
@@ -179,6 +180,13 @@ describe("vite build", () => {
         const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu)].map((match) => ({attributes: match[1]!.trim(), body: match[2]!.trim()}));
         expect(scripts.length).toBeGreaterThan(0);
         expect(scripts.filter((script) => !/\bsrc=/iu.test(script.attributes) || script.body !== "")).toEqual([]);
+
+        // 首帧的明暗脚本（`src/host/theme.ts` 的文件头）：在 `<head>` 里、不是模块脚本（模块脚本要等整页解析完才跑），
+        // 文件从 public 目录原样进产物。
+        const head = html.slice(0, html.indexOf("</head>"));
+        const firstFrame = [...head.matchAll(/<script\b([^>]*)>/giu)].map((match) => match[1]!.trim()).filter((attributes) => /\bsrc="\/appearance\.js"/u.test(attributes));
+        expect(firstFrame).toEqual(['src="/appearance.js"']);
+        expect(await readFile(join(outDir, "appearance.js"), "utf8")).toBe(await readFile(join(PACKAGE_ROOT, "src", "public", "appearance.js"), "utf8"));
     });
 
     test("CSS 里有 nb-ui 的语义类、nbook 主题与站点的原子类，每条 -webkit-backdrop-filter 都有同值的标准写法", async () => {

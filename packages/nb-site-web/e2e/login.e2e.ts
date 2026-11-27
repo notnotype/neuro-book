@@ -3,6 +3,9 @@
  * 亮暗两种明暗。量的是真实布局：页面不能横向滚动、稿纸的格线与卡片和字格对齐、产品名在一行、页面底色是纸色、状态行空着时也占着
  * 位置、状态行出现与消失时表单各部件的位置不变、窄屏上最长的原因没被截断、稿纸页之间切换时稿纸是同一个元素，以及稿纸两个站点
  * 变量与“没有这一页”的链接在两种明暗下的对比度（`styles/site.css` 的取值依据）。表单的逻辑在 `LoginPage.dom.test.ts`。
+ *
+ * 首帧的明暗（`host/theme.ts` 的文件头）：存了与系统相反的“外观”时，应用的脚本跑之前根元素与画出来的底色就已是存下的那种。
+ * 稿纸页没有“外观”的控件，只跟着存下的选择走，所以放在这里量。
  */
 
 import {readFileSync} from "node:fs";
@@ -239,6 +242,55 @@ test("“没有这一页”的链接在两种明暗下对页面底色够 4.5:1�
         expect(await link.evaluate((element) => getComputedStyle(element).textDecorationLine)).toBe("underline");
     }
 });
+
+/** 用户选的明暗在 `localStorage` 里的键（`src/host/storage.ts` 的 `APPEARANCE_KEY`；那个模块带着 nb-ui 的主题，Node 里导入不了）。 */
+const APPEARANCE_KEY = "nb-site.appearance";
+
+for (const stored of SCHEMES) {
+    const system = stored === "dark" ? "light" : "dark";
+    test(`存下的外观是${stored === "dark" ? "暗色" : "亮色"}、系统是另一种：应用的脚本跑之前根元素与底色已是存下的那种，应用启动后照旧`, async ({page}) => {
+        fake = await installFakeIdentity(page);
+        await page.setViewportSize(VIEWPORTS[0]);
+        await page.emulateMedia({colorScheme: system});
+        await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [APPEARANCE_KEY, stored] as const);
+        // 挡住应用的模块脚本（构建产物都在 /assets/ 下），页面停在首帧：只有 `<head>` 里的首帧脚本跑过，应用没有启动。
+        const isAppScript = (url: URL): boolean => url.pathname.startsWith("/assets/") && url.pathname.endsWith(".js");
+        await page.route(isAppScript, (route) => route.abort());
+        await page.goto("/", {waitUntil: "load"});
+
+        const first = await page.evaluate(() => ({
+            appearance: document.documentElement.dataset.nbAppearance ?? null,
+            colorScheme: getComputedStyle(document.documentElement).colorScheme,
+            mounted: document.getElementById("app")!.childElementCount > 0,
+        }));
+        expect(first).toEqual({appearance: stored, colorScheme: stored, mounted: false});
+
+        // 画出来的底色：这时还没有主题的配色，浏览器按 `color-scheme` 画画布。截一角，量平均亮度。
+        const png = await page.screenshot({clip: {x: 0, y: 0, width: 40, height: 40}});
+        const lightness = await page.evaluate(async (source) => {
+            const image = new Image();
+            image.src = source;
+            await image.decode();
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext("2d")!;
+            context.drawImage(image, 0, 0);
+            const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
+            let sum = 0;
+            for (let index = 0; index < data.length; index += 4) sum += (data[index]! + data[index + 1]! + data[index + 2]!) / 3;
+            return sum / (data.length / 4) / 255;
+        }, `data:image/png;base64,${png.toString("base64")}`);
+        if (stored === "dark") expect(lightness).toBeLessThan(0.3);
+        else expect(lightness).toBeGreaterThan(0.7);
+
+        await page.unroute(isAppScript);
+        await page.reload();
+        await expect(page.locator("[data-site-paper-card] form")).toBeVisible();
+        await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", stored);
+        expect(await page.locator("html").evaluate((element) => getComputedStyle(element).colorScheme)).toBe(stored);
+    });
+}
 
 test("360 宽：最长的一条原因在状态行里两行写得下，没被截断", async ({page}) => {
     fake = await installFakeIdentity(page);

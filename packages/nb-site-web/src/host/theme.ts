@@ -1,10 +1,15 @@
 /**
- * 站点的主题与明暗（t10 计划 3.5“换明暗时重画”；t09 第 4、6 条：全站 nb-ui 默认主题 nbook、跟随系统明暗）。不经 Nuxt 装主题：
+ * 站点的主题与明暗（t10 计划 3.5“换明暗时重画”；t09 第 4、6 条：全站 nb-ui 默认主题 nbook、缺省跟随系统明暗）。不经 Nuxt 装主题：
  * 装主题模块（带 vars.css），在根元素上写主题与明暗，再套同一明暗的配色。写法照 dev-panel 的 `host/theme.ts`。
  *
- * 做成可切换的形状（t05 前端骨架审查第 2 条）：第一版只跟随系统，以后加手动切换只要调 `setAppearance`。到那时用户的选择要在
- * 首帧之前生效，内容安全策略只许自家脚本（计划 3.8），得用一个不带 `type="module"` 的同步外部脚本先写根元素；现在不需要：
- * `index.html` 的 `color-scheme` 让浏览器在脚本跑之前就按系统明暗画底色。
+ * 用户能在账号菜单的“外观”里选跟随系统、亮色或暗色（开发者 2026-11-27 看演示后加）：菜单调 `setAppearance`，`site.ts` 把选择
+ * 存进 `localStorage`（`host/storage.ts`），下次启动时作为 `appearance` 传进来。
+ *
+ * 首帧：应用的模块脚本在整页解析完才跑，在那之前浏览器按根元素的 `color-scheme` 画底色。只靠 `index.html` 的
+ * `<meta name="color-scheme">` 的话，选了暗色而系统是亮色的人每次打开都先闪一下亮底。所以 `index.html` 的 `<head>` 里先跑一个
+ * 不带 `type="module"` 的同步外部脚本 `public/appearance.js`，读存下的选择、写根元素的 `style.colorScheme` 与
+ * `data-nb-appearance`；内容安全策略只许自家脚本（计划 3.8），不能内联。之后由这里接手，`apply` 照样写这两样，选回跟随系统时
+ * 首帧脚本写下的 `colorScheme` 也被换掉。
  */
 
 import {applyColorway} from "@notnotype/nb-ui/colorway";
@@ -14,7 +19,12 @@ import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 
 /** 用户能选的明暗；`system` 跟随系统。 */
-export type Appearance = "system" | "light" | "dark";
+export const APPEARANCES = ["system", "light", "dark"] as const;
+export type Appearance = (typeof APPEARANCES)[number];
+
+export function isAppearance(value: unknown): value is Appearance {
+    return (APPEARANCES as readonly unknown[]).includes(value);
+}
 
 /** 实际用上的明暗。 */
 export type ResolvedAppearance = "light" | "dark";
@@ -63,6 +73,9 @@ export function createSiteTheme(options: SiteThemeOptions): SiteTheme {
         const root = options.root;
         root.dataset.nbTheme = THEME_ID;
         root.dataset.nbAppearance = next;
+        // 浏览器的底色与原生部件（滚动条、表单控件）按它画。配色经 `--color-scheme` 也给出明暗，但首帧脚本写下的行内值压过它，
+        // 所以这里照样写行内值。
+        root.style.colorScheme = next;
         applyColorway(root, colorwayVars(next));
         resolved.value = next;
     }

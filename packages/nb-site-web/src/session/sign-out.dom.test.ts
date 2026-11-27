@@ -57,7 +57,7 @@ async function signedIn(logout: () => Response) {
     const identity = createIdentityApi(core);
     const account = createCurrentAccount(identity);
     await account.ensure();
-    const storage = createSiteStorage({storage: () => window.sessionStorage, now: () => 0});
+    const storage = createSiteStorage({storage: () => window.sessionStorage, preferences: () => window.localStorage, now: () => 0});
     storage.saveSocialRegisterDraft({provider: "github", username: "alice", displayName: "", inviteCode: "", registrationCode: "REG-1", consent: {termsVersion: "2026-11-01", overseas: true}});
     return {identity, account, storage, requested, handled};
 }

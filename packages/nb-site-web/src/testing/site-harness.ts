@@ -99,10 +99,11 @@ export function cleanUp(): void {
     for (const site of started.splice(0)) site.stop();
     document.body.replaceChildren();
     window.sessionStorage.clear();
+    window.localStorage.clear();
     expect(unexpected.splice(0)).toEqual([]);
 }
 
-/** 停掉一个站点而不清存储：像整页离开再回来，之间 `sessionStorage` 里的东西还在。 */
+/** 停掉一个站点而不清存储：像整页离开再回来，之间 `sessionStorage` 与 `localStorage` 里的东西还在。 */
 export function stopKeepingStorage(harness: Harness): void {
     const index = started.indexOf(harness.site);
     if (index >= 0) started.splice(index, 1);
@@ -243,6 +244,27 @@ export async function menuClosed(trigger: HTMLElement): Promise<void> {
         expect(document.body.querySelector('[role="menuitem"]')).toBeNull();
         expect(document.activeElement).toBe(trigger);
     }, {timeout: SETTLE_TIMEOUT_MS});
+}
+
+/**
+ * 打开账号菜单，点开写着 `title` 的级联父项（“外观”），等到它的子菜单画出来，回子菜单里的单选项（`menuitemradio`），按菜单里的先后。
+ */
+export async function openSubmenu(trigger: HTMLElement, title: string): Promise<HTMLElement[]> {
+    await openMenu(trigger);
+    const parent = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.trim() === title);
+    if (parent === undefined) throw new Error(`菜单里没有“${title}”`);
+    parent.click();
+    let radios: HTMLElement[] = [];
+    await vi.waitFor(() => {
+        radios = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+        expect(radios.length).toBeGreaterThan(0);
+    }, {timeout: SETTLE_TIMEOUT_MS});
+    return radios;
+}
+
+/** 单选项看得见的字与勾选状态。 */
+export function radioStates(radios: readonly HTMLElement[]): {readonly label: string; readonly checked: boolean}[] {
+    return radios.map((radio) => ({label: radio.textContent?.trim() ?? "", checked: radio.getAttribute("aria-checked") === "true"}));
 }
 
 /**

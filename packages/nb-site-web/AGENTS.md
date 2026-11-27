@@ -7,6 +7,7 @@
 ## 边界
 
 - 只经两个合同包认识后端的接口，按白名单检查（`tests/boundary.test.ts`）：`src/` 里的源码与样式只许导入 nb-ui、两个合同包与第三方包，不许别的工作区包与 `bun:`、`node:` 内置模块（前端代码跑在浏览器里）；两个合同包都只许从各自的 `./constants` 子路径导入（`@notnotype/nb-site-identity-contract/constants`、`@notnotype/nb-site-telemetry-contract/constants`；整包入口带着全部 schema 与 TypeBox 的运行时，会打进访客的入口块或看板块），要的常量不在那里时先在合同包里挪（见各自的 `AGENTS.md`）；ECharts（与 ZRender）只许 `src/pages/admin/dashboard/charts/echarts.ts` 在运行时导入，别处只许 `import type`：按需导入的清单只在那一个文件里，别处一条整包导入就多出约 200 KB（gzip），要用新的图或组件时在那里加；Markdown 库 `marked`（开发依赖）浏览器代码不许导入，只由构建插件 `build/legal-docs.ts` 用；`tests/`、`e2e/`、`build/` 与 `vite.config.ts`、`vitest.config.ts` 另许 `bun:`、`node:` 与测试支持包；真实冒烟的 `e2e/real/` 另许合同测试包的 `@notnotype/nb-site-contract-tests/testing`（起进程、造管理员、扮演 OAuth 客户端的底座，与合同测试同一套，不用另写一份；只许这一个子路径、只许这个目录，别处的测试与浏览器代码照样拦下）。清单里的工作区包：`dependencies` 只有 nb-ui 与两个合同包，`devDependencies` 只有测试支持包与合同测试包（后者只给 `e2e/real/`）。要放开一项，先在这里写明理由，再改检查。
+- `src/public/` 是 Vite 的 public 目录，里面的文件不经构建、原样发出，也导入不了站点的模块：现在只有首帧的明暗脚本 `appearance.js`（为什么要它、为什么不内联见 `src/host/theme.ts` 的文件头；`tests/build.test.ts` 核对它在产物里、是 `<head>` 里的外部同步脚本）。
 
 ## 条款正文与发布构建
 

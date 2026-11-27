@@ -62,7 +62,11 @@ function navigateInBackground(navigation: Promise<unknown>, reason: string): voi
 
 export function startSite(options: StartSiteOptions): Site {
     const {window: win} = options;
-    const theme = createSiteTheme({root: win.document.documentElement, systemDark: win.matchMedia("(prefers-color-scheme: dark)")});
+    const storage = createSiteStorage({storage: () => win.sessionStorage, preferences: () => win.localStorage, now: () => options.clock.now()});
+    // 明暗按存下的“外观”启动（`index.html` 的首帧脚本已经照同一项写过根元素）；之后每次选择都存下，菜单只管调 `setAppearance`。
+    // 同步存：选完马上离开这一页（例如接着点退出登录）时也已经存下。
+    const theme = createSiteTheme({root: win.document.documentElement, systemDark: win.matchMedia("(prefers-color-scheme: dark)"), appearance: storage.readAppearance()});
+    const stopSavingAppearance = watch(theme.appearance, (appearance) => storage.saveAppearance(appearance), {flush: "sync"});
 
     // 核心的回调要用路由与当前账号，两者又要用核心：回调里引用的 `router`、`account` 在下面才建。回调只在请求得到回答之后被调用，
     // 而第一个请求由路由守卫发出，那时两者都已建好。
@@ -100,7 +104,6 @@ export function startSite(options: StartSiteOptions): Site {
     const identity = createIdentityApi(api);
     const account = createCurrentAccount(identity);
     const router = createSiteRouter({history: options.history, account, origin: win.location.origin});
-    const storage = createSiteStorage({storage: () => win.sessionStorage, now: () => options.clock.now()});
 
     // 社交注册的草稿与社交登录的续接令牌（计划 3.9）：过期的在启动时删掉，不等谁来读；当前账号变成已登录（社交注册成功、
     // 密码注册成功、登录）时删掉，注册码这样的凭据不在标签页里留到登出。从上游带着 `social_error` 回来时账号是匿名的，两样都还在。
@@ -142,6 +145,7 @@ export function startSite(options: StartSiteOptions): Site {
         clock: options.clock,
         stop() {
             stopClearingDraft();
+            stopSavingAppearance();
             win.removeEventListener("pageshow", onPageShow);
             awaitingReturn.clear();
             app.unmount();
