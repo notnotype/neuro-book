@@ -119,6 +119,8 @@ export async function newSession(page: Page): Promise<void> {
 }
 
 export async function send(page: Page, text: string): Promise<void> {
+    // 新会话还在载入时输入框是只读的，这时打的字被丢掉、回车什么也不发。
+    await expect(composer(page)).toBeEditable();
     await composer(page).click();
     await page.keyboard.type(text);
     await page.keyboard.press("Enter");

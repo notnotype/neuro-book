@@ -39,11 +39,17 @@ test.beforeEach(async ({page}) => {
     await page.setViewportSize({width: WIDTH, height: HEIGHT});
 });
 
-/** 代码里先等用例把窗口标题改成暗号，再往下做：用例借此决定高亮从哪一刻开始。 */
+/**
+ * 代码里先等用例把窗口标题改成暗号，再往下做：用例借此决定高亮从哪一刻开始。用例这时可能正在打开设置窗口这类重的界面，
+ * 页面忙过探测的时限时快照得 `window-unresponsive`（失败码表：稍后重试），接着等即可；别的失败照常抛出。
+ */
 const GATE = `
 for (let waited = 0; waited < 600; waited += 1) {
-    const s = await ui.snapshot({maxTokens: 300});
-    if (s.window.title === "GATE") break;
+    const s = await ui.snapshot({maxTokens: 300}).catch((error) => {
+        if (error.code === "window-unresponsive") return null;
+        throw error;
+    });
+    if (s?.window.title === "GATE") break;
     await new Promise((resolve) => setTimeout(resolve, 100)); // test-lint-allow fixed-wait: 这是交给 eval 的代码里两次读标题之间的间隔，等的是标题这个可观察状态
 }`;
 
