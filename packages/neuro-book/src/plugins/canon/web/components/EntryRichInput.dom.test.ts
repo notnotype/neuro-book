@@ -248,7 +248,9 @@ describe("改小块（canon/author-ui.md 输出 48）", () => {
         action("apply").click();
         await vi.waitFor(() => expect(emitted(wrapper).at(-1)).toBe('<V expr="panel.魔力 * 3" /> 之后'));
         expect(popover()).toBeNull();
-        expect(document.activeElement).toBe(prose(wrapper));
+        // 应用自己换掉了小块：不算“没应用的改动被丢弃”。
+        expect(wrapper.emitted("discarded")).toBeUndefined();
+        await vi.waitFor(() => expect(document.activeElement).toBe(prose(wrapper)));
         expect(prose(wrapper).querySelector(".ProseMirror-selectednode")?.getAttribute("data-entry-chip")).toBe("calc");
         key(prose(wrapper), "z", {ctrlKey: true});
         await flushPromises();
@@ -334,6 +336,21 @@ describe("改小块（canon/author-ui.md 输出 48）", () => {
         type(field("expr"), "panel.魔力 * 5");
         await wrapper.setProps({readonly: true});
         await flushPromises();
+        expect(popover()).toBeNull();
+        expect(wrapper.emitted("discarded")).toHaveLength(1);
+    });
+
+    it("撤销让锚着的小块不在了：浮层关上，没应用的字丢弃", async () => {
+        const wrapper = show({modelValue: "甲"});
+        await flushPromises();
+        exposed(wrapper).focus("end");
+        exposed(wrapper).insert('<V expr="panel.魔力 * 2" />');
+        await flushPromises();
+        await openFirstChip(wrapper);
+        type(field("expr"), "panel.魔力 * 9");
+        key(prose(wrapper), "z", {ctrlKey: true});
+        await flushPromises();
+        expect(emitted(wrapper).at(-1)).toBe("甲");
         expect(popover()).toBeNull();
         expect(wrapper.emitted("discarded")).toHaveLength(1);
     });
