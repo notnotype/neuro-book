@@ -216,7 +216,7 @@ test.describe("等目标（输出 9）", () => {
         expect(await installed(page)).toBeNull();
         const result = await ended(page);
         expect(result).toMatchObject({ok: false, code: "ambiguous"});
-        if ("code" in result) expect(result.details?.candidates).toHaveLength(2);
+        if ("code" in result && result.code === "ambiguous") expect(result.details?.candidates).toHaveLength(2);
         await expect(startHighlight(page, {at: {}, message: "这里。", until: "next"})).rejects.toThrow(/定位要给/u);
     });
 });
@@ -409,5 +409,205 @@ test.describe("点错（输出 9）", () => {
         const result = await ended(page);
         expect(result).toMatchObject({outcome: "missed", clicked: {role: "button", name: "✕ 取消"}});
         await expectRemoved(page);
+    });
+});
+
+/** 引擎宿主的 shadow root 里此刻有焦点的元素的标记。 */
+const shadowFocus = (page: Page) => page.evaluate(() => document.querySelector("[data-nb-page-agent=guide]:not([data-closing])")?.shadowRoot?.activeElement?.getAttribute("data-nb-page-agent") ?? null);
+
+test.describe("换层、替换与画不出来（输出 9、10）", () => {
+    test("提问时目标所在的层被关掉：说明框换层后焦点仍在提问框里，打字进得去，Esc 收起并还回原来的焦点", async ({page}) => {
+        await openFixture(page, `<input id="field" value="abc"><div id="menu" role="menu" style="position:absolute;left:100px;top:100px;padding:8px"><div id="item" role="menuitem" tabindex="-1">甲</div></div>`);
+        await page.locator("#field").focus();
+        await startHighlight(page, {at: {role: "menuitem", name: "甲"}, message: "选甲。", until: "next"});
+        await installed(page);
+        await part(page, "ask-open").click();
+        await page.keyboard.type("hello");
+        await page.evaluate(() => {
+            document.body.append(document.getElementById("item")!);
+            document.getElementById("menu")!.remove();
+        });
+        await expect.poll(() => page.evaluate(() => document.querySelector("[data-nb-page-agent=guide]")?.parentElement?.localName)).toBe("body");
+        expect(await shadowFocus(page)).toBe("ask");
+        await page.keyboard.type("XX");
+        await expect(part(page, "ask")).toHaveValue("helloXX");
+        await page.keyboard.press("Escape");
+        await expect(part(page, "callout")).not.toHaveAttribute("data-asking", "");
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe("field");
+    });
+
+    test("宿主排在层的最前面：按“不是最后一个子元素”写的间距不变，层的高度不变", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await openFixture(page, `<div id="menu" role="menu" class="sy" style="position:absolute;left:100px;top:100px"><div role="menuitem">一</div><div role="menuitem">二</div></div>`, {
+            head: `<style>.sy > :where(:not(:last-child)) { margin-block-end: 8px; border-bottom: 1px solid #ccc; }</style>`,
+        });
+        const before = (await page.locator("#menu").boundingBox())!.height;
+        await startHighlight(page, {at: {role: "menuitem", name: "一"}, message: "一。", until: "next"});
+        await installed(page);
+        expect(await page.evaluate(() => document.getElementById("menu")!.firstElementChild?.getAttribute("data-nb-page-agent"))).toBe("guide");
+        expect((await page.locator("#menu").boundingBox())!.height).toBe(before);
+    });
+
+    test("替换时上一次先撤销、这一次再显示：两步的目标在同一个悬停区里，第二步装上后区域仍显示", async ({page}) => {
+        await openFixture(page, `<div data-zone style="margin:200px"><button>甲</button><button>乙</button></div>`);
+        await page.evaluate(() => {
+            window.agent = window.nbPageAgent.createPageAgent({refPrefix: "t3", guide: {reveal: (target) => {
+                const zone = target.closest("[data-zone]");
+                zone?.setAttribute("data-shown", "");
+                return () => zone?.removeAttribute("data-shown");
+            }}});
+        });
+        await startHighlight(page, {at: {text: "甲"}, message: "甲。", until: "next"});
+        await installed(page);
+        await startHighlight(page, {at: {text: "乙"}, message: "乙。", until: "next"});
+        await installed(page);
+        await expect(part(page, "callout")).toHaveCount(1);
+        await expect(page.locator("[data-zone]")).toHaveAttribute("data-shown", "");
+    });
+
+    test("宿主的钩子抛错：以 guide-failed 结束，已做的悬停显示撤掉、页面上没有节点；目标稍后出现时也一样", async ({page}) => {
+        await openFixture(page, `<div data-zone style="margin:200px"><button>甲</button></div><main></main>`);
+        await page.evaluate(() => {
+            window.agent = window.nbPageAgent.createPageAgent({refPrefix: "t4", guide: {
+                targetWaitMs: 3000,
+                reveal: (target) => {
+                    const zone = target.closest("[data-zone]");
+                    if (zone === null) throw new Error("没有悬停区");
+                    zone.setAttribute("data-shown", "");
+                    return () => zone.removeAttribute("data-shown");
+                },
+                text: () => {
+                    throw new Error("文字表坏了");
+                },
+            }});
+        });
+        await startHighlight(page, {at: {text: "甲"}, message: "甲。", until: "next"});
+        expect(await installed(page)).toBeNull();
+        expect(await ended(page)).toMatchObject({ok: false, code: "guide-failed", message: expect.stringContaining("文字表坏了")});
+        await expect(page.locator("[data-zone]")).not.toHaveAttribute("data-shown", "");
+        await expectRemoved(page);
+
+        await startHighlight(page, {at: {text: "稍后"}, message: "稍后。", until: "next"});
+        await page.evaluate(() => document.querySelector("main")!.insertAdjacentHTML("beforeend", "<button>稍后</button>"));
+        expect(await ended(page)).toMatchObject({ok: false, code: "guide-failed", message: expect.stringContaining("没有悬停区")});
+        await expectRemoved(page);
+    });
+});
+
+test.describe("压暗与描边的框（输出 9、10）", () => {
+    test("目标一部分滚出滚动区域：压暗层的洞只开在区域里面", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await openFixture(page, `<div id="box" style="position:absolute;left:100px;top:100px;width:300px;height:150px;overflow:auto"><div style="height:600px"><button style="margin-top:100px;height:60px">半截</button></div></div>`);
+        await startHighlight(page, {at: {text: "半截"}, message: "这里。", until: "next", dim: true});
+        await installed(page);
+        await page.evaluate(() => {
+            document.getElementById("box")!.scrollTop = 130;
+        });
+        await expect.poll(async () => (await part(page, "dim").boundingBox())!.y).toBe(100);
+        await expect(part(page, "dim")).not.toHaveAttribute("data-hidden", "");
+    });
+
+    test("display: contents 的目标按子元素的框画", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await openFixture(page, `<div role="button" tabindex="0" aria-label="包装" style="display:contents"><span id="inner" style="position:absolute;left:300px;top:300px;width:80px;height:20px">包装的按钮</span></div>`);
+        await startHighlight(page, {at: {role: "button", name: "包装"}, message: "这里。", until: "next"});
+        await installed(page);
+        await expect(part(page, "outline")).not.toHaveAttribute("data-hidden", "");
+        const inner = (await page.locator("#inner").boundingBox())!;
+        expect(await part(page, "outline").boundingBox()).toEqual({x: inner.x - 3, y: inner.y - 7, width: inner.width + 6, height: 34});
+    });
+});
+
+test.describe("按键、选区与遮罩（输出 9、10）", () => {
+    test("说明框里的组字、剪贴板、双击、右键、按下与抬起都不交给页面", async ({page}) => {
+        await openFixture(page, `<button id="go" style="margin:200px">保存</button>`);
+        const types = ["compositionstart", "compositionupdate", "compositionend", "pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu", "copy", "cut", "paste", "keydown", "keyup", "beforeinput", "input"];
+        await page.evaluate((list) => {
+            const seen: string[] = [];
+            (window as unknown as {seen: string[]}).seen = seen;
+            for (const type of list) document.addEventListener(type, () => seen.push(type));
+        }, types);
+        await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
+        await installed(page);
+        await page.evaluate((list) => {
+            const inside: string[] = [];
+            (window as unknown as {inside: string[]}).inside = inside;
+            const root = document.querySelector("[data-nb-page-agent=guide]")!.shadowRoot!;
+            for (const type of list) root.addEventListener(type, () => inside.push(type));
+        }, types);
+        await part(page, "callout").locator(".message").dblclick();
+        await part(page, "callout").locator(".message").click({button: "right"});
+        await part(page, "ask-open").click();
+        // 按下说明框别处时取消了默认动作，兼容的 mousedown、mouseup 不派发；提问框上不取消，在这里点一下产生它们。
+        await part(page, "ask").click();
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Input.imeSetComposition", {text: "ni", selectionStart: 2, selectionEnd: 2});
+        await cdp.send("Input.insertText", {text: "你"});
+        await page.keyboard.type("ab");
+        await page.keyboard.press("Control+A");
+        await page.keyboard.press("Control+C");
+        await page.keyboard.press("Control+X");
+        await page.keyboard.press("Control+V");
+        const inside = new Set(await page.evaluate(() => (window as unknown as {inside: string[]}).inside));
+        // 先确认这些事件真的在说明框里发生过，否则“页面没收到”是空过。
+        for (const type of types) expect(inside.has(type), type).toBe(true);
+        expect(await page.evaluate(() => (window as unknown as {seen: string[]}).seen)).toEqual([]);
+    });
+
+    test("Esc 收起提问而不交给页面（页面上按 Esc 关菜单的监听收不到）；组字时的 Esc 不收起", async ({page}) => {
+        await openFixture(page, `<div id="menu" role="menu" style="position:absolute;left:100px;top:100px;padding:8px"><div role="menuitem" tabindex="-1">甲</div></div>`);
+        await page.evaluate(() => document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") document.getElementById("menu")?.remove();
+        }));
+        await startHighlight(page, {at: {role: "menuitem", name: "甲"}, message: "选甲。", until: "next"});
+        await installed(page);
+        await part(page, "ask-open").click();
+        await page.keyboard.type("问");
+        await part(page, "ask").evaluate((input) => input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", isComposing: true, bubbles: true, composed: true})));
+        await expect(part(page, "callout")).toHaveAttribute("data-asking", "");
+        await expect(part(page, "ask")).toHaveValue("问");
+        await page.keyboard.press("Escape");
+        await expect(part(page, "callout")).not.toHaveAttribute("data-asking", "");
+        await expect(page.locator("#menu")).toHaveCount(1);
+    });
+
+    test("收起提问后选区还原：可编辑区域里的选区、没有焦点时页面上的选区、焦点在按钮上时页面上的选区", async ({page}) => {
+        await openFixture(page, `<div id="editor" contenteditable="true">abcdefgh</div><p id="txt">some plain text</p><button id="other">别的</button><button id="go" style="margin:200px">保存</button>`);
+        const select = (setup: string) => page.evaluate((which) => {
+            const range = document.createRange();
+            const node = document.getElementById(which === "editor" ? "editor" : "txt")!.firstChild!;
+            range.setStart(node, 1);
+            range.setEnd(node, 4);
+            if (which === "editor") document.getElementById("editor")!.focus();
+            else if (which === "button") document.getElementById("other")!.focus();
+            else (document.activeElement as HTMLElement | null)?.blur();
+            const selection = document.getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }, setup);
+        const state = () => page.evaluate(() => ({active: document.activeElement?.id ?? "", text: document.getSelection()?.toString() ?? ""}));
+        for (const [setup, expected] of [["editor", {active: "editor", text: "bcd"}], ["body", {active: "", text: "ome"}], ["button", {active: "other", text: "ome"}]] as const) {
+            await select(setup);
+            await startHighlight(page, {at: {text: "保存"}, message: "这里。", until: "next"});
+            await installed(page);
+            await part(page, "ask-open").click();
+            await page.keyboard.type("问");
+            await page.keyboard.press("Escape");
+            expect(await state(), setup).toEqual(expected);
+            await part(page, "skip").click();
+            await ended(page);
+        }
+    });
+
+    test("等点目标时按在原生模态对话框的遮罩上、按在整页的滚动条上都不算点错", async ({page}) => {
+        await openFixture(page, `<div style="height:3000px"><button id="go" style="margin:200px">保存</button></div><dialog id="dialog"><p>对话框</p></dialog>`);
+        await startHighlight(page, {at: {text: "保存"}, message: "点保存。", until: "click"});
+        await installed(page);
+        const width = await page.evaluate(() => window.innerWidth);
+        await page.mouse.click(width - 5, 400);
+        expect(await stillWaiting(page)).toBe(true);
+        await page.evaluate(() => (document.getElementById("dialog") as HTMLDialogElement).showModal());
+        await page.mouse.click(20, 20);
+        expect(await stillWaiting(page)).toBe(true);
     });
 });

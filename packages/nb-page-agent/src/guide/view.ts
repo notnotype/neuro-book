@@ -1,16 +1,19 @@
 /**
  * 一次高亮画在页面上的东西（docs/specs/agent/page-agent.md 输出 10）：压暗层、描边框与说明框，都在一个 shadow 宿主里。
  *
- * 宿主是 `popover="manual"` 的元素，挂在目标所在那一层的 DOM 里（`HighlightSession` 决定挂在哪），显示时进 top layer：
+ * 宿主是 `popover="manual"` 的元素，挂在目标所在那一层的 DOM 里（`HighlightSession` 决定挂在哪），排在那一层的最前面，显示时进
+ * top layer：
  * - 挂在那一层里面，弹层的“点外面就关”与焦点圈把点说明框、在提问框里打字都当成在层里，不会关掉弹层；
  * - 进 top layer，盖在一切 z-index 之上，也不被祖先的 `overflow` 与 `transform` 裁掉。
- * 宿主铺满视口、不接指针，只有说明框接；它的子元素按视口坐标放。
+ * 宿主铺满视口、不接指针，只有说明框接；它的子元素按视口坐标放。排在最前而不是最后：常见的间距与分隔线工具类按“不是最后一个
+ * 子元素”写（Tailwind 的 `space-y`、`divide-y`），排在最后会让原来的最后一项多出间距或线；最前也在框架管的那段子节点之外。
  *
  * 页面不该看到说明框里的事件：键盘与指针事件冒泡到宿主就停（输出 10 的“按键不交给页面”）。窗口上捕获阶段的监听仍先看到它们，
  * 那是页面自己的选择；`HighlightSession` 自己在窗口上的监听按事件路径跳过宿主。
  */
 
 import {OWN_NODE_ATTRIBUTE, QUESTION_MAX_CHARS} from "../api";
+import {intersect} from "../snapshot/walk";
 import type {Box} from "../snapshot/walk";
 import {frameClip, height, width} from "./geometry";
 import type {Frame} from "./geometry";
@@ -81,7 +84,7 @@ function saveFocus(document: Document): SavedFocus {
 }
 
 /**
- * 焦点还给原来的元素。输入框与文本框自己记着选区，聚焦即恢复；可编辑区域与没有焦点时的文档选区要按原样放回去。
+ * 焦点还给原来的元素，文档选区按原样放回去。输入框与文本框自己记着选区，聚焦即恢复；再放文档选区会冲掉它们自己的，所以不放。
  */
 function restoreFocus(document: Document, saved: SavedFocus): void {
     const element = saved.element;
@@ -91,9 +94,9 @@ function restoreFocus(document: Document, saved: SavedFocus): void {
         const active = deepActiveElement(document);
         if (active instanceof HTMLElement) active.blur();
     }
-    const editable = element === null || element === document.body || (element instanceof HTMLElement && element.isContentEditable);
+    const ownSelection = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
     const selection = document.getSelection();
-    if (!editable || selection === null) return;
+    if (ownSelection || selection === null) return;
     selection.removeAllRanges();
     for (const range of saved.ranges) selection.addRange(range);
 }
@@ -110,6 +113,8 @@ export class GuideView {
     readonly #input: HTMLInputElement;
     readonly #events: CalloutEvents;
     #saved: SavedFocus | null = null;
+    /** 提问框有焦点；层被页面删掉、宿主跟着被摘下而丢的焦点不算交出，重挂时据此放回。 */
+    #inputFocused = false;
 
     constructor(document: Document, model: CalloutModel, theme: GuideTheme | undefined, events: CalloutEvents) {
         this.#document = document;
@@ -212,41 +217,66 @@ export class GuideView {
                 default: return undefined;
             }
         });
+        input.addEventListener("focus", () => {
+            this.#inputFocused = true;
+        });
+        // 宿主被摘下时提问框也会失焦：等这一轮的 DOM 改动做完再看，宿主已经不在页面上就是被摘下，不是用户移走了焦点。
+        input.addEventListener("blur", () => {
+            queueMicrotask(() => {
+                // 挪层时这一轮里已经把焦点放回去了，那也不算交出。
+                if (this.host.isConnected && this.#root.activeElement !== input) this.#inputFocused = false;
+            });
+        });
+        // 输入法组字时的回车是选字、Esc 是取消组字，都不是给说明框的。
+        const composing = (event: KeyboardEvent): boolean => event.isComposing || event.keyCode === 229;
         input.addEventListener("keydown", (event) => {
-            // 输入法组字时的回车是选字，不是提交。
-            if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
+            if (event.key === "Enter" && !composing(event)) {
                 event.preventDefault();
                 this.#submit();
-            } else if (event.key === "Escape") {
+            }
+        });
+        // Esc 挂在提问那一行：焦点在发送、关闭按钮上时同样收起。
+        this.#askRow.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && !composing(event)) {
                 event.preventDefault();
                 this.#closeAsk();
             }
         });
     }
 
-    /** 挂进 `parent` 并显示；已经挂在别处时挪过去（挪动会让 popover 关上，所以重新显示）。 */
+    /**
+     * 挂进 `parent` 的最前面并显示；已经挂在别处时挪过去。挪动（或层被页面删掉时宿主跟着被摘下）会让 popover 关上、焦点掉到
+     * body，所以重新显示，焦点原来在提问框里的话放回去。
+     */
     mount(parent: Element): void {
-        if (this.host.parentNode !== parent) parent.append(this.host);
+        if (this.host.parentNode !== parent) parent.prepend(this.host);
         if (typeof this.host.showPopover === "function" && !this.host.matches(":popover-open")) this.host.showPopover();
+        if (this.#inputFocused && this.#root.activeElement !== this.#input) this.#input.focus({preventScroll: true});
     }
 
-    /** 画描边框与压暗层；`frame` 为 null 时两者藏起来（目标滚出了视野）。 */
+    /**
+     * 画描边框与压暗层；`frame` 为 null 时两者藏起来（目标滚出了视野）。压暗层的洞只开在可见区域里：目标一部分滚到滚动区域
+     * 外面时，外面那一截不是目标，照样压暗（洞是元素自己的框，`clip-path` 裁不出洞，所以直接缩框，被裁的那几个角不要圆角）。
+     */
     placeFrame(frame: Frame | null, visible: Box | null): void {
         const parts = this.#dim === null ? [this.#outline] : [this.#outline, this.#dim];
         if (frame === null || visible === null) {
             for (const part of parts) part.setAttribute("data-hidden", "");
             return;
         }
-        for (const part of parts) {
-            part.removeAttribute("data-hidden");
-            part.style.left = `${String(frame.box.left)}px`;
-            part.style.top = `${String(frame.box.top)}px`;
-            part.style.width = `${String(width(frame.box))}px`;
-            part.style.height = `${String(height(frame.box))}px`;
-            part.style.borderRadius = `${String(frame.radius)}px`;
-        }
+        for (const part of parts) part.removeAttribute("data-hidden");
+        place(this.#outline, frame.box, [frame.radius, frame.radius, frame.radius, frame.radius]);
         this.#outline.toggleAttribute("data-inside", frame.inside);
         this.#outline.style.clipPath = frameClip(frame, visible);
+        if (this.#dim !== null) {
+            const hole = intersect(frame.box, visible);
+            const top = hole.top > frame.box.top;
+            const bottom = hole.bottom < frame.box.bottom;
+            const left = hole.left > frame.box.left;
+            const right = hole.right < frame.box.right;
+            const corner = (cut: boolean): number => (cut ? 0 : frame.radius);
+            place(this.#dim, hole, [corner(top || left), corner(top || right), corner(bottom || right), corner(bottom || left)]);
+        }
     }
 
     placeCallout(x: number, y: number): void {
@@ -338,4 +368,13 @@ export class GuideView {
         if (saved !== null) restoreFocus(this.#document, saved);
         else if (this.#root.activeElement instanceof HTMLElement) this.#root.activeElement.blur();
     }
+}
+
+/** 按视口坐标放一个框；圆角按左上、右上、右下、左下。 */
+function place(element: HTMLElement, box: Box, radii: readonly [number, number, number, number]): void {
+    element.style.left = `${String(box.left)}px`;
+    element.style.top = `${String(box.top)}px`;
+    element.style.width = `${String(Math.max(0, width(box)))}px`;
+    element.style.height = `${String(Math.max(0, height(box)))}px`;
+    element.style.borderRadius = radii.map((radius) => `${String(radius)}px`).join(" ");
 }

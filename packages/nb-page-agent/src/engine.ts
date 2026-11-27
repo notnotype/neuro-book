@@ -3,6 +3,7 @@
  * 引用表随引擎活着；每次调用另建一个只在这次调用里用的查询缓存，页面在两次调用之间怎么变都不受影响。
  */
 
+import {locatorKind} from "./api";
 import type {Candidate, HighlightArgs, Locator, PageFailure, SnapshotArgs, SnapshotResult} from "./api";
 import {HighlightSession} from "./guide";
 import type {GuideEnvironment, GuideOptions, HighlightHandle} from "./guide";
@@ -52,13 +53,21 @@ export function createPageAgent(options: PageAgentOptions = {}): PageAgent {
         locate: (locator, locateOptions = {}) => locate(environment(), locator, {mutating: locateOptions.mutating ?? false, settle: locateOptions.settle ?? false}),
         describe: (element) => candidateOf(environment(), element),
         highlight: (args) => {
+            // 写错的定位在动上一次之前就报：这时上一次照常。
+            for (const part of [args.at, args.at.within]) {
+                if (part === undefined) continue;
+                const kind = locatorKind(part);
+                if (!kind.ok) throw new TypeError(kind.message);
+            }
             const previous = current;
             const session = new HighlightSession(guide, options.guide ?? {}, args);
             current = session;
+            // 先结束上一次再开始这一次：上一次的撤销（悬停显示等）先于这一次的装上。
             previous?.end({outcome: "replaced"});
             void session.handle.outcome.then(() => {
                 if (current === session) current = null;
             });
+            session.start();
             return session.handle;
         },
     };

@@ -10,7 +10,7 @@
 import {autoUpdate, computePosition, flip, offset, shift} from "@floating-ui/dom";
 import type {Placement, VirtualElement} from "@floating-ui/dom";
 
-import type {Candidate, HighlightArgs, HighlightInstalled, Locator, PageFailure, PageOutcome} from "../api";
+import type {Candidate, HighlightArgs, HighlightEnd, HighlightInstalled, Locator, PageFailure} from "../api";
 import {composedParent} from "../dom";
 import type {Inspector} from "../inspect";
 import type {Located} from "../locate";
@@ -23,6 +23,7 @@ import type {GuideText, GuideTheme} from "./theme";
 import {GuideView} from "./view";
 import type {CalloutModel} from "./view";
 
+export type {HighlightEnd} from "../api";
 export {ENGLISH_GUIDE_TEXT, GUIDE_THEME_DEFAULTS} from "./theme";
 export type {GuideText, GuideTheme, GuideThemeSlot} from "./theme";
 
@@ -32,7 +33,8 @@ export interface GuideOptions {
     readonly text?: () => GuideText;
     readonly theme?: GuideTheme;
     /**
-     * 目标要靠悬停才看得见时，宿主在这里让它一直显示（例如给悬停动作区写个属性）；交回的函数在撤掉高亮时调用。
+     * 目标要靠悬停才看得见时，宿主在这里让它一直显示（例如给悬停动作区写个属性）；交回的函数在撤掉高亮时调用。新的一次高亮
+     * 替换旧的时，旧的那次的函数先调用，再调新的这次的 `reveal`，宿主按“加上、去掉”写就行。
      */
     readonly reveal?: (target: Element) => (() => void) | void;
     /** 等目标出现的上限，缺省 5 秒（输出 9）。 */
@@ -49,9 +51,6 @@ export interface GuideEnvironment {
     describe(element: Element): Candidate;
     inspector(): Inspector;
 }
-
-/** 一次高亮怎样结束：页面上的结局、宿主取消，或者装不上（定位失败、等目标超时）。 */
-export type HighlightEnd = PageOutcome | {readonly outcome: "cancelled"} | PageFailure;
 
 export interface HighlightHandle {
     /** 画出来时 resolve；没画出来就结束了（定位失败、被替换、被取消）时 resolve 成 null，原因看 `outcome`。 */
@@ -88,7 +87,6 @@ export class HighlightSession {
     /** 每次重算位置加一；算位置是异步的，晚到的旧结果不写。 */
     #placing = 0;
 
-    /** 第一次定位同步进行：写错的定位在这里抛 `TypeError`，调用方当场知道。 */
     constructor(environment: GuideEnvironment, options: GuideOptions, args: HighlightArgs) {
         this.#environment = environment;
         this.#options = options;
@@ -103,6 +101,10 @@ export class HighlightSession {
             this.#resolveOutcome = resolve;
         });
         this.handle = {installed, outcome, cancel: () => this.end({outcome: "cancelled"})};
+    }
+
+    /** 开始：第一次定位同步进行，目标已经在页面上时当场装上；写错的定位在这里抛 `TypeError`。 */
+    start(): void {
         if (!this.#attempt(false)) this.#wait();
     }
 
@@ -152,7 +154,7 @@ export class HighlightSession {
                 this.#window.cancelAnimationFrame(this.#frame);
                 this.#frame = null;
             }
-            this.#install(found);
+            this.#guard(() => this.#install(found));
             return true;
         }
         if (found.code !== "not-found") {
@@ -185,12 +187,13 @@ export class HighlightSession {
         // 第一次重算就把宿主挂进目标所在的层。
         this.#update();
 
+        const follow = (): void => this.#schedule(() => this.#guard(() => this.#update()));
         const observer = new MutationObserver((records) => {
-            if (records.some((record) => !this.#ownRecord(record))) this.#schedule(() => this.#update());
+            if (records.some((record) => !this.#ownRecord(record))) follow();
         });
         observer.observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
         // 祖先滚动、窗口与目标改大小、目标被动画或布局挪动（交叉观察）时重算。
-        const stopAutoUpdate = autoUpdate(target, view.callout, () => this.#schedule(() => this.#update()));
+        const stopAutoUpdate = autoUpdate(target, view.callout, follow);
         const listeners: Array<[string, EventListener]> = [
             ["pointerdown", (event) => this.#onPointerDown(event as PointerEvent)],
             ["pointerup", (event) => this.#onActivate(event as MouseEvent)],
@@ -225,12 +228,24 @@ export class HighlightSession {
         };
     }
 
+    /**
+     * 装上与重算里出的错（宿主的钩子抛错、浏览器拒绝显示）：以 `guide-failed` 结束，已经做的（悬停显示、画上的节点）由 `end`
+     * 一并撤掉，不让这次高亮停在装了一半、永远不结束的状态。
+     */
+    #guard(task: () => void): void {
+        try {
+            task();
+        } catch (error) {
+            this.end({ok: false, code: "guide-failed", message: `画高亮时出错：${error instanceof Error ? error.message : String(error)}`});
+        }
+    }
+
     /** 目标没有整个在它的滚动区域里时滚过去（就近，已经看得见的不动）。 */
     #bringIntoView(target: Element): void {
         const viewport = viewportBox(this.#environment.document);
         const entered = this.#environment.inspector().entered(target);
         const box = intersect(entered?.clips.scroll ?? viewport, viewport);
-        const rect = target.getBoundingClientRect();
+        const rect = boxOf(target);
         const shown = intersect(rect, box);
         const short = (shownLength: number, rectLength: number, boxLength: number): boolean => shownLength < Math.min(rectLength, boxLength) - 1;
         if (isEmptyBox(shown) || short(width(shown), rect.width, width(box)) || short(height(shown), rect.height, height(box))) {
@@ -280,8 +295,9 @@ export class HighlightSession {
 
         const viewport = viewportBox(document);
         const visible = entered === null ? viewport : intersect(intersect(entered.clips.scroll, entered.clips.hard), viewport);
-        const rect = target.getBoundingClientRect();
-        let reference: Element | VirtualElement = target;
+        const rect = boxOf(target);
+        // 用算好的框作参照，不用目标本身：`display: contents` 的目标自己没有框。
+        let reference: VirtualElement = {getBoundingClientRect: () => boxOf(target), contextElement: target};
         let placement: Placement = this.#args.side ?? "bottom";
         const offscreen = isEmptyBox(intersect(rect, visible));
         if (offscreen) {
@@ -297,9 +313,11 @@ export class HighlightSession {
             ? [offset(CALLOUT_OFFSET), shift({padding: EDGE_PADDING, boundary: {x: visible.left, y: visible.top, width: width(visible), height: height(visible)}})]
             : [offset(CALLOUT_OFFSET), flip({fallbackPlacements: fallbacksFor(placement)}), shift({padding: EDGE_PADDING})];
         const token = ++this.#placing;
-        void computePosition(reference, view.callout, {strategy: "fixed", placement, middleware}).then(({x, y}) => {
+        computePosition(reference, view.callout, {strategy: "fixed", placement, middleware}).then(({x, y}) => {
             if (token === this.#placing && this.#state === "shown") view.placeCallout(x, y);
-        });
+        }, (error: unknown) => this.#guard(() => {
+            throw error;
+        }));
     }
 
     #suspectGone(target: Element): void {
@@ -349,6 +367,22 @@ function present(element: Element): boolean {
     if (element.checkVisibility({visibilityProperty: true})) return true;
     const view = element.ownerDocument.defaultView;
     return view !== null && view.getComputedStyle(element).display === "contents" && [...element.children].some(present);
+}
+
+/** 元素画出来的框；`display: contents` 的元素自己没有框，取画出来的子元素的框的并集。 */
+function boxOf(element: Element): DOMRect {
+    const rect = element.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) return rect;
+    const view = element.ownerDocument.defaultView;
+    if (view === null || view.getComputedStyle(element).display !== "contents") return rect;
+    const boxes = [...element.children].map(boxOf).filter((box) => box.width > 0 || box.height > 0);
+    if (boxes.length === 0) return rect;
+    return domRect({
+        left: Math.min(...boxes.map((box) => box.left)),
+        top: Math.min(...boxes.map((box) => box.top)),
+        right: Math.max(...boxes.map((box) => box.right)),
+        bottom: Math.max(...boxes.map((box) => box.bottom)),
+    });
 }
 
 function domRect(box: Box): DOMRect {

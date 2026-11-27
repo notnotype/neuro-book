@@ -174,3 +174,13 @@ export const HighlightInstalledSchema = Type.Object({
 }, {additionalProperties: false});
 
 export type HighlightInstalled = Static<typeof HighlightInstalledSchema>;
+
+/** 高亮画不出来：宿主给的钩子抛错，或浏览器拒绝显示。是页面一侧的错误，宿主按窗口出错处理。 */
+export interface GuideFailure {
+    readonly ok: false;
+    readonly code: "guide-failed";
+    readonly message: string;
+}
+
+/** 一次高亮怎样结束：页面上的结局、宿主取消、定位失败或等目标超时，或画不出来。 */
+export type HighlightEnd = PageOutcome | {readonly outcome: "cancelled"} | PageFailure | GuideFailure;
