@@ -195,7 +195,7 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
     gap: 0.375rem;
     min-height: 0;
     overflow: hidden;
-    /* 按钮的焦点环画在外面（主题 --focus-ring 实色那圈外扩 3.5px），收放用的 overflow 不能把它裁掉。 */
+    /* 按钮的焦点环画在外面（主题 --focus-ring 不偏移的几圈最外到 3.5px），收放用的 overflow 不能把它裁掉。 */
     padding: 4px;
     margin: -4px;
 }
