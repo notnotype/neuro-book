@@ -43,8 +43,8 @@ type Emits = {
 };
 
 type Exposed = {
-    /** 把焦点放进输入框；还没建 Monaco 时先建。`caret` 把光标放到文首或文末；不给时已经建好的保持原来的光标，因为这一次聚焦才建的放在文末。 */
-    focus(caret?: "start" | "end"): void;
+    /** 把焦点放进输入框；还没建 Monaco 时先建。`caret` 把光标放到文首、文末或整篇里的偏移（超出的按文末）；不给时已经建好的保持原来的光标，因为这一次聚焦才建的放在文末。 */
+    focus(caret?: "start" | "end" | number): void;
     /** 光标在文字里的偏移（按 `modelValue` 的字符数）；还没建 Monaco 时为 null。失焦以后仍是最后的位置。加载失败时取文本框的。 */
     cursorOffset(): number | null;
     /**

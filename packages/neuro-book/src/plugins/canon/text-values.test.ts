@@ -1,5 +1,5 @@
 /**
- * 主文字编辑时的预览（web/text-preview.ts；docs/specs/canon/author-ui.md 输出 48）：什么时候读、先发的晚回来怎么办、写得不对与
+ * 富文本里小块的值（web/text-values.ts；docs/specs/canon/author-ui.md 输出 48）：什么时候读、先发的晚回来怎么办、写得不对与
  * 读不出来时留着什么。世界服务与链路用 `testing/text-scene.ts` 的真实场地；延后的执行换成手动的，不等真实时间。
  */
 
@@ -15,14 +15,13 @@ import {until} from "./testing/harness";
 import {RENDER_SOURCE_MAX} from "./shared/contracts";
 import {textScene} from "./testing/text-scene";
 import type {SceneWindow, TextScene} from "./testing/text-scene";
-import type {EntryTextBlock} from "./web/components/entry-text";
-import {PREVIEW_DELAY, useTextPreview} from "./web/text-preview";
-import type {PreviewInput} from "./web/text-preview";
+import {VALUES_DELAY, useTextValues} from "./web/text-values";
+import type {TextValueTable, ValuesInput} from "./web/text-values";
 
 let tmp = "";
 
 beforeAll(async () => {
-    tmp = await createTestTmpRoot("neuro-book-canon", "text-preview");
+    tmp = await createTestTmpRoot("neuro-book-canon", "text-values");
 });
 
 afterAll(async () => {
@@ -40,8 +39,8 @@ async function inScene(run: (scene: TextScene) => Promise<void>): Promise<void> 
     }
 }
 
-/** 一块的源文，条目引用换成 `[名字]`（取自值表）。 */
-function words(block: Extract<EntryTextBlock, {values: unknown}> | null): string {
+/** 值表那一篇的原文，条目引用换成 `[名字]`（取自值表）。 */
+function words(block: TextValueTable | null): string {
     if (block === null) return "";
     let text = "";
     let cursor = 0;
@@ -53,7 +52,7 @@ function words(block: Extract<EntryTextBlock, {values: unknown}> | null): string
     return text + block.source.slice(cursor);
 }
 
-/** 一个窗口上的预览：`source` 是输入框里的整篇（null 是预览关着），`stamp` 代表世界的版本；延后的执行攒在 `timers` 里，`fire` 才跑。 */
+/** 一个窗口上的取值：`source` 是输入框里的整篇（null 是不在富文本里编辑），`stamp` 代表世界的版本；延后的执行攒在 `timers` 里，`fire` 才跑。 */
 function deskOf(window: SceneWindow, entry: string) {
     const source = shallowRef<string | null>(null);
     const stamp = shallowRef(0);
@@ -65,9 +64,9 @@ function deskOf(window: SceneWindow, entry: string) {
         if (method === "renderSource") calls += 1;
         return window.canon.call(method, input);
     };
-    const preview = scope.run(() => useTextPreview({
+    const values = scope.run(() => useTextValues({
         call,
-        input: (): PreviewInput | null => (source.value === null ? null : {entry, source: source.value, position: at, mode: "actual"}),
+        input: (): ValuesInput | null => (source.value === null ? null : {entry, source: source.value, position: at, mode: "actual"}),
         stamp: () => stamp.value,
         schedule: (run, ms) => {
             const timer = {run, ms, cancelled: false};
@@ -78,9 +77,9 @@ function deskOf(window: SceneWindow, entry: string) {
     return {
         source,
         stamp,
-        preview,
+        values,
         calls: () => calls,
-        shown: () => words(preview.block.value),
+        shown: () => words(values.table.value),
         /** 还等着的延后执行。 */
         waiting: () => timers.filter((timer) => !timer.cancelled),
         /** 作者停够了：跑掉等着的那一次。 */
@@ -91,8 +90,8 @@ function deskOf(window: SceneWindow, entry: string) {
     };
 }
 
-describe("author-ui 输出 48：预览什么时候读", () => {
-    it("打开预览马上读；之后每次改字都等作者停下，连着改只读最后的那一份", () => inScene(async (scene) => {
+describe("author-ui 输出 48：小块的值什么时候读", () => {
+    it("开始编辑马上读；之后每次改字都等作者停下，连着改只读最后的那一份", () => inScene(async (scene) => {
         const [entry, other] = [await scene.seed(["存下来的"]), await scene.seed([])];
         const desk = deskOf(await scene.window("browser-1"), entry);
         expect([desk.shown(), desk.waiting().length]).toEqual(["", 0]);
@@ -106,7 +105,7 @@ describe("author-ui 输出 48：预览什么时候读", () => {
         desk.source.value = "改二";
         await nextTick();
         // 停顿之前一次也不发：只有一个等着的延后执行。
-        expect([desk.waiting().map((timer) => timer.ms), desk.shown(), desk.calls()]).toEqual([[PREVIEW_DELAY], "见 [条目 2]", 1]);
+        expect([desk.waiting().map((timer) => timer.ms), desk.shown(), desk.calls()]).toEqual([[VALUES_DELAY], "见 [条目 2]", 1]);
         desk.fire();
         await until(() => desk.shown() === "改二");
         expect(desk.calls()).toBe(2);
@@ -145,7 +144,7 @@ describe("author-ui 输出 48：预览什么时候读", () => {
         desk.dispose();
     }));
 
-    it("关掉预览：留着的丢掉，等着的那一次不再读；再打开重新读", () => inScene(async (scene) => {
+    it("不再要值（离开编辑、切到源文字）：留着的丢掉，等着的那一次不再读；再要时重新读", () => inScene(async (scene) => {
         const entry = await scene.seed([]);
         const desk = deskOf(await scene.window("browser-1"), entry);
         desk.source.value = "甲";
@@ -163,21 +162,33 @@ describe("author-ui 输出 48：预览什么时候读", () => {
 });
 
 describe("author-ui 输出 48：写得不对与读不出来", () => {
-    it("写得不对：给出行、列与原因，留着上一次读得出来的样子；改对了换回来", () => inScene(async (scene) => {
+    it("值表配的是发出去的那一篇（逐字相同），小块按它对齐", () => inScene(async (scene) => {
         const entry = await scene.seed([]);
         const desk = deskOf(await scene.window("browser-1"), entry);
+        const sent = '## 标题\n\n- 一项 <V of="entry.name" />\n- 两项\n\n> 引用 **强调**';
+        desk.source.value = sent;
+        await until(() => desk.values.table.value !== null);
+        expect(desk.values.table.value?.source).toBe(sent);
+        desk.dispose();
+    }));
+
+    it("写得不对：留着上一次读得出来的值表，不算失败；改对了换上新的", () => inScene(async (scene) => {
+        const entry = await scene.seed([]);
+        const window = await scene.window("browser-1");
+        const desk = deskOf(window, entry);
         desk.source.value = "好的一段";
         await until(() => desk.shown() === "好的一段");
         desk.source.value = '好的一段\n\n他说<V of="entry.name"';
         await nextTick();
         desk.fire();
-        await until(() => desk.preview.problem.value !== null);
-        expect([desk.preview.problem.value?.line, desk.preview.problem.value?.column, desk.preview.problem.value?.message === "", desk.shown()]).toEqual([3, 3, false, "好的一段"]);
+        // 同一条链路上后发的调用回来时，取值的那条回复已经到过了。
+        await window.canon.call("status", {});
+        await nextTick();
+        expect([desk.shown(), desk.values.failure.value]).toEqual(["好的一段", null]);
         desk.source.value = "好的一段\n\n他说了";
         await nextTick();
         desk.fire();
-        await until(() => desk.preview.problem.value === null);
-        expect(desk.shown()).toBe("好的一段\n\n他说了");
+        await until(() => desk.shown() === "好的一段\n\n他说了");
         desk.dispose();
     }));
 
@@ -191,11 +202,11 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
         desk.source.value = "断着的时候写的";
         await nextTick();
         desk.fire();
-        await until(() => desk.preview.failure.value !== null);
+        await until(() => desk.values.failure.value !== null);
         expect(desk.shown()).toBe("断之前");
         await window.reconnect();
         desk.stamp.value += 1;
-        await until(() => desk.preview.failure.value === null);
+        await until(() => desk.values.failure.value === null);
         expect(desk.shown()).toBe("断着的时候写的");
         desk.dispose();
     }));
@@ -209,13 +220,13 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
         desk.source.value = "字".repeat(RENDER_SOURCE_MAX + 1);
         await nextTick();
         desk.fire();
-        await until(() => desk.preview.failure.value !== null);
-        expect([desk.preview.failure.value, desk.calls() - before, desk.shown()]).toEqual(["too-large", 0, "短的"]);
+        await until(() => desk.values.failure.value !== null);
+        expect([desk.values.failure.value, desk.calls() - before, desk.shown()]).toEqual(["too-large", 0, "短的"]);
         desk.source.value = "又短了";
         await nextTick();
         desk.fire();
         await until(() => desk.shown() === "又短了");
-        expect(desk.preview.failure.value).toBeNull();
+        expect(desk.values.failure.value).toBeNull();
         desk.dispose();
     }));
 
@@ -226,10 +237,10 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
         desk.source.value = "字";
         await asked.held;
         asked.release();
-        // 同一条链路上后发的调用回来时，预览的那条回复已经到过了。
+        // 同一条链路上后发的调用回来时，取值的那条回复已经到过了。
         await window.canon.call("status", {});
         await nextTick();
-        expect([desk.shown(), desk.preview.problem.value, desk.preview.failure.value]).toEqual(["", null, null]);
+        expect([desk.shown(), desk.values.failure.value]).toEqual(["", null]);
         desk.dispose();
     }));
 });

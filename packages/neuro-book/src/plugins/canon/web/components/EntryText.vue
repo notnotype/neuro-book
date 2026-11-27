@@ -28,9 +28,7 @@ const props = withDefaults(defineProps<{
     editable?: boolean;
     /** 不能进编辑的原因：非空时那个按钮不可用，悬停写原因。 */
     editReason?: string;
-    /** 值与条目引用能点（展开来历、打开条目）。为假时它们只是文字：编辑时的预览用（输出 48）。默认 true。 */
-    interactive?: boolean;
-}>(), {marks: () => ({}), open: undefined, editable: false, editReason: "", interactive: true});
+}>(), {marks: () => ({}), open: undefined, editable: false, editReason: ""});
 
 const emit = defineEmits<{
     /** 点了一个值：展开或收起它的来历。 */
@@ -55,12 +53,6 @@ const HTML_MARKS: Readonly<Record<string, string>> = {strong: "strong", b: "stro
 
 type VValue = Extract<EntryTextValue, {tag: "V"}>;
 
-/** 块一级的元素带着它在这一块源文字里的行号：预览跟着光标滚到对应的段落时按它找（输出 48）。 */
-const line = (layout: LaidOutBlock, token: EntryTextToken): {"data-source-line"?: number} => {
-    const at = layout.lineOf(token);
-    return at === undefined ? {} : {"data-source-line": at};
-};
-
 const blockList = (layout: LaidOutBlock, list: readonly EntryTextToken[] | undefined): VNodeChild[] => (list ?? []).map((token) => blockToken(layout, token));
 const inlineList = (layout: LaidOutBlock, list: readonly EntryTextToken[] | undefined): VNodeChild[] => (list ?? []).map((token) => inlineToken(layout, token));
 
@@ -71,14 +63,14 @@ function blockToken(layout: LaidOutBlock, token: EntryTextToken): VNodeChild {
         case "checkbox":
             return null;
         // 段落、标题、列表、引用、代码、表格、分隔线的样子来自章节的正文样式（块的根上的 `.nb-markdown`），这里不另写。
-        case "paragraph": return h("p", line(layout, token), inlineList(layout, token.tokens));
-        case "heading": return h(HEADINGS[Math.min(Math.max((token.depth ?? 1) - 1, 0), 5)]!, line(layout, token), inlineList(layout, token.tokens));
-        case "list": return h(token.ordered === true ? "ol" : "ul", (token.items ?? []).map((item) => h("li", line(layout, item), blockList(layout, item.tokens))));
-        case "blockquote": return h("blockquote", line(layout, token), blockList(layout, token.tokens));
-        case "code": return h("pre", line(layout, token), h("code", token.text ?? ""));
-        case "hr": return h("hr", line(layout, token));
+        case "paragraph": return h("p", inlineList(layout, token.tokens));
+        case "heading": return h(HEADINGS[Math.min(Math.max((token.depth ?? 1) - 1, 0), 5)]!, inlineList(layout, token.tokens));
+        case "list": return h(token.ordered === true ? "ol" : "ul", (token.items ?? []).map((item) => h("li", blockList(layout, item.tokens))));
+        case "blockquote": return h("blockquote", blockList(layout, token.tokens));
+        case "code": return h("pre", h("code", token.text ?? ""));
+        case "hr": return h("hr");
         // 表格比内容列宽时在自己的框里横向滚动，不把页面撑出横向滚动条。
-        case "table": return h("div", {class: "overflow-x-auto", ...line(layout, token)}, h("table", h("tbody", [token.header ?? [], ...(token.rows ?? [])].map((row) => h("tr", row.map((cell) => h("td", inlineList(layout, cell.tokens))))))));
+        case "table": return h("div", {class: "overflow-x-auto"}, h("table", h("tbody", [token.header ?? [], ...(token.rows ?? [])].map((row) => h("tr", row.map((cell) => h("td", inlineList(layout, cell.tokens))))))));
         default: return inlineToken(layout, token);
     }
 }
@@ -126,7 +118,6 @@ function tagNode(layout: LaidOutBlock, tag: number): VNodeChild {
 
 function refNode(id: string, name: string, deleted: boolean): VNodeChild {
     if (deleted) return muted(name !== "" ? name : text("value.deletedRef"));
-    if (!props.interactive) return h("span", {"class": "text-[var(--accent-main)]", "data-ref": id}, name);
     return h("button", {type: "button", class: "text-[var(--accent-main)] hover:underline", onClick: () => emit("entry", id)}, name);
 }
 
@@ -153,13 +144,6 @@ function valueNode(node: VValue): VNodeChild {
     const shown = node.unknown === true ? text("value.unknown") : node.display;
     const mark = address.entry === props.self ? props.marks[address.path] : undefined;
     const warn = node.unknown === true || node.incomplete !== undefined;
-    // 不能点时是同样画法的文字，悬停写它是哪个字段。
-    if (!props.interactive) {
-        return [
-            h("span", {"class": ["canon-value canon-value-static", warn ? "text-[var(--status-warning)]" : ""], "title": node.label ?? address.path, "data-value": key}, shown),
-            node.incomplete === undefined ? null : h("span", {class: "ml-1 text-[length:var(--text-xs)] text-[var(--status-warning)]"}, text("value.incomplete")),
-        ];
-    }
     return [
         h("button", {
             "type": "button",
@@ -230,7 +214,7 @@ const openAddress = (): TextAddress | null => {
 </script>
 
 <template>
-    <div class="entry-text min-w-0 text-[var(--text-main)]" :data-entry-text="props.interactive ? '' : undefined" :data-entry-preview="props.interactive ? undefined : ''">
+    <div class="entry-text min-w-0 text-[var(--text-main)]" data-entry-text>
         <!--
             根上只能有这一个元素，注释也要写在它里面：开发构建保留模板里的注释，根上多一条注释，组件的根就成了片段。条目页把本
             组件直接放在先出后进的 `Transition` 里，根是片段时退场收不了尾，换上来的编辑视图一直不出现（生产构建剥掉注释，看不出来）。
@@ -272,10 +256,7 @@ const openAddress = (): TextAddress | null => {
     padding: 0 1px;
     cursor: pointer;
 }
-:deep(.canon-value-static) {
-    cursor: inherit;
-}
-:deep(.canon-value:not(.canon-value-static):hover),
+:deep(.canon-value:hover),
 :deep(.canon-value-open) {
     background: var(--bg-hover);
     border-radius: 3px;

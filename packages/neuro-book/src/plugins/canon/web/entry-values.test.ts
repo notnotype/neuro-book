@@ -10,7 +10,7 @@ import {describe, expect, it} from "bun:test";
 import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdown/language";
 
 import type {EntryTextValue} from "./components/entry-text";
-import {baselineOf, checkedWrite, entryTextProblem} from "./entry-check";
+import {baselineOf, checkedWrite, entryTextProblem, richProblem} from "./entry-check";
 import {documentTags, ENTRY_TAG_NODE, entrySyntax} from "./entry-syntax";
 import {alignValues, tagHasValue, valueSequence} from "./entry-values";
 
@@ -115,5 +115,15 @@ describe("写入前的检查（canon.rendering 输出 1、19）", () => {
         const broken = checkedWrite(codec, new Transform(read.doc).setNodeMarkup(at, undefined, {source: "不是标签"}).doc, read.map, new Set());
         expect(broken).toEqual({ok: false, problem: null});
         expect(documentTags(read.doc)).toEqual(['<V of="panel.魔力" />']);
+    });
+});
+
+describe("能不能用富文本编辑（canon/author-ui.md 输出 39、48）", () => {
+    it("写得对、条件都成组的能；写坏的给出第几行；没登记的标签看基线", () => {
+        expect(richProblem('魔力 <V of="panel.魔力" />，<If test="panel.魔力 > 1">强<Else />弱</If>\n\n- <If test="panel.a > 1">甲\n乙</If>', new Set())).toBeNull();
+        const broken = richProblem('第一段。\n\n<V of="panel.魔力"', new Set());
+        expect(broken?.kind === "problem" ? broken.problem.line : null).toBe(3);
+        expect(richProblem("<StatusBar />", new Set())?.kind).toBe("problem");
+        expect(richProblem("<StatusBar />", baselineOf("<StatusBar />"))).toBeNull();
     });
 });

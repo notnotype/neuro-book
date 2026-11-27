@@ -33,27 +33,17 @@ export interface EntryTextToken {
 export type PressableValue = Extract<EntryTextValue, {tag: "V"}> & {readonly path: string};
 
 /**
- * 读好、对好的一块：词法单元，每个活的标签在值表里的项，块一级的单元在源文里的行（从 1 起），画出来是按钮的取值（生效的支里的；
+ * 读好、对好的一块：词法单元，每个活的标签在值表里的项，画出来是按钮的取值（生效的支里的；
  * 来历画在含它的块后面）。
  */
 export interface LaidOutBlock {
     readonly tokens: readonly EntryTextToken[];
     readonly valueOf: (tag: number) => EntryTextValue | undefined;
-    readonly lineOf: (token: EntryTextToken) => number | undefined;
     readonly pressable: readonly PressableValue[];
 }
 
 /** 值表里有项的标签：`V`、`If`、`ElseIf`、`Ref`、`Image` 与没登记的；`Else`、闭标签、写坏的、字面的没有。 */
 export const hasItem = (name: string, kind: string): boolean => kind !== "close" && kind !== "malformed" && name !== "Else";
-
-/** 块一级、带行号的单元（编辑时的预览跟着光标滚到对应的段落，canon.author-ui 输出 48）。 */
-const LINED = new Set(["paragraph", "heading", "list_item", "blockquote", "code", "hr", "table"]);
-
-const newlines = (text: string): number => {
-    let count = 0;
-    for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) count += 1;
-    return count;
-};
 
 /** 值表里的项画出来是不是按钮（与 `EntryText` 的画法一致：读不到的、算出来的、图片是文字）。 */
 const isPressable = (value: EntryTextValue | undefined): value is PressableValue =>
@@ -76,7 +66,7 @@ export function layoutBlock(source: string, values: readonly EntryTextValue[]): 
     const owned = pairValues(parsed, values);
     if ("mismatch" in owned) return owned;
     const tokens = parsed.tokens as unknown as readonly EntryTextToken[];
-    return {tokens, valueOf: (tag) => owned.get(tag), lineOf: linesOf(source, tokens), pressable: pressableIn(tokens, owned)};
+    return {tokens, valueOf: (tag) => owned.get(tag), pressable: pressableIn(tokens, owned)};
 }
 
 /**
@@ -96,37 +86,6 @@ export function pairValues(parsed: ParsedEntryText, values: readonly EntryTextVa
     return owned;
 }
 
-/**
- * 块一级单元的行号。顶层的单元按原文在源文里依次找（换行先统一成 LF：marked 读之前也这样换）；里层（引用、列表项里的）不在源文里找：
- * 它们的原文去掉了每行的 `> ` 与缩进，按父单元的行加上前面兄弟原文里的换行数算（去前缀不改行数）。顶层找不到的单元连同里层都不写行号。
- */
-function linesOf(source: string, tokens: readonly EntryTextToken[]): (token: EntryTextToken) => number | undefined {
-    const lines = new WeakMap<EntryTextToken, number>();
-    const nested = (list: readonly EntryTextToken[], first: number): void => {
-        let line = first;
-        for (const token of list) {
-            if (LINED.has(token.type)) lines.set(token, line);
-            nested(token.items ?? [], line);
-            if (token.type !== "paragraph" && token.type !== "heading") nested(token.tokens ?? [], line);
-            line += newlines(token.raw);
-        }
-    };
-    const text = source.replace(/\r\n?/gu, "\n");
-    let cursor = 0;
-    let line = 1;
-    for (const token of tokens) {
-        const raw = token.raw.replace(/\s+$/u, "");
-        const at = raw === "" ? -1 : text.indexOf(raw, cursor);
-        if (at < 0) continue;
-        line += newlines(text.slice(cursor, at));
-        if (LINED.has(token.type)) lines.set(token, line);
-        nested(token.items ?? [], line);
-        if (token.type !== "paragraph" && token.type !== "heading") nested(token.tokens ?? [], line);
-        line += newlines(raw);
-        cursor = at + raw.length;
-    }
-    return (token) => lines.get(token);
-}
 
 /** 画出来是按钮的取值，按出现的先后：条件只进生效的那一支。 */
 function pressableIn(tokens: readonly EntryTextToken[], owned: ReadonlyMap<number, EntryTextValue>): PressableValue[] {

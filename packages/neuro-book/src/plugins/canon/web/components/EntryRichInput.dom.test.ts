@@ -102,6 +102,17 @@ describe("富文本输入框的合同", () => {
         expect(exposed(wrapper).cursorOffset()).toBe(0);
     });
 
+    it("按整篇源文的偏移放光标、再读回偏移：小块按它的原文算，在小块后、第二块里都对得上", async () => {
+        const source = '魔力 <V of="panel.魔力" />。\n\n第二段 **强调** 后。';
+        const wrapper = show({modelValue: source});
+        await flushPromises();
+        type Offsets = Exposed & {focus(caret: number): void};
+        for (const offset of [0, source.indexOf("。"), source.indexOf("第二段"), source.indexOf("后")]) {
+            (wrapper.vm as unknown as Offsets).focus(offset);
+            expect(exposed(wrapper).cursorOffset()).toBe(offset);
+        }
+    });
+
     it("没登记的标签：基线里有的插得进，没有的不插", async () => {
         const wrapper = show({modelValue: "状态 <StatusBar />", baseline: new Set(["<StatusBar />"])});
         await flushPromises();

@@ -81,27 +81,6 @@ describe("EntryText", () => {
         expect(wrapper.get("[data-block-error]").text()).toBe("<div>旧</div>这一块没有渲染出来：不认识的写法");
     });
 
-    it("输出 48，不能点的画法（编辑时的预览）：值与引用是文字不是按钮，点了不发事件；根上的标记与阅读视图不同", async () => {
-        const wrapper = text({interactive: false});
-        expect([wrapper.findAll("button").length, wrapper.findAll("[data-value]").map((item) => [item.element.tagName, item.text()])]).toEqual([0, [["SPAN", "900"], ["SPAN", "未知"], ["SPAN", "50"]]]);
-        expect(wrapper.get("[data-ref='e2']").text()).toBe("星瑾");
-        await wrapper.findAll("[data-value]")[0]!.trigger("click");
-        await wrapper.get("[data-ref='e2']").trigger("click");
-        expect([wrapper.emitted("value"), wrapper.emitted("entry")]).toEqual([undefined, undefined]);
-        expect([wrapper.find("[data-entry-text]").exists(), wrapper.find("[data-entry-preview]").exists(), text().find("[data-entry-text]").exists()]).toEqual([false, true, true]);
-    });
-
-    it("输出 48：块一级的元素带着它在源文字里的行号", () => {
-        const wrapper = text({blocks: [block("source", "# 标题\n\n一段\n\n- 甲\n- 乙\n\n> 引用", [])]});
-        expect(wrapper.findAll("[data-source-line]").map((item) => [item.element.tagName, item.attributes("data-source-line")])).toEqual([["H2", "1"], ["P", "3"], ["LI", "5"], ["LI", "6"], ["BLOCKQUOTE", "8"], ["P", "8"]]);
-        // 引用里两段同样的文字、嵌套的列表、CRLF 的多行段落、列表最后一行带行尾空白：行号按行数算，不在源文里反找。
-        const lines = (source: string) => text({blocks: [block("lines", source, [])]}).findAll("[data-source-line]").map((item) => [item.element.tagName, item.attributes("data-source-line")]);
-        expect(lines("> 甲\n> 乙\n>\n> 乙\n\n后")).toEqual([["BLOCKQUOTE", "1"], ["P", "1"], ["P", "4"], ["P", "6"]]);
-        expect(lines("- a\n  - b\n  - b\n- b")).toEqual([["LI", "1"], ["LI", "2"], ["LI", "3"], ["LI", "4"]]);
-        expect(lines("甲\r\n乙\r\n\r\n# 题")).toEqual([["P", "1"], ["H2", "4"]]);
-        expect(lines("- 甲  \n- 乙   \n\n后")).toEqual([["LI", "1"], ["LI", "2"], ["P", "4"]]);
-    });
-
     it("Markdown 的各种写法照章节的正文画：强调的两种写法、表格、有序列表、链接只留文字、图片写说明、换行", () => {
         const source = "**粗** *斜* ~~删~~ <strong>粗二</strong> <b>粗三</b> <em>斜二</em> <i>斜三</i> <del>删二</del> <s>删三</s>\n\n| 甲 | 乙 |\n| - | - |\n| 一 | 二 |\n\n1. 第一\n2. 第二\n\n[链接文字](http://x) ![图的说明](a.png) 前<br>后";
         const drawn = text({blocks: [block("md", source, [])]}).get("[data-block='md']");

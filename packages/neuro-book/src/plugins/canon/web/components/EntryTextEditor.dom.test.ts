@@ -1,12 +1,12 @@
 /**
  * 整篇编辑的编辑视图（EntryTextEditor.vue；docs/specs/canon/author-ui.md 输出 39、45、46）自己管的几件事：离开的按钮什么时候先问、
- * Esc、另一个窗口也在改与等结局时的按钮、打字与“插入”发出什么。输入框用组件自带的退路（普通文本框）。写入与提交在宿主那边，
+ * Esc、另一个窗口也在改与等结局时的按钮、打字与“插入”发出什么、富文本与源文字的切换（输出 48）。源文字用组件自带的退路（普通文本框），
+ * 富文本是真的 `EntryRichInput`。写入与提交在宿主那边，
  * 见 `entry-page.dom.test.ts`。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
-import {afterEach, describe, expect, it} from "vitest";
-import {h} from "vue";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
@@ -115,49 +115,116 @@ describe("author-ui 输出 39：输入与“插入”", () => {
     });
 });
 
-describe("author-ui 输出 48：预览栏", () => {
-    const withPreview = (props: Record<string, unknown>) => {
-        const wrapper = mount(EntryTextEditor, {props: {...base, ...props}, slots: {preview: () => h("p", {"data-rendered": ""}, "渲染出来的样子")}, global: {provide: provideText(port)}, attachTo: document.body});
-        mounted.push(wrapper);
-        return wrapper;
-    };
+const rich = {self: "e1", fields: [{path: "panel.魔力", label: "魔力", group: "数值", display: "1,200"}], marks: {}, values: null, computing: true, find: null, baseline: new Set<string>()};
+/** 同真实的宿主：收到 update 与 update:mode 就把新的给回来。 */
+const controlled = async (props: Record<string, unknown>) => {
+    const wrapper = show({rich, ...props});
+    await wrapper.setProps({
+        "onUpdate": (value: string) => void wrapper.setProps({text: value}),
+        "onUpdate:mode": (value: "rich" | "source") => void wrapper.setProps({mode: value}),
+    });
+    await flushPromises();
+    return wrapper;
+};
+const modeOf = (wrapper: ReturnType<typeof mount>) => wrapper.get("[data-text-mode]").attributes("data-text-mode");
+const pick = async (wrapper: ReturnType<typeof mount>, label: string) => {
+    const option = [...wrapper.get("[data-text-mode]").element.querySelectorAll<HTMLElement>("button, [role='radio']")].find((item) => item.textContent?.trim() === label)!;
+    option.click();
+    await flushPromises();
+};
 
-    it("“预览”是个开关：开着时有预览栏、里面是宿主给的内容；点它发出反过来的值，关着时没有预览栏", async () => {
-        const on = withPreview({preview: true});
-        expect([on.get("[data-text-preview-toggle]").attributes("aria-pressed"), on.get("[data-text-preview]").find("[data-rendered]").text(), on.get("[data-text-preview]").attributes("aria-label")]).toEqual(["true", "渲染出来的样子", "预览"]);
-        await on.get("[data-text-preview-toggle]").trigger("click");
-        expect(on.emitted("update:preview")).toEqual([[false]]);
-
-        const off = withPreview({preview: false});
-        expect([off.get("[data-text-preview-toggle]").attributes("aria-pressed"), off.find("[data-text-preview]").exists(), off.find("[data-rendered]").exists()]).toEqual(["false", false, false]);
-        await off.get("[data-text-preview-toggle]").trigger("click");
-        expect(off.emitted("update:preview")).toEqual([[true]]);
+describe("author-ui 输出 39、48：富文本与源文字", () => {
+    it("给了富文本要的东西：缺省富文本；切到源文字、再切回，内容不变，记下的模式跟着发出", async () => {
+        const wrapper = await controlled({text: '魔力 <V of="panel.魔力" />。'});
+        expect([modeOf(wrapper), wrapper.find("[data-rich-input]").exists(), wrapper.find("textarea").exists()]).toEqual(["rich", true, false]);
+        // 光标放在富文本的文末再切：源文字里光标也落在文末（两边按整篇源文的偏移交接）。
+        (wrapper.vm as unknown as {focus(caret: "end"): void}).focus("end");
+        await pick(wrapper, "源文字");
+        expect([modeOf(wrapper), wrapper.get("textarea").element.value, wrapper.emitted("update:mode")]).toEqual(["source", '魔力 <V of="panel.魔力" />。', [["source"]]]);
+        await vi.waitFor(() => expect(document.activeElement).toBe(wrapper.get("textarea").element));
+        expect((wrapper.get("textarea").element as HTMLTextAreaElement).selectionStart).toBe('魔力 <V of="panel.魔力" />。'.length);
+        await pick(wrapper, "富文本");
+        expect([modeOf(wrapper), wrapper.find("[data-rich-input] [data-entry-chip]").exists(), wrapper.emitted("update:mode")]).toEqual(["rich", true, [["source"], ["rich"]]]);
+        expect(wrapper.emitted("update")).toBeUndefined();
+        // 没给富文本要的东西：只有源文字，没有切换。
+        expect([show({}).find("[data-text-mode]").exists(), show({}).find("textarea").exists()]).toEqual([false, true]);
     });
 
-    it("宿主没给预览的内容（已删除的条目只列稿）、或读不出块：没有开关也没有预览栏", () => {
-        const wrapper = show({preview: true});
-        expect([wrapper.find("[data-text-preview-toggle]").exists(), wrapper.find("[data-text-preview]").exists()]).toEqual([false, false]);
-        const frozen = withPreview({preview: true, frozen: true});
-        expect([frozen.find("[data-text-preview-toggle]").exists(), frozen.find("[data-text-preview]").exists()]).toEqual([false, false]);
+    it("源文字写坏一个标签：停顿后下面写第几行；切回富文本被拦下、写原因，模式不变；改好以后切得回去", async () => {
+        const wrapper = await controlled({text: "第一段。", mode: "source"});
+        await wrapper.get("textarea").setValue('第一段。\n\n<V of="panel.魔力"');
+        await vi.waitFor(() => expect(wrapper.find("[data-source-problem]").exists()).toBe(true));
+        expect(wrapper.get("[data-source-problem]").attributes("data-line")).toBe("3");
+        await pick(wrapper, "富文本");
+        expect([modeOf(wrapper), wrapper.get("[data-mode-problem]").text(), wrapper.emitted("update:mode")]).toEqual(["source", "第 3 行写得不对，改好才能切回富文本", undefined]);
+        await wrapper.get("textarea").setValue("改好了。");
+        expect(wrapper.find("[data-mode-problem]").exists()).toBe(false);
+        await vi.waitFor(() => expect(wrapper.find("[data-source-problem]").exists()).toBe(false));
+        await pick(wrapper, "富文本");
+        expect([modeOf(wrapper), wrapper.get("[data-rich-input]").text()]).toEqual(["rich", "改好了。"]);
     });
 
-    it("栏顶上的一句：写着的时候栏里的内容标成旧的；没有时不写、不标。播报的区域一直在，那一句写在它里面", async () => {
-        const wrapper = withPreview({preview: true});
-        const status = () => wrapper.get("[data-text-preview] [role='status']");
-        expect([status().text(), wrapper.find("[data-text-preview-note]").exists(), wrapper.find("[data-stale]").exists()]).toEqual(["", false, false]);
-        await wrapper.setProps({previewNote: "第 3 行第 3 列写得不对：缺一个花括号"});
+    it("记下的是富文本、稿读不进去：这一次落在源文字，切换旁写原因，不改记下的模式", async () => {
+        const wrapper = await controlled({text: '坏的 <V of="panel.魔力"'});
+        expect([modeOf(wrapper), wrapper.find("textarea").exists(), wrapper.get("[data-mode-problem]").text(), wrapper.emitted("update:mode")]).toEqual(["source", true, "这一版里有写法要先在源文字里改好", undefined]);
+    });
+
+    it("在富文本里提交被拒收：切到源文字，光标落在原因指的那一行", async () => {
+        const text = '第一段。\n\n第二段 <V of="panel.魔力" />。';
+        const wrapper = await controlled({text});
+        expect(modeOf(wrapper)).toBe("rich");
+        // 内核拒收的原因浏览器这边查不出来（例如字段没了）：光标在文首。
+        await wrapper.setProps({problem: "写得不对：panel.魔力 不在了"});
         await flushPromises();
-        expect([status().text(), status().find("[data-text-preview-note]").exists(), wrapper.find("[data-stale]").exists()]).toEqual(["第 3 行第 3 列写得不对：缺一个花括号", true, true]);
-        await wrapper.setProps({previewNote: ""});
-        await flushPromises();
-        expect(wrapper.find("[data-stale]").exists()).toBe(false);
-    });
-
-    it("开着预览照样能打字、能“插入”：改动照常交出去", async () => {
-        const wrapper = withPreview({preview: true, text: "甲", inserts: [{label: "面板 · 魔力", snippet: '<V of="panel.魔力" />'}]});
         const area = wrapper.get("textarea").element as HTMLTextAreaElement;
-        area.value = "甲乙";
-        area.dispatchEvent(new Event("input", {bubbles: true}));
-        expect([wrapper.emitted("update"), wrapper.find("[data-text-insert]").exists()]).toEqual([[["甲乙"]], true]);
+        expect([modeOf(wrapper), wrapper.get("[data-text-problem]").text(), document.activeElement === area, area.selectionStart]).toEqual(["source", "写得不对：panel.魔力 不在了", true, 0]);
+        // 拒收后落在源文字不改记下的模式。
+        expect(wrapper.emitted("update:mode")).toBeUndefined();
+    });
+
+    it("状态行分两区：第一区是状态与放弃、提交，第二区是插入与模式；有条件时出“显示全部分支”，点了发出", async () => {
+        const wrapper = await controlled({text: '<If test="panel.魔力 > 1">强<Else />弱</If>', inserts: [{label: "数值 · 魔力", snippet: '<V of="panel.魔力" />'}]});
+        const row = (n: string) => wrapper.get(`[data-text-bar-row="${n}"]`);
+        expect([row("1").find("[data-text-submit]").exists(), row("1").find("[data-text-cancel]").exists(), row("2").find("[data-text-insert]").exists(), row("2").find("[data-text-mode]").exists()]).toEqual([true, true, true, true]);
+        const toggle = wrapper.get("[data-text-branches] [role='switch']").element as HTMLElement;
+        toggle.click();
+        await flushPromises();
+        expect(wrapper.emitted("update:showBranches")).toEqual([[true]]);
+        await pick(wrapper, "源文字");
+        expect(wrapper.find("[data-text-branches]").exists()).toBe(false);
+    });
+
+    it("“插入”：值（下一级是字段）、计算、条件；源文字里选计算写进模板，没有找条目的入口时富文本里不出“条目”", async () => {
+        const wrapper = await controlled({text: "甲", mode: "source", inserts: [{label: "数值 · 魔力", snippet: '<V of="panel.魔力" />'}]});
+        const open = async () => {
+            const trigger = wrapper.get("[data-text-insert]").element as HTMLElement;
+            trigger.focus();
+            trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+            await flushPromises();
+            await flushPromises();
+            return [...document.body.querySelectorAll<HTMLElement>("[role='menuitem']")];
+        };
+        let items = await open();
+        expect(items.map((item) => item.textContent?.replace(/\s+/gu, ""))).toEqual(["值", "计算{", "条件{", "条目@"]);
+        // “值”的下一级是字段。
+        items[0]!.focus();
+        items[0]!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+        await flushPromises();
+        expect([...document.body.querySelectorAll<HTMLElement>(".nb-menu-level [role='menuitem']")].map((item) => item.textContent?.trim())).toEqual(["数值 · 魔力"]);
+        items[0]!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true, cancelable: true}));
+        await flushPromises();
+        const area = wrapper.get("textarea").element as HTMLTextAreaElement;
+        area.setSelectionRange(1, 1);
+        items[1]!.click();
+        await flushPromises();
+        expect(wrapper.emitted("update")?.at(-1)).toEqual(['甲<V expr="" />']);
+        await pick(wrapper, "富文本");
+        // 稿里有空的式子（写得不对）：富文本切不过去，留在源文字。先改回能读的。
+        await wrapper.setProps({text: "甲"});
+        await pick(wrapper, "富文本");
+        // 切过去以后焦点进富文本（编辑器在下一帧才聚焦）：等它到了再开菜单，免得菜单刚开就因焦点移走而关上。
+        await vi.waitFor(() => expect(wrapper.get("[data-rich-input]").element.contains(document.activeElement)).toBe(true));
+        items = await open();
+        expect(items.map((item) => item.textContent?.replace(/\s+/gu, ""))).toEqual(["值", "计算{", "条件{"]);
     });
 });

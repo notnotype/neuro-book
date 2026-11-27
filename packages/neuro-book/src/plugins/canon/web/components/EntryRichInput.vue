@@ -3,7 +3,7 @@
 import {Editor, Extension} from "@tiptap/core";
 import {Slice} from "@tiptap/pm/model";
 import type {Fragment, Node as PMNode} from "@tiptap/pm/model";
-import {EditorState, NodeSelection} from "@tiptap/pm/state";
+import {EditorState, NodeSelection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
 import type {EditorView} from "@tiptap/pm/view";
 import {computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -214,16 +214,35 @@ function openChip(view: EditorView, pos: number): void {
     };
 }
 
+/** 新插的条件与计算在浮层里的起点：条件是“如果”加“否则”两支。 */
+const NEW_IF: ChipDraft = {kind: "if", attributes: [["test", ""]], branches: [{test: "", text: ""}, {test: null, text: ""}]};
+const NEW_CALC: ChipDraft = {kind: "calc", attributes: [["expr", ""]]};
+
+/**
+ * 贴着光标的定位矩形：每次按当时的位置现算（页面滚了、前面的字变了，浮层跟着走）。插入点随文档变化由 `followChip` 映射，这里读
+ * 的是映射后的位置；`at` 取不到时（文档被换掉）贴着编辑区左上角。
+ */
+function caretAnchor(view: EditorView, from: number, at?: () => number): {getBoundingClientRect: () => DOMRect; contextElement: Element} {
+    return {
+        getBoundingClientRect: () => {
+            const pos = Math.min(at?.() ?? from, view.state.doc.content.size);
+            const rect = view.coordsAtPos(pos);
+            return new DOMRect(rect.left, rect.top, 1, rect.bottom - rect.top);
+        },
+        contextElement: view.dom,
+    };
+}
+
 /** 新插一个条件或计算：先在浮层里写好，应用时才进文档。浮层贴着光标。 */
 function openNew(view: EditorView, at: {from: number; to: number}, draft: ChipDraft): void {
     closeChip(false);
-    const rect = view.coordsAtPos(at.from);
+    const id = editingId + 1;
     editing.value = {
         id: ++editingId,
         at,
         node: null,
         anchor: view.dom,
-        reference: {getBoundingClientRect: () => new DOMRect(rect.left, rect.top, 1, rect.bottom - rect.top), contextElement: view.dom},
+        reference: caretAnchor(view, at.from, () => (editing.value?.id === id ? editing.value.at.from : at.from)),
         model: null,
         taken: null,
         initial: draft,
@@ -437,10 +456,7 @@ function choose(id: string): void {
     if (current === null || editor === null) return;
     if (id === IF_ITEM || id === CALC_ITEM) {
         menu.value = null;
-        const draft: ChipDraft = id === IF_ITEM
-            ? {kind: "if", attributes: [["test", ""]], branches: [{test: "", text: ""}, {test: null, text: ""}]}
-            : {kind: "calc", attributes: [["expr", ""]]};
-        openNew(editor.view, current.at, draft);
+        openNew(editor.view, current.at, id === IF_ITEM ? NEW_IF : NEW_CALC);
         return;
     }
     const kept = current.replacing !== null && current.replacing.kind !== "other" && current.replacing.kind !== "if" ? current.replacing.attributes : [];
@@ -508,11 +524,10 @@ function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
     if ((event.key !== "{" && event.key !== "@") || inCode(view)) return false;
     if (event.key === "@" && props.find === null) return false;
     event.preventDefault();
-    const rect = view.coordsAtPos(selection.from);
     openMenu({
         what: event.key === "{" ? "value" : "ref",
         at: {from: selection.from, to: selection.to},
-        anchor: {getBoundingClientRect: () => new DOMRect(rect.left, rect.top, 1, rect.bottom - rect.top), contextElement: view.dom},
+        anchor: caretAnchor(view, selection.from),
         trigger: event.key,
         replacing: null,
     });
@@ -628,34 +643,93 @@ watch(
     },
 );
 
-/** 光标所在的顶层块之前写出的长度、加上块内按纯文字数的偏移（编解码器不给节点到源文的对照，切源文字时落在同一块里）。 */
+/**
+ * 文档里 `pos` 之前那一截写出来的长度，就是它在整篇源文里的偏移（小块按它的原文算，强调按记号算）。截断的那一块按规范写法重写：
+ * 作者没改过的块原样，改过的块与交出去的整篇本来就是同一种写法。写出的尾部换行不算；`pos` 在一块开头时算到这一块起点（前面的空行算进去）。
+ */
+function offsetBefore(pos: number, whole: string): number | null {
+    if (editor === null || codec === null || map === null) return null;
+    const {doc} = editor.state;
+    const $pos = doc.resolve(pos);
+    if ($pos.parentOffset === 0) {
+        if ($pos.index(0) === 0) return 0;
+        const before = codec.write(doc.copy(doc.content.cut(0, $pos.before(1))), map);
+        if (!before.ok) return null;
+        return Math.min(before.text.length + /^\s*/u.exec(whole.slice(before.text.length))![0].length, whole.length);
+    }
+    const written = codec.write(doc.cut(0, pos), map);
+    if (!written.ok) return null;
+    // 截断处的行尾空白写成字符引用（`&#x20;`，免得被当成段尾空白丢掉），在整篇里它是一个字。
+    const text = written.text.replace(/\n+$/u, "").replace(/(?:&#x(?:20|9);)+$/u, (tail) => " ".repeat(tail.split(";").length - 1));
+    return Math.min(text.length, whole.length);
+}
+
+/** 光标在整篇源文里的偏移（切到源文字时光标落在这里）。 */
 function cursorOffset(): number | null {
     if (editor === null || codec === null || map === null) return null;
-    const {doc, selection} = editor.state;
+    const whole = codec.write(editor.state.doc, map);
+    return whole.ok ? offsetBefore(editor.state.selection.from, whole.text) : null;
+}
+
+/**
+ * `cursorOffset` 反过来：整篇源文里的偏移落在文档的哪个位置。按位置二分（写出的长度随位置单调不减），每一步写一次前缀；
+ * 5 万字时十几次。落到最近的能放光标的地方。
+ */
+function positionAt(offset: number): number | null {
+    if (editor === null || codec === null || map === null) return null;
+    const {doc} = editor.state;
     const whole = codec.write(doc, map);
     if (!whole.ok) return null;
-    const index = selection.$from.index(0);
-    if (index === 0) return Math.min(selection.$from.parentOffset, whole.text.length);
-    const before = codec.write(doc.copy(doc.content.cut(0, selection.$from.before(1))), map);
-    if (!before.ok) return null;
-    const gap = /^\s*/u.exec(whole.text.slice(before.text.length))![0].length;
-    return Math.min(before.text.length + gap + selection.$from.parentOffset, whole.text.length);
+    let low = 0;
+    let high = doc.content.size;
+    while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        const at = offsetBefore(middle, whole.text);
+        if (at === null) return null;
+        if (at <= offset) low = middle;
+        else high = middle - 1;
+    }
+    return TextSelection.near(doc.resolve(low)).from;
 }
 
 defineExpose({
-    focus: (caret?: "start" | "end"): void => {
+    /** `caret` 是文首、文末或整篇源文里的偏移（大致落在同一块里的位置，见 `positionAt`）；不给时不动光标。 */
+    focus: (caret?: "start" | "end" | number): void => {
+        if (typeof caret === "number") {
+            const pos = positionAt(caret);
+            editor?.commands.focus(pos);
+            return;
+        }
         editor?.commands.focus(caret ?? null);
     },
     cursorOffset,
-    /** 在光标处插入一段源文（读成节点，有选区时换掉选区）；插入后的整篇过写入前的检查才落。只读或检查不过时返回假。 */
+    /**
+     * 在光标处插入一段源文（读成节点，有选区时换掉选区）；插入后的整篇过写入前的检查才落。只读、光标在代码里（标签在那里是字面的）
+     * 或检查不过时返回假。
+     */
     insert: (source: string): boolean => {
-        if (editor === null || codec === null || map === null || props.readonly) return false;
+        if (editor === null || codec === null || map === null || props.readonly || inCode(editor.view)) return false;
         const read = codec.read(source);
         const only = read.doc.childCount === 1 ? read.doc.firstChild : null;
         const content = only !== null && only.type.name === "paragraph" ? only.content : read.doc.content;
         const tr = editor.state.tr.replaceSelection(new Slice(content, 0, 0));
         if (!checkedWrite(codec, tr.doc, map, props.baseline).ok) return false;
         editor.view.dispatch(tr.scrollIntoView());
+        return true;
+    },
+    /**
+     * “插入”菜单里的计算、条件、条目：在光标处打开同 `{`、`@` 的那一步（计算、条件开空的浮层，条目开条目列表）。只读、光标在代码里、
+     * 没有找条目的入口（条目）时返回假，什么都不开。
+     */
+    openInsert: (what: "calc" | "if" | "ref"): boolean => {
+        if (editor === null || props.readonly || inCode(editor.view) || (what === "ref" && props.find === null)) return false;
+        const {view} = editor;
+        const {from, to} = view.state.selection;
+        if (what === "ref") {
+            openMenu({what: "ref", at: {from, to}, anchor: caretAnchor(view, from), trigger: null, replacing: null});
+            return true;
+        }
+        openNew(view, {from, to}, what === "if" ? NEW_IF : NEW_CALC);
         return true;
     },
 });

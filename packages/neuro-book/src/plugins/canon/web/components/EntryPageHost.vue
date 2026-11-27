@@ -17,6 +17,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import {fieldsText} from "../../shared/agent-fields";
 import {LOOK_COMPONENT} from "../../shared/components";
 import {canonText} from "../../shared/text";
+import {RENDER_SOURCE_MAX} from "../../shared/contracts";
 import type {CanonClient, CanonFailure, CanonOutputs, FoundEntry} from "../../shared/contracts";
 import {kindPresets} from "../../shared/entry-kinds";
 import type {EntryKind} from "../../shared/entry-kinds";
@@ -33,11 +34,14 @@ import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
 import {chapterLabel, chapterLine, changedMark, defaultPosition, placementLabel, positionChapters, positionExists, positionFromValue, positionLabel, positionValue} from "../positions";
 import type {ChapterRef} from "../positions";
-import {originRows, plotRows} from "../rows";
+import {originRows, plotRows, valueText} from "../rows";
 import {useCanonText} from "../text";
 import type {TextDraftSession} from "../text-drafts";
 import {ENTRY_LANGUAGE} from "../entry-language";
-import {useTextPreview} from "../text-preview";
+import {useTextValues} from "../text-values";
+import type {TextValueTable} from "../text-values";
+import {baselineOf} from "../entry-check";
+import type {EntryField} from "../entry-chip";
 import {useTextTab} from "../text-tab";
 import {useWorldList, useWorldRead} from "../use-reads";
 import type {RevertRequests} from "../revert";
@@ -51,7 +55,7 @@ import EntryText from "./EntryText.vue";
 import EntryTextEditor from "./EntryTextEditor.vue";
 import TextConflictDialog from "./TextConflictDialog.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
-import type {InsertItem} from "./entry-text-editor";
+import type {InsertItem, RichContext} from "./entry-text-editor";
 import {addressKey} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
 import ComponentAgentView from "./ComponentAgentView.vue";
@@ -787,29 +791,45 @@ const textTab = useTextTab({
 });
 // 稿在别处的标签里就有了（刷新以后）：这一页挂上时去读。
 void props.draft.load();
-/* ---------- 编辑时的预览（输出 48） ---------- */
+/* ---------- 富文本里小块的值（输出 48） ---------- */
 
-/** “预览”开关开着（记在标签上；加这一项之前存下的标签没有它，按开着算）。 */
-const previewOn = computed(() => state.preview !== false);
-/** 预览栏在页面上：开关开着、在文字分页里编辑。已删除的条目只列稿，不预览；读不出块时（`frozen`）编辑视图不出预览栏，也不读。 */
-const previewing = computed(() => previewOn.value && tab.value === "text" && textTab.editing.value && view.value?.deleted !== true && !textTab.editor.value.frozen);
-const preview = useTextPreview({
+/** 在富文本里编辑：要小块的值。已删除的条目只列稿；读不出块时（`frozen`）没有可算的。 */
+const valuesWanted = computed(() => state.textMode === "rich" && tab.value === "text" && textTab.editing.value && view.value?.deleted !== true && !textTab.editor.value.frozen);
+const textValues = useTextValues({
     call: props.client.call,
-    input: () => (previewing.value ? {entry: props.id, source: textTab.editor.value.text, position: position.value, mode: mode.value} : null),
+    input: () => (valuesWanted.value ? {entry: props.id, source: textTab.editor.value.text, position: position.value, mode: mode.value} : null),
     // 世界变了（别处改了字段的值、条目的名字）或重新连上：重读。
     stamp: () => `${String(world.status.value.data?.version ?? "")}|${world.connection.value}`,
 });
-/** 读到的那一块；整篇是空的时候给空数组，照阅读视图的空状态画。还没读到过时为 null：栏里什么都不画。 */
-const previewBlocks = computed((): readonly EntryTextBlock[] | null => {
-    const block = preview.block.value;
-    if (block === null) return null;
-    return block.source.trim() === "" ? [] : [block];
+/** 存下的那一版主文字（阅读视图读到的各块，用一个空行连起来，同开始编辑时的整篇）。 */
+const savedText = computed(() => blocks.value.map((block) => ("source" in block ? block.source : block.text)).join("\n\n"));
+/** 存下的那一版里没登记的标签：写入前的检查与源文字的检查放行它们。 */
+const richBaseline = computed(() => baselineOf(savedText.value));
+/** 本条目的字段与这一页位置上的值：刚插进来的取值马上显示。引用要稳定（富文本按它整篇重对值），单独一个 computed。 */
+const richFields = computed((): EntryField[] => namespaces.value.flatMap((namespace) => {
+    const group = typeLabel(view.value?.namespaces[namespace]?.type ?? "");
+    return (entry.value?.declarations?.[namespace] ?? []).map((declaration) => {
+        const value = view.value?.namespaces[namespace]?.fields[declaration.id]?.value;
+        return {path: `${namespace}.${declaration.id}`, label: declaration.label, group, display: value === null || value === undefined ? null : valueText(value, declaration, text)};
+    });
+}));
+/**
+ * 值表：算回来的那一份；还没回来时，刚点“编辑”、稿与阅读视图读到的那一块相同，就用阅读视图手里的值当初值，不先画“计算中”。
+ */
+const richValues = computed((): TextValueTable | null => {
+    if (textValues.table.value !== null) return textValues.table.value;
+    const only = blocks.value.length === 1 ? blocks.value[0] : undefined;
+    return only !== undefined && "values" in only && only.source === textTab.editor.value.text ? {source: only.source, values: only.values} : null;
 });
-const previewNote = computed(() => {
-    if (preview.failure.value !== null) return text(preview.failure.value === "too-large" ? "textEdit.previewTooLarge" : "textEdit.previewUnavailable");
-    const problem = preview.problem.value;
-    return problem === null ? "" : text("textEdit.previewProblem", {line: problem.line, column: problem.column, message: problem.message});
-});
+const richContext = computed((): RichContext => ({
+    self: props.id,
+    fields: richFields.value,
+    marks: marks.value,
+    values: richValues.value,
+    computing: textValues.failure.value === null && textTab.editor.value.text.length <= RENDER_SOURCE_MAX,
+    find: finder,
+    baseline: richBaseline.value,
+}));
 
 const editorRef = shallowRef<{focus(): void} | null>(null);
 /** 点“编辑”进去以后焦点进输入框：阅读视图先退场、编辑视图才挂上，等进场结束再给。只管这一次点击：没进去就不留着。 */
@@ -831,7 +851,8 @@ const editorOn = {
     takeOver: () => void textTab.takeOver(),
     adopt: () => void textTab.adopt(),
     retry: () => void textTab.retry(),
-    "update:preview": (value: boolean) => (state.preview = value),
+    "update:mode": (value: "rich" | "source") => (state.textMode = value),
+    "update:showBranches": (value: boolean) => (state.showBranches = value),
 };
 const focusEditor = (): void => {
     if (focusFirst) editorRef.value?.focus();
@@ -1292,7 +1313,6 @@ const setPosition = (value: string): void => {
             :aliases="view?.aliases ?? []"
             :removable-group="removableGroup"
             :position-locked="textTab.editing.value ? text('textEdit.locked') : ''"
-            :wide="previewing"
             :can-plan="canPlan"
             :busy="acting"
             @edit-name="(anchor: HTMLElement) => openHead('name', anchor)"
@@ -1333,7 +1353,7 @@ const setPosition = (value: string): void => {
             </template>
             <!-- 条目已删除、稿还在：页头换成“已删除”，稿列在它下面，能看、能放弃。 -->
             <template #deleted>
-                <EntryTextEditor v-if="textTab.editing.value" class="mt-6" v-bind="textTab.editor.value" :inserts="inserts" :input="props.sourceInput ?? undefined" :language="ENTRY_LANGUAGE" v-on="editorOn" />
+                <EntryTextEditor v-if="textTab.editing.value" class="mt-6" v-bind="textTab.editor.value" :inserts="inserts" :input="props.sourceInput ?? undefined" :language="ENTRY_LANGUAGE" :rich="richContext" :mode="state.textMode" :show-branches="state.showBranches" v-on="editorOn" />
             </template>
             <Transition v-if="tab === 'text'" name="nb-ui-switch" mode="out-in" @after-enter="focusEditor">
                 <EntryTextEditor
@@ -1344,14 +1364,11 @@ const setPosition = (value: string): void => {
                     :inserts="inserts"
                     :input="props.sourceInput ?? undefined"
                     :language="ENTRY_LANGUAGE"
-                    :preview="previewOn"
-                    :preview-note="previewNote"
+                    :rich="richContext"
+                    :mode="state.textMode"
+                    :show-branches="state.showBranches"
                     v-on="editorOn"
-                >
-                    <template #preview>
-                        <EntryText v-if="previewBlocks !== null" :blocks="previewBlocks" :self="props.id" :interactive="false" />
-                    </template>
-                </EntryTextEditor>
+                />
             <EntryText
                 v-else
                 key="read"

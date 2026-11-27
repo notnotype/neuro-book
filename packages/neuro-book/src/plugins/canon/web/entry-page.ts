@@ -42,8 +42,10 @@ export interface EntryPageState {
     tab: string | null;
     /** 文字分页里展开着来历的值（`addressKey`）。 */
     origin: string | null;
-    /** 编辑主文字时预览开着（输出 48）。加这一项之前存下的标签没有它，按开着算。 */
-    preview?: boolean;
+    /** 编辑主文字用富文本还是源文字（输出 39）。只是作者选的那个：稿读不进富文本时这一次落在源文字，不改它。 */
+    textMode: "rich" | "source";
+    /** 富文本里的条件画出全部分支（输出 48）。 */
+    showBranches: boolean;
     /** 选过的那一章被删掉了，已经回到缺省位置。换一次位置以后清掉。 */
     positionGone: boolean;
     /** 各数据分页的界面的状态，按命名空间（`ComponentViewContext.state`）。 */
@@ -55,7 +57,7 @@ export interface EntryPageState {
 }
 
 export function entryPageState(): EntryPageState {
-    return {position: null, planned: false, tab: null, origin: null, preview: true, positionGone: false, views: {}, extras: {}, edit: null};
+    return {position: null, planned: false, tab: null, origin: null, textMode: "rich", showBranches: false, positionGone: false, views: {}, extras: {}, edit: null};
 }
 
 /** 一个条目最近读到的页头：标签标题与面包屑用。 */

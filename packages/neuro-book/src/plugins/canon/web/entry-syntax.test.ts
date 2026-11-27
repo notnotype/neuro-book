@@ -14,6 +14,7 @@ import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdo
 
 import {Transform} from "@tiptap/pm/transform";
 
+import {kernelConditionCount} from "./entry-check";
 import {conditionCount, documentTags, ENTRY_IF_NODE, entrySyntax} from "./entry-syntax";
 import type {EntryIfBranch} from "./entry-syntax";
 
@@ -31,19 +32,7 @@ function nodesOf(doc: PMNode): {tags: string[]; raw: number} {
 }
 
 /** 内核读出的配好对的条件个数。 */
-function kernelConditions(source: string): number {
-    let count = 0;
-    const walk = (tokens: ReadonlyArray<Record<string, unknown>>): void => {
-        for (const token of tokens) {
-            if (token.type === "entryIf") count += 1;
-            for (const key of ["tokens", "items"]) if (Array.isArray(token[key])) walk(token[key] as never);
-            for (const row of [(token.header as unknown[] | undefined) ?? [], ...((token.rows as unknown[][] | undefined) ?? [])]) for (const cell of row as Array<{tokens: never}>) walk(cell.tokens);
-            for (const branch of (token.branches as Array<{tokens: never}> | undefined) ?? []) walk(branch.tokens);
-        }
-    };
-    walk(parseEntryText(source).tokens as never);
-    return count;
-}
+const kernelConditions = (source: string): number => kernelConditionCount(parseEntryText(source));
 
 const liveOf = (source: string): string[] => parseEntryText(source).tags.filter((tag) => tag.place === "live").map((tag) => source.slice(tag.start, tag.end));
 const problemsOf = (source: string): string[] => checkEntryText(parseEntryText(source)).map((problem) => problem.code);

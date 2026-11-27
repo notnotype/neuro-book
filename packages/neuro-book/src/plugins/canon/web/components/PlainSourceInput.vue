@@ -10,12 +10,13 @@ const emit = defineEmits<{"update:modelValue": [text: string]; "focus": []; "blu
 const area = ref<{readonly $el: HTMLTextAreaElement} | null>(null);
 
 defineExpose({
-    focus: (caret?: "start" | "end"): void => {
+    /** `caret` 是文首、文末或整篇里的偏移（超出的按文末）；不给时不动光标。 */
+    focus: (caret?: "start" | "end" | number): void => {
         const element = area.value?.$el;
         if (element === undefined) return;
         element.focus();
         if (caret === undefined) return;
-        const at = caret === "start" ? 0 : element.value.length;
+        const at = caret === "start" ? 0 : caret === "end" ? element.value.length : Math.min(Math.max(caret, 0), element.value.length);
         element.setSelectionRange(at, at);
     },
     cursorOffset: (): number | null => area.value?.$el.selectionStart ?? null,
