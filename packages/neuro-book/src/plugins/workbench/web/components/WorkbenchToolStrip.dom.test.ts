@@ -127,13 +127,12 @@ describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md �
         expect(wrapper.emitted("segment-elements")?.at(-1)).toEqual([null, null]);
     });
 
-    it("展开后入口带横排：方向键改左右；藏起来的项（底段 `hidden`、只有一个容器时的入口带）不进工具条", async () => {
+    it("展开后入口带横排：方向键改左右；藏起来的部分（展开时的底段，视图没写 `hidden` 也算；只有一个容器时的入口带）不进工具条", async () => {
         const wrapper = mountRail(segment({expanded: true}), [messages, entry("view:o", "大纲")]);
         await nextTick();
-        const hiddenFoot = document.createElement("div");
-        hiddenFoot.hidden = true;
-        hiddenFoot.innerHTML = "<button data-rail-item data-foot-item></button>";
-        wrapper.get('[data-rail-segment="foot"]').element.append(hiddenFoot);
+        const footItem = document.createElement("button");
+        footItem.setAttribute("data-rail-item", "");
+        wrapper.get('[data-rail-segment="foot"]').element.append(footItem);
         await new Promise((resolve) => setTimeout(resolve, 0));
         const [first, second] = wrapper.findAll<HTMLElement>("[data-tool-entry]").map((item) => item.element);
         first!.focus();
@@ -195,6 +194,20 @@ describe("WorkbenchToolStrip 的视图段（docs/specs/ui/workbench-layout.md �
         pointer("pointerup", 450);
         expect(wrapper.emitted("segment-width-commit")).toHaveLength(1);
         expect(wrapper.emitted("segment-width-preview")?.at(-1)).toEqual([null]);
+    });
+
+    it("视图把一项移出工具条（摘掉 data-rail-item）：这里写过的 tabindex 一并摘掉，Tab 进得去", async () => {
+        const wrapper = mountRail(segment());
+        await nextTick();
+        const toggle = document.createElement("button");
+        toggle.setAttribute("data-rail-item", "");
+        wrapper.get('[data-rail-segment="main"]').element.append(toggle);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        // 按下的入口是 Tab 停靠点，视图段里的项是 -1。
+        expect(toggle.getAttribute("tabindex")).toBe("-1");
+        toggle.removeAttribute("data-rail-item");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(toggle.hasAttribute("tabindex")).toBe(false);
     });
 
     it("焦点在视图段里、视图段换画法：焦点所在的项还在、看得见就留着；被视图拆掉或藏起来了交给视图的展开收起按钮", async () => {

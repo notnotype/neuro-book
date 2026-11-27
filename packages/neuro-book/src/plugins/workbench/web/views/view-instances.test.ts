@@ -156,7 +156,7 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         expect(viewRailOf(instances.contextOf("test.plain")!)).toBeNull();
     });
 
-    it("浮动窗的位置：宽与“窗口太窄”都相同时不换引用（视图的 watch 不重跑），任一项变了就换（workbench-layout 输出 51）", async () => {
+    it("浮动窗与侧轨的位置：宽、“窗口太窄”与元素都相同时不换引用（视图的 watch 不重跑），任一项变了就换（workbench-layout 输出 50、51）", async () => {
         const {instances} = railInstances();
         await ready(instances, "test.rail");
         const control = instances.railOf("test.rail")!;
@@ -168,6 +168,19 @@ describe("视图实例的视图段（views.md 输出 21）", () => {
         expect(control.rail.placement.value).toEqual({kind: "window", width: 260, tooNarrow: true});
         control.setPlacement({kind: "window", width: 300, tooNarrow: true});
         expect(control.rail.placement.value).toEqual({kind: "window", width: 300, tooNarrow: true});
+
+        // 侧轨的位置同样：同一对元素、同样的宽与“窗口太窄”不换引用；宽变了（拖轨宽）或换了元素就换。元素只比身份，这里用两个普通对象代替。
+        const main = {} as HTMLElement;
+        const foot = {} as HTMLElement;
+        control.setPlacement({kind: "rail", main, foot, width: 48, tooNarrow: false});
+        const docked = control.rail.placement.value;
+        control.setPlacement({kind: "rail", main, foot, width: 48, tooNarrow: false});
+        expect(control.rail.placement.value).toBe(docked);
+        control.setPlacement({kind: "rail", main, foot, width: 300, tooNarrow: false});
+        expect(control.rail.placement.value).not.toBe(docked);
+        const wide = control.rail.placement.value;
+        control.setPlacement({kind: "rail", main: {} as HTMLElement, foot, width: 300, tooNarrow: false});
+        expect(control.rail.placement.value).not.toBe(wide);
     });
 
     it("渲染出错时旧的那份立即收成 none；重试渲染换一代、换一份新的、请求一律 revoked、不再转给外壳", async () => {

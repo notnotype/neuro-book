@@ -148,7 +148,8 @@ function onSegmentFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget;
     if (next instanceof Node && !inSegment(next)) segmentFocused = false;
 }
-watch(() => [props.segment?.expanded, props.segment === null], () => {
+// 比字符串：getter 返回新数组的话，拖轨宽时 `segment` 每帧换新对象，回调跟着每帧跑。
+watch(() => (props.segment === null ? "gone" : String(props.segment.expanded)), () => {
     if (!segmentFocused) return;
     void nextTick(() => {
         const focused = document.activeElement;
@@ -247,12 +248,14 @@ const {element: indicatorEl, shown: indicatorShown, sliding, settled, style: ind
 const navEl = ref<HTMLElement | null>(null);
 let lastItem: HTMLElement | null = null;
 
-/** 看不见的不算：展开时藏起来的底段（`hidden`）、只有一个容器时藏起来的入口带（`v-show`）。 */
+/**
+ * 看不见的不算：只有一个容器时藏起来的入口带（`v-show`）、展开时藏起来的底段（侧轨自己藏的，不靠视图写 `hidden`），以及视图自己藏起来的项（`hidden`）。
+ */
 function railItems(): HTMLElement[] {
     const root = navEl.value;
     if (root === null) return [];
-    const band = bandShown.value ? null : bandEl.value;
-    return [...root.querySelectorAll<HTMLElement>("[data-rail-item]")].filter((element) => !element.hasAttribute("disabled") && element.closest("[aria-hidden='true'], [hidden]") === null && band?.contains(element) !== true);
+    const hiddenParts = [bandShown.value ? null : bandEl.value, props.segment?.expanded === true ? footEl.value : null];
+    return [...root.querySelectorAll<HTMLElement>("[data-rail-item]")].filter((element) => !element.hasAttribute("disabled") && element.closest("[aria-hidden='true'], [hidden]") === null && !hiddenParts.some((part) => part?.contains(element) === true));
 }
 
 function syncTabStops(): void {
@@ -296,13 +299,22 @@ function onKeydown(event: KeyboardEvent): void {
     items[step(index, items.length)]?.focus();
 }
 
+/**
+ * 条里的项增删时重排；视图把一项移出工具条（摘掉 `data-rail-item`，例如展开收起按钮展开后成了列表里的普通按钮）时，把这里写过的 `tabindex` 一并摘掉，
+ * 不然它停在 -1，Tab 进不去。只看 `data-rail-item` 一个属性：`tabindex` 是这里自己写的，看它会循环。
+ */
+function onMutations(records: readonly MutationRecord[]): void {
+    for (const record of records) {
+        if (record.type === "attributes" && record.target instanceof HTMLElement && !record.target.hasAttribute("data-rail-item")) record.target.removeAttribute("tabindex");
+    }
+    syncTabStops();
+}
 let mutations: MutationObserver | null = null;
 onMounted(() => {
     syncTabStops();
     if (typeof MutationObserver !== "function" || navEl.value === null) return;
-    mutations = new MutationObserver(syncTabStops);
-    // 只看增删：`tabindex` 是这里自己写的，看属性会循环。
-    mutations.observe(navEl.value, {childList: true, subtree: true});
+    mutations = new MutationObserver(onMutations);
+    mutations.observe(navEl.value, {childList: true, subtree: true, attributes: true, attributeFilter: ["data-rail-item"]});
 });
 onBeforeUnmount(() => mutations?.disconnect());
 // 按下的入口换了、入口收进“更多”：增删看不到，等这一轮渲染完再排。

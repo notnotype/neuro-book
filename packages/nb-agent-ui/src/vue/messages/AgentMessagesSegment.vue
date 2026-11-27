@@ -163,7 +163,8 @@ watch(() => props.targets, () => {
  * docs/specs/ui/workbench-layout.md 输出 50 的“展开时的版式”：展开时窄列上的项淡出，底段两项与展开按钮移到列表里的位置（FLIP），列表随后淡入；
  * 收起反过来、更短。终点稳定：列表按最终宽度排（`width`），停靠时贴右（右轨朝左长）、浮动窗贴左（窗朝右长），外层裁切，所以换完 DOM 量到的就是终点。
  * 起点在点击处理里量（发请求之前）：等 `expanded` 变了再量，同一次更新里外壳已经翻了状态、底段已经藏了。经命令或别处发起的展开收起没有起点，直接换。
- * 宿主拒了请求（窗口太窄）时 `expanded` 不变，记下的起点留着；过了 ORIGIN_TTL 毫秒就不认，免得下一次别处发起的展开用上很久以前的位置。
+ * 宿主拒了请求（窗口太窄）时 `expanded` 不变：`tooNarrow` 变真就清掉记下的起点；没走到那一步的（请求失败、被撤回）过了 ORIGIN_TTL 毫秒不认，
+ * 免得下一次别处发起的展开用上很久以前的位置。
  * 动画进行中根上写 `data-messages-moving`（e2e 的可观察信号）；减少动态效果时时长令牌是 0，不做动画，也不写这个属性。
  */
 const ORIGIN_TTL = 1000;
@@ -218,16 +219,23 @@ function cancelMoves(): void {
     for (const animation of [...running]) animation.cancel();
 }
 
-/** 换完 DOM 之后：焦点在拆掉或藏起来的那一半里时交给按钮（浮动窗里没有侧轨来交接），然后按记下的起点做位移过渡。 */
+watch(() => props.tooNarrow, (tooNarrow) => {
+    if (tooNarrow) origins = null;
+});
+
+/**
+ * 换完 DOM 之后：焦点在拆掉或藏起来的那一半里时交给按钮（浮动窗里没有侧轨来交接），然后按记下的起点做位移过渡。
+ * 先取消上一次的位移：没有起点（经命令发起）的这一次直接到位，上一次的不能接着在新位置上走。
+ */
 watch(() => props.expanded, (expanded) => {
     const focused = document.activeElement;
-    if (focused instanceof HTMLElement && insideSegment(focused) && focused.closest("[hidden], [data-leaving]") !== null) toggleRef.value?.focus({preventScroll: true});
+    if (focused instanceof HTMLElement && insideSegment(focused) && focused.closest("[hidden], [data-messages-leaving]") !== null) toggleRef.value?.focus({preventScroll: true});
+    cancelMoves();
     const start = origins;
     origins = null;
     if (start === null || start.expanded !== expanded || performance.now() - start.at > ORIGIN_TTL) return;
     const duration = motionMs("--motion-layout");
     if (duration <= 0 || typeof Element.prototype.animate !== "function") return;
-    cancelMoves();
     const easing = (mainRef.value === null ? "" : getComputedStyle(mainRef.value).getPropertyValue("--ease-layout").trim()) || "ease";
     for (const [key, from] of start.rects) {
         const mover = moverOf(key, expanded);
@@ -242,20 +250,23 @@ watch(() => props.expanded, (expanded) => {
 
 /**
  * 离场的那一半（展开时窄列上的项、收起时的列表）淡出时按离场那一刻的位置绝对定位，不占位：进场的那一半照常排在最终位置。
- * 写 `data-leaving`，焦点交接按它认（见上面的 watch）。
+ * 横向锚在不动的那条边上，同列表的贴边：右轨朝左长、右缘不动，按 `right` 锚；画在自己的位置上（浮动窗朝右长）按 `left` 锚。
+ * 写 `data-messages-leaving`，焦点交接按它认（见上面的 watch）。
  */
 function holdInPlace(element: Element): void {
     if (!(element instanceof HTMLElement)) return;
+    const parent = element.offsetParent instanceof HTMLElement ? element.offsetParent : null;
     element.style.position = "absolute";
     element.style.top = `${String(element.offsetTop)}px`;
-    element.style.left = `${String(element.offsetLeft)}px`;
+    if (props.targets !== null && parent !== null) element.style.right = `${String(parent.clientWidth - element.offsetLeft - element.offsetWidth)}px`;
+    else element.style.left = `${String(element.offsetLeft)}px`;
     element.style.width = `${String(element.offsetWidth)}px`;
     element.style.height = `${String(element.offsetHeight)}px`;
-    element.setAttribute("data-leaving", "");
+    element.setAttribute("data-messages-leaving", "");
     if (motionMs("--motion-fast") > 0) moving.value += 1;
 }
 function leaveDone(element: Element): void {
-    if (element instanceof HTMLElement && element.hasAttribute("data-leaving") && motionMs("--motion-fast") > 0) moving.value = Math.max(0, moving.value - 1);
+    if (element instanceof HTMLElement && element.hasAttribute("data-messages-leaving") && motionMs("--motion-fast") > 0) moving.value = Math.max(0, moving.value - 1);
 }
 onBeforeUnmount(cancelMoves);
 
@@ -502,12 +513,12 @@ const tooNarrowShown = computed(() => props.tooNarrow && !props.expanded);
 }
 
 /*
- * 展开时按钮在列表区右上角，与第一行的搜索框同一条中线（搜索行上内边距 8、框高 28，按钮 26）；
+ * 展开时按钮在列表区右上角，与第一行的搜索框同一条中线（搜索行上内边距 8、框高 `--control-h-sm`，按钮 26）；
  * 列表第一行按 `--acv-list-inset-end` 让出它的宽与间距（见下面 `.acv-segment__list`）。
  */
 .acv-segment__toggle-slot--expanded {
     position: absolute;
-    top: 9px;
+    top: calc(8px + (var(--control-h-sm) - 26px) / 2);
     right: 8px;
     z-index: 1;
     width: auto;
