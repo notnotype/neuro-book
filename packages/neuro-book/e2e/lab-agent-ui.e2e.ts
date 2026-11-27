@@ -173,6 +173,18 @@ test.describe("对话视图的消息流", () => {
         await expect(page.locator("[data-jump-latest]")).toBeHidden();
     });
 
+    test("滚到顶部再离开：消息流始终只有叠加滑块，不画原生滚动条、内容不让宽（workbench/views.md 输出 12，nb-ui 规范“滚动条”）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "long-conversation");
+        const stream = page.locator("[data-agent-stream]");
+        const native = () => stream.evaluate((element: HTMLElement) => ({width: getComputedStyle(element).scrollbarWidth, gutter: element.offsetWidth - element.clientWidth}));
+        expect(await stream.evaluate((element) => element.scrollHeight > element.clientHeight), "场景要能滚").toBe(true);
+        // 顶端渐隐的类随滚动位置切换，宿主借此重写 class：每一步都要仍然不画原生滚动条。
+        for (const top of [0, 300, 0]) {
+            await scrollStreamTo(page, top);
+            expect(await native(), `滚到 ${String(top)} 之后`).toEqual({width: "none", gutter: 0});
+        }
+    });
+
     test("正在读过程时运行结束：最终回复停在原处，焦点从过程移到整轮摘要行", async ({page}) => {
         await openScene(page, "AgentConversationView", "running", "390x560");
         await labAction(page, "stream");

@@ -11,6 +11,8 @@ const props = defineProps<{
 
 /** 最后一次滚动之后多久算“不在滚动”；之后的停留与淡出由样式的过渡负责。 */
 const SCROLL_SETTLE_MS = 100;
+/** 滚动元素上的标记，样式见 `styles.css` 的 `[data-nb-overlay-scroller]`。 */
+const SCROLLER_ATTRIBUTE = "data-nb-overlay-scroller";
 
 const metrics = shallowRef<ScrollMetrics>({scrollTop: 0, clientHeight: 0, scrollHeight: 0});
 const box = shallowRef({top: 0, left: 0, height: 0});
@@ -62,7 +64,8 @@ function observeChildren(el: HTMLElement): void {
 
 function attach(el: HTMLElement): () => void {
     const host = el.parentElement;
-    el.classList.add("nb-ui-scrollbar-none");
+    // 用属性不用类名：调用方常给滚动元素绑 `:class`，类名一变 Vue 就整串重写 class，加上的类会被冲掉、原生滚动条又出来。
+    el.setAttribute(SCROLLER_ATTRIBUTE, "");
     el.addEventListener("scroll", onScroll, {passive: true});
     host?.addEventListener("pointerenter", onEnter);
     host?.addEventListener("pointerleave", onLeave);
@@ -76,7 +79,7 @@ function attach(el: HTMLElement): () => void {
     }
     measure();
     return () => {
-        el.classList.remove("nb-ui-scrollbar-none");
+        el.removeAttribute(SCROLLER_ATTRIBUTE);
         el.removeEventListener("scroll", onScroll);
         host?.removeEventListener("pointerenter", onEnter);
         host?.removeEventListener("pointerleave", onLeave);
