@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T125142643Z-658ce5e6",
+    "artifactVersion": 15,
+    "contentHash": "efbea6a167028de0a2dc44e02be94a75e926f7b38712795a704c39341fc5c3a3",
+    "submittedAt": "2026-11-27T12:51:41.333Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "day-r15": "bare"
+    },
+    "comments": {},
+    "note": null
+}
