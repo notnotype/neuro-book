@@ -357,7 +357,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
 
     it("写主文字的几种组合（输出 6）：原样交回的块混在别的改动里也不写（剧情意图下不把这块钉在那一章），后面的项被拒时项号照交来的数；读后被改的 replace 先回 stale-read；算出来的值改了提示改依赖的字段", async () => {
         const {author, run, close} = await scene();
-        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物", "面板"], declare: {面板: [{id: "魔力", label: "魔力", kind: "number"}]}, fields: {"人物.性格": "冷静"}, text: '性格 <V of="character.性格" />，魔力翻倍是 <V expr="panel.魔力 * 2" />，住在学院。'}]});
+        const created = await run(AGENT_TOOL_IDS.write, {title: "建人物", edits: [{op: "create", key: "xia", name: "星瑕", kind: "人物", components: ["人物", "数值"], declare: {数值: [{id: "魔力", label: "魔力", kind: "number"}]}, fields: {"人物.性格": "冷静"}, text: '性格 <V of="character.性格" />，魔力翻倍是 <V expr="panel.魔力 * 2" />，住在学院。'}]});
         expect(created.status).not.toBe("error");
         const xia = (created.details as {ids: Record<string, string>}).ids["tmp:xia"]!;
         // 数的初值 Agent 给不了（要写依据），由作者填。
@@ -379,7 +379,7 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
         // 原样交回的块在前、后面一项被内核拒收：回话里的项号是交来的第几项，不是写进去的第几个操作（三种带序号的失败：
         // 路径 ops[N]、问题里的 op、失败本身的 op）。
         read = await readAt("initial");
-        const numbered = await run(AGENT_TOOL_IDS.write, {title: "记一笔", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read)}, {op: "add", entry: xia, field: "面板.魔力", delta: 1}]});
+        const numbered = await run(AGENT_TOOL_IDS.write, {title: "记一笔", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read)}, {op: "add", entry: xia, field: "数值.魔力", delta: 1}]});
         expect([numbered.status, numbered.text]).toEqual(["error", expect.stringContaining("第 2 项")]);
         const located = await run(AGENT_TOOL_IDS.write, {title: "加插件标签", version: versionIn(read), at: "initial", edits: [{op: "set", entry: xia, field: "text[b1]", value: textOf(read)}, {op: "addBlock", entry: xia, text: '<Plot id="x" />'}]});
         expect([located.status, located.text]).toEqual(["error", expect.stringMatching(/^validation-failed：第 2 项 unknown-tag/u)]);
@@ -401,10 +401,10 @@ describe("canon 的 Agent 工具（canon/agent-tools.md）", () => {
 
         // 失败本身带的序号：原样交回 b2 不写，给一个还没有值的数记一笔（incomplete-field，带操作序号）。
         read = await readAt("initial");
-        expect((await run(AGENT_TOOL_IDS.write, {title: "加体力", version: versionIn(read), at: "initial", edits: [{op: "addField", entry: xia, component: "面板", label: "体力", kind: "number"}]})).status).not.toBe("error");
+        expect((await run(AGENT_TOOL_IDS.write, {title: "加体力", version: versionIn(read), at: "initial", edits: [{op: "addField", entry: xia, component: "数值", label: "体力", kind: "number"}]})).status).not.toBe("error");
         read = await readAt({chapter: 1});
         const b2 = /\[b2\] (.*)/u.exec(read.text)?.[1] ?? "";
-        const conflict = await run(AGENT_TOOL_IDS.write, {title: "记体力", version: versionIn(read), intent: "story", at: {chapter: 1}, edits: [{op: "set", entry: xia, field: "text[b2]", value: b2}, {op: "add", entry: xia, field: "面板.体力", delta: 1}]});
+        const conflict = await run(AGENT_TOOL_IDS.write, {title: "记体力", version: versionIn(read), intent: "story", at: {chapter: 1}, edits: [{op: "set", entry: xia, field: "text[b2]", value: b2}, {op: "add", entry: xia, field: "数值.体力", delta: 1}]});
         expect([conflict.status, conflict.text]).toEqual(["error", expect.stringMatching(/^第 2 项：incomplete-field/u)]);
         await close();
     }, 60_000);
