@@ -71,10 +71,18 @@ updated: 2026-11-27
   - `ui.highlight`（2ee59874e、54ba68672）：窗口合同加 `highlight` 订阅，窗口一侧接引擎（中英文字、NeuroBook 的主题变量、悬停显示），服务端选窗口、订阅，装上后按服务端时钟计时并自报等用户，断开、插件停止与停止 eval 按 Spec 结算；`ui` 的文档写了 highlight 与带用户去设置的做法。插件测试 8 条，服务端判据 12 处变异检查全部能抓到。
   - 按全局对象存工具绑定与 Profile 页的 `ui` 一行（c007d9e4a、76713344f）：绑定加 `objects`，工具集先按对象加减再套方法级的；工具目录给方法带上对象；页面把同一对象的方法合成一行（等级取最高、悬停列方法、没有 `eval` 时说明换成原因并标警示），按对象去掉、加回。实现中定了：全局对象的声明加可选的界面说明 `description`（contributions 输出 25，Profile 那一行用），`ui` 写了中英两种。14 处变异检查补一条断言后全部能抓到。
   - 验证：应用三段类型检查；agent、page-agent 插件与 SDK 示例 716 条；agent 的 dom 测试 77 条。
+- 第二段 e2e（Sonnet 子代理，分支 `w00033-t03/e2e2`，6 个提交）已合入 Work 分支：核心夹具 `spec-guide.e2e.ts` 12 条（输出 9、10 与弹层无关的逐句），应用 `page-agent-guide.e2e.ts` 15 条（验收 1、3 的高亮部分、6 的三种真实弹层与弹层之外、设置窗口、7、9 的 bot 会话、10 的像素判据，Profile 对象行四条）。子代理报的两类失败：
+  - 产品缺陷（63718c281 修）：提问时选区留在别处的可编辑区域（焦点在下拉或菜单的一项上），收起后放回选区时 Chrome 把焦点拉进可编辑区域，菜单因此关掉。改为这种选区不放回；Spec“不承诺”补一句。
+  - 用例前提不成立：用户级 Profile 没有 `defaultTools` 声明（内核的 `defineProfile` 不带这一项），子代理往 Profile 文件里写的不生效；改用内置的临时帮手（声明了 `defaultTools: false`）。用户级 Profile 能不能声明 `defaultTools` 不在本 Task。
+  - 合入后又修了两处用例写法（ff9ef3281）：量层的计算样式不比随指针悬停变的滚动条颜色；下拉的按键对照往上按（高亮已在最后一项）。验证：核心 `guide` 与 `spec-guide` 41 条、应用 `page-agent-guide` 15 条全部通过。
+- 第 10 片进行中：
+  - 真实模型冒烟 `page-agent.llm.test.ts`（9eafb946e、169cc0496）：测试窗口答复目录与高亮，问“在哪改主题，带我去”。第一次只给 eval 时模型读不到 `docs://eval/ui.md`、猜参数；按真实 Profile 加上 read 后连跑两次通过（先读文档、find 一次、按路径三步高亮，带进度与压暗）。
+  - 开发服务上点一遍（开发构建、不减弱动效、DeepSeek）：两次都走通（两步与三步），压暗、描边、说明框位置正常，结束后没有残留节点，没有页面报错与 Vue 警告。看到模型先凭摘要猜了 `ui.guide`、参数形状，失败后读文档改对；标题写成“第 1 步”与进度重复。据此 `ui` 的摘要点出四个方法名、`title` 的说明写明进度另外显示（9d2327ab5）。说明框底下的蓝色控件透成色斑，是沿用 nb-ui 浮层的磨砂半透明底，与菜单、下拉一致。
+  - 实现审查（第 3、4、6、7、9 片还没审过）：后端 Opus 与 omp `@review`（后台）审同一份说明，前端 Sonnet；提交 9d2327ab5。
 
 ## 下一步
 
-1. 把决定 4 到 8 写进 Spec（`page-agent.md` 输出 4、9、10，`profile-settings.md` 输出 28）。
-2. 派第二段 e2e（Sonnet 子代理）：核心夹具里输出 9、10 与弹层无关的逐句补测；应用验收 1、3 的高亮部分、6、7、9、10；Profile 的 `ui` 一行。之后第 10 片：真实模型冒烟、开发服务上点一遍、文档收尾、逐条核对后晋升。
-3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）。
+1. 处理三份实现审查，修正单独提交；之后逐条核对 Spec（Opus）再晋升 `implemented`。
+2. 收口：`bun run test:affected --since master`；`page-agent.e2e.ts`、`page-agent-guide.e2e.ts`、`agent-profiles.e2e.ts` 各一次；核心包 `test:e2e`；`docs:check`、`governance:check`；合入 master。
+3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）；用户级 Profile 能否声明 `defaultTools`；参数校验失败的说明不列出可选值（`must be equal to constant`），模型只能猜。
 4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。
