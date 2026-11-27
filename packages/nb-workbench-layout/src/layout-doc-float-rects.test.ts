@@ -3,6 +3,7 @@ import {describe, expect, it} from "bun:test";
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {edgeTargetOf, floatTab, insertTab, movePanelToEdge, removeTab, sameLayoutShape} from "./layout-doc";
 import {validateLayoutDoc} from "./layout-doc-validate";
+import {applyLayoutDrop} from "./layout-drop";
 import type {LayoutDoc, LayoutEdge, LayoutResult} from "./layout-doc";
 
 /** 浮动窗记住的矩形（docs/specs/ui/workbench-layout.md 输出 39 的“记住矩形”）。 */
@@ -63,6 +64,15 @@ describe("记下与清掉", () => {
         // 浮着的时候记录不动：还是上一次的。
         expect(again.doc.floatRects).toEqual({"view:m1": RECT});
         expect(dockBack(again.doc, again.panel).floatRects).toEqual({"view:m1": OTHER});
+    });
+
+    it("并进别的浮动窗不记：视图还浮着", () => {
+        const one = floated(base(), "view:m1");
+        const two = floated(one.doc, "view:s1", OTHER);
+        const merged = okDoc(applyLayoutDrop(two.doc, {kind: "panel", panel: one.panel}, {kind: "center", panel: two.panel}, policy));
+        expect(merged.floats.map((float) => float.panel)).toEqual([two.panel]);
+        expect(merged.panels[two.panel]?.tabs.map((item) => item.kind === "view" && item.viewId)).toContain("m1");
+        expect(merged).not.toHaveProperty("floatRects");
     });
 
     it("窗被关掉（标签没了）不记，而且这个视图原来记着的一起清掉", () => {
