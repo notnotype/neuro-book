@@ -2,9 +2,9 @@
 /**
  * “消息”视图的外框：聊天区与会话页放占位，真实的聊天与会话面板在各自的场景里。
  *
- * 场景名以 `docked` 开头的挂一条替身侧轨（工作台右轨的最小结构：入口一列、`main`、`foot`、展开按钮），视图段送进它的 `main`、`foot`；
- * 轨宽收着 48、展开 260，场景名带 `-200`、`-420` 时按那个宽。其余场景按场景给的 `placement`（右边缘、不画）。
- * 宿主那一半照真实宿主做：`show-list` 时展开并切页，展开好了调 `focusSearch`；替身轨上的展开按钮切换展开。
+ * 场景名以 `docked` 开头的挂一条替身侧轨（工作台右轨的最小结构：入口、`main`、`foot`），视图段送进它的 `main`、`foot`；
+ * 轨宽收着 48、展开 300，场景名带 `-200`、`-420` 时按那个宽。其余场景按场景给的 `placement`（右边缘、不画）。
+ * 宿主那一半照真实宿主做：`show-list` 时展开并切页，展开好了调 `focusSearch`；视图段的展开收起按钮（`toggle-expanded`）切换展开。
  */
 import {AgentMessages} from "@notnotype/nb-agent-ui/vue";
 import type {MessagesSegmentPlacement} from "@notnotype/nb-agent-ui/vue";
@@ -23,7 +23,7 @@ const expanded = computed(() => props.input?.props?.expanded === true);
 const railWidth = computed(() => {
     if (!expanded.value) return 48;
     const match = /-(200|420)(?:-|$)/u.exec(props.scene);
-    return match === null ? 260 : Number(match[1]);
+    return match === null ? 300 : Number(match[1]);
 });
 
 const mainEl = ref<HTMLElement | null>(null);
@@ -44,7 +44,7 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
 
 <template>
     <div class="flex h-[520px] max-w-full" :class="props.scene.includes('390') ? 'w-[390px]' : props.scene.startsWith('docked') ? 'w-[720px]' : 'w-[480px]'" :style="props.scene.includes('short') ? {height: '300px'} : undefined">
-        <AgentMessages ref="frameRef" data-lab-subject class="min-w-0 flex-1" v-bind="{...subject.bindings.value, ...(placement === undefined ? {} : {placement})}" @show-list="showList">
+        <AgentMessages ref="frameRef" data-lab-subject class="min-w-0 flex-1" v-bind="{...subject.bindings.value, ...(placement === undefined ? {} : {placement})}" @show-list="showList" @toggle-expanded="subject.write('props', 'expanded', !expanded)">
             <div class="grid h-full place-items-center text-sm text-[var(--text-muted)]">聊天区（AgentConversationView）</div>
             <template #sessions>
                 <div class="flex flex-col gap-2 p-2 text-sm text-[var(--text-muted)]">
@@ -57,15 +57,12 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
             <div class="lab-rail__entries"><span class="i-lucide-message-circle lab-rail__entry" aria-hidden="true"></span></div>
             <div ref="mainEl" class="lab-rail__main"></div>
             <div ref="footEl" class="lab-rail__foot"></div>
-            <button type="button" class="lab-rail__expand" :aria-expanded="expanded" aria-label="展开" @click="subject.write('props', 'expanded', !expanded)">
-                <span :class="expanded ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" aria-hidden="true"></span>
-            </button>
         </nav>
     </div>
 </template>
 
 <style scoped>
-/* 工作台右轨（WorkbenchToolStrip 的视图段）的最小结构：收着一列，展开是两栏，48 一列贴外缘。 */
+/* 工作台右轨（WorkbenchToolStrip 的视图段）的最小结构：收着一列；展开时没有窄列，只有一个容器所以没有入口带，`main` 占满、底段藏起来。 */
 .lab-rail {
     display: flex;
     flex: 0 0 auto;
@@ -79,10 +76,8 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
 }
 
 .lab-rail--expanded {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
-    grid-template-columns: minmax(0, 1fr) 48px;
-    justify-items: center;
+    align-items: stretch;
+    padding-block: 0;
 }
 
 .lab-rail__entries {
@@ -93,9 +88,8 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
 }
 
 .lab-rail--expanded .lab-rail__entries,
-.lab-rail--expanded .lab-rail__foot,
-.lab-rail--expanded .lab-rail__expand {
-    grid-column: 2;
+.lab-rail--expanded .lab-rail__foot {
+    display: none;
 }
 
 .lab-rail__entry {
@@ -116,12 +110,7 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
 }
 
 .lab-rail--expanded .lab-rail__main {
-    grid-row: 1 / -1;
-    grid-column: 1;
     align-items: stretch;
-    align-self: stretch;
-    height: 100%;
-    border-inline-end: var(--border-w) solid var(--border-color);
 }
 
 .lab-rail__foot {
@@ -129,27 +118,6 @@ async function showList(tab: "bot" | "sessions"): Promise<void> {
     flex-direction: column;
     align-items: center;
     width: 100%;
-}
-
-.lab-rail--expanded .lab-rail__foot {
-    grid-row: 3;
-}
-
-.lab-rail__expand {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    margin-block: 6px;
-    border: 0;
-    border-radius: var(--radius-control);
-    background: none;
-    color: var(--text-muted);
-    cursor: pointer;
-}
-
-.lab-rail--expanded .lab-rail__expand {
-    grid-row: 4;
+    padding-bottom: 6px;
 }
 </style>

@@ -288,9 +288,6 @@
         "activityBar": "Activity Bar",
         "auxiliaryRail": "Secondary side bar rail",
         "rail": {
-            "expand": "Expand",
-            "collapse": "Collapse",
-            "tooNarrow": "Window too narrow",
             "handle": "Resize side rail"
         },
         "regionStrip": {

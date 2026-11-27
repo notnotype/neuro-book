@@ -280,7 +280,7 @@ async function rightEntries(page: Page): Promise<Locator> {
 
 /** 右轨的展开按钮；没有右轨的构建是 null。 */
 async function railExpand(page: Page): Promise<Locator | null> {
-    const button = page.locator("[data-rail='auxiliarybar'] [data-rail-expand]").first();
+    const button = page.locator("[data-rail='auxiliarybar'] [data-rail-toggle]").first();
     return await button.count() > 0 ? button : null;
 }
 
