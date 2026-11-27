@@ -554,7 +554,7 @@ test.describe("按键、选区与遮罩（输出 9、10）", () => {
         expect(await page.evaluate(() => (window as unknown as {seen: string[]}).seen)).toEqual([]);
     });
 
-    test("Esc 收起提问而不交给页面（页面上按 Esc 关菜单的监听收不到）；组字时的 Esc 不收起", async ({page}) => {
+    test("Esc 收起提问而不交给页面（页面上按 Esc 关菜单的监听收不到），焦点在提问行的按钮上也一样；组字时的 Esc 不收起", async ({page}) => {
         await openFixture(page, `<div id="menu" role="menu" style="position:absolute;left:100px;top:100px;padding:8px"><div role="menuitem" tabindex="-1">甲</div></div>`);
         await page.evaluate(() => document.addEventListener("keydown", (event) => {
             if (event.key === "Escape") document.getElementById("menu")?.remove();
@@ -566,6 +566,9 @@ test.describe("按键、选区与遮罩（输出 9、10）", () => {
         await part(page, "ask").evaluate((input) => input.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", isComposing: true, bubbles: true, composed: true})));
         await expect(part(page, "callout")).toHaveAttribute("data-asking", "");
         await expect(part(page, "ask")).toHaveValue("问");
+        // 焦点移到提问行的发送按钮上再按 Esc：同样收起。
+        await page.keyboard.press("Tab");
+        expect(await shadowFocus(page)).toBe("ask-submit");
         await page.keyboard.press("Escape");
         await expect(part(page, "callout")).not.toHaveAttribute("data-asking", "");
         await expect(page.locator("#menu")).toHaveCount(1);
