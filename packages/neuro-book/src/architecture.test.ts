@@ -111,6 +111,10 @@ const PACKAGE_SIDES: ReadonlyArray<{readonly specifier: string; readonly side: "
     {specifier: "@notnotype/nb-models/config", side: "neutral"},
     {specifier: "@notnotype/nb-models/contract", side: "neutral"},
     {specifier: "@notnotype/nb-models/core", side: "backend"},
+    {specifier: "@notnotype/nb-page-agent", side: "web"},
+    {specifier: "@notnotype/nb-page-agent/api", side: "neutral"},
+    {specifier: "@notnotype/nb-page-agent/attrs", side: "neutral"},
+    {specifier: "@notnotype/nb-page-agent/capture", side: "web"},
 ];
 const packageSide = (specifier: string): "backend" | "web" | "neutral" | null => PACKAGE_SIDES.find((entry) => specifier === entry.specifier)?.side ?? null;
 

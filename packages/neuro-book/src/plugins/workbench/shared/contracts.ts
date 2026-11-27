@@ -98,6 +98,56 @@ export interface QuickPick {
 /** 工作台提供的选择服务；需要它的插件在入口依赖里声明。 */
 export const quickPickKey: ServiceKey<QuickPick> = defineServiceKey<QuickPick>("nbook.workbench/quick-pick");
 
+/** 工作台目录里的一个视图（`WorkbenchCatalogView`）。 */
+export interface WorkbenchCatalogEntryView {
+    readonly id: string;
+    readonly title: string;
+    /** 此刻所在的容器；浮动或不在布局里时是 null。 */
+    readonly container: string | null;
+    /** 在布局里（停靠或浮动）：不在时页面上没有它的标签，点不到它（views.md 输出 23 的“是否在布局里”）。 */
+    readonly placed: boolean;
+    /** 标题栏上画成按钮的命令：视图自己声明的与别的插件贡献的，按声明的先后；收进“⋯”的不算。 */
+    readonly actions: ReadonlyArray<string>;
+}
+
+/** 工作台目录里一个有入口的视图容器（`WorkbenchCatalogView`）。 */
+export interface WorkbenchCatalogContainer {
+    readonly id: string;
+    readonly title: string;
+    /** 入口在哪个区域：侧栏的在活动栏上，右栏、底部面板的在各自的入口条上。 */
+    readonly region: string;
+    /** 成员视图，按分节的先后。 */
+    readonly views: ReadonlyArray<string>;
+}
+
+/** 工作台目录里的一个活动栏项（`WorkbenchCatalogView`）。 */
+export interface WorkbenchCatalogActivityItem {
+    readonly id: string;
+    readonly title: string;
+    /** 点它执行的命令；占位项是 null。 */
+    readonly command: string | null;
+}
+
+/**
+ * 工作台的界面目录（docs/specs/workbench/views.md 输出 23）：视图在哪、入口在哪、标题栏与活动栏上有哪些命令。按读的那一刻的
+ * 布局；布局还没建出来（外壳没挂载过）时视图没有容器、没有容器。文字按读的那一刻的界面语言。只读。
+ */
+export interface WorkbenchCatalogView {
+    readonly views: ReadonlyArray<WorkbenchCatalogEntryView>;
+    readonly containers: ReadonlyArray<WorkbenchCatalogContainer>;
+    readonly activityItems: ReadonlyArray<WorkbenchCatalogActivityItem>;
+}
+
+export interface WorkbenchCatalog {
+    read(): WorkbenchCatalogView;
+}
+
+export const workbenchCatalogKey: ServiceKey<WorkbenchCatalog> = defineServiceKey<WorkbenchCatalog>("nbook.workbench/catalog");
+
+/** 命令面板的匹配与打分（views.md 输出 23）：别的插件给自己的候选排序时用同一份，结果与用户在命令面板里搜到的一致。 */
+export {matchCommandText} from "./command-query";
+export type {TextMatch as CommandTextMatch} from "./command-query";
+
 export type NotificationTone = "info" | "success" | "warning" | "error";
 
 /**

@@ -44,6 +44,7 @@
         "@notnotype/nb-host": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-models": "workspace:*",
+        "@notnotype/nb-page-agent": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
         "@notnotype/owned-process": "workspace:*",

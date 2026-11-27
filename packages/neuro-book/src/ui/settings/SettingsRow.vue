@@ -14,6 +14,7 @@ import {isReadOnlySetting, projectOverride, settingsRowState} from "./row-state"
 import type {SettingsRowReason} from "./row-state";
 import HighlightedText from "./HighlightedText.vue";
 import {settingAppliesText, settingValueText} from "./setting-text";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
 import {settingsUiText} from "./text";
 import type {SettingsUiKey} from "./text";
 
@@ -139,6 +140,7 @@ async function run(action: RowAction): Promise<void> {
         class="settings-row"
         :class="{'settings-row--wide': wide}"
         :data-settings-row="setting.key"
+        v-bind="nbTarget('settings.row', setting.key)"
         :data-settings-row-state="state.kind"
         :data-settings-row-modified="modified ? '' : undefined"
         :data-settings-row-blocked="blocked ? '' : undefined"

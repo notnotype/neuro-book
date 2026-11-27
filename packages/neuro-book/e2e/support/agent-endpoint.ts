@@ -18,6 +18,12 @@ const control = Bun.serve({
             endpoint.script(...(await request.json()) as never[]);
             return Response.json({ok: true});
         }
+        if (path === "/reset") {
+            // 清掉没被取走的脚本回复与挂起（不动已记下的请求）：停掉一轮之后，它没用上的后半段不要留给下一个用例。
+            endpoint.reset();
+            routeHolds.clear();
+            return Response.json({ok: true});
+        }
         if (path === "/requests") return Response.json(endpoint.requests);
         if (path === "/scriptFor") {
             const {text, replies} = await request.json() as {text: string; replies: never[]};

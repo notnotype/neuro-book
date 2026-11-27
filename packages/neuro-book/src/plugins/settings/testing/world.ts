@@ -51,9 +51,10 @@ export interface SettingsWorld {
      * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。`text`：给窗口一个翻译引擎（产品里是宿主在每个窗口建的），命令失败原因等要经它解析目录文字；不给时窗口没有引擎，
      * `TextRef` 显示键名。`wrapLink`：包住窗口这一端的链路（每次
      * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。`settingsEntries`：给窗口里的 `nbook.settings` 另加入口
-     * （产品里设置窗口是本插件的另一个入口），测试据此以 `nbook.settings` 自己的身份调用。
+     * （产品里设置窗口是本插件的另一个入口），测试据此以 `nbook.settings` 自己的身份调用。`project`：绑定的作品短名，缺省
+     * `book`（id `P`）；别的短名绑到 id 为 `project-<短名>` 的另一部作品。
      */
-    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly text?: WindowText; readonly wrapLink?: (link: RemoteLink) => RemoteLink; readonly settingsEntries?: ReadonlyArray<PluginEntryDefinition>}): Promise<WorldWindow>;
+    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly project?: string; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly text?: WindowText; readonly wrapLink?: (link: RemoteLink) => RemoteLink; readonly settingsEntries?: ReadonlyArray<PluginEntryDefinition>}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
 
@@ -113,6 +114,9 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
     let generation = 1;
     const router = createRemoteRouter(hubNode, {
         bindProject: async (request) => {
+            // 重连时带的是 id：`P` 或 `project-<短名>`。
+            const name = request.project === "P" ? "book" : request.project.startsWith("project-") ? request.project.slice("project-".length) : request.project;
+            if (name !== "book") return {ok: true, binding: {id: `project-${name}`, name, generation: 1}, revoked: new AbortController().signal, release: () => undefined};
             if ("generation" in request && request.generation !== generation) return {ok: false, reason: "project-gone", message: "项目代次已结束"};
             return {ok: true, binding: {id: "P", name: "book", generation}, revoked: new AbortController().signal, release: () => undefined};
         },
@@ -153,7 +157,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
         },
         window: async (id, plugins, windowOptions = {}) => {
             const bound = windowOptions.bound ?? true;
-            const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client: `client-${id}`}, bind: bound ? {project: "book"} : null, clock});
+            const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client: `client-${id}`}, bind: bound ? {project: windowOptions.project ?? "book"} : null, clock});
             const wrap = windowOptions.wrapLink ?? ((link: RemoteLink) => link);
             let pair = createLinkPair();
             router.accept(pair.right);

@@ -31,9 +31,13 @@ const CELL_FILE = /cell-\d+\.js/u;
 
 /** 代码里调工具失败时抛的错：带结构化的结局，代码可以按 `status`、`code` 处理（eval.md 输出 8）。 */
 class ToolCallError extends Error {
-    constructor(readonly tool: string, readonly status: string, readonly code: string | undefined, message: string) {
+    /** 工具声明了这个码的 `errors` 时才有（eval.md 输出 8）；没有时连属性都不在，`"details" in error` 为 false。 */
+    declare readonly details?: unknown;
+
+    constructor(readonly tool: string, readonly status: string, readonly code: string | undefined, message: string, details?: unknown) {
         super(message);
         this.name = "ToolCallError";
+        if (details !== undefined) Object.defineProperty(this, "details", {value: details, enumerable: true});
     }
 }
 
@@ -141,7 +145,7 @@ function deliver(id: number, reply: CallReply): void {
     if (waiter === undefined) return;
     pending.delete(id);
     if (reply.ok) waiter.resolve(reply.value);
-    else waiter.reject(new ToolCallError(reply.tool, reply.status, reply.code, reply.message));
+    else waiter.reject(new ToolCallError(reply.tool, reply.status, reply.code, reply.message, reply.details));
 }
 
 /**

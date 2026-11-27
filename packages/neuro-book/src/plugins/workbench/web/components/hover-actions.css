@@ -4,6 +4,7 @@
  * 显示，其余时候透明。用透明度不用 display：标题行宽度不跳，按钮仍能被 Tab 到（Tab 进去即 focus-within，随之出现）。
  * 内容层和面板头不在同一个元素里（docs/specs/ui/nested-grid.md 输出 80）：指针或焦点在内容上时，宿主给范围写 `data-hover-actions-active`。
  * 不能悬停的设备一直显示；系统减少动画时仍是淡入（只有位移被取消，见 nb-ui 设计语言“六、无障碍”）。几个宿主组件各自引入本文件，Lab 里单独摆它们时规则同样生效。
+ * Agent 高亮动作区里的按钮时给动作区写 `data-nb-agent-reveal`，这期间照样显示（views.md 输出 25）：要高亮的按钮看不见，用户就找不到它。
  */
 [data-hover-actions] {
     transition: opacity var(--motion-reveal-in) linear;
@@ -11,7 +12,7 @@
 
 @media (hover: hover) {
     /* 框架按钮（`data-hover-actions="frame"`）里有按下的（最大化着时的还原）也一直显示：它是这块面板此刻状态的唯一指示。只给框架按钮，视图动作照旧。 */
-    [data-hover-actions-scope]:not(:hover):not(:focus-within):not([data-hover-actions-active]) [data-hover-actions]:not(:has([aria-expanded="true"], [data-state="open"])):not([data-hover-actions="frame"]:has([aria-pressed="true"])) {
+    [data-hover-actions-scope]:not(:hover):not(:focus-within):not([data-hover-actions-active]) [data-hover-actions]:not([data-nb-agent-reveal]):not(:has([aria-expanded="true"], [data-state="open"])):not([data-hover-actions="frame"]:has([aria-pressed="true"])) {
         opacity: 0;
     }
 }

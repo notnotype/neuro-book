@@ -25,6 +25,17 @@ describe("WorkbenchToolStrip", () => {
         expect(wrapper.findAll("[data-tool-count]").map((badge) => [badge.attributes("data-tool-count"), badge.text(), badge.attributes("aria-hidden")])).toEqual([["view:bot", "3", "true"], ["view:mail", "99+", "true"]]);
     });
 
+    it("入口带稳定名 workbench.container 与容器 id，活动栏项带 workbench.activity 与项 id（agent/page-agent.md 输出 6）", () => {
+        const items = [
+            {id: "acme.settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: null, disabledReason: null},
+            {id: "acme.profile", title: "个人资料", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
+        ];
+        const wrapper = mount(WorkbenchToolStrip, {props: {label: "活动栏", moreLabel: "更多", entries: [entry("acme.project", "项目")], items}, attachTo: document.body});
+        const named = (selector: string) => wrapper.findAll(selector).map((element) => [element.attributes("data-nb-target"), element.attributes("data-nb-key")]);
+        expect(named("[data-tool-entry]")).toEqual([["workbench.container", "acme.project"]]);
+        expect(named("[data-activity-item]")).toEqual([["workbench.activity", "acme.settings"], ["workbench.activity", "acme.profile"]]);
+    });
+
     const items = [{id: "settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: null, disabledReason: null}];
     const pressedAt = (index: number, ids: readonly string[]) => ids.map((id, at) => ({...entry(id, id), current: at === index, pressed: at === index}));
     const tabStops = (root: Element): string[] => [...root.querySelectorAll("[data-rail-item]")].filter((element) => element.getAttribute("tabindex") === "0").map((element) => element.getAttribute("data-tool-entry") ?? element.getAttribute("data-activity-item") ?? "?");

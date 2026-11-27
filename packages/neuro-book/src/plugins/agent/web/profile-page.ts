@@ -27,7 +27,7 @@ import {changeAgentsBinding} from "../shared/profile-agents";
 import {declaredAllowlist} from "../shared/profile-allowlist";
 import type {SkillsClient} from "./skills";
 import type {StickerPacksClient} from "./sticker-packs";
-import {profileViews, toolChangeContext} from "./profile-view";
+import {objectAwareChange, profileViews, toolChangeContext} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
 import type {SettingWriter} from "./setting-writes";
 
@@ -185,8 +185,8 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             const changeTools = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
                 const entry = entries.value.find((candidate) => candidate.key === key);
                 if (entry === undefined) return Promise.resolve({ok: true});
-                const {requirements, defaultForAll} = toolChangeContext(entry, catalog.value);
-                return bindingEdits.apply((current) => withToolBinding(current, key, changeToolBinding(current[key], requirements, defaultForAll, change)));
+                const {requirements, defaultForAll, methodsOf} = toolChangeContext(entry, catalog.value);
+                return bindingEdits.apply((current) => withToolBinding(current, key, changeToolBinding(current[key], requirements, defaultForAll, objectAwareChange(change), methodsOf)));
             };
 
             /** 白名单的改动按写的那一刻的声明换算：加声明里有的就是撤销“去掉”（profile-settings.md 输出 25）。 */

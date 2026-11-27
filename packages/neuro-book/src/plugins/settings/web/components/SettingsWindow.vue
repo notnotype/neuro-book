@@ -17,6 +17,7 @@ import {composing, isModKey} from "../keys";
 import {useSettingsText} from "../text";
 import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
 import SettingsSectionHeading from "./SettingsSectionHeading.vue";
 import type {SettingsSectionNotice, SettingsSectionReplacement} from "./SettingsSectionHeading.vue";
@@ -285,6 +286,7 @@ function onLeaveOpen(open: boolean): void {
                             v-if="model.bound.value"
                             class="settings-window__tabs"
                             data-settings-tabs
+                            v-bind="nbTarget('settings.layers')"
                             full-width
                             :model-value="model.layer.value"
                             :options="tabOptions"
@@ -324,6 +326,7 @@ function onLeaveOpen(open: boolean): void {
                                     :tabindex="item.id === model.section.value ? 0 : -1"
                                     :aria-current="isCurrent(item) ? 'page' : undefined"
                                     :data-settings-nav="item.id"
+                                    v-bind="nbTarget('settings.section', item.id)"
                                     :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
                                     :data-settings-nav-truncated="truncated.has(item.id) ? '' : undefined"
                                     @click="navDisabled(item) || model.select(item.id)"

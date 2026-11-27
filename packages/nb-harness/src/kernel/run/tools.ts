@@ -218,6 +218,39 @@ interface NestedAsk {
     readonly onWaiting?: (waiting: boolean) => void;
 }
 
+/**
+ * 嵌套调用自报的等用户（`ctx.waitingForUser`，输出 90）：每个等待报一次 `true`、一次 `false`。promise 结算、调用被取消、
+ * 调用结算三者先到的收回它；提供方被撤回、promise 永不结算时，调用结算照样收回，父工具的计时不会一直停着。
+ */
+class SelfReportedWaits {
+    readonly #open = new Set<() => void>();
+    #closed = false;
+
+    constructor(private readonly report: ((waiting: boolean) => void) | undefined, private readonly signal: AbortSignal) {}
+
+    wrap<T>(promise: Promise<T>): Promise<T> {
+        if (this.#closed || this.signal.aborted) return promise;
+        let open = true;
+        const close = (): void => {
+            if (!open) return;
+            open = false;
+            this.#open.delete(close);
+            this.signal.removeEventListener("abort", close);
+            this.report?.(false);
+        };
+        this.#open.add(close);
+        this.signal.addEventListener("abort", close, {once: true});
+        this.report?.(true);
+        return promise.finally(close);
+    }
+
+    /** 调用结算：收回还开着的，之后的不再报。 */
+    closeAll(): void {
+        this.#closed = true;
+        for (const close of [...this.#open]) close();
+    }
+}
+
 /** 一次嵌套调用至多 2,000 个（输出 99）：`loop-guard` 不数它们，这是代码里失控循环的上限。 */
 export const INVOKE_LIMIT = 2_000;
 /** 嵌套调用的参数与结果进日志时字符串的上限（输出 96）：全文模型已经在父调用的结果里看到，界面的子行只要预览。 */
@@ -555,7 +588,10 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             return {args: clipped.value as Readonly<Record<string, JsonValue>>, ...(clipped.clipped ? {argsClipped: true as const} : {})};
         };
         let written = false;
+        // 准入时拒收的调用在算出 callSignal 之前就经 writeResult 结算，那时还没有等待；之后才换成这次调用的。
+        let waits: SelfReportedWaits | null = null;
         const writeResult = async (result: ToolResult, status: ToolStatus, by: string | null, callArgs: Readonly<Record<string, unknown>>): Promise<NestedOutcome> => {
+            waits?.closeAll();
             const outcome: NestedOutcome = {status, text: result.text, ...(result.code === undefined ? {} : {code: result.code}), ...(result.details === undefined || result.redacted === true ? {} : {details: result.details}), ...(result.images === undefined || result.images.length === 0 || result.redacted === true ? {} : {images: result.images})};
             if (written) return outcome;
             written = true;
@@ -581,6 +617,8 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
         const sources = [signal, scope.closing.signal, ...(options?.signal === undefined ? [] : [options.signal])];
         const callSignal = AbortSignal.any(sources);
         const nested: NestedAsk = {within, ...(options?.onWaiting === undefined ? {} : {onWaiting: options.onWaiting})};
+        const selfReported = new SelfReportedWaits(options?.onWaiting, callSignal);
+        waits = selfReported;
         const call: ToolCall = {id, tool, args: deepFreeze({...args})};
         const concurrency = byId.get(tool)!.concurrency;
         let isStarted = false;
@@ -614,9 +652,12 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
             start: async (final, approvedBy) => {
                 await host.write([ctrl("nestedToolStarted", {id, within, tool: final.tool, ...loggedArgs(final.args), approval: {by: approvedBy}})]);
                 isStarted = true;
-                return {signal: callSignal, callId: id, invocation: id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], leafMoves, within, ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, id, callSignal, nested)})};
+                return {signal: callSignal, callId: id, invocation: id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], leafMoves, within, waitingForUser: (promise) => selfReported.wrap(promise), ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, id, callSignal, nested)})};
             },
-        }).finally(() => release?.());
+        }).finally(() => {
+            release?.();
+            selfReported.closeAll();
+        });
 
         // 宽限期（输出 100）：这次调用的信号触发之后才起表；期内完成的照实，没开始的 denied，开始了没完成的 unknown，之后到的只诊断。
         const graceTimer = new AbortController();

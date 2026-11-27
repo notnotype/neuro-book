@@ -128,6 +128,20 @@ test.describe("面板头", () => {
         await page.locator("[data-content='view:a'] [data-structure-first]").focus();
         await expect.poll(opacity).toBe("1");
     });
+
+    test("Agent 高亮里面的按钮时动作区带 data-nb-agent-reveal：指针不在面板上也显示，去掉后回到随鼠标（views.md 输出 25）", async ({page}) => {
+        await open(page);
+        const head = `[data-panel-head='${section("a")}']`;
+        const action = page.locator(`${head} [data-hover-actions=""]`);
+        const opacity = () => action.evaluate((element) => getComputedStyle(element).opacity);
+
+        await page.locator("[data-content='view:c']").hover();
+        await expect.poll(opacity).toBe("0");
+        await action.evaluate((element) => element.setAttribute("data-nb-agent-reveal", ""));
+        await expect.poll(opacity).toBe("1");
+        await action.evaluate((element) => element.removeAttribute("data-nb-agent-reveal"));
+        await expect.poll(opacity).toBe("0");
+    });
 });
 
 test.describe("视图的标题区（docs/specs/workbench/views.md 输出 19）", () => {

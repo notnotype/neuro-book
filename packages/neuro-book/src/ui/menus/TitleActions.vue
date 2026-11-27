@@ -2,6 +2,7 @@
 /** 标题行的动作（同名 .md）：一排 24px 图标按钮加“⋯”下拉，点了交给宿主执行。视图标题与编辑区标题共用。 */
 import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
 import {computed, ref, watch} from "vue";
 
 import type {TitleActionsModel} from "./title-actions";
@@ -64,6 +65,7 @@ function select(key: string): void {
             :aria-pressed="entry.pressed"
             :disabled="entry.disabledReason !== null"
             :data-title-action="entry.command"
+            v-bind="nbTarget('command', entry.command)"
             :data-title-action-key="entry.key"
             :class="{'title-actions__badged': entry.badge !== undefined}"
             @click="emit('run', entry.key)"

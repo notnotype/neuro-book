@@ -14,8 +14,8 @@ import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {useText} from "@notnotype/nb-ui/text-port";
 import type {TextParams} from "@notnotype/nb-ui/text";
 
-import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
-import type {PaletteItem} from "../commands/command-query";
+import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../../shared/command-query";
+import type {PaletteItem} from "../../shared/command-query";
 
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";

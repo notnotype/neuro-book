@@ -18,7 +18,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {IDLE_CLOSE_MS} from "@notnotype/nb-harness/kit/sessions";
 import {REVOKE_GRACE_MS} from "./backend/tools";
-import {agentKey, MAIN_PROFILE} from "./shared/contracts";
+import {ADHOC_PROFILE, agentKey, MAIN_PROFILE} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import type {AgentService} from "./shared/contracts";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
@@ -76,9 +76,9 @@ function profilesPlugin(activations: {count: number}, tools = {required: [] as s
 }
 
 /** 交出工具的插件；`execute` 缺省回显参数里的 `text`。 */
-function toolsPlugin(activations: {count: number}, options: {readonly id?: string; readonly tools?: ReadonlyArray<{readonly id: string; readonly defaultForAll?: boolean; readonly execute?: ToolImplementation["execute"]; readonly disposed?: {count: number}; readonly created?: Promise<void>}>} = {}): PluginDefinition {
+function toolsPlugin(activations: {count: number}, options: {readonly id?: string; readonly tools?: ReadonlyArray<{readonly id: string; readonly defaultForAll?: boolean; readonly foreground?: boolean; readonly execute?: ToolImplementation["execute"]; readonly disposed?: {count: number}; readonly created?: Promise<void>}>} = {}): PluginDefinition {
     const tools = options.tools ?? [{id: ECHO}];
-    const declared = tools.map((tool) => agentTool(tool.id, {description: tool.id, parameters: {type: "object", properties: {text: {type: "string"}}}, version: "1", effect: "read", ...(tool.defaultForAll === true ? {defaultForAll: true} : {})}));
+    const declared = tools.map((tool) => agentTool(tool.id, {description: tool.id, parameters: {type: "object", properties: {text: {type: "string"}}}, version: "1", effect: "read", ...(tool.defaultForAll === true ? {defaultForAll: true} : {}), ...(tool.foreground === true ? {foreground: true} : {})}));
     return {id: options.id ?? "test.tools", entries: [defineEntry({id: "server", location: "server", activationEvents: declared.map((item) => item.activationEvent), contributions: declared.map((item) => item.contribution), activate: () => {
         activations.count += 1;
         const implementations: Record<string, AgentToolImplementation> = {};
@@ -284,6 +284,66 @@ describe("贡献", () => {
         endpoint.script("好");
         await say(session, "看看工具");
         expect([...endpoint.requests[sent]!.tools].sort()).toEqual(["test__tools__everywhere", "test__tools__extra", "test__tools__must"]);
+    });
+
+    test("输出 4：声明 foreground 的工具不进后台会话与 bot 归属的会话，前台会话照常有；后台会话把它列为必需时以 tools-missing 收口", async () => {
+        const FRONT = "test.tools.front";
+        const tools = [{id: ECHO}, {id: FRONT, defaultForAll: true, foreground: true}];
+        const w = await world([profilesPlugin({count: 0}), toolsPlugin({count: 0}, {tools})]);
+        const toolsOf = async (run: () => Promise<unknown>): Promise<string[]> => {
+            const sent = endpoint.requests.length;
+            endpoint.script("好");
+            await run();
+            return [...endpoint.requests[sent]!.tools].sort();
+        };
+        expect(await toolsOf(async () => say(await createSession(w), "看看工具"))).toEqual(["test__tools__echo", "test__tools__front"]);
+        const owned = await w.service.create({profile: WRITER, owner: {id: "bot"}});
+        if (!owned.ok) throw new Error(owned.code);
+        expect(await toolsOf(() => say(owned.value, "看看工具"))).toEqual(["test__tools__echo"]);
+        expect(await toolsOf(async () => {
+            const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: WRITER, input: {text: "后台"}, background: true});
+            if (!started.ok) throw new Error(started.code);
+            await started.result;
+        })).toEqual(["test__tools__echo"]);
+
+        // 内核按 Profile 实现里的 tools.required 判缺失，这里的实现也写上。
+        const required = {required: [FRONT], optional: [ECHO]};
+        const strictProfile = agentProfile(WRITER, {name: "写手", description: "测试用", tools: required});
+        const strictPlugin: PluginDefinition = {id: "test.profiles", entries: [defineEntry({id: "server", location: "server", activationEvents: [strictProfile.activationEvent], contributions: [strictProfile.contribution], activate: () => ({contributions: {"agent.profiles": {[WRITER]: defineProfile({id: WRITER, version: "1", name: "写手", description: "测试用", system: "你是写手。", tools: required})}}})})]};
+        const strict = await world([strictPlugin, toolsPlugin({count: 0}, {tools})]);
+        const sent = endpoint.requests.length;
+        const started = await strict.service.startTask({taskId: crypto.randomUUID(), profile: WRITER, input: {text: "后台"}, background: true});
+        if (!started.ok) throw new Error(started.code);
+        expect((await started.result)?.error).toMatchObject({code: "tools-missing"});
+        expect(endpoint.requests.length).toBe(sent);
+    });
+
+    test("输出 4：bot 归属的会话与后台会话派出的子代理同样没有 foreground 的工具（子会话头不带这两项）；前台会话派出的照常有", async () => {
+        const FRONT = "test.tools.front";
+        // 临时帮手没有装到所有 Profile 的工具：用绑定把前台工具加给它，看派出的子会话拿不拿得到。
+        const w = await world([profilesPlugin({count: 0}), toolsPlugin({count: 0}, {tools: [{id: ECHO}, {id: FRONT, defaultForAll: true, foreground: true}]})], {"nbook.agent/toolBindings": {[ADHOC_PROFILE]: {added: [FRONT], removed: []}}});
+        const childTools = async (parent: SessionApi | "background", prompt: string): Promise<string[]> => {
+            const sent = endpoint.requests.length;
+            endpoint.scriptFor(prompt, "查完了");
+            if (parent !== "background") await say(parent, "派一个去查");
+            else {
+                const started = await w.service.startTask({taskId: crypto.randomUUID(), profile: MAIN_PROFILE, input: {text: "派一个去查"}, background: true});
+                if (!started.ok) throw new Error(started.code);
+                await started.result;
+            }
+            // 子会话的请求：没有派发工具、带着这次的 prompt（父会话派发之后的请求也带 prompt，但有 agent_spawn）。
+            const child = endpoint.requests.slice(sent).find((request) => !request.tools.includes("agent_spawn") && JSON.stringify(request.messages).includes(prompt));
+            if (child === undefined) throw new Error("没有看到子会话的请求");
+            return [...child.tools];
+        };
+        endpoint.script({tool: "agent_spawn", args: {profile: ADHOC_PROFILE, prompt: "前台派的", initial: {role: "核对员"}}}, "好");
+        expect(await childTools(await createSession(w, MAIN_PROFILE), "前台派的")).toContain("test__tools__front");
+        const owned = await w.service.create({profile: MAIN_PROFILE, owner: {id: "bot"}});
+        if (!owned.ok) throw new Error(owned.code);
+        endpoint.script({tool: "agent_spawn", args: {profile: ADHOC_PROFILE, prompt: "bot 派的", initial: {role: "核对员"}}}, "好");
+        expect(await childTools(owned.value, "bot 派的")).not.toContain("test__tools__front");
+        endpoint.script({tool: "agent_spawn", args: {profile: ADHOC_PROFILE, prompt: "后台派的", initial: {role: "核对员"}}}, "好");
+        expect(await childTools("background", "后台派的")).not.toContain("test__tools__front");
     });
 
     test("输出 4：声明 defaultTools: false 的 Profile 不加装到所有 Profile 的工具，绑定加的照样生效", async () => {
