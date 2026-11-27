@@ -15,9 +15,11 @@
  * - `src/` 的样式：`@import` 的包照上一条；`@source` 的相对路径不出本包。样式里的 `@import` 能把别的包的源码带进来。
  * - `tests/`、`e2e/`（Playwright，由 Node 跑）、`build/`（构建插件）与包根的 `vite.config.ts`、`vitest.config.ts`：跑在 Bun 或 Node 里，另许 `bun:`、`node:`
  *   与测试支持包。
+ * - `e2e/real/`（真实冒烟，起真的 `nb-site serve`）另许合同测试包的 `./testing`：起进程、造管理员、扮演 OAuth 客户端的底座，与合同测试
+ *   同一套。只许这一个子路径（不带 `bun:test` 钩子、能在 Node 里跑），只许这个目录：别处的测试与浏览器代码照样拦下。
  * - 相对导入不出本包。
  * - 清单：`dependencies`（及 `peerDependencies`、`optionalDependencies`）里的工作区包只许 nb-ui 与两个合同包，
- *   `devDependencies` 里的只许测试支持包。
+ *   `devDependencies` 里的只许测试支持包与合同测试包（后者只给 `e2e/real/`）。
  *
  * 扫描的写法与它的取舍见 `@notnotype/neuro-book-test-support/import-boundary`。
  */
@@ -45,9 +47,12 @@ const BROWSER_RULE: ImportRule = {packages: [BROWSER_WORKSPACE, BROWSER_THIRD_PA
 const ECHARTS_FILE = join(PACKAGE_ROOT, "src", "pages", "admin", "dashboard", "charts", "echarts.ts");
 const ECHARTS_RULE: ImportRule = {...BROWSER_RULE, packages: [...BROWSER_RULE.packages, ECHARTS]};
 const BUN_RULE: ImportRule = {packages: [FRONTEND_WORKSPACE, THIRD_PARTY, /^bun:[a-z]+$/u, /^node:[a-z_/]+$/u, /^@notnotype\/neuro-book-test-support\/[a-z-]+$/u], within: PACKAGE_ROOT};
+/** 真实冒烟的目录；那里另许合同测试包的公开入口 `./testing`。 */
+const REAL_E2E_DIR = join(PACKAGE_ROOT, "e2e", "real");
+const REAL_E2E_RULE: ImportRule = {...BUN_RULE, packages: [...BUN_RULE.packages, /^@notnotype\/nb-site-contract-tests\/testing$/u]};
 
 const RUNTIME_WORKSPACE = ["@notnotype/nb-ui", "@notnotype/nb-site-identity-contract", "@notnotype/nb-site-telemetry-contract"];
-const DEV_WORKSPACE = ["@notnotype/neuro-book-test-support"];
+const DEV_WORKSPACE = ["@notnotype/neuro-book-test-support", "@notnotype/nb-site-contract-tests"];
 
 interface Manifest {
     readonly dependencies?: Readonly<Record<string, string>>;
@@ -62,12 +67,15 @@ function filesUnder(directory: string, pattern: RegExp): string[] {
         .map((entry) => join(entry.parentPath, entry.name));
 }
 
-/** 要扫的文件与各自的规则：`src/` 下的照浏览器的规则（`echarts.ts` 另许 ECharts），`tests/`、`e2e/`、`build/` 与两个构建配置照 Bun 的。 */
+/**
+ * 要扫的文件与各自的规则：`src/` 下的照浏览器的规则（`echarts.ts` 另许 ECharts），`tests/`、`e2e/`、`build/` 与两个构建配置照 Bun 的
+ * （`e2e/real/` 另许合同测试包的 `./testing`）。
+ */
 function scannedFiles(): {readonly file: string; readonly rule: ImportRule}[] {
     return [
         ...filesUnder("src", /\.(?:ts|vue|css)$/u).map((file) => ({file, rule: file === ECHARTS_FILE ? ECHARTS_RULE : BROWSER_RULE})),
         ...filesUnder("tests", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
-        ...filesUnder("e2e", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
+        ...filesUnder("e2e", /\.ts$/u).map((file) => ({file, rule: file.startsWith(`${REAL_E2E_DIR}/`) ? REAL_E2E_RULE : BUN_RULE})),
         ...filesUnder("build", /\.ts$/u).map((file) => ({file, rule: BUN_RULE})),
         {file: join(PACKAGE_ROOT, "vite.config.ts"), rule: BUN_RULE},
         {file: join(PACKAGE_ROOT, "vitest.config.ts"), rule: BUN_RULE},
@@ -113,7 +121,7 @@ function manifestViolations(manifest: Manifest): string[] {
 }
 
 describe("前端的依赖边界", () => {
-    it("清单里的工作区包只有 nb-ui、两个合同包与测试支持包", () => {
+    it("清单里的工作区包只有 nb-ui、两个合同包，开发依赖另有测试支持包与合同测试包", () => {
         expect(manifestViolations(JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as Manifest)).toEqual([]);
     });
 
@@ -167,6 +175,18 @@ describe("前端的依赖边界", () => {
         expect(offendingSpecifiers(test, importStatement("@notnotype/nb-site-identity-contract"), BUN_RULE)).toEqual([]);
         expect(offendingSpecifiers(test, importStatement("@notnotype/neuro-book"), BUN_RULE)).toEqual(["@notnotype/neuro-book"]);
 
+        // 合同测试包：只有 `e2e/real/` 能导入它的 `./testing`；整包入口、别的子路径、别处的测试都被拦下，浏览器代码更不行（上面的名单）。
+        const real = join(REAL_E2E_DIR, "site.ts");
+        expect(scannedFiles().find(({file}) => file === real)?.rule).toBe(REAL_E2E_RULE);
+        expect(offendingSpecifiers(real, importStatement("@notnotype/nb-site-contract-tests/testing"), REAL_E2E_RULE)).toEqual([]);
+        for (const specifier of ["@notnotype/nb-site-contract-tests", "@notnotype/nb-site-contract-tests/src/testing/site", "@notnotype/nb-site-server"]) {
+            expect({specifier, offending: offendingSpecifiers(real, importStatement(specifier), REAL_E2E_RULE)}).toEqual({specifier, offending: [specifier]});
+        }
+        const fakeE2e = join(PACKAGE_ROOT, "e2e", "login.e2e.ts");
+        expect(scannedFiles().find(({file}) => file === fakeE2e)?.rule).toBe(BUN_RULE);
+        for (const file of [test, fakeE2e]) expect(offendingSpecifiers(file, importStatement("@notnotype/nb-site-contract-tests/testing"), BUN_RULE)).toEqual(["@notnotype/nb-site-contract-tests/testing"]);
+        expect(offendingSpecifiers(main, importStatement("@notnotype/nb-site-contract-tests/testing"), BROWSER_RULE)).toEqual(["@notnotype/nb-site-contract-tests/testing"]);
+
         const css = join(PACKAGE_ROOT, "src", "app.css");
         const cssText = [cssRule("import", "@notnotype/neuro-book/web/tailwind.css"), cssRule("source", "../../neuro-book/src"), cssRule("import", "tailwindcss")].join("\n");
         expect(offending(css, cssText, BROWSER_RULE)).toEqual([
@@ -177,6 +197,7 @@ describe("前端的依赖边界", () => {
         expect(manifestViolations({dependencies: {"@notnotype/nb-site-telemetry": "workspace:*", "@notnotype/nb-site-telemetry-contract": "workspace:*", vue: "^3"}})).toEqual([
             "dependencies -> @notnotype/nb-site-telemetry",
         ]);
+        expect(manifestViolations({dependencies: {"@notnotype/nb-site-contract-tests": "workspace:*"}})).toEqual(["dependencies -> @notnotype/nb-site-contract-tests"]);
         expect(manifestViolations({devDependencies: {"@notnotype/nb-runtime": "workspace:*"}, peerDependencies: {"@notnotype/neuro-book": "workspace:*"}})).toEqual([
             "peerDependencies -> @notnotype/neuro-book",
             "devDependencies -> @notnotype/nb-runtime",

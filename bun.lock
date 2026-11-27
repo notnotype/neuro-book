@@ -587,6 +587,7 @@
         "vue-router": "^5.1.0",
       },
       "devDependencies": {
+        "@notnotype/nb-site-contract-tests": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@playwright/test": "^1.62.1",
         "@tailwindcss/vite": "^4.3.3",
