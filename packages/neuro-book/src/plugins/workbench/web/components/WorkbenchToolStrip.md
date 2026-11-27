@@ -33,7 +33,7 @@
 - 加载中（`loading`）`main` 里画骨架（`data-rail-loading`），稳定尺寸、不带动画。
 - 展开按钮（`data-rail-expand`、`aria-expanded` 是此刻生效的状态），点了发 `toggle-segment`。窗口太窄（`tooNarrow`）时名称与悬停写“窗口太窄”，带 `data-rail-too-narrow`。
 - 展开时侧轨是两栏：48 一列贴窗口外缘不动（入口、底段、展开按钮留在原位），`main` 在朝区域的那一栏占满整高。
-- 展开时 `main` 朝区域的那一边叠着轨宽手柄（`data-rail-handle`、`role=separator`、`aria-valuenow/min/max`、名称“调整侧轨宽度”）：命中区只在轨这一侧，不复用网格分隔线。指针拖动跟手、触界即停，每帧至多发一次 `segment-width-preview(width)`，松手发一次 `segment-width-commit`；Esc、失去指针捕获、`revision` 在拖动中变了整场取消（预览发 null、不提交）；网格的分隔线手势进行中按下不起拖。键盘：朝区域的方向键变宽、反方向变窄，每次 10 像素；Home 与双击回声明的缺省。别的面板最大化着（`handleDisabled`）时没有手柄。手势的逻辑在 [`use-rail-handle.ts`](use-rail-handle.ts)。
+- 展开时 `main` 朝区域的那一边叠着轨宽手柄（`data-rail-handle`、`role=separator`、`aria-valuenow/min/max`、名称“调整侧轨宽度”）：命中区只在轨这一侧，不复用网格分隔线；亮起来的是贴着接缝的一条线，样子与时机同网格的分隔线（`--sash-line-*` 的线芯，悬停 250ms 后渐显，聚焦与拖动中立即全亮）。指针拖动跟手、触界即停，每帧至多发一次 `segment-width-preview(width)`，松手发一次 `segment-width-commit`；Esc、失去指针捕获、`revision` 在拖动中变了整场取消（预览发 null、不提交）；网格的分隔线手势进行中按下不起拖。键盘：朝区域的方向键变宽、反方向变窄，每次 10 像素；Home 与双击回声明的缺省。别的面板最大化着（`handleDisabled`）时没有手柄。手势的逻辑在 [`use-rail-handle.ts`](use-rail-handle.ts)。
 - 焦点交接：焦点在视图段里、视图段收起或拆掉时，焦点所在的元素还在就留着；被拆掉、焦点掉到 body 时交给展开按钮，没有按钮时交给按下的入口。
 
 ## 数据

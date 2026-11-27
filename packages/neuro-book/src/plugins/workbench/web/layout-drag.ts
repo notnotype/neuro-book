@@ -122,7 +122,10 @@ export interface LayoutDragOptions {
     moveGhost(point: GridDropPoint): void;
     /** 画出来的浮动窗（夹取之后）：整窗拖动从这个矩形开始。 */
     floats(): ReadonlyArray<GridFloatInput>;
-    /** 这块窗开始、结束整窗拖动（一场各一次）：`rect` 是记录里的矩形，`null` 结束。窗这时不接指针、不带过渡。 */
+    /**
+     * 这块窗开始、结束整窗拖动（一场各一次）：`rect` 是画出来的矩形（`floats()` 里的那个，展开了视图段的窗含展开多出的宽），`null` 结束。
+     * 窗这时不接指针、不带过渡。给记录里的矩形的话，展开着的窗一拿起来就按收着的宽画（拖动中变窄，放下才弹回）。
+     */
     markFloatMove(panel: string | null, rect?: LayoutFloatRect): void;
     /** 写窗相对开始时挪了多少；`null` 回到原处。跟手的东西直接写元素，不走渲染。 */
     placeFloat(panel: string, offset: GridDropPoint | null): void;
@@ -901,7 +904,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const origin = treeOrigin();
                 const pressed = {x: at.pressed.x - origin.x, y: at.pressed.y - origin.y};
                 run.windowDrag = {panel: source.panel, origin, grab: {x: pressed.x - rect.x, y: pressed.y - rect.y}, from: {x: rect.x, y: rect.y}, shown: {width: rect.width, height: rect.height}, size: {width: recorded.width, height: recorded.height}};
-                options.markFloatMove(source.panel, recorded);
+                options.markFloatMove(source.panel, rect);
                 return true;
             }
             return true;

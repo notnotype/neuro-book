@@ -488,9 +488,9 @@ const state = computed(() => (props.expanded ? "expanded" : "collapsed"));
     padding-top: 4px;
 }
 
-/* 浮动窗里的展开按钮：同侧轨上的那个，贴底、上下留出余地。 */
+/* 浮动窗里的展开按钮：同侧轨上的那个，和上面两个按钮同样隔 4px（底段的 gap），贴底留 8px。 */
 .acv-segment__toggle {
-    margin-block: 4px 8px;
+    margin-block-end: 8px;
 }
 
 /* 展开后的列表晚于宽度过渡淡入：宽度长出来的过程中不挤着显示名字。减少动效时两个时长令牌都是 0，直接显示。 */

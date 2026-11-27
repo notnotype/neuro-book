@@ -195,6 +195,49 @@ test("展开与收起：窗的右边往右长 212、左边与上下不动，收�
     expect((await floatRecord(page)).rect).toEqual(recorded.rect);
 });
 
+// 覆盖 ui/workbench-layout 输出 51“矩形”（展开的窗按记录加展开多出的宽画）与输出 38 的整窗拖动跟手：展开着拿起整窗，拖动中与放下后都按展开的宽画，不先缩回收着的宽再弹回。
+test("展开着拖动整窗：拖动中与放下后窗宽都是展开的宽，左上角跟着指针（输出 51）", async ({page}) => {
+    await open(page);
+    const id = await floatConversation(page);
+    await expand(page);
+    const before = await windowBox(page, id);
+    const recorded = JSON.stringify((await floatRecord(page)).rect);
+    const title = await centerOf(page.locator("[data-agent-head] [data-header-title]"));
+    await page.mouse.move(title.x, title.y);
+    await page.mouse.down();
+    await page.mouse.move(title.x - 30, title.y + 10, {steps: 2});
+    await page.mouse.move(title.x - 120, title.y + 40, {steps: 6});
+    const during = await windowBox(page, id);
+    expect(Math.abs(during.width - before.width), "拖动中").toBeLessThanOrEqual(1);
+    expect(Math.abs(during.x - (before.x - 120)), "拖动中跟手").toBeLessThanOrEqual(1);
+    await page.mouse.up();
+    await expect.poll(async () => JSON.stringify((await floatRecord(page)).rect)).not.toBe(recorded);
+    const after = await windowBox(page, id);
+    expectSameBox(after, {...before, x: before.x - 120, y: before.y + 40}, "放下之后");
+});
+
+// 覆盖 ui/workbench-layout 输出 50 的“三段”、51 的“顶格”：收着时一列里的按钮（右轨上连容器入口与展开按钮；浮动窗里连“回到停靠”）中线对齐。
+test("收着的一列按钮中线对齐：右轨的入口、头像、底段与展开按钮；浮动窗的“回到停靠”、头像、底段与展开按钮（输出 50、51）", async ({page}) => {
+    await open(page);
+    const centers = async (selector: string): Promise<number[]> => page.locator(selector).evaluateAll((elements) => elements
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => {
+            const box = element.getBoundingClientRect();
+            return box.x + box.width / 2;
+        }));
+    const docked = await centers('[data-rail="auxiliarybar"] [data-rail-item]:not([data-rail-handle])');
+    expect(docked.length).toBeGreaterThanOrEqual(4);
+    for (const x of docked) expect(Math.abs(x - docked[0]!), `右轨：${docked.join(", ")}`).toBeLessThanOrEqual(0.5);
+
+    const id = await floatConversation(page);
+    // “回到停靠”悬停窗口时才显示，但收着时也占位；中线照样量得到。
+    const win = await windowBox(page, id);
+    await page.mouse.move(win.x + 60, win.y + 60);
+    const floating = await centers(`[data-float-rail] [data-rail-item], [data-panel-head="${id}"] [data-panel-action="nbook.view.dock"]`);
+    expect(floating.length).toBeGreaterThanOrEqual(4);
+    for (const x of floating) expect(Math.abs(x - floating[0]!), `浮动窗：${floating.join(", ")}`).toBeLessThanOrEqual(1);
+});
+
 // 覆盖 ui/workbench-layout 输出 51“矩形”（夹取）：窗贴着屏幕右边时展开，呈现位置整体往左挪、右边不出界、记录位置不改；收起后回到原来的位置。
 test("靠右夹取：窗拖到贴屏幕右边再展开，整体往左挪、右边不出界，记录矩形不改；收起后回到原位（输出 51）", async ({page}) => {
     await open(page);

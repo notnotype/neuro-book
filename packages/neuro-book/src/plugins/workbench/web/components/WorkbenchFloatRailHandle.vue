@@ -61,11 +61,34 @@ const style = computed(() => ({right: `${props.width}px`}));
     touch-action: none;
 }
 
-.workbench-float-rail-handle:hover,
+/* 亮起来的是接缝上居中的一条线，样子与时机同网格的分隔线与侧轨的轨宽手柄（`WorkbenchToolStrip`）。 */
+.workbench-float-rail-handle::before {
+    position: absolute;
+    inset-block: 0;
+    left: 50%;
+    width: var(--sash-line-size);
+    border-radius: var(--sash-line-radius);
+    background: var(--sash-line-color);
+    box-shadow: var(--sash-line-glow, none);
+    content: "";
+    opacity: 0;
+    transform: translateX(-50%);
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-float-rail-handle:hover::before {
+    opacity: 1;
+    transition-delay: 250ms;
+}
+
 .workbench-float-rail-handle:focus-visible,
 .workbench-float-rail-handle[data-dragging] {
-    background: var(--accent-main);
     outline: none;
-    transition: background-color var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-float-rail-handle:focus-visible::before,
+.workbench-float-rail-handle[data-dragging]::before {
+    opacity: 1;
+    transition: none;
 }
 </style>
