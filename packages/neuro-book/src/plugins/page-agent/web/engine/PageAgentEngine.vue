@@ -8,8 +8,11 @@ import {defineComponent, onBeforeUnmount} from "vue";
 import type {PropType} from "vue";
 
 import {createPageAgent} from "@notnotype/nb-page-agent";
+import type {GuideOptions, GuideTheme} from "@notnotype/nb-page-agent";
+import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import {CAPTURE_MAX_BYTES, CAPTURE_MAX_EDGE} from "../../shared/contracts";
+import {guideText} from "../guide-text";
 import type {CaptureOutcome, ConnectPage, PageSide} from "../page-side";
 
 /** 算“最近有用户输入”的事件：脚本派发的不算（`isTrusted`）。 */
@@ -37,6 +40,49 @@ async function captureNow(agent: ReturnType<typeof createPageAgent>, of: Paramet
     }
 }
 
+/**
+ * 说明框取 NeuroBook 的主题变量（docs/specs/agent/page-agent.md 输出 10；外观按 w00033 t03 第 1 轮静态稿：浮层的外框与底色、
+ * 小号按钮、模态遮罩的颜色）。值是 `var(...)`，在说明框挂进的那一层上取，跟着那里的主题走。
+ */
+const GUIDE_THEME: GuideTheme = {
+    accent: "var(--accent-main)",
+    onAccent: "var(--text-inverse)",
+    surface: "var(--overlay-surface)",
+    outline: "var(--panel-outline)",
+    shadow: "var(--elevation-popover)",
+    blur: "var(--overlay-blur)",
+    text: "var(--text-main)",
+    textSecondary: "var(--text-secondary)",
+    textMuted: "var(--text-muted)",
+    radius: "var(--radius-panel)",
+    controlRadius: "var(--radius-button-sm)",
+    controlHeight: "var(--control-h-sm)",
+    font: "var(--font-ui)",
+    fontSize: "var(--text-sm)",
+    fontSizeSmall: "var(--text-xs)",
+    fontSizeTiny: "var(--text-2xs)",
+    dim: "var(--overlay-bg)",
+};
+
+/**
+ * 悬停才显示的工作台动作（docs/specs/workbench/views.md 输出 25）：高亮其中的按钮时给它所在的动作区写 `data-nb-agent-reveal`，
+ * 这期间一直显示。换下一个高亮时新的先写、旧的后撤，所以按计数撤，同一个动作区还有高亮在用时不去掉。
+ */
+function createReveal(): NonNullable<GuideOptions["reveal"]> {
+    const holders = new WeakMap<Element, number>();
+    return (target) => {
+        const zone = target.closest("[data-hover-actions]");
+        if (zone === null) return undefined;
+        holders.set(zone, (holders.get(zone) ?? 0) + 1);
+        zone.setAttribute("data-nb-agent-reveal", "");
+        return () => {
+            const left = (holders.get(zone) ?? 1) - 1;
+            holders.set(zone, left);
+            if (left === 0) zone.removeAttribute("data-nb-agent-reveal");
+        };
+    };
+}
+
 function currentPath(): string {
     const raw = location.pathname + location.search;
     try {
@@ -51,9 +97,11 @@ export default defineComponent({
     name: "PageAgentEngine",
     props: {
         connect: {type: Function as PropType<ConnectPage>, required: true},
+        /** 窗口的翻译端口：说明框上的文字随界面语言。 */
+        text: {type: Object as PropType<TextPort>, required: true},
     },
     setup(props) {
-        const agent = createPageAgent();
+        const agent = createPageAgent({guide: {text: () => guideText(props.text), theme: GUIDE_THEME, reveal: createReveal()}});
         let lastInputAt: number | null = null;
         const onInput = (event: Event): void => {
             if (event.isTrusted) lastInputAt = Date.now();
@@ -76,6 +124,7 @@ export default defineComponent({
                 return found.ok || found.code === "ambiguous";
             },
             capture: (of) => captureNow(agent, of),
+            highlight: (args) => agent.highlight(args),
         };
         const release = props.connect(page);
         onBeforeUnmount(() => {

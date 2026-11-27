@@ -25,7 +25,7 @@ import {descriptor} from "../plugin";
 import {CAPTURE_TOKEN_HEADER, CAPTURE_UPLOAD_PATH, pageAgentWindowContract} from "../shared/contracts";
 import {findInCatalog} from "./catalog";
 import type {CatalogCommand} from "./catalog";
-import type {CaptureOutcome, ConnectPage, PageSide} from "./page-side";
+import type {CaptureOutcome, ConnectPage, PageHighlight, PageSide} from "./page-side";
 
 /** 浮层的贡献 id：引擎的挂载点。 */
 export const ENGINE_OVERLAY = `${descriptor.id}.engine`;
@@ -116,7 +116,7 @@ export const pageAgentWebPlugin: PluginDefinition = {
             const overlay: WorkbenchOverlayImplementation = {
                 load: async () => {
                     const Engine = (await import("./engine/PageAgentEngine.vue")).default;
-                    return defineComponent({name: "PageAgentOverlay", setup: () => () => h(Engine, {connect})});
+                    return defineComponent({name: "PageAgentOverlay", setup: () => () => h(Engine, {connect, text})});
                 },
             };
 
@@ -177,6 +177,43 @@ export const pageAgentWebPlugin: PluginDefinition = {
                             const failed = await uploadCapture(input.token, outcome.image, call.signal);
                             if (failed !== null) return call.fail("capture-failed", {message: failed});
                             return call.ok({window: side.info(), target: outcome.target, width: outcome.width, height: outcome.height});
+                        },
+                    },
+                    events: {
+                        /**
+                         * 高亮（输出 9）：订阅一次高亮一次。业务失败交 `failed` 事件，不抛错；服务端收到结局或失败就退订，退订（signal）
+                         * 撤掉还在的高亮。
+                         */
+                        highlight: {
+                            subscribe: async (filter, sink, call) => {
+                                const side = await ready(call.signal);
+                                const fail = (code: "stale-ref" | "ambiguous" | "not-found" | "invalid-locator" | "window-hidden", message: string, candidates?: readonly unknown[]): void => {
+                                    sink.next({kind: "failed", code, detail: {message: message.slice(0, 1024), ...(candidates === undefined ? {} : {candidates: candidates as never})}});
+                                };
+                                if (!side.info().visible) {
+                                    fail("window-hidden", "这个窗口现在看不见");
+                                    return;
+                                }
+                                let handle: PageHighlight;
+                                try {
+                                    handle = side.highlight(filter);
+                                } catch (error) {
+                                    if (error instanceof TypeError) {
+                                        fail("invalid-locator", error.message);
+                                        return;
+                                    }
+                                    throw error;
+                                }
+                                call.signal.addEventListener("abort", () => handle.cancel(), {once: true});
+                                void handle.installed.then((installed) => {
+                                    if (installed !== null && !call.signal.aborted) sink.next({kind: "installed", window: side.info(), ...installed});
+                                });
+                                void handle.outcome.then((end) => {
+                                    if (call.signal.aborted) return;
+                                    if ("code" in end) fail(end.code, end.message, end.details?.candidates);
+                                    else if (end.outcome !== "cancelled") sink.next({kind: "outcome", outcome: end});
+                                });
+                            },
                         },
                     },
                 }))],

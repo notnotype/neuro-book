@@ -24,7 +24,7 @@ export const READ_TIMEOUT_MS = 3000;
 export const CAPTURE_TIMEOUT_MS = 15_000;
 
 /** 结果里写给代码的窗口信息：选中了哪个窗口（输出 8 要写明截的是哪个）。 */
-const WindowSummarySchema = Type.Object({
+export const WindowSummarySchema = Type.Object({
     name: Type.String(),
     title: Type.String(),
     path: Type.String(),
@@ -47,13 +47,13 @@ const ScreenshotReturnsSchema = Type.Object({
  * 窗口类的带通道的原码。没有可带的时候结果里不放 `details`。
  */
 // 展开成普通对象：声明的类型是 JSON Schema 的记录，TypeBox 的对象类型没有索引签名（同 `returns`）。
-const CandidatesDetailSchema = {...Type.Object({candidates: Type.Array(CandidateSchema, {maxItems: 10})}, {additionalProperties: false})};
+export const CandidatesDetailSchema = {...Type.Object({candidates: Type.Array(CandidateSchema, {maxItems: 10})}, {additionalProperties: false})};
 const CauseDetailSchema = {...Type.Object({cause: Type.String()}, {additionalProperties: false})};
-const WINDOW_ERRORS = {"no-window": CauseDetailSchema, "window-gone": CauseDetailSchema, "window-unresponsive": CauseDetailSchema};
-const LOCATOR_ERRORS = {"stale-ref": CandidatesDetailSchema, ambiguous: CandidatesDetailSchema, "not-found": CandidatesDetailSchema};
+export const WINDOW_ERRORS = {"no-window": CauseDetailSchema, "window-gone": CauseDetailSchema, "window-unresponsive": CauseDetailSchema};
+export const LOCATOR_ERRORS = {"stale-ref": CandidatesDetailSchema, ambiguous: CandidatesDetailSchema, "not-found": CandidatesDetailSchema};
 
 /** `foreground`：`ui` 看的是用户眼前的窗口，没有人在窗口前的会话（后台任务、bot）用不上（contributions.md 输出 4）。 */
-const toolBase = {version: "1", concurrency: "shared" as const, defaultForAll: true, foreground: true as const};
+export const toolBase = {version: "1", concurrency: "shared" as const, defaultForAll: true, foreground: true as const};
 
 export const snapshotTool = agentTool(SNAPSHOT_TOOL, {
     ...toolBase,
@@ -135,7 +135,7 @@ export function pageLocator(locator: UiLocator | undefined): {readonly ok: true;
     return {ok: true, locator: converted.locator};
 }
 
-function sessionOf(context: ToolSessionContext): {readonly id: string; readonly project?: string} {
+export function sessionOf(context: ToolSessionContext): {readonly id: string; readonly project?: string} {
     return context.project === undefined ? {id: context.sessionId} : {id: context.sessionId, project: context.project};
 }
 

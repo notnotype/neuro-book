@@ -3,7 +3,7 @@
  * 类型检查的范围里，没有 DOM 类型，所以只经这个不带 DOM 的接口用它。
  */
 
-import type {Locator, PageFailure, SnapshotArgs, SnapshotResult} from "@notnotype/nb-page-agent/api";
+import type {HighlightArgs, HighlightInstalled, Locator, PageFailure, PageOutcome, SnapshotArgs, SnapshotResult} from "@notnotype/nb-page-agent/api";
 
 import type {WindowInfo} from "../shared/contracts";
 
@@ -14,6 +14,15 @@ export interface PageSide {
     present(locator: Locator): boolean;
     /** 截视口，或 `of` 指的元素本身（docs/specs/agent/page-agent.md 输出 5、8）；写错的定位抛 `TypeError`。 */
     capture(of: Locator | undefined): Promise<CaptureOutcome>;
+    /** 高亮并等用户（输出 9、10）；写错的定位抛 `TypeError`。 */
+    highlight(args: HighlightArgs): PageHighlight;
+}
+
+/** 一次高亮：画出来时 `installed` resolve（没画出来就结束时是 null），撤掉之后 `outcome` resolve；`cancel` 撤掉，结局是 `cancelled`。 */
+export interface PageHighlight {
+    readonly installed: Promise<HighlightInstalled | null>;
+    readonly outcome: Promise<PageOutcome | {readonly outcome: "cancelled"} | PageFailure>;
+    cancel(): void;
 }
 
 /** 截图的结果：图由浏览器入口凭服务端给的凭证上传，不经远程调用的结果。 */

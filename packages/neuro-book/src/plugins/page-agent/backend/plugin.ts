@@ -11,8 +11,9 @@ import {TOOLS_POINT} from "nbook/plugins/agent/shared/contracts";
 import {clockKey} from "nbook/shared/host";
 
 import {descriptor} from "../plugin";
-import {FIND_TOOL, SCREENSHOT_TOOL, SNAPSHOT_TOOL} from "../shared/contracts";
+import {FIND_TOOL, HIGHLIGHT_TOOL, SCREENSHOT_TOOL, SNAPSHOT_TOOL} from "../shared/contracts";
 import {createCaptureStore} from "./captures";
+import {createActiveHighlights, highlightImplementation, highlightTool} from "./highlight";
 import {findImplementation, findTool, screenshotImplementation, screenshotTool, snapshotImplementation, snapshotTool} from "./tools";
 import {createWindowSelector} from "./windows";
 
@@ -22,8 +23,8 @@ export const pageAgentBackendPlugin: PluginDefinition = {
         id: "server",
         location: "server",
         dependencies: [{key: clockKey}, {key: diagnosticsKey}],
-        activationEvents: [snapshotTool.activationEvent, findTool.activationEvent, screenshotTool.activationEvent],
-        contributions: [snapshotTool.contribution, findTool.contribution, screenshotTool.contribution, {capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
+        activationEvents: [snapshotTool.activationEvent, findTool.activationEvent, screenshotTool.activationEvent, highlightTool.activationEvent],
+        contributions: [snapshotTool.contribution, findTool.contribution, screenshotTool.contribution, highlightTool.contribution, {capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
         activate: (context) => {
             const clock = context.services.require(clockKey);
             const diagnostics = context.services.require(diagnosticsKey);
@@ -31,12 +32,21 @@ export const pageAgentBackendPlugin: PluginDefinition = {
             const captures = createCaptureStore(clock, (message) => {
                 diagnostics.record({level: "warn", event: "page-agent.capture-upload", message, source: {plugin: descriptor.id}});
             });
-            // 插件停止时作废全部截图凭证、取消正在读的上传（截图状态表）。
-            context.signal.addEventListener("abort", () => captures.dispose(), {once: true});
-            const deps = {remote, windows: createWindowSelector(remote, () => clock.now()), captures};
+            const highlights = createActiveHighlights();
+            // 插件停止时作废全部截图凭证、取消正在读的上传（截图状态表）；正在等的高亮以 window-gone 结束（状态与转换）。
+            context.signal.addEventListener("abort", () => {
+                captures.dispose();
+                highlights.stopAll();
+            }, {once: true});
+            const deps = {remote, windows: createWindowSelector(remote, () => clock.now()), captures, clock, active: highlights};
             return {
                 contributions: {
-                    [TOOLS_POINT]: {[SNAPSHOT_TOOL]: snapshotImplementation(deps), [FIND_TOOL]: findImplementation(deps), [SCREENSHOT_TOOL]: screenshotImplementation(deps)},
+                    [TOOLS_POINT]: {
+                        [SNAPSHOT_TOOL]: snapshotImplementation(deps),
+                        [FIND_TOOL]: findImplementation(deps),
+                        [SCREENSHOT_TOOL]: screenshotImplementation(deps),
+                        [HIGHLIGHT_TOOL]: highlightImplementation(deps),
+                    },
                     [HTTP_ROUTES_POINT]: {[descriptor.id]: captures.routes},
                 },
             };

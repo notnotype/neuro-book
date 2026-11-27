@@ -7,7 +7,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {BaseLocatorSchema, CandidateSchema, LocatorSchema, SnapshotArgsSchema, SnapshotResultSchema} from "@notnotype/nb-page-agent/api";
+import {BaseLocatorSchema, CandidateSchema, HighlightArgsSchema, HighlightInstalledSchema, LocatorSchema, PageOutcomeSchema, SnapshotArgsSchema, SnapshotResultSchema} from "@notnotype/nb-page-agent/api";
 import type {BaseLocator, Locator} from "@notnotype/nb-page-agent/api";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
@@ -17,6 +17,7 @@ export const UI_OBJECT = "ui";
 export const SNAPSHOT_TOOL = `${PAGE_AGENT_PLUGIN}.snapshot` as const;
 export const FIND_TOOL = `${PAGE_AGENT_PLUGIN}.find` as const;
 export const SCREENSHOT_TOOL = `${PAGE_AGENT_PLUGIN}.screenshot` as const;
+export const HIGHLIGHT_TOOL = `${PAGE_AGENT_PLUGIN}.highlight` as const;
 
 /** 视图与编辑区标题栏上的命令按钮的稳定名（输出 6）：`{command: id}` 是 `{target: "command", key: id}` 的简写。 */
 export const COMMAND_TARGET = "command";
@@ -79,6 +80,17 @@ export const UiScreenshotArgsSchema = Type.Object({
     of: Type.Optional(UiLocatorSchema),
 }, {additionalProperties: false});
 
+/** 等用户的上限（秒，输入与前置条件的表）。 */
+export const HIGHLIGHT_DEFAULT_TIMEOUT_S = 300;
+export const HIGHLIGHT_MAX_TIMEOUT_S = 3600;
+
+export const UiHighlightArgsSchema = Type.Object({
+    ...HighlightArgsSchema.properties,
+    at: UiLocatorSchema,
+    timeout: Type.Optional(Type.Integer({minimum: 1, maximum: HIGHLIGHT_MAX_TIMEOUT_S, description: `等用户的上限（秒），缺省 ${String(HIGHLIGHT_DEFAULT_TIMEOUT_S)}；到点结局是 timeout`})),
+}, {additionalProperties: false});
+
+export type UiHighlightArgs = Static<typeof UiHighlightArgsSchema>;
 export type UiSnapshotArgs = Static<typeof UiSnapshotArgsSchema>;
 export type UiFindArgs = Static<typeof UiFindArgsSchema>;
 export type UiScreenshotArgs = Static<typeof UiScreenshotArgsSchema>;
@@ -143,6 +155,22 @@ const PAGE_ERRORS = {
     "invalid-locator": PageFailureDetailSchema,
 };
 
+/**
+ * 高亮订阅推给服务端的事件（输出 9）：装上了（从这时起等用户）、页面上的结局，或没装上就失败。服务端收到结局或失败就退订，
+ * 窗口那边随即撤掉高亮。
+ */
+export const HighlightEventSchema = Type.Union([
+    Type.Object({kind: Type.Literal("installed"), window: WindowInfoSchema, ...HighlightInstalledSchema.properties}, {additionalProperties: false}),
+    Type.Object({kind: Type.Literal("outcome"), outcome: PageOutcomeSchema}, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("failed"),
+        code: Type.Union([Type.Literal("stale-ref"), Type.Literal("ambiguous"), Type.Literal("not-found"), Type.Literal("invalid-locator"), Type.Literal("window-hidden")]),
+        detail: PageFailureDetailSchema,
+    }, {additionalProperties: false}),
+]);
+
+export type HighlightEvent = Static<typeof HighlightEventSchema>;
+
 /** 截图凭证的上传头（输出 8 的截图状态表）：凭证不放进路径，免得进 HTTP 诊断。 */
 export const CAPTURE_TOKEN_HEADER = "x-nb-capture-token";
 /** 上传地址：同源的相对路径，挂在本插件的 HTTP 路由下。 */
@@ -152,7 +180,7 @@ export const CAPTURE_MAX_BYTES = 512 * 1024;
 export const CAPTURE_MAX_EDGE = 1280;
 
 /**
- * 服务端调窗口（`provider: "client"`，只有服务端调）：选窗口时问 `info`，`ui` 的方法各一个。窗口回复前按 UTF-8 量过大小
+ * 服务端调窗口（`provider: "client"`，只有服务端调）：选窗口时问 `info`，`ui` 的方法各一个；高亮要等用户，是订阅。窗口回复前按 UTF-8 量过大小
  * （核心包的上限），schema 里的字数与条数上限只是兜底。
  */
 export const pageAgentWindowContract = defineRemoteService({
@@ -184,5 +212,8 @@ export const pageAgentWindowContract = defineRemoteService({
             effect: "read",
             errors: {...PAGE_ERRORS, "window-hidden": PageFailureDetailSchema, "capture-failed": PageFailureDetailSchema},
         },
+    },
+    events: {
+        highlight: {filter: HighlightArgsSchema, payload: HighlightEventSchema},
     },
 });

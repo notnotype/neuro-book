@@ -3,12 +3,12 @@
  * 没有），与拿服务端远程入口的测试插件。只由测试使用。
  */
 
-import type {Locator} from "@notnotype/nb-page-agent/api";
+import type {HighlightArgs, Locator} from "@notnotype/nb-page-agent/api";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {PAGE_AGENT_PLUGIN, pageAgentWindowContract} from "../shared/contracts";
-import type {PageFailureDetail, WindowInfo} from "../shared/contracts";
+import type {HighlightEvent, PageFailureDetail, WindowInfo} from "../shared/contracts";
 
 /** 截图的答复：成功时窗口自己报的尺寸，失败时窗口合同里的码。 */
 export type CaptureReply =
@@ -25,12 +25,16 @@ export interface TestWindowState {
     capture?: (input: {readonly token: string; readonly of?: Locator}) => Promise<CaptureReply>;
     /** 截图被调了几次。 */
     captured: number;
+    /** 收到的高亮订阅：参数、推事件的出口与订阅的结束信号（服务端退订时触发）。 */
+    highlights: Array<{readonly filter: HighlightArgs; readonly emit: (event: HighlightEvent) => void; readonly signal: AbortSignal}>;
+    /** 收到订阅时当场推的事件（在提供方的 `subscribe` 里同步推，早于订阅确认交回调用方）。 */
+    highlightAtOnce?: readonly HighlightEvent[];
 }
 
 export const windowInfo = (over: Partial<WindowInfo> = {}): WindowInfo => ({name: "a1", title: "NeuroBook", path: "/", width: 1280, height: 800, visible: true, focused: false, lastInputAt: null, ...over});
 
 export function testWindowState(over: Partial<WindowInfo> = {}): TestWindowState {
-    return {info: windowInfo(over), asked: 0, captured: 0};
+    return {info: windowInfo(over), asked: 0, captured: 0, highlights: []};
 }
 
 export function testWindow(state: TestWindowState): PluginDefinition {
@@ -65,6 +69,14 @@ export function testWindow(state: TestWindowState): PluginDefinition {
                                 case "window-hidden": return call.fail("window-hidden", reply.detail);
                                 case "capture-failed": return call.fail("capture-failed", reply.detail);
                             }
+                        },
+                    },
+                    events: {
+                        highlight: {
+                            subscribe: (filter, sink, call) => {
+                                state.highlights.push({filter, emit: (event) => sink.next(event), signal: call.signal});
+                                for (const event of state.highlightAtOnce ?? []) sink.next(event);
+                            },
                         },
                     },
                 }))],
