@@ -21,11 +21,11 @@ import {useEntryFind} from "../entries/entry-picker";
 import type {EntryTextValue} from "./entry-text";
 import {checkedWrite} from "../../entry-check";
 import {chipOf} from "../../entry-chip";
-import type {ChipContext, ChipModel, EntryField} from "../../entry-chip";
+import type {ChipContext, ChipKind, ChipModel, ChipState, EntryField} from "../../entry-chip";
 import {attributeOf, draftOf, quoteProblem, sourceOf, withAttribute, withElseIf} from "../../entry-chip-edit";
 import type {ChipDraft, DraftBranch} from "../../entry-chip-edit";
 import {conditionView, entryValuesKey, entryValuesPlugin, setEntryValues, tagView, valueDecorations} from "../../entry-chip-views";
-import type {ChipHost} from "../../entry-chip-views";
+import type {ChipHost, ChipNamer} from "../../entry-chip-views";
 import {ENTRY_IF_NODE, ENTRY_TAG_NODE, entryIfNode, entrySyntax, entryTagNode} from "../../entry-syntax";
 import {valueSequence} from "../../entry-values";
 import type {TagValue} from "../../entry-values";
@@ -65,6 +65,17 @@ const unwritable = ref(false);
 
 let editor: Editor | null = null;
 
+const KIND_WORDS: Record<ChipKind, string> = {value: "chipEdit.valueTitle", calc: "chipEdit.calcTitle", if: "chipEdit.ifTitle", ref: "chipEdit.refTitle", image: "chipEdit.imageTitle", raw: "chipEdit.otherTitle"};
+/** 状态的说法；“值”没有，“未知”“已删除的条目”显示的字已经说了。 */
+const STATE_WORDS: Partial<Record<ChipState, string>> = {pending: "chipEdit.statePending", uncomputed: "chipEdit.stateUncomputed", incomplete: "value.incomplete", "missing-field": "chipEdit.stateMissing", "no-branch": "textEdit.noBranch"};
+/** 小块的读屏名字：种类、显示名、显示的值（与显示名相同时不重复），再接状态与“改过”。 */
+const chipName: ChipNamer = (chip) => {
+    const kind = text(KIND_WORDS[chip.kind]);
+    let name = chip.text === null || chip.text === chip.label ? text("chipEdit.chipKind", {kind, label: chip.label}) : text("chipEdit.chipName", {kind, label: chip.label, value: chip.text});
+    const state = STATE_WORDS[chip.state];
+    for (const note of [state === undefined ? undefined : text(state), chip.changed]) if (note !== undefined && note !== "") name = text("chipEdit.chipNote", {name, note});
+    return name;
+};
 /** 按路径查字段：每个小块重画都要查，按 `fields` 的引用缓存一份。 */
 const fieldMap = computed(() => new Map(props.fields.map((field) => [field.path, field])));
 /** 节点视图向这里要上下文：读的是此刻的属性。 */
@@ -81,7 +92,7 @@ const host: ChipHost = {
         noBranch: text("textEdit.noBranch"),
         unknown: text("value.unknown"),
         condition: text("textEdit.condition"),
-        named: (label: string, value: string) => text("value.label", {label, value}),
+        named: chipName,
     }),
 };
 /** 最近一次对上的值（按标签原文）：属性变了要重画时用它重新挂。 */

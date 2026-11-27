@@ -26,9 +26,13 @@ import type {TagValue} from "./entry-values";
 export interface ChipHost {
     context(): ChipContext;
     showBranches(): boolean;
-    /** 条件小块的说明文字：没有一支成立、未知；`named` 拼读屏名字（显示名加值，标点随语言）。 */
-    words(): {readonly noBranch: string; readonly unknown: string; readonly condition: string; named(label: string, value: string): string};
+    /** 条件小块的说明文字：没有一支成立、未知；`named` 拼读屏名字（种类、显示名、值与状态，标点随语言）。 */
+    words(): {readonly noBranch: string; readonly unknown: string; readonly condition: string; named: ChipNamer};
 }
+
+/** 读屏名字里要说的：种类、显示名、显示的值（条件没有）、状态与“改过”。 */
+export type ChipName = Pick<ChipModel, "kind" | "label" | "state" | "changed"> & {readonly text: string | null};
+export type ChipNamer = (chip: ChipName) => string;
 
 export const entryValuesKey = new PluginKey<DecorationSet>("canonEntryValues");
 
@@ -111,12 +115,12 @@ function shell(): {dom: HTMLElement; face: HTMLElement} {
 }
 
 /** 把小块的样子写到壳与面上：测试与读屏看属性，样子看类名。 */
-function paintChip(dom: HTMLElement, face: HTMLElement, model: ChipModel, named: (label: string, value: string) => string): void {
+function paintChip(dom: HTMLElement, face: HTMLElement, model: ChipModel, named: ChipNamer): void {
     dom.dataset.entryChip = model.kind;
     dom.dataset.chipState = model.state;
     if (model.changed === undefined) delete dom.dataset.chipChanged;
     else dom.dataset.chipChanged = model.changed;
-    dom.setAttribute("aria-label", named(model.label, model.text));
+    dom.setAttribute("aria-label", named(model));
     dom.title = model.changed === undefined ? model.label : `${model.label}（${model.changed}）`;
     face.className = `entry-chip entry-chip--${model.kind} entry-chip--${model.state}`;
     face.textContent = model.text;
@@ -148,7 +152,7 @@ export function tagView(host: ChipHost): NodeViewConstructor {
 }
 
 /** 一支的行内内容画成 DOM：文字带强调、代码、删除线；链接只画文字；支里的标签画成小块（值按先后取）。 */
-function paintBranch(target: HTMLElement, content: readonly JSONContent[], take: () => EntryTextValue | undefined, context: ChipContext, named: (label: string, value: string) => string): void {
+function paintBranch(target: HTMLElement, content: readonly JSONContent[], take: () => EntryTextValue | undefined, context: ChipContext, named: ChipNamer): void {
     for (const child of content) {
         if (child.type === "text") {
             let element: Node = document.createTextNode(child.text ?? "");
@@ -214,7 +218,7 @@ export function conditionView(host: ChipHost): NodeViewConstructor {
                 placeholder.textContent = head === undefined ? words.condition : unknown ? words.unknown : words.noBranch;
                 face.append(placeholder);
             }
-            dom.setAttribute("aria-label", words.named(words.condition, node.attrs.open as string));
+            dom.setAttribute("aria-label", words.named({kind: "if", label: node.attrs.open as string, text: null, state: dom.dataset.chipState as ChipModel["state"]}));
             dom.title = node.attrs.open as string;
         };
         paint();

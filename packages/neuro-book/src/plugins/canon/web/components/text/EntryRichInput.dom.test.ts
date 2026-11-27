@@ -230,6 +230,16 @@ describe("小块的值（canon/author-ui.md 输出 48）", () => {
         expect(branches().map((branch) => branch.classList.contains("entry-if__branch--entering"))).toEqual([false, false]);
     });
 
+    it("小块的读屏名字：种类、显示名、值与状态；顶层小块是按钮", async () => {
+        const wrapper = show({modelValue: '<V of="panel.魔力" /> <V expr="panel.魔力 * 2" /> <If test="panel.魔力 > 1">强<Else />弱</If>', self: "e1", fields, computing: true});
+        await flushPromises();
+        expect(chips(wrapper).map((chip) => [chip.getAttribute("role"), chip.getAttribute("aria-label")])).toEqual([
+            ["button", "取值 魔力：1,200"],
+            ["button", "计算 panel.魔力 * 2，计算中"],
+            ["button", '条件 <If test="panel.魔力 > 1">，计算中'],
+        ]);
+    });
+
     it("挂载时就带着值表（刚点“编辑”时用阅读视图的那份当初值）：一开始就是值，不先画计算中", async () => {
         const wrapper = show({modelValue: VALUE_SOURCE, self: "e1", fields, values: {source: VALUE_SOURCE, values: valuesFor(VALUE_SOURCE, 0)}});
         await flushPromises();
