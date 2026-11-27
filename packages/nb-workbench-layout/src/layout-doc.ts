@@ -581,22 +581,27 @@ function settleRails(original: LayoutDoc, next: MutableDoc): void {
 /**
  * 浮动窗记住的矩形（输出 39 的“记住矩形”）跟着结构操作结算，放在出口，归位、拖回停靠、并进树里的面板走的都是这一条：
  *
- * - `original` 里的浮动窗在 `next` 里不浮动了，它的每个工具视图标签在 `next` 里落在树里，就记下这扇窗的记录矩形（收着的，不含侧轨展开的差值）。
+ * - 按标签判：一个工具视图标签在 `original` 里在浮动窗里、在 `next` 里落在树里，就记下那扇窗的记录矩形（收着的，不含侧轨展开的差值）。
+ *   不看窗还在不在：“回到停靠”是一个标签一次提交地搬（工作台的 `dockFloat`），前几个搬走时窗还在；从多标签窗单独拖一个回树里也算。
  *   并进别的浮动窗、被关掉的不记。编辑器标签不记：它们是动态的，浮出与归位走编辑器区。
  * - 然后清掉 `next` 里已经没有这个标签的键（视图被停用、卸载），清空了整个字段不写：记录不随装过的视图个数涨。
+ *
+ * 拖动预览的每个候选落点都要过这里，所以标签所在的面板先建一张表再查，不逐个 `findTab`（那样是记录数乘以标签数）。
  */
 function settleFloatRects(original: LayoutDoc, next: MutableDoc): void {
+    if (original.floats.length === 0 && next.floatRects === undefined) return;
     const doc = asDoc(next);
+    const home = new Map<string, string>();
+    for (const [id, panel] of Object.entries(next.panels)) for (const tab of panel.tabs) home.set(tabKey(tab), id);
     const rects: Record<string, LayoutFloatRect> = {...next.floatRects};
     for (const float of original.floats) {
-        if (isFloating(doc, float.panel)) continue;
         for (const tab of original.panels[float.panel]?.tabs ?? []) {
             if (tab.kind !== "view") continue;
-            const landed = findTab(doc, tabKey(tab));
-            if (landed !== null && !isFloating(doc, landed.panel)) rects[tabKey(tab)] = {...float.rect};
+            const landed = home.get(tabKey(tab));
+            if (landed !== undefined && !isFloating(doc, landed)) rects[tabKey(tab)] = {...float.rect};
         }
     }
-    for (const key of Object.keys(rects)) if (findTab(doc, key) === null) delete rects[key];
+    for (const key of Object.keys(rects)) if (!home.has(key)) delete rects[key];
     if (Object.keys(rects).length > 0) next.floatRects = rects;
     else delete next.floatRects;
 }

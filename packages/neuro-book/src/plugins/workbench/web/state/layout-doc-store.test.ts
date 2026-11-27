@@ -1255,6 +1255,43 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
             expect(second.store.actions.document().floats[0]!.rect).toEqual(resized);
         });
 
+        it("记住矩形（输出 39）：多标签窗点“回到停靠”每个视图都记；同一个矩形的两个视图逐个浮出时错开；窗口变小时整窗夹进树区域", async () => {
+            const {store} = await railed(1440);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const panel = store.actions.document().floats[0]!.panel;
+            const rect = store.actions.document().floats[0]!.rect;
+            expect(store.actions.apply((doc) => moveTabToStrip(doc, {tab: "view:test.p1", panel, index: 1}, POLICY)).ok).toBe(true);
+            expect((await store.actions.dockFloat(panel)).ok).toBe(true);
+            expect(store.actions.document().floatRects).toEqual({"view:test.x1": rect, "view:test.p1": rect});
+
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect((await store.actions.floatTab("view:test.p1")).ok).toBe(true);
+            const [one, two] = store.actions.document().floats.map((float) => float.rect);
+            expect(one).toEqual(rect);
+            expect(two).toEqual({...rect, x: rect.x + 24, y: rect.y + 24});
+            for (const float of store.actions.document().floats) expect((await store.actions.dockFloat(float.panel)).ok).toBe(true);
+
+            // 窗口比记下时小：整窗在树区域里（不是只留 80px 抓得到）。
+            store.actions.acceptExtent({width: rect.x + rect.width - 100, height: 900});
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const clamped = store.actions.document().floats[0]!.rect;
+            expect(clamped.x + clamped.width).toBeLessThanOrEqual(rect.x + rect.width - 100);
+            expect(clamped.x).toBeGreaterThanOrEqual(0);
+        });
+
+        it("记住矩形（输出 39、51）：展开着归位记的是收着的矩形，再浮出照旧展开、画出来的窗加上展开的宽", async () => {
+            const {store} = await railed(1440);
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            const panel = store.actions.document().floats[0]!.panel;
+            const rect = store.actions.document().floats[0]!.rect;
+            expect(store.actions.requestFloatRailExpanded(panel, true)).toEqual({ok: true, result: "done"});
+            expect((await store.actions.dockFloat(panel)).ok).toBe(true);
+            expect(store.actions.document().floatRects).toEqual({"view:test.x1": rect});
+            expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);
+            expect(store.actions.document().floats[0]).toMatchObject({rect, rail: {expanded: true}});
+            expect(store.actions.floats()[0]!.rect.width).toBe(rect.width + 212);
+        });
+
         it("浮动窗里的视图段（输出 51）：单标签视图窗有状态；展开写窗上的意图，画出来的窗加宽、只有这一次带 animate；缩放落账只取动的边、减回展开的宽；窗口放不下时被拒、标窗口太窄", async () => {
             const {store} = await railed(1440);
             expect((await store.actions.floatTab("view:test.x1")).ok).toBe(true);

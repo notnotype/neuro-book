@@ -54,6 +54,18 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
     return {x: Math.max(0, ((extent?.width ?? size.width) - size.width) / 2) + offset, y: Math.max(0, ((extent?.height ?? size.height) - size.height) / 2) + offset, ...size};
 }
 
+/**
+ * 再浮出时用记下的矩形（输出 39 的“记住矩形”）：和新开的窗一样整个夹回树区域（`wholeInTree`，窗口比记下时小也看得见“回到停靠”），
+ * 不小于视图此刻的最小尺寸（声明可能变大了）；左上角和已有的窗重合时按 `FLOAT_CASCADE` 错开（同一扇窗归位的几个视图记的是同一个矩形）。
+ */
+export function rememberedFloatRect(rect: LayoutFloatRect, extent: GridExtent | null, minimum: GridExtent, floats: ReadonlyArray<LayoutFloatRect>): LayoutFloatRect {
+    let placed = wholeInTree({...rect, width: Math.max(rect.width, minimum.width), height: Math.max(rect.height, minimum.height)}, extent);
+    for (let step = 1; step < 8 && floats.some((other) => other.x === placed.x && other.y === placed.y); step += 1) {
+        placed = wholeInTree({...placed, x: placed.x + FLOAT_CASCADE, y: placed.y + FLOAT_CASCADE}, extent);
+    }
+    return placed;
+}
+
 /** 拖窗时夹回树区域：至少留一段头在里面，抓得到。容器还没量到时不夹。 */
 export const keepVisible = (rect: LayoutFloatRect, extent: GridExtent | null): LayoutFloatRect => (extent === null ? rect : clampFloatRect(rect, extent, {width: FLOAT_KEEP_WIDTH, height: PANEL_HEAD_HEIGHT}));
 

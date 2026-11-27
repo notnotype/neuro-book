@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {edgeTargetOf, floatTab, insertTab, movePanelToEdge, removeTab, sameLayoutShape} from "./layout-doc";
+import {edgeTargetOf, floatTab, insertTab, movePanelToEdge, moveTabToEdge, removeTab, sameLayoutShape} from "./layout-doc";
 import {validateLayoutDoc} from "./layout-doc-validate";
 import {applyLayoutDrop} from "./layout-drop";
 import type {LayoutDoc, LayoutEdge, LayoutResult} from "./layout-doc";
@@ -57,6 +57,16 @@ describe("记下与清掉", () => {
         expect(docked.floatRects).toEqual({"view:m1": RECT, "view:x1": RECT});
     });
 
+    it("从多标签窗单独拖一个回树里：这一个记下，窗还浮着、别的标签不记", () => {
+        const first = floated(base(), "view:m1");
+        const two = okDoc(insertTab(first.doc, {panel: first.panel, tab: view("x1")}));
+        const out = okDoc(moveTabToEdge(two, {tab: "view:x1", target: edge(two, "auxiliarybar", "bottom"), container: "M"}, policy));
+        expect(out.floats.map((float) => float.panel)).toEqual([first.panel]);
+        expect(out.floatRects).toEqual({"view:x1": RECT});
+        // 再把剩下的一个也拖回去（一个标签一次，同“回到停靠”）：两个都记着。
+        expect(okDoc(moveTabToEdge(out, {tab: "view:m1", target: edge(out, "auxiliarybar", "bottom"), container: "M"}, policy)).floatRects).toEqual({"view:x1": RECT, "view:m1": RECT});
+    });
+
     it("再浮出、再回来：记的是最近那扇窗的矩形", () => {
         const once = floated(base(), "view:m1");
         const docked = dockBack(once.doc, once.panel);
@@ -108,12 +118,13 @@ describe("读入与形状", () => {
         expect(checked.ok && checked.doc).toBe(doc);
     });
 
-    it("坏项丢掉并各写一条说明，其余照用；全丢光了整个字段不写；不是对象整个丢", () => {
-        const stored = JSON.parse(JSON.stringify({...base(), floatRects: {"view:m1": RECT, "tab:t1": RECT, "view:s1": {...RECT, width: 0}, "view:__proto__": RECT, "view:x": "wide"}})) as unknown;
+    it("坏项与文档里没有这个标签的项丢掉并各写一条说明，其余照用；全丢光了整个字段不写；不是对象整个丢", () => {
+        const stored = JSON.parse(JSON.stringify({...base(), floatRects: {"view:m1": RECT, "tab:t1": RECT, "view:s1": {...RECT, width: 0}, "view:__proto__": RECT, "view:x": "wide", "view:gone": RECT}})) as unknown;
         const checked = validateLayoutDoc(stored);
         if (!checked.ok) throw new Error(checked.message);
         expect(checked.doc.floatRects).toEqual({"view:m1": RECT});
-        expect(checked.repairs).toHaveLength(4);
+        // 坏矩形、不是工具视图的键、文档里没有这个标签的键（与提交出口清的同一判据）各一条。
+        expect(checked.repairs).toHaveLength(5);
         const none = validateLayoutDoc({...base(), floatRects: {"tab:t1": RECT}});
         expect(none.ok && none.doc).not.toHaveProperty("floatRects");
         const notObject = validateLayoutDoc({...base(), floatRects: [RECT]});
