@@ -582,3 +582,23 @@ test("数据表格：放进 flex 行、不给宽度时按内容撑开，不塌�
     expect(inner).toBeGreaterThan(300);
     expect((await rectOf(table)).width).toBeGreaterThanOrEqual(inner);
 });
+
+test("字段出错时排版不变：没有说明时，出错与否控件的位置与字段的高度都相同（nb-ui 的 Field.md）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    // 量控件相对字段根的位置与字段根的高度：舞台在两个场景里可能摆在不同的地方，比相对值。
+    const measure = async () => {
+        const field = stage(page).locator("label").first();
+        const input = field.locator("input");
+        const [fieldBox, inputBox] = await Promise.all([rectOf(field), rectOf(input)]);
+        return {inputTop: inputBox.y - fieldBox.y, inputBottom: inputBox.bottom - fieldBox.y, fieldHeight: fieldBox.height};
+    };
+
+    await openScene(page, "c=Field&s=plain");
+    await expect(stage(page).locator("input")).not.toHaveAttribute("aria-invalid", "true");
+    const plain = await measure();
+
+    await openScene(page, "c=Field&s=plain-error");
+    // 前提：这个场景里的控件真的标红了，否则比出来相同证明不了什么。
+    await expect(stage(page).locator("input")).toHaveAttribute("aria-invalid", "true");
+    expect(await measure()).toEqual(plain);
+});

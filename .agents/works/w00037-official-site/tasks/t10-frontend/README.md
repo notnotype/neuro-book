@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t10-frontend
-status: planned
-updated: 2026-11-24
+status: done
+updated: 2026-11-27
 ---
 
 # 前端实现
@@ -15,7 +15,7 @@ updated: 2026-11-24
 
 ## 当前状态
 
-进行中（2026-11-26 开工，开发者说“继续后续的开发”）：段 A（nb-ui 的 `Pagination`、`DataTable`、`Table.stickyHeader`）已在 master 上；段 B 在分支 `feat/w00037-t10-web`、worktree `.worktree/w00037-t10-web`（从官方站分支开，D13）上按片做，每片派一个 Opus 编码子代理，主会话审 diff、自己重跑验证。t07、t08 的合同包都已合入，B2 到 B4、B6、B7 不再等合同。Google、GitHub 的 OAuth 应用开发者先不配，社交部分只对着仿真上游与假接口验。
+完成（2026-11-27）：段 A（nb-ui 的 `Pagination`、`DataTable`、`Table.stickyHeader`）与段 B（官方站 B1 到 B10）都已合入 master（段 B 的合并提交 `9e04b7065`）；`site.operations` 的网页条目、`site.accounts` 输出 18 的 `?invite=` 与测试规范里官方站 e2e 一段已晋升（`e39c404eb`）。Google、GitHub 的 OAuth 应用开发者先不配，社交部分只对着仿真上游与假接口验。
 
 范围：`nb-site-web` 的单页应用与三个公开页面，接口类型取自合同包，第一版只做中文（文字的组织方式留好加英文的余地），随服务端的镜像发布。
 
@@ -38,7 +38,14 @@ updated: 2026-11-24
 
 ## 下一步
 
-收口审查（Sonnet：B6、B7 修正、按钮迁移、B9、B10 五个提交与验收映射逐条对用例）进行中；处理完后合入 master、晋升 Spec。
+本 Task 做完。留给别处或等开发者的：
+
+- 交 t07：刚注册、已登录的用户在用户列表里“最后登录”为空。`site.admin` 写的是“最近一次登录成功的时间”，注册时建的会话、社交登录算不算登录，由 t07 定。
+- 交 t11：看板的查询接口与适配器（换掉 `dashboard/source.ts` 的直取，见 B5 一段的交接）；接上之前看板各块显示“服务的回答看不懂”。
+- 交 t13：部署用的镜像构建设 `NB_SITE_RELEASE=1`，压缩与 HSTS 交反向代理（已写进 t13 的 README）。
+- 等条款文字：删两份正文的 `placeholder`，版本对齐服务端配置与假接口的 `meta`。
+- 等开发者看：D3 两枚品牌标志（Google 已换纯路径的四色“G”）；D11 用户详情的侧栏（没有图，`GET users/:id` 有接口没有页面）。
+- 上游候选（nb-ui，不挡本 Task）：`package.json` 声明 `sideEffects`；`Button` 不可用态的对比；`CopyButton` 让调用方给读屏名；`DataTable` 加“重取时不回顶”；“装主题、跟随系统明暗”的统一入口。
 
 ## 实施进度
 

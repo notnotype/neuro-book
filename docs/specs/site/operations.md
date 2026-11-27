@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-官方站的进程入口给部署的人与合同测试用：按环境变量启动一个装着账号与统计两个模块的服务，执行迁移，创建第一个管理员，回答健康检查，发官方站的网页（planned）。模块各自的行为见 [`site.accounts`](accounts.md) 与 [`site.telemetry-ingest`](telemetry-ingest.md)。
+官方站的进程入口给部署的人与合同测试用：按环境变量启动一个装着账号与统计两个模块的服务，执行迁移，创建第一个管理员，回答健康检查，发官方站的网页。模块各自的行为见 [`site.accounts`](accounts.md) 与 [`site.telemetry-ingest`](telemetry-ingest.md)。
 
 不承诺：
 
@@ -19,7 +19,7 @@ owners:
 - 不做热重载配置：改配置要重启。
 - 不回滚数据库：换回上一个版本只换程序，见输出 7。
 - 备份只在本机：数据目录所在的主机丢失时，备份一起丢。
-- 发网页时不压缩响应、不发校验头（`ETag`、`Last-Modified`）、不处理 `Range`：压缩与 TLS 一样由前面的反向代理做（planned）。
+- 发网页时不压缩响应、不发校验头（`ETag`、`Last-Modified`）、不处理 `Range`：压缩与 TLS 一样由前面的反向代理做。
 - 就绪检查不探测磁盘空间：磁盘写满时它仍可能回 200，写入由各模块自己的接口报错。
 
 ## 术语与参与者
@@ -54,7 +54,7 @@ owners:
 | 备份保留份数 | `NB_SITE_BACKUP_KEEP` | 否 | 至少为 1 的整数，缺省 7 |
 | 停止时限 | `NB_SITE_SHUTDOWN_TIMEOUT_MS` | 否 | 停止时等在途请求的上限，1 到 2147483647 的整数，缺省 10000 毫秒 |
 | 测试控制口令 | `NB_SITE_TEST_CONTROL` | 否 | 只给合同测试用：设了它，进程才提供输出 11 的测试控制入口，值是调用时要带的口令：32 到 256 个字符，只含大小写字母、数字、`-`、`_`（它要原样放进请求头）；只许在监听地址是本机回环（`127.0.0.0/8` 或 `::1`）时设。生产环境与镜像都不设 |
-| 前端产物目录 | `NB_SITE_WEB_DIR` | 否 | 官方站网页的构建产物；绝对路径，必须是已经存在、里面有 `index.html` 的目录（`index.html` 经符号链接落到目录之外、或读不了，都不算有）；目录在启动时解开一次，换了指向要重启。设了才发网页（输出 12），不设时不发，未知地址照旧 404；镜像里设好（planned） |
+| 前端产物目录 | `NB_SITE_WEB_DIR` | 否 | 官方站网页的构建产物；绝对路径，必须是已经存在、里面有 `index.html` 的目录（`index.html` 经符号链接落到目录之外、或读不了，都不算有）；目录在启动时解开一次，换了指向要重启。设了才发网页（输出 12），不设时不发，未知地址照旧 404；镜像里设好 |
 | 各功能开关与时限 | `NB_SITE_<模块>_*` | 否 | 见各模块的 Spec |
 
 请求按主机名分到两处：主机名与遥测写入口地址相同的请求只到三个写入口，其余的到站点的接口。比较不分大小写、不看端口、忽略末尾的一个点。请求里读不出主机名（没有 `Host`，或 `Host` 不合语法）时回 400 `bad_request`，健康检查也不例外。两个健康检查在任何读得出的主机名上都可用；部署时只让本机回环访问它们（planned）。写入口所在的反向代理不记访问日志；它的错误日志不带客户端地址，或单独成文件并在 3 天内轮转（planned）。
@@ -70,13 +70,13 @@ owners:
 5. **创建管理员。** 参数是 `create-admin <用户名> [邮箱]`。用户名不存在时创建一个角色为管理员的账号；没给邮箱时填占位邮箱并标“邮箱待补”（写法同 [`site.legacy-import`](legacy-import.md)）。已存在时重置它的密码、把角色设为管理员、解封，并让它的全部会话失效；给的邮箱忽略。新建的管理员第一次登录后要先补交同意（[`site.accounts`](accounts.md) 输出 10）。每次成功写一条操作者为命令行的审计记录（[`site.admin`](admin.md) 输出 8）。密码只从标准输入读，不回显、不写日志，等密码时在标准错误写一行提示；标准输入是终端时密码输两次，两次不一致以 `invalid_argument` 失败，还没输入内容时按 Ctrl-D 视为取消、以 `interrupted` 结束。成功时标准输出一行日志，`event` 是 `identity.admin_upserted`，至少带 `userId`（账号 id）与 `created`（新建为 true、已存在为 false）；失败时非零码退出。还没做完就收到 `SIGTERM` 或 `SIGINT`（例如停在等密码输入的地方）时不改任何账号，以 `interrupted` 结束。
 6. **备份。** 备份命令在服务运行期间可以执行；写出的每个库副本本身是可以打开的一致快照。统计模块的原始上报不在副本里。备份目录里超过保留份数（缺省 7）的旧副本被删除，刚写出的这一份不在删除之列；清理只动名字是备份时间的目录，部署的人放在备份目录里的别的东西不动。备份目录与每一份备份在新建时只让运行备份的用户读写（已有的目录不改权限）。成功时日志里有一行 `{"event":"backup.done","name":这一份的目录名,"modules":[…]}`。还没写完就收到 `SIGTERM` 或 `SIGINT` 时以 `interrupted` 结束，写到一半的那一份不算备份：失败或被打断时当场删掉；进程被强行结束而留下的，下一次备份开始时先清掉。删不掉时记一行警告、不改变这一次的结果，留到下一次备份开始时再清。
 7. **相邻版本可互换。** 本版本执行过迁移之后，上一个版本的程序在同一个数据目录上仍能启动、通过就绪检查并正常读写。破坏这一点的结构改动不在同一个版本里发布。账号模块的读写要等上一个版本也有账号接口才验（planned）。
-8. **日志。** 进程日志是每行一个 JSON 对象，写到标准输出；每一行在写出时即刷新，带 `time`、`level` 与 `event`。每个请求一行，`event` 是 `http.request`，另有 `requestId`、`module`（健康检查、测试控制入口与没有模块接的请求记 `site`，网页记 `web`，见输出 12）、`method`、`path`、`status`、`durationMs`，不含查询串、请求头、请求体与凭据；读不出主机名的请求 `path` 为 null。请求编号由服务生成，不取请求方给的值；响应头 `X-Request-Id` 是同一个编号。请求之外的未处理错误同样写成一行 JSON（`event` 是 `process.fatal`，带错误的类型，不带内容），随后进程按停止的步骤收口并以非零码退出。响应已经交出、响应体还没开始发送时出的错写一行 `http.response_failed`（带错误的类型），请求方得到 500 `internal`；响应体发到一半出错时连接断开。两种情况进程都照常运行，标准输出与标准错误都不出现不是 JSON 的行（planned）。
+8. **日志。** 进程日志是每行一个 JSON 对象，写到标准输出；每一行在写出时即刷新，带 `time`、`level` 与 `event`。每个请求一行，`event` 是 `http.request`，另有 `requestId`、`module`（健康检查、测试控制入口与没有模块接的请求记 `site`，网页记 `web`，见输出 12）、`method`、`path`、`status`、`durationMs`，不含查询串、请求头、请求体与凭据；读不出主机名的请求 `path` 为 null。请求编号由服务生成，不取请求方给的值；响应头 `X-Request-Id` 是同一个编号。请求之外的未处理错误同样写成一行 JSON（`event` 是 `process.fatal`，带错误的类型，不带内容），随后进程按停止的步骤收口并以非零码退出。响应已经交出、响应体还没开始发送时出的错写一行 `http.response_failed`（带错误的类型），请求方得到 500 `internal`，进程照常运行。
 9. **停止。** 收到 `SIGTERM` 或 `SIGINT` 后停止接新请求、不再开始新的定时任务运行，等在途请求结束（至多停止时限），再让每个模块收尾（正在跑的任务在模块收尾时收手），最后等正在跑的任务停下；每个模块的收尾与等任务停下各有至多 2 秒，然后以 0 退出。迁移期间收到时，把正在执行的那一条迁移做完、不执行后面的、不监听端口、以 0 退出。停止期间再收到一次信号时，立即断开在途请求、不再等模块收尾，以 0 退出。
 10. **失败的输出。** 每个以非零码结束的命令向标准错误写一行 JSON，至少带 `code`，取值见“失败与恢复”；不属于其中任何一种的程序自身的错误，码是 `internal`。这一行不出现变量的取值与数据目录的路径。
 11. **测试控制入口。** 合同测试用它验证随时间变化的行为（例如原始上报到期删除、限流的时间窗）。没设测试控制口令时下面两个地址不存在，与别的不存在的地址一样回 404。设了时，启动日志里有一行 `{"level":"warn","event":"site.test_control_enabled"}`；请求要带请求头 `Authorization: Bearer <口令>`，没带或不对同样回 404。两个地址在任何读得出的主机名上都可用，请求体是 JSON，不合格（包括带了多余的字段）时回 400 `bad_request`：
     - `POST /test-control/clock`，请求体 `{"advanceMs": 正整数}`：把模块取到的当前时间往前拨这么多毫秒，回 200 `{"now": 拨过之后的时间}`（Unix 毫秒）。几次拨动累加；只能往前拨。拨动本身不触发定时任务，定时任务仍按真实时间的间隔排。
     - `POST /test-control/jobs/run`，请求体 `{"module": 模块, "job": 任务名}`：立即跑一次这个定时任务，跑完才回 200 `{"status":"done"}`；它正在跑时，等那一次结束再跑；请求一旦受理就照常跑完，调用方断开连接不取消它。没有这个模块或任务回 404 `not_found`；任务出错回 500 `job_failed`，响应体不带错误内容；服务正在停止时回 503 `not_ready`。任务名见各模块的 Spec。
-12. **网页与单页回退（planned）。** 设了前端产物目录时，站点主机名上的 `GET`、`HEAD` 请求，在健康检查、测试控制入口与各模块的接口都没接的情况下才到这里；遥测写入口的主机名上不发网页。
+12. **网页与单页回退。** 设了前端产物目录时，站点主机名上的 `GET`、`HEAD` 请求，在健康检查、测试控制入口与各模块的接口都没接的情况下才到这里；遥测写入口的主机名上不发网页。
     - **文件**：路径指的是按 URL 标准规范化之后的路径（点段已消解、反斜杠已当作斜杠，所以 `/../x` 就是 `/x`）。它对应产物目录里的一个普通文件时发这个文件，`Content-Type` 按请求路径最后一段的扩展名；目录不算文件，以 `/` 结尾的路径也不对应文件（这样的路径按下面的单页回退处理，所以 `/x.js/` 回 `index.html`）。路径的某一段解码后是 `.`、`..`，以 `.` 开头，或含 `/`、`\`、空字节（后几种只能来自 `..%2f`、`%5c`、`%00` 这类编码在一段里的写法），某一段编码不合法，或除结尾之外有空段（`//`，含开头的 `//x`）时回 404，不论拼出来的位置在不在目录里；文件经符号链接落到产物目录之外、或读不出（含路径上的目录没有权限）时同样回 404，不论带不带扩展名、不再回退；除了不存在，这些原因都另记一行警告，`event` 是 `web.file_unreadable`，不带路径。不读目录外的任何文件。这一条的 404 只对不在下面四个前缀下的路径：前缀先判。
     - **单页回退**：没有对应文件、最后一段不带扩展名、且路径的第一段（只解码这一段来比）不是 `api`、`.well-known`、`health`、`test-control` 的，回 200 与 `index.html` 的内容，地址不变；带扩展名而没有这个文件的回 404。运行中 `index.html` 不见了时，该回退的地址回 404，同样记一行 `web.file_unreadable`。第一段是这四者之一的地址不归网页管，后面的段写成什么（包括编码不合法）都一样：这几个前缀下没人接的地址（例如 [`site.oauth-provider`](oauth-provider.md) 输出 1 说的身份库的其它地址、没设口令时的测试控制入口）仍与没有网页时一样回 404，日志的 `module` 也照旧。
     - **缓存**：`/assets/` 下的文件（前端构建把带内容哈希的产物放在这里）带 `Cache-Control: public, max-age=31536000, immutable`；`index.html`（含回退）与别的文件带 `Cache-Control: no-cache`。
@@ -138,7 +138,7 @@ owners:
 | `email_taken` | 创建管理员时给的邮箱已被别的账号占用 | 换一个邮箱 |
 | `unavailable` | 创建管理员时账号模块的库一直被别的进程占着写锁，等了一阵仍写不进 | 稍后重新执行 |
 
-`config_invalid` 的问题词：`missing`（没给）、`not_https`、`has_path`（地址带了路径、查询串或片段）、`same_host`（两个地址的主机名相同）、`not_absolute`、`not_directory`、`not_writable`、`too_short`、`not_integer`、`out_of_range`、`bad_subnet`、`not_ip`（监听地址不是 IP 字面量）、`not_loopback`（设了测试控制口令而监听地址不是本机回环，记在监听地址上）、`bad_format`（测试控制口令过长或含不许出现的字符；取值不是规定的写法，例如条款版本不是日期、开关不是 `true` 或 `false`）、`not_allowed`（不许出现的环境变量，见 [`site.accounts`](accounts.md) 的配置）、`no_index`（前端产物目录里没有 `index.html`，planned）。只追加，不改含义。
+`config_invalid` 的问题词：`missing`（没给）、`not_https`、`has_path`（地址带了路径、查询串或片段）、`same_host`（两个地址的主机名相同）、`not_absolute`、`not_directory`、`not_writable`、`too_short`、`not_integer`、`out_of_range`、`bad_subnet`、`not_ip`（监听地址不是 IP 字面量）、`not_loopback`（设了测试控制口令而监听地址不是本机回环，记在监听地址上）、`bad_format`（测试控制口令过长或含不许出现的字符；取值不是规定的写法，例如条款版本不是日期、开关不是 `true` 或 `false`）、`not_allowed`（不许出现的环境变量，见 [`site.accounts`](accounts.md) 的配置）、`no_index`（前端产物目录里没有 `index.html`）。只追加，不改含义。
 
 `migration_failed` 的 `reason`：`invalid_list`（程序带的迁移清单本身不合规则）、`checksum_mismatch`（已执行的迁移被改过）、`out_of_order`（库里的记录与清单对不上：有缺口、乱序或改了编号）、`transaction_ended`（迁移自己结束了事务）、`foreign_key_violation`（迁移做完后留下悬空的外键引用）、`sql_error`（其余的数据库错误）。只追加，不改含义。
 
@@ -146,8 +146,8 @@ owners:
 
 ## 边界与兼容
 
-- 公开接口是上面四个命令、配置表、数据目录的布局、输出 1 与输出 2 写明的几行输出、两个健康检查地址，以及输出 12 的回退规则与响应头（planned）。新增可选配置不算破坏；改名或改含义要在发布说明里写明。
-- 输出 12 不回退的四个前缀是给模块与入口留的地址空间：新模块的接口挂在其中之一下面，不必改回退规则（planned）。
+- 公开接口是上面四个命令、配置表、数据目录的布局、输出 1 与输出 2 写明的几行输出、两个健康检查地址，以及输出 12 的回退规则与响应头。新增可选配置不算破坏；改名或改含义要在发布说明里写明。
+- 输出 12 不回退的四个前缀是给模块与入口留的地址空间：新模块的接口挂在其中之一下面，不必改回退规则。
 - 健康检查不需要登录，响应体不含内部细节。
 - 命令行用法写错（没有这个子命令、缺参数）时的输出不属于公开接口，只保证以非零码退出。
 - 测试控制入口是合同测试与被测程序之间的约定，不给部署的人用；换一种实现重写服务时要一并提供，合同测试才能照旧跑。它能改动服务看到的时间，所以有三道限制：不设口令就不存在、设了口令也只许监听本机回环、每个请求都要带口令。
@@ -159,7 +159,7 @@ owners:
 3. 服务运行期间执行备份，再用备份的副本单独启动一个服务：账号能登录，副本里找不到原始上报的内容（例如它的上报编号）。
 4. 去掉会话密钥启动：非零码退出，端口不可连，标准错误里没有其它密钥的值。
 5. 测试控制入口：没设口令时两个地址回 404；设了口令，不带或带错口令时回 404，带对时拨时间得到往前走了的 `now`；设了口令而监听地址不是本机回环时以 `config_invalid` 退出、端口不可连。
-6. 网页（planned）：设了前端产物目录启动，`/`、`/account` 回 `index.html` 与安全头，`/assets/` 下的文件带长缓存头；`/api/identity/nope`（不在任何模块的挂载下）、`/.well-known/nope`、`/test-control/clock`（没设口令）与 `/x.js` 回 404；`/..%2fpackage.json` 这类编码在一段里的分隔符回 404；遥测写入口的主机名上 `/` 回 404。不设前端产物目录时 `/` 回 404。
+6. 网页：设了前端产物目录启动，`/`、`/account` 回 `index.html` 与安全头，`/assets/` 下的文件带长缓存头；`/api/identity/nope`（不在任何模块的挂载下）、`/.well-known/nope`、`/test-control/clock`（没设口令）与 `/x.js` 回 404；`/..%2fpackage.json` 这类编码在一段里的分隔符回 404；遥测写入口的主机名上 `/` 回 404。不设前端产物目录时 `/` 回 404。
 
 Smoke：合同测试包里起真实进程的启动与健康检查用例。
 
@@ -170,10 +170,11 @@ Smoke：合同测试包里起真实进程的启动与健康检查用例。
 - 就绪检查只在每个库另开的一条不等锁的探测连接上开事务；入口在模块建好之后不在模块的业务连接上执行任何语句。
 - 每条迁移在自己的 `BEGIN IMMEDIATE` 里先重读迁移记录再执行；停止时先不再开始新的任务运行，排空后按创建的相反顺序让模块收尾，再等正在跑的任务，最后关库、放锁。
 - 备份先写进 `<名字>.partial/`，全部模块写好并校验过才改名；失败行与日志的字段只来自变量名、码、原因词与错误类型，不带取值、路径与说明文字。
+- 网页（`src/web.ts`）接在站点子应用的 `notFound` 里，所以模块、健康检查与测试控制入口总是先匹配；文件在给出响应之前整份读进内存，读不出时在这一步就回 404，所以不处理 `Range`，产物里有大文件时要改成流式发。`Bun.serve` 设 `development: false` 并挂 `error` 回调（`site.ts` 的 `responseFailed`）：不设时 Bun 给出带路径的开发版错误页、往标准错误写不是 JSON 的说明；响应体发到一半出错时回调不触发，连接直接断开。
 
 ## 证据
 
 - 批准依据：[官方站重写](../../proposals/official-site-rewrite.md)、[ADR 0059](../../adr/0059-official-site-one-process-split-ready-modules.md)、[ADR 0061](../../adr/0061-official-site-sqlite-file-per-module.md)
-- 实现入口：[`packages/nb-site-server/src/main.ts`](../../../packages/nb-site-server/src/main.ts)
-- 合同测试：[`operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)、[`adjacent-version.test.ts`](../../../packages/nb-site-contract-tests/src/adjacent-version.test.ts)
+- 实现入口：[`packages/nb-site-server/src/main.ts`](../../../packages/nb-site-server/src/main.ts)、网页 [`src/web.ts`](../../../packages/nb-site-server/src/web.ts)
+- 合同测试：[`operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)（含验收 6）、[`web.test.ts`](../../../packages/nb-site-server/src/web.test.ts)、[`site.test.ts`](../../../packages/nb-site-server/src/site.test.ts)、真实浏览器冒烟 [`e2e/real/site.e2e.ts`](../../../packages/nb-site-web/e2e/real/site.e2e.ts)、[`adjacent-version.test.ts`](../../../packages/nb-site-contract-tests/src/adjacent-version.test.ts)
 - Smoke：[`operations.test.ts`](../../../packages/nb-site-contract-tests/src/operations.test.ts)、[`image/smoke.ts`](../../../packages/nb-site-server/image/smoke.ts)

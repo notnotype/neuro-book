@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 1 轮：资源管理器加上 Agent 的目录</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 640px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand img, .shot img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.lab { display: inline-block; margin-top: 8px; font-size: 14px; color: var(--accent); }
+.pair { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.shot { margin: 0; }
+.shot figcaption { margin-top: 6px; font-size: 14px; color: var(--muted); }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 1 轮：资源管理器加上 Agent 的目录</h1>
+
+<section>
+  <h2>现状</h2>
+  <div class="pair">
+    <figure class="shot"><img src="r1/now.webp" alt="现在的资源管理器：项目与用户资产两个根" width="340"><figcaption>现在：只有项目与用户资产</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="layout" data-nbdev-type="confirm" data-nbdev-label="按这张图的排法做">
+  <h2>整体照这张图排？</h2>
+  <p class="rec"><strong>推荐同意：三组、只开项目与当前会话，八个根一屏看得全。</strong></p>
+  <div class="pair">
+    <figure class="shot"><img src="r1/overview.webp" alt="改后的资源管理器整体：作品、Agent、参考资料三组，当前会话展开到 home" width="300"></figure>
+  </div>
+  <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=overview&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+</section>
+
+<section data-nbdev-question="current-marker" data-nbdev-type="single" data-nbdev-recommend="dot">
+  <h2>当前会话、当前 Profile 怎么标？</h2>
+  <p class="rec"><strong>推荐 A 行尾圆点：会话、Profile、临时文件三处都能用同一个记号，也不和选中行的强调色文字撞。</strong></p>
+  <div class="cands" style="--cols: 3">
+    <div class="cand" data-nbdev-option="dot" data-nbdev-label="A 行尾圆点">
+      <h3>A 行尾圆点</h3>
+      <img src="r1/marker-dot.webp" alt="当前会话行尾一枚强调色圆点">
+      <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=marker-dot&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+    </div>
+    <div class="cand" data-nbdev-option="icon" data-nbdev-label="B 会话图标染色">
+      <h3>B 会话图标染色</h3>
+      <img src="r1/marker-icon.webp" alt="当前会话的图标是强调色">
+      <p>Profile 的行是文件夹图标，要另想记号。</p>
+      <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=marker-icon&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+    </div>
+    <div class="cand" data-nbdev-option="badge" data-nbdev-label="C 名字后写“当前”">
+      <h3>C 名字后写“当前”</h3>
+      <img src="r1/marker-badge.webp" alt="当前会话名字后有“当前”二字">
+      <p>选中这一行时字也变成强调色，两者分不开。</p>
+      <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=marker-badge&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+    </div>
+  </div>
+  <div class="pair" style="margin-top: 16px">
+    <figure class="shot"><img src="r1/marker-dot-blur.webp" alt="A 在树没有焦点时：选中行是灰底，圆点照旧" width="300"><figcaption>A，焦点在编辑区时</figcaption></figure>
+    <figure class="shot"><img src="r1/profiles.webp" alt="A 用在 Profile 笔记与临时文件里" width="300"><figcaption>A，用在 Profile 笔记与临时文件</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="readonly-mark" data-nbdev-type="single" data-nbdev-recommend="lock">
+  <h2>只读的根怎么标？</h2>
+  <p class="rec"><strong>推荐 A 行尾锁：和 session.jsonl 的只读标记同一个记号、同一列。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="lock" data-nbdev-label="A 行尾锁">
+      <h3>A 行尾锁</h3>
+      <img src="r1/readonly-lock.webp" alt="Skill、表情、文档的行尾有锁">
+      <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=readonly-lock&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+    </div>
+    <div class="cand" data-nbdev-option="text" data-nbdev-label="B 名字后写“只读”">
+      <h3>B 名字后写“只读”</h3>
+      <img src="r1/readonly-text.webp" alt="Skill、表情、文档的名字后写“只读”">
+      <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=readonly-text&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="sparse-states" data-nbdev-type="confirm" data-nbdev-label="会话少与临时文件为空照这样画">
+  <h2>会话少、临时文件为空时照这样画？</h2>
+  <p class="rec"><strong>推荐同意：会话不超过 10 个时不出“显示更多”；临时文件为空写一行淡字，不另起空态版式。</strong></p>
+  <div class="pair">
+    <figure class="shot"><img src="r1/sessions-few.webp" alt="只有几个会话：最后一个会话之后直接是 Profile 笔记" width="300"><figcaption>会话只有几个</figcaption></figure>
+    <figure class="shot"><img src="r1/temps-empty.webp" alt="临时文件展开后只有一行“没有临时文件”" width="300"><figcaption>临时文件为空</figcaption></figure>
+  </div>
+  <a class="lab" href="http://127.0.0.1:4517/lab?c=ExplorerRootsDraft&amp;s=sessions-few&amp;vp=300x900" data-nbdev-skip>在 Lab 里打开</a>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>除 projects:// 外的注册方案都显示；根固定、用全局地址，不跟着会话换</li>
+    <li>分三组、组间一条淡线、不加组标题：作品（项目、用户资产）、Agent（会话、Profile 笔记、临时文件）、参考资料（Skill、表情、文档）</li>
+    <li>首次只展开项目；当前会话由“跟随当前对话”展开到 home/；之后记住手动展开</li>
+    <li>根用中文名，方案名只在悬停与“复制路径”里</li>
+    <li>会话：当前置顶、最近 10 个、末尾“显示更多（还有 N 个）”</li>
+    <li>会话展开后 home/ 在前并连带展开，session.jsonl 调淡、只读</li>
+    <li>跟随当前对话只滚进视野，拖动、改名、输入时不跳</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

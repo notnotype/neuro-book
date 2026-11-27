@@ -10,6 +10,7 @@
     },
     "exports": {
         ".": "./src/index.ts",
+        "./constants": "./src/constants.ts",
         "./package.json": "./package.json"
     },
     "scripts": {

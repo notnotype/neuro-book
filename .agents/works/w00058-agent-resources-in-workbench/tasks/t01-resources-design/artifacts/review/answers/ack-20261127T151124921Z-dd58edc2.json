@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00058-agent-resources-in-workbench",
+    "taskId": "t01-resources-design",
+    "artifactId": "review",
+    "ackId": "20261127T151124921Z-dd58edc2",
+    "answers": [
+        "20261127T151052530Z-4a23a961"
+    ],
+    "through": "20261127T151052530Z-4a23a961",
+    "included": [
+        ".agents/works/w00058-agent-resources-in-workbench/tasks/t01-resources-design/README.md"
+    ],
+    "ackedAt": "2026-11-27T15:11:24.921Z"
+}

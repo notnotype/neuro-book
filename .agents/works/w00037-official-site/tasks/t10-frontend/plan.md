@@ -397,7 +397,7 @@ echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 | 层 | 工具 | 覆盖 |
 |---|---|---|
 | 纯逻辑 | `bun test`（`tests/*.test.ts`） | 分派与 `next` 的校验；接口层的结果形状、按码的统一处理、`Retry-After` 的解析、`malformed`；存储模块的读写、过期与读后即删；分页格子算法（站点里不再写一份，测 nb-ui 的）；列表页的查询状态与 URL 的互转、`anchor` 的保留与重置；看板的视图模型与图表配置；目录覆盖（每个合同码有文案） |
-| 组件 | Vitest 加 happy-dom（`src/**/*.dom.test.ts`） | 各页的表单：提交按钮何时可用、失败码落在哪个字段与状态行、焦点、`rate_limited` 倒计时；`social_error` 的显示与从地址里去掉；注册草稿的还原；账号页各节的操作与失败；列表页的操作对话框（重置密码的新密码只显示一次、`self_forbidden`、`last_admin`）。接口用注入的 `fetch`，返回值用合同 schema 的类型写，写错形状类型检查就失败 |
+| 组件 | Vitest 加 happy-dom（`src/**/*.dom.test.ts`） | 各页的表单：提交按钮何时可用、失败码落在哪个字段与状态行、焦点、`rate_limited` 倒计时；`social_error` 的显示与从地址里去掉；注册草稿的还原；账号页各节的操作与失败；列表页的操作对话框（重置密码的新密码只显示一次、`self_forbidden`；`last_admin` 已从合同删掉）。接口用注入的 `fetch`，返回值用合同 schema 的类型写，写错形状类型检查就失败 |
 | 构建 | `bun test`（`tests/build.test.ts`，t05 第 6 片已有一条） | 加三条断言：`index.html` 里没有内联脚本；`echarts` 只在看板块里；记下入口块与看板块的 gzip 大小，看板块超过 200 KB 失败 |
 | 浏览器、假接口 | Playwright（`e2e/*.e2e.ts`） | 对着构建产物，`page.route("**/api/**")` 返回合同形状的数据，跑各页在 1440 与 390 宽、亮暗两种配色下的样子与交互：稿纸卡片与格线对齐、没有页面级横向溢出、状态行出错前后其它元素的位置不变、数据表格最后一页页脚在底部、看板的提示框与换配色后重画 |
 | 浏览器、真实服务 | Playwright（`e2e/real/*.e2e.ts`） | 起真实的 `nb-site-server`（带 `NB_SITE_WEB_DIR`），走注册、登出、登录、改资料、补交同意（拨条款版本）；管理员登录后到看板、封禁一个账号后它的会话失效 |
@@ -530,7 +530,7 @@ A2 之后派前端审查（Sonnet），审查处理完合入 master。官方站�
 | 输出 18 | 满 10 个时生成不可用；`invite_code_limit` 的文案；停用 | 账号页 dom 测试 |
 | 输出 19 | `rate_limited` 的倒计时与提交按钮 | 接口层 `bun test`（解析）；登录页 dom 测试 |
 | 输出 22 | 错误体的解析、`fields` 落到字段、`malformed` | 接口层 `bun test` |
-| 输出 23 | 三个落点页各自显示 `social_error` 并从地址去掉；不认识的码显示通用文案加码 | 三页的 dom 测试 |
+| 输出 23 | 三个落点页各自显示 `social_error` 并从地址去掉；只认合同里的码，其余一律按 `social_failed`、不回显（B1、B2 审查第 4 条） | 三页的 dom 测试 |
 | 输出 24 | 已关联账号一行显示上游名与上游账号的名字 | 账号页 dom 测试 |
 | `site.admin` 输出 1 | 普通用户进 `/admin/*` 去 `/account`；接口回 `forbidden` 时重取身份再分派 | 守卫 `bun test`；B10 |
 | 输出 4 | 新密码只在对话框里显示一次 | 用户页 dom 测试 |
@@ -845,3 +845,20 @@ Spec 改动清单的处理：
 
 - D6 的“生产构建遇到占位正文就失败”改成只拦发布构建：浏览器场景与 CI 的镜像构建（`ci.yml` 每次跑 `build:image`）都是生产构建，照字面会一直失败到条款文字来。构建时设 `NB_SITE_RELEASE=1` 才拒绝占位正文；部署用的镜像构建要设它（交给 t13）。
 - 正文的 Markdown 只在构建时转：小的 Vite 插件用仓库里已有的 `marked`（开发依赖），浏览器的包里不带 Markdown 库；正文头部的 front matter 写版本与 `placeholder`。
+
+## 收口审查的处理（2026-11-27）
+
+审查者：一个 Sonnet 子代理，只读，审 `98a712b37`、`4a8402b06`、`d043fb054`、`5d65d3742`、`9591172a8` 五个提交并把第 6 节验收映射逐条对到用例；报告 [`evidences/closeout-review-sonnet.txt`](evidences/closeout-review-sonnet.txt)，10 条（重要 1、建议 9，没有阻断）。
+
+| 条 | 发现 | 处理 |
+|---|---|---|
+| A | 整份跑时偶发失败的根因：同一用例里关掉一个浮层后立刻再开，用例等的是元素从 DOM 消失，nb-ui 真正关完要晚一个宏任务，重开让没发出的 `closed` 作废，于是读到上一次的“已发出”“秘密”步骤；行菜单在 Escape 之后立刻只发一次 ArrowDown；Codes 一处 `waitFor` 用缺省 1 秒 | 改：产品里打开对话框时复位上一次的步骤与秘密（不依赖 `closed` 一定发出，人快速关了再开也看不到上一次的秘密）；用例关完等焦点回到触发器或再让出一轮事件循环，打开菜单的派发放进等待里重试，缺省上限改成 `SETTLE_TIMEOUT_MS`；同类写法一并改。满载下复现的做法（8 个核心空转加 6 份并行）照做确认修好 |
+| B | 起进程失败时 `cause` 总是 undefined | 改 |
+| C | 真实冒烟里 `installExitHook` 的 SIGINT、SIGTERM 兜底与 Playwright worker 的约定冲突 | 改：在 Playwright 里不装这两个信号的兜底，只留进程退出时的收口 |
+| D | 条款页 `overflow-wrap: anywhere` 把表格压扁、不出横向滚动 | 改：表格在自己的横向滚动容器里、不套 `anywhere`；补长词与表格的浏览器场景（用测试自己的正文） |
+| E | 全仓库没有地方设 `NB_SITE_RELEASE=1`；`v-html` 的前提没有机检 | 交接写进 t13 的 README；`v-html` 不加机检：插件只读 `src/legal/` 下的仓库文件，改成从接口取正文时要先过消毒，注释已写 |
+| F | `devApiProxy` 在 `vite build` 时也求值，设了 `NB_SITE_DEV_API` 没设 `NB_SITE_URL` 时构建失败 | 改：只在开发服务时求值 |
+| G | 合同测试底座改用 `child_process` 后没人听子进程 `stdin` 的 `error`，来不及读就退出时是未捕获的 EPIPE | 改：听它并按子进程已退出处理 |
+| H | 真实冒烟的浏览器写死无头，`--headed` 无效；只跑 `--project real` 也起预览服务 | 改：跟着配置的无头设置；预览服务能按项目省掉就省，省不掉写进包的说明 |
+| I | 第一个真实冒烟把“统计接口不存在”当验收，t11 接上就会红 | 改：只断言看板进得去、页面不崩，不断言面板出错 |
+| J | 验收映射：输出 8 末句没有用例；配置表“换了指向要重启”没有用例；计划两行过时 | 改：`Bun.serve` 的 `error` 回调抽成函数单测（500 `internal`、一行 `http.response_failed`）；补“运行中换了链接的指向仍发旧目录”的用例；计划的两行已改 |

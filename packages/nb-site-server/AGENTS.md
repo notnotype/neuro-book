@@ -10,7 +10,7 @@
 |---|---|---|
 | `nb-site-identity-contract`、`nb-site-telemetry-contract` | 两个模块对外的 HTTP 合同：路径前缀与 schema | 无（运行时只许 `typebox`） |
 | `nb-site-identity`、`nb-site-telemetry` | 两个模块：各自的库、迁移与 Hono 子应用 | 自己的合同包 |
-| `nb-site-server` | 进程入口 | 两个模块包、两个合同包、`nb-flock` |
+| `nb-site-server` | 进程入口 | 两个模块包、两个合同包、`nb-flock`；开发依赖另许 `nb-site-web`（只给镜像构建找前端包的位置，`src/` 不导入） |
 | `nb-site-contract-tests` | 黑盒合同测试，起真实进程、只经 HTTP | 运行时只许两个合同包；开发依赖另许 `nb-site-server`（只找启动命令） |
 | `nb-site-web` | 前端 | 不许两个模块包与 `nb-site-server` |
 
@@ -54,14 +54,17 @@
 - 两个健康检查（`/health/live`、`/health/ready`）在任何主机名上都可用；反向代理只把它们开放给本机回环，不转发外部的请求。
 - 停止的时间：`NB_SITE_SHUTDOWN_TIMEOUT_MS` 只管排空在途的 HTTP 请求；之后停定时任务至多 2 秒，再给每个模块的 `close()` 各至多 2 秒，最后关库、放锁（`src/commands/serve.ts` 的 `MODULE_CLEANUP_MS`）。容器的停止宽限（`docker stop -t`、Compose 的 `stop_grace_period`）因此至少是停止时限加 2 秒乘（模块数加 1），再留 1 秒余量；现在两个模块，就是比停止时限多 7 秒。宽限先到时容器会被 SIGKILL。缺省时限 10 秒与 `docker stop` 缺省的 10 秒相同，部署时要改其中一个。
 - `NB_SITE_TRUSTED_PROXIES` 只写真正会转发请求的那一层代理的地址；写宽了，外面的人就能用伪造的 `X-Forwarded-For` 冒充来源地址。
+- 网页（`site.operations` 输出 12）的 HSTS 与压缩由终结 TLS 的反向代理做：进程不发 `Strict-Transport-Security`，不压缩响应，也不发 `ETag`、`Last-Modified`。
+- `NB_SITE_WEB_DIR` 的符号链接只在启动时解开一次：用一个链接指向某次发布、换指向来切换版本时，要重启进程。旧目录被清掉之后，前端路由的地址一律 404，日志里每个这样的请求有一行 `web.file_unreadable`（`reason` 是 `index_missing`）；就绪检查不看网页，仍回 200。
 
 ### 镜像
 
-`bun run build:image` 在构建机上把 `src/main.ts` 打成单个 `dist/image/server.js`（迁移的 SQL 已内联），连同 `image/Dockerfile` 以 `dist/image/` 为构建上下文打成 `nb-site:local`（`--tag` 改名，`--no-docker` 只出产物）；镜像里不装依赖。`bun run smoke:image` 对这个镜像起真容器核对下面几条，CI 的 `site-image` 作业每次都跑它，并对着产物再跑一遍合同测试。不推送镜像；按摘要固定基础镜像、推送与 Compose 在部署的 Task（t13）做。
+`bun run build:image` 在构建机上把 `src/main.ts` 打成单个 `dist/image/server.js`（迁移的 SQL 已内联），再跑前端包的构建、用 `--outDir` 直接写进 `dist/image/web/`（不碰前端包自己的 `dist/`，与前端的 e2e 同时跑也不互相覆盖），连同 `image/Dockerfile` 以 `dist/image/` 为构建上下文打成 `nb-site:local`（`--tag` 改名，`--no-docker` 只出产物）；镜像里不装依赖。`bun run smoke:image` 对这个镜像起真容器核对下面几条，CI 的 `site-image` 作业每次都跑它，并对着产物再跑一遍合同测试。不推送镜像；按摘要固定基础镜像、推送与 Compose 在部署的 Task（t13）做。
 
-- **环境变量的缺省**：镜像设了 `NB_SITE_HOST=0.0.0.0`（容器里只有监听 0.0.0.0 端口映射才通）、`NB_SITE_PORT=8080`、`NB_SITE_DATA_DIR=/data`；部署时只需给 `NB_SITE_URL`、`NB_SITE_TELEMETRY_URL`、`NB_SITE_SESSION_SECRET`、`NB_SITE_IDENTITY_TERMS_VERSION`。对外只开放给本机还是反向代理，由端口映射与 Compose 决定。
+- **环境变量的缺省**：镜像设了 `NB_SITE_HOST=0.0.0.0`（容器里只有监听 0.0.0.0 端口映射才通）、`NB_SITE_PORT=8080`、`NB_SITE_DATA_DIR=/data`、`NB_SITE_WEB_DIR=/app/web`（镜像里的前端产物，属主 root、对 `bun` 用户只读）；部署时只需给 `NB_SITE_URL`、`NB_SITE_TELEMETRY_URL`、`NB_SITE_SESSION_SECRET`、`NB_SITE_IDENTITY_TERMS_VERSION`。对外只开放给本机还是反向代理，由端口映射与 Compose 决定。
 - **数据卷的属主**：进程以镜像里的 `bun` 用户（uid 1000、gid 1000）运行，`/data` 属于它。挂新的命名卷时 Docker 按这个属主初始化卷，直接能写；挂宿主目录时要让目录对 uid 1000 可写，或用 `--user <uid>:<gid>` 以目录属主的身份跑。数据目录不可写时启动以 `config_invalid`（`not_writable`）退出。
 - **停止宽限**：按上面的公式，缺省时限 10 秒时容器的停止宽限至少 17 秒（`docker stop -t 17`、Compose 的 `stop_grace_period: 17s`）。bun 是容器的 1 号进程，自己处理 `SIGTERM`，不需要 `--init`；`smoke:image` 核对 `docker stop` 之后退出码 0、日志里有 `site.stopped`。
+- **网页**：`smoke:image` 核对 `/` 回镜像里的 `index.html` 并带内容安全策略。产物在镜像里属于 root，`bun` 用户要读得到：构建机的 umask 把产物写成只有属主可读时，`index.html` 读不了，进程以 `config_invalid`（`NB_SITE_WEB_DIR` 的 `no_index`）拒绝启动；只有别的文件或目录读不了时进程照常起，这些地址回 404，日志里有 `web.file_unreadable`（带错误码）。
 - **不设测试控制口令**：镜像与生产环境都不设 `NB_SITE_TEST_CONTROL`。容器监听 0.0.0.0，设了它进程会以 `config_invalid`（`NB_SITE_HOST` 的 `not_loopback`）拒绝启动；`smoke:image` 核对这一条。
 
 ### 相邻版本

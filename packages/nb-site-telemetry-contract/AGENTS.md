@@ -7,6 +7,7 @@
 ## 边界
 
 - 运行时依赖只许 `typebox`，devDependencies 里的工作区包只许测试支持包；由 `nb-site-server/src/architecture.test.ts` 检查。
+- 两个入口：`.` 转出全部；`./constants`（`src/constants.ts`）只转出不导入 TypeBox 的常量（现在只有路径前缀，在 `src/path-constants.ts`）与全部类型，给浏览器用，免得只取一个常量也把写入口与收集清单的 schema 连同 TypeBox 的运行时打进官网的看板块。`src/constants.test.ts` 顺着运行时导入检查；前端要一个还在带 schema 的文件里的常量时，先把它挪进不导入 TypeBox 的文件。
 - 只放合同：路径、schema、错误码、收集清单。不放实现，也不放只有统计模块自己用的类型。校验的算法（丢弃不认识的字段、版本回退、判的先后）是服务端的实现，在 `nb-site-telemetry`。
 - 改这里就是改对外合同：写入口的形状由已发布的客户端在用，变了要按 Spec 判断是否破坏兼容。
 

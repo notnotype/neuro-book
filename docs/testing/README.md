@@ -116,7 +116,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 
 浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接跑单个文件（`npx playwright test -c e2e/playwright.config.ts <文件>`，不带 `-c` 会报 “No tests found”）时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
 
-官方站的浏览器 E2E 在 `packages/nb-site-web/e2e/`，配置与假接口也在那里，与应用的那份互不引用；包脚本 `test:e2e` 先构建再跑，端口用 `NB_SITE_WEB_E2E_PORT` 改（几个检出同时跑时各给一个）。多数场景对着构建产物与假接口（`e2e/fake-api.ts`，回答按合同的 schema 写）。真实冒烟在 `e2e/real/` 下，起真实的 `nb-site-server`，要求本机已能构建服务端与前端的产物；服务端只认 https 的站点地址与带 `Secure` 的 Cookie，冒烟用测试里的转发让浏览器看到 https 地址，做法写在那份 e2e 的文件头（planned）。
+官方站的浏览器 E2E 在 `packages/nb-site-web/e2e/`，配置与假接口也在那里，与应用的那份互不引用；包脚本 `test:e2e` 先构建再跑，端口用 `NB_SITE_WEB_E2E_PORT` 改（几个检出同时跑时各给一个）。多数场景对着构建产物与假接口（`e2e/fake-api.ts`，回答按合同的 schema 写）。真实冒烟在 `e2e/real/` 下，起真实的 `nb-site-server`，要求本机已能构建服务端与前端的产物；服务端只认 https 的站点地址与带 `Secure` 的 Cookie，冒烟用测试里的转发让浏览器看到 https 地址，做法写在那份 e2e 的文件头；只跑一种用 `--project fake` 或 `--project real`。
 
 快速类单个测试的预算是 200 毫秒。`test:affected` 运行结束时列出超出预算的测试；超出的原则上改快（多半是固定等待或不必要的大数据），确实需要慢的（如性能基准）写明原因。
 

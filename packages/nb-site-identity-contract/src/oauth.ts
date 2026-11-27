@@ -1,6 +1,7 @@
 /**
  * 对外 OAuth 服务的合同（docs/specs/site/oauth-provider.md）：标准端点与发现文档的地址、页面地址与查询参数名、确认页的接口、
  * 已给的授权、客户端的管理，以及合同测试核对用户信息与发现文档用的严格形状。失败码在 `./errors`，与账号的码共用一套错误体。
+ * 页面地址与参数名、范围、客户端名字与回调地址的规则、客户端的种类在 `./oauth-constants`（不导入 TypeBox，前端经 `./constants` 取），这里转出。
  *
  * 自家接口的路径在 `./paths`（相对 `IDENTITY_API_PREFIX`）；标准端点不在那个前缀下，地址写成从站点根起的绝对路径。
  */
@@ -10,8 +11,11 @@ import type {Static} from "typebox";
 
 import {PageQuery, PageResponse} from "./admin";
 import {codePointPattern, DECIMAL_ID_PATTERN, DisplayName, Email, Id, Username} from "./fields";
+import {OAUTH_CLIENT_NAME, OAUTH_CLIENT_TYPES, OAUTH_SCOPES, REDIRECT_URI} from "./oauth-constants";
 import {literalUnion, strictObject} from "./schema";
 import {IsoTimestamp} from "./time";
+
+export * from "./oauth-constants";
 
 /** 标准端点与社交回调所在的前缀（输出 1：这个前缀下只有列出的地址可达）。 */
 export const IDENTITY_AUTH_PREFIX = "/api/identity/auth";
@@ -28,41 +32,10 @@ export const OAUTH_ENDPOINT_PATHS = {
 /** 两份内容相同的发现文档（输出 2）。 */
 export const OIDC_DISCOVERY_PATHS = ["/.well-known/openid-configuration", "/.well-known/oauth-authorization-server"] as const;
 
-/**
- * 授权流程里浏览器会到的站点页面（输出 3、4、5、12）：登录页带 `continue`，站点同意页带 `continue`，授权确认页带 `request`
- * 或（客户端、回调地址不对时）`error`。
- */
-export const OAUTH_PAGES = {login: "/login", siteConsent: "/consent", consent: "/oauth/consent"} as const;
-
-/** 登录页与站点同意页地址上续接令牌的查询参数名，也是登录、注册、补交同意与社交发起的请求体里的键名。 */
-export const CONTINUE_PARAM = "continue";
-
-/** 授权确认页地址上确认标识的查询参数名，也是确认页接口的查询参数与请求体里的键名（输出 14）。 */
-export const OAUTH_REQUEST_PARAM = "request";
-
-/** 授权确认页地址上错误码的查询参数名（输出 3）。 */
-export const OAUTH_ERROR_PARAM = "error";
-
-/** 授权端点把浏览器带到 `/oauth/consent?error=<码>` 时能出现的码（输出 3）；两个都在 `IDENTITY_FAILURE_CODES` 里。 */
-export const OAUTH_ERROR_PAGE_CODES = ["client_not_found", "redirect_uri_invalid"] as const;
-
-export type OAuthErrorPageCode = (typeof OAUTH_ERROR_PAGE_CODES)[number];
-
-/** 范围（输入与前置条件）：授权请求必须带 `openid`。页面按它取“它会得到什么”的文案。 */
-export const OAUTH_SCOPES = ["openid", "profile", "email"] as const;
-
-export type OAuthScope = (typeof OAUTH_SCOPES)[number];
-
 export const OAuthScopeSchema = literalUnion(OAUTH_SCOPES);
 
 /** 一组范围：不重复。 */
 const Scopes = Type.Array(OAuthScopeSchema, {uniqueItems: true});
-
-/**
- * 客户端的名字。Spec 没写长度，这里定为 1 到 100 个码点（与字段规则一样按码点数），不去首尾空白：它显示在授权确认页与
- * “已授权的应用”里，要有个上限。
- */
-export const OAUTH_CLIENT_NAME = {minLength: 1, maxLength: 100, pattern: codePointPattern(1, 100)} as const;
 
 export const OAuthClientName = Type.String({pattern: OAUTH_CLIENT_NAME.pattern});
 
@@ -108,11 +81,6 @@ export const GrantListResponse = strictObject({items: Type.Array(GrantItem)});
 
 export type GrantListResponse = Static<typeof GrantListResponse>;
 
-/** 客户端的种类（术语“客户端”）：登记后不能改。机密的认证方式是 `client_secret_basic`，公开的是 `none`。 */
-export const OAUTH_CLIENT_TYPES = ["confidential", "public"] as const;
-
-export type OAuthClientType = (typeof OAUTH_CLIENT_TYPES)[number];
-
 export const OAuthClientTypeSchema = literalUnion(OAUTH_CLIENT_TYPES);
 
 /**
@@ -127,13 +95,6 @@ export const ClientId = Type.String({pattern: CLIENT_ID_PATTERN});
 export const ClientIdParams = strictObject({id: ClientId});
 
 export type ClientIdParams = Static<typeof ClientIdParams>;
-
-/**
- * 回调地址：一个客户端一到五个，每个至多 500 个码点（沿用 `site.accounts` 网址字段的上限）。schema 只管这些；
- * 按种类的规则（片段、用户信息、空白与控制字符、`https` 与本机回环）由服务端判，不合回 `redirect_uri_invalid`，
- * 不是 `validation_failed`（输入与前置条件、输出 16）。
- */
-export const REDIRECT_URI = {maxLength: 500, minCount: 1, maxCount: 5} as const;
 
 export const RedirectUri = Type.String({pattern: codePointPattern(1, REDIRECT_URI.maxLength)});
 

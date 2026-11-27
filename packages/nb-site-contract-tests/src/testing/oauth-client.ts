@@ -13,7 +13,7 @@ import {CreateOAuthClientResponse, IDENTITY_PATHS, OAUTH_ENDPOINT_PATHS, OAUTH_P
 import {Value} from "typebox/value";
 
 import {identityRequest, type CookieJar} from "./identity";
-import {REQUEST_TIMEOUT_MS, SANDBOX_SITE_URL} from "./site";
+import {REQUEST_TIMEOUT_MS, SANDBOX_SITE_URL} from "./process";
 
 const SITE_HOST = new URL(SANDBOX_SITE_URL).host;
 
