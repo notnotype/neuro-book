@@ -30,5 +30,5 @@ updated: 2026-11-27
 
 ## 下一步
 
-1. 新建对话框出第 2 轮横版静态稿；页头的头像按别名一行对齐。
+1. 第 2 轮（2026-11-27）：`NewEntryWideDraftDialog` 横版（宽 820，左栏名字、种类与“位置与出场”，右栏设定组一直展开），页头头像改成 88 见方、放头像时简介单行截断；[评审板](artifacts/review/index.html) v2 两道题：dialog-wide、dialog-wording（第 1 轮没答）。等答复。
 2. 定稿后改 Spec（author-ui 输出 4、7、9）、写计划再实施。
