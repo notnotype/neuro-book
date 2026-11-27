@@ -23,8 +23,12 @@ updated: 2026-11-27
 
 ## 当前状态
 
-- 2026-11-27 新建。先出第 2、3 项的静态稿（草稿 worktree 沿用 `.worktree/w00043-t19-drafts`），第 1 项随后写计划实施。
+- 2026-11-27 新建。草稿 worktree `.worktree/w00043-t20-drafts`（分支 `w00043-t20/drafts`，不合并）：e2e 生产构建加假模型端点，截图脚本 `packages/neuro-book/e2e/zz-t20-draft.e2e.ts`（未跟踪）往页面注入草稿样式（`/tmp/t20-draft.css`）与按钮；方向二“收着时没有右轨”靠 `layout-constraints.ts` 里读 `localStorage` 的草稿开关。原图在本地 `shots/r1/`。
+- 评审板第 1 轮（[`artifacts/review/index.html`](artifacts/review/index.html)）两题：`rail-direction` 右边那一列留不留（现在／方向一并进卡片的窄列，推荐／方向二没有窄列、聊天头上按钮打开列表），每个候选画停靠、停靠展开、浮动、浮动展开四张；`list-rows` 列表行改不改（会话用首字方块、当前项描边、空第二行不占高）。直接修的三项列在板上。
+- 第 1 项“记住矩形”按 [`plan.md`](plan.md) 实现：`bf105beb6`、`c5eec6a12`（库的 `floatRects` 字段、出口结算、读入归一、形状比较；store 的 `floatTab` 用它）。`nb-workbench-layout` 293 条、工作台 607 条单测、类型检查、`agent-messages-float` e2e 15 条都过；变异 5 处都被抓到（“并进别的浮动窗不记”一处先空过，补了用例）。顺手补了入口清单里 t19 漏登记的 `setFloatRail`（`entry.test.ts` 自 t19 起就失败，t19 收口没跑这个包的全部单测）。
+- 实现审查（快速审查：Opus 子代理与 omp `@review` 后台，说明 `/tmp/review-t20-impl/brief.md`）在跑。
 
 ## 下一步
 
-- 静态稿第 1 轮：停靠侧轨 A/B/C，展开列表与浮动窗头的候选。
+- 等评审板答复：定了方向再把第 2、3 项写进 Spec 与计划。
+- 处理实现审查，合入 master。
