@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t15-overlay-scrollbar-keeps-hidden
-status: active
+status: done
 updated: 2026-11-27
 ---
 
