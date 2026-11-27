@@ -19,7 +19,7 @@ import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
-import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
+import {parseResource, projectFilesContract} from "nbook/plugins/files/shared/contracts";
 import {createSelectionData, modelsSettingsContract, PROVIDERS_SECTION} from "nbook/plugins/models/shared/contracts";
 import type {ModelRow, ModelsSnapshot, SelectionRemote, SelectionRow} from "nbook/plugins/models/shared/contracts";
 import {pluginsRegistryContract} from "nbook/plugins/plugins/shared/contracts";
@@ -352,8 +352,9 @@ export const agentBrowserPlugin: PluginDefinition = {
                 void commands.execute(EDITOR_OPEN_COMMAND, {address, mode: "permanent"}).then((opened) => {
                     if (opened.ok) return;
                     report("open-address-failed", `opening ${address} failed: ${opened.code}`);
-                    // 用户点了改动标签或链接却什么都没打开：把编辑器给的原因告诉他（例如 Agent 写的 profile:// 还打不开）。
-                    void notifications.notify({tone: "warning", message: opened.reason});
+                    // 编辑器认不出的地址（Agent 写的 profile://、session:// 等）什么都没打开，也没有别处提示：把原因告诉用户。别的失败
+                    // （目标组有没处理完的输入等）编辑区自己已经提示过，这里不再弹第二条。
+                    if (!parseResource(address).ok) void notifications.notify({tone: "warning", message: opened.reason});
                 });
             };
             /**
