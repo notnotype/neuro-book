@@ -11,8 +11,8 @@ import {afterEach, describe, expect, it} from "vitest";
 import {readonly, ref} from "vue";
 import type {Ref} from "vue";
 
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
-import type {HostLayer} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
+import type {HostLayer} from "nbook/plugins/settings/web/lab/settings-host";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";

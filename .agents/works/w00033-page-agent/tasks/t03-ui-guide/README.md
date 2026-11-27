@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-ui-guide
-status: active
+status: done
 updated: 2026-11-27
 ---
 
@@ -75,7 +75,7 @@ updated: 2026-11-27
   - 产品缺陷（63718c281 修）：提问时选区留在别处的可编辑区域（焦点在下拉或菜单的一项上），收起后放回选区时 Chrome 把焦点拉进可编辑区域，菜单因此关掉。改为这种选区不放回；Spec“不承诺”补一句。
   - 用例前提不成立：用户级 Profile 没有 `defaultTools` 声明（内核的 `defineProfile` 不带这一项），子代理往 Profile 文件里写的不生效；改用内置的临时帮手（声明了 `defaultTools: false`）。用户级 Profile 能不能声明 `defaultTools` 不在本 Task。
   - 合入后又修了两处用例写法（ff9ef3281）：量层的计算样式不比随指针悬停变的滚动条颜色；下拉的按键对照往上按（高亮已在最后一项）。验证：核心 `guide` 与 `spec-guide` 41 条、应用 `page-agent-guide` 15 条全部通过。
-- 第 10 片进行中：
+- 第 10 片（收尾）：
   - 真实模型冒烟 `page-agent.llm.test.ts`（9eafb946e、169cc0496）：测试窗口答复目录与高亮，问“在哪改主题，带我去”。第一次只给 eval 时模型读不到 `docs://eval/ui.md`、猜参数；按真实 Profile 加上 read 后连跑两次通过（先读文档、find 一次、按路径三步高亮，带进度与压暗）。
   - 开发服务上点一遍（开发构建、不减弱动效、DeepSeek）：两次都走通（两步与三步），压暗、描边、说明框位置正常，结束后没有残留节点，没有页面报错与 Vue 警告。看到模型先凭摘要猜了 `ui.guide`、参数形状，失败后读文档改对；标题写成“第 1 步”与进度重复。据此 `ui` 的摘要点出四个方法名、`title` 的说明写明进度另外显示（9d2327ab5）。说明框底下的蓝色控件透成色斑，是沿用 nb-ui 浮层的磨砂半透明底，与菜单、下拉一致。
   - 实现审查（第 3、4、6、7、9 片，提交 9d2327ab5）已处理（[处理记录](evidences/impl-s9-review-disposition.txt)）：后端 Opus 5 条、前端 Sonnet 11 条；omp `@review` 被上游安全过滤拦了一次后额度不足退出，没有报告。修正在 3acca8191、371e5f41b、57e6800c9、9ea8408bd、0d4daa76c、d7a43f555、7e8a71096：
@@ -85,11 +85,27 @@ updated: 2026-11-27
     - Profile 对象行的读屏名字用 `ui.*`、悬停写“说明。方法：ui.find（读）…”；六个组件的文档补稳定名；悬停显示钩子补一条经真实引擎的 e2e。
     - 接受取舍：插件停止的真实接线没有测试兜底（新应用还没有停用单个插件的入口，运行中登记的插件其全局对象进不了 eval），先后写进注释；底部面板并成一行与浮出的自绘头视图的标题点不到，写进 Spec“不承诺”；Profile 工具一节的行增减没有过渡，与这一节原有的行一致，记为后续。
     - 新判据变异检查 10 处（后端 6、前端 4）与核心 1 处、agent 1 处，全部能抓到。Spec 同步改了 page-agent 输入与输出 6、7、14、不承诺，contributions 输出 4，views 输出 23、24（36d06ee03）。
-  - 晋升前逐条核对（Opus）在跑；收口 e2e 等负载降下来再跑（别的会话的 e2e 让 1 分钟负载到 29）。
+  - 晋升前逐条核对（Opus，核对版本 d7a43f555，[报告](evidences/spec-check-opus.txt)、[处理记录](evidences/spec-check-disposition.txt)）：没实现 0 句，与字面不一致 16 句，没有测试 23 句，存疑 4 句。
+    - 改了代码的两处（fab1b2e57）：回复的字节上限实际由快照的 token 预算与元素上限保证，Spec 照改，删掉没人用的两个常量；工作台目录的标题动作按外壳的上限至多 8 个，面板窄时少放的写进“不承诺”。
+    - 其余按实现改 Spec（4c4343898）：选窗口的第四条规则、失败码表补 `invalid-arguments`、命令面板入口、调用阶段要刷新窗口的换算、验收 1、6、9，设置窗口与工作台目录的字段说明；本 Task 在别的 Spec 里的“（planned）”摘掉（eval 输出 8 里属 w00032 t21 的一句留着）。
+    - 没有测试的 23 句补了一条（后台会话派出的子会话也没有 `ui`），其余接受不补，逐条记在处理记录里。
+  - 收口（Work 分支先后四次合入 master，最后一次在 7f2df61d5）：
+    - 核心包 e2e 全部通过；三份构建通过；governance 通过（交给 eval 的代码里的两处等待写了带理由的例外）。
+    - 应用 e2e：第一次合入后 4 条失败，2 条是 master 改了界面后用例的定位过时（右栏侧轨的联系人、与对话里“运行代码”摘要撞名的审批模式按钮），已改用例（cb36a6880）；另 2 条在负载 20 以上时窗口探测超过 800 毫秒、得 `window-unresponsive`，负载 9 时单独重跑通过。第二次合入后三份 e2e 24 条通过；第三次合入后设置窗口那条与验收 2 失败：前者仍是打开设置窗口时页面忙过探测的 800 毫秒、等暗号的快照得 `window-unresponsive`（负载 8 也出现），改成等暗号时碰到它接着等；后者是新会话载入时输入框只读、打的字被丢掉，发消息的辅助函数改成先等输入框可编辑（c549744ba）；两份重跑 21 条通过。
+    - `test:affected --since master`：失败的几条都与本分支无关或是负载造成的：SDK 组件类型清单与 nb-layout 快照两条在 master 上同样失败；dev-panel 租约场景、nb-story 导入抽取争 id、ProvidersPage 协议检测在 master 上也会失败；项目子进程的几组（server-host 场景 14、15，导入上限，文件操作分组）负载 6.7 时本分支 86 条全部通过，master 在负载 24 时同样失败；nb-history 的耗时冒烟负载低时通过。SDK agent 子路径的公开面闭包多了 `shared/text.ts`（全局对象声明加了 `description` 字段），已更新 pin。
+    - 第三次合入带进 w00057 t01 的界面设计标准，其中 master 上 `page-agent.md` 输出 10 的一句改成“减弱动效时没有位移与缩放，只淡入淡出”（原为没有过渡）；`hover-actions.css` 注释相邻两行冲突，两边都留。核心包照新说法改（b38e2a72c）：减弱动效时描边框与说明框出现换成只改透明度的关键帧，别的过渡本来只改透明度与颜色、保留；原来判“没有动画”的用例改成按设计语言的判据（只改透明度、过渡时长不为 0），取像素与量透明度的用例先等淡入走完；替换时上一次还在淡出，两条用例改成只看这一次的节点（213d3d414）。变异检查 2 处（改回全部取消、整块删掉）都被抓到。
+    - 第三次合入后：类型检查通过；单测 738 条通过、失败 3 条（架构测试超过 5 秒，单独重跑通过；SDK 两条同上，原有）；dom 测试 203 条与 nb-agent-ui 全部通过；governance 通过；核心包 e2e 101 条通过（耗时测量按条件跳过 1 条）。
+    - 第四次合入带进 w00039 t44（Lab 场景搬进各插件的 `web/lab/`），与本分支重叠的只有几个测试文件里各自加的行：类型检查、架构测试、设置窗口与 Profile 页的测试、SDK（nb-layout 快照一条原有）通过，重新构建后 `lab-workbench-surface` 18 条通过。
+  - 合入 master（3cd37bde2）；`page-agent.md` 晋升 `implemented`（实现合同与证据）、`quick-open.md` 的 `command-query` 路径、包边界里截图入口的说法、根 `AGENTS.md` 结构图的 `nb-page-agent` 一行，在 master 上另行提交（fbcf8d493、3361dd898）；Spec 注册表里这一行挪进“已实现规范”。
 
 ## 下一步
 
-1. 收到逐条核对的结果，对不上的修代码或改 Spec，再把 `page-agent.md` 晋升 `implemented`、本 Task 在别的 Spec 里的“（planned）”摘掉，补实现合同与证据。
-2. 收口：`bun run test:affected --since master`；核心包 `test:e2e`；`page-agent.e2e.ts`、`page-agent-guide.e2e.ts`、`agent-profiles.e2e.ts` 各一次；`docs:check`、`governance:check`；合入 master。
-3. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，只暂存自己那一行）。
-4. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条）；agent 的全局对象表只在激活时挑一次，运行中安装或启用的插件的对象要重启才有；用户级 Profile 能否声明 `defaultTools`；参数校验失败的说明不列出可选值（`must be equal to constant`），模型只能猜；Profile 工具一节行增减的过渡。
+本 Task 完成。后续（不在本 Task）：
+
+- 内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条）。
+- agent 的全局对象表只在激活时挑一次，运行中安装或启用的插件的对象要重启才有。
+- 用户级 Profile 能否声明 `defaultTools`。
+- 参数校验失败的说明不列出可选值（`must be equal to constant`），模型只能猜。
+- Profile 工具一节行增减的过渡。
+- `window-hidden` 声明的 `details` 形状是候选数组，实际不带候选（逐条核对的存疑项）。
+- 第二批（t02）：界面动作、光标与提示条。

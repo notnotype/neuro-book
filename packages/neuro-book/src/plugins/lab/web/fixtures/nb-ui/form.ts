@@ -22,7 +22,7 @@ import {h} from "vue";
 
 import {Input as NbInput} from "@notnotype/nb-ui/components";
 
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
 

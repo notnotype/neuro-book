@@ -7,5 +7,5 @@ import type {ViewRailBounds} from "nbook/plugins/workbench/shared/contracts";
  */
 export const MESSAGES_HEAD_BAND = 40;
 
-/** 消息视图段展开的宽度（docs/specs/agent/conversation.md 输出 57 的“展开”）：缺省 260，200 到 420，展开时聊天区至少 320。 */
-export const MESSAGES_RAIL_BOUNDS: ViewRailBounds = {width: 260, minimum: 200, maximum: 420, chatMinimum: 320};
+/** 消息视图段展开的宽度（docs/specs/agent/conversation.md 输出 57 的“展开”）：缺省 300，200 到 420，展开时聊天区至少 320。 */
+export const MESSAGES_RAIL_BOUNDS: ViewRailBounds = {width: 300, minimum: 200, maximum: 420, chatMinimum: 320};

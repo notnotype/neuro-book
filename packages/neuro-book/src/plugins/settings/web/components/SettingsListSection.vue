@@ -203,7 +203,8 @@ function excludedText(titles: ReadonlyArray<string>): string {
 }
 
 .settings-list-section__group-title {
-    margin: 0 0 var(--space-2);
+    /* 标题到第一行的距离（下边距、下面的 6px 与行自己的 8px 上内边距）不大于行与行之间的 16px：标题贴着自己这一组（nb-ui 设计语言“分组与层次”第 1 条）。 */
+    margin: 0 0 var(--space-1);
     /* 小组标题是框架，不供选字（nb-ui 规范的“文字能否选中”）；设置项自己的名字与说明可选。 */
     user-select: none;
     padding-bottom: var(--space-3);

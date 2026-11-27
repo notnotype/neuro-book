@@ -13,7 +13,7 @@ import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import {builtinRolesContribution, builtinToolsContribution} from "@notnotype/nb-agent-ui/vue";
 import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentStreamDivider, AgentFileChanges, AgentFileContentDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/lab";
 import {buildTurns, type ConversationTurn, type TurnBlock} from "@notnotype/nb-agent-ui/lab";
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 import {labDomainToolsContribution} from "./domain-tools";
 
 export const agentChainSummaryScenes: LabFixtureDefinition<typeof AgentChainSummary>["scenes"] = [

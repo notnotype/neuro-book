@@ -6,7 +6,7 @@ import {Button as NbButton} from "@notnotype/nb-ui/components";
 import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, ImagePreviewDialog, InfoTip, Notification, NotificationStack, Popover, QuickPick, SidePanel, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../define";
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
 

@@ -90,14 +90,14 @@ html[data-host-indicator="page"] .nb-host-loading {
     width: max-content;
     max-width: calc(100% - 32px);
     margin: 0;
-    color: var(--host-loading-muted, #8b857b);
+    color: var(--host-loading-muted, #666157);
     font-size: 12px;
     text-align: center;
 }
 
 /* 进度指示的形状与动画。颜色取这两个变量（主题编辑器里的预览自己设它们）。 */
 .nb-host-indicator {
-    --nb-indicator-accent: var(--host-loading-accent, #007aff);
+    --nb-indicator-accent: var(--host-loading-accent, #076ce1);
     --nb-indicator-track: color-mix(in srgb, var(--host-loading-text, #1f1c17) 8%, transparent);
     position: relative;
     display: block;
@@ -274,7 +274,7 @@ html[data-host-indicator="page"] .nb-host-loading {
     }
 
     .nb-host-loading__hint {
-        color: var(--host-loading-muted, #918a7e);
+        color: var(--host-loading-muted, #a8a195);
     }
 }
 

@@ -8,7 +8,7 @@ import {describe, expect, it} from "bun:test";
 import type {ImageLocation} from "nbook/plugins/editor/shared/contracts";
 import type {FilesResult, FilesService, FindResult} from "nbook/plugins/files/shared/contracts";
 import type {UploadResult} from "nbook/plugins/files/shared/upload";
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 
 import {createMarkdownMedia, IMAGE_EXTENSIONS, MEDIA_LIST_LIMIT} from "./media";
 import type {MediaSources} from "./media";

@@ -377,7 +377,7 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
         <template v-else>
             <EmptyState v-if="packs.length === 0" class="sticker-page__empty" icon-class="i-lucide-sticker" :title="text('page.emptyTitle')" data-sticker-empty-page>
                 <div class="sticker-page__empty-actions">
-                    <Button size="sm" icon-class="i-lucide-plus" data-sticker-create @click="openCreate">{{ text("rail.new") }}</Button>
+                    <Button variant="primary" size="sm" icon-class="i-lucide-plus" data-sticker-create @click="openCreate">{{ text("rail.new") }}</Button>
                     <Button size="sm" variant="secondary" icon-class="i-lucide-file-up" data-sticker-import @click="chooseZip">{{ text("rail.import") }}</Button>
                 </div>
             </EmptyState>
@@ -397,7 +397,7 @@ const uploadsHere = computed(() => props.uploads.filter((upload) => upload.packI
                                 <p v-if="current.shadowed === true" class="sticker-head__shadowed" data-sticker-shadowed>{{ text("head.shadowed", {folder: current.folder, writing: current.writing ?? current.folder}) }}</p>
                             </div>
                             <div class="sticker-head__actions">
-                                <Button v-if="readonlyPack" size="sm" icon-class="i-lucide-copy-plus" :disabled="copying" data-sticker-copy @click="copyToMine">{{ text("head.copy") }}</Button>
+                                <Button variant="primary" v-if="readonlyPack" size="sm" icon-class="i-lucide-copy-plus" :disabled="copying" data-sticker-copy @click="copyToMine">{{ text("head.copy") }}</Button>
                                 <Button v-if="!invalid" size="sm" variant="secondary" icon-class="i-lucide-download" data-sticker-export @click="emit('export', current.id)">{{ text("head.export") }}</Button>
                                 <DropdownMenu :items="menuItems" align="end" @select="onMenu">
                                     <IconButton size="sm" icon-class="i-lucide-ellipsis" :title="text('head.more')" :aria-label="text('head.more')" data-sticker-more />

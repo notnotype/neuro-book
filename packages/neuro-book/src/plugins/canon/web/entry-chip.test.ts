@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {EntryTextValue} from "./components/entry-text";
+import type {EntryTextValue} from "./components/text/entry-text";
 import {chipOf} from "./entry-chip";
 import type {ChipContext} from "./entry-chip";
 

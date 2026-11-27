@@ -59,7 +59,7 @@ const complete = computed(() => ["slug", "title", "goal", "taskSlug"].every((key
             </Field>
         </fieldset>
         <div class="flex flex-wrap items-center gap-2">
-            <Button type="submit" :loading="pending" :disabled="!complete || disabledReason !== null">新建 Work</Button>
+            <Button variant="primary" type="submit" :loading="pending" :disabled="!complete || disabledReason !== null">新建 Work</Button>
             <span class="nbdev-note" v-if="slow">在等别的写入完成…</span>
         </div>
     </form>

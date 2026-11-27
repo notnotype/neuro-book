@@ -234,7 +234,7 @@ function handleKeydown(event: KeyboardEvent): void {
             <span
                 v-if="option.iconClass"
                 :class="option.iconClass"
-                class="h-3.5 w-3.5 shrink-0 opacity-90 transition-transform [transition-duration:var(--motion-fast)]"
+                class="h-3.5 w-3.5 shrink-0 opacity-90 transition-transform motion-reduce:transition-none [transition-duration:var(--motion-fast)]"
                 aria-hidden="true"
             />
             <span v-if="option.label" class="truncate">{{ option.label }}</span>

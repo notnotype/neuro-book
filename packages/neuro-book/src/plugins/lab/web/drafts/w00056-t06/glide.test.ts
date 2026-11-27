@@ -59,10 +59,10 @@ describe("演示指针走的路", () => {
     });
 
     test("时长随路长，短路不一闪而过、长路封顶", () => {
-        expect(glideTime(40, "drag")).toBe(520);
-        expect(glideTime(500, "drag")).toBe(750);
-        expect(glideTime(1600, "drag")).toBe(950);
-        expect(glideTime(20, "reach")).toBe(280);
-        expect(glideTime(2000, "reach")).toBe(620);
+        expect(glideTime(40, "drag")).toBe(700);
+        expect(glideTime(500, "drag")).toBe(905);
+        expect(glideTime(1600, "drag")).toBe(1300);
+        expect(glideTime(20, "reach")).toBe(340);
+        expect(glideTime(2000, "reach")).toBe(760);
     });
 });

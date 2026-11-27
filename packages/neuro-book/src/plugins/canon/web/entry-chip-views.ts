@@ -14,7 +14,7 @@ import type {EditorState} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 import type {EditorView, NodeView, NodeViewConstructor} from "@tiptap/pm/view";
 
-import type {EntryTextValue} from "./components/entry-text";
+import type {EntryTextValue} from "./components/text/entry-text";
 import {chipOf} from "./entry-chip";
 import type {ChipContext, ChipModel} from "./entry-chip";
 import {ENTRY_IF_NODE, ENTRY_TAG_NODE} from "./entry-syntax";

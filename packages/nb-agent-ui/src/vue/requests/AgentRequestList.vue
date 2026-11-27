@@ -134,7 +134,7 @@ function onScroll(event: Event): void {
             <EmptyState v-else-if="filtered" icon-class="i-lucide-list-filter" :title="t('requests.list.noMatch')" />
             <EmptyState v-else-if="enabled" icon-class="i-lucide-activity" :title="t('requests.list.empty')" />
             <EmptyState v-else icon-class="i-lucide-circle-pause" :title="t('requests.list.disabled')">
-                <template #action><Button size="sm" @click="emit('action', {type: 'request.open-settings'})">{{ t("requests.list.enable") }}</Button></template>
+                <template #action><Button variant="primary" size="sm" @click="emit('action', {type: 'request.open-settings'})">{{ t("requests.list.enable") }}</Button></template>
             </EmptyState>
         </div>
 

@@ -239,7 +239,7 @@ async function pressOpenSettings(page: Page): Promise<void> {
 /** 设置窗口的面：`data-settings-window` 是面板里的内容。 */
 const settingsSurface = (page: Page) => page.locator("[data-dialog-surface]:has([data-settings-window])");
 
-test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开（页面载入后第一次打开也是），关闭时看得见它收回去；减少动态效果时第一帧就是终点", async ({page}) => {
+test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开（页面载入后第一次打开也是），关闭时看得见它收回去；减少动态效果时不长出来、只淡入", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page, "/?project=book");
@@ -294,7 +294,7 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开（页�
     expect(leaving.width).toBeLessThan(run.end.width * 0.5);
     await expect(settingsSurface(page)).toHaveCount(0);
 
-    // 减少动态效果：重新载入（放慢令牌的样式随页面丢掉），第一帧就是终点。
+    // 减少动态效果：重新载入（放慢令牌的样式随页面丢掉），不从齿轮长出来，第一帧的位置与大小就是终点，只淡入（nb-ui 设计语言“六、无障碍”）。
     await page.emulateMedia({reducedMotion: "reduce"});
     await open(page, "/?project=book");
     await workbenchGear(page).click();
@@ -303,11 +303,10 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开（页�
         transform: getComputedStyle(surface).transform,
         width: surface.getBoundingClientRect().width,
         offsetWidth: (surface as HTMLElement).offsetWidth,
-        running: surface.getAnimations().some((animation) => animation.playState === "running"),
     }));
-    expect(settled.transform).toBe("none");
+    expect(["none", "matrix(1, 0, 0, 1, 0, 0)"]).toContain(settled.transform);
+    // 动画可能还在淡入，但这一刻的变换已是单位矩阵、外框就是终点的大小：没有从齿轮长出来。
     expect(settled.width).toBe(settled.offsetWidth);
-    expect(settled.running).toBe(false);
 });
 
 test("浏览器窗口变化：没拖过的保持居中；拖过的放得下不动，放不下推回完整可见，放大不回原位，尺寸不改", async ({page}) => {

@@ -7,7 +7,7 @@ import {computed, ref} from "vue";
 
 import {Button, IconButton, Popover, Switch, Tabs} from "@notnotype/nb-ui/components";
 
-import CharacterCard from "nbook/plugins/canon/web/components/CharacterCard.vue";
+import CharacterCard from "nbook/plugins/canon/web/components/groups/CharacterCard.vue";
 
 import {BLANK_CARD, BLANK_TABS, CHAPTERS, FILLED_CARD, FILLED_TABS} from "./sample";
 import type {DraftTab} from "./sample";

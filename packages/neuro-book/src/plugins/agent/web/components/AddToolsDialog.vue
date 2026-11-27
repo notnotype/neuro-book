@@ -38,7 +38,7 @@ watch(() => props.open, (open) => {
 const groups = computed(() => {
     const needle = query.value.trim().toLowerCase();
     if (needle === "") return shown.value;
-    const matches = (tool: ProfileToolCandidate): boolean => [tool.name, tool.id, tool.summary].some((value) => value.toLowerCase().includes(needle));
+    const matches = (tool: ProfileToolCandidate): boolean => [tool.name, tool.label ?? tool.id, tool.summary].some((value) => value.toLowerCase().includes(needle));
     return shown.value.map((group) => ({id: group.id, provider: group.provider, tools: group.tools.filter(matches)})).filter((group) => group.tools.length > 0);
 });
 const all = computed(() => shown.value.flatMap((group) => group.tools));
@@ -98,7 +98,7 @@ function done(): void {
                             <IconButton
                                 size="xs"
                                 :icon-class="picked.has(tool.id) ? 'i-lucide-minus' : 'i-lucide-plus'"
-                                :aria-label="text(key(picked.has(tool.id) ? 'add.unjoin' : 'add.join'), {name: tool.name, id: tool.id})"
+                                :aria-label="text(key(picked.has(tool.id) ? 'add.unjoin' : 'add.join'), {name: tool.name, id: tool.label ?? tool.id})"
                                 :disabled="tool.blocked || busy"
                                 data-add-tool-toggle
                                 @click="toggle(tool)"

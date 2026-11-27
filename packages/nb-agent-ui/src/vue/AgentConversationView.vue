@@ -498,7 +498,8 @@ defineExpose({focusComposer, scrollToLatest});
         </AgentConversationHead>
 
         <div class="acv-body">
-            <div ref="streamRef" class="acv-stream" :class="{'acv-stream--faded': !streamAtTop}" data-agent-stream @scroll.passive="onStreamScroll">
+            <!-- 消息流带 data-nb-agent="skip"：应用内 Agent 的界面快照不列消息内容（docs/specs/ui/agent-conversation-view.md“边界与兼容”）；输入框与状态栏在它外面，照常列出。 -->
+            <div ref="streamRef" class="acv-stream" :class="{'acv-stream--faded': !streamAtTop}" data-agent-stream data-nb-agent="skip" @scroll.passive="onStreamScroll">
                 <div ref="contentRef" class="acv-stream__content" :class="{'acv-stream__content--welcome': showWelcome}">
                     <!-- 其余 availability 的说明与恢复动作在输入框上方的横幅里，这里不重复 -->
                     <p v-if="props.ctx.messages.length === 0 && props.ctx.availability.status === 'loading'" class="acv-stream__empty" role="status">

@@ -49,7 +49,7 @@ import type {
 import type {Component} from "vue";
 
 import {defineLabFixture} from "../define";
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {defineSubjectFixture} from "../subject-fixture";
 import {agentMessagesListScenes, agentMessagesScenes, agentMessagesSegmentScenes} from "./messages.scenes";
 import {agentApprovalWizardScenes, agentCompactionDetailScenes, agentDockScenes, agentModeSwitchWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";

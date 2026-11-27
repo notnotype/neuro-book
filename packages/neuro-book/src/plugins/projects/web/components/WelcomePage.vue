@@ -84,7 +84,7 @@ const keys = computed(() => (props.shortcut === null ? [] : props.shortcut.split
                 <section class="welcome-page__section" :aria-label="text('welcomePage.start')">
                     <h2 class="welcome-page__label">{{ text('welcomePage.start') }}</h2>
                     <div>
-                        <Button size="md" :loading="creating" data-welcome-new-chapter @click="emit('new-chapter')">{{ text('welcomePage.newChapter') }}</Button>
+                        <Button variant="primary" size="md" :loading="creating" data-welcome-new-chapter @click="emit('new-chapter')">{{ text('welcomePage.newChapter') }}</Button>
                         <p v-if="problem !== null" class="welcome-page__problem" role="alert">{{ problem }}</p>
                     </div>
                     <ul class="welcome-page__list">

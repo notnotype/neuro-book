@@ -12,7 +12,7 @@ import type {SkillEntry} from "../shared/skills";
 import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf, withApprovalChoice, withModelChoice} from "./profile-edits";
-import {profileViews} from "./profile-view";
+import {GONE_GROUP, objectAwareChange, objectRowId, profileViews} from "./profile-view";
 import type {ProfileModels} from "./profile-view";
 
 const engine = createHostTextEngine({locale: "zh-CN", strict: true});
@@ -188,6 +188,60 @@ describe("问题与状态", () => {
         expect(view({}).approval?.value).toBe(FOLLOW_APPROVAL);
         expect(view({setting: {approvalMode: "auto"}}).approval?.hint).toContain("漏判");
         expect(view({setting: {approvalMode: "yolo"}}).approval?.hint).toContain("拒绝规则");
+    });
+});
+
+describe("全局对象一行（输出 28、29）", () => {
+    const tool = (id: string, providerName: string, plugin = "nbook.agent", over: Partial<ToolCatalogEntry> = {}): ToolCatalogEntry => ({id, description: `${id} 的说明`, providerName, effect: "read", plugin, ...over});
+    const ui = (method: string, effect: ToolCatalogEntry["effect"] = "read") => tool(`nbook.page-agent.${method}`, `ui_${method}`, "nbook.page-agent", {effect, defaultForAll: true, object: {name: "ui", method, description: "看懂并引导界面"}});
+    const EVAL = tool("nbook.agent.eval", "eval", "nbook.agent", {effect: "exec"});
+    const CATALOG = [EVAL, ui("snapshot"), ui("find"), ui("screenshot", "exec"), ui("highlight")];
+    const field = (over: {optional?: string[]; required?: string[]; binding?: ToolBinding} = {}) => view({
+        catalog: CATALOG,
+        entry: entry({tools: {required: over.required ?? [], optional: over.optional ?? ["nbook.agent.eval"]}}),
+        ...(over.binding === undefined ? {} : {binding: over.binding}),
+    }).tools!;
+    const rows = (tools: ReturnType<typeof field>) => tools.groups.flatMap((group) => group.tools);
+
+    test("同一对象的方法合成一行：名字是对象名，等级写最高的一档，悬停列出每个方法与等级；计数按对象算一个", () => {
+        const tools = field();
+        expect(rows(tools).map((row) => row.id)).toEqual(["nbook.agent.eval", objectRowId("ui")]);
+        const row = rows(tools)[1]!;
+        // 读屏名字与搜索用 `ui.*`，不用页面内部的行 id。
+        expect(row).toMatchObject({name: "ui", label: "ui.*", object: "ui", effect: "执行", danger: true, summary: "看懂并引导界面", required: false});
+        expect(row.warning).toBeUndefined();
+        expect(row.detail).toBe("看懂并引导界面。方法：ui.find（读）、ui.highlight（读）、ui.screenshot（执行）、ui.snapshot（读）");
+        expect(tools.count).toBe(2);
+    });
+
+    test("Profile 没有 eval：这一行照样列出，说明换成要先加入 eval，标警示", () => {
+        const row = rows(field({optional: []}))[0]!;
+        expect(row).toMatchObject({id: objectRowId("ui"), summary: "要先加入 eval 才用得上", warning: true});
+        // 悬停里仍是对象的说明与方法：原因只在行上。
+        expect(row.detail).toBe("看懂并引导界面。方法：ui.find（读）、ui.highlight（读）、ui.screenshot（执行）、ui.snapshot（读）");
+    });
+
+    test("有必需的方法时这一行是必需的；去掉的对象收进候选、合成一行；按对象改过算有改动", () => {
+        expect(rows(field({required: ["nbook.page-agent.find"]}))[1]).toMatchObject({object: "ui", required: true});
+        const removed = field({binding: {added: [], removed: [], objects: {added: [], removed: ["ui"]}}});
+        expect(rows(removed).map((row) => row.id)).toEqual(["nbook.agent.eval"]);
+        expect(removed.modified).toBe(true);
+        const candidates = removed.candidates.flatMap((group) => group.tools);
+        expect(candidates.map((row) => row.id)).toEqual([objectRowId("ui")]);
+        expect(candidates[0]).toMatchObject({object: "ui", blocked: false});
+        // 只去掉了一个方法：对象这一行还在，对话框里不再列这个对象。
+        const partial = field({binding: {added: [], removed: ["nbook.page-agent.snapshot"]}});
+        expect(rows(partial).map((row) => row.id)).toEqual(["nbook.agent.eval", objectRowId("ui")]);
+        expect(partial.candidates.flatMap((group) => group.tools)).toEqual([]);
+    });
+
+    test("绑定里加上、插件已卸载的对象列在“已卸载”一组，一个对象一行", () => {
+        const tools = view({catalog: [EVAL], entry: entry({tools: {required: [], optional: ["nbook.agent.eval"]}}), binding: {added: [], removed: [], objects: {added: ["ui"], removed: []}}}).tools!;
+        expect(tools.groups.at(-1)).toMatchObject({id: GONE_GROUP, tools: [{id: objectRowId("ui"), name: "ui", object: "ui", gone: true}]});
+    });
+
+    test("页面上的改动换成绑定的改动：对象行的 id 换成按对象改", () => {
+        expect(objectAwareChange({add: [objectRowId("ui"), "a.tool"], remove: ["b.tool"]})).toEqual({add: ["a.tool"], remove: ["b.tool"], addObjects: ["ui"], removeObjects: []});
     });
 });
 

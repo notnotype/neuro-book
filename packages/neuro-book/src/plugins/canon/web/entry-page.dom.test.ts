@@ -30,13 +30,13 @@ import {CANON_COMPONENT_VIEWS_POINT, CANON_COMPONENTS_POINT} from "../shared/con
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext} from "./component-views";
-import EntryPage from "./components/EntryPage.vue";
-import EntryText from "./components/EntryText.vue";
-import EntryTree from "./components/EntryTree.vue";
+import EntryPage from "./components/entry-page/EntryPage.vue";
+import EntryText from "./components/text/EntryText.vue";
+import EntryTree from "./components/entries/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
-import AddComponentDialog from "./components/AddComponentDialog.vue";
-import type {ChecklistItem} from "./components/component-checklist";
+import AddComponentDialog from "./components/entry-page/AddComponentDialog.vue";
+import type {ChecklistItem} from "./components/entry-page/component-checklist";
 import {createNotices} from "./notices";
 import {ENTRIES_VIEW_ID} from "./plugin";
 import {createRevertRequests} from "./revert";

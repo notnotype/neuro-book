@@ -21,6 +21,6 @@ const text = usePlotText();
 
 <template>
     <Banner tone="danger" role="alert" :message="failureText(props.failure, text)">
-        <template #actions><Button size="sm" @click="emit('retry')">{{ text("page.retry") }}</Button></template>
+        <template #actions><Button variant="primary" size="sm" @click="emit('retry')">{{ text("page.retry") }}</Button></template>
     </Banner>
 </template>

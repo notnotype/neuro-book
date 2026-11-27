@@ -13,7 +13,7 @@ import type {ReadPosition} from "@notnotype/nb-canon/schema";
 
 import {RENDER_SOURCE_MAX} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
-import type {EntryTextBlock, EntryTextValue} from "./components/entry-text";
+import type {EntryTextBlock, EntryTextValue} from "./components/text/entry-text";
 
 /** 作者停下输入多久以后重读（毫秒）。 */
 export const VALUES_DELAY = 250;

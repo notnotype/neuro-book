@@ -128,7 +128,7 @@ async function submit(): Promise<void> {
         <template #footer>
             <div class="flex justify-end gap-2">
                 <Button variant="ghost" size="sm" :disabled="busy" @click="emit('update:open', false)">取消</Button>
-                <Button size="sm" :disabled="!ready || busy" data-testid="revise-submit" @click="submit">{{ submitText }}</Button>
+                <Button variant="primary" size="sm" :disabled="!ready || busy" data-testid="revise-submit" @click="submit">{{ submitText }}</Button>
             </div>
         </template>
     </Dialog>

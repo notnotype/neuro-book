@@ -3,8 +3,8 @@
 import ViewPointDraft from "./ViewPointDraft.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";
-import {provideSampleImages} from "../../fixtures/canon-images";
-import {provideCanonText} from "../../fixtures/canon-text";
+import {provideSampleImages} from "../../../../canon/web/lab/canon-images";
+import {provideCanonText} from "../../../../canon/web/lab/canon-text";
 
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);

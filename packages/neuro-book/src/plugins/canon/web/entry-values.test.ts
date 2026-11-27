@@ -9,7 +9,7 @@ import {describe, expect, it} from "bun:test";
 
 import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdown/language";
 
-import type {EntryTextValue} from "./components/entry-text";
+import type {EntryTextValue} from "./components/text/entry-text";
 import {baselineOf, checkedWrite, entryTextProblem, richProblem} from "./entry-check";
 import {documentTags, ENTRY_TAG_NODE, entrySyntax} from "./entry-syntax";
 import {alignValues, tagHasValue, valueSequence} from "./entry-values";

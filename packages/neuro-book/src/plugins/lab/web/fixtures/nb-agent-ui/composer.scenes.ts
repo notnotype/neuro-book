@@ -3,7 +3,7 @@ import type {AgentContextInspector, AgentMessageEditor, AgentModelPicker, AgentR
 import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, ComposerView} from "@notnotype/nb-agent-ui";
 import {conversationContext} from "./data";
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 type Scene = LabFixtureDefinition<typeof AgentConversationComposer>["scenes"][number];
 

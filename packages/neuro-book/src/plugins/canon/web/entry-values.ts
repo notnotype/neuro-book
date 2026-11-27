@@ -8,8 +8,8 @@
 
 import {lexTags, parseEntryText} from "@notnotype/nb-canon/grammar";
 
-import {hasItem, pairValues} from "./components/entry-text";
-import type {EntryTextValue} from "./components/entry-text";
+import {hasItem, pairValues} from "./components/text/entry-text";
+import type {EntryTextValue} from "./components/text/entry-text";
 
 /** 一个该有值的活标签：原文与值。 */
 export interface TagValue {

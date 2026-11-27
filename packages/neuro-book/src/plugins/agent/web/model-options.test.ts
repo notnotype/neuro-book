@@ -5,7 +5,7 @@
 
 import {describe, expect, test} from "bun:test";
 
-import {SAMPLE_CATALOG, SAMPLE_PROVIDERS, SAMPLE_ROWS} from "nbook/plugins/lab/web/fixtures/models-scene/sample";
+import {SAMPLE_CATALOG, SAMPLE_PROVIDERS, SAMPLE_ROWS} from "nbook/plugins/models/web/lab/sample";
 import type {ModelsSnapshot, SelectionRow} from "nbook/plugins/models/shared/contracts";
 
 import {modelGroups, modelOptions, providerIconRef, roleOptions} from "./model-options";

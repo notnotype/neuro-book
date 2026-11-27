@@ -24,7 +24,7 @@ import type {EntryKind} from "../shared/entry-kinds";
 import type {CanonImages} from "./images";
 import type {EntryTabDeclaration} from "../shared/entry-tabs";
 import {ComponentViewRegistry} from "./component-views";
-import type {TextAddress} from "./components/entry-text";
+import type {TextAddress} from "./components/text/entry-text";
 import type {EditDraft} from "./in-place-edit";
 import type {CanonNotices} from "./notices";
 import type {OriginsPage} from "./origin-pages";
@@ -141,7 +141,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
     };
     return {
         load: async () => {
-            const Host = (await import("./components/EntryPageHost.vue")).default;
+            const Host = (await import("./components/entry-page/EntryPageHost.vue")).default;
             return defineComponent({
                 name: "CanonEntryPage",
                 props: {context: {type: Object as PropType<EditorPageContext<EntryPageState>>, required: true}},

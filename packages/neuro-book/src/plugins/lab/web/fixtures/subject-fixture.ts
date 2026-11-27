@@ -8,7 +8,7 @@
  */
 import {camelize, defineComponent, h, toHandlerKey, type Component, type PropType, type VNodeChild} from "vue";
 import {useLabSubject, type LabEventOf, type LabPropOf, type LabSceneInput, type LabSlotOf, type LabSubjectProps} from "../lab-subject";
-import type {LabFixture, LabFixtureDefinition} from "./index";
+import {checkLabFixture, type LabFixture, type LabFixtureDefinition} from "./define";
 
 export type SubjectFixtureOptions<C> = {
     /** 记进事件 tab 的事件。 */
@@ -90,6 +90,6 @@ export function defineSubjectFixture<C = never>(
         return createSubjectFixture<C>(module.default, {events, writeBack, class: className, runtimeProps: runtime, slotPresets, rootless});
     };
     const fixture = {...rest, ...(slotPresets === undefined ? {} : {slots: Object.keys(slotPresets)}), load};
-    // 与 defineLabFixture 相同：类型检查发生在入口参数，这里只擦除成 registry 的宽化类型。
-    return fixture as unknown as LabFixture;
+    // 与 defineLabFixture 相同：类型检查发生在入口参数，这里只核对形状、擦除成 registry 的宽化类型。
+    return checkLabFixture(fixture, "defineSubjectFixture");
 }

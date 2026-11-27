@@ -3,7 +3,8 @@
  *
  * - 量的是中段的 `clientHeight`（含上下内边距 `SEGMENT_PADDING`）。中段是一列 flex：n 项按钮加一条短线共 n+1 个子项、n 个 4 像素的间距，
  *   所以一项连它的间距占 `SEGMENT_ITEM_STEP`（36 + 4），短线连上下的余地占 `SEGMENT_DIVIDER`（1 + 4 × 2）；n 项要 n × 40 + 9 + 8。
- *   这几个数与 `AgentMessagesSegment.vue` 的样式（`.acv-segment__main`、`__item`、`__divider`）一起改。“新对话”总在。
+ *   这几个数与 `AgentMessagesSegment.vue` 的样式（`.acv-segment__main`、`__item`、`__divider`）一起改。总在的项（“新对话”，视图段画展开按钮时再加它）
+ *   由 `fixed` 给，同样各占一格。
  * - bot 先放，给最近会话至少留两个位置（会话不到两个时按会话数）；放不下时最后一个位置换成“+N”。bot 一组至少一个位置。
  * - 最近会话按宿主给的次序（最近活动）放剩下的位置，高度变时只在末尾增减。
  * - 当前会话永远占位：排在放得下的范围之外时顶替最后一个。当前 bot 也顶替最后一个，但 bot 只剩“+N”的位置时一起收进“+N”。
@@ -27,12 +28,13 @@ export function fitSegment<Bot, Session>(input: {
     readonly sessions: readonly Session[];
     readonly isCurrentBot: (bot: Bot) => boolean;
     readonly isCurrentSession: (session: Session) => boolean;
+    /** 总在、不让位的项有几个，各占一格；缺省 1（“新对话”）。 */
+    readonly fixed?: number;
 }): SegmentFit<Bot, Session> {
     const {height, bots, sessions} = input;
     if (height === null) return {bots, more: 0, sessions};
     const slots = Math.max(0, Math.floor((height - SEGMENT_PADDING - SEGMENT_DIVIDER) / SEGMENT_ITEM_STEP));
-    // 去掉“新对话”那一项。
-    const free = Math.max(0, slots - 1);
+    const free = Math.max(0, slots - (input.fixed ?? 1));
     const reserve = Math.min(2, sessions.length);
     const botRoom = bots.length === 0 ? 0 : Math.max(1, free - reserve);
     let shownBots: readonly Bot[] = bots;

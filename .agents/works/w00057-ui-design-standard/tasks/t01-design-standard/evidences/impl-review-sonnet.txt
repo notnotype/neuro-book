@@ -1,0 +1,142 @@
+# w00057 t01 实现审查报告（sonnet）  范围 6d5a10551..HEAD（HEAD=64c4ad482）
+
+## 1 [重要] 减弱动效：全局覆盖 transition-property 会让时长与延迟按下标错配，首项是零时长令牌的多值过渡丢掉透明度淡入淡出
+位置：packages/nb-ui/src/styles.css:915-921（`*` 规则）；受影响声明：packages/neuro-book/src/plugins/canon/web/components/EntryTextEditor.vue:378、plugins/explorer/web/components/ExplorerTree.vue:807（取消拖动的拖影）、plugins/markdown/.../MarkdownCommentMargin.vue:391、plugins/tasks/web/components/TasksView.vue:502（811 行那条只在 data-motion 时生效，减弱动效下不打，不受影响）。
+现象：规则把 transition-property 整个换成 10 项的列表，但组件各自写的 transition-duration、transition-delay 列表不变。CSS 里这几个列表长度不等时按下标循环配对，所以“第 i 个属性用第 i 个时长”的对应被打乱。组件本来写的是“位移属性（--motion-move，减弱动效下 0ms）排前、opacity（--motion-fast）排后”，换列表后 opacity 排到第 1 位，拿到的是第 1 项的 0s。
+如何核实（已在本机 Chrome、reducedMotion=reduce、组件放在 @layer components 里复现，实验文件 /tmp/review-w00057-t01-impl/exp/t.html 与 t.mjs）：`#a{transition:grid-template-rows var(--motion-move), opacity var(--motion-fast)}`（move=0ms、fast=120ms），getComputedStyle 得 transitionProperty 以 `opacity,color,background-color…` 开头，transitionDuration 为 `0s, 0.12s`：opacity 的时长是 0s。单值写法（`#b{transition:opacity var(--motion-fast)}`）正常，120ms。
+影响：
+- EntryTextEditor 的 .text-editor-note-*：写的是 grid-template-rows(move)+opacity(fast)，减弱动效下应是“淡入淡出”，现在 opacity 即刻跳变，淡入淡出没了，只有 Vue Transition 的超时兜底让元素多停约 120ms（Vue 按时长列表长度等 transitionend，等不到事件就走 setTimeout）。
+- ExplorerTree 取消拖动的拖影：flyBack 在减弱动效下现在会跑（见第 2 条），透明度那一项（opacity，fast，延迟 base）因为错配拿到 0s 与 0 延迟，拖影即刻消失。
+- TasksView、MarkdownCommentMargin 同类错位（背景色、边框色等拿到别的项的时长），表现细微。
+这违背 design-language“六、无障碍”和 styles.css 注释自己写的目标“所有元素只过渡颜色、透明度、阴影与显隐”：本意是保住这些淡入淡出，实际取决于该元素 transition 值的排列顺序。
+建议改法：不要覆盖 transition-property。可选：(a) 位移类属性的时长靠令牌归零，本来就不需要 property 白名单——保留 tokens.css 现在的做法，只在需要“去掉非透明度属性”的少数组件里各自收；(b) 若坚持全局白名单，同时把 `transition-duration`、`transition-delay` 也按属性重写不现实，因此应改成在 `*` 规则里只对已知会位移的属性（transform、top、left、width、height、grid-template-rows、translate、scale、margin、padding）用 `transition-duration: 0s` 单点关闭——做法是由组件把“位移”那一项单独拆成自己的类，而不是靠全局；(c) 最小改动：把这四处多值写法改成透明度项排第一或拆成单值再叠加 `transition-delay`，并在 styles.css 注释里写明“多值 transition 里时长与属性按下标配对，不要依赖全局白名单”。需主 Agent 选方向，改法 (a) 影响面最小。
+
+## 2 [重要] 减弱动效：ExplorerTree 取消拖动的“飞回原行”漏改，用 --motion-base 判断，减弱动效下现在会启动
+位置：packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:490（`const duration = motionMs("--motion-base"); … duration <= 0 return`），连带 :505、:454、:323 的注释。
+现象：本批只把 :307、:382 改成看 --motion-move。flyBack 的“取消时拖影飞回第一个源行”是位移（left/top 过渡，时长 --motion-move），但是否启用仍看 --motion-base。tokens.css 现在不再把 --motion-base 归零，所以减弱动效下 duration>0，flyBack 照跑：计算 `to`、延迟两帧后把 `returning` 改成 flying。
+实际可见结果：(1) left/top 不在全局白名单里，拖影一帧内跳到源行（位置突变，不是淡出）；(2) opacity 过渡因第 1 条的错配拿到 0s，拖影在源行处瞬间消失；之后 timer 到点才卸载。位移被换成“突然出现在另一处再消失”，与“位移换淡入淡出”不符。:454 的 glow 是纯透明度动画（explorer-glow），保持用 base 是对的。
+建议：flyBack 的开关改看 `--motion-move`（与 :382 一致）；减弱动效下按已有的“源行不在渲染范围里时原地淡出”分支处理，需要时单独写一个原地淡出（opacity 过渡取 --motion-fast）。另 :323 的注释“系统减少动态效果时为 0”对 --motion-base、--motion-fast 已不成立，改成按名字说明。
+
+## 3 [建议] 文档与注释：“减弱动效时 --motion-fast、--motion-base 是 0”的说法在十几处仍留着，已与新行为矛盾
+位置（均已核对仍在 HEAD）：
+- packages/nb-ui/src/styles.css:593（SidePanel 注释“时长 token 归零，动画即刻结束”）
+- packages/nb-ui/src/components/feedback/DialogSurface.vue:212 与 DialogSurface.md:30（“减少动态效果时时长令牌是 0，动画不播，第一帧就是终点”；本批改成了原地淡入淡出，文档没跟）
+- packages/nb-ui/src/components/layout/OverlayScrollbar.vue:167（“这几个时长都是 0”，它用的 --motion-reveal-* 本批已保留）
+- packages/nb-ui/docs/authoring-themes.md:242、packages/nb-ui/themes/nbook/vars.css:514、themes/macos/vars.css:169（“库只把三个时长归零”）
+- packages/nb-agent-ui/src/vue/messages/AgentMessagesList.vue:239、AgentMessagesSegment.vue:496（“令牌是 0，直接显示”：这两个动画现在是 120 到 180ms 的淡入）
+- packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:324、:336 与 ExplorerTree.md:21（“--motion-base、--motion-fast 为 0 时都不放”）
+- packages/neuro-book/src/plugins/canon/web/components/EntryPage.vue:292、:492（“减弱动效时令牌是 0，没有过渡”）
+- packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentMargin.md:22、tasks/web/components/TasksView.vue:483、workbench/web/components/WorkbenchSurface.vue:848
+- packages/nb-layout/src/vue/global.css:7-14 的注释写“nb-ui 这时也把旧名归零，两边都是 0ms”：nb-ui 已不再归零 --motion-fast、--motion-base，这句已不成立（见第 4 条）。
+为什么是问题：仓库规则“注释写为什么、让这条理由失效的条件”；这些注释现在会误导后来人去判断“减弱动效时某某不播”，ExplorerTree 的第 2 条就是这样漏的。
+如何核实：grep -rnE "令牌.{0,6}(是|为) 0|归零" 对上述文件。
+建议：逐处改成按令牌名说清楚（有位移的 --motion-move 等归零、--motion-fast/base 留着给颜色与透明度），或指向 tokens.css 那一段注释，不要在各处复述。
+
+## 4 [建议] 减弱动效：nb-layout 仍把 --nb-layout-motion-fast、-base 归零，与 nb-ui“保留颜色与透明度过渡”不一致
+位置：packages/nb-layout/src/vue/global.css:11-18；nb-layout/README.md:200；packages/neuro-book/e2e/lab-nested-grid.e2e.ts:351（断言分隔线 transitionDuration 为 "0s"）。
+现象：nb-layout 的四个时长桥接自 nb-ui 的 --motion-*，但在不分层的 global.css 里，减弱动效时由 `!important` 压成 0。nb-ui 现在不再归零 --motion-fast、--motion-base，两边在同一个页面上不一致：分隔线悬停淡入淡出、可排序列表背景色过渡、落点分区的填充与描边过渡、nb-layout 自己的焦点环过渡在减弱动效下仍是 0，而 nb-ui 的按钮、菜单等已保留淡入淡出。global.css 注释里“nb-ui 这时也把旧名归零，两边都是 0ms”已不成立（见第 3 条）。
+为什么是问题：设计语言新增的“减弱动效换淡入淡出”是整库的规则（计划 D1），nb-layout 是同仓库的 nb-ui 消费者，却成了例外；Splitter.md 写的“减少动效时保留停留延迟，只去掉淡入淡出”也与 D1 相反。若这是有意收窄范围（本 Task 不动 nb-layout），应在计划的“未做”或 followups 里登记，现在没看到。
+如何核实：grep -n "motion-fast\|motion-base" packages/nb-layout/src/vue/*.vue；在 reducedMotion=reduce 下读 `.sash-line`、`.nb-layout-focus-ring:focus-visible` 的 transitionDuration，为 0s。
+建议：要么在 global.css 里只归零 move、layout 两档（fast、base 保留）并改 e2e 与 Splitter.md、NestedGrid.md:176、README.md:200 的描述；要么在 Task 记录里写明“nb-layout 本批不改”并留 followup。注意 nb-layout 里拿 fast、base 做位移的地方（若有）要同批收，否则改了反而出位移。
+
+## 5 [建议] 配色测试：焦点外框用的混色公式不是主题实际发的那一条；状态色改了而 -bg、-border 的 rgba 没跟
+位置：packages/neuro-book/src/ui/theme/builtin-colorways-contrast.dom.test.ts:38-45；packages/nb-ui/themes/nbook/vars.css:250、358；packages/nb-ui/themes/macos/vars.css:124、147；nbook 与 macos 的 colorways.ts 状态色。
+现象 A：测试按 `--focus-outline = 强调色 80% + --border-color（压在面板上）20%` 算，注释说“与 tokens.css 的回退一致”。但两个主题的 vars.css 都覆盖了：`--control-outline: color-mix(in srgb, var(--text-main) 16%, transparent)`，`--focus-outline: color-mix(in srgb, var(--accent-main) 80%, var(--control-outline))`（macos/vars.css:147、nbook/vars.css:358；对比度偏好下改成 --border-strong）。所以应用里真正生效的描边色含 3.2% 文字色加 16.8% 面板色，测试量的不是它。
+数字（我用 colorways.ts 的值手算，实验脚本 /tmp/review-w00057-t01-impl/exp/fo.mjs）：测试公式对面板的对比度 macos-light 3.76、macos-dark 3.04、nbook-light 3.84、nbook-dark 3.12；按主题实际混法 3.89、3.19、3.82、3.25。四个都 ≥3，当前不会错，但 macos-dark 只剩 0.04 的余量（测试口径）。
+为什么是问题：之后改 --control-outline 的 16% 或主题的混法，这条测试仍然绿（它读的是 --border-color，不是主题发出去的值），目的是锁住“焦点环对面板 3:1”，现在锁的是另一条公式。
+如何核实：把 nbook/vars.css:250 的 16% 改成 0%，测试结果不变。
+建议：测试从主题包的 vars.css 取 `--control-outline` 的混合比例太绕；更直接的做法是在 dom 测试里把 colorway 变量与主题 vars.css 挂到一个元素上，读 getComputedStyle 的 `--focus-outline` 再算对比度（happy-dom 对 color-mix 的支持要先试，不行就用 e2e 里读真值）。至少把注释改成“按 tokens.css 回退算，主题另有覆盖时以主题为准，余量是……”。
+现象 B（低）：状态色改深后 -bg、-border 仍是旧色的 rgba，例如 macos-light --status-danger #dc2626→#d3181d 而 --status-danger-bg 仍是 rgba(220,38,38,.10)；nbook-light --status-info #0a7ea4→#0c6e90 而 -bg 仍是 rgba(10,126,164,.11)。色相差在一两度、alpha 0.1 左右，肉眼不可辨，也不影响文字对比度检查；只是“派生值与基色一致”这条现在靠人记。若不想改，可在 colorways.ts 注释里写一句“-bg 保留旧基色，差异可忽略”。
+
+## 6 [建议] lab:shot 的 clippedText：只查“自己直接带文字”的元素，真正裁文字的常是它的父容器，会大量漏报
+位置：packages/neuro-book/src/plugins/lab/web/lab-debug.ts:366-383（clippedTextIn，`childNodes` 里要有非空文本节点才检查）。
+现象：WCAG 1.4.12 的失败形态是“文字所在的盒子被固定高度或宽度加 overflow:hidden 裁掉”。clippedTextIn 对每个元素做两件事：先要求元素自己有直接的文本节点，再看这个元素自己是不是 overflow hidden 且内容更大。但常见写法是容器带 `overflow-hidden` 与固定高度，文字在里面的 span、p 里（nb-ui 的 Button、Badge、Tag、SkillChip 一类都是 `<span class="truncate">文字</span>` 放在带 overflow 的壳里；图标加文字的按钮，文字在子 span）。壳没有直接文本节点，被 `continue` 跳过；文字所在的子元素自己不 overflow:hidden，也不报。
+如何核实：在 Lab 里挂一个 `<div style="height:20px;overflow:hidden"><span>很多字…</span></div>`，注入 TEXT_SPACING_CSS 后 measure()，clippedText 为空；把 overflow 与高度搬到 span 上才会报。
+为什么是问题：`--text-spacing` 的目的是给“文字间距加大后不丢内容”摸底，漏报最多的正是容器裁子元素文字这一类，摸出来的“干净”会让人误以为没问题。
+建议：改成“元素 overflow 为 hidden 或 clip 且 textContent 非空（去掉 aria-hidden 与不可见的子树）时，比 scrollWidth/scrollHeight 与 clientWidth/clientHeight”，去掉“直接文本节点”的前置条件；同时保留 line-clamp、省略号的排除。顺带：`--text-spacing` 报的 offenders 没有减去未加间距时已有的越界项（同一个元素会在 measure.offenders 与 textSpacing.offenders 各出现一次，报告里是重复噪声），建议只报新增的。
+
+## 7 [建议] lab:shot 的 smallTargets：label 合并框与 disabled 目标的口径
+位置：packages/neuro-book/src/plugins/lab/web/lab-debug.ts:315-341（hitArea、smallTargetsIn）。
+现象与问题：
+(a) hitArea 把控件与所有关联 label 的外接矩形取并集当“可点区域”。label 与控件之间有空隙（表单行里 label 在左、14px 复选框靠右，中间是空白）时，并集是一个很宽的矩形：可点区域被高估（不报小目标），中心点也落在空白处，邻居圈的判断全错。WCAG 的目标是“点了有反应的像素区域”，空白不算。
+(b) `disabled` 按钮、`aria-disabled` 的目标没有排除：2.5.8 把“不可用的（inactive）控件”排除在目标之外，现在它们既会被报，也会被当成别的小目标的“拥挤邻居”。
+(c) `invisible()` 只看元素自己的 opacity、visibility、clip；祖先 `opacity:0`（例如 data-hover-actions 的悬停才显示的按钮组）里的按钮照样算目标。这是对的（悬停时它们就是目标），但与注释“看不见的不算”并不一致，最好在注释里写一句。
+如何核实：(a) 在 e2e 的探针里放 `label{position:absolute;left:0;width:200px}` 加 `input{position:absolute;left:180px}`，并集宽 200，不报。
+建议：(a) 合并只在两个矩形相接或重叠时做，否则取包含控件的那一个（用控件自己的点区域，label 单独当一个目标）；(b) 过滤 `:disabled`、`[aria-disabled='true']`。都只是报告项，不阻断。
+
+## 8 [建议] 测试：新增的 lab-shot e2e 对“只报告”与“--media”几乎只断言形状，变异后仍绿
+位置：packages/neuro-book/e2e/lab-shot.e2e.ts:241-317（新增三条）。
+现象：
+- “--media、--text-spacing”那条断言：report 里 media 字段是 ["reduced-motion","reduced-transparency"]，文件名含 media，textSpacing.clippedText 与 measure.smallTargets 是数组，退出码 0。没有断言页面里 `matchMedia("(prefers-reduced-transparency: reduce)").matches` 为真。CDP `Emulation.setEmulatedMedia` 若被后来的调用覆盖或根本没生效，这条仍绿。
+- “只报告的几项不改退出码”：用 SkillChip 的 skill 场景，它的 smallTargets、clippedText 多半本来就是空；把 smallTargets 加进 failedShots（lab-shot.ts 的失败判据）这条测试也不会红。判据没有被真正约束。
+- 减弱动效那条只测了 popover 的关键帧属性、一个 transition-transform 元素的 transitionProperty、--nb-dialog-from-scale；没有一处断言“多值 transition 的时长与属性仍成对”，所以第 1 条的错配没被发现。
+建议：media 那条在页面里读 matchMedia 的结果并写进断言（可经 `--click` 之外的方式：加一个 report 里的 `mediaMatched` 字段，或在 e2e 里用同一段 CDP 设置自己验证）；“不改退出码”改成在探针场景里人为制造一个小目标（像 smallTargets 那条测试里那样往舞台挂两个 14px 按钮）再跑 lab:shot；减弱动效那条再加一个多值 transition 元素断言 opacity 的 transitionDuration 不为 0。
+
+## 9 [重要] DataTable：加载完、遮罩停留的那 ≤400ms 里，遮罩仍拦截指针，新行点不到；代码注释与文档说“不再挡操作”
+位置：packages/nb-ui/src/components/display/DataTable.vue:97-101（rowsInert 的注释）与样式 `.nb-data-table-layer.is-mask`（约 :255-263，只写了 background，没有 pointer-events:none）；DataTable.md“状态”一节。
+现象：本批的改法是 loading 变假后遮罩再停最短时长，同时 `rowsInert` 改成 `layer === 'mask' && props.loading`，让键盘能走到新行。但遮罩层 `.nb-data-table-layer`（position:absolute; inset:0）在 `.is-mask` 时不设 pointer-events:none（只有非 mask 的层设了），所以停留期里指针点在新行上点到的是遮罩，什么都不发生；键盘却已经能操作。同一时刻两种输入的可操作性不一致。
+为什么是问题：这条改动引用的原则正是 design-language“动效的行为”第 2 条“动画期间不挡操作：过渡进行中不停用控件、不吞点击与按键，判据：e2e 在过渡开始后、结束前点下一个控件，操作生效”。现在最短停留期里点击被吞，等于违反自己新写的第 2 条；代码注释写“底下已经是新行，不再挡操作”也与行为不符。最长 400ms 减去已显示时间，只在遮罩已出现（请求超过 200ms）才会发生。
+如何核实：dom 测试里 setProps({rows:新行, loading:false}) 后立即对 `.nb-data-table-layer.is-mask` 取样式（happy-dom 读 pointer-events 要内联或已计算），当前为空；真实浏览器里点新行，click 的 target 是遮罩。
+建议：给遮罩在“已加载完”时加类（例如 `is-settled`）并写 `pointer-events: none`（视觉上仍半透明停留）；或让遮罩的停留只靠一个不吃指针的视觉元素。同时补一条 dom 或 e2e 判据：加载完后的第一帧，点新行的行内按钮会触发。
+
+## 10 [建议] DataTable：rowsInert 现在会在“层与行都不变”时翻转，焦点接管的 watch 没把它列为来源
+位置：packages/nb-ui/src/components/display/DataTable.vue:97-101、:131-148（watch([layer, tableRows])）。
+现象：焦点接管 watch 只看 layer 与 tableRows。改之前 `rowsInert` 完全由 layer 决定（layer==='mask'），翻转总伴随 layer 变化；现在 `rowsInert = layer==='mask' && props.loading`，停留期里（loading 已假、遮罩还在、行可操作）用户把焦点放进了某个行内按钮，此时又发起新请求（loading 再变真）：layer 仍是 "mask"，tableRows 引用不变，两个来源都不触发，但行已变成 inert。浏览器会把焦点从被 inert 的元素上移走，落到 body，接管逻辑不跑，键盘用户的焦点丢了。
+为什么是问题：这条 watch 存在的理由就是“焦点不能掉回 body”（见该处注释），本批引入了一个新的 inert 翻转路径而没有把它接进来。场景窄（需要停留期里用键盘进了行内按钮并再次触发加载），按“窄场景选简单改法”可只补一行。
+如何核实：dom 测试：rows 非空、loading 真→等遮罩出现→loading 假（遮罩仍在）→把焦点放到行内按钮→loading 真；断言 document.activeElement 是 `.nb-data-table-body`。当前预期失败（落在 body）。
+建议：把 `rowsInert` 加进两个 watch 的来源列表（`[layer, tableRows, rowsInert]`）；顺带该测试补进 DataTable.test.ts。
+
+## 11 [建议] 设计语言：几处“依据”超出原文，与 source-check.txt 的核对结论不符
+位置：packages/nb-ui/docs/design-language.md“反馈与等待”第 1 条、“分组与层次”第 4、5 条、“四、排版”的“会变的数字用等宽数字”。
+对照（/tmp/w00057-t01/source-check.txt 的行号）：
+- “反馈与等待”第 1 条“下一帧就有看得见的变化”挂在“依据：NN/g 响应时间”下：核对报告第 28 行写明原文接着说“0.1 秒内除了显示结果不需要额外反馈”，“下一帧”是草稿自己的更严格要求，“依据栏要说明‘下一帧’是本仓库定的”。成文里没有这句。
+- “分组与层次”第 4 条（常驻动作按频率排、低频收进更多）：核对第 72 行——原文是线性菜单里按使用频率排序，没有“低频收起”，是延伸；第 5 条后半“危险的隔开”（第 73 行）原文没有对应句。成文把它们放在“依据：格式塔……费茨与希克”之下，只在第 4 条里写了“不规定个数上限，没有可引的数”，没说“收起”与“隔开”是本库的主张。
+- “会变的数字用等宽数字”：核对第 141 行，Butterick 只说上下成列对齐的数字，“就地变化的读数”是引申，成文写成依据 Butterick 的 Alternate figures。
+- 第 3 条“长得一样的行为一样”里“至多一个主按钮”已经写成“本库规定”，是对的（核对第 66 行）。
+为什么是问题：其它读者会把“依据：某某”当成出处背书，之后有人拿“NN/g 说了下一帧”来驳回例外。动效的行为第 1 条已经做对了（“HIG 只要求不必等动画结束；本库再要求折返”），应当照这个写法统一。
+建议：在上面几处各补半句“（本库自己定的，出处只管……）”，或把这些条目改标“本库”；改动小，不影响判据。
+
+## 12 [建议] 设计语言“六、无障碍”的判据与实现不符：变换类的过渡时长并不是 0
+位置：packages/nb-ui/docs/design-language.md“减弱动效是把位移换成淡入淡出”条的判据行；packages/neuro-book/e2e/lab-shot.e2e.ts 的减弱动效用例。
+现象：文档判据写“emulateMedia({reducedMotion:"reduce"}) 下读计算样式，变换类的过渡与动画时长为 0，透明度的不为 0”。实现是换掉 transition-property 的白名单（时长不动），所以 `transition-transform` 元素读到的 transition-duration 仍是 120ms 左右，只是属性里不含 transform；动画则是换了关键帧而时长也不为 0。e2e 里实际断言的是“transitionProperty 不含 transform、含 opacity”，与文档判据写的不是同一件事。
+建议：判据改成“变换类属性不在 transition-property 里，关键帧只含 opacity；透明度的时长不为 0”，与 e2e 对齐；设计语言“动效的行为”第 3 条的判据（“transition-property 不含 transform、height、top”）已经是这个口径，两处统一。
+
+## 13 [建议] 设计语言“分组与层次”第 5 条与“一、论点”交互八条的第 7 条重复
+位置：design-language.md“分组与层次”第 5 条（连着用的挨着放，危险的隔开）与同文件“交互：复杂留给系统”第 7 条（常用的好做，会丢东西的难误碰：删除、去掉这类会丢东西的放进二级菜单并确认或可撤销，不和常用操作挨着）。
+现象：“危险动作不紧挨常用动作”两处各写一遍，措辞不同（一处是“隔一道分隔或放进更多”，一处是“放进二级菜单”）。仓库里“同一件事各写一份”本来就是反复踩的坑（AGENTS.md 的质疑上游一条）。另外“反馈与等待”第 3 条（预期之内的删除直接做、给撤销）与第 7 条（“确认或可撤销”）方向一致但没互相指。
+建议：第 5 条只留“提交按钮紧挨它确认的内容”这一半，危险的那一半改成指向八条第 7 条；或者反过来合并。
+
+## 14 [建议] Button.test.ts 按类名字符串断言，测的是实现
+位置：packages/nb-ui/src/components/controls/Button.test.ts:14-21。
+现象：用例断言 `classes()` 不含/含 `bg-[var(--accent-main)]`，并要求缺省与 `variant="secondary"` 的类列表相等。仓库规则“测行为不测实现，行为不变的重构让测试失败说明写错了”：把 primary 的面改成别的写法（例如换成 `bg-accent`）测试就红，而外观没变；反过来，类名对了而样式被别处盖掉它也绿。文件头注释自己写了“外观在 Lab 里看，这里只守外观的来源”。
+建议：这条守的是“缺省是 secondary”，直接断言缺省与显式 secondary 的类列表相等就够了（第一个用例的第二句），去掉对具体类名的断言；“primary 要写明才是强调色”交给 Lab 场景与 lab-scenes 的版面比对。
+
+## 15 [建议] 小项合集
+- useDelayedVisibility（packages/nb-ui/src/composables/useDelayedVisibility.ts:46-72）：`delay: 0` 时仍走 `setTimeout(show, 0)`，不是同步显示，注释没说；`LOADING_SHOW_DELAY_MS`、`LOADING_MIN_VISIBLE_MS`、`VisibilityTimers` 经 `export *` 成了 `@notnotype/nb-ui/composables` 的公开面，若只为测试注入计时器，建议只导出函数与选项类型。作用域外调用（`getCurrentScope()` 为空）不清计时器，注释写一句“在组件外调用要自己停”。
+- nb-layout 的缺省焦点环回退（packages/nb-layout/src/theme-vars.ts:62，`0 0 0 1px … 35%`）仍是旧写法；不装 nb-ui 的宿主拿到的是旧的低对比环。要么同步成 2px 实色，要么在文件里写明“不随 nb-ui 的 AA 调整”。
+- editorial、aurora 两个主题的 vars.css 没有 `--focus-ring` 覆盖，所以走 tokens.css 的新缺省（2px 实色取 --focus-outline），但没有被对比度用例覆盖（用例只量四种内置组合）；“六、对比度”写“四种内置组合”是对的，只是读到“没有边框的控件靠焦点环够 3:1”的人会当成全库成立。
+- .agents/works/w00017-…/evidences/g1/plugin/src/G1Widget.vue:42 与 packages/neuro-book/plugin-sdk/third-party-text.dom.test.ts:85 的 `<Button>` 没写 variant：前者是历史证据文件、后者是文本端口测试的模板字符串，都不看外观，不必迁；记在这里是为了说明“迁移是否漏了”已逐个核对过：我用脚本扫了所有 git 跟踪的 .vue、.md、.ts（排除旧应用与归档），`<Button` 无 variant 的只剩这两处；`h(Button…)` 只剩 lab/inspect.dom.test.ts:64（测试）；`:variant` 动态绑定的 ScreenConfirmDialog 传 tone，没有 undefined 路径。
+
+## 16 [建议] 需要主 Agent 跑的 e2e：减弱动效下透明度、颜色过渡回来后，立即读计算样式（不轮询）的断言可能读到中间值
+依据：packages/neuro-book/e2e/playwright.config.ts:27 默认 reducedMotion=reduce，--motion-fast、--motion-base、--motion-reveal-* 现在是 90 到 180ms（nbook 90/140、macos 同值，其余主题 100 到 180），所有 `transition-colors`、透明度过渡都真的在播。
+疑点（我没有跑 e2e，按文件列出读样式的次数，括号里是“getComputedStyle(...).color/backgroundColor/boxShadow/opacity”这类直接读的条数）：editor-area.e2e.ts(10)、workbench-containers.e2e.ts(8)、desktop-frame.e2e.ts(4)、workbench-views.e2e.ts(3)、themes.e2e.ts(3)、theme-editor.e2e.ts(3)、markdown-comments.e2e.ts(3)、files-explorer.e2e.ts(3)、editor-code-menu.e2e.ts(3)、browser-host.e2e.ts(3)。其中 editor-area.e2e.ts:445-461 的 `style()` 在 hover 之后立即读分隔线 ::before 的 opacity 与标签条背景（没轮询）；themes.e2e.ts 读主题切换后的颜色，若切换后元素有颜色过渡会读到中间值（计划第 104 行已把 themes 241、397、601 记为原有失败）。lab-nested-grid.e2e.ts:352 断言分隔线 transitionDuration 为 "0s"，这条因为 nb-layout 仍把 fast/base 归零（见第 4 条）才还是绿；若第 4 条改了，这条要一起改。
+建议：合入前跑 editor-area、themes、workbench-containers、workbench-views、lab-nested-grid、settings 六个文件（计划里已有 lab-scenes、themes、settings），失败的先在无改动的 master worktree 上对照；读样式不轮询的几处改成 expect.poll。
+
+## 未发现问题的方面（均已实测或读码核对）
+- 层序：`*` 规则在 @layer components 里，`!important` 压得过组件的不分层 scoped 声明与 utilities 层的 Tailwind 原子类（重要声明按层序前面的赢，非重要声明永远输给重要声明）；同层里 `.nb-menu-level`（styles.css:498）、`.nb-ui-focus-ring-inset`（:71）的 `!important` 因特异性更高仍胜出，`.nb-menu-level.nb-menu-level` 的收口写法成立。DropIndicator.vue:42 的 `transition: none !important`（不分层）输给分层的重要声明，但 `transition: none` 把时长设为 0s，结果仍无过渡（实验 /tmp/review-w00057-t01-impl/exp/t.html 里 #c 验过）。
+- `@keyframes` 写在 `@media` 里、排在同名原定义之后，在 Chrome 里取代原定义（实验 #d：只剩 opacity）；Vue scoped 对 ExplorerTree 里 media 内的 `@keyframes explorer-ghost-in` 改名一致（用 @vue/compiler-sfc 编过，两处都改成 `-abc` 后缀，animation 引用同步）。
+- 靠事件收尾的代码：Vue `<Transition>` 有超时兜底（时长列表长度加 1ms）；reka Presence 等的是 animationend，动画名与时长没被白名单改动；collapse-animation 用 `--motion-move`（本批仍归零，行为不变）；use-entry-indicator 的 transitionend 同样走 `--motion-move`，减弱动效下本来就没有这个事件（旧行为）；MarkdownCommentMargin 的 transitionrun/end 成对出现或都不出现。
+- 代码里用 `--motion-fast`、`--motion-base` 是否为 0 判断“减弱动效”：除第 2 条的 ExplorerTree.vue:490 外没有别处（grep `motionMs(`、`getPropertyValue("--motion`）。
+- 配色：四个内置组合的实色按钮（强调色、四种状态色）与 --text-inverse 的对比度 4.60 到 9.78，都 ≥4.5；内置 `dark` 预设（presets.ts）通过 checkContrast；macos-dark 三项覆盖只作用于 macos-dark 一个配色，状态色另被 Button 的 danger 变体当底色用，对比度 8.63。`#007aff` 在源码里已无残留（只剩 e2e 里 browser-host.e2e.ts 一处，我没有展开看是不是旧断言，主 Agent 跑 e2e 时会看到）。
+- 焦点环：`solidRingExtent` 取不偏移圈的最大扩散量，改 2px 后总外扩仍是 3.5px，lab-debug 的光晕被裁判据不变，注释已更新。
+- Button 迁移：见第 15 条的扫描结论，没有发现漏迁；Lab 里 h() 写的都带 variant；CopyButton 内部 Button 显式 `variant="ghost"`，不依赖旧缺省。
+- useDelayedVisibility 的时序：延时内取消、停留期内再忙起来、停够后立即隐藏、作用域销毁清计时器都有用例（5 条），我另跑了本文件与 Button、tokens、DataTable 三个测试文件共 35 条，全过（HEAD 64c4ad482，负载 27 下 10.7 秒）。
+- 只报告项不改退出码：failedShots 的条件里确实没有 smallTargets、clippedText、textSpacing（读码核对；测试本身的约束力见第 8 条）。
+
+## 条数
+共 16 条：阻断 0，重要 3（第 1、2、9 条），建议 13（第 3 至 8、10 至 16 条）。
+最严重的三条：
+1) 第 1 条：全局白名单换掉 transition-property 后，时长与延迟按下标错配，多值 transition 里首项是零时长令牌的（EntryTextEditor、ExplorerTree 拖影、MarkdownCommentMargin、TasksView）透明度淡入淡出丢掉；Chrome 里已复现。
+2) 第 2 条：ExplorerTree 的 flyBack 开关漏改成 --motion-move，减弱动效下现在会启动，表现为拖影位置突变后消失。
+3) 第 9 条：DataTable 遮罩停留期里仍拦截指针，新行点不到，违反本批自己写进设计语言的“动画期间不挡操作”。
+未验证：第 10 条的焦点丢失是读码推断，没有跑 dom 测试复现；第 16 条的 e2e 没有跑（按说明不跑）。

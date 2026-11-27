@@ -39,7 +39,7 @@ import GiltButton from "./GiltButton.vue";
 import {glidePath, glideTime} from "./glide";
 import HomepageDesk from "./HomepageDesk.vue";
 import {CARRY, Interrupted, prefersReducedMotion, timeScale, tween, wait} from "./motion";
-import {KNOCK_ASK, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply} from "./sample";
+import {KNOCK_ASK, KNOCK_LEAD, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply} from "./sample";
 import type {OpenFile} from "./sample";
 import {deskBox, EYEBROW_BAND, SANCTUM_MIN_WIDTH} from "./sanctum";
 import SanctumScene from "./SanctumScene.vue";
@@ -259,6 +259,25 @@ function hidePointer(): void {
     pointerCarrying.value = false;
 }
 
+/** 松开但不收起：拍与拍之间指针留在原处。 */
+function releasePointer(): void {
+    pointerPressed.value = false;
+    pointerCarrying.value = false;
+}
+
+/**
+ * 演示时指针一直在（第 12 轮，开发者：演示的时候让鼠标一直显示）：每一拍开演时还没显示，就在工作台下半截的空处现身；
+ * 之后几次动手之间停在上一次的位置。暂停（包括访客动了工作台、舞台滚走）与交给访客时才收起，见 `onPhase`。
+ * 要在落地以后量：镜头还在推时量出来的位置是斜的。
+ */
+function parkPointer(): void {
+    if (pointerShown.value || !wide.value) return;
+    const body = desk.value?.target("first-editor-body") ?? null;
+    if (body === null) return;
+    placePointer({x: body.left + body.width * 0.62, y: body.bottom - Math.min(120, body.height * 0.22)});
+    pointerShown.value = true;
+}
+
 /** 按下处漾一圈（按、点、松开都有）。 */
 function ripple(point: Point): void {
     trail?.ripple(toStage(point));
@@ -285,7 +304,8 @@ async function drag(from: DeskTarget | (() => DOMRectReadOnly | null), to: () =>
     const grab = centerOf(source);
     const path = glidePath(grab, destination, options.via?.() ?? []);
     await reach(grab, signal);
-    await wait(140, signal);
+    // 几处停顿（第 12 轮）：第 7 轮是 300、150、560、500ms，开发者嫌慢；第 8 轮砍到 140、80、340、300，第 11 轮又嫌快，取中间。
+    await wait(240, signal);
     options.before?.();
     pointerPressed.value = true;
     ripple(grab);
@@ -293,7 +313,7 @@ async function drag(from: DeskTarget | (() => DOMRectReadOnly | null), to: () =>
         pointerPressed.value = false;
         return false;
     }
-    await wait(80, signal);
+    await wait(140, signal);
     pointerCarrying.value = true;
     await tween(glideTime(path.length, "drag"), CARRY, (t) => {
         const at = path.at(t);
@@ -301,12 +321,12 @@ async function drag(from: DeskTarget | (() => DOMRectReadOnly | null), to: () =>
         fingers.move(at);
         trail?.add(toStage(at));
     }, signal);
-    await wait(options.hold ?? 340, signal);
+    await wait(options.hold ?? 480, signal);
     fingers.up(destination);
     pointerCarrying.value = false;
     pointerPressed.value = false;
     ripple(destination);
-    await wait(300, signal);
+    await wait(400, signal);
     return true;
 }
 
@@ -376,6 +396,9 @@ async function focusChapterFive(signal: AbortSignal): Promise<boolean> {
 async function typeKnock(signal: AbortSignal): Promise<void> {
     if (desk.value?.shows(KNOCK_TYPED) === true) return;
     if (!(await focusChapterFive(signal))) return;
+    // 指针挪到那半句末尾的右下方停着（不压在要打出来的字上），像有人点进去接着写。
+    const lead = desk.value?.textRects(KNOCK_LEAD).at(-1) ?? null;
+    if (lead !== null) await reach({x: lead.right + 64, y: lead.bottom + 30}, signal);
     await wait(300, signal);
     for (const char of KNOCK_TYPED) {
         if (desk.value?.type(char) !== true) return;
@@ -403,6 +426,15 @@ function glowLyra(on: boolean): void {
 /** 作者在对话栏里问，星璃先读第一章（一条工具调用），再边打边答。 */
 async function askLyra(signal: AbortSignal): Promise<void> {
     if (desk.value?.lyraHas(KNOCK_REPLY_ID) === true) return;
+    // 指针先滑到对话栏底下的输入框上点一下，再发出问题（问题是直接贴进对话的，不真的打字）。
+    const lyra = desk.value?.target("lyra") ?? null;
+    if (lyra !== null) {
+        const input = {x: lyra.left + lyra.width * 0.42, y: lyra.bottom - 46};
+        await reach(input, signal);
+        await wait(200, signal);
+        ripple(input);
+        await wait(300, signal);
+    }
     desk.value?.lyraPost(KNOCK_ASK);
     await wait(1100, signal);
     glowLyra(true);
@@ -577,7 +609,8 @@ interface Beat {
     readonly copy: BeatCopy | null;
     /**
      * 从开演到说出结论的标称时长（ms，不含之后留着看的那一会儿）：章节条按它估这一段的进度。
-     * 量自第 7 轮在开发服务上连播的一遍（负载约 6，探针记下每一拍开演与补满的时刻），第 9 轮加长聚光的停留后按加的时长补上；
+     * 量自第 7 轮在开发服务上连播的一遍（负载约 6，探针记下每一拍开演与补满的时刻），第 9 轮加长聚光的停留、第 12 轮放慢拖动
+     * 并让指针先挪到打字处与对话输入框后，按加的时长补上；
      * 卡顿时会慢，估到九成二就停着等结论。
      */
     readonly nominal: number;
@@ -637,17 +670,18 @@ async function shrinkAlice(signal: AbortSignal): Promise<void> {
     const landing = desk.value?.target("float-landing") ?? null;
     if (landing === null) return;
     const goal = {x: landing.right - 3, y: landing.top + 3};
-    await drag(() => desk.value?.target("alice-float-corner") ?? null, () => goal, signal, {hold: 260});
+    await drag(() => desk.value?.target("alice-float-corner") ?? null, () => goal, signal, {hold: 360});
 }
 
 async function whenReadyToPlay(signal: AbortSignal): Promise<void> {
     await whenLanded(signal);
+    parkPointer();
 }
 
 const BEAT_STEPS: readonly Beat[] = [
     {
         copy: BEATS.knock,
-        nominal: 20300,
+        nominal: 22600,
         async play(signal) {
             await whenReadyToPlay(signal);
             captionTitle.value = ACT_ONE.number;
@@ -667,7 +701,6 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(1300, signal);
             if (!(await drag("chapter-one-tab", chapterOneDrop, signal, {via: chapterOneVia, before: darken}))) desk.value?.splitRight("chapterOne");
             darken();
-            hidePointer();
             await wait(500, signal);
             await revealChapterOneEnd(signal);
             await wait(600, signal);
@@ -703,7 +736,6 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(1000, signal);
             await annotate("chapterFive", KNOCK_NOTE.on, KNOCK_NOTE.body, signal);
             await wait(500, signal);
-            hidePointer();
             conclude(BEATS.mark);
             await wait(2600, signal);
         },
@@ -711,17 +743,16 @@ const BEAT_STEPS: readonly Beat[] = [
     },
     {
         copy: BEATS.alice,
-        nominal: 10200,
+        nominal: 11400,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.alice, "opening");
             await wait(1100, signal);
-            if (!(await drag("alice-tab", floatDrop, signal, {hold: 300, via: floatVia}))) desk.value?.floatAlice();
+            if (!(await drag("alice-tab", floatDrop, signal, {hold: 420, via: floatVia}))) desk.value?.floatAlice();
             await wait(500, signal);
             say(BEATS.alice, "middle");
             await wait(1000, signal);
             await shrinkAlice(signal);
-            hidePointer();
             await wait(400, signal);
             conclude(BEATS.alice);
             // 人物浮窗与正文：两块都亮着，窗描一道细金线。
@@ -734,7 +765,7 @@ const BEAT_STEPS: readonly Beat[] = [
     },
     {
         copy: BEATS.move,
-        nominal: 6700,
+        nominal: 7700,
         async play(signal) {
             await whenReadyToPlay(signal);
             say(BEATS.move, "opening");
@@ -743,7 +774,6 @@ const BEAT_STEPS: readonly Beat[] = [
             await wait(1400, signal);
             if (!(await drag("explorer-entry", railDrop, signal, {before: darken, via: railVia}))) desk.value?.moveExplorer("auxiliarybar");
             darken();
-            hidePointer();
             await wait(900, signal);
             conclude(BEATS.move);
             await wait(2000, signal);
@@ -763,11 +793,9 @@ const BEAT_STEPS: readonly Beat[] = [
             await doubleTap("editor-head-blank", signal);
             if (desk.value?.isMaximized() !== true) desk.value?.setMaximized(INITIAL_EDITOR_PANEL);
             await wait(400, signal);
-            hidePointer();
             await wait(1900, signal);
             await doubleTap("editor-head-blank", signal);
             if (desk.value?.isMaximized() === true) desk.value.setMaximized(null);
-            hidePointer();
             await wait(500, signal);
             conclude(BEATS.focus);
             await wait(1800, signal);
@@ -860,6 +888,8 @@ function onPhase(event: ActOnePhase): void {
     phase.value = phaseText(event);
     if (!("beat" in event)) {
         stopClock();
+        // 停下了（访客按了暂停、动了工作台、舞台滚走）：演示指针收起。换拍打断的那一下（`interrupted`）紧接着演下一拍，指针留着。
+        if (event.kind === "paused") hidePointer();
         return;
     }
     const {kind, beat} = event;
@@ -868,6 +898,8 @@ function onPhase(event: ActOnePhase): void {
         railCurrent.value = beat;
         railDone.value = Math.max(railDone.value, Math.min(beat + 1, CHAPTERS.length));
         finished.value = beat === LAST_STEP;
+        // 交给访客：工作台归访客，演示指针收起。
+        if (finished.value) hidePointer();
         return;
     }
     finished.value = false;
@@ -888,7 +920,8 @@ function onPhase(event: ActOnePhase): void {
 function tidy(): void {
     hand()?.cancel();
     trail?.clear();
-    hidePointer();
+    // 指针不在这里收：拍与拍之间它留着（`parkPointer`），收起由 `onPhase` 在暂停与交给访客时做。
+    releasePointer();
     darken();
     marks.value = [];
     glow.value = null;
@@ -1816,26 +1849,29 @@ onBeforeUnmount(() => {
 }
 
 /*
- * ── 昼（第 6 轮）：字换成深墨，金换成更深的铜金（只给线与小字，正文守深墨），赤红照旧给主按钮。场景的日光与石墙在 `SanctumScene.vue`。
+ * ── 昼 ──
+ * 第 6 轮起白天的墙是亮的，字换成深墨。第 12 轮（开发者：首屏的上半部分还是米黄色）墙换成午后斜阳照着的虚焦胡桃木
+ * （`SanctumScene.vue`，@designer 第 12 轮方案 A），首屏的字与导航、窄屏的字幕与章节条跟着回到夜里那套浅色，只是金更暖。
+ * 按钮与昼夜开关照旧。
  */
 .hs--day {
-    --hs-gold: #8a5c1c;
-    --hs-gold-light: #8a5c1c;
-    background: #ddd0b8;
-    color: #2a1d12;
-    scrollbar-color: rgb(42 29 18 / 0.25) transparent;
+    --hs-gold: #dcae66;
+    --hs-gold-light: #efc97f;
+    background: #2e1a10;
 }
 
-.hs--day .hs-nav__brand {
-    color: #2a1d12;
+/* 导航压在窗光最亮的左上角：顶上一道深暖的渐变托住浅色字。 */
+.hs--day .hs-nav {
+    background: linear-gradient(rgb(30 15 8 / 0.55), rgb(30 15 8 / 0.18) 70%, transparent);
 }
 
 .hs--day .hs-nav__links a {
-    color: rgb(42 29 18 / 0.66);
+    color: rgb(245 231 208 / 0.74);
 }
 
+.hs--day .hs-nav__brand,
 .hs--day .hs-nav__links a:hover {
-    color: #2a1d12;
+    color: #f5e7d0;
 }
 
 .hs--day .hs-nav__daynight,
@@ -1846,30 +1882,21 @@ onBeforeUnmount(() => {
     color: #6f4a17;
 }
 
-.hs--day .hs-hero__tagline {
-    color: #7a1424;
-}
-
 .hs--day .hs-hero__title {
-    background: linear-gradient(180deg, #24170d 0%, #3b2614 58%, #6f4a17 100%);
+    background: linear-gradient(180deg, #fffaf0 0%, #fbf2e1 55%, #ecc68e 100%);
     background-clip: text;
 }
 
 .hs--day .hs-hero.is-lit > .hs-hero__title {
-    filter: drop-shadow(0 1px 14px rgb(255 248 230 / 0.55));
-}
-
-/* 花饰在亮墙上要沉一些才看得见（@designer 第 8 轮：浅底上的亮金几乎隐形）；第 10 轮从古铜提回暖古金（@designer 第 10 轮）。 */
-.hs--day .hs-hero__flourish {
-    filter: sepia(0.25) saturate(1.35) brightness(0.74) contrast(1.15);
+    filter: drop-shadow(0 2px 16px rgb(24 11 5 / 0.6));
 }
 
 .hs--day .hs-hero__lede {
-    color: rgb(36 24 14 / 0.82);
+    color: #e8d5b8;
 }
 
 .hs--day .hs-hero__note {
-    color: rgb(36 24 14 / 0.58);
+    color: rgb(232 213 184 / 0.62);
 }
 
 .hs-hand--day .hs-pointer {
@@ -1881,26 +1908,8 @@ onBeforeUnmount(() => {
 }
 
 /*
- * 窄屏白天的字幕与章节条压在首屏的亮墙上：字换深墨，金换古铜（@designer 第 8 轮：浅底上亮金看不出来）。
- * 宽屏落地以后四周是压深的胡桃木与酒红丝绒（第 10 轮），见下面那几条。
- */
-.hs--day .hs-rail {
-    --cr-gold: #8a5c1c;
-    --cr-gold-light: #6f4a17;
-    --cr-dim: rgb(110 70 20 / 0.58);
-    --cr-ink: rgb(42 29 18 / 0.72);
-    --cr-glow: rgb(168 118 47 / 0.25);
-    --cr-plate: rgb(255 248 232 / 0.72);
-    --cr-tip-core: #6f4a17;
-}
-
-.hs--day .hs-caption__line {
-    color: #24170d;
-}
-
-/*
- * 宽屏白天落地以后，眉题与章节条压在胡桃木与丝绒上（第 10 轮，开发者：白天少了华丽感，桌面压深了）：换成浅色的字与亮金，
- * 和夜里一个路数，只是更暖。眉题只在宽屏有；章节条窄屏也有，所以按宽屏限定。
+ * 白天的眉题与章节条压在胡桃木上（宽屏落地以后四周是案面，第 10 轮起；窄屏第 12 轮起压在虚焦的胡桃木墙上）：
+ * 浅色的字与亮金，和夜里一个路数，只是更暖。
  */
 .hs--day .hs-eyebrow__line {
     color: rgb(250 240 222 / 0.92);
@@ -1915,7 +1924,7 @@ onBeforeUnmount(() => {
     background: linear-gradient(transparent, #d8b06a, transparent);
 }
 
-.hs--day:not(.hs--narrow) .hs-rail {
+.hs--day .hs-rail {
     --cr-gold: #d8b06a;
     --cr-gold-light: #f0d79a;
     --cr-dim: rgb(240 214 160 / 0.42);
@@ -1926,15 +1935,7 @@ onBeforeUnmount(() => {
 }
 
 .hs--day .hs-next {
-    background: #ddd0b8;
-}
-
-.hs--day .hs-next__act {
-    color: #7a5420;
-}
-
-.hs--day .hs-next__note {
-    color: rgb(36 24 14 / 0.55);
+    background: #2e1a10;
 }
 
 /* ── 窄屏：首屏文字在上，工作台平放在下面；字幕在首屏文字退场后的上方 ── */

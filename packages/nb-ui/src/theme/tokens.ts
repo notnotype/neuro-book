@@ -46,7 +46,7 @@ export const nbRadiusTokens = ["--radius-control", "--radius-panel", "--radius-m
 /** `--elevation-menu` 是菜单与下拉的投影，缺省等于 `--elevation-popover`，主题可以单独收小。 */
 export const nbElevationTokens = ["--elevation-flat", "--elevation-popover", "--elevation-menu", "--elevation-dialog"] as const;
 
-/** 动效：prefers-reduced-motion 时时长全部降为 0 */
+/** 动效：prefers-reduced-motion 时有位移的时长降为 0，`--motion-fast`、`--motion-base` 留给颜色与透明度（设计语言“六、无障碍”） */
 export const nbMotionTokens = ["--motion-fast", "--motion-base", "--motion-enter", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out", "--motion-move", "--motion-layout", "--motion-dialog", "--motion-dialog-leave", "--ease-layout", "--ease-loop", "--ease-dialog-leave"] as const;
 
 /** 滚动条：自绘滑块与原生细滚动条共用的颜色（三档）与自绘滑块的粗细 */

@@ -4,7 +4,8 @@
  * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，分节的标题也是）、活动栏的入口（`data-tool-entry`；只含一个视图的另有 `data-tool-view`，拖的是那个视图；含几个视图的拖的是容器，只能在入口条里换序，输出 46）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）、视图自绘头的浮动窗里视图标出的拖动区（`data-window-drag`，中间隔着可交互元素的不算，`windowDragRegion`；整窗移动，docs/specs/workbench/views.md 输出 19 的“自绘头”）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
  * `data-no-drag-start` 只是不起拖（标签上的关闭按钮：拖动经过时它还在标签条里），被菜单、对话框挡住的不接收。编辑组的标签条写 `data-panel-strip`，它的多行、固定分区由编辑器量（`editorTabs`）。
  *
- * 入口条（输出 45、47、50）：侧轨的入口带（`[data-rail] [data-tool-band]`，左轨是侧栏的、右轨是右栏的）竖着排，底部面板的在卡片顶上（`data-region-strip`）横着排。
+ * 入口条（输出 45、47、50）：侧轨的入口带（`[data-rail] [data-tool-band]`，左轨是侧栏的、右轨是右栏的）收着时竖着排、视图段展开时横排在顶上
+ * （方向读 `data-tool-band-axis`，缺省竖排），底部面板的在卡片顶上（`data-region-strip`）横着排。
  * 怎么量按入口带的方向分，不按区域名。入口之间新建容器、换序或整个容器搬过来，入口上并入；
  * 判定与放下的结果在 `entry-drop`，这里量入口给它。入口条不走库的落点规则：条不是面板。入口条里并进来的那一节的头不算入口条，是那一节的标题行（输出 25 第 7 行）。
  *
@@ -516,8 +517,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const row = rectOf(element);
             // 被最大化的面板盖住的（叶 `inert`）、正在离开的入口条不是落点：指针下是盖在上面的那块面板，不是它。
             if (element === null || row === null || element.closest("[inert], [data-leaving]") !== null) return [];
-            // 侧轨的入口带竖着排，整条是落点，没有并进来的头。
-            if (element.hasAttribute("data-tool-band")) return [{region, axis: "y", row, groupEnd: row.bottom, merged: null, rect: row, entries: entriesIn(element, "y")}];
+            // 侧轨的入口带整条是落点，没有并进来的头；只有一个容器时展开着的入口带不画（量到的是空矩形，上面已经跳过）。
+            if (element.hasAttribute("data-tool-band")) {
+                const axis = element.getAttribute("data-tool-band-axis") === "x" ? "x" : "y";
+                return [{region, axis, row, groupEnd: axis === "y" ? row.bottom : row.right, merged: null, rect: row, entries: entriesIn(element, axis)}];
+            }
             const groupEnd = rectOf(element.querySelector("[data-region-entries]"))?.right ?? row.left;
             const merged = element.querySelector<HTMLElement>("[data-panel-head]")?.dataset.panelHead ?? null;
             return [{region, axis: "x", row, groupEnd, merged, rect: merged === null ? row : {...row, right: groupEnd}, entries: entriesIn(element, "x")}];

@@ -33,7 +33,7 @@ const withStack = (): boolean => props.scene === "stacked";
         </template>
         <template v-if="subject.slots.value.footer" #footer>
             <Button variant="secondary" @click="subject.write('model', 'open', false)">取消</Button>
-            <Button @click="subject.write('model', 'open', false)">创建</Button>
+            <Button variant="primary" @click="subject.write('model', 'open', false)">创建</Button>
         </template>
     </Dialog>
     <Dialog v-model:open="stackedOpen" size="sm" title="第二层" :show-cancel="true" data-lab-dialog-second @confirm="stackedOpen = false">

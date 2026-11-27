@@ -104,7 +104,8 @@ export function createApprovalHook(options: ApprovalHookOptions): ApproveHook {
         const scratch = files.layout.scratch.map((root) => address(files, root));
         const gate: GateClass | null = gated ? classify(info.effect, views, scratch) : null;
         const decided = decide({rules, gate, gateTexts: options.gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode, localWrite: isLocalWrite(info.effect, views, files.layout.localWrites.map((root) => address(files, root)))});
-        const request = {call, effect: info.effect, paths: views.views.flatMap((view) => view.paths)};
+        // `others` 各视图共用一份（只有路径与命令按视图分）。
+        const request = {call, effect: info.effect, paths: views.views.flatMap((view) => view.paths), subjects: views.views[0]?.others ?? []};
         let verdict: ApprovalVerdict;
         if (decided.verdict === "review") {
             const reviewed = await options.review(request, ctx);

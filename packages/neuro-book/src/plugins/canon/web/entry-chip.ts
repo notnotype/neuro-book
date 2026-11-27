@@ -8,7 +8,7 @@
 
 import {lexTags} from "@notnotype/nb-canon/grammar";
 
-import type {EntryTextValue} from "./components/entry-text";
+import type {EntryTextValue} from "./components/text/entry-text";
 
 export type ChipKind = "value" | "calc" | "if" | "ref" | "image" | "raw";
 export type ChipState = "value" | "unknown" | "incomplete" | "pending" | "uncomputed" | "deleted" | "missing-field" | "no-branch";

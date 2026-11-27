@@ -11,6 +11,8 @@ import {join} from "node:path";
 
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {EVAL_OBJECTS_POINT} from "../../shared/points";
 import type {AgentEvalObjectDeclaration} from "../../shared/points";
 
@@ -19,6 +21,8 @@ export interface EvalObject {
     readonly plugin: string;
     readonly summary: string;
     readonly docs?: string;
+    /** 界面上的说明（Profile 页的对象行）。 */
+    readonly description?: Text;
 }
 
 /** 一个方法：带 `global` 的工具在文档里的样子。 */
@@ -28,6 +32,8 @@ export interface EvalMethod {
     readonly description: string;
     readonly parameters: unknown;
     readonly returns?: unknown;
+    /** 失败码到 `details` 的形状（eval.md 输出 8、17）。 */
+    readonly errors?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -37,13 +43,13 @@ export interface EvalMethod {
 export function validEvalObjects(declarations: ContributionDeclarations, reserved: readonly string[], report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void): ReadonlyMap<string, EvalObject> {
     const byName = new Map<string, EvalObject[]>();
     for (const descriptor of declarations.list<AgentEvalObjectDeclaration>(EVAL_OBJECTS_POINT)) {
-        const {name, summary, docs} = descriptor.declaration;
+        const {name, summary, docs, description} = descriptor.declaration;
         if (reserved.includes(name) || name in globalThis) {
             report("eval-object-conflict", `the eval object ${name} of ${descriptor.plugin} clashes with a name the kernel already has; it is left out`, {name, plugin: descriptor.plugin});
             continue;
         }
         const list = byName.get(name) ?? [];
-        list.push({name, plugin: descriptor.plugin, summary, ...(docs === undefined ? {} : {docs})});
+        list.push({name, plugin: descriptor.plugin, summary, ...(docs === undefined ? {} : {docs}), ...(description === undefined ? {} : {description})});
         byName.set(name, list);
     }
     const valid = new Map<string, EvalObject>();
@@ -64,6 +70,8 @@ export function objectDoc(object: EvalObject, methods: readonly EvalMethod[]): s
     for (const method of [...methods].sort((a, b) => a.method.localeCompare(b.method))) {
         lines.push(`### ${object.name}.${method.method}`, "", "```ts", `${method.method}(args: ${tsType(method.parameters)}): Promise<${method.returns === undefined ? "string" : tsType(method.returns)}>`, "```", "");
         if (method.description.trim() !== "") lines.push(method.description.trim(), "");
+        const errors = Object.entries(method.errors ?? {}).sort(([a], [b]) => a.localeCompare(b));
+        if (errors.length > 0) lines.push("失败时 `ToolCallError.details` 的形状，按 `code`：", "", "```ts", ...errors.map(([code, schema]) => `${JSON.stringify(code)}: ${tsType(schema)}`), "```", "");
     }
     return `${lines.join("\n").trimEnd()}\n`;
 }
@@ -84,15 +92,16 @@ export async function writeEvalDocs(directory: string, docs: ReadonlyMap<string,
 
 /**
  * JSON Schema 到 TypeScript 类型的打印（技术选型：工具参数是 TypeBox 生成的 JSON Schema，只用到下面这几种）。认不出的写 `unknown`，
- * 宁可宽也不写错。
+ * 宁可宽也不写错。对象里有字段带 `description` 或 `default`（含更深一层的）时分行写、字段前写 JSDoc（eval.md 输出 17）；
+ * 都没有的仍是一行，现有方法的签名不变。`indent` 是这个类型所在那一行的缩进。
  */
-export function tsType(schema: unknown): string {
+export function tsType(schema: unknown, indent = ""): string {
     if (typeof schema !== "object" || schema === null) return "unknown";
     const node = schema as Record<string, unknown>;
     if ("const" in node) return JSON.stringify(node.const);
     if (Array.isArray(node.enum)) return node.enum.map((value) => JSON.stringify(value)).join(" | ");
-    for (const key of ["anyOf", "oneOf"] as const) if (Array.isArray(node[key])) return (node[key] as unknown[]).map(tsType).join(" | ");
-    if (Array.isArray(node.type)) return (node.type as unknown[]).map((type) => tsType({...node, type})).join(" | ");
+    for (const key of ["anyOf", "oneOf"] as const) if (Array.isArray(node[key])) return (node[key] as unknown[]).map((item) => tsType(item, indent)).join(" | ");
+    if (Array.isArray(node.type)) return (node.type as unknown[]).map((type) => tsType({...node, type}, indent)).join(" | ");
     switch (node.type) {
         case "string":
             return "string";
@@ -104,20 +113,55 @@ export function tsType(schema: unknown): string {
         case "null":
             return "null";
         case "array": {
-            const items = tsType(node.items);
+            const items = tsType(node.items, indent);
             return items.includes(" ") ? `Array<${items}>` : `${items}[]`;
         }
         case "object": {
-            const properties = (node.properties ?? {}) as Record<string, unknown>;
+            const properties = Object.entries((node.properties ?? {}) as Record<string, unknown>);
             const required = new Set(Array.isArray(node.required) ? (node.required as string[]) : []);
-            const fields = Object.entries(properties).map(([key, value]) => `${/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(key) ? key : JSON.stringify(key)}${required.has(key) ? "" : "?"}: ${tsType(value)}`);
-            const extra = node.additionalProperties;
-            if (typeof extra === "object" && extra !== null) fields.push(`[key: string]: ${tsType(extra)}`);
-            return fields.length === 0 ? "{}" : `{${fields.join("; ")}}`;
+            const extra = typeof node.additionalProperties === "object" && node.additionalProperties !== null ? node.additionalProperties : undefined;
+            const key = (name: string): string => `${/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name) ? name : JSON.stringify(name)}${required.has(name) ? "" : "?"}`;
+            if (!properties.some(([, value]) => documented(value)) && (extra === undefined || !documented(extra))) {
+                const fields = properties.map(([name, value]) => `${key(name)}: ${tsType(value)}`);
+                if (extra !== undefined) fields.push(`[key: string]: ${tsType(extra)}`);
+                return fields.length === 0 ? "{}" : `{${fields.join("; ")}}`;
+            }
+            const inner = `${indent}    `;
+            const lines = properties.flatMap(([name, value]) => {
+                const doc = fieldDoc(value);
+                return [...(doc === null ? [] : [`${inner}/** ${doc} */`]), `${inner}${key(name)}: ${tsType(value, inner)};`];
+            });
+            if (extra !== undefined) lines.push(`${inner}[key: string]: ${tsType(extra, inner)};`);
+            return `{\n${lines.join("\n")}\n${indent}}`;
         }
         default:
             return "unknown";
     }
+}
+
+/** 字段前的 JSDoc：说明加缺省值。说明里的星号加斜杠会提前结束注释，在斜杠前加反斜杠；换行折成空格。 */
+function fieldDoc(schema: unknown): string | null {
+    if (typeof schema !== "object" || schema === null) return null;
+    const node = schema as Record<string, unknown>;
+    const description = typeof node.description === "string" ? node.description.replace(/\s*\r?\n\s*/gu, " ").trim() : "";
+    const fallback = "default" in node ? `缺省 ${JSON.stringify(node.default)}` : "";
+    const text = description === "" ? fallback : fallback === "" ? description : `${description}（${fallback}）`;
+    return text === "" ? null : text.replaceAll("*/", "*\\/");
+}
+
+/** 这个 schema 或它里面的字段有没有要写进 JSDoc 的东西。 */
+function documented(schema: unknown): boolean {
+    if (typeof schema !== "object" || schema === null) return false;
+    if (fieldDoc(schema) !== null) return true;
+    const node = schema as Record<string, unknown>;
+    const children = [
+        ...Object.values((node.properties ?? {}) as Record<string, unknown>),
+        node.items,
+        node.additionalProperties,
+        ...(Array.isArray(node.anyOf) ? node.anyOf : []),
+        ...(Array.isArray(node.oneOf) ? node.oneOf : []),
+    ];
+    return children.some(documented);
 }
 
 // ─── eval 的说明 ─────────────────────────────────────────────

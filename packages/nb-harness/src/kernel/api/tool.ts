@@ -126,6 +126,11 @@ export interface ToolContext {
     readonly invoke?: (tool: string, args: Readonly<Record<string, unknown>>, options?: InvokeOptions) => Promise<NestedOutcome>;
     /** 这是一次嵌套调用：父调用的工具 id 与 `invocation`。 */
     readonly within?: {readonly tool: string; readonly invocation: string};
+    /**
+     * 嵌套调用才有（runtime.md 输出 90）：`promise` 未结算期间这次调用算在等用户，经父工具给的 `onWaiting` 报出去（例如 eval
+     * 的时限暂停）；交回同一个结局。这次调用结算或被取消时，还没收回的等待一并收回。等用户期间仍占着并发名额（输出 98）。
+     */
+    readonly waitingForUser?: <T>(promise: Promise<T>) => Promise<T>;
     /** 这一批调用开始时会话里 `leafChanged` 的条数（输出 102）：跨调用保留状态的工具据此知道两次调用之间叶子有没有被移动过。 */
     readonly leafMoves: number;
 }

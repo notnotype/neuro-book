@@ -287,7 +287,7 @@ watch(selected, () => {
                         {{ selected }}<span class="i-lucide-copy" aria-hidden="true" />
                     </button>
                 </div>
-                <Button size="sm" :disabled="selected === null || selectedOnPath || !props.canActivate" data-tree-activate @click="activate">{{ t("panel.tree.activate") }}</Button>
+                <Button variant="primary" size="sm" :disabled="selected === null || selectedOnPath || !props.canActivate" data-tree-activate @click="activate">{{ t("panel.tree.activate") }}</Button>
             </footer>
         </template>
     </div>

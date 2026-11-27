@@ -480,7 +480,7 @@ const toggleLabel = (group: DisplayGroup): string => port.t(tasksText(group.coll
 
 /*
  * 组与行的出现、消失与挪位（提供方清掉一行、会话结束整块消失、换范围）：进来的淡入；离开的脱离排版、原处淡出，其余的从原位滑到新位置。
- * 系统减少动态效果时 token 是 0。这几条放在最后、带上视图的类：会话块自己的底色过渡选择器更具体，排在前面会把它们盖掉；
+ * 系统减少动态效果时挪位的 `--motion-move` 是 0，淡入淡出照常。这几条放在最后、带上视图的类：会话块自己的底色过渡选择器更具体，排在前面会把它们盖掉；
  * `TransitionGroup` 拿第一个子元素（常是会话块）判断有没有 transform 过渡，判成没有就整组不做挪位。
  */
 .tasks-view .tasks-motion-enter-active {

@@ -396,4 +396,11 @@ function handleWheel(event: WheelEvent): void {
 .nb-ui-tabs-scroll[data-fade-start][data-fade-end] {
     mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
 }
+
+/* 减弱动效：菜单箭头直接转到位，只留显隐的淡入淡出（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-tabs-menu-mark {
+        transition: opacity var(--motion-fast) var(--ease-layout);
+    }
+}
 </style>

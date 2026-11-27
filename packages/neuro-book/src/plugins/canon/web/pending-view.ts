@@ -51,7 +51,7 @@ export interface PendingViewOptions {
 export function createPendingView(options: PendingViewOptions): ViewImplementation {
     return {
         load: async () => {
-            const Host = (await import("./components/PendingViewHost.vue")).default;
+            const Host = (await import("./components/revisions/PendingViewHost.vue")).default;
             return defineComponent({
                 name: "CanonPendingView",
                 props: viewContextProp,

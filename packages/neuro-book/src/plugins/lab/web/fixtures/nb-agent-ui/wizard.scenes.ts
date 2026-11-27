@@ -5,7 +5,7 @@ import {createAgentContext} from "@notnotype/nb-agent-ui";
 import type {CompactionView, PendingApprovalView, PendingModeSwitchView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
 import type {AgentApprovalWizard, AgentCompactionDetail, AgentDock, AgentModeSwitchWizard, AgentQuestionWizard, AgentStatusBar, AgentWizard, AgentWizardFrame} from "@notnotype/nb-agent-ui/lab";
 
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 
 const EMPTY = {collapsed: false, step: 0, approvals: {}, notes: {}, answers: {}};
 const approval: PendingApprovalView = {kind: "approval", id: "a", toolCallId: "c-a", tool: "edit", args: {path: "project://正文/第三章.md"}, preview: {state: "ready", files: [{address: "project://正文/第三章.md", kind: "diff", before: "他没有回头。", after: "他回头看了一眼。"}]}};
