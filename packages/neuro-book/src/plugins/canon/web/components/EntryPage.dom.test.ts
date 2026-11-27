@@ -111,7 +111,7 @@ describe("EntryPage", () => {
         expect(wrapper.emitted("aliases")).toEqual([[{add: ["夜王"]}], [{add: ["哥哥大人"]}]]);
     });
 
-    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的组时分页条后面有“＋”（在 tablist 外面），点了开“添加一组设定”浮层并发 add-open；更多里没有“添加一组设定”", async () => {
+    it("横排的分页带图标，第一个看法前有分段；可编辑又有能加的组时分页条后面有“＋”（在 tablist 外面、标着开对话框），点了发 add-dialog；更多里没有“添加一组设定”", async () => {
         const wrapper = page({
             editable: true,
             tabs: [
@@ -121,11 +121,6 @@ describe("EntryPage", () => {
             ],
             tab: "text",
             addable: [{value: "nbook.canon.look", label: "形象"}],
-            pickerItems: [
-                {value: "nbook.canon.person", label: "人物", iconClass: "i-lucide-user-round", group: "canon", fits: true, present: true, restore: false},
-                {value: "nbook.canon.look", label: "形象", iconClass: "i-lucide-shirt", group: "canon", fits: true, present: false, restore: false},
-            ],
-            kind: "人物",
         });
         const tabs = wrapper.findAll("[role='tablist'] [role='tab']").filter((tab) => tab.attributes("data-tab-value") !== undefined);
         const segments = new Map(tabs.map((tab) => [tab.attributes("data-tab-value"), tab.attributes("data-segment-start") !== undefined]));
@@ -133,39 +128,11 @@ describe("EntryPage", () => {
         expect(wrapper.find("[role='tablist'] .i-lucide-user-round").exists()).toBe(true);
         expect(wrapper.find("[role='tablist'] [data-add-component]").exists()).toBe(false);
         const add = wrapper.get("[data-add-component]");
+        expect(add.attributes("aria-haspopup")).toBe("dialog");
         await add.trigger("click");
-        await flushPromises();
-        expect(wrapper.emitted("add-open")).toHaveLength(1);
-        expect(add.attributes("aria-expanded")).toBe("true");
-        // 选一项：发 add-component，浮层关上，焦点回到“＋”。
-        document.querySelector<HTMLElement>("[role='option']")!.click();
-        await flushPromises();
-        expect(wrapper.emitted("add-component")).toEqual([["nbook.canon.look"]]);
-        expect(add.attributes("aria-expanded")).toBe("false");
-        expect(document.activeElement).toBe(add.element);
-        // 再开、搜到已经有的一组选它：发 show-component；再点一下“＋”关上，不再发 add-open。
-        await add.trigger("click");
-        await flushPromises();
-        const search = document.querySelector<HTMLInputElement>("[data-suggestion-menu-header] input")!;
-        search.value = "人物";
-        search.dispatchEvent(new Event("input"));
-        await flushPromises();
-        search.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
-        await flushPromises();
-        expect(wrapper.emitted("show-component")).toEqual([["nbook.canon.person"]]);
-        // Tab 离开搜索框：浮层关上，焦点先回到“＋”（Tab 的默认动作再从它往下走），不留在被卸掉的搜索框上。
-        await add.trigger("click");
-        await flushPromises();
-        const opened = document.querySelector<HTMLInputElement>("[data-suggestion-menu-header] input")!;
-        expect(document.activeElement).toBe(opened);
-        opened.dispatchEvent(new KeyboardEvent("keydown", {key: "Tab", bubbles: true}));
-        await flushPromises();
-        expect(add.attributes("aria-expanded")).toBe("false");
-        expect(document.activeElement).toBe(add.element);
-        await add.trigger("click");
-        await add.trigger("click");
-        expect(wrapper.emitted("add-open")).toHaveLength(4);
-        expect(add.attributes("aria-expanded")).toBe("false");
+        expect(wrapper.emitted("add-dialog")).toHaveLength(1);
+        // 对话框归宿主：这里只发事件，不另记版本（宿主开对话框时自己记）。
+        expect(wrapper.emitted("add-open")).toBeUndefined();
         const more = wrapper.findAllComponents(DropdownMenu).find((menu) => (menu.props("items") as {id: string}[]).some((item) => item.id === "delete"))!;
         expect((more.props("items") as {id: string}[]).map((item) => item.id)).not.toContain("add-component");
         // 没有能加的组时不出“＋”。
@@ -198,6 +165,82 @@ describe("EntryPage", () => {
         // 文字分页不是一组设定：没有“去掉”。
         await tabOf("text").trigger("contextmenu", {clientX: 5, clientY: 6});
         expect((menu().props("items") as Item[]).map((item) => item.label)).toEqual(["添加一组设定"]);
+    });
+
+    it("看法菜单（输出 9、54）：能换看法的分页留箭头格、选中的显出；选中的再点开菜单、再点关上；选了发 update:look，焦点回分页；不在缺省看法时分页上写看法名；右键菜单里也有；换分页关上", async () => {
+        const looks = [{value: "card", label: "用户视图"}, {value: "agent", label: "AI视图"}, {value: "raw", label: "原始视图"}];
+        const wrapper = page({
+            editable: true,
+            tabs: [
+                {value: "data:character", label: "人物", iconClass: "i-lucide-user-round", segment: "own", removable: true, looks: true},
+                {value: "data:look", label: "形象", iconClass: "i-lucide-shirt", segment: "own", removable: true, looks: true},
+                {value: "text", label: "文字", iconClass: "i-lucide-file-text", segment: "own"},
+            ],
+            tab: "data:character",
+            looks,
+            look: "card",
+        });
+        await flushPromises();
+        const tabOf = (value: string) => wrapper.findAll(`[role='tab'][data-tab-value='${value}']`)[0]!;
+        const lookMenu = () => wrapper.findAllComponents(ContextMenu)[1]!;
+        const radios = () => [...document.body.querySelectorAll<HTMLElement>("[role='menuitemradio']")];
+        expect(["data:character", "data:look"].map((value) => tabOf(value).get(".nb-ui-tabs-menu-mark").attributes("data-shown") ?? null)).toEqual(["", null]);
+        expect(tabOf("text").find(".nb-ui-tabs-menu-mark").exists()).toBe(false);
+
+        // 没选中的分页点了只是选中。
+        await tabOf("data:look").trigger("click");
+        expect(wrapper.emitted("update:tab")).toEqual([["data:look"]]);
+        expect(lookMenu().props("open")).toBe(false);
+
+        // 选中的再点：开菜单，三项单选、勾着现在的；再点同一页关上。
+        await tabOf("data:character").trigger("click");
+        await flushPromises();
+        expect(lookMenu().props("open")).toBe(true);
+        expect(tabOf("data:character").attributes("aria-expanded")).toBe("true");
+        expect(radios().map((item) => [item.textContent?.trim(), item.getAttribute("aria-checked")])).toEqual([["用户视图", "true"], ["AI视图", "false"], ["原始视图", "false"]]);
+        await tabOf("data:character").trigger("click");
+        expect(lookMenu().props("open")).toBe(false);
+
+        // 选一种：发 update:look，菜单关上，焦点回到选中的分页。
+        await tabOf("data:character").trigger("click");
+        await flushPromises();
+        radios()[1]!.click();
+        await flushPromises();
+        expect(wrapper.emitted("update:look")).toEqual([["agent"]]);
+        expect(lookMenu().props("open")).toBe(false);
+        expect(document.activeElement).toBe(tabOf("data:character").element);
+        await wrapper.setProps({look: "agent"});
+        expect(tabOf("data:character").text()).toContain("AI视图");
+
+        // Escape 关上、焦点回分页；点外面关上、焦点不动。
+        await tabOf("data:character").trigger("click");
+        await flushPromises();
+        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        await flushPromises();
+        expect(lookMenu().props("open")).toBe(false);
+        expect(document.activeElement).toBe(tabOf("data:character").element);
+        await tabOf("data:character").trigger("click");
+        await flushPromises();
+        const elsewhere = document.createElement("button");
+        document.body.append(elsewhere);
+        elsewhere.focus();
+        elsewhere.click();
+        await flushPromises();
+        expect(lookMenu().props("open")).toBe(false);
+        expect(document.activeElement).toBe(elsewhere);
+
+        // 换了选中的分页：菜单关上。
+        await tabOf("data:character").trigger("click");
+        expect(lookMenu().props("open")).toBe(true);
+        await wrapper.setProps({tab: "data:look", look: "card"});
+        expect(lookMenu().props("open")).toBe(false);
+        expect(tabOf("data:look").text()).not.toContain("视图");
+
+        // 右键一个能换看法的分页：菜单里也有这三项，在“去掉这组设定”之前。
+        await tabOf("data:look").trigger("contextmenu", {clientX: 5, clientY: 6});
+        type Item = {label?: string; separator?: boolean; type?: string; checked?: boolean};
+        const items = wrapper.findAllComponents(ContextMenu)[0]!.props("items") as Item[];
+        expect(items.map((item) => (item.separator === true ? "|" : `${item.label ?? ""}${item.type === "radio" ? (item.checked === true ? "●" : "○") : ""}`))).toEqual(["用户视图●", "AI视图○", "原始视图○", "|", "去掉“形象”这组设定"]);
     });
 
     it("读取中、读取失败、找不到、已删除各只有一句，没有页头控件与分页", () => {

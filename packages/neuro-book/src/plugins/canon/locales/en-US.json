@@ -128,10 +128,9 @@
         "fieldRemoved": "Removed “{{label}}” from {{name}}",
         "fieldRestored": "Restored “{{label}}” on {{name}}",
         "views": {
-            "label": "View this group as",
-            "card": "Cards",
-            "agent": "As the AI sees it",
-            "raw": "Raw data",
+            "card": "User view",
+            "agent": "AI view",
+            "raw": "Raw view",
             "agentPosition": "Viewing: {{position}}",
             "rawHead": "As stored; doesn’t follow the viewing position",
             "initial": "Initial value",
@@ -149,10 +148,17 @@
             "plot": "Plot",
             "other": "Plugins",
             "added": "Added",
-            "none": "No settings group called “{{query}}”"
+            "none": "No settings group called “{{query}}”",
+            "title": "Add settings groups",
+            "submit": "Add {{count}}",
+            "submitNone": "Add",
+            "presets": "Presets",
+            "list": "Settings groups"
         },
         "addComponentShort": "Add a settings group",
         "groupAlreadyAdded": "This settings group is already on the entry",
+        "groupAlreadyAddedNamed": "The “{{name}}” group is already on the entry",
+        "groupsAdded": "Add the {{names}} groups",
         "menuChangedElsewhere": "This entry was changed elsewhere after the menu opened. Choose again."
     },
     "position": {

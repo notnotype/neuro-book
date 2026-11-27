@@ -18,8 +18,11 @@ export interface ContextMenuItem {
     title?: string;
     /** danger 用于删除等破坏性动作 */
     tone?: Extract<Tone, "neutral" | "danger">;
-    /** checkbox：画成勾选项（`menuitemcheckbox`），勾选态由 checked 受控，组件不代为切换 */
-    type?: "item" | "checkbox";
+    /**
+     * checkbox：画成勾选项（`menuitemcheckbox`）；radio：一组里选一项（`menuitemradio`）。勾选态由 checked 受控，组件不代为切换，
+     * 也不替 radio 做组内互斥。
+     */
+    type?: "item" | "checkbox" | "radio";
     checked?: boolean;
     /** 为 true 时渲染为分隔线，忽略其它字段 */
     separator?: boolean;

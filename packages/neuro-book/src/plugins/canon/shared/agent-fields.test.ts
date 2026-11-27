@@ -1,5 +1,5 @@
 /**
- * 给模型看的条目字段（`agent-fields.ts`；docs/specs/canon/agent-tools.md 的 `canon_read`，author-ui 输出 54 的“给 AI 看”）：只出一组时
+ * 给模型看的条目字段（`agent-fields.ts`；docs/specs/canon/agent-tools.md 的 `canon_read`，author-ui 输出 54 的“AI视图”）：只出一组时
  * 那一节与整条目读到的那一节逐字相同，说整个条目的两行（以后才启用、去掉过）不出；只读的组、可以加字段的组、条目上自己加的字段照写。
  * 后端经真实世界的整条输出由 `agent-tools.test.ts` 管，这里直接喂条目视图。
  */

@@ -128,10 +128,9 @@
         "fieldRemoved": "去掉了{{name}}的“{{label}}”",
         "fieldRestored": "恢复了{{name}}的“{{label}}”",
         "views": {
-            "label": "这一组怎么看",
-            "card": "卡片",
-            "agent": "给 AI 看",
-            "raw": "原始数据",
+            "card": "用户视图",
+            "agent": "AI视图",
+            "raw": "原始视图",
             "agentPosition": "在看：{{position}}",
             "rawHead": "存下来的原样，不随“在看”变",
             "initial": "初值",
@@ -149,10 +148,17 @@
             "plot": "剧情",
             "other": "插件",
             "added": "已添加",
-            "none": "没有叫“{{query}}”的设定组"
+            "none": "没有叫“{{query}}”的设定组",
+            "title": "添加设定组",
+            "submit": "添加 {{count}} 组",
+            "submitNone": "添加",
+            "presets": "预设",
+            "list": "设定组"
         },
         "addComponentShort": "添加一组设定",
         "groupAlreadyAdded": "这组设定已经加上了",
+        "groupAlreadyAddedNamed": "“{{name}}”这组设定已经加上了",
+        "groupsAdded": "加上{{names}}这几组设定",
         "menuChangedElsewhere": "这个条目在菜单打开以后被别处改过，再选一次"
     },
     "position": {

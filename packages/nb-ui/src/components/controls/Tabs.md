@@ -30,6 +30,8 @@
   - 当前值不落在任何启用项内时（例如它指向一个禁用项，或指向已被移除的值），`ArrowRight` 落到第一个启用项，`ArrowLeft` 落到最后一个（与 `SegmentedControl` 相同）。
   - 全部标签都禁用时，方向键与 `Home` / `End` 不做任何事。
 - 焦点模型是 roving tabindex：只有选中项 `tabindex="0"`，其余（含禁用项）都是 `-1`，整条标签栏只有一个 Tab 停靠点。
+- **标签上的菜单**（`menu`）：一个去处另有几种看法时（例如一组设定可以换着看用户视图、AI视图、原始视图），看法挂在这个标签上，不另放分段按钮。带 `menu` 的标签在标题后留一格向下的箭头：选中时显出，没选中时透明但占位，换选中项时别的标签不挪；`open` 为真时箭头转半圈。选中的这个标签再被点（含 Enter、Space 在按钮上触发的点击，不另挂按键）或按 ArrowDown 时发 `menu(value, 标签元素)`，没选中时点它照旧只是选中（第一次点是选中，第二次点才是菜单）。只有选中的带菜单标签写 `aria-haspopup="menu"` 与 `aria-expanded`。菜单本身由消费方画（例如锚在这个标签上的右键菜单），本组件不画、不管它的开关。
+- **附注**（`note`）：标题后弱一号颜色的一段字（例如这一页现在的看法），读屏名里与标题隔开。出现与消失时宽度有过渡（从 0 到字的宽度，消失时收完才拿掉），后面的标签滑开而不是跳开；换字时直接换；截断时先截它。
 - `adapt` 时方向键照样在全部启用项之间移动（含收进“更多”的）：选中的那个会换到标签带里，焦点跟过去。“更多”是标签栏之后的一个按钮（不在 `tablist` 里），打开的下拉列出收起来的标签（图标加全名），选中发 `update:modelValue`。截断与只留图标时标签带 `title` 显示全名，只留图标时 `aria-label` 是全名。
 
 无障碍：容器是 `role="tablist"`，`ariaLabel` 非空时同时设 `aria-label`（默认为空，此时标签栏没有可访问名）；每个标签是 `role="tab"` 并带 `aria-selected`。组件不生成 `id`，也不渲染 `role="tabpanel"` 的内容区：消费方给标签项传 `id` 与 `controls`，组件原样写到标签的 `id` 与 `aria-controls`，内容面板的 `role="tabpanel"`、`aria-labelledby` 与显隐由消费方负责。
@@ -53,8 +55,12 @@ export type TabsItem = {
     id?: string;
     /** 这个标签控制的内容面板 id，写到 aria-controls；默认不设 */
     controls?: string;
-    /** 写到这个标签元素上的额外属性（data-*、aria-roledescription 等）；与组件自己管的属性（role、id、aria-selected、aria-controls、tabindex、disabled、type、data-tab-value）同名时以组件为准 */
+    /** 写到这个标签元素上的额外属性（data-*、aria-roledescription 等）；与组件自己管的属性（role、id、aria-selected、aria-controls、tabindex、disabled、type、data-tab-value、aria-haspopup、aria-expanded）同名时以组件为准 */
     attrs?: Readonly<Record<string, string>>;
+    /** 标签上的菜单（见“交互”）；`open` 是菜单此刻开着，受控。默认没有 */
+    menu?: {open: boolean};
+    /** 标题后的附注（见“交互”）；默认没有 */
+    note?: string;
 };
 
 export type TabsSize = "sm" | "md";
@@ -79,8 +85,10 @@ type TabsProps = {
 };
 
 type TabsEmits = {
-    /** 点击启用项，或方向键 / Home / End 移动选中项时发出；参数是新的 value */
+    /** 点击启用项，或方向键 / Home / End 移动选中项时发出；参数是新的 value。选中的带菜单标签再被点时不发它，发 `menu` */
     (event: "update:modelValue", value: string): void;
+    /** 选中的、带 `menu` 的标签再被点或按 ArrowDown；`element` 是这个标签元素，消费方把菜单贴着它画 */
+    (event: "menu", value: string, element: HTMLElement): void;
 };
 ```
 
@@ -98,7 +106,7 @@ type TabsEmits = {
 - 不支持内容面板：不渲染 `tabpanel`；关联用的 `id` 与 `aria-controls` 由消费方经标签项传入，组件不生成。
 - 不支持换行：标签过多时横向滚动或逐级让位，不做多行排列。
 - 不支持往“更多”里拖放：收起来的标签不在标签栏里，拖放的插入位只在看得见的标签之间与末尾。
-- 不支持关闭按钮、拖拽重排、溢出菜单（没有 `closable` / `draggable` / 「更多」入口）。拖动由消费方经 `attrs` 写标记自己接，组件不认识拖动。
+- 不支持关闭按钮、拖拽重排（没有 `closable` / `draggable`）。标签上的菜单只发事件，菜单本身由消费方画。拖动由消费方经 `attrs` 写标记自己接，组件不认识拖动。
 - 不支持纯图标标签（`label` 必填）与垂直朝向（没有 `orientation`）。
 
 ## 注意事项

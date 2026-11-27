@@ -68,6 +68,7 @@ export {default as Slider} from "./form/Slider.vue";
 
 export type {ButtonSize, ButtonVariant} from "./controls/Button.vue";
 export type {CopyButtonState} from "./controls/CopyButton.vue";
+export type {PopoverReference} from "./feedback/Popover.vue";
 export type {DropdownMenuItemData, DropdownMenuItemType} from "./popup/dropdown-menu.types";
 export type {IconButtonSize, IconButtonVariant} from "./controls/IconButton.vue";
 export type {FocusRingStyle} from "./controls/focus-ring";

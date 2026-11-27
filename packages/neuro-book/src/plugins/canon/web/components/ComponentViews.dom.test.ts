@@ -1,6 +1,6 @@
 /**
- * 设定组的两种看法（ComponentAgentView、ComponentRawView，同名 .md，docs/specs/canon/author-ui.md 输出 54）：给 AI 看的字原样摆出、
- * 头一行写在看的位置、读取中与读失败；原始数据的初值、变更、空的与各自读取中的写法，“再显示”与“重试”。接到条目页上的读取在 entry-page.dom.test。
+ * 设定组的两种看法（ComponentAgentView、ComponentRawView，同名 .md，docs/specs/canon/author-ui.md 输出 54）：AI视图把给模型的字原样摆出、
+ * 头一行写在看的位置、读取中与读失败；原始视图的初值、变更、空的与各自读取中的写法，“再显示”与“重试”。接到条目页上的读取在 entry-page.dom.test。
  */
 
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
