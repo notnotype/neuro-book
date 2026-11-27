@@ -1,5 +1,5 @@
 /**
- * 给模型看的条目字段（docs/specs/canon/agent-tools.md 的 `canon_read`；作者界面的“给 AI 看”，author-ui 输出 54）：每个设定组一节、
+ * 给模型看的条目字段（docs/specs/canon/agent-tools.md 的 `canon_read`；作者界面的“AI视图”，author-ui 输出 54）：每个设定组一节、
  * 每个字段一行。后端的 Agent 工具与条目页用同一个函数，两边写出来的是同一段字。纯函数，不碰世界；字数上限在这里截。
  */
 

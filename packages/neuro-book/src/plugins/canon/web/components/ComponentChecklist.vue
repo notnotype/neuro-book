@@ -79,8 +79,11 @@ const toggle = (item: ChecklistItem): void => {
     emit("update:modelValue", props.modelValue.includes(item.value) ? props.modelValue.filter((value) => value !== item.value) : [...props.modelValue, item.value], "row");
 };
 const presetUseful = (preset: ChecklistPreset): boolean => withPreset(props.modelValue, preset, props.items).length > props.modelValue.length;
+// 点预设不让焦点离开搜索框（按钮上 `mousedown.prevent`）；用键盘按的，按完把焦点交回搜索框：这个预设随即不可用，焦点不能留在
+// 一个被禁用的按钮上。
 const applyPreset = (preset: ChecklistPreset): void => {
     emit("update:modelValue", withPreset(props.modelValue, preset, props.items), "preset");
+    search.value?.querySelector("input")?.focus();
 };
 
 const move = (step: number): void => {
@@ -90,7 +93,8 @@ const move = (step: number): void => {
     activeId.value = all[at < 0 ? (step > 0 ? 0 : all.length - 1) : (at + step + all.length) % all.length]!.value;
 };
 const onKeydown = (event: KeyboardEvent): void => {
-    if (event.isComposing) return;
+    // 组字中的按键不处理；WebKit 在组字结束后才发选词的那次 Enter，`isComposing` 已是假，要再看 keyCode 229（同 nb-ui SearchSelect）。
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         move(event.key === "ArrowDown" ? 1 : -1);
@@ -112,6 +116,8 @@ const activeOption = computed(() => (activeId.value !== null && options.value.so
 const searching = shallowRef(false);
 const pointing = shallowRef(false);
 const engaged = computed(() => searching.value || pointing.value);
+/** 选定的种类变了（新建对话框里换种类）：列表淡出淡入地换成新的分组，不瞬间重排。打字筛选时不换。 */
+const groupsKey = computed(() => (squeeze(query.value) === "" ? `kind:${props.kind.trim()}` : "search"));
 
 defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
 </script>
@@ -132,10 +138,17 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
                 @update:model-value="(value: string) => (query = value)"
             />
         </div>
-        <div v-if="props.presets.length > 0" class="component-checklist__presets" role="group" :aria-label="text('entry.addGroup.presets')" data-checklist-presets>
-            <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" :disabled="!presetUseful(preset)" :data-preset="preset.id" @click="applyPreset(preset)">{{ preset.label }}</Button>
-        </div>
+        <!-- 预设一排随种类出现、消失时收放（新建对话框里换种类），不顶着下面的列表跳。 -->
+        <Transition name="component-checklist-presets">
+            <div v-if="props.presets.length > 0" class="component-checklist__presets-wrap">
+                <div class="component-checklist__presets" role="group" :aria-label="text('entry.addGroup.presets')" data-checklist-presets>
+                    <Button v-for="preset in props.presets" :key="preset.id" size="sm" variant="secondary" :disabled="!presetUseful(preset)" :data-preset="preset.id" @mousedown.prevent @click="applyPreset(preset)">{{ preset.label }}</Button>
+                </div>
+            </div>
+        </Transition>
         <div :id="listId" ref="list" class="component-checklist__list" role="listbox" @pointerleave="pointing = false" aria-multiselectable="true" :aria-label="text('entry.addGroup.list')" :style="props.maxHeight === undefined ? undefined : {maxHeight: props.maxHeight}">
+            <Transition name="nb-ui-switch" mode="out-in">
+            <div :key="groupsKey">
             <div v-for="group in groups" :key="group.id" role="group" :aria-label="group.label ?? undefined">
                 <div v-if="group.label !== null" class="nb-ui-menu-label" aria-hidden="true">{{ group.label }}</div>
                 <div
@@ -158,6 +171,8 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
                     <span v-if="item.present" class="shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("entry.addGroup.added") }}</span>
                 </div>
             </div>
+            </div>
+            </Transition>
             <p v-if="options.length === 0" class="component-checklist__empty">{{ text("entry.addGroup.none", {query: query.trim()}) }}</p>
         </div>
     </div>
@@ -170,10 +185,30 @@ defineExpose({focus: () => search.value?.querySelector("input")?.focus()});
     gap: 0.625rem;
     min-width: 0;
 }
+.component-checklist__presets-wrap {
+    display: grid;
+    grid-template-rows: 1fr;
+}
 .component-checklist__presets {
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem;
+    min-height: 0;
+    overflow: hidden;
+    /* 按钮的焦点环画在外面，收放用的 overflow 不能把它裁掉。 */
+    padding: 3px;
+    margin: -3px;
+}
+.component-checklist-presets-enter-active,
+.component-checklist-presets-leave-active {
+    transition: grid-template-rows var(--motion-fast) var(--ease-layout), opacity var(--motion-fast) var(--ease-layout), margin-bottom var(--motion-fast) var(--ease-layout);
+}
+/* 收起时连同它与列表之间的间隔一起收（外层 flex 的 gap 由负的下边距抵掉）。 */
+.component-checklist-presets-enter-from,
+.component-checklist-presets-leave-to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-bottom: -0.625rem;
 }
 /* 列表的内容随打字增减、在溢出与不溢出之间换：滚动条的位置一直留着，宽度不跳（nb-ui 界面开发规范“滚动条”）。 */
 .component-checklist__list {

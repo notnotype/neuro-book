@@ -295,7 +295,7 @@ function handleWheel(event: WheelEvent): void {
         <div ref="measureRef" class="nb-ui-tabs-adapt__measure" aria-hidden="true" inert>
             <span v-for="item in props.items" :key="item.value" :class="tabBoxClass" data-measure-tab>
                 <span v-if="item.iconClass" :class="item.iconClass" class="h-[1.15em] w-[1.15em] shrink-0"></span>
-                <span>{{ item.label }}<span v-if="item.note" class="nb-ui-tabs-note__text">，{{ item.note }}</span></span>
+                <span>{{ item.label }}<span v-if="item.note" class="nb-ui-tabs-note__text">{{ item.note }}</span></span>
                 <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)]">{{ item.count }}</span>
                 <span v-if="item.menu !== undefined" class="nb-ui-tabs-menu-mark"></span>
             </span>

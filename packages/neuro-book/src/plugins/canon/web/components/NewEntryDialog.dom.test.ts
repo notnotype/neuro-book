@@ -6,6 +6,7 @@
 
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
+import {nextTick} from "vue";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -104,10 +105,13 @@ describe("NewEntryDialog", () => {
         const items = [item("t.person", "人物", ["人物"]), item("t.look", "形象", ["人物"]), item("t.panel", "面板")];
         const kindPresets = {人物: [{id: "main", label: "主要角色", components: ["t.person", "t.look", "t.panel"]}]};
         const {wrapper, button, inputs, follow, checked, root} = await choosing({items, kindDefaults: {人物: ["t.person"], 地点: []}, kindPresets});
-        const groupNames = () => [...root().querySelectorAll("[role='listbox'] > [role='group']")].map((group) => group.getAttribute("aria-label"));
+        const groupNames = () => [...root().querySelectorAll("[role='listbox'] [role='group']")].map((group) => group.getAttribute("aria-label"));
         const presets = () => [...root().querySelectorAll("[data-checklist-presets] button")].map((preset) => preset.textContent?.trim());
         expect(groupNames()).toEqual(["设定"]);
         expect(presets()).toEqual([]);
+        // 焦点在名字上（对话框的初始焦点），列表里不亮一块高亮。
+        await waitUntil("焦点在名字上", () => document.activeElement === inputs()[0]);
+        expect(root().querySelector("[data-highlighted]")).toBeNull();
 
         const kind = inputs()[1]!;
         kind.value = "人物";
@@ -124,11 +128,21 @@ describe("NewEntryDialog", () => {
         await follow();
         expect(checked()).toEqual(["人物", "形象", "面板"]);
         expect(wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]).toMatchObject({typesTouched: false});
+        // 再选定同一个种类（点它的按钮、种类的输入框失焦）：什么都不换，预设勾上的还在。
+        const emitted = wrapper.emitted("update:draft")!.length;
+        button("人物").click();
+        kind.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await nextTick();
+        expect(wrapper.emitted("update:draft")!.length).toBe(emitted);
+        expect(checked()).toEqual(["人物", "形象", "面板"]);
         button("地点").click();
         await follow();
         expect(checked()).toEqual([]);
         expect(presets()).toEqual([]);
 
+        // 宿主在对话框开着时换了一份草稿（又点了“新建人物”）：列表跟着新草稿选定的种类。
+        await wrapper.setProps({draft: {...emptyDraft(null), kind: "人物", kindChosen: "人物"}});
+        expect(groupNames()).toEqual(["适用于人物", "设定"]);
         await wrapper.setProps({draft: {...wrapper.props("draft"), name: "魔杖"}});
         root().querySelector<HTMLInputElement>("[data-component-checklist] input")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true, cancelable: true}));
         expect(wrapper.emitted("confirm")).toBeUndefined();

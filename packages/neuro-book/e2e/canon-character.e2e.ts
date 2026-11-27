@@ -85,7 +85,7 @@ async function openEntry(page: Page, name: string): Promise<void> {
     await expect(positionSelect(page)).toBeVisible();
 }
 
-test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在编辑卡里改、别的内容与保存按钮不动、看着最初时没有意图一行；成段的文字在原文下方的浮层里、盖住下一节而下一节不动，贴着底边打开时翻到原文上方、保存在窗口里；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
+test("验收 17 的前一半：空作品里新建人物，先看人物分页；短项在编辑卡里改、别的内容与保存按钮不动、看着最初时没有意图一行；成段的文字在原文下方的浮层里、盖住下一节而下一节不动，贴着底边打开时翻到原文上方、比窗口还高时贴着露出来的第一行，保存都在窗口里；成段的按 Escape、短项点外面都不存；加一项资料排在短资料末尾；上传立绘以后人物分页换成这张图", async ({page}) => {
     await open(page, "blank");
     const empty = page.locator("[data-entries-empty]");
     // 设定视图没显示时点活动栏把它打开（已显示时再点会收起侧栏）。
@@ -186,6 +186,26 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     const backgroundBox = (await valueOf(page, "character.背景").boundingBox())!;
     const lastBox = (await surfaceOf(last).boundingBox())!;
     expect(lastBox.y + lastBox.height <= backgroundBox.y || lastBox.y >= backgroundBox.y + backgroundBox.height).toBe(true);
+    await last.getByRole("textbox").press("Escape");
+    await expect(last).toHaveCount(0);
+
+    // 原文长到比窗口还高：上下都腾不出地方时，浮层贴着原文露出来的第一行、盖住后面几行，整个在窗口里、够高好用（输出 51）。
+    await valueOf(page, "character.背景").click();
+    await last.getByRole("textbox").fill("从小在北方的港口长大，跟着哥哥学会了看海图和认星星。".repeat(60));
+    await last.getByRole("button", {name: "保存"}).click();
+    await expect(last).toHaveCount(0);
+    const viewport = page.viewportSize()!;
+    await expect.poll(async () => (await valueOf(page, "character.背景").boundingBox())!.height).toBeGreaterThan(viewport.height);
+    await valueOf(page, "character.背景").click();
+    await expect(last.getByRole("textbox")).toBeFocused();
+    await expect.poll(async () => {
+        const box = (await surfaceOf(last).boundingBox())!;
+        return box.y >= 0 && box.y + box.height <= viewport.height && box.height >= 240;
+    }).toBe(true);
+    await expect.poll(() => last.getByRole("button", {name: "保存"}).evaluate((button) => {
+        const {x, y, width, height} = button.getBoundingClientRect();
+        return document.elementFromPoint(x + width / 2, y + height / 2)?.closest("button") === button;
+    })).toBe(true);
     await last.getByRole("textbox").press("Escape");
     await expect(last).toHaveCount(0);
 

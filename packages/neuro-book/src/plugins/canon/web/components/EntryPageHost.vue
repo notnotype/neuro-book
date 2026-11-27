@@ -10,6 +10,7 @@ import type {Component, PropType} from "vue";
 import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import {displayText} from "@notnotype/nb-canon/schema";
 import {Dialog, Popover, SegmentedControl} from "@notnotype/nb-ui/components";
+import type {PopoverReference} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -517,6 +518,10 @@ const entryKind = computed(() => entry.value?.kind?.trim() ?? "");
 /** 这个种类的预设（`canon.entry-kinds`）；里面没登记的类型已去掉，一个也没有的预设不出。 */
 const presets = computed<readonly ChecklistPreset[]>(() => kindPresets(props.entryKinds ?? [], entryKind.value, new Set((componentsRead.value?.data?.items ?? []).map((type) => type.id))));
 const addDialogOpen = shallowRef(false);
+// 开着的时候写不了了（断开、换到计划中的位置、条目被删）：入口跟着没了，对话框也关上，不留一个点了必被拒收的“添加”。
+watch(() => editBlocked.value !== null || view.value?.deleted === true, (blockedNow) => {
+    if (blockedNow) addDialogOpen.value = false;
+});
 /** 开对话框：记下这时条目的版本，加的时候带它（输出 43）。 */
 const openAddDialog = (): void => {
     openDialog();
@@ -919,9 +924,39 @@ const otherFor = (namespace: string, type: string): OtherComponent => {
  * 打开一项的就地改。同一项已经开着时只把焦点放回它的输入框，不重开：重开会换掉写了一半的草稿，成段的文字开着时原文还在、
  * 点得到（输出 51）。带着值打开的（“换上”某一套）照旧重开。
  */
+/**
+ * 这一页挂着的就地改编辑器（按路径）：编辑器传送到 body 里，从页面里找不到；同一个条目开在两页、都在改同一项时，要找自己这页的。
+ */
+const inlineEditorElements = new Map<string, HTMLElement>();
+/** 成段文字的编辑浮层至少要这么高才好用（几行输入、意图一行与按钮）。 */
+const PASSAGE_ROOM = 240;
+/**
+ * 成段文字的编辑浮层贴着什么定位（输出 51）：原文下方或上方腾得出 `PASSAGE_ROOM` 时贴整段原文；原文太长、上下都腾不出时，改贴原文
+ * 露在窗口里的第一行，浮层盖住后面几行（原文这时本来就看不全）。浮层跟着滚动重算，每次按当时露出来的那一段算。露出来的那一段是
+ * 条目页所在滚动区去掉吸顶页头（`--entry-page-sticky-top`）以后的部分；滚动区在挂上时找一次。
+ */
+const passageReference = (anchor: HTMLElement): PopoverReference => {
+    const page = anchor.closest<HTMLElement>("[data-entry-page]");
+    let scroller: HTMLElement | null = null;
+    for (let element = page?.parentElement ?? null; element !== null && scroller === null; element = element.parentElement) {
+        const overflow = getComputedStyle(element).overflowY;
+        if (overflow === "auto" || overflow === "scroll") scroller = element;
+    }
+    return {
+        contextElement: anchor,
+        getBoundingClientRect: () => {
+            const rect = anchor.getBoundingClientRect();
+            const box = scroller?.getBoundingClientRect() ?? {top: 0, bottom: window.innerHeight};
+            const top = box.top + (page === null ? 0 : Number.parseFloat(getComputedStyle(page).getPropertyValue("--entry-page-sticky-top")) || 0);
+            if (box.bottom - rect.bottom >= PASSAGE_ROOM || rect.top - top >= PASSAGE_ROOM) return rect;
+            const line = Number.parseFloat(getComputedStyle(anchor).lineHeight) || 30;
+            return new DOMRect(rect.left, Math.min(Math.max(rect.top, top), Math.max(rect.top, rect.bottom - line)), rect.width, line);
+        },
+    };
+};
 const openInline = (path: string, options?: EditOpenOptions): void => {
     if (options?.inline === true && options.value === undefined && state.edit?.inline === true && state.edit.path === path) {
-        document.querySelector<HTMLElement>(`[data-field-editor="${CSS.escape(path)}"] :is(textarea, input)`)?.focus();
+        inlineEditorElements.get(path)?.querySelector<HTMLElement>("textarea, input")?.focus();
         return;
     }
     edit.open(path, options);
@@ -965,6 +1000,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                  * 连下限都放不下时才由避让往左挪。
                  */
                 const popoverWidth = shallowRef<number | null>(null);
+                const reference = computed(() => (inner.layout === "block" && inner.anchor instanceof HTMLElement ? passageReference(inner.anchor) : null));
                 /** 浮层表面两侧的内边距（各 12）与边框（各 1）。 */
                 const POPOVER_PADDING = 26;
                 watch([active, () => inner.anchor], ([on, anchor]) => {
@@ -987,6 +1023,10 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
                         "data-field-editor": full(),
+                        ref: (element: unknown) => {
+                            if (element instanceof HTMLElement) inlineEditorElements.set(full(), element);
+                            else inlineEditorElements.delete(full());
+                        },
                         ...(popoverWidth.value !== null ? {style: {width: `${String(popoverWidth.value)}px`}} : {}),
                         onCompositionstart: () => (composing.value = true),
                         onCompositionend: () => (composing.value = false),
@@ -1015,6 +1055,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     return h(Popover, {
                         open: active.value && anchor !== null,
                         anchor,
+                        reference: reference.value,
                         side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,

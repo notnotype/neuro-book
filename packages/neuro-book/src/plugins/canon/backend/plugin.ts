@@ -91,6 +91,7 @@ export const canonProjectPlugin: PluginDefinition = {
                         if (reported.has(key)) continue;
                         reported.add(key);
                         const message = problem.problem === "missing-component" ? `种类“${problem.kind}”的预设 ${problem.preset} 写到的设定组 ${problem.type} 没有登记，勾选时不带它`
+                            : problem.problem === "nothing-usable" ? `种类“${problem.kind}”的预设 ${problem.preset} 写到的设定组都没有登记，不列出`
                             : problem.problem === "no-label" ? `种类“${problem.kind}”的预设 ${problem.preset} 没有显示名，不列出`
                             : `种类“${problem.kind}”的预设 ${problem.preset} 有几条登记写了不同的显示名，用先登记的那个`;
                         diagnostics.record({level: "warn", event: "canon.entry-kinds.preset-problem", message, data: {...problem}, source: {plugin: descriptor.id}});

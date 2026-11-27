@@ -60,7 +60,7 @@ function open(props: Partial<{items: ChecklistItem[]; kind: string; presets: Che
 
 const clean = (value: string | null | undefined): string => value?.replace(/\s+/gu, "") ?? "";
 /** 各组：组名与组里各行的名字（行尾的“已添加”另算）。 */
-const groups = (): Array<[string, string[]]> => [...document.querySelectorAll<HTMLElement>("[role='listbox'] > [role='group']")].map((group) => [
+const groups = (): Array<[string, string[]]> => [...document.querySelectorAll<HTMLElement>("[role='listbox'] [role='group']")].map((group) => [
     group.getAttribute("aria-label") ?? "",
     [...group.querySelectorAll<HTMLElement>("[role='option']")].map((option) => clean(option.textContent)),
 ]);
@@ -160,6 +160,29 @@ describe("ComponentChecklist", () => {
         // 取消一组手选的：预设又能点了。
         await click("nbook.plot.knowing");
         expect(preset("main").disabled).toBe(false);
+        // 按下预设不抢搜索框的焦点；用键盘按的（焦点在按钮上），按完焦点回到搜索框，接着能用上下键与回车。
+        search().focus();
+        const down = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
+        preset("main").dispatchEvent(down);
+        expect(down.defaultPrevented).toBe(true);
+        preset("main").focus();
+        preset("main").click();
+        await flushPromises();
+        expect(document.activeElement).toBe(search());
+        expect(highlighted()).not.toBe("");
+    });
+
+    it("指针在列表上移动时高亮跟着它、读屏的当前项也跟着；移出列表高亮不画，记着的那一行不变", async () => {
+        open();
+        await flushPromises();
+        row("nbook.canon.inventory").dispatchEvent(new PointerEvent("pointermove", {bubbles: true}));
+        await flushPromises();
+        expect(highlighted()).toBe("物品栏");
+        expect(search().getAttribute("aria-activedescendant")).toBe(row("nbook.canon.inventory").id);
+        document.querySelector("[role='listbox']")!.dispatchEvent(new PointerEvent("pointerleave"));
+        await flushPromises();
+        expect(highlighted()).toBe("");
+        expect(search().getAttribute("aria-activedescendant")).toBe(row("nbook.canon.inventory").id);
     });
 
     it("键盘：上下键移高亮、到头绕回；Enter 勾或取消高亮的那行，高亮的是已添加的发 present；Ctrl 或 ⌘ 加 Enter 发 submit；组字中的 Enter 不处理", async () => {
@@ -181,6 +204,7 @@ describe("ComponentChecklist", () => {
         await key("Enter");
         expect(checked.value).toEqual(["nbook.plot.knowing"]);
         await key("Enter", {isComposing: true});
+        await key("Enter", {keyCode: 229});
         expect(checked.value).toEqual(["nbook.plot.knowing"]);
         await key("Enter");
         expect(checked.value).toEqual([]);

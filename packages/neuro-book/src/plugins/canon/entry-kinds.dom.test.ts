@@ -5,6 +5,7 @@
 
 import {rm} from "node:fs/promises";
 
+import {Value} from "typebox/value";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -14,8 +15,10 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {descriptor as plotDescriptor} from "../plot/plugin";
 import {BUILTIN_ENTRY_KINDS} from "./shared/components";
-import {CANON_ENTRY_KINDS_POINT, defaultComponents, kindPresets, mergeEntryKinds, presetProblems} from "./shared/entry-kinds";
+import {CANON_ENTRY_KINDS_POINT, defaultComponents, EntryKindDeclarationSchema, kindPresets, mergeEntryKinds, presetProblems} from "./shared/entry-kinds";
+import type {EntryKindDeclaration} from "./shared/entry-kinds";
 import {canonNodeWorld} from "./testing/node-world";
 import type {CanonNodeWorld} from "./testing/node-world";
 
@@ -53,6 +56,8 @@ describe("条目种类的登记", () => {
             {id: "acme.magic.person", declaration: {kind: "人物", presets: [{id: "main", label: "主角", components: ["nbook.canon.panel", "x.magic"]}, {id: "acme", label: "魔法使", components: ["x.magic"]}, {id: "nameless", components: ["nbook.canon.person"]}]}},
             ...BUILTIN_ENTRY_KINDS,
             {id: "nbook.plot.person", declaration: {kind: " 人物 ", presets: [{id: " main ", components: ["nbook.plot.knowing", "nbook.plot.attitude"]}]}},
+            // 显示名只差首尾空白：同一个名字，不算写了不同的。
+            {id: "zz.other.person", declaration: {kind: "人物", presets: [{id: "basic", label: " 基本 ", components: ["nbook.canon.person"]}]}},
         ];
         const kinds = mergeEntryKinds(descriptors);
         expect(kinds.find((kind) => kind.kind === "人物")?.presets).toEqual([
@@ -73,16 +78,44 @@ describe("条目种类的登记", () => {
             {kind: "人物", preset: "main", problem: "missing-component", type: "x.magic"},
             {kind: "人物", preset: "main", problem: "missing-component", type: "nbook.plot.attitude"},
             {kind: "人物", preset: "main", problem: "label-conflict"},
-            {kind: "人物", preset: "acme", problem: "missing-component", type: "x.magic"},
+            // 一组能用的也没有：整个不列，报一条，不再逐个报类型。
+            {kind: "人物", preset: "acme", problem: "nothing-usable"},
             {kind: "人物", preset: "nameless", problem: "no-label"},
         ]);
     });
 
-    it("默认里、预设里写到没登记的类型：项目实例各写一条诊断，同一处只写一次", async () => {
+    it("剧情插件的真实登记往内置的“主要角色”里追加知情、态度，它的声明合得上贡献点的形状", () => {
+        const plot = (plotDescriptor.contributions ?? []).filter((item) => item.capability === CANON_ENTRY_KINDS_POINT).map((item) => ({id: item.id, declaration: item.declaration as EntryKindDeclaration}));
+        expect(plot).toHaveLength(1);
+        expect(Value.Check(EntryKindDeclarationSchema, plot[0]!.declaration)).toBe(true);
+        const main = mergeEntryKinds([...BUILTIN_ENTRY_KINDS, ...plot]).find((kind) => kind.kind === "人物")?.presets.find((preset) => preset.id === "main");
+        expect(main).toEqual({id: "main", label: "主要角色", components: ["nbook.canon.person", "nbook.canon.look", "nbook.canon.panel", "nbook.plot.knowing", "nbook.plot.attitude"]});
+    });
+
+    it("预设的形状：显示名与 id 要有字、至少勾一组、一条登记至多 20 种、不收多余的字段", () => {
+        const preset = {id: "p", label: "某", components: ["a"]};
+        expect(Value.Check(EntryKindDeclarationSchema, {kind: "k", presets: [preset]})).toBe(true);
+        const bad: unknown[] = [
+            {kind: "k", presets: [{...preset, components: []}]},
+            {kind: "k", presets: [{...preset, components: [""]}]},
+            {kind: "k", presets: [{...preset, label: ""}]},
+            {kind: "k", presets: [{...preset, label: "  "}]},
+            {kind: "k", presets: [{...preset, id: " "}]},
+            {kind: "k", presets: [{...preset, extra: true}]},
+            {kind: "k", presets: Array.from({length: 21}, (_, index) => ({...preset, id: `p${String(index)}`}))},
+        ];
+        expect(bad.map((declaration) => Value.Check(EntryKindDeclarationSchema, declaration))).toEqual(bad.map(() => false));
+    });
+
+    it("默认里写到没登记的类型、预设的四种问题：项目实例各写一条诊断", async () => {
         const held: {diagnostics: DiagnosticsService | null} = {diagnostics: null};
         const magic: PluginDefinition = {
             id: "x.test",
-            contributions: [{capability: CANON_ENTRY_KINDS_POINT, id: "x.test.wand", declaration: {kind: "法器", components: ["x.test.missing", "nbook.canon.panel"], presets: [{id: "full", label: "全套", components: ["x.test.missing", "nbook.canon.panel"]}]}}],
+            contributions: [
+                {capability: CANON_ENTRY_KINDS_POINT, id: "x.test.wand", declaration: {kind: "法器", components: ["x.test.missing", "nbook.canon.panel"], presets: [{id: "full", label: "全套", components: ["x.test.missing", "nbook.canon.panel"]}, {id: "gone", label: "没了", components: ["x.test.missing"]}]}},
+                // 往内置的“主要角色”里写了另一个显示名；另给一种没有显示名的。
+                {capability: CANON_ENTRY_KINDS_POINT, id: "x.test.person", declaration: {kind: "人物", presets: [{id: "main", label: "主角", components: ["nbook.canon.panel"]}, {id: "nameless", components: ["nbook.canon.person"]}]}},
+            ],
             entries: [defineEntry({
                 id: "probe",
                 location: "project",
@@ -101,6 +134,13 @@ describe("条目种类的登记", () => {
         // 预设的问题另记一种，不与默认组的那条合并。
         const presets = () => held.diagnostics?.query({event: "canon.entry-kinds.preset-problem"}).records ?? [];
         await waitUntil("预设的诊断", () => presets().length > 0);
-        expect(presets().map((record) => record.data)).toEqual([{kind: "法器", preset: "full", problem: "missing-component", type: "x.test.missing"}]);
+        await waitUntil("预设的四种诊断", () => presets().length >= 4);
+        expect(presets().map((record) => record.data)).toEqual(expect.arrayContaining([
+            {kind: "法器", preset: "full", problem: "missing-component", type: "x.test.missing"},
+            {kind: "法器", preset: "gone", problem: "nothing-usable"},
+            {kind: "人物", preset: "main", problem: "label-conflict"},
+            {kind: "人物", preset: "nameless", problem: "no-label"},
+        ]));
+        expect(presets()).toHaveLength(4);
     });
 });

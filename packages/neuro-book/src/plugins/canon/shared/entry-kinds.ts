@@ -20,7 +20,7 @@ export const CANON_ENTRY_KINDS_POINT = "canon.entry-kinds";
 export const EntryKindPresetSchema = Type.Object({
     /** 同一个种类里唯一（去掉首尾空白比）；别的插件写同一个 id 是往这个预设里追加设定组。 */
     id: Type.String({minLength: 1, pattern: "\\S"}),
-    /** 显示名；几条登记都写了时取第一条（内置在前）。 */
+    /** 显示名（去掉首尾空白）；几条登记都写了时取第一条（内置在前）。 */
     label: Type.Optional(Type.String({minLength: 1, pattern: "\\S"})),
     /** 这个预设勾上的设定组（类型 id）。 */
     components: Type.Array(Type.String({minLength: 1}), {minItems: 1}),
@@ -37,7 +37,7 @@ export const EntryKindDeclarationSchema = Type.Object({
     order: Type.Optional(Type.Number()),
     /** 这个种类的条目页标签的图标：lucide 的类名；几条登记都写了时取内置的那一条（workbench/editor.md 输出 53）。 */
     icon: Type.Optional(Type.String({minLength: 1, pattern: "^i-lucide-[a-z0-9-]+$"})),
-    /** 这个种类的几种有名字的预设。 */
+    /** 这个种类的几种有名字的预设；每条登记至多 20 种（几条登记并起来不另封顶）。一种写错，整条登记都不收。 */
     presets: Type.Optional(Type.Array(EntryKindPresetSchema, {maxItems: 20})),
 }, {additionalProperties: false});
 
@@ -79,7 +79,20 @@ const BUILTIN_PREFIX = "nbook.canon.";
  * `order` 取最小的，没写算最后。预设按同一个 id 并：设定组并起来、去重，显示名取第一条写了的。结果按 `order`、再按词排。
  */
 export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[]): readonly EntryKind[] {
-    const merged = new Map<string, {components: string[]; order: number; icon?: string; presets: {id: string; label?: string; components: string[]}[]}>();
+    return merge(descriptors).map((kind) => ({...kind, presets: kind.presets.map((preset) => ({id: preset.id, ...(preset.label === undefined ? {} : {label: preset.label}), components: preset.components}))}));
+}
+
+/** 并起来的预设，另带几条登记写过的全部显示名（`presetProblems` 据此报写了不同的显示名）。 */
+interface MergedPreset {
+    readonly id: string;
+    readonly label?: string;
+    readonly labels: ReadonlySet<string>;
+    readonly components: readonly string[];
+}
+
+/** `mergeEntryKinds` 的并法，预设带着 `labels`；两个出口共用这一处，认“同一个种类、同一个预设”的规则只写一次。 */
+function merge(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[]): readonly (Omit<EntryKind, "presets"> & {readonly presets: readonly MergedPreset[]})[] {
+    const merged = new Map<string, {components: string[]; order: number; icon?: string; presets: {id: string; label?: string; labels: Set<string>; components: string[]}[]}>();
     for (const {declaration} of builtinFirst(descriptors)) {
         const kind = declaration.kind.trim();
         const order = declaration.order ?? Number.POSITIVE_INFINITY;
@@ -95,10 +108,12 @@ export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescripto
             const id = preset.id.trim();
             let target = held.presets.find((candidate) => candidate.id === id);
             if (target === undefined) {
-                target = {id, components: []};
+                target = {id, labels: new Set(), components: []};
                 held.presets.push(target);
             }
-            target.label ??= preset.label;
+            const label = preset.label?.trim();
+            target.label ??= label;
+            if (label !== undefined) target.labels.add(label);
             for (const type of preset.components) if (!target.components.includes(type)) target.components.push(type);
         }
     }
@@ -107,7 +122,7 @@ export function mergeEntryKinds(descriptors: readonly Pick<ContributionDescripto
         components: held.components,
         order: held.order,
         ...(held.icon === undefined ? {} : {icon: held.icon}),
-        presets: held.presets.map((preset) => ({id: preset.id, ...(preset.label === undefined ? {} : {label: preset.label}), components: preset.components})),
+        presets: held.presets.map((preset) => ({id: preset.id, ...(preset.label === undefined ? {} : {label: preset.label}), labels: preset.labels, components: preset.components})),
     })).sort((a, b) => a.order - b.order || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
 }
 
@@ -137,19 +152,23 @@ export function kindPresets(kinds: readonly EntryKind[], kind: string, available
     });
 }
 
-/** 预设的问题，一项一条：写到不可用的类型、并完没有显示名、几条登记写了不同的显示名（后写的不用）。 */
+/**
+ * 预设的问题，一项一条：写到不可用的类型（勾选时不带它）、写到的一组也不可用（整个不列，不再逐个报类型）、并完没有显示名
+ * （不列）、几条登记写了不同的显示名（后写的不用）。
+ */
 export type PresetProblem =
     | {readonly kind: string; readonly preset: string; readonly problem: "missing-component"; readonly type: string}
-    | {readonly kind: string; readonly preset: string; readonly problem: "no-label" | "label-conflict"};
+    | {readonly kind: string; readonly preset: string; readonly problem: "nothing-usable" | "no-label" | "label-conflict"};
 
 export function presetProblems(descriptors: readonly Pick<ContributionDescriptor<EntryKindDeclaration>, "id" | "declaration">[], available: ReadonlySet<string>): readonly PresetProblem[] {
     const problems: PresetProblem[] = [];
-    for (const entry of mergeEntryKinds(descriptors)) {
+    for (const entry of merge(descriptors)) {
         for (const preset of entry.presets) {
-            for (const type of preset.components) if (!available.has(type)) problems.push({kind: entry.kind, preset: preset.id, problem: "missing-component", type});
+            const missing = preset.components.filter((type) => !available.has(type));
+            if (missing.length === preset.components.length) problems.push({kind: entry.kind, preset: preset.id, problem: "nothing-usable"});
+            else for (const type of missing) problems.push({kind: entry.kind, preset: preset.id, problem: "missing-component", type});
             if (preset.label === undefined) problems.push({kind: entry.kind, preset: preset.id, problem: "no-label"});
-            const labels = new Set(builtinFirst(descriptors).filter(({declaration}) => declaration.kind.trim() === entry.kind).flatMap(({declaration}) => (declaration.presets ?? []).filter((candidate) => candidate.id.trim() === preset.id && candidate.label !== undefined).map((candidate) => candidate.label!)));
-            if (labels.size > 1) problems.push({kind: entry.kind, preset: preset.id, problem: "label-conflict"});
+            if (preset.labels.size > 1) problems.push({kind: entry.kind, preset: preset.id, problem: "label-conflict"});
         }
     }
     return problems;

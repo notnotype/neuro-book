@@ -19,7 +19,7 @@ import type {ChecklistItem, ChecklistPreset} from "./components/component-checkl
 import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
 import {GROUP_ICON} from "./components/entry-tabs";
 import {failureText} from "./failures";
-import {emptyDraft, newEntryOp, withKind} from "./new-entry";
+import {byKind, emptyDraft, newEntryOp, withKind} from "./new-entry";
 import type {NewEntryDraft} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
@@ -158,9 +158,9 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
             watch(kindDefaults, (next, previous) => {
                 const draft = state.creating.value;
                 if (draft === null || draft.typesTouched) return;
-                const kind = draft.kind.trim();
-                if (draft.types.join("\u0000") !== (previous?.[kind] ?? []).join("\u0000")) return;
-                const types = next[kind] ?? [];
+                const kind = draft.kindChosen;
+                if (draft.types.join("\u0000") !== (byKind(previous ?? {}, kind) ?? []).join("\u0000")) return;
+                const types = byKind(next, kind) ?? [];
                 if (types.join("\u0000") !== draft.types.join("\u0000")) state.creating.value = {...draft, types: [...types]};
             });
             // 勾选列表的各行与每个登记的种类的预设（输出 4）：新建时没有“已添加”。

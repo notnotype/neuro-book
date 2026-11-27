@@ -71,7 +71,7 @@ const show = (type: string): void => {
             :kind="props.kind"
             :presets="props.presets"
             max-height="22rem"
-            data-add-component-dialog
+            data-add-component-list
             @present="show"
             @submit="submit"
         />

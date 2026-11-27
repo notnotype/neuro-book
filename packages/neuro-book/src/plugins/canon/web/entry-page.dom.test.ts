@@ -371,26 +371,34 @@ describe("条目页", () => {
         // 点“＋”开对话框：人物的两个预设；勾形象与徽章，“添加 2 组”一次写入、一条修订，关上以后切到先勾的形象。
         const body = new DOMWrapper(document.body);
         await wrapper.get("[data-add-component]").trigger("click");
-        await waitUntil("对话框", () => body.find("[data-add-component-dialog]").exists());
+        await waitUntil("对话框", () => body.find("[data-add-component-list]").exists());
         expect(body.findAll("[data-checklist-presets] button").map((button) => button.text())).toEqual(["基本", "主要角色"]);
+        // 写入被拒（打开以后别处已经加上了其中一组，这一页还没读到）：整批不收，按被拒的那一项（这里是第二项）指名，对话框不关、
+        // 原因写在状态行。界面上已添加的勾不上，这里直接交给宿主一批。
+        dialog().vm.$emit("add", ["a.test.badge", "nbook.canon.panel"]);
+        await waitUntil("指名的失败", () => document.body.querySelector("[role='dialog']")?.textContent?.includes("“数值”这组设定已经加上了") === true);
+        expect(body.find("[data-add-component-list]").exists()).toBe(true);
+        expect(tabs()).toEqual(["人物", "文字", "数值"]);
+        // 开着的时候写不了了（换到算上计划）：对话框关上；回来再开。
+        state.planned = true;
+        await waitUntil("写不了时关上", () => !body.find("[data-add-component-list]").exists());
+        state.planned = false;
+        await waitUntil("“＋”回来", () => wrapper.find("[data-add-component]").exists());
+        // 浏览器里点按钮先把焦点放到它上面，对话框关上时还给它。
+        (wrapper.get("[data-add-component]").element as HTMLElement).focus();
+        await wrapper.get("[data-add-component]").trigger("click");
+        await waitUntil("对话框", () => body.find("[data-add-component-list]").exists());
         await body.get("[data-checklist-item='nbook.canon.look']").trigger("click");
         await body.get("[data-checklist-item='a.test.badge']").trigger("click");
         expect(body.get("[data-add-submit]").text()).toBe("添加 2 组");
         await body.get("[data-add-submit]").trigger("click");
         await waitUntil("切到形象", () => wrapper.find("[role='tab'][aria-selected='true']").exists() && wrapper.get("[role='tab'][aria-selected='true']").text() === "形象");
         expect(tabs()).toEqual(["人物", "形象", "文字", "数值", "徽章"]);
-        await waitUntil("对话框关上", () => !body.find("[data-add-component-dialog]").exists());
+        await waitUntil("对话框关上", () => !body.find("[data-add-component-list]").exists());
         expect(wrapper.get("[data-notice-bar]").text()).toContain("加上“形象”和“徽章”这几组设定");
         // 能加的都加上了：“＋”没了，焦点交给选中的分页，不掉到页面外。
         expect(wrapper.find("[data-add-component]").exists()).toBe(false);
         await waitUntil("焦点在选中的分页", () => document.activeElement === wrapper.get("[role='tab'][aria-selected='true']").element);
-
-        // 写入被拒（打开以后别处已经加上了其中一组，这一页还没读到）：按被拒的那一项指名，对话框不关、原因写在状态行。对话框由宿主开，
-        // 这里直接把它打开（“＋”已经没了）。
-        dialog().vm.$emit("update:open", true);
-        await waitUntil("对话框", () => body.find("[data-add-component-dialog]").exists());
-        dialog().vm.$emit("add", ["nbook.canon.look"]);
-        await waitUntil("指名的失败", () => body.find("[data-add-component-dialog]").exists() && document.body.querySelector("[role='dialog']")?.textContent?.includes("“形象”这组设定已经加上了") === true);
 
         // 种类不是人物的条目：分页照旧，文字在前。
         const item = person("魔杖", {type: "物品"});
@@ -1762,9 +1770,13 @@ describe("人物与形象两个分页（输出 49 到 52）", () => {
         // 编辑层在浮层里，不在原文那一节里：原文留着、看得到（不藏起来）。
         expect(wrapper.get("[data-passage='性格']").element.contains(editor())).toBe(false);
         expect(wrapper.get("[data-passage='性格']").text()).toBe(before);
-        // 点别处（后一段、页面）不放弃，作者切到别的标签再回来时它还在。
-        for (const target of [wrapper.get("[data-passage='说话方式']").element, document.body]) target.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        // 点别处（后一段的原文）不放弃，作者切到别的标签再回来时它还在。照浏览器的先后：先按下，焦点再移到点的那个按钮上
+        // （在 happy-dom 里只发 pointerdown，短项的浮层也不会收起，这一条就测不出“点外面不收起”）。
+        const outside = wrapper.get<HTMLElement>("[data-edit='character.说话方式']").element;
+        outside.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        outside.focus();
         await new Promise((resolve) => requestAnimationFrame(resolve));
+        await nextTick();
         expect(state.edit?.path).toBe("character.性格");
         expect(editor()?.querySelector("textarea")?.value).toBe("嘴硬心软");
         // 再点原文：不重开（重开会换回原文），焦点回到输入框。
