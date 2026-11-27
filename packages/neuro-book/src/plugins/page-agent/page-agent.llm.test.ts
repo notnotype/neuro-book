@@ -40,7 +40,8 @@ afterAll(async () => {
 });
 
 const GUIDE = "test.llm.guide";
-const TOOLS = ["nbook.agent.eval"];
+// 带 read：模型照 eval 的说明读 `docs://eval/ui.md` 里的签名（main 等真实 Profile 都有它）。
+const TOOLS = ["eval", "read"].map((name) => `nbook.agent.${name}`);
 const guide = agentProfile(GUIDE, {name: "引导烟测", description: "测试用", tools: {required: TOOLS, optional: []}});
 const plugin: PluginDefinition = {id: "test.llm", entries: [defineEntry({
     id: "server",
@@ -111,9 +112,11 @@ describe.skipIf(config === null)("ui 接真实模型", () => {
         }, {timeoutMs: 300_000, intervalMs: 200});
 
         const events = await session.path();
-        const nested = events.filter((event) => event.type === "nestedToolResult").map((event) => event.data as {tool: string; status: string});
+        const nested = events.filter((event) => event.type === "nestedToolResult").map((event) => event.data as {tool: string; status: string; code?: string; args: unknown; preview: string});
         const highlighted = state.highlights.map((item) => item.filter);
-        console.log(JSON.stringify({result, found: state.found, highlighted, nested: nested.map((item) => [item.tool, item.status])}, null, 1));
+        // 失败的嵌套调用连参数与开头的输出一起打出来：看模型是照文档写错了，还是文档没写清。
+        const failed = nested.filter((item) => item.status !== "ok").map((item) => ({tool: item.tool, code: item.code, args: item.args, preview: item.preview.slice(0, 400)}));
+        console.log(JSON.stringify({result, found: state.found, highlighted, nested: nested.map((item) => [item.tool, item.status]), failed}, null, 1));
 
         expect(result).toMatchObject({reason: "completed"});
         expect(state.found.some((input) => /主题|theme/iu.test(input.query))).toBe(true);

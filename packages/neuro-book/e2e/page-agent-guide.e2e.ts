@@ -205,6 +205,8 @@ return JSON.stringify({outcome: result.outcome});`);
 
 /** 一个弹层的“前后”快照：那一层根元素的高度与最后一项的计算样式（说明框挂进根元素的第一个位置，不应改动它们）。 */
 async function measureLayer(root: Locator, itemSelector: string): Promise<{height: number; lastItem: Record<string, string>}> {
+    // 指针放到同一个角上再量：滚动条的颜色随指针悬停在祖先上而变（nb-ui 的细滚动条），点过说明框之后指针可能正停在这一层上。
+    await root.page().mouse.move(1, 1);
     return root.evaluate((element, selector) => {
         const items = element.querySelectorAll(selector);
         const last = items[items.length - 1]!;
