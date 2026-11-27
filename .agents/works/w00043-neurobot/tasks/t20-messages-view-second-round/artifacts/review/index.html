@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t20 第 1 轮：停靠侧轨与展开列表</title>
+<title>t20 第 2 轮：方向二的底部导航</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -15,6 +15,7 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .rec { margin: 0 0 16px; color: var(--rec); }
 .cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .cands--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 640px; }
+.cands--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 760px) { .cands, .cands--2 { grid-template-columns: minmax(0, 1fr); } }
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3 { margin: 0 0 8px; font-size: 16px; }
@@ -29,52 +30,30 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t20 第 1 轮：停靠侧轨与展开列表</h1>
+<h1>t20 第 2 轮：方向二的底部导航</h1>
 
-<section data-nbdev-question="rail-direction" data-nbdev-type="single" data-nbdev-recommend="one">
-  <h2>右边那一列留不留？</h2>
-  <p class="rec"><strong>推荐方向一：头像一眼看到谁有未读、一下点过去，停靠与浮动是同一个样子；只是不再像单独的一条。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="now" data-nbdev-label="现在">
-      <h3>现在</h3>
-      <h4>停靠</h4><img src="r1/now-dock.webp" alt="现在：停靠收着">
-      <h4>停靠展开</h4><img src="r1/now-dock-open.webp" alt="现在：停靠展开">
-      <h4>浮动</h4><img src="r1/now-float.webp" alt="现在：浮动收着">
-      <h4>浮动展开</h4><img src="r1/now-float-open.webp" alt="现在：浮动展开">
+<section data-nbdev-question="bottom-nav" data-nbdev-type="single" data-nbdev-recommend="ok">
+  <h2>按这样做：收着时右下角打开列表，展开后列表底部是 Bot｜会话｜收起？</h2>
+  <p class="rec"><strong>推荐按这样做：按钮一直在右下角，展开后它原地变成导航条最右边的“收起”，Bot、会话从右边滑进来，收起时反过来；“新对话”留在聊天头左上角。</strong></p>
+  <div class="cands cands--4">
+    <div class="cand">
+      <h3>停靠</h3><img src="r2/dock.webp" alt="停靠收着：右下角打开列表">
     </div>
-    <div class="cand" data-nbdev-option="one" data-nbdev-label="方向一：并进卡片的窄列">
-      <h3>方向一：并进卡片的窄列</h3>
-      <h4>停靠</h4><img src="r1/one-dock.webp" alt="方向一：停靠收着">
-      <h4>停靠展开</h4><img src="r1/one-dock-open.webp" alt="方向一：停靠展开">
-      <h4>浮动</h4><img src="r1/one-float.webp" alt="方向一：浮动收着">
-      <h4>浮动展开</h4><img src="r1/one-float-open.webp" alt="方向一：浮动展开">
-      <p>没有分隔线，右栏只有消息时不画顶上的容器入口。展开后列表上面没有页签，窄列底下的 bot、会话按钮就是页签；浮动窗展开也留着窄列，“回到停靠”在它顶上。</p>
+    <div class="cand">
+      <h3>停靠展开</h3><img src="r2/dock-open.webp" alt="停靠展开：会话页与底部导航">
     </div>
-    <div class="cand" data-nbdev-option="two" data-nbdev-label="方向二：没有窄列，列表按需打开">
-      <h3>方向二：没有窄列，列表按需打开</h3>
-      <h4>停靠</h4><img src="r1/two-dock.webp" alt="方向二：停靠收着">
-      <h4>停靠展开</h4><img src="r1/two-dock-open.webp" alt="方向二：停靠展开">
-      <h4>浮动</h4><img src="r1/two-float.webp" alt="方向二：浮动收着">
-      <h4>浮动展开</h4><img src="r1/two-float-open.webp" alt="方向二：浮动展开">
-      <p>聊天头左上角两个按钮：打开列表、新对话。列表自带 Bot、会话页签与收起；浮动窗里页签和“回到停靠”同一行。未读只在打开列表的按钮上写总数。</p>
+    <div class="cand">
+      <h3>浮动</h3><img src="r2/float.webp" alt="浮动收着：右下角打开列表">
+    </div>
+    <div class="cand">
+      <h3>浮动展开</h3><img src="r2/float-open.webp" alt="浮动展开：会话页与底部导航">
     </div>
   </div>
-</section>
-
-<section data-nbdev-question="list-rows" data-nbdev-type="single" data-nbdev-recommend="new">
-  <h2>列表行按右边这样改？</h2>
-  <p class="rec"><strong>推荐改：会话用和窄列同样的首字方块，收着与展开对得上；当前项用描边标出，不再整行涂蓝。</strong></p>
-  <div class="cands cands--2">
-    <div class="cand" data-nbdev-option="now" data-nbdev-label="现在">
-      <h3>现在</h3>
-      <img src="r1/rows-now.webp" alt="现在的会话列表">
-    </div>
-    <div class="cand" data-nbdev-option="new" data-nbdev-label="改后">
-      <h3>改后</h3>
-      <img src="r1/rows-one.webp" alt="改后的会话列表">
-      <h4>Bot 页</h4><img src="r1/rows-one-bot.webp" alt="改后的 bot 列表">
-    </div>
+  <div class="cands cands--2" style="margin-top: 16px">
+    <div class="cand"><h3>Bot 页</h3><img src="r2/dock-open-bot.webp" alt="停靠展开：bot 页"></div>
   </div>
+  <div style="display:none" data-nbdev-option="ok" data-nbdev-label="按这样做"></div>
+  <div style="display:none" data-nbdev-option="adjust" data-nbdev-label="要调整（写在附言里）"></div>
 </section>
 
 <section>
@@ -93,7 +72,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <h2>已定</h2>
   <ol class="decided">
     <li>浮动窗展开着拖动不再变小；一列按钮对齐到同一条中线；轨宽手柄亮起时是细线（已修并合入）</li>
-    <li>归位后再浮动用上次的位置与大小（做，开发者 11-27 同意）</li>
+    <li>归位后再浮动用上次的位置与大小（已做并合入）</li>
+    <li>停靠时不要窄列，列表按需打开（第 1 轮方向二）；附言：右下角那个按钮展开时放到底部，像 app 的底部导航栏；收起时右下角照样能打开列表</li>
+    <li>列表行按改后的样子：会话首字方块、当前项描边、空第二行不占高（第 1 轮）</li>
   </ol>
 </section>
 </main>

@@ -1,0 +1,116 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "t20 第 2 轮：方向二的底部导航",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "0b7589767c96ed9e3140af5fb10709cca95d6be96b16bbf8863e18ae095c0d2b",
+    "files": [
+        "index.html",
+        "r1/now-dock-open.webp",
+        "r1/now-dock.webp",
+        "r1/now-float-open.webp",
+        "r1/now-float.webp",
+        "r1/one-dock-open.webp",
+        "r1/one-dock.webp",
+        "r1/one-float-open.webp",
+        "r1/one-float.webp",
+        "r1/rows-now.webp",
+        "r1/rows-one-bot.webp",
+        "r1/rows-one.webp",
+        "r1/two-dock-open.webp",
+        "r1/two-dock.webp",
+        "r1/two-float-open.webp",
+        "r1/two-float.webp",
+        "r2/dock-open-bot.webp",
+        "r2/dock-open.webp",
+        "r2/dock.webp",
+        "r2/float-open.webp",
+        "r2/float.webp"
+    ],
+    "questions": [
+        {
+            "id": "rail-direction",
+            "type": "single",
+            "label": "右边那一列留不留？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "one",
+                    "label": "方向一：并进卡片的窄列"
+                },
+                {
+                    "value": "two",
+                    "label": "方向二：没有窄列，列表按需打开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-rows",
+            "type": "single",
+            "label": "列表行按右边这样改？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "new",
+                    "label": "改后"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "new"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "bottom-nav",
+            "type": "single",
+            "label": "按这样做：收着时右下角打开列表，展开后列表底部是 Bot｜会话｜收起？",
+            "options": [
+                {
+                    "value": "ok",
+                    "label": "按这样做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整（写在附言里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ok"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-27T02:28:10.013Z"
+}
