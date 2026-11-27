@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.page-agent
 owners:
   - nbook.page-agent
@@ -182,6 +182,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/page-agent/page-agent.llm.test.ts`（真实模型“在哪改主题，带我去”）。
 
+## 实现合同
+
+- **公开入口**：核心包 `@notnotype/nb-page-agent` 的 `createPageAgent`（`snapshot`、`locate`、`describe`、`highlight`）与子路径 `./api`（参数、结果、结局与失败的 TypeBox schema）、`./attrs`（`nbTarget`）、`./capture`（按 DOM 重画的截图）；内置插件 `nbook.page-agent` 的 eval 全局对象 `ui`（工具 `nbook.page-agent.snapshot`、`find`、`screenshot`、`highlight`）、窗口合同 `nbook.page-agent/window` 与截图上传路由；页面上的属性 `data-nb-target`、`data-nb-key`、`data-nb-agent="skip"`、`data-nb-agent-reveal`。
+- **owner 与依赖方向**：核心包只管一个页面里的事，不依赖应用包、`nb-runtime` 与 Vue，界面文字、主题与悬停显示由宿主给。插件依赖 `nbook.agent`（`agent.tools`、`agent.evalObjects`）、工作台与设置的只读目录（经它们的 `shared/`）和命令服务；稳定名由控件的拥有者经 `./attrs` 写。
+- **关键不变量**：
+  - 一个页面同时至多一个高亮：新的先结束旧的（`replaced`），旧的撤销先于新的显示；结局在撤掉之后才交出（`guide.e2e.ts`“换层、替换与画不出来”）。
+  - 引用只在发它的那次页面加载里有效；身份变了不悄悄换元素，只有同层唯一同名同 key 时重找并标 `rebound`（`locate.e2e.ts`）。
+  - 等用户从装上起算、由服务端时钟计时，任何结局都收回等用户（`highlight.test.ts`“结局与等用户”）。
+  - 截图凭证只对一次调用有效，调用结束、到期或插件停止即作废；上传按收到的字节累计上限（`captures.test.ts`）。
+  - 内核工具表、eval 说明与代码里的全局对象取同一份工具集；没人在窗口前的会话（含它们派出的子会话）没有 `ui`（`agent.test.ts`“输出 4：声明 foreground 的工具不进后台会话与 bot 归属的会话”）。
+
 ## 证据
 
 - 批准依据：[w00033 t01](../../../.agents/works/w00033-page-agent/tasks/t01-design/README.md) 的决定 1 到 19 与[设计稿](../../../.agents/works/w00033-page-agent/tasks/t01-design/design.md)第四稿（开发者 2026-11-26 确认）；[w00033 t03](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/README.md) 的决定 1 到 3（计划审查后，开发者 2026-11-26 确认）、决定 4 到 8（说明框的静态稿评审与遮罩、回退、引用寿命，开发者 2026-11-26、27 确认）
+- 实现入口：[`index.ts`](../../../packages/nb-page-agent/src/index.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/page-agent/plugin.ts)
+- 合同测试：[`spec-outputs.e2e.ts`](../../../packages/nb-page-agent/e2e/spec-outputs.e2e.ts)、[`snapshot.e2e.ts`](../../../packages/nb-page-agent/e2e/snapshot.e2e.ts)、[`locate.e2e.ts`](../../../packages/nb-page-agent/e2e/locate.e2e.ts)、[`guide.e2e.ts`](../../../packages/nb-page-agent/e2e/guide.e2e.ts)、[`spec-guide.e2e.ts`](../../../packages/nb-page-agent/e2e/spec-guide.e2e.ts)、[`capture.e2e.ts`](../../../packages/nb-page-agent/e2e/capture.e2e.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/windows.test.ts)、[`tools.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/tools.test.ts)、[`highlight.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/highlight.test.ts)、[`captures.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/captures.test.ts)、[`docs.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/docs.test.ts)、[`page-agent.e2e.ts`](../../../packages/neuro-book/e2e/page-agent.e2e.ts)、[`page-agent-guide.e2e.ts`](../../../packages/neuro-book/e2e/page-agent-guide.e2e.ts)
+- Smoke：[`page-agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/page-agent.llm.test.ts)
