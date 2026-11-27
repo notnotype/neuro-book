@@ -33,8 +33,10 @@ updated: 2026-11-27
 
 ## 当前状态
 
-2026-11-27 建 Task、查了四条的原因、请 Gemini 看过、开发者答了四道题；[plan.md](plan.md) 写好，等开发者确认。
+2026-11-27 建 Task、查了四条的原因、请 Gemini 看过、开发者答了四道题；[plan.md](plan.md) 开发者确认（“可以”）。计划审查第 1 轮（Sonnet）13 条：阻断 0、重要 9、建议 4；12 条改进计划，1 条接受取舍（焦点不在编辑卡里时 Escape 不放弃成段文字，旧做法同样如此）。主要的改动：ContextMenu 补 radio 与 anchor、Tabs 的箭头格占位与看法附注、成段文字放不下时翻到上方且高度封顶、再点原文不重置草稿、勾选列表沿用焦点留在搜索框的写法、对话框的写入与失败、预设的诊断与约束、先改测试里点分页的写法（[报告与处理](evidences/design-review.txt)）。
+
+实施：分支 `feat/w00039-t45-entry-page-polish-3`，worktree `.worktree/w00039-novel-writing-plugins`。
 
 ## 下一步
 
-开发者确认计划后：派 Sonnet 做计划审查，处理后按切片实施（分支 `feat/w00039-t45-entry-page-polish-3`，在 `.worktree/w00039-novel-writing-plugins` 里从 master 开）。
+按 [plan.md](plan.md) 的 S0 到 S6 实施。
