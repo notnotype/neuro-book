@@ -51,9 +51,10 @@ updated: 2026-11-26
 | Task | 内容 | 状态 |
 |---|---|---|
 | [t01](tasks/t01-demos/README.md) | 演示稿与 spike：标签写法与富文本编辑的体验 | active |
-| [t02](tasks/t02-kernel-tags/README.md) | 写法与内核：标签写法、与章节共用 marked、给 Agent 带值只给看、旧写法迁移 | planned |
+| [t02](tasks/t02-kernel-tags/README.md) | 写法与内核：标签写法、与章节共用 marked、给 Agent 带值只给看、旧写法迁移 | active |
+| [t03](tasks/t03-rich-editor/README.md) | 富文本编辑器：默认富文本、可切源文字、去掉分屏预览 | planned |
 
-后续（[t02 计划](tasks/t02-kernel-tags/plan.md#后续-task本-task-不做先记下)里记着，开工时再建）：富文本编辑器、标签登记表、设定组分页改成默认模板。
+后续（[t02 计划](tasks/t02-kernel-tags/plan.md#后续-task本-task-不做先记下)里记着，开工时再建）：标签登记表、设定组分页改成默认模板。
 
 ## 分支
 
