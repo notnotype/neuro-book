@@ -1,0 +1,87 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00043-neurobot",
+    "taskId": "t20-messages-view-second-round",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t20 第 1 轮：停靠侧轨与展开列表",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "6730bfc3451a707931918cdb0e927fd91d32ac36e70c06ff7cac0213dcc49f4d",
+    "files": [
+        "index.html",
+        "r1/now-dock-open.webp",
+        "r1/now-dock.webp",
+        "r1/now-float-open.webp",
+        "r1/now-float.webp",
+        "r1/one-dock-open.webp",
+        "r1/one-dock.webp",
+        "r1/one-float-open.webp",
+        "r1/one-float.webp",
+        "r1/rows-now.webp",
+        "r1/rows-one-bot.webp",
+        "r1/rows-one.webp",
+        "r1/two-dock-open.webp",
+        "r1/two-dock.webp",
+        "r1/two-float-open.webp",
+        "r1/two-float.webp"
+    ],
+    "questions": [
+        {
+            "id": "rail-direction",
+            "type": "single",
+            "label": "右边那一列留不留？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "one",
+                    "label": "方向一：并进卡片的窄列"
+                },
+                {
+                    "value": "two",
+                    "label": "方向二：没有窄列，列表按需打开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "list-rows",
+            "type": "single",
+            "label": "列表行按右边这样改？",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现在"
+                },
+                {
+                    "value": "new",
+                    "label": "改后"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "new"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-27T01:14:58.207Z"
+}

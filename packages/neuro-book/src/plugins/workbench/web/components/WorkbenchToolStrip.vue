@@ -621,8 +621,13 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
     display: none;
 }
 
+/*
+ * 收着时各段贴窗口外缘排（上面 `align-items`），入口带与视图段是 48 宽、按钮在里面居中；展开按钮自己是 38 宽的一项，
+ * 左右各让出 5px 才和它们在同一条中线上（展开时网格那一列居中，两边相等的外边距不影响）。
+ */
 .workbench-tool-strip .workbench-tool-strip__expand {
     margin-block: var(--space-2);
+    margin-inline: 5px;
 }
 
 .workbench-tool-strip[data-rail-state="expanded"] {
@@ -703,12 +708,44 @@ watch(() => props.entries.map((entry) => `${entry.id}${entry.pressed ? "*" : ""}
     right: 0;
 }
 
-.workbench-tool-strip__handle:hover,
+/*
+ * 亮起来的是贴着接缝的一条线，样子与时机同网格的分隔线（nb-layout 的 `SashHandle`）：线芯 `--sash-line-*`，悬停 250ms 后渐显、
+ * 拖动与键盘聚焦立即全亮。整个 6px 命中区涂满的话比旁边网格的线粗一倍。
+ */
+.workbench-tool-strip__handle::before {
+    position: absolute;
+    inset-block: 0;
+    width: var(--sash-line-size);
+    border-radius: var(--sash-line-radius);
+    background: var(--sash-line-color);
+    box-shadow: var(--sash-line-glow, none);
+    content: "";
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-tool-strip__handle--start::before {
+    left: 0;
+}
+
+.workbench-tool-strip__handle--end::before {
+    right: 0;
+}
+
+.workbench-tool-strip__handle:hover::before {
+    opacity: 1;
+    transition-delay: 250ms;
+}
+
 .workbench-tool-strip__handle:focus-visible,
 .workbench-tool-strip__handle[data-dragging] {
-    background: var(--accent-main);
     outline: none;
-    transition: background-color var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-tool-strip__handle:focus-visible::before,
+.workbench-tool-strip__handle[data-dragging]::before {
+    opacity: 1;
+    transition: none;
 }
 
 /* 占位与按钮同占一格（38px），圆形的样子与书架右上角的头像位一致。 */

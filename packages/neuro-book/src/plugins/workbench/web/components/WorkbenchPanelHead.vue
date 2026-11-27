@@ -137,7 +137,8 @@ const sideWidth = computed(() => Math.ceil(Math.max(startExtent.value?.width ?? 
  * 自绘头右端让出的宽度：按钮一组的宽，加上它到窗口右缘的内边距与它和视图的“⋯”之间的间距（两个数与下面 `--own` 的样式同值）。
  * 动作透明时也占位，所以只在动作增减时变，缩放窗口不变。
  */
-const OWN_HEAD_END_PADDING = 8;
+/** 12：画在窗右边缘的视图段收着时是 48 宽的一列（`SHELL_RAIL_WIDTH`），24 宽的“回到停靠”离右缘 12 正好在那一列的中线上，和下面的按钮对齐（输出 51 的“顶格”）。 */
+const OWN_HEAD_END_PADDING = 12;
 const OWN_HEAD_END_GAP = 4;
 const ownEndExtent = useLayoutExtent(computed(() => (ownHeadShown.value ? endColumn.value : null)));
 watch(() => (ownEndExtent.value === null ? null : Math.ceil(ownEndExtent.value.width)), (width) => {
@@ -582,7 +583,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     flex: none;
     justify-content: flex-end;
     height: var(--own-head-band);
-    padding-inline: var(--space-1) 8px;
+    padding-inline: var(--space-1) 12px;
     z-index: 10;
     pointer-events: none;
 }

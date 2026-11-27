@@ -127,7 +127,8 @@ updated: 2026-11-26
 | 1 | [t41](tasks/t41-character-component/README.md) | 人物设定组：清单的第一期（内核补在条目上加、改名、去掉、恢复字段；人物与形象两组各一个分页、就地改；种类登记的默认设定组；图片的显示、选图与上传；Agent 工具的字段操作）。11-25 合入 master，同日 Spec 晋升（逐句核对、补断言） | t10、t40 |
 | 1 | [t42](tasks/t42-entry-page-redesign/README.md) | 条目页重做：在看、编辑卡、分页条带图标与添加设定组（11-26 合入 master，完成） | t41 |
 | 1 | [t43](tasks/t43-entry-page-polish-2/README.md) | 设定页体验第二轮：开发者 11-26 试用星瑕设定页的九条（条目树点击、编辑卡高度、分页切换动画、滚动条、三种看法、几十个设定组的添加入口；Lab 的组织转 t44）。11-26 合入 master，完成，Spec 待晋升 | t42 |
-| 2 | [t44](tasks/t44-lab-and-component-folders/README.md) | Lab 与组件目录的整理：canon 的组件按区域分子目录、场景一个状态一个、场景登记按插件拆开（开发者 11-26 在 t43 里同意，t43 之后做） | t43 |
+| 1 | [t45](tasks/t45-entry-page-polish-3/README.md) | 条目页第三轮：开发者 11-27 的四条（加设定组改成对话框、有名字的预设；三种看法挪到分页上；成段文字在下方编辑；人物分页的富文本编辑归 w00055）。11-27 计划等开发者确认 | t43 |
+| 2 | [t44](tasks/t44-lab-and-component-folders/README.md) | Lab 与组件目录的整理：canon 的组件按区域分子目录、场景一个状态一个、场景登记按插件拆开（开发者 11-26 在 t43 里同意，t45 之后做） | t45 |
 | — | [t38](tasks/t38-kernel-shared-parser/README.md) | 内核改用与章节相同的解析器（11-23 从 t28 拆出；11-26 开发者定换成标签写法，连同富文本编辑器转到 [w00055](../w00055-entry-rich-text/README.md)） | t39 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |

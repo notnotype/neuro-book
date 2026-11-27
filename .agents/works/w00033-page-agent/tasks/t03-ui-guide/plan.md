@@ -42,7 +42,7 @@
 ### `packages/nb-page-agent/`（新包）
 
 - 包：`private`、AGPL-3.0-only（同 nb-host、nb-models），`exports` 指 `src`（照 nb-flock）；入口 `.`（引擎）、`./api`（TypeBox schema，无 DOM）、`./attrs`（`nbTarget`）、`./capture`（snapdom 截图）。依赖只有 `dom-accessibility-api`、`@floating-ui/dom`、`@zumer/snapdom`、`typebox`。登记：根 `AGENTS.md` 结构图、`packages/AGENTS.md`、`docs/modules/monorepo-boundaries.md`、`packages/neuro-book/src/architecture.test.ts` 的 `PACKAGE_SIDES`（主入口 `web`，`./api`、`./attrs` 为 `neutral`）、包 README（Owner、Interface、依赖方向、验证命令）。发布与否等 w00034 要用时再定。
-- 不认识 NeuroBook：`./api` 只放页面里的概念（定位、快照、高亮的参数与页面结局、`stale-ref`、`ambiguous`、`not-found`）；`find`、窗口类失败码、`command` 定位由插件扩展（插件把 `{command}` 换成 `{target: "command", key}` 再交给引擎）。宿主注入：截图实现、界面文字表、悬停显示钩子 `reveal(target) → Element[]`、主题（CSS 变量 `--nb-page-agent-*` 加兜底值）。
+- 不认识 NeuroBook：`./api` 只放页面里的概念（定位、快照、高亮的参数与页面结局、`stale-ref`、`ambiguous`、`not-found`）；`find`、窗口类失败码、`command` 定位由插件扩展（插件把 `{command}` 换成 `{target: "command", key}` 再交给引擎）。宿主注入：截图实现、界面文字表、悬停显示钩子 `reveal(target)`（交回撤掉时调用的函数）、主题（CSS 值，写成说明框 shadow 宿主上的 `--pa-*`，在目标所在那一层取值；包里带兜底值）。
 - `src/snapshot/`：可见性（累乘不透明度、`faint`）、命中检查（中心退四角，分清被盖住与滚出；用 `elementsFromPoint` 跳过自己的节点，递归 open shadow root）、层、列表摘要、主名、转义、预算、字节上限（按 UTF-8 量）、跳过区域写占位行。
 - `src/refs.ts`：加载前缀、单调发号、身份核对；同层重找只给不改页面的调用；前缀不是这次加载的直接 `stale-ref`，不重找（别的窗口没有发号时的身份，omp 10）。
 - 回复的总大小：窗口交回的每个结果（快照、目录、失败、订阅的结局）按 JSON 序列化后至多 256 KB 的 UTF-8（宿主 WebSocket 的单条消息上限是 1 MiB）；快照超了先裁元素再裁文字，并在 `warnings` 标明（omp 14）。
@@ -108,7 +108,7 @@
 | 5 | 核心第一段：`./api`、快照、引用、定位、`./attrs`；先量名字计算 | 包的 bun 单测、Playwright 夹具测试、typecheck |
 | 6 | 插件第一段：接线、合同、窗口一侧、选窗口、`snapshot`、`find`、`screenshot` 与上传路由，贯通到真实应用；之后派第一段 e2e | 插件测试（真实服务端与窗口）、`architecture.test.ts`、应用 typecheck、`build:web`、一份主会话手写的最小贯通脚本 |
 | 7 | agent 插件与 harness：失败详情与 `errors`、`tsType`、前台过滤、`waitingForUser`（各自提交） | agent 插件与 nb-harness 受影响的测试、SDK 场景 `10-eval-object`、两边 typecheck |
-| 8 | 核心第二段：说明框（按定稿）、跟随、结局、键盘隔离、截图入口 | 包的 Playwright 夹具测试；变异检查 |
+| 8 | 核心第二段：说明框（按定稿与决定 4 到 7：收起的提问、遮罩、回退）、跟随、结局、键盘隔离、截图入口 | 包的 Playwright 夹具测试；变异检查 |
 | 9 | 插件第二段：高亮订阅与等待、服务端计时、按对象绑定与 Profile 对象行；之后派第二段 e2e | 插件测试、应用 typecheck、三份构建后跑 `page-agent.e2e.ts` 与 `agent-profiles.e2e.ts` |
 | 10 | 真实模型冒烟、开发服务上点一遍、文档收尾、逐条核对 Spec 后晋升 | `test:llm` 跑 `page-agent.llm.test.ts`；`docs:check`、`governance:check` |
 
@@ -158,7 +158,7 @@
   - 第二段（第 9 片之后派）：核心夹具测试（输出 9、10 里与弹层无关的）；应用 e2e 场景 1、3 的高亮部分、6、7、9；Profile 对象行的用例。
 - **双方照的可观察状态**：
   - 快照文本的行格式（Spec 输出 3）。
-  - 引擎自己的节点都带 `data-nb-page-agent`：`callout`、`outline`、`next`、`skip`、`ask`（输入框）、`ask-submit`。说明框带 `data-nb-page-agent-target`（引用或 `target:key`）与 `data-step`；隐藏时带 `data-hidden`。
+  - 引擎自己的节点都带 `data-nb-page-agent`：shadow 宿主 `guide`（淡出时带 `data-closing`），里面的 `callout`、`outline`、`dim`（`dim` 为真时的压暗层）、`next`、`back`、`skip`、`ask-open`（“提问”按钮）、`ask`（输入框）、`ask-submit`、`ask-close`。说明框带 `data-nb-page-agent-target`（引用或 `target:key`）与 `data-step`；提问展开时带 `data-asking`；目标滚出视野时描边框与压暗层带 `data-hidden`。
   - 说明框在 open shadow root 里，焦点在提问框时读 `shadowRoot.activeElement`。
   - 撤掉之后页面上没有 `[data-nb-page-agent]` 节点，也没有 `[data-nb-agent-reveal]` 属性。
   - Profile 对象行 `data-profile-tool-object="ui"`。

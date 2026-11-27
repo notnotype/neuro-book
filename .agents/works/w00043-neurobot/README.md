@@ -114,6 +114,7 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 | [t17](tasks/t17-kernel-review-followups/README.md) | t16 审查挖出的内核原有缺陷（未开工，不阻塞第一版） | t16 |
 | [t18](tasks/t18-messages-float-window-im/README.md) | 消息视图浮成窗口时像 IM：列表栏可拖宽、切换控件、浮动窗里视图自绘头 | t15 |
 | [t19](tasks/t19-messages-view-ui-polish/README.md) | 消息视图界面优化：两侧共用贴外缘的侧轨，消息视图把视图段借给右轨，展开即完整列表；浮动窗里画在右边缘（已合入） | t18 |
+| [t20](tasks/t20-messages-view-second-round/README.md) | 消息视图第二轮：归位再浮动记住窗的尺寸，停靠侧轨减重与展开列表、浮动窗头的重做（先出稿） | t19 |
 | **第二步：有记忆** | | |
 | [t09](tasks/t09-bot-memory/README.md) | bot 的记忆 | t06、t13 |
 | **第三步：能办事** | | |
@@ -145,3 +146,4 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 - [t17 t16 审查挖出的内核原有缺陷](tasks/t17-kernel-review-followups/README.md)
 - [t18 消息视图浮成窗口时像 IM](tasks/t18-messages-float-window-im/README.md)
 - [t19 消息视图界面优化](tasks/t19-messages-view-ui-polish/README.md)
+- [t20 消息视图第二轮](tasks/t20-messages-view-second-round/README.md)
