@@ -12,6 +12,7 @@ import {isAbsolute, join} from "node:path";
 
 import {hostnameKey} from "./hostname";
 import type {CommandFailure, ConfigProblem, SiteModule, SiteSettings} from "./module";
+import {isInsideDir} from "./web";
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
@@ -33,7 +34,8 @@ export interface BaseConfig {
     readonly testControlToken: string | null;
     /**
      * 前端产物目录（`NB_SITE_WEB_DIR`）的真实路径（已解开符号链接）；没设时为 null，`serve` 就不发网页（`site.operations` 输出 12）。
-     * 存真实路径：发文件时按它判断解开链接之后的路径还在不在目录里（`web.ts`）。
+     * 存真实路径：发文件时按它判断解开链接之后的路径还在不在目录里（`web.ts`）。链接只在启动时解开这一次：部署时若让
+     * `NB_SITE_WEB_DIR` 指向一个链接、换链接的指向来切换版本，进程仍发旧目录，要重启（Spec 的配置表写明）。
      */
     readonly webDir: string | null;
 }
@@ -107,7 +109,9 @@ function parseWebDir(value: string): Parsed<string> {
         return bad("not_directory");
     }
     try {
-        if (!statSync(join(real, "index.html")).isFile()) return bad("no_index");
+        // 与发文件时同一条规则（`web.ts` 的 `isInsideDir`）：经链接落到目录外的 `index.html` 回退发不出，不算有。
+        const index = realpathSync(join(real, "index.html"));
+        if (!isInsideDir(real, index) || !statSync(index).isFile()) return bad("no_index");
     } catch {
         // 没有这个文件，或它是指向不存在之处的链接。
         return bad("no_index");

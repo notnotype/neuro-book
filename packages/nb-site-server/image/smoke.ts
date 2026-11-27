@@ -5,7 +5,7 @@
  *    数据目录里有每个模块的锁文件；第二个容器挂同一个目录时以 `data_dir_busy` 退出，证明打成单文件之后 nb-flock
  *    （bun:ffi 加载 libc 的 flock）在容器里照样起作用。`docker stop` 之后退出码 0、日志里有 `site.stopped`：
  *    bun 是 1 号进程，内核不替 1 号进程执行信号的缺省动作，这一步证明进程自己处理了 SIGTERM。
- *    同一个容器上 `/` 回镜像里的 `index.html`（与 `build:image` 拷进 `dist/image/web/` 的那份逐字节相同）并带内容安全策略：
+ *    同一个容器上 `/` 回镜像里的 `index.html`（与 `build:image` 写进 `dist/image/web/` 的那份逐字节相同）并带内容安全策略：
  *    镜像设好了 `NB_SITE_WEB_DIR`，网页随镜像一起发（`site.operations` 输出 12）。
  * 2. 不带 `--user`、挂一个新的命名卷：镜像里的 `/data` 属于 bun 用户，卷照它初始化，进程能写；同样就绪、停止后退出码 0。
  * 3. 给容器设 `NB_SITE_TEST_CONTROL`：镜像监听 0.0.0.0，进程以 `config_invalid` 拒绝，问题是 `NB_SITE_HOST` 的 `not_loopback`。

@@ -7,22 +7,23 @@
  * 迁移的 SQL 经 `with {type: "text"}` 导入，打包时已内联进 `server.js`；`bun:sqlite`、`bun:ffi`（nb-flock）是运行时内置模块，
  * 不进产物，所以基础镜像的 Bun 要提供它们，见 Dockerfile 的说明。
  *
- * 官方站的网页（`nb-site-web`）也在这里构建：跑它的包脚本 `build`（`vite build`，产物在它的 `dist/`），整个拷进 `dist/image/web/`，
- * 镜像里由 `NB_SITE_WEB_DIR=/app/web` 交给进程发（`site.operations` 输出 12）。前端包是本包的开发依赖，经包名解析它的位置，
+ * 官方站的网页（`nb-site-web`）也在这里构建：跑它的包脚本 `build`（`vite build`），用 `--outDir` 直接写进 `dist/image/web/`，
+ * 镜像里由 `NB_SITE_WEB_DIR=/app/web` 交给进程发（`site.operations` 输出 12）。不写前端包自己的 `dist/`：前端的 `test:e2e`
+ * 也先清空再写那个目录、再对着它跑，两边同时跑时会互相覆盖。前端包是本包的开发依赖，经包名解析它的位置，
  * 不按相对路径找兄弟目录；本包的源码不导入它（`src/architecture.test.ts`）。
  *
  * 用法：`bun run build:image [--no-docker] [--tag <名字>]`。`--no-docker` 只出产物（CI 的合同测试对着它跑）；`--tag` 缺省
  * `nb-site:local`。不推送镜像。
  */
 
-import {copyFile, cp, rm, stat} from "node:fs/promises";
+import {copyFile, rm, stat} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 const OUT_DIR = join(PACKAGE_ROOT, "dist", "image");
-/** 前端包的根目录；它的 `vite.config.ts` 把产物写进根下的 `dist/`。 */
+/** 前端包的根目录：在这里跑它的构建，它的 `vite.config.ts` 才找得到。 */
 const WEB_PACKAGE_ROOT = dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-site-web/package.json")));
 const WEB_OUT_DIR = join(OUT_DIR, "web");
 
@@ -53,20 +54,19 @@ await copyFile(join(import.meta.dir, "Dockerfile"), join(OUT_DIR, "Dockerfile"))
 const server = result.outputs.find((output) => output.kind === "entry-point");
 console.log(`built ${server?.path ?? join(OUT_DIR, "server.js")} (${String(server?.size ?? 0)} bytes)`);
 
-// 每次都重新构建网页，不拿前端包里上一次留下的 dist/：那可能是改源码之前的产物。
-const webBuild = Bun.spawn([process.execPath, "run", "build"], {cwd: WEB_PACKAGE_ROOT, stdio: ["ignore", "inherit", "inherit"]});
+// 每次都从源码重新构建网页。`--outDir` 盖过前端配置里的产物目录，要给绝对路径：前端配置的根是 `src/`，相对路径按它算。
+const webBuild = Bun.spawn([process.execPath, "run", "build", "--outDir", WEB_OUT_DIR], {cwd: WEB_PACKAGE_ROOT, stdio: ["ignore", "inherit", "inherit"]});
 const webExitCode = await webBuild.exited;
 if (webExitCode !== 0) {
     console.error(`nb-site-web build exited with ${String(webExitCode)}`);
     process.exit(1);
 }
-await cp(join(WEB_PACKAGE_ROOT, "dist"), WEB_OUT_DIR, {recursive: true});
 // 进程启动时同样要求有它（`NB_SITE_WEB_DIR` 的 `no_index`）；在这里先查，免得打出一个起不来的镜像。
 if (!(await stat(join(WEB_OUT_DIR, "index.html")).then((info) => info.isFile(), () => false))) {
     console.error("nb-site-web build did not produce index.html");
     process.exit(1);
 }
-console.log(`copied the nb-site-web build into ${WEB_OUT_DIR}`);
+console.log(`built nb-site-web into ${WEB_OUT_DIR}`);
 
 if (!values["no-docker"]) {
     const docker = Bun.spawn(["docker", "build", "--tag", values.tag, OUT_DIR], {stdio: ["ignore", "inherit", "inherit"]});

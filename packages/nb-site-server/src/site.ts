@@ -75,7 +75,7 @@ function surfaceApp(surface: Surface, options: SiteAppOptions): Hono<SiteEnv> {
     // 走到这里说明这个入口上没有路由接这个请求（模块子应用自己的 `notFound` 经 `app.route` 挂进来时不跟着走，见各模块的兜底路由）：
     // 网页因此排在每个模块之后。写入口上不发网页。
     app.notFound((c) => {
-        const served = surface === "site" ? options.web?.(c.req.raw) : undefined;
+        const served = surface === "site" ? options.web?.(c.req.raw, c.env.request.requestId) : undefined;
         if (served === undefined) return c.json(NOT_FOUND, 404);
         c.env.request.module = "web";
         return served;

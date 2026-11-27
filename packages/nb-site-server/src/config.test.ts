@@ -133,6 +133,18 @@ describe("parseSiteConfig", () => {
         await mkdir(dangling);
         await symlink(join(root, "nowhere.html"), join(dangling, "index.html"));
         expect(webProblems(dangling)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+        // 经链接落到目录外的 index.html 不算有：回退只发目录里的文件，这样的目录启动了也发不出一个页面。
+        const escaping = join(root, "escaping-web");
+        await mkdir(escaping);
+        await writeFile(join(root, "outside.html"), "<!doctype html>");
+        await symlink(join(root, "outside.html"), join(escaping, "index.html"));
+        expect(webProblems(escaping)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+        // 链到目录里另一个文件的 index.html 照常算有。
+        const aliased = join(root, "aliased-web");
+        await mkdir(aliased);
+        await writeFile(join(aliased, "app.html"), "<!doctype html>");
+        await symlink(join(aliased, "app.html"), join(aliased, "index.html"));
+        expect(parseSiteConfig({...validEnv(), NB_SITE_WEB_DIR: aliased}, SITE_MODULES)).toMatchObject({ok: true, config: {base: {webDir: await realpath(aliased)}}});
     });
 
     it("会话密钥按字符数算，32 个够、31 个不够", () => {
