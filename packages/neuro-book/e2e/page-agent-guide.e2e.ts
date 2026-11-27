@@ -11,7 +11,7 @@ import {readFile, readdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test} from "@playwright/test";
-import type {Page} from "@playwright/test";
+import type {Locator, Page} from "@playwright/test";
 
 import {HEIGHT, WIDTH, expectGuideRemoved, guidePart, newSession, openConversation, startEval, startLab} from "./support/page-agent-world";
 import type {AgentLab, AgentWorld} from "./support/page-agent-world";
@@ -197,3 +197,174 @@ return JSON.stringify({outcome: result.outcome});`);
     // 代码已随单元结束，结局只记在日志里：嵌套调用的结果行。
     await expect.poll(async () => (await sessionLogs(auto)).split("\n").some((line) => line.includes("nestedToolResult") && line.includes("马上停止") && line.includes("\"preview\":\"结局：cancelled\""))).toBe(true);
 });
+
+// ---------- 验收 6：真实弹层 ----------
+
+/** 一个弹层的“前后”快照：那一层根元素的高度与最后一项的计算样式（说明框挂进根元素的第一个位置，不应改动它们）。 */
+async function measureLayer(root: Locator, itemSelector: string): Promise<{height: number; lastItem: Record<string, string>}> {
+    return root.evaluate((element, selector) => {
+        const items = element.querySelectorAll(selector);
+        const last = items[items.length - 1]!;
+        const computed = getComputedStyle(last);
+        return {height: element.getBoundingClientRect().height, lastItem: Object.fromEntries([...computed].map((name) => [name, computed.getPropertyValue(name)]))};
+    }, itemSelector);
+}
+
+/** 说明框的宿主此刻挂在哪个元素里（只看没在淡出的）。 */
+const hostParent = (page: Page) => page.evaluateHandle(() => document.querySelector("[data-nb-page-agent=guide]:not([data-closing])")?.parentElement ?? null);
+
+/** 当前焦点元素的样子：标签、角色、文字与值，用来比“焦点没被说明框拿走”。 */
+const focusOf = (page: Page) => page.evaluate(() => {
+    const active = document.activeElement as HTMLElement | null;
+    return active === null ? null : `${active.localName}|${active.getAttribute("role") ?? ""}|${active.getAttribute("aria-label") ?? ""}|${(active.textContent ?? "").slice(0, 20)}|${active instanceof HTMLInputElement ? active.value : ""}`;
+});
+
+interface LayerCase {
+    readonly name: string;
+    open(page: Page): Promise<void>;
+    root(page: Page): Locator;
+    readonly itemSelector: string;
+    /** 高亮的目标（`ui.highlight` 的 `at`）。 */
+    readonly at: string;
+    /** 弹层里“高亮项”与取值的外显状态：点下一步、打字、按方向键与 Enter 之后都不变。 */
+    state(page: Page): Promise<unknown>;
+    /** 键盘事件漏给页面时会发生的事（命令被执行等）：没发生时为真。 */
+    untouched(page: Page): Promise<boolean>;
+    /** 对照：说明框撤掉之后，同样的按键能让弹层动起来（证明上面“没变”不是按键本来就没用）。 */
+    keyMoves(page: Page): Promise<boolean>;
+}
+
+const LAYERS: readonly LayerCase[] = [
+    {
+        name: "命令面板",
+        async open(page) {
+            await page.keyboard.press("Control+Shift+P");
+            await page.keyboard.type("打开设置");
+            await expect(page.getByRole("option", {name: /^打开设置/u})).toBeVisible();
+            await page.evaluate(() => {
+                const field = document.querySelector("[role=dialog][aria-label='命令面板'] input, [role=dialog] [role=combobox]") as HTMLInputElement;
+                field.setSelectionRange(1, 3);
+            });
+        },
+        // 命令面板是对话框里的一个列表；目标所在的层是这个列表（快照的层表头也是“dialog > listbox”）。
+        root: (page) => page.getByRole("listbox", {name: "命令面板"}),
+        itemSelector: "[role=option]",
+        at: `{role: "option", name: "打开设置"}`,
+        state: (page) => page.evaluate(() => {
+            const field = document.querySelector("[role=dialog] [role=combobox]") as HTMLInputElement;
+            return {value: field.value, selection: [field.selectionStart, field.selectionEnd], selected: document.querySelector("[role=option][aria-selected=true]")?.textContent ?? null, options: document.querySelectorAll("[role=option]").length};
+        }),
+        untouched: async (page) => await page.locator("[data-settings-window]").count() === 0,
+        keyMoves: async (page) => {
+            await page.keyboard.press("ArrowDown");
+            return await page.evaluate(() => !document.querySelector("[role=option][aria-selected=true]")?.textContent?.startsWith("打开设置"));
+        },
+    },
+    {
+        name: "下拉（设置里主题的选择）",
+        async open(page) {
+            await page.keyboard.press("Control+,");
+            await expect(page.locator("[data-settings-window]")).toBeVisible();
+            await page.getByRole("combobox", {name: "主题"}).click();
+            await expect(page.getByRole("listbox")).toBeVisible();
+            await page.keyboard.press("ArrowDown");
+        },
+        root: (page) => page.getByRole("listbox"),
+        itemSelector: "[role=option]",
+        at: `{role: "option", name: "护眼绿"}`,
+        state: (page) => page.evaluate(() => ({highlighted: document.querySelector("[role=listbox] [data-highlighted]")?.textContent ?? null, trigger: document.querySelector("[role=combobox][aria-label='主题'], [role=combobox]")?.textContent ?? null, open: document.querySelector("[role=listbox]") !== null})),
+        untouched: async (page) => await page.getByRole("listbox").count() === 1,
+        keyMoves: async (page) => {
+            const before = await page.evaluate(() => document.querySelector("[role=listbox] [data-highlighted]")?.textContent ?? null);
+            await page.keyboard.press("ArrowDown");
+            return await page.evaluate((from) => document.querySelector("[role=listbox] [data-highlighted]")?.textContent !== from, before);
+        },
+    },
+    {
+        name: "下拉菜单（审批模式）",
+        async open(page) {
+            await page.getByRole("button", {name: /审批模式/u}).click();
+            await expect(page.getByRole("menu")).toBeVisible();
+            await page.keyboard.press("ArrowDown");
+        },
+        root: (page) => page.getByRole("menu"),
+        itemSelector: "[role=menuitemradio]",
+        at: `{role: "menuitemradio", name: "放行写入"}`,
+        state: (page) => page.evaluate(() => ({highlighted: document.querySelector("[role=menu] [data-highlighted]")?.textContent ?? null, checked: document.querySelector("[role=menuitemradio][aria-checked=true]")?.textContent ?? null, mode: [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label")?.startsWith("审批模式"))?.getAttribute("aria-label") ?? null})),
+        untouched: async (page) => await page.getByRole("button", {name: "审批模式：每次询问"}).count() === 1,
+        keyMoves: async (page) => {
+            const before = await page.evaluate(() => document.querySelector("[role=menu] [data-highlighted]")?.textContent ?? null);
+            await page.keyboard.press("ArrowDown");
+            return await page.evaluate((from) => document.querySelector("[role=menu] [data-highlighted]")?.textContent !== from, before);
+        },
+    },
+];
+
+for (const layer of LAYERS) {
+    test(`验收 6（${layer.name}）：高亮其中一项，点“下一步”不关弹层；提问框里打字、按方向键与 Enter，弹层的高亮项不变、没有命令执行、页面的焦点与选区不变；说明框不改那一层的高度与最后一项的样式`, async ({page}) => {
+        await ready(page, auto);
+        const run = await startEval(page, lab, `高亮${layer.name}`, `${GATE}
+const out = [];
+const first = await ui.highlight({at: ${layer.at}, message: "第一步看这一项。", until: "next", step: 1, total: 2});
+out.push(first.outcome);
+const second = await ui.highlight({at: ${layer.at}, message: "第二步还是这一项。", until: "next", step: 2, total: 2});
+out.push(second.outcome + (second.question === undefined ? "" : ":" + second.question));
+return JSON.stringify(out);`, {timeout: 120});
+
+        await layer.open(page);
+        const root = layer.root(page);
+        const before = await measureLayer(root, layer.itemSelector);
+        const stateBefore = await layer.state(page);
+        const focusBefore = await focusOf(page);
+        await openGate(page);
+
+        // 第一步：说明框挂进这一层的根元素里，那一层的高度与最后一项的样式不变。
+        await expect(guidePart(page, "callout")).toContainText("第一步看这一项。");
+        expect(await (await hostParent(page)).evaluate((parent, rootElement) => parent === rootElement, await root.elementHandle())).toBe(true);
+        expect(await measureLayer(root, layer.itemSelector)).toEqual(before);
+        expect(await layer.state(page)).toEqual(stateBefore);
+
+        // 点“下一步”不关掉弹层。
+        await guidePart(page, "next").click();
+        await expect(guidePart(page, "callout")).toContainText("第二步还是这一项。");
+        await expect(root).toBeVisible();
+        expect(await layer.state(page)).toEqual(stateBefore);
+        expect(await measureLayer(root, layer.itemSelector)).toEqual(before);
+
+        // 提问框：空着按 Enter 不提交；打字、方向键、Home、End 都留在提问框里。
+        await guidePart(page, "ask-open").click();
+        await expect(guidePart(page, "callout")).toHaveAttribute("data-asking", "");
+        for (const key of ["ArrowDown", "ArrowDown", "ArrowUp", "Home", "End", "Enter"]) await page.keyboard.press(key);
+        await page.keyboard.type("qwe");
+        for (const key of ["ArrowDown", "ArrowUp"]) await page.keyboard.press(key);
+        await expect(guidePart(page, "ask")).toHaveValue("qwe");
+        // 焦点在提问框里时，菜单与下拉按自己的规矩收起项上的“高亮”标记（失去焦点）；不会变成别的项。
+        const duringAsk = await layer.state(page) as {highlighted?: string | null};
+        const expectedHighlight = (stateBefore as {highlighted?: string | null}).highlighted;
+        if (expectedHighlight !== undefined) expect([expectedHighlight, null]).toContain(duringAsk.highlighted);
+        expect({...duringAsk, highlighted: undefined}).toEqual({...(stateBefore as object), highlighted: undefined});
+        expect(await layer.untouched(page)).toBe(true);
+        await expect(root).toBeVisible();
+
+        // Esc 清空、收起、回到原来的焦点，不关弹层。
+        await page.keyboard.press("Escape");
+        await expect(guidePart(page, "callout")).not.toHaveAttribute("data-asking", "");
+        await expect(root).toBeVisible();
+        expect(await focusOf(page)).toBe(focusBefore);
+        expect(await layer.state(page)).toEqual(stateBefore);
+
+        // 再问一次，Enter 提交：结局是 asked，弹层与焦点都还在原处。
+        await guidePart(page, "ask-open").click();
+        await page.keyboard.type("这一项是干什么的");
+        await page.keyboard.press("Enter");
+        expect(JSON.parse(await run.result())).toEqual(["next", "asked:这一项是干什么的"]);
+        await expectGuideRemoved(page);
+        await expect(root).toBeVisible();
+        expect(await focusOf(page)).toBe(focusBefore);
+        expect(await layer.state(page)).toEqual(stateBefore);
+        expect(await layer.untouched(page)).toBe(true);
+        expect(await measureLayer(root, layer.itemSelector)).toEqual(before);
+        // 对照：说明框撤掉之后，同样的按键能让弹层动起来。
+        expect(await layer.keyMoves(page)).toBe(true);
+    });
+}

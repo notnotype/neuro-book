@@ -287,3 +287,40 @@ test.describe("过渡（输出 10）", () => {
         expect(await page.evaluate(() => (window as unknown as {log: {closing: boolean}}).log.closing)).toBe(true);
     });
 });
+
+test.describe("焦点回到原处（输出 10）", () => {
+    test("焦点在弹层的项上、页面的选区在别处的可编辑区域里：提问后按 Esc 与提交，焦点仍回到那一项（选区的还原不抢焦点）", async ({page}) => {
+        await openFixture(page, `<div id="editor" contenteditable="true">abcdefgh</div>
+<div id="menu" role="menu" style="position:absolute;left:100px;top:300px;padding:8px"><div id="item" role="menuitem" tabindex="-1">甲</div><div role="menuitem" tabindex="-1">乙</div></div>`);
+        await page.evaluate(() => {
+            // 选区留在可编辑区域里，焦点却在菜单项上：菜单项取得焦点时选区不跟着走。
+            const range = document.createRange();
+            range.setStart(document.getElementById("editor")!.firstChild!, 1);
+            range.setEnd(document.getElementById("editor")!.firstChild!, 3);
+            document.getElementById("item")!.focus();
+            const selection = document.getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+        });
+        const active = () => page.evaluate(() => document.activeElement?.id ?? document.activeElement?.localName);
+        expect(await active()).toBe("editor");
+        await page.evaluate(() => document.getElementById("item")!.focus());
+        // 对照：把焦点放回菜单项之后，选区没有再把焦点拉走。
+        expect(await active()).toBe("item");
+
+        await startHighlight(page, {at: {role: "menuitem", name: "甲"}, message: "选甲。", until: "click"});
+        await installed(page);
+        expect(await active()).toBe("item");
+        await part(page, "ask-open").click();
+        await page.keyboard.type("问");
+        await page.keyboard.press("Escape");
+        await expect(part(page, "callout")).not.toHaveAttribute("data-asking", "");
+        expect(await active()).toBe("item");
+
+        await part(page, "ask-open").click();
+        await page.keyboard.type("再问");
+        await page.keyboard.press("Enter");
+        expect(await ended(page)).toEqual({outcome: "asked", question: "再问"});
+        expect(await active()).toBe("item");
+    });
+});
