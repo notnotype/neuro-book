@@ -12,6 +12,12 @@ import {usePopoverLayer} from "../../composables/usePopoverLayer";
 
 const {zIndex: popoverZIndex} = usePopoverLayer();
 
+/** 定位用的参照：一块会随滚动变的矩形（floating-ui 的虚拟元素）。 */
+export interface PopoverReference {
+    getBoundingClientRect(): DOMRect;
+    readonly contextElement?: Element;
+}
+
 
 const props = withDefaults(defineProps<{
     open?: boolean;
@@ -29,6 +35,11 @@ const props = withDefaults(defineProps<{
      */
     anchor?: HTMLElement | null;
     /**
+     * 定位用的矩形，代替 `anchor` 的外框（同名 .md 的“锚在外部元素上”）：锚点高到贴着它放不下面板时，调用方改贴锚点里的一小块。
+     * 只管定位；焦点还给谁、按在哪里不算点外面仍看 `anchor`。默认不给。
+     */
+    reference?: PopoverReference | null;
+    /**
      * 避让时以哪块区域为界（缺省是视口）：浮层不越出这块元素，例如编辑区里的浮层不盖到侧栏上。只在 `avoidCollisions` 时起作用。
      */
     collisionBoundary?: Element | readonly Element[] | null;
@@ -43,6 +54,7 @@ const props = withDefaults(defineProps<{
     contentClass: "",
     arrow: false,
     anchor: undefined,
+    reference: null,
     collisionBoundary: null,
 });
 
@@ -94,7 +106,7 @@ function onCloseAutoFocus(event: Event): void {
                 :align="props.align"
                 :avoid-collisions="props.avoidCollisions"
                 :collision-boundary="boundary"
-                :reference="props.anchor ?? undefined"
+                :reference="props.reference ?? props.anchor ?? undefined"
                 :style="{
                     zIndex: popoverZIndex,
                 }"

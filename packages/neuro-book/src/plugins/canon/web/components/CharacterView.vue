@@ -80,7 +80,7 @@ const showOrigins = (id: string, anchor: HTMLElement): void => {
     context.showDetail?.(id);
 };
 const toggleCondition = (): void => context.showDetail?.(context.detail === CONDITION ? null : CONDITION);
-// 细节里点了“改起点”：编辑层浮在现在的状态原处，细节收起来，不叠在它下面。
+// 细节里点了“改起点”：编辑浮层锚在现在的状态这一行下面，细节收起来，不与浮层叠在一起。
 watch(() => context.editing, (editing) => {
     if (editing === CONDITION && context.detail === CONDITION) context.showDetail?.(null);
 });
@@ -217,8 +217,8 @@ const confirm = async (write: () => Promise<{readonly ok: boolean; readonly reas
             <template #editor="{id, anchor}">
                 <component :is="context.FieldEditor" v-if="context.FieldEditor !== undefined" :path="id" :anchor="anchor" />
             </template>
-            <template #passage-editor="{id}">
-                <component :is="context.FieldEditor" v-if="context.FieldEditor !== undefined" :path="id" layout="block" />
+            <template #passage-editor="{id, anchor}">
+                <component :is="context.FieldEditor" v-if="context.FieldEditor !== undefined" :path="id" layout="block" :anchor="anchor" />
             </template>
             <template #condition-detail="{id}">
                 <component :is="context.FieldDetail" v-if="context.FieldDetail !== undefined" :path="id" />

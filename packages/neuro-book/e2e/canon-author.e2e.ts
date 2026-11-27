@@ -16,6 +16,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PACKAGE_ROOT, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
+import {selectTab} from "./support/entry-page";
 
 test.describe.configure({mode: "serial"});
 
@@ -70,7 +71,7 @@ const fieldValue = (page: Page, path: string) => entryPage(page).locator(`[data-
 /** 专门界面里就地改的编辑器（输出 51）：短项在浮层里（传送到页面根上），成段的文字浮在原处。 */
 const inlineEditor = (page: Page, path: string) => page.locator(`[data-field-editor="${path}"]`);
 /** 切到文字分页：人物的条目打开时先看人物分页（输出 9）。 */
-const textTab = (page: Page) => entryPage(page).getByRole("tab", {name: "文字"}).click();
+const textTab = (page: Page) => selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
 /** 条目页各分页的名字：只剩图标时取可访问名（`aria-label`），条数不算。 */
 const tabNames = (page: Page): Promise<string[]> => entryPage(page).getByRole("tab").evaluateAll((tabs) => tabs.map((tab) => (tab.getAttribute("aria-label") ?? tab.textContent ?? "").replace(/\s*\d+$/u, "").trim()));
 /** 页头的“在看”按钮（author-ui 输出 7）：写“在看”加当前位置，点开是故事线与剧情进度的菜单。 */
@@ -136,9 +137,9 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await choosePosition(page, /第 1 章末尾/u);
     await expect(value(page, "panel.存款")).toHaveText("41,800");
     expect(latest).not.toBe("41,800");
-    await entryPage(page).getByRole("tab", {name: "数值"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "数值"}));
     await expect(entryPage(page).locator("[data-card=\"panel.存款\"]")).toContainText("41,800");
-    await entryPage(page).getByRole("tab", {name: "文字"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "文字"}));
 
     await choosePosition(page, /第 2 章末尾/u);
     await value(page, "panel.存款").click();
@@ -180,14 +181,16 @@ test("验收 2：两个条目页各有各的位置、展开的来历与填了一
     await expect(row(page, "星瑕")).not.toHaveAttribute("aria-selected", "true");
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
 
-    // 填了一半的就地改：切走再回来，编辑与填的字还在（成段的文字浮在原处，输出 51）。
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    // 填了一半的就地改：切走再回来，编辑与填的字还在、回到眼前（成段的文字在原文下方的浮层里，输出 51）。
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await entryPage(page).locator("[data-edit=\"character.性格\"]").click();
     await inlineEditor(page, "character.性格").getByRole("textbox").fill("还没想好");
     await page.locator("[data-editor-tab]", {hasText: "星瑾"}).click();
     await expect(activeTabLabel(page)).toHaveText("星瑾");
     await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
     await expect(inlineEditor(page, "character.性格").getByRole("textbox")).toHaveValue("还没想好");
+    // 页面从顶上重新挂上，开着的编辑把原文滚进窗口、跟着回到眼前（浮层是固定定位的，测试替作者滚不动它）。
+    await expect(inlineEditor(page, "character.性格").getByRole("button", {name: "取消"})).toBeInViewport();
     await inlineEditor(page, "character.性格").getByRole("button", {name: "取消"}).click();
 
     await page.reload();
@@ -216,7 +219,7 @@ test("验收 3：就地改一个只在初值设过的字段，意图写“从最
     await open(page);
     await openEntry(page, "星瑕");
     const revisions = await (await showRevisions(page)).count();
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     // 用短项：它的编辑卡浮在值旁边，收起时页面不变高，量得出“提示出现时内容不动”（成段的文字在原处展开，收起时页面会变短）。
     const before = await fieldValue(page, "character.年龄").innerText();
     const next = before === "十七" ? "十八" : "十七";
@@ -265,7 +268,7 @@ test("验收 3：就地改一个只在初值设过的字段，意图写“从最
 test("验收 10 的后一半：在改动记录里还原一次修订，条目页上的值回到原样", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     const field = fieldValue(page, "character.身份");
     const before = await field.innerText();
     await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
@@ -290,7 +293,7 @@ test("验收 10 的后一半：在改动记录里还原一次修订，条目页�
 test("验收 11：只用键盘改一个值：走到值、Enter、填、Tab 到“保存”、Enter，焦点回到值；再 Enter、Escape，编辑收起、焦点还在值上", async ({page}) => {
     await open(page);
     await openEntry(page, "星瑕");
-    await entryPage(page).getByRole("tab", {name: "形象"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "形象"}));
     // 形象分页里值本身就是“改”（输出 51）：一个 Tab 停靠，Enter 打开浮在原处的编辑。
     const edit = fieldValue(page, "look.外貌");
     const before = await edit.innerText();
@@ -393,9 +396,9 @@ test("验收 51：在第 3 章末尾改一个只在最初设过的短项，选�
     const happened = "她开始打工还债";
     await open(page);
     await openEntry(page, "星瑕");
-    await entryPage(page).getByRole("tab", {name: "情节"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "情节"}));
     await expect(entryPage(page).getByRole("tabpanel").getByText(happened)).toHaveCount(0);
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     const before = await fieldValue(page, "character.身份").innerText();
 
     await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
@@ -420,12 +423,12 @@ test("验收 51：在第 3 章末尾改一个只在最初设过的短项，选�
     const notice = page.locator("[data-notice-bar]");
     await expect(notice).toContainText(happened);
     await expect(notice.locator("[data-notice-where]")).toContainText("第 3 章");
-    await entryPage(page).getByRole("tab", {name: "情节"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "情节"}));
     await expect(entryPage(page).getByRole("tabpanel").getByText(happened).first()).toBeVisible();
 
     await revertNewest(page);
     // 还原以后回到人物分页看值。
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await expect(fieldValue(page, "character.身份")).toHaveText(before);
 });
 
@@ -433,7 +436,7 @@ test("验收 51：选“从第 3 章起”不填“发生了什么”：修订�
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await openEntry(page, "星瑕");
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     const before = await fieldValue(page, "character.身份").innerText();
 
     await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
@@ -444,15 +447,15 @@ test("验收 51：选“从第 3 章起”不填“发生了什么”：修订�
     await bar.getByRole("button", {name: "保存"}).click();
     await expect(fieldValue(page, "character.身份")).toHaveText("兼职");
     await expect(page.locator("[data-notice-bar]")).toContainText("身份变成 兼职");
-    await entryPage(page).getByRole("tab", {name: "情节"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "情节"}));
     await expect(entryPage(page).getByRole("tabpanel").getByText("身份变成 兼职").first()).toBeVisible();
     await revertNewest(page);
     // 还原以后回到人物分页看值。
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await expect(fieldValue(page, "character.身份")).toHaveText(before);
 
     // 改设定（从最初起）：标题照旧“改身份”。
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
     await bar.getByRole("textbox").first().fill("在打工");
     await expect(bar.locator("[data-edit-intent]").getByRole("radio", {name: "从最初起"})).toBeChecked();
@@ -467,7 +470,7 @@ test("验收 51：看“最初”时改一个值，没有意图那一行，也�
     await open(page);
     await openEntry(page, "星瑕");
     await choosePosition(page, /最初/u);
-    await entryPage(page).getByRole("tab", {name: "人物"}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: "人物"}));
     await entryPage(page).locator("[data-edit=\"character.身份\"]").click();
     const bar = inlineEditor(page, "character.身份");
     await bar.getByRole("textbox").first().fill("先试试");
@@ -505,7 +508,7 @@ test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左�
     const nav = entryPage(page).locator("[data-entry-page-nav]");
     await expect(nav).toBeVisible();
     await expect(nav.getByRole("tab")).not.toHaveCount(0);
-    await nav.getByRole("tab", {name: /^数值/u}).click();
+    await selectTab(nav.getByRole("tab", {name: /^数值/u}));
     await expect(nav.getByRole("tab", {name: /^数值/u})).toHaveAttribute("aria-selected", "true");
     expect(await horizontalScrolls(entryPage(page))).toEqual([]);
     // 页头的名字（按钮带负外边距的浅底）一行写得下就是一行（workbench/editor 输出 53 的标签图标也在这一页上看）。
@@ -534,10 +537,10 @@ test("分页的排法（author-ui 输出 9）：编辑区够宽时在内容左�
         }).observe(panel, {subtree: true, attributes: true, attributeFilter: ["class"], childList: true});
     });
     // 滚过分页条以后换分页：新的一页从吸顶的页头下沿开始，不停在半中间。
-    await entryPage(page).getByRole("tab", {name: /^情节/u}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: /^情节/u}));
     await expect(entryPage(page).getByRole("tab", {name: /^情节/u})).toHaveAttribute("aria-selected", "true");
     await host.evaluate((element) => element.scrollTo({top: element.scrollHeight}));
-    await entryPage(page).getByRole("tab", {name: /^人物/u}).click();
+    await selectTab(entryPage(page).getByRole("tab", {name: /^人物/u}));
     await expect.poll(() => page.evaluate(() => [...(window as unknown as {tabTransitions: Set<string>}).tabTransitions].sort())).toEqual(expect.arrayContaining(["entry-page-tab-enter-active", "entry-page-tab-leave-active"]));
     await expect(entryPage(page).locator("[data-character-card]")).toBeVisible();
     const gap = () => entryPage(page).evaluate((root) => {
@@ -562,7 +565,7 @@ test("验收 14：390 像素宽时，条目页、回执页、变更详情页与�
     await openEntry(page, "星瑕");
     const strip = entryPage(page).getByRole("tablist", {name: "条目的分页"});
     for (const tab of ["文字", "人物", "形象", "数值", "情节"]) {
-        await entryPage(page).getByRole("tab", {name: new RegExp(`^${tab}`, "u")}).click();
+        await selectTab(entryPage(page).getByRole("tab", {name: new RegExp(`^${tab}`, "u")}));
         await page.setViewportSize({width: 390, height: 844});
         const selected = strip.getByRole("tab", {selected: true});
         await expect(selected).toContainText(tab);

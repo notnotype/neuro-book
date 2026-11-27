@@ -1,6 +1,6 @@
 /**
  * Agent 工具（docs/specs/canon/agent-tools.md）给模型看的文字：读取位置与版本、修订与失败怎么写成中文。纯函数，不碰世界；字数上限
- * 在这里截。条目的字段那一段在 `../shared/agent-fields.ts`（作者界面的“给 AI 看”也用它）。
+ * 在这里截。条目的字段那一段在 `../shared/agent-fields.ts`（作者界面的“AI视图”也用它）。
  */
 
 import type {ReadPosition, Revision} from "@notnotype/nb-canon/schema";

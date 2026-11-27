@@ -93,12 +93,19 @@ export const BUILTIN_COMPONENTS: readonly ComponentDeclaration[] = [
     },
 ];
 
+/** 人物的“主要角色”预设的 id：别的插件往里追加设定组时写它。 */
+export const PERSON_MAIN_PRESET = "main";
+
 /**
- * 内置的四个种类（`canon.entry-kinds`，author-ui.md 输入一节）：新建人物默认带人物与形象；组织、地点、物品现在没有默认的设定组
+ * 内置的四个种类（`canon.entry-kinds`，author-ui.md 输入一节）：新建人物默认带人物与形象；人物另有两种预设，“基本”同默认，
+ * “主要角色”再加数值（剧情插件往它里面追加知情与态度，`plot/plugin.ts`）。组织、地点、物品现在没有默认的设定组与预设
  * （内置设定组清单的第三期补）。顶层声明，插件描述里登记。
  */
 export const BUILTIN_ENTRY_KINDS: readonly {readonly id: string; readonly declaration: EntryKindDeclaration}[] = [
-    {id: "nbook.canon.person", declaration: {kind: ENTRY_KINDS.person, components: [PERSON_COMPONENT, LOOK_COMPONENT], order: 0, icon: "i-lucide-user-round"}},
+    {id: "nbook.canon.person", declaration: {kind: ENTRY_KINDS.person, components: [PERSON_COMPONENT, LOOK_COMPONENT], order: 0, icon: "i-lucide-user-round", presets: [
+        {id: "basic", label: "基本", components: [PERSON_COMPONENT, LOOK_COMPONENT]},
+        {id: PERSON_MAIN_PRESET, label: "主要角色", components: [PERSON_COMPONENT, LOOK_COMPONENT, PANEL_COMPONENT]},
+    ]}},
     {id: "nbook.canon.organization", declaration: {kind: ENTRY_KINDS.organization, order: 1, icon: "i-lucide-building-2"}},
     {id: "nbook.canon.place", declaration: {kind: ENTRY_KINDS.place, order: 2, icon: "i-lucide-map-pin"}},
     {id: "nbook.canon.item", declaration: {kind: ENTRY_KINDS.item, order: 3, icon: "i-lucide-package"}},
