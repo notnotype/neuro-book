@@ -181,8 +181,8 @@ export class HighlightSession {
             ask: (question) => this.end({outcome: "asked", question}),
         });
         this.#view = view;
-        view.mount(this.#environment.inspector().entered(target)?.layer ?? document.body);
         this.#state = "shown";
+        // 第一次重算就把宿主挂进目标所在的层。
         this.#update();
 
         const observer = new MutationObserver((records) => {

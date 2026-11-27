@@ -108,6 +108,11 @@ test.describe("说明框（输出 10）", () => {
         expect(await ended(page)).toMatchObject({outcome: "missed", clicked: {role: "button", name: "取消"}});
         expect(await page.evaluate(() => (window as unknown as {hits?: number}).hits)).toBe(1);
         await expectRemoved(page);
+        // 压暗层的框正好在目标上：它不接指针，点目标仍是点到目标。
+        await startHighlight(page, {at: {text: "保存"}, message: "点这里。", until: "click", dim: true});
+        await installed(page);
+        await page.locator("#go").click();
+        expect(await ended(page)).toEqual({outcome: "clicked"});
     });
 
     test("减弱动效时没有动画与过渡；不减弱时描边框出现有动画", async ({page}) => {
@@ -135,8 +140,9 @@ test.describe("结局（输出 9）", () => {
         }
     });
 
-    test("等点目标：鼠标点到目标得 clicked，页面自己的点击处理照常执行；焦点在目标上按 Enter 也算", async ({page}) => {
-        await openFixture(page, `<button id="go" style="margin:200px" onclick="window.hits=(window.hits??0)+1"><span>保存</span></button>`);
+    test("等点目标：鼠标点到目标得 clicked，页面自己的点击处理照常执行；焦点在目标上按 Enter 或空格也算（不会派发 click 的控件也算）", async ({page}) => {
+        await openFixture(page, `<button id="go" style="margin:200px" onclick="window.hits=(window.hits??0)+1"><span>保存</span></button>
+<div id="row" role="option" aria-selected="false" tabindex="0">第一章</div>`);
         await startHighlight(page, {at: {text: "保存"}, message: "点这里。", until: "click"});
         await installed(page);
         await page.locator("#go span").click();
@@ -144,11 +150,13 @@ test.describe("结局（输出 9）", () => {
         expect(await page.evaluate(() => (window as unknown as {hits?: number}).hits)).toBe(1);
         await expectRemoved(page);
 
-        await page.locator("#go").focus();
-        await startHighlight(page, {at: {text: "保存"}, message: "按回车。", until: "click"});
-        await installed(page);
-        await page.keyboard.press("Enter");
-        expect(await ended(page)).toEqual({outcome: "clicked"});
+        for (const key of ["Enter", " "]) {
+            await page.locator("#row").focus();
+            await startHighlight(page, {at: {role: "option", name: "第一章"}, message: "按键。", until: "click"});
+            await installed(page);
+            await page.keyboard.press(key === " " ? "Space" : key);
+            expect(await ended(page)).toEqual({outcome: "clicked"});
+        }
     });
 
     test("目标在抬起指针时就被页面拿走（没有 click）：仍算 clicked", async ({page}) => {

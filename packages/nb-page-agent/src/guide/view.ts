@@ -26,6 +26,7 @@ export interface CalloutModel {
     readonly progress: string | null;
     /** “下一步”或“完成”；等用户点目标时没有这个按钮，为 null。 */
     readonly next: string | null;
+    /** 有“上一步”：只在要按“下一步”的步骤上。 */
     readonly back: boolean;
     readonly dim: boolean;
     readonly text: GuideText;
@@ -171,7 +172,7 @@ export class GuideView {
         const fill = document.createElement("span");
         fill.className = "fill";
         this.#actions.append(openAsk, fill, this.#button("skip", "ghost", text.skip));
-        if (model.next !== null && model.back) this.#actions.append(this.#button("back", "secondary", text.back));
+        if (model.back) this.#actions.append(this.#button("back", "secondary", text.back));
         if (model.next !== null) this.#actions.append(this.#button("next", "primary", model.next));
 
         this.#askRow = document.createElement("div");
@@ -327,7 +328,7 @@ export class GuideView {
     #submit(): void {
         const question = this.#input.value.trim();
         if (question === "") return;
-        this.#restore();
+        // 焦点在撤掉时还回去（`close`）。
         this.#events.ask(question.slice(0, QUESTION_MAX_CHARS));
     }
 
