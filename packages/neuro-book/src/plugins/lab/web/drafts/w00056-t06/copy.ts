@@ -18,6 +18,8 @@ export const LEDE = "写长篇小说的工作区：正文、随章节变化的�
 
 export const ACT_ONE = {
     number: "第一幕",
+    /** 落地时落印的罗马数字（第 13 轮之后，开发者：第二幕的入场动画给第一幕也安排一下）。 */
+    numeral: "I",
     title: "一张随你摆的桌子",
     lede: "写长篇要同时看的东西很多。窗口里的每一块都能拖、能分、能收，摆成你顺手的样子。",
 };
@@ -87,9 +89,6 @@ export const BEATS_TWO = {
     link: {title: "链到设定", opening: "提到灰塔，就链到它那一页。", closing: "按住 Ctrl 一点，灰塔的设定在新标签里翻开。"},
     file: {title: "还是原文", opening: "换个编辑器，打开同一章。", closing: "稿子就是 Markdown 文件，哪里都打得开。"},
 } as const satisfies Readonly<Record<string, BeatCopy>>;
-
-/** 第二幕交给访客：光标停在第五章末尾。 */
-export const HANDOFF_TWO = {title: "轮到你写", line: "光标就在第五章末尾，接着写一句。"} as const;
 
 /** 两章里要涂高亮的那两句：第五章刚打的，第一章末尾师傅的敲法。 */
 export const KNOCK_ECHOES = ["门外有人敲门，三下。", "楼下有人敲门，三下，停一停，再一下。"] as const;
