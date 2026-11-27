@@ -38,7 +38,7 @@ updated: 2026-11-24
 
 ## 下一步
 
-B6、B7 的前端审查（Sonnet）与 B8（`nb-site-server` 发网页）同时在跑：B8 只改服务端包，不碰审查看的前端代码。`site.operations` 已按 S15 加了前端产物目录与输出 12（网页与单页回退，planned；不回退的前缀按站点实际的挂载定为 `/api/`、`/.well-known/`、`/health/`、`/test-control/`，计划 3.8 写的 `/oauth2/` 站点里没有；缺 `index.html` 的问题词新加 `no_index`）。B8 交回后走快速审查（Opus 先审，omp `@review` 后台），通过后把输出 12 等条目晋升。
+收口审查（Sonnet：B6、B7 修正、按钮迁移、B9、B10 五个提交与验收映射逐条对用例）进行中；处理完后合入 master、晋升 Spec。
 
 ## 实施进度
 
@@ -108,6 +108,35 @@ B7（OAuth 相关）已提交：`f3dc5c727`（身份合同包把 OAuth 的页面
 - 入口 gzip 87.22 KB（上限 90），余量约 2.8 KB；B8、B9 的新页面一律懒加载。
 - 实现者自定、交审查一起看：已授权应用的范围列出 `openid`（文案“账号标识”，定稿没有）；地址上没有 `request` 也没有 `error` 时显示过期卡片；不认识的 `error` 码只在像码时附上；管理面板的空壳 dom 测试删掉，改在看板 e2e 里走到审计页。
 - 交审查判断：“没有备注”等灰字用的 `--text-secondary` 与表格正文同色，定稿里更浅；更浅的 `--text-muted` 对比度可能不够。
+
+B8（`nb-site-server` 发网页）已提交（`63d97b3f1`，13 个文件）：可选的 `NB_SITE_WEB_DIR`（`no_index` 等三种配置失败）；新的 `web.ts` 接站点上各模块都没接的 `GET`、`HEAD`，发文件、单页回退、四个前缀不回退、编码在段里的分隔符与链到目录外的符号链接回 404、两种缓存头、HTML 的内容安全策略；镜像构建带上前端产物，`smoke:image` 核对 `/`；`nb-site-server` 以开发依赖带上前端包，架构检查不许 `src/` 导入它。没用 Hono 的 `serveStatic`（跟随链到目录外的符号链接）。
+- 实现者跑过：两个包的测试与类型检查、`build:image`（含 docker 构建与 `smoke:image`）、`governance:check` 都过；6 条变异都被抓到（“回退不排除 `/api/`”第一次合同测试没抓到：验收 6 写的 `/api/identity/v1/nope` 被身份库自己的兜底先回了 404，补了 `/api/identity/nope`）。真实进程里四页画得出，控制台没有内容安全策略的报错；没有登录与写操作。
+- 实现者报的 Spec 歧义已改进输出 12（`965f1347f`）：路径按 URL 标准规范化之后算（`/../x` 就是 `/x`，回退到 `index.html`），编码在段里的分隔符一律 404，验收 6 换成 `/api/identity/nope`。
+- 给 B10 的：网页响应没有 ETag；`vite dev` 的代理还没做；`/assets/` 长缓存依赖 Vite 缺省的 `assetsDir`；对着真实服务端跑浏览器时 `NB_SITE_URL` 只收 https，写操作没验证。`nb-site-server/AGENTS.md` 的镜像一节要补 `web/`，收口时做。
+
+B6、B7 前端审查的修正已提交（`98a712b37`，51 个文件；处理表见计划文末“B6、B7 实现审查的处理”）。修之前先把 master 并进官方站分支（`a5e89b3cd`，482 个提交，没有冲突），带上 w00057 t01 调深的 `--text-muted`（对面板底亮色 6.01、暗色 5.63）。
+- 列表的翻页、越界改页、离开后不导航收进 `useListRoute` 的 `pager`；`useAdminList` 卸载时作废在途请求；回答缺 `total` 时走出错与重试。
+- 占位文字与 B4、B5 当时因对比度换掉、定稿里是浅灰的几处改回 `--text-muted`（新值与正文色接近，截图上只浅一点）；列表样式收进 `styles/admin.css`。
+- 一次性秘密的对话框显示秘密时 Esc 与点遮罩都不关；回跳地址只放行 `http:`、`https:`；社交登录失败回来时还原续接令牌；`openid` 在两处都写“你是哪一个 NeuroBook 账号”，`GrantsSection` 的范围逐条不换行（附带修了 360 宽横向多出 8 像素）。
+- 管理面板的文案拆成单独的目录 `pages/admin/locales/zh-CN.json`（命名空间 `nb-site-admin`），随管理面板的块加载；入口 gzip 87.23 降到 85.18 KB。
+- 接受的：8 条变异里“离开后照样改页”没被抓到（卸载时作废在途请求已挡住，真实运行里到不了那道检查）；对话框换步骤时外框高度在内容透明时跳变，不另加过渡；处置后列表回顶记为已知限制（上游候选：nb-ui `DataTable` 加“重取时不回顶”）。
+
+并入 master 带来的破坏性改动：nb-ui 0.4 把 `Button` 的缺省样式改成次按钮（`migration-0.4.md`），官方站 15 个原本是主按钮的按钮全变灰，测试与浏览器场景都没量到，看截图发现。已逐个写明 `variant="primary"`（`4a8402b06`）。
+
+B8 两轮审查的修正（处理见计划文末“B8 实现审查的处理”与“B8 第二轮（Sonnet）”）在单独的分支上做完并回官方站分支：`525ae1d7e`（Opus 那轮：只看第一段判前缀、空段与点开头回 404、读不出先挡下并记警告、`Bun.serve` 关开发模式加 `error` 回调、所有网页响应带内容安全策略、镜像构建直接写进镜像目录）、`2e611e80e`（Sonnet 那轮：区分不存在与读不出、启动时查 `index.html` 可读、`Content-Type` 按请求路径）。omp 那份被上游的安全过滤拦下、随后额度用完，没写出条目，改派 Sonnet。`site.operations` 输出 8、12 与配置表照两轮审查与实现者报的歧义写准（最后是 `db1484379`），晋升留到合入 master 之后。
+- 主会话在负载 4 左右重跑整条分支：五个官方站包的测试与类型检查、前端 vitest 264、构建、浏览器场景 97、`build:image --no-docker`、`governance:check` 都过。
+- 修正者报的：读不出的文件靠先整份读进内存挡下，不处理 `Range`（产物最大约 519 KB）；`segments.length > 1` 有意留着（根目录下名为 `assets` 的文件不该拿长缓存）。
+
+B9（隐私政策与服务条款两个公开页）已提交（`d043fb054`，23 个文件）：正文是 `src/legal/zh-CN/*.md`，front matter 写版本与 `placeholder`，构建时由 `build/legal-docs.ts`（`marked`，开发依赖）转成 HTML，浏览器的包里不带 Markdown 库；两份版本不一致、版本不是真实日期、正文里有一级标题时任何构建都失败；设 `NB_SITE_RELEASE=1` 时占位正文让构建失败（计划文末“B9 开工前的调整”）。阅读版式正文列最宽 680、居中，两页各是懒加载的块；空壳页 `ShellPage` 没人用了，删掉。主会话看过截图（1440 与 390），在负载 3 左右重跑：五个官方站包的测试与类型检查、前端 vitest 265、构建、浏览器场景 105、`build:image --no-docker`、`governance:check` 都过；实现者 4 条变异都被抓到（“Markdown 库进了浏览器的包”第一次没被单独抓到，拆成独立断言后抓到）。入口 gzip 84.92 KB。
+- 给 t13：部署用的镜像构建要设 `NB_SITE_RELEASE=1`（只认 `1`）。条款文字来了：删两份正文的 `placeholder`，版本改成服务端 `NB_SITE_IDENTITY_TERMS_VERSION` 的值，并改 `e2e/fixtures/identity.ts` 的 `meta.termsVersion`。
+
+B10（对着真实进程的浏览器冒烟与开发代理）已提交：`5d65d3742`（合同测试包把起进程的底座拆成不依赖测试运行器的 `process.ts`，公开 `./testing` 入口，边界检查不许它带 `bun:` 模块）、`9591172a8`（`e2e/real/` 六个场景、Playwright 分 `fake` 与 `real` 两个项目、开发代理 `build/dev-proxy.ts`）。
+- 计划的做法一（`route.fetch` 转发）探针里 Cookie 能存，但 `fulfill` 回 302 时 Chrome 整页导航失败，授权端点的跳转走不通；改用做法二：回环上起自签证书（`openssl` 现签）的 HTTPS 转发，Chrome 用 `--host-resolver-rules` 把 `site.test` 映射过去；本机设了 `http_proxy`，所以另加 `--no-proxy-server`。
+- 六个场景：管理员进看板并发注册码；访客注册、改资料、登出再登录（会话 Cookie 是 `__Host-` 前缀、`Secure`、`HttpOnly`、`SameSite=Lax`）；深链接与刷新的单页回退；条款版本三处一致、换版本后旧会话补交同意；封禁后会话失效与 `account_banned`；OAuth 从授权端点经续接登录、确认页允许、带 `code` 回到客户端并换到令牌。每个场景断言没有内容安全策略违规与未处理错误。四条变异都被抓到（“封禁不让会话失效”要把封禁路由与读会话时的检查两层都去掉才失败）。
+- 开发代理：设 `NB_SITE_DEV_API` 时把 `/api` 与 `/.well-known` 转给真实进程并把 `Origin` 改写成 `NB_SITE_URL`；Chrome 在 `http://localhost` 上收这个 `Secure` 的 Cookie（实测）。
+- 主会话在负载 2 到 4 重跑：五个官方站包的测试与类型检查、构建、浏览器场景 111（假接口 105、真实 6）、`build:image --no-docker`、`governance:check` 都过，只有前端 vitest 一条失败；整份 vitest 再跑 3 遍又挂一次、换了一条，两条单独跑都过：ClientsPage“每行菜单”与 CodesPage“发放注册码”都是等满 10 秒等不到状态，交收口审查查根因，收口前修掉。
+- 冒烟看到、不归 t10 的：刚注册已登录的用户在列表里“最后登录”是空的。Spec `site.admin` 写的是“最近一次登录成功的时间”，注册时建的会话按字面不算登录；注册与社交登录算不算，交 t07 定。看板在统计接口还没有时显示“服务的回答看不懂”（404 不是 JSON），t11 接上接口后自然消失。
+- 开发依赖多了一个环 server → web → contract-tests → server，都是 private 包，`test:affected` 与 governance 都过；真实冒烟依赖本机 Chrome、bun 与 openssl，CI 里没跑（e2e 本来就不进 CI）。
 - 留存固定显示最近 4 个安装周（常量在视图模型里）；版本与错误超出时在面板里滚，滚动区可聚焦、有名字、底边渐隐。实现者另查出活跃图那块多一个没名字的 Tab 停靠点（内容区一直 `overflow: auto`），改成放得下时 `hidden`。
 - 九块面板出错不再各自 `role=alert`，页面一处汇总播报；重试时按钮转圈不可用。vitest 单条超时设 15 秒。
 - 给 t11：today 面板要合并 `overview`、`series/active` 最后两天、`series/online` 最后一段几个请求，部分失败怎样显示由 t11 定；`DASHBOARD_PATHS` 的查询参数是占位；留存按最近 4 周取；错误、崩溃、升级的口径对着查询合同再核。

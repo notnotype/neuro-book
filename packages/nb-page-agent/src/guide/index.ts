@@ -46,8 +46,8 @@ export const TARGET_WAIT_MS = 5000;
 /** 高亮从引擎拿的东西：每次都是新的查询，页面在两次之间怎么变都不受影响。 */
 export interface GuideEnvironment {
     readonly document: Document;
-    /** 按高亮的规则定位：不改页面、落到唯一的可交互后代。写错的定位抛 `TypeError`。 */
-    locate(locator: Locator): Located | PageFailure;
+    /** 按高亮的规则定位：不改页面、落到唯一的可交互后代。写错的定位抛 `TypeError`。`explain`：没命中时说明层与遮挡（输出 12）。 */
+    locate(locator: Locator, explain: boolean): Located | PageFailure;
     describe(element: Element): Candidate;
     inspector(): Inspector;
 }
@@ -146,7 +146,8 @@ export class HighlightSession {
     /** 找一次；找到就装上，找不到以外的失败直接结束。交回这次有没有了结果（装上或结束）。 */
     #attempt(final: boolean): boolean {
         if (this.#state !== "waiting") return true;
-        const found = this.#environment.locate(this.#args.at);
+        // 只有最后一次的失败交给调用方，说明层与遮挡要多查一遍页面，等的途中不查。
+        const found = this.#environment.locate(this.#args.at, final);
         if (found.ok) {
             for (const cleanup of this.#cleanups.splice(0)) cleanup();
             // 等待时排下的那一帧是再找一次，装上之后它占着位置会挡掉跟随的重算。

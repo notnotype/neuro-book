@@ -1,0 +1,196 @@
+# w00037 t10 收口审查（Sonnet）报告
+HEAD 9591172a8；报告按核实顺序追加，编号在末尾汇总时按影响重排。
+
+### A. [补充] 整份跑时偶发的组件测试：根因是“关掉之后立刻再开”，等的是 DOM 里元素消失，不是关闭真正完成
+严重程度：重要（测试写法；会让合入前的验证随机失败、被误判成产品问题）
+类别：测试
+位置：
+- src/pages/admin/ClientsPage.dom.test.ts:131-141（“每行菜单”，openRowMenu 在 :79-84）
+- src/pages/admin/UsersPage.dom.test.ts:416-428（openRowMenu 在 :364-369）
+- src/pages/admin/CodesPage.dom.test.ts:343-355（“不填次数…”）
+- src/pages/admin/ClientsPage.dom.test.ts:208-228（“密钥只显示这一次”）、:373-397
+- src/pages/admin/UsersPage.dom.test.ts:518-521
+- 产品侧对应点：src/pages/admin/codes/IssueCodeDialog.vue:123 的 @closed="issued = undefined"（RotateSecretDialog.vue:74、ClientDialog.vue:183、UserActionDialog.vue:122 同写法）
+
+现象：
+我在 worktree 里复现了。不加负载时把 Clients、Codes 两个文件同时跑 4 份，0 次失败；8 个核心各挂一个空转循环、再同时跑 6 份（Clients、Codes、Users 三个文件），6 份全部失败，每份 2 到 4 条，共 19 条：
+- Clients“每行菜单”6/6，等满约 12 秒，`expected null not to be null`；
+- Users“菜单的几项随这一行的状态换”6/6，同样等满；
+- Codes“不填次数、日期与备注就是不限”5/6：有时 `expected 'issued' to be 'form'`（与主会话那次相同），有时在 :343 的 `vi.waitFor` 默认只有 1 秒的上限上 `expected undefined to be 'REG-NEW-CODE'`；
+- Clients“密钥只显示这一次”3/6。
+日志在 /tmp/review-w00037-t10-close/lab/stress2-*.log。
+
+为什么是问题（根因，部分是从代码推断，已标出）：
+1. 失败的行有共同点：都发生在“同一个测试里把一个浮层关掉、立刻开第二个”的那一步。菜单的两条是 Escape 之后 `waitFor(menuitem 为 null)`，随即对另一行的触发器 `dispatchEvent(ArrowDown)` 一次；Codes 与“密钥”是 `waitFor(对话框元素为 null)`，随即点开再开。
+2. nb-ui 的关闭不是“元素消失”那一刻完成：packages/nb-ui/src/components/feedback/close-handoff.ts 文件头写明，Reka 的 FocusScope 在卸载清理里才排 `setTimeout(0)` 去摘焦点栈，`closed` 要再晚一个宏任务（queueMicrotask 加 setTimeout 0）才发，重开会让没发出的 `closed` 作废（`watch(isOpen)` 里 `invalidate()`）。`vi.waitFor` 靠 50ms 的轮询：机器忙时轮询计时器已经过期，会排在“元素移除之后才登记的 setTimeout 0”前面先跑，于是测试在清理之前就继续往下走（推断，但与“空载 0 次、满载几乎必挂”吻合）。
+3. 对 Codes 与密钥对话框：`closed` 被重开作废后，`issued` 仍是上一次的值，再开直接显示“已发出”那一步，所以读到 'issued'。这也是产品侧的一个小缺口：状态只在 `@closed` 里复位，而 `closed` 可以因重开不发。真人在一个宏任务内重开不可能，所以不是用户可见问题，但“每次打开都从空白开始”的注释（IssueCodeDialog.vue:65）与实际依赖的不是同一个信号。
+4. 对菜单：第二个 ArrowDown 只发一次、没有重试，也不查触发器是否已回到可开状态；`waitFor` 只重试“有没有菜单项”这个断言，不重发事件。第一次菜单的清理计时器随后才到，把焦点还给第一个触发器，很可能让刚开的第二个菜单被判为焦点移出而收掉（这一步是推断，没有单独抓到），之后菜单项永远是 null，所以是等满 10 秒而不是慢几秒。
+5. 另有一类相关写法：Codes :343 等 `waitFor` 用默认 1 秒上限，满载时本来就不够；同文件别处用了 SETTLE_TIMEOUT_MS，不一致。
+
+如何核实：见上面的负载复现命令（8 个 `while :; do :; done` 加 6 份并发 vitest）。
+
+建议改法（测试侧，不加固定毫秒数）：
+- 关掉之后等“真的关完”的可观察状态：菜单等 `document.activeElement` 回到触发器（Reka 在清理里还焦点），或在 harness 里加一个 `closedAfter()`：先等元素消失，再 `await nextTask()` 一次（harness 已有 `nextTask`，src/testing/site-harness.ts:198；清理是 setTimeout 0，一个任务就够），把 Clients :135-139、Users :419-420、各处“关掉再打开”前统一换成它。
+- openRowMenu 里把 dispatch 放进 `waitFor`（`aria-expanded` 不是 "true" 时重发），事件丢了会重试。
+- Codes :343 等处补上 SETTLE_TIMEOUT_MS。
+- 可选的产品侧加固：把 `issued`、`secret`、`created`、`password` 的复位同时放进已有的 `watch(() => props.open)`（打开时），保留 `@closed` 作为退场动画结束后的复位；这样“重开作废 closed”不会漏状态。
+同类写法（等元素消失后立刻再开）已列在位置里；Users :418-428、Clients :134-140 的菜单两处是主要的。
+
+### B. 合同测试底座的“起不来”报错丢了原因：`spawn` 失败时 `cause` 永远是 undefined
+严重程度：建议
+类别：错误处理（本机依赖缺失时报错说不清）
+位置：packages/nb-site-contract-tests/src/testing/process.ts 的 `spawn` 里 `subprocess.once("error", …)` 与紧接着的 `if (subprocess.pid === undefined) throw new Error(`could not start ${program}`, {cause: spawnError})`
+现象：拆分把 `Bun.spawn` 换成了 `node:child_process`。Node 的 `spawn` 在程序不存在时同步返回、`pid` 为 undefined，`error` 事件在之后的 tick 才发。注释写“照同步失败报出去”，可检查 `pid` 的这一刻 `spawnError` 一定还是 undefined，所以抛出的是 `could not start bun`，没有 `ENOENT`、没有路径。
+如何核实：/tmp/review-w00037-t10-close/lab/spawn.mjs，输出 `pid undefined err at check undefined`，50ms 后才拿到 `ENOENT`。
+为什么是问题：新入口的使用方是在 Node 里跑的 Playwright，那时程序是 `PATH` 上的 `bun`（defaultCommand 里 `process.versions.bun === undefined ? "bun"`）。开发者的 Playwright 若不是从装了 bun 的 shell 起（子进程环境只放 PATH）会只看到 `could not start bun`，不知道是找不到还是没权限。
+建议改法：同步抛不出原因就别装作能抛：把“起不来”的判定放进等待里（`await once(subprocess, "spawn")` 与 `error` 竞争），或抛错时把错误消息写成“找不到或不能执行 ${program}（检查 PATH）”，并在 `cause` 里放真的 error（异步登记后再抛）。openssl 缺失时 `execFileSync` 的报错是 `spawnSync openssl ENOENT`，够清楚，不用改；Chrome 缺失是 Playwright 自己的提示，也清楚。
+
+### C. 进程级信号兜底在 Playwright 的 worker 里与它自己的信号约定冲突
+严重程度：建议
+类别：收口（失败与中断时的进程、临时目录）
+位置：packages/nb-site-contract-tests/src/testing/process.ts 的 `installExitHook`（SIGTERM、SIGINT 处理）；调用点 `createSiteSandbox` 内
+现象：拆分后这条兜底第一次跑在 Playwright 的 worker 里。Playwright 的 worker 启动时就 `process.on("SIGINT", () => {})`、`process.on("SIGTERM", () => {})`（node_modules/playwright/lib/common/index.js:1974-1977），有意忽略信号、等主进程经 IPC 做有序收口。兜底的处理函数在收到信号时同步 SIGKILL 全部子进程，再 `process.off` 掉自己，然后给自己再发同一个信号；因为 Playwright 的空处理函数还在，这第二次信号被吞掉，worker 继续活着。
+为什么是问题：Ctrl-C 时同一进程组的 worker 先收到 SIGINT，被测进程被无声地杀掉，随后 worker 里的 `server` 夹具的 finally 走到 `sandbox.endTest()` → `cleanUp`，发现子进程已经 137 退出，`zeroOnStop` 为真就抛“site processes left running did not stop cleanly on SIGTERM”。中断时报告里多出一条与原因无关的失败，并盖住真正的中断原因。（推断；我没有对真实 Ctrl-C 做录像，只核对了 Playwright 源码与 `cleanUp` 的判据。）注释里“Bun 按信号缺省动作直接结束进程”的前提在 Node 的 Playwright worker 里不成立。
+建议改法：在 Node（`process.versions.bun === undefined`）下不装 SIGINT、SIGTERM 的处理，只留 `exit` 兜底（worker 真的被 SIGKILL 时本来就什么也跑不了）；或者让 `cleanUp` 认“已被兜底杀掉”的子进程。要保留就在注释里写清这是 Bun 专用。
+
+### D. 条款页的“表格在自己里面横向滚动”被 `overflow-wrap: anywhere` 架空；e2e 用占位正文量，量不到
+严重程度：建议
+类别：视觉与布局（阅读版式）；测试空过
+位置：packages/nb-site-web/src/pages/legal/LegalPage.vue 的 `.legal-body { overflow-wrap: anywhere }` 与 `.legal-body :deep(table) { display:block; overflow-x:auto }`；packages/nb-site-web/e2e/legal.e2e.ts 的 `bodyOverflow`
+现象：我在 360 宽的页面里放同样的两条规则、一张 4 列英文表格：有 `anywhere` 时表格 scrollWidth 330 等于 clientWidth 330，4 列被压成 76、93、71、89 px，词中间断开，不出现滚动条；去掉 `anywhere` 时 scrollWidth 351 大于 330，表格自己横滚，列宽 88、92、80、90。脚本：/tmp/review-w00037-t10-close/lab/table.mjs。
+为什么是问题：`anywhere` 让最小内容宽度变成一个字符，所以表格会先被压扁、不再需要滚动；注释与计划都写“表格自己滚”。现在两份占位正文没有表格、没有长网址，`bodyOverflow === 0` 对所有三种宽度都是空过：e2e 量不到长词与表格。
+建议改法：表格里 `overflow-wrap: normal`（`.legal-body :deep(table) {overflow-wrap: normal}`），正文其余保持 `anywhere`；e2e 加一个把长网址与宽表格塞进正文的断言（用 `page.evaluate` 往 `[data-site-legal-body]` 里追加节点，再量 `scrollX` 与表格 `scrollWidth > clientWidth`），否则定稿的条款文字来了以后才会发现。
+
+### E. 没有任何地方真的设 NB_SITE_RELEASE=1，交接只写在 t10 的 README 里；`v-html` 的前提没有机检
+严重程度：建议
+类别：发布门禁、安全前提
+位置：.agents/works/w00037-official-site/tasks/t10-frontend/README.md:131（“给 t13”）；.github/workflows/ci.yml:107；packages/nb-site-web/src/pages/legal/LegalPage.vue 的 `v-html`；packages/nb-site-web/build/legal-docs.ts 的 `transform`
+现象：
+1. 全仓库搜 `NB_SITE_RELEASE`，只有前端包的代码、测试和文档，以及 t10 的 README、plan；t13 的 README 里没有这一条，ci 的 `build:image` 没设（按计划是刻意的）。占位正文要拦下的是“占位页上线”，而部署构建是 t13 的事，t13 的任务书没有把它写成验收项，交接依赖有人读 t10 的 README。`build:image` 把环境传给前端构建这一点我核实了（image/build.ts 的 `Bun.spawn` 没给 `env`，继承），所以只要部署命令里设了就生效。
+2. `v-html` 的前提是“正文只来自仓库文件”。`marked.parse` 不消毒，Markdown 里写 `<script>`、`<img onerror>`、`[x](javascript:…)` 都会原样进 HTML。眼下被服务端的 CSP（script-src 'self'）兜住，但注释把前提写成“不含用户输入”，没有任何检查保证正文里没有原始 HTML。
+建议改法：1) 把“部署构建设 NB_SITE_RELEASE=1、版本等于服务端 NB_SITE_IDENTITY_TERMS_VERSION”写进 t13 README 的验收；2) 在 `parseLegalDocument` 里用 `marked.lexer` 的 token 拒绝 `html` 类型 token 与 `javascript:` 链接，一并报文件名（和一级标题的检查同一处），这样前提由构建守着。
+
+### F. 开发代理的配置在所有 vite 命令里都求值：设了 NB_SITE_DEV_API 而没设 NB_SITE_URL 时 `vite build`、`test:e2e` 的构建一并失败
+严重程度：建议
+类别：隐含的耦合与共享状态（环境变量）
+位置：packages/nb-site-web/vite.config.ts 的 `server: {proxy: devApiProxy(process.env)}`；packages/nb-site-web/build/dev-proxy.ts 的 `httpUrl("NB_SITE_URL", …)`
+现象：我在包目录里执行 `NB_SITE_DEV_API=http://127.0.0.1:4310 bunx vite build --outDir /tmp/review-w00037-t10-close/lab/dist-a`，配置加载阶段就抛错（`NB_SITE_URL must be set when NB_SITE_DEV_API is set`），构建没有开始。配置文件在 dev、build、preview 里都会求值，抛错设计原本只想拦“开发时设错”。另外 Vite 的 `preview.proxy` 缺省继承 `server.proxy`（按 Vite 文档，我没有单独跑 preview 验证），所以 e2e 用的 `vite preview` 在这个环境变量存在时也会转发 `/api` 并改 `Origin`；假接口的场景由 `page.route` 在浏览器一侧拦截，不受影响，但转发在进程里是活的。
+为什么是问题：开发者按 AGENTS.md 的说明在 shell 里 export 了这两个变量去开发，随后在同一个 shell 里跑 `bun run build`、`test:e2e`、`build:image` 会莫名失败，错误信息指向“要设 NB_SITE_URL”，与他正在做的事无关。“没设变量时与原来一样”成立，“设了变量只影响开发服务”不成立。不会进入生产产物（代理只是服务端配置，不写进 dist）。
+建议改法：`defineConfig(({command}) => ({…, server: command === "serve" ? {proxy: devApiProxy(process.env)} : {}}))`，并显式写 `preview: {proxy: {}}`（或直接不继承）；`build/dev-proxy.ts` 的单元测试不用改。
+
+### G. 合同测试底座起的 stdin 写入没有 `error` 监听：子进程来不及读就退出时，进程级未捕获的 EPIPE
+严重程度：建议
+类别：异常输入下的失败（拆分带来的行为差异）
+位置：packages/nb-site-contract-tests/src/testing/process.ts 的 `spawn` 里 `if (stdin.kind === "text") subprocess.stdin!.end(stdin.text)`；`spawnWithOpenStdin` 里的 `sink.write`、`sink.end`
+现象：旧代码用 `Bun.spawn` 与 `Blob` 作标准输入，失败是 Promise 的失败；现在是 Node 的可写流，没人监听它的 `error`。我在 /tmp/review-w00037-t10-close/lab/epipe3.mjs 里 spawn 一个立刻 `exit 2` 的 `sh`，紧接着 `stdin.end("short text\n")`：Node 与 Bun 各跑了几次，每次都是未捕获的 `EPIPE`（`uncaughtException`），不是被 `result` 或 `exited` 接住。
+为什么是问题：合同测试里 create-admin 的参数校验类失败很多（operations.test.ts:698-709 的十几个并发用例，标准输入里都带着密码）。现在它们过，是因为被测程序启动要几十毫秒，文字早已写进管道；一旦被测程序换成启动更快的实现（这个包的目的就是“换语言重写后照样跑”），或者起不来的子进程，这类测试会变成整个测试进程崩溃，而且报错与原因无关。拆分之前不会这样（Bun 的 sink）。
+建议改法：`subprocess.stdin!.on("error", ignoreEpipe)`（只吞 `EPIPE`、`ERR_STREAM_DESTROYED`，其它重新记到 `child.stderr` 或抛），并让 `write` 的回调在 `exited` 之后给出“子进程已退出”的明确错误。
+
+### H. 真实冒烟的两处小问题：`--headed` 无效、跑 `--project real` 也要起预览服务
+严重程度：建议
+类别：开发体验
+位置：packages/nb-site-web/e2e/real/site.ts 的 `browser` 夹具（`headless: true` 写死、`channel: "chrome"` 写死）；packages/nb-site-web/e2e/playwright.config.ts 的 `webServer`
+现象：`playwright test --headed --project real` 与 `PWDEBUG` 下仍是无头浏览器（夹具用显式参数起浏览器，不读配置里的 `use.headless`）；`webServer` 对两个项目都起 `vite preview`（端口 4360 或 NB_SITE_WEB_E2E_PORT），真实冒烟并不用它（它自己的进程发 `dist/`），端口被占时 `--project real` 也起不来。
+建议改法：夹具里 `headless: !process.env.PWDEBUG && …` 或读 `testInfo.project.use.headless`；`webServer` 在只选 `real` 项目时无法省略，退一步把它写进 AGENTS.md 的说明里（现在没写），或改成真实冒烟自己的配置。
+
+（更正 A：“密钥只显示这一次”在 6 份里失败 2 份，不是 3 份；其余数字按日志核过：Clients 菜单 6/6、Users 菜单 6/6、Codes 5/6，合计 19 条。）
+
+### I. 真实冒烟的第一个用例把“统计接口不存在”当作验收：t11 一接上就会失败
+严重程度：建议
+类别：隐含的耦合
+位置：packages/nb-site-web/e2e/real/site.e2e.ts:27-39（`expect.poll(... ).toEqual(["failed"])`）
+现象：用例断言看板所有面板的 `data-site-panel-state` 只有 `failed`，理由写在注释里“统计的查询接口在 t11，现在进程里没有它们”。t11 在进程里加上查询接口后，面板会变成 `ready` 或 `empty`，这条用例失败，而页面是对的。
+建议改法：现在就把断言改成“每块都落在 ready、empty、failed 之一，没有停在 loading”（计划写的是“不停在载入中”），并在 t11 的任务书里写明这里要换成真数据；否则 t11 合入时要靠有人记得改这条。
+
+### J. 验收映射里对不上的几处（详见第二部分的表）
+严重程度：建议
+1. site.operations 输出 8 末句（`http.response_failed`、500 `internal`、不出现非 JSON 行）：全仓库没有用例碰它。产品代码在 packages/nb-site-server/src/commands/serve.ts:150-173 的 `Bun.serve` 的 `error` 回调；B8 第二轮审查第 4 条定的“不加用例”理由是“造不出不靠测试专用分支的用例”。可以不加测试专用分支：把回调体抽成 `onResponseFailed(log)` 函数，对它单测（返回 500 与 `internal`、日志一行带 `errorType`、不带消息），这样“写一行”与“500”两半至少有测试；“标准输出不出现非 JSON 行”靠 `development: false` 的行为，仍然没有用例。晋升时这一句要么带着“未验证”标记，要么按这个办法补。
+2. 配置表 `NB_SITE_WEB_DIR` 里“目录在启动时解开一次，换了指向要重启”：config.test.ts:110-160 只测了“记下解开链接之后的路径”，没有用例在运行中把符号链接换一个指向、再确认进程仍发旧目录。（建议补一条合同或 web.test 用例，或把这句降为实现合同。）
+3. 计划第 6 节“输出 23”一行写“不认识的码显示通用文案加码”，已被 B1、B2 审查第 4 条改成“只认合同里的码，其余一律 social_failed、不回显”（plan.md 的 B1、B2 处理表第 4 条）；Spec 输出 23 的文字是后者。用例（LoginPage.dom.test.ts:378、RegisterPage.dom.test.ts:445、:465）断言的是后者，是对的；只是计划原行没改，晋升时别照原行找“加码”的用例。
+4. 计划 3.10 写“列表页的操作对话框（…`last_admin`）”：`last_admin` 已从合同删掉（nb-site-identity-contract/src/contract.test.ts:288-289 断言它不在码表），用户页没有也不该有这条用例，不是缺口。
+
+======================================================================
+第二部分：验收映射表（plan.md 第 6 节逐行，加 Spec 里 t10 负责的 planned 条目）
+状态：对得上 = 找到真碰到它的用例；无用例；字面不一致；空过风险。路径相对 packages/nb-site-web，除非写了包名。
+我没有对每一行做变异；做了的会写“变异”。读断言时按“删掉这一处实现，这条会不会红”判断，下面标了“读断言”的是这一级。
+======================================================================
+
+| 行 | 用例（文件:用例名） | 状态 |
+|---|---|---|
+| accounts 输出 1、3 | src/pages/RegisterPage.dom.test.ts:198 “注册的拒绝落在哪”（逐码参数化，:211 起）、:239 registration_closed 整张表单与社交图标不可用、:248 meta 关闭；e2e/real/site.e2e.ts:41 访客注册 | 对得上 |
+| accounts 输出 4 | src/pages/LoginPage.dom.test.ts:258 invalid_credentials 两字段标红；:286 account_banned 只写状态行；e2e/real/site.e2e.ts:119 封禁后再登录写 account_banned | 对得上 |
+| accounts 输出 6 | tests/api-core.test.ts:144 unauthenticated 统一处理；src/site.dom.test.ts:333 某个请求回 unauthenticated 当作匿名、带当前地址去登录；tests/dispatch.test.ts:129；e2e/real/site.e2e.ts:119 封禁一步后 reload 到 /login?next=/account | 对得上 |
+| accounts 输出 7、8 | tests/dispatch.test.ts:62 分派、:25-60 next 只收站内路径、:84 路由守卫、:119 普通用户进管理面板去账号页 | 对得上 |
+| accounts 输出 9 | src/pages/account/AccountPage.dom.test.ts:187（有密码）、:214（没有密码）、:253（设好后对话框关闭的整个过程里标题不变） | 对得上 |
+| accounts 输出 10 | tests/api-core.test.ts:144；src/site.dom.test.ts:343（门槛：带当前地址去同意页）、:352（访客页上注册回 consent_required 不跳转）；src/pages/ConsentPage.dom.test.ts:80、:109、:122；src/pages/RegisterPage.dom.test.ts:221；e2e/real/site.e2e.ts:92 拨条款版本 | 对得上 |
+| accounts 输出 11 到 13 | src/pages/RegisterPage.dom.test.ts:268（没勾同意不发起）、:281（表单不合不发起）、:299（先存草稿再离开，草稿无密码）；src/host/storage.dom.test.ts:37-135（草稿读写、读一次就删、10 分钟、存储不可用） | 对得上（计划写“存储 bun test”，实际是 dom 测试，更贴近真实 sessionStorage，不算出入） |
+| accounts 输出 15、16 | AccountPage.dom.test.ts:330（有密码先要当前密码）、:346、:399（没有密码免、不带密码）、:412（last_login_method 的文案） | 对得上 |
+| accounts 输出 17 | AccountPage.dom.test.ts:459（字段与“这台设备”）、:497、:513（not_found 当作结束）、:532（退出其它所有设备：部分失败的文案）、:563、:590 | 对得上 |
+| accounts 输出 18 | AccountPage.dom.test.ts:701（满 10 个不可用并写原因）、:709（invite_code_limit）、:639（停用）、:615、:730；`?invite=` 见下方 Spec 行 | 对得上 |
+| accounts 输出 19 | tests/api-core.test.ts:106-141（Retry-After 的秒数、HTTP 日期、读不懂的退路）；src/pages/LoginPage.dom.test.ts:301（倒数、读屏只听一句不带秒数、提交按钮）；另有账号页各处的 rate_limited 用例 | 对得上 |
+| accounts 输出 22 | tests/api-core.test.ts:54-100（成功/失败体、fields、malformed、network）；LoginPage.dom.test.ts:293 fields 落到字段；tests/catalog.test.ts:29-60 | 对得上 |
+| accounts 输出 23 | LoginPage.dom.test.ts:363/:370/:378；RegisterPage.dom.test.ts:396-:484（含 :445 未知码、:455 空值、:465 原型上的键名）；AccountPage.dom.test.ts:446；e2e/account.e2e.ts:140（回账号页滚到“登录与安全”） | 字面不一致：计划原行写“通用文案加码”，B1、B2 审查第 4 条已改成“一律 social_failed、不回显”，用例与 Spec 一致，计划行过时（见 J.3） |
+| accounts 输出 24 | AccountPage.dom.test.ts:303（上游名与上游账号的名字） | 对得上 |
+| admin 输出 1 | tests/dispatch.test.ts:119（普通用户进 /admin/* 去 /account）；src/site.dom.test.ts:317（接口回 forbidden：重取身份，角色已改则分派到账号页）；B10 没有专门的普通用户进 /admin 的一步 | 对得上（B10 一栏计划写“B10”，实际冒烟没有碰这一行，只由 dom 与 bun 测试覆盖，不影响结论） |
+| admin 输出 4 | src/pages/admin/UsersPage.dom.test.ts:501（新密码只在对话框、带复制、完成后再也看不到）、:525（显示密码时 Esc 与遮罩不关） | 对得上 |
+| admin 输出 5 | UsersPage.dom.test.ts:489 self_forbidden 写在状态行；:416 自己那一行的菜单项禁用 | 对得上 |
+| admin 输出 9 | tests/admin-lists.test.ts:78-110（基准沿用、换筛选或搜索不带旧基准）；UsersPage.dom.test.ts:169、:199 | 对得上 |
+| admin 输出 10 | tests/admin-lists.test.ts:113-128；UsersPage.dom.test.ts:221、:234；CodesPage.dom.test.ts:165-248（两个页签各自越界、在途离开） | 对得上 |
+| oauth-provider 输出 4、5 | LoginPage.dom.test.ts:504-:595 续接；src/pages/OAuthConsentPage.dom.test.ts:65-:180（同意、拒绝、过期整卡片）、:105（回跳协议）；e2e/oauth.e2e.ts:65、:83、:95；e2e/real/site.e2e.ts:142 真实授权码与换令牌 | 对得上 |
+| oauth-provider 输出 9 | src/pages/admin/ClientsPage.dom.test.ts:208（密钥只显示一次）、:373（换密钥）；e2e/oauth.e2e.ts:148、:170 | 对得上（这两条 dom 用例在负载下偶发失败，见 A） |
+| telemetry-dashboard 输出 7 | tests/dashboard.test.ts:160-212（缺的天断线、零画 0、孤立点）、src/pages/admin/DashboardPage.dom.test.ts:134（没有数据）；e2e/dashboard.e2e.ts:134、:255 | 对得上 |
+| telemetry-dashboard 输出 8 | 计划写 t11 接口；t10 无 | 不属于 t10 |
+| site.operations 新输出（单页回退、缓存头、安全头、不覆盖模块路由与控制入口的 404） | packages/nb-site-server/src/web.test.ts:163-:460；packages/nb-site-contract-tests/src/operations.test.ts:539-:620（网页，验收 6）；e2e/real/site.e2e.ts:72（深链与刷新回退） | 对得上 |
+| t09 第 7、10 条 | e2e/login.e2e.ts:255、e2e/register.e2e.ts:147（稿纸始终同一元素）；e2e/oauth.e2e.ts:119（授权卡片与登录卡片同位同宽）；e2e/register.e2e.ts:78-:115（社交图标在提交按钮下一行居中）；登录页图标的几何只在 e2e/login.e2e.ts:283 的 meta 晚到场景里量 | 对得上（登录页没有一条专门的“两枚图标在表单下面”几何断言，由注册页同一组件的断言代表） |
+| t09 第 8、11 条 | e2e/account.e2e.ts:65（有邮箱与没有邮箱各节位置逐个相等） | 对得上 |
+| t09 第 12 条 | e2e/admin-lists.e2e.ts:78（三块位置、7 格）、:142（最后一页不满） | 对得上 |
+| t09 第 13 条 | tests/build.test.ts:205（ECharts 只在看板块、gzip 上限、入口不带管理面板文字）、:269 | 对得上 |
+| t09 第 14、15 条 | tests/dashboard.test.ts:175、:226（暗色换色）；e2e/dashboard.e2e.ts:151、:381-:460 | 对得上 |
+| t09 第 5 条 | e2e/login.e2e.ts:47、register.e2e.ts:78、account.e2e.ts:85、oauth.e2e.ts:117、legal.e2e.ts（三宽度） | 对得上；legal 的“正文自己不溢出”断言量的是占位正文，量不到长词与表格（见 D） |
+
+Spec 里标 planned、由 t10 负责的条目（供晋升）：
+
+| 条目与句子 | 实现 | 用例 | 状态 |
+|---|---|---|---|
+| operations 输出 12：文件规则（规范化、`/` 结尾不对应文件、`.`、`..`、点开头、`/ \ \0`、非法编码、空段、符号链接出目录、读不出、`web.file_unreadable` 不带路径） | nb-site-server/src/web.ts | web.test.ts:164、:179、:192、:199、:212、:219、:226、:233、:240、:250、:263、:289 | 对得上 |
+| 输出 12：单页回退（无扩展名回退、带扩展名 404、四前缀不归网页、index.html 运行中不见） | web.ts | web.test.ts:323、:336、:349、:371、:380、:390；operations.test.ts:539 起；e2e/real/site.e2e.ts:72 | 对得上 |
+| 输出 12：缓存（/assets/ immutable；其余 no-cache） | web.ts | web.test.ts:430 | 对得上 |
+| 输出 12：安全头（含网页自己回的 404、nosniff、same-origin） | web.ts | web.test.ts:436；operations.test.ts（验收 6）；e2e/real/site.e2e.ts 的 CSP 监听（每个用例结束断言没有 CSP 拦截，我用 /tmp/review-w00037-t10-close/lab/csp.mjs 验过监听本身能抓到违规） | 对得上 |
+| 输出 12：日志 module 是 web | web.ts、serve.ts | web.test.ts:450 | 对得上 |
+| 输出 12：只收 GET、HEAD；遥测主机名不发网页；不设目录时 404 | site.ts | web.test.ts:410、:417、:424；operations.test.ts:601 | 对得上 |
+| 输出 8 末句：响应已交出而响应体未发出的错写 `http.response_failed`、请求方得 500 internal、响应体中途出错连接断开、进程照常运行、输出里没有非 JSON 行 | nb-site-server/src/commands/serve.ts:150-173（`development: false` 与 `error` 回调） | 全仓库搜 `response_failed` 只有产品代码 | 无用例（建议见 J.1：抽出回调函数单测；“无非 JSON 行”仍无法黑盒验） |
+| 配置表 `NB_SITE_WEB_DIR`：绝对路径、存在、有 index.html；index.html 出目录、读不了、悬空、是目录都 `no_index`；设了才发网页 | config.ts | nb-site-server/src/config.test.ts:111-160 | 对得上 |
+| 配置表：“目录在启动时解开一次，换了指向要重启” | config.ts（记 `realpath`） | 只有“记下解开链接之后的路径”（config.test.ts:120），没有“运行中换指向仍发旧目录”的用例 | 无用例（后半句） |
+| 配置表：“镜像里设好” | image/Dockerfile:19 | packages/nb-site-server/image/smoke.ts:156-163（对着打好的镜像 `/` 回 index.html）；需要 docker，我没跑（本机验证用 `--no-docker`） | 对得上，未验证 |
+| 验收 6：`/`、`/account` 回 index.html 与安全头；/assets/ 长缓存；/api/identity/nope、/.well-known/nope、/test-control/clock、/x.js 404；`/..%2fpackage.json` 404；遥测主机名上 `/` 404；不设目录时 `/` 404 | web.ts | operations.test.ts:539-:620（我读了断言，`leaked` 一项真的检查了目录外 package.json 的内容） | 对得上 |
+| accounts 输出 18 `/register?invite=<码>` 预填 | src/pages/RegisterPage.vue | RegisterPage.dom.test.ts:487（预填值）、:396-（social_error 回来时 invite 参数保留的那一条） | 对得上；没有一条真实浏览器里点邀请链接的用例（可由 B10 补，不必） |
+| testing README“官方站 e2e”一段：配置与假接口在 e2e/、`test:e2e` 先构建再跑、NB_SITE_WEB_E2E_PORT、假接口按合同 schema、`e2e/real/` 起真实服务、转发让浏览器看到 https | e2e/playwright.config.ts、e2e/real/site.ts、package.json `test:e2e` | tests/e2e-fixtures.test.ts:14-24（假接口数据过合同 schema）；e2e/real/site.e2e.ts 六条（我在 4380 端口上跑过，6 passed，约 42 秒，进程与端口收干净） | 对得上；那一段没写本机需要 Chrome（`channel: "chrome"`）与 `openssl` 命令，缺了时的报错是 Playwright 与 `spawnSync openssl ENOENT`，各自说得清，但文档里没提 |
+
+补充观察（不是映射行）：
+- e2e/real/site.e2e.ts:92 “条款版本”用例的服务端条款版本取自 LEGAL_VERSION（site.ts 的 `serverEnv()`），页面与同意页再断言等于 LEGAL_VERSION，所以它证明的是“构建进前端的版本与服务端读到的版本在同一份配置下一致”，不是部署配置不会漂；沙箱的缺省版本是 2026-11-20，与正文 2026-11-01 不同，如果没覆盖这一项，这条用例本该红，说明覆盖是起作用的。部署时两处的一致仍靠 t13（见 E.1）。
+
+======================================================================
+汇总
+======================================================================
+编号按我的核实顺序是 A 到 J；按影响排序的建议阅读顺序：A、G、F、E、C、D、B、I、J、H。
+
+未发现问题的方面（逐项核过）：
+- 4a8402b06 按钮迁移：全仓库 `<Button` 共 21 处，15 处在这次提交里写明 `variant="primary"`，其余 6 处（多行写法）是次按钮或危险按钮；逐处看了所在区域：每个对话框页脚至多一个主按钮（ClientDialog 的“提交”与“完成”在两个步骤里互斥）、OAuthConsentPage 允许为主、拒绝为次、账号页各节与管理页页头各一个；migration-0.4.md 里其它破坏性改动（Dialog 的 v-model:open、AlertDialog 的 tone、`closed`）本包都已按新写法用，没有残留的旧名字。
+- 98a712b37：抽查了 useListRoute 与 useAdminList 的序号、卸载作废、越界收尾（`requestKey` 比对）、回跳协议检查（OAuthConsentPage.vue 的 protocolOf；Spec 规定自定义协议不收，所以只放 http、https 是对的）、社交登录续接令牌的存取与清理时机，没有发现问题；管理面板文字拆分（text-ref 只导入类型、text.ts 顶层登记）与标签页标题的时序成立。这个提交有 51 个文件，其余页面与对话框的改动我没有逐行读。
+- 真实冒烟的收口：`realSite` 夹具失败时 `forwarder?.close()`、`sandbox.close()` 都在 finally；`browser` 夹具覆盖只在 e2e/real/site.ts 导出的 `test` 上，`fake` 项目的用例用 `@playwright/test` 自己的 `test`，不受影响；跑完后没有残留的 bun、vite、浏览器进程与端口。`--no-proxy-server` 只影响这一个浏览器，客户端回调用 `context.route` 在 DNS 之前拦下。
+- 否定断言能失败：用与 `watch()` 相同的监听在一个带 CSP 的页面里验证，内联脚本被拦时 `[nb-site-web real smoke] csp script-src-elem blocked inline` 与 weberror 都被收到。
+- 开发代理：路径正则 `^/api(?:[/?]|$)` 不会转走 `/apis…`（tests/dev-proxy.test.ts:50 真起 Vite 验）；`Origin` 只在设了变量的开发配置里改写；没设时 `devApiProxy` 回 undefined；代理不进产物（但见 F）。
+- 构建插件：`build:image` 用的 `Bun.spawn` 不给 `env`，继承 `NB_SITE_RELEASE`，部署命令里设了就会生效；两份正文版本一致检查与一级标题检查在任何构建里都跑。
+- 公开入口 `./testing` 的 `bun:` 检查：`publicEntryViolations` 会拦 `bun:test`、`bun:sqlite`，也拦公开入口之外的相对导入（反例测试覆盖了转出钩子版与开库文件）；它只看导入说明符，不看 `Bun.` 全局与 `import.meta.dir`，我在这三个公开文件里搜了，现在没有。
+- 合同测试拆分的行为：`terminate`、`cleanUp`、`waitForExit`、超时与 `alive` 兜底与拆分前逐行对过，一致；包的 352 条测试在主会话的验证里全过。开发依赖的环 server → web → contract-tests → server：`test:affected` 在这个环下照常选出并跑完（主会话的验证日志里五个包都跑了），没有看到实际后果；B8 审查第 6 条已按“镜像依赖前端产物，连带跑是对的”接受。
+
+没有做、需要知道的：
+- 没有对映射行逐条做变异（只验证了 CSP 监听这一处的否定断言能红）；表里的“对得上”是读用例名与关键断言得出，不是每条都跑变异。
+- 镜像冒烟（docker）没有跑。
+- 真实冒烟在 4380 端口上单独跑过一遍：6 passed，约 42 秒。
+
+数量：阻断 0；重要 1（A）；建议 9（B、C、D、E、F、G、H、I、J）。
+报告路径：/tmp/review-w00037-t10-close/sonnet-report.txt
+有效发现编号：A、B、C、D、E、F、G、H、I、J
+
+（更正“未发现问题的方面”第一条：`<Button` 在 src 里共 42 处，其中 15 处写 `variant="primary"`（就是这次提交改的那 15 处），6 处多行写法各自带 `variant`（5 处 secondary，UserActionDialog 的确认按钮按动作取 danger 或 primary），其余均已显式写 `secondary`、`danger` 或 `ghost`；没有缺 `variant` 的按钮。）

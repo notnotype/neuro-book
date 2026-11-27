@@ -28,7 +28,7 @@ import FILIGREE from "./assets/filigree.webp";
 import LYRA_PEEK from "./assets/lyra-toukan.webp";
 import ActSeal from "./ActSeal.vue";
 import ChapterRail from "./ChapterRail.vue";
-import {ACT_ONE, ACT_TWO, BEATS, BEATS_TWO, HANDOFF, HANDOFF_TWO, HEADLINES, KNOCK_ECHOES, KNOCK_NOTE, LEDE, TAGLINE} from "./copy";
+import {ACT_ONE, ACT_TWO, BEATS, BEATS_TWO, HANDOFF, HEADLINES, KNOCK_ECHOES, KNOCK_NOTE, LEDE, TAGLINE} from "./copy";
 import type {BeatCopy} from "./copy";
 import type {DemoPointer} from "./demo-pointer";
 import {centerOf} from "./desk";
@@ -80,23 +80,84 @@ const dive = ref(props.start === "top" ? 0 : 1);
 const act = ref<1 | 2>(props.start === "act-two" ? 2 : 1);
 /** 章节条与它的按钮跟哪一幕：换幕时落印收进眉题（回第一幕是薄暮揭开）的那一刻才跟上 `act`，那一刻章节条依次亮起。 */
 const shownAct = ref<1 | 2>(1);
-/** 眉题、窄屏字幕与交给访客那一行照哪一幕写：换幕时趁它们看不见、换上那一幕的字时跟着换（见 `putCaption`）。 */
-const captionAct = ref<1 | 2>(1);
 const ACT_TWO_ENTER = 1.55;
 const ACT_TWO_LEAVE = 1.35;
+/** 第二幕停在哪（屏）：直接落在第二幕、点“接着看编辑器”都滚到这里，也是滚动的一站。 */
+const ACT_TWO_AT = 1.8;
+/** 滚动的几站（屏）：首屏、第一幕落地、第二幕（见 `holdAtStops`）。 */
+const STOPS = [0, 1, ACT_TWO_AT] as const;
 function updateAct(screens: number): void {
     if (act.value === 1 && screens >= ACT_TWO_ENTER) act.value = 2;
     else if (act.value === 2 && screens <= ACT_TWO_LEAVE) act.value = 1;
 }
 
+/**
+ * 一次滚动最多走到下一站（第 13 轮之后，开发者：滚的时候很容易跳过第一幕直接滚到第二幕）。俯冲要滚一屏，落地以后再滚 0.55 屏
+ * 就换第二幕，顺着俯冲那一下的滚轮余势、触控板的一甩常常一口气越过去。这里把一串没停下来的滚动算一次：它开始时在哪两站之间，
+ * 这一次就只到这两站为止，多滚的不算，停一下再滚才往下一站走。拦住的地方都在舞台钉着的那一段里（第一幕落地处、第二幕），画面不动，
+ * 看不出拦了一下。
+ *
+ * “停下来”要连着画了 `QUIET_FRAMES` 帧都没有滚动、并且过了 `GESTURE_GAP_MS`，不只看过了多久：几站正是要干重活的地方（落地、换幕
+ * 重挂工作台、第一幕开演），主线程一忙就不出帧，滚动照样在走（不经主线程），只看时间的话，忙完时一次滚动早已“结束”，余下的一甩就越过了
+ * 那一站（设计语言踩过的坑 92）。拦也在滚动事件里当场拦，不等下一帧。
+ *
+ * 没用滚动吸附（`scroll-snap-type` 加 `scroll-snap-stop: always`）：第 13 轮之后在无头浏览器里试过，一下大滚轮照样从首屏越过
+ * 两站滚到底，一串小步的像素滚动每一步都被吸回原来那一站、滚不动。程序发起的滚动（直接落在某一幕、点“接着看”）不拦；窄屏不演示，也不拦。
+ */
+const GESTURE_GAP_MS = 240;
+const QUIET_FRAMES = 6;
+let gesture: {readonly low: number; readonly high: number} | null = null;
+/** 上一次滚动之后安静了几帧、从什么时候起（`countQuiet` 每帧数一次，有滚动就从头数）。 */
+let quiet = {frames: 0, since: 0};
+let quietFrame = 0;
+/** 最后一次放行的位置（屏）：下一次滚动从这里算前后两站。 */
+let lastHeld = props.start === "act-two" ? ACT_TWO_AT : props.start === "act-one" ? 1 : 0;
+/** 正在走的是程序发起的滚动：停下以后才复位。 */
+let programmatic = false;
+
+function stopsAround(screens: number): {readonly low: number; readonly high: number} {
+    const EDGE = 0.02;
+    const below = STOPS.filter((stop) => stop < screens - EDGE);
+    const above = STOPS.filter((stop) => stop > screens + EDGE);
+    return {low: below.at(-1) ?? Number.NEGATIVE_INFINITY, high: above[0] ?? Number.POSITIVE_INFINITY};
+}
+
+/** 滚到的位置拦在这一次滚动的两站之间，记下放行到哪；安静从头数。 */
+function holdAtStops(): void {
+    const scroller = page.value;
+    if (scroller === null) return;
+    const screens = scroller.scrollTop / size.value.height;
+    let held = screens;
+    if (!programmatic && wide.value) {
+        gesture ??= stopsAround(lastHeld);
+        held = Math.min(gesture.high, Math.max(gesture.low, screens));
+        if (held !== screens) scroller.scrollTop = held * size.value.height;
+    }
+    lastHeld = held;
+    quiet = {frames: 0, since: performance.now()};
+    if (quietFrame === 0) quietFrame = requestAnimationFrame(countQuiet);
+}
+
+function countQuiet(): void {
+    quiet.frames += 1;
+    if (quiet.frames < QUIET_FRAMES || performance.now() - quiet.since < GESTURE_GAP_MS) {
+        quietFrame = requestAnimationFrame(countQuiet);
+        return;
+    }
+    quietFrame = 0;
+    gesture = null;
+    programmatic = false;
+}
+
 let scrollFrame = 0;
 function onScroll(): void {
+    holdAtStops();
     if (scrollFrame !== 0) return;
     scrollFrame = requestAnimationFrame(() => {
         scrollFrame = 0;
-        const top = page.value?.scrollTop ?? 0;
-        dive.value = Math.min(1, Math.max(0, top / size.value.height));
-        updateAct(top / size.value.height);
+        const screens = lastHeld;
+        dive.value = Math.min(1, Math.max(0, screens));
+        updateAct(screens);
         // 舞台钉到头以后跟着页面走，手那一层（固定定位）跟上。
         if (pointerShown.value) syncHand();
     });
@@ -235,7 +296,8 @@ function remount(snapshot: DeskSnapshot | null): Promise<void> {
 function scrollToAct(which: 1 | 2 = 1): void {
     const scroller = page.value;
     if (scroller === null) return;
-    scroller.scrollTop = size.value.height * (which === 2 ? 1.8 : 1);
+    programmatic = true;
+    scroller.scrollTop = size.value.height * (which === 2 ? ACT_TWO_AT : 1);
     onScroll();
 }
 
@@ -669,12 +731,8 @@ const captionTitle = ref("");
 const caption = ref("");
 const ring = shallowRef<StageRect | null>(null);
 const handoff = ref(false);
-/** 眉题此刻写什么：交给访客时换成那一幕的邀请。 */
-const eyebrow = computed(() => {
-    if (!handoff.value) return {title: captionTitle.value, line: caption.value};
-    const copy = captionAct.value === 2 ? HANDOFF_TWO : HANDOFF;
-    return {title: copy.title, line: copy.line};
-});
+/** 眉题此刻写什么：交给访客时换成邀请（只有第一幕交给访客，见第二幕的 `rest`）。 */
+const eyebrow = computed(() => (handoff.value ? {title: HANDOFF.title, line: HANDOFF.line} : {title: captionTitle.value, line: caption.value}));
 /** 窄屏只有一行字幕（短标题已经在章节条上）；开演时那一行是这一幕的名字。 */
 const narrowLine = computed(() => (captionTitle.value === ACT_ONE.number || captionTitle.value === ACT_TWO.number ? `${captionTitle.value}\u3000${caption.value}` : caption.value));
 
@@ -932,6 +990,16 @@ const NARROW_MS = 2600;
 function settleHandoff(): void {
     if (wide.value) markRing("chapter-one-tab");
     handoff.value = true;
+    releaseFocus();
+}
+
+/**
+ * 交给访客时把焦点从工作台里拿出来：演示打过字，焦点还在正文里，访客按空格、方向键想翻页会打进正文（第 13 轮之后看出来的）。
+ * 访客自己点进正文以后焦点照常。
+ */
+function releaseFocus(): void {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && page.value?.contains(active) === true) active.blur();
 }
 
 /** 一段被打断或走完后收拾演示的装饰；停住时该有的（交给访客的金环）由 `rest` 摆。 */
@@ -999,6 +1067,11 @@ const live = ref<0 | 1 | 2>(props.start === "act-two" ? 0 : 1);
 const switching = computed(() => live.value === 0);
 /** 眉题与章节条显不显：换幕时先收起，落印收进眉题的那一刻换上新的一幕再显出来。 */
 const captionsReady = ref(props.start !== "act-two");
+/**
+ * 宽屏的第一幕到了没有：落地以后先落印（`landActOne`），印收进眉题才算到，第一幕才开演；镜头拉回去就不算。第一幕开不开演只看它，
+ * 不看落地：两处都看落地的话，同一次刷新里谁先跑看登记的先后（设计语言踩过的坑 91）。
+ */
+const arrived = ref(false);
 
 const actOne = useStagedAct<DeskSnapshot>({
     name: "第一幕",
@@ -1006,8 +1079,8 @@ const actOne = useStagedAct<DeskSnapshot>({
     wide,
     reduced,
     narrowMs: NARROW_MS,
-    // 第一幕在台上：宽屏要落地；窄屏不俯冲，首屏的字退开（滚过三成屏）就算。
-    onStage: () => live.value === 1 && inView.value && (wide.value ? landed.value : dive.value >= 0.3),
+    // 第一幕在台上：宽屏要落地、落过印（`arrived`）；窄屏不俯冲，首屏的字退开（滚过三成屏）就算。
+    onStage: () => live.value === 1 && inView.value && (wide.value ? arrived.value : dive.value >= 0.3),
     hooks: {
         prepare: () => {
             handoff.value = false;
@@ -1030,8 +1103,13 @@ const actOne = useStagedAct<DeskSnapshot>({
 });
 // ── 第二幕：为中文长篇做的编辑器（第 13 轮，开发者在 v12 上定照脚本做原型；五拍按 plan.md 的片 3 逐拍换成真演） ──
 
-/** 换幕的落印此刻的样子（`ActSeal`）。 */
+/** 换幕的落印此刻的样子（`ActSeal`），与它是哪一幕的（落到第一幕时是 I，进第二幕是 II）。 */
 const seal = ref<"off" | "drawing" | "docked">("off");
+const sealAct = ref<1 | 2>(2);
+/** 正在放的第一幕落印（`landActOne`）：拉回首屏（`watch(landed)`）或换幕（`queueSwitch`）时打断它。 */
+let landingRun: AbortController | null = null;
+/** 章节条重挂一遍（换 key）：落到第一幕时它依次浮上来，同进第二幕时换成五段那一下。 */
+const railKey = ref(0);
 
 /** 灰塔的剖面版画画成的 PNG：第一次粘贴时才画，之后用同一份。 */
 let engraving: Promise<Blob> | null = null;
@@ -1444,8 +1522,8 @@ const BEAT_STEPS_TWO: readonly StagedBeat[] = [
             await wait(1200, signal);
             await openSource(signal);
             await wait(600, signal);
-            // 放开整片编辑区，原文里那几行自上而下依次描金，齐亮一会儿。切回富文本是交给访客那一段的事：这一拍的终态停在原文里，
-            // 少动效时直接摆上这一拍，看到的也是原文。
+            // 放开整片编辑区，原文里那几行自上而下依次描金，齐亮一会儿。这一拍的终态停在原文里（少动效时直接摆上这一拍，看到的
+            // 也是原文），第二幕也就停在这里。
             illuminate([{rect: editorBody()}]);
             for (const [index, rect] of sourceLineRects().entries()) {
                 actMarks.value = [...actMarks.value, {id: `source-${String(index)}`, kind: "underline", rect: rectToStage(rect)}];
@@ -1457,19 +1535,6 @@ const BEAT_STEPS_TWO: readonly StagedBeat[] = [
             darken();
         },
         settle: openSource,
-    },
-    {
-        // 交给访客：切回富文本，光标放在第五章末尾。
-        copy: null,
-        nominal: 0,
-        async play(signal) {
-            desk.value?.reopen("markdown");
-            await focusChapterFive(signal);
-        },
-        async settle(signal) {
-            desk.value?.reopen("markdown");
-            await focusChapterFive(signal);
-        },
     },
 ];
 
@@ -1485,13 +1550,12 @@ const actTwo = useStagedAct<DeskSnapshot>({
             handoff.value = false;
             ring.value = null;
         },
+        // 第二幕不交给访客（第 13 轮的答复：“不要有用户做不出来的操作，最后那个你来做环节删掉”），演完停在最后一拍的结论上；
+        // 焦点照样从工作台里拿出来（`releaseFocus`）。
         rest: (beat, how, last) => {
-            if (last) {
-                handoff.value = true;
-                return;
-            }
             const copy = BEAT_STEPS_TWO[beat]?.copy ?? null;
             if (copy !== null && how !== "played") say(copy, "closing");
+            if (last) releaseFocus();
         },
         capture: captureDesk,
         restore: restoreDesk,
@@ -1565,8 +1629,7 @@ async function leaveAct(staged: StagedAct<DeskSnapshot>): Promise<LeftAct> {
  * 换上某一幕的字幕。要在眉题看不见的时候换：眉题里新旧两行是先出后进（约 0.66 秒），眉题显出来时还没换完，会先露出上一幕的那一行。
  * 交给访客时标签上的金环要量新挂的那一台，由调用方在挂好以后摆（`settleHandoff`）。
  */
-function putCaption(state: CaptionState, which: 1 | 2): void {
-    captionAct.value = which;
+function putCaption(state: CaptionState): void {
     captionTitle.value = state.title;
     caption.value = state.line;
     handoff.value = state.handoff;
@@ -1603,8 +1666,9 @@ async function enterActTwo(): Promise<void> {
     lowerCurtain();
     await wait(300, SWITCH_SIGNAL);
     const back = left.two;
-    putCaption(back?.caption ?? {title: ACT_TWO.number, line: ACT_TWO.title, handoff: false}, 2);
+    putCaption(back?.caption ?? {title: ACT_TWO.number, line: ACT_TWO.title, handoff: false});
     await remount(back?.desk ?? actTwoStart());
+    sealAct.value = 2;
     seal.value = "drawing";
     await wait(700, SWITCH_SIGNAL);
     measureDock();
@@ -1633,7 +1697,7 @@ async function returnToActOne(): Promise<void> {
     lowerCurtain();
     await wait(300, SWITCH_SIGNAL);
     const back = left.one;
-    putCaption(back?.caption ?? {title: "", line: "", handoff: false}, 1);
+    putCaption(back?.caption ?? {title: "", line: "", handoff: false});
     await remount(back?.desk ?? deskInitial);
     // 眉题里换字（没有样式的过渡名，过两帧算走完）排在帧上，重挂工作台时帧被挤后；等它走完再揭开，不然先露出第二幕的那一行。
     await frames(4);
@@ -1652,6 +1716,8 @@ async function switchAct(): Promise<void> {
     if (act.value === 2 && shownAct.value === 1) await enterActTwo();
     else if (act.value === 1 && shownAct.value === 2) await returnToActOne();
     else {
+        // 落印半路又滚进第二幕、还没换就滚了回来：薄暮是落印留下的（`settleLanding`），这里揭开。
+        curtain.value = false;
         captionsReady.value = true;
         live.value = act.value;
     }
@@ -1661,9 +1727,82 @@ function queueSwitch(): void {
     // 同一次刷新里就收起字幕、让两幕都停下：不然这一帧先照旧画一遍，章节条与眉题还没收起来，换幕要等排到它。
     live.value = 0;
     captionsReady.value = false;
+    landingRun?.abort();
     switchChain = switchChain.then(switchAct, switchAct).catch((error: unknown) => console.error("[homepage] 换幕", error));
 }
 watch(act, queueSwitch);
+
+/**
+ * 落到第一幕（第 13 轮之后，开发者：第二幕的入场动画挺不错，给第一幕也安排一下）：同进第二幕的“沉幕落印”，只是不换工作台。
+ * 俯冲落地那一刻压上薄暮、微退 0.3 秒，正中描出 I 与这一幕的名字 0.7 秒，再 0.65 秒收进眉题、工作台回亮；印快到眉题时眉题与
+ * 章节条显出来（章节条重挂一遍，依次浮上来），这时才算到了（`arrived`），第一幕开演或接着演。从第二幕滚回来不落印：那时一直是落地的。
+ * 和换幕排在同一条队里，一次放完才排下一件；排到时已经拉回去了或已经在第二幕，就不放；放到半路拉回首屏或又滚进第二幕，当场停下
+ * （`landingRun`：镜头往回拉时印还压在工作台的位置上，等这一段走完就会悬在首屏上）。
+ */
+async function landActOne(): Promise<void> {
+    if (wide.value) await whenDeskInitial;
+    if (!stillLanding() || !wide.value) {
+        settleLanding();
+        return;
+    }
+    const controller = new AbortController();
+    landingRun = controller;
+    try {
+        // 眉题里先有这一幕的名字（还收着）：印收进眉题时量它的位置。演过的时候眉题里是演到的那一拍，照旧收进去。
+        if (captionTitle.value === "") putCaption({title: ACT_ONE.number, line: ACT_ONE.title, handoff: false});
+        lowerCurtain();
+        await wait(300, controller.signal);
+        sealAct.value = 1;
+        seal.value = "drawing";
+        await wait(700, controller.signal);
+        measureDock();
+        seal.value = "docked";
+        curtain.value = false;
+        await wait(350, controller.signal);
+        railKey.value += 1;
+        if (handoff.value) settleHandoff();
+    } catch (error) {
+        if (!(error instanceof Interrupted)) throw error;
+    } finally {
+        landingRun = null;
+    }
+    settleLanding();
+    if (seal.value !== "docked") return;
+    await wait(300, SWITCH_SIGNAL);
+    seal.value = "off";
+}
+
+/** 还在第一幕落着地：拉回首屏（俯冲没落地）或又滚进了第二幕，落印就停下。 */
+function stillLanding(): boolean {
+    return landed.value && act.value === 1;
+}
+
+/**
+ * 落印到此为止（放完，或半路停下）：还没收进眉题的印直接收走（已经在往眉题飞的照常飞完）；后面排着换幕时（`queueSwitch` 收起了字幕、
+ * 让两幕停下）薄暮与字幕交给换幕，不然揭开、放出来；落着地就算到了，从第二幕回来时第一幕照常接着演。
+ */
+function settleLanding(): void {
+    if (seal.value === "drawing") seal.value = "off";
+    if (live.value !== 0) {
+        curtain.value = false;
+        captionsReady.value = true;
+    }
+    arrived.value = landed.value;
+}
+
+function queueLanding(): void {
+    // 同一次刷新里就收起字幕：拉回去再落地时，眉题不该在落印之前先显一下。
+    captionsReady.value = false;
+    switchChain = switchChain.then(landActOne, landActOne).catch((error: unknown) => console.error("[homepage] 落到第一幕", error));
+}
+watch(landed, (now) => {
+    if (now) {
+        queueLanding();
+        return;
+    }
+    arrived.value = false;
+    landingRun?.abort();
+});
 
 /** 落印收进眉题时往上挪多少：从工作台中间挪到眉题那一条的中间。 */
 const sealStyle = computed(() => {
@@ -1693,14 +1832,17 @@ function measureDock(): void {
 }
 
 /**
- * 交给访客那一行的第二个按钮：滚到下一幕。它是指向下一幕锚点的链接（没有脚本时照样跳）；这里拦下，在页面自己的滚动容器里滚过去，
- * 不改地址栏（Lab 的地址带着场景）。
+ * 第一幕交给访客那一行的第二个按钮：滚到第二幕。它是指向第二幕锚点的链接（没有脚本时照样跳）；这里拦下，在页面自己的滚动容器里
+ * 滚过去，不改地址栏（Lab 的地址带着场景）。
  */
 function nextAct(event: MouseEvent): void {
     const scroller = page.value;
     if (scroller === null) return;
     event.preventDefault();
-    scroller.scrollTo({top: captionAct.value === 1 ? size.value.height * 1.8 : scroller.scrollHeight, behavior: reduced ? "auto" : "smooth"});
+    programmatic = true;
+    scroller.scrollTo({top: size.value.height * ACT_TWO_AT, behavior: reduced ? "auto" : "smooth"});
+    // 已经在那儿时没有滚动事件：这里数起安静，停下以后复位。
+    onScroll();
 }
 
 // ── 生命周期 ──
@@ -1761,6 +1903,7 @@ onBeforeUnmount(() => {
     resize?.disconnect();
     visibility?.disconnect();
     if (scrollFrame !== 0) cancelAnimationFrame(scrollFrame);
+    if (quietFrame !== 0) cancelAnimationFrame(quietFrame);
     const style = document.documentElement.style;
     for (const [name, value] of previousDropVars) {
         if (value === "") style.removeProperty(name);
@@ -1827,7 +1970,7 @@ onBeforeUnmount(() => {
 
                 <!-- 换幕的落印（宽屏）：压在工作台正中，收进上面的眉题（见 `enterActTwo`）。 -->
                 <div v-if="wide" class="hs-seal" :style="sealStyle">
-                    <ActSeal :numeral="ACT_TWO.numeral" :title="ACT_TWO.title" :state="seal" :dock-x="sealDock.x" :dock-y="sealDock.y" :dock-scale="sealDock.scale" :day="!night" />
+                    <ActSeal :numeral="sealAct === 1 ? ACT_ONE.numeral : ACT_TWO.numeral" :title="sealAct === 1 ? ACT_ONE.title : ACT_TWO.title" :state="seal" :dock-x="sealDock.x" :dock-y="sealDock.y" :dock-scale="sealDock.scale" :day="!night" />
                 </div>
 
                 <!-- 眉题（宽屏）：工作台正上方，这一拍的短标题与一句字幕；换一句时旧的淡出、新的从下面浮上来。 -->
@@ -1847,13 +1990,13 @@ onBeforeUnmount(() => {
 
                 <!-- 章节条那一条：宽屏在工作台下面，交给访客时下面展开星璃的小贴纸与两个按钮；窄屏在上面，下面一行是字幕。 -->
                 <div class="hs-caption" :style="captionStyle" :class="{'is-shown': captionShown}" :data-hs-rail-done="rail.done" :data-hs-hold="rail.hold ?? 'none'">
-                    <ChapterRail class="hs-rail" :label="`${shownAct === 2 ? ACT_TWO.number : ACT_ONE.number}的章节`" :chapters="rail.chapters" :current="rail.current" :done="rail.done" :progress="rail.progress" :status="rail.status" @jump="(beat: number) => stagedAct.jumpTo(beat)" @pause="stagedAct.pause()" @resume="stagedAct.resume()" @replay="stagedAct.replay()" />
+                    <ChapterRail :key="railKey" class="hs-rail" :label="`${shownAct === 2 ? ACT_TWO.number : ACT_ONE.number}的章节`" :chapters="rail.chapters" :current="rail.current" :done="rail.done" :progress="rail.progress" :status="rail.status" @jump="(beat: number) => stagedAct.jumpTo(beat)" @pause="stagedAct.pause()" @resume="stagedAct.resume()" @replay="stagedAct.replay()" />
                     <Transition :name="captionsReady ? 'hs-line' : 'hs-cut'" mode="out-in">
                         <div v-if="handoff" key="handoff" class="hs-caption__row">
                             <img class="hs-caption__peek" :src="LYRA_PEEK" alt="" />
                             <p v-if="!wide" class="hs-caption__line">{{ eyebrow.title }}：{{ eyebrow.line }}</p>
                             <GiltButton primary size="small" :day="!night">下载 NeuroBook</GiltButton>
-                            <GiltButton size="small" :day="!night" :href="captionAct === 1 ? '#act-two' : '#act-three'" @click="nextAct">{{ captionAct === 1 ? "接着看编辑器" : "接着看世界引擎" }}</GiltButton>
+                            <GiltButton size="small" :day="!night" href="#act-two" @click="nextAct">接着看编辑器</GiltButton>
                         </div>
                         <div v-else-if="!wide" :key="narrowLine" class="hs-caption__row">
                             <p class="hs-caption__line">{{ narrowLine }}</p>
@@ -1909,7 +2052,7 @@ onBeforeUnmount(() => {
                 </section>
                 <section id="act-two" class="hs-track__act2" aria-label="第二幕">
                     <ol class="hs-sr">
-                        <li v-for="(beat, index) in BEAT_STEPS_TWO" :key="index">{{ beat.copy === null ? `${HANDOFF_TWO.title}：${HANDOFF_TWO.line}` : `${beat.copy.title}：${beat.copy.opening}${beat.copy.closing}` }}</li>
+                        <li v-for="(beat, index) in BEAT_STEPS_TWO" :key="index">{{ beat.copy === null ? "" : `${beat.copy.title}：${beat.copy.opening}${beat.copy.closing}` }}</li>
                     </ol>
                 </section>
             </div>

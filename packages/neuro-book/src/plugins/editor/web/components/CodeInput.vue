@@ -55,7 +55,7 @@ let unmounted = false;
 /** 程序换文字（使用方给了新的 `modelValue`）时不当成用户输入交出去。 */
 let applying = false;
 /** 建好以后把焦点放进去、光标放在文首还是文末：因为聚焦才建的、或建的途中调用了 `focus()`。null 是不给焦点。 */
-let focusWhenReady: "start" | "end" | null = null;
+let focusWhenReady: "start" | "end" | number | null = null;
 
 const languageId = (): string => (languages?.has(props.language) === true || props.language === "json" ? props.language : "plaintext");
 
@@ -136,22 +136,27 @@ const activate = async (): Promise<void> => {
     }
 };
 
-const placeCaret = (caret: "start" | "end"): void => {
+/** `caret` 是文首、文末或整篇里的偏移（超出的按文末）。 */
+const placeCaret = (caret: "start" | "end" | number): void => {
     if (editor === null || model === null) return;
+    if (typeof caret === "number") {
+        editor.setPosition(model.getPositionAt(caret));
+        return;
+    }
     const line = caret === "start" ? 1 : model.getLineCount();
     editor.setPosition({lineNumber: line, column: caret === "start" ? 1 : model.getLineMaxColumn(line)});
 };
-const focusFallback = (caret: "start" | "end" | undefined): void => {
+const focusFallback = (caret: "start" | "end" | number | undefined): void => {
     const area = fallback.value?.$el;
     if (area === undefined) return;
     area.focus();
     if (caret === undefined) return;
-    const at = caret === "start" ? 0 : area.value.length;
+    const at = caret === "start" ? 0 : caret === "end" ? area.value.length : Math.min(Math.max(caret, 0), area.value.length);
     area.setSelectionRange(at, at);
 };
 
 /** `caret` 不给时：已经建好的保持原来的光标，因为这一次聚焦才建的放在文末。 */
-const focus = (caret?: "start" | "end"): void => {
+const focus = (caret?: "start" | "end" | number): void => {
     if (editor !== null) {
         if (caret !== undefined) placeCaret(caret);
         editor.focus();

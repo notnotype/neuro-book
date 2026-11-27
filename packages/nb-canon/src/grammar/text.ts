@@ -39,6 +39,9 @@ function rewrite(parsed: ParsedEntryText, write: (tag: EntryTag) => string | nul
 const formOf = (tag: EntryTag): "self" | "open" | "close" => (tag.kind === "close" ? "close" : tag.kind === "open" ? "open" : "self");
 const attributesOf = (tag: EntryTag): Array<readonly [string, string]> => tag.attributes.map((attribute) => [attribute.name, attribute.value] as const);
 
+/** 一个标签的规范写法（输出 18）：没登记的标签按它比较“条目里已经有了”（输出 19），前后端共用。 */
+export const canonicalTag = (tag: EntryTag): string => tagText(tag.name, attributesOf(tag), formOf(tag));
+
 /** 活的标签写成规范写法（属性顺序不变、之间一个空格，自闭合写 ` />`）；带内容的与写坏的不动。 */
 export function canonicalEntryText(parsed: ParsedEntryText): string {
     return rewrite(parsed, (tag) => (tag.kind === "paired" || tag.kind === "malformed" ? null : tagText(tag.name, attributesOf(tag), formOf(tag))));

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>产品介绍首页：入殿·俯案成界（第 13 轮）</title>
+<title>产品介绍首页：入殿·俯案成界（第 15 轮）</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
@@ -25,82 +25,44 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 .beat h3 { margin: 0 0 6px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 720px) { .pair { grid-template-columns: 1fr; } }
+table { width: 100%; margin: 0 0 12px; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.grid3 { display: grid; grid-template-columns: 4.5em repeat(3, 1fr); gap: 8px; align-items: center; margin: 0 0 12px; }
+.grid3 .head { font-size: 14px; color: var(--muted); font-weight: 600; }
+.grid3 .row { font-size: 14px; color: var(--muted); }
+@media (max-width: 720px) { .grid3 { grid-template-columns: 1fr; } .grid3 .row { margin-top: 8px; } }
 </style>
 </head>
 <body>
 <main>
-<h1>产品介绍首页：入殿·俯案成界（第 13 轮）</h1>
-<p class="intro">照第 12 轮的回答：白天的墙换成生成的藏书阁；第二幕（编辑器）照脚本做了原型，开场落印，五拍都在复原的工作台上真的演。</p>
+<h1>产品介绍首页：入殿·俯案成界（第 15 轮）</h1>
+<p class="intro">照第 13 轮的答复改白天：工作台下面的红布与书桌突兀，出两个候选。第 14 轮的两题都定了。</p>
 
-<section data-nbdev-question="day-r13" data-nbdev-type="single" data-nbdev-options="ok:这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>白天首屏换成藏书阁，这样可以吗？</h2>
-  <p><b>推荐：这样可以。</b>书架往里退的纵深与焦外书脊的金光撑起了华丽感，标题压在暗处读得清。</p>
-  <img src="r13/day.webp" alt="白天的首屏：背后是一条午后的藏书阁长廊，两侧胡桃木书架往里退，焦外是一粒粒红金书脊，左上高窗一道暖光；正中是首句与花饰、两枚按钮，两侧浮着羊皮纸，下面深红缎子上是工作台">
+<section data-nbdev-question="day-r15" data-nbdev-type="single" data-nbdev-options="bare:A 去掉红布，木案压进暖雾|velvet:B 换成哑光暗红丝绒，俯冲时铺满|revise:再改（备注写哪里）" data-nbdev-recommend="bare">
+  <h2>白天的案面用哪一版？</h2>
+  <p><b>推荐：A 去掉红布。</b>红缎与胡桃木是两张又锐又硬的贴图，自带的光和藏书阁的暖雾不是一处；A 把木案压进同一片雾里，落地后是一块匀净的暗木底，象牙色的工作台最显眼，首屏也少了一大块抢标题的红。</p>
+  <div class="grid3">
+    <span></span><span class="head">现在（第 12 轮起）</span><span class="head">A 去掉红布</span><span class="head">B 哑光丝绒</span>
+    <span class="row">首屏</span>
+    <img src="r15/now-hero.webp" alt="现在的首屏：藏书阁下方，胡桃木桌面上一块高光很亮的深红缎面垫着工作台">
+    <img src="r15/bare-hero.webp" alt="A 的首屏：没有红布，工作台坐在压暗、糊过的木案上，木案融进藏书阁的暖雾">
+    <img src="r15/velvet-hero.webp" alt="B 的首屏：工作台下一圈很窄的暗红丝绒，没有亮光，木案压进暖雾">
+    <span class="row">俯冲到一半</span>
+    <img src="r15/now-dive.webp" alt="现在俯冲到一半：一大块透视下的亮红缎面，胡桃木纹横平，上沿和墙之间一道横缝">
+    <img src="r15/bare-dive.webp" alt="A 俯冲到一半：木案渐渐失焦压暗，工作台四周是暗的暖褐，上方是藏书阁">
+    <img src="r15/velvet-dive.webp" alt="B 俯冲到一半：暗红丝绒往外铺开，上沿与两侧柔柔地淡进藏书阁">
+    <span class="row">落地</span>
+    <img src="r15/now-landed.webp" alt="现在落地：工作台四周是放大的粗木纹，贴着一道亮红窄边，眉题的浅色字压在木纹上">
+    <img src="r15/bare-landed.webp" alt="A 落地：工作台四周是匀净的暗暖褐，上方露一点藏书阁，眉题读得清">
+    <img src="r15/velvet-landed.webp" alt="B 落地：工作台四周是一整片暗红丝绒，和夜里的结构一样，眉题读得清">
+  </div>
   <ul class="notes">
-    <li>照 @designer 第 12 轮的方案 B 生成一张（1 次，没有重发）：正中一条长廊往里退，远处一道暗木拱龛，视平线压在六成高，对齐案面的远边。</li>
-    <li>标题那一块压暗，下半截沉到深木色；往下滚俯冲时，案面远边后面不露出地板的反光。第 12 轮的虚焦胡桃木删掉了。</li>
+    <li>A：工作台直接坐在木案上，一道细金边、一层深柔影；木案首屏是压进暖雾的一张，俯冲时换成失焦压暗的一张。</li>
+    <li>B：留一块布垫，红缎换成夜里那张哑光暗红丝绒（压暗、降饱和，没有硬包边）；俯冲时不往里收成画框，而是往外铺开，落地和夜里一样是一整片丝绒。</li>
+    <li>两版都只用现有的素材（两张压过的木案是从胡桃木那张用脚本压出来的），不花图片额度。@designer 也推荐 A；它说重新生成一张带景深的木案这一轮不值。</li>
   </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天的首屏（往下滚俯冲）</a></p>
-</section>
-
-<section data-nbdev-question="act-two-r13" data-nbdev-type="single" data-nbdev-options="ok:这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>第二幕这样演，可以吗？</h2>
-  <p><b>推荐：这样可以。</b>五拍都是产品真有的功能，走产品自己的入口（斜杠菜单、选区菜单、链接卡片、属性面板、粘贴、换编辑器），结论画面照脚本标了出来；和脚本不一样的几处是产品本身没有的，列在最后。快捷键在编辑区右下角亮一下金边键帽。</p>
-  <div class="beat">
-    <h3>开场：沉幕落印</h3>
-    <img src="r13/seal.webp" alt="第二幕的开场：工作台压着一层薄暮，正中金线描到一半的罗马数字 II，下面是“为中文长篇做的编辑器”与一道金色花饰；右边星璃那一栏还在">
-    <p class="cap">从第一幕往下滚过分界时放，约 1.6 秒：薄暮，金线描出 II，再收进眉题，同时右边星璃那一栏收起、正文展宽。往回滚只压一下薄暮，回到第一幕离开时的样子。两幕各自记着演到哪，回来接着演。</p>
-  </div>
-  <div class="beat">
-    <h3>1　中文规矩</h3>
-    <img src="r13/beat1.webp" alt="第五章章名下面插进一个提示块，块里写着“伏笔：第八层在第二十七章揭开，门外只敲“三下”。”，带引号的“三下”是粗体；最后一段的“霜港”上面标着 shuāng gǎng；提示块与“霜港”各被一副金色四角框住，其余压暗">
-    <p class="cap">行首打顿号叫出斜杠菜单，打 tsk 筛到“提示块”；块里带引号的“三下”按 Ctrl+B 加粗、紧挨着句号；再给“霜港”注音。菜单开着时照亮这一段与菜单，结论时四角框住提示块与注音词。</p>
-  </div>
-  <div class="beat">
-    <h3>2　一张插图</h3>
-    <div class="pair">
-      <img src="r13/beat2.webp" alt="夜里：正文里贴进一张灰塔的剖面版画（七层写着名字，第八层是虚线和问号，右下一方红印），四角框着；左边作品树里“插图”展开，里面新出的“粘贴的图片”那一行标着小四角，一道细虚金线从这一行连到版画">
-      <img src="r13/beat2-day.webp" alt="同一刻的白天：浅色工作台，版画与作品树里的新文件同样亮着，四角与细线换成深古铜色">
-    </div>
-    <p class="cap">按 Ctrl+V，正文里闪过“正在上传 1 张图片”，长成整张版画；作品树里多了“插图”，点开就是这张图，与正文里的图之间一道细金线。左：夜。右：白天。</p>
-  </div>
-  <div class="beat">
-    <h3>3　章节属性</h3>
-    <img src="r13/beat3.webp" alt="正文上方的属性摘要一行写着“视角 艾莉丝 · 状态 修改中 · 出场 艾莉丝、守门人”，被一副金色四角框住，其余压暗">
-    <p class="cap">展开属性，状态改成“修改中”，出场添上“守门人”，收起。四角跟着面板展开、收起，最后框在这一行摘要上。</p>
-  </div>
-  <div class="beat">
-    <h3>4　链到设定</h3>
-    <div class="pair">
-      <img src="r13/beat4-card.webp" alt="第一段里的“灰塔”被选中，下面的链接卡片里是 ../设定/灰塔.md；编辑区右下角两枚金边键帽 Ctrl + V">
-      <img src="r13/beat4-open.webp" alt="标签条上新开的“灰塔.md”标着小四角，下面是灰塔那一页设定：立在霜港城北的礁石上、七层的名字、塔顶的钟、第八层只在银钥匙的说法里有">
-    </div>
-    <p class="cap">选中“灰塔”，Ctrl+K 叫出链接卡片，地址贴进去、回车。按住 Ctrl 点链接，灰塔那一页在新标签里翻开，亮处扩到新标签连同那一页，停一会儿点回第五章。</p>
-  </div>
-  <div class="beat">
-    <h3>5　还是原文</h3>
-    <img src="r13/beat5.webp" alt="第五章换成源码编辑器打开：状态: 修改中、&gt; [!NOTE] 与伏笔那一行（**“三下”**）、[灰塔](../设定/灰塔.md)、![](&lt;../插图/粘贴的图片….png&gt;)、&lt;ruby text=&quot;shuāng gǎng&quot;&gt;霜港&lt;/ruby&gt; 几行下面各描一道金线">
-    <p class="cap">换成源码编辑器打开同一章，属性、提示块、链接、插图、注音那几行自上而下依次描金，齐亮一会儿。交给你时切回富文本，光标停在第五章末尾，眉题是“轮到你写”。</p>
-  </div>
-  <h3>和脚本不一样的几处</h3>
-  <ul class="notes">
-    <li>提示块的标题行写着 NOTE：产品新建的提示块没有标题，富文本里也改不了，显示的是类型名。</li>
-    <li>链接的地址是贴进卡片的，不是“已经填好”：产品的链接卡片新建时是空的，也不按名字搜作品里的文件（Spec 里写明这一版不做）。贴进去一次到位，不演逐字敲路径。</li>
-    <li>版画是横版：竖版缩到正文一栏宽有 800 多像素高，一屏看不全。</li>
-    <li>第五拍没演怎么换编辑器，见下一题。</li>
-    <li>访客要求少动效时每一拍直接摆到结论，停 3.2 秒；窄屏不演，只换字幕（同第一幕）。</li>
-  </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r13-act-two&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">第二幕（夜，直接落在第二幕）</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r13-act-two-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">从第一幕滚过去（看开场）</a>　<a href="http://127.0.0.1:4417/lab?c=GildedMarks&amp;s=r13-thread&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">细线单独看</a></p>
-</section>
-
-<section data-nbdev-question="reopen-r13" data-nbdev-type="single" data-nbdev-options="menu:照产品现在的入口演：标签条右侧“⋯”里的“用其它编辑器重新打开”，再在快速选择里挑|tabmenu:先给产品的标签右键菜单加上这一项，再照脚本演右键（另开 Task 改产品）|skip:不演入口，直接换（现在这样）" data-nbdev-recommend="menu">
-  <h2>第五拍要不要演出“换编辑器”的入口？</h2>
-  <p><b>推荐：照产品现在的入口演。</b>换编辑器的入口藏在“⋯”里，演一遍比字幕更能让人记住；复原的工作台本来就该有标签条右侧那两个按钮。</p>
-  <ul class="notes">
-    <li>脚本写的是“右键标签，用源码编辑器重新打开”，产品的标签右键菜单里没有这一项。现在的入口是标签条右侧的“⋯”（旁边还有一个“向右拆分”按钮），点“用其它编辑器重新打开”，再在快速选择里挑“源码编辑器”。</li>
-    <li>复原的工作台没接这两样，所以这一版直接换。照入口演的话，两幕的标签条右侧都会多出这两个按钮，这一拍长约 3 秒。</li>
-    <li>VS Code 的标签右键菜单里有这一项；要照脚本演右键，得先在产品里加上，是另一件事。</li>
-  </ul>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r15-day-bare&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">A 从首屏往下滚</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r15-act-one-day-bare&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">A 直接落在第一幕</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r15-day-velvet&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">B 从首屏往下滚</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r15-act-one-day-velvet&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">B 直接落在第一幕</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">现在</a></p>
 </section>
 
 <section>
@@ -123,6 +85,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>星盘与线索丝这样可以；白天的桌面换生成的深胡桃木，工作台的投影与四周要处理（可以垫一块红丝绸）；首屏滚动变卡要查（第 10 轮）</li>
     <li>首屏滚动顺了；丝绸换成生成的缎面照片；白天首屏的上半截不要一片米黄；第一幕的拖动放慢一些、演示时指针一直显示；第二幕要有开场动画（第 11 轮）</li>
     <li>白天的墙换成生成的藏书阁；第一幕拖动的快慢与一直显示的指针可以；第二幕照板上的脚本做原型（第 12 轮）</li>
+    <li>第一幕也要像第二幕那样有开场；滚动不能一下越过第一幕；第二幕交给访客时不要叫人接着写（第 13 轮之后的会话）</li>
+    <li>白天工作台下面的红布与书桌要再改；不要有用户做不出来的操作，第二幕最后交给你的那一段删掉；第五拍照脚本演右键，先给产品的标签右键菜单加上这一项（第 13 轮）</li>
+    <li>第一幕这样落印开场；滚动这样分站，一次最多到下一站，不加“自己滑到下一站”（第 14 轮）</li>
   </ol>
 </section>
 </main>

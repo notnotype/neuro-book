@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00056-homepage-rewrite",
+    "taskId": "t06-product-homepage",
+    "artifactId": "review",
+    "answerId": "20261127T114542664Z-5dd57ce2",
+    "artifactVersion": 13,
+    "contentHash": "ef18fdc090e3d7ddbd60a61395f9ed73aeffd0dc1ebbf6997c25ef0680edccdd",
+    "submittedAt": "2026-11-27T11:45:40.833Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "day-r13": "revise",
+        "act-two-r13": "revise",
+        "reopen-r13": "tabmenu"
+    },
+    "comments": {
+        "day-r13": "现在，工作台下面的红布和书桌横突兀了",
+        "act-two-r13": "我觉得不要有用户做不出来的操作。最后那个你来做环节删掉"
+    },
+    "note": null
+}

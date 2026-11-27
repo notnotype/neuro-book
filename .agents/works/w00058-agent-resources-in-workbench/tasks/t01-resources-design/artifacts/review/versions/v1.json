@@ -1,0 +1,109 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00058-agent-resources-in-workbench",
+    "taskId": "t01-resources-design",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "第 1 轮：资源管理器加上 Agent 的目录",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "116a0afd8c33aced4425c314480f46e38954f639eec9de0785b4cedc075d672e",
+    "files": [
+        "index.html",
+        "r1/marker-badge.webp",
+        "r1/marker-dot-blur.webp",
+        "r1/marker-dot.webp",
+        "r1/marker-icon.webp",
+        "r1/now.webp",
+        "r1/overview.webp",
+        "r1/profiles.webp",
+        "r1/readonly-lock.webp",
+        "r1/readonly-text.webp",
+        "r1/sessions-few.webp",
+        "r1/temps-empty.webp"
+    ],
+    "questions": [
+        {
+            "id": "layout",
+            "type": "confirm",
+            "label": "按这张图的排法做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "current-marker",
+            "type": "single",
+            "label": "当前会话、当前 Profile 怎么标？",
+            "options": [
+                {
+                    "value": "dot",
+                    "label": "A 行尾圆点"
+                },
+                {
+                    "value": "icon",
+                    "label": "B 会话图标染色"
+                },
+                {
+                    "value": "badge",
+                    "label": "C 名字后写“当前”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "dot"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "readonly-mark",
+            "type": "single",
+            "label": "只读的根怎么标？",
+            "options": [
+                {
+                    "value": "lock",
+                    "label": "A 行尾锁"
+                },
+                {
+                    "value": "text",
+                    "label": "B 名字后写“只读”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "lock"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sparse-states",
+            "type": "confirm",
+            "label": "会话少与临时文件为空照这样画",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-27T14:57:11.767Z"
+}

@@ -3,7 +3,7 @@
  * “再显示更早的”“重试”发什么事件，没有行时的“读取中”。
  */
 
-import {mount} from "@vue/test-utils";
+import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
@@ -50,6 +50,19 @@ describe("OriginList", () => {
         const more = wrapper.findAll("button").find((button) => button.text() === "再显示更早的（还有 29 步）")!;
         await more.trigger("click");
         expect(wrapper.emitted("more")).toHaveLength(1);
+    });
+
+    it("点“再显示更早的”读完最后一页：按钮没了，焦点交给列表自己，不掉到 body", async () => {
+        const wrapper = mount(OriginList, {props: {rows, remaining: 1}, global: {provide: provideText(port)}, attachTo: document.body});
+        mounted.push(wrapper);
+        const more = wrapper.findAll("button").find((button) => button.text().startsWith("再显示更早的"))!;
+        (more.element as HTMLButtonElement).focus();
+        await more.trigger("click");
+        await wrapper.setProps({loading: true});
+        // 同真实的情形：按钮随最后一页读到卸掉，焦点先落到 body。
+        await wrapper.setProps({loading: false, remaining: 0});
+        await flushPromises();
+        expect(document.activeElement).toBe(wrapper.get("[data-origin-list]").element);
     });
 
     it("读取失败时写原因与“重试”，读到过的行留着；没有行时是“读取中…”", async () => {

@@ -1,6 +1,7 @@
 import {defineLabFixture, type LabFixture} from "nbook/plugins/lab/web/scene-kit";
 import type EntryText from "nbook/plugins/canon/web/components/text/EntryText.vue";
 import type {EntryTextBlock, EntryTextValue} from "nbook/plugins/canon/web/components/text/entry-text";
+import type EntryRichInput from "nbook/plugins/canon/web/components/text/EntryRichInput.vue";
 import type EntryTextEditor from "nbook/plugins/canon/web/components/text/EntryTextEditor.vue";
 import type TextConflictDialog from "nbook/plugins/canon/web/components/text/TextConflictDialog.vue";
 import type PlainSourceInput from "nbook/plugins/canon/web/components/text/PlainSourceInput.vue";
@@ -32,7 +33,8 @@ export const fixtures: LabFixture[] = [
         component: "EntryText",
         scenes: [
             {id: "sample", label: "值、改过、未知、引用、出错的块", input: {props: {blocks, self: "xingxia", marks}}},
-            {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
+            // 开着的是“哪一处”：第一块里存款那个标签（块 b1、起点 12）。
+            {id: "open", label: "开着存款的来历：贴着值的浮层", input: {props: {blocks, self: "xingxia", marks, open: "b1@12#xingxia|panel.存款"}}},
             {id: "editable", label: "能改：右上“编辑”", input: {props: {blocks, self: "xingxia", marks, editable: true}}},
             {id: "empty", label: "还没有主文字：开始写", input: {props: {blocks: [], self: "xingxia", editable: true}}},
             {id: "blocked", label: "写不了：入口不可用、悬停写原因", input: {props: {blocks, self: "xingxia", editable: true, editReason: "先不算计划"}}},
@@ -45,24 +47,67 @@ export const fixtures: LabFixture[] = [
             const base = {problem: "", dirty: false, saved: "none" as const, phase: "idle" as const, submitBlocked: "", message: ""};
             const plain = "星瑕是个不怎么出门的数字游民，靠给各种工作室做外包维生。\n\n她的银白色长发是天生的。\n\n存款 <V of=\"panel.存款\" /> 联邦币。";
             const inserts = [{label: "面板 · 存款", snippet: "<V of=\"panel.存款\" />"}, {label: "面板 · 魔力", snippet: "<V of=\"panel.魔力\" />"}, {label: "人物 · 外观", snippet: "<V of=\"character.外观\" />"}];
+            const branchy = `${plain}\n\n<If test="panel.魔力 >= 1000">还能变身。<Else />不够变身。</If>`;
+            const rich = {mode: "rich" as const, showBranches: false};
+            const source = {mode: "source" as const, showBranches: false};
             return [
-                {id: "no-fields", label: "条目没有字段：不出“插入”", input: {props: {...base, text: plain}, model: {preview: false}}},
-                {id: "dirty", label: "改过：已暂存", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n新加的一段。`, inserts}, model: {preview: false}}},
-                {id: "not-saved", label: "暂存写不进去", input: {props: {...base, dirty: true, saved: "failed", text: plain, inserts}, model: {preview: false}}},
-                {id: "diverged", label: "另一个窗口也在改：用这里的、换成那边的", input: {props: {...base, dirty: true, saved: "diverged", text: plain, inserts}, model: {preview: false}}},
-                {id: "submitting", label: "正在提交：输入框只读", input: {props: {...base, dirty: true, saved: "saved", phase: "submitting", text: plain, inserts}, model: {preview: false}}},
-                {id: "confirming", label: "上一次提交结果不明：正在确认，可以再试或放弃", input: {props: {...base, dirty: true, saved: "saved", phase: "confirming", text: plain, inserts}, model: {preview: false}}},
-                {id: "blocked", label: "世界只读：提交不可用，原因写在那一行", input: {props: {...base, dirty: true, saved: "saved", submitBlocked: "世界是只读的：日志里有一行认不出的格式", text: plain, inserts}, model: {preview: false}}},
-                {id: "message", label: "提交没发出去：整批的说明", input: {props: {...base, dirty: true, saved: "saved", message: "别处一直在改，稍后再提交", text: plain, inserts}, model: {preview: false}}},
-                {id: "frozen", label: "开始编辑时的那一章没了：只能看与放弃", input: {props: {...base, dirty: true, saved: "saved", frozen: true, message: "开始编辑时的那一章已经不在了：复制要留的文字，然后放弃", text: "改过的文字，还能选中复制。", inserts}, model: {preview: false}}},
-                {id: "preview", label: "预览开着：够宽时左右各半，窄处预览排在下面", input: {props: {...base, dirty: true, saved: "saved", text: `## 近况\n\n${plain}`, inserts}, model: {preview: true}}},
-                {id: "preview-problem", label: "预览开着、写得不对：原因在输入框下面，栏顶上写行与原因，栏里是上一次的样子", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n魔力 <V of="panel.魔力"`, problem: "写得不对：<V is not a complete tag; finish it, or write \\< to keep it as text (7:4)", previewNote: "第 7 行第 4 列写得不对：<V is not a complete tag; finish it, or write \\< to keep it as text", inserts}, model: {preview: true}}},
-                {id: "preview-long", label: "预览开着、四十段：预览栏自己滚", input: {props: {...base, text: Array.from({length: 40}, (_, index) => `第 ${String(index + 1)} 段的文字，写得长一点好看出两栏各自折行以后的高度差多少。`).join("\n\n"), inserts}, model: {preview: true}}},
-                {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, dirty: true, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: {preview: false}}},
+                {id: "dirty", label: "富文本、改过：已暂存", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n新加的一段。`, inserts}, model: rich}},
+                {id: "no-fields", label: "条目没有字段：“插入”里没有“值”", input: {props: {...base, text: plain}, model: rich}},
+                {id: "branches", label: "有条件：出“显示全部分支”", input: {props: {...base, dirty: true, saved: "saved", text: branchy, inserts}, model: rich}},
+                {id: "branches-all", label: "显示全部分支开着", input: {props: {...base, dirty: true, saved: "saved", text: branchy, inserts}, model: {mode: "rich" as const, showBranches: true}}},
+                {id: "source", label: "源文字", input: {props: {...base, dirty: true, saved: "saved", text: plain, inserts}, model: source}},
+                {id: "source-problem", label: "源文字写得不对：停顿后下面写第几行", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n魔力 <V of="panel.魔力"`, inserts}, model: source}},
+                {id: "unreadable", label: "记下的是富文本、稿读不进去：这一次落在源文字，切换旁写原因", input: {props: {...base, dirty: true, saved: "saved", text: `${plain}\n\n魔力 <V of="panel.魔力"`, inserts}, model: rich}},
+                {id: "problem", label: "提交被拒收：原因在输入框下面", input: {props: {...base, dirty: true, saved: "saved", text: "存款 <V of=\"panel.存款\" 联邦币。", problem: "写得不对：<V is not a complete tag; finish it, or write \\< to keep it as text (1:4)", inserts}, model: source}},
+                {id: "source-only", label: "没有富文本（只给源文字）：没有模式切换", input: {props: {...base, text: plain, inserts, sourceOnly: true} as never, model: rich}},
+                {id: "not-saved", label: "暂存写不进去", input: {props: {...base, dirty: true, saved: "failed", text: plain, inserts}, model: rich}},
+                {id: "diverged", label: "另一个窗口也在改：用这里的、换成那边的", input: {props: {...base, dirty: true, saved: "diverged", text: plain, inserts}, model: rich}},
+                {id: "submitting", label: "正在提交：输入框只读", input: {props: {...base, dirty: true, saved: "saved", phase: "submitting", text: plain, inserts}, model: rich}},
+                {id: "confirming", label: "上一次提交结果不明：正在确认，可以再试或放弃", input: {props: {...base, dirty: true, saved: "saved", phase: "confirming", text: plain, inserts}, model: rich}},
+                {id: "blocked", label: "世界只读：提交不可用，原因写在那一行", input: {props: {...base, dirty: true, saved: "saved", submitBlocked: "世界是只读的：日志里有一行认不出的格式", text: plain, inserts}, model: rich}},
+                {id: "message", label: "提交没发出去：整批的说明", input: {props: {...base, dirty: true, saved: "saved", message: "别处一直在改，稍后再提交", text: plain, inserts}, model: rich}},
+                {id: "frozen", label: "开始编辑时的那一章没了：只能看与放弃", input: {props: {...base, dirty: true, saved: "saved", frozen: true, message: "开始编辑时的那一章已经不在了：复制要留的文字，然后放弃", text: "改过的文字，还能选中复制。", inserts}, model: rich}},
+                {id: "diverged-english", label: "英文界面：另一个窗口也在改，提交被拦", input: {props: {...base, dirty: true, saved: "diverged", submitBlocked: "The world is read-only: a line in the log has an unknown format", message: "The saved draft could not be deleted; discard again once connected", text: "Xingxia rarely leaves her flat; she lives on contract work for small studios.", inserts: [{label: "Panel · Savings", snippet: "<V of=\"panel.存款\" />"}]}, model: rich}},
             ];
         })(),
         load: async () => (await import("./EntryTextEditorFixture.vue")).default,
     }),
+    (() => {
+        // 富文本输入框的样本：本条目三个字段、一段带取值、计算、条件、别的条目与引用的主文字，值表照内核的形状按标签起点给。
+        const source = "## 现在\n\n魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />（＝<V expr=\"percent(panel.魔力, panel.魔力上限)\" />），<If test=\"panel.魔力 >= 1000\">还能变身，<V of=\"panel.魔力\" /> 够用。<Else />魔力不够变身。</If>\n\n- 存款 <V of=\"panel.存款\" /> 联邦币\n- 哥哥是 <Ref id=\"e2\" />，对她的好感度 <V entry=\"e2\" of=\"panel.好感度\" />\n\n> 引用里的 **强调** 与 `代码`，还有一个插件的 <StatusBar />。";
+        const at = (needle: string, from = 0) => source.indexOf(needle, from);
+        const ifAt = at("<If");
+        const values = [
+            {tag: "V", start: at("<V of=\"panel.魔力\" />"), path: "panel.魔力", raw: 1200, display: "1,200"},
+            {tag: "V", start: at("<V of=\"panel.魔力上限\" />"), path: "panel.魔力上限", raw: 3000, display: "3,000"},
+            {tag: "V", start: at("<V expr"), expr: "percent(panel.魔力, panel.魔力上限)", raw: 40, display: "40%"},
+            {tag: "If", start: ifAt, result: true, taken: 0},
+            {tag: "V", start: at("<V of=\"panel.魔力\" />", ifAt), path: "panel.魔力", raw: 1200, display: "1,200"},
+            {tag: "V", start: at("<V of=\"panel.存款\" />"), path: "panel.存款", raw: 12345, display: "12,345"},
+            {tag: "Ref", start: at("<Ref"), id: "e2", name: "星瑾", deleted: false},
+            {tag: "V", start: at("<V entry"), entry: "e2", path: "panel.好感度", raw: 40, display: "40"},
+            {tag: "StatusBar", start: at("<StatusBar"), needsPlugin: true},
+        ] as unknown as EntryTextValue[];
+        const fields = [
+            {path: "panel.魔力", label: "魔力", group: "数值", display: "1,200"},
+            {path: "panel.魔力上限", label: "魔力上限", group: "数值", display: "3,000"},
+            {path: "panel.存款", label: "存款", group: "数值", display: "12,345"},
+        ];
+        const base = {label: "主文字", self: "e1", fields, marks: {"panel.存款": "第 3 章改过"}};
+        return defineLabFixture<typeof EntryRichInput>({
+            component: "EntryRichInput",
+            scenes: [
+                {id: "values", label: "值都到了：取值、计算、条件只画生效的一支、引用、别的条目、插件的标签", input: {props: {...base, values: {source, values}} as never, model: {modelValue: source}}},
+                {id: "pending", label: "值还没回来：本条目的字段马上有值，别的是计算中", input: {props: base as never, model: {modelValue: source}}},
+                {id: "uncomputed", label: "整篇太长不算：计算类的小块是没有算", input: {props: {...base, computing: false} as never, model: {modelValue: source}}},
+                {id: "branches", label: "显示全部分支", input: {props: {...base, values: {source, values}, showBranches: true} as never, model: {modelValue: source}}},
+                {id: "empty", label: "空的", input: {props: {label: "主文字"}, model: {modelValue: ""}}},
+                {id: "readonly", label: "只读", input: {props: {...base, values: {source, values}, readonly: true} as never, model: {modelValue: source}}},
+                {id: "text-english", label: "英文", input: {props: {label: "Main text"}, model: {modelValue: "A long English line that keeps going so that it has to wrap inside a narrow container, with <V of=\"panel.mana\" /> in the middle."}}},
+            ],
+            load: async () => (await import("./EntryRichInputFixture.vue")).default,
+        });
+    })(),
     defineLabFixture<typeof TextConflictDialog>({
         component: "TextConflictDialog",
         scenes: [

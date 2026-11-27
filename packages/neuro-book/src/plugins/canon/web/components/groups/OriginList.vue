@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {Button} from "@notnotype/nb-ui/components";
+import {nextTick, useTemplateRef, watch} from "vue";
 
 import type {OriginRow} from "../../rows";
 import {useCanonText} from "../../text";
@@ -23,10 +24,29 @@ const emit = defineEmits<{
 }>();
 
 const text = useCanonText();
+
+/**
+ * 点“再显示更早的”以后焦点留在列表里（输出 11）：还有更早的时按钮还在，焦点留在它上面；读完最后一页按钮卸掉，焦点交给列表自己，
+ * 不掉到 body（浮层里焦点没了，键盘用户就出不去也回不来）。
+ */
+const root = useTemplateRef<HTMLElement>("root");
+let askedMore = false;
+const more = (): void => {
+    askedMore = true;
+    emit("more");
+};
+watch(() => [props.remaining, props.loading] as const, ([remaining, loading]) => {
+    if (!askedMore || loading) return;
+    askedMore = false;
+    // 等按钮真的卸掉以后再看焦点在哪（这里还在更新之前）。
+    if (remaining === 0) void nextTick(() => {
+        if (root.value?.contains(document.activeElement) !== true) root.value?.focus({preventScroll: true});
+    });
+});
 </script>
 
 <template>
-    <div class="min-w-0 text-[length:var(--text-sm)]" data-origin-list>
+    <div ref="root" class="min-w-0 text-[length:var(--text-sm)] outline-none" tabindex="-1" data-origin-list>
         <p v-if="props.caption !== ''" class="mb-1 font-semibold text-[var(--text-main)]">{{ props.caption }}</p>
         <p v-if="props.failed" role="alert" class="flex flex-wrap items-center gap-2 py-1 text-[var(--status-danger)]">
             {{ text("origin.failed") }}<span v-if="props.reason !== ''">{{ props.reason }}</span>
@@ -55,7 +75,7 @@ const text = useCanonText();
                 </span>
             </li>
         </ol>
-        <Button v-if="props.remaining > 0" class="mt-1" size="sm" variant="ghost" @click="emit('more')">{{ text("origin.more", {count: props.remaining}) }}</Button>
+        <Button v-if="props.remaining > 0" class="mt-1" size="sm" variant="ghost" @click="more">{{ text("origin.more", {count: props.remaining}) }}</Button>
     </div>
 </template>
 

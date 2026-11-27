@@ -9,6 +9,7 @@ import {ELEMENT_LIMIT, KEY_ATTRIBUTE, SKIP_ATTRIBUTE, SKIP_VALUE, SNAPSHOT_DEFAU
 import type {PageFailure, SnapshotArgs, SnapshotElement, SnapshotResult} from "../api";
 import {composedContains, composedParent, skipRegionOf, topElementAt} from "../dom";
 import type {Inspector} from "../inspect";
+import {layerLabel} from "../layers";
 import {locate} from "../locate";
 import type {LocateEnvironment} from "../locate";
 import {estimateTokens, quote, truncate} from "../text";
@@ -71,7 +72,7 @@ export function takeSnapshot(environment: LocateEnvironment, args: SnapshotArgs)
     let start: WalkContext = rootContext(document);
     let scopeLine: string | null = null;
     if (args.scope !== undefined) {
-        const scoped = locate(environment, args.scope, {mutating: false, settle: false});
+        const scoped = locate(environment, args.scope, {mutating: false, settle: false, explain: true});
         if (!scoped.ok) return {...scoped, message: `scope：${scoped.message}`};
         warnings.push(...scoped.warnings);
         // 跳过区域里的元素作 scope 时只写区域的占位：跳过区域不列内容（输出 3），换个起点也一样。
@@ -347,8 +348,7 @@ function layersLine(inspector: Inspector, layers: readonly Layer[]): string {
         const covered = layer.shown === 0 && layer.covered > 0;
         if (layer.order > 0 && !covered && layer.shown === 0 && layer.node?.listed !== true) continue;
         // 层根不一定在这次遍历里（scope 落在弹层里时它在起点之外），按元素现查角色与名字。
-        const name = layer.root === null ? "" : inspector.name(layer.root);
-        const label = layer.root === null ? "base" : `${inspector.role(layer.root) ?? layer.root.localName}${name === "" ? "" : ` ${quote(name, 40)}`}`;
+        const label = layerLabel(inspector, layer.root);
         parts.push(covered ? `${label} (covered)` : label);
     }
     return `layers: ${parts.join(" > ")}`;

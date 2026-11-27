@@ -1,0 +1,197 @@
+# w00055 t03 晋升前逐条核对（author-ui.md）
+代码根 = worktree packages/neuro-book/src/plugins/canon/web（下写 W/）；e2e 在 packages/neuro-book/e2e。
+
+## 输出 10（文字分页）
+- 文字分页里改的是整篇主文字（编辑按钮/“开始写”）| W/components/text/EntryText.vue:290-295（data-text-edit 按钮，没有主文字时 textEdit.start）| EntryPage.dom / canon-write.e2e 里点“编辑”“开始写”的用例（验收16 版）| 对上
+- 值按钮指着时浮出浅底 | EntryText.vue:340-344（:deep(.canon-value:hover) background var(--bg-hover)）| 没有任何测试（happy-dom 无 :hover，e2e 全文无 hover 值按钮断言）| 没测试（CSS 视觉项，我的看法：可保留 planned 改“已实现”并在 Spec 证据里注明“视觉项无自动测试”，或删这句的 planned 标记）
+- “点了展开来历（输出 11）”“值的改在数据分页”：不是 planned 句，不核。
+
+## 输出 11（来历；本 Task 只管“文字分页浮层”那一整段）
+- 文字分页里点值，来历是贴着值的浮层，内容同一份（行、再显示更早的、重试、改这一笔）| EntryText.vue:301-318（nb-ui Popover anchor 用法，slot origin）、EntryPageHost.vue:1391-1410（OriginList 放进 slot）| EntryText.dom.test.ts:68；entry-page.dom.test.ts:158（点值读来历，行内容）、:219（20 步与再显示更早的）；canon-author.e2e.ts:638 | 对上
+- 数据分页（字段表、面板）来历仍在原处 | 未改动 | entry-page.dom.test.ts:306、1332 | 对上
+- 位置：优先下方、放不下翻上方；打开后内容变高不换边 | EntryText.vue:262-268（watch anchor 选 side，打开后不再变）| 无（happy-dom 无布局，e2e 无量位置的断言）| 不一致+没测试：代码是“下方空间 >= 上方空间，或下方 >= 视口 60% 就在下方，否则上方”（地方大的一边），Spec 写的是“优先下方，放不下才翻上方”；两者在“下方够放但比上方小”时结果不同。看法：Spec 写多了/写岔了，改成“选下方上方里地方大的一边”更贴实现与 plan（plan 也写“选定上方或下方”）；或代码补“估高”，不值得
+- 宽度约 440，窄时占满宽、两边留空白 | EntryText.vue:347 `.entry-text__origin{width:min(416px,calc(100vw-56px))}` + Popover.vue:117 p-3（左右各 12）+max-w 100vw-32 → 440 / 视口-32 | 无（390 宽的验收 14 没打开浮层）| 对上实现；没测试
+- 高度最多约窗口六成、超出在浮层里滚动；读取期间占固定高度 | EntryText.vue:348-352 max-height:60vh;overflow-y:auto;min-height:5.5rem | 无 | 没测试
+- 开着的按“哪一处”记，同字段出现多次只开被点的；同时只开一个，点另一处换过去 | EntryText.vue:155-171（placeKey=块 id+起点，aria-expanded 比 props.open===place）、EntryPageHost.vue:305-308 | EntryText.dom.test.ts:68（twice，aria-expanded ["false","true"]）；canon-author.e2e.ts:663（真的在正文里插第二个存款，点两处，浮层数恒为 1） | 对上
+- 再点同一处、点条目页里浮层外面、Esc 都关上；Esc 后焦点回到值 | EntryText.vue:269-282 onPopover/markEscape、Popover.vue:81-92 | EntryText.dom.test.ts:89（Esc→close+焦点回 data-place；页内点别处→close）；canon-author.e2e.ts:638（Esc+焦点回值；再点同一值关上）、:707（点 h1 关上）；entry-page.dom.test.ts:176 再点收起 | 对上
+- 点到条目页外面（标签条、设定树）只收起、记着的那一处留着；切标签再回来照它重开 | EntryText.vue:224-282（collapsed、pressed 判页内外）| EntryText.dom.test.ts:89（页外只收起不发 close，重挂照开）；entry-page.dom.test.ts:243-260；canon-author.e2e.ts:707（点星瑾标签再点回） | 对上
+- 焦点与读屏：打开时焦点进浮层，读屏读出“某某的来历” | EntryText.vue:306 label=origin.dialog；:313 tabindex=0 的 section | EntryText.dom.test.ts:68（aria-label=存款的来历、焦点进 [data-origin-popover]）；canon-author.e2e.ts:638、:745（getByRole dialog name 存款的来历） | 对上
+- 点“再显示更早的”以后焦点仍在浮层里 | OriginList.vue:58（按钮 v-if remaining>0，没有任何焦点处理）；plan 写“焦点留在那个按钮的位置”但没实现 | 无：entry-page.dom.test.ts:219 只点了按钮、数行数，没断言焦点；e2e 没点过 | 没测试，且可能没实现（从代码推断，未验证）：最后一页读完时按钮随 remaining=0 被卸掉，焦点掉到 body，不再“在浮层里”。看法：代码缺陷（轻）；修法是读完后把焦点挪到浮层根（section tabindex=0）；或 Spec 改写成“读完前按钮保留焦点”
+- 点“改这一笔”打开变更详情页时浮层关上 | EntryPageHost.vue:311-314 openChangeFromOrigin（state.origin=null 再 open）| 无：OriginList.dom.test.ts:34 只测发 change 事件；宿主层、e2e 没有点“改这一笔”后断言浮层消失（canon-author.e2e.ts:607 是从待处理点的，不是浮层） | 没测试
+- 世界变了（别处写入）时浮层里来历重读 | EntryPageHost.vue:285 originStamp 含 version | entry-page.dom.test.ts:180（别处发布后 3→4 行，换位置跟着换，不出“读取中”）| 对上
+- 世界变了、那一处不在就关上 | EntryText.vue:242-248 findAnchor 找不到且 blocks 非空→emit close | EntryText.dom.test.ts:151 | 对上
+- 切到别的标签再回来按记下那一处重开；那一处不在了就不开 | 同上 + entry-page.ts 的 origin 状态（块 id+起点）| entry-page.dom.test.ts:243-260；e2e 707；“不在了不开”：EntryText.dom.test.ts:151 | 对上
+- 值按钮指着时浮出浅底 | 同输出 10 | 无 | 没测试
+- 来历“没有表头、一步两行、固定宽列”那句（planned）| OriginList（非本 Task 的文件）| — | 不属于本 Task（Task 范围里没有它；OriginList.dom.test.ts:34 已有“没有表头”的断言，是别的 Task 做的）
+
+（更正：输出 10 第一行的测试是 e2e canon-write.e2e.ts:176/202（“开始写”）、canon-author.e2e.ts:663（点“编辑”）与 entry-page.dom.test.ts:948（验收 16，开始写）、:1013（编辑））
+
+## 输出 30（键盘与读屏，planned 的三处）
+- 文字分页里值是“打开、关上来历浮层”，焦点进浮层，Escape 关上、焦点回值，读屏读“某某的来历” | EntryText.vue:158-159、301-318；Popover.vue:81-92 | EntryText.dom.test.ts:68、:89；canon-author.e2e.ts:638、:745 | 对上
+- 富文本：左右方向键越过小块时先选中它 | entry-syntax.ts:41-42、53-54（atom+selectable，靠 ProseMirror 自带的方向键选中原子节点，没有自写按键代码）| canon-write.e2e.ts:592（右移五字不选中，第六下选中且 data-entry-chip=value）；只测了从左往右、取值小块；左键、条件小块没测 | 对上（左方向与条件小块没单测，风险低）
+- 选中后 Enter 弹浮层 | EntryRichInput.vue:553-557 handleKeyDown | canon-write.e2e.ts:592-615；EntryRichInput.dom.test.ts:358 | 对上
+- Escape 关上、焦点回到小块（仍选中）| EntryRichInput.vue:172-175、294-307 | canon-write.e2e.ts:592-620（焦点在编辑区内 + selectednode 仍为 1）；dom.test.ts:290、:358 | 对上
+- 小块的读屏名写“它是什么、字段名、值与状态” | entry-chip-views.ts:119（aria-label = value.label 文案(字段名, 值)）、:129（role=button）、:217（条件：“条件”+开标签原文）；EntryRichInput.vue:84 | 无：全仓没有断言小块 aria-label 的用例 | 不一致+没测试：aria-label 只有“字段名 + 值”，没有“它是什么”（取值/计算/条件/引用 的种类词；计算与引用的 label 是式子原文/条目名）与“状态”（计算中、没有算、不完整、改过都不在 aria-label 里；只有“未知”因为显示文字就是它而带上）。看法：Spec 比实现写多了。要么 Spec 改成“读屏名写字段名与此刻显示的值”，要么实现补种类与状态（chipOf 已有 kind、state，补一句成本很小，建议补实现 + 一条 dom 断言，因为这是读屏用户的唯一信息源）
+
+## 输出 32（宽度，planned 的一处）
+- 文字分页里来历的浮层占满窗口宽度、两边各留一点空白（输出 11）| EntryText.vue:346 width:min(416px,calc(100vw-56px)) + Popover.vue:117 p-3 与 max-w calc(100vw-32px)；窄屏宽 = 视口-32、两边各 16 | 无：验收 14 的 e2e（canon-author.e2e.ts:567）只在 390 宽量各页无横向滚动，没打开浮层 | 没测试
+- 编辑主文字的状态行固定两行（输出 39）| EntryTextEditor.vue:206-262（两个 zone，data-text-bar-row=1、2）+ 样式 | canon-write.e2e.ts:424（390 宽：两行、第一行状态与放弃提交、第二行插入与模式、行 2 在行 1 下面；切源文字仍两行）| 对上；注意措辞：Spec 写“固定两行”，实现在宽屏（1920）是同一行（e2e 也断言宽屏同行），Spec 此句限定了“宽度 390 像素时”，不冲突
+
+## 输出 39（主文字整篇编辑；w00039 t39 做的“整篇、提交”与本 Task 改的“富文本、两区、模式”一起核）
+- 第一版主文字不分节：不显示块、不提供主文字的剧情变化 | EntryText.vue:296-298（整块一个 section 列各块，没有块的剧情入口）、text-whole.ts | entry-page.dom.test.ts:1110（有被剧情改过的块：留阅读视图、没有每块的剧情入口）| 对上
+- 能写、读的是实际时右上角有“编辑”，没有主文字时是“开始写” | EntryText.vue:290-295（editable、editReason）| entry-page.dom.test.ts:948（开始写）、:1013（编辑）；e2e canon-write.e2e.ts:202、canon-author.e2e.ts:663。“按计划时没有”：只有 entry-page.dom.test.ts:587 测“改”按钮按计划时不可用，没有断言“编辑”按钮按计划时不可用 | 对上；“按计划时编辑不可用”没单独测（没测试，轻）
+- 点了换成编辑，缺省富文本，焦点进输入框 | EntryPageHost.vue:847-872（focusFirst、editorRef.focus）、EntryTextEditor.vue:112-124 | 缺省富文本：entry-page.dom.test.ts:1013、canon-write.e2e.ts:204-205；“焦点进输入框”：EntryTextEditor.dom.test.ts:144 只测切到源文字后的焦点，进编辑时的焦点（富文本）没有断言，e2e 随后都是自己 focusRich 点一下 | 对上；焦点进富文本那半句没测试
+- 可以切到源文字：整篇源文字输入框（输出 69 的代码输入框），内容是各块用空行连起来 | PlainSourceInput.vue、EntryTextEditor.vue:300-330、text-whole.ts（空行连）| text-whole.test.ts:30；entry-page.dom.test.ts:1013（切到源文字内容一致）；canon-write.e2e.ts:357（切换往返）、:710（编辑器加载不了退回普通文本框）| 对上
+- 状态行分左右两区，左区依次“插入”、“富文本 / 源文字”切换、“显示全部分支”（只在有条件时出）；右区暂存状态、放弃与提交，没改动时放弃的位置是取消（Esc 同它）| EntryTextEditor.vue:206-262、:63-71（hasConditions=富文本模式且 /<If\b/ 命中）| EntryTextEditor.dom.test.ts:185（两区、有条件出开关点了发出）、:33（取消与 Esc）、:43；canon-write.e2e.ts:424 | 对上。注：开关在源文字模式下不出（hasConditions 要求 mode=rich），与“切换模式时左区的控件会变”相容，但 Spec 没明说“只在富文本模式出”，建议 Spec 补半句
+- 切换模式时左区变、右区的按钮留原处不动 | 同上两个 zone 分开 | canon-write.e2e.ts:424-452（量提交、放弃的 boundingBox 两种模式相同，等两帧复量）| 对上
+- 宽度 390 状态行固定两行：第一行暂存状态与放弃、提交，第二行左区 | EntryTextEditor.vue 样式（data-text-bar-row）| canon-write.e2e.ts:424-476 | 对上
+- 模式记在这个标签上（输出 7）：切到别的标签再回来仍是它，缺省富文本 | entry-page.ts:46、60（textMode 在标签状态里）、EntryPageHost.vue:867、1381 | 缺省与切换写入状态：entry-page.dom.test.ts:1013；“切走再回来仍是它”：没有对 textMode 的断言（entry-page.dom.test.ts:239 只断言位置与来历随标签），e2e 也没有切标签再回来看模式的用例 | 没测试（“切走再回来”半句；实现靠状态对象整个随标签，风险低）
+- 存下的稿用富文本读不出来时这一次落在源文字，切换旁写原因，记下的模式不改，改好以后可以切回 | EntryTextEditor.vue:88-97（forced=unreadable、modeProblem）、entry-check.ts richProblem | EntryTextEditor.dom.test.ts:167（落在源文字、写原因、不发 update:mode）；:153（改好以后切得回去）；canon-write.e2e.ts:357（源文字写坏一个标签→切回被拦、写第几行、改好切回）| 对上。“条件对不上”那一路（编辑器里成组的条件个数与内核不同）：entry-syntax.test.ts 的性质测试管读法一致，richProblem 的“条件个数不等”分支没有单独用例（没测试，轻，因为两边一致时不可达）
+- 进编辑不把内容列放宽，分页的排法不变 | 预览与 wide 已删（EntryPage.vue 无 wide）| entry-page.dom.test.ts:1013（data-wide 为 undefined）；canon-write.e2e.ts:304（量内容列宽度与分页排法前后相同）| 对上
+- 进编辑时读不出块就留在阅读视图，原因写在页头下面 | EntryPageHost.vue:850-855 actionError | entry-page.dom.test.ts:1290 | 对上
+- 主文字里有被剧情变更碰过的块进不了编辑、写明原因 | text-whole.ts、text-tab.ts:104 | text-tab.test.ts:91；entry-page.dom.test.ts:1110；Spec 验收 16 的最后一句在 e2e 里没有（canon-write.e2e.ts 全文没搜到“有随剧情变的段落”的用例，只有 dom 层） | 对上；验收 16 末句只有 dom 层测试，e2e 没有（见验收场景 16）
+- 块数超过一次写入上限（50）进不了编辑 | text-whole.ts:39 | text-whole.test.ts:60-61（51 不能、50 能）| 对上（纯函数层；条目页上的原因文字没单独断言）
+- 提交时整篇写进第一块、其余删掉，没有块加一块，整篇为空删全部块 | text-whole.ts、text-draft.ts compile | text-whole.test.ts:44-50、:146；text-tab.test.ts:66、:79；entry-page.dom.test.ts:948；canon-write.e2e.ts:263 | 对上（“整篇为空删掉全部的块”：text-draft.test.ts:369 “清空的旧块按删掉算”间接覆盖）
+- 渲染结果在富文本里看，提交后在阅读视图里看 | EntryRichInput、EntryText | canon-write.e2e.ts:176-262 | 对上
+
+## 输出 44（提交主文字；绝大部分是 w00039 t39 的实现，本 Task 只改了“富文本里被拒收切到源文字”那一句）
+- 提交与 Ctrl+S 把整篇作为一次修订发出，带读取戳 | web/text-drafts.ts（session.submit）、text-tab.ts、EntryPageHost.vue 的保存命令 | text-drafts.test.ts:160；text-tab.test.ts:66；entry-page.dom.test.ts:948、:1237（保存命令）；canon-write.e2e.ts:176（Ctrl+S）| 对上
+- 发出前先重读：相同就照新读到的块发，被拦下再读再发至多 3 次，之后写明别处一直在改、稍后再提交 | text-drafts.ts submit 循环 | text-drafts.test.ts:244（读与写之间别处写了自动重读；噪声注入 3 次后停下、稿不丢、phase=idle）| 对上（“稍后再提交”的文案没单独断言，轻）
+- 读到的整篇与开始时不同、且与作者的也不同时问一次：并排“现在的”“我的”两份整篇，只标出不一样的那一截；选“我的”再发；选“现在的”放弃自己的改动回阅读视图；“回去再改”回编辑、内容不变；选过的留着，两边文字变了重选 | TextConflictDialog.vue:33-92（sides 用 mark 标出差异截、data-pick）、text-tab.ts | text-tab.test.ts:136（回去再改同一条冲突还选着，别处又改就重选）、:181、:196；text-drafts.test.ts:279；entry-page.dom.test.ts:1052（并排文字、选我的/现在的）；canon-write.e2e.ts:670（富文本下“现在的”）；e2e 里“现在的”“我的”两份文字 | 对上；“只标出不一样的那一截”（TextConflictDialog.vue:33 sides、63/68 的 <mark>）没有任何测试（全仓测试里没有 mark/diff 断言，也没有 TextConflictDialog 的 dom 测试）：没测试
+- 重读发现条目进不了编辑（剧情块、块太多）时只能照现在的来 | text-whole.ts、text-tab.ts | text-tab.test.ts:210；text-whole.test.ts:114 | 对上
+- 两边改成一样的不问 | text-whole.ts | text-whole.test.ts:103；text-draft.test.ts:190 | 对上
+- 净变化是零时不发请求、回到阅读视图 | text-drafts.ts | text-drafts.test.ts:160（净变化零不发请求）| 对上（“回到阅读视图”那一半只在 session 层断言，条目页上无）
+- 成功后回到阅读视图并照输出 18 给提示 | text-tab.ts、EntryPageHost.vue | canon-write.e2e.ts:263-300（提示“改星瑕的主文字”、6 秒收起、还原）| 对上
+- 原文没过校验：原因写在输入框下面（role=alert）、焦点进输入框、内容不丢 | EntryTextEditor.vue:349（data-text-problem role=alert）、text-tab.ts | text-tab.test.ts:225（原因在、字还在、世界没变、改对再提交）；EntryTextEditor.dom.test.ts:172（焦点在 textarea）| 对上（焦点进输入框只在“从富文本切源文字”的分支测了）
+- 当时在富文本里的切到源文字，光标落在原因指的那一行 | EntryTextEditor.vue:152-158（watch problem → entryTextProblem → offsetOf）、entry-text-editor.ts offsetOf | EntryTextEditor.dom.test.ts:172，但它造的是“浏览器这边查不出原因”的情形，断言光标在文首（selectionStart=0）；“查得出行就落在那一行”的分支（offsetOf 的行列换算）全仓没有断言 | 没测试（行列→偏移的分支），属本 Task 新增代码
+- 提交期间输入框只读 | EntryTextEditor.vue（locked）| EntryTextEditor.dom.test.ts:85 | 对上
+- 请求超过消息上限时提交不可用并写明，内容照常能改 | text-drafts.ts、EntryTextEditor.vue submit-blocked | text-drafts.test.ts:427；EntryTextEditor.dom.test.ts:75 | 对上
+
+## 输出 45（暂存；整条由 w00039 t39 做，本 Task 只加“模式回到缺省的富文本，读不出时落在源文字”和“浮层里没应用的字不进暂存”）
+- 自动暂存在本机记录、一个条目一份；输入停顿、失焦、转入后台时写 | web/text-drafts.ts（TEXT_DRAFTS_RECORD、flush）、EntryPageHost.vue onHidden、textTab.flush（blur）| text-drafts.test.ts:160（改了就暂存、另一个窗口读得到）；text-drafts-link.test.ts:376（失焦或转入后台的那一次补存）；“转入后台”的页面事件本身（onHidden）没有用例 | 对上（visibilitychange 到 flush 的接线没测，轻）
+- 刷新、关闭再打开直接进编辑、带暂存内容，模式回到缺省富文本（读不出时落在源文字）| entry-page.dom.test… EntryPageHost 的 initial-edit、EntryTextEditor.vue:88-97 | entry-page.dom.test.ts:417（有稿直接进编辑）；canon-write.e2e.ts:263-280（刷新后标签圆点、直接在富文本里、字还在、data-text-mode=rich）；落源文字：EntryTextEditor.dom.test.ts:167。注意 e2e 里刷新前本来就是富文本，“回到缺省”没有被区分验证 | 对上
+- 暂存不是修订：不进改动记录，别的读取看不到 | 设计上暂存只进 storage 记录 | text-drafts.test.ts:160（提交前世界里没有修订、提交后一条）；e2e 263 只有注释“别的读取看不到”没有断言 | 对上（间接）
+- “已暂存”/“没有暂存”，存不下时内容留在页面；写不进去的在失焦、转入后台、重连时再存 | EntryTextEditor.vue:75-82（savedLabel）| text-drafts.test.ts:427（too-large、请求超限）；text-drafts-link.test.ts:376、:442；canon-write.e2e.ts:277 | 对上
+- “放弃”先确认，确认后删暂存回阅读视图；放弃后迟到的写入不写回；删不掉时不离开编辑；放弃未完成时不提交不确认 | EntryTextEditor.vue:56-62、text-drafts.ts | EntryTextEditor.dom.test.ts:43；text-drafts.test.ts:209（迟到暂存不写回）；text-tab.test.ts:266；text-drafts-link.test.ts:393、:470 | 对上
+- 同一个条目在两个编辑组里各开一页是同一份稿；两处同时点“编辑”只开一份 | text-drafts.ts session 按条目 | entry-page.dom.test.ts:1237；text-drafts-link.test.ts:494 | 对上
+- 打开条目时连接断着没读到暂存：连上以后再读，这之前不能开始编辑 | text-drafts.ts:606-613、:764 | text-drafts-link.test.ts:418（读进来前不当成没有稿）；“这之前不能开始编辑”的按钮状态没有断言 | 对上（后半句没测试，轻）
+- 改回与读到的一样就不算有未提交内容，暂存删掉 | text-whole.ts | text-whole.test.ts:44-50、text-draft.test.ts:91 | 对上
+- 另一个窗口先写了暂存时停止自动暂存、写明，作者选“用这里的”或“换成那边的”；选“用这里的”重读；那边提交在途时不覆盖 | EntryTextEditor.vue（take-over、adopt）| text-drafts.test.ts:390；text-drafts-link.test.ts:596、:620、:645；EntryTextEditor.dom.test.ts:61；text-tab.test.ts:241 | 对上
+- 浮层里没应用的字不进暂存（输出 48 引到这里）| EntryRichInput.vue（浮层状态本地，只有应用后才改文档、才 emit update）| EntryRichInput.dom.test.ts:312（写不对不落、字留着）、:377（丢弃发 discarded）| 对上
+- 最后一次输入到关窗不足一秒可能来不及暂存 | 已知限制 | — | 不核（限制说明）
+
+## 输出 46（有未提交的主文字时；整条由 w00039 t39 做，本 Task 只加“只读的稿按这个标签的模式画、富文本里的小块只读不能改”）
+- 标签显示未保存圆点，不在前台也显示 | entry-page.ts uncommitted | entry-page.dom.test.ts:948（page.uncommitted）；canon-write.e2e.ts:263-282（tabDot）| 对上（“不在前台时也显示”：uncommitted 与前台无关，没有单独用例）
+- “在看”锁在开始编辑的位置（写明线；菜单开着时关上）；要换先提交或放弃 | ViewPointPicker.vue（locked）、EntryPageHost.vue | entry-page.dom.test.ts:964、:979；ViewPointPicker.dom.test.ts（标记与锁着）；canon-write.e2e.ts:807-819（按钮与前后一步 disabled）| 对上；“菜单开着时关上”“写明线”没有找到专门断言（没测试，轻）
+- 世界变了不动编辑内容、不提示，提交时按输出 44 | text-drafts.ts | text-tab.test.ts:181；entry-page.dom.test.ts:1052（别处改字段不问）| 对上
+- 世界只读、别人独占、连接断开、条目已删除时提交不可用、原因写在那一行、暂存留着；Ctrl+S 不发、原因照提交被拒显示（同一句不写两遍）、没了就收起 | text-tab.ts:208（submitBlocked）、writable.ts:11 | 独占：entry-page.dom.test.ts:1130（按钮不可用、状态行原因、Ctrl+S 提交不发、说明里同一句不重复、收起）；已删除：:1162（:1178）；EntryTextEditor.dom.test.ts:75 | 对上；世界只读、连接断开两种没有各自的提交用例（共用 writeBlocked，没测试，轻）
+- 条目已删除：页面写“这个条目已删除”，稿列在下面：能看、能复制、能放弃 | EntryPageHost.vue deleted 分支 | entry-page.dom.test.ts:1162 | 对上
+- 开始编辑时的位置读不出来（章被删、线不在）：只读显示稿、只能放弃；别的内容回到这一页自己的位置，刷新重开也是 | text-tab.ts frozen、EntryPageHost.vue | entry-page.dom.test.ts:1190；canon-write.e2e.ts:800（刷新后写“开始编辑时的那一章已经不在了”、输入框只读、提交不可用、能放弃）| 对上
+- 这两种只读的稿按这个标签的模式画，富文本里的小块只读、不能改（输出 48）| EntryRichInput.vue:125、332、359（readonly 时拒绝改）、EntryTextEditor.vue:locked/frozen | canon-write.e2e.ts:800-826（data-readonly、内容在、没有“插入”、提交不可用）；EntryRichInput.dom.test.ts:87（contenteditable=false）；“小块点开后不能应用/删”没有断言 | 没测试（小块浮层在只读时的“只能看、不能改”：EntryRichInput.vue 的 readonly 守卫在 :332、:359，全仓没有用例会在 readonly 下点小块并断言不改）
+- 提交发出没收到结果：写“正在确认上一次提交”、输入框只读、连上后原样重发；确定的结果是已发布或确定拒收；不发别的请求；可放弃；冻结先写进暂存；刷新重开自己去确认；提交在途不能放弃不能改 | text-drafts.ts | text-drafts.test.ts:315、:346；text-drafts-link.test.ts:82-358、:470、:568；EntryTextEditor.dom.test.ts:61 | 对上（这一长条 w00039 已有大量 session 层用例）
+
+## 输出 47（主文字的大小）
+- 开始编辑要一次读回全部块：超过一次读取上限（约 1 MiB）进不了编辑，写明主文字太大 | web/text-tab.ts:221 附近的 start、text-drafts.ts 读块失败的 too-large 分支 | 找不到针对“读回超过上限进不了编辑”的用例：text-drafts.test.ts:427 测的是暂存存不下与请求超限（输出 45、44 那两句），text-drafts-link.test.ts:189 是“条目大到一次读不回来”但测的是提交后收场；全仓没有断言“进编辑时主文字太大→写明主文字太大” | 没测试（实现位置待主会话确认：我没找到该原因文案的断言）
+- 上限之内：暂存存不下时照输出 45，请求超限照输出 44 | 同上 | text-drafts.test.ts:427 | 对上
+（输出 47 更正：实现是 web/text-drafts.ts:326 readBlocks 把 textBlocks 的 too-large 失败变成 blocker=too-large，web/text-tab.ts:102 blockerText 写“这个条目的主文字太大，不能在这里编辑”（locales/zh-CN.json:730 blockerTooLarge）；文案与 Spec“写明主文字太大”一致。测试结论不变：全仓没有用例造出 textBlocks 的 too-large 并断言 blocker 或文案，只有 chapter-not-found 的 text-drafts.test.ts:491。结论=没测试。）
+
+## 输出 48（富文本与源文字；本 Task 的主体）
+- 两种模式，富文本缺省，源文字是整篇输入框 | EntryTextEditor.vue:88-97 | entry-page.dom.test.ts:1013；EntryTextEditor.dom.test.ts:137 | 对上
+- 小块：主文字照阅读视图画；取值、计算、条件、条目引用、图片、没登记的标签是整块小块 | entry-syntax.ts（ENTRY_TAG_NODE、ENTRY_IF_NODE、atom+selectable）、entry-chip-views.ts、entry-chip.ts chipOf | EntryRichInput.dom.test.ts:39；entry-syntax.test.ts:53、:113、:129；entry-chip.test.ts:46（引用、图片、没登记）| 对上
+- 光标不会落进小块，值的小块与两边的字留空隙 | entry-chip-views.ts:92-100（不可编辑壳 + 细空格尾巴）、EntryRichInput.vue:1015-1030 padding-left | canon-write.e2e.ts:592（越过小块先选中不落进去）、:842（新插的小块后接着打字跟在它后面）；“空隙”是 CSS，没有断言 | 对上；空隙那半句没测试
+- 小块显示此刻的值，写法同阅读视图：未知、不完整、“第 N 章改过”；条目已删除、字段没了用警示样子写原来的名字 | entry-chip.ts:56-92（state unknown/incomplete/deleted/missing-field、changed）、EntryRichInput.vue 样式 entry-chip--* | entry-chip.test.ts:26、:33、:46；EntryRichInput.dom.test.ts:193、:208；canon-write.e2e.ts:176 起 data-chip-state | 对上（“警示的样子”是 CSS，只断言了 state 属性）
+- 值很长时小块最多两行、末尾省略号，点开浮层看全文 | EntryRichInput.vue:1021-1022（-webkit-line-clamp:2）、浮层 data-chip-value 写完整 text（:896）| 无：没有长值的 dom/e2e 用例，计划里“先在 Lab 用真实长值量”是人工步骤 | 没测试（CSS 视觉项；“浮层看全文”没有长值断言）
+- 小块的值：停下约四分之一秒按整篇重算，世界变了也重算，组字期间不换 | text-values.ts（VALUES_DELAY）、EntryRichInput.vue 值装饰 | text-values.test.ts:94、:135；EntryRichInput.dom.test.ts:247（组字不换）；entry-page.dom.test.ts:1013（别处改值小块跟着变）| 对上
+- 本条目字段刚插进去立刻显示这一页的值；别的条目的字段、计算、条件在值回来之前是“计算中”| entry-chip.ts:33-80（fields 里有就马上显示、waiting=pending）| entry-chip.test.ts:33；EntryRichInput.dom.test.ts:193、:427（{ 选字段马上显示）| 对上
+- 整篇超过 5 万字符不重算，计算类小块“没有算”（不同于“计算中”）；读不出来的块里的小块也是“没有算” | text-values.ts（RENDER_SOURCE_MAX）、EntryPageHost.vue:840-843（computing=false）| text-values.test.ts:214（超长不发请求、too-large）；entry-page.dom.test.ts:1032（条目被删后“没有算”）；EntryRichInput.dom.test.ts:193（computing=false 时的样子）；“读不出来的块里的小块”那一半没有单独用例 | 对上（“读不出来的块里”半句没测试，轻）
+- 条件小块：只画生效的那一支、底色极淡；没有一支成立是淡占位 | entry-chip-views.ts:190-230、EntryRichInput.vue:1067-1080 | EntryRichInput.dom.test.ts:208（只画生效支、no-branch 状态）；canon-write.e2e.ts:539（data-chip-branch=0，只含“甲”不含“乙”）| 对上（“极淡底色”是 CSS）
+- “显示全部分支”（只在文字里有条件时出，开关记在标签上），打开后每个条件画成条件式加各支、没生效的变淡 | EntryTextEditor.vue:63-71、entry-page.ts:48、EntryRichInput.vue:1077 | EntryTextEditor.dom.test.ts:185（出现与点了发出）；EntryRichInput.dom.test.ts:208（两支都画、翻开淡入一次）；“画成条件式”（含判断表达式）没有断言；“记在标签上”无用例 | 对上（条件式那半句、记在标签上没测试，轻）
+- 改小块：点小块或键盘（左右键先选中，Enter）弹浮层 | EntryRichInput.vue:202-300、:553-557、:567-571 | canon-write.e2e.ts:487、:539、:592；EntryRichInput.dom.test.ts:290-358 | 对上
+- 取值换字段（“换一个”）| EntryRichInput.vue:960-1000、chipEdit.replace | EntryRichInput.dom.test.ts:582 | 对上
+- 计算改式子；条件改判断与各支文字（写成一行）、可加“否则如果”；每种小块可删 | EntryRichInput.vue:910-975、entry-chip-edit.ts | entry-chip-edit.test.ts:29-62；EntryRichInput.dom.test.ts:290、:330、:358；canon-write.e2e.ts:487-591；“每种小块都可删”：取值、条件、计算有（:358）；条目引用、图片、没登记（other）的删除按钮只在 v-if shown.node!==null 里，没有用例 | 对上；引用、图片、其它小块的删除没测试（轻）
+- 应用或回车时先把整篇检查一遍，写得不对时不落、浮层写原因、字留着；通过才改，一次是一个撤销步 | EntryRichInput.vue:332-400（applyChip，checkedWrite）、entry-check.ts checkedWrite | EntryRichInput.dom.test.ts:290（撤销一步）、:312（不落、原因、字留着）、:348（条件一支写了闭标签读不成一个小块不落）；entry-values.test.ts:103；canon-write.e2e.ts:487 | 对上；“回车”应用没有用例（form @submit 靠 Enter 触发，没有断言）：没测试（轻）
+- Esc 关上浮层、焦点回到小块 | EntryRichInput.vue:172-175、:294-307 | EntryRichInput.dom.test.ts:358；canon-write.e2e.ts:592-620 | 对上
+- 开始提交、外面换了整篇、撤销让小块不在了时浮层关上、没应用的字丢弃、状态行提示“没应用的改动已丢弃”；浮层里没应用的字不进暂存 | EntryRichInput.vue:125-142、emit discarded；EntryTextEditor.vue:164-171、:216（data-text-discarded）| EntryRichInput.dom.test.ts:377、:395、:407（撤销/换整篇，发 discarded）；“开始提交”（phase 离开 idle→readonly）关浮层：没有专门用例（readonly 变化的 watch 在 EntryRichInput.vue:125，dom 测试里没有造）；状态行那一句：EntryTextEditor 没有断言 data-text-discarded | 对上；“开始提交时浮层关上”与“状态行提示一句”没测试
+- 插入：打 { 弹字段列表，最前面“条件”“计算”，后面“设定组 · 字段”；打 @ 弹条目列表，按名字或别名找 | EntryRichInput.vue:549-566、SuggestionMenu | EntryRichInput.dom.test.ts:427、:455、:492；canon-write.e2e.ts:627-669 | 对上
+- “插入”菜单有值（列各设定组字段）、计算、条件、条目、图片，项右边写触发键 | EntryTextEditor.vue:105-118（insertItems）：值（下一级字段）、计算 `{`、条件 `{`、条目 `@`；没有“图片”项；“值”这一项右边没有触发键 | EntryTextEditor.dom.test.ts:197（断言菜单就是 值、计算{、条件{、条目@，没有图片）| 不一致：Spec 与 plan 都写菜单有“图片”，实现没有；“值”项也没写触发键。看法：多半是实现漏了（plan 的“插入菜单：值、计算、条件、条目、图片”被改成三类结构没人记）；但图片小块的标签 `<Image src|of>` 要写 src 路径或字段地址，没有现成的图片选择入口，做成一个“图片”项需要设计。建议：Spec 删掉“图片”（源文字里自己写），并把“值”项的触发键写成“字段的 { ”或不写
+- 光标在行内代码或代码块里时这些入口都不可用 | EntryRichInput.vue:540-547 inCode、EntryTextEditor.vue:98-104、:106 | EntryTextEditor.dom.test.ts:240（菜单各项不可用写原因）；EntryRichInput.dom.test.ts:518（行内代码里打 { 不弹）| 对上
+- 复制粘贴：富文本之内复制小块原样带过去；外面粘来的含标签纯文字按文字处理（不读成标签）| entry-syntax.ts（renderHTML/parseHTML 带 source）、EntryRichInput.vue 粘贴 | EntryRichInput.dom.test.ts:634（复制条件小块粘到别处写出同一段；粘进纯文字里的 <V 写成字面）；entry-syntax.test.ts:182、:93 | 对上
+- 已知限制：跨行条件在富文本里不能改，只能在源文字里改 | entry-syntax.ts（跨行不成组，各标签一个 entryRaw）| entry-syntax.test.ts:142（表驱动含跨行）、entry-values.test.ts:123（跨行条件 richProblem 为 null：可进富文本）；“不能改”（raw 小块的浮层只读源码、无应用）没有用例 | 对上；“不能改”没测试（轻）
+- 源文字没有预览；停顿后在浏览器检查，输入框下面写第几行第几列与原因 | EntryTextEditor.vue:122-136、:349-358 | EntryTextEditor.dom.test.ts:153（data-line=3）；canon-write.e2e.ts:357-423（“输入框下面写第几行”）；列号：属性 data-column 只在模板里，没有断言 | 对上；“第几列”没断言（轻）
+- 没登记的标签：存下的那一版里就有的不报，新写的才报 | entry-check.ts baselineOf、:89 | entry-values.test.ts:89-97；EntryRichInput.dom.test.ts:151 | 对上
+- 从源文字切回富文本前同样检查，有问题不切，写原因 | EntryTextEditor.vue:134-143 | EntryTextEditor.dom.test.ts:153；canon-write.e2e.ts:357 | 对上
+- 切换模式时光标落在同一段的大致位置，页面不滚动 | EntryTextEditor.vue:144-150（cursorOffset→pendingFocus）、EntryRichInput.vue:796 focus(scrollIntoView:false)| 光标：EntryTextEditor.dom.test.ts:137（文末到文末）；EntryRichInput.dom.test.ts:96-150（偏移换算）；“页面不滚动”：全仓没有断言（也没有 e2e 量 scrollTop）| 光标对上；“页面不滚动”没测试
+- 提交被拒收时的切换见输出 44 | — | 见输出 44 | 见输出 44（行号换算分支没测试）
+- 着色：输入框按条目写法着色（canon-entry 语言）；认不出的字照正文画；没写完的标签只影响所在的段 | entry-language.ts、plugin 注册 | entry-language.test.ts（分词器单测）；canon-write.e2e.ts:229-230（character、性格有着色，不是 mtk1）| 对上；“没写完的标签只影响它所在的那一段”由 entry-language.test.ts 覆盖与否未逐条核（我只看了入口，没逐句读该文件）
+- （planned：删除）原来编辑时的预览：预览开关、预览栏、放宽内容列、吸顶、滚到光标段 | 已删：grep 全仓无 data-text-preview、previewNote、wide、data-source-line（EntryPage.vue、EntryText.vue 都没有）；text-preview.ts 已改名 text-values.ts | canon-write.e2e.ts:196-197、:304-350（没有预览栏与“预览”开关，内容列与分页排法不变）| 对上（Spec 里这一条“（planned：删除）”晋升时应整条删掉而不是留着）
+（输出 48 末条更正：预览已删的核实——canon 范围内全文搜索 data-text-preview、预览开关、previewNote、textEdit.preview*、previewBlocks、data-wide、data-source-line，只剩 e2e 的“不存在”断言：canon-write.e2e.ts:209-210、:340-341、:348 和 entry-page.dom.test.ts:1023 的 data-wide 为 undefined。）
+
+## 目标与非目标（第 20、21、22 行）
+- 第 20 行：主文字所见即所得编辑；原写“整篇源文字加旁边的预览，预览只能看……”，planned 删除、改成“富文本里直接改、可切到源文字、没有预览” | 实现就是富文本缺省 + 源文字，预览整套已删 | 同输出 39、48 的预览已删项（canon-write.e2e.ts:209-210、:340-348；entry-page.dom.test.ts:1013）| 对上。晋升时这一行应重写成现在的做法，不是留“（planned：删除）”
+- 第 21 行：富文本里跨行的条件不能改、只能在源文字里改；外面粘进来的含标签纯文字按文字处理（输出 48）| entry-syntax.ts（跨行不成组）、EntryRichInput 粘贴 | entry-syntax.test.ts:142、:182；EntryRichInput.dom.test.ts:634 | 对上（“跨行条件不能改”的 raw 小块只读源码那一点没有用例，轻）
+- 第 22 行：主文字分节与主文字的剧情变化：第一版把主文字当一整篇（输出 39）| 同输出 39 第一句 | entry-page.dom.test.ts:1110 | 对上
+
+## 输出 9（只有与本 Task 相关的 planned 句子）
+- “要排写正文的两栏预览（输出 48）而放不下‘两栏加竖排分页’时横排”（planned：删除，预览取消）| EntryPage.vue:263-267（只剩 1040/1024 两个阈值，没有预览条件）| canon-author.e2e.ts:516（竖排与横排按宽度切换，不含预览）；canon-write.e2e.ts:304（进编辑前后分页排法相同）| 对上；晋升时把这句话整句删掉
+- 其余 planned：“已经滚过分页条时新的一页从吸顶页头下沿开始”“排到前面的几个分页之间次序仍同命名空间的顺序”“分页的右键菜单里也有这几种看法”“没有主文字时写‘还没有主文字’、这时选第一个数据分页，没有数据分页才选‘文字’” | — | — | 不属于本 Task（不核；附带说一句：“还没有主文字”的文字有 canon-write.e2e.ts:200 断言）
+
+## 验收场景 2
+- 来历在文字分页的浮层里时，浮层按记下的那一处重新打开，那一处不在了就不开 | EntryText.vue:241-250（findAnchor：找不到记下的那一处就 emit close 清掉）、entry-page.ts:44 origin | 重开：canon-author.e2e.ts:171-190（切到星瑾再切回，存款来历浮层重新打开且 aria-expanded=true）、:707（按“哪一处”记，两处存款只重开第二个）、entry-page.dom.test.ts:239-260；“那一处不在了就不开”：EntryText.dom.test.ts:151（块改了、值在没生效的支里→emit close）；条目页上“刷新/切回后那一处没了”的整页用例没有 | 对上（“不在了就不开”只有组件层断言）
+- 场景其余句（位置、填了一半的就地改、刷新后标签与位置）不是 planned，不核
+
+## 验收场景 13
+- 50 步来历：展开处先列最近 20 步与“最初”，末尾“再显示更早的（还有 29 步）”，点它接着列出 | OriginList.vue、EntryPageHost.vue origin 分页读取 | entry-page.dom.test.ts:219（25 步：先 21 行含最初、“还有 5 步”、点后 26 行；步数不是 50/29，但行为相同）；OriginList.dom.test.ts:48（还有 29 步的按钮文字、点了发 more）| 对上
+- 在文字分页里这些都在贴着值的浮层里，浮层高度不超过窗口的六成、列表在浮层里滚动 | EntryText.vue:346-352（max-height:60vh、overflow-y:auto）| 浮层里：entry-page.dom.test.ts:231（按钮在 [data-origin-popover] 里）；“六成”“滚动”：没有任何断言（happy-dom 无布局，e2e 没有 50 步的样本） | 没测试（高度与滚动）
+
+## 验收场景 16（整篇编辑主文字）
+- 空作品里新建带字段的条目 → “开始写”进富文本、写两段、从“插入”的“值”里选字段 → 光标处插进取值小块，富文本里是两段与小块，小块显示当时的值 | 见输出 39、48 | canon-write.e2e.ts:176-232（用的是人物“性格”字段而非面板“魔力”，等价；chip 数 0→1、含“银白长发”、接着打字跟在后面）；entry-page.dom.test.ts:948 | 对上
+- 点“提交”：阅读视图里是两段与值，改动记录多一条，主文字是一块 | text-tab.ts submit | canon-write.e2e.ts:233-242（两段、值、提示“改星瑕的主文字”、1 个 [data-block]）；entry-page.dom.test.ts:948（revisions 标题 ["改星瑕的主文字","写入"]）。e2e 里没看“改动记录”视图，dom 层看了 | 对上
+- “编辑”改一句不提交、刷新：标签带圆点，打开直接在编辑里、字还在 | text-drafts.ts、EntryPageHost | canon-write.e2e.ts:263-282 | 对上
+- 另一处把主文字改成别的，点“提交”问一次、并排两份，选“现在的”后阅读视图是别处那一版、圆点没了 | TextConflictDialog、text-tab | canon-write.e2e.ts:670-708；entry-page.dom.test.ts:1052 | 对上
+- 另一处改的是这个条目的一个字段，点“编辑”改一句并提交，不问直接发布 | text-whole.ts | entry-page.dom.test.ts:1052（前半段）；text-tab.test.ts:181 的反例；e2e 没有 | 对上（只有 dom 层）
+- 主文字里有一块在第 3 章被剧情改过：点“编辑”留在阅读视图，页头下面写着这个条目的文字里有随剧情变的段落 | text-tab.ts:221、EntryPageHost.vue:855 | entry-page.dom.test.ts:1110；text-tab.test.ts:91；e2e 没有 | 对上（只有 dom 层）
+（行号更正：验收 16 的提交与结果断言在 canon-write.e2e.ts:254-262，不是 233-242；“还没有主文字”断言在 :201。全报告里的行号取自 worktree HEAD 769484e2a，小块头部/模板里的行号是区间近似，用例行号是 grep 出来的准确值。）
+
+## 对上数与对不上的汇总
+### 一、没实现
+- 输出 48“插入”菜单有“图片”项：实现的菜单只有 值（下一级字段）、计算、条件、条目（EntryTextEditor.vue:105-118；EntryTextEditor.dom.test.ts:197 的断言就是这四项）。Spec 与 plan 都写了图片。看法：Spec 写多了，改成“值、计算、条件、条目”（图片在源文字里写 `<Image>`）；“值”项右边也没写触发键，Spec 的“项的右边写触发键”只适用于计算、条件、条目。
+- 输出 11“点再显示更早的以后焦点仍在浮层里”：OriginList.vue:58 的按钮没有任何焦点处理；最后一页读完、按钮随 remaining=0 卸掉时焦点掉到 body（从代码推断，未在真实浏览器验证）。plan 写的是“焦点留在那个按钮的位置”，也没做。看法：代码缺陷（轻），修法是读完后把焦点交回浮层根（section tabindex=0）；若不想改，Spec 改成“读完前按钮保留焦点”。
+
+### 二、实现与字面不一致
+- 输出 11 位置：Spec“优先在下方，放不下翻到上方”；代码（EntryText.vue:262-268）是“下方空间 >= 上方空间，或下方 >= 视口 60% 就在下方，否则上方”，即选地方大的一边；两者在“下方够放但比上方小”时结果相反。看法：Spec 写岔了，改成“在值下方、下方放不下且上方更宽时在上方”，plan 本来也写的是“选定上方或下方”。
+- 输出 30“小块的读屏名写它是什么、字段名、值与状态”：aria-label 只有“字段名 + 值”（entry-chip-views.ts:119，role=button），没有种类词（取值/计算/条件/引用），状态（计算中、没有算、不完整、改过）也不在名字里。看法：实现不足但改动很小（chipOf 已给 kind、state）；也可 Spec 缩成“字段名与此刻的值”。我倾向补实现并加一条 dom 断言，读屏用户只能靠这个名字认小块。
+- 输出 48“插入”菜单图片项：见上（一）。
+- 输出 39“显示全部分支”：实现只在富文本模式出（EntryTextEditor.vue:63-71），Spec 写“只在文字里有条件时出”；两者相容但 Spec 没写“仅富文本模式”。建议补半句。
+
+### 三、没有测试（按分类）
+A. 视觉与布局类（happy-dom 量不了，e2e 也没量；建议晋升时在 Spec“证据”里写明“视觉项没有自动测试”，不必硬补）：
+  - 输出 10、11 值按钮指着时浮出浅底；
+  - 输出 11 浮层位置（下/上、不换边）、宽度约 440 与窄屏占满两边留白（输出 32 同一句）、高度六成与滚动、读取期间固定高度；验收 13 的“六成、滚动”；
+  - 输出 48 小块与两边字的空隙、长值最多两行加省略号、条件极淡底色、没生效的变淡。
+B. 行为类、值得补的（本 Task 新增的代码）：
+  - 输出 11 点“改这一笔”时浮层关上（EntryPageHost.vue:311，宿主层与 e2e 都没有）；
+  - 输出 30 小块 aria-label（全仓无断言）；
+  - 输出 44/48 拒收时切源文字“光标落在原因指的那一行”：dom 只测了找不到行时落在文首，offsetOf 行列换算分支无断言；
+  - 输出 48 开始提交（phase 离开 idle，readonly）时小块浮层关上、状态行“没应用的改动已丢弃”（EntryTextEditor 的 data-text-discarded）无断言；
+  - 输出 46 只读的稿里小块“不能改”（只测了输入框 contenteditable=false）；
+  - 输出 48 回车应用（form submit）；引用、图片、没登记小块的删除；
+  - 输出 48 切换模式“页面不滚动”；
+  - 输出 39 进编辑时焦点进富文本；模式“切到别的标签再回来仍是它”；
+  - 输出 44 对照框“只标出不一样的那一截”（TextConflictDialog 没有 dom 测试，sides()/mark 无断言）。
+C. w00039 时期代码里的零星缺口（轻）：输出 47“主文字太大进不了编辑”的 blocker 与文案无用例；输出 46 世界只读、连接断开两种“提交不可用”无各自用例；输出 45“转入后台时写暂存”的页面事件接线无用例、“连接断着没读到暂存时不能开始编辑”的按钮状态无断言。
+
+### 四、Spec 文字要在晋升时一并处理的
+- 目标与非目标第 20 行、输出 9 的“要排两栏预览而放不下时横排（planned：删除）”、输出 48 末条“（planned：删除）原来编辑时的预览”：都是删除类标记，晋升时整句删掉而不是留“planned”。
+- 输出 11 里“没有表头、一步两行、固定宽列”的 planned 句子不属于本 Task（OriginList 的 dom 测试已有“没有表头”的断言，应是别的 Task 的活）；输出 9 的另外三处 planned、输出 39 以外不涉及本 Task。
+- 我没有逐句读 entry-language.test.ts 的全部用例，输出 48“着色”下“没写完的标签只影响所在的一段”只按入口核对，未逐条核。
+
+== 处理（主会话，2026-11-27）==
+没实现：
+- 输出 48 “插入”里的图片：句子留 planned（要一个选图的对话框，待开发者定）；“值”的触发键改写成只对计算、条件、条目写。
+- 输出 11 “再显示更早的”以后的焦点：补实现（读完最后一页、按钮没了时焦点交给列表），OriginList 的 dom 用例，变异测出。
+不一致：
+- 输出 11 浮层选边：Spec 改成贴实现（上下哪边地方大放哪边，下方有六成高时总在下方）。
+- 输出 30 小块读屏名：补实现（种类、显示名、值，再接状态与“改过”），EntryRichInput 的 dom 用例，变异测出。
+- 输出 39、48 “显示全部分支”：补“富文本里”。
+没测试：视觉项写进 Spec 证据；其余的轻缺口（改这一笔关浮层、拒收后按行放光标、开始提交关浮层与状态行那句、只读小块、回车应用、几种小块的删除、进编辑时的焦点、切走再回来的模式、冲突对照的标出、w00039 时期的几处）记为后续，不在本次补。
+预览删除类的三处 planned 整句删掉。e2e 第二段新加的用例同时覆盖了浮层、键盘、`{` 与 `@`、来历按哪一处记。

@@ -173,6 +173,19 @@ test.describe("对话视图的消息流", () => {
         await expect(page.locator("[data-jump-latest]")).toBeHidden();
     });
 
+    test("滚到顶部再离开：顶端渐隐随之切换，消息流始终不画原生滚动条（workbench/views.md 输出 12，nb-ui 规范“滚动条”）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "long-conversation");
+        const stream = page.locator("[data-agent-stream]");
+        // 无头 Chromium 的滚动条不占宽，量 offsetWidth 与 clientWidth 之差看不出来；读计算样式。
+        const state = () => stream.evaluate((element: HTMLElement) => ({scrollbar: getComputedStyle(element).scrollbarWidth, faded: element.classList.contains("acv-stream--faded")}));
+        expect(await stream.evaluate((element) => element.scrollHeight > element.clientHeight), "场景要能滚").toBe(true);
+        // 顶端渐隐的类随滚动位置切换，Vue 借此重写 class：先断言它确实切换了，再看原生滚动条仍不画。
+        for (const top of [0, 300, 0]) {
+            await scrollStreamTo(page, top);
+            expect(await state(), `滚到 ${String(top)} 之后`).toEqual({scrollbar: "none", faded: top > 0});
+        }
+    });
+
     test("正在读过程时运行结束：最终回复停在原处，焦点从过程移到整轮摘要行", async ({page}) => {
         await openScene(page, "AgentConversationView", "running", "390x560");
         await labAction(page, "stream");

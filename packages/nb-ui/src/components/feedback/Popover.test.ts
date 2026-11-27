@@ -1,4 +1,4 @@
-/** Popover（同名 .md）锚在外部元素上：开关只看 `open`；Escape 关掉后焦点回到锚点；在锚点上按下不算点外面。 */
+/** Popover（同名 .md）锚在外部元素上：开关只看 `open`；Escape 关掉后焦点回到锚点；在锚点上按下不算点外面；`label` 是对话框的可读名字。 */
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref, shallowRef} from "vue";
@@ -19,7 +19,7 @@ function mountAnchored() {
         setup() {
             return () => [
                 h("button", {ref: anchor, id: "own-id", type: "button", "data-anchor": "", onClick: () => (open.value = !open.value)}, "第三章节奏调整"),
-                h(Popover, {open: open.value, anchor: anchor.value, "onUpdate:open": (value: boolean) => (open.value = value)}, {default: () => h("input", {"data-inside": ""})}),
+                h(Popover, {open: open.value, anchor: anchor.value, label: "节奏的说明", "onUpdate:open": (value: boolean) => (open.value = value)}, {default: () => h("input", {"data-inside": ""})}),
             ];
         },
     });
@@ -42,6 +42,8 @@ describe("Popover 锚在外部元素上", () => {
         expect(document.querySelector("[data-inside]")).not.toBeNull();
         expect(anchor().id).toBe("own-id");
         expect(anchor().hasAttribute("aria-haspopup")).toBe(false);
+        // 可读名字写在对话框自己身上。
+        expect(document.querySelector("[role='dialog']")?.getAttribute("aria-label")).toBe("节奏的说明");
     });
 
     it("Escape 关掉后焦点回到锚点", async () => {

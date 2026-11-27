@@ -30,6 +30,11 @@ updated: 2026-11-24
 
 - 来自 t07 的计划（2026-11-24）：Better Auth 钉在一个精确的版本上，安全修复不会自动到；发布步骤里加一项“查上游的安全公告与依赖告警”，升级时照账号模块说明里的升级清单重跑那几组用例。
 
+- 来自 t10（2026-11-27）：
+  - 部署用的镜像构建要设 `NB_SITE_RELEASE=1`（只认 `1`），例如 `NB_SITE_RELEASE=1 bun run --cwd packages/nb-site-server build:image`：这时隐私政策与服务条款还是占位正文就构建失败。CI 每次的镜像构建不设它，所以 CI 打出的镜像里可能是占位正文，不能直接拿去部署。条款文字来了：删两份正文的 `placeholder` 行，版本改成服务端 `NB_SITE_IDENTITY_TERMS_VERSION` 的值。
+  - 镜像里 `NB_SITE_WEB_DIR=/app/web`，进程发网页；压缩、`ETag` 与 HSTS 不由进程做，交反向代理（`site.operations` 不承诺一节）。
+  - 网页在启动时解开一次产物目录，换产物要重启进程。
+
 ## 下一步
 
 开工时写实施计划与逐步的回退办法。

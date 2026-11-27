@@ -49,9 +49,14 @@ const ScreenshotReturnsSchema = Type.Object({
  */
 // 展开成普通对象：声明的类型是 JSON Schema 的记录，TypeBox 的对象类型没有索引签名（同 `returns`）。
 export const CandidatesDetailSchema = {...Type.Object({candidates: Type.Array(CandidateSchema, {maxItems: 10})}, {additionalProperties: false})};
+/** `not-found`（输出 12）：此刻的各层，目标被上层盖住时另给 `covered`。 */
+const NotFoundDetailSchema = {...Type.Object({
+    layers: Type.Optional(Type.Array(Type.String(), {description: "此刻画出来的各层，base 在前、最上面的在后，写法同快照表头的 layers"})),
+    covered: Type.Optional(Type.Object({layer: Type.String()}, {additionalProperties: false, description: "目标其实在，被最上面这一层盖住了（例如用户打开了一个对话框）"})),
+}, {additionalProperties: false})};
 const CauseDetailSchema = {...Type.Object({cause: Type.String()}, {additionalProperties: false})};
 export const WINDOW_ERRORS = {"no-window": CauseDetailSchema, "window-gone": CauseDetailSchema, "window-unresponsive": CauseDetailSchema};
-export const LOCATOR_ERRORS = {"stale-ref": CandidatesDetailSchema, ambiguous: CandidatesDetailSchema, "not-found": CandidatesDetailSchema};
+export const LOCATOR_ERRORS = {"stale-ref": CandidatesDetailSchema, ambiguous: CandidatesDetailSchema, "not-found": NotFoundDetailSchema};
 
 /** `foreground`：`ui` 看的是用户眼前的窗口，没有人在窗口前的会话（后台任务、bot）用不上（contributions.md 输出 4）。 */
 export const toolBase = {version: "1", concurrency: "shared" as const, defaultForAll: true, foreground: true as const};
@@ -104,15 +109,18 @@ export function windowFailureResult(failure: WindowFailure): ToolResult {
     return failureResult(failure.code, failure.message, failure.cause === undefined ? undefined : {cause: failure.cause});
 }
 
-/** 窗口交回的失败：页面里的码原样交给代码（带候选），通道的失败按输出 14 换算。 */
+/** 窗口交回的失败：页面里的码原样交给代码（带候选、层与遮挡），通道的失败按输出 14 换算。 */
 export function windowCallFailure(failure: RemoteFailure<string>): ToolResult {
     const detail = failure.detail as PageFailureDetail | undefined;
     switch (failure.code) {
         case "stale-ref":
         case "ambiguous":
         case "not-found":
-        case "window-hidden":
-            return failureResult(failure.code, detail?.message ?? failure.code, detail?.candidates === undefined ? undefined : {candidates: detail.candidates as unknown as JsonValue});
+        case "window-hidden": {
+            // 远程合同已按 `PageFailureDetailSchema` 校验过，说明以外的字段就是要交给代码的 `details`。
+            const {message, ...details} = detail ?? {message: failure.code};
+            return failureResult(failure.code, message, Object.keys(details).length === 0 ? undefined : details as unknown as Readonly<Record<string, JsonValue>>);
+        }
         case "invalid-locator":
             return failureResult("invalid-arguments", detail?.message ?? "定位写错了");
         case "capture-failed":

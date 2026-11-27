@@ -27,7 +27,7 @@ async function captureNow(agent: ReturnType<typeof createPageAgent>, of: Paramet
     let target: Element | null = null;
     let warnings: readonly string[] = [];
     if (of !== undefined) {
-        const found = agent.locate(of);
+        const found = agent.locate(of, {explain: true});
         if (!found.ok) return found;
         target = found.element;
         warnings = found.warnings;

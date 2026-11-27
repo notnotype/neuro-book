@@ -63,13 +63,11 @@ const props = withDefaults(defineProps<{
     removableGroup?: string;
     /** 位置、线与“按计划”现在不能换的原因（有没提交的主文字，输出 46）：“在看”不可用、悬停提示是它。默认空（能换）。 */
     positionLocked?: string;
-    /** 要两栏的宽度（主文字开着预览，输出 48）：滚动区放得下两栏时页头与内容列放宽。默认 false。 */
-    wide?: boolean;
     /** 设定组分页的几种看法（输出 54），第一个是缺省；空时分页上没有看法菜单。默认空。 */
     looks?: readonly {readonly value: string; readonly label: string}[];
     /** 选中的那一页现在的看法（`looks` 里的值）。默认空串（缺省的那个）。 */
     look?: string;
-}>(), {looks: () => [], look: "", wide: false, positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
+}>(), {looks: () => [], look: "", positionLocked: "", deletable: false, name: "", summary: "", sameAs: null, chapters: () => [], position: "", planned: false, notAppeared: false, positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: "", lineOptions: () => [], line: "", resolvedLine: "main", canPlan: false, busy: false, addable: () => [], editable: false, editReason: "", aliases: () => [], removableGroup: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -221,9 +219,9 @@ const cancelAlias = (): void => {
 };
 
 /**
- * 量三个尺寸：页头吸顶时的高度、滚动区看得到的高度与宽度。前两个写成根上的 CSS 变量，给分页里要吸在页头下面的东西（主文字
- * 的预览栏，输出 48；竖排的分页）用；页头不吸顶（窄屏）时高度是 0。宽度决定分页竖排还是横排、`wide` 生不生效。滚动区是最近的会纵向滚动的上级（编辑区的
- * 页面容器），本组件只量它、不改它。
+ * 量三个尺寸：页头吸顶时的高度、滚动区看得到的高度与宽度。前两个写成根上的 CSS 变量，给分页里要吸在页头下面的东西（竖排的
+ * 分页）用；页头不吸顶（窄屏）时高度是 0。宽度决定分页竖排还是横排。滚动区是最近的会纵向滚动的上级（编辑区的页面容器），本组件
+ * 只量它、不改它。
  */
 const root = ref<HTMLElement | null>(null);
 const header = ref<HTMLElement | null>(null);
@@ -267,20 +265,13 @@ const stickyStyle = computed(() => ({"--entry-page-sticky-top": `${String(sticky
  */
 const RAIL_ENTER = 1040;
 const RAIL_LEAVE = 1024;
-const RAIL_WIDTH = 200;
 const railOn = ref(false);
 watch(() => sticky.value.width, (width) => {
     if (width >= RAIL_ENTER) railOn.value = true;
     else if (width < RAIL_LEAVE) railOn.value = false;
 }, {immediate: true});
-/** 主文字要两栏（`wide`）而宽度放不下导航加两栏时，先让出导航：编辑时左右分屏比竖排的分页要紧。 */
-const rail = computed(() => railOn.value && props.tabs.length > 0 && !(props.wide && sticky.value.width < 880 + 64 + RAIL_WIDTH));
-/**
- * 滚动区不窄于这个宽度才放宽：内容列左右各 32 像素的内边距，里面的编辑视图要 880 像素才左右分屏（`EntryTextEditor` 的容器
- * 查询）；竖排时再加上导航。窄于它时放宽了也还是上下排，页头与内容白白变一次宽度。
- */
-const wideMin = computed(() => 880 + 64 + (rail.value ? RAIL_WIDTH : 0));
-const column = computed(() => ["entry-page__column", ...(rail.value ? ["entry-page__column--rail"] : []), ...(props.wide && sticky.value.width >= wideMin.value ? ["entry-page__column--wide"] : [])]);
+const rail = computed(() => railOn.value && props.tabs.length > 0);
+const column = computed(() => ["entry-page__column", ...(rail.value ? ["entry-page__column--rail"] : [])]);
 
 const text = useCanonText();
 // 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
@@ -323,7 +314,7 @@ watch(rail, async () => {
 </script>
 
 <template>
-    <article ref="root" class="min-h-full" :style="stickyStyle" :data-wide="props.wide ? '' : undefined" data-entry-page>
+    <article ref="root" class="min-h-full" :style="stickyStyle" data-entry-page>
         <WorldBanners :disconnected="props.disconnected" :read-only="props.readOnly" @retry="emit('retry')" />
         <p v-if="props.status === 'loading'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--text-muted)]" role="status" aria-busy="true">{{ text("entries.loading") }}</p>
         <p v-else-if="props.status === 'failed'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert">{{ text("world.failed") }}</p>
@@ -480,9 +471,6 @@ watch(rail, async () => {
 }
 .entry-page__column--rail {
     --entry-page-rail: 200px;
-}
-.entry-page__column--wide {
-    max-width: calc(1496px + 64px + var(--entry-page-rail));
 }
 .entry-page__body--rail {
     display: grid;
