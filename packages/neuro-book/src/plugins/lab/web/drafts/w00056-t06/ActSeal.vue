@@ -47,6 +47,11 @@ const strokes = computed(() => {
 });
 
 const gradient = `as-gold-${useId()}`;
+/**
+ * 金线从上到下的三档颜色。白天的薄暮是浅色的：夜里那套上亮下暗的金，上半截在浅底上发白，换成深一些的古金（第 13 轮之后，白天的落印
+ * 第一次截图时 I 的上半截与副题都快看不见）。
+ */
+const gold = computed(() => (props.day ? ["#d6a043", "#a06a22", "#5e3a10"] : ["#fbe7b0", "#d9ab5c", "#9a6a26"]));
 </script>
 
 <template>
@@ -59,9 +64,9 @@ const gradient = `as-gold-${useId()}`;
                         在这样的形状上整笔不画（第 13 轮第一次截图时 II 一笔都没出来）。
                     -->
                     <linearGradient :id="gradient" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="100">
-                        <stop offset="0" stop-color="#fbe7b0" />
-                        <stop offset="0.5" stop-color="#d9ab5c" />
-                        <stop offset="1" stop-color="#9a6a26" />
+                        <stop offset="0" :stop-color="gold[0]" />
+                        <stop offset="0.5" :stop-color="gold[1]" />
+                        <stop offset="1" :stop-color="gold[2]" />
                     </linearGradient>
                 </defs>
                 <path
@@ -181,6 +186,12 @@ const gradient = `as-gold-${useId()}`;
 
 .as--day .as__mark {
     filter: drop-shadow(0 0 14px rgb(255 226 170 / 0.32));
+}
+
+/* 白天的副题：浅色薄暮上用深墨色，衬一圈亮光托住字形。 */
+.as--day .as__title {
+    color: #3a2817;
+    text-shadow: 0 1px 14px rgb(255 249 238 / 0.9);
 }
 
 @keyframes as-draw {
