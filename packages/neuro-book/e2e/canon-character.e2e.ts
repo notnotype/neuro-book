@@ -143,7 +143,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(gender).toHaveCount(0);
     await expect(valueOf(page, "character.性别")).toHaveText("女");
 
-    // 性格：编辑卡浮在原处、向下长，盖住下一节（说话方式）的标题，下一节不动；写一段、按 Escape 放弃，不存，标题露出来。
+    // 性格：编辑浮层在原文下方（原文还看得到，不重叠），盖住下一节（说话方式）的标题，下一节不动；写一段、按 Escape 放弃，不存，标题露出来。
     const speech = card.locator("[data-passage='说话方式']");
     const inCard = () => speech.evaluate((element) => {
         const box = element.getBoundingClientRect();
@@ -160,6 +160,10 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await valueOf(page, "character.性格").click();
     const passage = editorOf(page, "character.性格");
     await passage.getByRole("textbox").fill("嘴硬心软，最怕被人看穿。");
+    const surfaceOf = (editor: typeof passage) => page.locator(".nb-ui-popover-surface").filter({has: editor});
+    // 1440 宽时原文下方放得下：浮层的上缘不高于原文的下缘。
+    const traitBox = (await valueOf(page, "character.性格").boundingBox())!;
+    expect((await surfaceOf(passage).boundingBox())!.y).toBeGreaterThanOrEqual(traitBox.y + traitBox.height);
     await expect.poll(headingIsHit).toBe(false);
     expect(await inCard()).toEqual(speechBefore);
     await passage.getByRole("textbox").press("Escape");
@@ -168,7 +172,7 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     expect(await headingIsHit()).toBe(true);
     await expect(valueOf(page, "character.性格")).toContainText("遇事怎么反应");
 
-    // 最后一段（背景）贴着窗口底边时打开：编辑层向下长，打开时整个滚进可见范围，保存按钮不在窗口外（输出 51）。
+    // 最后一段（背景）贴着窗口底边时打开：下方放不下，浮层翻到原文上方，与原文不重叠，保存按钮不在窗口外（输出 51）。
     // 先把这一段滚到底边上再点（点击自己不会再滚）；看保存按钮的中心点上是不是它，不靠点击（点击会先把它滚出来）。
     await valueOf(page, "character.背景").evaluate((element) => element.scrollIntoView({block: "end"}));
     await valueOf(page, "character.背景").click();
@@ -178,6 +182,9 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
         const {x, y, width, height} = button.getBoundingClientRect();
         return document.elementFromPoint(x + width / 2, y + height / 2)?.closest("button") === button;
     })).toBe(true);
+    const backgroundBox = (await valueOf(page, "character.背景").boundingBox())!;
+    const lastBox = (await surfaceOf(last).boundingBox())!;
+    expect(lastBox.y + lastBox.height <= backgroundBox.y || lastBox.y >= backgroundBox.y + backgroundBox.height).toBe(true);
     await last.getByRole("textbox").press("Escape");
     await expect(last).toHaveCount(0);
 
@@ -226,6 +233,17 @@ test("验收 17 的前一半：空作品里新建人物，先看人物分页；�
     await expect(portrait.locator("[data-edit-intent]")).toHaveCount(0);
     await portrait.getByRole("button", {name: "保存"}).click();
     await expect(entryPage(page).locator("[data-look-card] [data-canon-image='插图/星瑾.png']")).toHaveAttribute("data-image-state", "loaded");
+    // 外貌：编辑浮层在原文下方、不盖住原文，下面的“现在穿的”不动（输出 51，开发者 11-27 第 4 条）。
+    const wearing = entryPage(page).locator("[data-look-card] [data-fact='现在穿的']");
+    const wearingBefore = await wearing.boundingBox();
+    await valueOf(page, "look.外貌").click();
+    const appearance = editorOf(page, "look.外貌");
+    await expect(appearance.getByRole("textbox")).toBeFocused();
+    const appearanceBox = (await valueOf(page, "look.外貌").boundingBox())!;
+    expect((await page.locator(".nb-ui-popover-surface").filter({has: appearance}).boundingBox())!.y).toBeGreaterThanOrEqual(appearanceBox.y + appearanceBox.height);
+    expect(await wearing.boundingBox()).toEqual(wearingBefore);
+    await appearance.getByRole("textbox").press("Escape");
+    await expect(appearance).toHaveCount(0);
     await selectTab(tab(page, "人物"));
     await expect(card.locator("[data-portrait='image'] [data-canon-image='插图/星瑾.png']")).toBeVisible();
 });

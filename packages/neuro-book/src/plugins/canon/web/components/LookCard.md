@@ -5,7 +5,7 @@
 
 # LookCard
 
-形象分页的展示层（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 50、51）：只收属性、发事件；绑定层 `LookView` 把 `context` 折成它的属性，并经插槽放进就地改的编辑器（外貌的 `passage-editor` 插槽里的编辑卡带 `data-editing-in-place` 时，外貌原文藏起来但占位不变，编辑卡浮在原处、盖住下面的“现在穿的”，输出 51）。Lab 里直接挂它。
+形象分页的展示层（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 50、51）：只收属性、发事件；绑定层 `LookView` 把 `context` 折成它的属性，并经插槽放进就地改的编辑器（外貌的 `passage-editor` 插槽给出原文按钮作锚，编辑浮层在原文下方、盖住下面的“现在穿的”，原文不动，输出 51）。Lab 里直接挂它。
 
 ## 布局与交互
 
@@ -39,7 +39,7 @@ type LookCardEmits = {
 
 type LookCardSlots = {
     editor?(props: {id: string; anchor: HTMLElement | null}): unknown;
-    "passage-editor"?(props: {id: string}): unknown;
+    "passage-editor"?(props: {id: string; anchor: HTMLElement | null}): unknown;
 };
 ```
 

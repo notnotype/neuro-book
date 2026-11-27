@@ -4,7 +4,7 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, provide, shallowReactive, shallowRef, Transition, watch} from "vue";
+import {computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, provide, shallowReactive, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import type {Entry, EntryOp, FieldDeclaration, FieldDraft, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
@@ -22,6 +22,7 @@ import type {EntryTabDeclaration} from "../../shared/entry-tabs";
 import type {ComponentPeer, ComponentViewContext, ComponentViewRegistry, EntryTabContext, FieldEditorProps, OtherComponent, ViewWriteResult} from "../component-views";
 import type {EntryHead, EntryPageState, PageLine} from "../entry-page";
 import {draftText, kindOf, parsed, useInPlaceEdit} from "../in-place-edit";
+import type {EditOpenOptions} from "../in-place-edit";
 import {createImagePicking, provideCanonImageUrl, provideImagePicking} from "../images";
 import type {CanonImages} from "../images";
 import {usePageNotice} from "../notices";
@@ -877,6 +878,17 @@ const otherFor = (namespace: string, type: string): OtherComponent => {
     if (componentsRead.value?.data !== undefined && registered === undefined) return {status: "unavailable"};
     return {status: "absent"};
 };
+/**
+ * 打开一项的就地改。同一项已经开着时只把焦点放回它的输入框，不重开：重开会换掉写了一半的草稿，成段的文字开着时原文还在、
+ * 点得到（输出 51）。带着值打开的（“换上”某一套）照旧重开。
+ */
+const openInline = (path: string, options?: EditOpenOptions): void => {
+    if (options?.inline === true && options.value === undefined && state.edit?.inline === true && state.edit.path === path) {
+        document.querySelector<HTMLElement>(`[data-field-editor="${CSS.escape(path)}"] :is(textarea, input)`)?.focus();
+        return;
+    }
+    edit.open(path, options);
+};
 /** 就地改的编辑器（`context.FieldEditor`）与值的细节（`context.FieldDetail`），每个命名空间各一个组件定义。 */
 const fieldEditors = new Map<string, Component<FieldEditorProps>>();
 const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
@@ -911,8 +923,9 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     if (on && bar !== null) shown.value = bar;
                 }, {immediate: true});
                 /**
-                 * 短项浮层的宽（内容区，不含浮层的内边距）：从值的左缘量到条目页的右缘，夹在 16rem 与 22rem 之间。左缘对齐值的起点，
-                 * 放得下就不往左让、不盖住左边的标签列；连 16rem 都放不下时才由避让往左挪（输出 51）。打开时量一次。
+                 * 浮层的宽（内容区，不含浮层的内边距），打开时量一次。左缘对齐值的起点，放得下就不往左让、不盖住左边的标签列（输出 51）：
+                 * 短项从值的左缘量到条目页的右缘，夹在 16rem 与 22rem 之间；成段的文字与原文同宽，不窄于 22rem、不越过条目页的右缘。
+                 * 连下限都放不下时才由避让往左挪。
                  */
                 const popoverWidth = shallowRef<number | null>(null);
                 /** 浮层表面两侧的内边距（各 12）与边框（各 1）。 */
@@ -921,8 +934,9 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     if (!on || !(anchor instanceof HTMLElement)) return;
                     const page = anchor.closest("[data-entry-page]");
                     const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-                    const room = page === null ? 22 * rem : page.getBoundingClientRect().right - anchor.getBoundingClientRect().left - POPOVER_PADDING;
-                    popoverWidth.value = Math.min(22 * rem, Math.max(16 * rem, room));
+                    const box = anchor.getBoundingClientRect();
+                    const room = page === null ? Number.POSITIVE_INFINITY : page.getBoundingClientRect().right - box.left - POPOVER_PADDING;
+                    popoverWidth.value = inner.layout === "block" ? Math.max(Math.min(Math.max(box.width, 22 * rem), room), 16 * rem) : Math.min(22 * rem, Math.max(16 * rem, room));
                 }, {immediate: true});
                 const content = () => {
                     // 这一处另给了建议值（现在穿的：衣柜里各套的名字）：文字字段用输入框加候选。
@@ -933,7 +947,7 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     const rows = inner.layout === "popover" ? 1 : bar.kind === "text" ? Math.max(2, String(bar.value ?? "").split("\n").length + 1) : 2;
                     return h("div", {
                         "data-field-editor": full(),
-                        ...(inner.layout === "popover" && popoverWidth.value !== null ? {style: {width: `${String(popoverWidth.value)}px`}} : {}),
+                        ...(popoverWidth.value !== null ? {style: {width: `${String(popoverWidth.value)}px`}} : {}),
                         onCompositionstart: () => (composing.value = true),
                         onCompositionend: () => (composing.value = false),
                     }, [h(ConfirmBar, {
@@ -952,32 +966,21 @@ const fieldEditorOf = (namespace: string): Component<FieldEditorProps> => {
                     })]);
                 };
                 return () => {
-                    if (inner.layout === "block") {
-                        // 编辑层向下长、盖在后面的内容上：打开时整个滚进可见范围（在页面下方打开时，保存不在窗口外）。等下一帧再滚：
-                        // 挂上以后确认条在微任务里给输入框焦点，`focus()` 会打断已经开始的平滑滚动。
-                        const reveal = (element: Element): void => {
-                            const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-                            requestAnimationFrame(() => element.scrollIntoView?.({block: "nearest", behavior: reduced ? "auto" : "smooth"}));
-                        };
-                        // 滚进来时给页面下方的浮动提示（`PageNotices`，一行提示加离底边的距离）让出位置，保存不被它盖住。
-                        // 成段的文字浮在原处（输出 51）：编辑卡相对原文那一格绝对定位，向下长、盖在后面的内容上，原文那一段的占位不变，
-                        // 别的内容不动；原文由卡片组件见到 `data-editing-in-place` 时藏起来（CharacterCard、LookCard 的同名 .md，那一格是
-                        // `position: relative`）。四边各伸出卡片的内边距，输入框里第一行的字与原文对齐。
-                        // 收起时不淡出：卡片还在时原文是藏着的，保存或取消以后焦点要回到原文按钮，得让它立刻回来。
-                        return h(Transition, {name: "nb-ui-switch", onEnter: reveal, onLeave: (_element: Element, done: () => void) => done()}, () => (active.value ? h("div", {class: "nb-ui-popover-surface absolute -inset-x-3 -top-3 z-[2] p-3 scroll-mb-[calc(var(--control-h-md,2.25rem)+40px)]", "data-editing-in-place": ""}, [content()]) : null));
-                    }
-                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。
-                    // 避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
+                    // 图片那一档的浮层高（候选的方格加输入），锚多半是竖长的立绘：放在锚的右边，不上下翻出窗口。别的都在值的下方，
+                    // 放不下时由避让翻到上方，不与值重叠。避让以条目页为界：浮层不越出编辑区、盖到旁边的侧栏上（右边一栏的值，浮层自己往左让）。
+                    // 成段的文字（输出 51）：原文不动，浮层盖在后面的内容上；内容高度封顶在避让算出的可用高度，保存总在窗口里。点外面不收起
+                    // （`update:open(false)` 整个忽略）；Escape 由确认条自己接：组字中不接，接了会 preventDefault，Reka 就不再发关闭。
                     const anchor = inner.anchor as HTMLElement | null;
+                    const passage = inner.layout === "block";
                     return h(Popover, {
                         open: active.value && anchor !== null,
                         anchor,
                         side: shown.value?.kind === "image" ? "right" : "bottom",
                         align: "start",
                         collisionBoundary: anchor?.closest("[data-entry-page]") ?? null,
-                        contentClass: "max-w-[calc(100vw-32px)] select-text",
+                        contentClass: passage ? "max-w-[calc(100vw-32px)] max-h-[var(--reka-popper-available-height)] overflow-y-auto select-text" : "max-w-[calc(100vw-32px)] select-text",
                         "onUpdate:open": (open: boolean) => {
-                            if (!open) dismiss();
+                            if (!open && !passage) dismiss();
                         },
                     }, {default: () => (shown.value !== null ? content() : null)});
                 };
@@ -995,7 +998,7 @@ const headEditor = fieldEditorOf("entry");
 const headAnchors = shallowReactive<{name: HTMLElement | null; summary: HTMLElement | null}>({name: null, summary: null});
 const openHead = (field: "name" | "summary", anchor: HTMLElement): void => {
     headAnchors[field] = anchor;
-    edit.open(`entry.${field}`, {inline: true});
+    openInline(`entry.${field}`, {inline: true});
 };
 const fieldDetails = new Map<string, Component<{readonly path: string}>>();
 const fieldDetailOf = (namespace: string): Component<{readonly path: string}> => {
@@ -1040,7 +1043,7 @@ const contextFor = (namespace: string): ComponentViewContext => {
             get blocked() { return editBlocked.value; },
             place,
             origins: (path, cursor) => props.fetchOrigins({entry: props.id, path: `${namespace}.${path}`}, position.value, mode.value, cursor),
-            edit: (path, options) => edit.open(`${namespace}.${path}`, options),
+            edit: (path, options) => openInline(`${namespace}.${path}`, options),
             record: (path, input) => record(`${namespace}.${path}`, input),
             listAdd: (path) => openElement(namespace, path),
             listEdit: (path, element) => openElement(namespace, path, element),

@@ -116,8 +116,8 @@ const showOrigins = (id: string, anchor: HTMLElement): void => {
                     :suggestions="id === WEARING ? names : undefined"
                 />
             </template>
-            <template #passage-editor="{id}">
-                <component :is="context.FieldEditor" v-if="context.FieldEditor !== undefined" :path="id" layout="block" />
+            <template #passage-editor="{id, anchor}">
+                <component :is="context.FieldEditor" v-if="context.FieldEditor !== undefined" :path="id" layout="block" :anchor="anchor" />
             </template>
         </LookCard>
         <component :is="context.FieldTable" v-if="others.length > 0" class="mt-6" :fields="others" />

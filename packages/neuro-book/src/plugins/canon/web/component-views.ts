@@ -47,8 +47,8 @@ export type OtherComponent =
 export interface FieldEditorProps {
     readonly path: string;
     /**
-     * `popover`（缺省）：锚在 `anchor` 上的浮层，短项用；`block`：成段的文字用，同一张编辑卡在原处展开、把下面推开（输出 51），
-     * 放在原文按钮的旁边：卡片带 `data-editing-in-place`，卡片组件见到它时把原文藏起来（CharacterCard、LookCard）。
+     * 两种都是锚在 `anchor`（值或原文按钮）下方的浮层（输出 51）。`popover`（缺省）：短项用，单行输入，点外面放弃；`block`：
+     * 成段的文字用，多行输入、与原文同宽，点外面不收起。
      */
     readonly layout?: "popover" | "block";
     /** 文字字段这一处的建议值（例如现在穿的：衣柜里各套的名字）；给了就用输入框加候选。 */
