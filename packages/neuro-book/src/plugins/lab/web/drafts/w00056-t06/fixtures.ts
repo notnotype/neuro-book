@@ -74,12 +74,13 @@ export const fixtures = [
             {id: "r9-act-one-day", label: "第 9 轮：第一幕连播，白天", input: {props: {start: "act-one", appearance: "day"}}},
             {id: "r13-act-two", label: "第 13 轮：第二幕原型（直接落在第二幕：落印开场，接着连播五拍）", input: {props: {start: "act-two"}}},
             {id: "r13-act-two-day", label: "第 13 轮：第二幕原型，白天", input: {props: {start: "act-two", appearance: "day"}}},
-            {id: "r15-day-bare", label: "第 15 轮白天候选 A：去掉红布，木案压进暖雾（从首屏起）", input: {props: {start: "top", appearance: "day", dayDesk: "bare"}}},
-            {id: "r15-day-velvet", label: "第 15 轮白天候选 B：哑光暗红丝绒，俯冲时铺满（从首屏起）", input: {props: {start: "top", appearance: "day", dayDesk: "velvet"}}},
-            {id: "r15-act-one-day-bare", label: "第 15 轮白天候选 A，直接落在第一幕", input: {props: {start: "act-one", appearance: "day", dayDesk: "bare"}}},
-            {id: "r15-act-one-day-velvet", label: "第 15 轮白天候选 B，直接落在第一幕", input: {props: {start: "act-one", appearance: "day", dayDesk: "velvet"}}},
-            // 前几轮评审板里的链接：组件已经是这一轮的样子，场景 id 留着，旧链接不落空（第 7 轮没选的章节条与首屏的两种动静也落到这一轮）。
+            // 前几轮评审板里的链接：组件已经是这一轮的样子，场景 id 留着，旧链接不落空（第 7 轮没选的章节条与首屏的两种动静、
+            // 第 15 轮没选的哑光丝绒也落到这一轮）。
             ...([
+                ["r15-day-bare", 15, "白天（已定为去掉红布）", {start: "top", appearance: "day"}],
+                ["r15-day-velvet", 15, "白天（已定为去掉红布）", {start: "top", appearance: "day"}],
+                ["r15-act-one-day-bare", 15, "第一幕，白天（已定为去掉红布）", {start: "act-one", appearance: "day"}],
+                ["r15-act-one-day-velvet", 15, "第一幕，白天（已定为去掉红布）", {start: "act-one", appearance: "day"}],
                 ["r8-sanctum", 8, "从首屏起", {start: "top"}],
                 ["r8-day", 8, "白天", {start: "top", appearance: "day"}],
                 ["r8-act-one", 8, "第一幕", {start: "act-one"}],
