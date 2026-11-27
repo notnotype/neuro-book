@@ -19,6 +19,7 @@ owners:
 - 不做热重载配置：改配置要重启。
 - 不回滚数据库：换回上一个版本只换程序，见输出 7。
 - 备份只在本机：数据目录所在的主机丢失时，备份一起丢。
+- 发网页时不压缩响应、不发校验头（`ETag`、`Last-Modified`）：压缩与 TLS 一样由前面的反向代理做（planned）。
 - 就绪检查不探测磁盘空间：磁盘写满时它仍可能回 200，写入由各模块自己的接口报错。
 
 ## 术语与参与者
@@ -53,7 +54,7 @@ owners:
 | 备份保留份数 | `NB_SITE_BACKUP_KEEP` | 否 | 至少为 1 的整数，缺省 7 |
 | 停止时限 | `NB_SITE_SHUTDOWN_TIMEOUT_MS` | 否 | 停止时等在途请求的上限，1 到 2147483647 的整数，缺省 10000 毫秒 |
 | 测试控制口令 | `NB_SITE_TEST_CONTROL` | 否 | 只给合同测试用：设了它，进程才提供输出 11 的测试控制入口，值是调用时要带的口令：32 到 256 个字符，只含大小写字母、数字、`-`、`_`（它要原样放进请求头）；只许在监听地址是本机回环（`127.0.0.0/8` 或 `::1`）时设。生产环境与镜像都不设 |
-| 前端产物目录 | `NB_SITE_WEB_DIR` | 否 | 官方站网页的构建产物；绝对路径，必须是已经存在、里面有 `index.html` 的目录。设了才发网页（输出 12），不设时不发，未知地址照旧 404；镜像里设好（planned） |
+| 前端产物目录 | `NB_SITE_WEB_DIR` | 否 | 官方站网页的构建产物；绝对路径，必须是已经存在、里面有 `index.html` 的目录（`index.html` 经符号链接落到目录之外不算有）；目录在启动时解开一次，换了指向要重启。设了才发网页（输出 12），不设时不发，未知地址照旧 404；镜像里设好（planned） |
 | 各功能开关与时限 | `NB_SITE_<模块>_*` | 否 | 见各模块的 Spec |
 
 请求按主机名分到两处：主机名与遥测写入口地址相同的请求只到三个写入口，其余的到站点的接口。比较不分大小写、不看端口、忽略末尾的一个点。请求里读不出主机名（没有 `Host`，或 `Host` 不合语法）时回 400 `bad_request`，健康检查也不例外。两个健康检查在任何读得出的主机名上都可用；部署时只让本机回环访问它们（planned）。写入口所在的反向代理不记访问日志；它的错误日志不带客户端地址，或单独成文件并在 3 天内轮转（planned）。
@@ -76,10 +77,10 @@ owners:
     - `POST /test-control/clock`，请求体 `{"advanceMs": 正整数}`：把模块取到的当前时间往前拨这么多毫秒，回 200 `{"now": 拨过之后的时间}`（Unix 毫秒）。几次拨动累加；只能往前拨。拨动本身不触发定时任务，定时任务仍按真实时间的间隔排。
     - `POST /test-control/jobs/run`，请求体 `{"module": 模块, "job": 任务名}`：立即跑一次这个定时任务，跑完才回 200 `{"status":"done"}`；它正在跑时，等那一次结束再跑；请求一旦受理就照常跑完，调用方断开连接不取消它。没有这个模块或任务回 404 `not_found`；任务出错回 500 `job_failed`，响应体不带错误内容；服务正在停止时回 503 `not_ready`。任务名见各模块的 Spec。
 12. **网页与单页回退（planned）。** 设了前端产物目录时，站点主机名上的 `GET`、`HEAD` 请求，在健康检查、测试控制入口与各模块的接口都没接的情况下才到这里；遥测写入口的主机名上不发网页。
-    - **文件**：路径指的是按 URL 标准规范化之后的路径（点段已消解、反斜杠已当作斜杠，所以 `/../x` 就是 `/x`）。它对应产物目录里的一个普通文件时发这个文件，`Content-Type` 按扩展名；目录不算文件。路径的某一段解码后是 `.`、`..`，或含 `/`、`\`、空字节（只能来自 `..%2f`、`%5c`、`%00` 这类编码在一段里的写法）时回 404，不论拼出来的位置在不在目录里；文件经符号链接落到产物目录之外时同样回 404。不读目录外的任何文件。
-    - **单页回退**：没有对应文件、最后一段不带扩展名、且路径不等于也不以 `/api/`、`/.well-known/`、`/health/`、`/test-control/` 开头的，回 200 与 `index.html` 的内容，地址不变；带扩展名而没有这个文件的回 404。所以这几个前缀下没人接的地址（例如 [`site.oauth-provider`](oauth-provider.md) 输出 1 说的身份库的其它地址、没设口令时的测试控制入口）仍与没有网页时一样回 404，日志的 `module` 也照旧。
+    - **文件**：路径指的是按 URL 标准规范化之后的路径（点段已消解、反斜杠已当作斜杠，所以 `/../x` 就是 `/x`）。它对应产物目录里的一个普通文件时发这个文件，`Content-Type` 按扩展名；目录不算文件，以 `/` 结尾的路径也不对应文件。路径的某一段解码后是 `.`、`..`，以 `.` 开头，或含 `/`、`\`、空字节（后几种只能来自 `..%2f`、`%5c`、`%00` 这类编码在一段里的写法），某一段编码不合法，或路径中间有空段（`//`）时回 404，不论拼出来的位置在不在目录里；文件经符号链接落到产物目录之外、或在发出之前读不出时同样回 404。不读目录外的任何文件。
+    - **单页回退**：没有对应文件、最后一段不带扩展名、且路径的第一段（只解码这一段来比）不是 `api`、`.well-known`、`health`、`test-control` 的，回 200 与 `index.html` 的内容，地址不变；带扩展名而没有这个文件的回 404。第一段是这四者之一的地址不归网页管，后面的段写成什么（包括编码不合法）都一样：这几个前缀下没人接的地址（例如 [`site.oauth-provider`](oauth-provider.md) 输出 1 说的身份库的其它地址、没设口令时的测试控制入口）仍与没有网页时一样回 404，日志的 `module` 也照旧。
     - **缓存**：`/assets/` 下的文件（前端构建把带内容哈希的产物放在这里）带 `Cache-Control: public, max-age=31536000, immutable`；`index.html`（含回退）与别的文件带 `Cache-Control: no-cache`。
-    - **安全头**：回 HTML 时带 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`；所有网页响应带 `X-Content-Type-Options: nosniff` 与 `Referrer-Policy: same-origin`。HSTS 由终结 TLS 的反向代理加。
+    - **安全头**：所有网页响应带 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`、`X-Content-Type-Options: nosniff` 与 `Referrer-Policy: same-origin`。HSTS 由终结 TLS 的反向代理加。
     - **日志**：每个请求照输出 8 记一行，`module` 是 `web`。
 
 ## 状态与转换
