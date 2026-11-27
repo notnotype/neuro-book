@@ -51,7 +51,7 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
 
 ### `packages/neuro-book/src/plugins/agent/backend/schemes.ts`
 
-- `sessions` 声明 `watch: "home"`，并实现 `watchRoot`：会话的新建、改标题、归档时通知。复用会话列表已有的变更来源，不另造；是哪一条在切片 2 开工时先查（`runtime.meta` 只是候选，没核实过它是否覆盖新建与归档）。
+- `sessions` 声明 `watch: "home"`，并实现 `watchRoot`：只在会话新建、改标题、归档、删除时通知，并合并成一批，不随每次运行的活动时间通知。列一次根要把每个会话的 `index.json` 依次读一遍（`nb-harness` 的 `jsonl-store.ts` 的 `list`），2000 个会话热缓存约 52 毫秒、200 个约 4 毫秒（2026-11-27 本机实测）；偶尔列一次没问题，跟着每次活动重列就会反复付这笔开销。复用会话列表已有的变更来源，不另造；是哪一条在切片 2 开工时先查（`runtime.meta` 只是候选，没核实过它是否覆盖新建与归档）。
 - `profiles` 实现 `watchRoot`：Profile 目录变化时通知。
 - `temps` 的根改为列出临时目录已存在的会话，条目的标题同 `sessions://`。Spec 原来写的是“无条目，只有说明”，要一起改。
 - 授权：浏览器（`caller.agent === null`）照现有规则，挂载点那一层不可写，因为 `sessionRule` 的 `path === ""` 已经拒写。
@@ -69,6 +69,8 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
   - 根的状态多一种 `readOnly`，行上标只读。
   - 挂载方案的订阅按展开的挂载点开、收起即关；根本身随 `roots` 事件重列。
   - 现在的 `watches: Map<Scheme, …>` 改成按订阅单位（根或挂载点）记。
+- 会话根按服务端给的全列（至多 200 个），不截断、没有“显示更多”；树本来就是虚拟滚动。
+- 监视的范围：只有展开着的挂载点开监视（会话是它的 `home/`），没展开的会话不监视；会话根本身不靠文件监视，跟着 `roots` 事件重列。
 - 当前会话：读 public state `nbook.agent/focusedSession`，值为 `{session, profile} | null`。
   - 排序：`sessions://`、`temps://` 里把它排第一、加标记，`profiles://` 里标出它的 Profile。排序只在浏览器端做，不改服务端的列表。
   - 定位：值变了且设置“跟随当前对话”开着时，展开并定位到 `sessions://<id>/home/`，复用 `controller.reveal`。设置项加在资源管理器现有的设置里，缺省开。
