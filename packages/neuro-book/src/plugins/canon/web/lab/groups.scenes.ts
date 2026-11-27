@@ -63,13 +63,12 @@ function groupsFixtures() {
                 return [
                     {id: "filled", label: "填好的人物", input: {props: filled, model: {addOpen: false}}},
                     {id: "empty", label: "刚新建的人物", input: {props: empty, model: {addOpen: false}}},
-                    {id: "no-look", label: "条目上没有形象这一组", input: {props: {...filled, portrait: {status: "absent" as const}}, model: {addOpen: false}}},
-                    {id: "removed-look", label: "形象去掉过", input: {props: {...filled, portrait: {status: "removed" as const}}, model: {addOpen: false}}},
+                    {id: "no-look", label: "没登记形象这一组：立绘那一格不画", input: {props: {...filled, portrait: {status: "unavailable" as const}}, model: {addOpen: false}}},
                     {id: "later-look", label: "所选位置上形象还没启用", input: {props: {...filled, portrait: {status: "later" as const, from: "第 3 章"}}, model: {addOpen: false}}},
                     {id: "add-field", label: "添加一项资料", input: {props: filled, model: {addOpen: true}}},
                     {id: "add-refused", label: "自己写的名字被拒", input: {props: {...filled, addError: "这一组里已经有叫“喜好”的一项"}, model: {addOpen: true}}},
                     {id: "condition-open", label: "现在的状态展开着", input: {props: {...filled, conditionOpen: true}, model: {addOpen: false}}},
-                    {id: "blocked", label: "写不了：值按钮不可用", input: {props: {...filled, editReason: "先不算计划"}, model: {addOpen: false}}},
+                    {id: "blocked", label: "写不了：值按钮与“恢复形象”不可用", input: {props: {...filled, editReason: "先不算计划", portrait: {status: "removed" as const}}, model: {addOpen: false}}},
                     {id: "filled-english", label: "英文界面", input: {props: filled, model: {addOpen: false}}},
                 ];
             })(),
@@ -111,7 +110,6 @@ function groupsFixtures() {
             component: "OriginList",
             scenes: [
                 {id: "sample", label: "估计、核对对不上、初值", input: {props: {rows: origins, caption: "存款是怎么来的"}}},
-                {id: "more", label: "还有没读的步", input: {props: {rows: [...origins.slice(0, 2), origins[4]!], remaining: 29}}},
                 {id: "loading", label: "读取中", input: {props: {rows: [], loading: true}}},
                 {id: "failed", label: "读取失败", input: {props: {rows: [], failed: true}}},
                 {id: "sample-english", label: "英文界面", input: {props: {rows: origins, remaining: 3}}},
@@ -133,9 +131,7 @@ function groupsFixtures() {
             component: "PanelView",
             scenes: [
                 {id: "sample", label: "选中存款，旁边是流水", input: {props: {cards, selected: "panel.存款", ledger: origins, ledgerRemaining: 12}}},
-                {id: "loading", label: "流水读取中", input: {props: {cards, selected: "panel.魔力", ledger: [], ledgerLoading: true}}},
                 {id: "empty", label: "面板还没有内容", input: {props: {cards: []}}},
-                {id: "sample-english", label: "英文界面", input: {props: {cards, selected: "panel.存款", ledger: origins}}},
                 // 能改：可改的卡右边有“改”，随身物品不能改、那一格空着；英文的 Edit 比“改”宽，看那一格是否放得下、各卡是否仍等宽。
                 {id: "editing", label: "能改：可改的卡右边有“改”", input: {props: {cards: cards.map((card, index) => ({...card, editable: index !== 2})), selected: "panel.存款", ledger: origins, editing: true}}},
                 {id: "editing-english", label: "能改（英文界面）", input: {props: {cards: cards.map((card, index) => ({...card, editable: index !== 2})), selected: "panel.存款", ledger: origins, editing: true}}},
@@ -159,7 +155,6 @@ function groupsFixtures() {
                 {id: "long-line", label: "很长的一行折行", input: {props: {position: "最初", text: "【人物】（设定组 character）\n- 性格 = 黑发，左眼下有颗痣，平时话少，遇到和妹妹有关的事会突然变得很固执，打工的地方没人知道她是魔法少女，也没人知道她其实是男生变的｜文字"}}},
                 {id: "loading", label: "设定组类型还在读", input: {props: {position: "第 2 章末尾", text: "", loading: true}}},
                 {id: "failed", label: "设定组类型读失败", input: {props: {position: "第 2 章末尾", text: "", failed: "世界已断开"}}},
-                {id: "panel-english", label: "英文界面", input: {props: {position: "End of chapter 2", text: "【数值】（设定组 panel）\n- 存款 = 900｜数｜单位 元"}}},
             ],
             load: async () => (await import("./ComponentAgentViewFixture.vue")).default,
         }),
@@ -174,9 +169,7 @@ function groupsFixtures() {
                     {id: "more", label: "变更多于一页：再显示", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
                     {id: "added-by-change", label: "初值里没有、也没有变更", input: {props: {changes: [], total: 0, remaining: 0, initialLoading: false, changesLoading: false, failed: null}}},
                     {id: "loading", label: "读取中", input: {props: {changes: [], total: 0, remaining: 0, initialLoading: true, changesLoading: true, failed: null}}},
-                    {id: "changes-first", label: "变更先读回来、初值还在读", input: {props: {changes, total: 2, remaining: 0, initialLoading: true, changesLoading: false, failed: null}}},
                     {id: "failed", label: "读失败", input: {props: {initial, changes, total: 2, remaining: 0, initialLoading: false, changesLoading: false, failed: "世界已断开"}}},
-                    {id: "panel-english", label: "英文界面", input: {props: {initial, changes, total: 45, remaining: 43, initialLoading: false, changesLoading: false, failed: null}}},
                 ];
             })(),
             load: async () => (await import("./ComponentRawViewFixture.vue")).default,

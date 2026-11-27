@@ -60,7 +60,6 @@ function revisionsFixtures() {
                     {id: "created", label: "新建一个条目", input: {props: {status: "normal" as const, model: created}}},
                     {id: "reverted", label: "一次还原：还原的是哪一次", input: {props: {status: "normal" as const, model: reverted, reverted: [{id: "r1", title: "改存款"}]}}},
                     {id: "reorder", label: "章序调整不能还原", input: {props: {status: "normal" as const, model: reorder, revertBlocked: "调整章序的改动不能还原"}}},
-                    {id: "read-only", label: "世界只读", input: {props: {status: "normal" as const, model, readOnly: "世界只读：日志的版本号重复了", revertBlocked: "世界只读：日志的版本号重复了"}}},
                     {id: "loading", label: "读取中", input: {props: {status: "loading" as const}}},
                     {id: "missing", label: "找不到", input: {props: {status: "missing" as const}}},
                     {id: "edit-english", label: "英文界面", input: {props: {status: "normal" as const, model: {...model, title: "Edit Savings", by: "Author", what: "Setting change", sections: [{kind: "modify" as const, items: [{key: "1", ref: {kind: "entry" as const, id: "xingxia"}, name: "Xingxia", fields: [{label: "Savings", before: "500", after: "800"}]}]}], impact: ["Nothing else changes"]}}}},
@@ -89,15 +88,12 @@ function revisionsFixtures() {
                 const readOnly = "世界只读：日志的版本号重复了";
                 return [
                     {id: "sample", label: "七次修订：有依赖的、章序调整、还有更多", input: sample},
-                    {id: "current", label: "键盘停在第四行", input: {props: {...sample.props, more: false}, model: {...model, current: "r4"}}},
                     {id: "long-title", label: "很长的标题", input: {props: {...sample.props, more: false, rows: [row("r9", "把第 3 章到第 9 章里所有提到星瑕存款的地方按新的工资标准重新记一遍账", "Agent · 2026-11-13 15:01", "12 处值变了，少了 3 条待处理，2 条情节套不上了"), ...rows.slice(0, 2)]}, model}},
                     {id: "busy", label: "别人正在独占写", input: {props: {...sample.props, revertBlocked: busy}, model}},
                     {id: "read-only", label: "世界只读", input: {props: {...sample.props, revertBlocked: readOnly, readOnly}, model}},
-                    {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, revertBlocked: "世界已断开", disconnected: true}, model}},
                     {id: "loading", label: "读取中", input: {props: {status: "loading" as const, rows: [], chapters, writers}, model}},
                     {id: "failed", label: "没有读出来", input: {props: {status: "failed" as const, rows: [], chapters, writers}, model}},
                     {id: "empty", label: "还没有改动", input: {props: {status: "normal" as const, rows: [], chapters, writers}, model}},
-                    {id: "empty-filtered", label: "没有符合筛选的", input: {props: {status: "normal" as const, rows: [], chapters, writers}, model: {chapter: "3", writer: "agent"}}},
                     {id: "sample-english", label: "英文界面", input: {props: {...sample.props, more: false, chapters: [{value: "all", label: "All chapters"}], writers: [{value: "all", label: "All writers"}], rows: [row("e2", "Edit Savings", "Author · 2026-11-13 14:12", "2 values changed, 1 fewer pending"), row("e1", "Chapter reorder", "System · 2026-11-13 13:49", "Nothing else changed", {notRevertable: true, note: "Chapter reorders cannot be reverted"})]}, model}},
                 ];
             })(),
@@ -135,14 +131,10 @@ function revisionsFixtures() {
                     component: "PendingView",
                     scenes: [
                         {id: "sample", label: "核对点不符：详情有原句、两个数与嫌疑", input: sample},
-                        {id: "all-groups", label: "三组都展开", input: {props: {...sample.props, groups: {...groups, handled: group([["chain-old", "传话链断了", "第 1 章"], ["chain-2", "传话链断了", "第 2 章"]])}}, model: {expanded: ["pending" as const, "hints" as const, "handled" as const]}}},
                         {id: "busy", label: "别人正在独占写入、结果不完整", input: {props: {...sample.props, holder: "第 3 章记账", notes: ["这些检查没有算出来：传话链断了", "这些检查所在的插件停用了，没有算：插件的一项检查"]}, model: sample.model}},
-                        {id: "no-selection", label: "没有选中", input: {props: {groups}, model: sample.model}},
                         {id: "more-and-hints", label: "一组没列完、“只是提示”展开有项", input: {props: {...sample.props, groups: {...groups, pending: {...groups.pending, more: true}}}, model: {expanded: ["pending" as const, "hints" as const]}}},
-                        {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, disconnected: true}, model: sample.model}},
                         {id: "loading", label: "读取中", input: {props: {groups: {pending: group([], {count: null, loading: true}), hints: group([], {count: null}), handled: group([], {count: null})}}, model: sample.model}},
                         {id: "empty", label: "没有待处理的问题", input: {props: {groups: {pending: group([]), hints: group([]), handled: group([])}}, model: sample.model}},
-                        {id: "read-only", label: "世界只读", input: {props: {...sample.props, readOnly: "世界只读：日志的版本号重复了"}, model: sample.model}},
                         {id: "sample-english", label: "英文界面", input: {props: {groups: {pending: group([["check", "Xingxia's Savings does not match: the text says 2,700, computed 24,500", "Chapter 2"]]), hints: group([]), handled: group([])}, selected: {group: "pending" as const, key: "check"}, detail: {...detail, title: "Xingxia's Savings does not match: the text says 2,700, computed 24,500", place: "Chapter 2", facts: [{label: "In the text", value: "2,700"}, {label: "Computed", value: "24,500"}], suspects: [{...detail.suspects[0]!, text: "Salary arrived, about three thousand", place: "Chapter 2"}], links: [{label: "Open entry", target: {kind: "entry" as const, id: "xingxia"}}]}}, model: sample.model}},
                     ],
                     load: async () => (await import("./PendingViewFixture.vue")).default,
@@ -151,7 +143,6 @@ function revisionsFixtures() {
                     component: "PendingDetail",
                     scenes: [
                         {id: "check-mismatch", label: "核对点不符", input: {props: {detail}}},
-                        {id: "held", label: "待定的情节", input: {props: {detail: held}}},
                         {id: "handled", label: "已处理的插件发现", input: {props: {detail: handled}}},
                         {id: "long-text", label: "很长的原句与链接", input: {props: {detail: {
                             title: "“她在第三章末尾把这些年攒下的钱全部取出来交给了哥哥让他去还清赌债”套不上了",

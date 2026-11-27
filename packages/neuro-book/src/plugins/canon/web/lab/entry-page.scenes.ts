@@ -36,7 +36,6 @@ function entryPageFixtures() {
             scenes: [
                 {id: "sample", label: "页头与分页", input: page},
                 {id: "same-as", label: "马甲、还没出场、选过的章不在了", input: {props: {...page.props, name: "哥哥", summary: "星瑕扮成的男生", sameAs: {id: "xingxia", name: "星瑕"}, notAppeared: true, positionGone: true}, model: {...page.model, position: "1:end"}}},
-                {id: "disconnected", label: "世界已断开", input: {props: {...page.props, disconnected: true}, model: page.model}},
                 {id: "read-only", label: "世界只读", input: {props: {...page.props, readOnly: "不确定世界里写进去了什么，先不能写"}, model: page.model}},
                 {id: "loading", label: "读取中", input: {props: {status: "loading" as const}, model: {position: "", planned: false, tab: ""}}},
                 {id: "failed", label: "读取失败", input: {props: {status: "failed" as const}, model: {position: "", planned: false, tab: ""}}},
@@ -46,7 +45,6 @@ function entryPageFixtures() {
                 {id: "editable-blocked", label: "页头可编辑但算着计划：入口禁用", input: {props: {...page.props, editable: true, editReason: "先不算计划", aliases: ["小瑕"]}, model: {...page.model, planned: true}}},
                 {id: "deleted-restorable", label: "已删除、可以恢复", input: {props: {status: "deleted" as const, name: "旧设定", editable: true}, model: {position: "", planned: false, tab: ""}}},
                 {id: "editable-english", label: "页头可编辑（英文界面）", input: {props: {...page.props, editable: true, aliases: ["Xia"], removableGroup: "Person"}, model: page.model}},
-                {id: "sample-english", label: "英文界面", input: page},
                 // 看法菜单（输出 9、54）：设定组分页留箭头格，选中的显出；选中的再点开菜单。不在缺省看法时分页上写看法名。
                 ...(() => {
                     const lookTabs = tabs.map((tab) => (tab.removable === true ? {...tab, looks: true} : tab));
@@ -55,7 +53,6 @@ function entryPageFixtures() {
                     return [
                         {id: "looks", label: "看法菜单：选中的设定组分页上有箭头，再点开菜单", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:character", look: "card"}}},
                         {id: "looks-agent", label: "看法菜单：在 AI视图，分页上写着", input: {props: {...page.props, editable: true, tabs: lookTabs, looks}, model: {...page.model, tab: "data:panel", look: "agent"}}},
-                        {id: "looks-english", label: "看法菜单（英文界面）", input: {props: {...page.props, editable: true, tabs: lookTabs, looks: looksEnglish}, model: {...page.model, tab: "data:character", look: "raw"}}},
                     ];
                 })(),
             ],
@@ -78,7 +75,6 @@ function entryPageFixtures() {
                     {id: "sample", label: "人物：设定组、文字与看法两段，末尾“添加一组设定”", input: {props: {items, canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
                     {id: "new", label: "空作品里刚新建：没有看法一段", input: {props: {items: items.slice(0, 3), canAdd: true, panelId: "lab-panel"}, model: {modelValue: "data:character"}}},
                     {id: "blocked", label: "写不了：添加不可用", input: {props: {items, canAdd: true, addReason: "先不算计划", panelId: "lab-panel"}, model: {modelValue: "plot"}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}, {value: "plot", label: "Story events", iconClass: "i-lucide-git-commit-horizontal", segment: "view" as const, count: 3}], canAdd: true, panelId: "lab-panel"}, model: {modelValue: "text"}}},
                     // 看法：设定组的行留箭头格、选中的显出；看法名单独一格，名字长时标题先截（168 像素一栏）。
                     {id: "looks", label: "看法：选中的行写着 AI视图，标题长时先截标题", input: {props: {items: items.map((item) => (item.removable === true ? {...item, looks: true} : item)), canAdd: true, panelId: "lab-panel", menus: true, note: "AI视图"}, model: {modelValue: "data:attitude"}}},
                     {id: "looks-english", label: "看法（英文界面）", input: {props: {items: [{value: "data:character", label: "Person", iconClass: "i-lucide-user-round", segment: "own" as const, removable: true, looks: true}, {value: "data:attitude", label: "Goals and attitudes", iconClass: "i-lucide-target", segment: "own" as const, removable: true, looks: true}, {value: "text", label: "Text", iconClass: "i-lucide-file-text", segment: "own" as const}], canAdd: true, panelId: "lab-panel", menus: true, note: "Raw view"}, model: {modelValue: "data:attitude"}}},
@@ -159,14 +155,12 @@ function entryPageFixtures() {
                     {id: "sample", label: "第 3 章末尾，有分支线与计划", input: {props: {chapters: three, canPlan: true, lineOptions: lines, resolvedLine: "main"}, model: {position: "c3:end", planned: false, line: ""}}},
                     {id: "main-only", label: "只有主线：不提线", input: {props: {chapters: three, canPlan: true}, model: {position: "c3:end", planned: false, line: ""}}},
                     {id: "pinned", label: "固定看一条分支线", input: {props: {chapters: three, lineOptions: lines, resolvedLine: "l1"}, model: {position: "c2:end", planned: false, line: "l1"}}},
-                    {id: "planned", label: "算上计划", input: {props: {chapters: three, canPlan: true, lineOptions: lines, resolvedLine: "main"}, model: {position: "c3:end", planned: true, line: ""}}},
                     {id: "many", label: "60 章：菜单里能搜、滚到当前章", input: {props: {chapters: many, canPlan: true, lineOptions: lines, resolvedLine: "main"}, model: {position: "c37:end", planned: false, line: ""}}},
                     {id: "initial", label: "在“最初”：往前一步不可用", input: {props: {chapters: three}, model: {position: "initial", planned: false, line: ""}}},
                     {id: "not-appeared", label: "到这里还没出场", input: {props: {chapters: three, notAppeared: true}, model: {position: "c1:end", planned: false, line: ""}}},
                     {id: "gone", label: "原来选的那一章不在了", input: {props: {chapters: three, positionGone: true}, model: {position: "c3:end", planned: false, line: ""}}},
                     {id: "locked", label: "有没提交的主文字：锁着", input: {props: {chapters: three, canPlan: true, lineOptions: lines, resolvedLine: "main", locked: "先提交或放弃正在写的主文字"}, model: {position: "c3:end", planned: true, line: ""}}},
                     {id: "only-plans", label: "空作品里只有计划", input: {props: {chapters: [], canPlan: true}, model: {position: "initial", planned: false, line: ""}}},
-                    {id: "sample-english", label: "英文界面", input: {props: {chapters: english, canPlan: true, lineOptions: lines, resolvedLine: "l2"}, model: {position: "c12:end", planned: true, line: ""}}},
                     // 英文、长线名、还没出场：标记与结论截断，390 宽不撑出横向滚动。
                     {id: "long-title-english", label: "英文、长线名、还没出场", input: {props: {chapters: english, notAppeared: true, lineOptions: [{id: "main", name: null, depth: 0}, {id: "l9", name: "The Night Everything Was Undone Again", depth: 1}], resolvedLine: "l9"}, model: {position: "c12:end", planned: false, line: "l9"}}},
                 ];
@@ -177,7 +171,6 @@ function entryPageFixtures() {
             component: "PageNotices",
             scenes: [
                 {id: "sample", label: "刚保存了一次就地改：记在第 3 章", input: {props: {notice: {revision: "r1", title: "改外观", where: "第 3 章"}}}},
-                {id: "initial", label: "改的是最初的值", input: {props: {notice: {revision: "r1", title: "改年龄", where: "最初"}}}},
                 {id: "no-where", label: "改条目本身：没有位置", input: {props: {notice: {revision: "r1", title: "加上“形象”这组设定"}}}},
                 {id: "with-agent", label: "Agent 也改了（之前还改过两次）", input: {props: {notice: {revision: "r1", title: "改外观", where: "第 3 章"}, agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 2}}}},
                 {id: "agent-undone", label: "Agent 那一次已还原", input: {props: {agent: {revision: "r2", title: "给星瑕加别名小瑕", earlier: 0, undone: true}}}},
@@ -192,8 +185,6 @@ function entryPageFixtures() {
             scenes: [
                 {id: "disconnected", label: "世界已断开", input: {props: {disconnected: true}}},
                 {id: "read-only", label: "世界只读", input: {props: {readOnly: "世界只读：日志的版本号重复了"}}},
-                {id: "both", label: "断开又只读", input: {props: {disconnected: true, readOnly: "不确定世界里写进去了什么，先不能写"}}},
-                {id: "disconnected-english", label: "英文界面", input: {props: {disconnected: true}}},
             ],
             load: async () => (await import("./WorldBannersFixture.vue")).default,
         }),
