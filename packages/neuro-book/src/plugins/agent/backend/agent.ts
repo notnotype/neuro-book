@@ -220,12 +220,17 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const noteOwned = (entry: Pick<SessionIndexEntry, "id" | "owner" | "caller">): void => {
         if (entry.owner !== undefined && entry.caller?.kind !== "session") owned.add(entry.id);
     };
+    /** 后台会话（会话头的 `background`）。和有归属的根会话一样没人在窗口前，`unattended` 按派发链用它。 */
+    const background = new Set<string>();
     const scanned = await store.list();
     if (scanned.ok) {
         relations.load(scanned.value);
         treeSpend.load(scanned.value);
         titles.load(scanned.value);
-        for (const entry of scanned.value) noteOwned(entry);
+        for (const entry of scanned.value) {
+            noteOwned(entry);
+            if (entry.background) background.add(entry.id);
+        }
     }
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
@@ -247,13 +252,19 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         const role = setting?.role ?? profiles.defaultRole(profile);
         return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(role === undefined ? {} : {role})};
     }), requests);
+    /**
+     * 没有人在窗口前（contributions.md 输出 4）：会话自己是后台的或有归属的，或者派出它的链上有这样的会话。子会话的会话头不带
+     * `background` 与 `owner`，只看自己时 bot 对话或后台任务派出的子代理会拿到前台工具（例如在用户眼前高亮、截图）。
+     */
+    const unattended = (context: ToolSessionContext): boolean =>
+        context.background === true || context.owner !== undefined || relations.ancestorsOf(context.sessionId).some((id) => background.has(id) || owned.has(id));
     const host = createAgentHost({
         store,
         profiles: {resolve: (key) => profiles.resolve(key)},
         models,
         retry: () => ({maxRetries: options.settings.get(agentSettings.settings.modelRetries)}),
         tools: {
-            declarations: (context) => sessionDeclarations(tools.forSession(profiles.requirements(context.profile), bindings()[context.profile], context), evalObjects),
+            declarations: (context) => sessionDeclarations(tools.forSession(profiles.requirements(context.profile), bindings()[context.profile], unattended(context)), evalObjects),
             create: (id, context) => tools.create(id, context),
         },
         resources: (context) => kernelResources(sessionFilesFor(context, null)),
@@ -323,6 +334,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         if (createOptions.caller !== undefined) relations.register({id: created.value.id, caller: createOptions.caller});
         // 建好就记，在第一次运行之前：清单不会先给它出一行会话行。
         noteOwned({id: created.value.id, owner: createOptions.owner, caller: createOptions.caller});
+        if (createOptions.background === true) background.add(created.value.id);
         const view = table.view(created.value.id);
         // Profile 设置里的审批模式是新会话的初值（contributions.md 输出 13）。
         const approvalMode = profileSettings()[createOptions.profile]?.approvalMode;
@@ -451,7 +463,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     return {
         host,
         tools,
-        codeTools: (context) => tools.codeToolsOf(tools.forSession(profiles.requirements(context.profile), bindings()[context.profile], context)),
+        codeTools: (context) => tools.codeToolsOf(tools.forSession(profiles.requirements(context.profile), bindings()[context.profile], unattended(context))),
         evalObjects,
         evalDocs: () => {
             const methods = tools.evalMethods();

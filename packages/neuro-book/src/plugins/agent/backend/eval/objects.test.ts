@@ -56,7 +56,7 @@ describe("工具目录与会话工具集里的对象（profile-settings.md 输�
             ["acme.a.point", {name: "page", method: "point", description: {"zh-CN": "看页面", "en-US": "See the page"}}],
             ["acme.b.peek", {name: "other", method: "peek", description: "other 的摘要"}],
         ]);
-        const ids = (binding?: Parameters<AgentTools["forSession"]>[1]) => tools.forSession({required: [], optional: []}, binding, {}).map((tool) => tool.id);
+        const ids = (binding?: Parameters<AgentTools["forSession"]>[1]) => tools.forSession({required: [], optional: []}, binding, false).map((tool) => tool.id);
         expect(ids()).toEqual(["acme.a.look", "acme.a.point", "acme.b.peek"]);
         expect(ids({added: [], removed: [], objects: {added: [], removed: ["page"]}})).toEqual(["acme.b.peek"]);
     });

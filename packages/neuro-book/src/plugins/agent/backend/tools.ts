@@ -134,14 +134,14 @@ export class AgentTools {
 
     /**
      * 一个会话的工具集（contributions.md 输出 4）：Profile 要的 + 装到所有 Profile 的 + 绑定加的 − 绑定去掉的，必需的去不掉；
-     * 不存在的 id 忽略（必需工具缺失由内核判定）。后台会话与 bot 归属的会话没有人在窗口前，去掉声明了 `foreground` 的；
-     * 这样去掉的必需工具同样由内核按 `tools-missing` 收口。内核的工具表、eval 的说明与代码里的全局对象都取这一份。
+     * 不存在的 id 忽略（必需工具缺失由内核判定）。没有人在窗口前的会话（`unattended`，由调用方按会话头与派发链判定）去掉
+     * 声明了 `foreground` 的；这样去掉的必需工具同样由内核按 `tools-missing` 收口。内核的工具表、eval 的说明与代码里的全局对象
+     * 都取这一份。
      */
-    forSession(requirements: ToolRequirements, binding: ToolBinding | undefined, session: Pick<ToolSessionContext, "background" | "owner">): ToolDeclaration[] {
+    forSession(requirements: ToolRequirements, binding: ToolBinding | undefined, unattended: boolean): ToolDeclaration[] {
         const all = this.all();
         const declared = this.options.declarations.list<AgentToolDeclaration>(TOOLS_POINT);
         const defaultForAll = declared.flatMap((descriptor) => (descriptor.declaration.defaultForAll === true ? [descriptor.id] : []));
-        const unattended = session.background === true || session.owner !== undefined;
         const foreground = new Set(unattended ? declared.flatMap((descriptor) => (descriptor.declaration.foreground === true ? [descriptor.id] : [])) : []);
         return profileToolIds(requirements, defaultForAll, binding, this.methodsOf()).flatMap((id) => {
             const declaration = all.get(id);
