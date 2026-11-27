@@ -28,6 +28,7 @@ const EXEMPTIONS: StyleExemptions = {
     "literal-color": [
         {file: "form/ColorPickerPanel.vue", reason: "取色面板读不懂传入的颜色时要落回一个具体颜色，是取色器本身的需要"},
         {file: "form/Checkbox.vue", reason: "选中底的渐变往黑混 12% 表达压暗，黑不随配色变", values: ["#000000"]},
+        {file: "controls/Tabs.vue", reason: "滚动档两头渐隐的 mask-image 只取透明度，#000 是“不透明”，不显示成颜色", values: ["#000"]},
     ],
     "literal-font-size": [
         {file: "controls/IconButton.vue", reason: "最小一档 14px 的方块里图标字形按方块定 9.6px，随方块而不是随正文字号"},
