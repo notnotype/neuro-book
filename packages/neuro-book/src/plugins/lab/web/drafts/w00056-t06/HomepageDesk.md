@@ -48,5 +48,11 @@
 | `lyraPost(message)`、`lyraHas(id)` | 往星璃的对话里加一条消息（同 `id` 的换掉，边打边出的回复每次给新文字）；对话里有没有这一条。 |
 | `snapshot()`、`snapshotSaved()` | 记下此刻的布局；先存盘，再连同正文、贴进来的图的地址与星璃的对话一起记下。正文按挂上时那一份的路径读（第二幕多一页灰塔）。 |
 | `applyDoc(snapshot)`、`restoreTo(snapshot)` | 把布局换回记下的那一份（产品的布局动画）；`restoreTo` 先核对标签与存盘后的正文都对得上才就地换，返回是否换成了（对不上时页面重新挂一台）。 |
+| `press(key, {ctrl})`、`slashActive()`、`promptOpen()` | 第二幕（第 13 轮，`desk-editing.ts`）：往焦点处按一个键（回车、退格、Ctrl+K、Ctrl+B，编辑器、斜杠菜单与卡片都认合成的按键）；斜杠菜单此刻选中的那一项；注音或链接卡片开着、焦点在它里面没有。 |
+| `caretBlock()`、`blockRect(text)`、`slashMenuRect()`、`selectionMenuRect()`、`promptRect()`、`calloutRect()`、`rubyRect(base)`、`propertiesRect()`、`uploadingRect()` | 第二幕要照亮的地方（视口坐标，不在时为 `null`）：光标所在的那一段、含这句话的那一段、斜杠菜单、选区菜单、注音或链接卡片、最后一个提示块、某个注音、属性面板（收起时是那一行摘要）、贴图上传时“正在上传”的那一块。 |
+| `propertiesToggle()`、`propertiesOpen()`、`propertiesSummary()`、`setPropertiesOpen(open)`、`revealProperties()`、`propertyField(name)`、`focusProperty(name)` | 属性面板：顶上那一行、展开了没有、收起时的摘要、不经指针直接展开或收起、滚进视口、某个属性的值那一格、让它的输入框拿到焦点（合成的按下不给输入框焦点，所以由这里聚焦）。 |
+| `rubied(base)`、`linkRect(text)`、`pasteImage(blob, name)`、`imageRect()`、`revealImage()`、`lastImageName()` | 这几个字带没带注音；文字正好是它的链接；把一张图当作粘贴发给正文（光标处，编辑器照常上传、插入；光标要先放好）；最后一张显示出来的图、把它整张滚进视口；最近存下的那张图在作品树里的名字。 |
+| `explorerRow(name)`、`tabRect(name)`、`openPath(path)` | 作品树里名字是它的那一行；名字以它开头的标签；打开作品里的一份（已开着就换到前面）。 |
+| `reopen(editor)`、`sourceReady()`、`sourceRects(text)`、`editNow(action, params)` | 用源码编辑器（`source`）或 Markdown 编辑器重新打开活动的那一份（产品的“用其它编辑器重新打开”）；源码编辑器画出来了没有；源码里含这段字的几行（只量画出来的行）；不演、直接执行一个编辑动作，返回是否做成。 |
 
 没有 slots；attrs 落在根元素上。根元素上的 `data-hp-preview`（实时布局此刻按哪个落点预览，没在拖是 `none`）给探针读：演示的拖动不该在半路换几次预览。

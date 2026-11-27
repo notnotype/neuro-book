@@ -23,8 +23,11 @@ export interface DemoPointer {
     cancel(): void;
     /** 双击：两下按下松开，再补一个 `dblclick`（产品的双击最大化听的是它）。 */
     doubleClick(at: Point): void;
-    /** 点一下：按下、松开，再补一个 `click`（按钮的处理挂在 click 上）。可以点在工作台外的浮层里。 */
-    click(at: Point): void;
+    /**
+     * 点一下：按下、松开，再补一个 `click`（按钮的处理挂在 click 上）。可以点在工作台外的浮层里。`ctrl`：按住 Ctrl 点，另外补发
+     * `mousedown` 与 `mouseup`（编辑器认点击是按这两个，Ctrl 点链接才打开它）；不按 Ctrl 时不发，免得编辑器把一次点按当成放光标。
+     */
+    click(at: Point, options?: {readonly ctrl?: boolean}): void;
     readonly pressed: boolean;
 }
 
@@ -75,8 +78,8 @@ export function createDemoPointer(root: HTMLElement): DemoPointer {
         return element !== null && (anywhere || root.contains(element)) ? element : null;
     };
 
-    function fire(target: EventTarget, type: string, at: Point, button: number, buttons: number): void {
-        target.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, composed: true, view: window, pointerId: DEMO_POINTER_ID, pointerType: "mouse", isPrimary: true, button, buttons, clientX: at.x, clientY: at.y}));
+    function fire(target: EventTarget, type: string, at: Point, button: number, buttons: number, ctrlKey = false): void {
+        target.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, composed: true, view: window, pointerId: DEMO_POINTER_ID, pointerType: "mouse", isPrimary: true, button, buttons, ctrlKey, clientX: at.x, clientY: at.y}));
     }
 
     function down(at: Point, anywhere = false): Element | null {
@@ -111,15 +114,27 @@ export function createDemoPointer(root: HTMLElement): DemoPointer {
         unpatch();
     }
 
-    function mouse(type: "click" | "dblclick", target: Element, at: Point, detail: number): void {
-        target.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, composed: true, view: window, button: 0, buttons: 0, detail, clientX: at.x, clientY: at.y}));
+    function mouse(type: "click" | "dblclick" | "mousedown" | "mouseup", target: Element, at: Point, detail: number, ctrlKey = false): void {
+        target.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, composed: true, view: window, button: 0, buttons: type === "mousedown" ? 1 : 0, detail, ctrlKey, clientX: at.x, clientY: at.y}));
     }
 
-    function click(at: Point): void {
-        const target = down(at, true);
+    function click(at: Point, options: {readonly ctrl?: boolean} = {}): void {
+        if (options.ctrl !== true) {
+            const target = down(at, true);
+            if (target === null) return;
+            up(at);
+            mouse("click", target, at, 1);
+            return;
+        }
+        // Ctrl 点：不经 `down`、`up`（它们不带修饰键，也不发鼠标事件），整套事件都带上 Ctrl。
+        if (pressed) cancel();
+        const target = hit(at, true);
         if (target === null) return;
-        up(at);
-        mouse("click", target, at, 1);
+        fire(target, "pointerdown", at, 0, 1, true);
+        mouse("mousedown", target, at, 1, true);
+        fire(target, "pointerup", at, 0, 0, true);
+        mouse("mouseup", target, at, 1, true);
+        mouse("click", target, at, 1, true);
     }
 
     function doubleClick(at: Point): void {

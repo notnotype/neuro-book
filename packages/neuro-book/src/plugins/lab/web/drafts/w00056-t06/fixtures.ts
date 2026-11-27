@@ -180,6 +180,15 @@ export const fixtures = [
             {id: "r9-night", label: "四角、两行下划线、落点槽（按“重演”看扣合、铺开与掠光）", input: {props: {marks: GILDED_SAMPLE}}},
             {id: "r9-handoff", label: "交给访客：标签上的小四角，涟漪两圈，隔一会儿往右挪", input: {props: {marks: [{id: "tab", kind: "corners", rect: {left: 32, top: 28, width: 112, height: 26}, small: true, ripple: true, nudge: true}]}}},
             {id: "r9-day", label: "白天：深古铜金", input: {props: {marks: GILDED_SAMPLE, day: true}}},
+            {
+                id: "r13-thread",
+                label: "第 13 轮：细线连起两处（标签与侧轨，各标四角；按“重演”看描线）",
+                input: {props: {marks: [
+                    {id: "tab", kind: "corners", rect: {left: 32, top: 28, width: 112, height: 26}, small: true},
+                    {id: "rail", kind: "corners", rect: {left: 512, top: 136, width: 32, height: 40}, small: true},
+                    {id: "thread", kind: "thread", rect: {left: 32, top: 28, width: 112, height: 26}, to: {left: 512, top: 136, width: 32, height: 40}},
+                ]}},
+            },
         ],
         load: async () => (await import("./GildedMarksFixture.vue")).default as never,
     }),

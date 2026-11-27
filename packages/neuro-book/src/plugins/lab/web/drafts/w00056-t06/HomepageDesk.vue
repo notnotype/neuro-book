@@ -70,6 +70,7 @@ import type {DemoPointer} from "./demo-pointer";
 import type {DeskPlate, DeskSetup, DeskSnapshot, DeskTarget} from "./desk";
 import {withBlobs} from "./desk-blobs";
 import type {DeskBlobs} from "./desk-blobs";
+import {createDeskEditing} from "./desk-editing";
 import {createDeskExplorer} from "./desk-explorer";
 import {BOOK_TITLE, CANON_GROUPS, CATALOG, DESK_REGION_WIDTHS, KNOCK_MESSAGES, lyraContext, OPEN_FILES, PROJECT_FILES, TOUR_MESSAGES, VIEWS} from "./sample";
 import type {OpenFile} from "./sample";
@@ -682,12 +683,16 @@ function revealEnd(file: OpenFile): boolean {
 
 /**
  * 在光标处打几个字。走浏览器的输入路径（`insertText`，和访客打字、输入法上屏一样），编辑器照常收到输入、记脏、能撤销；
- * 不绕过编辑器去改文件。焦点不在这台工作台的编辑器里时不打，返回 false。`field` 时打进焦点所在的批注输入框（它传送在 body 下）。
+ * 不绕过编辑器去改文件。焦点不在这台工作台的编辑器里时不打，返回 false。`field` 时打进焦点所在的输入框：批注卡片、
+ * 注音与链接卡片（都传送在 body 下）、属性面板。
  */
 function type(text: string, where: "editor" | "field" = "editor"): boolean {
-    const ready = where === "editor" ? typing() : document.activeElement?.closest("[data-markdown-comment-card]") != null;
+    const ready = where === "editor" ? typing() : document.activeElement?.closest("[data-markdown-comment-card], [data-markdown-text-prompt], [data-markdown-properties]") != null;
     return ready && document.execCommand("insertText", false, text);
 }
+
+/** 第二幕的编辑器动作与要瞄的地方（`desk-editing.ts`）。 */
+const deskEditing = createDeskEditing({host: () => host.value, area});
 
 /** 焦点在不在这台工作台的编辑器里（`revealEnd` 之后编辑器可能还没准备好，聚焦没有落下）。 */
 function typing(): boolean {
@@ -762,13 +767,13 @@ function finishSelection(): void {
     window.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, pointerId: 7077, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0}));
 }
 
-/** 选区菜单上的按钮（菜单传送在 body 下，不在这台工作台里）：高亮是颜色拆分按钮的主按钮。菜单没出时返回 null。 */
-function menuButton(kind: "highlight" | "comment"): DOMRectReadOnly | null {
+/** 选区菜单上的按钮（菜单传送在 body 下，不在这台工作台里）：高亮是颜色拆分按钮的主按钮，别的按图标找。菜单没出时返回 null。 */
+function menuButton(kind: "highlight" | "comment" | "ruby" | "link"): DOMRectReadOnly | null {
     const menu = document.querySelector<HTMLElement>("[data-markdown-selection-menu]");
     if (menu === null) return null;
     const button = kind === "highlight"
         ? menu.querySelector<HTMLElement>(".markdown-color-button:has(.markdown-color-button__bar--light) .markdown-color-button__main button")
-        : (menu.querySelector<HTMLElement>(`.${CSS.escape(EDITING_ACTIONS.comment.icon)}`)?.closest("button") ?? null);
+        : (menu.querySelector<HTMLElement>(`.${CSS.escape(EDITING_ACTIONS[kind].icon)}`)?.closest("button") ?? null);
     const rect = button?.getBoundingClientRect() ?? null;
     return rect === null || rect.width < 2 ? null : rect;
 }
@@ -885,7 +890,13 @@ async function restoreTo(next: DeskSnapshot): Promise<boolean> {
     return true;
 }
 
-defineExpose({plates, ground, target, pointer: () => demoPointer.value, splitRight, moveExplorer, setAuxiliaryHidden, setMaximized, isMaximized, floatAlice, revealEnd, type, typing, shows, textRects, selectText, finishSelection, collapseSelection, menuButton, commentSave, focusCommentField, commentMarker, marked, markNow, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc, restoreTo});
+/** 最近存下的那张图在作品树里的名字（演示在树上标它）；还没存过图时为 null。 */
+function lastImageName(): string | null {
+    const address = [...storedImages].at(-1);
+    return address === undefined ? null : address.slice(address.lastIndexOf("/") + 1);
+}
+
+defineExpose({plates, ground, target, pointer: () => demoPointer.value, splitRight, moveExplorer, setAuxiliaryHidden, setMaximized, isMaximized, floatAlice, revealEnd, type, typing, shows, textRects, selectText, finishSelection, collapseSelection, menuButton, commentSave, focusCommentField, commentMarker, marked, markNow, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc, restoreTo, lastImageName, ...deskEditing});
 
 // 第一次排好版（量到尺寸、卡片有了）再告诉页面，开场动画照它摆。
 const stopReady = watch(presented, (sizes) => {

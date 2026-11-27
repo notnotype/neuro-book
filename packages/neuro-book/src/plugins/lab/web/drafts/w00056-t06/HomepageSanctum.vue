@@ -41,8 +41,9 @@ import type {GildedMark} from "./GildedMarks.vue";
 import GiltButton from "./GiltButton.vue";
 import {glidePath, glideTime} from "./glide";
 import HomepageDesk from "./HomepageDesk.vue";
-import {CARRY, frames, Interrupted, prefersReducedMotion, tween, wait} from "./motion";
-import {actTwoFiles, KNOCK_ASK, KNOCK_LEAD, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply, PROJECT_FILES} from "./sample";
+import {CARRY, frames, Interrupted, prefersReducedMotion, timeScale, tween, wait} from "./motion";
+import {engravingPng} from "./engraving";
+import {ACT_TWO_SCRIPT, actTwoFiles, CHAPTER_FIVE_PATH, GRAY_TOWER_PATH, KNOCK_ASK, KNOCK_LEAD, KNOCK_READ, KNOCK_REPLY, KNOCK_REPLY_ID, KNOCK_TYPED, knockReply, PROJECT_FILES} from "./sample";
 import type {OpenFile} from "./sample";
 import {deskBox, EYEBROW_BAND, SANCTUM_MIN_WIDTH} from "./sanctum";
 import SanctumScene from "./SanctumScene.vue";
@@ -248,6 +249,13 @@ const pointerShown = ref(false);
 const pointerPressed = ref(false);
 /** 拖着东西走：指针微微前倾（@designer 第 8 轮）。 */
 const pointerCarrying = ref(false);
+/**
+ * 按快捷键的那一下（第 13 轮，@designer 第 12 轮：键帽提示放在编辑区右下角，避开章节条与状态栏）：几枚金边键帽在那里亮一会儿，
+ * 按住的（Ctrl 点链接）一直亮到 `hideKeys`。画在手那一层里，跟指针一样压在浮层之上。
+ */
+const keycaps = shallowRef<{readonly id: number; readonly names: readonly string[]; readonly at: Point} | null>(null);
+let keycapsTimer = 0;
+let keycapsCount = 0;
 let pointerAt: Point = {x: 0, y: 0};
 
 /**
@@ -290,12 +298,31 @@ function hidePointer(): void {
     pointerShown.value = false;
     pointerPressed.value = false;
     pointerCarrying.value = false;
+    hideKeys();
 }
 
 /** 松开但不收起：拍与拍之间指针留在原处。 */
 function releasePointer(): void {
     pointerPressed.value = false;
     pointerCarrying.value = false;
+}
+
+/** 亮出几枚键帽（`["Ctrl", "V"]`）：`ms` 以后收起，`null` 时亮到 `hideKeys`。量不到编辑区（窄屏、还没挂上）时不亮。 */
+function showKeys(names: readonly string[], ms: number | null = 900): void {
+    window.clearTimeout(keycapsTimer);
+    keycapsTimer = 0;
+    const body = desk.value?.target("first-editor-body") ?? null;
+    if (body === null || !wide.value) return;
+    syncHand();
+    keycapsCount += 1;
+    keycaps.value = {id: keycapsCount, names, at: toStage({x: body.right - 20, y: body.bottom - 20})};
+    if (ms !== null) keycapsTimer = window.setTimeout(hideKeys, ms * timeScale());
+}
+
+function hideKeys(): void {
+    window.clearTimeout(keycapsTimer);
+    keycapsTimer = 0;
+    keycaps.value = null;
 }
 
 /**
@@ -572,14 +599,47 @@ async function markNow(signal: AbortSignal): Promise<void> {
  */
 const spots = shallowRef<readonly SpotRect[]>([]);
 const spotMarks = shallowRef<readonly SpotMark[]>([]);
-function illuminate(items: ReadonlyArray<{readonly rect: DOMRectReadOnly | null; readonly mark?: SpotMark}>): void {
+type LitItems = ReadonlyArray<{readonly rect: DOMRectReadOnly | null; readonly mark?: SpotMark}>;
+function light(items: LitItems): void {
     const shown = items.flatMap((item) => (item.rect === null ? [] : [{rect: item.rect, mark: item.mark ?? "none"}]));
     spots.value = shown.map((item) => rectToStage(item.rect));
     spotMarks.value = shown.map((item) => item.mark);
 }
+function illuminate(items: LitItems): void {
+    stopFollowing();
+    light(items);
+}
 function darken(): void {
+    stopFollowing();
     spots.value = [];
     spotMarks.value = [];
+}
+
+/**
+ * 亮处跟着东西走（第 13 轮：展开、收起的卡片，长出来的图，随查询变短的菜单）：每一帧量一次，变了才换，幕自己平滑地挪过去。
+ * 有一块量不到的那一帧不换（菜单刚收、提示块还没画出来的一两帧）：块数一变，幕就要淡开再落光。到下一次照亮或 `darken` 为止。
+ */
+let following = 0;
+function follow(measure: () => LitItems): void {
+    stopFollowing();
+    let last = "";
+    const step = (): void => {
+        const items = measure();
+        const rects = items.map((item) => item.rect);
+        if (rects.every((rect): rect is DOMRectReadOnly => rect !== null)) {
+            const key = rects.map((rect) => [rect.left, rect.top, rect.width, rect.height].map(Math.round).join(",")).join("|");
+            if (key !== last) {
+                last = key;
+                light(items);
+            }
+        }
+        following = requestAnimationFrame(step);
+    };
+    step();
+}
+function stopFollowing(): void {
+    if (following !== 0) cancelAnimationFrame(following);
+    following = 0;
 }
 /** 一块的右半边：第一章拖过去以后长出新的一组的地方。 */
 function rightHalf(rect: DOMRectReadOnly | null): DOMRectReadOnly | null {
@@ -633,7 +693,10 @@ function conclude(copy: BeatCopy): void {
  * 遮罩以外几处自己点题的鎏金标记（第 9 轮，`GildedMarks`；第 8 轮是金线框、金底与金环，开发者嫌“金色高亮矩形有点丑”）：
  * 星璃开口时她那一栏标四角，第一拍收尾两声敲门按行标下划线（同一批出现，一起掠光），交给访客时第一章的标签标小四角，漾两圈、隔一会儿往右挪。
  */
+/** 第二幕各拍自己的标记（第 13 轮）：新标签与存下的文件上的小四角、连起图与文件的细线、原文里依次描金的几行。 */
+const actMarks = shallowRef<readonly GildedMark[]>([]);
 const pageMarks = computed<readonly GildedMark[]>(() => [
+    ...actMarks.value,
     ...(glow.value === null ? [] : [{id: "lyra", kind: "corners" as const, rect: glow.value}]),
     ...marks.value.map((rect, index) => ({id: `echo-${index}`, kind: "underline" as const, rect})),
     ...(ring.value === null ? [] : [{id: "handoff", kind: "corners" as const, rect: ring.value, small: true, ripple: true, nudge: true}]),
@@ -877,8 +940,10 @@ function tidy(): void {
     trail?.clear();
     // 指针不在这里收：拍与拍之间它留着（`parkPointer`），收起由 `idle` 在暂停与交给访客时做。
     releasePointer();
+    hideKeys();
     darken();
     marks.value = [];
+    actMarks.value = [];
     glow.value = null;
     veil.value = false;
     lightsOut.value = false;
@@ -968,44 +1033,443 @@ const actOne = useStagedAct<DeskSnapshot>({
 /** 换幕的落印此刻的样子（`ActSeal`）。 */
 const seal = ref<"off" | "drawing" | "docked">("off");
 
-/** 还没做成真演的一拍：只在眉题上说三句，不动工作台。`opensAct`：这一幕的第一拍，先让眉题上的幕名停一会儿（同第一幕）。 */
-function placeholderBeat(copy: BeatCopy, opensAct = false): StagedBeat {
-    return {
-        copy,
-        nominal: opensAct ? 8600 : 7000,
-        async play(signal) {
-            await whenReadyToPlay(signal);
-            if (opensAct) {
-                captionTitle.value = ACT_TWO.number;
-                caption.value = ACT_TWO.title;
-                await wait(1600, signal);
-            }
-            say(copy, "opening");
-            await wait(2600, signal);
-            if (copy.middle !== undefined) {
-                say(copy, "middle");
-                await wait(2600, signal);
-            }
-            conclude(copy);
-            await wait(2400, signal);
-        },
-        settle: async () => undefined,
-    };
+/** 灰塔的剖面版画画成的 PNG：第一次粘贴时才画，之后用同一份。 */
+let engraving: Promise<Blob> | null = null;
+const engravingImage = (): Promise<Blob> => (engraving ??= engravingPng());
+
+/** 一个字一个字地打（正文或输入框里），标点处停得久一些。焦点跑了、打不进去就停，返回 false。 */
+async function typeSlowly(text: string, where: "editor" | "field", signal: AbortSignal): Promise<boolean> {
+    for (const char of text) {
+        if (desk.value?.type(char, where) !== true) return false;
+        await wait("，。：“”".includes(char) ? 320 : 80 + Math.round(Math.random() * 60), signal);
+    }
+    return true;
 }
 
+/** 光标放到这一句所在那一段的末尾（选中再收到末尾；编辑器在选中时就读过了选区）。这句不在桌上时返回 false。 */
+function caretAfter(text: string): boolean {
+    if (desk.value?.selectText(text) === null) return false;
+    desk.value?.collapseSelection();
+    return true;
+}
+
+/** 指针挪到这一句末尾的右下方停着（不压在要打的字上），像有人点进去接着写。 */
+async function reachAfter(text: string, signal: AbortSignal): Promise<void> {
+    const line = desk.value?.textRects(text).at(-1) ?? null;
+    if (line !== null) await reach({x: line.right + 56, y: line.bottom + 26}, signal);
+}
+
+/** 第一个编辑组的正文那一块（第二幕只有一组）：键帽摆在它的右下角，亮处不出它。 */
+const editorBody = (): DOMRectReadOnly | null => desk.value?.target("first-editor-body") ?? null;
+
+/** 亮处不出编辑区：图比正文的视口高、还在往里滚时，只照看得见的那一截。完全在外面时为 null。 */
+function within(rect: DOMRectReadOnly | null | undefined, bounds: DOMRectReadOnly | null): DOMRectReadOnly | null {
+    if (rect === null || rect === undefined) return null;
+    if (bounds === null) return rect;
+    const left = Math.max(rect.left, bounds.left);
+    const top = Math.max(rect.top, bounds.top);
+    const right = Math.min(rect.right, bounds.right);
+    const bottom = Math.min(rect.bottom, bounds.bottom);
+    return right - left < 2 || bottom - top < 2 ? null : new DOMRectReadOnly(left, top, right - left, bottom - top);
+}
+
+/** 两块合成一块（新标签连同它下面那一页的正文）。 */
+function union(a: DOMRectReadOnly | null, b: DOMRectReadOnly | null): DOMRectReadOnly | null {
+    if (a === null) return b;
+    if (b === null) return a;
+    const left = Math.min(a.left, b.left);
+    const top = Math.min(a.top, b.top);
+    return new DOMRectReadOnly(left, top, Math.max(a.right, b.right) - left, Math.max(a.bottom, b.bottom) - top);
+}
+
+/** Ctrl 点一下（链接）：指针滑过去，编辑区右下角亮出按住的 Ctrl，再按下松开，松开后键帽收起。量不到了返回 false。 */
+async function ctrlTap(measure: () => DOMRectReadOnly | null, signal: AbortSignal): Promise<boolean> {
+    const first = measure();
+    if (first === null) return false;
+    await reach(centerOf(first), signal);
+    showKeys(["Ctrl"], null);
+    await wait(460, signal);
+    const rect = measure();
+    if (rect === null) {
+        hideKeys();
+        return false;
+    }
+    const point = centerOf(rect);
+    placePointer(point);
+    pointerPressed.value = true;
+    ripple(point);
+    hand()?.click(point, {ctrl: true});
+    await wait(160, signal);
+    pointerPressed.value = false;
+    await wait(320, signal);
+    hideKeys();
+    return true;
+}
+
+/**
+ * 提示块里那一句：三段依次打，进出中间那段各按一次 Ctrl+B（键帽亮一下）。`slowly` 为假时一段一段打（快进），也不亮键帽；
+ * 快进时每一步之间也让编辑器过两帧：同步地连着按键、打字，粗体没落上（第 13 轮少动效连播实测）。
+ */
+async function typeCallout(slowly: boolean, signal: AbortSignal): Promise<void> {
+    for (const [index, piece] of ACT_TWO_SCRIPT.callout.entries()) {
+        if (index > 0) {
+            if (slowly) showKeys(["Ctrl", "B"], 700);
+            desk.value?.press("b", {ctrl: true});
+            await (slowly ? wait(240, signal) : frames(2));
+        }
+        if (slowly) await typeSlowly(piece, "editor", signal);
+        else {
+            desk.value?.type(piece);
+            await frames(2);
+        }
+    }
+}
+
+/** 不演：章名下面另起一段、直接插提示块、打那一句。 */
+async function calloutNow(signal: AbortSignal): Promise<void> {
+    if (desk.value?.shows(ACT_TWO_SCRIPT.callout[0]) === true) return;
+    if (!caretAfter(ACT_TWO_SCRIPT.heading)) return;
+    desk.value?.press("Enter");
+    desk.value?.editNow("callout");
+    await typeCallout(false, signal);
+}
+
+/**
+ * 中文规矩的上半拍：章名下面另起一段，行首打顿号叫出斜杠菜单，按拼音首字母筛出“提示块”，回车插进去，在里面打一句。拼音库在第一次
+ * 打开菜单时才加载：先停一会儿再打查询；筛不出（库还没好）就删掉查询改打中文名。菜单没出来时删掉顿号，直接插（同一个编辑动作）。
+ * 菜单开着时照亮正在写的这一段与菜单，插进来以后两块亮处一起收紧到提示块上、标四角（@designer 第 12 轮）。
+ */
+async function calloutBySlash(signal: AbortSignal): Promise<void> {
+    if (desk.value?.shows(ACT_TWO_SCRIPT.callout[0]) === true) return;
+    await reachAfter(ACT_TWO_SCRIPT.heading, signal);
+    if (!caretAfter(ACT_TWO_SCRIPT.heading)) return;
+    await wait(300, signal);
+    desk.value?.press("Enter");
+    await wait(450, signal);
+    desk.value?.type("、");
+    if ((await until(() => desk.value?.slashActive() ?? null, 1200, signal)) === null) {
+        desk.value?.press("Backspace");
+        desk.value?.editNow("callout");
+        await typeCallout(true, signal);
+        return;
+    }
+    follow(() => [{rect: desk.value?.caretBlock() ?? null}, {rect: desk.value?.slashMenuRect() ?? null}]);
+    await wait(1000, signal);
+    await typeSlowly(ACT_TWO_SCRIPT.slashQuery, "editor", signal);
+    const item = (): true | null => (desk.value?.slashActive() === ACT_TWO_SCRIPT.slashItem ? true : null);
+    if ((await until(item, 1400, signal)) === null) {
+        for (let index = 0; index < ACT_TWO_SCRIPT.slashQuery.length; index += 1) desk.value?.press("Backspace");
+        await typeSlowly(ACT_TWO_SCRIPT.slashItem, "editor", signal);
+        await until(item, 1000, signal);
+    }
+    await wait(500, signal);
+    desk.value?.press("Enter");
+    // 两块亮处一起挪到提示块上：块数不变，幕是收紧过去的，不是淡开再换一处落光。
+    const callout = (): DOMRectReadOnly | null => desk.value?.calloutRect() ?? null;
+    follow(() => [{rect: callout(), mark: "corners"}, {rect: callout()}]);
+    await wait(600, signal);
+    await typeCallout(true, signal);
+}
+
+/** 不演：选中“霜港”、直接注音。 */
+function rubyNow(): void {
+    const {base, text} = ACT_TWO_SCRIPT.ruby;
+    if (desk.value?.rubied(base) === true || desk.value?.selectText(base) === null) return;
+    desk.value?.editNow("ruby", {text});
+    desk.value?.collapseSelection();
+}
+
+/**
+ * 中文规矩的下半拍：拖选“霜港”，点选区菜单上的“注音”，在卡片里打读音、回车。菜单或卡片没出来时直接执行同一个编辑动作。
+ * 菜单出来以后，亮处从提示块挪到这一段与菜单（之后是卡片）上。
+ */
+async function rubyBySelection(signal: AbortSignal): Promise<void> {
+    const {base, text} = ACT_TWO_SCRIPT.ruby;
+    if (desk.value?.rubied(base) === true) return;
+    if (!(await sweepSelect(base, signal))) return;
+    follow(() => [{rect: desk.value?.blockRect(base) ?? null}, {rect: desk.value?.promptRect() ?? desk.value?.selectionMenuRect() ?? null}]);
+    await until(() => desk.value?.menuButton("ruby") ?? null, 1400, signal);
+    await wait(300, signal);
+    const opened = (await tap(() => desk.value?.menuButton("ruby") ?? null, signal)) && (await until(() => (desk.value?.promptOpen() === true ? true : null), 1400, signal)) !== null;
+    if (opened) {
+        await wait(380, signal);
+        await typeSlowly(text, "field", signal);
+        await wait(420, signal);
+        desk.value?.press("Enter");
+        await wait(300, signal);
+    }
+    desk.value?.collapseSelection();
+    rubyNow();
+}
+
+/**
+ * 插图：剖面图贴在“摊在桌上”那一段后面，另起一段贴（图自己占一段）。`animate` 为假时不挪指针（快进）。演的时候先照亮图要落的
+ * 那一段，按 Ctrl+V；上传的那一会儿正文里是“正在上传 1 张图片”，之后长成整张图，亮处跟着它；图出来以后整张滚进视口。
+ */
+async function pasteEngraving(animate: boolean, signal: AbortSignal): Promise<void> {
+    if (desk.value?.imageRect() != null) return;
+    const image = await engravingImage();
+    if (animate) await reachAfter(ACT_TWO_SCRIPT.imageAfter, signal);
+    if (!caretAfter(ACT_TWO_SCRIPT.imageAfter)) return;
+    if (animate) await wait(300, signal);
+    desk.value?.press("Enter");
+    if (animate) {
+        await wait(160, signal);
+        follow(() => [{rect: desk.value?.caretBlock() ?? null}]);
+        await wait(700, signal);
+        showKeys(["Ctrl", "V"]);
+        pointerPressed.value = true;
+        ripple(pointerAt);
+    }
+    desk.value?.pasteImage(image);
+    if (animate) {
+        await wait(160, signal);
+        pointerPressed.value = false;
+        follow(() => [{rect: within(desk.value?.uploadingRect() ?? desk.value?.imageRect(), editorBody())}]);
+    }
+    if ((await until(() => desk.value?.imageRect() ?? null, 4000, signal)) !== null && animate) desk.value?.revealImage();
+}
+
+/** 作品树里存下的那张图那一行（“插图”展开以后才有）。 */
+function imageFileRow(): DOMRectReadOnly | null {
+    const name = desk.value?.lastImageName() ?? null;
+    return name === null ? null : (desk.value?.explorerRow(name) ?? null);
+}
+
+/** 图与作品树里存下的那个文件同时亮着，文件名上标小四角，中间一道细虚金线连着（@designer 第 12 轮）。 */
+function lightImageAndFile(): void {
+    const image = within(desk.value?.imageRect(), editorBody());
+    const file = imageFileRow();
+    illuminate([{rect: image, mark: "corners"}, {rect: file}]);
+    actMarks.value = image === null || file === null ? [] : [
+        {id: "image-file", kind: "corners", rect: rectToStage(file), small: true},
+        {id: "image-thread", kind: "thread", rect: rectToStage(file), to: rectToStage(image)},
+    ];
+}
+
+/**
+ * 章节属性：展开面板，状态改成修改中，出场添上守门人，收起。`animate` 为假时不经指针（快进）；快进时回车以后也让面板过两帧
+ * 再改下一项：同步地接着改，出场没添上（第 13 轮少动效连播实测）。
+ */
+async function editProperties(animate: boolean, signal: AbortSignal): Promise<void> {
+    const {status, cast} = ACT_TWO_SCRIPT;
+    if (animate) {
+        await tap(() => desk.value?.propertiesToggle() ?? null, signal);
+        await until(() => (desk.value?.propertiesOpen() === true ? true : null), 1000, signal);
+        await wait(900, signal);
+        say(BEATS_TWO.props, "middle");
+        await wait(900, signal);
+    }
+    desk.value?.setPropertiesOpen(true);
+    // 展开以后属性那几行下一次更新才画出来。
+    await until(() => desk.value?.propertyField(status.name) ?? null, 1000, signal);
+    for (const field of [status, cast]) {
+        if (animate) await tap(() => desk.value?.propertyField(field.name) ?? null, signal);
+        if (desk.value?.focusProperty(field.name) !== true) continue;
+        if (animate) {
+            await wait(300, signal);
+            await typeSlowly(field.value, "field", signal);
+            await wait(380, signal);
+        } else desk.value?.type(field.value, "field");
+        desk.value?.press("Enter");
+        await (animate ? wait(600, signal) : frames(2));
+    }
+    if (animate) await tap(() => desk.value?.propertiesToggle() ?? null, signal);
+    desk.value?.setPropertiesOpen(false);
+}
+
+/** 不演：选中“灰塔”、直接加链接。 */
+function linkNow(): void {
+    const {text, href} = ACT_TWO_SCRIPT.link;
+    if (desk.value?.linkRect(text) != null || desk.value?.selectText(text) === null) return;
+    desk.value?.editNow("link", {href});
+    desk.value?.collapseSelection();
+}
+
+/**
+ * 链到设定：拖选“灰塔”，按 Ctrl+K 叫出链接卡片，把地址贴进去、回车。产品的链接卡片新建时是空的，也不按名字搜作品里的文件
+ * （markdown-editing.md 的“不做”：链接卡片只填地址），所以地址是贴进去的，一次到位，不逐字敲（@designer 第 12 轮：别演手敲路径，
+ * 路径留到第五拍）。卡片没出来时直接执行同一个编辑动作。卡片开着时照亮这个词与卡片。
+ */
+async function linkBySelection(signal: AbortSignal): Promise<void> {
+    const {text, href} = ACT_TWO_SCRIPT.link;
+    if (desk.value?.linkRect(text) != null) return;
+    if (!(await sweepSelect(text, signal))) return;
+    await wait(400, signal);
+    showKeys(["Ctrl", "K"]);
+    desk.value?.press("k", {ctrl: true});
+    if ((await until(() => (desk.value?.promptOpen() === true ? true : null), 1400, signal)) !== null) {
+        follow(() => [{rect: desk.value?.textRects(text)[0] ?? null, mark: "underline"}, {rect: desk.value?.promptRect() ?? null}]);
+        await wait(800, signal);
+        showKeys(["Ctrl", "V"]);
+        desk.value?.type(href, "field");
+        await wait(1000, signal);
+        desk.value?.press("Enter");
+        await wait(300, signal);
+    }
+    desk.value?.collapseSelection();
+    linkNow();
+}
+
+/** 用源码编辑器重新打开第五章（第五章已在前面；“用其它编辑器重新打开”），等它挂上（它是异步加载的）。 */
+async function openSource(signal: AbortSignal): Promise<void> {
+    if (desk.value?.sourceReady() === true) return;
+    desk.value?.openPath(CHAPTER_FIVE_PATH);
+    desk.value?.reopen("source");
+    await until(() => (desk.value?.sourceReady() === true ? true : null), 5000, signal);
+}
+
+/**
+ * 原文里要描金的几行：属性、提示块（标记那一行与写着伏笔的那一行）、链接、插图、注音。按这一行里一定有的字找：图与链接的地址
+ * 在原文里可能被编码，找 `![` 与链接的方括号。
+ */
+const SOURCE_LINES = [`${ACT_TWO_SCRIPT.status.name}: ${ACT_TWO_SCRIPT.status.value}`, "[!NOTE]", "伏笔", `[${ACT_TWO_SCRIPT.link.text}](`, "![", ACT_TWO_SCRIPT.ruby.text];
+
+/** 那几行此刻的位置，从上到下（Monaco 只画视口里的行，滚出去的不在）。 */
+function sourceLineRects(): DOMRect[] {
+    return SOURCE_LINES.flatMap((text) => desk.value?.sourceRects(text) ?? []).sort((a, b) => a.top - b.top);
+}
+
+/**
+ * 第二幕的五拍与交给访客（第 13 轮，脚本照 @designer 第 12 轮）：都在第五章上，演示走产品自己的入口（`desk-editing.ts`），
+ * 菜单或卡片没出来时直接执行同一个编辑动作，结果一样。每一拍照亮讲的那一块（四角、下划线、细线），快捷键在编辑区右下角亮键帽。
+ * 标称时长量自第 13 轮在开发服务上连播的一遍（还是原文那一拍含源码编辑器第一次加载的约 4 秒，开发服务上慢）。
+ */
 const BEAT_STEPS_TWO: readonly StagedBeat[] = [
-    placeholderBeat(BEATS_TWO.chinese, true),
-    placeholderBeat(BEATS_TWO.image),
-    placeholderBeat(BEATS_TWO.props),
-    placeholderBeat(BEATS_TWO.link),
-    placeholderBeat(BEATS_TWO.file),
     {
+        copy: BEATS_TWO.chinese,
+        nominal: 17500,
+        async play(signal) {
+            await whenReadyToPlay(signal);
+            captionTitle.value = ACT_TWO.number;
+            caption.value = ACT_TWO.title;
+            await wait(1600, signal);
+            say(BEATS_TWO.chinese, "opening");
+            await wait(1000, signal);
+            await calloutBySlash(signal);
+            await wait(700, signal);
+            say(BEATS_TWO.chinese, "middle");
+            await wait(900, signal);
+            await rubyBySelection(signal);
+            await wait(500, signal);
+            conclude(BEATS_TWO.chinese);
+            // 四角收紧到提示块与注了音的“霜港”上。
+            illuminate([{rect: desk.value?.calloutRect() ?? null, mark: "corners"}, {rect: desk.value?.rubyRect(ACT_TWO_SCRIPT.ruby.base) ?? null, mark: "corners"}]);
+            await wait(2400, signal);
+            darken();
+        },
+        async settle(signal) {
+            await calloutNow(signal);
+            rubyNow();
+        },
+    },
+    {
+        copy: BEATS_TWO.image,
+        nominal: 6000,
+        async play(signal) {
+            await whenReadyToPlay(signal);
+            say(BEATS_TWO.image, "opening");
+            await wait(1200, signal);
+            await pasteEngraving(true, signal);
+            await wait(700, signal);
+            // 作品树里多了“插图”：点开它，存下的那张图就在里面。
+            await tap(() => desk.value?.explorerRow("插图") ?? null, signal);
+            await until(imageFileRow, 1200, signal);
+            await wait(300, signal);
+            conclude(BEATS_TWO.image);
+            lightImageAndFile();
+            await wait(2600, signal);
+            darken();
+            actMarks.value = [];
+        },
+        settle: (signal) => pasteEngraving(false, signal),
+    },
+    {
+        copy: BEATS_TWO.props,
+        nominal: 10400,
+        async play(signal) {
+            await whenReadyToPlay(signal);
+            say(BEATS_TWO.props, "opening");
+            desk.value?.revealProperties();
+            // 亮处跟着属性面板：展开时四角拉开，收起时缩回那一行摘要。
+            follow(() => [{rect: desk.value?.propertiesRect() ?? null, mark: "corners"}]);
+            await wait(1100, signal);
+            await editProperties(true, signal);
+            await wait(500, signal);
+            conclude(BEATS_TWO.props);
+            await wait(2400, signal);
+            darken();
+        },
+        settle: (signal) => editProperties(false, signal),
+    },
+    {
+        copy: BEATS_TWO.link,
+        nominal: 7500,
+        async play(signal) {
+            await whenReadyToPlay(signal);
+            say(BEATS_TWO.link, "opening");
+            await wait(1100, signal);
+            await linkBySelection(signal);
+            darken();
+            await wait(600, signal);
+            // 按住 Ctrl 点链接，灰塔那一页在新标签里翻开：亮处扩到新标签连同那一页的正文，标签上标小四角。
+            if (!(await ctrlTap(() => desk.value?.linkRect(ACT_TWO_SCRIPT.link.text) ?? null, signal))) desk.value?.openPath(GRAY_TOWER_PATH);
+            const tab = await until(() => desk.value?.tabRect("灰塔.md") ?? null, 1500, signal);
+            await wait(300, signal);
+            conclude(BEATS_TWO.link);
+            illuminate([{rect: union(tab, editorBody())}]);
+            if (tab !== null) actMarks.value = [{id: "gray-tower-tab", kind: "corners", rect: rectToStage(tab), small: true}];
+            await wait(2200, signal);
+            darken();
+            actMarks.value = [];
+            // 看过一会儿切回第五章。
+            await wait(300, signal);
+            await tap(() => desk.value?.tabRect("第五章 第四下") ?? null, signal);
+            await wait(500, signal);
+        },
+        async settle() {
+            linkNow();
+            desk.value?.openPath(GRAY_TOWER_PATH);
+            desk.value?.openPath(CHAPTER_FIVE_PATH);
+        },
+    },
+    {
+        copy: BEATS_TWO.file,
+        nominal: 8800,
+        async play(signal) {
+            await whenReadyToPlay(signal);
+            // 被打断时可能停在原文里：从富文本起演。
+            desk.value?.reopen("markdown");
+            say(BEATS_TWO.file, "opening");
+            await wait(1200, signal);
+            await openSource(signal);
+            await wait(600, signal);
+            // 放开整片编辑区，原文里那几行自上而下依次描金，齐亮一会儿。切回富文本是交给访客那一段的事：这一拍的终态停在原文里，
+            // 少动效时直接摆上这一拍，看到的也是原文。
+            illuminate([{rect: editorBody()}]);
+            for (const [index, rect] of sourceLineRects().entries()) {
+                actMarks.value = [...actMarks.value, {id: `source-${String(index)}`, kind: "underline", rect: rectToStage(rect)}];
+                await wait(340, signal);
+            }
+            conclude(BEATS_TWO.file);
+            await wait(1600, signal);
+            actMarks.value = [];
+            darken();
+        },
+        settle: openSource,
+    },
+    {
+        // 交给访客：切回富文本，光标放在第五章末尾。
         copy: null,
         nominal: 0,
         async play(signal) {
-            await wait(300, signal);
+            desk.value?.reopen("markdown");
+            await focusChapterFive(signal);
         },
-        settle: async () => undefined,
+        async settle(signal) {
+            desk.value?.reopen("markdown");
+            await focusChapterFive(signal);
+        },
     },
 ];
 
@@ -1422,6 +1886,15 @@ onBeforeUnmount(() => {
                                 <path d="M3.4,5.6 L3.4,19.2" stroke="#fffaf0" stroke-opacity="0.7" stroke-width="1" stroke-linecap="round" />
                             </svg>
                         </div>
+                        <!-- 快捷键的键帽：编辑区右下角（见 `showKeys`）。 -->
+                        <Transition name="hs-keys">
+                            <div v-if="keycaps !== null" :key="keycaps.id" class="hs-keys" :style="{left: px(keycaps.at.x), top: px(keycaps.at.y)}">
+                                <template v-for="(name, index) in keycaps.names" :key="name">
+                                    <span v-if="index > 0" class="hs-keys__plus">+</span>
+                                    <kbd class="hs-keys__cap">{{ name }}</kbd>
+                                </template>
+                            </div>
+                        </Transition>
                     </div>
                 </Teleport>
             </div>
@@ -1723,6 +2196,58 @@ onBeforeUnmount(() => {
 .hs-pointer.is-pressed.is-carrying svg {
     transform: translate3d(0, 1.5px, 0) rotate(-6deg) scale(0.88);
     transition-duration: 180ms;
+}
+
+/*
+ * 快捷键的键帽（第 13 轮）：编辑区右下角（右下角对在给的那一点上），金边深底、底下一道深色的键身，像按在一块小铜牌上；
+ * 白天的工作台是浅的，深底照样浮得出来。出现时从下面浮上来，收起时淡掉。
+ */
+.hs-keys {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transform: translate(-100%, -100%);
+}
+
+.hs-keys__cap {
+    min-width: 30px;
+    padding: 3px 9px 4px;
+    border: 1px solid #c08a3e;
+    border-radius: 6px;
+    background: linear-gradient(#2e1a0e, #1d1009);
+    box-shadow:
+        0 2px 0 #0b0604,
+        0 0 14px rgb(240 201 135 / 0.35);
+    color: #f6dca6;
+    font: 600 13px/18px var(--hs-latin);
+    letter-spacing: 0.03em;
+    text-align: center;
+}
+
+.hs-keys__plus {
+    color: #f0c987;
+    font: 500 12px/1 var(--hs-latin);
+    opacity: 0.8;
+}
+
+.hs-keys-enter-active {
+    transition:
+        opacity 160ms ease-out,
+        translate 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hs-keys-leave-active {
+    transition: opacity 200ms ease-in;
+}
+
+.hs-keys-enter-from {
+    opacity: 0;
+    translate: 0 6px;
+}
+
+.hs-keys-leave-to {
+    opacity: 0;
 }
 
 /* 关灯：工作台上压一层夜色，中间一枚小猫标。 */
@@ -2225,7 +2750,9 @@ onBeforeUnmount(() => {
         transition: none;
     }
 
-    .hs-pointer svg {
+    .hs-pointer svg,
+    .hs-keys-enter-active,
+    .hs-keys-leave-active {
         transition: none;
     }
 }
