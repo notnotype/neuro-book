@@ -13,6 +13,7 @@ NeuroBook 应用（`@notnotype/neuro-book`）、Windows 桌面版与插件 SDK�
 
 - 插件 SDK 的 `NestedGrid`：树里保留像素的节点可以标 `rigid: true`：沿排列方向钉在自己的尺寸上，拖动推过它时由更远的兄弟让位，窗口窄到放不下时它最后才让。
 - 插件 SDK 的 `NestedGrid`：树里节点的收起策略可以写 `locked: true`，锁住收起状态：拖动收不了也拉不开，分隔线上的 Enter 跳过它，只有插件自己改树时能翻；手势要翻它时提交被拒，码是 `collapse-locked`。
+- 插件 SDK 的 `Tree` 多一个 `toggleOn` 属性：写 `"arrow"` 时点行只选中，点箭头才展开收起；`Popover` 多一个 `reference` 属性，按给定的位置弹出，焦点与点外面收起仍按 `anchor`。组件子路径同时导出它们的类型 `TreeToggleOn`、`PopoverReference`，以及 `Tree` 的 `surface` 属性的类型 `TreeSurface`。
 - 插件 SDK 的组件子路径加上 `Pagination`（分页条：页数多时固定 7 格，翻页时宽度与箭头位置不变）。
 - 插件 SDK 的组件子路径加上 `DataTable`（带工具条与分页的数据表格：加载、空、出错时工具条与页脚不动，表头吸顶）；`Table` 多一个 `stickyHeader` 属性，表头吸顶。
 - 网页工具可以用 Tavily 搜索与读网页。设置窗口的“搜索与网页”页改成左边列表、右边详情（同“服务商与模型”页），各家带 logo：在详情里“设为使用中”（还没填密钥的那家先填密钥、填好后自动切过去）；左栏顶上的“搜索规则”设默认结果条数与屏蔽网站；各家的“高级”里能改接口地址，Tavily 还能选搜索深度。
