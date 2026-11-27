@@ -132,7 +132,7 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
                 readiness: createReadiness(targets, {log}),
                 log,
                 testControl: testControl?.app,
-                web: base.webDir === null ? undefined : createWebHandler(base.webDir),
+                web: base.webDir === null ? undefined : createWebHandler(base.webDir, log.child({module: "web"})),
             });
         } catch (error) {
             if (!(error instanceof MountError)) throw error;
@@ -147,7 +147,27 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
 
         // 8. 监听（try 之内；从这一步起受理请求）。
         try {
-            server = Bun.serve({hostname: base.host, port: base.port, fetch: siteFetch(app)});
+            server = Bun.serve({
+                hostname: base.host,
+                port: base.port,
+                fetch: siteFetch(app),
+                // 不随 `NODE_ENV` 变：镜像里没设它，Bun 缺省就是开发模式，出错时回带源码路径与栈的错误页。
+                development: false,
+                // Hono 的 `onError`（`site.ts`）只接得住路由与中间件里抛出的、`fetch` 返回之前的错误，并照常记那一行请求日志。
+                // 这里接的是 `fetch` 之外的：`fetch` 本身没接住的异常，与 Bun 在 `fetch` 返回之后生成响应时出的错（例如惰性的
+                // `Bun.file` 响应体到写出时才打开、打不开）。这时请求日志可能已经按 `fetch` 的结果记过了，所以另记一行，
+                // 只带错误类型与错误码。不写这个回调时 Bun 往标准错误打几行不是 JSON、带绝对路径的错误说明（容器的日志里与
+                // 标准输出混在一起，破坏输出 8 的“每行一个 JSON”），客户端拿到它的错误页。
+                // 网页的文件在交出响应之前就读好了（`web.ts`），这里是兜底。
+                error: (error) => {
+                    const errorCode = (error as {code?: unknown}).code;
+                    log.error("http.response_failed", "producing a response failed outside the request handler", {
+                        errorType: errorType(error),
+                        ...(typeof errorCode === "string" ? {errorCode} : {}),
+                    });
+                    return Response.json({code: "internal"}, {status: 500});
+                },
+            });
         } catch (error) {
             // Bun 的说明里带着地址与端口，只报系统给的错误码；拿不到时省略这个字段。
             const errorCode = (error as {code?: unknown} | undefined)?.code;

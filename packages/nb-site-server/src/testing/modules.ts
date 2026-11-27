@@ -1,5 +1,5 @@
 /**
- * 只给 `serve.test.ts`、`commands.test.ts` 与 `backup.test.ts` 用的夹具模块；产品代码不引用本目录（`docs/testing/README.md` 的测试文件组织）。
+ * 只给 `serve.test.ts`、`commands.test.ts`、`backup.test.ts` 与 `web.test.ts` 用的夹具模块；产品代码不引用本目录（`docs/testing/README.md` 的测试文件组织）。
  * `fixture-main.ts` 按环境变量 `NB_SITE_FIXTURE`（逗号分隔）挑出这里的模块交给同一个 `runCli`：
  *
  * - `alpha`：两个入口都挂（同一个前缀 `/api/alpha`），带定时任务（含给测试控制入口跑的 `count`、`fail`、`hold`，与停止时要 `close()` 叫停的 `backlog`）、命令与
