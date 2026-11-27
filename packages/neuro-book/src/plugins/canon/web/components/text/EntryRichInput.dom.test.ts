@@ -597,6 +597,28 @@ describe("插入与改小块的边角（canon/author-ui.md 输出 48）", () => 
         expect(emitted(wrapper)).toEqual([]);
     });
 
+    it("按了“应用”、还没做检查就换去开了另一个小块：这次不落，也不落到另一个上", async () => {
+        const wrapper = show({modelValue: '<V expr="panel.魔力 * 2" /> 与 <V expr="panel.魔力 * 5" />'});
+        await flushPromises();
+        await openChip(wrapper, 0);
+        type(field("expr"), "panel.魔力 * 3");
+        await flushPromises();
+        action("apply").click();
+        // 同一轮里选中第二个小块按 Enter（不等“应用”等的那一帧）。
+        const editor = editorOf(wrapper);
+        let second = -1;
+        editor.state.doc.descendants((node, pos) => {
+            if (node.type.name === "canonEntryTag") second = pos;
+            return true;
+        });
+        editor.commands.setNodeSelection(second);
+        key(prose(wrapper), "Enter");
+        await vi.waitFor(() => expect(field("expr").value).toBe("panel.魔力 * 5"));
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        await flushPromises();
+        expect([emitted(wrapper), field("expr").value]).toEqual([[], "panel.魔力 * 5"]);
+    });
+
     it("复制一个条件小块粘到别处：写出的是同一段写法；粘进来的纯文字里的 <V 照字写，不读成标签", async () => {
         const condition = '<If test="panel.魔力 >= 1000">强<Else />弱</If>';
         const wrapper = show({modelValue: `甲${condition}\n\n乙`, fields});
