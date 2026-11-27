@@ -65,9 +65,10 @@ const unwritable = ref(false);
 
 let editor: Editor | null = null;
 
-const KIND_WORDS: Record<ChipKind, string> = {value: "chipEdit.valueTitle", calc: "chipEdit.calcTitle", if: "chipEdit.ifTitle", ref: "chipEdit.refTitle", image: "chipEdit.imageTitle", raw: "chipEdit.otherTitle"};
+type TextKey = Parameters<typeof text>[0];
+const KIND_WORDS: Record<ChipKind, TextKey> = {value: "chipEdit.valueTitle", calc: "chipEdit.calcTitle", if: "chipEdit.ifTitle", ref: "chipEdit.refTitle", image: "chipEdit.imageTitle", raw: "chipEdit.otherTitle"};
 /** 状态的说法；“值”没有，“未知”“已删除的条目”显示的字已经说了。 */
-const STATE_WORDS: Partial<Record<ChipState, string>> = {pending: "chipEdit.statePending", uncomputed: "chipEdit.stateUncomputed", incomplete: "value.incomplete", "missing-field": "chipEdit.stateMissing", "no-branch": "textEdit.noBranch"};
+const STATE_WORDS: Partial<Record<ChipState, TextKey>> = {pending: "chipEdit.statePending", uncomputed: "chipEdit.stateUncomputed", incomplete: "value.incomplete", "missing-field": "chipEdit.stateMissing", "no-branch": "textEdit.noBranch"};
 /** 小块的读屏名字：种类、显示名、显示的值（与显示名相同时不重复），再接状态与“改过”。 */
 const chipName: ChipNamer = (chip) => {
     const kind = text(KIND_WORDS[chip.kind]);
