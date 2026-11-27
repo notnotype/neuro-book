@@ -151,7 +151,6 @@ test("验收 1：设定树与条目页：马甲在本体下面、标签标题与
     await expect(value(page, "panel.存款")).toHaveAttribute("aria-expanded", "true");
     const popover = originPopover(page);
     await expect(popover).toBeVisible();
-    await expect(page.getByRole("dialog", {name: "存款的来历"})).toBeVisible();
     const origins = popover.locator("[data-origin-list]");
     await expect(origins).toBeVisible();
     await expect(origins.locator("[data-origin-row]").last()).toContainText("最初");
@@ -674,12 +673,17 @@ test("验收 11：同一个字段在正文里出现两次时，只有被点的�
     await page.keyboard.press("Control+End");
     await page.keyboard.press("Enter");
     await page.keyboard.type("再说一遍，存款是");
+    // 正文里本来就有带数字的取值小块：先记下个数，等它多一个才算插进去了，再等菜单收起，才去点“提交”。
+    const valueChips = entryPage(page).locator("[data-rich-input] [data-entry-chip=\"value\"]");
+    const chipsBefore = await valueChips.count();
     await entryPage(page).locator("[data-text-insert]").click();
     await expect(page.getByRole("menuitem").first()).toBeVisible();
     const group = page.getByRole("menuitem", {name: "值", exact: true});
     if ((await group.count()) > 0) await group.click();
     await page.getByRole("menuitem", {name: /存款$/u}).click();
-    await expect(entryPage(page).locator("[data-rich-input] [data-entry-chip=\"value\"]").filter({hasText: /\d/u}).last()).toBeVisible();
+    await expect(valueChips).toHaveCount(chipsBefore + 1);
+    // 标题栏的菜单条（文件、编辑、视图、帮助）本身就有四个 menuitem，所以看弹出的 menu 收起，不数 menuitem。
+    await expect(page.getByRole("menu")).toHaveCount(0);
     await entryPage(page).getByRole("button", {name: "提交", exact: true}).click();
     await expect(entryPage(page).locator("[data-entry-text]")).toContainText("再说一遍，存款是");
     const same = values(page, "panel.存款");
@@ -698,4 +702,51 @@ test("验收 11：同一个字段在正文里出现两次时，只有被点的�
     await page.keyboard.press("Escape");
     await expect(originPopover(page)).toHaveCount(0);
     await expect(same.nth(0)).toBeFocused();
+});
+
+test("验收 11、2：开着的来历浮层按“哪一处”记：点标签条上别的标签再切回来，照记下的那一处重新打开；在页面里点别处关上，切走再回来不再打开", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await textTab(page);
+    // 前一条用例让存款在正文里出现了两次。
+    const same = values(page, "panel.存款");
+    await expect(same).toHaveCount(2);
+    await same.nth(1).click();
+    await expect(originPopover(page).locator("[data-origin-list]")).toBeVisible();
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+
+    // 点标签条上别的标签：星瑕那一页的浮层随它收起（点到条目页外面只收起）。
+    await openEntry(page, "星瑾");
+    await expect(originPopover(page)).toHaveCount(0);
+    // 切回来：照记下的那一处（第二个）打开，不是第一个。
+    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
+    await expect(activeTabLabel(page)).toHaveText("星瑕");
+    await expect(originPopover(page).locator("[data-origin-list]")).toBeVisible();
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "true");
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+
+    // 在页面里点别处：关上，记下的那一处清掉。
+    await entryPage(page).locator("h1").click();
+    await expect(originPopover(page)).toHaveCount(0);
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "false");
+    // 切走再回来不再打开：先等回来的页面挂好（值按钮都在），再看浮层。
+    await page.locator("[data-editor-tab]", {hasText: "星瑾"}).click();
+    await expect(activeTabLabel(page)).toHaveText("星瑾");
+    await page.locator("[data-editor-tab]", {hasText: "星瑕"}).click();
+    await expect(activeTabLabel(page)).toHaveText("星瑕");
+    await expect(same).toHaveCount(2);
+    await expect(same.nth(1)).toBeVisible();
+    await expect(originPopover(page)).toHaveCount(0);
+    await expect(same.nth(0)).toHaveAttribute("aria-expanded", "false");
+    await expect(same.nth(1)).toHaveAttribute("aria-expanded", "false");
+});
+
+test("验收 30：来历浮层是对话框，读屏读出“某某的来历”（对话框的可访问名是“存款的来历”）", async ({page}) => {
+    await open(page);
+    await openEntry(page, "星瑕");
+    await textTab(page);
+    await value(page, "panel.存款").click();
+    await expect(originPopover(page)).toBeVisible();
+    await expect(page.getByRole("dialog", {name: "存款的来历"})).toBeVisible();
 });
