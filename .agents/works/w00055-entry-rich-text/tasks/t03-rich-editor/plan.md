@@ -167,7 +167,8 @@ e2e 交 Sonnet 子代理（自己的 worktree，从 Work 分支开）。S2 做�
 | `data-chip-changed` | 小块与阅读视图的值 | 所选位置之前被改过时写（输出 10 的“第 N 章改过”），没有不写 |
 | `data-chip-branch` | 条件小块 | 生效的是第几支：照值表的 `taken`（0 是 `If` 自己，按支的先后数，`Else` 是最后一支），没有为空 |
 | `data-chip-label`、`data-chip-value` | 小块里的显示名与值 | — |
-| `data-chip-popover` | 浮层 | 同 `data-entry-chip` 的种类；里面的输入框带 `data-chip-field`（`test`、`expr`、`of`、`branch-N`），按钮 `data-chip-action`（`apply`、`replace`、`remove`、`add-branch`） |
+| `data-chip-popover` | 浮层 | 同 `data-entry-chip` 的种类；里面的输入框带 `data-chip-field`（计算的 `expr`，条件第 N 支的判断 `test-N` 与文字 `branch-N`，N 从 0 起；取值与条目引用没有输入框，“换一个”打开列表），按钮 `data-chip-action`（`apply`、`replace`、`remove`、`add-branch`） |
+| `data-chip-menu` | `{`、`@` 与“换一个”的列表顶上的搜索框所在的块 | 列表项是 `role="option"` |
 | `data-chip-problem` | 浮层里写入前检查不过的原因 | — |
 | `data-origin-popover` | 阅读视图里来历的浮层 | 值按钮带 `aria-expanded`；浮层里照旧是 `OriginList` 的属性 |
 
