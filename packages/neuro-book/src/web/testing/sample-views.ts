@@ -108,7 +108,7 @@ const SampleRailView = defineComponent({
             const body = h("div", {"data-sample-rail": placement.kind, "data-sample-rail-expanded": expanded ? "true" : "false"}, `样例庚：${placement.kind}`);
             if (placement.kind !== "rail" || !(placement.main instanceof HTMLElement) || !(placement.foot instanceof HTMLElement)) return body;
             const items = ["一", "二", "三"].map((name) => h("button", {type: "button", "data-rail-item": "", "data-sample-rail-item": name, "aria-label": `会话${name}`, class: "sample-rail-item"}, name));
-            // 展开收起按钮是视图段自己的（ui/workbench-layout 输出 50 的“三段”）：第一个子元素，收着与展开是同一个元素，收着时才进侧轨的工具条。
+            // 展开收起按钮是视图段自己的（ui/workbench-layout 输出 50 的“三段”）：第一个子元素，收着与展开是同一个元素，收着时才进侧轨的工具条；被拒时自己标“窗口太窄”（views.md 输出 21）。
             const toggle = h("button", {
                 key: "toggle",
                 type: "button",
@@ -116,7 +116,10 @@ const SampleRailView = defineComponent({
                 "aria-expanded": expanded ? "true" : "false",
                 "data-rail-toggle": "",
                 "data-rail-item": expanded ? undefined : "",
+                "aria-description": placement.tooNarrow && !expanded ? "窗口太窄" : undefined,
                 "data-rail-too-narrow": placement.tooNarrow && !expanded ? "" : undefined,
+                // 展开时靠右上角放：左缘是轨宽手柄，贴在那里会被它盖住、点不到。
+                style: expanded ? {display: "block", minWidth: "24px", marginBlock: "4px", marginInline: "auto 8px"} : undefined,
                 onClick: () => void rail?.request(!expanded),
             }, expanded ? "›" : "‹");
             return [
