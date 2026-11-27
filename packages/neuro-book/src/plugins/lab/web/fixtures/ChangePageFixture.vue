@@ -5,8 +5,8 @@
  */
 import {computed} from "vue";
 
-import ChangePage from "nbook/plugins/canon/web/components/ChangePage.vue";
-import ConfirmBar from "nbook/plugins/canon/web/components/ConfirmBar.vue";
+import ChangePage from "nbook/plugins/canon/web/components/revisions/ChangePage.vue";
+import ConfirmBar from "nbook/plugins/canon/web/components/editing/ConfirmBar.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

@@ -15,7 +15,7 @@ import {until} from "./testing/harness";
 import {RENDER_SOURCE_MAX} from "./shared/contracts";
 import {textScene} from "./testing/text-scene";
 import type {SceneWindow, TextScene} from "./testing/text-scene";
-import type {EntryTextBlock} from "./web/components/entry-text";
+import type {EntryTextBlock} from "./web/components/text/entry-text";
 import {PREVIEW_DELAY, useTextPreview} from "./web/text-preview";
 import type {PreviewInput} from "./web/text-preview";
 

@@ -2,7 +2,7 @@
 /**
  * 新建条目对话框的夹具：注入 canon 的翻译端口（`canon-text.ts`）；开关与填的草稿是场景的双向绑定，由 Lab 管；`confirm` 记成事件。
  */
-import NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
+import NewEntryDialog from "nbook/plugins/canon/web/components/entries/NewEntryDialog.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

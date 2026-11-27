@@ -8,10 +8,10 @@
  */
 import {computed, shallowRef, watch} from "vue";
 
-import EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
-import EntryTextEditor from "nbook/plugins/canon/web/components/EntryTextEditor.vue";
+import EntryText from "nbook/plugins/canon/web/components/text/EntryText.vue";
+import EntryTextEditor from "nbook/plugins/canon/web/components/text/EntryTextEditor.vue";
 import {parseEntryText} from "@notnotype/nb-canon/grammar";
-import type {EntryTextBlock, EntryTextValue} from "nbook/plugins/canon/web/components/entry-text";
+import type {EntryTextBlock, EntryTextValue} from "nbook/plugins/canon/web/components/text/entry-text";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";

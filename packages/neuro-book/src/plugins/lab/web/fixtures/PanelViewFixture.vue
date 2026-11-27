@@ -2,7 +2,7 @@
 /**
  * 面板的夹具：注入 canon 的翻译端口（`canon-text.ts`），`select`、`more`、`retry`、`change` 记成事件。
  */
-import PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
+import PanelView from "nbook/plugins/canon/web/components/groups/PanelView.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

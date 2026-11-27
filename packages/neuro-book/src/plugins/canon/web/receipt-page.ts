@@ -35,7 +35,7 @@ export function createReceiptPage(options: ReceiptPageOptions): EditorPageImplem
     const receipt = (revision: string): void => options.execute(OPEN_RECEIPT_COMMAND, {revision});
     return {
         load: async () => {
-            const Host = (await import("./components/ReceiptPageHost.vue")).default;
+            const Host = (await import("./components/revisions/ReceiptPageHost.vue")).default;
             return defineComponent({
                 name: "CanonReceiptPage",
                 props: {context: {type: Object as PropType<EditorPageContext>, required: true}},

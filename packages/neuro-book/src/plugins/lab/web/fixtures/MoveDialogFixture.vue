@@ -2,8 +2,8 @@
 /**
  * 移动对话框：草稿是受控的模型。夹具当宿主：两个选择器照组件文档的用法接 `useEntryFind`，查一份内存里的条目。注入 canon 的翻译端口。
  */
-import MoveDialog from "nbook/plugins/canon/web/components/MoveDialog.vue";
-import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entry-picker";
+import MoveDialog from "nbook/plugins/canon/web/components/entry-page/MoveDialog.vue";
+import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entries/entry-picker";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

@@ -2,7 +2,7 @@
 /**
  * 还原对话框的夹具：注入 canon 的翻译端口（`canon-text.ts`）；开关是场景的双向绑定，由 Lab 管；`confirm`、`recheck` 记成事件。
  */
-import RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
+import RevertDialog from "nbook/plugins/canon/web/components/revisions/RevertDialog.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

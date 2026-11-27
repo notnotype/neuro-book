@@ -2,7 +2,7 @@
 /**
  * 强行解除对话框的夹具：注入 canon 的翻译端口（`canon-text.ts`）；开关是场景的双向绑定，由 Lab 管；`confirm` 记成事件。
  */
-import BreakExclusiveDialog from "nbook/plugins/canon/web/components/BreakExclusiveDialog.vue";
+import BreakExclusiveDialog from "nbook/plugins/canon/web/components/revisions/BreakExclusiveDialog.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

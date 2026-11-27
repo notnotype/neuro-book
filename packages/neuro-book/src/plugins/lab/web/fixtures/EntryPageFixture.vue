@@ -2,7 +2,7 @@
 /**
  * 条目页骨架的夹具：注入 canon 的翻译端口（`canon-text.ts`），位置、按计划、分页是场景的双向绑定，由 Lab 管；`open-entry`、`retry` 记成事件；分页内容放一段占位。
  */
-import EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
+import EntryPage from "nbook/plugins/canon/web/components/entry-page/EntryPage.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

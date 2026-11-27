@@ -2,7 +2,7 @@
 /**
  * 条目文字的夹具：注入 canon 的翻译端口（`canon-text.ts`），`value`、`entry`、`edit` 记成事件；展开着的值后面放一句占位的来历。
  */
-import EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
+import EntryText from "nbook/plugins/canon/web/components/text/EntryText.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

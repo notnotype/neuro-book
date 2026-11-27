@@ -2,7 +2,7 @@
 /**
  * 来历列表的夹具：注入 canon 的翻译端口（`canon-text.ts`），`more`、`retry`、`change` 记成事件。
  */
-import OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
+import OriginList from "nbook/plugins/canon/web/components/groups/OriginList.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

@@ -2,7 +2,7 @@
 /**
  * 设定里的图片：注入样本图（`canon-images.ts`）与 canon 的翻译端口；外面给一个固定大小、竖长的方框（立绘的比例）。
  */
-import CanonImage from "nbook/plugins/canon/web/components/CanonImage.vue";
+import CanonImage from "nbook/plugins/canon/web/components/groups/CanonImage.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideSampleImages} from "./canon-images";

@@ -3,7 +3,7 @@
  * 浮动提示的夹具：一段能滚动的页面，提示放在页面根元素的最末（同三个宿主）。注入 canon 的翻译端口（`canon-text.ts`），
  * 各个动作记成事件；`hold` 不接（Lab 里不自己收起）。
  */
-import PageNotices from "nbook/plugins/canon/web/components/PageNotices.vue";
+import PageNotices from "nbook/plugins/canon/web/components/entry-page/PageNotices.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

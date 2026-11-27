@@ -5,8 +5,8 @@
  */
 import {shallowRef, watch} from "vue";
 
-import ElementDialog from "nbook/plugins/canon/web/components/ElementDialog.vue";
-import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entry-picker";
+import ElementDialog from "nbook/plugins/canon/web/components/editing/ElementDialog.vue";
+import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entries/entry-picker";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

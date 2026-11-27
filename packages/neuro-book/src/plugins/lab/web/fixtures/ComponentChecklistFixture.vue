@@ -3,7 +3,7 @@
  * 设定组勾选列表的夹具：注入 canon 的翻译端口（`canon-text.ts`）。各项、种类、预设与勾着的来自场景；点已添加的那一行、Ctrl 加回车
  * 记成事件。
  */
-import ComponentChecklist from "nbook/plugins/canon/web/components/ComponentChecklist.vue";
+import ComponentChecklist from "nbook/plugins/canon/web/components/entry-page/ComponentChecklist.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

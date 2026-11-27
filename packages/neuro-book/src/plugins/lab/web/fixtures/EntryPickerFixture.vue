@@ -3,8 +3,8 @@
  * 条目选择器：选中的条目是受控的模型。夹具当宿主：照组件文档的用法接 `useEntryFind`，查的是一份内存里的条目（按名字或
  * 别名包含搜索词），场景 id 以 `failed` 开头的查找一律失败。注入 canon 的翻译端口（`canon-text.ts`）。
  */
-import EntryPicker from "nbook/plugins/canon/web/components/EntryPicker.vue";
-import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entry-picker";
+import EntryPicker from "nbook/plugins/canon/web/components/entries/EntryPicker.vue";
+import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entries/entry-picker";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

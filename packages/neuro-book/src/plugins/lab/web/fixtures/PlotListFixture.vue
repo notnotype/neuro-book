@@ -2,7 +2,7 @@
 /**
  * 情节列表的夹具：注入 canon 的翻译端口（`canon-text.ts`），`open`、`more` 记成事件。
  */
-import PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
+import PlotList from "nbook/plugins/canon/web/components/groups/PlotList.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

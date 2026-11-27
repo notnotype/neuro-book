@@ -14,10 +14,10 @@ import type {ComponentType} from "@notnotype/nb-canon";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {CanonClient} from "../shared/contracts";
-import {checklistGroup} from "./components/component-checklist";
-import type {ChecklistItem, ChecklistPreset} from "./components/component-checklist";
-import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
-import {GROUP_ICON} from "./components/entry-tabs";
+import {checklistGroup} from "./components/entry-page/component-checklist";
+import type {ChecklistItem, ChecklistPreset} from "./components/entry-page/component-checklist";
+import type {EntryTreeItem, EntryTreeLayer} from "./components/entries/entry-tree";
+import {GROUP_ICON} from "./components/entry-page/entry-tabs";
 import {failureText} from "./failures";
 import {byKind, emptyDraft, newEntryOp, withKind} from "./new-entry";
 import type {NewEntryDraft} from "./new-entry";

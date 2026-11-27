@@ -2,7 +2,7 @@
 /**
  * 字段表的夹具：注入 canon 的翻译端口（`canon-text.ts`），`value` 记成事件；展开着的那一行下面放一句占位的来历。
  */
-import FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
+import FieldTable from "nbook/plugins/canon/web/components/groups/FieldTable.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

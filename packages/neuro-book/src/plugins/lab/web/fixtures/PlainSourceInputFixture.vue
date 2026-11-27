@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 源文字输入的退路的夹具：文字是受控的模型。 */
-import PlainSourceInput from "nbook/plugins/canon/web/components/PlainSourceInput.vue";
+import PlainSourceInput from "nbook/plugins/canon/web/components/text/PlainSourceInput.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 

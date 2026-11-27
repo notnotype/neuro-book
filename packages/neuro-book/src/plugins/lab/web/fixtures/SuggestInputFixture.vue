@@ -2,7 +2,7 @@
 /**
  * 有建议值的文字输入的夹具：值是场景的双向绑定，由 Lab 管。
  */
-import SuggestInput from "nbook/plugins/canon/web/components/SuggestInput.vue";
+import SuggestInput from "nbook/plugins/canon/web/components/editing/SuggestInput.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 

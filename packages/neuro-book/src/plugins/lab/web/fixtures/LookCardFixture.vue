@@ -2,7 +2,7 @@
 /**
  * 形象分页的展示层：注入 canon 的翻译端口与样本图（`canon-images.ts`）；事件记在 Lab 的事件栏里。
  */
-import LookCard from "nbook/plugins/canon/web/components/LookCard.vue";
+import LookCard from "nbook/plugins/canon/web/components/groups/LookCard.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideSampleImages} from "./canon-images";

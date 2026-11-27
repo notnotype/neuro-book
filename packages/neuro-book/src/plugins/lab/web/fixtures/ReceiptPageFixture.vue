@@ -2,7 +2,7 @@
 /**
  * 回执页骨架的夹具：注入 canon 的翻译端口（`canon-text.ts`）；`open`、`receipt`、`revert`、`retry` 记成事件。
  */
-import ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
+import ReceiptPage from "nbook/plugins/canon/web/components/revisions/ReceiptPage.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

@@ -2,8 +2,8 @@
 /**
  * 按种类画的字段输入：值是受控的模型。引用种类照组件文档的用法接 `useEntryFind`，查一份内存里的条目。注入 canon 的翻译端口。
  */
-import FieldInput from "nbook/plugins/canon/web/components/FieldInput.vue";
-import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entry-picker";
+import FieldInput from "nbook/plugins/canon/web/components/editing/FieldInput.vue";
+import {useEntryFind, type EntryFind} from "nbook/plugins/canon/web/components/entries/entry-picker";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideCanonText} from "./canon-text";

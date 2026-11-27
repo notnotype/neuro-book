@@ -3,7 +3,7 @@
  * 人物分页的展示层：注入 canon 的翻译端口与样本图（`canon-images.ts`）；“添加一项资料”的开关是场景的双向绑定。现在的状态展开时
  * 插槽里放一段样本的细节（真实的细节是绑定层的 `FieldDetail`，Lab 里没有世界）。
  */
-import CharacterCard from "nbook/plugins/canon/web/components/CharacterCard.vue";
+import CharacterCard from "nbook/plugins/canon/web/components/groups/CharacterCard.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {provideSampleImages} from "./canon-images";

@@ -34,7 +34,7 @@ import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import {pageStandIn} from "../testing/page-stand-in";
 import {person, publish, publishWith} from "../testing/world-fixtures";
 import {REVISIONS_VIEW} from "./commands";
-import RevisionsView from "./components/RevisionsView.vue";
+import RevisionsView from "./components/revisions/RevisionsView.vue";
 import {createRevertRequests} from "./revert";
 import {ALL} from "./revisions";
 import {createRevisionsView, revisionsViewState} from "./revisions-view";
