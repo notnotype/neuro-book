@@ -120,3 +120,18 @@ export interface TextAddress {
 export function addressKey(address: TextAddress): string {
     return `${address.entry}|${address.path}`;
 }
+
+/**
+ * 正文里的“哪一处”值（author-ui 输出 11：同一个字段出现几次时只打开被点的那一个）：块 id、这个标签在块源文里的起点，加上它的地址
+ * （来历按地址读）。写成一个字符串，存在标签状态里。
+ */
+export function placeKey(block: string, start: number, address: TextAddress): string {
+    return `${block}@${String(start)}#${addressKey(address)}`;
+}
+
+/** 一处的地址。 */
+export function placeAddress(place: string): TextAddress {
+    const key = place.slice(place.indexOf("#") + 1);
+    const split = key.indexOf("|");
+    return {entry: key.slice(0, split), path: key.slice(split + 1)};
+}

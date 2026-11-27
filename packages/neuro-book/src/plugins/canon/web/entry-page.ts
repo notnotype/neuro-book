@@ -40,7 +40,7 @@ export interface EntryPageState {
     planned: boolean;
     /** 当前分页；null 或已经没有这个分页时是第一个。 */
     tab: string | null;
-    /** 文字分页里展开着来历的值（`addressKey`）。 */
+    /** 文字分页里开着来历的那一处（`placeKey`：块、标签起点与地址）。 */
     origin: string | null;
     /** 编辑主文字用富文本还是源文字（输出 39）。只是作者选的那个：稿读不进富文本时这一次落在源文字，不改它。 */
     textMode: "rich" | "source";

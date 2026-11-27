@@ -56,7 +56,7 @@ import EntryTextEditor from "./EntryTextEditor.vue";
 import TextConflictDialog from "./TextConflictDialog.vue";
 import type {EntryTextBlock, TextAddress} from "./entry-text";
 import type {InsertItem, RichContext} from "./entry-text-editor";
-import {addressKey} from "./entry-text";
+import {addressKey, placeAddress} from "./entry-text";
 import FieldDetailView from "./FieldDetail.vue";
 import ComponentAgentView from "./ComponentAgentView.vue";
 import ComponentRawView from "./ComponentRawView.vue";
@@ -283,22 +283,29 @@ const marks = computed(() => {
 const version = (): number => entry.value?.version ?? 0;
 // 来历按位置算：版本、位置、模式任一变了都重读。
 const originStamp = (): string => `${String(version())}|${JSON.stringify(position.value)}|${mode.value}`;
-const originKeys = computed(() => (tab.value === "text" && state.origin !== null ? [state.origin] : []));
+/** 开着的那一处的地址（来历按地址读）。 */
+const originAddress = computed(() => (state.origin === null ? null : addressKey(placeAddress(state.origin))));
+const originKeys = computed(() => (tab.value === "text" && originAddress.value !== null ? [originAddress.value] : []));
 const origins = useOriginPagesMap(() => originKeys.value, (key) => {
     const split = key.indexOf("|");
     const address = {entry: key.slice(0, split), path: key.slice(split + 1)};
     return (cursor) => props.fetchOrigins(address, position.value, mode.value, cursor);
 }, originStamp);
-const openOrigin = computed(() => (state.origin === null ? undefined : origins.value.get(state.origin)?.state.value));
+const openOrigin = computed(() => (originAddress.value === null ? undefined : origins.value.get(originAddress.value)?.state.value));
 const declarationOf = (address: TextAddress): FieldDeclaration | undefined => {
     if (address.entry !== props.id) return undefined;
     const split = address.path.indexOf(".");
     return entry.value?.declarations?.[address.path.slice(0, split)]?.find((item) => item.id === address.path.slice(split + 1));
 };
 const labelOfAddress = (address: TextAddress): string => declarationOf(address)?.label ?? address.path;
-const toggleValue = (address: TextAddress): void => {
-    const key = addressKey(address);
-    state.origin = state.origin === key ? null : key;
+const toggleValue = (place: string): void => {
+    state.origin = state.origin === place ? null : place;
+};
+
+/** 来历里点“改这一笔”：浮层关上，再打开变更详情页（输出 11）。 */
+const openChangeFromOrigin = (id: string): void => {
+    state.origin = null;
+    props.open({kind: "change", id});
 };
 
 /* ---------- 写入 ---------- */
@@ -1379,6 +1386,7 @@ const setPosition = (value: string): void => {
                 :editable="view !== null && !view.deleted"
                 :edit-reason="editBlocked === null ? '' : port.t(editBlocked)"
                 @value="toggleValue"
+                @close="state.origin = null"
                 @entry="(id: string) => props.open({kind: 'entry', id})"
                 @edit="startEditing()"
             >
@@ -1391,9 +1399,9 @@ const setPosition = (value: string): void => {
                         :loading="openOrigin.loading"
                         :failed="openOrigin.failed"
                         :reason="openOrigin.reason"
-                        @more="origins.get(state.origin!)?.more()"
-                        @retry="origins.get(state.origin!)?.retry()"
-                        @change="(id: string) => props.open({kind: 'change', id})"
+                        @more="origins.get(originAddress!)?.more()"
+                        @retry="origins.get(originAddress!)?.retry()"
+                        @change="(id: string) => openChangeFromOrigin(id)"
                     />
                 </template>
             </EntryText>

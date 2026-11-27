@@ -108,7 +108,10 @@ const cells = (element: Element): string => [...element.childNodes].map((node) =
     if (node instanceof Element) return node.classList.contains("sr-only") ? "" : cells(node);
     return node.nodeType === Node.TEXT_NODE ? node.textContent?.replace(/\s+/gu, " ").trim() ?? "" : "";
 }).filter((part) => part !== "").join(" ");
-const originRows = (wrapper: ReturnType<typeof mount>): string[] => wrapper.findAll("[data-origin-row]").map((row) => cells(row.element));
+/** 来历的各行。文字分页的来历在传送到 body 的浮层里（输出 11），数据分页的在原处：都在整页里找。 */
+const originRows = (_wrapper: ReturnType<typeof mount>): string[] => [...document.body.querySelectorAll("[data-origin-row]")].map((row) => cells(row));
+/** 文字分页里来历的浮层开着。 */
+const originOpen = (): boolean => document.body.querySelector("[data-origin-popover] [data-origin-list]") !== null;
 
 describe("条目页", () => {
     it("标签的图标按条目的种类（workbench/editor 输出 53）：人物是人像，种类没登记图标的是书签；还没读到条目时不给（交给编辑器记着的）", async () => {
@@ -160,7 +163,7 @@ describe("条目页", () => {
 
         const {wrapper} = await open(id);
         await waitUntil("文字里的值", () => wrapper.find("[data-entry-text] [data-value]").exists());
-        expect(wrapper.find("[data-origin-list]").exists()).toBe(false);
+        expect(originOpen()).toBe(false);
         await wrapper.get("[data-entry-text] [data-value]").trigger("click");
         await waitUntil("来历", () => originRows(wrapper).length === 3);
         expect(originRows(wrapper)).toEqual([
@@ -168,9 +171,10 @@ describe("条目页", () => {
             "第 1 章 +200 1,200 元 改这一笔 领了工资 作者给的",
             "最初 1,000 元",
         ]);
-        expect(wrapper.find("[data-origin-row] .text-\\[var\\(--status-warning\\)\\]").text()).toBe("估计：书大概三百");
+        expect(document.body.querySelector("[data-origin-row] .text-\\[var\\(--status-warning\\)\\]")?.textContent).toBe("估计：书大概三百");
+        // 再点同一个值：关上（在锚点上按下不算点外面，点击照常切换）。
         await wrapper.get("[data-entry-text] [data-value]").trigger("click");
-        expect(wrapper.find("[data-origin-list]").exists()).toBe(false);
+        await waitUntil("关上", () => !originOpen());
     });
 
     it("展开着来历时：别处发布以后按已读的步数重读；换位置以后来历跟着换；换位置期间不出加载占位", async () => {
@@ -223,11 +227,11 @@ describe("条目页", () => {
         await wrapper.get("[data-entry-text] [data-value]").trigger("click");
         await waitUntil("第一页", () => originRows(wrapper).length === 21);
         expect(originRows(wrapper).at(-1)).toBe("最初 1,000 元");
-        expect(wrapper.text()).toContain("再显示更早的（还有 5 步）");
-        const more = wrapper.findAll("button").find((button) => button.text().startsWith("再显示更早的"))!;
-        await more.trigger("click");
+        expect(document.body.textContent).toContain("再显示更早的（还有 5 步）");
+        const more = [...document.body.querySelectorAll<HTMLButtonElement>("[data-origin-popover] button")].find((button) => button.textContent?.trim().startsWith("再显示更早的"))!;
+        more.click();
         await waitUntil("读完", () => originRows(wrapper).length === 26);
-        expect(wrapper.text()).not.toContain("再显示更早的");
+        expect(document.body.textContent).not.toContain("再显示更早的");
         // 读完以后最早那一笔的变化量按初值算出来了。
         expect(originRows(wrapper).at(-2)).toBe("第 1 章 +10 1,010 元 改这一笔 第 1 笔 作者给的");
     });
@@ -244,7 +248,7 @@ describe("条目页", () => {
         first.state.position = "1:start";
         await waitUntil("换了位置", () => valueText(first.wrapper) === "1,000");
         await first.wrapper.get("[data-entry-text] [data-value]").trigger("click");
-        await waitUntil("来历", () => first.wrapper.find("[data-origin-list]").exists());
+        await waitUntil("来历", () => originOpen());
         first.wrapper.unmount();
 
         const second = await open(ids[sister.id]!);
@@ -253,7 +257,7 @@ describe("条目页", () => {
 
         const again = first.remount();
         await waitUntil("回来以后的值", () => again.find("[data-entry-text] [data-value]").exists() && valueText(again) === "1,000");
-        expect(again.find("[data-origin-list]").exists()).toBe(true);
+        await waitUntil("回来以后照记下的那一处打开", () => originOpen());
     });
 
     it("选着的那一章被删掉：位置回到缺省，并写一句“原来选的那一章已经不在了”；再换位置以后这句消失", async () => {

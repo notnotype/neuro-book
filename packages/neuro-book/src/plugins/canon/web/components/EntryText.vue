@@ -4,16 +4,16 @@
  * 跑与内核同一份条目文法，按词法单元画，活的标签换成值表里对应的那一项；对不上的块整块按出错显示。条件只画生效的那一支，判断
  * 未知时写“未知”。页面的 h1 是条目名，文字里的标题降一级（`#` 画成 h2）。
  */
-import {computed, defineComponent, h} from "vue";
+import {defineComponent, h, nextTick, onActivated, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {PropType, VNodeChild} from "vue";
 import {decodeHTMLStrict} from "entities";
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {Button} from "@notnotype/nb-ui/components";
+import {Button, Popover} from "@notnotype/nb-ui/components";
 
 import type {EntryTextBlock, EntryTextToken, EntryTextValue, LaidOutBlock, TextAddress} from "./entry-text";
-import {addressKey, layoutBlock} from "./entry-text";
+import {layoutBlock, placeAddress, placeKey} from "./entry-text";
 import {useCanonText} from "../text";
 
 const props = withDefaults(defineProps<{
@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<{
     self: string;
     /** 这个条目各字段的“改过”标记，按路径（输出 10）。 */
     marks?: Readonly<Record<string, string>>;
-    /** 展开着来历的值（`addressKey`）；没有时不写。 */
+    /** 开着来历的那一处（`placeKey`）；没有时不写。 */
     open?: string;
     /** 右上出“编辑”（没有主文字时是“开始写”）：进整篇的编辑（输出 39）。 */
     editable?: boolean;
@@ -31,8 +31,10 @@ const props = withDefaults(defineProps<{
 }>(), {marks: () => ({}), open: undefined, editable: false, editReason: ""});
 
 const emit = defineEmits<{
-    /** 点了一个值：展开或收起它的来历。 */
-    (event: "value", address: TextAddress): void;
+    /** 点了一个值：打开或关上它的来历。`place` 是这一处（`placeKey`）。 */
+    (event: "value", place: string): void;
+    /** 来历的浮层在页面里被关上（Esc、点页面里别处），或开着的那一处已经不在了：清掉记下的那一处。 */
+    (event: "close"): void;
     /** 点了一个条目引用。 */
     (event: "entry", id: string): void;
     /** 点了“编辑”或“开始写”。 */
@@ -40,7 +42,7 @@ const emit = defineEmits<{
 }>();
 
 defineSlots<{
-    /** 展开着的值的来历，画在它所在的块后面。 */
+    /** 开着的那一处的来历，画在贴着它的浮层里。 */
     origin?(props: {address: TextAddress}): unknown;
 }>();
 
@@ -52,6 +54,9 @@ const HEADINGS = ["h2", "h3", "h4", "h5", "h5", "h5"] as const;
 const HTML_MARKS: Readonly<Record<string, string>> = {strong: "strong", b: "strong", em: "em", i: "em", del: "del", s: "del"};
 
 type VValue = Extract<EntryTextValue, {tag: "V"}>;
+
+/** 正在画的那一块的 id（`Block` 的渲染函数里设）。 */
+let renderingBlock = "";
 
 const blockList = (layout: LaidOutBlock, list: readonly EntryTextToken[] | undefined): VNodeChild[] => (list ?? []).map((token) => blockToken(layout, token));
 const inlineList = (layout: LaidOutBlock, list: readonly EntryTextToken[] | undefined): VNodeChild[] => (list ?? []).map((token) => inlineToken(layout, token));
@@ -140,18 +145,22 @@ function valueNode(node: VValue): VNodeChild {
     if (node.expr !== undefined) return h("span", {class: "text-[var(--text-secondary)]", title: node.expr}, node.unknown === true ? text("value.unknown") : node.display);
     if (node.image !== undefined) return muted(node.image.caption);
     const address: TextAddress = {entry: node.entry ?? props.self, path: node.path ?? ""};
-    const key = addressKey(address);
+    const place = placeKey(renderingBlock, node.start, address);
+    const open = props.open === place;
     const shown = node.unknown === true ? text("value.unknown") : node.display;
     const mark = address.entry === props.self ? props.marks[address.path] : undefined;
     const warn = node.unknown === true || node.incomplete !== undefined;
     return [
         h("button", {
             "type": "button",
-            "class": ["canon-value", warn ? "text-[var(--status-warning)]" : "", props.open === key ? "canon-value-open" : ""],
-            "aria-expanded": props.open === key,
+            "class": ["canon-value", warn ? "text-[var(--status-warning)]" : "", open ? "canon-value-open" : ""],
+            "aria-haspopup": "dialog",
+            "aria-expanded": open,
             "aria-label": text("value.label", {label: node.label ?? address.path, value: shown}),
-            "data-value": key,
-            "onClick": () => emit("value", address),
+            "data-value": `${address.entry}|${address.path}`,
+            "data-place": place,
+            "data-label": node.label ?? address.path,
+            "onClick": () => emit("value", place),
         }, shown),
         node.incomplete === undefined ? null : h("span", {class: "ml-1 text-[length:var(--text-xs)] text-[var(--status-warning)]"}, text("value.incomplete")),
         mark === undefined ? null : h("span", {class: "ml-1 text-[length:var(--text-xs)] text-[var(--text-muted)]"}, mark),
@@ -172,13 +181,6 @@ function layoutOf(block: SourceBlock): ReturnType<typeof layoutBlock> {
     return laid;
 }
 
-/** 一块里有没有画成按钮的这个值（没生效的支里的、读不到的不算）：来历画在这一块后面。 */
-function contains(block: EntryTextBlock, key: string): boolean {
-    if ("error" in block) return false;
-    const laid = layoutOf(block);
-    return !("mismatch" in laid) && laid.pressable.some((value) => addressKey({entry: value.entry ?? props.self, path: value.path}) === key);
-}
-
 const failedBlock = (body: string, reason: string): VNodeChild => h("div", {"class": "my-2", "data-block-error": ""}, [
     h("p", {class: "whitespace-pre-wrap"}, body),
     h("p", {class: "text-[length:var(--text-xs)] text-[var(--status-danger)]"}, text("value.blockFailed", {reason})),
@@ -194,27 +196,86 @@ const Block = defineComponent({
             const laid = layoutOf(block);
             // 值表与源文对不上（前后端的文法不是同一版这类）：整块按出错显示，不按位置猜。
             if ("mismatch" in laid) return failedBlock(block.source, laid.mismatch);
-            return h("div", {"class": "nb-markdown", "data-block": block.id}, blockList(laid, laid.tokens));
+            // 值按钮要知道自己在哪一块（“哪一处”的键）：渲染函数同步执行，画这一块期间记在模块里。
+            renderingBlock = block.id;
+            try {
+                return h("div", {"class": "nb-markdown", "data-block": block.id}, blockList(laid, laid.tokens));
+            } finally {
+                renderingBlock = "";
+            }
         };
     },
 });
 
-/** 来历只画一份：同一个值在几块里都出现时，画在第一个含它的块后面。 */
-const originBlock = computed(() => {
-    const key = props.open;
-    if (key === undefined) return null;
-    return props.blocks.find((block) => contains(block, key))?.id ?? null;
+/* ---------- 来历的浮层（输出 11） ---------- */
+
+const root = ref<HTMLElement | null>(null);
+/** 开着的那一处的值按钮：浮层锚在它上面。画完才找得到（块是渲染函数画的）。 */
+const anchor = shallowRef<HTMLElement | null>(null);
+/**
+ * 交给浮层的锚点：关上以后还留着上一个。按 Esc 关上时宿主马上清掉记下的那一处（`anchor` 随之为空），原语却要等浮层卸下才把
+ * 焦点还给锚点，那时它得还在。
+ */
+const held = shallowRef<HTMLElement | null>(null);
+watch(anchor, (now) => {
+    if (now !== null) held.value = now;
+});
+/**
+ * 作者点到条目页外面（标签条、设定树）时浮层只收起，记下的那一处留着：切到别的标签再回来（重新挂上）时照它打开。
+ * 页面里点别处、按 Esc 才清掉（发 `close`）。
+ */
+const collapsed = ref(false);
+/** 最近一次按下落在哪：浮层关上时据此分辨点的是页面里还是页面外。 */
+let pressed: EventTarget | null = null;
+let escaped = false;
+const press = (event: PointerEvent): void => {
+    pressed = event.target;
+};
+onMounted(() => document.addEventListener("pointerdown", press, true));
+onBeforeUnmount(() => document.removeEventListener("pointerdown", press, true));
+onActivated(() => {
+    collapsed.value = false;
 });
 
-const openAddress = (): TextAddress | null => {
-    if (props.open === undefined) return null;
-    const split = props.open.indexOf("|");
-    return {entry: props.open.slice(0, split), path: props.open.slice(split + 1)};
+const findAnchor = (): void => {
+    const place = props.open;
+    anchor.value = place === undefined ? null : (root.value?.querySelector<HTMLElement>(`[data-place="${CSS.escape(place)}"]`) ?? null);
+    // 记着的那一处已经不在了（块改了、值换了）：清掉。块还没读到（空的）时不算。
+    if (place !== undefined && anchor.value === null && props.blocks.length > 0) emit("close");
+};
+// 换了开着的那一处：先前收起的作废。块变了（重读、世界变了）：重新找按钮，找不到就清掉。
+watch(() => props.open, () => {
+    collapsed.value = false;
+});
+watch(() => [props.open, props.blocks], () => void nextTick(findAnchor), {immediate: true});
+
+const openAddress = (): TextAddress | null => (props.open === undefined ? null : placeAddress(props.open));
+
+/**
+ * 浮层的边在打开时按值按钮上下哪边地方大选定，之后内容变高（再显示更早的、重读）不换边：避让只在这一边上挪，免得读回来时整个翻过去。
+ */
+const side = shallowRef<"bottom" | "top">("bottom");
+watch(anchor, (now) => {
+    if (now === null) return;
+    const rect = now.getBoundingClientRect();
+    side.value = window.innerHeight - rect.bottom >= rect.top || window.innerHeight - rect.bottom >= window.innerHeight * 0.6 ? "bottom" : "top";
+});
+
+const onPopover = (open: boolean): void => {
+    if (open) return;
+    const page = root.value?.closest("[data-entry-page]") ?? root.value;
+    const inPage = escaped || (pressed instanceof Node && page !== null && page !== undefined && page.contains(pressed));
+    escaped = false;
+    if (inPage) emit("close");
+    else collapsed.value = true;
+};
+const markEscape = (): void => {
+    escaped = true;
 };
 </script>
 
 <template>
-    <div class="entry-text min-w-0 text-[var(--text-main)]" data-entry-text>
+    <div ref="root" class="entry-text min-w-0 text-[var(--text-main)]" data-entry-text>
         <!--
             根上只能有这一个元素，注释也要写在它里面：开发构建保留模板里的注释，根上多一条注释，组件的根就成了片段。条目页把本
             组件直接放在先出后进的 `Transition` 里，根是片段时退场收不了尾，换上来的编辑视图一直不出现（生产构建剥掉注释，看不出来）。
@@ -231,10 +292,19 @@ const openAddress = (): TextAddress | null => {
         </div>
         <section v-for="block in props.blocks" :key="block.id" class="entry-text__block">
             <Block :block="block" />
-            <div v-if="block.id === originBlock" class="my-2 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 leading-6">
-                <slot name="origin" :address="openAddress()!" />
-            </div>
         </section>
+        <Popover :open="anchor !== null && !collapsed" :anchor="held" :side="side" align="start" @update:open="onPopover">
+            <section
+                v-if="anchor !== null && openAddress() !== null"
+                class="entry-text__origin"
+                tabindex="0"
+                :aria-label="text('origin.dialog', {label: anchor.dataset.label ?? ''})"
+                data-origin-popover
+                @keydown.esc="markEscape"
+            >
+                <slot name="origin" :address="openAddress()!" />
+            </section>
+        </Popover>
     </div>
 </template>
 
@@ -260,6 +330,22 @@ const openAddress = (): TextAddress | null => {
 :deep(.canon-value-open) {
     background: var(--bg-hover);
     border-radius: 3px;
+}
+.entry-text__origin {
+    width: min(416px, calc(100vw - 56px));
+    max-height: 60vh;
+    overflow-y: auto;
+    /* 来历读取期间先占三行的高度，读回来时浮层不跳。 */
+    min-height: 5.5rem;
+    line-height: 1.5rem;
+    user-select: text;
+    border-radius: 4px;
+    outline: none;
+}
+/* 打开时焦点先落在浮层这一块上（读屏读出“某某的来历”）：用键盘时看得到焦点在哪。 */
+.entry-text__origin:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
 }
 :deep(.canon-value:focus-visible) {
     outline: 2px solid var(--focus-ring);

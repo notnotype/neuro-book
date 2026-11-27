@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 条目文字的夹具：注入 canon 的翻译端口（`canon-text.ts`），`value`、`entry`、`edit` 记成事件；展开着的值后面放一句占位的来历。
+ * 条目文字的夹具：注入 canon 的翻译端口（`canon-text.ts`），`value`、`close`、`entry`、`edit` 记成事件；开着的那一处的浮层里放一句占位的来历。
  */
 import EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 
@@ -10,7 +10,7 @@ import {provideCanonText} from "./canon-text";
 const props = defineProps<LabFixtureProps>();
 provideCanonText(props.scene);
 
-const subject = useLabSubject<typeof EntryText>(() => props.input, ["value", "entry", "edit"]);
+const subject = useLabSubject<typeof EntryText>(() => props.input, ["value", "close", "entry", "edit"]);
 </script>
 
 <template>

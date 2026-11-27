@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject]
+标签: [state:local, state:inject, env:portal, env:global]
 别名: ["富文本主文字", "Entry Rich Input"]
 ---
 
@@ -102,3 +102,5 @@ type Exposed = {
 
 - `state:local`：编辑器的实例、原文对照、最近一次交出的文字、写不出的那一句、开着的浮层与列表。
 - `state:inject`：经 `useCanonText()` 取翻译端口写“这一处写不出”、浮层与列表的文字。
+- `env:portal`：小块的浮层与 `{`、`@` 的列表渲染到 nb-ui `Popover`、`SuggestionMenu` 的 Teleport 目标（body）。
+- `env:global`：列表开着时在 document 上按捕获阶段听 pointerdown，按在列表外就关上；卸载时解除。

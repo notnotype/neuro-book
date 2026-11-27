@@ -204,7 +204,8 @@
         "editStep": "Edit this step",
         "failed": "Could not read the history",
         "delta": "Change",
-        "result": "Result"
+        "result": "Result",
+        "dialog": "History of {{label}}"
     },
     "fields": {
         "empty": "No fields on this tab yet",

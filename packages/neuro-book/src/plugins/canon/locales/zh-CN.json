@@ -204,7 +204,8 @@
         "editStep": "改这一笔",
         "failed": "来历没有读出来",
         "delta": "变化",
-        "result": "结果"
+        "result": "结果",
+        "dialog": "{{label}}的来历"
     },
     "fields": {
         "empty": "这个分页还没有字段",

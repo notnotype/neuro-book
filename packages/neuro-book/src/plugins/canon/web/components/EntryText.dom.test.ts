@@ -1,11 +1,11 @@
 /**
  * EntryText（同名 .md，docs/specs/canon/author-ui.md 输出 10；canon.rendering 输出 7）：源文按条目文法排版，活的标签换成值表里对应的项；
- * 值是按钮，未知、不完整与“改过”标记；点值发 value（不写条目的值指本条目），展开着的值所在的块后面是来历插槽；条目引用发 entry；
+ * 值是按钮，未知、不完整与“改过”标记；点值发 value（这一处），开着的那一处贴着一个浮层，里面是来历插槽（输出 11）；条目引用发 entry；
  * 条件只画生效的那一支；出错的块、值表对不上的块写纯文本与原因。
  */
 
-import {mount} from "@vue/test-utils";
-import {afterEach, describe, expect, it} from "vitest";
+import {flushPromises, mount} from "@vue/test-utils";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {h} from "vue";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
@@ -18,6 +18,7 @@ const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
+    document.body.innerHTML = "";
 });
 
 /** 一块：源文与值表；值表每项的起点按它对应的标签在源文里第几次出现算。 */
@@ -45,6 +46,7 @@ function text(props: Record<string, unknown> = {}) {
         props: {blocks, self: "e1", marks: {"panel.存款": "第 2 章改过"}, ...props},
         slots: {origin: ({address}: {address: {entry: string; path: string}}) => h("p", {"data-slot": ""}, `来历 ${address.entry} ${address.path}`)},
         global: {provide: provideText(port)},
+        attachTo: document.body,
     });
     mounted.push(wrapper);
     return wrapper;
@@ -63,12 +65,58 @@ describe("EntryText", () => {
         expect(wrapper.get("[data-block='b3']").text()).not.toContain("改过");
     });
 
-    it("点值发 value，不写条目的指本条目；展开着的值所在的块后面是来历插槽", async () => {
-        const wrapper = text({open: "e2|panel.存款"});
-        expect(wrapper.findAll("[data-slot]").map((item) => item.text())).toEqual(["来历 e2 panel.存款"]);
-        expect(wrapper.findAll("[data-value]")[2]!.attributes("aria-expanded")).toBe("true");
-        await wrapper.findAll("[data-value]")[0]!.trigger("click");
-        expect(wrapper.emitted("value")).toEqual([[{entry: "e1", path: "panel.存款"}]]);
+    it("点值发 value（这一处）；开着的那一处贴着浮层，里面是来历插槽，读屏名字是“某某的来历”；同一字段出现两次时只按下被点的那一个", async () => {
+        const twice = block("twice", '<V of="panel.存款" /> 又是 <V of="panel.存款" />', [['<V of="panel.存款"', value("panel.存款", "900")], ['<V of="panel.存款"', value("panel.存款", "900")]]);
+        const closed = text({blocks: [twice]});
+        await closed.findAll("[data-value]")[1]!.trigger("click");
+        const place = closed.emitted("value")![0]![0] as string;
+        expect(place).toBe(closed.findAll("[data-value]")[1]!.attributes("data-place"));
+        // 被点的按钮带着焦点卸掉，焦点落到 body 时原语会当作焦点移到外面：先让它离开。
+        (document.activeElement as HTMLElement | null)?.blur();
+        closed.unmount();
+        mounted.splice(mounted.indexOf(closed), 1);
+
+        const wrapper = text({blocks: [twice], open: place});
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-origin-popover]")).not.toBeNull());
+        expect(document.body.querySelector("[data-origin-popover] [data-slot]")?.textContent).toBe("来历 e1 panel.存款");
+        expect(document.body.querySelector("[data-origin-popover]")?.getAttribute("aria-label")).toBe("存款的来历");
+        // 打开时焦点进浮层（读屏读出它的名字）。
+        await vi.waitFor(() => expect(document.activeElement?.closest("[data-origin-popover]")).not.toBeNull());
+        expect(wrapper.findAll("[data-value]").map((item) => item.attributes("aria-expanded"))).toEqual(["false", "true"]);
+    });
+
+    it("Esc 关上：发 close，焦点回到那个值；点页面里别处同样发 close；点到页面外只收起、不发 close，重新挂上时照记下的打开", async () => {
+        const page = document.createElement("div");
+        page.setAttribute("data-entry-page", "");
+        const outside = document.createElement("button");
+        document.body.append(page, outside);
+        // 同宿主：收到 close 就清掉开着的那一处。
+        const open = (place?: string) => {
+            const wrapper = mount(EntryText, {props: {blocks, self: "e1", ...(place === undefined ? {} : {open: place}), onClose: () => void wrapper.setProps({open: undefined})}, slots: {origin: () => h("button", {"data-slot": ""}, "来历")}, global: {provide: provideText(port)}, attachTo: page});
+            mounted.push(wrapper);
+            return wrapper;
+        };
+        const place = open().findAll("[data-value]")[0]!.attributes("data-place")!;
+        const wrapper = open(place);
+        const popover = () => document.body.querySelector<HTMLElement>("[data-origin-popover]");
+        await vi.waitFor(() => expect(popover()).not.toBeNull());
+        popover()!.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(wrapper.emitted("close")).toHaveLength(1));
+        await vi.waitFor(() => expect(document.activeElement?.getAttribute("data-place")).toBe(place));
+
+        // 记下的那一处还在（宿主还没清）时，点页面外：只收起。
+        const kept = open(place);
+        await vi.waitFor(() => expect(popover()).not.toBeNull());
+        outside.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        await vi.waitFor(() => expect(popover()).toBeNull());
+        expect(kept.emitted("close")).toBeUndefined();
+        // 重新挂上（切到别的标签再回来）：照记下的打开。
+        const again = open(place);
+        await vi.waitFor(() => expect(popover()).not.toBeNull());
+        // 点页面里别处：清掉。
+        page.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+        await vi.waitFor(() => expect(again.emitted("close")).toHaveLength(1));
     });
 
     it("条目引用是链接，已删除的不可点；出错的块写纯文本与原因", async () => {
@@ -91,12 +139,14 @@ describe("EntryText", () => {
         expect(drawn.findAll("p").at(-1)!.findAll("br")).toHaveLength(1);
     });
 
-    it("来历画在画出了这个值的块后面：值在没生效的支里、或读不到的块不算", () => {
+    it("记下的那一处不在了（块改了、值在没生效的支里）：发 close；块还没读到时不算", async () => {
         const hidden = block("hidden", '<If test="a.x">甲<Else />乙 <V of="panel.存款" /></If>', [["<If", {result: true, taken: 0}], ['<V of="panel.存款"', value("panel.存款", "900")]]);
-        const missing = block("missing", '<V of="panel.存款" />', [['<V of="panel.存款"', value("panel.存款", "未知", {raw: null, unknown: true, unavailable: "面板没启用"})]]);
-        const shown = block("shown", '丙 <V of="panel.存款" />', [['<V of="panel.存款"', value("panel.存款", "900")]]);
-        const wrapper = text({blocks: [hidden, missing, shown], open: "e1|panel.存款"});
-        expect(wrapper.findAll("section").map((section) => [section.find("[data-block]").attributes("data-block"), section.find("[data-slot]").exists()])).toEqual([["hidden", false], ["missing", false], ["shown", true]]);
+        const gone = text({blocks: [hidden], open: "hidden@20#e1|panel.存款"});
+        await flushPromises();
+        await vi.waitFor(() => expect(gone.emitted("close")).toHaveLength(1));
+        const loading = text({blocks: [], open: "b1@5#e1|panel.存款"});
+        await flushPromises();
+        expect(loading.emitted("close")).toBeUndefined();
     });
 
     it("嵌套过深的块（前后端不是同一版时内核没有拦下）整块按出错显示，不去递归画", () => {
