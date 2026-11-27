@@ -160,7 +160,7 @@ argument-hint: '设计审查给计划或草稿的路径；实现审查给提交�
 
 ### 领域专项（按改动追加，链接不复制）
 
-- 界面与组件：[ui-development](../ui-development/SKILL.md) 的“三、UI 专属检查”与组件同名 `.md`。
+- 界面与组件：[ui-development](../ui-development/SKILL.md) 的“三、UI 专属检查”与组件同名 `.md`；前端实现审查的“重点”贴那一节第 9 条的固定检查（依据的设计理论与规范见 nb-ui 设计语言开头）。
 - Spec 与治理文档：[`docs/specs/README.md`](../../../docs/specs/README.md)；可读性另用 [doc-review](../doc-review/SKILL.md)。
 
 ## 规则
