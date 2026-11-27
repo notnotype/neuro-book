@@ -226,6 +226,10 @@ describe("全局对象一行（输出 28、29）", () => {
         const candidates = removed.candidates.flatMap((group) => group.tools);
         expect(candidates.map((row) => row.id)).toEqual([objectRowId("ui")]);
         expect(candidates[0]).toMatchObject({object: "ui", blocked: false});
+        // 只去掉了一个方法：对象这一行还在，对话框里不再列这个对象。
+        const partial = field({binding: {added: [], removed: ["nbook.page-agent.snapshot"]}});
+        expect(rows(partial).map((row) => row.id)).toEqual(["nbook.agent.eval", objectRowId("ui")]);
+        expect(partial.candidates.flatMap((group) => group.tools)).toEqual([]);
     });
 
     test("绑定里加上、插件已卸载的对象列在“已卸载”一组，一个对象一行", () => {
