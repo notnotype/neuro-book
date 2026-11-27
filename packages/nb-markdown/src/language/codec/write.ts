@@ -574,7 +574,8 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         item.text = stripSentinels(item.text);
     });
 
-    // 正文开头不能被读成 frontmatter：没有 frontmatter 时，开头的 `---`（挪到最前面的分割线）会和后面的 `---` 配成一对。
+    // 正文开头不能被读成 frontmatter：没有 frontmatter 时，开头的 `---`（挪到最前面的分割线）会和后面的 `---` 配成一对。不读
+    // frontmatter 的语言没有这个问题。
     const first = items[0] as Item;
     const assemble = (): string => {
         const parts: string[] = [head];
@@ -583,7 +584,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         return parts.join("");
     };
     const split = splitFrontmatter(assemble());
-    if (split.bom + (split.frontmatter ?? "") !== head) {
+    if (language.frontmatter && split.bom + (split.frontmatter ?? "") !== head) {
         if (first.nodes[0]?.type.name !== "horizontalRule") return unrepresentable(first, "正文开头会被读成 frontmatter");
         first.unit = null;
         first.text = "***";

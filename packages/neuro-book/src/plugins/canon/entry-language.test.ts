@@ -41,16 +41,14 @@ function tokens(source: string): Array<Array<[string, string]>> {
 const colored = (source: string) => tokens(source).map((line) => line.filter(([, type]) => type !== ""));
 
 describe("author-ui 输出 48：条目主文字的着色", () => {
-    it("花括号里的字段：名字（含中文）是字段名一类，点是分隔符；条件里的数、字符串与运算符各自着色", () => {
-        expect(colored("魔力 {character.外观}")).toEqual([[["{", "delimiter.bracket"], ["character", "type.field"], [".", "delimiter"], ["外观", "type.field"], ["}", "delimiter.bracket"]]]);
-        expect(colored('{panel.魔力 >= 1000 ? "能" : "不能"}')[0]!.filter(([, type]) => !type.startsWith("delimiter") && type !== "type.field")).toEqual([[">=", "operator"], ["1000", "number"], ["?", "operator"], ['"能"', "string"], [":", "operator"], ['"不能"', "string"]]);
-        // 相邻的同类记号合成一个（`)` 与 `.`）。
-        expect(colored('{ref("e2").panel.存款}')[0]!.slice(1, 5)).toEqual([["ref", "keyword"], ["(", "delimiter"], ['"e2"', "string"], [").", "delimiter"]]);
+    it("标签：名字、属性名、属性值；of 的值里字段名（含中文）是字段名一类，点是分隔符", () => {
+        expect(colored('魔力 <V of="character.外观" />')).toEqual([[["<V", "tag"], ["of", "attribute.name"], ["=", "delimiter"], ['"', "attribute.value"], ["character", "type.field"], [".", "delimiter"], ["外观", "type.field"], ['"', "attribute.value"], ["/>", "tag"]]]);
+        expect(colored('同行的是 <Ref id="e2" />。')).toEqual([[["<Ref", "tag"], ["id", "attribute.name"], ["=", "delimiter"], ['"e2"', "attribute.value"], ["/>", "tag"]]]);
     });
 
-    it("标签：名字、属性名、属性值；属性里的花括号照表达式画", () => {
-        expect(colored('同行的是 <Ref id="e2" />。')).toEqual([[["<Ref", "tag"], ["id", "attribute.name"], ["=", "delimiter"], ['"e2"', "attribute.value"], ["/>", "tag"]]]);
-        expect(colored('<Image src={panel.图} alt="说明" />')[0]!.map(([, type]) => type)).toEqual(["tag", "attribute.name", "delimiter", "delimiter.bracket", "type.field", "delimiter", "type.field", "delimiter.bracket", "attribute.name", "delimiter", "attribute.value", "tag"]);
+    it("expr 与 test 的值照式子画：数、单引号的字符串、运算符、ref 与内置函数", () => {
+        expect(colored('<V expr="round(panel.魔力 / 3, 1)" />')[0]!.filter(([, type]) => type === "keyword" || type === "number" || type === "operator")).toEqual([["round", "keyword"], ["/", "operator"], ["3", "number"], ["1", "number"]]);
+        expect(colored("<If test=\"ref('e2').panel.存款 >= 1000\">有<Else />无</If>")[0]!.filter(([, type]) => !type.startsWith("delimiter") && type !== "type.field" && type !== "attribute.value")).toEqual([["<If", "tag"], ["test", "attribute.name"], ["ref", "keyword"], ["'e2'", "string"], [">=", "operator"], ["1000", "number"], [">", "tag"], ["<Else", "tag"], ["/>", "tag"], ["</If>", "tag"]]);
     });
 
     it("Markdown 的记号：标题整行、列表与引用的记号、分隔线、加粗与强调、行内代码、链接", () => {
@@ -59,36 +57,37 @@ describe("author-ui 输出 48：条目主文字的着色", () => {
         expect(colored("**加粗** 与 *强调* 与 `代码` 与 [链接](https://example.com)")).toEqual([[["**加粗**", "strong"], ["*强调*", "emphasis"], ["`代码`", "string"], ["[", "string.link"], ["](https://example.com)", "string.link"]]]);
     });
 
-    it("标题里的表达式照表达式画；标题在行尾结束，行尾正好是花括号时也不带到下一行", () => {
-        expect(colored("# 近况 {panel.魔力}\n下一行")).toEqual([[["# 近况 ", "keyword.heading"], ["{", "delimiter.bracket"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ["}", "delimiter.bracket"]], []]);
+    it("式子里没写完、行就断了：下一行回到正文照常着色（单引号的字符串跨行也一样）", () => {
+        expect(colored('<V of="panel.魔力\n后面 **粗**')[1]).toEqual([["**粗**", "strong"]]);
+        expect(colored("<V expr=\"a + 'x\n y **粗**")[1]).toEqual([["**粗**", "strong"]]);
     });
 
-    it("不是写法的地方不着色：比较号、转义的花括号、代码围栏里的花括号", () => {
-        expect(colored("a < b、1<2")).toEqual([[]]);
-        expect(colored("他说\\{+5}")).toEqual([[["\\{", "string.escape"]]]);
-        expect(colored("```\n{不是表达式}\n```\n{panel.魔力}").map((line) => line.map(([, type]) => type))).toEqual([["string"], ["variable.source"], ["string"], ["delimiter.bracket", "type.field", "delimiter", "type.field", "delimiter.bracket"]]);
+    it("等号两边有空格的属性（内核拒收）不照标签画；链接文字里的标签照标签画", () => {
+        expect(colored('<V of = "a.b" />')).toEqual([[]]);
+        expect(colored('[先 <V of="a.b" /> 后](http://x)')[0]!.filter(([, type]) => type === "tag")).toEqual([["<V", "tag"], ["/>", "tag"]]);
     });
 
-    it("没写完的写法只影响它那一段：行中间没闭合的花括号、没闭合的标签，空行以后照正文与标题画", () => {
-        expect(colored("他说{+5 \n\n下一段 有 2 个字\n# 标题").slice(2)).toEqual([[], [["# 标题", "keyword.heading"]]]);
-        expect(colored('先写 <Ref id="e2"\n\n后面 word = 1').slice(2)).toEqual([[]]);
+    it("标题里的标签照标签画；标题在行尾结束", () => {
+        expect(colored('# 近况 <V of="panel.魔力" />\n下一行')).toEqual([[["# 近况 ", "keyword.heading"], ["<V", "tag"], ["of", "attribute.name"], ["=", "delimiter"], ['"', "attribute.value"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ['"', "attribute.value"], ["/>", "tag"]], []]);
     });
 
-    it("行首开始的表达式可以跨空行：空行后面还是表达式", () => {
-        expect(colored("{\n\npanel.魔力\n}").map((line) => line.map(([, type]) => type))).toEqual([["delimiter.bracket"], [], ["type.field", "delimiter", "type.field"], ["delimiter.bracket"]]);
+    it("不是写法的地方不着色：比较号、不成标签的 <A、转义的 <、花括号、代码围栏里的标签", () => {
+        expect(colored("a < b、1<2、评级 <A 级、他说{+5}")).toEqual([[]]);
+        expect(colored('\\<V of="panel.魔力" />')[0]![0]).toEqual(["\\<", "string.escape"]);
+        expect(colored('```\n<V of="x" />\n```\n<V of="panel.魔力" />').map((line) => line.map(([, type]) => type)).slice(0, 3)).toEqual([["string"], ["variable.source"], ["string"]]);
     });
 
-    it("加粗里的字段照样着色；两边带空格的星号不是强调", () => {
-        expect(colored("**{panel.魔力}**")[0]!.filter(([, type]) => type !== "")).toEqual([["{", "delimiter.bracket"], ["panel", "type.field"], [".", "delimiter"], ["魔力", "type.field"], ["}", "delimiter.bracket"]]);
+    it("没写完的标签只影响它那一段：空行以后照正文与标题画", () => {
+        expect(colored('先写 <Ref id="e2"\n\n后面 word = 1\n# 标题').slice(2)).toEqual([[], [["# 标题", "keyword.heading"]]]);
+    });
+
+    it("加粗里的标签照样着色；两边带空格的星号不是强调", () => {
+        expect(colored('**<V of="panel.魔力" />**')[0]!.some(([text, type]) => text === "魔力" && type === "type.field")).toBe(true);
         expect(colored("2 * 3 * 4")).toEqual([[]]);
     });
 
-    it("只含注释的表达式整个是注释", () => {
-        expect(colored("{/* 待补 */}")).toEqual([[["{/* 待补 */}", "comment"]]]);
-    });
-
-    it("认不出的字照正文画，不标成错误：没配平的花括号、白名单以外的标签、表达式里的怪字符", () => {
-        const all = tokens("他说{+5 # ¥ @\n<Foo bar=1>\n{panel.任务[3]}").flat().map(([, type]) => type);
+    it("认不出的字照正文画，不标成错误：白名单以外的标签、式子里的怪字符", () => {
+        const all = tokens('他说 # ¥ @\n<Foo bar="1">\n<V expr="panel.任务[3] ¥ @" />').flat().map(([, type]) => type);
         expect(all.filter((type) => type.includes("invalid"))).toEqual([]);
     });
 });

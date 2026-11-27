@@ -1,0 +1,92 @@
+## 发现 1（重要，不变量/键盘可达）展开后展开收起按钮 tabindex 留在 -1，Tab 进不了
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolStrip.vue 的 railItems/syncTabStops（约 248-275 行）与 MutationObserver（约 290 行，只看 childList）；packages/nb-agent-ui/src/vue/messages/AgentMessagesSegment.vue 模板里 toggle 的 `:data-rail-item="props.expanded ? undefined : ''"`。
+现象：收着时按钮带 data-rail-item，侧轨的 syncTabStops 给它写 tabindex（按下的入口是 Tab 停靠点时，按钮是 "-1"）。展开时视图把 data-rail-item 摘掉，按钮不再是 railItems，syncTabStops 从此不碰它，先前写的 tabindex="-1" 留在元素上；展开时它是列表区里的普通按钮，计划要求“Tab 可达”，实际 Tab 跳过它，键盘用户展开后无法 Tab 到收起按钮。
+为什么是问题：计划“展开时它不带，是列表区里的普通按钮，Tab 可达”；Spec 输出 50“焦点与读屏”。dom 测试 WorkbenchToolStrip.dom.test.ts 的“焦点交接”用例用的是手写的 `data-rail-toggle` 空按钮，没有 `data-rail-item` 的摘取，也没断言 tabindex，所以没拦住。
+如何核实（真实组件）：在 /tmp/review-w00043-t20-impl2/probe/tabstop.dom.test.ts 里挂真实 WorkbenchToolStrip + 真实 AgentMessages（rail 位置、两者 expanded 同步翻 true）。结果：收着时 toggle 的 data-rail-item 在、tabindex="-1"（按下的入口 a 是停靠点）；展开后 data-rail-item 摘掉、tabindex 仍是 "-1"。运行：cd packages/neuro-book && npx vitest run --config /tmp/review-w00043-t20-impl2/probe/vitest.probe.config.mts <测试文件>，输出写在 probe/out.txt。
+建议改法：二选一。(a) 视图段在 toggle 上展开时显式 `:tabindex="props.expanded ? 0 : undefined"`（收着时交回侧轨管；但从 -1 回到收着时 Vue 会把没有 tabindex 的属性摘掉，侧轨要靠 childList 重排，收起时 strip 换回会触发）；(b) 更稳：侧轨 syncTabStops 之外，对“曾经是 railItem、现在不是”的元素清掉 tabindex（记一个 Set），或让 MutationObserver 也看 `attributeFilter: ["data-rail-item"]`（只过滤这一个属性，不会因自己写 tabindex 而循环）并在重排里对失去标记的元素 removeAttribute("tabindex")。补一条 dom 用例：真实视图段展开后 toggle 的 tabindex 不是 "-1"。
+
+## 发现 2（建议，性能/合同）placement 带上 width 后，拖轨宽与窗口缩放每帧让整个视图重渲染
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:216-217（watchEffect 里 `width: rail.width`）；packages/neuro-book/src/plugins/agent/web/MessagesHost.vue:65-70（ownHeadStyle 依赖整个 `placement.value`）、86-90；AgentMessagesSegment.vue:262 `listStyle`。
+现象（从代码推断，未跑 layout-frames）：以前 rail 位置只在元素换了时才换引用；现在 `width`、`tooNarrow` 进了 placement，拖轨宽手柄、窗口缩放时 `rail.width` 每帧变，watchEffect 每帧写一个新 placement 对象（samePlacement 比 width 不同，放行）。链上：MessagesHost 的 `placement` computed 对 rail 直接返回 `current`（新引用）-> ownHeadStyle 重算并返回新对象（三个自定义属性每帧 setProperty 同值）-> AgentMessages 与 AgentMessagesSegment 每帧重渲染（slot 函数、列表 props 全部重新求值）-> `listStyle` 每帧写一次 width。float 窗的 edge 早已如此，但停靠右轨的拖宽是新增的每帧路径。AgentMessages.vue 的 `targets` 保持引用做对了，焦点与滚动放回不会触发；问题只在多余的重渲染。
+为什么是问题：计划“性能：layout-frames 重跑一次”，提交里只改了 layout-frames.ts 的选择器，没有看到重跑的证据；规范里拖轨宽每帧的写入数是被计的（同值写入也计）。list 宽度只在展开那一刻（外框还在长）才需要锁到终点宽，拖动中本来就等于外框宽。
+如何核实：`bun run perf:layout-frames`（或脚本里拖右轨手柄的场景）对比 c41ff201e 与 7263ba27d 的每帧 DOM 写入与脚本时间。
+建议改法：二选一。(a) MessagesHost 里把 `ownHeadStyle` 改成只依赖 `placementKind = computed(() => placement.value.kind)`，并让视图段不因 width 重渲染：宽度由 WorkbenchToolStrip 写成 main 上的 CSS 变量（`--workbench-rail-width`，它每帧本来就重渲染），列表用 `width: var(--workbench-rail-width, 100%)`，placement 里不放每帧变的 width；(b) 保留 placement.width，但只在展开状态变化的那一刻（Segment 的 expanded watch）取一次值锁住，拖动中不再跟随。
+
+## 发现 3（建议，不变量）连点与命令发起的展开收起：上一次的位移动画没取消；起点只靠 1 秒 TTL 判过期
+位置：AgentMessagesSegment.vue:225-230（watch(expanded) 里 `return` 先于 `cancelMoves()`）、169（ORIGIN_TTL）、166 的注释。
+现象：(1) `cancelMoves()` 排在三个提前 return 之后：`origins === null`（经命令、别处发起，规范允许“直接换”）、方向对不上、超 TTL、时长为 0 时都不取消。点按钮开始展开（toggle 与导航在位移中），1/3 的时候用命令（例如 nbook 的命令收起）收起，`start` 是 null，直接 return：toggle 上还在跑的 translate 动画不取消，元素换了位置后带着旧的偏移继续滑完，视觉上先跳再滑。(2) 起点失效只靠 1 秒 TTL：宿主拒绝（窗口太窄）时 expanded 不变，`origins` 留着 1 秒；这 1 秒内别处发起的一次成功展开（命令、窗口刚好变宽后点另一个入口等）会拿旧矩形做起点，toggle 与底段按钮从点击拒绝那一刻的位置滑过来。记录和宿主结果之间没有直接的联系。
+为什么是问题：计划“连点时取消上一次动画”只在有起点的路径成立；TTL 是时间启发式，而宿主的结果（done、too-narrow、revoked）在 `MessagesHost.requestRail` 里是明确知道的。
+如何核实：dom 里给 `Element.prototype.animate` 打桩，点击后 1 秒内改 props.expanded 而不经过 onToggle，看 `running.size`；或读 watch 的 return 顺序。
+建议改法：把 `cancelMoves()` 挪到 watch 回调的最前面（只要 expanded 变了就取消在途动画，再决定要不要做新的）；起点失效改成明确事件：视图段在 `tooNarrow` 变 true 时（props.tooNarrow watch）清 `origins`，TTL 可以留作兜底但不再承担这件事。
+
+## 发现 4（建议，正确性/视觉；从代码推断，未在真实页面慢放）离场元素按 left 锚定，右轨朝左长，淡出的那一半会漂或被裁掉
+位置：AgentMessagesSegment.vue:247-256（holdInPlace：`left = offsetLeft`、`width = offsetWidth`）；WorkbenchToolStrip.vue:约 560 的 `.workbench-tool-strip:not([data-rail-state="expanded"]) > * { max-width: 48px }`；AgentMessagesSegment.vue:456-466（`align-items: flex-end` 靠右排）。
+现象：(1) 展开：收着的 strip 在窄列右侧（右轨，右缘贴窗口），before-leave 时量到 offsetLeft 约 0（main 当时还是 48 宽），之后 main 随轨宽朝左长，绝对定位的 strip 钉在 main 的左缘，于是淡出的这 120ms 里窄列图标从右缘滑/跳到卡片最左边再消失；设计是“右缘不动”。(2) 收起：状态一翻成 collapsed，侧轨的 `max-width: 48px` 立刻把 main 所在的 `.workbench-tool-strip__segment` 压成 48 宽（贴右、overflow-x hidden），此时离场的列表还是 `left:0; width:300px`，被裁成最左边 48px 一条（不是靠右那条）淡出，所以“列表淡出”几乎看不到完整的列表，是一片被切掉的左缘。展开时列表是靠右的（`flex-end`），收起时的残影却靠左，两个方向不对称。
+为什么是问题：plan“终点稳定”“展开时右缘不动”只对进场那一半成立；Spec 输出 50 的“展开时的版式”写收起时“列表淡出”。
+如何核实：开发服务上放慢（design-language 坑 84 的做法：整页放慢、定格再截）展开与收起各一次，看 120ms 内 strip 与列表的位置；或在 dom 里不可测，需要真实布局。
+建议改法：停靠（有 targets）时离场元素改按右缘锚定：`right = main.clientWidth - offsetLeft - offsetWidth`，写 `right` 而不写 `left`；收起时在离场期间不让侧轨把 main 压成 48（例如 `:not([data-rail-state="expanded"])` 的选择器再加 `:not(:has([data-leaving]))`，或让视图段在离场期间自己撑着）。浮动窗（inline）里保持 left 即可。
+（发现 4 补充：侧轨的 max-width 规则实际在 WorkbenchToolStrip.vue:573，不是 560。）
+
+## 发现 5（建议，过渡/UI 专属检查第 6 条；从代码推断）展开时入口带在轨宽还在长的过程中直接横排、逐帧重排，出现与消失没有过渡
+位置：WorkbenchToolStrip.vue:101-103（bandAxis、bandShown）、183-193（measureBand）、326（v-show）、239（indicator 的 layoutKey 不含轴）；样式 `[data-rail-state="expanded"] > .workbench-tool-strip__entries`。
+现象：展开的那一帧起 `data-tool-band-axis` 翻成 x、v-show 变真，入口带在顶上占一行（约 46px 高，把 main 整体往下推）；此时卡片宽还在 48 往 300 长，条目区的可用宽（measureBand 按 clientWidth 量）从 ~32px 一路长到 ~284px，ResizeObserver 每帧触发，`strip` 每帧重排：入口先全部落进“更多”，再一个个冒出来，列表第一行（搜索）与 toggle 的 top 也因入口带突然出现而下移。收起时反过来突然消失。Task 决定写的是“竖排与横排之间不过渡，直接换”，但 UI 专属检查第 6 条要求状态变化都有过渡；这一条是评审板里没单独问过的外观成本。另外 indicator 的 `layoutKey`（239 行）只含入口与 available，不含轴；轴换了而 available 数值恰好相等时按下的块不重放位置（概率小）。
+如何核实：开发服务上慢放展开，看入口带在最初 100-300ms 的样子；`NB_` 的 layout-frames 看展开帧的 DOM 写入。
+建议改法：入口带（`display` 不变）在展开时用与列表相同的延后淡入（delay `--motion-layout`，与 `.acv-segment__list--opening` 对齐）或在轨宽过渡完成前保持 `visibility: hidden`；`layoutKey` 里加上 `bandAxis`。
+
+## 发现 6（建议，e2e 迁移的坑）搜索框加了图标后，`data-panel-search`、`data-messages-search` 落在外层控件上，现有 e2e 的 fill/toBeFocused/toHaveValue 会失败
+位置：AgentSessionPanel.vue:165、AgentMessagesList.vue:116；packages/nb-ui/src/components/form/Input.vue 的注释“透传属性分两处落”（装饰过的输入框 data-* 落在外层 div，读屏属性落在 input）；packages/neuro-book/e2e/agent-messages-rail.e2e.ts:89,237-310,417-426、agent-messages-float.e2e.ts:60,454-481（把 `[data-panel-search]` 当 input 用）。
+现象：两个搜索框以前没有图标，Input 是裸 input，data-* 在 input 上；现在有 `icon-class`，data-* 在外层 div，input 在它里面。dom 测试已改成 `[data-panel-search] input, input[data-panel-search]`，e2e 还没有。Playwright 对 div 调 fill 会报“不是 input”，toBeFocused、toHaveValue 也不对。计划的“测试分工”标记表里没有写这一点，e2e 子代理按表写会踩。
+如何核实：读 Input.vue 模板（`v-if="$slots.prefix || $slots.suffix || props.iconClass"` 分支）。
+建议改法：把“搜索框：`[data-messages-search] input`、`[data-panel-search] input`（标记在外层，输入框在里面）”补进 plan.md 的测试分工并告诉 e2e 子代理；或让 Input 把 data-* 也落到 input 上不可取（外层选择器是 nb-ui 的约定），所以只改测试一侧。
+（发现 5 如何核实一栏里“`NB_` 的 layout-frames”应读作“perf 脚本 layout-frames”。）
+
+## 发现 7（建议，文档与注释没跟上）同名说明与注释里留着旧说法
+位置：packages/neuro-book/src/plugins/agent/web/messages-head.ts:10（注释“缺省 260”，值已改 300）；packages/nb-agent-ui/src/vue/messages/AgentMessages.md:15（edge 一条“tooNarrow 转给视图段底下的展开按钮”：按钮已在最上面）与 :25（placement 类型写 `{kind: "rail"; main; foot}`，少了 width、tooNarrow?）；docs/proposals/workbench-side-rails.md:130 的 ViewRailPlacement 也是旧形（提案，可不改）。
+为什么是问题：规则要求同名 .md 随组件一起改（AGENTS.md 与 ui-development）；AgentMessages.md 是 placement 合同的组件侧说明，类型少两个字段会让读的人漏接 width。
+如何核实：grep -n "260\|底下的展开按钮\|kind: \"rail\"; main; foot" 这三处。
+建议改法：就地改三处。
+
+## 发现 8（建议，代码质量）几处与他处耦合的数字与重复逻辑
+(a) AgentMessagesSegment.vue:506-515（toggle 的 `top: 9px; right: 8px`，26px）与 .acv-segment__list 的 `--acv-list-inset-end: 30px`（699）：注释写“搜索行上内边距 8、框高 28”，28 是 `--control-h-sm` 的缺省值，主题可改（nb-ui tokens.css:133；Input sm 用 `nb-ui-control-h-sm`）；主题把控件高调成别的值，按钮中线与搜索框就对不上。改法：`top: calc(8px + (var(--control-h-sm) - 26px) / 2)`；30px 与按钮宽度（26）加间距（4）绑在一起，写成同一处的两个变量（`--acv-toggle-size: 26px`）再算。
+(b) `unreadTotal`、`anyWaiting` 在 AgentMessagesSegment.vue:73-74 与 AgentMessagesList.vue:38-39 各算一遍，定义分别写，规则以后改一处漏一处（上一轮的 `data-messages-summary` 本来只有 Segment 一处）。改法：Segment 算好，经 AgentMessagesList 的 props 传下去（列表本来就接 sections，传两个数就够）。
+(c) 展开时 foot 里的 `data-messages-summary` 节点还在 DOM（`hidden`），导航里又有一个：任何用 `[data-messages-summary]` 的 e2e 定位在展开态会命中两个，要写 `[data-messages-nav] [data-messages-summary]`（测试分工里写了 nav 的位置，注意别用裸选择器）。
+
+## 发现 9（建议，边界与命名）侧轨对“藏起来的底段”只认视图写的 `hidden`；`data-leaving` 与布局库同名；焦点交接放宽后对陈旧标记更敏感
+(a) WorkbenchToolStrip.vue:250-258（railItems）：展开时 `.workbench-tool-strip__segment-foot` 被侧轨的 CSS `display:none`（约 645 行），但 railItems 只靠 `closest("[hidden]")` 排除底段的项，也就是依赖视图自己给 foot 写 `hidden`（消息视图写了）。别的视图（SampleRailView：src/web/testing/sample-views.ts 的 foot 按钮；任何声明 railBounds 的第三方视图）不写时，它的 foot 项仍在 roving 里：End、方向键会 `.focus()` 一个 display:none 的按钮，静默无效，焦点卡住。ViewRailPlacement 的注释（contracts.ts:470-476）也没有把“展开时底段藏起来、项要自己 hidden”写成对视图的要求。改法：railItems 在 `segment.expanded` 时直接排除 `footEl.contains(element)`，不靠视图配合；或把这一条写进 ViewRailPlacement 注释与 views.md 输出 21。
+(b) AgentMessagesSegment.vue:224、254 用的 `data-leaving` 与 nb-layout 的 NestedGrid（`.nb-grid-frame[data-leaving]`）及 layout-drag.ts:460、519 的同名属性不是一个意思；现在互不影响（后者的选择器带类名或只在入口带上找），但视图段里 `closest("[hidden], [data-leaving]")` 会一路向上找到卡片外的 NestedGrid 叶：右栏整块在关闭过渡里（叶 data-leaving）时若恰好发生展开收起，会被当成“焦点在离场元素里”抢焦点。改名 `data-messages-leaving`，查询限在 mainRef 内（`mainRef.value.contains(match)`）。
+(c) WorkbenchToolStrip.vue:约 150-160（segmentFocused 的 watch）：旧的触发条件只在“收起或拆掉”时交接；现在去掉了方向限制，展开也会交接。`segmentFocused` 只在焦点明确去了视图段外（relatedTarget 是 Node）时清，焦点点到空白处（relatedTarget 为 null）时不清，于是用户点空白后再用命令展开，焦点会被拉到 toggle。后果轻（焦点本来就在 body），但与“用户自己挪走的不抢”的原则不一致。改法：交接前再确认 `focused === document.body` 且最近一次 focusout 来自视图段内部元素被拆掉，或在 focusout 的 relatedTarget 为 null 时用 queueMicrotask 检查元素是否还连着（同 Segment 的 onFocusOut 做法）。
+
+## 发现 10（建议，测试）新增的过渡与合同分支没有 dom 或单测，几处断言空过的风险
+位置：AgentMessagesSegment.vue 的 recordOrigins/FLIP/moving/opening（约 160-275 行）整段无用例；packages/neuro-book/src/plugins/workbench/web/views/view-instances.test.ts 只测 window 分支，samePlacement 的 rail 分支（view-rail.ts:30-35）无用例；AgentMessages.dom.test.ts 无 `--acv-list-inset-end`、nav 的 99+、`fixed: 2` 与按钮占格的联合用例（只有 messages-segment-fit.test.ts 改了参数）。
+现象与影响：e2e 会覆盖 data-messages-moving，但 moving 的计数簿（holdInPlace 加、leaveDone 减、animation finish/cancel 减、连点取消）是纯逻辑，happy-dom 里 `Element.animate` 与 getComputedStyle 的 --motion-* 可以桩出来；变异（删掉 leaveDone 里的 decrement）目前没有任何 dom 用例会失败，只有 e2e 的“结束后属性消失”能抓。samePlacement 的 rail 分支在 bun 里可用 `as unknown as RailPlacement` 的假元素测：同一对元素同 width 不换引用、width 变了换、tooNarrow 变了换。
+建议改法：补三条：(1) Segment：桩 animate 与 --motion-layout=100ms，点击后断言 data-messages-moving 出现、动画 finish 后清除，连点取消后计数归零，减少动态效果（令牌 0）时从不出现；(2) samePlacement 的 rail 分支；(3) 带 toggle 与 `fixed:2` 的 fitSegment 行为已在 fit 单测里，不用再补。
+（发现 9 补充：(b) 里“右栏整块在关闭过渡里”不确定侧轨（nav）是否在 NestedGrid 的叶里，浮动窗的框在叶里的可能性更大；按“可能撞”处理，改名与限定查询范围的建议不变。(c) 补充：该 watch 的源 `[props.segment?.expanded, props.segment === null]` 每次求值都是新数组，`railSegment` 在拖轨宽时每帧换引用，回调因此每帧执行；旧代码靠回调里的方向守卫提前 return，现在守卫去掉后，只要 segmentFocused 为真（焦点在列表搜索框里时窗口缩放、右轨宽度被预算夹动）每帧都会排一个 nextTick 去读 activeElement，开销不大，但属于“watch 的 getter 别返回新数组”那条老坑；改成 `() => (props.segment === null ? "gone" : props.segment.expanded ? "open" : "shut")` 返回字符串即可。）
+（发现 1 补充触发条件：用鼠标或键盘点 toggle 本身展开时，focusin 把它记成 lastItem，它自己就是 tabindex=0，bug 不出现；经“全部 bot”“会话历史”“+N”或命令（搜索会话）展开时 lastItem 是别的项，toggle 是 -1，展开后 Tab 到不了它。后者是最常见的展开路径，所以不是边角。另外展开后工具条里会同时留下两个 tabindex=0（陈旧的 toggle 与按下的入口）这种情形也是同一个原因。）
+
+## 未发现问题的方面（仔细检查后）
+- 同一个按钮两种位置：toggle 始终是 main 的第一个子元素、同一个 DOM 节点，收着/展开只换类与属性；浮动窗（Teleport disabled）里同样；dom 用例“同一个元素”已覆盖。视图段自己的焦点交接与侧轨的交接都落在 toggle 上，幂等，不互相打架（strip 的 nextTick 在 post 之后才读 activeElement）。
+- `AgentMessages.vue` 的 `targets` 保持引用（computed 取 previous）做对了：拖轨宽每帧写 placement 不会触发 watch(targets) 的焦点与滚动放回。`samePlacement` 逻辑正确（none 分支、window/rail 分支、width 与 tooNarrow 比较）。
+- `moving` 计数簿：after-leave 与 leave-cancelled 互斥、`_leaveCb` 强制完成走 afterLeave，连点、卸载（onBeforeUnmount 取消）都不漏减；减少动态效果时 holdInPlace 与 FLIP 两条都按令牌 0 不写 data-messages-moving。令牌用 `calc()` 写成时 motionMs 返回 0 会静默关掉过渡，目前 tokens.css 是字面量，不算问题。
+- 列表页延后淡入的 `opening`：只在刚展开时为真；切页时在窗口内重放一次后清掉，切页在 animationend 之后不重放；动画被 display:none 取消时 opening 暂留，下一次 animationend 清，不会卡住。
+- 会话面板过滤菜单：scope 为 null 时没有范围一组与多余分隔线；“全部作品”计入条数；清除回到当前作品；选中已选的单选项不发事件。`--acv-list-inset-end` 只在 `.acv-segment__list` 上声明，会话面板在下拉与左栏等别的宿主里读到缺省 0。
+- 拖动的轴：layout-drag 读 `data-tool-band-axis`，`entriesIn`、`groupEnd` 按轴取；band 隐藏（单容器）时 `rectOf` 返回 null 被跳过；轨宽手柄的方向键 `stopPropagation`，不会与横排的左右键冲突。
+- 旧 key 清理：shell.rail.expand/collapse/tooNarrow 在两份 JSON 与 locales.test 里一起删了，源码里没有残留引用（e2e 里的 `data-rail-expand` 属于迁移范围）。
+- 运行：nb-agent-ui 的 messages、AgentSessionPanel dom 用例与 fit 单测全过；`bun run typecheck`（nb-agent-ui：tsc 加 vue-tsc）退出码 0；WorkbenchToolStrip.dom.test.ts 10 条全过。neuro-book 的 typecheck 见最终回复。
+
+## 汇总
+- 阻断 0；重要 1（发现 1）；建议 9（发现 2 到 10）。
+- 实验：probe/tabstop.dom.test.ts 复现发现 1（真实 WorkbenchToolStrip 加真实 AgentMessages）。发现 2、4、5 来自代码推断，需要 layout-frames 与开发服务慢放确认。
+有效发现编号：1 2 3 4 5 6 7 8 9 10
+neuro-book typecheck: 未跑完（机器负载 30 以上，手动结束；tsc 阶段超过 2 分钟没出结果）
+
+==== 主会话的处理（2026-11-27，修正提交 89e2cafdf） ====
+1 成立、要改：侧轨看 data-rail-item 的属性变化，视图摘掉它时摘掉写过的 tabindex；dom 用例补“移出工具条后没有 tabindex”。
+2 待测：placement 带 width 后拖轨宽每帧重渲染视图段；合入前重跑 scripts/perf/layout-frames.ts 看预算，超了再改成 CSS 变量。
+3 成立、要改：先取消上一次位移再判起点；tooNarrow 变真时清起点（TTL 留作兜底）。
+4 成立、要改：右轨上离场的一半按 right 锚。收起时 main 立即收成 48 宽、离场的列表被裁，列表淡出只有 --motion-fast，接受。
+5 不改：Spec 输出 50 写明“竖排与横排之间不过渡，直接换”。
+6 成立：标记落在 Input 外层，已告诉写 e2e 的子代理用 `[data-panel-search] input`；计划“测试分工”不另改（组件 .md 已写透传规则）。
+7 成立、要改：messages-head.ts 注释、AgentMessages.md 的 placement 说法。
+8 部分改：按钮竖向位置改成按 --control-h-sm 算；unreadTotal 两处各算一遍不改（两个组件各自独立可用，代价一次 reduce）；展开时底段的 data-messages-summary 留在 DOM，已告诉 e2e 限定在导航里。
+9 部分改：展开时底段按侧轨自己的状态排除，不靠视图写 hidden；data-leaving 改名 data-messages-leaving；焦点交接的 watch 改成比字符串。
+10 部分改：侧轨位置比较补单测；FLIP 与 moving 的计数在 e2e 第二段按 data-messages-moving 测（happy-dom 里 Transition 是替身，测不出）。

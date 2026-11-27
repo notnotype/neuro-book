@@ -71,10 +71,25 @@ updated: 2026-11-27
   - `ui.highlight`（2ee59874e、54ba68672）：窗口合同加 `highlight` 订阅，窗口一侧接引擎（中英文字、NeuroBook 的主题变量、悬停显示），服务端选窗口、订阅，装上后按服务端时钟计时并自报等用户，断开、插件停止与停止 eval 按 Spec 结算；`ui` 的文档写了 highlight 与带用户去设置的做法。插件测试 8 条，服务端判据 12 处变异检查全部能抓到。
   - 按全局对象存工具绑定与 Profile 页的 `ui` 一行（c007d9e4a、76713344f）：绑定加 `objects`，工具集先按对象加减再套方法级的；工具目录给方法带上对象；页面把同一对象的方法合成一行（等级取最高、悬停列方法、没有 `eval` 时说明换成原因并标警示），按对象去掉、加回。实现中定了：全局对象的声明加可选的界面说明 `description`（contributions 输出 25，Profile 那一行用），`ui` 写了中英两种。14 处变异检查补一条断言后全部能抓到。
   - 验证：应用三段类型检查；agent、page-agent 插件与 SDK 示例 716 条；agent 的 dom 测试 77 条。
+- 第二段 e2e（Sonnet 子代理，分支 `w00033-t03/e2e2`，6 个提交）已合入 Work 分支：核心夹具 `spec-guide.e2e.ts` 12 条（输出 9、10 与弹层无关的逐句），应用 `page-agent-guide.e2e.ts` 15 条（验收 1、3 的高亮部分、6 的三种真实弹层与弹层之外、设置窗口、7、9 的 bot 会话、10 的像素判据，Profile 对象行四条）。子代理报的两类失败：
+  - 产品缺陷（63718c281 修）：提问时选区留在别处的可编辑区域（焦点在下拉或菜单的一项上），收起后放回选区时 Chrome 把焦点拉进可编辑区域，菜单因此关掉。改为这种选区不放回；Spec“不承诺”补一句。
+  - 用例前提不成立：用户级 Profile 没有 `defaultTools` 声明（内核的 `defineProfile` 不带这一项），子代理往 Profile 文件里写的不生效；改用内置的临时帮手（声明了 `defaultTools: false`）。用户级 Profile 能不能声明 `defaultTools` 不在本 Task。
+  - 合入后又修了两处用例写法（ff9ef3281）：量层的计算样式不比随指针悬停变的滚动条颜色；下拉的按键对照往上按（高亮已在最后一项）。验证：核心 `guide` 与 `spec-guide` 41 条、应用 `page-agent-guide` 15 条全部通过。
+- 第 10 片进行中：
+  - 真实模型冒烟 `page-agent.llm.test.ts`（9eafb946e、169cc0496）：测试窗口答复目录与高亮，问“在哪改主题，带我去”。第一次只给 eval 时模型读不到 `docs://eval/ui.md`、猜参数；按真实 Profile 加上 read 后连跑两次通过（先读文档、find 一次、按路径三步高亮，带进度与压暗）。
+  - 开发服务上点一遍（开发构建、不减弱动效、DeepSeek）：两次都走通（两步与三步），压暗、描边、说明框位置正常，结束后没有残留节点，没有页面报错与 Vue 警告。看到模型先凭摘要猜了 `ui.guide`、参数形状，失败后读文档改对；标题写成“第 1 步”与进度重复。据此 `ui` 的摘要点出四个方法名、`title` 的说明写明进度另外显示（9d2327ab5）。说明框底下的蓝色控件透成色斑，是沿用 nb-ui 浮层的磨砂半透明底，与菜单、下拉一致。
+  - 实现审查（第 3、4、6、7、9 片，提交 9d2327ab5）已处理（[处理记录](evidences/impl-s9-review-disposition.txt)）：后端 Opus 5 条、前端 Sonnet 11 条；omp `@review` 被上游安全过滤拦了一次后额度不足退出，没有报告。修正在 3acca8191、371e5f41b、57e6800c9、9ea8408bd、0d4daa76c、d7a43f555、7e8a71096：
+    - 后台会话与 bot 会话派出的子会话同样没有 `ui`（按派发链判定，主会话直接定：只收紧已定的“没人在窗口前就不给”）；
+    - 高亮与截图交回定位警告 `rebound`；选窗口时页面出错算没应答、确认前断开算 `window-gone`；文档补 `invalid-arguments`；
+    - 焦点在包着编辑器的容器上时收起提问不再把焦点拉进编辑器；叠成标签的视图标签写稳定名；工作台目录的视图带是否在布局里，关掉的视图不进界面目录；
+    - Profile 对象行的读屏名字用 `ui.*`、悬停写“说明。方法：ui.find（读）…”；六个组件的文档补稳定名；悬停显示钩子补一条经真实引擎的 e2e。
+    - 接受取舍：插件停止的真实接线没有测试兜底（新应用还没有停用单个插件的入口，运行中登记的插件其全局对象进不了 eval），先后写进注释；底部面板并成一行与浮出的自绘头视图的标题点不到，写进 Spec“不承诺”；Profile 工具一节的行增减没有过渡，与这一节原有的行一致，记为后续。
+    - 新判据变异检查 10 处（后端 6、前端 4）与核心 1 处、agent 1 处，全部能抓到。Spec 同步改了 page-agent 输入与输出 6、7、14、不承诺，contributions 输出 4，views 输出 23、24（36d06ee03）。
+  - 晋升前逐条核对（Opus）在跑；收口 e2e 等负载降下来再跑（别的会话的 e2e 让 1 分钟负载到 29）。
 
 ## 下一步
 
-1. 把决定 4 到 8 写进 Spec（`page-agent.md` 输出 4、9、10，`profile-settings.md` 输出 28）。
-2. 派第二段 e2e（Sonnet 子代理）：核心夹具里输出 9、10 与弹层无关的逐句补测；应用验收 1、3 的高亮部分、6、7、9、10；Profile 的 `ui` 一行。之后第 10 片：真实模型冒烟、开发服务上点一遍、文档收尾、逐条核对后晋升。
-3. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条，计划“不做与风险”）。
-4. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`（分支上 `docs:check` 因此报一条）；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，没有在分支上改）。
+1. 收到逐条核对的结果，对不上的修代码或改 Spec，再把 `page-agent.md` 晋升 `implemented`、本 Task 在别的 Spec 里的“（planned）”摘掉，补实现合同与证据。
+2. 收口：`bun run test:affected --since master`；核心包 `test:e2e`；`page-agent.e2e.ts`、`page-agent-guide.e2e.ts`、`agent-profiles.e2e.ts` 各一次；`docs:check`、`governance:check`；合入 master。
+3. 合入 master 时：`docs/specs/workbench/quick-open.md` 实现合同与证据里 `command-query` 的两处路径改成 `workbench/shared/`；根 `AGENTS.md` 的结构图补 `nb-page-agent`（主工作区的 `AGENTS.md` 有别的会话未提交的改动，只暂存自己那一行）。
+4. 后续（不在本 Task）：内核在提供方的 `subscribe` 抛错时不触发它的 signal（omp 第 12 条）；agent 的全局对象表只在激活时挑一次，运行中安装或启用的插件的对象要重启才有；用户级 Profile 能否声明 `defaultTools`；参数校验失败的说明不列出可选值（`must be equal to constant`），模型只能猜；Profile 工具一节行增减的过渡。

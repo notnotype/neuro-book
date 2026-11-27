@@ -16,6 +16,7 @@
         ".": "./src/index.ts",
         "./language": "./src/language/index.ts",
         "./language/types": "./src/language/syntax/types.ts",
+        "./marked": "./src/marked/index.ts",
         "./host": "./src/host/index.ts",
         "./chip": "./src/chip/index.ts",
         "./display": "./src/display/index.ts",

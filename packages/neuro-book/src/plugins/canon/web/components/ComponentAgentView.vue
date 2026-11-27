@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 设定组分页的“给 AI 看”（同名 .md，docs/specs/canon/author-ui.md 输出 54）：字由宿主用 `canon/shared/agent-fields.ts` 的
+ * 设定组分页的“AI视图”（同名 .md，docs/specs/canon/author-ui.md 输出 54）：字由宿主用 `canon/shared/agent-fields.ts` 的
  * `fieldsText` 写好，和后端 `canon_read` 给模型的是同一个函数写的；这里只显示。
  */
 import {Button} from "@notnotype/nb-ui/components";

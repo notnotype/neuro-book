@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>产品介绍首页：入殿·俯案成界（第 8 轮）</title>
+<title>产品介绍首页：入殿·俯案成界（第 11 轮）</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --rec: #0a5aa8; }
 * { box-sizing: border-box; }
@@ -15,102 +15,55 @@ h3 { margin: 18px 0 8px; font-size: 16px; }
 p { margin: 0 0 12px; }
 section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
 .intro { margin: 0 0 28px; color: var(--muted); }
-.rec { margin: 0 0 16px; color: var(--rec); }
 img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
-.pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
 .cap { margin: 8px 0 18px; font-size: 14px; color: var(--muted); }
 .lab { margin: 10px 0 0; font-size: 14px; }
 .lab a { color: var(--rec); }
-ul.notes, ol.steps { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
+ul.notes { margin: 0 0 12px; padding-left: 1.4em; color: var(--muted); font-size: 15px; }
 ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
-table { width: 100%; margin: 0 0 12px; border-collapse: collapse; font-size: 15px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-th { color: var(--muted); font-weight: 600; white-space: nowrap; }
-@media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <main>
-<h1>产品介绍首页：入殿·俯案成界（第 8 轮）</h1>
-<p class="intro">照第 7 轮的回答改：章节条定为古籍标尺、按钮定为皮面烫金，没选的几版删了；首屏加了能点、能跟着指针位置与速度动的几处；第一幕的虚拟指针压到菜单之上，拖动加快、走弧线，字幕挪到工作台正上方，重点加了遮罩；白天整个重做。第二幕（编辑器）起的脚本与原型放到下一轮。</p>
+<h1>产品介绍首页：入殿·俯案成界（第 11 轮）</h1>
+<p class="intro">照第 10 轮的回答改：查明并修好首屏滚动变卡；白天换上生成的深胡桃木案面，工作台下垫一块深石榴红的丝绸。星盘与线索丝按上一轮定下，没再动。第二幕（编辑器）起的脚本与原型放到下一轮。</p>
 
-<section data-nbdev-question="day-r8" data-nbdev-type="single" data-nbdev-options="ok:白天这样可以|oak:桌面换成生成的旧橡木案（要花图片额度）|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>白天这回对了吗？</h2>
-  <p class="rec"><strong>推荐可以：</strong>首屏和第一幕现在是同一个白天：本色亚麻桌布，左上高窗斜进来一片暖光，纸、书角、丝带与桌子都往右下投淡淡的暖棕影，金色沉成古铜；第一幕的工作台也落在同一块亚麻上，章节条与眉题换成深墨字、古铜线。</p>
-  <img src="r8/day.webp" alt="白天首屏的前后对照：左边是第 7 轮，暖灰石墙、顶上一道直直的光、纸张拖着浓黑的影子、花饰几乎看不见；右边是这一轮，亚麻桌布、左上斜进来的暖光、纸与书角往右下投淡暖影，花饰与按钮是古铜色">
-  <p class="cap">左：第 7 轮的白天。右：这一轮。</p>
-  <img src="r8/day-act.webp" alt="白天的第一幕：工作台落在亚麻桌布上，上面是深墨的眉题“两章并排”与一句字幕，下面是古铜线的章节条；第一章的标签与第一组的右半边留亮，其余压一层淡暖褐的幕">
-  <div class="pair">
-    <p class="cap">上：白天的第一幕，正照亮第一章的标签和它要去的右半边。右：390 宽的白天，导航收起更新日志，次按钮是浅羊皮底配深墨字。</p>
-    <img src="r8/day-narrow.webp" alt="390 宽的白天首屏：亚麻底、深墨标题、古铜花饰，赤红主按钮与浅羊皮次按钮，下面是日间配色的工作台">
-  </div>
-  <h3>第 7 轮的白天哪里不对</h3>
+<section data-nbdev-question="perf-r11" data-nbdev-type="single" data-nbdev-options="smooth:顺了|laggy:还卡（备注写哪一段、夜还是昼、什么机器）">
+  <h2>首屏的滚动，在你的机器上顺了吗？</h2>
+  <h3>为什么卡</h3>
   <ul class="notes">
-    <li>日光没有斜照：光束的旋转被镜头每帧写的变换盖掉了，白天其实还是夜里那道顶光（实现的 bug，已修）。</li>
-    <li>纸、书角与丝带拖着夜里的浓黑硬影，方向也不统一（@designer）。</li>
-    <li>金色在浅底上失效：标题下的花饰几乎看不见，次按钮的框融进石墙。</li>
-    <li>第一幕的白工作台悬在黑红丝绒上，像暗室里亮着的平板；章节条与字幕还是夜里的。</li>
+    <li>第 9、10 轮加的提灯、线索丝和星盘，每一帧都要改几个值：每张纸受多少光、星盘离指针多近、远处的桌子压多暗。这几个值写在了外层，而浏览器的规矩是外层一改，里面每个元素都要重新算一遍样式。工作台整台都在桌子里面，每帧要重算几百个元素，一帧算三四遍。</li>
+    <li>另外提灯、线索丝、星盘三处各自先改样式、再量位置，每量一次都逼浏览器当场再算一遍。</li>
   </ul>
+  <h3>怎么改的</h3>
   <ul class="notes">
-    <li>桌面材质 @designer 首选浅暖的旧橡木案，其次亚麻，否决提亮丝绒（强光下发粉发脏）。橡木要另生成一张贴图，会花图片额度；这一版先用亚麻（样式画的织纹，没花额度）。选“换成橡木”我就去生成，提示词照第 5 轮登记。</li>
+    <li>这些值直接写在用它的那张纸、那架星盘上，并告诉浏览器它们不往里传；一帧里先把位置量完再改；没变的值不写；星盘外圈的 72 根刻度合成一条线。看起来一点没变。</li>
+    <li>量的结果（同一台机器、同样高的负载，无头浏览器，绝对值偏慢，前后比例可信）：往下滚一屏再滚回来，每帧要重算的元素从几百个降到十几个，花在重算样式上的时间从 4.4 到 4.9 秒降到 0.4 到 0.5 秒；指针在首屏上画圈，从 10 到 16 秒降到 3 到 4 秒。这一轮新加的丝绸垫量过，没有多出来。</li>
+    <li>无头浏览器量不到显卡把画面画出来的那一段，真机上顺不顺要你滚一下。还卡的话，备注写是哪一段（首屏停着、往下滚、落地以后）、夜还是昼。</li>
   </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r8-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看白天（从首屏起，往下滚俯冲）</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r8-act-one-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天的第一幕</a></p>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里滚一下（夜）</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天</a></p>
 </section>
 
-<section data-nbdev-question="caption-r8" data-nbdev-type="single" data-nbdev-options="ok:这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>字幕挪到工作台正上方，够显眼了吗？</h2>
-  <p class="rec"><strong>推荐可以：</strong>字幕从工作台下面挪到正上方做眉题：这一拍的短标题在前，大一号的金字，后面跟一句；开演时先是这一幕的名字。看工作台时余光就扫得到，工作台下面只留章节条。</p>
-  <img src="r8/eyebrow.webp" alt="眉题的三个时刻，都在工作台正上方：第一行是开演，“第一幕　一张随你摆的桌子”；第二行是第一拍开头，“两章并排　第五章，雨夜。她写到那声敲门。”；第三行是第一拍的结论，“两章并排　两声敲门对在一起，伏笔埋得对不对，一眼就知道。”">
-  <p class="cap">从上到下：开演、第一拍开头、第一拍的结论（只截了工作台上沿）。换一句时旧的淡出，新的从下面浮上来。</p>
-  <img src="r8/handoff.webp" alt="演完交给访客：眉题是“换你来　拖一个标签，摆到顺手的地方。”，工作台下面的章节条六段都是实金，条下面是星璃的小贴纸和两个皮面烫金的小按钮“下载 NeuroBook”“接着看世界引擎”，第一章的标签上一圈金环">
-  <p class="cap">演完交给访客：眉题换成“换你来”，章节条下面展开星璃的小贴纸与两个按钮。</p>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r8-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里看第一幕连播</a></p>
-</section>
-
-<section data-nbdev-question="spotlight-r8" data-nbdev-type="single" data-nbdev-options="ok:这样可以|darker:再暗一些|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>演示的重点加了遮罩，够突出吗？</h2>
-  <p class="rec"><strong>推荐可以：</strong>每一拍要看的地方留亮，其余压一层幕（夜里约四成，白天一层约两成的暖褐），边缘大羽化，像灯只照着案头那一处；核心那一块内沿再描一道 1 像素的暖金细线。再暗夜里就成死黑，白天会打脏（@designer）。</p>
-  <img src="r8/spotlight.webp" alt="遮罩的四个时刻：左上照亮第一章的标签与第一组的右半边，标签描金线；右上照亮两处刚涂的高亮“门外有人敲门，三下。”与“楼下有人敲门，三下，停一停，再一下。”；左下照亮艾莉丝的浮窗与正文，浮窗描金线；右下照亮作品的活动栏入口与右栏的侧轨，两处都描金线">
-  <p class="cap">左上：两章并排，先照亮把手（第一章的标签）与落点。右上：两处高亮刚涂好，对照着看。左下：人物浮窗收到手边。右下：视图换位，照亮作品的入口与右栏的侧轨。</p>
+<section data-nbdev-question="day-r11" data-nbdev-type="single" data-nbdev-options="ok:这样可以|silk:再生成一张缎面照片（要花图片额度）|revise:再改（备注写哪里）" data-nbdev-recommend="silk">
+  <h2>白天的桌面与丝绸，这样还突兀吗？</h2>
+  <img src="r11/day.webp" alt="白天首屏的前后对照：左边第 10 轮，工作台下面是一团椭圆的暗红与深褐，拱过工作台的上沿；右边这一轮，下半屏是一张往远处淡掉的深胡桃木案面，工作台垫在一块深红的丝绸上，丝绸四周露出一圈">
+  <p class="cap">左：第 10 轮。右：这一轮。</p>
+  <img src="r11/silk.webp" alt="两格：左边是首屏里工作台那一块放大，深红的丝绸垫在胡桃木上，包边里压一道细金线，工作台在上面投一层贴身的短影；右边是往下滚到一半，案面的远边是一道横的柔边，后面是亮的墙">
+  <p class="cap">左：首屏里工作台那一块放大。右：往下滚到一半。</p>
+  <img src="r11/day-act.webp" alt="白天的第一幕：工作台四周是胡桃木，工作台外面露一道暗红丝绸的窄边，上面是浅金的眉题“两章并排”，下面是浅色的章节条">
+  <p class="cap">落地以后：丝绸只露一道窄边，眉题与章节条压在胡桃木上。</p>
+  <h3>为什么突兀（请 @designer 看了第 10 轮的白天）</h3>
   <ul class="notes">
-    <li>拖动的那一拍先照亮把手与落点，一按下就收，免得幕挡住实时布局。</li>
-    <li>换一件事时幕先淡开、回亮一下，再落到新的地方，不做探照灯式的横扫；同一件事里挪位置就平滑地挪过去。访客要求少动效时直接换。</li>
+    <li>工作台下面那一团是椭圆的暗：外圈的酒红丝绒加上桌下的大影子，在亮墙上拱过工作台的上沿，像烧焦的一块；桌子背后那圈暖光又把工作台的边照虚。</li>
   </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r8-act-one&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在第一幕里看</a>　<a href="http://127.0.0.1:4417/lab?c=DeskSpotlight&amp;s=r8-one&amp;vp=1000x700&amp;cw=light&amp;theme=nbook">遮罩单独看（按“换一处”看亮处怎么换）</a></p>
-</section>
-
-<section data-nbdev-question="hero-r8" data-nbdev-type="single" data-nbdev-options="ok:这样可以|revise:再改（备注写哪里）" data-nbdev-recommend="ok">
-  <h2>首屏能点、能跟着指针动的这几处，可以吗？</h2>
-  <p class="rec"><strong>推荐可以：</strong>点一张纸能细看；指针划过时浮尘被带着走、按速度亮一下；指针停在纸上，纸上的细节亮起来。快划只搅空气，停下才唤醒纸上的东西（@designer 的“快慢分层”），不抢标题与按钮。</p>
-  <img src="r8/hero.webp" alt="首屏点纸细看的两个时刻：左边夜里点了手稿，它转正、放大、往中间凑，别的纸、书角与桌子压暗；右边白天点了人物卡，它放大凑近，别的只淡一层">
-  <p class="cap">左：夜里点了手稿。右：白天点了人物卡。浮尘随指针与停留唤醒在单张截图里看不出来（无头浏览器只有约 7 帧，一次快划要好几秒才送完），请在 Lab 里试。</p>
+  <h3>这一轮改了什么</h3>
   <ul class="notes">
-    <li>点纸细看：那张转正、放大约 1.2 倍、往中间凑，别的压暗（白天只淡一层）；再点它、点别处、按 Esc 或往下滚就放回去。约半秒到位，不回弹；细看时“从字到世界”停着。指针在纸上是放大镜。</li>
-    <li>浮尘随指针：划过的那一段两侧约 190 像素里的浮尘被带着走、打个旋，越快越亮，一秒左右慢下来、暗回去。</li>
-    <li>停留唤醒：手稿上是敲门那一行与红圈，人物卡上是头像框与印，地图上是海岸与航线，亮起来以后慢慢呼吸，离开就熄。</li>
-    <li>丝带：横扫得快时像被风带着，多摆一截。</li>
+    <li>桌面换成新生成的深胡桃木（生成 1 张，没有重发）。四边柔化成一块矩形案面：透视下是往远处淡掉的梯形，远边是一道横的柔边，不再拱起来。</li>
+    <li>工作台下垫一块深石榴红的丝绸：首屏时左右各宽出工作台的一成、上下各一成多；往下滚时跟着往里收，落地后只露一道窄边，眉题与章节条压在胡桃木上。包边暗红，往里压一道细暗金线；首屏时跟着工作台压暗一点，免得抢了标题和按钮。</li>
+    <li>影子：工作台在丝绸上是贴身的两层短影，丝绸在木面上一层薄影，落地后都收轻。桌子背后那圈暖光白天不画。夜里没动。</li>
+    <li>丝绸现在只用样式画：远看是一块红色的桌垫，更像毡或皮，看不出是缎子。要像丝绸得有一张生成的缎面照片（正上方拍、铺满、深石榴红的素缎、四周几道浅皱、左上来的暖光），包边与金线仍用样式叠上去，缩放时不变形。选“生成”我就去做，花一次图片额度，提示词照前几轮登记。</li>
   </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r8-sanctum&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">在 Lab 里试（点纸、快速划过、停在纸上）</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r8-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天</a></p>
-</section>
-
-<section>
-  <h2>照备注直接改的</h2>
-  <p>这几条是第 7 轮的备注，照着改了，不另出题；不对的在任一题的备注里说。</p>
-  <table>
-    <tr><th>备注</th><th>改成</th></tr>
-    <tr><td>虚拟指针在行内菜单下面</td><td>指针画在页面最上面一层，选区菜单、批注卡片、拖动时跟手的卡片都在它下面。</td></tr>
-    <tr><td>拖动的指针太慢，走直角</td><td>拖动 0.5 到 0.95 秒，伸手去够 0.28 到 0.62 秒，都按距离定；一段路是往上微微拱起的弧，要绕开东西时拐角倒圆。拿起时指针微微压下、倾一点，松手弹回。</td></tr>
-    <tr><td>字幕在正下方不显眼</td><td>挪到工作台正上方，见第二题。</td></tr>
-    <tr><td>高亮不明显，加遮罩</td><td>见第三题。</td></tr>
-  </table>
-  <img src="r8/pointer.webp" alt="左：选区菜单弹出来，金色指针压在菜单的高亮按钮上；右：拖第一章的标签，第一组收窄，第一章的版面在右边让出来，指针旁一圈刚按下时漾开的金色涟漪">
-  <p class="cap">左：指针压在选区菜单上。右：拖第一章的标签，实时布局一路排开。弧线和残影在单张截图里看不出来，在 Lab 的第一幕里看。</p>
-  <ul class="notes">
-    <li>章节条用古籍标尺、按钮用皮面烫金，另几版删了；第 7 轮评审板上的链接还在，都指到选定的这一版。</li>
-    <li>跟上 w00043 t19 的右侧轨：“视图换位”那一拍改成把作品的入口拖到右栏的侧轨上，右栏换成作品树，星璃的入口留在侧轨上，点一下就换回来。</li>
-    <li>指针的样子没换：@designer 建议换成鎏金鹅毛笔尖，比现在大一两成；这一轮先没动，想换就在备注里说。</li>
-  </ul>
-  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HeroButtons&amp;s=r8-chosen&amp;vp=1440x800&amp;cw=light&amp;theme=nbook">按钮样张</a>　<a href="http://127.0.0.1:4417/lab?c=ChapterRail&amp;s=r7-ruler&amp;vp=1000x260&amp;cw=light&amp;theme=nbook">章节条单独看</a></p>
+  <p class="lab" data-nbdev-skip><a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天的首屏（往下滚俯冲）</a>　<a href="http://127.0.0.1:4417/lab?c=HomepageSanctum&amp;s=r9-act-one-day&amp;vp=1440x900&amp;cw=light&amp;theme=nbook">白天的第一幕</a></p>
 </section>
 
 <section>
@@ -128,6 +81,9 @@ th { color: var(--muted); font-weight: 600; white-space: nowrap; }
     <li>演示的拖动用实时布局；访客动过要有恢复动画；顺手介绍编辑器的标注与高亮；整个页面要有白天；首屏静中有动、纸条可以轮播；按钮出几版（第 5 轮之后的会话）</li>
     <li>第一幕不用访客滚动：落地以后自动连播，访客愿意就停着看；拖动不要上下左右中的落点分区；首屏的动静要快一些、大一些、更高级（第 6 轮之后的会话）</li>
     <li>第一幕这样连播可以；章节条用古籍标尺；首屏“从字到世界”与指针响应都要，旁边的东西要能点、点了稍放大，要有跟鼠标位置、速度互动的动画；按钮用皮面烫金；白天要再改；虚拟指针压到菜单之上、拖动快些走弧线、字幕换显眼的地方、重点加遮罩（第 7 轮）</li>
+    <li>字幕放在工作台正上方；重点用遮罩，但高亮要做得好看；首屏能点能动手的几处可以，指针效果要更明显、更好看，考虑多加点元素；白天的桌面换成生成的旧橡木（第 8 轮）</li>
+    <li>高亮用鎏金标记；首屏的提灯与金丝可以；星盘与线索丝都留，但要有看得见的动画与交互；白天要更华丽，不能只有一张桌、其余灰蒙蒙（第 9 轮）</li>
+    <li>星盘与线索丝这样可以；白天的桌面换生成的深胡桃木，工作台的投影与四周要处理（可以垫一块红丝绸）；首屏滚动变卡要查（第 10 轮）</li>
   </ol>
 </section>
 </main>

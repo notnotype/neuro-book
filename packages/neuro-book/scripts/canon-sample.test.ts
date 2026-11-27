@@ -11,7 +11,7 @@ import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {RemoteUse} from "@notnotype/nb-runtime/remote";
-import type {AuthorBlock, AuthorNode, ReadPosition} from "@notnotype/nb-canon";
+import type {AuthorBlock, AuthorValue, ReadPosition} from "@notnotype/nb-canon";
 import {loadXingxiaSample} from "@notnotype/nb-canon/sample";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -36,14 +36,6 @@ beforeAll(async () => {
 afterAll(async () => {
     await rm(tmp, {recursive: true, force: true});
 });
-
-/** 语法树里的 canon 节点。 */
-function canonNodes(node: unknown): AuthorNode[] {
-    if (typeof node !== "object" || node === null) return [];
-    const typed = node as {type?: string; children?: unknown[]};
-    const self = typeof typed.type === "string" && typed.type.startsWith("canon") ? [node as AuthorNode] : [];
-    return [...self, ...(typed.children ?? []).flatMap(canonNodes)];
-}
 
 describe("星瑕样本项目", () => {
     it("是一部作品：作品清单、活页夹三章、世界日志都在；重新打开世界读得到样本里的条目与修订", async () => {
@@ -86,10 +78,10 @@ describe("星瑕样本项目", () => {
             if (rendered === null || typeof rendered === "string") throw new Error(String(rendered));
             const blocks = rendered.blocks as readonly AuthorBlock[];
             expect(blocks.filter((block) => "error" in block)).toEqual([]);
-            const nodes = blocks.flatMap((block) => ("tree" in block ? canonNodes(block.tree) : []));
-            // 马甲的外观原来在身份块里，现在是它自己的形象的外貌：文字里引用它的地方是值，不是占位。
-            expect(nodes.filter((node) => node.type === "canonPlaceholder")).toEqual([]);
-            expect(nodes.some((node) => node.type === "canonValue" && node.path === "look.外貌" && node.entry !== null)).toBe(true);
+            const values: AuthorValue[] = blocks.flatMap((block) => ("values" in block ? [...block.values] : []));
+            // 马甲的外观原来在身份块里，现在是它自己的形象的外貌：文字里引用它的地方读得到值，不是读不到。
+            expect(values.filter((value) => "unavailable" in value && value.unavailable !== undefined)).toEqual([]);
+            expect(values.some((value) => value.tag === "V" && "path" in value && value.path === "look.外貌" && value.entry !== null && value.entry !== undefined)).toBe(true);
         } finally {
             await host.stop();
         }

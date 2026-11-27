@@ -64,7 +64,7 @@ owners:
 
 6. `tool.<名>(args)` 与 `<对象>.<方法>(args)` 发起一个嵌套调用（[`harness/runtime.md`](../harness/runtime.md) 输出 90 到 101），准入、审批、拦截、事件与收口都照那里。
 7. 交回的值由工具声明决定，每次都一样：声明了 `returns` 的，成功时交回照它校验过的结构化值（不合格算这次调用出错）；没声明的，成功时交回结果文字。内置的 `read` 声明了 `returns`，交回原文与分页信息分开的对象（[`builtin-tools.md`](builtin-tools.md) 输出 30）。图片并进本单元的结果（输出 4）。
-8. 结局不是 `ok` 时抛 `ToolCallError`，带 `tool`、`status`、`code` 与说明，代码可以 `catch` 它接着跑。`unknown` 的说明写明“不知道有没有执行完，先核对再重做”（planned）。工具声明了 `errors`（[`contributions.md`](contributions.md)）且这次的码在声明里时，`ToolCallError` 另带 `details`：照声明校验过、按 JSON 序列化后至多 8 KB 的 UTF-8；不合格或超长的不带，说明末尾写明（planned）。
+8. 结局不是 `ok` 时抛 `ToolCallError`，带 `tool`、`status`、`code` 与说明，代码可以 `catch` 它接着跑。`unknown` 的说明写明“不知道有没有执行完，先核对再重做”（planned）。工具声明了 `errors`（[`contributions.md`](contributions.md)）且这次的码在声明里时，`ToolCallError` 另带 `details`：照声明校验过、按 JSON 序列化后至多 8 KB 的 UTF-8；不合格或超长的不带，说明末尾写明。
 9. 参数不是一个能写进日志的 JSON 对象时（函数、`Symbol` 这类传不出内核的值，`NaN`、`Map` 这类传得出去、日志写不下的值），这一次调用以 `invalid-arguments` 失败，别的不受影响。名字不是这个会话能调的工具时以 `unknown-tool` 失败，说明列出能调的名字。上一个单元留下的代码（定时器、没 `await` 的 Promise）在它结束之后才发起的调用得 `parent-finished`。
 
 ### 内核的寿命与重置
@@ -82,7 +82,7 @@ owners:
 ### 说明与全局对象
 
 16. 给模型的说明写明：怎样调工具与全局对象、交回什么与失败时抛什么、每次调用都要 `await`、变量什么时候会丢、失败后只重试失败的那一步；列出这个会话里可用的全局对象，每个一行摘要加文档地址 `docs://eval/<对象名>.md`（[`resources.md`](resources.md) 输出 16）。至少有一个方法在生效工具集里的对象才可用、才列出。说明随会话的生效工具集算出，列表变了工具版本跟着变，模型在下一次请求前收到 `tools-changed`（[`harness/runtime.md`](../harness/runtime.md) 输出 16），会话中途不会悄悄换说明。
-17. 文档按需读：说明里只有一行摘要，完整的方法签名与说明在文档地址里。签名里字段带说明与缺省的，对象类型分行写、字段前写说明；都没有的仍写成一行。方法声明了 `errors` 的，文档列出各码与 `details` 的形状（planned）。
+17. 文档按需读：说明里只有一行摘要，完整的方法签名与说明在文档地址里。签名里字段带说明与缺省的，对象类型分行写、字段前写说明；都没有的仍写成一行。方法声明了 `errors` 的，文档列出各码与 `details` 的形状。
 
 ### 审批
 

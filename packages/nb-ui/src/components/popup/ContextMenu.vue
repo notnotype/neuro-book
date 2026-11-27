@@ -15,8 +15,14 @@ const props = withDefaults(defineProps<{
     y: number;
     items: ContextMenuItem[];
     teleportTarget?: string;
+    /**
+     * 打开菜单的那个元素（例如分页上的箭头）：在它上面的点击与右键不算点外面，开关由宿主自己的点击处理决定；不给时菜单开着
+     * 再点它，会先被当成点外面关掉，紧接着它自己的点击又把菜单打开。
+     */
+    anchor?: Element | null;
 }>(), {
     teleportTarget: "body",
+    anchor: null,
 });
 
 const emit = defineEmits<{
@@ -41,7 +47,7 @@ function close(): void {
 
 /** 点击/右键菜单外部时关闭 */
 function closeOnOutside(event: MouseEvent): void {
-    if (!props.open || menuRef.value?.contains(event.target as Node)) {
+    if (!props.open || menuRef.value?.contains(event.target as Node) || props.anchor?.contains(event.target as Node) === true) {
         return;
     }
     requestClose("outside");

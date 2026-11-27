@@ -45,7 +45,7 @@ function build(): {inputs: EngineInputs; hot: string[]; chapterIds: string[]} {
             ...(chapter === undefined ? {} : {appears: {kind: "chapter" as const, chapter, key: 0}}),
             init: {
                 name: `人物${String(entrySeq)}`, aliases: ["别名"], summary: "一句话描述",
-                text: [{id: "b1", source: "星瑕平时戴着滤镜，存款还剩 {panel.存款}。"}],
+                text: [{id: "b1", source: "星瑕平时戴着滤镜，存款还剩 <V of=\"panel.存款\" />。"}],
                 data: {
                     panel: {type: PANEL.id, version: 1, enabled: true, fields: {存款: 1_000_000, 魔力: 3200}},
                     character: {type: PERSON.id, version: 1, enabled: true, fields: {样子: "哥哥", 态度: "冷淡"}},

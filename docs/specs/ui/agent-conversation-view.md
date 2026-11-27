@@ -485,7 +485,7 @@ type AgentSessionListItem = {
 - 注册表中对插件稳定的部分，在 `runtime.plugins` 定型后另行确认；在此之前，注册表形状可以随内置需要调整。
 - 界面文字在本包自带的消息目录里（命名空间 `nb-agent-ui`，源语言 zh-CN，经 `@notnotype/nb-agent-ui/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时视图、会话列表与模型目录按 `locale`（缺省 zh-CN）用缺省端口，单独挂载的内部零件用中文。分轮规则、注册表与 harness 适配器产出的文字是文字引用，显示时才翻译。宿主与插件登记的文字写中英两份或文字引用。
 - 折叠的思维链不渲染其内部步骤，保证长会话的渲染开销与展开的内容量成正比。
-- 消息流的根元素带 `data-nb-agent="skip"`，应用内 Agent 的界面快照不列消息内容（[`agent/page-agent.md`](../agent/page-agent.md) 输出 3）；输入框、待处理区、状态栏与会话列表不带（planned）。
+- 消息流的根元素带 `data-nb-agent="skip"`，应用内 Agent 的界面快照不列消息内容（[`agent/page-agent.md`](../agent/page-agent.md) 输出 3）；输入框、待处理区、状态栏与会话列表不带。
 
 ## 验收与 Smoke
 

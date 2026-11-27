@@ -124,7 +124,7 @@ function finish(world: World, batch: EntryEdits | EditFailure, time: string, dig
     if (!("ops" in batch)) return {ok: false, failure: batch};
     const planned = planEntries(world, batch);
     if (!planned.ok) return {ok: false, failure: single(planned.failure)};
-    return unbatch(checkPlan(planned, world.publish(planned.request, time, digest)));
+    return unbatch(checkPlan(planned, world.publish(planned.request, time, digest), world));
 }
 
 function unbatch(result: EntryEditResult): EditResult {
@@ -159,7 +159,7 @@ export function previewEdit(world: World, input: EditPreviewInput, time: string)
     if (!planned.ok) return {ok: false, failure: single(planned.failure)};
     let requestId = `preview:${planned.request.requestId}`;
     while (world.requested(requestId) !== undefined) requestId = `preview:${requestId}`;
-    const result = checkPlan(planned, world.preview({...planned.request, requestId}, time));
+    const result = checkPlan(planned, world.preview({...planned.request, requestId}, time), world);
     if (!result.ok) return {ok: false, failure: single(result.failure)};
     const {routes, ...rest} = result;
     // 交出去的修订写回调用方的请求 id：算的时候用的那个只是为了绕开去重。

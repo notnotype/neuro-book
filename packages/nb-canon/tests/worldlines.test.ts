@@ -948,17 +948,17 @@ describe("canon.worldlines 实现审查 I4 之后：子线上的写入校验与�
         expect(child !== null && child !== "chapter-not-found" && child.namespaces.panel!.fields.存款!.value).toBe(20000);
     });
 
-    test("渲染与回写按读取位置的线：子线渲染子线的值，读不到的线得 line-not-found", () => {
+    test("渲染按读取位置的线：子线渲染子线的值，读不到的线得 line-not-found", () => {
         const {world, c1, xia} = base();
         const entry = structuredClone(world.data.entries.get(xia)!);
-        entry.init.text = [{id: "b1", source: "存款 {panel.存款}"}];
+        entry.init.text = [{id: "b1", source: "存款 <V of=\"panel.存款\" />"}];
         const texted = ok(world.publish(request([{ref: {kind: "entry", id: xia}, after: entry}], world.version), "t")).world;
         const created = ok(texted.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], texted.version), "t"));
         const line = created.ids["tmp:l"]!;
         const onChild = renderEntryForAgent(created.world, xia, end("ch3", line), "actual");
         const onMain = renderEntryForAgent(created.world, xia, end("ch3"), "actual");
-        expect(typeof onChild !== "string" && onChild?.blocks[0]?.text).toContain("20000");
-        expect(typeof onMain !== "string" && onMain?.blocks[0]?.text).toContain("15000");
+        expect(typeof onChild !== "string" && onChild?.blocks[0]?.text).toBe('存款 <V of="panel.存款">20000</V>');
+        expect(typeof onMain !== "string" && onMain?.blocks[0]?.text).toBe('存款 <V of="panel.存款">15000</V>');
         expect(renderEntryForAgent(created.world, xia, end("ch3", "l404"), "actual")).toBe("line-not-found");
     });
 
@@ -1147,7 +1147,7 @@ describe("读取视图：按计划模式的 chapterEntries、chapterLines、rend
         const entryId = bro.ids["tmp:bro"]!;
         const planned = ok(bro.world.publish(request([{ref: {kind: "change", id: "tmp:p4"}, after: {...written("tmp:p4", at("ch4", 5), [spend(xia, -100)], {involves: [entryId]}), kind: "plan"}}], bro.world.version), "t"));
         const withText = structuredClone(planned.world.data.entries.get(xia)!);
-        withText.init.text = [{id: "b1", source: "存款 {panel.存款}"}];
+        withText.init.text = [{id: "b1", source: "存款 <V of=\"panel.存款\" />"}];
         const texted = ok(planned.world.publish(request([{ref: {kind: "entry", id: xia}, after: withText}], planned.world.version), "t")).world;
         const forked = ok(texted.publish(request([{ref: {kind: "change", id: "tmp:f"}, after: written("tmp:f", at("ch2", 40), [], {nature: "fork", fork: {line: "tmp:l", name: "分支", parent: "main", cut: c1, type: "branch"}})}], texted.version), "t"));
         const line = forked.ids["tmp:l"]!;

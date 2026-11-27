@@ -1,10 +1,12 @@
 /**
  * NewEntryDialog（同名 .md，docs/specs/canon/author-ui.md 输出 4）：名字为空时“新建”不可用；改字段发新的完整草稿；分组跟着
- * 种类，改过分组以后不跟；选定种类时勾上它默认的设定组，动过勾选以后不跟；选了另一个身份以后放在它下面；保存中不能关、按钮不可用。
+ * 种类，改过分组以后不跟；选定种类时勾上它默认的设定组，动过勾选以后不跟（点预设不算动过）；勾选列表的“适用于”与预设跟着选定的
+ * 种类；选了另一个身份以后放在它下面；保存中不能关、按钮不可用。
  */
 
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
+import {nextTick} from "vue";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -14,6 +16,7 @@ import {emptyDraft} from "../new-entry";
 import type {NewEntryDraft} from "../new-entry";
 import {canonCatalogs} from "../text";
 import NewEntryDialog from "./NewEntryDialog.vue";
+import type {ChecklistItem} from "./component-checklist";
 
 const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
 const mounted: Array<{unmount(): void}> = [];
@@ -30,6 +33,17 @@ async function dialog(draft: NewEntryDraft, extra: Record<string, unknown> = {})
     const inputs = (): HTMLInputElement[] => [...root().querySelectorAll("input")] as HTMLInputElement[];
     await waitUntil("对话框挂出来", () => document.body.querySelector("[role='dialog'] [data-new-entry]") !== null);
     return {wrapper, root, button, inputs};
+}
+
+const item = (value: string, label: string, kinds: string[] = []): ChecklistItem => ({value, label, iconClass: "i-lucide-box", group: "canon", kinds, present: false, restore: false});
+
+/** 开一个空草稿的对话框，像宿主那样把发出的草稿交回去；勾着的读勾选列表的行。 */
+async function choosing(extra: Record<string, unknown>) {
+    const opened = await dialog(emptyDraft(null), extra);
+    const follow = async () => opened.wrapper.setProps({draft: opened.wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]});
+    const checked = () => [...opened.root().querySelectorAll<HTMLElement>("[role='option'][aria-selected='true']")].map((option) => option.textContent?.trim());
+    const row = (value: string) => opened.root().querySelector<HTMLElement>(`[data-checklist-item='${value}']`)!;
+    return {...opened, follow, checked, row};
 }
 
 describe("NewEntryDialog", () => {
@@ -57,12 +71,9 @@ describe("NewEntryDialog", () => {
     });
 
     it("选定种类（点候选、输入框失焦）时勾上它默认的设定组，打字时不勾；动过勾选以后不再跟着种类换", async () => {
-        const types = [{id: "t.person", label: "人物"}, {id: "t.look", label: "形象"}, {id: "t.panel", label: "面板"}];
+        const items = [item("t.person", "人物", ["人物"]), item("t.look", "形象", ["人物"]), item("t.panel", "面板")];
         const kindDefaults = {人物: ["t.person", "t.look"]};
-        const {wrapper, button, inputs, root} = await dialog(emptyDraft(null), {types, kindDefaults});
-        // 受控：把发出的草稿交回去，像宿主那样。
-        const follow = async () => wrapper.setProps({draft: wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]});
-        const checked = () => [...root().querySelectorAll<HTMLInputElement>("input[type='checkbox']")].filter((box) => box.checked).map((box) => box.closest("label")?.textContent?.trim());
+        const {wrapper, button, inputs, follow, checked, row} = await choosing({items, kindDefaults});
 
         button("人物").click();
         await follow();
@@ -82,13 +93,75 @@ describe("NewEntryDialog", () => {
 
         button("人物").click();
         await follow();
-        const panel = [...root().querySelectorAll<HTMLInputElement>("input[type='checkbox']")].find((box) => box.closest("label")?.textContent?.trim() === "面板")!;
-        panel.click();
+        row("t.panel").click();
         await follow();
         expect(wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]).toMatchObject({types: ["t.person", "t.look", "t.panel"], typesTouched: true});
         button("地点").click();
         await follow();
         expect(checked()).toEqual(["人物", "形象", "面板"]);
+    });
+
+    it("勾选列表的“适用于”与预设跟着选定的种类换，打字时不换；点预设不算动过勾选，之后换种类照旧换成那个种类的默认；Ctrl 加回车不新建", async () => {
+        const items = [item("t.person", "人物", ["人物"]), item("t.look", "形象", ["人物"]), item("t.panel", "面板")];
+        const kindPresets = {人物: [{id: "main", label: "主要角色", components: ["t.person", "t.look", "t.panel"]}]};
+        const {wrapper, button, inputs, follow, checked, root} = await choosing({items, kindDefaults: {人物: ["t.person"], 地点: []}, kindPresets});
+        const groupNames = () => [...root().querySelectorAll("[role='listbox'] [role='group']")].map((group) => group.getAttribute("aria-label"));
+        const presets = () => [...root().querySelectorAll("[data-checklist-presets] button")].map((preset) => preset.textContent?.trim());
+        expect(groupNames()).toEqual(["设定"]);
+        expect(presets()).toEqual([]);
+        // 焦点在名字上（对话框的初始焦点），列表里不亮一块高亮。
+        await waitUntil("焦点在名字上", () => document.activeElement === inputs()[0]);
+        expect(root().querySelector("[data-highlighted]")).toBeNull();
+
+        const kind = inputs()[1]!;
+        kind.value = "人物";
+        kind.dispatchEvent(new Event("input", {bubbles: true}));
+        await follow();
+        expect(groupNames()).toEqual(["设定"]);
+        kind.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await follow();
+        expect(groupNames()).toEqual(["适用于人物", "设定"]);
+        expect(presets()).toEqual(["主要角色"]);
+        expect(checked()).toEqual(["人物"]);
+
+        root().querySelector<HTMLButtonElement>("[data-preset='main']")!.click();
+        await follow();
+        expect(checked()).toEqual(["人物", "形象", "面板"]);
+        expect(wrapper.emitted<[NewEntryDraft]>("update:draft")!.at(-1)![0]).toMatchObject({typesTouched: false});
+        // 再选定同一个种类（点它的按钮、种类的输入框失焦）：什么都不换，预设勾上的还在。
+        const emitted = wrapper.emitted("update:draft")!.length;
+        button("人物").click();
+        kind.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await nextTick();
+        expect(wrapper.emitted("update:draft")!.length).toBe(emitted);
+        expect(checked()).toEqual(["人物", "形象", "面板"]);
+        button("地点").click();
+        await follow();
+        expect(checked()).toEqual([]);
+        expect(presets()).toEqual([]);
+
+        // 宿主在对话框开着时换了一份草稿（又点了“新建人物”）：列表跟着新草稿选定的种类。
+        await wrapper.setProps({draft: {...emptyDraft(null), kind: "人物", kindChosen: "人物"}});
+        expect(groupNames()).toEqual(["适用于人物", "设定"]);
+        await wrapper.setProps({draft: {...wrapper.props("draft"), name: "魔杖"}});
+        root().querySelector<HTMLInputElement>("[data-component-checklist] input")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true, cancelable: true}));
+        expect(wrapper.emitted("confirm")).toBeUndefined();
+    });
+
+    it("种类写成 constructor、toString 这类词：没有默认、没有预设，照常选定", async () => {
+        const items = [item("t.person", "人物", ["人物"])];
+        const {wrapper, inputs, follow, checked, root} = await choosing({items, kindDefaults: {人物: ["t.person"]}, kindPresets: {人物: [{id: "main", label: "主要角色", components: ["t.person"]}]}});
+        const kind = inputs()[1]!;
+        for (const word of ["constructor", "toString", "__proto__"]) {
+            kind.value = word;
+            kind.dispatchEvent(new Event("input", {bubbles: true}));
+            await follow();
+            kind.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+            await follow();
+            expect(wrapper.props("draft")).toMatchObject({kindChosen: word, types: []});
+            expect(root().querySelector("[data-checklist-presets]")).toBeNull();
+            expect(checked()).toEqual([]);
+        }
     });
 
     it("保存中：按钮不可用；原因写在对话框里", async () => {

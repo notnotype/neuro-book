@@ -30,18 +30,26 @@ export const CAPTION_BAND = 116;
 export const SANCTUM_MIN_WIDTH = 900;
 
 /**
- * 首屏停着时的几样动静（第 7 轮，开发者：首屏换得慢、动静小；@designer：一条单线接力的叙事，加克制的指针响应）：
+ * 首屏停着时的几样动静（第 7 轮起；第 9 轮开发者说跟指针的效果“不太明显，也不太好看”，换了几样，见 `SanctumScene.md`）：
  * - `relay` 从字到世界：手稿上落墨写出敲门那一行，金尘飞到地图上显出海岸与灰塔，红笔圈出伏笔，金尘飞到人物卡、抽出星璃的便笺，
  *   金尘沿航线走进剧情时间线，最后墨沉回纸里，再来一圈；约五秒一步，演一半停一半，同一时刻只有一处在动。
- * - `parallax` 指针视差：几张纸、书角与丝带按远近跟着指针挪几个像素、纸倾不过两度，带阻尼的惯性；顶光不动。
- * - `glint` 鎏金反光：书角的鎏金、标题下的花饰与按钮的金边上一团柔和的反光，跟着指针走（不扫白光）。
- * - `peek` 悬停细看：指针停在哪张纸上，那张稳住、微微前倾，压在下面的那张多探出一点。
+ * - `parallax` 指针视差：几张纸、书角与丝带按远近跟着指针挪（第 9 轮加大到前景约 16px、中景约 7px，追得更快）、纸倾不过两度；顶光不动。
+ * - `lantern` 提灯（第 9 轮）：指针在案面投一团带滞后的暖光，快移时顺着方向拉长一点；靠近的纸与书角迎光一侧亮一道边，影子往反方向挪。
+ * - `thread` 金丝（第 9 轮）：划得快时（每秒 450px 以上）指针身后拖一道淡金丝、落几粒微屑，三百多毫秒散掉；停在按钮与链接上时不出。
+ * - `glint` 鎏金反光：书角的鎏金、标题下的花饰与按钮的金边上一团柔和的反光跟着指针走。第 9 轮起首页不开：
+ *   @designer 说静物上的光斑碎而弱，提灯已经照着书角与花饰。
+ * - `peek` 悬停细看：指针停在哪张纸上，那张稳住、朝指针那边微倾凑近，压在下面的那张多探出一点。
  * - `ribbon` 丝带尾巴：指针一动，前景丝带的末端比书角慢半拍摆过去。
- * 第 8 轮开发者定“从字到世界加指针响应”都要，另加了点纸细看、指针搅动浮尘、停在纸上唤醒细节（见 `SanctumScene.md`）。
- * 场景只在单独看它的 Lab 场景里按这张表关掉几样，首页总是全开。
+ * 第 9 轮开发者问首屏要不要多加点元素，@designer 建议最多两样，这里也放在这张表里，方便单独看有没有它们：
+ * - `astrolabe` 黄铜星盘：右上角（左上丝带、左下地图、右下书角都有东西，只剩它空着）一半出画、虚焦压暗的一架星盘，网环慢慢转；
+ *   讲星璃与章节的时间轴。少动效时照样画，只是不转。
+ * - `threads` 线索丝：三张纸各牵一根淡金丝落到工作台上（手稿到正文、人物卡到右栏、地图到作品树），平时只有一成多；
+ *   悬停或细看哪张纸，它那根亮起来，一点光从纸往桌上走。讲正文、设定与工作台连在一起。
+ * 点纸细看不归这张表管，总在。场景只在单独看它的 Lab 场景里按这张表换几样；首页用缺省的那几样。
  */
-export type SceneEffect = "relay" | "parallax" | "glint" | "peek" | "ribbon";
-export const SCENE_EFFECTS: readonly SceneEffect[] = ["relay", "parallax", "glint", "peek", "ribbon"];
+export type SceneEffect = "relay" | "parallax" | "lantern" | "thread" | "glint" | "peek" | "ribbon" | "astrolabe" | "threads";
+/** 首页缺省开的几样（`glint` 不在里面，见上）。 */
+export const SCENE_EFFECTS: readonly SceneEffect[] = ["relay", "parallax", "lantern", "thread", "peek", "ribbon", "astrolabe", "threads"];
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 /** 在 `from` 到 `to` 之间平滑地从 0 走到 1（两头不突变）。 */
@@ -94,6 +102,8 @@ export interface DeskShot {
     readonly sheenOpacity: number;
     /** 桌子背后那圈暖光：越近越亮，落地后托住象牙色的工作台，不让它硬生生嵌在黑里。 */
     readonly halo: number;
+    /** 白天工作台下那块丝绸垫往里收到哪：0 是首屏四周宽出一圈，1 是落地后只露一道窄边（第 11 轮）。 */
+    readonly silk: number;
     readonly landed: boolean;
 }
 
@@ -111,6 +121,7 @@ export function deskShot(stage: StageSize, progress: number): DeskShot {
         sheen: round(smooth(0.42, 0.95, p)),
         sheenOpacity: round(sheenOpacity),
         halo: round(lerp(0.55, 1, smooth(0.3, 1, p))),
+        silk: round(smooth(0.2, 0.96, p)),
         landed,
     };
 }

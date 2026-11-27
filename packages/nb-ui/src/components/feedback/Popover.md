@@ -24,6 +24,7 @@
 - 开关只由 `open` 决定，打开要调用方自己处理锚点的点击；`aria-haspopup`、`aria-expanded` 也由调用方写。
 - 在锚点上按下（包括随之而来的焦点移动）不算点外面，不关闭：调用方的点击处理照常切换，再点一次就是关。
 - 按 Escape 关掉后焦点回到锚点；点外面关掉时焦点留在用户点的地方。
+- 面板贴着哪块矩形定位可以另给 `reference`（一个 `getBoundingClientRect()`，可以是算出来的虚拟矩形，`contextElement` 写它跟着哪个元素滚动）：锚点很高、贴着整个锚点放不下面板时，调用方改贴锚点里的一小块（例如露在窗口里的第一行）。给了它，定位只看它；焦点还给谁、按在哪里不算点外面，仍看 `anchor`。
 
 ## 数据
 
@@ -49,8 +50,16 @@ interface PopoverProps {
     arrow?: boolean;
     /** 锚在这个元素上，不用 `trigger` 插槽（见“锚在外部元素上”）；默认不给。传 null 时同样不渲染触发器；锚点还没有时不要打开，面板没有可贴的位置。 */
     anchor?: HTMLElement | null;
+    /** 定位用的矩形，代替 `anchor` 的外框（见“锚在外部元素上”）；默认不给，贴着 `anchor`。滚动时会重算，每次都要给出当时的矩形。 */
+    reference?: PopoverReference | null;
     /** 避让时以哪块元素为界；缺省 null（视口）。只在 `avoidCollisions` 时起作用。 */
     collisionBoundary?: Element | readonly Element[] | null;
+}
+
+interface PopoverReference {
+    getBoundingClientRect(): DOMRect;
+    /** 它跟着哪个元素滚动、变大小（浮层据此重算位置）。 */
+    readonly contextElement?: Element;
 }
 
 interface PopoverEmits {

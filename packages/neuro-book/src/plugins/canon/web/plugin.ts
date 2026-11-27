@@ -51,6 +51,7 @@ import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMM
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
+import {componentIcon} from "./components/entry-tabs";
 import {ENTRY_LANGUAGE, ENTRY_LANGUAGE_DECLARATION, entryLanguageDefinition} from "./entry-language";
 import {createEntryPage, ENTRY_PAGE_ICON, originsFetcher} from "./entry-page";
 import {createTextDrafts} from "./text-drafts";
@@ -326,7 +327,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     world: worldOf(),
                     state,
                     open: (id) => execute(OPEN_ENTRY_COMMAND, {id}),
-                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices, kinds: entryKinds},
+                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call, notices, kinds: entryKinds, iconOf: (type) => componentIcon(views, type), componentPlugin: (type) => context.declarations.get(CANON_COMPONENTS_POINT, type)?.plugin ?? null},
                 }),
             };
             return {

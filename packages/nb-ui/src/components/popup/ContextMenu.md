@@ -16,7 +16,7 @@
 
 条目是弹出列表共用的一行（`.nb-ui-menu-item`，行高 `--menu-item-h`、字号 `--menu-item-font`）。高亮跟着焦点：指针在条目上移动时焦点移到那一项（跳过禁用项），聚焦的那一项画中性叠色，所以悬停与方向键任何时候只亮一项；指针离开条目时焦点停在这一级的面板上、高亮清掉，上下键从首末项接着走；展开了子菜单的父项保持高亮；危险项只换文字与图标颜色。勾与图标共用左侧一列（勾画在图标的位置），同一级有勾选项或有一项带图标时每行都留出这一列；勾与快捷键同时显示。
 
-组件挂载期间在 `document` 上注册外部 click、contextmenu 与 keydown 监听，隐藏时仍保留这些监听，到卸载时解除。菜单项的 `shortcut` 只是显示文本，不会注册快捷键。
+组件挂载期间在 `document` 上注册外部 click、contextmenu 与 keydown 监听，隐藏时仍保留这些监听，到卸载时解除。给了 `anchor` 时，落在它里面的 click 与 contextmenu 不算外部：宿主用一个按钮开关菜单时，菜单开着再点按钮由按钮自己的点击处理关掉，不会先被当成点外面关掉、又被按钮的点击打开。菜单项的 `shortcut` 只是显示文本，不会注册快捷键。
 
 ## 数据
 
@@ -38,8 +38,8 @@ interface ContextMenuItem {
     title?: string;
     /** 危险操作样式；可选，默认 "neutral" */
     tone?: "neutral" | "danger";
-    /** "checkbox" 时画成勾选项（`menuitemcheckbox`，`aria-checked` 跟着 checked）；可选，默认普通项 */
-    type?: "item" | "checkbox";
+    /** "checkbox" 时画成勾选项（`menuitemcheckbox`），"radio" 时画成一组里的单选（`menuitemradio`），`aria-checked` 跟着 checked；组件不做组内互斥；可选，默认普通项 */
+    type?: "item" | "checkbox" | "radio";
     /** 勾选项的勾选态；受控，选择后由宿主自己改 */
     checked?: boolean;
     /** 是否渲染分隔线；可选，true 时忽略其余字段 */
@@ -57,6 +57,8 @@ interface ContextMenuProps {
     items: ContextMenuItem[];
     /** Vue Teleport 目标选择器；可选，默认 "body" */
     teleportTarget?: string;
+    /** 打开菜单的那个元素：在它上面的点击与右键不算点外面，开关由宿主自己的点击处理决定（菜单开着时再点它是关）；默认 null。 */
+    anchor?: Element | null;
 }
 
 interface ContextMenuEmits {

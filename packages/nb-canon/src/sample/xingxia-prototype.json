@@ -188,19 +188,19 @@
          },
          {
           "id": "b3",
-          "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+          "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
          },
          {
           "id": "b4",
-          "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+          "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
          },
          {
           "id": "b5",
-          "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+          "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
          },
          {
           "id": "b6",
-          "source": "## 性格\n{character.性格}"
+          "source": "## 性格\n<V of=\"character.性格\" />"
          }
         ],
         "data": {
@@ -1209,19 +1209,19 @@
          },
          {
           "id": "b3",
-          "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+          "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
          },
          {
           "id": "b4",
-          "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+          "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
          },
          {
           "id": "b5",
-          "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+          "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
          },
          {
           "id": "b6",
-          "source": "## 性格\n{character.性格}"
+          "source": "## 性格\n<V of=\"character.性格\" />"
          }
         ],
         "data": {
@@ -1703,19 +1703,19 @@
          },
          {
           "id": "b3",
-          "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+          "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
          },
          {
           "id": "b4",
-          "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+          "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
          },
          {
           "id": "b5",
-          "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+          "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
          },
          {
           "id": "b6",
-          "source": "## 性格\n{character.性格}"
+          "source": "## 性格\n<V of=\"character.性格\" />"
          }
         ],
         "data": {
@@ -2624,19 +2624,19 @@
          },
          {
           "id": "b3",
-          "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+          "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
          },
          {
           "id": "b4",
-          "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+          "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
          },
          {
           "id": "b5",
-          "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+          "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
          },
          {
           "id": "b6",
-          "source": "## 性格\n{character.性格}"
+          "source": "## 性格\n<V of=\"character.性格\" />"
          }
         ],
         "data": {
@@ -2970,19 +2970,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {
@@ -3339,19 +3339,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {
@@ -3708,19 +3708,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {
@@ -4083,19 +4083,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {
@@ -4458,19 +4458,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {
@@ -4847,19 +4847,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {
@@ -5236,19 +5236,19 @@
        },
        {
         "id": "b3",
-        "source": "## 现在\n样子：{character.样子}。魔力 {panel.魔力}/{panel.魔力上限}，存款 {panel.存款} 联邦币，今天还能回溯 {panel.回溯} 次。\n{panel.魔力 >= 1000 ? \"还能变身。\" : \"魔力不够变身。\"}"
+        "source": "## 现在\n样子：<V of=\"character.样子\" />。魔力 <V of=\"panel.魔力\" />/<V of=\"panel.魔力上限\" />，存款 <V of=\"panel.存款\" /> 联邦币，今天还能回溯 <V of=\"panel.回溯\" /> 次。\n<If test=\"panel.魔力 >= 1000\">还能变身。<Else />魔力不够变身。</If>"
        },
        {
         "id": "b4",
-        "source": "## 原身\n{character.外观}。私下都用这个样子，没有人知道。"
+        "source": "## 原身\n<V of=\"character.外观\" />。私下都用这个样子，没有人知道。"
        },
        {
         "id": "b5",
-        "source": "## 别人眼里\n- 星瑾眼里：哥哥。{ref(\"brother\").identity.外观}\n- 官方眼里：魔法少女。{ref(\"mg\").identity.外观}"
+        "source": "## 别人眼里\n- 星瑾眼里：哥哥。<V entry=\"brother\" of=\"identity.外观\" />\n- 官方眼里：魔法少女。<V entry=\"mg\" of=\"identity.外观\" />"
        },
        {
         "id": "b6",
-        "source": "## 性格\n{character.性格}"
+        "source": "## 性格\n<V of=\"character.性格\" />"
        }
       ],
       "data": {

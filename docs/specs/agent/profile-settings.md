@@ -77,8 +77,8 @@ owners:
 25. “可派的子代理”一节：工具一节下面，Profile 有 `agent_spawn` 时才有。样子与工具一节相同：按来源分组、一行一个 Profile（图标、名字、“推荐”、说明），Profile 声明里没有、用户加的标“我加的”；每行能去掉；“添加”打开同样的对话框，列出不在白名单里、可用的 Profile；有改动时“恢复默认”。写入 `profileSettings[key].agents: {added, removed}`，规则与时序同工具绑定（输出 14–18）；两个数组都空时不留这一项。推荐由 Profile 声明，这里不能改。白名单里的 Profile 已被删除或不可用时显示一行警告，能去掉；自己派自己、互相派不拦，由深度上限兜底。
 26. “Skill”一节：可派的子代理一节下面，样子与它相同：按来源分组（我的 Skill 在前、各插件一组、内置在后，见 [`skills.md`](skills.md) 输出 34）、一行一个 Skill（图标、名字、说明），未初始化的标出；声明 `"all"` 的列出 Skill 目录里的全部，每个能去掉，去掉的收在最后一组“已去掉”，能加回；只声明了几个的，“添加”列出不在白名单里的 Skill，用户加的标“我加的”；白名单里已不在目录的收在“已删除或不可用”，能去掉；有改动时“恢复默认”。写入 `profileSettings[key].skills: {added, removed}`，规则与时序同工具绑定（输出 14–18）；两个数组都空时不留这一项（[`skills.md`](skills.md)）。
 27. “表情包”一节：Skill 一节下面，行、分组、添加与恢复默认同 Skill 一节；每行是第一个常用表情的缩略图、显示名、说明与表情数，写入 `profileSettings[key].stickers: {added, removed}`（[`stickers.md`](stickers.md) 输出 19）。
-28. **全局对象一行。** 工具一节里，同一个全局对象（[`contributions.md`](contributions.md) 输出 25）的方法合成一行：名字是对象名，等级列只写各方法里最高的一档，悬停的说明列出每个方法与它的等级；说明是对象声明的界面说明（[`contributions.md`](contributions.md) 输出 25 的 `description`）；“×”去掉、对话框里“+”加回、恢复默认、计数（“开着 N 个”）与“已卸载”都按对象算，一个对象算一个。Profile 的工具里没有 `eval` 时这一行照样列出，说明换成“要先加入 eval 才用得上”，带与页面上别的字段问题相同的警示图标（planned）。
-29. **按对象存绑定。** 去掉对象行写进这个 Profile 绑定的 `objects.removed`，加回时从中删掉（Profile 本来没有这个对象时写进 `objects.added`）；动对象行时同时删掉这个对象的方法在 `added`、`removed` 里的旧条目（planned）。
+28. **全局对象一行。** 工具一节里，同一个全局对象（[`contributions.md`](contributions.md) 输出 25）的方法合成一行：名字是对象名，等级列只写各方法里最高的一档，悬停的说明列出每个方法与它的等级；说明是对象声明的界面说明（[`contributions.md`](contributions.md) 输出 25 的 `description`）；“×”去掉、对话框里“+”加回、恢复默认、计数（“开着 N 个”）与“已卸载”都按对象算，一个对象算一个。Profile 的工具里没有 `eval` 时这一行照样列出，说明换成“要先加入 eval 才用得上”，带与页面上别的字段问题相同的警示图标。
+29. **按对象存绑定。** 去掉对象行写进这个 Profile 绑定的 `objects.removed`，加回时从中删掉（Profile 本来没有这个对象时写进 `objects.added`）；动对象行时同时删掉这个对象的方法在 `added`、`removed` 里的旧条目。
 
 ## 状态与转换
 
@@ -109,7 +109,7 @@ owners:
 
 ## 边界与兼容
 
-页面只读写上面列出的设置项，服务端照旧按这两项算工具集与模型缺省，不读页面状态。绑定加了 `objects` 之后，旧版本读到带它的 `toolBindings` 时按不符合 schema 的值处理（[`settings/configuration.md`](../settings/configuration.md)），降级前写下的对象绑定在旧版本里不生效（planned）。设置文件里手写的值按同一套规则显示；页面不改写它没动的 Profile。
+页面只读写上面列出的设置项，服务端照旧按这两项算工具集与模型缺省，不读页面状态。绑定加了 `objects` 之后，旧版本读到带它的 `toolBindings` 时按不符合 schema 的值处理（[`settings/configuration.md`](../settings/configuration.md)）：降级之后整张 `toolBindings`（所有 Profile 的增减，不只对象绑定）在旧版本里都不生效。设置文件里手写的值按同一套规则显示；页面不改写它没动的 Profile。
 
 ## 验收与 Smoke
 
@@ -129,7 +129,7 @@ owners:
 
 ## 证据
 
-- 批准依据：开发者 2026-11-07 确认的计划（`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md`）与评审板三轮决定；单行列表（输出 2）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。；全局对象一行与按对象存绑定（输出 28、29，planned）依据 [w00033 t03 计划](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/plan.md)（开发者 2026-11-26 确认），行的样子依据 [t03 的决定 5](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/README.md)
+- 批准依据：开发者 2026-11-07 确认的计划（`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md`）与评审板三轮决定；单行列表（输出 2）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。；全局对象一行与按对象存绑定（输出 28、29）依据 [w00033 t03 计划](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/plan.md)（开发者 2026-11-26 确认），行的样子依据 [t03 的决定 5](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/README.md)
 - 实现入口：[`profile-page.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.ts)、[`ProfileSettingsPage.vue`](../../../packages/neuro-book/src/plugins/agent/web/components/ProfileSettingsPage.vue)、[`profile-bundles.ts`](../../../packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts)
 - 合同测试：[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`profile-view.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-view.test.ts)、[`profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/profiles.test.ts)
 - Smoke：[`agent-profiles.e2e.ts`](../../../packages/neuro-book/e2e/agent-profiles.e2e.ts)

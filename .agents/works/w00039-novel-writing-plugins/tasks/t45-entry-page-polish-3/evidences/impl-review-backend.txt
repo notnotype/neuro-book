@@ -1,0 +1,67 @@
+### 1. 后端诊断只测了 missing-component 一种，三种问题里的另两种与“同一处只写一次”都没被测到
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/canon/entry-kinds.dom.test.ts:72-106`；被测代码 `canon/backend/plugin.ts:88-97`
+- **现象**：计划（plan.md 验收映射）写“后端诊断三种”，实际只有一个用例：`法器` 的预设写了一个没登记的类型，断言 `canon.entry-kinds.preset-problem` 恰有一条 missing-component。`no-label`、`label-conflict` 只在纯函数 `presetProblems` 的用例里测了返回值，没有一条走过 `diagnostics.record`（事件名、`data` 展开、文案分支）。用例名写着“同一处只写一次”，但检查在 `worldOpened=true` 时只跑一次（之后要有 Component 登记变化才再跑，用例里没有），所以把 `if (reported.has(key)) continue; reported.add(key);` 整段删掉，用例照样过。
+- **为什么是问题**：去重键是这次新写的（`preset\0kind\0preset\0problem\0type`），用例标题声称覆盖它，实际空过；三个分支的文案选择（backend/plugin.ts:93-95 的三元链）和 `data: {...problem}` 对 label-conflict、no-label 没有任何断言。
+- **如何核实**：从代码推断：`checkEntryKinds` 的触发只有 `update()`（Component 登记变化）与 `worldOpened=true` 后那一次（plugin.ts:102、192-193）；用例的 `x.test` 插件没有再发布或撤销 Component。（只读审查，没做变异；建议实现者按“变异检查前先提交”的做法验证。）
+- **建议改法**：在同一个用例里让 `x.test` 另登记一条把“人物”预设写成没显示名、与内置的 `main` 显示名不同的声明，三种各断言一条；再触发一次 Component 登记变化（例如另一个插件发布一个 Component），断言记录条数不变。
+
+### 2. 内置“主要角色”与剧情插件的追加，没有任何用例用真实的登记走一遍
+- **严重程度**：建议；**类别**：测试
+- **位置**：`entry-kinds.dom.test.ts:51-78`；`plot/plugin.ts:22`；`canon/shared/components.ts:104-108`
+- **现象**：合并用例里的“剧情”登记是手写的 `{id: "nbook.plot.person", declaration: {kind: " 人物 ", presets: [{id: " main ", …}]}}`，并非 `plot/plugin.ts` 的 `descriptor.contributions`。plot 那条里的 `ENTRY_TYPES.person`、`PERSON_MAIN_PRESET`、`COMPONENT_IDS.knowing/attitude` 任何一个写错（种类词、预设 id、类型 id），测试仍全绿；也没有用例确认 plot 的声明能过 `entryKindsPoint` 的 schema 被宿主接受（缺 `label` 的预设要靠 schema 的 `label` 可选）。
+- **为什么是问题**：这是本次交付里唯一的跨插件耦合（“剧情往主要角色追加知情、态度”，Spec 输入一节明文写了），正好是最容易悄悄断的地方，而它在界面上的表现只在 e2e 与 Lab 里才看得到。
+- **如何核实**：我用 bun 脚本直接把 `plot` 的 `descriptor.contributions` 与 `BUILTIN_ENTRY_KINDS` 并起来：人物的预设是 `basic`（人物、形象）与 `main`（人物、形象、数值、知情、态度），目前是对的；也就是说现在没问题，只是没有用例守着。
+- **建议改法**：在 `entry-kinds.dom.test.ts` 加一条：取 `plot` 的 `descriptor` 里 `capability === CANON_ENTRY_KINDS_POINT` 的项与 `BUILTIN_ENTRY_KINDS` 并，断言 `main` 的 `components` 末尾是知情、态度；最好再加一条把 plot 声明交给 `Value.Check(EntryKindDeclarationSchema, …)`。
+
+### 3. 显示名前后带空白时会被误报成 label-conflict，且列表里原样显示
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`shared/entry-kinds.ts:24`（schema）、`:101`（`target.label ??= preset.label`）、`:151`（冲突比较）
+- **现象**：`id`、`kind` 都按 trim 比，`label` 的 schema 只要求含非空白字符（`pattern: "\\S"`），不 trim。内置写 `主要角色`，别的插件写 ` 主要角色`（前面一个空格）：并法取内置的不受影响，但 `presetProblems` 里 `labels` 集合有两项，报 `{kind: "人物", preset: "main", problem: "label-conflict"}`（我用真实函数跑过，确实报了）。如果只有一家写了 ` 基本 `，按钮文字带着空格显示。
+- **为什么是问题**：同一个词只差空白就报“写了不同的显示名”，是误报；`id` 已经做了 trim 比、`label` 没做，不一致。
+- **如何核实**：scratch-backend/probe.ts：`presetProblems([...BUILTIN_ENTRY_KINDS, {id: "x.a", declaration: {kind: "人物", presets: [{id: "main", label: " 主要角色", components: ["nbook.canon.person"]}]}}], …)` 输出 `[{"kind":"人物","preset":"main","problem":"label-conflict"}]`。
+- **建议改法**：并的时候存 `preset.label.trim()`，冲突比较也用 trim 后的值（或 schema 去掉首尾空白的写法，与 `kind` 的处理对齐）。
+
+### 4. 预设整个被藏起来（一组能用的也没有）时没有一条这么说的诊断，现有的话还会误导
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`shared/entry-kinds.ts:145-156`；`canon/backend/plugin.ts:92-95`
+- **现象**：Spec 写“没有显示名、或一组能用的也没有的预设不列，各写一条诊断”。`no-label` 的话是“没有显示名，不列出”，对得上；“一组能用的也没有”这一种没有对应的问题类型，只会逐个类型报 missing-component，话是“勾选时不带它”。我跑了 `{kind: "k", presets: [{id: "p", label: "L", components: ["a", "b"]}]}` 在 `available` 为空时：只有两条 missing-component，没有一条说“这个预设不会列出”。
+- **为什么是问题**：作者或插件作者看到“勾选时不带它”会以为预设还在、只少了几组；实际预设按钮整个没了（`kindPresets` 的 `components.length === 0` 分支）。Spec 的“各写一条”按字面应有一条不同的诊断。
+- **如何核实**：scratch-backend/probe.ts 最后一组输出（两条 missing-component）；`kindPresets` 在 `:134-137` 会把它丢掉。
+- **建议改法**：二选一：要么在 `PresetProblem` 加第四种 `no-usable-component`（`presetProblems` 里并完的组全不在 `available` 时报一条），要么在 Spec 里把“各写一条”改成“各以它自己的方式报”，并把 missing-component 的话改成“这一项不带；一组也没有时整个预设不列”。倾向前者，改动只有几行。
+
+### 5. 预设数量上限只管单条声明，并起来以后不封顶；schema 的各项约束一条用例也没有
+- **严重程度**：建议；**类别**：正确性 / 测试
+- **位置**：`shared/entry-kinds.ts:41`（`maxItems: 20`）、`:20-27`
+- **现象**：`presets` 的 `maxItems: 20` 在每条声明上。30 条声明各带 20 种不同 id 的预设，并完 `kindPresets` 返回 600 种（我跑了）；勾选列表顶上的一排会有 600 个按钮。Spec 写的是“有名字的预设（至多 20 种）”，挂在声明字段上，读起来既像每条声明、也像每个种类。另外 `components` 没有 `maxItems`。
+- **为什么是问题**：上限的本意是防一排按钮撑爆界面；按声明限，装几个插件就绕过。同时 `components: []`、21 种预设、`label: ""`、空白 `id`、元素为空串、多余字段这几种被 schema 拒绝的输入（我用 `Value.Check` 全部确认返回 false）没有任何测试，改动 schema 不会有测试失败。
+- **如何核实**：scratch-backend/probe.ts：`kindPresets(mergeEntryKinds(many), "k", …).length` 输出 600；五组坏声明 `Value.Check` 全 false。
+- **建议改法**：是否限并后的总数交开发者定（窄场景可记为已知限制，不加机制）；至少把 Spec 的“至多 20 种”改写成“每条声明至多 20 种”。给 schema 的坏输入各补一条用例（可以放在同一个 `it` 里循环）。注意一条坏预设会让它所在的整条声明（包括同一条里的默认 `components`、`icon`）被宿主拒绝，不是只丢那一个预设：这点 Spec 里没写，建议写一句。
+
+### 6. `presetProblems` 里的显示名冲突判断把并法的 trim 与过滤规则又写了一遍
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`shared/entry-kinds.ts:151`
+- **现象**：`mergeEntryKinds`（`:83-103`）已经按 `kind.trim()`、`id.trim()` 把几条登记并起来；`presetProblems` 对每个预设又用 `builtinFirst(descriptors).filter(kind.trim() === …).flatMap(… id.trim() === …)` 重新扫一遍全部登记、再算 label 集合，一行里五层链式调用，每个预设重复排序与扫描一次。
+- **为什么是问题**：同一条规则（怎样认“同一个种类、同一个预设”）写在两处，之后改并法（例如给 id 加命名空间、改大小写比较）时很容易只改一处，冲突判断就悄悄与并法脱节（发现 3 就是这类脱节的一例）。可读性也差。
+- **如何核实**：对照 `:94-103` 与 `:151`。
+- **建议改法**：并的时候就记下 `labels: Set<string>`（或 `conflict: boolean`）放进 `EntryKindPreset`，`presetProblems` 只读它；`kindPresets` 不暴露，不影响调用方。
+
+### 7. 新建对话框按“用户自己输入的种类词”取预设，输入 `constructor` 这类词取到的是 Object 构造函数
+- **严重程度**：建议；**类别**：正确性（S5，界面那一侧，只顺带记一笔）
+- **位置**：`canon/web/components/NewEntryDialog.vue:94`（`props.kindPresets[chosen] ?? []`）；数据来自 `web/entries-view.ts:177-179`（`Object.fromEntries`，普通对象）
+- **现象**：种类可以自由输入。`chosen` 为 `constructor`、`toString` 之类时，`props.kindPresets[chosen]` 是继承来的函数，`?? []` 不触发；`ComponentChecklist.vue:135` 的 `props.presets.length > 0` 对 `Object` 函数为真（`Object.length === 1`，我核对过），于是渲染一个空的预设分组（带读屏名的 `role="group"`）。同样的写法 `kindDefaults[chosen]` 是 t43 之前就有的；`entries-view.ts` 里对它还有 `.join`，会抛 TypeError（原有，不算本次）。
+- **为什么是问题**：窄边角，只出现在作者恰好输入这几个词时，后果是多一个空分组；但预设这一路是这次新增的，可以不带上这个隐患。
+- **如何核实**：从代码推断；`typeof ({})["constructor"]` 为 function，`.length` 为 1（probe.ts 末行）。没有在页面里点过。
+- **建议改法**：`presets` 用 `Map` 或 `Object.create(null)`，或取值前用 `Object.hasOwn`。按“窄场景选简单改法”，也可记为已知限制。
+
+## 未发现问题的方面
+- 并法：同 id 的预设按内置在前、去重合并，显示名取先写的；内置没登记、只被别的插件追加的预设按 no-label 报、不列出。仔细检查后没有发现（`builtinFirst` 靠 `declarations.list` 按贡献 id 排序，我核对了 `nb-runtime/src/plugins/host.ts:294-304`）。
+- `kindPresets`：去掉没登记的类型、没有可用组的预设不给、先后按第一次出现，与计划一致；空种类、没登记的种类返回 []。
+- 诊断的去重键：与 `missingDefaults` 的键不会撞（前缀 `preset\0`），同一个类型既在默认又在预设里时两条都写，符合计划。
+- 贡献点校验：坏声明被宿主逐条拒绝，其余声明照常（`host.ts` 的 `list` 只收 accepted）。
+- 剧情插件只引 `canon/shared/contracts.ts`，符合架构测试；`PERSON_MAIN_PRESET` 经该文件再导出。
+- `entry-kinds.dom.test.ts` 现有 3 条用例我跑过，全过。
+
+## 数量与有效发现
+- 阻断 0，重要 1，建议 6，共 7 条。
+- 有效发现：1、2、3、4、5、6、7

@@ -1,11 +1,11 @@
 ---
 标签: [state:inject]
-别名: ["给 AI 看", "设定组的模型视图", "Component Agent View"]
+别名: ["AI视图", "给 AI 看", "设定组的模型视图", "Component Agent View"]
 ---
 
 # ComponentAgentView
 
-设定组分页的“给 AI 看”（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 54）：Agent 工具 `canon_read` 读这个条目时这一组的那一节，原样摆出来。字由宿主用 `canon/shared/agent-fields.ts` 的 `fieldsText` 写好传进来，和后端给模型的是同一个函数写的，这里只负责显示。
+设定组分页的“AI视图”（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 54）：Agent 工具 `canon_read` 读这个条目时这一组的那一节，原样摆出来。字由宿主用 `canon/shared/agent-fields.ts` 的 `fieldsText` 写好传进来，和后端给模型的是同一个函数写的，这里只负责显示。
 
 ## 布局
 

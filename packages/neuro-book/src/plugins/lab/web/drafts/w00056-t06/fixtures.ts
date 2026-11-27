@@ -6,10 +6,14 @@
  * 第 7 轮：第一幕落地以后自己连播，字幕上面是章节条（`ChapterRail` 三版）；首屏的动静换成从字到世界与指针响应（`r7-*`）。
  * 第 8 轮：章节条、按钮（`GiltButton`）与首屏的动静换成开发者选定的一版；字幕挪到工作台上面做眉题，几处要对照着看的时候加案头聚光
  * （`DeskSpotlight`）；白天重做成同一个白天（亚麻桌布）；首屏的纸点了能细看，指针搅动浮尘（`r8-*`）。没选的变体删了，它们的场景 id 留作别名。
+ * 第 9 轮：白天的桌面换成生成的旧橡木；高亮的金线框换成鎏金标记（`GildedMarks`：四角、下划线、落点槽），夜里的幕加深；
+ * 首屏跟指针的效果换成提灯与金丝，加了星盘与线索丝两样（`SanctumScene` 的 `r9-scene-*` 是有没有它们的对照；页面是 `r9-*`）。
  */
 import {defineLabFixture} from "../../fixtures/define";
 import type ChapterRail from "./ChapterRail.vue";
 import type DeskSpotlight from "./DeskSpotlight.vue";
+import type GildedMarks from "./GildedMarks.vue";
+import type {GildedMark} from "./GildedMarks.vue";
 import type GiltButton from "./GiltButton.vue";
 import type HeroButtons from "./HeroButtons.vue";
 import type HomepageDesk from "./HomepageDesk.vue";
@@ -28,6 +32,13 @@ const DRAFT_SCENES: ReadonlyArray<readonly [string, string, DraftProps]> = [
 
 /** 章节条的六段：和第一幕的短标题一样（`copy.ts` 的 `BEATS`）。 */
 const RAIL_CHAPTERS = ["两章并排", "高亮批注", "人物浮窗", "视图换位", "专心写", "下次还在"];
+/** `GildedMarks` 场景的一组标记，位置对着台子上的标签、两行字（“门外有人敲门，”与“三下。”）和侧轨（见 `GildedMarksFixture.vue`）。 */
+const GILDED_SAMPLE: readonly GildedMark[] = [
+    {id: "tab", kind: "corners", rect: {left: 32, top: 28, width: 112, height: 26}, small: true},
+    {id: "line-1", kind: "underline", rect: {left: 136, top: 120, width: 112, height: 22}},
+    {id: "line-2", kind: "underline", rect: {left: 40, top: 150, width: 48, height: 22}},
+    {id: "slot", kind: "slot", rect: {left: 514, top: 136, width: 28, height: 40}},
+];
 
 /** 开场单独看时的一份卡片：1000×640 的桌面上，活动栏、侧栏、编辑区、右栏与状态栏（数值取自真工作台的一次量取，取整）。 */
 const CARD = {radius: "12px", shadow: "rgba(59, 52, 43, 0.1) 0px 1px 2px 0px"};
@@ -56,12 +67,16 @@ export const fixtures = [
     defineLabFixture<typeof HomepageSanctum>({
         component: "HomepageSanctum",
         scenes: [
-            {id: "r8-sanctum", label: "第 8 轮：入殿·俯案成界，夜（从首屏起，往下滚俯冲，落地后第一幕自己连播）", input: {props: {start: "top"}}},
-            {id: "r8-day", label: "第 8 轮：白天（午后的抄经室，亚麻桌布）", input: {props: {start: "top", appearance: "day"}}},
-            {id: "r8-act-one", label: "第 8 轮：第一幕连播（眉题、案头聚光，直接落在第一幕）", input: {props: {start: "act-one"}}},
-            {id: "r8-act-one-day", label: "第 8 轮：第一幕连播，白天", input: {props: {start: "act-one", appearance: "day"}}},
+            {id: "r9-sanctum", label: "第 9 轮：入殿·俯案成界，夜（从首屏起，往下滚俯冲，落地后第一幕自己连播）", input: {props: {start: "top"}}},
+            {id: "r9-day", label: "第 9 轮：白天（午后的抄经室，旧橡木桌面）", input: {props: {start: "top", appearance: "day"}}},
+            {id: "r9-act-one", label: "第 9 轮：第一幕连播（眉题、案头聚光与鎏金标记，直接落在第一幕）", input: {props: {start: "act-one"}}},
+            {id: "r9-act-one-day", label: "第 9 轮：第一幕连播，白天", input: {props: {start: "act-one", appearance: "day"}}},
             // 前几轮评审板里的链接：组件已经是这一轮的样子，场景 id 留着，旧链接不落空（第 7 轮没选的章节条与首屏的两种动静也落到这一轮）。
             ...([
+                ["r8-sanctum", 8, "从首屏起", {start: "top"}],
+                ["r8-day", 8, "白天", {start: "top", appearance: "day"}],
+                ["r8-act-one", 8, "第一幕", {start: "act-one"}],
+                ["r8-act-one-day", 8, "第一幕，白天", {start: "act-one", appearance: "day"}],
                 ["r7-sanctum", 7, "从首屏起", {start: "top"}],
                 ["r7-day", 7, "白天", {start: "top", appearance: "day"}],
                 ["r7-act-one", 7, "第一幕", {start: "act-one"}],
@@ -78,7 +93,7 @@ export const fixtures = [
                 ["r5-act-one", 5, "第一幕", {start: "act-one"}],
                 ["r4-sanctum", 4, "从首屏起", {start: "top"}],
                 ["r4-act-one", 4, "第一幕", {start: "act-one"}],
-            ] as const).map(([id, round, what, props]) => ({id, label: `第 ${round} 轮评审板的链接（现为第 8 轮）：${what}`, input: {props: {...props}}})),
+            ] as const).map(([id, round, what, props]) => ({id, label: `第 ${round} 轮评审板的链接（现为第 9 轮）：${what}`, input: {props: {...props}}})),
         ],
         load: async () => (await import("./HomepageSanctumFixture.vue")).default as never,
     }),
@@ -89,6 +104,9 @@ export const fixtures = [
             {id: "r6-scene-day", label: "首屏场景：白天", input: {props: {progress: 0, intro: true, deskReady: true, night: false}}},
             {id: "r4-scene-mid", label: "俯冲到一半", input: {props: {progress: 0.45, intro: false, deskReady: true}}},
             {id: "r4-scene-near", label: "快落地", input: {props: {progress: 0.82, intro: false, deskReady: true}}},
+            // 第 9 轮开发者问首屏要不要多加点元素：有星盘与线索丝（缺省）和没有的对照，指针停到纸上看线索丝。
+            {id: "r9-scene-elements", label: "第 9 轮：加了星盘与线索丝（缺省）", input: {props: {progress: 0, intro: true, deskReady: true}}},
+            {id: "r9-scene-plain", label: "第 9 轮：不加星盘与线索丝", input: {props: {progress: 0, intro: true, deskReady: true, effects: ["relay", "parallax", "lantern", "thread", "peek", "ribbon"]}}},
         ],
         load: async () => (await import("./SanctumSceneFixture.vue")).default as never,
     }),
@@ -136,10 +154,21 @@ export const fixtures = [
     defineLabFixture<typeof DeskSpotlight>({
         component: "DeskSpotlight",
         scenes: [
-            {id: "r8-one", label: "照亮一块，内沿描细金线（“换一处”看亮处怎么换）", input: {props: {spots: [{left: 230, top: 90, width: 360, height: 40}], rims: [0], width: 900, height: 560}}},
-            {id: "r8-two", label: "照亮两块：把手与落点", input: {props: {spots: [{left: 40, top: 24, width: 150, height: 30}, {left: 620, top: 60, width: 250, height: 460}], rims: [0], width: 900, height: 560}}},
-            {id: "r8-day", label: "白天：暖褐的幕、古铜细线", input: {props: {spots: [{left: 230, top: 90, width: 360, height: 40}], rims: [0], width: 900, height: 560, night: false}}},
+            {id: "r8-one", label: "照亮一块，标四角（“换一处”看亮处与标记怎么换）", input: {props: {spots: [{left: 230, top: 90, width: 360, height: 40}], marks: ["corners"], width: 900, height: 560}}},
+            {id: "r8-two", label: "照亮两块：把手标四角，落点不标", input: {props: {spots: [{left: 40, top: 24, width: 150, height: 30}, {left: 620, top: 60, width: 250, height: 460}], marks: ["corners", "none"], width: 900, height: 560}}},
+            {id: "r9-lines", label: "两行字按行留亮、标下划线", input: {props: {spots: [{left: 242, top: 96, width: 300, height: 14}, {left: 242, top: 136, width: 210, height: 14}], marks: ["underline", "underline"], width: 900, height: 560}}},
+            {id: "r9-slot", label: "空的落点标落点槽", input: {props: {spots: [{left: 40, top: 24, width: 150, height: 30}, {left: 848, top: 120, width: 34, height: 40}], marks: ["corners", "slot"], width: 900, height: 560}}},
+            {id: "r8-day", label: "白天：暖褐的幕、古铜色的标记", input: {props: {spots: [{left: 230, top: 90, width: 360, height: 40}], marks: ["corners"], width: 900, height: 560, night: false}}},
         ],
         load: async () => (await import("./DeskSpotlightFixture.vue")).default as never,
+    }),
+    defineLabFixture<typeof GildedMarks>({
+        component: "GildedMarks",
+        scenes: [
+            {id: "r9-night", label: "四角、两行下划线、落点槽（按“重演”看扣合、铺开与掠光）", input: {props: {marks: GILDED_SAMPLE}}},
+            {id: "r9-handoff", label: "交给访客：标签上的小四角，涟漪两圈，隔一会儿往右挪", input: {props: {marks: [{id: "tab", kind: "corners", rect: {left: 32, top: 28, width: 112, height: 26}, small: true, ripple: true, nudge: true}]}}},
+            {id: "r9-day", label: "白天：深古铜金", input: {props: {marks: GILDED_SAMPLE, day: true}}},
+        ],
+        load: async () => (await import("./GildedMarksFixture.vue")).default as never,
     }),
 ];

@@ -465,11 +465,11 @@ describe("author-ui 输出 44、45：两个窗口、放不下、被拒收", () =
         const session = author.drafts.session(entry);
         await session.begin(end("3"));
         session.edit((draft, read) => setText(draft, read, "b1", "A 改"));
-        const added = addAfter(session.state.draft!, "b2", "没闭合的 {表达式");
+        const added = addAfter(session.state.draft!, "b2", '没写完的 <V of="entry.name"');
         session.edit(() => added.draft);
         expect((await session.submit("改主文字")).status).toBe("problems");
         expect(Object.keys(session.state.problems)).toEqual([added.key]);
-        expect(session.state.problems[added.key]).toMatchObject({kind: "rejected", code: "cross-block"});
+        expect(session.state.problems[added.key]).toMatchObject({kind: "rejected", code: "tag-malformed"});
         const kept = await stored(author.storage, entry);
         expect(kept.status === "ok" && [kept.value.pending, kept.value.texts.b1]).toEqual([undefined, "A 改"]);
         expect(await sources(author.canon, entry)).toEqual(["A", "B"]);

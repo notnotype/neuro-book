@@ -15,7 +15,7 @@ import {until} from "./testing/harness";
 import {RENDER_SOURCE_MAX} from "./shared/contracts";
 import {textScene} from "./testing/text-scene";
 import type {SceneWindow, TextScene} from "./testing/text-scene";
-import type {EntryTextNode} from "./web/components/entry-text";
+import type {EntryTextBlock} from "./web/components/entry-text";
 import {PREVIEW_DELAY, useTextPreview} from "./web/text-preview";
 import type {PreviewInput} from "./web/text-preview";
 
@@ -40,8 +40,18 @@ async function inScene(run: (scene: TextScene) => Promise<void>): Promise<void> 
     }
 }
 
-/** 一块里的字：文字节点的字、引用的名字，按出现的先后连起来。 */
-const words = (node: EntryTextNode | undefined): string => (node === undefined ? "" : node.type === "text" ? node.value ?? "" : node.type === "canonRef" ? `[${node.name ?? ""}]` : (node.children ?? []).map(words).join(""));
+/** 一块的源文，条目引用换成 `[名字]`（取自值表）。 */
+function words(block: Extract<EntryTextBlock, {values: unknown}> | null): string {
+    if (block === null) return "";
+    let text = "";
+    let cursor = 0;
+    for (const value of [...block.values].sort((left, right) => left.start - right.start)) {
+        if (value.tag !== "Ref" || !("name" in value)) continue;
+        text += `${block.source.slice(cursor, value.start)}[${value.name}]`;
+        cursor = block.source.indexOf("/>", value.start) + 2;
+    }
+    return text + block.source.slice(cursor);
+}
 
 /** 一个窗口上的预览：`source` 是输入框里的整篇（null 是预览关着），`stamp` 代表世界的版本；延后的执行攒在 `timers` 里，`fire` 才跑。 */
 function deskOf(window: SceneWindow, entry: string) {
@@ -70,7 +80,7 @@ function deskOf(window: SceneWindow, entry: string) {
         stamp,
         preview,
         calls: () => calls,
-        shown: () => words(preview.block.value?.tree),
+        shown: () => words(preview.block.value),
         /** 还等着的延后执行。 */
         waiting: () => timers.filter((timer) => !timer.cancelled),
         /** 作者停够了：跑掉等着的那一次。 */
@@ -158,7 +168,7 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
         const desk = deskOf(await scene.window("browser-1"), entry);
         desk.source.value = "好的一段";
         await until(() => desk.shown() === "好的一段");
-        desk.source.value = "好的一段\n\n他说{+5}";
+        desk.source.value = '好的一段\n\n他说<V of="entry.name"';
         await nextTick();
         desk.fire();
         await until(() => desk.preview.problem.value !== null);
@@ -167,7 +177,7 @@ describe("author-ui 输出 48：写得不对与读不出来", () => {
         await nextTick();
         desk.fire();
         await until(() => desk.preview.problem.value === null);
-        expect(desk.shown()).toBe("好的一段他说了");
+        expect(desk.shown()).toBe("好的一段\n\n他说了");
         desk.dispose();
     }));
 

@@ -368,7 +368,7 @@ describe("plot.brief I5 审查之后：绝密不泄、知情变化、渲染同�
         const jin = w.person("星瑾");
         const thing = w.thing("怀表");
         const stored = structuredClone(w.world.data.entries.get(thing)!);
-        stored.init.text = [{id: "b1", source: "表的状态 {character.状态}"}];
+        stored.init.text = [{id: "b1", source: "表的状态 <V of=\"character.状态\" />"}];
         w.publish([{ref: {kind: "entry", id: thing}, after: stored}]);
         w.change(chapter("ch6"), {patches: [setState(thing, "走得很慢")]});
         const cut = w.change(chapter("ch7", 10));
@@ -642,7 +642,7 @@ describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不
     test("主文字是纯文字：字段写值，条目引用写名字，没有注记语法与条目 id", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
-        const fs = foreshadowWithText(w, "脚印", `回收时写明<Ref id="${hero}" />留下脚印，重要程度 {fs.重要程度}。`, {重要程度: "main"});
+        const fs = foreshadowWithText(w, "脚印", `回收时写明<Ref id="${hero}" />留下脚印，重要程度 <V of="fs.重要程度" />。`, {重要程度: "main"});
         w.change(chapter("ch15"), {kind: "plan", text: "揭晓", cast: [{who: hero, role: "present"}], told: [payoff(fs)]});
         const text = section(brief(w, "ch15"), "foreshadow");
         expect(text).toContain("回收：回收时写明勇者留下脚印，重要程度 main。");

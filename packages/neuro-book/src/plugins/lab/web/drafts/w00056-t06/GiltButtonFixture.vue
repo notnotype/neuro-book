@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** `GiltButton` 单独看（Lab）：放在它会出现的底上，夜是暗夜圣殿，昼是午后抄经室的亚麻桌布。 */
+/** `GiltButton` 单独看（Lab）：放在它会出现的底上，夜是暗夜圣殿，昼是午后藏书阁窗光照着的暖象牙墙（第 10 轮的白天）。 */
 import {computed} from "vue";
 
 import {useLabSubject} from "../../lab-subject";
@@ -30,7 +30,7 @@ const day = computed(() => subject.bindings.value.day === true);
 
 .gbf--day {
     background:
-        radial-gradient(70% 90% at 20% 0%, rgb(255 250 236 / 0.75), transparent 70%),
-        #ddd0b8;
+        radial-gradient(70% 90% at 20% 0%, rgb(255 246 222 / 0.6), transparent 70%),
+        radial-gradient(90% 110% at 50% 18%, #f6ecd8, #efdfc0 58%, #d9b68c);
 }
 </style>

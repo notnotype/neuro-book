@@ -19,7 +19,7 @@ import type {Static} from "typebox";
 
 import type {CanonReads} from "./reads";
 
-export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT} from "./components";
+export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT, PERSON_COMPONENT, PERSON_MAIN_PRESET} from "./components";
 // 作者界面的两个贡献点（author-ui.md 输出 12、36）：别的插件交界面时从这里取 id（跨插件只引对方的 shared/contracts.ts）。
 export {CANON_COMPONENT_VIEWS_POINT} from "./component-views";
 export type {ComponentViewDeclaration} from "./component-views";
@@ -224,7 +224,8 @@ const methods = {
     chapters: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
     /** 登记的 Component 类型与字段声明（canon.components 输出 21）；带不带视图令牌一样。 */
     components: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
-    render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
+    /** 渲染条目的主文字（canon.rendering 输出 7、8）；`block` 只渲染那一块，给 Agent 的那一块另带存下的源文（`source`）。 */
+    render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), block: Type.Optional(Type.String()), view: View}), output: Out, effect: "read", errors},
     /**
      * 把一段没提交的源文字当作条目的主文字渲染给作者（canon.rendering 输出 16）；不收视图令牌（作者界面的预览用）。`source`
      * 超过 `RENDER_SOURCE_MAX` 时回 `too-large`，不渲染。
@@ -263,26 +264,6 @@ const methods = {
         effect: "read",
         errors,
     },
-    writeBack: {
-        input: Type.Object({
-            requestId: Type.String({minLength: 1}),
-            by: ActorSchema,
-            entry: Type.String(),
-            block: Type.String(),
-            /** 渲染结果给的位置，写明读的线（canon.rendering 输出 12）；没写的由内核拒收（`line-required`）。 */
-            position: ReadPositionSchema,
-            version: Type.Integer(),
-            mode: Mode,
-            text: Type.String(),
-            intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
-            title: Type.Optional(Type.String()),
-            token: Token,
-            view: View,
-        }),
-        output: Out,
-        effect: "write",
-        errors,
-    },
     revert: {input: Type.Object({revision: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String()), authorizations: Type.Optional(Type.Array(AuthorizationSchema)), token: Token, view: View}), output: Out, effect: "write", errors},
     /** 视图（输出 24）：令牌的寿命不超过申请它的调用方实例。 */
     openView: {input: Type.Object({viewer: Type.Union([Type.String(), Type.Null()]), line: Type.String(), until: ReadPositionSchema, purpose: Type.String()}), output: Out, effect: "read", errors},
@@ -310,7 +291,8 @@ const events = {
 } as const;
 
 /** 项目实例提供；浏览器、TUI 与服务端都能调。 */
-export const canonWorldContract = defineRemoteService({id: "nbook.canon/world", version: 1, provider: "project", callers: ["browser", "tui", "server"], methods, events});
+// 版本 2：作者的渲染从语法树换成源文加值表，删掉 `writeBack`（w00055 t02）。
+export const canonWorldContract = defineRemoteService({id: "nbook.canon/world", version: 2, provider: "project", callers: ["browser", "tui", "server"], methods, events});
 
 export type CanonMethod = keyof typeof methods;
 export type CanonInput<M extends CanonMethod> = Static<(typeof methods)[M]["input"]>;
@@ -411,6 +393,10 @@ export interface CanonOutputs {
     readonly revision: {readonly version: number; readonly revision: Revision | null; readonly revertable?: Revertable};
     readonly chapters: ReadStamp & {readonly items: readonly ChapterItem[]};
     readonly components: ReadStamp & {readonly items: readonly ComponentType[]};
+    /**
+     * 按块的渲染（canon.rendering 输出 7、8）：给作者的每块是源文加值表（`AuthorBlock`），给 Agent 的是带值写法的文字（`AgentBlock`）。
+     * 合同版本 2 起不再给语法树。
+     */
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
     /** 同 `render` 给作者的形状，`blocks` 只有一块（id 为 `source`）。 */
     readonly renderSource: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
@@ -439,7 +425,6 @@ export interface CanonOutputs {
     readonly previewEntries: {readonly routes: readonly EditRoute[]; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly laterRecords: readonly string[]};
     /** 预览：这次会写回哪里、预览的修订（操作与带来的变化）、后面改过同一地址的记录。 */
     readonly previewEdit: {readonly route: EditRoute; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly laterRecords: readonly string[]};
-    readonly writeBack: Published;
     readonly revert: Published;
     readonly acquireExclusive: {readonly token: string; readonly expires: number};
     readonly renewExclusive: {readonly expires: number};
