@@ -264,6 +264,31 @@ describe("设定视图", () => {
         expect(state.creating.value).toMatchObject({parent: ids[academy.id], folder: "", folderTouched: false});
     });
 
+    it("是谁的马甲按别名在整个世界里找（树里没展开过的也找得到）：选上以后本体与上级都是它", async () => {
+        const {other, state, view} = await setup();
+        const star = person("星瑕");
+        star.init.aliases = ["阿瑕"];
+        const ids = await publish(other.canon, [star]);
+        // 不展开“人物”：星瑕没被树读到，候选只能来自世界里的查找。
+        const wrapper = view();
+        await waitUntil("分组出现", () => rowTexts(wrapper).includes("人物"));
+        expect(rowTexts(wrapper)).not.toContain("星瑕");
+
+        startNewEntry(state, null);
+        await waitUntil("对话框", () => document.body.querySelector("[data-new-entry-place]") !== null);
+        document.body.querySelector<HTMLElement>("[data-new-entry-place]")!.click();
+        await waitUntil("位置与出场展开", () => document.body.querySelector("[data-new-entry-same-as] input[role='combobox']") !== null);
+        const picker = document.body.querySelector<HTMLInputElement>("[data-new-entry-same-as] input[role='combobox']")!;
+        picker.focus();
+        picker.click();
+        picker.value = "阿瑕";
+        picker.dispatchEvent(new Event("input", {bubbles: true}));
+        await waitUntil("高亮落在星瑕", () => document.body.querySelector("[role='option'][data-highlighted]")?.textContent?.includes("星瑕") === true);
+        picker.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        await waitUntil("选上了", () => state.creating.value?.sameAs === ids[star.id]);
+        expect(state.creating.value).toMatchObject({sameAs: ids[star.id], sameAsName: "星瑕", parent: ids[star.id], parentName: "星瑕"});
+    });
+
     it("“人物”这个种类没登记时，空状态里没有“新建人物”", async () => {
         const {view} = await setup(() => mergeEntryKinds(BUILTIN_ENTRY_KINDS.filter((item) => item.declaration.kind !== "人物")));
         const wrapper = view();
