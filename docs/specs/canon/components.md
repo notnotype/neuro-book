@@ -50,7 +50,7 @@ owners:
 | `version` | 带数据时 | 正整数 |
 | `fields` | 否 | 类型固定的字段声明，每个必须给出 `id` |
 | `instanceFields` | 否 | 为真时，实例可以在自己身上再声明字段（面板这类每个条目字段不同的） |
-| `kinds` | 否 | 这组设定适用的条目种类（条目的 `type`）的列表；只是提示，不限制它加在哪种条目上（输出 24） |
+| `kinds` | 否 | 这个模块适用的条目种类（条目的 `type`）的列表；只是提示，不限制它加在哪种条目上（输出 24） |
 | `presets` | 否 | 只在 `instanceFields` 为真时可写：给“添加一项”用的预设字段声明，每个给出 `id`（输出 24） |
 | `agentView` | 否 | 给 Agent 的文字视图，写法同条目的主文字（planned：标签写法），按 [`canon.rendering`](rendering.md) 的白名单解释，地址的根是本命名空间 |
 | `bookkeepingNotes`、`usageNotes` | 否 | 记账说明、用法说明，文字 |

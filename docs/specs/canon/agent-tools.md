@@ -23,7 +23,7 @@ owners:
 不承诺：
 
 - 提案第 9 节的 `changes`、`search`（按章列变更、检索正文与变更）；
-- 自动预查用户消息里的名字、设定组用法的提醒；
+- 自动预查用户消息里的名字、模块用法的提醒；
 - 写前预览：冷会话的只读模式在工具激活前按声明拒绝，按参数降级拿不到；
 - 写入者冒充：写入者由工具填，模型改不了；别的调用方经远程服务写入时给的写入者不在本 Spec 里核对。
 
@@ -57,12 +57,12 @@ owners:
 1. **找世界。** 每次调用先按会话的作品取项目租约（没在运行的会被打开），再经远程服务的 `{project}` 目标调世界服务，结束时释放。会话不属于任何作品时回“这个会话不属于任何作品”（码 `no-project`）；取不到租约时回“作品打不开”与原因（`project-unavailable`）。
 2. **读取结果的第一行**写读取位置（“第 2 章（2）末尾”）与版本串。
 3. **`canon_lookup`。** `names` 1 到 20 个：
-   - 每个名字最多 5 个按名字或别名完全匹配的条目，每个一行：id、种类、名字、别名、启用的设定组、简介；
+   - 每个名字最多 5 个按名字或别名完全匹配的条目，每个一行：id、种类、名字、别名、启用的模块、简介；
    - 没有时写“没有这个名字的条目”，附名字或别名包含这个词的最多 3 个（`findEntries`）；
    - 全文最多 3000 字。
 4. **`canon_tree`。** 一层的条目：id、名字（这个位置上的）、种类、有没有子条目、已删除或还没出场；`parent` 写 id 或名字，不给是最上层；`limit` 缺省 30、最多 50；有下一页时给出剩下几项与 `cursor`。全文最多 3000 字。
 5. **`canon_read`。** `entry` 写 id 或名字。`show` 缺省 `fields`：
-   - `fields`：每个设定组一节，每个字段一行：显示名、id、值、种类与可取的值（选项、范围、单位、可指向的种类、语义档）。列表每个元素一行，最多 20 行，另写还有几项；`field` 只读一个字段时列全。另列以后才启用的、去掉过的设定组。
+   - `fields`：每个模块一节，每个字段一行：显示名、id、值、种类与可取的值（选项、范围、单位、可指向的种类、语义档）。列表每个元素一行，最多 20 行，另写还有几项；`field` 只读一个字段时列全。另列以后才启用的、去掉过的模块。
    - `text`：给 Agent 的渲染（[`canon.rendering`](rendering.md)），每块写块 id。值写在标签中间、只给看（rendering 输出 8）；出错的块标“出错”并带原因（rendering 输出 14）。
    - `field` 写 `text[块 id]`：只读主文字的这一块，一页 8000 字，长的给 `cursor`（从第几个字续读）。
    - `origins`：`field` 这个字段的来历，最近 15 步，有更早的给 `cursor`。
@@ -74,15 +74,15 @@ owners:
 
    | `op` | 参数 | 换成 |
    |---|---|---|
-   | `create` | `name`、`kind`、`key`、`parent`、`folder`、`summary`、`aliases`、`components`（设定组的 id、名字或命名空间）、`fields`（`{"设定组.字段": 值}`）、`text` | `create` |
+   | `create` | `name`、`kind`、`key`、`parent`、`folder`、`summary`、`aliases`、`components`（模块的 id、名字或命名空间）、`fields`（`{"模块.字段": 值}`）、`text` | `create` |
    | `set`、`replace` | `entry`、`field`、`value`；`find`、`with` | `set`、`replace` |
    | `add`、`note` | `entry`、`field`、`delta`；`text` | `add`、`note` |
    | `listAdd` | `entry`、`field`（列表字段）、`value`（元素：子字段的 id 或名字到值；别的列表写 `label`）、`target`（以条目为键的列表指向的条目） | `listAdd` |
    | `listRemove` | `entry`、`field`（写到元素） | `listRemove` |
    | `aliases` | `entry`、`add`、`remove` | `aliases` |
    | `addBlock`、`removeBlock` | `entry`、`text`、`after`；`block` | `addBlock`、`removeBlock` |
-   | `addComponent`、`removeComponent` | `entry`、`component`；加的时候可以带 `declare`（这个条目在这组设定上自己的字段，写法同 `addField` 的声明项，类型要允许） | `component` |
-   | `addField` | `entry`、`component`（设定组）、`label`（显示名）、`kind`（缺省 `text`）与别的声明项（`unit`、`min`、`max`、`options`、`suggestions`、`precision`、`item`）、可选的 `id` 与初值 `value` | `fieldAdd` |
+   | `addComponent`、`removeComponent` | `entry`、`component`；加的时候可以带 `declare`（这个条目在这个模块上自己的字段，写法同 `addField` 的声明项，类型要允许） | `component` |
+   | `addField` | `entry`、`component`（模块）、`label`（显示名）、`kind`（缺省 `text`）与别的声明项（`unit`、`min`、`max`、`options`、`suggestions`、`precision`、`item`）、可选的 `id` 与初值 `value` | `fieldAdd` |
    | `renameField` | `entry`、`field`、`label` | `fieldRename` |
    | `removeField`、`restoreField` | `entry`、`field`（恢复时认去掉过的字段） | `fieldRemove`、`fieldRestore` |
    | `move` | `entry`、`parent`（id、名字或 null）、`after`（同上）、`folder`、`kind` | `place` |
@@ -98,9 +98,9 @@ owners:
      - 写入成功的回话请模型接着改之前先 `canon_read` 重读、拿新的版本；回话里不给新的读取戳。
 7. **名字与地址的解析。**
    - `entry`、`parent`、`after`、引用字段的值、`target` 可以写 id、名字（别名也行）或 `$代号`。主文字里指向条目的地方（`V` 的 `entry`、`Ref` 的 `id`、式子里的 `ref('…')`）也可以写 `$代号`，换成这一批前面或这一项 `create` 的条目；不是这一批前面或这一项的代号时拒收、回话说明。这一块原来就有的 `$` 开头的 id（作者手写的）按出现的次数原样留着，不当成代号。按读取位置上的名字完全匹配：没有时回“没有叫 X 的条目”与相近的几个，多于一个时列出候选、请它写 id，不替它选。
-   - `field` 写“设定组.字段”或“设定组.字段[元素].子字段”。设定组写命名空间或类型名，字段、元素、子字段写 id 或名字；“名字”“简介”“别名”是条目自己的。写 id 的总是认得；写名字时只有唯一命中才认，几个设定组、字段、元素或子字段同名时列出它们的 id，不替它选。
-   - `create` 的 `components` 写类型 id、命名空间或名字，同一组列两次拒收；`fields` 写到的设定组没列在 `components` 里时一并启用。没写 `components` 时用这个种类登记的默认设定组（[`canon.author-ui`](author-ui.md) 的贡献点 `canon.entry-kinds`）；写了就照写的，空列表表示不要默认；两种情况下 `fields` 写到的设定组都并上。`create` 可以带 `declare`（`{"设定组": [声明…]}`）：新建时就在那组设定上声明这个条目自己的字段，`fields` 里可以接着给它们初值（按显示名写也认得：没写 id 的声明在工具里先按内核同一个规则生成好 id，显示名带空格、括号时也对得上；`max` 按显示名写的换成那个字段的 id）。`components`、`declare`、`fields` 写了却不是该有的形状（一个名字、null、数组当对象）时拒收、说明该怎么写，不当成没写；`declare` 里同一组设定用两个名字写了两次时拒收。写入成功的回话在每个新条目后面写出它带了哪几组设定（没有时写“没有设定组”）。
-   - 字段声明的四个操作只能用在允许条目自己加字段的设定组上（[`canon.components`](components.md) 输出 4、23）；`field` 写“设定组.字段”，字段写 id 或显示名。回话里把拒收的原因写成能照着改的话：类型不允许、这个显示名已经有了、字段是类型固定的、没有这个字段；声明里 `kind` 写错时列出几种种类，显示名是空的、写了不认识的键（初值 `value` 写进了声明）时说明。`addField` 不给初值时新字段是未知，数与引用也照加。`addComponent` 加一组条目上已经有的设定时回“这个条目已经有这组设定”。给 Agent 的字段说明里，文字字段有建议值时列出来，并写明可以写别的。
+   - `field` 写“模块.字段”或“模块.字段[元素].子字段”。模块写命名空间或类型名，字段、元素、子字段写 id 或名字；“名字”“简介”“别名”是条目自己的。写 id 的总是认得；写名字时只有唯一命中才认，几个模块、字段、元素或子字段同名时列出它们的 id，不替它选。
+   - `create` 的 `components` 写类型 id、命名空间或名字，同一个模块列两次拒收；`fields` 写到的模块没列在 `components` 里时一并启用。没写 `components` 时用这个种类登记的默认模块（[`canon.author-ui`](author-ui.md) 的贡献点 `canon.entry-kinds`）；写了就照写的，空列表表示不要默认；两种情况下 `fields` 写到的模块都并上。`create` 可以带 `declare`（`{"模块": [声明…]}`）：新建时就在那个模块上声明这个条目自己的字段，`fields` 里可以接着给它们初值（按显示名写也认得：没写 id 的声明在工具里先按内核同一个规则生成好 id，显示名带空格、括号时也对得上；`max` 按显示名写的换成那个字段的 id）。`components`、`declare`、`fields` 写了却不是该有的形状（一个名字、null、数组当对象）时拒收、说明该怎么写，不当成没写；`declare` 里同一个模块用两个名字写了两次时拒收。写入成功的回话在每个新条目后面写出它带了哪几个模块（没有时写“没有模块”）。
+   - 字段声明的四个操作只能用在允许条目自己加字段的模块上（[`canon.components`](components.md) 输出 4、23）；`field` 写“模块.字段”，字段写 id 或显示名。回话里把拒收的原因写成能照着改的话：类型不允许、这个显示名已经有了、字段是类型固定的、没有这个字段；声明里 `kind` 写错时列出几种种类，显示名是空的、写了不认识的键（初值 `value` 写进了声明）时说明。`addField` 不给初值时新字段是未知，数与引用也照加。`addComponent` 加一个条目上已经有的模块时回“这个条目已经有这个模块”。给 Agent 的字段说明里，文字字段有建议值时列出来，并写明可以写别的。
    - 写不对时回话列出有哪些。
 8. **值的预检。** 选项不在范围内时回允许的取值；精确档的数超出最小、最大时回范围；引用写的名字换成 `{ref: id}`。预检只为回话好懂，内核的校验才是最终的。
 9. **版本。**
