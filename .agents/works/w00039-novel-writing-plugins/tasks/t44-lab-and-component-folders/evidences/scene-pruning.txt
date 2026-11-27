@@ -1,0 +1,823 @@
+w00039 t44 S4：canon 的 Lab 场景精简（2026-11-27）
+
+规则见 packages/neuro-book/src/plugins/lab/web/fixtures/README.md 的“6. 场景的数量”：
+- 模板里每个分支至少一个场景走到；
+- 只是文字或数据不同的合并；
+- 每种版式另外至多一个英文场景、一个长文字场景。
+
+做法：
+- Claude Sonnet 子代理逐个组件读模板、夹具与场景，出了下面的去留表（只读）。
+- 主会话审过，在它之上做了以下调整：
+
+1. 多留三个：
+   - EntryPage 的 read-only：页头吸顶叠着横幅的样子只有整页里看得到，WorldBanners 自己的场景看不到。
+   - AddComponentDialog 的 person、BreakExclusiveDialog 的 confirm：什么都没出错的基线样子留一个，其余场景都叠了错误或忙碌。
+2. 只改三处输入：都是拿掉场景后保住它原来走到的分支所必需的，或者场景名与输入对不上。
+   - EntryTextEditor 的 preview-problem 加 problem（problem 场景并进来）。
+   - CharacterCard 的 no-look 改成 portrait unavailable（原来是 absent，与 empty 的 no-image 画得一样），blocked 改成 portrait removed（removed-look 并进来）。
+   - ConfirmBar 的 inline-passage 的变化改成三条（inline-impact 并进来，走到“还有 N 项”）。
+3. 表里其余“要改输入的保留场景”没做：它们是给原来就没有场景走到的分支补覆盖，不是精简，留作以后改到那个组件时照规则补。表里“拿不准”列的、原来就没有场景走到的分支同样没补。
+
+ConfirmBar（14 → 6，计划里已定）：
+- 留：number、unknown、inline-note、inline-passage、inline-unknown、inline-english。
+- 拿掉：accumulated、text、conflict、number-english、inline-since、inline-same-chapter、inline-impact、inline-conflict。
+
+合计：canon 37 个组件，261 → 209 个场景。下面是子代理的原表（数字没含上面第 1 条多留的三个）。
+
+----
+# t44 S4：canon 的 Lab 场景去留表（ConfirmBar 已定，不在此表）
+
+## EntryTextEditor（21 → 13）
+分支（EntryTextEditor.vue）：
+1. L172-173 dirty：状态点与“未提交”字样；没有改动时没有（L169 data-state 还分 clean/dirty/problem）。
+2. L175、L187 phase=confirming：状态行写“正在确认”，并出“再试”按钮。
+3. L176 savedLabel 非空（saved/failed/too-large/diverged）写保存状态；none 与 unsaved 不写。failed 与 too-large 还让 L169 data-state 变 problem。
+4. L179 dirty 且 submitBlocked 非空且与 message 不同：状态行写拦下提交的原因。
+5. L182-185 saved=diverged：出“用这里的 / 换成那边的”两个按钮。
+6. L188 canPreview：出预览开关（frozen 时不出）。
+7. L191 inserts 非空且未 frozen：出“插入”菜单（locked 时禁用）。
+8. L195-202 leavingAsks（dirty、frozen、confirming）：按钮是“放弃”并先问一句；否则是“取消”直接走。
+9. L203-211 提交按钮的禁用条件：无改动、phase 非 idle、frozen、submitBlocked、diverged 各一条；submitting 时 loading。
+10. L213 message 非空：整批说明（alert），data-state 变 problem。
+11. L232 problem 非空：输入框下写原因，框变红。
+12. L238 previewing：预览栏（够宽左右分屏、窄处在下）；L242 previewNote 非空时栏顶写一句、栏内容变淡。
+13. L227 readonly=locked（submitting、confirming、frozen 时输入框只读）。
+14. frozen：只能看与放弃，没有预览开关与插入菜单（分支 6、7、8、9、13 的一部分）。
+留：
+- no-fields：1 否、2 否、3 不写、6 预览关、7 inserts 为空不出、8 取消、9 无改动禁用。（原 clean 的基线由它承担，差别只是多一个“插入”菜单，菜单由 dirty 走到）
+- dirty：1 是、3 saved、7 有插入菜单、8 放弃、9 可提交。
+- not-saved：3 failed、data-state=problem。
+- diverged：5、9 的 diverged 禁用条件。
+- submitting：9 的 phase 禁用与 loading、13、7 的 locked 禁用。
+- confirming：2、8（confirming 触发“放弃”）、13。
+- blocked：4（只有 submitBlocked）、9 的 submitBlocked 禁用条件与 title。
+- message：10（整批说明）；改输入后同时走到 4 的“与 message 同文时不重复”那一半。
+- frozen：14、8（frozen 触发放弃）、9 的 frozen 禁用、6 与 7 的 frozen 否。
+- preview：6 预览开、12 分屏。
+- preview-problem：11 problem 与 12 previewNote（变淡）。
+- preview-long：12 预览栏自己滚（长文字，版式 = 预览开着）。
+- diverged-english：英文界面里最挤的一条栏（diverged 两个按钮加 submitBlocked 与不同文字的 message，4 与 10 两条同时出）。
+拿掉：
+- clean：同 no-fields（取消、无改动、不可提交），只多一个插入菜单，菜单由 dirty 覆盖。
+- empty：只是文字空，走的分支同 no-fields；空输入框的样子 PlainSourceInput 的 empty 场景看。
+- unsaved：saved 为 unsaved 时 savedLabel 为空，分支 3 的“不写”同 no-fields；data-state=dirty 同 dirty。
+- too-large：只是 failed 换一句字，分支同 not-saved。
+- problem：被 preview-problem 覆盖（改输入后同时带 problem），没有预览时输入框下的原因行是同一个 v-if。
+- long：四十段正文只是页面滚动，不是模板分支；长文字的版式看 preview-long。
+- preview-english、dirty-english：英文只留一个，取最挤的 diverged-english（版式不是固定尺寸）。
+要改输入的保留场景：
+- preview-problem：props 里加 problem（与 previewNote 同时给，例如 "写得不对：Unexpected end of file in expression, expected a corresponding closing brace for `{` (1:4)"），产品里写得不对时两者本来就一起出。
+- message：props 里加 submitBlocked，值与 message 同一句（"别处一直在改，稍后再提交"），走到“同文不重复”。
+夹具随之不可达的代码：无（夹具 EntryTextEditorFixture.vue 只按 previewNote 与 text 切换，preview 与 preview-problem 仍走到标题、段落、未配平花括号三条）。
+拿不准：
+- 把 problem 并进 preview-problem 后，“没有预览时输入框下的原因行”没有独占场景；如果开发者要单独看，改回保留 problem。
+- failed 与 too-large 的区别按“只是文字不同”处理（savedLabel 在脚本里分支，模板里是同一个 v-else-if）。
+
+## EntryPage（16 → 12）
+分支（EntryPage.vue）：
+1. L327 WorldBanners（断开、只读）：横幅由 WorldBanners 自己的场景覆盖，EntryPage 里没有它的分支。
+2. L328 status=loading；L329 failed；L330 missing；L331 deleted（各是一块不同的版式）。
+3. L334 deleted 且 editable：出“恢复”（blockedReason 时禁用）；非 editable 时不出。
+4. L346-358 editable：名字是按钮、旁带铅笔；否则纯文字。
+5. L364-377 editable 时简介是按钮（summary 为空时写“添加简介”，L371、L375）；否则非空才画一行简介。
+6. L360 sameAs 非空：“是谁：某某”。
+7. L379-389 别名行：aliases 非空或 editable 才有；editable 时有“添加别名”与每个别名的 ×，blockedReason 与 busy 禁用。
+8. L390 showViewPoint：出“在看”；notAppeared、positionGone 是穿过去给 ViewPointPicker 的（它自己的场景覆盖）。
+9. L115-124 “更多”菜单：editable 时多“移动到……”“去掉这组设定”（removableGroup 非空），删除可用与否看 deletable。
+10. L417-433 分页：rail 为否是页头下的横排 Tabs（L417），为是是内容左边的竖排 EntryPageNav（L437）；没有 tabs 时只留一条空隙（L433）。rail 由滚动区宽度（至少 1040）决定，用 Lab 视口预设切，不用场景。
+11. L143 第一个看法前的分段竖线；L142 count。
+12. L144-145、L151-153 看法菜单：选中的设定组分页带箭头（hasLooks）；look 不是缺省时分页上写看法名。
+13. L420 canAdd（editable 且 addable 非空）出“＋”：现有场景没有一个给 addable，这个分支没有场景走到（见拿不准）。
+14. L326、L283 wide：主文字开着预览时页头与内容列放宽：没有场景给 wide，且要宽视口（见拿不准）。
+留：
+- sample：8 在看、10 横排、11 分段与 count、5 的非 editable 简介行、4 非 editable 名字。
+- same-as：6（还带 notAppeared 与 positionGone，只是穿给 ViewPointPicker）。
+- loading：2 loading。
+- failed：2 failed。
+- missing：2 missing。
+- deleted：2 deleted、3 的非 editable（不出恢复）。
+- deleted-restorable：3 的恢复按钮。
+- editable：4、5、7、9（别名、removableGroup、更多里的移动与去掉这组设定）。
+- editable-blocked：editReason 让名字、简介、别名与更多里的入口全部禁用（blockedReason）；planned。
+- editable-english：英文下最密的一页头（editable、别名、removableGroup）；改输入后兼带看法菜单的英文。
+- looks：12 选中的设定组分页带箭头、look 为缺省（不写看法名）。
+- looks-agent：12 look 不是缺省，分页上写看法名。
+拿掉：
+- disconnected：横幅由 WorldBanners 的 disconnected 场景覆盖；EntryPage 对它没有分支。
+- read-only：同上，WorldBanners 的 read-only 场景。
+- sample-english：英文只留 editable-english（版式一样，不是固定尺寸）。
+- looks-english：改成 editable-english 里带看法菜单的英文（见要改输入）。
+要改输入的保留场景：
+- editable-english：props 里 tabs 换成带 `looks: true` 的 lookTabs，加 looks（英文那组 User view/AI view/Raw view），model 的 tab 改 "data:character"、look 改 "raw"，同时走到英文的看法名。
+- editable-blocked：props 里 summary 改成 ""，走到“添加简介”占位按钮的禁用样子（现在没有场景走到 L371、L375 的空简介）。
+夹具随之不可达的代码：无（EntryPageFixture.vue 不按场景 id 做特殊处理，只按 -english 切语言）。
+拿不准：
+- “＋”与右键菜单“添加一组设定”（分支 13）：没有任何 EntryPage 场景给 addable。建议 editable 加 addable: [{value: "nbook.canon.skills", label: "技能"}]；我没有改，因为“加分支”不是“精简”，请开发者定。
+- wide（分支 14）：需要宽视口才有效果且有 EntryTextEditor 的预览一起，页面层没有场景；我倾向不为它留场景（EntryPage 的分页内容在夹具里只是一句占位，看不出放宽的意义）。
+- disconnected 与 read-only 拿掉后，没有场景看“横幅叠在页头上面”的整体样子；如果开发者要这个，留 read-only 一个。
+
+## ViewPointPicker（12 → 10）
+分支（ViewPointPicker.vue；场景只摆按钮本身，菜单要点开才见，菜单里的分支靠 props 选）：
+1. L181 positionGone：标记“选过的章不在了”；L182 notAppeared：标记“还没出场”；都没有时不画（L89 mark）。
+2. L186、L215 order.length>1：往前、往后两个按钮；没有章时（只有“最初”）不画。
+3. L189、L218 往前在“最初”时禁用、往后在最后一处时禁用。
+4. L60、L209 pinned（有线可选且固定看一条）：按钮换强调色、前面带分支图标，结论里写那条线名。
+5. L69-73 结论的组成：有线可选才写线名（hasLines）；planned 才写“算上计划中的情节”。
+6. L50、L179 locked：整条禁用，悬停写原因。
+7. L228 hasLines：菜单里的“故事线”一组（主线与分支线，depth>0 缩进，L238）。
+8. L246 searchable（章数多于 12）：菜单里有搜索框，章表自己滚。
+9. L289 canPlan：菜单里“算上计划中的情节”开关（locked 时禁用）。
+10. L269 章没有标题时标题列为空。
+留：
+- sample：2、3 往后禁用（c3:end 是最后一处）、5 有线名、7 线（含 depth 1、2）、9 canPlan、10 第 3 章无标题。
+- main-only：5 没有线名、7 否（没有线）。
+- pinned：4（固定看 l1）、5 线名；canPlan 为否，菜单里没有开关。
+- many：8（60 章）。
+- initial：3 往前禁用。
+- only-plans：2 没有章时两个步进按钮都不画、9 canPlan。
+- not-appeared：1 “还没出场”。
+- gone：1 “选过的章不在了”。
+- locked：6 locked（planned 为 true，结论里带“算上计划”，开关也禁用）。
+- long-title-english：英文、很长的线名、还没出场、固定看分支线：看结论截断，390 宽不撑出横向滚动。
+拿掉：
+- planned：只是 planned 为 true，结论多一段；locked 场景的 planned 也是 true，走同一个分支。
+- sample-english：英文只留一个，long-title-english 同样是英文且更挤（有线名、标记）。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无（ViewPointPickerFixture.vue 不按场景 id 做特殊处理，只按 -english 切语言）。
+拿不准：
+- 菜单是点开才见的，场景本身没有“已点开”的状态，菜单里 7、8、9 的样子要靠人去点；这不是这次精简要改的。
+- 竖向移动端（390 宽）由 long-title-english 兼看，用视口预设就行，没有单独的窄场景。
+
+## RevisionsView（11 → 8）
+分支（RevisionsView.vue；夹具给固定高度 h-72，里面放文字，所以要有英文场景）：
+1. L56 WorldBanners（断开、只读）：横幅本身由 WorldBanners 的场景覆盖。
+2. L77、L49 blockedNote：revertBlocked 非空，且不是已断开、也不是只读（那两种已有横幅）时，在筛选下面写一句说明。
+3. L80 loading；L81 failed；L82 没有行（empty，文字按有没有筛选换）；L83 列表。
+4. L99 row.note：行右侧一句依赖说明；L106 还原按钮在 notRevertable 或 revertBlocked 时禁用。
+5. L114 more：列表后“更多”按钮。
+6. L95-96 标题与说明截断（固定高度里的长文字）。
+留：
+- sample：3 列表、4 note 与 notRevertable 行、5 more。
+- long-title：6 很长的标题与说明。
+- busy：2 说明行、4 全部还原禁用。
+- read-only：1 只读横幅、2 的“只读时不重复写说明”。
+- loading：3 loading。
+- failed：3 failed。
+- empty：3 没有行。
+- sample-english：英文，固定高度里放文字。
+拿掉：
+- current：只是 current 为 r4（键盘落脚行），模板没有分支，tabindex 的 0 与 -1 在 sample 里都有。
+- disconnected：横幅由 WorldBanners 的 disconnected 场景覆盖；“断开时不重复写说明”与 read-only 同一个条件式、同一个模板分支。
+- empty-filtered：和 empty 同一个 v-else-if，只是 text() 选的是“没有符合筛选的”那句文字。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- “没有符合筛选的”只是换一句文字，按规则合并；如果开发者想保留看这句，需要留 empty-filtered。
+
+## CharacterCard（10 → 9）
+分支（CharacterCard.vue）：
+1. L89 portrait.status 是 unavailable 时立绘那一格不画；其余五种画。
+2. L98-105 立绘格：image 是图加“形象”入口；no-image 与 absent 是“添加立绘”（外观相同）；removed 是“恢复形象”；later 是“第 N 章起有形象”。
+3. L94 立绘按钮禁用：later 一律禁用；absent、removed 在 editReason 非空或 portraitBusy 时禁用；no-image 不受它们影响。
+4. L107 portraitError：立绘下写原因（现有场景都没给）。
+5. L112-138 短资料：L119 text 为 null 显示“填写”；link 样式；L129 mark（第 N 章改过）；L131 own 带“更多”菜单；L120 editReason 让值按钮禁用。
+6. L142 canAdd：“添加一项资料”浮层，开关由 addOpen；L147 presets 与 removed 都为空时不出列表；L155 addError。
+7. L159 condition 非空：“现在的状态”一行（text 为 null 写 hint；L168 mark）；L169 conditionOpen 展开细节。
+8. L178-197 passages：L181 mark；text 为 null 写 hint；editReason 禁用。
+留：
+- filled：2 image、5 link、mark、own、6 canAdd（浮层关着）、7 condition 带 mark、8 passage 带 text 与一段 text 为 null、1 的“画”。
+- empty：2 no-image、5 text 为 null 写“填写”、7 condition 的 text 为 null、8 passages 的 text 都为 null。
+- no-look：1 unavailable 立绘格不画（要改输入）。
+- later-look：2 later（不可点）、3 later 禁用。
+- add-field：6 浮层开着，有预设与“恢复”两种列表项。
+- add-refused：6 addError。
+- condition-open：7 conditionOpen 展开细节。
+- blocked：5 值按钮禁用、8 passage 禁用、3 removed 的禁用、2 removed（要改输入）。
+- filled-english：英文界面，卡里一行一项行高固定、标签列 4.5rem，要看英文放得下。
+拿掉：
+- removed-look：2 removed 的显示与 blocked 改输入后同一个状态覆盖，不再单独留。
+要改输入的保留场景：
+- no-look：props 的 portrait 改成 {status: "unavailable"}（现在是 absent，而 absent 与 no-image 的显示完全一样，没有场景走到 unavailable）。
+- blocked：props 的 portrait 改成 {status: "removed"}（同时走到“恢复形象”与 absent/removed 的禁用条件 3）。
+夹具随之不可达的代码：无（CharacterCardFixture.vue 没有按场景 id 的特殊处理）。
+拿不准：
+- portraitError（分支 4）、portraitBusy、presets 与 removed 都空（分支 6 的“不出列表”）、adding 现有场景都没有走到，原来就缺；补不补由开发者定，我没有替它们加场景。
+- no-image 与 absent 显示一样，只是宿主点击行为不同，按“版式一样”合并成一个（留 empty 的 no-image）。
+
+## PendingView（10 → 6）
+分支（PendingView.vue；夹具固定高度 h-80，里面放文字，要有英文场景）：
+1. L80 WorldBanners（断开、只读）：横幅由 WorldBanners 的场景覆盖。
+2. L81 holder 非空：别人在独占写，说明与“强行解除”按钮。
+3. L85 notes：每条一行“检查没算出来”之类的说明。
+4. L100 组的 count 非 null 时写数量；L102 expanded 里的组展开、不在的收起。
+5. L103 组在读且没有行：读取中；L104 没有行：这一组没有；L105 有行（L117 row.place 非空时带位置）；L120 more：“更多”。
+6. L131 detail 非空：详情；L132 detail 为空：“没有选中”。L112 选中的行 aria-current。
+留：
+- sample：4 count 有值、收起的两组、5 有行带位置、6 详情、选中行。
+- busy：2、3（带两条说明）。
+- more-and-hints：5 more；另一组 hints 展开有行。
+- loading：5 读取中、4 count 为 null；6 没有选中。
+- empty：5 这一组没有；6 没有选中（这里同样走到“没有选中”）。
+- sample-english：英文，固定高度里放文字。
+拿掉：
+- all-groups：只是三组都展开，分支同 sample 与 more-and-hints（rows 的 v-else），没有新分支。
+- no-selection：“没有选中”由 loading、empty 两个场景都走到（它们的 detail 本来就是空）。
+- disconnected：横幅由 WorldBanners 的 disconnected 场景覆盖。
+- read-only：横幅由 WorldBanners 的 read-only 场景覆盖。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- no-selection 是唯一“有列表、右边空着”的场景，拿掉后这个画面（列表满、详情空）看不到；规则上被 empty、loading 覆盖，按规则拿掉。
+
+## EntryTree（9 → 9，全部保留）
+分支（EntryTree.vue；夹具给固定宽度 w-72）：
+1. L137 disconnected：这里自己画一条 Banner（不是 WorldBanners），带“重试”。
+2. L140 根这一层还没读到：“读取中”。
+3. L141 根为空且 creatable：带“新建人物”（L150 createPerson，为否时只有一个主按钮）与“新建条目”的空状态，blockedReason 非空时按钮禁用并悬停写原因。
+4. L155 根为空且不能新建：一行“还没有条目”。
+5. L156 Tree：分组行（L86）、行尾的“已删除”“未出场”说明（L43、L65 变灰）、“再显示 N 项”行（L60、L90）、选中行。
+6. L58 展开了还没读到的一层：一行“读取中”（子层）。
+留（全部）：
+- sample：5 分组、说明、再显示、选中，展开的子层。
+- loading-layer：6 子层读取中。
+- loading：2。
+- empty：4。
+- empty-creatable：3（两个按钮）。
+- empty-blocked：3 的禁用与悬停原因。
+- empty-creatable-english：空状态的英文（按钮在 w-72 里放得下与否）；改输入后同时走到 createPerson 为否。
+- disconnected：1（唯一带这条 Banner 的场景，WorldBanners 的场景覆盖不到它）。
+- sample-english：树行与行尾说明的英文，固定宽度 w-72，说明比中文长。
+拿掉：无（每个场景各占一个分支，没有重复）。
+要改输入的保留场景：
+- empty-creatable-english：props 加 createPerson: false，走到 L150 的 v-if 为否、“新建条目”变主按钮（现在没有场景给 createPerson: false）。
+夹具随之不可达的代码：无。
+拿不准：
+- 空状态的英文与 sample-english 属于两种不同的版式（空状态与树），各留一个英文，符合“每种版式至多一个”；如果开发者要再少，可去掉 empty-creatable-english，那样 createPerson 为否的改输入要挪到 empty-blocked。
+
+## ImageInput（9 → 7）
+分支（ImageInput.vue；夹具给固定宽度 w-[22rem]，里面放文字，要有英文）：
+1. L67 picking（场景 id 含 picking 时夹具注入候选与上传）：有则出“作品里的图片”一行（上传按钮）与候选方格，没有时只剩手填路径与说明（占位文字也不同，L103）。
+2. L71-78 上传在途时同一个按钮变成“取消上传”；L97 候选格里一格“正在上传”。
+3. L98 候选为空：“图片文件夹还是空的”。
+4. L83-87 候选多格，当前路径那格带强调边。
+5. L116 reason 非空：红字原因，输入框 invalid（reason 来自 problem、路径不合规则或只填说明没填路径，三者模板上是同一个分支）。
+6. L117 picking.notice 非空：一行说明（没有场景走到，见拿不准）。
+7. L90、L106、L113 disabled（没有场景给）。
+留：
+- empty：1 没有 picking、没有 reason（空值）。
+- bad-path：5 路径不合规则的红字原因。
+- bad-path-english：英文；没有 picking 的那种版式。
+- picking：1 有候选与上传、4 选中一张。
+- picking-uploading：2。
+- picking-no-images：3。
+- picking-english：有候选的版式的英文。
+拿掉：
+- filled：路径合规、有说明，模板走到的分支同 empty（没有 picking、没有 reason）；选中一张候选的样子由 picking 看。
+- problem：reason 非空，同 bad-path，只是文字来自 problem 而不是路径规则。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无（ImageInputFixture.vue 的 includes("picking")、includes("uploading")、includes("no-images") 三处分支都还走得到）。
+拿不准：
+- 分支 6（picking.notice）与 picking.reason 在夹具里写死为空串（canon-images.ts 的 provideSamplePicking），没有场景走到；分支 7 的 disabled 也没有。要不要补由开发者定，这里没算。
+
+## ReceiptPage（9 → 8）
+分支（ReceiptPage.vue）：
+1. L42 WorldBanners：由 WorldBanners 的场景覆盖。
+2. L43 loading；L44 failed；L45 missing；L46 normal（有 model）。
+3. L51 reverted 非空：“还原的是：某某、某某”链接（item.title 为 null 时写“未命名”）。
+4. L57-59 revertBlocked 非空：“还原这次修订”禁用并写原因；否则 dependents>0 时写“后面有 N 次改动依赖它”。
+5. L62 分节（新建、修改、删除、章序）：节标题随 kind（脚本里的三元式，模板同一块）。
+6. L66-67 每项：ref 非空时是链接按钮；ref 为空且 name 非空时是纯文字；两者都空（章序的项）什么也不画。
+7. L68 fields 非空：字段表；L72 before 非空时画划线的旧值加箭头，为空只写新值。
+8. L79-83 带来的变化。
+留：
+- edit：2 normal、4 无禁用无依赖、6 链接项、7 before 非空、8。
+- dependents：4 的依赖说明。
+- created：5 新建节（要改输入，见下）。
+- reverted：3 reverted 列表、5 删除节、6 的 ref 为空 name 非空、7 的 fields 为空。
+- reorder：4 revertBlocked、5 章序节、6 name 为空的项（既不是按钮也不是文字）。
+- loading：2。
+- missing：2。
+- edit-english：英文界面（页面不是固定尺寸，但字段表与按钮在窄处折行，英文留一个）。
+拿掉：
+- read-only：横幅由 WorldBanners 的 read-only 场景覆盖；revertBlocked 的禁用分支由 reorder 走到，ReceiptPage 不因只读另有分支。
+要改输入的保留场景：
+- created：把新建项的 fields 改成一行没有旧值的字段，例如 [{label: "外观", before: "", after: "一根银色魔杖，半米长"}]（现在是 []，没有场景走到 L72 的 before 为空）。
+夹具随之不可达的代码：无。
+拿不准：
+- status 为 failed（L44）没有场景走到（现有九个里没有 failed）；按规则每个分支至少一个，需要新增一个 failed 场景，这是“加”不是“精简”，我没算进数里，请开发者定。
+- 窄宽度（max-[480px]）靠视口预设，没有单独场景。
+
+## ChangePage（8 → 8，全部保留）
+分支（ChangePage.vue）：
+1. L51 WorldBanners：由 WorldBanners 的场景覆盖（本组件没有场景用到它）。
+2. L52 loading；L53 failed；L54 missing；L55 normal。
+3. L56 bar 插槽：宿主放确认条（夹具对 id 含 `-editing` 的场景放一条 ConfirmBar）。
+4. L66 status 为 held：写原因；L69 activation 为空时出“改成生效”（blocked 时禁用并写原因）；L71 activation 非空时是确认区：L72 previewing 写“正在预览”、L73 preview 列表、L76 error、L79 保存按钮在 preview 为空、previewing、saving、locked 时禁用。
+5. L83 status 为 undone 且有原因：写“已还原的原因”（现有场景没有一个走到）；L64 status 不是 active 时状态字样变警告色。
+6. L85 quotes 非空；L92 chapter 非空时“打开这一章”；L93 chapterMissing 等于该章时警告。
+7. L98 involved 非空。
+8. L106 patches 为空写“没有改动”；L110 basis（estimate 与否换颜色）；L112 editable 的“改”按钮，blocked 时禁用。
+留（全部）：
+- active：生效、6 quotes（有章与无章各一条）、7、8 的 basis 估计、editable 与不可改各一项。
+- active-editing：3 bar 插槽里的确认条（夹具 L24 的 editing 与模板的 bar 插槽都只靠它走到）。
+- held：4 待定，“改成生效”可用。
+- activating：4 activation 非空且有预览列表、保存可用。
+- activation-invalid：4 error、保存禁用（preview 为空、locked）。
+- blocked：写不了：编辑按钮禁用、章节文件没找到（6 chapterMissing）；要改输入使“改成生效”也禁用。
+- missing：2 missing。
+- active-english：英文界面；要改输入使它同时走到 5。
+拿掉：无（八个场景各占不同分支）。
+要改输入的保留场景：
+- blocked：props 的 model 换成 held 的那份（现在是 active，所以 L69 的“改成生效”禁用没有场景走到；held 的 patches 仍有可改项，编辑按钮的禁用与 chapterMissing 照旧走到）。
+- active-english：model 改成 status: "undone"、statusText: "reverted"，加 undoneReason（例如 "Reverted by the later edit to Chapter 3"），走到 L83 与警告色（现在英文场景是 active）。
+夹具随之不可达的代码：无。
+拿不准：
+- 分支 2 的 loading、failed，分支 4 的 previewing 在现有八个场景里都没有走到；这是原来就缺的，精简不会让它更糟，补不补由开发者定（补 previewing 需要新增一个 activation.previewing: true 的场景，不能并进 activating，那里要看预览列表）。
+
+## PageNotices（8 → 7）
+分支（PageNotices.vue）：
+1. L93 agent 非空：Agent 一行；L95 earlier>0 时多一句“之前还改过 N 次”；L99 undone 时“还原”按钮写“已还原”且不响应。
+2. L104 notice 非空：作者一行；L120 where 非空时跟着写“记在第 N 章”（标题先被截）；为空时只有标题。
+3. L132 error 非空：页面自己的写入失败，一行红字加关闭。
+4. L118-119 标题很长时先截标题（看窗口宽度）。
+留：
+- sample：2 作者一行，带 where。
+- no-where：2 where 为空。
+- with-agent：1 earlier>0，同时作者与 Agent 两行叠着。
+- agent-undone：1 undone，earlier 为 0，只有 Agent 一行。
+- error：3。
+- long：4 很长的标题截断。
+- sample-english：英文，作者与 Agent 两行都有（提示条的动作按钮折行看英文）。
+拿掉：
+- initial：where 写“最初”，同 sample 的 where 非空分支，只是文字不同。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+## RevertDialog（8 → 8，全部保留）
+分支（RevertDialog.vue；对话框是固定的 md 宽度，里面放文字，要有英文场景）：
+1. L50 title 为空：标题写“还原这次修订”的泛称；非空写“还原：某某”。
+2. L57 phase=previewing：“正在预览”；L58 ready：带来的变化（L61）；L64 dependents：依赖它的修订列表，L67 标题为 null 写“读取中”，L68 moreDependents>0 多一行“还有 N 次”。
+3. L71 reason 非空：一行原因（blocked 时没有 status 角色，其余有）；L78-79 footer：blocked 时只有“关闭”，其余是“取消”加“还原”（dependents 时写“连同这些一起还原”）。
+4. L43、L79 confirmable：phase 不对、有 reason、saving 都让“还原”禁用。
+5. L72 error：红字；L74 recheck 时多“再查一次”。
+6. L51 saving：对话框忙、不能关、按钮禁用。
+留（全部）：
+- ready：2 ready、3 非 blocked 的 footer。
+- dependents：2 dependents（含 null 标题、moreDependents）、3 的“连同这些一起还原”。
+- previewing：2 previewing；要改输入让标题为空（见下）。
+- not-revertable：2 blocked 无列表、3 blocked 的 footer 与 reason。
+- busy：ready 加 reason：4 因 reason 禁用。
+- unknown：5 error 加 recheck。
+- saving：6。
+- ready-english：英文界面。
+拿掉：无。
+要改输入的保留场景：
+- previewing：props 的 title 改成 ""（现有八个场景都给了 title，L50 的“标题还不知道”没有场景走到；预览阶段正是宿主还没读到标题的时候）。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+## ComponentRawView（7 → 5）
+分支（ComponentRawView.vue；条目页内容列那么宽的一栏，自己滚，不是固定尺寸）：
+1. L34 failed 非空：警告一行加“重试”。
+2. L40 初值在读且没有值：“读取中”；L41 initial 为 undefined：“初值里没有这一组”；L42 否则是 JSON 查看器。
+3. L46 变更在读且没有：“读取中”；L47 没有变更：“没有变更”；L48 否则是 JSON 查看器。
+4. L49 remaining>0：“再显示 N 条”（changesLoading 时 loading）。
+留：
+- panel：2 初值查看器、3 变更查看器。
+- more：4 再显示按钮（total 45、remaining 43）。
+- added-by-change：2 初值里没有、3 没有变更。
+- loading：2 读取中、3 读取中。
+- failed：1，其余照常显示。
+拿掉：
+- changes-first：初值读取中（同 loading 的 L40）加变更查看器（同 panel 的 L48），没有新分支。
+- panel-english：版式不是固定尺寸，只是文字不同；与 more 同样有“再显示”按钮。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+## FieldInput（7 → 6）
+分支（FieldInput.vue；按 kind 换控件，不是固定尺寸）：
+1. L38 kind=number：数字输入框；L46 带 unit 时右边写单位。
+2. L39 kind=suggest：建议值输入（inline 时撑满、建议值嵌在下面，否则 w-64）。
+3. L40 kind=enum：选项下拉。
+4. L41 kind=boolean：开关。
+5. L42 kind=ref：条目选择器（夹具接真实的去抖查找）。
+6. L43 kind=image：图片输入。
+7. L44 文字 rows===1：单行输入框。
+8. L45 文字 rows>1：多行文本框；inline 时随内容长高；prose 时字号行高同原文、封顶 8 行。
+留：
+- number：1（带单位）。
+- enum：3。
+- boolean：4。
+- ref：5。
+- image：6。
+- text：8（rows 3）。
+拿掉：
+- text-english：控件的宽度是固定类（w-40、w-48 等）但里面放的是用户输入的值，界面文字只有 aria-label；与 text 同一个分支。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- 分支 2（suggest）、7（rows===1）、8 的 inline 与 prose 在 FieldInput 自己的场景里一个都没走到。它们由 ConfirmBar 保留的场景间接走到（inline-unknown 是 suggest 加 inline、inline-note 是文字单行、inline-passage 是 rows 3 加 inline 加 prose），所以我不再新增；如果开发者要 FieldInput 自己的场景直接覆盖，需要新增 suggest 与 rows=1 两个。
+
+## EntryPageNav（6 → 5）
+分支（EntryPageNav.vue；夹具给 `w-[42%] min-w-40 max-w-56` 的窄栏，里面放文字，要有英文）：
+1. L91、L48 segmentStart：有“看法”一段（view）且前面有设定组时，第一个看法上画分隔；没有看法一段时没有。
+2. L105 count：行尾的数字。
+3. L106、L40 menus 且该行 looks：留箭头格，选中的那行箭头显出；L96-97 选中的那行带 aria-haspopup；L97、L106 menuOpen 为真时箭头转半圈（没有场景给 menuOpen）。
+4. L104 note：选中的看法行写看法名，标题先被截。
+5. L110 canAdd：末尾“添加一组设定”；L114 addReason 非空时禁用并悬停写原因。
+留：
+- sample：1 有分隔、2 count、4 canAdd 可用、3 没有 menus。
+- new：1 没有看法一段、没有分隔（空作品里刚新建）。
+- blocked：5 addReason 禁用；选中的是 plot（看法一段里的一页，带 count）。
+- looks：3 menus、4 note“AI视图”、标题长时先截标题。
+- looks-english：英文，带箭头格与看法名，是最挤的一种。
+拿掉：
+- sample-english：英文只留一个，looks-english 比它挤（多了箭头格与看法名）；分隔与 count 的英文显示在 looks-english 里也有（count 之外）。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- menuOpen（箭头转半圈）没有场景给；而且它是宿主开菜单后的状态，场景没有开菜单的步骤。我没有加。
+- sample-english 里的 count 英文显示（“Story events”后一个 3）在拿掉后没有场景；数字不随语言变化，我认为无所谓。
+
+## EntryPicker（6 → 5）
+分支（EntryPicker.vue；模板只有一个 SearchSelect，分支都由 props 与查找结果决定，结果由夹具里的内存查找给）：
+1. L101、L82 selectedName：当前值不在这一批结果里时输入框显示给的名字。
+2. L64-66 exclude：已在列表里的项灰掉，说明写 excludeReason。
+3. L60、L68 createKind：搜了一个没有的名字时多一行“新建某某”。
+4. L71-74 emptyText：查找失败写原因（夹具对 id 以 `failed` 开头的场景让查找一律失败）、查到零条写“没有”、查找中写“搜索中”。
+5. L66 item.note（夹具给“守护之星”的“还没出场”和按别名找到时的“别名：小瑕”）。
+留：
+- picked：1。
+- exclude：2。
+- create：3；没有选中的初始状态，打字时 5 的别名说明（“小瑕”）。
+- failed：4 查找失败（夹具 L24 的 startsWith("failed") 分支只靠它走到）。
+- picked-english：英文，选中加新建一行的英文。
+拿掉：
+- empty：没选中又没有别的参数，没有独有的分支；“点开列出条目”“按别名找到”两件事 create 场景里同样做得到。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无（failed 保留，夹具 L24 的分支仍走得到）。
+拿不准：无。
+
+## EntryText（6 → 5）
+分支（EntryText.vue；块的内容由 L59 起的渲染函数递归画，不是模板分支；下面只列模板与影响结构的）：
+1. L163 blocks 为空：写“还没有主文字”；L165 editable 时加“开始写”（editReason 非空时禁用）。
+2. L167 有块且 editable：右上“编辑”（editReason 非空时禁用）。
+3. L131 块是错误块：原文加红字原因；否则是 Markdown 渲染的块。
+4. L174 open 对应的值所在的块后面画来历（来历插槽）。
+5. L99 interactive 为假（编辑时的预览）：值与引用不能点；L84 canonRef 已删除画灰字；L97 值 unknown、incomplete 变警告色，L102、L114 incomplete 多一句，L115 mark 多一句“第 N 章改过”。
+留：
+- sample：3 错误块、5 值带 mark 与 unknown、引用、标题、加粗；没有 editable。
+- open：4 来历。
+- editable：2 编辑按钮（非禁用）。
+- empty：1 空加“开始写”。
+- blocked：2 编辑按钮禁用并写原因。
+拿掉：
+- sample-english：版式不是固定尺寸（文字流），只是文字不同；editable 的分支由 editable 走到。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- interactive 为假的画法（分支 5 的前半）由 EntryTextEditor 保留的 preview 系列场景走到（预览栏用的就是 EntryText），EntryText 自己的场景里没有；不再为它加。
+- node.incomplete（L97、L102、L114）和已删除引用（L84）、列表、引用块、代码、表格这些节点，现有场景的数据里一个都没有；是原来就缺的，不是这次拿掉造成的。
+
+## PanelView（6 → 4）
+分支（PanelView.vue）：
+1. L45 cards 为空：一行“面板还没有内容”。
+2. L59 card.mark 非空：卡上写“第 N 章改过”；L61 card.items 非空是列表卡，否则是单值卡；L64 unknown 或 incomplete 时值变警告色。
+3. L81 有选中的卡：右边（宽度不够时在下面）画流水（OriginList）与标题；没有选中时不画。
+4. L67 editing：每张卡右边留一格“改”，editable 的卡才有按钮（不可改的那一格空着，卡仍等宽）；L73 editReason 非空时禁用（没有场景给）。
+5. L47 sm:w-52 固定宽度的卡列，英文的“Edit”比“改”宽。
+留：
+- sample：2 mark、列表卡、incomplete 警告色、3 选中存款与流水（带“再显示 12 条”）。
+- empty：1。
+- editing：4 editing 与 editable；要改输入去掉 selected 与 ledger，走到 3 的“没有选中”。
+- editing-english：4 的英文，Edit 比“改”宽，看各卡是否仍等宽（固定宽度卡列）。
+拿掉：
+- loading：只是流水读取中，分支同 sample（有选中）；读取中的样子由 OriginList 的 loading 场景覆盖。
+- sample-english：英文只留 editing-english，它同样有卡与流水，且更挤（多一个按钮列）。
+要改输入的保留场景：
+- editing：props 去掉 selected 与 ledger（现在选中存款，所有场景要么有选中要么没有卡，没有场景走到“有卡但没有选中”的 L81 为否）。
+夹具随之不可达的代码：无。
+拿不准：
+- editReason（L73 的禁用）没有场景给，原来就没有。
+- 去掉 editing 的 ledger 后，“编辑状态下的流水”仍由 editing-english 看到。
+
+## ComponentAgentView（5 → 4）
+分支（ComponentAgentView.vue；条目页内容列那么宽的一栏，自己滚，不是固定尺寸）：
+1. L27 failed 非空：警告一行加“重试”。
+2. L31 loading：“读取中”。
+3. L32 否则：等宽字体的原文（`pre`，折行）。
+留：
+- panel：3 多行带缩进的给模型的原文。
+- long-line：3 的长文字（一行很长，看 `pre-wrap` 与 `overflow-wrap: anywhere` 折行）。
+- loading：2。
+- failed：1。
+拿掉：
+- panel-english：不是固定尺寸，原文由 `fieldsText` 写好、不随界面语言变，只有顶上一句“位置”随语言；分支同 panel。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+## ComponentChecklist（5 → 5，全部保留）
+分支（ComponentChecklist.vue；夹具给最宽 28rem 的一栏，里面放文字，要有英文）：
+1. L143 presets 非空：预设一排；L145 预设对当前勾选没有新增时禁用（presetUseful）。
+2. L56 kind 非空且有适用的项：“适用于某某”一组排在最前；kind 为空时没有，其余按登记的插件分组。
+3. L160 勾选：item.present（已添加，写“已添加”、勾着）或 modelValue 里有（勾着）。
+4. L42 item.restore：行名写“恢复某某”。
+5. L149 maxHeight 给了：列表封顶、在里面滚。
+6. L176 没有任何项：写“没有符合的”（打字筛不到时才出，要点操作，场景走不到）。
+留（全部）：
+- person：1 预设、2 适用于的一组、3 present 的项、4 restore 的项，modelValue 为空。
+- checked：3 modelValue 勾着的项（非 present）；预设按勾选变可用与否。
+- no-kind：2 没有 kind，没有“适用于”与预设（L143 为否）。
+- many：5 封顶滚动（三十多个）。
+- person-english：英文界面，固定宽度里的“适用于 Person”“Restore Stats”等较长的英文行名。
+拿掉：无（五个场景各占不同分支，没有重复）。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- 分支 6（没有符合的）要先在搜索框里打字，不是场景输入能到的，场景里没有，原来就没有。
+
+## ElementDialog（5 → 5，全部保留）
+分支（ElementDialog.vue；Dialog 是固定的对话框宽度，里面放文字，要有英文）：
+1. L59 keyed：“指向”是条目选择器（editing 时选择器禁用，键不能换）；L62 否则是“名字”输入框。
+2. L65 每个字段按种类画 FieldInput（数、选项、文字等）。
+3. L66 字段是语义档且正在编辑：只读一行字加“语义档只读”；否则是 FieldInput。
+4. L69 intents 多于一个：“改设定 / 剧情里变了”的二选一；只有一个时不画。
+5. L73 error 非空：红字。
+6. L53 saving：对话框忙、不能关（没有场景给）。
+留（全部）：
+- add：1 非 keyed、2 数与文字字段、4 两个意图。
+- keyed：1 keyed 的选择器、2 选项字段、4 只有一个意图（不画二选一）。
+- edit-semantic：1 keyed 加 editing（选择器禁用）、3 语义档只读、4 两个意图。
+- failed：5 error（非 keyed、一个意图）。
+- add-english：英文界面，对话框的固定宽度里放英文标题与字段名。
+拿掉：无（五个场景各占不同分支，没有重复）。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无（ElementDialogFixture.vue 没有按场景 id 的特殊处理）。
+拿不准：
+- 分支 6（saving）没有场景给，原来就没有。
+
+## FieldTable（5 → 5，全部保留）
+分支（FieldTable.vue；标签列固定 w-28，里面放文字，要有英文）：
+1. L38 rows 为空：“没有字段”。
+2. L52 row.items 非空是列表值（一项一行），否则写 display；L47 unknown 或 incomplete 时警告色，L57 incomplete 多一句。
+3. L70 row.mark：“第 N 章改过”。
+4. L81-87 notes、notesEarlier、notReduced：语义档下面的各句（每条带章）、“之前还有 N 句”、“没有收成一句”。
+5. L88 open 等于该行路径：展开来历（插槽）。
+6. L60 editing 且 row.editable：“改”按钮；L65 editReason 非空时禁用；L73 editing 且有 elementIds：列表每项“改”“去掉”和末尾“添加”（同样 editReason 禁用）。
+留（全部）：
+- sample：2 列表值与 unknown、3 mark、4 notes 与 notReduced；不 editing。
+- open：5。
+- editing：6 编辑按钮与列表元素的操作。
+- empty：1。
+- sample-english：英文界面，标签列固定宽度，英文标签与说明要放得下。
+拿掉：无（五个场景各占不同分支，没有重复）。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- notesEarlier（L82 的“之前还有 N 句”）、incomplete、editReason 禁用，现有数据里都没有；原来就缺，不是这次精简造成的。
+
+## NewEntryDialog（5 → 4）
+分支（NewEntryDialog.vue；Dialog 是固定的 md 宽度，里面放文字，要有英文）：
+1. L77 kinds 非空：一排种类按钮（夹具总给）。
+2. L86 items 非空：“数据”一组，里面是勾选列表（ComponentChecklist）；L91 按选定的种类（kindChosen）给预设，没登记的种类没有预设；勾选列表里“适用于”只在 kindChosen 有适用项时出。
+3. L53、L107 名字为空时“新建”禁用；L106 saving 时“取消”禁用。
+4. L103 error：红字。
+5. L101 chapters：出场位置多出每章一项（夹具总给两章）。
+留：
+- empty：3 名字为空、新建禁用；2 没选种类（没有预设、没有适用于）。
+- person：2 选定“人物”，预设一排与“适用于 人物”一组，勾上人物与形象；3 名字非空、新建可用。
+- failed：4 error。
+- empty-english：英文界面，对话框固定宽度。
+拿掉：
+- filled：名字非空（新建可用）由 person 走到；选了“物品”种类没有预设与“适用于”的样子，由 empty（没选种类）走到同一分支；父级与勾了面板只是数据不同。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- 分支 1、2 的 v-if 为否（kinds 或 items 为空）和 saving 没有场景给，原来就没有。
+
+## OriginList（5 → 4）
+分支（OriginList.vue；列定在整张表上，英文按钮更宽，要有英文）：
+1. L30 caption 非空：列表上方一句标题。
+2. L31 failed：红字加“重试”；L32 reason 非空时再写服务给的说明（没有场景给）。
+3. L35 loading 且没有行：“读取中”。
+4. L41 有行：L43 where 为空是初值行（“最初”那句写在第一行左边，第二行只剩依据）；L44 delta、L46 箭头只在有 delta 的行；L45 check 为 mismatch 时结果变红；L50 row.change 非空时“改这一笔”；L54 basis（estimate 与否换颜色）。
+5. L58 remaining>0：“再显示更早的 N 步”。
+留：
+- sample：1 caption、4 全部行类型（估计、核对对不上、初值、有 delta、有“改这一笔”）。
+- loading：3。
+- failed：2；要改输入加上 reason。
+- sample-english：英文界面，行数据同 sample，并带 remaining（5 的“再显示”）；固定宽度的 delta、结果、按钮三列里的英文按钮较宽。
+拿掉：
+- more：只是 rows 取三行、remaining 为 29；有 remaining 的分支由 sample-english 走到。
+要改输入的保留场景：
+- failed：props 加 reason（例如 "作品打不开"），走到 L32（现在 failed 场景没有 reason）。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+## RecordForm（5 → 5，全部保留）
+分支（RecordForm.vue；变化量输入框固定 w-32，英文占位较长，要有英文）：
+1. L39 semantic：语义档只有一句话，没有变化量输入框；精确档两个输入框。
+2. L40、L32 提交按钮的禁用条件：blockedReason 非空、saving、一句话为空、变化量不是数（精确档）。
+3. L38-39、L42 blockedReason 非空：两个输入框禁用，下面写原因。
+4. L43 error 非空：红字。
+5. L40 saving（没有场景给）。
+留（全部）：
+- exact：1 精确档、2 提交可用（一句话与变化量都合规）。
+- semantic：1 语义档。
+- blocked：3，同时 2 的 blockedReason 禁用条件；两格都是空的。
+- failed：4 error（输入都填了，提交可用）。
+- exact-english：英文占位与按钮；两格都是空，提交因一句话为空而禁用（2 的“为空”禁用条件）。
+拿掉：无。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- saving 与“变化量不是数”的禁用条件没有场景给，原来就没有。
+
+## SuggestInput（5 → 3）
+分支（SuggestInput.vue）：
+1. L123 inline 且列表非空：列表嵌在输入框下面一直在，当前值打勾（L137）；高度封顶约 6 行，里面滚（样式 `.suggest-input__list`）。
+2. L140 非 inline：弹出的 SuggestionMenu，只在获得焦点且没收起时出（场景默认没有焦点，列表要点一下才见）。
+3. L35 打过字才按字筛、否则列出全部（要有交互，场景走不到）。
+留：
+- empty：2 弹出的版式（空值，获得焦点时列出建议值）。
+- inline：1 嵌入的版式，当前值打勾。
+- inline-many：1 的列表封顶与滚动（十二项，方向键走到看不见的项时滚到露出它）。
+拿掉：
+- typed：值是建议值之外的字，模板分支同 empty；按字筛选要键盘交互，场景输入走不到。
+- empty-english：版式不是固定尺寸（输入框加弹层，宽度随外框），建议值文字由宿主给、不随界面语言换；分支同 empty。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+## TextConflictDialog（5 → 4）
+分支（TextConflictDialog.vue；Dialog 固定宽度，里面放文字，要有英文）：
+1. L60 kind=changed 或 rerouted：“别处的 / 我的”两个选项；L63、L68 两边都有文字时标出不一样的那一截（diff），任一边为 null 时 L64、L69 退成整段文字或“我删了它”。
+2. L59 kind=rerouted、manual：上面多一句原因；manual 没有选项，只能回去整理。
+3. L72 kind=gone：“丢掉 / 保留我的”。
+4. L82 kind=locked：只有一个宽按钮“按剧情改的为准”，带原因。
+5. L53 busy：对话框忙。
+6. L92 tried 且没选全：红字提示（要先点“提交”，场景输入走不到）。
+留：
+- mixed：1 changed（两边有文字，diff；一条选了“我的”，一条 mine 为 null）、3 gone、4 locked（选了别处的）。
+- rerouted：2 rerouted 与 manual。
+- busy：5。
+- changed-english：英文界面（两条：changed 与 gone）。
+拿掉：
+- changed：单条 changed，分支同 mixed 里的 changed 两条。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无（TextConflictDialogFixture.vue 的 chosen 回写只靠点选，与场景选择无关）。
+拿不准：
+- 分支 6 要先点“提交”才出，场景输入走不到，原来就没有。
+
+## AddComponentDialog（4 → 3）
+分支（AddComponentDialog.vue；Dialog 固定的 md 宽度，要有英文）：
+1. L57-67 Dialog 本身：标题、检查列表（ComponentChecklist，勾选列表自己的分支见它那一节）、页脚的提交按钮。
+2. L42 提交按钮的字：没勾时“添加”、勾了 N 组时“添加 N 组”（要点勾选才变，场景走不到）。
+3. L63 error 非空：状态行写失败原因；空时没有。
+4. L61 busy：对话框忙、不能关、提交不响应（没有场景给）。
+5. 列表很多时在对话框里滚（Dialog 自己滚，ComponentChecklist 不封顶）。
+留：
+- many：5（三十多个设定组在对话框里滚）、3 否（没有 error）。
+- failed：3 error，列表是人物条目的那一份。
+- person-english：英文界面，固定宽度里放英文。
+拿掉：
+- person：基线版，没有 error（同 many 的 3 否）、列表与 failed 同一份数据，没有独有的分支。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- busy（分支 4）没有场景给，原来就没有。
+- 拿掉 person 后，“人物条目、没有错误、列表不多”这个最常见的样子没有单独的场景；按规则它没有独有的分支，若开发者想留作基线，留 person 去掉 failed 的 error 也行。
+
+## LookCard（4 → 4，全部保留）
+分支（LookCard.vue；立绘固定 15rem 宽，衣柜是固定大小的格子，要有英文）：
+1. L75 portrait 非空：立绘与“换立绘”；L79 为 null：“添加立绘”。
+2. L85 portraitMark：立绘下写“第 N 章改过”（没有场景给）。
+3. L89 appearance 非空：外貌一节；text 为 null 时写 hint；L92 mark。
+4. L101 wearing 非空：“现在穿的”一行（text 为 null 写“填写”）；L107 mark。
+5. L116-138 衣柜：L127 outfit.wearing 是“穿着”徽章，否则“换上”按钮；L120 image 为 null 画衣服图标；L139 末尾“添加一套”。
+6. editReason 非空：全部值与衣柜按钮禁用。
+留（全部）：
+- filled：1 有立绘、3 与 4 带 mark、5 三套（一套穿着、一套没有图）。
+- empty：1 无立绘、3 与 4 的 text 为 null、5 衣柜为空（只有“添加一套”）。
+- blocked：6。
+- filled-english：英文界面，固定宽度的立绘、衣柜格子与英文套名。
+拿掉：无（四个场景各占不同分支）。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- portraitMark（分支 2）、appearance 或 wearing 为 null（只有立绘的样子）没有场景给，原来就没有。
+
+## PendingDetail（4 → 3）
+分支（PendingDetail.vue；最大宽度 max-w-xl，没有固定高度）：
+1. L26 place 非空：位置一行。
+2. L28 quote 非空：原句；L30 quote.chapter 非空时“打开这一章”。
+3. L32 facts 非空：事实表。
+4. L38 suspects 非空：嫌疑列表；L44 place、L45 estimate 标记、L47 initial 时按钮写“打开条目”，否则“改这一笔”。
+5. L51 links 非空：链接按钮（标题长时截断）。
+留：
+- check-mismatch：1、2（带章）、3、4（含估计、初值、place）、5。
+- handled：2 的 quote 为 null、3、5（两条链接）。
+- long-text：2 很长的原句、3 很长的事实值、5 很长的链接标题（截断，3 条链接），suspects 为空。
+拿掉：
+- held：原句带章、事实、没有嫌疑、一条链接：分支全同 long-text，只是文字短。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- place 为空、facts 为空、links 为空这几个 v-if 为否的情形没有场景给，原来就没有；都是“不画一块”的情形，不另加。
+- 没有英文场景（原来就没有）：界面文字都由 PendingView 与 canon 的文字表给，这个组件版式不是固定尺寸。
+
+## PlainSourceInput（4 → 2）
+分支（PlainSourceInput.vue；模板只有一个 Textarea，没有 v-if）：
+1. L43 readonly：只读（提交期间不能输入）。
+2. L40-42 autosize 加 rows 2、max-rows 40：随内容长高；空时是两行高。
+留：
+- text：2 有内容的样子（两段，含 `{panel.存款}` 这样的表达式照写）。
+- readonly：1。
+拿掉：
+- empty：只是内容为空，没有分支（空的输入框也出现在 EntryTextEditor 里）。
+- text-english：只是一行很长的英文，Textarea 自己折行，没有模板分支；而且 PlainSourceInput 夹具没有调用 provideCanonText，id 的 `-english` 后缀在这里不起作用。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- max-rows 40 封顶（内容超过 40 行）没有场景给；原来的 text-english 也没有走到它。
+
+## PlotList（4 → 4，全部保留）
+分支（PlotList.vue；位置一列固定 w-16，英文章名更长，要有英文）：
+1. L30 failed：红字“读取失败”（没有场景给）。
+2. L31 loading 且没有行：“读取中”；L32 没有行：“还没有情节”；L33 有行。
+3. L37、L39 行的 flags：plan 时标题变淡、各有徽章（plan、held、undone）；L40 patches 的各句。
+4. L45 remaining>0：“再显示 N 项”。
+留（全部）：
+- sample：3（计划、待定、已撤销与普通改动，带 patches）、4。
+- loading：2 读取中。
+- empty：2 没有行。
+- sample-english：英文界面，固定宽度的位置列与徽章的英文。
+拿掉：无。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- 分支 1（failed）没有场景给，原来就没有；要补就在 empty 之外另加。
+
+## BreakExclusiveDialog（3 → 2）
+分支（BreakExclusiveDialog.vue；Dialog 固定 md 宽度，原来没有英文场景，正文只有两句固定的话）：
+1. L38 error 非空：红字写没有解除的原因。
+2. L32、L41-42 saving：对话框忙、不能关、取消与确认都禁用。
+留：
+- saving：2。
+- failed：1 error（saving 为否，按钮可用）。
+拿掉：
+- confirm：二次确认的基线（没有 error、不在 saving），两个条件各自为否的情形由 failed（saving 为否）与 saving（error 为空）合起来走到，没有独有的分支。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- confirm 是用户最先看到的样子，拿掉后“按钮都可用、没有红字”只在 failed 里看得到（那里有红字）；要保留一个无任何标记的基线就留 confirm。我按“每个分支至少一个”拿掉。
+
+## CanonImage（3 → 3，全部保留）
+分支（CanonImage.vue；夹具给固定的 h-64 w-48 的框，缺图时在框里放文字，要有英文）：
+1. L30 url 非空且没出错：画图（读到后淡入；L28 的 data-image-state 为 loading 或 loaded）。
+2. L41 url 为 null 或图加载出错：“图片找不到”的占位（图标加文字）。
+留（全部）：
+- found：1。
+- missing：2（路径在样本图里没有）。
+- missing-english：2 的英文，固定框里英文占位文字放得下。
+拿掉：无。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- 图加载出错（`@error` 把 failed 置真）要真实的 404 请求，场景用内联的样本图，走不到；缺图的画法与 missing 同一块模板。
+
+## MoveDialog（3 → 3，全部保留）
+分支（MoveDialog.vue；Dialog 固定宽度，里面放文字，要有英文）：
+1. L84 error 非空：红字写内核拒收的原因。
+2. L70 chapters 非空：出场位置多出每章一项；为空时只有“从最初起”。
+3. L49、L73 两个条目选择器：挂在谁下面（parent 非空显示 parentName，为 null 写“最上层”）、它是谁的另一个身份（sameAs）。
+4. L67 order：保持原位 / 排最前。
+5. L42 saving：对话框忙（没有场景给）。
+留（全部）：
+- sample：2 有两章、3 parent 与出场章已选、4 keep。
+- failed：1 error、2 没有章、3 parent 为 null、4 first。
+- sample-english：英文界面，固定宽度里放英文标题与字段名。
+拿掉：无。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：
+- saving 没有场景给，原来就没有。
+
+## WorldBanners（4 → 2）
+分支（WorldBanners.vue；两条 Banner 随内容折行，不是固定尺寸）：
+1. L20 disconnected：“世界已断开”加“重试”。
+2. L23 readOnly 非空：只读原因一条（`data-read-only`）。
+留：
+- disconnected：1。
+- read-only：2。
+拿掉：
+- both：两条同时出，各分支都已被上面两个场景走到；两条叠在一起的样子 EntryPage 等宿主的场景里看。
+- disconnected-english：Banner 随内容折行，不是固定尺寸，只是文字不同，同 disconnected。
+要改输入的保留场景：无。
+夹具随之不可达的代码：无。
+拿不准：无。
+
+完成：36 个组件，247 → 200
