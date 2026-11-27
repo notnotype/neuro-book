@@ -15,7 +15,7 @@ export {displayText};
 import type {ChapterOrder} from "../core/position";
 import type {ReadPosition} from "../core/schema";
 import type {Engine, EntryView, IncompleteMark, Mode} from "../engine/types";
-import {agentJson, decorateEntryText, evaluate as evaluateExpression, type Decoration, type EntryTag, type FieldReference, type ParsedExpression} from "../grammar/index";
+import {agentJson, BUILTIN_TAGS, decorateEntryText, evaluate as evaluateExpression, type Decoration, type EntryTag, type FieldReference, type ParsedExpression} from "../grammar/index";
 import {analyzeBlock, type BlockAnalysis, type Condition, type SyntaxProblem, type TagMeaning} from "./syntax";
 
 export interface Resolved {
@@ -354,9 +354,11 @@ function collectStatic(analysis: BlockAnalysis, context: PlainContext, reads: Se
         else if (meaning.kind === "test") meaning.test.references.forEach(read);
         else if (meaning.kind === "ref") mentions.add(meaning.id);
         else if (meaning.kind === "image" && meaning.of !== null) read(meaning.of);
-        // 字面的标签照原文写会把条目 id 与写法给读者，写坏的读不全它的属性（输出 15）。写坏的内置标签落在正文里时写入就拒收了，
-        // 存下来的只会在代码里或转义之后，这一条一并报。
-        if (tag.place === "code" || tag.place === "escaped") problems.add("syntax");
+        // 字面的标签照原文写会把条目 id 与写法给读者，写坏的内置标签读不全它的属性（输出 15）。写坏的内置标签落在正文里时写入就
+        // 拒收了，存下来的只会在代码里或转义之后，这一条一并报。不成标签、名字也不是内置的（`评级 \<A 级`）只是文字：编辑器写出
+        // 文字里的 `<A` 时一律转义，报了的话简报会把这样的块整块扣下。登记的标签名（t04）有了登记表以后也按内置的算。
+        const literal = tag.place === "code" || tag.place === "escaped";
+        if (literal && (tag.kind !== "malformed" || BUILTIN_TAGS.has(tag.name))) problems.add("syntax");
         if (tag.place === "live" && meaning.kind === "unregistered") problems.add("unknown-tag");
     });
 }

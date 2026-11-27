@@ -563,6 +563,9 @@ describe("canon.rendering 输出 15、场景 5：纯文字的渲染", () => {
         ["行内代码里的标签：照原文，读到的条目照记，报 syntax", '见 `<V entry="e2" of="panel.秘密" />`', {text: '见 `<V entry="e2" of="panel.秘密" />`', reads: ["e2"], mentions: [], problems: ["syntax"]}],
         ["转义的 <Ref>：照原文，记进 mentions，报 syntax", '见 \\<Ref id="e2" />', {text: '见 \\<Ref id="e2" />', reads: [], mentions: ["e2"], problems: ["syntax"]}],
         ["代码里不成标签的内置标签名：报 syntax", '`<V of="panel.魔力"`', {text: '`<V of="panel.魔力"`', reads: [], mentions: [], problems: ["syntax"]}],
+        ["转义的、不成标签的别的名字：只是文字（编辑器写出 `<A` 时一律转义）", "评级 \\<A 级", {text: "评级 \\<A 级", reads: [], mentions: [], problems: []}],
+        ["代码里不成标签的别的名字：只是文字", "`<A 级`", {text: "`<A 级`", reads: [], mentions: [], problems: []}],
+        ["代码里成标签的别的名字：字面的标签，报 syntax", "`List<T>`", {text: "`List<T>`", reads: [], mentions: [], problems: ["syntax"]}],
     ])("%s", (_name, block, expected) => {
         expect(shape(plainBlocks(plainWorld([block]))[0]!)).toEqual(expected);
     });
