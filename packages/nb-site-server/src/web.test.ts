@@ -5,7 +5,8 @@
  * 五个进程在 `beforeAll` 里起（各约 300 毫秒，超出快速类的预算；用例只发请求）：设了产物目录的、另设了测试控制口令的、
  * 没设产物目录的，与只装夹具模块 `beta`（`testing/modules.ts`）的一对（设与不设产物目录）。“与没有网页时一样回 404”拿同一组
  * 模块里没设产物目录的那个进程的回应逐字比。夹具那一对用来看 `.well-known` 这个前缀本身：真的身份库挂着 `/.well-known` 并有
- * 兜底路由，它下面的地址到不了网页，换成没有这个挂载的模块，才看得出网页自己不回退这个前缀。
+ * 兜底路由，它下面的地址到不了网页，换成没有这个挂载的模块，才看得出网页自己不回退这个前缀。“运行中 index.html 没了”要改动
+ * 产物目录，在那条用例里另起一个进程、用它自己的一份产物。
  *
  * 路径穿越、编码不合法、重复斜杠这些写法经原始套接字发：`fetch` 在发出之前就按 URL 标准消解了点段与反斜杠，测不到服务端。
  * 服务端的 Bun 同样先规范化 `request.url`，所以 `/../x` 这类写法到 `web.ts` 时已是 `/x`；能到它那里的越界写法是编码在一段里的
@@ -13,7 +14,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, rm, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, rename, rm, symlink, writeFile} from "node:fs/promises";
 import {connect} from "node:net";
 import {join} from "node:path";
 
@@ -24,6 +25,7 @@ import {FIXTURE_SCRIPT, MAIN_SCRIPT, startServing, stopAllSiteProcesses, type Si
 const INDEX_HTML = '<!doctype html><html><head><script type="module" src="/assets/app-abc123.js"></script></head><body></body></html>\n';
 const APP_JS = "document.title = 'site';\n";
 const FAVICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg"/>\n';
+const STYLE_CSS = "body { margin: 0; }\n";
 /** 产物目录之外、与它同级的文件：任何写法都不许把它发出去。 */
 const SECRET = "outside-the-web-dir-5d1c\n";
 /** 产物目录里的点文件：以 `.` 开头的段不发。 */
@@ -68,6 +70,18 @@ beforeAll(async () => {
     // 产物目录里有、却读不出的文件（构建机的 umask、容器里的属主不对都会造成这样）。
     await writeFile(join(webDir, "assets", "locked-1.js"), APP_JS);
     if (CAN_LOCK_FILES) await chmod(join(webDir, "assets", "locked-1.js"), 0o000);
+    // 路径上的目录不让进：里面的文件看不见，也不知道它在不在。
+    await mkdir(join(webDir, "locked-dir"));
+    await writeFile(join(webDir, "locked-dir", "inner.js"), APP_JS);
+    if (CAN_LOCK_FILES) await chmod(join(webDir, "locked-dir"), 0o000);
+    // 指向自己的链接：解开时链接成环。
+    await symlink("loop.js", join(webDir, "loop.js"));
+    // 目录里的链接，名字与目标的扩展名不同（部署里“固定名字指向带哈希的文件”的做法）。
+    await mkdir(join(webDir, "releases"));
+    await writeFile(join(webDir, "releases", "style-abc123"), STYLE_CSS);
+    await symlink(join("releases", "style-abc123"), join(webDir, "style.css"));
+    await writeFile(join(webDir, "releases", "page.html"), INDEX_HTML);
+    await symlink(join("releases", "page.html"), join(webDir, "alias.js"));
     await writeFile(join(root, "secret.txt"), SECRET);
     // 产物目录里指向目录外的两种链接：一个文件、一个目录。
     await symlink(join(root, "secret.txt"), join(webDir, "leak.txt"));
@@ -85,6 +99,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
     await stopAllSiteProcesses();
+    // 不让进的目录删不了里面的文件，先放开。
+    if (CAN_LOCK_FILES) await chmod(join(webDir, "locked-dir"), 0o755);
     await rm(root, {recursive: true, force: true});
 });
 
@@ -123,17 +139,37 @@ async function requestLine(site: SiteProcess, got: Got): Promise<Readonly<Record
     return site.waitForLog(`request line ${String(requestId)}`, (line) => line.event === "http.request" && line.requestId === requestId);
 }
 
+/**
+ * 这个请求的 `web.file_unreadable` 诊断；没有时为 undefined。诊断在交出响应之前写，请求那一行在之后写：等到请求那一行，
+ * 该有的诊断就一定已经读进来了。
+ */
+async function diagnosticOf(site: SiteProcess, got: Got): Promise<Readonly<Record<string, unknown>> | undefined> {
+    await requestLine(site, got);
+    const requestId = got.headers.get("X-Request-Id");
+    return site.logs().find((line) => line.event === "web.file_unreadable" && line.requestId === requestId);
+}
+
+/** 诊断里与断言有关的部分：级别、原因，以及有没有带出产物目录的路径。 */
+function causeOf(diagnostic: Readonly<Record<string, unknown>> | undefined): {level: unknown; errorCode: unknown; reason: unknown; mentionsPath: boolean} | undefined {
+    if (diagnostic === undefined) return undefined;
+    return {level: diagnostic.level, errorCode: diagnostic.errorCode, reason: diagnostic.reason, mentionsPath: JSON.stringify(diagnostic).includes(root)};
+}
+
 /** 与没有网页时逐字比的部分：状态、响应体、类型，以及网页才加的两个头没有出现。 */
 function asWithoutWeb(got: Got): {status: number; body: string; type: string | null; nosniff: string | null; csp: string | null} {
     return {status: got.status, body: got.body, type: got.headers.get("Content-Type"), nosniff: got.headers.get("X-Content-Type-Options"), csp: got.headers.get("Content-Security-Policy")};
 }
 
 describe("文件（输出 12）", () => {
-    it("路径对应产物目录里的文件时发这个文件，Content-Type 按扩展名", async () => {
+    it("路径对应产物目录里的文件时发这个文件，Content-Type 按请求路径的扩展名，经链接时也不按链接目标的名字", async () => {
         for (const [path, body, type] of [
             ["/index.html", INDEX_HTML, "text/html"],
             ["/assets/app-abc123.js", APP_JS, "text/javascript"],
             ["/favicon.svg", FAVICON_SVG, "image/svg+xml"],
+            // 链到不带扩展名的文件：仍是样式表，不是 application/octet-stream。
+            ["/style.css", STYLE_CSS, "text/css"],
+            // 链到 .html 文件：按请求的 .js 定，不是 text/html。
+            ["/alias.js", INDEX_HTML, "text/javascript"],
         ] as const) {
             const got = await get(web.url, path);
             expect({path, status: got.status, body: got.body, type: got.headers.get("Content-Type")?.split(";")[0]}).toEqual({path, status: 200, body, type});
@@ -201,33 +237,75 @@ describe("文件（输出 12）", () => {
         }
     });
 
-    it("符号链接指向目录外时回 404，不论链接的是文件还是目录", async () => {
+    it("符号链接指向目录外时回 404，不论链接的是文件还是目录；另有一行只带原因词的诊断", async () => {
         // 判断的是解开链接之后的真实路径：`/outside/web/index.html` 解开后就是目录里的 index.html，照常发，这里不列。
-        for (const path of ["/leak.txt", "/outside/secret.txt", "/outside/data-web/identity.lock"]) {
+        // 链接到目录外的目录、最后一段不带扩展名的 `/outside` 也不回退。
+        for (const path of ["/leak.txt", "/outside/secret.txt", "/outside/data-web/identity.lock", "/outside"]) {
             const got = await get(web.url, path);
             expect({path, status: got.status, leaked: got.body.includes(SECRET.trim())}).toEqual({path, status: 404, leaked: false});
+            expect({path, cause: causeOf(await diagnosticOf(web.site, got))}).toEqual({path, cause: {level: "warn", errorCode: undefined, reason: "outside_web_dir", mentionsPath: false}});
         }
-        // 链接到目录外的目录，最后一段不带扩展名：也不回退。
-        expect((await get(web.url, "/outside")).status).toBe(404);
+    });
+
+    it("没有这个文件时不记诊断：带扩展名的回 404，不带的回退", async () => {
+        // 不存在、中间一段是文件（`ENOTDIR`）、链接指向不存在之处，都是没有这个文件。
+        for (const [path, status] of [
+            ["/x.js", 404],
+            ["/favicon.svg/x.js", 404],
+            ["/account", 200],
+            ["/favicon.svg/x", 200],
+        ] as const) {
+            const got = await get(web.url, path);
+            expect({path, status: got.status, diagnostic: await diagnosticOf(web.site, got)}).toEqual({path, status, diagnostic: undefined});
+        }
+    });
+
+    it("链接成环时回 404，不论有没有扩展名；诊断带错误码", async () => {
+        const got = await get(web.url, "/loop.js");
+        expect({status: got.status, cause: causeOf(await diagnosticOf(web.site, got))}).toEqual({status: 404, cause: {level: "warn", errorCode: "ELOOP", reason: undefined, mentionsPath: false}});
     });
 
     it.skipIf(!CAN_LOCK_FILES)("发出之前读不出的文件回 404：日志的状态与响应一致，另有一行只带错误码的诊断，标准输出仍是每行一个 JSON", async () => {
-        for (const method of ["GET", "HEAD"]) {
-            const got = await get(web.url, "/assets/locked-1.js", {method});
-            expect({method, status: got.status, body: got.body, type: got.headers.get("Content-Type")?.split(";")[0]}).toEqual({
-                method,
-                status: 404,
-                body: method === "GET" ? '{"code":"not_found"}' : "",
-                type: "application/json",
-            });
-            expect(await requestLine(web.site, got)).toMatchObject({module: "web", path: "/assets/locked-1.js", status: 404});
-            const requestId = got.headers.get("X-Request-Id");
-            const diagnostic = await web.site.waitForLog("web.file_unreadable", (line) => line.event === "web.file_unreadable" && line.requestId === requestId);
-            // 只有错误码：错误的说明里带着产物目录的绝对路径。
-            expect({level: diagnostic.level, errorCode: diagnostic.errorCode, mentionsPath: JSON.stringify(diagnostic).includes(webDir)}).toEqual({level: "warn", errorCode: "EACCES", mentionsPath: false});
+        // 文件本身读不了，或路径上的目录不让进（不带扩展名的也不回退：不知道那里有没有文件）。
+        for (const path of ["/assets/locked-1.js", "/locked-dir/inner.js", "/locked-dir/other"]) {
+            for (const method of ["GET", "HEAD"]) {
+                const got = await get(web.url, path, {method});
+                expect({path, method, status: got.status, body: got.body, type: got.headers.get("Content-Type")?.split(";")[0]}).toEqual({
+                    path,
+                    method,
+                    status: 404,
+                    body: method === "GET" ? '{"code":"not_found"}' : "",
+                    type: "application/json",
+                });
+                expect(await requestLine(web.site, got)).toMatchObject({module: "web", path, status: 404});
+                // 只有错误码：错误的说明里带着产物目录的绝对路径。
+                expect({path, method, cause: causeOf(await diagnosticOf(web.site, got))}).toEqual({path, method, cause: {level: "warn", errorCode: "EACCES", reason: undefined, mentionsPath: false}});
+            }
         }
         expect(web.site.stdout.filter((line) => line !== "" && !isJsonObject(line))).toEqual([]);
         expect(web.site.stderr).toEqual([]);
+    });
+
+    it("运行中 index.html 没了：回退的地址回 404，另有一行诊断；别的文件照发", async () => {
+        // 单独一份产物目录与进程：挪走 index.html 会影响别的用例。
+        const movedDir = join(root, "web-moved");
+        await mkdir(join(movedDir, "assets"), {recursive: true});
+        await writeFile(join(movedDir, "index.html"), INDEX_HTML);
+        await writeFile(join(movedDir, "assets", "app-abc123.js"), APP_JS);
+        await mkdir(join(root, "data-moved"));
+        const moved = await startServing({root, script: MAIN_SCRIPT, env: env(join(root, "data-moved"), {NB_SITE_WEB_DIR: movedDir})});
+        expect((await get(moved.url, "/account")).body).toBe(INDEX_HTML);
+        await rename(join(movedDir, "index.html"), join(root, "index-moved-away.html"));
+        for (const path of ["/", "/account"]) {
+            const got = await get(moved.url, path);
+            expect({path, status: got.status, body: got.body, cause: causeOf(await diagnosticOf(moved.site, got))}).toEqual({
+                path,
+                status: 404,
+                body: '{"code":"not_found"}',
+                cause: {level: "warn", errorCode: undefined, reason: "index_missing", mentionsPath: false},
+            });
+        }
+        expect((await get(moved.url, "/assets/app-abc123.js")).body).toBe(APP_JS);
     });
 });
 

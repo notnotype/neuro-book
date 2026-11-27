@@ -12,7 +12,7 @@ import {isAbsolute, join} from "node:path";
 
 import {hostnameKey} from "./hostname";
 import type {CommandFailure, ConfigProblem, SiteModule, SiteSettings} from "./module";
-import {isInsideDir} from "./web";
+import {isInsideDir} from "./paths";
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
@@ -94,9 +94,9 @@ function parseDataDir(value: string): Parsed<string> {
 }
 
 /**
- * 前端产物目录：绝对路径、已经存在的目录、里面有 `index.html` 这个文件（单页回退要发它）。返回解开符号链接之后的真实路径。
- * 只看目录与 `index.html` 本身，不读别的文件；读不到（不存在、中间一段不是目录、没有权限）都按 `not_directory` 报，
- * 这里没有“可写”的要求。
+ * 前端产物目录：绝对路径、已经存在的目录、里面有本进程读得了的 `index.html` 这个文件（单页回退要发它）。返回解开符号链接之后的
+ * 真实路径。只看目录与 `index.html` 本身，不读别的文件；目录本身读不到（不存在、中间一段不是目录、没有权限）都按 `not_directory`
+ * 报，这里没有“可写”的要求。
  */
 function parseWebDir(value: string): Parsed<string> {
     if (!isAbsolute(value)) return bad("not_absolute");
@@ -109,11 +109,14 @@ function parseWebDir(value: string): Parsed<string> {
         return bad("not_directory");
     }
     try {
-        // 与发文件时同一条规则（`web.ts` 的 `isInsideDir`）：经链接落到目录外的 `index.html` 回退发不出，不算有。
+        // 与发文件时同一条规则：经链接落到目录外的 `index.html` 回退发不出，不算有。
         const index = realpathSync(join(real, "index.html"));
         if (!isInsideDir(real, index) || !statSync(index).isFile()) return bad("no_index");
+        // 有却读不了（镜像里产物的属主是 root，构建机的 umask 让它只有属主可读）时进程照样能起、就绪，可每个页面都 404；
+        // 在这里拒绝，部署的人在启动那一刻就看得到。
+        accessSync(index, constants.R_OK);
     } catch {
-        // 没有这个文件，或它是指向不存在之处的链接。
+        // 没有这个文件、它是指向不存在之处的链接、目录不让进，或读不了。
         return bad("no_index");
     }
     return ok(real);

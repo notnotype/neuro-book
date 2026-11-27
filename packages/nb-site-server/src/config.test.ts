@@ -139,6 +139,14 @@ describe("parseSiteConfig", () => {
         await writeFile(join(root, "outside.html"), "<!doctype html>");
         await symlink(join(root, "outside.html"), join(escaping, "index.html"));
         expect(webProblems(escaping)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+        // 有却读不了的 index.html 也不算有：进程起得来，可每个页面都发不出。root 用户不受权限位限制，这条在 root 下无从验证。
+        if (process.getuid?.() !== 0) {
+            const locked = join(root, "locked-web");
+            await mkdir(locked);
+            await writeFile(join(locked, "index.html"), "<!doctype html>");
+            await chmod(join(locked, "index.html"), 0o000);
+            expect(webProblems(locked)).toEqual([{name: "NB_SITE_WEB_DIR", problem: "no_index"}]);
+        }
         // 链到目录里另一个文件的 index.html 照常算有。
         const aliased = join(root, "aliased-web");
         await mkdir(aliased);
