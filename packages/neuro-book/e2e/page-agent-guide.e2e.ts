@@ -368,3 +368,139 @@ return JSON.stringify(out);`, {timeout: 120});
         expect(await layer.keyMoves(page)).toBe(true);
     });
 }
+
+test("验收 6（弹层之外的控件）：高亮弹层之外的控件后关掉弹层，说明框与描边框仍然可见", async ({page}) => {
+    await ready(page, auto);
+    const run = await startEval(page, lab, "高亮弹层外的控件", `${GATE}
+const result = await ui.highlight({at: {target: "workbench.activity", key: "nbook.settings"}, message: "这个按钮在弹层外面。", until: "next"});
+return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
+    await page.getByRole("button", {name: /审批模式/u}).click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    await openGate(page);
+    await expect(guidePart(page, "callout")).toContainText("这个按钮在弹层外面。");
+    expect(await calloutTarget(page)).toBe("workbench.activity:nbook.settings");
+    // 先量一次：说明框此刻不在菜单里面（目标在菜单之外）。
+    expect(await (await hostParent(page)).evaluate((parent) => parent !== null && parent.closest("[role=menu]") === null)).toBe(true);
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(guidePart(page, "callout")).toBeVisible();
+    await expect(guidePart(page, "callout")).toContainText("这个按钮在弹层外面。");
+    await expect(guidePart(page, "outline")).toBeVisible();
+    // 说明框还能用：点“下一步”，eval 结束。
+    await guidePart(page, "next").click();
+    expect(JSON.parse(await run.result())).toEqual({outcome: "next"});
+    await expectGuideRemoved(page);
+});
+
+test("验收 6（设置窗口）：高亮设置窗口里的一项前后，窗口根元素的高度与最后一个按钮的计算样式不变", async ({page}) => {
+    await ready(page, auto);
+    const run = await startEval(page, lab, "高亮设置窗口里的一项", `${GATE}
+const result = await ui.highlight({at: {target: "settings.section", key: "nbook.explorer"}, message: "看这一节。", until: "next"});
+return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
+    await page.keyboard.press("Control+,");
+    await expect(page.locator("[data-settings-window]")).toBeVisible();
+    const root = page.getByRole("dialog", {name: "设置"});
+    const before = await measureLayer(root, "button");
+    await openGate(page);
+    await expect(guidePart(page, "callout")).toContainText("看这一节。");
+    expect(await (await hostParent(page)).evaluate((parent, rootElement) => parent === rootElement, await root.elementHandle())).toBe(true);
+    expect(await measureLayer(root, "button")).toEqual(before);
+    await guidePart(page, "next").click();
+    expect(JSON.parse(await run.result())).toEqual({outcome: "next"});
+    await expectGuideRemoved(page);
+    expect(await measureLayer(root, "button")).toEqual(before);
+});
+
+// ---------- 验收 10：压暗 ----------
+
+/** 视口里一个像素的 RGB：截一像素的图，再在页面里画到画布上读出来。 */
+async function pixel(page: Page, x: number, y: number): Promise<[number, number, number]> {
+    const png = await page.screenshot({clip: {x, y, width: 1, height: 1}});
+    return page.evaluate(async (base64) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = 1;
+        canvas.height = 1;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+        return [r!, g!, b!] as [number, number, number];
+    }, png.toString("base64"));
+}
+
+const luminance = ([r, g, b]: readonly [number, number, number]) => 0.299 * r + 0.587 * g + 0.114 * b;
+
+/** 一个元素里靠右下角、不压文字的一点（取点要避开会随状态变的内容：它在测前后都是同一个背景）。 */
+async function cornerOf(locator: Locator): Promise<readonly [number, number]> {
+    const box = (await locator.boundingBox())!;
+    return [Math.round(box.x + box.width - 6), Math.round(box.y + box.height - 6)];
+}
+
+test("验收 10（活动栏）：带 dim 高亮活动栏的一项，目标与说明框不暗、其余压暗；点侧栏里的另一个控件它照常响应，结局为 missed，没有残留的压暗", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await ready(page, auto);
+    const run = await startEval(page, lab, "压暗活动栏", `${GATE}
+const result = await ui.highlight({at: {target: "workbench.activity", key: "nbook.settings"}, message: "点这里。", until: "click", dim: true});
+return JSON.stringify({outcome: result.outcome, clicked: result.clicked});`, {timeout: 120});
+
+    const editor = page.getByRole("region", {name: "编辑器"}).first();
+    const far = await cornerOf(editor);
+    const targetBox = (await page.locator("[data-nb-target='workbench.activity'][data-nb-key='nbook.settings']").boundingBox())!;
+    const targetPoint = [Math.round(targetBox.x + targetBox.width / 2), Math.round(targetBox.y + targetBox.height / 2)] as const;
+    const plain = {far: await pixel(page, ...far), target: await pixel(page, ...targetPoint)};
+    await openGate(page);
+    await expect(guidePart(page, "callout")).toContainText("点这里。");
+    const callout = (await guidePart(page, "callout").boundingBox())!;
+    const calloutPoint = [Math.round(callout.x + callout.width - 6), Math.round(callout.y + callout.height / 2)] as const;
+    // 说明框要比被压暗的背景亮出一截（它自己不暗）。
+    const dimmed = {far: await pixel(page, ...far), target: await pixel(page, ...targetPoint), callout: await pixel(page, ...calloutPoint)};
+    // Spec 只说“压暗”，没给力度；取亮度至少降 20（约 8%）为“看得出变暗”，实测降约 33。
+    expect(luminance(dimmed.far)).toBeLessThan(luminance(plain.far) - 20);
+    expect(Math.abs(luminance(dimmed.target) - luminance(plain.target))).toBeLessThan(8);
+    expect(luminance(dimmed.callout)).toBeGreaterThan(luminance(dimmed.far) + 20);
+
+    // 点侧栏里的另一个控件：照常响应（它变成按下），结局 missed，带上被点的元素。
+    const other = page.locator("[data-nb-target='workbench.container'][data-nb-key='view:nbook.canon.entries']");
+    await expect(other).not.toHaveAttribute("aria-pressed", "true");
+    await other.click();
+    await expect(other).toHaveAttribute("aria-pressed", "true");
+    const result = JSON.parse(await run.result()) as {outcome: string; clicked: unknown};
+    expect(result.outcome).toBe("missed");
+    expect(JSON.stringify(result.clicked)).toContain("设定");
+    await expectGuideRemoved(page);
+    expect(Math.abs(luminance(await pixel(page, ...far)) - luminance(plain.far))).toBeLessThan(4);
+});
+
+test("验收 10（下拉）：在打开的下拉里带 dim 高亮一项，下拉的其它项也压暗，目标项不暗", async ({page}) => {
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await ready(page, auto);
+    const run = await startEval(page, lab, "压暗下拉的一项", `${GATE}
+const result = await ui.highlight({at: {role: "option", name: "护眼绿"}, message: "选这个。", until: "next", dim: true});
+return JSON.stringify({outcome: result.outcome});`, {timeout: 120});
+    await page.keyboard.press("Control+,");
+    await expect(page.locator("[data-settings-window]")).toBeVisible();
+    await page.getByRole("combobox", {name: "主题"}).click();
+    const listbox = page.getByRole("listbox");
+    await expect(listbox).toBeVisible();
+    // 鼠标挪开：悬停会改项的底色，量前后要同一个状态。
+    await page.mouse.move(4, 4);
+    const options = listbox.getByRole("option");
+    const target = options.filter({hasText: "护眼绿"});
+    const other = options.filter({hasNotText: "护眼绿"}).last();
+    const otherPoint = await cornerOf(other);
+    const targetPoint = await cornerOf(target);
+    const plain = {other: await pixel(page, ...otherPoint), target: await pixel(page, ...targetPoint)};
+    await openGate(page);
+    await expect(guidePart(page, "callout")).toContainText("选这个。");
+    const dimmed = {other: await pixel(page, ...otherPoint), target: await pixel(page, ...targetPoint)};
+    expect(luminance(dimmed.other)).toBeLessThan(luminance(plain.other) - 20);
+    expect(Math.abs(luminance(dimmed.target) - luminance(plain.target))).toBeLessThan(8);
+    await guidePart(page, "next").click();
+    expect(JSON.parse(await run.result())).toEqual({outcome: "next"});
+    await expectGuideRemoved(page);
+    await expect(listbox).toBeVisible();
+    expect(Math.abs(luminance(await pixel(page, ...otherPoint)) - luminance(plain.other))).toBeLessThan(4);
+});
