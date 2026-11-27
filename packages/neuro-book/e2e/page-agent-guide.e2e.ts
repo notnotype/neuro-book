@@ -205,13 +205,14 @@ return JSON.stringify({outcome: result.outcome});`);
 
 /** 一个弹层的“前后”快照：那一层根元素的高度与最后一项的计算样式（说明框挂进根元素的第一个位置，不应改动它们）。 */
 async function measureLayer(root: Locator, itemSelector: string): Promise<{height: number; lastItem: Record<string, string>}> {
-    // 指针放到同一个角上再量：滚动条的颜色随指针悬停在祖先上而变（nb-ui 的细滚动条），点过说明框之后指针可能正停在这一层上。
-    await root.page().mouse.move(1, 1);
     return root.evaluate((element, selector) => {
         const items = element.querySelectorAll(selector);
         const last = items[items.length - 1]!;
         const computed = getComputedStyle(last);
-        return {height: element.getBoundingClientRect().height, lastItem: Object.fromEntries([...computed].map((name) => [name, computed.getPropertyValue(name)]))};
+        // 滚动条的颜色随指针悬停在任一祖先上而变（nb-ui 的细滚动条），点过说明框之后指针可能正停在这一层上，所以不比它。
+        // 也不为此挪开指针：指针离开下拉的项时组件会清掉项上的高亮，量的动作就改了要量的东西。
+        const names = [...computed].filter((name) => name !== "scrollbar-color");
+        return {height: element.getBoundingClientRect().height, lastItem: Object.fromEntries(names.map((name) => [name, computed.getPropertyValue(name)]))};
     }, itemSelector);
 }
 
@@ -281,7 +282,8 @@ const LAYERS: readonly LayerCase[] = [
         untouched: async (page) => await page.getByRole("listbox").count() === 1,
         keyMoves: async (page) => {
             const before = await page.evaluate(() => document.querySelector("[role=listbox] [data-highlighted]")?.textContent ?? null);
-            await page.keyboard.press("ArrowDown");
+            // 打开时按过一次 ArrowDown，高亮已停在最后一项；下拉不循环，往上按才看得出按键到了它。
+            await page.keyboard.press("ArrowUp");
             return await page.evaluate((from) => document.querySelector("[role=listbox] [data-highlighted]")?.textContent !== from, before);
         },
     },
