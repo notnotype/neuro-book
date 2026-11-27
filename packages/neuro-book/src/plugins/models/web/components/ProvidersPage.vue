@@ -525,7 +525,7 @@ function focusVisible(selectors: readonly string[]): void {
                 </div>
                 <EmptyState v-if="providers.length === 0" icon-class="i-lucide-cloud" :title="text('empty.title')" :description="text('empty.description')">
                     <template #action>
-                        <Button size="sm" icon-class="i-lucide-plus" :disabled="disabled" data-provider-add @click="openAdd">{{ text("rail.add") }}</Button>
+                        <Button variant="primary" size="sm" icon-class="i-lucide-plus" :disabled="disabled" data-provider-add @click="openAdd">{{ text("rail.add") }}</Button>
                     </template>
                 </EmptyState>
                 <template v-else-if="current !== null">

@@ -9,8 +9,8 @@ import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import type {TreeItem} from "nbook/plugins/agent/shared/subagents";
-import {CARD_SAMPLES, sampleProps, sampleStore} from "nbook/plugins/lab/web/fixtures/agent-scene/subagent-samples";
-import type {CardSample} from "nbook/plugins/lab/web/fixtures/agent-scene/subagent-samples";
+import {CARD_SAMPLES, sampleProps, sampleStore} from "nbook/plugins/agent/web/lab/subagent-samples";
+import type {CardSample} from "nbook/plugins/agent/web/lab/subagent-samples";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {AGENT_TEXT_NAMESPACE} from "../../shared/text";

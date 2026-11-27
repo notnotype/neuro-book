@@ -5,12 +5,13 @@
 
 # AgentMessagesList
 
-“消息”视图的列表（docs/specs/agent/conversation.md 输出 1–3、docs/specs/bots/view.md）：顶上“Bot”“会话”两个标签，bot 一页是 IM 式的联系人列表，会话一页由宿主经插槽放会话面板（`AgentSessionPanel`）。它是消息视图段展开时的完整列表（`AgentMessagesSegment`）；视图段收起时列表拿掉，bot 页的搜索词经 `v-model:botQuery` 留在宿主，会话页的搜索词本来在宿主。
+“消息”视图的列表（docs/specs/agent/conversation.md 输出 1–3、docs/specs/bots/view.md）：底部是“Bot”“会话”两项的导航，bot 一页是 IM 式的联系人列表，会话一页由宿主经插槽放会话面板（`AgentSessionPanel`）。它是消息视图段展开时的完整列表（`AgentMessagesSegment`）；视图段收起时列表拿掉，bot 页的搜索词经 `v-model:botQuery` 留在宿主，会话页的搜索词本来在宿主。
 
 ## 布局与交互
 
-- 切换行（高 40 像素）：“Bot”与“会话”两个标题式的标签，没有底线，当前页用主字色与粗一档的字重，另一页用淡色；Bot 标签后面的徽标是所有联系人未读的合计（没有不写）。这是一组 `tablist`：当前页的标签是 Tab 停靠点，左右方向键、`Home`、`End` 换页并把焦点带过去；标签带 `aria-selected` 与面板的 `aria-controls`，面板带 `aria-labelledby`。点标签只换这一页，不换聊天区；宿主打开会话时按会话有没有归属切标签。换页时新的一页淡入（减少动效时直接换）；标签放不下时裁掉。不用 nb-ui 的 `Tabs`：它的底线与窗口边、搜索框叠成三条横线（w00043 t18 评审板第 1 轮）。
-- bot 一页：顶上一个搜索框，按名字筛（大小写不分）；下面一行一个联系人：
+- 底部导航（`data-messages-nav`，高 52 像素，上面一条细线）：“Bot”与“会话”两项等分，图标在上、字在下（图标同视图段收着时底段的两项），当前页用强调色与粗一档的字重，另一页用淡色（docs/specs/agent/conversation.md 输出 57 的“展开”）。Bot 一项的角标是所有联系人未读的合计（`data-messages-summary`，中性色的小胶囊，没有不写）；有等你处理时 warning 色、方角（`data-messages-summary-waiting`），没有未读只有等你处理时是一个 warning 圆点；读屏名带上未读或“等你处理”。这是一组 `tablist`：当前页是 Tab 停靠点，左右方向键、`Home`、`End` 换页并把焦点带过去；项带 `aria-selected` 与面板的 `aria-controls`，面板带 `aria-labelledby`。点了只换这一页，不换聊天区；宿主打开会话时按会话有没有归属切页。换页时新的一页淡入（减少动效时直接换）。
+- 搜索行右端按 `--acv-list-inset-end`（缺省 0）让位：视图段把展开收起按钮画在列表区右上角。
+- bot 一页：顶上一个搜索框（放大镜图标，提示“搜索”），按名字筛（大小写不分）；下面一行一个联系人：
   - 头像（没有头像写名字的第一个字）、名字、时间（`last.at`，同会话列表的时间列）；
   - 第二行：在跑时蓝字“正在回复…”，等你时黄字“等你处理”，平时是最后一句话（`last.text`），没有写淡色的“还没有消息”；
   - 右边是未读数（正整数才写）；

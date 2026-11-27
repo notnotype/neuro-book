@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * SettingsRow 的 Lab 场景：配置服务来自设置场景的局部宿主（`settings-scene/`），各层的内容按场景给出；行拿到的是声明者
+ * SettingsRow 的 Lab 场景：配置服务来自设置场景的局部宿主（`settings/web/lab/`），各层的内容按场景给出；行拿到的是声明者
  * 插件自己的配置服务，与 page 页面一样。场景输入是行的数据属性，配置服务由这里补上。
  */
 import {SchemaField} from "@notnotype/nb-form/vue";
@@ -14,17 +14,17 @@ import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
-import {createSettingsHost} from "./settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import {provideSettingsText, settingsSceneLocale} from "./settings-scene/settings-text";
-import type {HostLayer} from "./settings-scene/settings-host";
-import {SCENE_SETTINGS} from "./settings-scene/scene-data";
-import {rowDemoSettings} from "./settings-scene/scene-settings";
+import type {HostLayer} from "nbook/plugins/settings/web/lab/settings-host";
+import {SCENE_SETTINGS} from "nbook/plugins/settings/web/lab/scene-data";
+import {rowDemoSettings} from "nbook/plugins/settings/web/lab/scene-settings";
 
 const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();
 const subject = useLabSubject<typeof SettingsRow>(() => props.input, ["write-failed"]);
 
-/** 行自己的场景用的项：设置窗口的场景不收它们（`settings-scene/scene-settings.ts`）。 */
+/** 行自己的场景用的项：设置窗口的场景不收它们（`settings/web/lab/scene-settings.ts`）。 */
 const ROW_SETTINGS = Object.values(rowDemoSettings).map((definition) => ({plugin: "example.rows", definition}));
 const SETTINGS = [...SCENE_SETTINGS, ...ROW_SETTINGS] as typeof SCENE_SETTINGS;
 

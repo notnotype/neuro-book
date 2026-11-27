@@ -36,7 +36,7 @@ const t = useAgentPageText();
         <IconButton v-if="props.closable" size="xs" icon-class="i-lucide-x" class="contact-cover__close" :title="t('conversation.desk.close')" :aria-label="t('conversation.desk.close')" data-messages-cover-close @click="emit('close')" />
         <template v-if="props.cover.kind === 'pick-bot'">
             <p class="contact-cover__body" data-messages-pick-bot>{{ t("conversation.messages.pickBot") }}</p>
-            <Button size="sm" data-messages-pick-bot-open @click="emit('show-bots')">{{ t("conversation.messages.allBots") }}</Button>
+            <Button variant="primary" size="sm" data-messages-pick-bot-open @click="emit('show-bots')">{{ t("conversation.messages.allBots") }}</Button>
         </template>
         <p v-else-if="props.cover.kind === 'missing'" class="contact-cover__body" data-messages-missing>{{ t("conversation.messages.missing") }}</p>
         <template v-else-if="props.cover.pending.step === 'no-model'">
@@ -51,7 +51,7 @@ const t = useAgentPageText();
         </template>
         <template v-else>
             <p class="contact-cover__body" data-messages-open-failed>{{ t("conversation.messages.openFailed", {name: props.cover.pending.name, code: props.cover.pending.code ?? ""}) }}</p>
-            <Button size="sm" data-messages-open-retry @click="props.cover.kind === 'pending' && emit('retry', props.cover.pending.key)">{{ t("conversation.messages.retry") }}</Button>
+            <Button variant="primary" size="sm" data-messages-open-retry @click="props.cover.kind === 'pending' && emit('retry', props.cover.pending.key)">{{ t("conversation.messages.retry") }}</Button>
         </template>
     </div>
 </template>

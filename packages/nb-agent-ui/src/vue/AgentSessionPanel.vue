@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
     selectedId: string | null;
     now: number;
     query?: string;
-    /** 有作品时能在当前作品与全部之间切；没打开作品时不给，就没有这个按钮。 */
+    /** 有作品时能在当前作品与全部之间切（过滤菜单最上面一组）；没打开作品时不给，就没有这一组。 */
     scope?: {value: "project" | "all"} | null;
     /** 过滤菜单的 Profile 一组。 */
     profiles?: readonly SessionPanelFilter[];
@@ -108,14 +108,24 @@ const countOf = (node: SessionNode): number => node.item.childCount ?? node.chil
 
 const STATE_KEYS = {running: "panel.state.running", waiting: "panel.state.waiting", interrupted: "panel.state.interrupted", error: "panel.state.error"} as const;
 
-const scopeLabel = computed(() => (props.scope?.value === "all" ? t("panel.scopeAll") : t("panel.scopeProject")));
-/** 选了的过滤条件。只显示成过滤按钮上的条数：有没有选，面板都不多占一行，下面的列表不动。 */
+/**
+ * 选了的过滤条件（conversation 输出 3）。只显示成过滤按钮上的条数：有没有选，面板都不多占一行，下面的列表不动。
+ * 作品范围也在这个菜单里：选了“全部作品”算一个条件，清除时回到当前作品。
+ */
 const activeFilters = computed(() => [
+    ...(props.scope?.value === "all" ? ["scope:project"] : []),
     ...props.profiles.filter((profile) => profile.active).map((profile) => `profile:${profile.id}`),
     ...(props.showArchived ? ["archived"] : []),
 ]);
 
+const scopeItems = computed<DropdownMenuItemData[]>(() => (props.scope === null ? [] : [
+    {id: "scope:project", label: t("panel.scopeProject"), type: "radio", group: "scope", checked: props.scope.value === "project"},
+    {id: "scope:all", label: t("panel.scopeAll"), type: "radio", group: "scope", checked: props.scope.value === "all"},
+    {id: "separator-scope", label: "", separator: true},
+]));
+
 const filterItems = computed<DropdownMenuItemData[]>(() => [
+    ...scopeItems.value,
     ...props.profiles.map((profile) => ({id: `profile:${profile.id}`, label: profile.label, ...(profile.icon === undefined ? {} : {iconClass: profile.icon}), type: "checkbox" as const, checked: profile.active})),
     ...(props.profiles.length === 0 ? [] : [{id: "separator", label: "", separator: true}]),
     {id: "archived", label: t("panel.showArchived"), type: "checkbox" as const, checked: props.showArchived},
@@ -126,7 +136,10 @@ function onFilter(id: string): void {
         for (const filter of activeFilters.value) onFilter(filter);
         return;
     }
-    if (id === "archived") emit("update:show-archived", !props.showArchived);
+    if (id === "scope:project" || id === "scope:all") {
+        const scope = id === "scope:all" ? "all" : "project";
+        if (props.scope !== null && props.scope.value !== scope) emit("update:scope", scope);
+    } else if (id === "archived") emit("update:show-archived", !props.showArchived);
     else if (id.startsWith("profile:")) emit("toggle-profile", id.slice("profile:".length));
 }
 
@@ -149,22 +162,17 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
 <template>
     <div class="acv-panel" data-agent-session-panel>
         <div class="acv-panel__search">
-            <Input :model-value="props.query" size="sm" class="acv-panel__input" :placeholder="t('panel.search')" :aria-label="t('panel.search')" data-panel-search @update:model-value="emit('update:query', String($event))" />
-            <DropdownMenu
-                v-if="props.scope !== null"
-                :items="[{id: 'project', label: t('panel.scopeProject'), type: 'radio', group: 'scope', checked: props.scope.value === 'project'}, {id: 'all', label: t('panel.scopeAll'), type: 'radio', group: 'scope', checked: props.scope.value === 'all'}]"
-                align="end"
-                @select="emit('update:scope', $event as 'project' | 'all')"
-            >
-                <button type="button" class="acv-panel__scope" data-panel-scope>{{ scopeLabel }}<span class="i-lucide-chevron-down" aria-hidden="true" /></button>
-            </DropdownMenu>
-            <DropdownMenu :items="filterItems" align="end" @select="onFilter">
-                <span class="acv-panel__filter">
-                    <IconButton icon-class="i-lucide-list-filter" size="sm" :class="{'acv-panel__filter-on': activeFilters.length > 0}" :title="t('panel.filter')" :aria-label="t('panel.filter')" data-panel-filter />
-                    <span v-if="activeFilters.length > 0" class="acv-panel__filter-count" data-panel-filter-count>{{ activeFilters.length }}</span>
-                </span>
-            </DropdownMenu>
-            <IconButton icon-class="i-lucide-plus" size="sm" :title="t('panel.create')" :aria-label="t('panel.create')" data-panel-create @click="emit('action', {type: 'session.create'})" />
+            <Input :model-value="props.query" size="sm" class="acv-panel__input" icon-class="i-lucide-search" :placeholder="t('panel.searchHint')" :aria-label="t('panel.search')" data-panel-search @update:model-value="emit('update:query', String($event))">
+                <template #suffix>
+                    <DropdownMenu :items="filterItems" align="end" @select="onFilter">
+                        <span class="acv-panel__filter">
+                            <IconButton icon-class="i-lucide-sliders-horizontal" size="xs" :class="{'acv-panel__filter-on': activeFilters.length > 0}" :title="t('panel.filter')" :aria-label="t('panel.filter')" data-panel-filter />
+                            <span v-if="activeFilters.length > 0" class="acv-panel__filter-count" data-panel-filter-count>{{ activeFilters.length }}</span>
+                        </span>
+                    </DropdownMenu>
+                </template>
+            </Input>
+            <IconButton icon-class="i-lucide-square-pen" size="sm" :title="t('panel.create')" :aria-label="t('panel.create')" data-panel-create @click="emit('action', {type: 'session.create'})" />
         </div>
         <div class="acv-panel__list">
             <p v-if="props.error !== null" class="acv-panel__empty" role="alert">{{ props.error }}</p>
@@ -235,35 +243,16 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     display: flex;
     flex-shrink: 0;
     align-items: center;
-    gap: 6px;
-    padding: 8px 8px 4px;
+    gap: 4px;
+    /* 右端让出放在列表区右上角的按钮（消息视图的视图段给 `--acv-list-inset-end`，别处缺省 0）。 */
+    padding: 8px calc(8px + var(--acv-list-inset-end, 0px)) 4px 8px;
 }
 
+/* 过滤按钮在框里右端：框的右内边距收窄，按钮贴着边框。 */
 .acv-panel__input {
     flex: 1;
     min-width: 0;
-}
-
-.acv-panel__scope {
-    /* 原生按钮，没有 nb-ui 按钮自带的不可选（nb-ui 规范的“文字能否选中”）。 */
-    user-select: none;
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 2px;
-    height: 26px;
-    padding: 0 4px 0 8px;
-    border: 0;
-    border-radius: var(--radius-control);
-    background: none;
-    color: var(--text-secondary);
-    font: inherit;
-    font-size: var(--text-xs);
-    cursor: pointer;
-}
-
-.acv-panel__scope:hover {
-    background: var(--bg-hover);
+    padding-inline-end: 2px;
 }
 
 .acv-panel__filter-on {

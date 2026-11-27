@@ -23,8 +23,9 @@ import {boxOf, centerOf, layoutWrites, rail, railEntryOfView, savedDoc, sectionO
 
 const CONVERSATION = "nbook.agent.conversation";
 const D = "test.sample-views.delta";
-/** 视图段缺省展开宽 260 与收着的 48 之差（视图段声明：缺省 260，200–420）。 */
-const GROWTH = 260 - 48;
+/** 视图段缺省展开宽 300 与收着的 48 之差（视图段声明：缺省 300，200–420）。 */
+const DEFAULT_RAIL = 300;
+const GROWTH = DEFAULT_RAIL - 48;
 
 let tmp = "";
 let server: ProbeServer;
@@ -41,7 +42,7 @@ test.afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-// 作者界面的宽版：右栏展开到 260 之后编辑区与聊天区都放得下。
+// 作者界面的宽版：右栏展开到 300 之后编辑区与聊天区都放得下。
 test.use({viewport: {width: 1440, height: 900}});
 
 const database = (): string => join(tmp, "state", "storage", "user.sqlite");
@@ -57,8 +58,12 @@ const editorCard = (page: Page): Locator => page.locator('[data-shell-card="g0"]
 const botPage = (page: Page): Locator => page.locator("[data-messages-page=bot]");
 const sessionsPage = (page: Page): Locator => page.locator("[data-messages-page=sessions]");
 const botSearch = (page: Page): Locator => botPage(page).getByRole("textbox");
-const sessionsSearch = (page: Page): Locator => sessionsPage(page).locator("[data-panel-search]");
+/** 会话页的搜索：`data-panel-search` 是搜索框的外框（里面有过滤按钮），输入框在里面。 */
+const sessionsSearchBox = (page: Page): Locator => sessionsPage(page).locator("[data-panel-search]");
+const sessionsSearch = (page: Page): Locator => sessionsSearchBox(page).locator("input");
+/** 收着时底段的“全部 bot”“会话历史”；展开后底段看不见，换页用底部导航。 */
 const openButton = (page: Page, tab: "bot" | "sessions"): Locator => page.locator(`[data-messages-open="${tab}"]`);
+const navTab = (page: Page, tab: "bot" | "sessions"): Locator => page.locator(`[data-messages-nav] [data-messages-tab="${tab}"]`);
 const regionToggle = (page: Page): Locator => page.locator('[data-titlebar-layout="auxiliarybar"]');
 
 /** 页面上经测试外壳执行一条命令：不碰指针与焦点。 */
@@ -147,8 +152,8 @@ test("顶格：“回到停靠”在窗右上角那一格、最上面一层，�
     expect((await dock.getAttribute("aria-label")) ?? (await dock.getAttribute("title")) ?? "").not.toBe("");
 });
 
-// 覆盖 ui/workbench-layout 输出 51“矩形”：点视图段底下的展开按钮，窗的右边往右长（展开多出的那段）、左边与上下不动；收起后矩形回到展开前；记录矩形展开前后不改。
-test("展开与收起：窗的右边往右长 212、左边与上下不动，收起后回到展开前（容差 1 像素），记录矩形不变；展开、收起、停靠、再浮出不漂移（输出 51）", async ({page}) => {
+// 覆盖 ui/workbench-layout 输出 51“矩形”：点视图段里的展开按钮，窗的右边往右长（展开多出的那段）、左边与上下不动；收起后矩形回到展开前；记录矩形展开前后不改。
+test("展开与收起：窗的右边往右长 252、左边与上下不动，收起后回到展开前（容差 1 像素），记录矩形不变；展开、收起、停靠、再浮出不漂移（输出 51）", async ({page}) => {
     await open(page);
     const id = await floatConversation(page);
     const before = await windowBox(page, id);
@@ -163,8 +168,8 @@ test("展开与收起：窗的右边往右长 212、左边与上下不动，收�
     expect(Math.abs(wide.x - before.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(wide.y - before.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(wide.height - before.height)).toBeLessThanOrEqual(1);
-    // 展开的是视图段那一列：右边长了，视图段变宽到 260。
-    expect(Math.round((await boxOf(page.locator("[data-float-rail]"))).width)).toBe(260);
+    // 展开的是视图段那一列：右边长了，视图段变宽到 300。
+    expect(Math.round((await boxOf(page.locator("[data-float-rail]"))).width)).toBe(DEFAULT_RAIL);
     await expect.poll(async () => (await floatRecord(page)).rail).toMatchObject({expanded: true});
     expect((await floatRecord(page)).rect).toEqual(recorded.rect);
 
@@ -236,6 +241,48 @@ test("收着的一列按钮中线对齐：右轨的入口、头像、底段与�
     const floating = await centers(`[data-float-rail] [data-rail-item], [data-panel-head="${id}"] [data-panel-action="nbook.view.dock"]`);
     expect(floating.length).toBeGreaterThanOrEqual(4);
     for (const x of floating) expect(Math.abs(x - floating[0]!), `浮动窗：${floating.join(", ")}`).toBeLessThanOrEqual(1);
+    // 展开按钮是视图段（收着时）的第一项，排在“回到停靠”下面、同一条竖中线（输出 51“顶格”）。
+    const [dock, button] = [await boxOf(dockButton(page, id)), await boxOf(toggle(page))];
+    expect(button.y, "展开按钮在“回到停靠”下面").toBeGreaterThanOrEqual(dock.y + dock.height - 0.5);
+    expect(Math.abs(button.x + button.width / 2 - (dock.x + dock.width / 2)), "同一条竖中线").toBeLessThanOrEqual(1);
+    await expect(toggle(page)).toHaveAttribute("data-rail-item", /.*/u);
+    expect(await segment(page).locator("[data-rail-item]").first().evaluate((element) => element.hasAttribute("data-rail-toggle"))).toBe(true);
+});
+
+// 覆盖 ui/workbench-layout 输出 51“顶格”、conversation.md 输出 57“浮动”“展开”：浮动窗展开后收起按钮是同一个元素、在列表右上角、在“回到停靠”下面，
+// 两个按钮都点得到，列表第一行（搜索）不被它盖住，焦点留在按钮上。
+test("浮动窗展开后：收起按钮是同一个元素、在列表右上角，不盖住“回到停靠”与搜索行，焦点留在它上面（输出 51）", async ({page}) => {
+    await open(page);
+    const id = await floatConversation(page);
+    const node = await toggle(page).elementHandle();
+    await expand(page);
+    expect(await toggle(page).evaluate((element, other) => element === other, node)).toBe(true);
+    await expect(toggle(page)).toBeFocused();
+    await expect(toggle(page)).not.toHaveAttribute("data-rail-item");
+    // 按钮只展开、不指定页：先选定 bot 页再量。
+    await navTab(page, "bot").click();
+    await expect(botPage(page)).toBeVisible();
+    const [dock, button, rest, search] = [await boxOf(dockButton(page, id)), await boxOf(toggle(page)), await boxOf(page.locator("[data-float-rail]")), await boxOf(botSearch(page))];
+    expect(button.y, "收起按钮在“回到停靠”下面").toBeGreaterThanOrEqual(dock.y + dock.height - 0.5);
+    expect(button.x + button.width / 2, "在列表右半").toBeGreaterThan(rest.x + rest.width * 0.75);
+    expect(button.x + button.width).toBeLessThanOrEqual(rest.x + rest.width + 1);
+    // 判据：按钮中心上最上面的是按钮；搜索框右缘不超过按钮左缘；“回到停靠”也没被盖住。
+    expect(await hitIn(page, await centerOf(toggle(page)), "[data-rail-toggle]")).toBe(true);
+    expect(search.x + search.width).toBeLessThanOrEqual(button.x + 0.5);
+    expect(await hitIn(page, await centerOf(dockButton(page, id)), '[data-panel-action="nbook.view.dock"]')).toBe(true);
+    // 会话页的搜索行也一样。
+    await navTab(page, "sessions").click();
+    await expect(sessionsPage(page)).toBeVisible();
+    for (const part of [sessionsSearchBox(page), sessionsPage(page).locator("[data-panel-create]")]) {
+        const box = await boxOf(part);
+        expect(box.x + box.width).toBeLessThanOrEqual(button.x + 0.5);
+    }
+    expect(await hitIn(page, await centerOf(toggle(page)), "[data-rail-toggle]")).toBe(true);
+    // 再点收起：同一个元素回到“回到停靠”下面，焦点仍在它上面。
+    await collapse(page);
+    expect(await toggle(page).evaluate((element, other) => element === other, node)).toBe(true);
+    await expect(toggle(page)).toBeFocused();
+    expect((await boxOf(toggle(page))).y).toBeGreaterThanOrEqual(dock.y + dock.height - 0.5);
 });
 
 // 覆盖 ui/workbench-layout 输出 39 的“记住矩形”：窗拉宽、拖低之后点“回到停靠”，再浮出是调过的矩形，刷新后再浮出还是它。
@@ -338,7 +385,7 @@ test("浮动窗轨宽：展开后往左拖手柄 40 像素，窗的右边不动�
     await expand(page);
     const handle = railHandle(page);
     await expect(handle).toHaveAttribute("role", "separator");
-    await expect(handle).toHaveAttribute("aria-valuenow", "260");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL));
     const before = await windowBox(page, id);
     const grip = await centerOf(handle);
 
@@ -346,23 +393,23 @@ test("浮动窗轨宽：展开后往左拖手柄 40 像素，窗的右边不动�
     await page.mouse.down();
     await page.mouse.move(grip.x - 15, grip.y, {steps: 3});
     await page.mouse.move(grip.x - 40, grip.y, {steps: 5});
-    // 拖动中：右边不动、左边往左 40，手柄一直在指针下；手柄自己带拖动标记（`data-workbench-dragging` 是网格拖放的，轨宽手势不写）；呈现的轨宽是 300。
+    // 拖动中：右边不动、左边往左 40，手柄一直在指针下；手柄自己带拖动标记（`data-workbench-dragging` 是网格拖放的，轨宽手势不写）；呈现的轨宽是缺省加 40。
     await expect(handle).toHaveAttribute("data-dragging", /.*/u);
-    await expect(handle).toHaveAttribute("aria-valuenow", "300");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 40));
     const during = await windowBox(page, id);
     expect(Math.abs(during.x + during.width - (before.x + before.width))).toBeLessThanOrEqual(1);
     expect(Math.abs(during.x - (before.x - 40))).toBeLessThanOrEqual(1);
     expect(Math.abs((await centerOf(handle)).x - (grip.x - 40))).toBeLessThanOrEqual(2);
     await page.mouse.up();
     await expect(handle).not.toHaveAttribute("data-dragging");
-    // 松手：几何留在 300，记录里是 300、记录矩形没动。
-    await expect(handle).toHaveAttribute("aria-valuenow", "300");
+    // 松手：几何留在缺省加 40，记录里是它、记录矩形没动。
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 40));
     expectSameBox(await windowBox(page, id), during, "松手之后");
-    await expect.poll(async () => (await floatRecord(page)).rail).toMatchObject({expanded: true, width: 300});
+    await expect.poll(async () => (await floatRecord(page)).rail).toMatchObject({expanded: true, width: DEFAULT_RAIL + 40});
     const recorded = await floatRecord(page);
     await page.reload();
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
-    await expect(handle).toHaveAttribute("aria-valuenow", "300");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 40));
     expectSameBox(await windowBox(page, id), during, "刷新之后");
     expect(await floatRecord(page)).toEqual(recorded);
 
@@ -398,7 +445,7 @@ test("浮动窗轨宽：展开后往左拖手柄 40 像素，窗的右边不动�
     expect(await layoutWrites(page, database())).toBe(writes);
 });
 
-// 覆盖 `WorkbenchFloatRailHandle.md` 的键盘与双击：左右方向键每次 10 像素（往左变宽，窗的右边不动），Home 与双击回到缺省 260，每次一次提交。
+// 覆盖 `WorkbenchFloatRailHandle.md` 的键盘与双击：左右方向键每次 10 像素（往左变宽，窗的右边不动），Home 与双击回到缺省 300，每次一次提交。
 test("浮动窗轨宽的键盘：左右方向键每次 10 像素，Home 与双击回缺省，窗的右边始终不动（输出 51）", async ({page}) => {
     await open(page);
     const id = await floatConversation(page);
@@ -408,24 +455,24 @@ test("浮动窗轨宽的键盘：左右方向键每次 10 像素，Home 与双�
     const right = before.x + before.width;
     await handle.focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(handle).toHaveAttribute("aria-valuenow", "270");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 10));
     await page.keyboard.press("ArrowLeft");
-    await expect(handle).toHaveAttribute("aria-valuenow", "280");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 20));
     let now = await windowBox(page, id);
     expect(Math.abs(now.x + now.width - right)).toBeLessThanOrEqual(1);
     expect(Math.abs(now.x - (before.x - 20))).toBeLessThanOrEqual(1);
     await page.keyboard.press("ArrowRight");
-    await expect(handle).toHaveAttribute("aria-valuenow", "270");
-    await expect.poll(async () => (await floatRecord(page)).rail).toMatchObject({expanded: true, width: 270});
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 10));
+    await expect.poll(async () => (await floatRecord(page)).rail).toMatchObject({expanded: true, width: DEFAULT_RAIL + 10});
     await page.keyboard.press("Home");
-    await expect(handle).toHaveAttribute("aria-valuenow", "260");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL));
     expectSameBox(await windowBox(page, id), before, "Home 之后");
     // 缺省宽在记录里不写 width。
     await expect.poll(async () => (await floatRecord(page)).rail).toEqual({expanded: true});
     await page.keyboard.press("ArrowLeft");
-    await expect(handle).toHaveAttribute("aria-valuenow", "270");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL + 10));
     await handle.dblclick();
-    await expect(handle).toHaveAttribute("aria-valuenow", "260");
+    await expect(handle).toHaveAttribute("aria-valuenow", String(DEFAULT_RAIL));
     now = await windowBox(page, id);
     expectSameBox(now, before, "双击之后");
 });
@@ -464,10 +511,11 @@ test("搬动后状态（归位）：窗里展开着输入两页的搜索词，�
     await open(page);
     await floatConversation(page);
     await expand(page);
-    await openButton(page, "sessions").click();
+    // 展开后底段看不见，换页用底部导航。
+    await navTab(page, "sessions").click();
     await expect(sessionsPage(page)).toBeVisible();
     await sessionsSearch(page).fill("丁戊");
-    await openButton(page, "bot").click();
+    await navTab(page, "bot").click();
     await botSearch(page).fill("甲乙丙");
     await botSearch(page).focus();
     await runCommand(page, "nbook.view.dock", {panelId: await sectionOf(page, CONVERSATION)});
@@ -477,7 +525,7 @@ test("搬动后状态（归位）：窗里展开着输入两页的搜索词，�
     await expect(botPage(page)).toBeVisible();
     await expect(botSearch(page)).toHaveValue("甲乙丙");
     await expect(botSearch(page)).toBeFocused();
-    await openButton(page, "sessions").click();
+    await navTab(page, "sessions").click();
     await expect(sessionsSearch(page)).toHaveValue("丁戊");
 });
 

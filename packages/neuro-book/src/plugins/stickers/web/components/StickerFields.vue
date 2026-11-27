@@ -53,7 +53,7 @@ async function toggle(value: boolean): Promise<void> {
         <template v-if="unlisted">
             <p class="sticker-fields__title">{{ item.file }}</p>
             <p class="sticker-fields__muted">{{ text("panel.unlistedHint") }}</p>
-            <Button v-if="!readonly" size="sm" icon-class="i-lucide-plus" data-sticker-list @click="emit('list')">{{ text("panel.listIt") }}</Button>
+            <Button variant="primary" v-if="!readonly" size="sm" icon-class="i-lucide-plus" data-sticker-list @click="emit('list')">{{ text("panel.listIt") }}</Button>
         </template>
         <template v-else-if="readonly">
             <p class="sticker-fields__title">{{ item.label }}</p>

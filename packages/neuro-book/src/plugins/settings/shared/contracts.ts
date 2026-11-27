@@ -19,7 +19,7 @@ import type {DisplayLocale, DisplayText, TextResolver} from "nbook/shared/locali
 import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
 import type {HostLocale} from "nbook/shared/host-locales";
 import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
-import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
+import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 import type {WrittenSettingsSectionDeclaration} from "./sections";
 import {settingsText} from "./text";
@@ -30,6 +30,49 @@ export type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectio
 
 /** 插件依赖它取得按调用方生成的配置服务。 */
 export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<SettingsService>("nbook.settings/settings");
+
+/** 设置窗口左栏的一节（`SettingsCatalogView`）。 */
+export interface SettingsCatalogSection {
+    readonly id: string;
+    readonly title: string;
+    /** `page`：由页面自己画，没有设置行；`file`：设置文件视图。 */
+    readonly kind: "list" | "page" | "file";
+    readonly layers: ReadonlyArray<SettingLayer>;
+    /** page 节声明的搜索词。 */
+    readonly keywords: ReadonlyArray<string>;
+}
+
+/** 设置窗口里画成一行的设置（`SettingsCatalogView`）。 */
+export interface SettingsCatalogSetting {
+    readonly key: string;
+    readonly title: string;
+    readonly description: string | null;
+    /** 画出这一行的节：没有归属的在“其它”节。 */
+    readonly section: string;
+    readonly layers: ReadonlyArray<SettingLayer>;
+}
+
+/**
+ * 设置窗口在本窗口里的落位（settings-window.md 输出 24）：节按左栏的先后，设置按节与行的先后；只收画成行的设置，
+ * 指向 page 节的不收。文字按读的那一刻的界面语言。
+ */
+export interface SettingsCatalogView {
+    /** 窗口打开了作品；没有时只有用户层。 */
+    readonly bound: boolean;
+    /** 设置窗口此刻（或下次打开时）在哪一层。 */
+    readonly layer: SettingLayer;
+    /** 层切换里两个单选的文字。 */
+    readonly layerTitles: Readonly<Record<SettingLayer, string>>;
+    readonly sections: ReadonlyArray<SettingsCatalogSection>;
+    readonly settings: ReadonlyArray<SettingsCatalogSetting>;
+}
+
+/** 只读：别的插件据此找“某项设置在哪”，改设置仍经 `settingsKey`。 */
+export interface SettingsCatalog {
+    read(): SettingsCatalogView;
+}
+
+export const settingsCatalogKey: ServiceKey<SettingsCatalog> = defineServiceKey<SettingsCatalog>("nbook.settings/catalog");
 
 /** 打开本页的设置窗口（docs/specs/settings/settings-window.md 输出 15）；工作台与书架的齿轮执行它。 */
 export const OPEN_SETTINGS_COMMAND = "nbook.settings.open";

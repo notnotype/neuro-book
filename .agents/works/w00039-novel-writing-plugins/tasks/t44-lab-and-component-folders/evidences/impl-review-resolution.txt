@@ -1,0 +1,26 @@
+w00039 t44 实现审查的处理（2026-11-27）
+
+审查：Claude Sonnet 子代理（前端），提交范围 1e60d53ba..9ca65c24d（变基前；变基到 master 之后是 75aef1ca2），报告见 impl-review.txt。12 条，都是建议级，没有阻断或重要。修正提交 162929a93。
+
+1. canon/rendering.md 链到挪走的 EntryText.dom.test.ts：成立，要改。补进合入时在主工作区跑的 Spec 改动脚本。
+2. 登记门禁“组件就是这个插件的”没测到：成立，要改。门禁改成用 import.meta.glob 按文件收，核对每条登记出自组件所属插件的 web/lab/。
+3. nb-lab: 标记只覆盖登记文件：成立，要改。define.ts 注释写明只被场景引用的支持模块不带标记，产品代码引不到它们靠架构测试。Spec 那句写的是要求（产物里不含场景），不是检查手段，不改。
+4. 目录导入 ./lab 绕得过：成立，要改。isLabScene 认目录本身，架构测试加一条反例。
+5. 三个产品测试引 web/lab 的支持模块：不成立。测试不是产品代码，架构测试本来就不扫测试。t44 之前它们引的是 lab/web/fixtures 里的同一批模块，不是这次新加的用法。
+6. 两处注释与三条合成用例指向旧位置：成立，要改。注释改成 plugins/explorer/memory-files.test.ts；合成用例换成 workbench/web/lab 与 Lab fixtures 里真实存在的文件，顺带测到 isLabScene 的放行。
+7. EntryPicker 放 entries/、用它的多在 editing/：接受取舍，不改。六组分法是开发者 11-27 批的表，EntryPicker 是“选一个条目”的零件，归设定视图；跨组引用是规则允许的。
+8. -english 是语言开关的说法不准、长文字 id 不统一：成立，要改。场景说明改成“写 english 或以 -english 结尾，写法看各插件的文本端口”“长文字的 id 里带 long”。network 的 system-english-narrow 按中文渲染，是 t44 之前就有的，不在本次范围。
+9. 杂项：成立，大部分要改。
+   - 合并重复导入，删掉悬空注释。
+   - glob 去掉不存在目录的排除项，门禁同步。
+   - Lab 的分组从 ../define 取类型，总表去掉类型再导出。
+   - 16 个文件去掉 xxxFixtures() 外壳：局部常量提到模块顶层，登记直接进 fixtures。
+   - 16 处跨插件的相对导入改成 nbook/ 别名。
+10. scene-kit 导出了没人用的名字：成立，要改。只留插件场景与草稿用到的 11 个，加上场景说明教的 useLabDataSink。
+11. defineSubjectFixture 的核对没有测试：成立，要改。define.test.ts 补一条。
+12. min() 绕过“假盒子”检查、README 把规则写成硬性的：不成立。docs/testing/README.md 的“夹具定宽”要求写 min(<宽>, 100%)，这正是规定的写法；SubagentCard 改后在 390 宽的画布上不再撑出舞台，宽画布上不变。规则是往后照做的，已知没覆盖的分支记在 scene-pruning.txt。
+
+修正后：
+- 场景快照与 S4 后逐字相同，只差 076a06be8 有意改的一句 noInput。
+- typecheck、Lab 与 canon entry-page 的 dom 测试 86 条、架构测试等 bun 测试 70 条、governance:check 通过。
+- docs:check 只剩 Spec workbench/commands.md 的两处旧链接，合入时改。

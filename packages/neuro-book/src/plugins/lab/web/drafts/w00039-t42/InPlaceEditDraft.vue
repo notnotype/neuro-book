@@ -10,7 +10,7 @@ import {computed, ref} from "vue";
 
 import {Button, IconButton, Input, RadioGroup, SegmentedControl, Textarea} from "@notnotype/nb-ui/components";
 
-import CharacterCard from "nbook/plugins/canon/web/components/CharacterCard.vue";
+import CharacterCard from "nbook/plugins/canon/web/components/groups/CharacterCard.vue";
 
 import {FILLED_CARD} from "./sample";
 

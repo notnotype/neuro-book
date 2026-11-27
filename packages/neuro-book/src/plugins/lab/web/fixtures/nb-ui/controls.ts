@@ -16,7 +16,7 @@ import type {
     Toolbar,
 } from "@notnotype/nb-ui/components";
 
-import type {LabFixture} from "../index";
+import type {LabFixture} from "../define";
 import {defineSubjectFixture} from "../subject-fixture";
 import {nbUiSubject} from "./shared";
 

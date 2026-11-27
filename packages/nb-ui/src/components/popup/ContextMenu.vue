@@ -141,4 +141,12 @@ function setMenuRef(element: unknown): void {
     opacity: 0;
     transform: scale(0.96);
 }
+
+/* 减弱动效：不缩放，只淡入淡出（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-context-menu-enter-from,
+    .nb-context-menu-leave-to {
+        transform: none;
+    }
+}
 </style>

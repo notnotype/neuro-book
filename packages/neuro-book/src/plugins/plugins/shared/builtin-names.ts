@@ -21,6 +21,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.markdown",
     "nbook.models",
     "nbook.network",
+    "nbook.page-agent",
     "nbook.plot",
     "nbook.plugins",
     "nbook.projects",

@@ -4,6 +4,16 @@
 
 ---
 
+## 0. 场景放在哪里
+
+- **插件的组件**：场景放在组件所属插件的 `src/plugins/<插件>/web/lab/`。`fixtures.ts` 导出 `fixtures: LabFixture[]`，同目录放这个插件的夹具 `.vue`、样本与场景用的文本端口。Lab 的总登记表（本目录的 `index.ts`）用 `import.meta.glob` 收集全部插件的 `fixtures.ts`，新插件不用改总表。场景多的插件可以分几个 `*.scenes.ts`，由 `fixtures.ts` 合成一张（例如 canon 按组件的六个区域分）。
+- **`src/ui/` 的共用组件、nb-ui 等包的组件、Lab 自己的组件**：场景留在本目录。包不能引应用，所以 nb-ui、nb-layout、nb-agent-ui、nb-form 各一个子目录或文件，由 `index.ts` 汇入。
+- **插件场景只经 `lab/web/scene-kit.ts` 用 Lab**：登记入口、`useLabSubject`、`useLabEventSink`、`LabFixtureControls`、类型都从这里取。架构测试（`src/architecture.test.ts`）拦下插件场景对 Lab 其它模块的引用，也拦下产品代码对任何 `web/lab/` 的引用（只引类型也不行）。生产样式入口（`src/web/tailwind.product.css`）排除 `plugins/*/web/lab`，只在场景里用到的类不进产品。
+- **插件场景可以引别的插件的 `web/` 与 `shared/`**，包括别的插件的 `web/lab/`：场景常要挂几个插件的组件、搭局部宿主。几个插件共用的支持模块放进它模拟的那个插件，例如设置窗口的局部宿主 `settings/web/lab/settings-host.ts`，网络页、搜索页的场景从那里引。
+- 登记门禁（`index.dom.test.ts`）对汇总后的登记表检查覆盖、重复与输入形状，并检查本目录、草稿区与每个插件 `web/lab/` 里的相对导入都能解析、每个 `web/lab/` 都有被收到的 `fixtures.ts`。
+
+---
+
 ## 1. 核心架构哲学：ViewportCanvas 即视口盒子
 
 Lab 的舞台容器（`ViewportCanvas`）直接充当被测组件的外部视口宿主盒子（具有边框、圆角、背景、手柄拖动、缩放及手机 390px / 平板 768px / 随窗口等预设尺寸）。
@@ -69,9 +79,9 @@ Lab 的舞台容器（`ViewportCanvas`）直接充当被测组件的外部视口
 | `slots` | fixture 自己备好的插槽预设开关 | Lab 登记开关，fixture 填入内容 |
 
 ```ts
-// fixtures/index.ts：type-only import 不加载组件
+// plugins/<插件>/web/lab/fixtures.ts：type-only import 不加载组件
+import {defineLabFixture, type LabFixture} from "nbook/plugins/lab/web/scene-kit";
 import type FixtureExample from "../components/FixtureExample.vue";
-import {defineLabFixture} from "./index";
 
 defineLabFixture<typeof FixtureExample>({
     component: "FixtureExample",
@@ -89,8 +99,8 @@ defineLabFixture<typeof FixtureExample>({
 
 ```vue
 <script setup lang="ts">
+import {useLabSubject, type LabFixtureProps} from "nbook/plugins/lab/web/scene-kit";
 import FixtureExample from "../components/FixtureExample.vue";
-import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle", "action"]);
@@ -113,7 +123,7 @@ const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle
 - `LabJsonInput<T>` 只投影编译期可登记的 JSON 字段；Date、Set、函数、Vue Ref 等不能塞到场景值，fixture 用固定内存值/已有回调显式补齐，再由最终组件绑定的类型检查验证。对象内可编辑 JSON 字段仍来自 `subject.bindings.value`，不要因其旁边有回调就把整个对象藏到不可编辑常量中。
 
 ### 3.3 透传夹具：`defineSubjectFixture`（不写 fixture `.vue`）
-夹具只做“绑定场景输入、记录事件、把个别事件回写成受控输入、补运行期 props”时，直接在 `fixtures/index.ts` 用 `defineSubjectFixture` 登记，不再写一个只有十行的 `XxxFixture.vue`：
+夹具只做“绑定场景输入、记录事件、把个别事件回写成受控输入、补运行期 props”时，直接在登记文件（插件的 `web/lab/fixtures.ts`）里用 `defineSubjectFixture` 登记，不再写一个只有十行的 `XxxFixture.vue`：
 
 ```ts
 defineSubjectFixture<typeof AgentChainSummary>({
@@ -154,14 +164,13 @@ watch(draft, (value) => reportState({draft: value}), {immediate: true});
 ## 4. 黄金规范范式（Golden Standards）
 
 编写新 Fixture 时，请参照以下标杆范例：
-1. **全高面板/复杂视图范例**：[`app/component-lab/fixtures/AgentSidebarViewFixture.vue`](AgentSidebarViewFixture.vue)
+1. **全高面板/复杂视图范例**：[`nb-agent-ui/AgentConversationViewFixture.vue`](nb-agent-ui/AgentConversationViewFixture.vue)
    - 充满视口（`h-full w-full`）；
-   - 纯正数据驱动 12 种场景；
-   - 随 ViewportCanvas 尺寸自适应伸缩。
-2. **流式与交互控件范例**：[`app/component-lab/fixtures/AgentChatFlowFixture.vue`](AgentChatFlowFixture.vue)
-   - 舞台 100% 留给会话流；
-   - 流式仿真控制器优雅下放至 `<LabFixtureControls>`。
-3. **分层输入与部件范例**：[`app/component-lab/fixtures/FixtureExampleFixture.vue`](FixtureExampleFixture.vue)
+   - 场景只改数据，随 ViewportCanvas 尺寸自适应伸缩。
+2. **交互控件范例**：[`html-preview/web/lab/HtmlPreviewFixture.vue`](../../../html-preview/web/lab/HtmlPreviewFixture.vue)
+   - 舞台只放被测组件；
+   - “改正文”这类调试操作下放至 `<LabFixtureControls>`。
+3. **分层输入与部件范例**：[`FixtureExampleFixture.vue`](FixtureExampleFixture.vue)
    - `useLabSubject` 接入 props / slots 分层输入，声明的事件进入事件 tab；
    - fixture 扮演宿主处理普通受控 prop（`toggle` → `active`）。
 
@@ -171,6 +180,18 @@ watch(draft, (value) => reportState({draft: value}), {immediate: true});
 
 `props` 全部来自宿主链（`state:inject` / `env:portal`）的零件，在文档 frontmatter 声明 `验证入口:`（宿主组件名）后由 Lab 标为**不可独立挂载**，中栏给出一条直达宿主场景的入口。
 
-- 不要为它们在 `fixtures/index.ts` 里登记独立场景，也不要在 fixture 里搭一层假宿主：脱离宿主链没有可验证状态，假壳验的是另一个东西；
-- 它们的呈现（含失败态与空态）写在宿主的 fixture 场景里（例如工作台主体的 `WorkbenchSurfaceFixture.vue`），并由 `fixtures/index.ts` 登记。
-- 每个组件名在 `fixtures/index.ts` 里只能登记一次：`findLabFixture` 只读第一份，重复登记会让后一份的场景永远打不开（`fixtures/index.test.ts` 有门禁拦截）。
+- 不要为它们登记独立场景，也不要在 fixture 里搭一层假宿主：脱离宿主链没有可验证状态，假壳验的是另一个东西；
+- 它们的呈现（含失败态与空态）写在宿主的 fixture 场景里（例如工作台主体的 `workbench/web/lab/WorkbenchSurfaceFixture.vue`），由宿主所属插件的 `web/lab/fixtures.ts` 登记。
+- 每个组件名在所有登记里只能出现一次：`findLabFixture` 只读第一份，重复登记会让后一份的场景永远打不开（`index.dom.test.ts` 有门禁拦截）。
+
+---
+
+## 6. 场景的数量：每个分支至少一个，其余合并
+
+场景是给人逐个点开看的，也是 `e2e/lab-scenes.e2e.ts` 逐个量版面的对象：多一个只是文字不同的场景，就多一份要看、要量的东西，却没多覆盖一种样子。
+
+- **每个分支至少一个场景走到**：组件模板里的每个分支（`v-if` / `v-else-if` / `v-else`、`variant` 一类的版式切换、禁用条件、由 props 决定的结构差异）都要有场景走到；夹具按场景 id 做的特殊处理（触发演示、模拟出错）也算一个分支。
+- **只是文字或数据不同的合并**：走的分支一样、版式与交互一样的，留一个。一个场景可以同时走到几个不冲突的分支。
+- **英文与长文字**：每种版式另外至多留一个英文场景、一个长文字场景。英文场景的 id 写 `english` 或以 `-english` 结尾：夹具多半按场景 id 切界面语言，写法看各插件的文本端口（例如 `canon/web/lab/canon-text.ts` 按 `scene.endsWith("-english")` 注册英文目录，有的只认 `english`），起名前先看一眼。长文字场景的 id 里带 `long`。文字放在固定尺寸里的版式（定高区域、定宽列、单行截断）要有英文场景。
+- **窄屏用视口预设**：手机宽度点 Lab 顶栏的预设或改 `vp`，不另开“窄”场景。
+- **覆盖分工**：版面由 `lab-scenes` 对保留的场景量，行为由组件的 dom 测试覆盖；拿掉一个场景前，先确认它走到的分支还有别的场景走到。

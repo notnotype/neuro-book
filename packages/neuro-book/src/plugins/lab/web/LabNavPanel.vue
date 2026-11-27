@@ -83,7 +83,7 @@ type LabTreeNode = {id: string; title: string; iconClass?: string; children?: La
  * 这里只认四根**能用的色相轴**（青 `--status-info`、绿 `--status-success`、
  * 橙 `--status-warning`、红 `--status-danger`）加主题强调蓝，其余四档用 `color-mix` 在它们之间
  * 取中间色相。之所以不直接拿 `--accent-text` 当第三档：它和 `--accent-main`、`--status-info`
- * 都是蓝的（#0060df / #007aff / #0a7ea4，色相 214° / 211° / 195°），三档只差十几度，
+ * 都是蓝的（nbook 亮色是 #0e5bcb / #076ce1 / #0c6e90，色相约 216° / 212° / 195°），三档只差十几度，
  * 在 14px 图标上等于一个颜色。下表括号里是两套配色下的实际色相，相邻档至少差 45°。
  *
  * 全部由主题 token 派生，不写死 hex；换配色时跟着走。

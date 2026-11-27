@@ -6,7 +6,8 @@ import {IconButton} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import type {PanelHeadSlots} from "../views/view-head";
-import {panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
+import {nbTarget} from "@notnotype/nb-page-agent/attrs";
+import {panelTabDomId, panelTabpanelDomId, panelTitleDomId, viewIdOf} from "../state/layout-present";
 import "./hover-actions.css";
 import "./panel-metrics.css";
 
@@ -90,6 +91,12 @@ const emit = defineEmits<{
     (event: "own-head-inset", width: number): void;
 }>();
 
+/** 视图标题的稳定名（docs/specs/agent/page-agent.md 输出 6）：视图的标签才有，编辑器页这类标签没有。 */
+const viewTarget = (tabId: string) => {
+    const viewId = viewIdOf(tabId);
+    return viewId === null ? {} : nbTarget("workbench.view", viewId);
+};
+
 defineSlots<{
     /** 当前视图的动作。 */
     actions?(): unknown;
@@ -97,7 +104,8 @@ defineSlots<{
 
 const TAB_MAX_WIDTH = 96;
 
-const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon})));
+// 几个视图叠成标签时，标签就是视图的标题：同样写稳定名（输出 6）。
+const items = computed(() => props.tabs.map((tab) => ({id: tab.id, title: tab.label, iconClass: tab.icon, attrs: viewTarget(tab.id)})));
 
 const activeTab = computed(() => (props.titleOnly ? (props.tabs.find((tab) => tab.id === props.active) ?? null) : null));
 /** 自绘头优先于接管标题区：宿主不会同时给两样，这里也只认一样。 */
@@ -190,6 +198,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                 class="workbench-panel-head__own-handle nb-ui-focus-ring-inset"
                 tabindex="0"
                 :data-panel-tab="activeTab!.id"
+                v-bind="viewTarget(activeTab!.id)"
                 :aria-description="dragHint === '' ? undefined : dragHint"
                 @click="onTitleClick($event, activeTab!.id)"
                 @contextmenu="onTitleContextMenu($event, activeTab!.id)"
@@ -224,6 +233,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                     class="workbench-panel-head__view-handle nb-ui-focus-ring-inset"
                     tabindex="0"
                     :data-panel-tab="activeTab!.id"
+                    v-bind="viewTarget(activeTab!.id)"
                     :aria-description="dragHint === '' ? undefined : dragHint"
                     :aria-haspopup="viewHead!.popup === null ? undefined : 'dialog'"
                     :aria-expanded="viewHead!.popup === null ? undefined : viewHead!.popup.expanded"
@@ -244,6 +254,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                     class="workbench-panel-head__handle nb-ui-focus-ring-inset"
                     tabindex="0"
                     :data-panel-tab="activeTab.id"
+                    v-bind="viewTarget(activeTab.id)"
                     :aria-description="dragHint === '' ? undefined : dragHint"
                     :aria-expanded="fold === null ? undefined : !fold.collapsed"
                     :aria-controls="fold === null ? undefined : panelTabpanelDomId(idPrefix, activeTab.id)"

@@ -2,7 +2,7 @@ import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import {createHarnessTranscript} from "@notnotype/nb-agent-ui";
 import {agentRef} from "@notnotype/nb-agent-ui";
 import type {AgentConversationContext, MessageView, PendingInputView, ToolCallView} from "@notnotype/nb-agent-ui";
-import type {LabFixtureDefinition} from "../index";
+import type {LabFixtureDefinition} from "../define";
 import {harnessReplayLog} from "./harness-replay";
 import {
     answerMessages,

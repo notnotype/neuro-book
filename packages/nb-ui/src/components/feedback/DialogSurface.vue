@@ -209,7 +209,7 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
 /*
  * 入场：有来处的（用户点按钮或菜单项打开的）从来处长出来，关闭时收回去；没有来处的（快捷键、命令面板、程序打开）原地缩放淡入。
  * 起点、时长与曲线由宿主经 `--nb-dialog-from-x/y/scale`、`--nb-dialog-enter-*`、`--nb-dialog-leave-*` 写在面板上（useDialogOrigin，规则见
- * dialog-origin.ts），没写就是原地。系统要求减少动态效果时这些时长令牌都是 0，动画不播，第一帧就是终点。
+ * dialog-origin.ts），没写就是原地。系统要求减少动态效果时不从来处长出来、不缩放，原地淡入淡出（文件末尾的媒体块）。
  * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
  */
 .nb-dialog[data-state="open"] {
@@ -233,6 +233,20 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
     to {
         opacity: 0;
         transform: translate(var(--nb-dialog-from-x, 0px), var(--nb-dialog-from-y, 0px)) scale(var(--nb-dialog-from-scale, 0.96));
+    }
+}
+
+/*
+ * 减弱动效：不从来处长出来、不缩放，原地淡入淡出（design-language.md“六、无障碍”）。来处的偏移与时长由宿主写在行内样式上，
+ * 这里要 `!important` 才盖得过；时长换成留给透明度的那两档（有来处的 `--motion-dialog` 此时是 0，淡入也会没了）。
+ */
+@media (prefers-reduced-motion: reduce) {
+    .nb-dialog {
+        --nb-dialog-from-x: 0px !important;
+        --nb-dialog-from-y: 0px !important;
+        --nb-dialog-from-scale: 1 !important;
+        --nb-dialog-enter-duration: var(--motion-base) !important;
+        --nb-dialog-leave-duration: var(--motion-fast) !important;
     }
 }
 </style>

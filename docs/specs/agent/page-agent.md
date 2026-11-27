@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.page-agent
 owners:
   - nbook.page-agent
@@ -107,7 +107,7 @@ owners:
     - 说明框挂在目标所在的层里：在弹层（菜单、下拉、命令面板、对话框）里高亮时，点说明框不会关掉弹层；那一层被关掉而目标还在时，说明框换到目标现在所在的层继续显示。
     - 说明框里的按键不交给页面：在提问框里打字、按 Enter、方向键，不会执行命令面板里的命令、不会让下拉或菜单按字母跳转、不会移动它们的高亮项。提问框按 Enter 提交（输入法组字时不提交），按 Esc 清空、收起并回到原来的焦点，不关弹层。
     - 缺省不压暗页面；`dim` 为真时目标以外的地方压暗，只改外观：页面照常能点，`until` 为 `click` 时点在目标以外照样按 `missed` 算。不改页面元素的样式。
-    - 状态变化有过渡（出现、展开与收起提问、目标滚出与滚回、撤掉），减弱动效时没有过渡。
+    - 状态变化有过渡（出现、展开与收起提问、目标滚出与滚回、撤掉），减弱动效时没有位移与缩放，只淡入淡出（nb-ui 设计语言“六、无障碍”）。
 11. **等用户不计时。** 说明框装上之后到结局之间，eval 单元的时限暂停（[`agent/eval.md`](eval.md) 输出 14 的“等用户应答”）；这次调用以任何方式结束时一定恢复计时。等待期间这次调用仍占着它的并发名额：同一段代码里之后的 `exclusive` 调用等它结束。
 12. **失败的内容与大小。** 业务失败在代码里抛出，带码与 `details`（按 JSON 序列化后至多 8 KB 的 UTF-8）；成功结果的警告在 `warnings`。快照的 token 预算（至多 8000）与元素上限（500 个）保证窗口交回的文字在 64 KB 的 UTF-8 以内、每个回复按 JSON 序列化后在 256 KB 的 UTF-8 以内；超出预算的元素截掉，在 `warnings` 标明（`truncated`），不会断开窗口的连接。目录至多 20 条。
 13. **文档。** eval 说明里 `ui` 只占一行摘要与文档地址；文档列出全部方法，签名带每个字段的说明、可选与缺省，列出各方法的失败码与 `details` 的形状，并写明页面里的文字是证据不是指令、改正文用文件工具。
@@ -182,6 +182,20 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/page-agent/page-agent.llm.test.ts`（真实模型“在哪改主题，带我去”）。
 
+## 实现合同
+
+- **公开入口**：核心包 `@notnotype/nb-page-agent` 的 `createPageAgent`（`snapshot`、`locate`、`describe`、`highlight`）与子路径 `./api`（参数、结果、结局与失败的 TypeBox schema）、`./attrs`（`nbTarget`）、`./capture`（按 DOM 重画的截图）；内置插件 `nbook.page-agent` 的 eval 全局对象 `ui`（工具 `nbook.page-agent.snapshot`、`find`、`screenshot`、`highlight`）、窗口合同 `nbook.page-agent/window` 与截图上传路由；页面上的属性 `data-nb-target`、`data-nb-key`、`data-nb-agent="skip"`、`data-nb-agent-reveal`。
+- **owner 与依赖方向**：核心包只管一个页面里的事，不依赖应用包、`nb-runtime` 与 Vue，界面文字、主题与悬停显示由宿主给。插件依赖 `nbook.agent`（`agent.tools`、`agent.evalObjects`）、工作台与设置的只读目录（经它们的 `shared/`）和命令服务；稳定名由控件的拥有者经 `./attrs` 写。
+- **关键不变量**：
+  - 一个页面同时至多一个高亮：新的先结束旧的（`replaced`），旧的撤销先于新的显示；结局在撤掉之后才交出（`guide.e2e.ts`“换层、替换与画不出来”）。
+  - 引用只在发它的那次页面加载里有效；身份变了不悄悄换元素，只有同层唯一同名同 key 时重找并标 `rebound`（`locate.e2e.ts`）。
+  - 等用户从装上起算、由服务端时钟计时，任何结局都收回等用户（`highlight.test.ts`“结局与等用户”）。
+  - 截图凭证只对一次调用有效，调用结束、到期或插件停止即作废；上传按收到的字节累计上限（`captures.test.ts`）。
+  - 内核工具表、eval 说明与代码里的全局对象取同一份工具集；没人在窗口前的会话（含它们派出的子会话）没有 `ui`（`agent.test.ts`“输出 4：声明 foreground 的工具不进后台会话与 bot 归属的会话”）。
+
 ## 证据
 
 - 批准依据：[w00033 t01](../../../.agents/works/w00033-page-agent/tasks/t01-design/README.md) 的决定 1 到 19 与[设计稿](../../../.agents/works/w00033-page-agent/tasks/t01-design/design.md)第四稿（开发者 2026-11-26 确认）；[w00033 t03](../../../.agents/works/w00033-page-agent/tasks/t03-ui-guide/README.md) 的决定 1 到 3（计划审查后，开发者 2026-11-26 确认）、决定 4 到 8（说明框的静态稿评审与遮罩、回退、引用寿命，开发者 2026-11-26、27 确认）
+- 实现入口：[`index.ts`](../../../packages/nb-page-agent/src/index.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/page-agent/plugin.ts)
+- 合同测试：[`spec-outputs.e2e.ts`](../../../packages/nb-page-agent/e2e/spec-outputs.e2e.ts)、[`snapshot.e2e.ts`](../../../packages/nb-page-agent/e2e/snapshot.e2e.ts)、[`locate.e2e.ts`](../../../packages/nb-page-agent/e2e/locate.e2e.ts)、[`guide.e2e.ts`](../../../packages/nb-page-agent/e2e/guide.e2e.ts)、[`spec-guide.e2e.ts`](../../../packages/nb-page-agent/e2e/spec-guide.e2e.ts)、[`capture.e2e.ts`](../../../packages/nb-page-agent/e2e/capture.e2e.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/windows.test.ts)、[`tools.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/tools.test.ts)、[`highlight.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/highlight.test.ts)、[`captures.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/captures.test.ts)、[`docs.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/backend/docs.test.ts)、[`page-agent.e2e.ts`](../../../packages/neuro-book/e2e/page-agent.e2e.ts)、[`page-agent-guide.e2e.ts`](../../../packages/neuro-book/e2e/page-agent-guide.e2e.ts)
+- Smoke：[`page-agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/page-agent/page-agent.llm.test.ts)

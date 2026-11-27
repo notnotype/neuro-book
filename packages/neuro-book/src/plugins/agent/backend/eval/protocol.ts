@@ -36,7 +36,7 @@ export type KernelMessage = Static<typeof KernelMessage>;
 /** 嵌套调用在代码里的结果：成功时 `value` 是交给代码的值（结构化值或文字），失败时内核据此抛 `ToolCallError`。 */
 export const CallReply = Type.Union([
     Type.Object({ok: Type.Literal(true), value: Type.Unknown(), images: Type.Optional(Type.Array(Image))}),
-    Type.Object({ok: Type.Literal(false), tool: Type.String(), status: Type.String(), code: Type.Optional(Type.String()), message: Type.String()}),
+    Type.Object({ok: Type.Literal(false), tool: Type.String(), status: Type.String(), code: Type.Optional(Type.String()), message: Type.String(), details: Type.Optional(Type.Unknown())}),
 ]);
 export type CallReply = Static<typeof CallReply>;
 

@@ -11,7 +11,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
-import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {createMemoryFiles} from "nbook/plugins/explorer/web/lab/memory-files";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 

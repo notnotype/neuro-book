@@ -1,6 +1,6 @@
 import type {Component, Ref} from "vue";
 import type FixtureExample from "./components/FixtureExample.vue";
-import {defineLabFixture, type LabFixture} from "./fixtures";
+import {defineLabFixture, type LabFixture} from "./fixtures/define";
 import type {LabBindingsOf, LabInputOf, LabJsonInput, LabJsonPropOf} from "./lab-subject";
 
 declare const fixtureLoader: () => Promise<Component>;

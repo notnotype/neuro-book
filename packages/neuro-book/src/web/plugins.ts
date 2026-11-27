@@ -25,6 +25,7 @@ import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import {modelsBrowserPlugin} from "nbook/plugins/models/web/plugin";
 import {webBrowserPlugin} from "nbook/plugins/web-tools/web/plugin";
+import {pageAgentWebPlugin} from "nbook/plugins/page-agent/web/plugin";
 import {webCatalogs} from "nbook/plugins/web-tools/web/text";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
 import {tasksBrowserPlugin} from "nbook/plugins/tasks/web/plugin";
@@ -90,6 +91,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.models": modelsBrowserPlugin,
     "nbook.network": networkBrowserPlugin,
     "nbook.web": webBrowserPlugin,
+    "nbook.page-agent": pageAgentWebPlugin,
     "nbook.tasks": tasksBrowserPlugin,
     "nbook.agent": agentBrowserPlugin,
     "nbook.stickers": stickersBrowserPlugin,

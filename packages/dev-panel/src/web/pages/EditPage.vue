@@ -198,7 +198,7 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
                 <div class="nbdev-edit-bar nbdev-stack sticky bottom-0 z-10 border-t py-3">
                     <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="session.save()" />
                     <div class="flex flex-wrap items-center gap-2">
-                        <Button :loading="write.pending.value" :disabled="!dirty || blocked !== null || mismatch !== null" :aria-keyshortcuts="isMac ? 'Meta+S' : 'Control+S'" @click="session.save()">保存并提交 <kbd class="nbdev-save-kbd">{{ saveShortcut }}</kbd></Button>
+                        <Button variant="primary" :loading="write.pending.value" :disabled="!dirty || blocked !== null || mismatch !== null" :aria-keyshortcuts="isMac ? 'Meta+S' : 'Control+S'" @click="session.save()">保存并提交 <kbd class="nbdev-save-kbd">{{ saveShortcut }}</kbd></Button>
                         <Button variant="ghost" :disabled="!dirty || write.pending.value" @click="session.discard">放弃改动</Button>
                         <span v-if="write.slow.value" class="nbdev-note">在等别的写入完成…</span>
                         <!-- 常驻的实时区域：内容变了读屏才会播报；插入时就带着字的不播报。 -->

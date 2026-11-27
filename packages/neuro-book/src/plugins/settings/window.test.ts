@@ -36,7 +36,7 @@ import {clockKey, windowConnectionKey, windowDesktopKey, windowPluginsKey} from 
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
-import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
+import {createSettingsHost} from "nbook/plugins/settings/web/lab/settings-host";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
@@ -325,6 +325,40 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         expect(window.current.value?.unavailable).toBe(t("model.userOnlySection"));
         window.setLayer("user");
         expect(window.current.value?.unavailable).toBeNull();
+    });
+});
+
+describe("只读目录（输出 24）", () => {
+    it("节按左栏的先后，带标题、种类与层；设置只收画成行的，按节与行的先后，没有归属的在“其它”节", async () => {
+        const sections = {
+            "x.notes.main": list({groups: [{id: "basics", title: title("基础")}, {id: "advanced", title: title("高级")}]}),
+            "x.notes.page": pageSection({category: "ai", layers: ["user"], keywords: [title("笔记页面")]}),
+            "x.notes.first": list({category: "app", order: -5, title: title("最先")}),
+        };
+        const {probe} = await start([contributor("x.notes", sections, toggle(), Object.values(notes)), contributor("x.misc", {}, toggle(), [misc])]);
+        const {window} = windowFor(probe, false);
+        const view = window.catalogView();
+
+        expect(view.bound).toBe(false);
+        expect(view.sections.map((section) => section.id)).toEqual(window.nav.value.flatMap((group) => group.items).map((item) => item.id));
+        expect(view.sections.find((section) => section.id === "x.notes.first")).toMatchObject({title: "最先", kind: "list"});
+        expect(view.sections.find((section) => section.id === "x.notes.page")).toEqual({id: "x.notes.page", title: "页面", kind: "page", layers: ["user"], keywords: ["笔记页面"]});
+        expect(view.settings.filter((setting) => setting.section === "x.notes.main").map((setting) => setting.key)).toEqual(["x.notes/delta", "x.notes/gamma", "x.notes/beta", "x.notes/alpha", "x.notes/userOnly"]);
+        expect(view.settings.find((setting) => setting.key === "x.notes/userOnly")).toEqual({key: "x.notes/userOnly", title: "戊", description: null, section: "x.notes.main", layers: ["user"]});
+        expect(view.settings.filter((setting) => setting.section === OTHER_SECTION_ID).map((setting) => setting.key)).toEqual(["x.misc/flag", "x.notes/lonely", "x.notes/loose", "x.notes/orphan"]);
+        expect(view.settings.map((setting) => setting.key)).not.toContain("x.notes/paged");
+    });
+
+    it("只在桌面壳里显示的节与它的设置，在浏览器窗口的目录里没有；打开了作品的窗口 bound 为真", async () => {
+        const windowOnly = defineSetting({plugin: "x.shell", name: "zoom", schema: Type.Boolean(), default: false, title: title("窗口缩放比例"), section: "x.shell.window"});
+        const sections = {"x.shell.window": list({title: title("桌面窗口"), host: "desktop"}), "x.shell.main": list({title: title("通用")})};
+        for (const desktop of [false, true]) {
+            const {probe} = await start([contributor("x.shell", sections, toggle(), [windowOnly, notes.gamma])], true, desktop);
+            const view = windowFor(probe, true).window.catalogView();
+            expect(view.bound).toBe(true);
+            expect(view.sections.some((section) => section.id === "x.shell.window"), String(desktop)).toBe(desktop);
+            expect(view.settings.some((setting) => setting.key === "x.shell/zoom"), String(desktop)).toBe(desktop);
+        }
     });
 });
 

@@ -158,7 +158,7 @@ const previewStyle = (asset: string): Record<string, string> => ({"--icon-url": 
                 <Input v-model="draft" size="sm" :placeholder="text('themeEditor.icons.placeholder')" :aria-label="text('themeEditor.icons.name')" role="combobox" aria-autocomplete="list" :aria-expanded="candidates.length > 0" :aria-controls="candidates.length > 0 ? menuId : undefined" :aria-activedescendant="activeDescendant" data-icon-name @focus="onFocus" @blur="focused = false" @input="dismissed = false; activeIndex = -1" @keydown="onKeydown" />
                 <SuggestionMenu :id="menuId" :groups="menuGroups" :active-id="activeId" :anchor="candidates.length > 0 ? field : null" :label="text('themeEditor.icons.suggestions')" match-anchor-width @select="choose" @highlight="(name: string) => (activeIndex = candidates.indexOf(name))" />
             </div>
-            <Button size="sm" :loading="status.shownBusy.value" :disabled="status.busy.value" icon-class="i-lucide-image-plus" data-icon-choose @click="add">{{ replacing ? text("themeEditor.icons.replace") : text("themeEditor.icons.add") }}</Button>
+            <Button variant="primary" size="sm" :loading="status.shownBusy.value" :disabled="status.busy.value" icon-class="i-lucide-image-plus" data-icon-choose @click="add">{{ replacing ? text("themeEditor.icons.replace") : text("themeEditor.icons.add") }}</Button>
             <Button size="sm" variant="ghost" :disabled="status.busy.value || icons.length === 0" icon-class="i-lucide-copy" data-icons-copy @click="model.copyIconsToOther()">{{ text("themeEditor.icons.copyToOther") }}</Button>
             <input ref="input" type="file" accept=".svg,image/svg+xml" class="theme-editor-icons__file" data-icon-file @change="onFile" />
         </div>

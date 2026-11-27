@@ -106,7 +106,7 @@ test("展开列表（conversation.md 输出 2、3、44、57）：点底段“会
     await expect(rail).toHaveAttribute("data-rail-state", "expanded");
     const list = rail.locator('[data-rail-segment="main"] [data-messages-list-panel]');
     await expect(list).toBeVisible();
-    await expect(rail.locator("[data-rail-handle]")).toHaveAttribute("aria-valuenow", "260");
+    await expect(rail.locator("[data-rail-handle]")).toHaveAttribute("aria-valuenow", "300");
     // 头不随展开换位置：停靠时一直在面板头里，内容里不另画一行头（输出 44、57）。
     await expect(conversationHandle(page).locator("[data-header-title]")).toBeVisible();
     await expect(page.locator("[data-agent-head]")).toBeHidden();
@@ -118,8 +118,8 @@ test("展开列表（conversation.md 输出 2、3、44、57）：点底段“会
     await expect(input(page)).toBeVisible();
     expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
 
-    // 点展开按钮收起：回到快切列，列表拿掉。
-    await rail.locator("[data-rail-expand]").click();
+    // 点展开按钮收起（视图画的、列表右上角那一个）：回到快切列，列表拿掉。
+    await rail.locator("[data-rail-toggle]").click();
     await expect(rail).toHaveAttribute("data-rail-state", "collapsed");
     await expect(page.locator("[data-messages-list-panel]")).toHaveCount(0);
     await expect(rail.locator('[data-messages-segment-state="collapsed"]')).toBeVisible();

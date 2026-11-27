@@ -9,7 +9,7 @@
  */
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 
@@ -34,7 +34,7 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {descriptor} from "../plugin";
-import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, TOGGLE_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
+import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, TOGGLE_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsCatalogKey, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
 import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
 import {acceptedSettings, choicesPoint, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
@@ -121,6 +121,7 @@ export const settingsWindowEntry = defineEntry({
     location: "browser",
     activationEvents: ["onStartup"],
     dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}, {key: windowTextKey, required: false}],
+    provides: [settingsCatalogKey],
     contributions: [
         {capability: COMMANDS_POINT, id: OPEN_SETTINGS_COMMAND, declaration: OPEN_SETTINGS_DECLARATION},
         {capability: COMMANDS_POINT, id: TOGGLE_SETTINGS_COMMAND, declaration: TOGGLE_SETTINGS_DECLARATION},
@@ -160,6 +161,7 @@ export const settingsWindowEntry = defineEntry({
             },
         };
         return {
+            services: [provideService(settingsCatalogKey, {read: () => settingsWindow.catalogView()})],
             contributions: {
                 [COMMANDS_POINT]: {[OPEN_SETTINGS_COMMAND]: {run}, [TOGGLE_SETTINGS_COMMAND]: {run: () => settingsWindow.toggleWindow()}},
                 [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),

@@ -11,12 +11,12 @@ import type {ReviewRequest} from "./types.js";
 
 const REASONS = {failed: "host/failed", escalatedPrefix: "host/escalated:"};
 const usage = {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true};
-const request: ReviewRequest = {call: {id: "c", tool: "kit.shell", args: {command: "touch a"}}, effect: "exec", paths: [{access: "write", address: "work://a"}]};
+const request: ReviewRequest = {call: {id: "c", tool: "kit.shell", args: {command: "touch a"}}, effect: "exec", paths: [{access: "write", address: "work://a"}], subjects: []};
 
 type Reply = Partial<ModelResponse> | ((options: {signal?: AbortSignal; sessionModel?: boolean}) => Promise<ModelResponse>);
 const verdictReply = (decision: string, reason = "因为如此"): Partial<ModelResponse> => ({stopReason: "tool", toolCalls: [{id: "v", tool: "submit_verdict", args: {decision, reason}}]});
 
-function review(replies: readonly Reply[], options: {readonly timeoutMs?: number; readonly project?: string | null; readonly call?: ReviewRequest["call"]} = {}) {
+function review(replies: readonly Reply[], options: {readonly timeoutMs?: number; readonly project?: string | null; readonly call?: ReviewRequest["call"]; readonly subjects?: ReviewRequest["subjects"]} = {}) {
     const drafts: {draft: ModelDraft; options: {purpose: string; sessionModel?: boolean}}[] = [];
     const reports: string[] = [];
     let index = 0;
@@ -40,7 +40,7 @@ function review(replies: readonly Reply[], options: {readonly timeoutMs?: number
         report: (code, _message, params) => void reports.push(`${code}:${String(params?.kind)}`),
         ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
     });
-    return {run: () => reviewer(options.call === undefined ? request : {...request, call: options.call}, ctx), drafts, reports};
+    return {run: () => reviewer({...request, ...(options.call === undefined ? {} : {call: options.call}), ...(options.subjects === undefined ? {} : {subjects: options.subjects})}, ctx), drafts, reports};
 }
 
 describe("审批模型", () => {
@@ -83,6 +83,16 @@ describe("审批模型", () => {
         const r = review([never], {timeoutMs: 5});
         expect(await r.run()).toEqual({verdict: "ask", reason: REASONS.failed});
         expect(r.reports).toEqual(["permission-auto-failed:timeout"]);
+    });
+
+    test("输出 20：路径与命令之外的判定对象也交给审批模型，算进这次调用的长度", async () => {
+        const shown = review([verdictReply("allow")], {subjects: [{kind: "screen", value: "element"}]});
+        expect(await shown.run()).toEqual({verdict: "allow", by: "mode:auto"});
+        const input = JSON.parse((shown.drafts[0]!.draft.messages[0]!.content[0] as {text: string}).text) as {pending_action: {subjects?: unknown}};
+        expect(input.pending_action.subjects).toEqual([{kind: "screen", value: "element"}]);
+        const long = review([verdictReply("allow")], {subjects: [{kind: "screen", value: "x".repeat(20_000)}]});
+        expect(await long.run()).toEqual({verdict: "ask", reason: REASONS.failed});
+        expect(long.drafts).toHaveLength(0);
     });
 
     test("输出 20：这次调用太长不问模型，直接转人工", async () => {

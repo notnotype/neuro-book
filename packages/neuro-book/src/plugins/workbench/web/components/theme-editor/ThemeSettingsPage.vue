@@ -42,7 +42,7 @@ const mine = computed(() => props.themes.filter((entry) => entry.plugin === USER
                 <h3 class="theme-settings-page__hero-title">{{ text("themeEditor.entry.heroTitle") }}</h3>
                 <p class="theme-settings-page__hero-text">{{ text("themeEditor.entry.intro") }}</p>
                 <div class="theme-settings-page__hero-actions">
-                    <Button icon-class="i-lucide-panel-top" data-open-tab @click="emit('open', 'tab')">{{ text("themeEditor.entry.openTab") }}</Button>
+                    <Button variant="primary" icon-class="i-lucide-panel-top" data-open-tab @click="emit('open', 'tab')">{{ text("themeEditor.entry.openTab") }}</Button>
                     <Button variant="secondary" icon-class="i-lucide-app-window" data-open-floating @click="emit('open', 'floating')">{{ text("themeEditor.entry.openFloating") }}</Button>
                 </div>
             </div>

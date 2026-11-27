@@ -288,9 +288,6 @@
         "activityBar": "活动栏",
         "auxiliaryRail": "右栏的侧轨",
         "rail": {
-            "expand": "展开",
-            "collapse": "收起",
-            "tooNarrow": "窗口太窄",
             "handle": "调整侧轨宽度"
         },
         "regionStrip": {

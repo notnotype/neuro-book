@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 首页原型里那台能上手的工作台（同名 .md，w00056 t06）。拼法：视图的头、活动栏与入口条照 `fixtures/WorkbenchSurfaceFixture.vue`，
- * 编辑组、拖动与拖动反馈照 `fixtures/editor-scene/EditorAreaFixture.vue`，资源管理器照 `fixtures/explorer-scene/ExplorerLiveScene.vue`。
+ * 首页原型里那台能上手的工作台（同名 .md，w00056 t06）。拼法：视图的头、活动栏与入口条照 `workbench/web/lab/WorkbenchSurfaceFixture.vue`，
+ * 编辑组、拖动与拖动反馈照 `editor/web/lab/EditorAreaFixture.vue`，资源管理器照 `explorer/web/lab/ExplorerLiveScene.vue`。
  *
  * 布局文档只有一份，放在这里的 `doc`；编辑器区经 `createEditorPanels` 改它，视图的结构操作、拖缝的落账也都走 `apply`。
  * `apply` 照产品的布局 store（`workbench/web/state/layout-doc-store.ts`）做同样几步：先把呈现尺寸写回意图，守骨架，树变了就取消最大化，
@@ -59,9 +59,9 @@ import {provideHostText} from "nbook/web/host/host-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../../lab-event-sink";
-import {createLabEditorMenus} from "../../fixtures/editor-scene/lab-editor-menus";
-import {createMemoryFiles} from "../../fixtures/explorer-scene/memory-files";
-import {labStickers} from "../../fixtures/lab-stickers";
+import {createLabEditorMenus} from "../../../../editor/web/lab/lab-editor-menus";
+import {createMemoryFiles} from "../../../../explorer/web/lab/memory-files";
+import {labStickers} from "../../../../stickers/web/lab/lab-stickers";
 import {labAgentRegistry, labAgentRenderers, labAgentServices, provideLabMarkdown} from "../../fixtures/nb-agent-ui/host";
 // 星璃的头像是 bots 插件的内置素材；插件之间不直接引对方 web、shared 以外的文件（architecture.test.ts 的依赖方向），这里用一份副本。
 import LYRA_AVATAR from "./assets/lyra-avatar.webp";

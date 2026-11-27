@@ -9,8 +9,9 @@ const sessions = ["s1", "s2", "s3", "s4", "s5", "s6"];
  * 3、5、8 项是 137、217、337（`w00043 t19 evidences/impl-review-7-sonnet.txt` 第 1 条）。
  */
 const heightFor = (items: number): number => items * SEGMENT_ITEM_STEP + SEGMENT_DIVIDER + SEGMENT_PADDING;
-const fit = (height: number | null, current: {bot?: string; session?: string} = {}, input: {bots?: string[]; sessions?: string[]} = {}) => fitSegment({
+const fit = (height: number | null, current: {bot?: string; session?: string} = {}, input: {bots?: string[]; sessions?: string[]; fixed?: number} = {}) => fitSegment({
     height,
+    ...(input.fixed === undefined ? {} : {fixed: input.fixed}),
     bots: input.bots ?? bots,
     sessions: input.sessions ?? sessions,
     isCurrentBot: (bot) => bot === current.bot,
@@ -50,6 +51,11 @@ describe("视图段收着时放几项（conversation 输出 57 的“收着”�
     test("极矮：bot 一组至少一个位置（全收进“+N”，当前 bot 也收进去），当前会话仍在", () => {
         expect(fit(heightFor(2), {session: "s4", bot: "b3"})).toEqual({bots: [], more: 5, sessions: ["s4"]});
         expect(fit(0)).toEqual({bots: [], more: 5, sessions: []});
+    });
+
+    test("总在的项多一个（展开按钮）时，同样的高度少放一项，从最近会话的末尾减", () => {
+        expect(fit(heightFor(2 + 5 + 4), {}, {fixed: 2})).toEqual({bots, more: 0, sessions: ["s1", "s2", "s3", "s4"]});
+        expect(fit(heightFor(1 + 5 + 4), {}, {fixed: 2})).toEqual({bots, more: 0, sessions: ["s1", "s2", "s3"]});
     });
 
     test("没有 bot 时会话用满剩下的位置；会话不到两个时 bot 只给它们留实际的数", () => {

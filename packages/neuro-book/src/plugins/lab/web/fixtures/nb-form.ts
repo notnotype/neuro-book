@@ -8,7 +8,7 @@ import {Type} from "typebox";
 import {defineComponent, h} from "vue";
 import type {Component} from "vue";
 
-import type {LabFixture} from "./index";
+import type {LabFixture} from "./define";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /** 组件套一层场景的翻译端口（`nb-form-text.ts`）：场景输入的 `locale` 决定界面语言，不跟 Lab 窗口走。 */

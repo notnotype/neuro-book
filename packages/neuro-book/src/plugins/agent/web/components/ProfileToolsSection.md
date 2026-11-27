@@ -4,7 +4,7 @@
 
 # ProfileToolsSection
 
-Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：按来源分组，我的、各插件一组（组头是插件名，撞名时带插件 id）、内置，组 id 是 `user`、`plugin:<插件 id>`、`builtin`；`effect` 一列写“未初始化”“无效”“我加的”，无效的悬停写原因；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。“表情包”一节同样（`kind: "stickers"`，输出 27，[`agent/stickers.md`](../../../../../../../docs/specs/agent/stickers.md) 输出 19）：分组是我的、各插件一组；名字一列是显示名（不用等宽字），前面一张 24px 的缩略图（第一个常用表情，没有表情时留同样大的空位）；`summary` 是表情数与说明；文字取 `profiles.stickers.*`。
+Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25、28）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。全局对象（例如 `ui`）的方法合成一行（`object` 写对象名，行上带 `data-profile-tool-object`）：等级一列是方法里最高的一档，悬停列出每个方法与等级；行有问题时（`warning`，例如还没有 `eval`）说明换成原因，前面是与模型一栏相同的警示图标与颜色。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：按来源分组，我的、各插件一组（组头是插件名，撞名时带插件 id）、内置，组 id 是 `user`、`plugin:<插件 id>`、`builtin`；`effect` 一列写“未初始化”“无效”“我加的”，无效的悬停写原因；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。“表情包”一节同样（`kind: "stickers"`，输出 27，[`agent/stickers.md`](../../../../../../../docs/specs/agent/stickers.md) 输出 19）：分组是我的、各插件一组；名字一列是显示名（不用等宽字），前面一张 24px 的缩略图（第一个常用表情，没有表情时留同样大的空位）；`summary` 是表情数与说明；文字取 `profiles.stickers.*`。
 
 ## 布局
 

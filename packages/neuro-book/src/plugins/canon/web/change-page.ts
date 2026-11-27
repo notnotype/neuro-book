@@ -52,7 +52,7 @@ export function createChangePage(options: ChangePageOptions): EditorPageImplemen
     const receipt = (revision: string): void => options.execute(OPEN_RECEIPT_COMMAND, {revision});
     return {
         load: async () => {
-            const Host = (await import("./components/ChangePageHost.vue")).default;
+            const Host = (await import("./components/revisions/ChangePageHost.vue")).default;
             return defineComponent({
                 name: "CanonChangePage",
                 props: {context: {type: Object as PropType<EditorPageContext<ChangePageState>>, required: true}},

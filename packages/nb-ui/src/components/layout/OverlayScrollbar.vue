@@ -164,7 +164,7 @@ function onTrackDown(event: PointerEvent): void {
  * 一个宽度，这样滑块粗细换了，轨道仍贴在右缘，不必在脚本里知道它有多宽。
  *
  * 显隐的时机照 VS Code（`--motion-reveal-*`）：出现时淡入；消失先停一会儿再淡出（过渡延迟写在隐藏态上，显示态没有
- * 延迟）。看不见时不接指针，免得挡住下面的内容。系统减少动画时这几个时长都是 0。
+ * 延迟）。看不见时不接指针，免得挡住下面的内容。只变透明度，系统减少动画时照常淡入淡出。
  */
 .nb-ui-overlay-scrollbar {
     position: absolute;

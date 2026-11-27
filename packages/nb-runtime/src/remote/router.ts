@@ -141,9 +141,14 @@ class RemoteRouterImpl implements RemoteRouter {
         this.#hub = hub;
         this.#options = options;
         this.#boot = options.boot ?? crypto.randomUUID();
+        // 服务端自己节点的上游：节点把它当成一条“去路由”的链路。与成员节点的上游不同，它在进程内、从不断开重连，
+        // 下面两处因此要与 #routeRequest、#routeSubscribe 给成员的回答保持一致（plugin-channel 输出 7、8）。
         const upstream: Upstream = {
             request: (frame, options) => {
                 const destination = this.#resolve(hub.instance, frame.target, frame.$nbConsumer);
+                if (destination.kind === "hub" && frame.contract === INSTANCES_CONTRACT) {
+                    return Promise.resolve({ok: true, value: this.instances()});
+                }
                 if (destination.kind !== "member") {
                     return Promise.resolve(this.#refusal(frame.effect, destination));
                 }
@@ -154,7 +159,12 @@ class RemoteRouterImpl implements RemoteRouter {
                 if (destination.kind !== "member") {
                     return {outcome: Promise.resolve(this.#refusal("read", destination)), cancel: () => undefined};
                 }
-                const started = destination.member.peer.subscribe(frame, handlers);
+                // 节点收到 disconnected 时等自己的上游重连后重建订阅；这条上游不会重连，而成员链路一断，
+                // 那个成员（窗口或项目子进程）就不在了。改报 target-gone，订阅随即结束，不留下永不结束的订阅。
+                const started = destination.member.peer.subscribe(frame, {
+                    onEvent: handlers.onEvent,
+                    onEnd: (reason) => handlers.onEnd(reason === "disconnected" ? "target-gone" : reason),
+                });
                 return {outcome: started.outcome, cancel: () => destination.member.peer.unsubscribe(started.id)};
             },
             release: (frame) => {
@@ -210,14 +220,19 @@ class RemoteRouterImpl implements RemoteRouter {
      */
     #register(descriptor: InstanceDescriptor, peer: Peer, binding: Member["binding"]): Member {
         const existing = this.#members.get(descriptor.id);
-        const member: Member = {descriptor, peer, binding};
+        // 描述经 instances() 原样交给同进程的服务端插件，冻结后插件改不动路由用的这一份。
+        const member: Member = {descriptor: Object.freeze({...descriptor, project: descriptor.project === null ? null : Object.freeze({...descriptor.project})}), peer, binding};
         this.#members.set(descriptor.id, member);
         existing?.peer.close();
         return member;
     }
 
+    /**
+     * 此刻在线的实例。成员链路关闭时，Peer 先结束它上面的订阅、之后路由才删掉成员：订阅的结束回调里查目录，
+     * 链路已关的成员不应再列出，所以按 `peer.closed` 过滤，而不是只看成员表。
+     */
     instances(): ReadonlyArray<InstanceDescriptor> {
-        return [this.#hub.instance, ...[...this.#members.values()].map((member) => member.descriptor)];
+        return [this.#hub.instance, ...[...this.#members.values()].filter((member) => !member.peer.closed).map((member) => member.descriptor)];
     }
 
     stopAdmission(): void {

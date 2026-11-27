@@ -1,0 +1,48 @@
+# t20 第二部分 收口 e2e（Work 分支 900d1729b 的构建，7 个文件）
+# 命令：npx playwright test -c e2e/playwright.config.ts e2e/agent-messages-rail.e2e e2e/agent-messages-float.e2e e2e/workbench-side-rail.e2e e2e/workbench-side-rail-segment.e2e e2e/workbench-containers.e2e e2e/agent-conversation.e2e e2e/lab-agent-ui.e2e
+start load 10.63 23.48 31.22 3/2846 3882421
+  7 failed
+  196 passed (39.2m)
+E2EDONE exit=1 load 18.28 19.39 24.20 11/2750 162995
+# 失败：
+    e2e/lab-agent-ui.e2e.ts:140:5 › 对话视图的消息流 › 停在底部时跟随；离开底部后下方的输出与整轮收起都不移动正在读的内容；回到最新（验收 4）
+    e2e/lab-agent-ui.e2e.ts:176:5 › 对话视图的消息流 › 正在读过程时运行结束：最终回复停在原处，焦点从过程移到整轮摘要行
+    e2e/lab-agent-ui.e2e.ts:193:5 › 对话视图的消息流 › 加载更早一页后可见内容不动，开头不完整的一轮沿用同一个组件；全部加载后各轮收起（验收 7）
+    e2e/lab-agent-ui.e2e.ts:219:5 › 对话视图的消息流 › 加载失败时顶部显示错误与重试，重试成功后多出更早的轮次
+    e2e/lab-agent-ui.e2e.ts:572:5 › 输入框 › 角色模型选择器：窄面板与英文下面板、分段与说明没有横向溢出，触发器的长名字被省略、档位留着；选档、回到跟随在 Lab 里来回
+    e2e/lab-agent-ui.e2e.ts:635:5 › 向导与状态栏（docs/specs/agent/conversation.md 输出 10–15） › 向导贴在消息流底部，不盖最后一条；往上滚时浮在内容上；最高占视图的 60%
+    e2e/lab-agent-ui.e2e.ts:678:5 › 向导与状态栏（docs/specs/agent/conversation.md 输出 10–15） › 提问：选项、其它、表单都能填；表单不对不能提交
+
+# 6 条单独串行重跑（负载 11→33）：
+start load 11.21 17.56 22.62 5/2709 202819
+  6 failed
+RERUNDONE exit=1 load 33.34 28.36 26.11 15/2733 254436
+
+# 对照：第 140、635 行在 base（c41ff201e）与 branch 上交替单独跑两轮
+== round 1 base load 20.64
+Running 2 tests using 1 worker
+    > 45 |     await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+  1 failed
+  1 passed (1.3m)
+== round 1 branch load 22.05
+Running 2 tests using 1 worker
+  2 passed (44.8s)
+== round 2 base load 15.80
+Running 2 tests using 1 worker
+    > 45 |     await expect.poll(async () => (await labState(page))?.ready).toBe(true);
+  1 failed
+  1 passed (1.2m)
+== round 2 branch load 20.59
+Running 2 tests using 1 worker
+  2 passed (48.2s)
+ABDONE
+
+# 剩下 4 条在 branch 上单独跑：
+load 20.40
+Running 4 tests using 1 worker
+  1) e2e/lab-agent-ui.e2e.ts:176:5 › 对话视图的消息流 › 正在读过程时运行结束：最终回复停在原处，焦点从过程移到整轮摘要行 ───────────────────
+  1 failed
+  3 passed (1.9m)
+R2DONE load 21.72
+
+# 归类：572 是已知原有失败；其余 6 条都挂在 openScene 等 labState.ready（Lab 冷启动），base 在同样负载下同样挂，归环境。

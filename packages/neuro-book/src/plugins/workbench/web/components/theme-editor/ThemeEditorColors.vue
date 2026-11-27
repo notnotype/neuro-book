@@ -66,7 +66,7 @@ const roleValue = (name: string): string => model.current.value?.declaration[mod
                 @change="failed = false; model.setSeed(seed, $event)"
             />
             <div class="theme-editor-colors__actions">
-                <Button size="sm" data-derive @click="derive">{{ text("themeEditor.colors.derive") }}</Button>
+                <Button variant="primary" size="sm" data-derive @click="derive">{{ text("themeEditor.colors.derive") }}</Button>
                 <Button size="sm" variant="secondary" data-derive-from-other @click="deriveFromOther">{{ text("themeEditor.colors.fromOther", {other: otherLabel}) }}</Button>
                 <span class="theme-editor-colors__hint">{{ text("themeEditor.colors.deriveHint") }}</span>
             </div>

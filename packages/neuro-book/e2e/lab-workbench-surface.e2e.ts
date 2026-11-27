@@ -1,5 +1,5 @@
 /**
- * 一棵树的工作台表面（docs/specs/ui/workbench-layout.md 的“渲染”“面板头与活动栏”）：夹具是 `lab/web/fixtures/WorkbenchSurfaceFixture.vue`，文档、呈现树、有效可见、活动栏条目都用产品的纯函数算。
+ * 一棵树的工作台表面（docs/specs/ui/workbench-layout.md 的“渲染”“面板头与活动栏”）：夹具是 `workbench/web/lab/WorkbenchSurfaceFixture.vue`，文档、呈现树、有效可见、活动栏条目都用产品的纯函数算。
  */
 
 import {rm} from "node:fs/promises";
@@ -127,6 +127,20 @@ test.describe("面板头", () => {
         // 焦点在内容里时，指针走开也还显示。
         await page.locator("[data-content='view:a'] [data-structure-first]").focus();
         await expect.poll(opacity).toBe("1");
+    });
+
+    test("Agent 高亮里面的按钮时动作区带 data-nb-agent-reveal：指针不在面板上也显示，去掉后回到随鼠标（views.md 输出 25）", async ({page}) => {
+        await open(page);
+        const head = `[data-panel-head='${section("a")}']`;
+        const action = page.locator(`${head} [data-hover-actions=""]`);
+        const opacity = () => action.evaluate((element) => getComputedStyle(element).opacity);
+
+        await page.locator("[data-content='view:c']").hover();
+        await expect.poll(opacity).toBe("0");
+        await action.evaluate((element) => element.setAttribute("data-nb-agent-reveal", ""));
+        await expect.poll(opacity).toBe("1");
+        await action.evaluate((element) => element.removeAttribute("data-nb-agent-reveal"));
+        await expect.poll(opacity).toBe("0");
     });
 });
 
