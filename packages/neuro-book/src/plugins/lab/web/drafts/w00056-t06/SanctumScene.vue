@@ -9,8 +9,11 @@
  *    追上了、浮尘也看不见了就停；`progress` 变了再起。
  * 3. 平滑后的进度到 1 时桌子的变换换成 `none`，发 `landed`；往回滚离开 1 时再发一次。
  * 4. 首屏停着时的动静（第 7 轮，`effects`，每一样写在 `sanctum.ts` 的 `SceneEffect`）都挂在同一个帧循环上：
- *    从字到世界按一条时间线走（时间只在首屏亮着、镜头没推走时往前走，页面在后台时帧循环自己停），每一步只拨几个开关，怎么显出来归样式；
- *    金尘画在浮尘那张画布上。指针视差、反光与丝带尾巴读同一份带惯性的指针位置，每帧写到各层的 `sx-par` 与几个变量上。
+ *    从字到世界按一条时间线走（时间只在首屏亮着、镜头没推走、没在细看哪张纸时往前走，页面在后台时帧循环自己停），每一步只拨几个开关，
+ *    怎么显出来归样式；金尘画在浮尘那张画布上。指针视差、反光与丝带尾巴读同一份带惯性的指针位置，每帧写到各层的 `sx-par` 与几个变量上。
+ * 5. 第 8 轮（开发者：首页旁边的东西要能点、要有跟鼠标位置与速度互动的动画）：点一张纸细看，它转正、放大、往前凑，别的压暗，
+ *    再点、点别处、按 Esc 或一滚动就放回去（细看到几成由帧循环里的弹簧追，镜头投影时多挪一点、放大一点）；指针的速度另记一份，
+ *    划过光束时浮尘被带着走、打个旋、亮一下，丝带被风带着摆；指针停在一张纸上 0.4 秒，纸上的几处细节亮起来。
  */
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 
@@ -21,7 +24,7 @@ import VELVET from "./assets/velvet.webp";
 
 import {prefersReducedMotion, timeScale} from "./motion";
 import {deskBox, deskShot, floaterShot, heroShot, landingBox, lightShot, SANCTUM_MIN_WIDTH, SCENE_EFFECTS, smooth} from "./sanctum";
-import type {Floater, SceneEffect, StageSize} from "./sanctum";
+import type {Floater, FloaterLift, SceneEffect, StageSize} from "./sanctum";
 
 const props = withDefaults(defineProps<{
     progress?: number;
@@ -49,6 +52,7 @@ const reduced = prefersReducedMotion();
 /** 工作台的位置：宽屏是落地的位置；窄屏不俯冲，平放在首屏文字下面，整屏可上手。 */
 const box = computed(() => deskBox(size.value));
 const px = (value: number): string => `${Math.round(value * 10) / 10}px`;
+const fixed = (value: number): string => (Math.round(value * 1000) / 1000).toString();
 const carrierBox = computed(() => ({left: px(box.value.left), top: px(box.value.top), width: px(box.value.width), height: px(box.value.height)}));
 
 // ── 悬在空中的几层：首屏时的位置、深度与姿态（见 `sanctum.ts` 的 `Floater`） ──
@@ -58,10 +62,35 @@ interface Layer {
     readonly width: number;
     readonly height: number;
 }
+
+/** 三张纸（能点开细看的那几层）。 */
+type PaperId = "manuscript" | "character" | "map";
+const PAPER_IDS: readonly PaperId[] = ["manuscript", "character", "map"];
+/** 三张纸悬着的倾角（度）。细看时按几成转正：留一成五的倾角，像拿在手里看，不是贴在屏幕上。 */
+const TILTS: Readonly<Record<PaperId, {readonly x: number; readonly y: number; readonly z: number}>> = {
+    manuscript: {x: 4, y: 24, z: -7},
+    character: {x: 0, y: -26, z: 6},
+    map: {x: 40, y: 0, z: 9},
+};
+function paperPose(name: PaperId, focus: number): string {
+    const keep = 1 - 0.85 * focus;
+    const {x, y, z} = TILTS[name];
+    return `perspective(900px) rotateY(${fixed(y * keep)}deg) rotateZ(${fixed(z * keep)}deg) rotateX(${fixed(x * keep)}deg)`;
+}
+/**
+ * 细看时在屏幕上多挪多少、放多大：手稿与人物卡往下让一点、不压标题两端，地图往上提、不被舞台下沿裁掉（@designer 第 8 轮：落位微偏，
+ * 不盖死主标题与按钮）。
+ */
+const FOCUS_LIFT: Readonly<Record<PaperId, {readonly dx: number; readonly dy: number; readonly zoom: number}>> = {
+    manuscript: {dx: 28, dy: 56, zoom: 1.24},
+    character: {dx: -28, dy: 60, zoom: 1.24},
+    map: {dx: 48, dy: -104, zoom: 1.22},
+};
+
 const LAYERS = {
-    manuscript: {floater: {at: {x: 0.15, y: 0.44}, depth: -620, pose: "perspective(900px) rotateY(24deg) rotateZ(-7deg) rotateX(4deg)", fade: [160, 520]}, width: 250, height: 330},
-    character: {floater: {at: {x: 0.858, y: 0.38}, depth: -470, pose: "perspective(900px) rotateY(-26deg) rotateZ(6deg)", fade: [160, 520]}, width: 230, height: 300},
-    map: {floater: {at: {x: 0.2, y: 0.84}, depth: -240, pose: "perspective(900px) rotateX(40deg) rotateZ(9deg)", fade: [160, 520]}, width: 330, height: 236},
+    manuscript: {floater: {at: {x: 0.15, y: 0.44}, depth: -620, pose: paperPose("manuscript", 0), fade: [160, 520]}, width: 250, height: 330},
+    character: {floater: {at: {x: 0.858, y: 0.38}, depth: -470, pose: paperPose("character", 0), fade: [160, 520]}, width: 230, height: 300},
+    map: {floater: {at: {x: 0.2, y: 0.84}, depth: -240, pose: paperPose("map", 0), fade: [160, 520]}, width: 330, height: 236},
     book: {floater: {at: {x: 0.9, y: 1.02}, depth: 170, pose: "rotateZ(-6deg)", fade: [300, 560]}, width: 560, height: 560},
     ribbon: {floater: {at: {x: 0.05, y: 0.22}, depth: 130, pose: "rotateZ(13deg)", fade: [280, 540]}, width: 64, height: 620},
 } as const satisfies Readonly<Record<string, Layer>>;
@@ -270,6 +299,15 @@ const aim = {x: 0, y: 0};
 const gaze = {x: 0, y: 0, vx: 0, vy: 0};
 const tail = {x: 0, v: 0};
 
+/**
+ * 指针在舞台上的位置与速度（舞台坐标；px 与 px/s，平滑过约 50ms）：划过光束时搅动浮尘、风吹丝带（第 8 轮）。
+ * 时刻取事件自带的时间戳（和 `performance.now()` 同一个钟）：主线程忙时移动事件会攒成一批才送到，按处理的时刻算速度会差得很远
+ * （设计语言踩过的坑 87）。
+ * 停下以后不再有移动事件，速度由帧循环衰减到零（`stepEffects`）。`fromX`、`fromY` 是上一帧画浮尘时指针在哪：搅动按这一帧扫过的那一段算。
+ */
+const stir = {x: -1e4, y: -1e4, vx: 0, vy: 0, at: 0, fromX: -1e4, fromY: -1e4};
+const STIR_MAX_SPEED = 3500;
+
 function onPointerMove(event: PointerEvent): void {
     // 只认真的鼠标：第一幕演示的指针是合成的事件，触屏没有悬停。
     if (!event.isTrusted || event.pointerType !== "mouse") return;
@@ -278,6 +316,27 @@ function onPointerMove(event: PointerEvent): void {
     const rect = element.getBoundingClientRect();
     aim.x = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1));
     aim.y = Math.max(-1, Math.min(1, ((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1));
+    const zoom = element.offsetWidth > 0 ? rect.width / element.offsetWidth : 1;
+    const x = (event.clientX - rect.left) / zoom;
+    const y = (event.clientY - rect.top) / zoom;
+    const now = event.timeStamp;
+    const gap = (now - stir.at) / 1000;
+    if (gap > 0 && gap < 0.25) {
+        // 事件挤在一起时（浏览器合并移动事件、一帧里补发几个）两次之间的间隔会很短，算出来的速度虚高：封顶 3500 px/s。
+        const blend = 1 - Math.exp(-gap / 0.05);
+        const speed = Math.hypot(x - stir.x, y - stir.y) / gap;
+        const cap = speed > STIR_MAX_SPEED ? STIR_MAX_SPEED / speed : 1;
+        stir.vx += (((x - stir.x) / gap) * cap - stir.vx) * blend;
+        stir.vy += (((y - stir.y) / gap) * cap - stir.vy) * blend;
+    } else {
+        stir.vx = 0;
+        stir.vy = 0;
+        stir.fromX = x;
+        stir.fromY = y;
+    }
+    stir.x = x;
+    stir.y = y;
+    stir.at = now;
     if (rendered < 0.2) wake();
 }
 
@@ -297,12 +356,12 @@ function stepGaze(dt: number): void {
     gaze.vy += (stiff * (aim.y - gaze.y) - damp * gaze.vy) * dt;
     gaze.x += gaze.vx * dt;
     gaze.y += gaze.vy * dt;
+    // 风（第 8 轮）：指针横着划得快，丝带的尾巴被带过去；厚丝绸大阻尼，轻晃即停（@designer 第 8 轮）。
     const soft = 11;
-    tail.v += (soft * (gaze.x - tail.x) - 1.2 * Math.sqrt(soft) * tail.v) * dt;
+    const wind = Math.max(-1, Math.min(1, stir.vx / 1600));
+    tail.v += (soft * (gaze.x + wind * 0.8 - tail.x) - 1.7 * Math.sqrt(soft) * tail.v) * dt;
     tail.x += tail.v * dt;
 }
-
-const fixed = (value: number): string => (Math.round(value * 1000) / 1000).toString();
 
 /** 把指针的那一份写到各层：镜头推走时一起收掉（推到 0.18 收完），落地后不留痕迹。 */
 function applyGaze(): void {
@@ -315,7 +374,7 @@ function applyGaze(): void {
             element.style.transform = `translate3d(${fixed(-gaze.x * shift * fade)}px, ${fixed(-gaze.y * shift * 0.6 * fade)}px, 0) perspective(900px) rotateX(${fixed(gaze.y * tilt * fade)}deg) rotateY(${fixed(-gaze.x * tilt * fade)}deg)`;
         }
     }
-    if (effectOn("ribbon") && ribbonTail.value !== null) ribbonTail.value.style.transform = `rotate(${fixed((tail.x - gaze.x) * 2.6 * fade)}deg)`;
+    if (effectOn("ribbon") && ribbonTail.value !== null) ribbonTail.value.style.transform = `rotate(${fixed((tail.x - gaze.x) * 3.4 * fade)}deg)`;
     if (effectOn("glint")) {
         for (const element of [hero.value, bookGlint.value]) {
             element?.style.setProperty("--sx-glint-x", fixed(gaze.x));
@@ -324,13 +383,119 @@ function applyGaze(): void {
     }
 }
 
-/** 每帧：从字到世界的钟按真实时间往前走（只在首屏亮着、镜头没推走时），指针的那一份追一步再写上去。 */
+/** 每帧：从字到世界的钟按真实时间往前走（只在首屏亮着、镜头没推走、没在细看哪张纸时），指针的那一份追一步再写上去。 */
 function stepEffects(dt: number): void {
-    if (effectOn("relay") && lit.value && rendered < 0.08) advanceRelay(frameMs);
+    if (effectOn("relay") && lit.value && rendered < 0.08 && focused.value === null) advanceRelay(frameMs);
+    if (performance.now() - stir.at > 60) {
+        const decay = Math.exp(-dt / 0.12);
+        stir.vx *= decay;
+        stir.vy *= decay;
+    }
+    stepFocus(frameMs / 1000);
     if (pointerEffects.value) {
         stepGaze(dt);
         applyGaze();
     }
+}
+
+// ── 点纸细看与停驻唤醒（第 8 轮） ──
+
+/** 点了哪张纸细看；null 是都放着。 */
+const focused = ref<PaperId | null>(null);
+/** 每张纸细看到几成（0 到 1）：帧循环里的临界阻尼弹簧追 `focused`，约 0.6 秒到位、不回弹；少动效时直接到位。 */
+const focusAmount: Record<PaperId, {x: number; v: number}> = {manuscript: {x: 0, v: 0}, character: {x: 0, v: 0}, map: {x: 0, v: 0}};
+const isPaper = (name: LayerId): name is PaperId => (PAPER_IDS as readonly LayerId[]).includes(name);
+
+/**
+ * 弹簧按真实时间走（`seconds` 是这一帧真实走过的秒数）：镜头那份时间每帧封顶 64ms，掉帧时拿它推弹簧，细看就慢下来（踩过的坑 82）。
+ * 一帧隔得久时切成不超过 16ms 的小步，弹簧才稳。
+ */
+function stepFocus(seconds: number): void {
+    const stiff = 60;
+    const damp = 2 * Math.sqrt(stiff);
+    for (const name of PAPER_IDS) {
+        const state = focusAmount[name];
+        const goal = focused.value === name ? 1 : 0;
+        if (reduced) {
+            state.x = goal;
+            state.v = 0;
+            continue;
+        }
+        for (let left = Math.min(seconds, 0.5); left > 0; left -= 0.016) {
+            const dt = Math.min(0.016, left);
+            state.v += (stiff * (goal - state.x) - damp * state.v) * dt;
+            state.x += state.v * dt;
+        }
+        if (Math.abs(goal - state.x) < 0.001 && Math.abs(state.v) < 0.01) {
+            state.x = goal;
+            state.v = 0;
+        }
+    }
+}
+
+/** 这一层此刻的投影：细看中的纸按几成转正、多挪一点、放大一点。 */
+function shotOf(stage: StageSize, name: LayerId, p: number): ReturnType<typeof floaterShot> {
+    const amount = isPaper(name) ? focusAmount[name].x : 0;
+    if (!isPaper(name) || amount <= 0.0005) return floaterShot(stage, LAYERS[name].floater, LAYERS[name], p);
+    const lift = FOCUS_LIFT[name];
+    const floater: Floater = {...LAYERS[name].floater, pose: paperPose(name, amount)};
+    const shift: FloaterLift = {dx: lift.dx * amount, dy: lift.dy * amount, zoom: 1 + (lift.zoom - 1) * amount};
+    return floaterShot(stage, floater, LAYERS[name], p, shift);
+}
+
+/** 点一张纸：细看它；再点就放回去。镜头推起来以后不接（纸正往外飞）。 */
+function toggleFocus(name: PaperId): void {
+    if (diving.value) return;
+    focused.value = focused.value === name ? null : name;
+    wake();
+}
+
+/** 细看时点在别处（纸以外）、按 Esc：放回去。 */
+function onDocumentPointerDown(event: PointerEvent): void {
+    if (focused.value === null) return;
+    if (event.target instanceof Element && event.target.closest("[data-sx-paper]") !== null) return;
+    focused.value = null;
+    wake();
+}
+
+function onKeyDown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || focused.value === null) return;
+    focused.value = null;
+    wake();
+}
+
+/**
+ * 停驻唤醒：指针停在一张纸上 0.4 秒没怎么动，那张纸上的几处细节亮起来（伏笔的红圈、海岸与航线、人物卡的金框与印），移开才熄
+ * （@designer 第 8 轮：快划只搅空气，停驻才唤醒字与器物）。指针在纸上时，靠近指针的那一角微微抬起（`--lift-x`、`--lift-y`）。
+ */
+const awake = ref<PaperId | null>(null);
+const DWELL_MS = 400;
+let dwellTimer = 0;
+let dwellFrom = {x: 0, y: 0};
+
+function onPaperMove(name: PaperId, event: PointerEvent): void {
+    if (!event.isTrusted || event.pointerType !== "mouse") return;
+    const element = event.currentTarget as HTMLElement;
+    const rect = element.getBoundingClientRect();
+    element.style.setProperty("--lift-x", fixed(Math.max(-1, Math.min(1, ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1))));
+    element.style.setProperty("--lift-y", fixed(Math.max(-1, Math.min(1, ((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1))));
+    if (awake.value === name) return;
+    if (dwellTimer !== 0 && Math.hypot(event.clientX - dwellFrom.x, event.clientY - dwellFrom.y) < 4) return;
+    dwellFrom = {x: event.clientX, y: event.clientY};
+    clearTimeout(dwellTimer);
+    dwellTimer = window.setTimeout(() => {
+        dwellTimer = 0;
+        awake.value = name;
+    }, DWELL_MS * timeScale());
+}
+
+function onPaperLeave(name: PaperId, event: PointerEvent): void {
+    const element = event.currentTarget as HTMLElement;
+    element.style.setProperty("--lift-x", "0");
+    element.style.setProperty("--lift-y", "0");
+    clearTimeout(dwellTimer);
+    dwellTimer = 0;
+    if (awake.value === name) awake.value = null;
 }
 
 // ── 开场 ──
@@ -379,10 +544,11 @@ function render(dt: number, speed: number): void {
             desk.style.opacity = String(far ? 1 - smooth(0, 0.5, p) : smooth(0.5, 1, p));
             applyDeskPaint(desk, shot);
         }
+        stepFocus(dt);
         for (const name of LAYER_IDS) {
             const element = layerEls[name];
             if (element === undefined) continue;
-            const layer = floaterShot(stage, LAYERS[name].floater, LAYERS[name], 0);
+            const layer = shotOf(stage, name, 0);
             element.style.transform = layer.transform;
             element.style.opacity = String(1 - smooth(0, 0.4, p));
             element.style.visibility = p < 0.4 ? "visible" : "hidden";
@@ -399,11 +565,12 @@ function render(dt: number, speed: number): void {
         applyDeskPaint(desk, shot);
     }
     if (diving.value !== p > 0.04) diving.value = p > 0.04;
+    if (diving.value && focused.value !== null) focused.value = null;
     stepEffects(dt);
     for (const name of LAYER_IDS) {
         const element = layerEls[name];
         if (element === undefined) continue;
-        const layer = floaterShot(stage, LAYERS[name].floater, LAYERS[name], p);
+        const layer = shotOf(stage, name, p);
         element.style.visibility = layer.visible ? "visible" : "hidden";
         if (!layer.visible) continue;
         element.style.transform = layer.transform;
@@ -490,7 +657,16 @@ interface Mote {
     /** 0 远、1 近：近的大、亮、动得快。 */
     z: number;
     phase: number;
+    /** 被指针搅起来的速度（px/s）与亮度（0 到 1），都会慢慢消掉。 */
+    vx: number;
+    vy: number;
+    glow: number;
 }
+/** 指针周围多大一圈的浮尘会被搅动（px）。 */
+const STIR_RADIUS = 190;
+/** 被搅亮的浮尘有几粒（亮度过一成五的），写在根上给探针读；最多每 200ms 写一次。 */
+let stirredShown = -1;
+let stirredAt = 0;
 let motes: Mote[] = [];
 let dustOpacity = 1;
 let clock = 0;
@@ -501,7 +677,7 @@ function spawn(stage: StageSize, anywhere: boolean): Mote {
     const y = anywhere ? Math.random() * stage.height : stage.height * (0.85 + Math.random() * 0.2);
     const spread = stage.width * (0.1 + 0.28 * (y / stage.height));
     const x = inBeam ? stage.width / 2 + (Math.random() * 2 - 1) * spread : Math.random() * stage.width;
-    return {x, y, z: Math.random(), phase: Math.random() * Math.PI * 2};
+    return {x, y, z: Math.random(), phase: Math.random() * Math.PI * 2, vx: 0, vy: 0, glow: 0};
 }
 
 function dustVisible(): boolean {
@@ -518,7 +694,7 @@ function drawDust(dt: number, speed: number, opacity: number): void {
     if (context === null) return;
     const stage = size.value;
     const ratio = canvas.width / Math.max(1, stage.width);
-    if (motes.length === 0) motes = Array.from({length: wide.value ? 120 : 60}, () => spawn(stage, true));
+    if (motes.length === 0) motes = Array.from({length: wide.value ? 160 : 60}, () => spawn(stage, true));
     clock += dt;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, stage.width, stage.height);
@@ -528,6 +704,15 @@ function drawDust(dt: number, speed: number, opacity: number): void {
     const center = {x: stage.width / 2, y: landingBox(stage).top + landingBox(stage).height / 2};
     // 前冲时的径向速度：进度每秒变化量乘一个系数，近的尘飞得更快。
     const rush = Math.max(0, speed) * 1.6;
+    // 指针搅动浮尘（第 8 轮）：只在首屏、跟着真鼠标；少动效时不跑这里。
+    const stirring = pointerEffects.value && rendered < 0.2;
+    const stirSpeed = Math.hypot(stir.vx, stir.vy);
+    // 这一帧指针扫过的那一段：甩得快、掉帧时一帧能走一两百像素，只看落点会漏掉路上的尘。
+    const sweepFrom = {x: stir.fromX, y: stir.fromY};
+    stir.fromX = stir.x;
+    stir.fromY = stir.y;
+    const drag = Math.exp(-dt * 2.2);
+    const fade = Math.exp(-dt * 1.1);
     for (const mote of motes) {
         const lift = (5 + 12 * mote.z) * dt;
         const sway = Math.sin(clock * 0.35 + mote.phase) * (3 + 4 * mote.z) * dt;
@@ -538,6 +723,22 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         const fromY = mote.y;
         mote.x += sway + dx * outward;
         mote.y += -lift + dy * outward;
+        if (stirring && stirSpeed > 1) {
+            const reach = toSegment(mote, sweepFrom, stir);
+            if (reach < STIR_RADIUS) {
+                const fall = (1 - reach / STIR_RADIUS) ** 1.5;
+                const push = fall * (0.4 + 0.6 * mote.z) * dt;
+                // 顺着指针带过去，再加一点绕着它转的分量：划过去的地方留一个小旋，被带起来的尘亮一下、慢慢暗回去。
+                mote.vx += (stir.vx * 4 - stir.vy * 1.4) * push;
+                mote.vy += (stir.vy * 4 + stir.vx * 1.4) * push;
+                mote.glow = Math.max(mote.glow, Math.min(1, stirSpeed / 600) * (0.35 + 0.65 * fall));
+            }
+        }
+        mote.vx *= drag;
+        mote.vy *= drag;
+        mote.glow *= fade;
+        mote.x += mote.vx * dt;
+        mote.y += mote.vy * dt;
         if (mote.y < -10 || mote.x < -20 || mote.x > stage.width + 20 || mote.y > stage.height + 20) {
             Object.assign(mote, spawn(stage, rush > 0.05));
             continue;
@@ -545,8 +746,8 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         const spread = stage.width * (0.1 + 0.28 * (mote.y / stage.height));
         const inBeam = 1 - smooth(spread * 0.55, spread, Math.abs(mote.x - stage.width / 2));
         const twinkle = 0.65 + 0.35 * Math.sin(clock * (0.8 + mote.z) + mote.phase * 3);
-        const alpha = (0.08 + 0.5 * inBeam) * twinkle * (0.45 + 0.55 * mote.z) * tint;
-        const radius = 0.5 + 1.5 * mote.z;
+        const alpha = Math.min(1, ((0.08 + 0.5 * inBeam) * twinkle * (0.45 + 0.55 * mote.z) + 0.85 * mote.glow) * tint);
+        const radius = 0.5 + 1.5 * mote.z + 1.4 * mote.glow;
         const streak = Math.hypot(mote.x - fromX, mote.y - fromY);
         if (streak > 2.5) {
             context.strokeStyle = props.night ? `rgba(255, 226, 176, ${alpha.toFixed(3)})` : `rgba(255, 250, 236, ${alpha.toFixed(3)})`;
@@ -563,6 +764,21 @@ function drawDust(dt: number, speed: number, opacity: number): void {
         }
     }
     drawComets(context);
+    const now = performance.now();
+    if (now - stirredAt > 200 && root.value !== null) {
+        const stirred = motes.filter((mote) => mote.glow > 0.15).length;
+        if (stirred !== stirredShown) root.value.dataset.sxStirred = String(stirred);
+        stirredShown = stirred;
+        stirredAt = now;
+    }
+}
+
+/** 点到线段的距离。 */
+function toSegment(point: Point, from: Point, to: Point): number {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(point.x - (from.x + dx * t), point.y - (from.y + dy * t));
 }
 
 const cometEase = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
@@ -659,6 +875,8 @@ onMounted(() => {
     }
     wake();
     document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("pointerdown", onDocumentPointerDown);
+    document.addEventListener("keydown", onKeyDown);
     if (pointerEffects.value) {
         window.addEventListener("pointermove", onPointerMove, {passive: true});
         document.addEventListener("pointerout", onPointerLeave);
@@ -667,6 +885,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     document.removeEventListener("visibilitychange", onVisible);
+    document.removeEventListener("pointerdown", onDocumentPointerDown);
+    document.removeEventListener("keydown", onKeyDown);
+    clearTimeout(dwellTimer);
     window.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerout", onPointerLeave);
     resize?.disconnect();
@@ -676,17 +897,22 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'is-diving': diving, 'sx--narrow': !wide, 'sx--day': !night, 'sx--peek': effectOn('peek'), 'sx--still': still}" :data-sx-relay="relayState">
+    <div ref="root" class="sx" :class="{'is-lit': lit, 'is-instant': instant, 'is-desk-ready': deskReady, 'is-diving': diving, 'sx--narrow': !wide, 'sx--day': !night, 'sx--peek': effectOn('peek'), 'sx--still': still, 'sx--focusing': focused !== null}" :data-sx-relay="relayState" :data-sx-focus="focused ?? 'none'">
         <div class="sx-back" aria-hidden="true"></div>
 
-        <!-- 顶光：一锥暖光从穹顶落下，几道细光在里面慢慢明暗。 -->
+        <!--
+            顶光：一锥暖光从穹顶落下，几道细光在里面慢慢明暗。外层的 transform 归镜头（每帧写内联样式），
+            白天的窗光方向写在里面一层（第 7 轮写在外层，被镜头的内联样式盖掉了，白天一直是竖直的顶光）。
+        -->
         <div ref="light" class="sx-light" aria-hidden="true">
-            <div class="sx-enter sx-light__enter">
-                <div class="sx-light__cone"></div>
-                <div class="sx-light__ray" style="--ray: -17deg; --ray-delay: 0s"></div>
-                <div class="sx-light__ray" style="--ray: -7deg; --ray-delay: -2.4s"></div>
-                <div class="sx-light__ray" style="--ray: 4deg; --ray-delay: -4.1s"></div>
-                <div class="sx-light__ray" style="--ray: 13deg; --ray-delay: -1.3s"></div>
+            <div class="sx-light__aim">
+                <div class="sx-enter sx-light__enter">
+                    <div class="sx-light__cone"></div>
+                    <div class="sx-light__ray" style="--ray: -17deg; --ray-delay: 0s"></div>
+                    <div class="sx-light__ray" style="--ray: -7deg; --ray-delay: -2.4s"></div>
+                    <div class="sx-light__ray" style="--ray: 4deg; --ray-delay: -4.1s"></div>
+                    <div class="sx-light__ray" style="--ray: 13deg; --ray-delay: -1.3s"></div>
+                </div>
             </div>
         </div>
 
@@ -695,7 +921,7 @@ onBeforeUnmount(() => {
             <div class="sx-enter sx-carrier__enter">
                 <div class="sx-halo" aria-hidden="true"></div>
                 <!-- 桌布：比桌子大一圈、往外淡进暗里；落地后围着工作台的那一圈都是它。顶光在桌面上落一滩光。 -->
-                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`}" aria-hidden="true"></div>
+                <div class="sx-cloth" :style="{'--sx-velvet': `url(${VELVET})`, '--sx-parchment': `url(${PARCHMENT})`}" aria-hidden="true"></div>
                 <div class="sx-pool" aria-hidden="true"></div>
                 <div class="sx-desk">
                     <slot name="desk" />
@@ -710,10 +936,10 @@ onBeforeUnmount(() => {
             三张羊皮页：手稿、人物卡、地图。远的那张更暗、更虚。每层外面归镜头（每帧写），`sx-enter` 归开场，`sx-par` 归指针视差，
             `sx-peek` 是悬停细看的热区，`sx-bob` 是漂浮，`sx-lean` 是凑近时的前倾。各管各的 transform，互不覆盖。
         -->
-        <div :ref="setLayer('manuscript')" class="sx-layer" :style="layerSize('manuscript')" aria-hidden="true">
+        <div :ref="setLayer('manuscript')" class="sx-layer" :class="{'is-focused': focused === 'manuscript'}" :style="layerSize('manuscript')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 500ms">
                 <div :ref="setPar('manuscript')" class="sx-par">
-                    <div class="sx-peek">
+                    <div class="sx-peek" :class="{'is-awake': awake === 'manuscript'}" data-sx-paper="manuscript" @click="toggleFocus('manuscript')" @pointermove="onPaperMove('manuscript', $event)" @pointerleave="onPaperLeave('manuscript', $event)">
                         <div class="sx-bob" style="--bob: 7.5s; --bob-y: -7px">
                             <div class="sx-lean">
                                 <svg class="sx-sheet sx-sheet--far" viewBox="0 0 250 330" width="250" height="330">
@@ -727,6 +953,9 @@ onBeforeUnmount(() => {
                                     </template>
                                     <!-- 从字到世界的第一步与第三步：敲门那一行落墨写出来；再涂一道高亮，红笔圈出“三下”、牵一条线写批注（和第一幕“高亮批注”同一件事）。 -->
                                     <g class="sx-relay" :class="{'is-sinking': relay.sinking}">
+                                        <!-- 停驻唤醒：敲门那一行底下一团暖金，伏笔的红圈外一圈金红的光。 -->
+                                        <rect v-if="relay.written" x="20" :y="68 + KNOCK_LINE * 20" width="208" height="15" rx="6" fill="#ffcf7a" class="sx-wake" :filter="url('wake')" />
+                                        <ellipse v-if="relay.noted" :cx="KNOCK_RING_X" :cy="76 + KNOCK_LINE * 20" rx="17" ry="10.5" fill="none" stroke="#ff9a6a" stroke-width="3" class="sx-wake" :filter="url('wake')" :transform="`rotate(-4 ${KNOCK_RING_X} ${76 + KNOCK_LINE * 20})`" />
                                         <rect x="22" :y="66 + KNOCK_LINE * 20" width="204" height="19" rx="2" class="sx-mark" :class="{'is-on': relay.noted}" />
                                         <text x="24" :y="80 + KNOCK_LINE * 20" class="sx-ink sx-write" :class="{'is-on': relay.written}" data-sx-anchor="knock">{{ MANUSCRIPT_LINES[KNOCK_LINE] }}</text>
                                         <rect x="16" :y="67 + KNOCK_LINE * 20" width="12" height="17" class="sx-quill" :class="{'is-on': relay.written}" :fill="url('ink-edge')" />
@@ -745,10 +974,10 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <div :ref="setLayer('character')" class="sx-layer" :style="layerSize('character')" aria-hidden="true">
+        <div :ref="setLayer('character')" class="sx-layer" :class="{'is-focused': focused === 'character'}" :style="layerSize('character')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 620ms">
                 <div :ref="setPar('character')" class="sx-par">
-                    <div class="sx-peek">
+                    <div class="sx-peek" :class="{'is-awake': awake === 'character'}" data-sx-paper="character" @click="toggleFocus('character')" @pointermove="onPaperMove('character', $event)" @pointerleave="onPaperLeave('character', $event)">
                         <div class="sx-bob" style="--bob: 8.6s; --bob-y: 6px">
                             <div class="sx-lean sx-stack">
                                 <!-- 压在人物卡下面的是星璃的便笺：从字到世界的第四步，金尘飞到人物卡上，便笺斜着抽出来一截，露出她那几行字。 -->
@@ -776,6 +1005,9 @@ onBeforeUnmount(() => {
                                     <text x="24" y="44" class="sx-ink sx-ink--name">艾莉丝</text>
                                     <rect x="176" y="22" width="30" height="30" rx="3" fill="none" stroke="#9b2232" stroke-width="1.4" />
                                     <text x="191" y="43" text-anchor="middle" class="sx-ink sx-ink--seal">人</text>
+                                    <!-- 停驻唤醒：画像的金框与“人”字印各亮一圈。 -->
+                                    <ellipse cx="115" cy="122" rx="48" ry="58" fill="none" stroke="#ffd88a" stroke-width="4" class="sx-wake" :filter="url('wake')" />
+                                    <rect x="176" y="22" width="30" height="30" rx="3" fill="none" stroke="#ff9a6a" stroke-width="3" class="sx-wake" :filter="url('wake')" />
                                     <ellipse cx="115" cy="122" rx="48" ry="58" fill="none" :stroke="url('gold')" stroke-width="2.2" data-sx-anchor="card" />
                                     <ellipse cx="115" cy="122" rx="42" ry="52" fill="#d9c49d" stroke="#a8762f" stroke-width="0.8" />
                                     <path d="M115,92 a17,19 0 1,1 -0.1,0 Z M80,170 q4,-30 35,-34 q31,4 35,34 Z" fill="#6b5644" fill-opacity="0.42" />
@@ -795,10 +1027,10 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <div :ref="setLayer('map')" class="sx-layer" :style="layerSize('map')" aria-hidden="true">
+        <div :ref="setLayer('map')" class="sx-layer" :class="{'is-focused': focused === 'map'}" :style="layerSize('map')" aria-hidden="true">
             <div class="sx-enter" style="--enter-delay: 740ms">
                 <div :ref="setPar('map')" class="sx-par">
-                    <div class="sx-peek">
+                    <div class="sx-peek" :class="{'is-awake': awake === 'map'}" data-sx-paper="map" @click="toggleFocus('map')" @pointermove="onPaperMove('map', $event)" @pointerleave="onPaperLeave('map', $event)">
                         <div class="sx-bob" style="--bob: 9.4s; --bob-y: -5px">
                             <div class="sx-lean sx-stack" :data-face="relay.plot ? 1 : 0" :data-moved="plotMoved ? '' : undefined">
                                 <!-- 压在地图下面的是剧情的时间线：从字到世界的第五步，航线流进时间线，它换到上面，红线把第一章与第五章那两声敲门连起来。 -->
@@ -830,6 +1062,11 @@ onBeforeUnmount(() => {
                                     </g>
                                     <!-- 从字到世界的第二步：金尘落到这里，海岸线描出来、陆地染上、灰塔升起、红色航线从霜港流向灰塔。 -->
                                     <circle cx="168" cy="136" r="2" fill="none" data-sx-anchor="map" />
+                                    <!-- 停驻唤醒：海岸线与航线描一层金粉的光。 -->
+                                    <g v-if="relay.mapped" class="sx-wake" :filter="url('wake')">
+                                        <path d="M10,150 C40,138 58,162 88,150 S138,116 168,130 S214,172 246,150 S292,112 320,124" fill="none" stroke="#ffd27a" stroke-width="3" />
+                                        <path d="M94,162 C140,104 200,96 246,140" fill="none" stroke="#ff9a6a" stroke-width="2.6" />
+                                    </g>
                                     <g class="sx-relay sx-map-ink" :class="{'is-on': relay.mapped, 'is-sinking': relay.sinking}">
                                         <path d="M10,150 C40,138 58,162 88,150 S138,116 168,130 S214,172 246,150 S292,112 320,124 L320,226 L10,226 Z" fill="#dcc8a2" fill-opacity="0.7" class="sx-land" />
                                         <path d="M10,150 C40,138 58,162 88,150 S138,116 168,130 S214,172 246,150 S292,112 320,124" fill="none" stroke="#4a3626" stroke-width="1.4" pathLength="1" class="sx-coast" />
@@ -970,6 +1207,10 @@ onBeforeUnmount(() => {
                 <filter :id="id('shadow')" x="-20%" y="-20%" width="140%" height="140%">
                     <feGaussianBlur stdDeviation="16" />
                 </filter>
+                <!-- 停驻唤醒的柔光：金色的那一笔糊开一点。 -->
+                <filter :id="id('wake')" x="-30%" y="-60%" width="160%" height="220%">
+                    <feGaussianBlur stdDeviation="2.4" />
+                </filter>
             </defs>
         </svg>
     </div>
@@ -1044,6 +1285,13 @@ onBeforeUnmount(() => {
     pointer-events: none;
 }
 
+/* 光的方向：夜里从穹顶正中直落；白天整锥从左上的高窗斜进来（见文件末尾的昼）。 */
+.sx-light__aim {
+    position: absolute;
+    inset: 0;
+    transform-origin: 50% 0;
+}
+
 .sx-light__enter {
     position: absolute;
     inset: 0;
@@ -1108,6 +1356,7 @@ onBeforeUnmount(() => {
 .sx-carrier {
     position: absolute;
     transform-origin: 50% 50%;
+    transition: filter 600ms ease;
     will-change: transform;
     pointer-events: none;
 }
@@ -1314,9 +1563,11 @@ onBeforeUnmount(() => {
     pointer-events: none;
 }
 
+/* 首屏的字压在一切之上：细看的那张纸凑到最前（`z-index: 2`）时也不盖住标题与按钮。 */
 .sx-hero {
     position: absolute;
     inset: 0;
+    z-index: 3;
     pointer-events: none;
 }
 
@@ -1529,6 +1780,7 @@ onBeforeUnmount(() => {
 /* ── 指针视差、悬停细看与鎏金反光（第 7 轮） ── */
 
 .sx-par {
+    transition: filter 600ms ease;
     will-change: transform;
 }
 
@@ -1545,13 +1797,74 @@ onBeforeUnmount(() => {
     pointer-events: auto;
 }
 
-/* 指针停在哪张纸上：那张稳住（漂浮停在半路）、微微前倾凑近；压在下面的那张多探出一点。 */
+/*
+ * 指针停在哪张纸上：那张稳住（漂浮停在半路）、微微前倾凑近，靠近指针的那一角再抬起两三度（第 8 轮，`--lift-x`、`--lift-y` 由脚本按
+ * 指针在纸上的位置写，-1 到 1）；压在下面的那张多探出一点。
+ */
 .sx--peek .sx-peek:hover .sx-bob {
     animation-play-state: paused;
 }
 
 .sx--peek .sx-peek:hover .sx-lean {
-    transform: perspective(900px) translate3d(0, -6px, 0) rotateX(-5deg) scale(1.035);
+    transform: perspective(900px) translate3d(0, -6px, 0) rotateX(calc(-5deg + var(--lift-y, 0) * 3deg)) rotateY(calc(var(--lift-x, 0) * -3.5deg)) scale(1.035);
+    transition-duration: 320ms;
+}
+
+/* ── 点纸细看（第 8 轮）：那张凑到最前、去掉焦外的虚、影子拉远；别的几层与远处的桌子压暗 ── */
+
+.sx--peek:not(.is-diving) .sx-peek {
+    cursor: zoom-in;
+}
+
+.sx-layer.is-focused {
+    z-index: 2;
+}
+
+.sx-layer.is-focused .sx-peek {
+    cursor: zoom-out;
+}
+
+.sx-layer.is-focused .sx-bob {
+    animation-play-state: paused;
+}
+
+/* 细看时还跟着指针轻轻偏一点，不前倾（已经凑到眼前了）。 */
+.sx--peek .sx-layer.is-focused .sx-peek .sx-lean {
+    transform: perspective(900px) rotateX(calc(var(--lift-y, 0) * 2deg)) rotateY(calc(var(--lift-x, 0) * -2.5deg));
+}
+
+.sx-sheet {
+    transition: filter 500ms ease;
+}
+
+.sx-layer.is-focused .sx-sheet {
+    filter: drop-shadow(0 36px 40px rgb(0 0 0 / 0.62));
+}
+
+/* 远处的桌子也压一压：压在外层（它的 transform 归镜头，filter 空着）；开场的里层另有自己的过渡，不动它。 */
+.sx--focusing .sx-layer:not(.is-focused) .sx-par,
+.sx--focusing .sx-carrier {
+    filter: brightness(0.62) saturate(0.9);
+}
+
+/* 停驻唤醒：几处细节底下的金色柔光淡进来，再慢慢呼吸。 */
+.sx-wake {
+    opacity: 0;
+    transition: opacity 600ms ease;
+}
+
+.sx-peek.is-awake .sx-wake {
+    opacity: 1;
+    animation: sx-wake 2.4s ease-in-out 600ms infinite alternate;
+}
+
+@keyframes sx-wake {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0.55;
+    }
 }
 
 .sx--peek .sx-peek:hover .sx-card--b {
@@ -1651,10 +1964,13 @@ onBeforeUnmount(() => {
 
 /*
  * ── 昼：午后的抄经室 ──
- * 底是偏暖的灰石墙（比羊皮纸暗半阶，纸才不糊在底上），左上高窗斜进来一道日光；纸面提亮、投影换成柔和的棕；
- * 桌布仍是丝绒，压成枣红的暗调，不发粉；书角与丝带照旧（@designer 第 6 轮）。
+ * 底是偏暖的灰石墙（比羊皮纸暗半阶，纸才不糊在底上），左上高窗斜进来一道日光；纸面提亮。
+ * 第 8 轮（开发者：白天明显不对）：桌布换成浅色的亚麻（第 7 轮还是丝绒，首屏亮墙中间压着一圈近黑的暗红，像烧出来的洞，
+ * 落地以后整个第一幕也还是夜里的暗绒）；所有的影子统一往右下落、换成低浓度的暖褐（@designer 第 8 轮：同一个窗光）。
+ * 亚麻没有生成新的贴图：羊皮纸的照片铺大、压一层浅米色，再叠一层细的经纬线。
  */
 .sx--day {
+    --sx-weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='5'%3E%3Cpath d='M0 .5H5M0 3H5' stroke='%23866c48' stroke-opacity='.09'/%3E%3Cpath d='M.5 0V5M3 0V5' stroke='%23fffaf0' stroke-opacity='.16'/%3E%3C/svg%3E");
     background: #b9ab93;
 }
 
@@ -1666,12 +1982,12 @@ onBeforeUnmount(() => {
 }
 
 .sx--day .sx-vignette {
-    background: radial-gradient(120% 100% at 50% 42%, transparent 55%, rgb(74 54 34 / 0.38) 100%);
+    background: radial-gradient(120% 100% at 44% 38%, transparent 56%, rgb(96 70 42 / 0.26) 100%);
 }
 
-/* 日光从左上的高窗斜着进来：光锥整个偏一个角度，颜色是白里带一点金。 */
-.sx--day .sx-light {
-    transform: rotate(-16deg) translateX(-14%);
+/* 日光从左上的高窗斜着进来：光锥的起点挪到左上，整锥往右下斜约三十度，落在桌上；颜色是白里带一点金。 */
+.sx--day .sx-light__aim {
+    transform: translateX(-30%) rotate(-32deg);
 }
 
 .sx--day .sx-light__cone {
@@ -1692,10 +2008,11 @@ onBeforeUnmount(() => {
 
 .sx--day .sx-cloth {
     background:
-        radial-gradient(60% 55% at 46% 38%, rgb(255 236 210 / 0.16), transparent 78%),
-        linear-gradient(rgb(48 8 14 / 0.22), rgb(40 6 12 / 0.42)),
-        var(--sx-velvet) center / cover,
-        #4a0c16;
+        radial-gradient(70% 60% at 30% 22%, rgb(255 253 246 / 0.55), transparent 70%),
+        var(--sx-weave),
+        linear-gradient(rgb(240 232 214 / 0.82), rgb(226 214 190 / 0.86)),
+        var(--sx-parchment) center / 760px auto,
+        #e2d5bb;
 }
 
 .sx--day .sx-pool {
@@ -1705,40 +2022,50 @@ onBeforeUnmount(() => {
 .sx--day .sx-desk {
     box-shadow:
         0 0 0 1px rgb(168 118 47 / 0.45),
-        0 20px 48px rgb(64 38 18 / 0.38);
+        16px 22px 44px rgb(64 38 18 / 0.26);
 }
 
-/* 首屏压一压远处的桌子：白天的桌子是亮的象牙色，压的是暖灰，不是黑。 */
+/* 首屏压一压远处的桌子：白天的桌子是亮的象牙色，压的是浅的暖灰，不是黑。 */
 .sx--day .sx-shade {
-    background: radial-gradient(70% 62% at 46% 30%, rgb(255 246 228 / 0.18), rgb(92 70 48 / 0.62) 100%);
+    background: radial-gradient(70% 62% at 40% 28%, rgb(255 248 232 / 0.2), rgb(150 128 100 / 0.45) 100%);
 }
 
 .sx--day .sx-dark {
-    background: #b9ab93;
+    background: #ddd0b8;
 }
 
 .sx--day .sx-sheet {
-    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34));
+    filter: drop-shadow(12px 18px 18px rgb(74 48 24 / 0.26));
 }
 
 .sx--day .sx-sheet--far {
-    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34)) brightness(0.96) blur(0.6px);
+    filter: drop-shadow(12px 18px 18px rgb(74 48 24 / 0.26)) brightness(0.97) blur(0.6px);
 }
 
 .sx--day .sx-sheet--mid {
-    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34));
+    filter: drop-shadow(12px 18px 18px rgb(74 48 24 / 0.26));
 }
 
 .sx--day .sx-sheet--near {
-    filter: drop-shadow(0 18px 22px rgb(74 48 24 / 0.34)) blur(0.8px);
+    filter: drop-shadow(14px 20px 20px rgb(74 48 24 / 0.26)) blur(0.8px);
+}
+
+.sx--day .sx-layer.is-focused .sx-sheet {
+    filter: drop-shadow(20px 32px 34px rgb(74 48 24 / 0.34));
+}
+
+/* 白天细看时别的几层只退半步：压得和夜里一样暗，亮墙上会发灰发脏。 */
+.sx--day.sx--focusing .sx-layer:not(.is-focused) .sx-par,
+.sx--day.sx--focusing .sx-carrier {
+    filter: brightness(0.88) saturate(0.82);
 }
 
 .sx--day .sx-book {
-    filter: blur(1.4px) drop-shadow(0 26px 34px rgb(64 38 18 / 0.4));
+    filter: blur(1.4px) drop-shadow(20px 26px 30px rgb(64 38 18 / 0.3));
 }
 
 .sx--day .sx-ribbon {
-    filter: blur(2.2px) drop-shadow(0 16px 18px rgb(64 38 18 / 0.32));
+    filter: blur(2.2px) drop-shadow(12px 14px 14px rgb(64 38 18 / 0.24));
 }
 
 /* 窄屏：不俯冲，悬着的几层不画，桌子平放。 */
