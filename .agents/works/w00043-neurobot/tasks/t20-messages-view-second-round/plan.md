@@ -69,33 +69,44 @@
 
 ## 关键设计
 
+计划审查（前端 Sonnet，12 条，处理见 [`evidences/plan2-review-sonnet.txt`](evidences/plan2-review-sonnet.txt)）之后的第 2 稿。
+
 ### 展开收起按钮归视图段：`packages/nb-agent-ui/src/vue/messages/AgentMessagesSegment.vue`、`placement.ts`
 
-- 按钮由视图段画，两种位置一样：收着时是 `main` 的第一项（浮动窗里在顶格下面，顶格由 `--acv-segment-inset-top` 让出），展开后叠在列表右上角（绝对定位在列表区的右上，列表第一行按 CSS 变量 `--acv-list-inset-end` 让出位置；会话面板的搜索行、bot 页的搜索行都读这个变量，不用往两个组件里各塞一个按钮）。
-- 标记沿用 `data-messages-segment-toggle`、`aria-expanded`、`data-rail-too-narrow`；`placement.rail` 加 `tooNarrow`（宿主从侧轨状态给，同 `window`）。点了发 `toggle-expanded`，宿主在两种位置都调 `ViewRail.request`。
-- 底段只剩“全部 bot”“会话历史”；展开时底段的元素还在（`Teleport` 的目标不能拆），藏起来。
+- 按钮由视图段画，标 `data-messages-segment-toggle` 与通用的 `data-rail-toggle`（宿主交接焦点只认后者），`aria-expanded`、被拒时 `data-rail-too-narrow`。**收着与展开是同一个元素**：`main` 的第一个子元素一直挂着，收着时在流里排在头像上面（浮动窗里在顶格下面），展开时改成绝对定位在列表区右上角；焦点跟着元素走，不经 body。
+- 收着时它带 `data-rail-item`（进侧轨的纵向工具条）；展开时不带，它是视图段列表区域里的普通按钮，Tab 可达。
+- `fitSegment` 的容量扣掉按钮那一格（`messages-segment-fit.ts` 加一个保留高度的参数），不会多放一项把按钮滚走。
+- 底段只剩“全部 bot”“会话历史”；展开时底段的容器加 `hidden`（`Teleport` 的目标不拆，项不进 Tab，侧轨的 roving 也跳过不可见的项）。
+- `placement.rail` 加 `width` 与 `tooNarrow`（`shared/contracts.ts` 的 `ViewRailPlacement` 与注释、`views/view-rail.ts` 的发放与相等比较一起改）。点按钮发 `toggle-expanded`，宿主在两种位置都调 `ViewRail.request`。
+- 测试视图 `src/web/testing/sample-views.ts` 的 `SampleRailView` 也画同样标记的按钮（`data-rail-toggle`），侧轨的用例照旧能展开。
 
 ### 列表：`AgentMessagesList.vue`、`AgentSessionPanel.vue`
 
-- 页签从顶上挪到底部，成横的导航 `data-messages-nav`：两项 Bot、会话，各是 `role="tab"`、沿用 `data-messages-tab`，图标在上、字在下，当前页强调色；Bot 的未读合计是中性色的数字，有等你处理时 warning 色（同收着时底段的汇总）。方向键、Home、End 照旧。
-- 导航的两项按列表最终宽度靠右排（同浮动窗视图段的做法：外层裁切、里层定宽），宽度过渡中不跟着挪，FLIP 的终点在过渡开始时就是对的。
-- 两个搜索行读 `--acv-list-inset-end` 作右内边距；会话面板的搜索框占满剩下的宽（现在只有一截）；bot 页搜索框提示改成“搜索”。行的样子不改（就是 t03 定的那套）。
+- 页签挪到底部成横的导航 `data-messages-nav`：两项沿用 `data-messages-tab`、`role="tab"`，图标在上、字在下，当前页强调色；Bot 项的未读合计沿用 `data-messages-summary`（中性色数字，有等你处理时 warning 色，`data-messages-summary-waiting`）。方向键、Home、End 照旧。
+- 列表区第一行读 `--acv-list-inset-end`（`var(--acv-list-inset-end, 0px)`，登记进 `style-tokens.dom.test.ts` 的 `hostVars`）作右内边距，给按钮让位；浮动窗里“回到停靠”在视图段顶格（edge-body 的 `padding-top`），不和搜索行同一行，不用另算。
+- 会话面板的搜索行窄时换行：容器查询，列表宽不到 260 时搜索框独占第一行，作用域、筛选、新建排第二行；搜索框占满剩下的宽。bot 页搜索框提示改成“搜索”。行的样子不改。
 
 ### 过渡：`AgentMessagesSegment.vue`
 
-- 展开：收着时 `main` 里的头像、会话方块与按钮先淡出；底段两个按钮的矩形作起点，导航两项从那里移到自己的位置（FLIP），列表正文随后淡入（沿用现有 `acv-segment-list-in`）。收起：导航两项的矩形作起点，底段两个按钮从那里移回；时长比展开短（`--motion-base`）。
-- 量起点在 `expanded` 变化的同一次更新之前（`flush: "pre"` 的 watch 里读），换完 DOM（`nextTick`）再起动画；连点时取消上一次动画、从当前位置量。减少动态效果（`matchMedia('(prefers-reduced-motion: reduce)')`）或量不到时直接到位。
+- **起点在发请求之前量**：视图段自己的入口（按钮、底段两项、导航两项）在点击处理里先记下要移动的那几个元素的矩形，再发事件；不在 `expanded` 变化的 watch 里量（同一次 flush 里外壳已经翻了状态、底段已经藏了，见 `AgentMessages.vue` 固定聊天区那段的同一个教训）。经命令或别处发起的展开收起没有起点，直接换（Spec 已写）。
+- **终点稳定**：列表区按最终宽度排（`placement.rail.width` / `edge` 的宽），停靠时贴右（右轨朝左长、右缘不动），浮动窗贴左（窗朝右长、视图段左缘不动），外层裁切；导航的终点在换完 DOM 时就是最终位置。
+- 展开：收着的项淡出（`--motion-fast`）；导航两项从记下的底段矩形 FLIP 到自己的位置（`--motion-layout`）；列表正文沿用现有的延后淡入。收起：列表包一层 `Transition`，离场淡出（`--motion-base`）；底段两项从记下的导航矩形 FLIP 回去。连点时取消上一次动画，从当前画出来的位置量。减少动态效果时不做，直接到位。
+- 动画进行中视图段根上写 `data-messages-moving`（e2e 的可观察信号），结束清掉。
 
-### 侧轨：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchToolStrip.vue`、`WorkbenchShell.vue`、`views/view-rail.ts`、`layout-drag.ts`
+### 侧轨：`WorkbenchToolStrip.vue`、`WorkbenchShell.vue`、`layout-drag.ts`
 
-- 拿掉侧轨自己的展开按钮（`data-rail-expand`）；`segment` 里的 `tooNarrow` 交给视图段的 `placement`（`view-rail.ts` 的 rail 位置加字段，比较相等时也比它）。
-- 展开时网格改成一列：入口带横排在顶上一行（`data-tool-band-axis="x"`），只在有不止一个入口时画；`main` 占满剩下的；底段藏起来。收着时照旧竖排。
-- 拖放：入口带的轴读 `data-tool-band-axis`（缺省 `y`），`layout-drag.ts` 里写死 `axis: "y"` 的那处改读它；排序的位移已经按 `vertical` 分支。
+- 拿掉侧轨自己的展开按钮（`data-rail-expand`）；焦点交接的 watch 改找 `[data-rail-toggle]`，收着到展开的方向也交接（焦点在被藏起来的底段或收着的项里时给按钮）。
+- 展开时网格改成一列：入口带横排在顶上一行（`data-tool-band-axis="x"`），只在有不止一个入口时显示（用 `v-show`，不 `v-if`：`ResizeObserver` 与 `useEntryIndicator` 挂在同一个元素上）；`measureBand` 按轴量（横排时按宽）；悬停提示朝下；roving 的方向键横排时用左右。`main` 占满剩下的；底段藏起来。竖排与横排之间不过渡，直接换。
+- 拖放：`layout-drag.ts` 入口带的轴读 `data-tool-band-axis`（缺省 `y`），`groupEnd` 按轴取；排序位移已有 `vertical` 分支。
 - 轨宽手柄不变。
 
-### 消息视图宿主：`packages/neuro-book/src/plugins/agent/web/MessagesHost.vue`、`messages-head.ts`
+### 消息视图宿主：`MessagesHost.vue`、`messages-head.ts`
 
-- `MESSAGES_RAIL_BOUNDS.width` 改 300；`rail` 位置带上 `tooNarrow`；侧轨位置下的 `toggle-expanded` 也调 `request`。
+- `MESSAGES_RAIL_BOUNDS.width` 改 300；rail 位置带上 `width`、`tooNarrow`；`toggle-expanded` 在两种位置都调 `request`。
+
+### 同名说明与 Lab
+
+- 同步 `AgentMessagesSegment.md`、`AgentMessagesList.md`、`AgentSessionPanel.md`、`WorkbenchToolStrip.md`；Lab 里写了 260 的夹具改成 300（agent-ui 夹具、`rail-cards` 场景），登记的场景照旧能点开。
 
 ## 测试分工
 
@@ -103,18 +114,20 @@ e2e 子代理按下面的标记写，不读实现：
 
 | 东西 | 标记 |
 |---|---|
-| 展开收起按钮（停靠、浮动都是它） | `[data-messages-segment-toggle]`，`aria-expanded`，被拒时 `data-rail-too-narrow` |
-| 底部导航 | `[data-messages-nav]` 里的 `[data-messages-tab="bot"|"sessions"]`（`role=tab`、`aria-selected`） |
-| 收着时底段 | `[data-rail-segment="foot"] [data-messages-open]`（展开时看不见） |
-| 展开时的入口带 | `[data-rail] [data-tool-band]`，`data-tool-band-axis="x"`；只有一个容器时没有 |
+| 展开收起按钮（停靠、浮动都是它；测试视图也有） | `[data-rail-toggle]`（消息视图上另有 `data-messages-segment-toggle`），`aria-expanded`，被拒时 `data-rail-too-narrow` |
+| 底部导航 | `[data-messages-nav]` 里的 `[data-messages-tab="bot"]`、`[data-messages-tab="sessions"]`（`role=tab`、`aria-selected`）；Bot 项的未读 `[data-messages-summary]`、等你处理 `data-messages-summary-waiting` |
+| 收着时底段 | `[data-rail-segment="foot"] [data-messages-open]`（展开时不可见、不可 Tab） |
+| 展开时的入口带 | `[data-rail] [data-tool-band]` 带 `data-tool-band-axis="x"`；只有一个容器时不可见 |
+| 过渡中 | 视图段根 `[data-messages-segment]` 上的 `data-messages-moving`；减少动态效果时从不出现 |
+| 搜索行不被按钮盖住 | 判据：按钮中心 `elementFromPoint` 是按钮，搜索框右缘不超过按钮左缘 |
 | 侧轨状态 | `[data-rail]` 的 `data-rail-state`（不变） |
 
-要迁移：用 `[data-rail-expand]`、`[data-messages-tab]` 在顶上、`GROWTH = 260 − 48` 的现有用例（`agent-messages-rail`、`agent-messages-float`、`workbench-side-rail*`、`support/side-rail.ts`）。
+要迁移：用 `[data-rail-expand]` 的、页签在顶上（`[data-messages-switch]`）的、按 260 算的（`GROWTH = 260 − 48`、`ENTRY_COLUMN`、宽版视口按 260 选的）用例与辅助函数：`agent-messages-rail`、`agent-messages-float`、`workbench-side-rail`、`workbench-side-rail-segment`、`lab-agent-ui`、`support/side-rail.ts`；主会话另改 `scripts/perf/layout-frames.ts` 里的 `[data-rail-expand]`。
 
 ## 切片
 
-1. 视图段：按钮位置、`placement.rail.tooNarrow`、底段只剩两项；列表底部导航、搜索行让位；dom 测试（按钮两种位置、导航的键盘与未读颜色的分档、`--acv-list-inset-end`）。
-2. 侧轨：拿掉自己的按钮、展开时一列与横排入口带、拖放轴；宿主接线与 300；工作台 dom 测试与 store 不受影响的确认。
+1. 视图段与列表：同一个按钮的两种位置、`fitSegment` 扣格、底段只剩两项并在展开时 `hidden`；`placement.rail.width/tooNarrow` 与合同；底部导航、搜索行让位与窄时换行；测试视图的按钮；dom 测试（按钮两种位置是同一个元素、导航的键盘与未读分档、`--acv-list-inset-end` 登记）。
+2. 侧轨：拿掉自己的按钮、焦点交接改认 `data-rail-toggle`、展开时一列与横排入口带（`v-show`、按轴量、提示朝下、左右方向键）、拖放轴；宿主接线与 300；同名说明与 Lab 夹具；工作台 dom 测试。
 3. 过渡：FLIP 与淡入淡出；开发服务真实页面上放慢看（design-language 坑 84 的做法）。
 4. e2e（子代理）：第 A 段迁移现有用例与辅助函数，第 B 段新行为（导航、按钮两种位置、横排入口带的点击与拖放、减少动态效果下直接到位）。
 
@@ -128,7 +141,8 @@ e2e 子代理按下面的标记写，不读实现：
 ## 验证
 
 - dom：`nb-agent-ui` 的 messages 目录、工作台组件目录；`bun test` 工作台；类型检查。
-- e2e 合入前清单：`agent-messages-rail`、`agent-messages-float`、`workbench-side-rail`、`workbench-side-rail-segment`、`workbench-containers`、`agent-conversation`（6 个文件）。
+- e2e 合入前清单：`agent-messages-rail`、`agent-messages-float`、`workbench-side-rail`、`workbench-side-rail-segment`、`workbench-containers`、`agent-conversation`、`lab-agent-ui`（7 个文件）。
+- 性能：`scripts/perf/layout-frames.ts` 重跑一次（展开收起换了版式）。
 - 开发服务真实页面点一遍展开收起（不减弱动效），截慢放帧。
 - 前端实现审查：Sonnet。
 
