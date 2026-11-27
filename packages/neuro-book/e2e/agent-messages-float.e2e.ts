@@ -243,9 +243,12 @@ test("记住矩形：调过的窗归位后再浮出，位置与大小是调过�
     await open(page);
     const id = await floatConversation(page);
     const chrome = chromeOf(page, id);
+    const initial = await windowBox(page, id);
     await dragBy(page, await centerOf(chrome.locator('[data-float-handle="left"]')), -120, 0);
     await dragBy(page, await centerOf(chrome.locator('[data-float-handle="bottom"]')), 0, 80);
     const adjusted = await windowBox(page, id);
+    // 拖动真的改了矩形：不然缺省矩形也满足后面的断言。
+    expectSameBox(adjusted, {x: initial.x - 120, y: initial.y, width: initial.width + 120, height: initial.height + 80}, "调过之后");
     await expect.poll(async () => ((await floatRecord(page)).rect as {height?: number} | undefined)?.height).toBe(Math.round(adjusted.height));
 
     const win = await windowBox(page, id);

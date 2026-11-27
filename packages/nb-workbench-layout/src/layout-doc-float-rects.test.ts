@@ -119,14 +119,17 @@ describe("读入与形状", () => {
     });
 
     it("坏项与文档里没有这个标签的项丢掉并各写一条说明，其余照用；全丢光了整个字段不写；不是对象整个丢", () => {
-        const stored = JSON.parse(JSON.stringify({...base(), floatRects: {"view:m1": RECT, "tab:t1": RECT, "view:s1": {...RECT, width: 0}, "view:__proto__": RECT, "view:x": "wide", "view:gone": RECT}})) as unknown;
+        const stored = JSON.parse(JSON.stringify({...base(), floatRects: {"view:m1": RECT, "tab:t1": RECT, "view:s1": {...RECT, width: 0.4, height: 0.4}, "view:__proto__": RECT, "view:x": "wide", "view:gone": RECT}})) as unknown;
         const checked = validateLayoutDoc(stored);
         if (!checked.ok) throw new Error(checked.message);
         expect(checked.doc.floatRects).toEqual({"view:m1": RECT});
-        // 坏矩形、不是工具视图的键、文档里没有这个标签的键（与提交出口清的同一判据）各一条。
+        // 坏矩形（含取整后会成 0 的亚像素宽高）、不是工具视图的键、文档里没有这个标签的键（与提交出口清的同一判据）各一条。
         expect(checked.repairs).toHaveLength(5);
         const none = validateLayoutDoc({...base(), floatRects: {"tab:t1": RECT}});
         expect(none.ok && none.doc).not.toHaveProperty("floatRects");
+        const empty = validateLayoutDoc({...base(), floatRects: {}});
+        expect(empty).toMatchObject({ok: true, repairs: ["floatRects: empty"]});
+        expect(empty.ok && empty.doc).not.toHaveProperty("floatRects");
         const notObject = validateLayoutDoc({...base(), floatRects: [RECT]});
         expect(notObject).toMatchObject({ok: true, repairs: ["floatRects: not an object"]});
         expect(notObject.ok && notObject.doc).not.toHaveProperty("floatRects");

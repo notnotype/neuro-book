@@ -214,6 +214,12 @@ function normalizeRails(doc: LayoutDoc): LayoutDocValidation {
 }
 
 /**
+ * 记住的矩形再浮出时会照写入的规则取整（`roundFloatRect`）：宽高不到 1 的取整后可能是 0，成了不合校验的浮动窗，整份记录下次读不进来。
+ * 所以这里比浮动窗本身（`isFloatRect`，只要求正数）更严，宽高至少 1。
+ */
+const isRememberedRect = (value: unknown): boolean => isFloatRect(value) && (value as LayoutFloatRect).width >= 1 && (value as LayoutFloatRect).height >= 1;
+
+/**
  * 记住的浮动窗矩形（输出 39 的“记住矩形”）：键只认文档里有的工具视图标签键，值只认合法矩形，坏项丢掉、其余照用。
  * 标签不在文档里的键与出口（`settleFloatRects`）清的是同一种，这里按同一判据先丢：留着的话第一次本来“和现状一样”的操作也会因为清它写一次。
  * 没有要修的返回原对象；修完空了是 undefined（整个字段不写）。
@@ -227,13 +233,16 @@ function normalizeFloatRects(value: unknown, panels: LayoutDoc["panels"], repair
     const kept: Record<string, LayoutFloatRect> = {};
     let changed = false;
     for (const [key, rect] of Object.entries(value)) {
-        if (!views.has(key) || !isFloatRect(rect)) {
-            repairs.push(`floatRects.${key}: ${isFloatRect(rect) ? "not a tool view in this document" : describeValue(rect)}`);
+        if (!views.has(key) || !isRememberedRect(rect)) {
+            repairs.push(`floatRects.${key}: ${isRememberedRect(rect) ? "not a tool view in this document" : describeValue(rect)}`);
             changed = true;
             continue;
         }
         kept[key] = rect as LayoutFloatRect;
     }
-    if (!changed) return value as Readonly<Record<string, LayoutFloatRect>>;
-    return Object.keys(kept).length === 0 ? undefined : kept;
+    if (Object.keys(kept).length === 0) {
+        if (!changed) repairs.push("floatRects: empty");
+        return undefined;
+    }
+    return changed ? kept : value as Readonly<Record<string, LayoutFloatRect>>;
 }
