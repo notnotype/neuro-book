@@ -10,6 +10,7 @@
  * 首屏跟指针的效果换成提灯与金丝，加了星盘与线索丝两样（`SanctumScene` 的 `r9-scene-*` 是有没有它们的对照；页面是 `r9-*`）。
  */
 import {defineLabFixture} from "../../fixtures/define";
+import type ActSeal from "./ActSeal.vue";
 import type ChapterRail from "./ChapterRail.vue";
 import type DeskSpotlight from "./DeskSpotlight.vue";
 import type GildedMarks from "./GildedMarks.vue";
@@ -71,6 +72,8 @@ export const fixtures = [
             {id: "r9-day", label: "第 9 轮：白天（午后的抄经室，旧橡木桌面）", input: {props: {start: "top", appearance: "day"}}},
             {id: "r9-act-one", label: "第 9 轮：第一幕连播（眉题、案头聚光与鎏金标记，直接落在第一幕）", input: {props: {start: "act-one"}}},
             {id: "r9-act-one-day", label: "第 9 轮：第一幕连播，白天", input: {props: {start: "act-one", appearance: "day"}}},
+            {id: "r13-act-two", label: "第 13 轮：第二幕原型（直接落在第二幕：落印开场，接着连播五拍）", input: {props: {start: "act-two"}}},
+            {id: "r13-act-two-day", label: "第 13 轮：第二幕原型，白天", input: {props: {start: "act-two", appearance: "day"}}},
             // 前几轮评审板里的链接：组件已经是这一轮的样子，场景 id 留着，旧链接不落空（第 7 轮没选的章节条与首屏的两种动静也落到这一轮）。
             ...([
                 ["r8-sanctum", 8, "从首屏起", {start: "top"}],
@@ -150,6 +153,15 @@ export const fixtures = [
             {id: "r8-small", label: "小号（第一幕交给访客那一行）", input: {props: {primary: true, size: "small"}}},
         ],
         load: async () => (await import("./GiltButtonFixture.vue")).default as never,
+    }),
+    defineLabFixture<typeof ActSeal>({
+        component: "ActSeal",
+        scenes: [
+            {id: "r13-drawn", label: "第 13 轮：第二幕开场的落印，描好的样子（按“重演”看描线、副题与花饰展开、收进眉题）", input: {props: {numeral: "II", title: "为中文长篇做的编辑器", state: "drawing", dockY: -189, dockScale: 0.2}}},
+            {id: "r13-day", label: "第 13 轮：白天", input: {props: {numeral: "II", title: "为中文长篇做的编辑器", state: "drawing", dockY: -189, dockScale: 0.2, day: true}}},
+            {id: "r13-five", label: "第 13 轮：五画的 V（以后几幕用）", input: {props: {numeral: "V", title: "作品、模型与工具，都由你选", state: "drawing", dockY: -189, dockScale: 0.2}}},
+        ],
+        load: async () => (await import("./ActSealFixture.vue")).default as never,
     }),
     defineLabFixture<typeof DeskSpotlight>({
         component: "DeskSpotlight",

@@ -624,6 +624,11 @@ function moveExplorer(region: PanelName): boolean {
     return moved;
 }
 
+/** 第二幕开场：收起或放回右栏（星璃那一栏），正文跟着展宽或收回；走产品的布局动画（workbench-layout 输出 42）。 */
+function setAuxiliaryHidden(hidden: boolean): boolean {
+    return apply((current) => setPanelHidden(settleContainers(current), "auxiliarybar", hidden)).ok;
+}
+
 /** 第三步：最大化某一块，null 还原。 */
 function setMaximized(panel: string | null): void {
     maximized.value = panel;
@@ -868,7 +873,7 @@ async function restoreTo(next: DeskSnapshot): Promise<boolean> {
     return true;
 }
 
-defineExpose({plates, ground, target, pointer: () => demoPointer.value, splitRight, moveExplorer, setMaximized, isMaximized, floatAlice, revealEnd, type, typing, shows, textRects, selectText, finishSelection, collapseSelection, menuButton, commentSave, focusCommentField, commentMarker, marked, markNow, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc, restoreTo});
+defineExpose({plates, ground, target, pointer: () => demoPointer.value, splitRight, moveExplorer, setAuxiliaryHidden, setMaximized, isMaximized, floatAlice, revealEnd, type, typing, shows, textRects, selectText, finishSelection, collapseSelection, menuButton, commentSave, focusCommentField, commentMarker, marked, markNow, lyraPost, lyraHas, snapshot, snapshotSaved, applyDoc, restoreTo});
 
 // 第一次排好版（量到尺寸、卡片有了）再告诉页面，开场动画照它摆。
 const stopReady = watch(presented, (sizes) => {

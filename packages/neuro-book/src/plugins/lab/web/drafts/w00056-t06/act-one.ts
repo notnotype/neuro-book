@@ -12,7 +12,9 @@
  *   演完停 `gap` 那么久，接着演下一拍，直到最后一拍；
  * - `pause()`：停下。正在演的那一拍断在半截，下次从这一拍的开头再演（先摆回）；
  * - `touch()`：访客动了工作台。同 `pause()`，另外记下“对不上”，下次演之前从访客摆的样子走回去；
- * - `resume()`：接着演。上一拍演完了就演下一拍，断在半截就从那一拍的开头再演。
+ * - `resume()`：接着演。上一拍演完了就演下一拍，断在半截就从那一拍的开头再演；
+ * - `shelve()`：页面要把工作台整台换下去、之后再挂回来（首页换幕）。停下以后调用，交出挂回来时该挂的样子（最后停稳那一拍的终态），
+ *   从此当作桌上就是它；访客动过手时不交，访客摆的样子由页面原样记下。
  * 同一时间只有一段在走：新指令先打断正在走的那段，等它收拾完（`tidy`），再按最新的指令走；中间排着的只留最后一个。
  * 少动效时“演”换成“摆”（`animate`），拍与拍之间停多久由页面给（`gap`）。
  */
@@ -74,6 +76,12 @@ export interface ActOne<S> {
     pause(): void;
     /** 访客动了工作台：同 `pause`，并记下“对不上”。 */
     touch(): void;
+    /**
+     * 页面要把工作台整台换下去、之后再挂回来（换幕）：停下以后调用，返回挂回来时该挂的样子——最后停稳那一拍的终态，并从此当作桌上
+     * 就是它（演到一半断开的那一拍，回来接着演时不用先摆回一次）。访客动过手时返回 null：访客摆的样子由页面原样记下、挂回来，
+     * 接着演时照旧先从它摆回。还没有首屏的样子时也是 null。
+     */
+    shelve(): S | null;
     /** 桌上停在哪一拍的终态；最后一拍演完了没有（演完以后访客动过手也算演完）。 */
     state(): {readonly at: number; readonly finished: boolean};
     dispose(): void;
@@ -240,6 +248,12 @@ export function createActOne<S>(stage: ActOneStage<S>, options: ActOneOptions): 
         touch() {
             touched = true;
             stop();
+        },
+        shelve() {
+            const state = ends.get(at);
+            if (touched || state === undefined) return null;
+            partial = false;
+            return state;
         },
         // 演完：最后一次的指令就是最后一拍，而且走完了（之后访客动手也还算演完：交给访客那一段本来就是让访客动的）。
         state: () => ({at, finished: completed !== null && completed === wanted && completed.beat === lastBeat}),

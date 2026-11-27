@@ -10,10 +10,13 @@ withDefaults(defineProps<{
     day?: boolean;
     glint?: boolean;
 }>(), {href: "#", primary: false, size: "regular", day: false, glint: false});
+
+/** 点了：页内跳转的按钮由页面拦下（`preventDefault`），在自己的滚动容器里滚过去，不改地址栏。 */
+const emit = defineEmits<{(event: "click", pointer: MouseEvent): void}>();
 </script>
 
 <template>
-    <a :href="href" class="gb" :class="{'gb--primary': primary, 'gb--small': size === 'small', 'gb--day': day}">
+    <a :href="href" class="gb" :class="{'gb--primary': primary, 'gb--small': size === 'small', 'gb--day': day}" @click="emit('click', $event)">
         <i class="gb__corner gb__corner--tl" aria-hidden="true"></i>
         <i class="gb__corner gb__corner--tr" aria-hidden="true"></i>
         <i class="gb__corner gb__corner--br" aria-hidden="true"></i>
