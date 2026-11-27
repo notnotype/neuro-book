@@ -8,7 +8,7 @@
 
 import {IDENTITY_API_PREFIX, IDENTITY_PATHS} from "@notnotype/nb-site-identity-contract";
 
-import {requestJson, SANDBOX_SITE_URL, type JsonResponse, type SiteSandbox} from "./site";
+import {requestJson, SANDBOX_SITE_URL, type JsonResponse, type SiteSandbox} from "./process";
 
 /** 站点地址的 origin 与主机名：改状态的请求要带等于它的 `Origin`（`site.accounts` 输入一节），按主机名分派到站点入口。 */
 export const SITE_ORIGIN = new URL(SANDBOX_SITE_URL).origin;
@@ -92,8 +92,16 @@ export async function identityRequest(url: string, path: string, init: IdentityR
         if (value === null) headers.delete(name);
         else headers.set(name, value);
     }
+    // 字节拷进一个普通的 ArrayBuffer：这个文件也在前端真实冒烟（Node、DOM 的类型库）里检查，DOM 的 `BodyInit` 不收可能落在
+    // SharedArrayBuffer 上的 `Uint8Array`。
     const body =
-        init.body === undefined ? undefined : typeof init.body === "string" || init.body instanceof Uint8Array || init.body instanceof ReadableStream ? init.body : JSON.stringify(init.body);
+        init.body === undefined
+            ? undefined
+            : typeof init.body === "string" || init.body instanceof ReadableStream
+              ? init.body
+              : init.body instanceof Uint8Array
+                ? new Uint8Array(init.body)
+                : JSON.stringify(init.body);
     const response = await requestJson(new URL(`${IDENTITY_API_PREFIX.slice(1)}${path}`, url).href, {method: init.method ?? "GET", headers, ...(body === undefined ? {} : {body})});
     init.jar?.store(response);
     return response;

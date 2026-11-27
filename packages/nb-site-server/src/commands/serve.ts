@@ -22,8 +22,9 @@ import type {StopState} from "../lifecycle";
 import {lockModules} from "../lock";
 import {errorType, type Logger} from "../log";
 import type {Clock, CommandFailure, ModuleInstance, SiteModule} from "../module";
-import {createSiteApp, MountError, siteFetch, type MountedModule} from "../site";
+import {createSiteApp, MountError, responseFailed, siteFetch, type MountedModule} from "../site";
 import {createTestControl} from "../test-control";
+import {createWebHandler} from "../web";
 import {closeAll, failed, lockFailure, openAndMigrate, SUCCEEDED, type CommandResult} from "./prepare";
 
 /**
@@ -125,7 +126,14 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
         const mounts: MountedModule[] = created.flatMap(({module, instance}) => instance.mounts.map((mount) => ({module, mount})));
         let app: ReturnType<typeof createSiteApp>;
         try {
-            app = createSiteApp({mounts, telemetryHost: base.telemetryHost, readiness: createReadiness(targets, {log}), log, testControl: testControl?.app});
+            app = createSiteApp({
+                mounts,
+                telemetryHost: base.telemetryHost,
+                readiness: createReadiness(targets, {log}),
+                log,
+                testControl: testControl?.app,
+                web: base.webDir === null ? undefined : createWebHandler(base.webDir, log.child({module: "web"})),
+            });
         } catch (error) {
             if (!(error instanceof MountError)) throw error;
             return failed(startFailure(error.module, error));
@@ -139,7 +147,15 @@ export async function serve(env: Env, modules: readonly SiteModule[], log: Logge
 
         // 8. 监听（try 之内；从这一步起受理请求）。
         try {
-            server = Bun.serve({hostname: base.host, port: base.port, fetch: siteFetch(app)});
+            server = Bun.serve({
+                hostname: base.host,
+                port: base.port,
+                fetch: siteFetch(app),
+                // 不随 `NODE_ENV` 变：镜像里没设它，Bun 缺省就是开发模式，出错时回带源码路径与栈的错误页。
+                development: false,
+                // `fetch` 之外出的错：写一行 `http.response_failed`、回 500 `internal`，不让 Bun 往标准错误打它的说明（见 `responseFailed`）。
+                error: responseFailed(log),
+            });
         } catch (error) {
             // Bun 的说明里带着地址与端口，只报系统给的错误码；拿不到时省略这个字段。
             const errorCode = (error as {code?: unknown} | undefined)?.code;

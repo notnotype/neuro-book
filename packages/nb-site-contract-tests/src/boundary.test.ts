@@ -68,11 +68,43 @@ function manifestViolations(manifest: Manifest): string[] {
     return [...runtime, ...dev];
 }
 
+/**
+ * 公开入口 `./testing`（`src/testing/index.ts`）给 Node 里跑的使用方（前端的真实冒烟，Playwright 由 Node 跑）：它与它经相对导入
+ * 拉进来的文件不许导入 `bun:` 模块，否则使用方一加载就失败；相对导入只许落在这几个文件里，免得新加的一条把 `bun:test` 的钩子版
+ * 或开库的辅助文件带进来。
+ */
+const PUBLIC_ENTRY_FILES = new Set(["testing/index.ts", "testing/process.ts", "testing/identity.ts", "testing/oauth-client.ts"]);
+const RELATIVE_SPECIFIER = /(?:(?<![\w.-])from\s*|(?<![\w.-])import\s*\(\s*|(?<![\w.-])import\s+)["'](\.[^"']*)["']/gu;
+
+/** 一份公开入口里的文件越界的导入：`bun:` 模块，或落在公开入口那几个文件之外的相对导入。 */
+function publicEntryViolations(file: string, text: string): string[] {
+    const runtime = offendingSpecifiers(file, text, {packages: BASE_PACKAGES.filter((pattern) => !pattern.test("bun:test")), within: SOURCE_ROOT});
+    const relativeTargets = [...text.matchAll(RELATIVE_SPECIFIER)]
+        .map((match) => match[1]!)
+        .filter((specifier) => !PUBLIC_ENTRY_FILES.has(relative(SOURCE_ROOT, join(file, "..", `${specifier}.ts`))));
+    return [...runtime, ...relativeTargets];
+}
+
 describe("合同测试的导入边界", () => {
     it("每个源文件只导入合同包、测试运行器、内置模块与允许的测试工具", () => {
         const files = allSources();
         expect(files.length).toBeGreaterThan(0);
         expect(findings(files)).toEqual([]);
+    });
+
+    it("公开入口 ./testing 与它拉进来的文件不导入 bun: 模块，相对导入不出这几个文件", () => {
+        const manifest = JSON.parse(readFileSync(join(SOURCE_ROOT, "..", "package.json"), "utf8")) as {readonly exports?: Readonly<Record<string, string>>};
+        expect(manifest.exports?.["./testing"]).toBe("./src/testing/index.ts");
+        const violations = [...PUBLIC_ENTRY_FILES].flatMap((path) => publicEntryViolations(join(SOURCE_ROOT, path), readFileSync(join(SOURCE_ROOT, path), "utf8")).map((specifier) => `${path}: ${specifier}`));
+        expect(violations).toEqual([]);
+    });
+
+    it("反例：公开入口里导入 bun:test、转出钩子版或开库的辅助文件都被拦下，入口之内的相对导入与 node: 模块不算", () => {
+        const entry = join(SOURCE_ROOT, "testing", "index.ts");
+        expect(publicEntryViolations(entry, importStatement("bun:test"))).toEqual(["bun:test"]);
+        expect(publicEntryViolations(entry, `export * from ${JSON.stringify("./site")};`)).toEqual(["./site"]);
+        expect(publicEntryViolations(entry, `export * from ${JSON.stringify("./fault")};`)).toEqual(["./fault"]);
+        expect(publicEntryViolations(entry, `export * from ${JSON.stringify("./process")};\n${importStatement("node:child_process")}`)).toEqual([]);
     });
 
     it("清单的运行时依赖只有两个合同包与 typebox，开发依赖里的工作区包只有被测程序与测试支持包", () => {

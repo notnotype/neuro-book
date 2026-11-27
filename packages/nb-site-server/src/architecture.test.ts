@@ -7,6 +7,8 @@
  *   迁移运行器在执行前对迁移文字再查一次（`db/migrate.ts`），是同一条规则在运行期的第二道；它的拒收清单里写着这个词，不扫它。
  * - 两个模块的路径前缀互不重叠：入口按前缀把子应用挂在同一个站点地址上。
  * - 产品代码不引用 `src/testing/`：夹具模块与测试入口只给本包的测试用（`docs/testing/README.md` 的测试文件组织）。
+ * - 本包的 `src/` 不导入前端包：前端包只在开发依赖里，给镜像的构建脚本找到前端的产物（`image/build.ts`，经
+ *   `import.meta.resolve` 解析路径、不导入代码）；进程只在运行时从 `NB_SITE_WEB_DIR` 读产物。
  * 每条规则都带一个反例，证明它拦得下违规。
  */
 
@@ -15,6 +17,7 @@ import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {dirname, join, relative} from "node:path";
 import {fileURLToPath} from "node:url";
 
+import {offendingSpecifiers} from "@notnotype/neuro-book-test-support/import-boundary";
 import {IDENTITY_API_PREFIX} from "@notnotype/nb-site-identity-contract";
 import {TELEMETRY_API_PREFIX} from "@notnotype/nb-site-telemetry-contract";
 
@@ -39,16 +42,17 @@ const TELEMETRY_CONTRACT = "@notnotype/nb-site-telemetry-contract";
 const IDENTITY = "@notnotype/nb-site-identity";
 const TELEMETRY = "@notnotype/nb-site-telemetry";
 const SERVER = "@notnotype/nb-site-server";
+const WEB = "@notnotype/nb-site-web";
 
 const CONTRACT_RULE: DependencyRule = {dependencies: [], devDependencies: [TEST_SUPPORT], thirdParty: ["typebox"]};
 
-/** 不许本包依赖合同测试包与前端包；t10 由本包发前端的静态文件时，再按需要放开前端包。 */
+/** 不许本包依赖合同测试包；前端包只许在开发依赖里（镜像的构建脚本要找到它的产物），源码导入它由“前端包”一组拦。 */
 const ALLOWED: Readonly<Record<string, DependencyRule>> = {
     [IDENTITY_CONTRACT]: CONTRACT_RULE,
     [TELEMETRY_CONTRACT]: CONTRACT_RULE,
     [IDENTITY]: {dependencies: [IDENTITY_CONTRACT], devDependencies: [TEST_SUPPORT]},
     [TELEMETRY]: {dependencies: [TELEMETRY_CONTRACT], devDependencies: [TEST_SUPPORT]},
-    [SERVER]: {dependencies: [IDENTITY, TELEMETRY, IDENTITY_CONTRACT, TELEMETRY_CONTRACT, "@notnotype/nb-flock"], devDependencies: [TEST_SUPPORT]},
+    [SERVER]: {dependencies: [IDENTITY, TELEMETRY, IDENTITY_CONTRACT, TELEMETRY_CONTRACT, "@notnotype/nb-flock"], devDependencies: [TEST_SUPPORT, WEB]},
 };
 
 /** 经包名解析清单，不按相对路径读兄弟包：包挪了目录也照样找得到。 */
@@ -171,5 +175,40 @@ describe("夹具目录", () => {
         expect(TESTING_IMPORT.test(`import {fixtureModules} from "./testing/modules";`)).toBe(true);
         expect(TESTING_IMPORT.test(`import {startSite} from "../testing/process";`)).toBe(true);
         expect(TESTING_IMPORT.test(`import {x} from "./load-testing";`)).toBe(false);
+    });
+});
+
+/** 前端包（含子路径）以外的说明符都放行；相对导入不出本包。 */
+const NO_WEB_IMPORT = {packages: [/^(?!@notnotype\/nb-site-web(?:\/|$))/u], within: join(import.meta.dir, "..")};
+
+/** `src/` 下全部 `.ts`，连同测试文件：测试里导入前端包同样会把它拉进本包的依赖图。 */
+function allSources(): string[] {
+    return readdirSync(import.meta.dir, {withFileTypes: true, recursive: true})
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+        .map((entry) => join(entry.parentPath, entry.name));
+}
+
+/** 越界的导入，写成 `相对 src 的路径: 说明符`。 */
+function webImports(files: readonly string[], read: (file: string) => string = (file) => readFileSync(file, "utf8")): string[] {
+    return files.flatMap((file) => offendingSpecifiers(file, read(file), NO_WEB_IMPORT).map((specifier) => `${relative(import.meta.dir, file)}: ${specifier}`));
+}
+
+describe("前端包", () => {
+    it("本包的 src/ 不导入前端包", () => {
+        const files = allSources();
+        expect(files.length).toBeGreaterThan(0);
+        expect(webImports(files)).toEqual([]);
+    });
+
+    it("反例：静态导入、动态导入与子路径都被拦下，名字相近的别的包与解析路径不算", () => {
+        // 说明符拼出来写：直接写成字面量，上一条的扫描会把本文件当成越界。
+        const file = join(import.meta.dir, "web.ts");
+        const offending = (text: string): string[] => webImports([file], () => text);
+        expect(offending(`import {x} from "${WEB}";`)).toEqual([`web.ts: ${WEB}`]);
+        expect(offending(`const page = await import("${WEB}/dist/index.html");`)).toEqual([`web.ts: ${WEB}/dist/index.html`]);
+        expect(offending(`import "${WEB}/package.json";`)).toEqual([`web.ts: ${WEB}/package.json`]);
+        const sibling = `${".."}/../nb-site-web/src/main`;
+        expect(offending(`import {x} from "${WEB}-extras"; import {y} from "${sibling}";`)).toEqual([`web.ts: ${sibling}`]);
+        expect(offending(`const dir = import.meta.resolve("${WEB}/package.json");`)).toEqual([]);
     });
 });

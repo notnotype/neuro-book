@@ -1,0 +1,279 @@
+{
+    "site": {
+        "documentTitle": "{{page}} · NeuroBook",
+        "name": "NeuroBook"
+    },
+    "shell": {
+        "unavailable": "暂时连不上账号服务",
+        "retry": "重试",
+        "navigationFailed": "没能打开这一页，请重试"
+    },
+    "notFound": {
+        "title": "没有这一页",
+        "home": "回到首页"
+    },
+    "paper": {
+        "title": "NeuroBook",
+        "about": "本地优先的长篇写作工作区",
+        "label": "{{title}}，{{about}}"
+    },
+    "form": {
+        "rateLimitedSpoken": "操作太频繁，请稍后再试",
+        "rateLimitedMinutes": "操作太频繁，{{minutes}} 分钟后再试",
+        "leadReason": "{{lead}}：{{reason}}",
+        "agreeTermsBefore": "我已阅读并同意",
+        "agreeTermsJoin": "与",
+        "agreeOverseas": "我同意把账号数据存放在境外的服务器上"
+    },
+    "social": {
+        "or": "或",
+        "login": {
+            "github": "用 GitHub 登录",
+            "google": "用 Google 登录"
+        },
+        "register": {
+            "github": "用 GitHub 注册",
+            "google": "用 Google 注册"
+        }
+    },
+    "login": {
+        "title": "登录",
+        "identifier": "用户名或邮箱",
+        "password": "密码",
+        "submit": "登录",
+        "noAccount": "还没有账号？",
+        "register": "用注册码注册",
+        "goRegister": "去注册",
+        "notApplied": "登录没有生效，请再试一次",
+        "notEntered": "已经登录，但没能打开下一页，请刷新页面"
+    },
+    "register": {
+        "title": "注册",
+        "registrationCode": "注册码",
+        "username": "用户名",
+        "displayName": "显示名（可选）",
+        "email": "邮箱",
+        "password": "密码",
+        "inviteCode": "邀请码（可选）",
+        "submit": "注册",
+        "hasAccount": "已有账号？",
+        "login": "登录",
+        "consentMissing": "请先勾选两项同意",
+        "termsChanged": "条款刚更新过，请重新阅读并勾选",
+        "notApplied": "注册成功，但没能登录，请去登录页登录",
+        "notEntered": "已经注册并登录，但没能打开下一页，请刷新页面",
+        "rules": {
+            "registrationCode": "请填注册码",
+            "username": "用户名要 3 到 30 个字符，只用字母、数字、下划线和点",
+            "displayName": "显示名至多 50 个字",
+            "email": "邮箱的写法不对",
+            "password": "密码要 8 到 128 个字符"
+        }
+    },
+    "consent": {
+        "title": "同意条款",
+        "heading": "条款有更新",
+        "lead": "服务条款与隐私政策有更新，同意之后才能继续使用账号。",
+        "version": "{{version}} 版",
+        "agreeTerms": "我已阅读并同意这两份条款",
+        "submit": "同意并继续",
+        "signOut": "退出登录",
+        "termsChanged": "条款刚又更新了，请重新阅读并勾选",
+        "notEntered": "已经同意，但没能打开下一页，请刷新页面"
+    },
+    "account": {
+        "title": "账号",
+        "toc": "账号的各节",
+        "pending": "有待补的内容",
+        "menu": "{{username}}，账号菜单",
+        "admin": "管理面板",
+        "signOut": "退出登录",
+        "loading": "正在载入",
+        "loadFailed": "没能载入账号的内容",
+        "retry": "重试",
+        "save": "保存",
+        "cancel": "取消",
+        "saved": "已保存",
+        "profile": {
+            "title": "资料",
+            "username": "用户名",
+            "displayName": "显示名",
+            "email": "邮箱",
+            "emailPending": "待补",
+            "website": "网站",
+            "avatarUrl": "头像地址",
+            "bio": "签名"
+        },
+        "rules": {
+            "displayName": "显示名要 1 到 50 个字",
+            "email": "邮箱的写法不对",
+            "emailRequired": "邮箱不能留空",
+            "webUrl": "地址要以 http:// 或 https:// 开头，至多 500 个字符",
+            "bio": "签名至多 200 个字",
+            "newPassword": "密码要 8 到 128 个字符"
+        },
+        "security": {
+            "title": "登录与安全",
+            "password": "密码",
+            "passwordSet": "已设置",
+            "passwordUnset": "没有设置",
+            "changePassword": "修改密码",
+            "setPassword": "设置密码",
+            "passwordChanged": "密码已修改",
+            "passwordCreated": "密码已设置",
+            "currentPassword": "当前密码",
+            "newPassword": "新密码",
+            "notLinked": "没有关联",
+            "link": "关联",
+            "linkNamed": "关联 {{provider}}",
+            "unlink": "解除关联",
+            "unlinkNamed": "解除关联 {{provider}}",
+            "linkTitle": "关联 {{provider}}",
+            "linkContinue": "继续",
+            "identityGone": "这个关联已经不在了",
+            "provider": {
+                "github": "GitHub",
+                "google": "Google"
+            }
+        },
+        "sessions": {
+            "title": "已登录的设备",
+            "current": "这台设备",
+            "unknownDevice": "认不出的设备",
+            "device": "{{browser}}，{{os}}",
+            "createdAt": "登录于 {{time}}",
+            "withinHour": "1 小时内",
+            "inUse": "正在使用",
+            "end": "退出",
+            "endNamed": "退出 {{device}}",
+            "endOthers": "退出其它所有设备",
+            "endedOthers": "其它设备都已退出",
+            "partial": "结束了 {{ended}} 个，{{failed}} 个没结束"
+        },
+        "invites": {
+            "title": "邀请码",
+            "used": "已用 {{count}} 次",
+            "usedOf": "已用 {{count}} / {{max}} 次",
+            "expires": "{{time}} 到期",
+            "unusable": "不能再用",
+            "copy": "复制链接",
+            "disable": "停用",
+            "disableNamed": "停用 {{code}}",
+            "disableTitle": "停用 {{code}}？",
+            "disableDescription": "停用之后不能再用它注册",
+            "generate": "生成邀请码",
+            "remaining": "还能生成 {{count}} 个",
+            "full": "有效的邀请码已有 {{limit}} 个，先停用一个",
+            "empty": "还没有邀请码"
+        },
+        "apps": {
+            "title": "已授权的应用",
+            "granted": "{{time}}授权",
+            "justNow": "刚刚",
+            "scopeJoin": "、",
+            "scopes": {
+                "openid": "你是哪一个 NeuroBook 账号",
+                "profile": "用户名与显示名",
+                "email": "邮箱"
+            },
+            "revoke": "撤销",
+            "revokeNamed": "撤销 {{client}} 的授权",
+            "revokeTitle": "撤销“{{client}}”的授权？",
+            "revokeDescription": "它不能再用你的账号读资料，下次登录它时要重新确认。",
+            "gone": "这项授权已经不在了",
+            "empty": "还没有授权给应用"
+        }
+    },
+    "oauthConsent": {
+        "title": "授权确认",
+        "heading": "“{{client}}”想用你的 NeuroBook 账号登录",
+        "switchAccount": "换一个账号",
+        "gets": "它会得到",
+        "scopes": {
+            "openid": "你是哪一个 NeuroBook 账号",
+            "profile": "你的用户名与显示名",
+            "email": "你的邮箱"
+        },
+        "allow": "允许",
+        "deny": "拒绝",
+        "returnTo": "允许后回到 {{host}}",
+        "loading": "正在载入",
+        "loadFailed": "没能载入这次授权请求",
+        "retry": "重试",
+        "ended": {
+            "authorization_expired": {
+                "title": "这次授权请求已过期",
+                "detail": "回到应用重新发起。"
+            },
+            "client_not_found": {
+                "title": "找不到这个应用",
+                "detail": "它没有登记，或已经停用。"
+            },
+            "redirect_uri_invalid": {
+                "title": "这个应用的回调地址不对",
+                "detail": "回到应用重新发起；仍然这样时请联系应用的开发者。"
+            },
+            "unknown": {
+                "title": "没能继续这次授权",
+                "detail": "回到应用重新发起。",
+                "code": "回到应用重新发起。出错的码：{{code}}"
+            }
+        }
+    },
+    "legal": {
+        "version": "{{version}} 版",
+        "privacy": {
+            "title": "隐私政策"
+        },
+        "terms": {
+            "title": "服务条款"
+        }
+    },
+    "errors": {
+        "identity": {
+            "validation_failed": "有内容不符合要求，请检查标出的项",
+            "unauthenticated": "登录已失效，请重新登录",
+            "invalid_credentials": "用户名、邮箱或密码不对",
+            "account_banned": "这个账号已被封禁，请联系管理员",
+            "forbidden_origin": "请求被拒绝，请刷新页面后再试",
+            "consent_required": "请先同意最新的服务条款与隐私政策",
+            "registration_closed": "现在不开放注册",
+            "provider_disabled": "这种登录方式暂时没有开放",
+            "registration_code_invalid": "注册码不可用",
+            "invite_code_invalid": "邀请码不可用",
+            "username_taken": "这个用户名已被使用",
+            "email_taken": "这个邮箱已被使用",
+            "identity_taken": "这个第三方账号已关联到另一个账号，请直接用它登录",
+            "identity_exists": "这种登录方式已经关联过，先解绑再关联",
+            "last_login_method": "先设一个密码再解绑",
+            "invite_code_limit": "有效的邀请码已有 10 个，先停用一个",
+            "rate_limited": "操作太频繁，{{seconds}} 秒后再试",
+            "overloaded": "服务正忙，请稍后再试",
+            "unavailable": "服务暂时不可用，请稍后再试",
+            "not_found": "要找的内容不存在",
+            "internal": "服务出了问题，请稍后再试",
+            "forbidden": "没有权限做这件事",
+            "self_forbidden": "不能对自己的账号这样做",
+            "authorization_expired": "这次授权请求已过期，回到应用重新发起",
+            "client_not_found": "找不到这个应用，或它已停用",
+            "redirect_uri_invalid": "这个应用的回调地址不对",
+            "client_public": "公开客户端没有密钥",
+            "social_not_registered": "这个第三方账号还没有注册",
+            "social_email_missing": "没能从第三方账号取得已验证的邮箱",
+            "social_state_invalid": "这次登录已过期，请重新发起",
+            "social_cancelled": "已取消这次登录",
+            "social_failed": "第三方登录没有成功，请重试"
+        },
+        "web": {
+            "network": "连不上服务，请检查网络后再试",
+            "malformed": "服务的回答看不懂，请稍后再试",
+            "unknown": "出了一个没认出的问题（{{code}}）"
+        },
+        "telemetry": {
+            "unauthenticated": "登录已失效，请重新登录",
+            "forbidden": "只有管理员能看统计",
+            "validation_failed": "查询的范围不对",
+            "unavailable": "统计暂时取不到，请稍后再试"
+        }
+    }
+}

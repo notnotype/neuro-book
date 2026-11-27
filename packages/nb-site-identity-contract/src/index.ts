@@ -4,11 +4,9 @@
  *
  * 几部分：失败码与错误体（`./errors`）、字段规则（`./fields`）、时间写法（`./time`）、路径（`./paths`）、
  * 账号自己的接口（`./account`）、管理接口（`./admin`）、社交登录与关联（`./social`）、对外 OAuth 服务（`./oauth`）。
+ * 浏览器只要常量与类型时从 `./constants` 导入（不带 TypeBox 的运行时，见那里的文件头）；本入口另有全部 schema。
  * 行为合同是 docs/specs/site/accounts.md、admin.md 与 oauth-provider.md，两处不一致时以 Spec 为准。
  */
-
-/** 账号模块的全部接口挂在这个前缀下；改它等于改对外合同。 */
-export const IDENTITY_API_PREFIX = "/api/identity/v1";
 
 export * from "./account";
 export * from "./admin";

@@ -1,0 +1,35 @@
+/*
+ * 管理面板几个列表页与处置对话框共用的小样式（t10 计划 3.13，照 t09 定稿的用户页与注册码页）。原先每页 scoped 各抄一份，
+ * 颜色抄成了不同的样子（B6、B7 审查第 4、9 条），收在这里。在 components 层：站点的原子类压得过它。
+ *
+ * - `.admin-muted`：占位与次要的字（“没有备注”“不过期”“没有登录过”、日期、不能用的状态）。定稿里是 `--text-muted`。
+ * - `.admin-num`：数字等宽，一列里的位数对齐。
+ * - `.admin-code`：码与客户端 ID：等宽小字，后面跟一枚复制按钮。
+ * - `.admin-dialog-buttons`：处置对话框换步骤（确认换到一次性秘密）时，底栏的一组按钮整组换。它是底栏里的一项，
+ *   里面照底栏的间距排。
+ */
+
+@layer components {
+    .admin-muted {
+        color: var(--text-muted);
+    }
+
+    .admin-num {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .admin-code {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-main);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+    }
+
+    .admin-dialog-buttons {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+    }
+}

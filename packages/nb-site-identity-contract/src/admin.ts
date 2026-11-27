@@ -1,15 +1,19 @@
 /**
  * 管理接口的请求与响应（docs/specs/site/admin.md）。分页列表的参数与响应四个列表相同；查询串里的值都是字符串，
- * schema 用 `pattern` 限写法，缺省值与上下限在 `PAGE`。请求（含查询串）都拒收多余的键。
+ * schema 用 `pattern` 限写法，缺省值与上下限在 `PAGE`。请求（含查询串）都拒收多余的键。筛选项、审计的动作名与对象种类
+ * 在 `./admin-constants`（不导入 TypeBox，前端经 `./constants` 取），这里转出。
  */
 
 import {Type} from "typebox";
 import type {Static, TInteger, TObject, TSchema} from "typebox";
 
 import {InviteCodeItem, RoleSchema, SocialProviderSchema} from "./account";
+import {AUDIT_ACTIONS, AUDIT_CLI_ACTOR, AUDIT_TARGET_TYPES, REGISTRATION_CODE_FILTERS, USER_FILTERS} from "./admin-constants";
 import {Bio, DECIMAL_ID_PATTERN, DisplayName, Email, Id, LOGIN_IDENTIFIER, RegistrationCodeNote, Username, WebUrl, codePointPattern} from "./fields";
 import {literalUnion, nullable, strictObject} from "./schema";
 import {IsoTimestamp} from "./time";
+
+export * from "./admin-constants";
 
 /**
  * `anchor`：翻页的基准，取自同一次翻页里上一个响应（输出 9、10）。对调用方是不透明的字符串，原样带回；
@@ -26,16 +30,6 @@ const pageQueryProperties = {
     pageSize: Type.Optional(Type.String({pattern: "^(?:[1-9][0-9]?|100)$"})),
     anchor: Type.Optional(Anchor),
 };
-
-/** 账号列表的筛选项（参数 `filter`）：全部、管理员、已封禁、邮箱待补。 */
-export const USER_FILTERS = ["all", "admin", "banned", "email_pending"] as const;
-
-export type UserFilter = (typeof USER_FILTERS)[number];
-
-/** 注册码列表的筛选项（参数 `filter`）：全部、可用、用完或过期、已停用。 */
-export const REGISTRATION_CODE_FILTERS = ["all", "usable", "exhausted_or_expired", "disabled"] as const;
-
-export type RegistrationCodeFilter = (typeof REGISTRATION_CODE_FILTERS)[number];
 
 /**
  * `GET admin/users`：`q` 是用户名、邮箱、显示名的前缀，`filter` 是一个筛选项。`q` 至多 254 个码点
@@ -69,33 +63,6 @@ export type PageQuery = Static<typeof PageQuery>;
 export const InviteCodeListQuery = strictObject(pageQueryProperties);
 
 export type InviteCodeListQuery = Static<typeof InviteCodeListQuery>;
-
-/** 审计里“操作者是命令行”在查询参数 `actorId` 里的写法（输入与前置条件的接口表）。 */
-export const AUDIT_CLI_ACTOR = "cli";
-
-/**
- * 审计动作名（输出 8）。`oauth_client.*` 三个由 t08 写入，现在就列着：前端按枚举取动作的文案。只追加。
- */
-export const AUDIT_ACTIONS = [
-    "user.ban",
-    "user.unban",
-    "user.role",
-    "user.revoke_sessions",
-    "user.reset_password",
-    "registration_code.create",
-    "registration_code.disable",
-    "admin.cli_upsert",
-    "oauth_client.create",
-    "oauth_client.update",
-    "oauth_client.rotate_secret",
-] as const;
-
-export type AuditAction = (typeof AUDIT_ACTIONS)[number];
-
-/** 审计记录的对象种类；`oauth_client` 由 t08 写入。 */
-export const AUDIT_TARGET_TYPES = ["user", "registration_code", "oauth_client"] as const;
-
-export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];
 
 /**
  * `GET admin/audit`：按操作者（数字 id，或 `cli`）、对象（`targetType` 加 `targetId`）、动作筛；没有 `counts`

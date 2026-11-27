@@ -23,7 +23,7 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 
 ## 写法
 
-- 每个测试文件在顶层调用一次 `useSiteSandbox(<文件名>)`：一个文件一个临时根（ADR 0061 决策 4），各用例在根下用 `dataDir()` 建自己的数据目录。例外是测底座自己收口的 `src/sandbox.test.ts`：它从外面取消一个按路径运行的测试入口（`src/testing/cancel-entry.ts`），服务由那个入口经沙箱起。
+- 每个测试文件在顶层调用一次 `useSiteSandbox(<文件名>)`：一个文件一个临时根（ADR 0061 决策 4），各用例在根下用 `dataDir()` 建自己的数据目录。测底座自己收口的 `src/sandbox.test.ts` 另起两个按路径运行的入口（`src/testing/cancel-entry.ts`、`signal-entry.ts`），那几条的服务由入口经它们自己的沙箱起，再从外面发信号。
 - 起进程、跑命令放在 `describe` 的 `beforeAll` 里，用例只发请求、读结果，单个用例守 200 毫秒的预算（测试文档的“服务进程测试”）；超出的在用例旁写明原因。
 - 断言只用 [`site/operations.md`](../../docs/specs/site/operations.md) 与模块 Spec 写明的字段名、码、问题词与 `reason`；Spec 没写的输出（日志的 `message`）不断言。被测程序与 Spec 对不上时，不改用例去迁就它，报给 Task。
 - 随时间变化的行为用测试控制入口（`advanceClock`、`runJob`），不按真实时间等。故障注入只用 `src/testing/fault.ts` 那种只碰 Spec 写明的文件布局、不读写表的做法。
@@ -32,11 +32,12 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 
 | 名字 | 用途 |
 |---|---|
-| `useSiteSandbox(purpose)` | 登记 `beforeAll`（建临时根）、`afterEach`（停掉本用例起的、还没停的进程）、`afterAll`（停掉其余的，再删根）；返回沙箱 |
+| `useSiteSandbox(purpose)`（`site.ts`） | 登记 `beforeAll`（建临时根）、`afterEach`（停掉本用例起的、还没停的进程）、`afterAll`（停掉其余的，再删根）；返回沙箱。合同测试从 `site.ts` 导入，它原样转出 `process.ts` 的其余名字 |
+| `createSiteSandbox(purpose, {handleSignals})`（`process.ts`） | 同一个沙箱，但不登记钩子：返回的 `open`、`beginTest`、`endTest`、`close` 由调用方在自己测试运行器的钩子里调。`process.ts` 不依赖 `bun:test`、起进程用 `node:child_process`，在 Node 里也能跑。测试运行器自己按信号做有序收口时（Playwright 的 worker）传 `handleSignals: false`，不装收到 `SIGTERM`、`SIGINT` 就杀子进程的兜底 |
 | `sandbox.dataDir()` | 临时根下一个新的空数据目录 |
 | `sandbox.start({dataDir, env, command, timeoutMs})` | 起 `serve`，等到 `site.listening`；进程先退出或超时都立即失败，错误里带已收到的输出。缺省带一个随机的测试控制口令，`env: {NB_SITE_TEST_CONTROL: undefined}` 去掉它 |
 | `sandbox.run(command, {dataDir, env, command, args, stdin, timeoutMs})` | 跑一个会自己退出的命令，返回退出码、两路输出、日志行与标准错误上的失败行；`args` 接在子命令之后（`create-admin` 的用户名与邮箱） |
-| `sandbox.spawnWithOpenStdin(command, {dataDir, env, command, args})` | 起一个标准输入开着的命令，立即返回 `OpenStdinProcess`：`write(text)`、`closeStdin()`、`kill(signal)`、`waitForStderr(what, match)`（等标准错误里出现某一行，进程先退出或超时都抛错）、`result()`（等退出，结果同 `run`）。收口与 `start`、`run` 同一套；收口时只要求它在 SIGTERM 后停下，不要求以 0 退出（被打断的命令本来就报 `interrupted`） |
+| `sandbox.spawnWithOpenStdin(command, {dataDir, env, command, args})` | 起一个标准输入开着的命令，进程起来了就 resolve 成 `OpenStdinProcess`：`write(text)`（命令已不再读时 reject）、`closeStdin()`、`kill(signal)`、`waitForStderr(what, match)`（等标准错误里出现某一行，进程先退出或超时都抛错）、`result()`（等退出，结果同 `run`）。收口与 `start`、`run` 同一套；收口时只要求它在 SIGTERM 后停下，不要求以 0 退出（被打断的命令本来就报 `interrupted`） |
 | `SiteProcess` | `url`、`pid`、`logs()`、`stdout()`、`stderr()`、`exitCode`、`ready()`（等就绪 200）、`stop()`（SIGTERM 并返回退出码）、`advanceClock(ms)`（返回拨过之后的 `now`，不是 200 就抛错）、`runJob(module, job)`（返回状态码与响应体，不按状态码抛错：404、500、503 都是合同里的结果） |
 | `identityRequest(url, path, init)`、`cookieJar()`、`login(url, 登录名, 密码, init)`（`init.continue` 带续接令牌）、`createAdmin(sandbox, dataDir, args, 密码)`（`identity.ts`） | 请求一个账号接口：补站点的 `Host`、`Origin`、`X-Forwarded-For`，有请求体时补 `Content-Type`；Cookie 罐存与回送 `Set-Cookie`、按名字覆盖，`last(name)` 取最近一条给断言属性用。账号的进程用 `IDENTITY_SITE_ENV` 起（信任回环上的代理），每个用例给自己的来源地址。`createAdmin` 在 `beforeAll` 里跑 `create-admin` 造登录态，返回账号 id，非零退出时抛错 |
 | `siteFetch(url, 站点地址或路径, init)`、`registerOAuthClient`、`authorizationRequest`、`step(url, jar, 授权地址, client)`、`exchangeCode`、`fetchUserInfo`、`revokeToken`、`verifyIdToken(url, idToken, jwksUri)`（`oauth-client.ts`） | 扮演接入的第三方应用：`siteFetch` 把站点地址换成进程地址、补站点的 `Host`，不跟随跳转、正文读成文字；经管理接口登记客户端；带 PKCE、`state`、`nonce` 的授权地址；`step` 发一次请求（缺省 GET；给了表单就以客户端页面的 `Origin` POST 到授权端点）、按 `Location` 归成登录页、站点同意页、确认页、错误页、跳回客户端五类，别的跳转抛错；换码（机密客户端 `client_secret_basic`，公开客户端表单里带 `client_id`）、用户信息、撤销回原始的响应；`verifyIdToken` 按公钥地址用 `node:crypto` 验 RS256，验过才回头与载荷 |
@@ -48,6 +49,10 @@ ADR 0059 决策 6 的“合同包之外的任何包”指被测系统的工作�
 | `listBackups`、`quickCheck`（`backup.ts`） | 列出名字是备份时间的目录；只读打开副本跑 `quick_check` |
 | `aggregatedDailyReports(dataDir, appVersion)`（`aggregate.ts`） | 统计的库里某个应用版本的每日上报算进聚合的份数；只给相邻版本测试用，见上面允许清单的例外 |
 | `reservePort`、`isListening`、`rawHttp`、`requestJson`、`testControlRequest` | 预留端口与检查有没有人监听；原始套接字请求（测读不出主机名）；按 JSON 读响应。都带截止时刻（缺省 10 秒），到点中断连接并报错 |
+
+### 公开入口 `./testing`
+
+`@notnotype/nb-site-contract-tests/testing`（`src/testing/index.ts`）给别的包的测试复用底座，现在的使用方是官方站前端的真实冒烟（`nb-site-web/e2e/real/`，Playwright 由 Node 跑）。它只转出 `process.ts`、`identity.ts`、`oauth-client.ts`：这几个文件不许导入 `bun:` 模块，相对导入不出这几个文件，由 `src/boundary.test.ts` 检查。`bun:test` 的钩子版、开库的辅助文件与统计的上报样例不进这个入口。使用方只能在测试代码里导入它，浏览器代码不行：边界检查在使用方包里。
 
 子进程的环境只有 `PATH`、指向临时根下空目录的 `HOME` 与 `TMPDIR`，加一套合格的 `NB_SITE_*`；工作目录是临时根。不继承测试进程的环境。
 

@@ -5,6 +5,8 @@
  *    数据目录里有每个模块的锁文件；第二个容器挂同一个目录时以 `data_dir_busy` 退出，证明打成单文件之后 nb-flock
  *    （bun:ffi 加载 libc 的 flock）在容器里照样起作用。`docker stop` 之后退出码 0、日志里有 `site.stopped`：
  *    bun 是 1 号进程，内核不替 1 号进程执行信号的缺省动作，这一步证明进程自己处理了 SIGTERM。
+ *    同一个容器上 `/` 回镜像里的 `index.html`（与 `build:image` 写进 `dist/image/web/` 的那份逐字节相同）并带内容安全策略：
+ *    镜像设好了 `NB_SITE_WEB_DIR`，网页随镜像一起发（`site.operations` 输出 12）。
  * 2. 不带 `--user`、挂一个新的命名卷：镜像里的 `/data` 属于 bun 用户，卷照它初始化，进程能写；同样就绪、停止后退出码 0。
  * 3. 给容器设 `NB_SITE_TEST_CONTROL`：镜像监听 0.0.0.0，进程以 `config_invalid` 拒绝，问题是 `NB_SITE_HOST` 的 `not_loopback`。
  *
@@ -18,8 +20,8 @@
  */
 
 import {randomBytes} from "node:crypto";
-import {mkdir, readdir, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {mkdir, readdir, readFile, rm} from "node:fs/promises";
+import {join, resolve} from "node:path";
 import {parseArgs} from "node:util";
 
 import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
@@ -131,8 +133,8 @@ async function runToExit(label: string, args: readonly string[]): Promise<Docker
     }
 }
 
-/** 起一个后台容器，等到就绪检查 200，返回容器名。 */
-async function startServing(label: string, mount: readonly string[]): Promise<string> {
+/** 起一个后台容器，等到就绪检查 200，返回容器名与映射到本机的 `地址:端口`。 */
+async function startServing(label: string, mount: readonly string[]): Promise<{readonly name: string; readonly hostPort: string}> {
     const name = containerName(label);
     await dockerOk(["run", "--detach", "--name", name, "--publish", "127.0.0.1:0:8080", ...mount, ...SITE_ENV, IMAGE]);
     const hostPort = (await dockerOk(["port", name, "8080/tcp"])).split("\n")[0]!;
@@ -145,7 +147,20 @@ async function startServing(label: string, mount: readonly string[]): Promise<st
         return response?.status === 200;
     }, {timeoutMs: READY_TIMEOUT_MS, intervalMs: 200});
     console.log(`${label}: ready on ${hostPort}`);
-    return name;
+    return {name, hostPort};
+}
+
+/** `build:image` 拷进构建上下文的网页入口；镜像里的 `/app/web/index.html` 就是它。 */
+const BUILT_INDEX = resolve(import.meta.dir, "..", "dist", "image", "web", "index.html");
+
+/** 镜像里的网页：`/` 是一个前端路由地址，回 `index.html` 的内容与 HTML 的安全头。 */
+async function checkWebPage(label: string, hostPort: string): Promise<void> {
+    const response = await fetch(`http://${hostPort}/`, {signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)});
+    const body = Buffer.from(await response.arrayBuffer());
+    check(response.status === 200, `${label}: GET / returned ${String(response.status)}, expected 200 with index.html`);
+    check(body.equals(await readFile(BUILT_INDEX)), `${label}: GET / did not return the index.html copied into the image`);
+    check(response.headers.get("Content-Security-Policy")?.startsWith("default-src 'self'") === true, `${label}: GET / has no Content-Security-Policy`);
+    console.log(`${label}: GET / returned the image's index.html`);
 }
 
 /** `docker stop` 之后核对退出码 0 与日志里的 `site.stopped`。 */
@@ -170,7 +185,8 @@ try {
     const hostMount = ["--user", `${String(uid)}:${String(gid)}`, "--volume", `${dataDir}:/data`];
 
     // 1. 宿主目录、宿主 uid。
-    const first = await startServing("host-dir", hostMount);
+    const {name: first, hostPort: firstHostPort} = await startServing("host-dir", hostMount);
+    await checkWebPage("host-dir", firstHostPort);
     const files = await readdir(dataDir);
     check(files.includes("identity.lock") && files.includes("telemetry.lock"), `host-dir: lock files missing in the data directory (found ${files.join(", ")})`);
     const busy = await runToExit("busy", [...hostMount, ...SITE_ENV, IMAGE]);
@@ -182,7 +198,7 @@ try {
     const volume = `nb-site-smoke-${runId}`;
     await dockerOk(["volume", "create", volume]);
     volumes.push(volume);
-    const second = await startServing("named-volume", ["--volume", `${volume}:/data`]);
+    const {name: second} = await startServing("named-volume", ["--volume", `${volume}:/data`]);
     await stopCleanly("named-volume", second);
 
     // 3. 镜像里设测试控制口令被拒。
