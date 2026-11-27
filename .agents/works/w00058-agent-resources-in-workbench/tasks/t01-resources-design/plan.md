@@ -20,7 +20,7 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
 4. 挂载点那一层（某个会话、某个 Profile 的目录本身）不能改名、删除；浏览器可以改 `home/` 下的全部文件，包括宿主写的 `attachments/`、`artifacts/`、`jobs/`。
 5. 界面：三组根、默认展开、根的叫法、会话展开后露出什么、跟随的方式，按 Task README 的注意力排序一行；当前项用行尾强调色圆点，只读根用行尾锁，会话根按服务端给的全列、没有“显示更多”，临时文件为空写一行淡字。静态稿是 Lab 草稿区的 `drafts/w00058-t01/ExplorerRootsDraft`。
 
-计划第 1 版经 Opus 审查（报告在本机 `.local/agent/works/w00058-…/t01-resources-design/reports/opus-review.md`，14 条全部核实属实），本版按它改写；omp `@review` 的报告回来后另行处理。
+计划第 1 版经 Opus 审查（报告在本机 `.local/agent/works/w00058-…/t01-resources-design/reports/opus-review.md`，14 条全部核实属实），本版按它改写；omp `@review`（第 1 版与改写后的版本都读了，报告被它重写过几次，完整条目从会话记录恢复在同目录 `omp-recovered.md`）的 6 条也已核实并改进本版。
 
 ## 技术选型
 
@@ -47,9 +47,14 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
 - `contracts.ts`：新合同 `schemesFilesContract`（`nbook.files/schemes`，版本 1，provider `server`，callers `browser`、`tui`）。
   - `schemes()` 交回 `{name, description, capabilities, readOnly, group, order}[]`。
   - `list` 的输出是 `Listing | VirtualListing`：虚拟根保留条目的 `title` 与 `meta`（会话的 Profile、更新时间），浏览器按 `kind` 区分。
-  - `read`、`write`、`create`、`rename`、`move`、`copy`、`delete`、`identify`、`cancel` 的输入在现有形状上多一个 `scheme`，结果与失败码同 `project://` 合同；活页夹与内容文件夹的方法不提供。
+  - `read`、`write`、`create`、`rename`、`move`、`copy`、`delete`、`identify`、`cancel` 的输入在现有形状上多一个 `scheme`，结果同 `project://` 合同；活页夹与内容文件夹的方法不提供。
+  - 失败码逐方法写进合同：在现有业务失败码之外加 `unknown-scheme`（方案撤回与请求交错时由提供方给出，现有合同只让客户端给）；挂载方案的 `unsupported-capability` 在出口换成现有的 `unsupported`；源与目标不在同一挂载点用现有的 `outside-root`（`invalid-input` 是运行时保留码，合同里不能声明）。
   - `realPath` 对挂载方案用不建目录的读路径：没写过东西的 Profile 笔记点“复制路径”不会建出目录，目录不在时报“不存在”。
-  - 事件：`changes` 按 `{scheme, mount}` 订阅，载荷同 `ChangesPayload`，路径相对方案根（带挂载点名）；`roots` 按 `{scheme}`，载荷 `{kind: "changed"}`；`schemes` 不带过滤条件，方案集合变化（注册、撤回）时推送。
+  - 事件，三种订阅单位各一个事件，过滤条件都写进合同：
+    - `changes`：过滤条件 `{scheme, mount}`，载荷同 `ChangesPayload`，路径相对方案根（带挂载点名）。只推这一个挂载点的变化，两个展开着的会话互不影响。
+    - `roots`：过滤条件 `{scheme}`，载荷 `{kind: "changed"}` 或 `{kind: "ended", reason}`（方案撤回时）。服务端在这个方案有第一个根订阅时调注册方的 `watchRoot`，最后一个释放时撤掉。
+    - `schemes`：不带过滤条件，方案集合变化（注册、撤回）时推送。
+  - 浏览器的订阅登记（`files/web/client.ts` 的 `WatchRegistry`、`SchemeWatch`）现在按 `Scheme` 一个订阅，改成按订阅单位（本地根、挂载点、虚拟根）记；编辑器与资源管理器的订阅键、释放跟着改。
 - `rawUrlOf`：挂载方案给 `/api/nbook.files/raw/scheme/<方案>/<路径>`，只读。
 
 ### `packages/neuro-book/src/plugins/files/backend/mounted.ts`
@@ -58,7 +63,7 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
   - 结构性保护，不靠各方案的授权：挂载点本身（挂载点内路径为空）、声明的 `ensure` 子目录与 `watch` 子目录（会话的 `home`）不能改名、移动、删除，得 `permission-denied`。`profiles`、`temps` 的授权对浏览器全部放行，靠这一条挡住“删掉整个笔记目录”。
   - 授权的位置：复制的源按 `copy-source`（读），目标按写；删除、改名、移动按目录项本身的位置判，不跟随最后一段链接（`home/` 里指向 `session.jsonl` 的链接，用户能删）。
   - 源与目标必须在同一挂载点，否则 `invalid-input`。
-  - 这四个操作只给浏览器合同，不进 Agent 的写入接口：`workspace-files.ts` 对挂载方案保持 `unsupported-capability`，Spec 写明。Agent 删改文件仍经 shell，不受影响；这样 Agent 也绕不过 `attachments/`、`artifacts/`、`jobs/` 的“只有宿主能写”。
+  - 这四个操作只给浏览器合同，不进 Agent 的写入接口：`workspace-files.ts` 对挂载方案保持 `unsupported-capability`，Spec 写明。这只是不给 Agent 的文件工具新开删改的路；Agent 的 shell 照旧能直接读写真实目录，包括 `attachments/`、`artifacts/`、`jobs/`，这是 `agent/resources.md` 已写的信任边界与已知限制，本 Task 不改。
 - **订阅**：
   - 订阅的借用与请求的借用分开计数：订阅不计入 `#inFlight`，`stop()` 不会因订阅而永远等下去。
   - 挂载点或监视目录还不存在时，订阅进入“等待”：不开监视，不报错。`MountedScheme` 自己建目录（第一次写、新建、取真实路径，含 `ensure`）之后，通知这个挂载点上等着的订阅：开监视、推 `resync`。新对话还没写文件时展开它的 `home/`，第一次写之后树上就出现文件。
@@ -66,8 +71,8 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
   - `retire`（目录被整个换掉）时，旧挂载点上的订阅收到 `ended: root-gone`，由客户端重订；旧挂载点不再因订阅而留着。
   - 软上限 64 照旧计入订阅，超过时照开并写诊断。
   - 推给浏览器的事件逐条按字面路径判 `read`，不露出的路径不推。事件里的路径常已不存在，只判字面这一次，Spec 写明。
-- **建目录时的根通知**：挂载点第一次建出目录时，调这个方案的根通知（`temps://` 的根因此在第一次写 `tmp://` 后更新）。
-- **字节路由的读入口**：加 `withRoot(path, caller, operation, callback)`，在 `#run` 里完成授权与解析、借用期间交出打开着的根与挂载点内路径；字节路由用它调现有的 `serveFile`，ETag 与 `HEAD` 照旧。字节路由的调用方按浏览器算（`agent: null`，来源 user），与浏览器合同同一套授权。
+- **建目录时的根通知**：挂载点第一次建出目录时，对这个方案的根订阅推 `roots` 事件（`temps://` 的根因此在第一次写 `tmp://` 后立刻更新，不等容器监视）。
+- **字节路由的读入口**：加 `withRoot(path, caller, operation, callback)`，在 `#run` 里完成授权与解析、借用期间交出打开着的根与挂载点内路径。字节路由（`raw-route.ts`）的挂载方案分支与现有的 `raw/project`、`raw/user` 同样做：只接 `GET`、`HEAD`；先用 `crossSite` 拒绝别的网页（403 `cross-site`）；路径解码与非法路径拒绝；用 `withRoot` 调现有的 `serveFile` 并带 `RAW_HEADERS`（`Content-Security-Policy: sandbox`，直接打开会话里的 HTML、SVG 不以应用源运行），ETag 与 `HEAD` 照旧。调用方按浏览器算（`agent: null`，来源 user），与浏览器合同同一套授权。
 
 ### `packages/neuro-book/src/plugins/files/backend/changes.ts`
 
@@ -83,7 +88,7 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
 
 - `sessions` 声明 `watch: "home"`，并实现 `watchRoot`：只在会话新建、改标题、归档、删除时通知，并合并成一批，不随每次运行的活动时间通知。列一次根要把每个会话的 `index.json` 依次读一遍（`nb-harness` 的 `jsonl-store.ts` 的 `list`），2000 个会话热缓存约 52 毫秒、200 个约 4 毫秒（2026-11-27 本机实测）；偶尔列一次没问题，跟着每次活动重列就会反复付这笔开销。通知挂在会话列表已有的变更来源上；是哪一条在切片 2 开工时先查（`runtime.meta` 只是候选，要核实它覆盖新建、归档与删除）。
 - `profiles` 的 `watchRoot` 挂在 Profile 登记的变化上（增删、改名），不是笔记目录里的写入。
-- `temps` 的根改为列出临时目录已存在的会话，条目的标题同 `sessions://`；根通知来自 `MountedScheme` 建目录时的通知，加上启动清理之后通知一次。Spec 原来写的是“无条目，只有说明”，一起改。
+- `temps` 的根改为列出临时目录已存在的会话，条目的标题同 `sessions://`。Spec 原来写的是“无条目，只有说明”，一起改。根通知：`watchRoot` 被调用（有人订阅这个根）期间，对临时目录的容器开一个非递归的 `fs.watch`，只看第一层的新建、删除、替换，合并成一批后通知；shell 或外部程序在运行期建、删临时目录，根也会更新。`MountedScheme` 自己建目录时的通知照旧，最后一个根订阅释放时关掉这个监视。
 - 注册声明的 `presentation`：会话 1、Profile 笔记 2、临时文件 3 归 Agent 组；Skill 1、文档 3 归参考资料组；表情（`stickers` 插件注册）是参考资料组 2。
 
 ### 工具结果记下改写后的全局地址（`agent/backend` 的内置写入工具）
@@ -97,7 +102,7 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
 
 ### `packages/neuro-book/src/plugins/files/web/client.ts`
 
-- 门面按 `FileAddress.kind` 穷举选合同：`local` 照旧，`mounted` 走 `schemesFilesContract`。
+- 门面按 `FileAddress.kind` 穷举选合同：`local` 照旧，`mounted` 走 `schemesFilesContract`。浏览器入口（`files/web/plugin.ts`）的 `remoteDelegates` 加上 `schemesFilesContract`，否则以调用方身份转发会被运行时按 `denied` 拒绝。
 - 激活时取一次 `schemes()`，随 `schemes` 事件重取；撤回的方案在门面上报 `unknown-scheme`。
 - `watch(address)` 对挂载方案按挂载点订阅。
 
@@ -164,6 +169,10 @@ Agent 会往 `session://`、`tmp://`、`profile://` 写文件，用户在工作�
 | 订阅只报 `home/`；自己保存不出外部事件；删掉并重建 `home/` 后仍收到事件 | `files/changes.test.ts`、`files/schemes.test.ts`（真实目录、真实 `fs.watch`） |
 | 先订阅不存在的 `home/`、Profile 笔记、临时目录，再第一次写，订阅收到事件 | `files/schemes.test.ts` |
 | 订阅期间挂载点不因空闲被关；撤回方案时订阅收到 `ended`；`stop()` 不因订阅卡住 | `files/schemes.test.ts`（注入时钟） |
+| 字节路由：别的网页来的请求 403；响应带 `sandbox`；受保护的路径拒绝；ETag 与 `HEAD` | `files/raw-route.test.ts` |
+| 新合同经浏览器入口以调用方身份转发成功；撤回与请求交错得 `unknown-scheme`；不支持的操作得 `unsupported`；跨挂载点得 `outside-root` | `resources.test.ts`、`files/schemes.test.ts` |
+| 两个会话同时展开，只改其中一个的 `home/`，另一个的树与文档不重列 | `files-explorer.e2e.ts` |
+| 运行期用 shell 新建、删除临时目录，`temps://` 根随之更新 | `resources.test.ts` |
 | 事件不露受保护的路径 | `files/schemes.test.ts`：测试注册一个监视范围覆盖受保护子路径的方案（真实 `MountedScheme`），先断言不过滤时受保护路径的事件会出现，再断言过滤后不出现 |
 | 浏览器经新合同读写，来源为 user；虚拟根带标题与 meta | `resources.test.ts` |
 | 第一次写 `tmp://x` 后 `temps://` 根出现该会话 | `resources.test.ts` |

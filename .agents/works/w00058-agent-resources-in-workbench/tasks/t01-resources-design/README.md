@@ -37,6 +37,8 @@ Agent 写进 `session://`、`tmp://`、`profile://` 的文件，用户在资源�
 
 - 切片 1（编辑器不卡死）已合入 master：`d95b0daea`、`8af62d6bc`（Work 分支 `feat/w00058-agent-resources-in-workbench`，`.worktree/w00058-agent-resources`）。验证：`area.test.ts` 新用例修复前失败、修复后通过；`test:affected` 只有 master 上原有的 SDK 快照（`NestedGrid`）失败；`tsc`、`vue-tsc` 通过。Sonnet 审查无绕过入口与副作用先后的问题，采纳一条：对话侧只对认不出的地址弹提示。w00050 t05 由本 Task 接手并标为完成。
 
+- omp `@review` 在 2 小时时限到点时被截停，截停前已写完“审查结束”；报告被它整份重写过几次，从会话记录恢复出全部条目（本机 `reports/omp-recovered.md`）。去重后 6 条，逐条核实属实，已改进计划：字节路由照现有两条同样做跨站拒绝与 `sandbox` 响应头；浏览器入口的 `remoteDelegates` 加新合同；三种订阅单位各一个事件、过滤条件写进合同，浏览器的订阅登记按订阅单位记；新合同的失败码加 `unknown-scheme`、跨挂载点用 `outside-root`；`temps://` 根在有人订阅时监视临时目录容器的第一层；改正“Agent 绕不过宿主目录”的说法（shell 照旧能写，属已知限制）。
+
 ## 下一步
 
 切片 2（服务端：合同、挂载点的文件操作与结构性保护、订阅与等待、变更中心的基准根与监视目录、字节路由、根通知）；omp `@review` 的报告回来后处理，修正单独提交。
