@@ -84,9 +84,9 @@ function openAdd(): void {
                     </Tooltip>
                     <span class="profile-tools__action">
                         <Badge v-if="tool.required" size="sm" variant="soft" :tone="tool.gone ? 'warning' : undefined">{{ text(key('required')) }}</Badge>
-                        <Button v-else-if="tool.restorable === true" size="sm" variant="ghost" :aria-label="text(addBackKey('addBackLabel'), {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-add-back @click="emit('add-back', tool.id)">{{ text(addBackKey('addBack')) }}</Button>
-                        <Tooltip v-else :text="text(key('remove'), {name: tool.name, id: tool.id})">
-                            <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text(key('remove'), {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
+                        <Button v-else-if="tool.restorable === true" size="sm" variant="ghost" :aria-label="text(addBackKey('addBackLabel'), {name: tool.name, id: tool.label ?? tool.id})" :disabled="disabled" data-profile-tool-add-back @click="emit('add-back', tool.id)">{{ text(addBackKey('addBack')) }}</Button>
+                        <Tooltip v-else :text="text(key('remove'), {name: tool.name, id: tool.label ?? tool.id})">
+                            <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text(key('remove'), {name: tool.name, id: tool.label ?? tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
                         </Tooltip>
                     </span>
                 </li>

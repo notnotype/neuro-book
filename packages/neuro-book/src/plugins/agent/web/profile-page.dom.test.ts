@@ -327,6 +327,8 @@ describe("工具", () => {
         await ready(wrapper);
         const row = wrapper.get("[data-profile-tool-object='ui']");
         expect(row.attributes("data-profile-tool")).toBe("object:ui");
+        // 读屏名字写对象的方法（`ui.*`），不写页面内部的行 id。
+        expect(row.get("[data-profile-tool-remove]").attributes("aria-label")).toBe("去掉 ui（ui.*）");
         await row.get("[data-profile-tool-remove]").trigger("click");
         await waitUntil("按对象写下", () => bindings(settings)["nbook.agent.main"]?.objects?.removed.length === 1 || null);
         expect(bindings(settings)["nbook.agent.main"]).toEqual({added: [], removed: [], objects: {added: [], removed: ["ui"]}});

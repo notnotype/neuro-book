@@ -586,7 +586,7 @@ test("Profile 设置页输出 28、29：ui 是一行、等级写执行、悬停�
     await expect(page.getByText(/方法：ui\.find/u).first()).toBeVisible();
     const tip = page.locator("[role=tooltip]").filter({hasText: "ui.highlight"}).first();
     await expect(tip).toContainText("看懂并引导界面");
-    for (const method of ["ui.find：读", "ui.highlight：读", "ui.screenshot：执行", "ui.snapshot：读"]) await expect(tip).toContainText(method);
+    for (const method of ["ui.find（读）", "ui.highlight（读）", "ui.screenshot（执行）", "ui.snapshot（读）"]) await expect(tip).toContainText(method);
     await page.mouse.move(2, 2);
 
     // 计数按对象算：显示的数等于列出的行数，去掉 ui 少 1 而不是少 4（它有 4 个方法）。

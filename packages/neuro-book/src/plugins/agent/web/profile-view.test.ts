@@ -207,15 +207,18 @@ describe("全局对象一行（输出 28、29）", () => {
         const tools = field();
         expect(rows(tools).map((row) => row.id)).toEqual(["nbook.agent.eval", objectRowId("ui")]);
         const row = rows(tools)[1]!;
-        expect(row).toMatchObject({name: "ui", object: "ui", effect: "执行", danger: true, summary: "看懂并引导界面", required: false});
+        // 读屏名字与搜索用 `ui.*`，不用页面内部的行 id。
+        expect(row).toMatchObject({name: "ui", label: "ui.*", object: "ui", effect: "执行", danger: true, summary: "看懂并引导界面", required: false});
         expect(row.warning).toBeUndefined();
-        expect(row.detail).toBe("看懂并引导界面 方法：ui.find：读、ui.highlight：读、ui.screenshot：执行、ui.snapshot：读");
+        expect(row.detail).toBe("看懂并引导界面。方法：ui.find（读）、ui.highlight（读）、ui.screenshot（执行）、ui.snapshot（读）");
         expect(tools.count).toBe(2);
     });
 
     test("Profile 没有 eval：这一行照样列出，说明换成要先加入 eval，标警示", () => {
         const row = rows(field({optional: []}))[0]!;
         expect(row).toMatchObject({id: objectRowId("ui"), summary: "要先加入 eval 才用得上", warning: true});
+        // 悬停里仍是对象的说明与方法：原因只在行上。
+        expect(row.detail).toBe("看懂并引导界面。方法：ui.find（读）、ui.highlight（读）、ui.screenshot（执行）、ui.snapshot（读）");
     });
 
     test("有必需的方法时这一行是必需的；去掉的对象收进候选、合成一行；按对象改过算有改动", () => {

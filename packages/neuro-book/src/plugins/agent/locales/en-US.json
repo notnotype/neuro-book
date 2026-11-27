@@ -656,8 +656,8 @@
                 "answer": "Answers a question a sub-agent passed to it."
             },
             "objectNeedsEval": "Add eval to use this",
-            "objectMethod": "{{method}}: {{effect}}",
-            "objectDetail": "{{summary}} Methods: {{methods}}",
+            "objectMethod": "{{method}} ({{effect}})",
+            "objectDetail": "{{summary}}. Methods: {{methods}}",
             "listSeparator": ", "
         },
         "create": {

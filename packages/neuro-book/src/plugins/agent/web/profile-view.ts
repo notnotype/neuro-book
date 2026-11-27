@@ -78,6 +78,8 @@ export interface ProfileToolRow {
     readonly thumbnail?: string;
     /** 工具一节：这一行是一个全局对象，合了它的方法（profile-settings.md 输出 28）；去掉、加回按对象写绑定。 */
     readonly object?: string;
+    /** 读屏名字与搜索里跟在名字后面的标识：工具行是工具 id；对象行的 `id` 是页面内部用的，这里写 `ui.*`。不写时用 `id`。 */
+    readonly label?: string;
     /** 这一行有问题（对象要先加入 eval）：说明换成原因，带警示图标。 */
     readonly warning?: boolean;
 }
@@ -321,7 +323,8 @@ function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     if (entry.tools === undefined) return null;
     const {text, catalog} = input;
     const requirements = {required: entry.tools.required, optional: entry.tools.optional, ...(entry.defaultTools === false ? {defaultTools: false as const} : {})};
-    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), input.bindings[entry.key]);
+    // 与工具一节、服务端同一份算法（带按对象的增减）：派发工具哪天成了全局对象的方法，这里也对得上。
+    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), input.bindings[entry.key], catalogMethodsOf(catalog));
     if (!ids.includes(SPAWN_TOOL)) return null;
     const binding = input.settings[entry.key]?.agents;
     const declared = entry.agents?.allowed ?? [];
@@ -505,14 +508,17 @@ function objectRow(object: string, tools: readonly ToolCatalogEntry[], required:
     const top = [...tools].sort((a, b) => (EFFECT_RANK[b.effect] ?? 0) - (EFFECT_RANK[a.effect] ?? 0))[0]!;
     const methods = [...tools].sort((a, b) => a.object!.method.localeCompare(b.object!.method))
         .map((tool) => text.t(agentText("profiles.tools.objectMethod", {method: `${object}.${tool.object!.method}`, effect: effectOf(tool)})));
-    const summary = hasEval ? text.t(tools[0]!.object!.description) : text.t(agentText("profiles.tools.objectNeedsEval"));
+    const description = text.t(tools[0]!.object!.description);
+    // 悬停里总是对象的说明加方法；没有 eval 时行上的说明换成原因（警示只在行上）。说明末尾的句号去掉，由文字表接上。
+    const detail = text.t(agentText("profiles.tools.objectDetail", {summary: description.replace(/[。．.！!？?\s]+$/u, ""), methods: methods.join(text.t(agentText("profiles.tools.listSeparator")))}));
     return {
         id: objectRowId(object),
         name: object,
+        label: `${object}.*`,
         effect: effectOf(top),
         danger: top.effect === "exec",
-        summary,
-        detail: text.t(agentText("profiles.tools.objectDetail", {summary, methods: methods.join(text.t(agentText("profiles.tools.listSeparator")))})),
+        summary: hasEval ? description : text.t(agentText("profiles.tools.objectNeedsEval")),
+        detail,
         required: tools.some((tool) => required.has(tool.id)),
         gone: false,
         object,
@@ -561,7 +567,7 @@ function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTools
             provider: text.t(agentText("profiles.tools.gone")),
             tools: [
                 ...gone.map((id) => ({id, name: id, effect: "", danger: false, summary: goneSummary, detail: goneSummary, required: required.has(id), gone: true})),
-                ...goneObjects.map((object) => ({id: objectRowId(object), name: object, effect: "", danger: false, summary: goneSummary, detail: goneSummary, required: false, gone: true, object})),
+                ...goneObjects.map((object) => ({id: objectRowId(object), name: object, label: `${object}.*`, effect: "", danger: false, summary: goneSummary, detail: goneSummary, required: false, gone: true, object})),
             ],
         });
     }
