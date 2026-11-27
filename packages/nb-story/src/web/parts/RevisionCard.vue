@@ -30,7 +30,7 @@ const STATE_TONE = {pending: "accent", adopted: "success", rejected: "neutral", 
         </div>
         <div class="flex shrink-0 flex-col items-stretch gap-1" @click.stop>
             <template v-if="item.state === 'pending'">
-                <Button size="sm" :disabled="busy" data-testid="revision-confirm" @click="$emit('confirm', item)">确认是同一人</Button>
+                <Button variant="primary" size="sm" :disabled="busy" data-testid="revision-confirm" @click="$emit('confirm', item)">确认是同一人</Button>
                 <Button size="sm" variant="ghost" :disabled="busy" data-testid="revision-reject" @click="$emit('reject', item)">驳回</Button>
             </template>
             <Button v-else-if="item.state === 'stale'" size="sm" variant="ghost" :disabled="busy" data-testid="revision-discard" @click="$emit('undo', item)">丢弃</Button>

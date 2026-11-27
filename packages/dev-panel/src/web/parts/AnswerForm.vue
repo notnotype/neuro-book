@@ -173,7 +173,7 @@ function submit(): void {
                 <slot name="result" />
             </div>
             <div v-if="hasControls" class="flex flex-wrap items-center gap-2">
-                <Button type="submit" :loading="pending" :disabled="!ready || disabledReason !== null">提交 {{ chosen.length }} 题</Button>
+                <Button variant="primary" type="submit" :loading="pending" :disabled="!ready || disabledReason !== null">提交 {{ chosen.length }} 题</Button>
                 <span v-if="slow" class="nbdev-note">在等别的写入完成…</span>
                 <span v-else class="nbdev-note nbdev-num">已改 {{ chosen.length }} 题<template v-if="requiredLeft > 0"> · 还有 {{ requiredLeft }} 道必答没答</template></span>
             </div>

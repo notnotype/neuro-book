@@ -137,7 +137,7 @@ defineExpose({focusShelf});
 
             <div v-else-if="status === 'error'" class="bookshelf-page__error" role="alert">
                 <p>{{ error }}</p>
-                <Button size="sm" @click="emit('retry')">{{ text('bookshelfPage.retry') }}</Button>
+                <Button variant="primary" size="sm" @click="emit('retry')">{{ text('bookshelfPage.retry') }}</Button>
             </div>
 
             <template v-else>

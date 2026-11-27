@@ -257,7 +257,7 @@ async function start(): Promise<void> {
 
                 <p v-if="startError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="import-start-error">{{ startError }}</p>
                 <div class="flex flex-wrap items-center gap-2">
-                    <Button v-if="plan && plan.action !== 'done'" icon-class="i-lucide-play" :disabled="previewing || starting || titleEmpty" data-testid="import-start" @click="start">{{ startLabel }}</Button>
+                    <Button variant="primary" v-if="plan && plan.action !== 'done'" icon-class="i-lucide-play" :disabled="previewing || starting || titleEmpty" data-testid="import-start" @click="start">{{ startLabel }}</Button>
                     <Button variant="ghost" @click="router.push('/')">取消</Button>
                     <span v-if="plan && plan.action !== 'done'" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">开始后可以离开这一页，进度在书架和进度页上</span>
                 </div>

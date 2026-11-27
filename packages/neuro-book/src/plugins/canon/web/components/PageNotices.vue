@@ -231,4 +231,12 @@ onBeforeUnmount(() => observer?.disconnect());
 .page-notice-move {
     transition: transform var(--motion-move) var(--ease-layout);
 }
+
+/* 减弱动效：提示不滑入滑出，只淡入淡出（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .page-notice-enter-from,
+    .page-notice-leave-to {
+        transform: none;
+    }
+}
 </style>

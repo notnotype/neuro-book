@@ -772,4 +772,11 @@ watch(() => WEB_PROVIDERS.map((provider) => props.settings.get(BASE_URLS[provide
         flex: 1;
     }
 }
+
+/* 减弱动效：箭头直接转到位（nb-ui 设计语言“六、无障碍”）。 */
+@media (prefers-reduced-motion: reduce) {
+    .search-settings__chevron {
+        transition: none;
+    }
+}
 </style>

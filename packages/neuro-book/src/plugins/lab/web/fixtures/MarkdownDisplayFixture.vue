@@ -68,7 +68,7 @@ const conversation = computed(() => Array.from({length: MESSAGES}, (_, index) =>
     <div v-if="props.scene === 'streaming'" class="h-full w-full overflow-auto p-4">
         <MarkdownDisplay data-lab-subject v-bind="subject.bindings.value" :text="played" :streaming="playing" :resolve-asset="resolveAsset" @activate="(activation) => events('activate', activation)" />
         <LabFixtureControls>
-            <Button size="sm" @click="play">重播</Button>
+            <Button variant="primary" size="sm" @click="play">重播</Button>
         </LabFixtureControls>
     </div>
     <!-- 长对话：拖 Lab 画布的宽度改宽度。 -->

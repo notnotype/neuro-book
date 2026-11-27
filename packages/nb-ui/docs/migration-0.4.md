@@ -66,6 +66,7 @@
 | 组件 | 变化 |
 |---|---|
 | 插件 SDK `/components` | 补上原来漏掉的类型：`FieldContext`、`Splitter` 与 `NestedGrid` 的手势类型 |
+| `Button` | `variant` 的缺省从 `primary` 改成 `secondary`（w00057 t01）：不写 `variant` 的按钮从实底主按钮变成次按钮。要保持主按钮的写明 `variant="primary"`；一块区域至多一个主按钮（设计语言“分组与层次”第 3 条） |
 
 不变：`@notnotype/nb-ui/grid` 仍是单独的入口，给不能带上 Vue 与 DOM 的消费者（插件激活时建的模型、Bun 里的测试）；`./layout` 含组件。
 

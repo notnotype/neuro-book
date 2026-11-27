@@ -17,7 +17,8 @@ const props = withDefaults(defineProps<{
     type?: "button" | "submit" | "reset";
     focusRing?: FocusRingStyle;
 } & /* @vue-ignore */ ButtonHTMLAttributes>(), {
-    variant: "primary",
+    // 缺省是次按钮：一块区域至多一个主按钮，主按钮要写明（设计语言“分组与层次”第 3 条）。
+    variant: "secondary",
     size: "md",
     block: false,
     disabled: false,

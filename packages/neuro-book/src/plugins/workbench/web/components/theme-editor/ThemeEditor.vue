@@ -311,7 +311,7 @@ const rejectedText = computed(() => {
 
         <EmptyState v-else-if="model.current.value === null" class="theme-editor__empty" icon-class="i-lucide-palette" :title="text('themeEditor.empty.title')" :description="text('themeEditor.empty.hint')" data-empty>
             <div class="theme-editor__empty-actions">
-                <Button size="sm" data-new-empty @click="model.create()">{{ text("themeEditor.library.new") }}</Button>
+                <Button variant="primary" size="sm" data-new-empty @click="model.create()">{{ text("themeEditor.library.new") }}</Button>
                 <Select
                     size="sm"
                     :model-value="copyFrom"

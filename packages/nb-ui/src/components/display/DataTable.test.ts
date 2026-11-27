@@ -177,9 +177,11 @@ describe("DataTable 的加载", () => {
         expect(wrapper.get(".nb-data-table-layer.is-mask [role=status]").text()).toBe("加载中");
 
         await wrapper.setProps({rows: chapters(4), loading: false});
-        expect(wrapper.find(".nb-data-table-layer").exists()).toBe(false);
+        // 遮罩刚出现就加载完：新行与 aria-busy 立即换掉，遮罩再停一小段才去掉，不闪一下就没了。
         expect(wrapper.get(".nb-data-table-body").attributes("aria-busy")).toBeUndefined();
         expect(bodyRows(wrapper)[0]!.text()).toContain("第 61 章");
+        expect(wrapper.find(".nb-data-table-layer.is-mask").exists()).toBe(true);
+        await vi.waitFor(() => expect(wrapper.find(".nb-data-table-layer").exists()).toBe(false));
     });
 
     it("遮罩盖着旧行时行所在的那一层是 inert，工具条与页脚不是；焦点在被盖住的行内按钮上时接到表格区", async () => {
@@ -203,6 +205,17 @@ describe("DataTable 的加载", () => {
 
         await wrapper.setProps({rows: chapters(4), loading: false});
         expect(tableRoot().hasAttribute("inert")).toBe(false);
+        // 遮罩还在停最短时长，但已不挡指针：指针与键盘一样能碰到新行。
+        expect(wrapper.get(".nb-data-table-layer.is-mask").classes()).toContain("is-settled");
+
+        // 停留期里焦点进了新行的按钮，又开始加载：层与行都没变，行变成 inert，焦点接到表格区，不掉回 body。
+        const newButton = wrapper.get(".more").element as HTMLButtonElement;
+        newButton.focus();
+        expect(document.activeElement).toBe(newButton);
+        await wrapper.setProps({page: 5, loading: true});
+        expect(tableRoot().hasAttribute("inert")).toBe(true);
+        expect(wrapper.get(".nb-data-table-layer.is-mask").classes()).not.toContain("is-settled");
+        expect(document.activeElement).toBe(wrapper.get(".nb-data-table-body").element);
     });
 });
 

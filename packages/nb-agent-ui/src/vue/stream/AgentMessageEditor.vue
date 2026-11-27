@@ -65,7 +65,7 @@ onMounted(() => withEditor((editor) => editor.focus("end")));
         <div class="acv-message-editor__tools">
             <span class="acv-message-editor__hint">{{ t("messageEditor.hint") }}</span>
             <Button size="sm" variant="secondary" data-message-editor-cancel @click="emit('cancel')">{{ t("messageEditor.cancel") }}</Button>
-            <Button size="sm" :disabled="!canSubmit" data-message-editor-submit @click="submit">{{ t("messageEditor.submit") }}</Button>
+            <Button variant="primary" size="sm" :disabled="!canSubmit" data-message-editor-submit @click="submit">{{ t("messageEditor.submit") }}</Button>
         </div>
     </div>
 </template>

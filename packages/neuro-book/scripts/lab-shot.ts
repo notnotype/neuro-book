@@ -29,6 +29,8 @@ const USAGE = `用法：bun run lab:shot -- --component <组件名> [选项]
   --cw <配色,...>              配色：light、dark 或配色 id；默认沿用 Lab 当前配色
   --theme <主题 id>            Lab 主题
   --window <宽x高>             浏览器窗口，默认 1600x1000；vp=free 时画布随它
+  --media <偏好,...>           系统偏好：reduced-motion、reduced-transparency，逗号分隔；每种单独一组截图
+  --text-spacing               另量一次加大文字间距（WCAG 1.4.12）后被裁掉的文字，只报告
   --click <选择器>             截图前依次点击舞台内的元素，可重复
   --wait <毫秒>                点击后、截图前等待，默认 300
   --scale <倍数>               设备像素比，默认 1
@@ -43,6 +45,9 @@ type ShotOptions = {
     viewports: string[];
     colorways: Array<string | null>;
     theme: string | null;
+    /** 模拟的系统偏好；null 是不模拟。 */
+    media: Array<LabMedia | null>;
+    textSpacing: boolean;
     windowSize: {width: number; height: number};
     clicks: string[];
     waitMs: number;
@@ -57,11 +62,22 @@ export type ShotResult = {
     scene: string;
     viewport: string;
     colorway: string | null;
+    media: LabMedia | null;
+    /** 模拟的偏好在页面里确实生效（`matchMedia` 为真）；没模拟时为 null。 */
+    mediaMatched: boolean | null;
     file: string;
     measure: LabStageMeasure | null;
+    /** `--text-spacing` 时：注入 WCAG 1.4.12 的四项间距之后的越界元素与被裁掉的文字；只报告。 */
+    textSpacing: Pick<LabStageMeasure, "offenders" | "clippedText"> | null;
     /** pageerror 与 console 的 error / warning。 */
     problems: string[];
 };
+
+export type LabMedia = "reduced-motion" | "reduced-transparency";
+const MEDIA_FEATURE: Record<LabMedia, string> = {"reduced-motion": "prefers-reduced-motion", "reduced-transparency": "prefers-reduced-transparency"};
+
+/** WCAG 1.4.12 的四项：行高 1.5 倍、段后 2 倍、字距 0.12 倍、词距 0.16 倍字号。 */
+const TEXT_SPACING_CSS = `* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }`;
 
 declare global {
     interface Window {
@@ -100,10 +116,12 @@ export async function runLabShot(options: ShotOptions): Promise<ShotResult[]> {
         for (const scene of scenes) {
             for (const viewport of options.viewports) {
                 for (const colorway of options.colorways) {
-                    results.push(await withPage(async (page, problems) => ({
-                        ...await shoot(page, options, scene, viewport, colorway),
-                        problems: [...problems],
-                    })));
+                    for (const media of options.media) {
+                        results.push(await withPage(async (page, problems) => ({
+                            ...await shoot(page, options, scene, viewport, colorway, media),
+                            problems: [...problems],
+                        })));
+                    }
                 }
             }
         }
@@ -187,7 +205,12 @@ async function listScenes(page: Page, options: ShotOptions): Promise<string[]> {
 /** Lab 左右两栏与画布四周留白的大致尺寸；窗口至少要比固定画布大这么多，舞台才不会被检视栏盖住。 */
 const LAB_CHROME = {width: 900, height: 260};
 
-async function shoot(page: Page, options: ShotOptions, scene: string, viewport: string, colorway: string | null): Promise<Omit<ShotResult, "problems">> {
+async function shoot(page: Page, options: ShotOptions, scene: string, viewport: string, colorway: string | null, media: LabMedia | null): Promise<Omit<ShotResult, "problems">> {
+    if (media !== null) {
+        // Playwright 的 emulateMedia 没有 prefers-reduced-transparency，两种都经 CDP 设，同一条路。
+        const session = await page.context().newCDPSession(page);
+        await session.send("Emulation.setEmulatedMedia", {features: [{name: MEDIA_FEATURE[media], value: "reduce"}]});
+    }
     const canvas = parseLabViewport(viewport);
     if (canvas !== undefined && canvas.width > 0) {
         await page.setViewportSize({
@@ -196,6 +219,7 @@ async function shoot(page: Page, options: ShotOptions, scene: string, viewport: 
         });
     }
     await openLab(page, labUrl(options, scene, viewport, colorway), options.component, scene);
+    const mediaMatched = media === null ? null : await page.evaluate((feature) => matchMedia(`(${feature}: reduce)`).matches, MEDIA_FEATURE[media]);
     const loadError = await page.evaluate(() => window.__nbLab?.state().loadError ?? "");
     if (loadError !== "") {
         throw new Error(`${options.component}/${scene} 加载失败：${loadError}`);
@@ -211,10 +235,24 @@ async function shoot(page: Page, options: ShotOptions, scene: string, viewport: 
         await page.waitForTimeout(options.waitMs);
     }
     const measure = await page.evaluate(() => window.__nbLab?.measure() ?? null);
-    const name = [options.component, scene, viewport, colorway ?? "current"].join("__").replace(/[^\w.-]+/gu, "-");
+    const name = [options.component, scene, viewport, colorway ?? "current", ...(media === null ? [] : [media])].join("__").replace(/[^\w.-]+/gu, "-");
     const file = join(options.out, `${name}.png`);
     await page.locator("[data-lab-stage]").screenshot({path: file});
-    return {component: options.component, scene, viewport, colorway, file, measure};
+    let textSpacing: ShotResult["textSpacing"] = null;
+    if (options.textSpacing) {
+        await page.addStyleTag({content: TEXT_SPACING_CSS});
+        // 等两帧：样式生效、版面重排之后再量。
+        await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+        const spaced = await page.evaluate(() => window.__nbLab?.measure() ?? null);
+        // 只报加大间距之后新出现的：原本就越界、被裁的已经在 measure 里报过。
+        const before = new Set([...(measure?.offenders ?? []), ...(measure?.clippedText ?? [])].map((entry) => entry.selector));
+        textSpacing = spaced === null ? null : {
+            offenders: spaced.offenders.filter((entry) => !before.has(entry.selector)),
+            clippedText: spaced.clippedText.filter((entry) => !before.has(entry.selector)),
+        };
+        await page.locator("[data-lab-stage]").screenshot({path: join(options.out, `${name}__text-spacing.png`)});
+    }
+    return {component: options.component, scene, viewport, colorway, media, mediaMatched, file, measure, textSpacing};
 }
 
 function list(value: string): string[] {
@@ -235,6 +273,8 @@ export function parseShotArgs(args: readonly string[], env: NodeJS.ProcessEnv = 
         viewports: ["phone", "free"],
         colorways: [null],
         theme: null,
+        media: [null],
+        textSpacing: false,
         windowSize: {width: 1600, height: 1000},
         clicks: [],
         waitMs: 300,
@@ -247,6 +287,10 @@ export function parseShotArgs(args: readonly string[], env: NodeJS.ProcessEnv = 
         const flag = args[index]!;
         if (flag === "--no-fail") {
             options.fail = false;
+            continue;
+        }
+        if (flag === "--text-spacing") {
+            options.textSpacing = true;
             continue;
         }
         if (flag === "--help" || flag === "-h") {
@@ -262,6 +306,7 @@ export function parseShotArgs(args: readonly string[], env: NodeJS.ProcessEnv = 
             case "--vp": options.viewports = list(value); break;
             case "--cw": options.colorways = list(value); break;
             case "--theme": options.theme = value; break;
+            case "--media": options.media = list(value).map(parseMedia); break;
             case "--window": options.windowSize = parseSize(value, flag); break;
             case "--click": options.clicks.push(value); break;
             case "--wait": options.waitMs = Number(value); break;
@@ -278,6 +323,11 @@ export function parseShotArgs(args: readonly string[], env: NodeJS.ProcessEnv = 
     return options;
 }
 
+function parseMedia(value: string): LabMedia {
+    if (value === "reduced-motion" || value === "reduced-transparency") return value;
+    throw new Error(`--media 只认 reduced-motion、reduced-transparency，收到：${value}`);
+}
+
 /** 有溢出、越界元素、聚焦光晕会被裁的控件、外扩环被裁的元素或页面错误的结果。 */
 export function failedShots(results: readonly ShotResult[]): ShotResult[] {
     return results.filter((result) => result.problems.length > 0
@@ -287,11 +337,16 @@ export function failedShots(results: readonly ShotResult[]): ShotResult[] {
 function summarize(result: ShotResult): string {
     const measure = result.measure;
     const overflow = measure === null ? "无舞台" : `溢出 ${measure.overflowX}px，越界元素 ${measure.offenders.length} 个，光晕会被裁的控件 ${measure.clippedFocus.length} 个，外扩环被裁的元素 ${measure.clippedRings.length} 个`;
-    const lines = [`${result.scene} · ${result.viewport} · ${result.colorway ?? "当前配色"}：${overflow}，问题 ${result.problems.length} 条 → ${result.file}`];
+    const media = result.media === null ? "" : ` · ${result.media}`;
+    const lines = [`${result.scene} · ${result.viewport} · ${result.colorway ?? "当前配色"}${media}：${overflow}，问题 ${result.problems.length} 条 → ${result.file}`];
     for (const offender of measure?.offenders ?? []) lines.push(`    越界 ${offender.overflow}px ${offender.componentName} ${offender.selector}`);
     for (const clipped of measure?.clippedFocus ?? []) lines.push(`    光晕被裁 离边 ${clipped.gap}px ${clipped.componentName} ${clipped.selector} ← ${clipped.clipper}`);
     for (const clipped of measure?.clippedRings ?? []) lines.push(`    外扩环被裁 离边 ${clipped.gap}px ${clipped.componentName} ${clipped.selector} ← ${clipped.clipper}`);
     for (const problem of result.problems) lines.push(`    ${problem.split("\n")[0]}`);
+    // 下面几项只报告，不算失败（nb-ui 设计语言“六、无障碍”，开发规范“可点区域与焦点”）。
+    for (const target of measure?.smallTargets ?? []) lines.push(`    [报告] 目标小于 24×24 且太挤 ${target.width}×${target.height} ${target.componentName} ${target.selector}`);
+    for (const text of result.textSpacing?.clippedText ?? []) lines.push(`    [报告] 加大文字间距后文字被裁 ${text.overflow}px ${text.componentName} ${text.selector}`);
+    for (const offender of result.textSpacing?.offenders ?? []) lines.push(`    [报告] 加大文字间距后越界 ${offender.overflow}px ${offender.componentName} ${offender.selector}`);
     return lines.join("\n");
 }
 

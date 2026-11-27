@@ -266,7 +266,7 @@ function save(): void {
             <div class="pd-foot">
                 <span class="pd-error" role="alert" data-provider-error>{{ error }}</span>
                 <Button variant="secondary" @click="emit('update:open', false)">取消</Button>
-                <Button data-provider-save @click="save">保存</Button>
+                <Button variant="primary" data-provider-save @click="save">保存</Button>
             </div>
         </template>
     </Dialog>

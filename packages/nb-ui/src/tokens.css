@@ -179,8 +179,9 @@
     --inset-shadow: none;
     --elevation-raised: none;
 
+    /* 实色的那一圈 2px、取 --focus-outline：没有边框的控件（ghost 按钮、行）只靠它，要对面板 3:1（设计语言“对比度”第 2 条）。 */
     --focus-ring:
-        0 0 0 1px color-mix(in srgb, var(--accent-main) 35%, transparent),
+        0 0 0 2px var(--focus-outline),
         0 0 0 3.5px color-mix(in srgb, var(--accent-main) 18%, transparent),
         0 1px 6px color-mix(in srgb, var(--accent-main) 22%, transparent);
     --focus-outline: color-mix(in srgb, var(--accent-main) 80%, var(--control-outline, var(--border-color)));
@@ -322,7 +323,9 @@
 }
 
 /*
- * 无障碍：用户要求减少动效时全部降为 0。
+ * 无障碍：用户要求减少动效时，有位移、缩放的时长降为 0；`--motion-fast`、`--motion-base` 与悬停显隐的 `--motion-reveal-*`
+ * 留着，给颜色与透明度用（设计语言“六、无障碍”：位移换淡入淡出，不是全部取消）。用了这两档做位移的配方，
+ * 在 `styles.css` 末尾的减弱动效块里统一去掉变换，组件不用各自判断。
  *
  * 这里的 `!important` 不是偷懒，是这一段**必须赢**。此处是 `:root`（0,1,0），而任何主题都写在
  * `:root[data-nb-theme="x"]`（0,2,0）里，特异性天然更高；主题包又来自第三方、选择器可以再往上加，
@@ -333,12 +336,7 @@
  */
 @media (prefers-reduced-motion: reduce) {
     :root {
-        --motion-fast: 0ms !important;
-        --motion-base: 0ms !important;
         --motion-enter: 0ms !important;
-        --motion-reveal-in: 0ms !important;
-        --motion-reveal-hold: 0ms !important;
-        --motion-reveal-out: 0ms !important;
         --motion-move: 0ms !important;
         --motion-layout: 0ms !important;
         --motion-dialog: 0ms !important;

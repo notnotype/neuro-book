@@ -7,7 +7,9 @@
  * 系统减少动态效果时，nb-layout 读的四个时长归零（docs/specs/ui/nested-grid.md 输出 59、142）。
  *
  * 只在这里声明根上的值：平时根上不声明，装了 nb-ui 的宿主由它在 `layer(base)` 里的桥接给值；这里不分层，平时声明的话
- * 会压过桥接（层叠层先于特异性）。归零时压过桥接正是要的：nb-ui 这时也把旧名归零，两边都是 0ms。
+ * 会压过桥接（层叠层先于特异性）。归零时压过桥接正是要的。nb-ui 在减弱动效时只把有位移的时长归零、fast 与
+ * base 两档留给淡入淡出（w00057 t01）；nb-layout 这里仍四个都归零：落点框拿 base 做位置与尺寸的过渡，放开它要先把
+ * 位移收掉，留作后续，改时连同上面两条 Spec 输出一起改。
  * 带 `!important`：不装 nb-ui 的宿主在根上设的时长（`:root[data-theme=…]` 的特异性更高，或行内样式）也不能压过系统的无障碍偏好。
  * 设在子树元素上的声明不受这里约束（子树上的声明直接作用于那个元素）。
  */
@@ -28,7 +30,7 @@
 .nb-layout-focus-ring:focus-visible {
     outline: none;
     border-color: var(--nb-layout-focus-outline, Highlight);
-    box-shadow: var(--nb-layout-focus-ring, 0 0 0 1px color-mix(in srgb, Highlight 35%, transparent), 0 0 0 3.5px color-mix(in srgb, Highlight 18%, transparent));
+    box-shadow: var(--nb-layout-focus-ring, 0 0 0 2px Highlight, 0 0 0 3.5px color-mix(in srgb, Highlight 18%, transparent));
     transition: border-color var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1)),
                 box-shadow var(--nb-layout-motion-base, 180ms) var(--nb-layout-ease-layout, cubic-bezier(0.23, 1, 0.32, 1));
 }

@@ -76,7 +76,7 @@ const confirmable = computed(() => (props.phase === "ready" || props.phase === "
         </div>
         <template #footer="{cancel}">
             <Button variant="ghost" :disabled="props.saving" @click="cancel()">{{ text(props.phase === "blocked" ? "notice.close" : "edit.cancel") }}</Button>
-            <Button v-if="props.phase !== 'blocked'" :disabled="!confirmable" @click="emit('confirm')">{{ text(props.phase === "dependents" ? "revert.withDependents" : "revert.confirm") }}</Button>
+            <Button variant="primary" v-if="props.phase !== 'blocked'" :disabled="!confirmable" @click="emit('confirm')">{{ text(props.phase === "dependents" ? "revert.withDependents" : "revert.confirm") }}</Button>
         </template>
     </Dialog>
 </template>

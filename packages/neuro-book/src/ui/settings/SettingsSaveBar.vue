@@ -43,7 +43,7 @@ const note = computed(() => (props.dirty ? (props.message ?? text("saveBar.unsav
             <span>{{ note }}</span>
         </span>
         <Button size="sm" variant="ghost" :disabled="busy || !dirty" data-settings-save-bar-discard @click="emit('discard')">{{ text('saveBar.discard') }}</Button>
-        <Button size="sm" :disabled="busy || !dirty || !canSave" data-settings-save-bar-save @click="emit('save')">{{ text('saveBar.save') }}</Button>
+        <Button variant="primary" size="sm" :disabled="busy || !dirty || !canSave" data-settings-save-bar-save @click="emit('save')">{{ text('saveBar.save') }}</Button>
     </footer>
 </template>
 

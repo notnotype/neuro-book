@@ -20,7 +20,7 @@ const text = useCanonText();
 
 <template>
     <Banner v-if="props.disconnected" tone="warning" role="status" :message="text('world.disconnected')">
-        <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
+        <template #actions><Button variant="primary" size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
     </Banner>
     <Banner v-if="props.readOnly !== ''" tone="warning" role="status" :message="props.readOnly" data-read-only />
 </template>
